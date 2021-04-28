@@ -68,7 +68,7 @@
    those tiles to also be water. This prevents tiny, nonsensical islands."
   [{:keys [game-map height width]}]
   (-> (fn [tile x y]
-        (let [neighbors (utils/coordinates->neighbors height width game-map [x y] false)]
+        (let [neighbors (utils/coordinates->neighbors height width game-map [x y])]
           (if (and (->> neighbors (map :terrain-type) (some (partial = :water)))
                    (-> tile :terrain-type (= :land)))
             (assoc tile :terrain-type :water)
@@ -117,11 +117,12 @@
 (comment
   (require '[four-nations.model.map.noise-map :as nm])
   (use 'clojure.pprint)
-  (let [height 50
-        width 250
-        water-spread-chance 0.01
+  (let [height 60
+        width 275
+        water-spread-chance 0.1
+        water-border 2
         smoothing-passes 15]
-    (-> (nm/generate-noisemap height width smoothing-passes)
+    (-> (nm/generate-noisemap height width smoothing-passes water-border)
         (noise-map->game-map :water-spread-chance water-spread-chance)
         :game-map
         print-map)
