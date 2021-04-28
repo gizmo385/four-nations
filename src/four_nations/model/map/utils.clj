@@ -16,21 +16,36 @@
 (defn coordinates->neighbor-coordinates
   "Given a height, a width, and a (x, y) coordinate pair, returns all valid coordinates that are
    neighbors. Valid coordinates are checked against the valid-coordinate? predicate"
-  [height width [x y]]
-  (let [raw-neighbors [[x (inc y)]
-                       [x (dec y)]
-                       [(inc x) y]
-                       [(dec x) y]
-                       [(inc x) (inc y)]
-                       [(inc x) (dec y)]
-                       [(dec x) (inc y)]
-                       [(dec x) (dec y)]]]
-    raw-neighbors
-    (filter (partial valid-coordinate? height width) raw-neighbors)))
+  ([height width [x y]]
+   (coordinates->neighbor-coordinates height width [x y] true))
+
+  ([height width [x y] include-diagonal?]
+   (let [cardinal-neighbors [[x (inc y)]
+                             [x (dec y)]
+                             [(inc x) y]
+                             [(dec x) y]]
+         diagonal-neighbors [[(inc x) (inc y)]
+                             [(inc x) (dec y)]
+                             [(dec x) (inc y)]
+                             [(dec x) (dec y)]]]
+     (if include-diagonal?
+       (filter (partial valid-coordinate? height width)
+               (concat cardinal-neighbors diagonal-neighbors))
+       (filter (partial valid-coordinate? height width) cardinal-neighbors)))))
 
 (defn coordinates->neighbors
   "Given a height, a width, a map m, and a (x, y) coordinate pair, returns the values of all valid
    neighbors, as defined by coordinates->neighbor-coordinates."
-  [height width m [x y]]
-  (->> (coordinates->neighbor-coordinates height width [x y])
-       (map (fn [[x y]] (get-cell m x y)))))
+  ([height width m [x y]]
+   (coordinates->neighbors height width m [x y] true))
+
+  ([height width m [x y] include-diagonal?]
+   (->> (coordinates->neighbor-coordinates height width [x y] include-diagonal?)
+        (map (fn [[x y]] (get-cell m x y))))))
+
+(defn two-dimensional-map
+  [f m height width]
+  (for [y (range height)]
+    (for [x (range width)]
+      (let [cell-value (get-cell m x y)]
+        (f cell-value x y)))))

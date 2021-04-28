@@ -1,5 +1,7 @@
 (ns four-nations.model.map.noise-map
-  (:require [four-nations.model.map.utils :as utils]))
+  (:require
+    [four-nations.general.utils :as utils]
+    [four-nations.model.map.utils :as map-utils]))
 
 (defrecord NoiseMap [noise height width])
 
@@ -9,13 +11,13 @@
   [height width]
   (letfn [(make-cell [] (inc (rand-int 255)))
           (make-row [] (repeatedly width make-cell))]
-    (to-array-2d (repeatedly height make-row))))
+    (repeatedly height make-row)))
 
 (defn average-of-neighbors
   "Given a 2-dimensional array of noise, a height, width, and a cell coordinate, calculates the
    average of the values of its neighbor cells"
   [noise height width x y]
-  (let [neighbors (utils/coordinates->neighbors height width noise [x y])]
+  (let [neighbors (map-utils/coordinates->neighbors height width noise [x y])]
     (quot (apply + neighbors)
           (count neighbors))))
 
@@ -29,8 +31,12 @@
 
 (defn generate-noisemap
   "Given a height and width, generates a 2-dimensional map of averaged noise, which can be used for
-   procedural terrain generation."
-  [height width]
-  (let [random-noise (generate-2d-noise height width)
-        averaged-noise (average-2d-noise random-noise height width)]
-    (->NoiseMap averaged-noise height width)))
+   procedural terrain generation. You can optionally supply the number of times that the noise will
+   be smoothed out (defaults to once)."
+  ([height width]
+   (generate-noisemap height width 1))
+
+  ([height width smoothing-passes]
+   (let [random-noise (generate-2d-noise height width)
+         averaged-noise (utils/n-times #(average-2d-noise % height width) random-noise smoothing-passes)]
+     (->NoiseMap averaged-noise height width))))
