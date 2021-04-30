@@ -1,12 +1,15 @@
 {:paths ["src"]
- :deps {org.clojure/clojure {:mvn/version "1.10.0"}
-        net.mikera/core.matrix {:mvn/version "0.62.0"}}
+ :deps {org.clojure/clojure {:mvn/version "1.11.0-alpha1"}
+        net.mikera/core.matrix {:mvn/version "0.62.0"}
+        clojure-term-colors/clojure-term-colors {:mvn/version "0.1.0"}
+        org.clojure/tools.cli {:mvn/version "1.0.206"}}
  :aliases {:uberjar {:replace-deps  {com.github.seancorfield/depstar  {:mvn/version "2.0.193"}}
                      :exec-fn hf.depstar/uberjar
                      :exec-args  {:jar "target/game.jar"
                                   :aot true
                                   :main-class four-nations.core}}
            :run {:main-opts ["-m" "four-nations.core"]}
+           :map-gen {:main-opts ["-m" "four-nations.model.map"]}
            :nrepl {:extra-deps  {nrepl/nrepl  {:mvn/version "RELEASE"}
                                  cider/cider-nrepl {:mvn/version "0.22.4"}
                                  cider/piggieback {:mvn/version "0.3.8"}}

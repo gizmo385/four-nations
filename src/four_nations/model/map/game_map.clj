@@ -1,5 +1,6 @@
 (ns four-nations.model.map.game-map
-  (:require [four-nations.model.map.utils :as utils]))
+  (:require [four-nations.model.map.utils :as utils]
+            [clojure.term.colors :as color]))
 
 (defrecord GameTile [terrain-type raw-value x y])
 (defrecord GameMap [game-map height width])
@@ -8,16 +9,19 @@
 ;;; Helper functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn print-map
-  [game-map]
-  (doseq [row game-map]
-    (doseq [cell row]
-      (print (condp = (:terrain-type cell)
-               :land "G"
-               :water "~"
-               :mountain "^"
-               :coast "."
-               "?")))
-    (println)))
+  ([game-map]
+   (print-map game-map false))
+
+  ([game-map color?]
+   (doseq [row game-map]
+     (doseq [cell row]
+       (print (condp = (:terrain-type cell)
+                :land (if color? (color/green "*") "*")
+                :water (if color? (color/blue "~") "~")
+                :mountain (if color? (color/bold "^") "^")
+                :coast (if color? (color/yellow ".") ".")
+                "?")))
+     (println))))
 
 (defn average-map-value
   "Given a noise map, calculates the average value of all of the cells within that noise map."
@@ -34,7 +38,7 @@
    the average value of the game map."
   [cell-value average-value]
   (cond
-    (> cell-value (+ average-value 15)) :mountain
+    (> cell-value (+ average-value 20)) :mountain
     (< cell-value average-value) :water
     :else :land))
 
@@ -101,8 +105,7 @@
 
 (defn noise-map->game-map
   "Given a generated and smoothed noisemap, generates a game map with terrain added."
-  [noise-map & {:keys [water-spread-chance]
-                :or {water-spread-chance 0.05}}]
+  [noise-map water-spread-chance]
   (let [average-value (-> noise-map :noise average-map-value)]
     (-> noise-map
         (noise-map->basic-game-map average-value)
@@ -123,7 +126,7 @@
         water-border 2
         smoothing-passes 15]
     (-> (nm/generate-noisemap height width smoothing-passes water-border)
-        (noise-map->game-map :water-spread-chance water-spread-chance)
+        (noise-map->game-map water-spread-chance)
         :game-map
         print-map)
     )
