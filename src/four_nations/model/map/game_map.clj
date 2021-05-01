@@ -2,9 +2,10 @@
   (:require
     [clojure.term.colors :as color]
     [four-nations.model.map.utils :as utils]
+    [four-nations.model.map.resources :as res]
     [random-seed.core :as rs]))
 
-(defrecord GameTile [terrain-type raw-value x y])
+(defrecord GameTile [terrain-type raw-value x y resource])
 (defrecord GameMap [game-map height width])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -85,6 +86,20 @@
       (utils/two-dimensional-map game-map height width)
       (->GameMap height width)))
 
+(defn maybe-add-resource-to-tile
+  [tile {:keys [spawn-predicate] :as resource}]
+  (if (and (nil? (:resource tile))
+           (spawn-predicate tile))
+    (assoc tile :resource resource)
+    tile))
+
+(defn add-resources
+  [{:keys [game-map height width] :as gm} available-resources]
+  (-> (fn [tile x y]
+        (reduce maybe-add-resource-to-tile tile available-resources))
+      (utils/two-dimensional-map game-map height width)
+      (->GameMap height width)))
+
 (defn noise-map->basic-game-map
   "Given the noise map and the average value of cells across the map, builds basic game map with
    simple terrain selection."
@@ -92,20 +107,22 @@
   (-> (fn [cell-value x y]
         (-> cell-value
             (determine-cell-terrain-type average-value)
-            (->GameTile cell-value x y)))
+            (->GameTile cell-value x y nil)))
       (utils/two-dimensional-map noise height width)
       (->GameMap height width)))
 
 (defn noise-map->game-map
   "Given a generated and smoothed noisemap, generates a game map with terrain added."
   [noise-map water-spread-chance water-border]
-  (let [average-value (-> noise-map :noise average-map-value)]
+  (let [average-value (-> noise-map :noise average-map-value)
+        resources (res/load-resource-definitions "resources.edn")]
     (-> noise-map
         (noise-map->basic-game-map average-value)
         (add-water-border water-border)
         (spread-water water-spread-chance)
         drench-surrounded-land
         add-coastline
+        (add-resources (res/load-resource-definitions "resources.edn"))
         )))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
