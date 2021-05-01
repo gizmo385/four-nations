@@ -86,7 +86,7 @@
   "Given a map, changes the terrain type of any land tiles that are near water to be coastline."
   [{:keys [game-map height width]}]
   (-> (fn [tile x y]
-        (let [neighbors (utils/coordinates->neighbors height width game-map [x y])]
+        (let [neighbors (utils/coordinates->neighbors height width game-map [x y] false)]
           (if (and (->> neighbors (map :terrain-type) (some (partial = :water)))
                    (-> tile :terrain-type (= :land)))
             (assoc tile :terrain-type :coast)
