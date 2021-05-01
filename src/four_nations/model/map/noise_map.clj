@@ -36,20 +36,6 @@
     noise
     smoothing-passes))
 
-(defn add-water-border
-  [noise height width water-border]
-  (map-utils/two-dimensional-map
-    (fn [v x y]
-      (if (or (< x water-border)
-              (> x (- width water-border))
-              (< y water-border)
-              (> y (- height water-border)))
-        0
-        v))
-    noise
-    height
-    width))
-
 (defn generate-noisemap
   "Given a height and width, generates a 2-dimensional map of averaged noise, which can be used for
    procedural terrain generation. You can optionally supply the number of times that the noise will
@@ -58,10 +44,6 @@
    (generate-noisemap height width 1 0))
 
   ([height width smoothing-passes]
-   (generate-noisemap height width smoothing-passes 0))
-
-  ([height width smoothing-passes water-border]
    (-> (generate-2d-noise height width)
        (smooth-noisemap height width smoothing-passes)
-       (add-water-border height width water-border)
        (->NoiseMap height width))))

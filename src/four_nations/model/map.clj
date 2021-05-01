@@ -7,11 +7,11 @@
 
 (defn build-map
   [height width & {:keys [water-spread-chance water-border smoothing-passes]
-                   :or {water-spread-chance 0.1
+                   :or {water-spread-chance 0.05
                         water-border 2
-                        smoothing-passes 15}}]
-  (-> (nm/generate-noisemap height width smoothing-passes water-border)
-      (gm/noise-map->game-map water-spread-chance)))
+                        smoothing-passes 20}}]
+  (-> (nm/generate-noisemap height width smoothing-passes)
+      (gm/noise-map->game-map water-spread-chance water-border)))
 
 (def cli-options
   [["-h" "--height HEIGHT" "Map height"

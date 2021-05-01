@@ -92,6 +92,18 @@
       (utils/two-dimensional-map game-map height width)
       (->GameMap height width)))
 
+(defn add-water-border
+  [{:keys [game-map height width]} water-border]
+  (-> (fn [tile x y]
+        (if (or (< x water-border)
+                (> x (- width water-border))
+                (< y water-border)
+                (> y (- height water-border)))
+          (assoc tile :terrain-type :water)
+          tile))
+      (utils/two-dimensional-map game-map height width)
+      (->GameMap height width)))
+
 (defn noise-map->basic-game-map
   "Given the noise map and the average value of cells across the map, builds basic game map with
    simple terrain selection."
@@ -105,10 +117,11 @@
 
 (defn noise-map->game-map
   "Given a generated and smoothed noisemap, generates a game map with terrain added."
-  [noise-map water-spread-chance]
+  [noise-map water-spread-chance water-border]
   (let [average-value (-> noise-map :noise average-map-value)]
     (-> noise-map
         (noise-map->basic-game-map average-value)
+        (add-water-border water-border)
         (spread-water water-spread-chance)
         drench-surrounded-land
         add-coastline
@@ -126,7 +139,7 @@
         water-border 2
         smoothing-passes 15]
     (-> (nm/generate-noisemap height width smoothing-passes water-border)
-        (noise-map->game-map water-spread-chance)
+        (noise-map->game-map water-spread-chance water-border)
         :game-map
         print-map)
     )
