@@ -1,7 +1,8 @@
 (ns four-nations.model.map.noise-map
   (:require
     [four-nations.general.utils :as utils]
-    [four-nations.model.map.utils :as map-utils]))
+    [four-nations.model.map.utils :as map-utils]
+    [random-seed.core :as rs]))
 
 (defrecord NoiseMap [noise height width])
 
@@ -9,7 +10,7 @@
   "Given a height and a width, generates a two-dimensional array of noise, where each cell is
    occupied by a number between 1 and 255 (inclusive on both sides)."
   [height width]
-  (letfn [(make-cell [] (inc (rand-int 255)))
+  (letfn [(make-cell [] (inc (rs/rand-int 255)))
           (make-row [] (repeatedly width make-cell))]
     (repeatedly height make-row)))
 

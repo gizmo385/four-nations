@@ -3,7 +3,8 @@
     [clojure.tools.cli :as cli]
     [clojure.string :as string]
     [four-nations.model.map.noise-map :as nm]
-    [four-nations.model.map.game-map :as gm]))
+    [four-nations.model.map.game-map :as gm]
+    [random-seed.core :as rs]))
 
 (defn build-map
   [height width & {:keys [water-spread-chance water-border smoothing-passes]
@@ -27,6 +28,8 @@
    [nil "--water-spread-chance CHANCE" "The chance that water will spread to surrounding tiles."
     :parse-fn #(Double/parseDouble %)
     :validate [#(< 0 % 1) "Should be a decimal between 0 and 1"]]
+   [nil "--seed SEED" "Seed the random number generator"
+    :parse-fn #(Integer/parseInt %)]
    ["-c" "--[no-]color" "Print in color" :default true]
 
    [nil "--help"]])
@@ -41,10 +44,20 @@
 (defn -main
   [& args]
   (let [{:keys [options arguments summary errors]} (cli/parse-opts args cli-options)]
-    (when (or (:help options)
+    (when (:help options)
+      (println (usage summary))
+      (System/exit 0))
+
+    (when (or errors
               (nil? (:height options))
               (nil? (:width options)))
+      (println (string/join \newline errors))
       (println (usage summary))
       (System/exit 1))
+
+    (let [seed (or (:seed options) (System/currentTimeMillis))]
+      (println (format "Setting random seed to: %s" seed))
+      (rs/set-random-seed! seed))
+
     (-> (build-map (:height options) (:width options) options)
         :game-map (gm/print-map true))))

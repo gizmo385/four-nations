@@ -2,6 +2,7 @@
  :deps {org.clojure/clojure {:mvn/version "1.11.0-alpha1"}
         net.mikera/core.matrix {:mvn/version "0.62.0"}
         clojure-term-colors/clojure-term-colors {:mvn/version "0.1.0"}
+        random-seed/random-seed {:mvn/version "1.0.0"}
         org.clojure/tools.cli {:mvn/version "1.0.206"}}
  :aliases {:uberjar {:replace-deps  {com.github.seancorfield/depstar  {:mvn/version "2.0.193"}}
                      :exec-fn hf.depstar/uberjar

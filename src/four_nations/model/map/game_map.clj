@@ -1,6 +1,8 @@
 (ns four-nations.model.map.game-map
-  (:require [four-nations.model.map.utils :as utils]
-            [clojure.term.colors :as color]))
+  (:require
+    [clojure.term.colors :as color]
+    [four-nations.model.map.utils :as utils]
+    [random-seed.core :as rs]))
 
 (defrecord GameTile [terrain-type raw-value x y])
 (defrecord GameMap [game-map height width])
@@ -61,7 +63,7 @@
                    (->> neighbors
                         (map :terrain-type)
                         (some (partial = :water)))
-                   (< (rand) spread-chance))
+                   (< (rs/rand) spread-chance))
             (assoc tile :terrain-type :water)
             tile)))
       (utils/two-dimensional-map game-map height width)
