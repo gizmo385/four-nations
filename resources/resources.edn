@@ -1,0 +1,17 @@
+[
+ {:name "Gold Vein"
+  :symbol "$"
+  :predicate :spawn-on-terrain-types
+  :terrain-types [:land :mountain]
+  :spawn-chance 0.01}
+ {:name "Oak Tree"
+  :symbol "T"
+  :predicate :spawn-on-terrain-types
+  :terrain-types [:land]
+  :spawn-chance 0.30}
+ {:name "Oil Deposit"
+  :symbol "O"
+  :predicate :spawn-on-terrain-types
+  :terrain-types [:water]
+  :spawn-chance 0.005}
+ ]
