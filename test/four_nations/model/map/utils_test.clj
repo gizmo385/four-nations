@@ -47,7 +47,7 @@
 
 (deftest test-two-dimensional-map
   (testing "Mapping a function over every cell"
-    ;; Build a 3x3 map of 0s and incremenet each cell. Should result in a 3x3 map of 1s.
+    ;; Build a 3x3 map of 0s and increment each cell. Should result in a 3x3 map of 1s.
     (is (= (utils/two-dimensional-map
              (fn [v x y] (inc v)) (repeat 3 (repeat 3 0)) 3 3))
         (repeat 3 (repeat 3 1)))))
