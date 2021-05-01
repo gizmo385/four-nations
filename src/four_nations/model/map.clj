@@ -3,6 +3,7 @@
     [clojure.tools.cli :as cli]
     [clojure.string :as string]
     [four-nations.model.map.noise-map :as nm]
+    [four-nations.model.map.utils :as map-utils]
     [four-nations.model.map.game-map :as gm]
     [random-seed.core :as rs]))
 
@@ -60,4 +61,4 @@
       (rs/set-random-seed! seed))
 
     (-> (build-map (:height options) (:width options) options)
-        :game-map (gm/print-map true))))
+        :game-map (map-utils/print-map true))))

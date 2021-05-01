@@ -10,21 +10,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Helper functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn print-map
-  ([game-map]
-   (print-map game-map false))
-
-  ([game-map color?]
-   (doseq [row game-map]
-     (doseq [cell row]
-       (print (condp = (:terrain-type cell)
-                :land (if color? (color/green "*") "*")
-                :water (if color? (color/blue "~") "~")
-                :mountain (if color? (color/bold "^") "^")
-                :coast (if color? (color/yellow ".") ".")
-                "?")))
-     (println))))
-
 (defn average-map-value
   "Given a noise map, calculates the average value of all of the cells within that noise map."
   [noise]
@@ -43,12 +28,6 @@
     (> cell-value (+ average-value 20)) :mountain
     (< cell-value average-value) :water
     :else :land))
-
-(defn cell-value->initial-game-tile
-  "Given the value of a particular cell, builds a game tile that includes the basic terrain type."
-  [cell-value average-value x y]
-  (let [terrain-type (determine-cell-terrain-type cell-value average-value)]
-    (->GameTile terrain-type cell-value x y)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Building the game map and adding variety to the terrain

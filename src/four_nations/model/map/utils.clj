@@ -1,5 +1,7 @@
 (ns four-nations.model.map.utils
-  (:require [clojure.core.matrix :as mat]))
+  (:require
+    [clojure.term.colors :as color]
+    [clojure.core.matrix :as mat]))
 
 (defn get-cell
   "Given a 2 dimensional game map and an (x, y) coordinate pair, retrieves the value at the
@@ -44,8 +46,47 @@
         (map (fn [[x y]] (get-cell m x y))))))
 
 (defn two-dimensional-map
+  "Given a function f, a two directional map m (noise/game map), a height, and a width, applies f to
+   every tile within m. The function f should take 3 arguments: the value of the cell, its x
+   coordinate, and its y coordinate"
   [f m height width]
   (for [y (range height)]
     (for [x (range width)]
       (let [cell-value (get-cell m x y)]
         (f cell-value x y)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Printing maps
+;;;
+;;; This will ideally be replaced later with a more functional UI, but it is the best way to test
+;;; at the moment.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(def terrain-type->color
+  {:land color/green
+   :water color/blue
+   :mountain color/bold
+   :coast color/yellow})
+
+(def terrain-type->char
+  {:land "*"
+   :water "~"
+   :mountain "^"
+   :coast "."})
+
+(defn- tile->printable-char
+  [{:keys [terrain-type resource]} color?]
+  (let [color (or (when color? (terrain-type->color terrain-type)) color/white)
+        output-char (or (:text-symbol resource) (terrain-type->char terrain-type) "?")]
+    (color output-char)))
+
+(defn print-map
+  "Given a game map, prints it out in a readable way."
+  ([game-map]
+   (print-map game-map false))
+
+  ([game-map color?]
+   (doseq [row game-map]
+     (doseq [tile row]
+       (print (tile->printable-char tile color?)))
+     (println))))
+
