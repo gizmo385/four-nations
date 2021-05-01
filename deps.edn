@@ -17,4 +17,8 @@
                                  cider/cider-nrepl {:mvn/version "0.22.4"}
                                  cider/piggieback {:mvn/version "0.3.8"}}
                    :main-opts  ["-m" "nrepl.cmdline" "--interactive"]
-                   :extra-paths ["test" "dev" "resources"]}}}
+                   :extra-paths ["test" "dev" "resources"]}
+           :test {:extra-paths ["test"]
+                  :extra-deps {com.cognitect/test-runner {:git/url "https://github.com/cognitect-labs/test-runner.git"
+                                                          :sha "209b64504cb3bd3b99ecfec7937b358a879f55c1"}}
+                  :main-opts ["-m" "cognitect.test-runner"]}}}

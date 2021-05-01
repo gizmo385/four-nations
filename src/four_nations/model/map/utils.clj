@@ -5,9 +5,10 @@
 
 (defn get-cell
   "Given a 2 dimensional game map and an (x, y) coordinate pair, retrieves the value at the
-   specified cell."
+   specified cell. If an invalid x/y pair are passed in, this function will return nil."
   [m x y]
-  (mat/mget m y x))
+  (try (mat/mget m y x)
+       (catch IndexOutOfBoundsException e nil)))
 
 (defn valid-coordinate?
   "A coordinate is valid if both components are non-negative integers and they are both less than
@@ -30,10 +31,10 @@
                              [(inc x) (dec y)]
                              [(dec x) (inc y)]
                              [(dec x) (dec y)]]]
-     (if include-diagonal?
-       (filter (partial valid-coordinate? height width)
-               (concat cardinal-neighbors diagonal-neighbors))
-       (filter (partial valid-coordinate? height width) cardinal-neighbors)))))
+     (->> cardinal-neighbors
+          (concat (when include-diagonal? diagonal-neighbors))
+          (filter (partial valid-coordinate? height width))
+          set))))
 
 (defn coordinates->neighbors
   "Given a height, a width, a map m, and a (x, y) coordinate pair, returns the values of all valid
