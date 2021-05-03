@@ -1,0 +1,28 @@
+[{:name :health
+  :display-name "Health"
+  :description "Determines how much life a unit has. When this hits 0, a unit dies."
+  :minimum-value 0
+  :starting-value 10}
+ {:name :chi
+  :display-name "Chi"
+  :description "Chi is used in the bending of the elements."
+  :minimum-value 0
+  :starting-value 100}
+ {:name :energy
+  :display-name "Energy"
+  :description "Energy is used to perform physical labor, such as woodcutting."
+  :minimum-value 0
+  :maximum-value 100
+  :starting-value 100}
+ {:name :hunger
+  :display-name "Hunger"
+  :description "Describes how in-need of food a unit is."
+  :minimum-value 0
+  :maximum-value 100
+  :starting-value 0}
+ {:name :thirst
+  :display-name "Thirst"
+  :description "Describes how in-need of water a unit is."
+  :minimum-value 0
+  :maximum-value 100
+  :starting-value 0}]
