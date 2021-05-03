@@ -1,2 +1,3 @@
 (ns user
-  (:use [clojure.repl]))
+  (:use [clojure.repl]
+        [clojure.pprint]))
