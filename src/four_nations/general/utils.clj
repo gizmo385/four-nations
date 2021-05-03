@@ -16,3 +16,19 @@
       (f value))
     init
     (range n)))
+
+(defn uuid
+  "Generates version 4 UUID string."
+  []
+  (str (java.util.UUID/randomUUID)))
+
+(defn map-by
+  "Given a key k and collection of maps, returns a map that maps the value of k in each item in the
+   collection to that item."
+  [k coll]
+  (zipmap (map k coll) coll))
+
+(defn map-vals
+  "Given a function f and a map m, returns a new map where f has been applied to each value in m."
+  [f m]
+  (into {} (for [[k v] m] [k (f v)])))
