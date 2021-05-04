@@ -26,7 +26,8 @@
    chi-attribute-definition])
 
 (def example-unit-type-definition
-  {:name "Basic Water Worker"
+  {:id :basic-water-worker
+   :name "Basic Water Worker"
    :description "A unit which can be used to complete manual labor tasks, such as woodcutting."
    :tribes [:water]
    :attribute-names [:health]})
