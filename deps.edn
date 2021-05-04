@@ -4,6 +4,7 @@
         clojure-term-colors/clojure-term-colors {:mvn/version "0.1.0"}
         random-seed/random-seed                 {:mvn/version "1.0.0"}
         org.clojure/tools.cli                   {:mvn/version "1.0.206"}
+        cljfx/cljfx                             {:mvn/version "1.7.13"}
         faker/faker                             {:mvn/version "0.3.2"}}
  :aliases {:uberjar {:replace-deps {com.github.seancorfield/depstar  {:mvn/version "2.0.193"}}
                      :exec-fn hf.depstar/uberjar
@@ -14,6 +15,8 @@
                  :extra-paths ["resources"]}
            :map-gen {:main-opts ["-m" "four-nations.model.map"]
                      :extra-paths ["resources"]}
+           :gui {:main-opts ["-m" "four-nations.view.gui.core"]
+                 :extra-paths ["resources"]}
            :nrepl {:extra-deps {nrepl/nrepl  {:mvn/version "RELEASE"}
                                 cider/cider-nrepl {:mvn/version "0.22.4"}
                                 cider/piggieback {:mvn/version "0.3.8"}}

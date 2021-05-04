@@ -122,8 +122,7 @@
         (spread-water water-spread-chance)
         drench-surrounded-land
         add-coastline
-        (add-resources (res/load-resource-definitions "resources.edn"))
-        )))
+        (add-resources resources))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Rich comments for experimenting :)
