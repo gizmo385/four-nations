@@ -1,6 +1,7 @@
 (ns four-nations.model.units.core
   (:require
     [clojure.set :as s]
+    [faker.name :as fake]
     [four-nations.general.utils :as utils]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -13,7 +14,7 @@
   [name description tribes attributes])
 
 (defrecord GameUnit
-  [id unit-type tribe current-attributes])
+  [id unit-type tribe current-attributes first-name last-name])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Functions for building attributes, unit types, and units
@@ -58,13 +59,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Useful functions for interacting with units
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn initialize-unit-attribute
-  "Given a unit attribute, builds an initial version of that attribute for a "
-  [unit-attribute]
-  (-> unit-attribute
-      (select-keys [:name :display-name])
-      (assoc :value (:starting-value unit-attribute))))
-
 (defn unit-type->unit
   "Builds a new unit in a particular tribe based on a unit type and the map of valid attributes."
   [unit-type tribe]
@@ -73,10 +67,13 @@
       (map->GameUnit {:id (utils/uuid)
                       :unit-type unit-type
                       :tribe tribe
-                      :current-attributes current-attributes}))
+                      :current-attributes current-attributes
+                      :first-name (fake/first-name)
+                      :last-name (fake/last-name)}))
     (throw (ex-info "Disallowed tribe" {:unit-type unit-type :tribe tribe}))))
 
 (comment
+  (use 'clojure.pprint)
   (let [attributes (file->unit-attributes "unit-attributes.edn")
         unit-types (file->unit-types "unit-types.edn" attributes)]
     ;(pprint attributes)

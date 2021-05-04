@@ -7,22 +7,28 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Test data
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(def health-attribute-definition
+  {:name :health
+   :display-name "Health"
+   :description "Determines how much life a unit has. When this hits 0, a unit dies."
+   :minimum-value 0
+   :starting-value 10})
+
+(def chi-attribute-definition
+  {:name :chi
+   :display-name "Chi"
+   :description "Chi is used in the bending of the elements."
+   :minimum-value 0
+   :starting-value 100})
+
 (def example-unit-attribute-definitions
-  [{:name :health
-    :display-name "Health"
-    :description "Determines how much life a unit has. When this hits 0, a unit dies."
-    :minimum-value 0
-    :starting-value 10}
-   {:name :chi
-    :display-name "Chi"
-    :description "Chi is used in the bending of the elements."
-    :minimum-value 0
-    :starting-value 100}])
+  [health-attribute-definition
+   chi-attribute-definition])
 
 (def example-unit-type-definition
-  {:name "Basic Worker"
+  {:name "Basic Water Worker"
    :description "A unit which can be used to complete manual labor tasks, such as woodcutting."
-   :tribes [:water :air :fire :earth]
+   :tribes [:water]
    :attribute-names [:health]})
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -77,6 +83,14 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Testing unit creation
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(deftest test-initialize-unit-attribute)
-
-(deftest test-unit-type->unit)
+(deftest test-unit-type->unit
+  (testing "Building new units"
+    (let [attributes (units/unit-attribute-definitions->unit-attributes-map
+                       example-unit-attribute-definitions)
+          unit-type (units/unit-type-definition->unit-type example-unit-type-definition attributes)
+          valid-unit (units/unit-type->unit unit-type :water)]
+      (doseq [attr-name (:attribute-names unit-type)]
+        (are [k] (some? (get valid-unit k))
+             :first-name :last-name :description :name)
+        (is (map? (get-in valid-unit [:attributes attr-name])))
+        (is (some? (get-in valid-unit [:current-attributes attr-name])))))))
