@@ -11,7 +11,8 @@
   [height width & {:keys [water-spread-chance water-border smoothing-passes]
                    :or {water-spread-chance 0.05
                         water-border 2
-                        smoothing-passes 20}}]
+                        smoothing-passes 20}
+                   :as options}]
   (-> (nm/generate-noisemap height width smoothing-passes)
       (gm/noise-map->game-map water-spread-chance water-border)))
 
@@ -61,4 +62,5 @@
       (rs/set-random-seed! seed))
 
     (-> (build-map (:height options) (:width options) options)
-        :game-map (map-utils/print-map true))))
+        :game-map (map-utils/print-map true)))
+  (shutdown-agents))
