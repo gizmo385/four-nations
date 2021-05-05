@@ -4,7 +4,8 @@
   :symbol "$"
   :predicate :spawn-on-terrain-types
   :terrain-types [:land :mountain]
-  :spawn-chance 0.01}
+  :spawn-chance 0.01
+  :image "images/gold.png"}
  {:name :oak-tree
   :display-name "Oak Tree"
   :symbol "T"
@@ -17,5 +18,6 @@
   :symbol "O"
   :predicate :spawn-on-terrain-types
   :terrain-types [:water]
-  :spawn-chance 0.005}
+  :spawn-chance 0.005
+  :image "images/oil.png"}
  ]
