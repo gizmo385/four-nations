@@ -4,7 +4,7 @@
     [random-seed.core :as rs]))
 
 (defrecord Resource
-  [resource-name text-symbol spawn-predicate])
+  [name display-name text-symbol spawn-predicate image])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Validating resource definitions
@@ -54,7 +54,7 @@
   [resource-definition]
   (if (valid-resource-definition? resource-definition)
     (let [spawn-predicate (resource-definition->spawn-predicate resource-definition)]
-      (->Resource (:name resource-definition) (:symbol resource-definition) spawn-predicate))
+      (map->Resource (assoc resource-definition :spawn-predicate spawn-predicate)))
     (throw (ex-info "Invalid resource definition!" resource-definition))))
 
 (defn load-resource-definitions
@@ -65,5 +65,6 @@
        (map resource-definition->resource)))
 
 (comment
-  (load-resource-definitions "resources.edn")
+  (use 'clojure.pprint)
+  (pprint (load-resource-definitions "resources.edn"))
   )
