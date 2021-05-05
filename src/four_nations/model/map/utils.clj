@@ -1,5 +1,6 @@
 (ns four-nations.model.map.utils
   (:require
+    [com.climate.claypoole :as cp]
     [clojure.term.colors :as color]
     [clojure.core.matrix :as mat]))
 
@@ -52,7 +53,9 @@
    coordinate, and its y coordinate"
   [f m height width]
   (for [y (range height)]
-    (for [x (range width)]
+    (cp/pfor
+      :builtin
+      [x (range width)]
       (let [cell-value (get-cell m x y)]
         (f cell-value x y)))))
 

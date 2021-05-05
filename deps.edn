@@ -5,6 +5,7 @@
         random-seed/random-seed                 {:mvn/version "1.0.0"}
         org.clojure/tools.cli                   {:mvn/version "1.0.206"}
         cljfx/cljfx                             {:mvn/version "1.7.13"}
+        com.climate/claypoole                   {:mvn/version "1.1.4"}
         faker/faker                             {:mvn/version "0.3.2"}}
  :aliases {:uberjar {:replace-deps {com.github.seancorfield/depstar  {:mvn/version "2.0.193"}}
                      :exec-fn hf.depstar/uberjar
