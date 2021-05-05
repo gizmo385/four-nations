@@ -25,6 +25,18 @@
   [metadata tribe]
   (->Civilization [] {} tribe metadata))
 
+(defn add-unit
+  [civilization unit x y]
+  (let [unit-id (:id unit)]
+    (-> civilization
+        (update :units conj unit)
+        (update :unit-locations assoc unit-id [x y]))))
+
+(defn spawn-unit
+  [civilization unit-type x y]
+  (let [new-unit (units/unit-type->unit unit-type (:tribe civilization))]
+    (add-unit civilization new-unit x y)))
+
 (comment
   (use 'clojure.pprint)
   (let [metadata (load-civilization-metadata "unit-attributes.edn" "unit-types.edn")]
