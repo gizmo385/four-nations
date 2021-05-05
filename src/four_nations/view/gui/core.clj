@@ -37,6 +37,7 @@
         (.strokeRect x y tile-size tile-size)))))
 
 (defn draw-image
+  "For a tile at a particular spot on the graphics canvas, draw images on that position."
   [canvas tile x y tile-size]
   (let [graphics (.getGraphicsContext2D canvas)
         tile-image (-> tile :terrain-type terrain-type->image images/load-image)]
@@ -46,30 +47,37 @@
       (doto graphics
         (.drawImage (images/load-image resource-image) x y tile-size tile-size)))))
 
+(defn clear-canvas!
+  [canvas]
+  (let [graphics (.getGraphicsContext2D canvas)
+        height (.getHeight canvas)
+        width (.getWidth canvas)]
+    (.clearRect graphics 0 0 width height)))
+
 (defn draw-map
+  [canvas game-map tile-size]
+  (clear-canvas! canvas)
+  (doseq [x (range (:width game-map))]
+    (doseq [y (range (:height game-map))]
+      (let [draw-x (* tile-size x)
+            draw-y (* tile-size y)
+            tile (map-utils/get-cell (:game-map game-map) x y)
+            tile-image (-> tile :terrain-type terrain-type->image images/load-image)]
+        (draw-image canvas tile draw-x draw-y tile-size)))))
+
+(defn canvas-map
+  "for a game map, draw the game map in the canvas"
   [{:keys [width height tile-size game-map]}]
   {:fx/type :canvas
    :width width
    :height height
-   :draw (fn [^Canvas canvas]
-           (doseq [x (range (:width game-map))]
-             (doseq [y (range (:height game-map))]
-               (let [draw-x (* tile-size x)
-                     draw-y (* tile-size y)
-                     tile (map-utils/get-cell (:game-map game-map) x y)
-                     tile-image (-> tile :terrain-type terrain-type->image images/load-image)
-                     ]
-                 (draw-image canvas tile draw-x draw-y tile-size)
-                 ;(draw-rectangle canvas tile draw-x draw-y tile-size)
-                 ))))})
-
+   :draw (fn [^Canvas canvas] (draw-map canvas game-map tile-size))})
 
 (defn -main [& args]
   (Platform/setImplicitExit true)
-  (let [
-        ;game-map (m/build-map 120 250)
-        game-map (m/build-map 100 200)
-        ]
+  (let [map-height 140
+        map-width 230
+        game-map (m/build-map map-height map-width)]
     (fx/on-fx-thread
       (fx/create-component
         {:fx/type :stage
@@ -79,8 +87,8 @@
                  :root {:fx/type :v-box
                         :padding 10
                         :spacing 10
-                        :children [{:fx/type draw-map
-                                    :width 1500
-                                    :height 2000
+                        :children [{:fx/type canvas-map
+                                    :width 2560
+                                    :height 1440
                                     :game-map game-map
                                     :tile-size 10}]}}}))))

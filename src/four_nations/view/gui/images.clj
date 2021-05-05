@@ -7,7 +7,7 @@
 (defn load-image*
   "Loads an image from from a filename and returns the JavaFX image for it."
   [filename]
-  (println (format "Attempting to load image at %s" filename))
+  (println (format "Loading image at %s" filename))
   (new Image filename))
 
 (def
