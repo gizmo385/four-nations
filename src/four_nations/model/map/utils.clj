@@ -17,11 +17,11 @@
   [height width [x y]]
   (and (nat-int? x) (nat-int? y) (< y height) (< x width)))
 
-(defn coordinates->neighbor-coordinates
+(defn coordinates->neighbor-coordinates*
   "Given a height, a width, and a (x, y) coordinate pair, returns all valid coordinates that are
    neighbors. Valid coordinates are checked against the valid-coordinate? predicate"
   ([height width [x y]]
-   (coordinates->neighbor-coordinates height width [x y] true))
+   (coordinates->neighbor-coordinates* height width [x y] true))
 
   ([height width [x y] include-diagonal?]
    (let [cardinal-neighbors [[x (inc y)]
@@ -36,6 +36,14 @@
           (concat (when include-diagonal? diagonal-neighbors))
           (filter (partial valid-coordinate? height width))
           set))))
+
+(def
+  ^{:arglists '([height width [x y]]
+                [height width [x y] include-diagonal?])}
+  coordinates->neighbor-coordinates
+  "Given a height, a width, and a (x, y) coordinate pair, returns all valid coordinates that are
+   neighbors. Valid coordinates are checked against the valid-coordinate? predicate"
+  (memoize coordinates->neighbor-coordinates*))
 
 (defn coordinates->neighbors
   "Given a height, a width, a map m, and a (x, y) coordinate pair, returns the values of all valid
