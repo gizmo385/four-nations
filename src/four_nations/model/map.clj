@@ -33,6 +33,7 @@
    [nil "--seed SEED" "Seed the random number generator"
     :parse-fn #(Integer/parseInt %)]
    ["-c" "--[no-]color" "Print in color" :default true]
+   [nil "--[no-]print" "Specifies whether or not to print the generated map" :default true]
 
    [nil "--help"]])
 
@@ -61,6 +62,7 @@
       (println (format "Setting random seed to: %s" seed))
       (rs/set-random-seed! seed))
 
-    (-> (build-map (:height options) (:width options) options)
-        :game-map (map-utils/print-map true)))
+    (let [gm (-> (time (build-map (:height options) (:width options) options)))]
+      (when (:print options)
+        (-> gm :game-map (map-utils/print-map true)))))
   (shutdown-agents))
