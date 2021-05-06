@@ -60,12 +60,10 @@
    every tile within m. The function f should take 3 arguments: the value of the cell, its x
    coordinate, and its y coordinate"
   [f m height width]
-  (for [y (range height)]
-    (cp/pfor
-      :builtin
-      [x (range width)]
-      (let [cell-value (get-cell m x y)]
-        (f cell-value x y)))))
+  (let [m* (to-array-2d m)]
+    (for [y (range height)]
+      (for [x (range width)]
+        (f (aget m* y x) x y)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Printing maps
