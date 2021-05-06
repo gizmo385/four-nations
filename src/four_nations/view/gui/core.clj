@@ -67,14 +67,17 @@
   (clear-canvas! canvas)
   (let [canvas-height (.getHeight canvas)
         canvas-width (.getWidth canvas)
+        game-map-width (:width game-map)
+        game-map-height (:height game-map)
         horizontal-viewport-size (quot canvas-width tile-size)
         vertical-viewport-size (quot canvas-height tile-size)]
-    (doseq [x (range (:x viewport) (min (+ (:x viewport) horizontal-viewport-size) canvas-width))]
-      (doseq [y (range (:y viewport) (min (+ (:y viewport) vertical-viewport-size) canvas-height))]
-        (let [draw-x (* tile-size x)
-              draw-y (* tile-size y)]
-          (when-let [tile (map-utils/get-cell (:game-map game-map) x y)]
-            (draw-image canvas tile draw-x draw-y tile-size)))))))
+    (doseq [x-index (range horizontal-viewport-size)]
+      (doseq [y-index (range vertical-viewport-size)]
+        (when-let [tile (map-utils/get-cell
+                          (:game-map game-map)
+                          (+ x-index (:x viewport))
+                          (+ y-index (:y viewport)))]
+          (draw-image canvas tile (* x-index tile-size) (* y-index tile-size) tile-size))))))
 
 (defn canvas-map
   "Defines a JavaFX canvas component that draws the game map."
@@ -89,31 +92,18 @@
              (draw-map canvas game-map tile-size viewport))}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Changing the tile size
+;;; Event handler
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmethod event-handler ::update-tile-size
-  [{:keys [fx/event]}]
-  (swap! *state fx/swap-context assoc :tile-size (int (Math/floor event))))
+(defn update-tile-size!
+  [delta]
+  (letfn [(update-ts [ts] (max 1 (min 64 (+ ts delta))))]
+    (swap! *state fx/swap-context update :tile-size update-ts)))
 
-(defn tile-size-slider
-  [{:keys [height width fx/context]}]
-  (let [tile-size (fx/sub-val context :tile-size)
-        viewport (fx/sub-val context :viewport)]
-    {:fx/type :slider
-     :min 0
-     :max 64
-     :value tile-size
-     :on-value-changed {:event/type ::update-tile-size}}))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Root application definition
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn translate-viewport!
   [{:keys [x y] :as viewport} delta-x delta-y map-height map-width]
   (let [new-x (max 0 (min (+ x delta-x) map-width))
         new-y (max 0 (min (+ y delta-y) map-height))
         new-viewport (assoc viewport :x new-x :y new-y)]
-    (println :old viewport :new new-viewport)
     (swap! *state fx/swap-context assoc :viewport new-viewport)))
 
 (defmethod event-handler ::key-pressed
@@ -124,11 +114,15 @@
       KeyCode/A (translate-viewport! viewport -1 0 map-height map-width)
       KeyCode/S (translate-viewport! viewport 0 1 map-height map-width)
       KeyCode/D (translate-viewport! viewport 1 0 map-height map-width)
+      KeyCode/E (update-tile-size! 1)
+      KeyCode/Q (update-tile-size! -1)
       nil)))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Root scene definition
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn root
   [{:keys [fx/context map-height map-width]}]
-  (println :map-height map-height :map-width map-width)
   (let [bounds (-> (Screen/getPrimary) .getBounds)
         max-height (.getHeight bounds)
         max-width (.getWidth bounds)
@@ -146,8 +140,7 @@
              :root {:fx/type :v-box
                     :padding 10
                     :spacing 10
-                    :children [{:fx/type tile-size-slider}
-                               {:fx/type canvas-map
+                    :children [{:fx/type canvas-map
                                 :max-height max-height
                                 :max-width max-width}]}}}))
 
@@ -165,9 +158,9 @@
 
 (defn -main [& args]
   (Platform/setImplicitExit true)
-  (let [map-height 50
-        map-width 50
-        game-map (m/build-map map-height map-width)
+  (let [map-height 100
+        map-width 100
+        game-map (m/build-map map-height map-width {:smoothing-passes 15})
         view-renderer (build-renderer map-height map-width)]
     (swap! *state fx/swap-context assoc :game-map game-map)
     (fx/mount-renderer *state view-renderer)))
