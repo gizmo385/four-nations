@@ -29,10 +29,10 @@
 
 ;; TODO: Maybe in a config file?
 (def terrain-type->image
-  {:water "images/water.png"
-   :land "images/grass.png"
-   :mountain "images/mountain.png"
-   :coast "images/coast.png"})
+  {:water "images/tiles/water.png"
+   :land "images/tiles/grass.png"
+   :mountain "images/tiles/mountain.png"
+   :coast "images/tiles/coast.png"})
 
 
 (defmulti event-handler

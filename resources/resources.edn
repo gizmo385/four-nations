@@ -5,19 +5,19 @@
   :predicate :spawn-on-terrain-types
   :terrain-types [:land :mountain]
   :spawn-chance 0.01
-  :image "images/gold.png"}
+  :image "images/resources/gold.png"}
  {:name :oak-tree
   :display-name "Oak Tree"
   :symbol "T"
   :predicate :spawn-on-terrain-types
   :terrain-types [:land]
   :spawn-chance 0.30
-  :image "images/tree.png"}
+  :image "images/resources/tree.png"}
  {:name :oil-deposit
   :display-name "Oil Deposit"
   :symbol "O"
   :predicate :spawn-on-terrain-types
   :terrain-types [:water]
   :spawn-chance 0.005
-  :image "images/oil.png"}
+  :image "images/resources/oil.png"}
  ]
