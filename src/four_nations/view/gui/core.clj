@@ -2,17 +2,14 @@
   (:require
     [cljfx.api :as fx]
     [clojure.core.cache :as cache]
-    [clojure.edn :as edn]
     [four-nations.model.map :as m]
-    [four-nations.general.utils :as utils]
     [four-nations.model.map.utils :as map-utils]
     [four-nations.view.gui.images :as images])
   (:import
-    [javafx.application Application Platform]
+    [javafx.application Platform]
     [javafx.stage Screen]
     [javafx.scene.canvas Canvas]
     [javafx.scene.paint Color]
-    [javafx.scene Group Scene]
     [javafx.scene.shape Rectangle]
     [javafx.scene.input KeyCode]))
 
@@ -38,12 +35,15 @@
    :coast "images/coast.png"})
 
 
-(defmulti event-handler :event/type)
+(defmulti event-handler
+  "A multimethod defining how to handle events occurring within the map display"
+  :event/type)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; The Canvas element
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn clear-canvas!
+  "Wipes the current graphics display on the supplied canvas"
   [canvas]
   (let [graphics (.getGraphicsContext2D canvas)
         height (.getHeight canvas)
@@ -69,6 +69,9 @@
         canvas-width (.getWidth canvas)
         game-map-width (:width game-map)
         game-map-height (:height game-map)
+        ;; We need to calculate how many tiles we can actually draw. We calculate this by dividing
+        ;; the size of the canvas in pixels by the size of an individual tile in pixels. This tells
+        ;; us how many cells (from our starting position) we need to draw.
         horizontal-viewport-size (quot canvas-width tile-size)
         vertical-viewport-size (quot canvas-height tile-size)]
     (doseq [x-index (range horizontal-viewport-size)]
@@ -95,11 +98,17 @@
 ;;; Event handler
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn update-tile-size!
+  "Updates the tile size, which specifies how large the tiles will be drawn, based on the supplied
+   delta value."
   [delta]
   (letfn [(update-ts [ts] (max 1 (min 64 (+ ts delta))))]
     (swap! *state fx/swap-context update :tile-size update-ts)))
 
 (defn translate-viewport!
+  "Moves the current viewport in a by the specifies delta values.
+
+   TODO: Currently, it's possible to move the viewport _past_ the sides of the map. This is
+   something that should be fixed, but is not a large issue at the moment."
   [{:keys [x y] :as viewport} delta-x delta-y map-height map-width]
   (let [new-x (max 0 (min (+ x delta-x) map-width))
         new-y (max 0 (min (+ y delta-y) map-height))
@@ -110,18 +119,25 @@
   [{:keys [fx/event viewport map-height map-width]}]
   (let [key-code (.getCode event)]
     (condp = key-code
+      ;; Moving up/down/left/right across the map
       KeyCode/W (translate-viewport! viewport 0 -1 map-height map-width)
       KeyCode/A (translate-viewport! viewport -1 0 map-height map-width)
       KeyCode/S (translate-viewport! viewport 0 1 map-height map-width)
       KeyCode/D (translate-viewport! viewport 1 0 map-height map-width)
+
+      ;; Zooming out/in on the map
       KeyCode/E (update-tile-size! 1)
       KeyCode/Q (update-tile-size! -1)
       nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Root scene definition
+;;; Map display stage definition
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn root
+(defn map-display-stage
+  "A JavaFX stage that draws the map.
+
+   TODO: As more elements of the game UI start to be created, this stage definition will likely need
+   to be simplified, and this function will only include the scene definition."
   [{:keys [fx/context map-height map-width]}]
   (let [bounds (-> (Screen/getPrimary) .getBounds)
         max-height (.getHeight bounds)
@@ -145,11 +161,12 @@
                                 :max-width max-width}]}}}))
 
 (defn build-renderer
+  "Given some information about the map, we'll build a renderer that the map-display stage/scene."
   [map-height map-width]
   (fx/create-renderer
     :middleware (comp
                   fx/wrap-context-desc
-                  (fx/wrap-map-desc (fn [_] {:fx/type root
+                  (fx/wrap-map-desc (fn [_] {:fx/type map-display-stage
                                              :map-height map-height
                                              :map-width map-width})))
     :opts {:fx.opt/map-event-handler event-handler
