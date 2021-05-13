@@ -53,11 +53,12 @@
    definitions out of that file."
   [filename attribute-name->attribute]
   (let [raw-unit-types (utils/load-edn-resource filename)]
-    (for [ut raw-unit-types]
-      (unit-type-definition->unit-type ut attribute-name->attribute))))
+    (->> (for [ut raw-unit-types]
+           (unit-type-definition->unit-type ut attribute-name->attribute))
+         (utils/map-by :id))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Useful functions for interacting with units
+;;; Creating units
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn unit-type->unit
   "Builds a new unit in a particular tribe based on a unit type and the map of valid attributes."
@@ -72,12 +73,40 @@
                       :last-name (fake/last-name)}))
     (throw (ex-info "Disallowed tribe" {:unit-type unit-type :tribe tribe}))))
 
-(comment
-  (use 'clojure.pprint)
-  (let [attributes (file->unit-attributes "unit-attributes.edn")
-        unit-types (file->unit-types "unit-types.edn" attributes)]
-    ;(pprint attributes)
-    ;(pprint unit-types)
-    (pprint (unit-type->unit (first unit-types) :earth))
-    )
-  )
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Checking the status of units
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn unit-satisfies?
+  "Checks that the unit satisfies the supplied predicate. The predicate should take the unit as a
+   single argument and return a boolean. If the unit is nil, the predicate will not be called and
+   false will be returned."
+  [unit pred]
+  (boolean (when unit (pred unit))))
+
+(defn unit-attribute-satisfies?
+  "Checks if a units current attribute value satisifes the supplied predicate. The predicate should
+   take the current value as the first argument. Any additional arguments supplied to this function
+   will be supplied to the predicate as secondary arguments. If the specified unit lacks the
+   specified attribute, the predicate will NOT be called and false will be returned."
+  [unit attribute pred & args]
+  (if-let [current-value (get-in unit [:current-attributes attribute])]
+    (apply pred current-value args)
+    false))
+
+(defn dead?
+  "Returns true if the unit's health attribute is less than or equal to 0, false otherwise. If the
+   unit does not have a health attribute, false will be returned."
+  [unit]
+  (unit-attribute-satisfies? unit :health <= 0))
+
+(defn thirsty?
+  "Returns true if the unit's thirst attribute is less than or equal to 0, false otherwise. If the
+   unit does not have a thirst attribute, false will be returned."
+  [unit]
+  (unit-attribute-satisfies? unit :thirst <= 0))
+
+(defn hungry?
+  "Returns true if the unit's hunger attribute is less than or equal to 0, false otherwise. If the
+   unit does not have a hunger attribute, false will be returned."
+  [unit]
+  (unit-attribute-satisfies? unit :hunger <= 0))

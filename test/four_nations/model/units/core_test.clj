@@ -78,7 +78,9 @@
       (let [attributes (units/unit-attribute-definitions->unit-attributes-map
                          example-unit-attribute-definitions)
             unit-types (units/file->unit-types "random-file" attributes)]
-        (doseq [ut unit-types]
+        (is (every? keyword? (keys unit-types)))
+        (doseq [[unit-type-id ut] unit-types]
+          (is (= (:id ut) unit-type-id))
           (test-example-unit-type ut))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -95,3 +97,54 @@
              :first-name :last-name :description :name)
         (is (map? (get-in valid-unit [:attributes attr-name])))
         (is (some? (get-in valid-unit [:current-attributes attr-name])))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Testing unit predicates
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(deftest unit-predicates
+  (let [attributes (units/unit-attribute-definitions->unit-attributes-map
+                     example-unit-attribute-definitions)
+        unit-type (units/unit-type-definition->unit-type example-unit-type-definition attributes)
+        valid-unit (units/unit-type->unit unit-type :water)]
+    (testing "Unit satisfies?"
+      ;; Unit is not a part of the earth tribe, they're a part of the water tribe
+      (is (false? (units/unit-satisfies? valid-unit #(= :earth (:tribe %)))))
+      (is (units/unit-satisfies? valid-unit #(= :water (:tribe %))))
+
+      ;; Returning non-boolean data from a predicate results in a false result
+      (is (false? (units/unit-satisfies? valid-unit (constantly nil))))
+
+      ;; A nil unit results in a false result
+      (is (false? (units/unit-satisfies? nil (constantly true)))))
+
+    (testing "Unit attribute satisfies?"
+      ;; The health attribute should be at its starting value
+      (is (units/unit-attribute-satisfies?
+            valid-unit :health (partial = (:starting-value health-attribute-definition))))
+      ;; Unit does not exist
+      (is (false? (units/unit-attribute-satisfies?  nil :health (constantly true))))
+
+      ;; Unit lacks attribute
+      (is (false? (units/unit-attribute-satisfies?  valid-unit :invalid-attr (constantly true))))
+
+      ;; Predicate returns invalid value
+      (is (false? (units/unit-attribute-satisfies?  valid-unit :invalid-attr (constantly nil)))))
+
+    (testing "Helper predicates (dead?, hungry?, thirst?, etc)"
+      ;; Invalid units
+      (are [pred] (false? (pred nil)) units/thirsty? units/hungry? units/dead?)
+
+      ;; Is a unit thirsty?
+      (is (units/thirsty? {:current-attributes {:thirst 0}}))
+      (is (units/thirsty? {:current-attributes {:thirst -1}}))
+      (is (false? (units/thirsty? {:current-attributes {:thirst 100}})))
+
+      ;; Is a unit hungry?
+      (is (units/hungry? {:current-attributes {:hunger 0}}))
+      (is (units/hungry? {:current-attributes {:hunger -1}}))
+      (is (false? (units/hungry? {:current-attributes {:hunger 100}})))
+
+      ;; Is a unit dead?
+      (is (units/dead? {:current-attributes {:health 0}}))
+      (is (units/dead? {:current-attributes {:health -1}}))
+      (is (false? (units/dead? {:current-attributes {:health 100}}))))))
