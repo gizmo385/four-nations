@@ -2,6 +2,7 @@
   (:require
     [cljfx.api :as fx]
     [clojure.core.cache :as cache]
+    [four-nations.general.types :refer [->Dimension]]
     [four-nations.model.map :as m]
     [four-nations.model.map.utils :as map-utils]
     [four-nations.view.gui.images :as images])
@@ -54,21 +55,21 @@
   "For a tile at a particular spot on the graphics canvas, draw images on that position."
   [canvas tile x y tile-size]
   (let [graphics (.getGraphicsContext2D canvas)
-        tile-image (-> tile :terrain-type terrain-type->image images/load-image)]
+        tile-image (-> tile (get-in [:attributes :terrain-type]) terrain-type->image images/load-image)]
     (doto graphics
       (.drawImage tile-image x y tile-size tile-size))
-    (when-let [resource-image (get-in tile [:resource :image])]
+    (when-let [resource-image (get-in tile [:attributes :resource :image])]
       (doto graphics
         (.drawImage (images/load-image resource-image) x y tile-size tile-size)))))
 
 (defn draw-map
   "Given a canvas and information about the game map, draws the map onto the canvas."
-  [canvas game-map tile-size viewport]
+  [canvas game-map tile-size dimension viewport]
   (clear-canvas! canvas)
   (let [canvas-height (.getHeight canvas)
         canvas-width (.getWidth canvas)
-        game-map-width (:width game-map)
-        game-map-height (:height game-map)
+        game-map-width (:width dimension)
+        game-map-height (:height dimension)
         ;; We need to calculate how many tiles we can actually draw. We calculate this by dividing
         ;; the size of the canvas in pixels by the size of an individual tile in pixels. This tells
         ;; us how many cells (from our starting position) we need to draw.
@@ -77,14 +78,14 @@
     (doseq [x-index (range horizontal-viewport-size)]
       (doseq [y-index (range vertical-viewport-size)]
         (when-let [tile (map-utils/get-cell
-                          (:game-map game-map)
+                          game-map
                           (+ x-index (:x viewport))
                           (+ y-index (:y viewport)))]
           (draw-image canvas tile (* x-index tile-size) (* y-index tile-size) tile-size))))))
 
 (defn canvas-map
   "Defines a JavaFX canvas component that draws the game map."
-  [{:keys [fx/context max-height max-width]}]
+  [{:keys [fx/context dimension max-height max-width]}]
   (let [game-map (fx/sub-val context :game-map)
         tile-size (fx/sub-val context :tile-size)
         viewport (fx/sub-val context :viewport)]
@@ -92,7 +93,7 @@
      :height max-width
      :width max-height
      :draw (fn [^Canvas canvas]
-             (draw-map canvas game-map tile-size viewport))}))
+             (draw-map canvas game-map tile-size dimension viewport))}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Event handler
@@ -138,7 +139,7 @@
 
    TODO: As more elements of the game UI start to be created, this stage definition will likely need
    to be simplified, and this function will only include the scene definition."
-  [{:keys [fx/context map-height map-width]}]
+  [{:keys [fx/context dimension]}]
   (let [bounds (-> (Screen/getPrimary) .getBounds)
         max-height (.getHeight bounds)
         max-width (.getWidth bounds)
@@ -151,8 +152,8 @@
      :scene {:fx/type :scene
              :on-key-pressed {:event/type ::key-pressed
                               :viewport viewport
-                              :map-height map-height
-                              :map-width map-width}
+                              :map-height (:height dimension)
+                              :map-width (:width dimension)}
              :root {:fx/type :v-box
                     :padding 10
                     :spacing 10
@@ -162,13 +163,12 @@
 
 (defn build-renderer
   "Given some information about the map, we'll build a renderer that the map-display stage/scene."
-  [map-height map-width]
+  [dimension]
   (fx/create-renderer
     :middleware (comp
                   fx/wrap-context-desc
                   (fx/wrap-map-desc (fn [_] {:fx/type map-display-stage
-                                             :map-height map-height
-                                             :map-width map-width})))
+                                             :dimension dimension})))
     :opts {:fx.opt/map-event-handler event-handler
            :fx.opt/type->lifecycle #(or (fx/keyword->lifecycle %)
                                         (fx/fn->lifecycle-with-context %))}))
@@ -177,7 +177,8 @@
   (Platform/setImplicitExit true)
   (let [map-height 100
         map-width 100
-        game-map (m/build-map map-height map-width {:smoothing-passes 15})
-        view-renderer (build-renderer map-height map-width)]
+        dimension (->Dimension map-height map-width)
+        game-map (m/build-map dimension {:smoothing-passes 15})
+        view-renderer (build-renderer dimension)]
     (swap! *state fx/swap-context assoc :game-map game-map)
     (fx/mount-renderer *state view-renderer)))

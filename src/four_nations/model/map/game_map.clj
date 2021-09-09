@@ -3,10 +3,8 @@
     [clojure.term.colors :as color]
     [four-nations.model.map.utils :as utils]
     [four-nations.model.map.resources :as res]
+    [four-nations.general.types :refer [->Dimension]]
     [random-seed.core :as rs]))
-
-(defrecord GameTile [terrain-type raw-value x y resource])
-(defrecord GameMap [game-map height width])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Helper functions
@@ -14,7 +12,7 @@
 (defn average-map-value
   "Given a noise map, calculates the average value of all of the cells within that noise map."
   [noise]
-  (let [all-values (flatten noise)]
+  (let [all-values (map :value (vals noise))]
     (quot (apply + all-values)
           (count all-values))))
 
@@ -33,96 +31,117 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Building the game map and adding variety to the terrain
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn water-should-spread-to-tile?
+  "Determines if water should spread to a particular tile, based on the terrain types of the
+   neighbors and a random chance."
+  [tile m dimension spread-chance]
+  (and (utils/some-neighbors-are? (partial utils/has-terrain-type? :water) tile m dimension)
+       (utils/has-terrain-type? :land tile)
+       (< (rs/rand) spread-chance)))
+
 (defn spread-water
   "Given a game map and spread chance, for every land tile within the game that is near water, the
    spread chance determines how likely it is that the water will spread to that tile."
-  [{:keys [game-map height width]} spread-chance]
-  (-> (fn [tile x y]
-        (let [neighbors (utils/coordinates->neighbors height width game-map [x y])]
-          (if (and (-> tile :terrain-type (= :land))
-                   (->> neighbors
-                        (map :terrain-type)
-                        (some (partial = :water)))
-                   (< (rs/rand) spread-chance))
-            (assoc tile :terrain-type :water)
-            tile)))
-      (utils/two-dimensional-map game-map height width)
-      (->GameMap height width)))
+  [m dimension spread-chance]
+  (utils/map-over-tiles
+    (fn [tile]
+      (if (water-should-spread-to-tile? tile m dimension spread-chance)
+        (assoc-in tile [:attributes :terrain-type] :water)
+        tile))
+    m
+    dimension))
+
+(defn tile-should-be-drenched?
+  "Given a tile, a map, and its dimensions, determines if that tile should be drenched with water,
+   which happens when a land tile is surrounded by water tiles."
+  [tile m dimension]
+  (and (utils/all-neighbors-are? (partial utils/has-terrain-type? :water) tile m dimension)
+       (utils/has-terrain-type? :land tile)))
 
 (defn drench-surrounded-land
   "Given a game map, finds any land tiles where all of its cardinal neighbors are water and sets
    those tiles to also be water. This prevents tiny, nonsensical islands."
-  [{:keys [game-map height width]}]
-  (-> (fn [tile x y]
-        (let [neighbors (utils/coordinates->neighbors height width game-map [x y])]
-          (if (and (->> neighbors (map :terrain-type) (some (partial = :water)))
-                   (-> tile :terrain-type (= :land)))
-            (assoc tile :terrain-type :water)
-            tile)))
-      (utils/two-dimensional-map game-map height width)
-      (->GameMap height width)))
+  [m dimension]
+  (utils/map-over-tiles
+    (fn [tile]
+      (if (tile-should-be-drenched? tile m dimension)
+        (assoc-in tile [:attributes :terrain-type] :water)
+        tile))
+    m
+    dimension))
+
+(defn should-be-coastline?
+  "Returns true if the specified tile should be coastline."
+  [tile m dimension]
+  (and (utils/has-terrain-type? :land tile)
+       (utils/some-neighbors-are? (partial utils/has-terrain-type? :water) tile m dimension)))
 
 (defn add-coastline
   "Given a map, changes the terrain type of any land tiles that are near water to be coastline."
-  [{:keys [game-map height width]}]
-  (-> (fn [tile x y]
-        (let [neighbors (utils/coordinates->neighbors height width game-map [x y] false)]
-          (if (and (->> neighbors (map :terrain-type) (some (partial = :water)))
-                   (-> tile :terrain-type (= :land)))
-            (assoc tile :terrain-type :coast)
-            tile)))
-      (utils/two-dimensional-map game-map height width)
-      (->GameMap height width)))
+  [m dimension]
+  (utils/map-over-tiles
+    (fn [tile]
+      (if (should-be-coastline? tile m dimension)
+        (assoc-in tile [:attributes :terrain-type] :coast)
+        tile))
+    m
+    dimension))
 
 (defn add-water-border
-  [{:keys [game-map height width]} water-border]
-  (-> (fn [tile x y]
-        (if (or (< x water-border)
-                (> x (- width water-border))
-                (< y water-border)
-                (> y (- height water-border)))
-          (assoc tile :terrain-type :water)
-          tile))
-      (utils/two-dimensional-map game-map height width)
-      (->GameMap height width)))
+  "Adds a water border, where all tiles along the edge of the map become water, of a specified size
+   to the map."
+  [m dimension water-border]
+  (let [water-width-edge (- (:width dimension) water-border)
+        water-height-edge (- (:height dimension) water-border)]
+    (map
+      (fn [[{:keys [x y] :as point} tile]]
+        [point
+         (if (or (< x water-border)
+                 (>= x water-width-edge)
+                 (< y water-border)
+                 (>= y water-height-edge))
+           (assoc-in tile [:attributes :terrain-type] :water)
+           tile)])
+      m)))
 
 (defn maybe-add-resource-to-tile
   [tile {:keys [spawn-predicate] :as resource}]
-  (if (and (nil? (:resource tile))
+  (if (and (nil? (get-in tile [:attributes :resource]))
            (spawn-predicate tile))
-    (assoc tile :resource resource)
+    (assoc-in tile [:attributes :resource] resource)
     tile))
 
 (defn add-resources
-  [{:keys [game-map height width] :as gm} available-resources]
-  (-> (fn [tile x y]
-        (reduce maybe-add-resource-to-tile tile available-resources))
-      (utils/two-dimensional-map game-map height width)
-      (->GameMap height width)))
+  "Given a map, its dimensions and available resources; adds resources to the map based on the
+   specified spawn predicates for those resources."
+  [m dimension available-resources]
+  (utils/map-over-tiles
+    (fn [tile]
+      (reduce maybe-add-resource-to-tile tile available-resources))
+    m
+    dimension))
 
-(defn noise-map->basic-game-map
+(defn add-basic-terrain
   "Given the noise map and the average value of cells across the map, builds basic game map with
    simple terrain selection."
-  [{:keys [noise height width]} average-value]
-  (-> (fn [cell-value x y]
-        (-> cell-value
-            (determine-cell-terrain-type average-value)
-            (->GameTile cell-value x y nil)))
-      (utils/two-dimensional-map noise height width)
-      (->GameMap height width)))
+  [noise average-value]
+  (map (fn [[point tile]]
+         (let [terrain-type (determine-cell-terrain-type (:value tile) average-value)]
+           [point (assoc-in tile [:attributes :terrain-type] terrain-type)]))
+       noise))
 
-(defn noise-map->game-map
-  "Given a generated and smoothed noisemap, generates a game map with terrain added."
-  [noise-map water-spread-chance water-border]
-  (let [average-value (-> noise-map :noise average-map-value)
+(defn enrich-noise-map
+  "Given a generated and smoothed noisemap, generates a game map with additional attributes."
+  [noise dimension water-spread-chance water-border]
+  (let [average-value (average-map-value noise)
         resources (res/load-resource-definitions "resources.edn")]
-    (-> noise-map
-        (noise-map->basic-game-map average-value)
-        (add-water-border water-border)
-        (spread-water water-spread-chance)
-        drench-surrounded-land
-        add-coastline
-        (add-resources resources))))
+    (-> noise
+        (add-basic-terrain average-value)
+        (add-water-border dimension water-border)
+        (spread-water dimension water-spread-chance)
+        (drench-surrounded-land dimension)
+        (add-coastline dimension)
+        (add-resources dimension resources))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Rich comments for experimenting :)
@@ -130,14 +149,12 @@
 (comment
   (require '[four-nations.model.map.noise-map :as nm])
   (use 'clojure.pprint)
-  (let [height 60
-        width 275
+  (let [dimension (->Dimension 175 40)
+        smoothing-passes 15
+        noise (nm/generate-noisemap dimension smoothing-passes)
         water-spread-chance 0.1
-        water-border 2
-        smoothing-passes 15]
-    (-> (nm/generate-noisemap height width smoothing-passes water-border)
-        (noise-map->game-map water-spread-chance water-border)
-        :game-map
-        print-map)
+        water-border 1
+        enriched-map (enrich-noise-map noise dimension water-spread-chance water-border)]
+    (utils/print-map enriched-map dimension)
     )
   )

@@ -8,13 +8,13 @@
     [random-seed.core :as rs]))
 
 (defn build-map
-  [height width & {:keys [water-spread-chance water-border smoothing-passes]
-                   :or {water-spread-chance 0.05
-                        water-border 2
-                        smoothing-passes 20}
-                   :as options}]
-  (-> (nm/generate-noisemap height width smoothing-passes)
-      (gm/noise-map->game-map water-spread-chance water-border)))
+  [dimension & {:keys [water-spread-chance water-border smoothing-passes]
+                :or {water-spread-chance 0.05
+                     water-border 2
+                     smoothing-passes 20}
+                :as options}]
+  (-> (nm/generate-noisemap dimension smoothing-passes)
+      (gm/enrich-noise-map dimension water-spread-chance water-border)))
 
 (def cli-options
   [["-h" "--height HEIGHT" "Map height"

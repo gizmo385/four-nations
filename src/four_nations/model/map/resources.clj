@@ -43,7 +43,7 @@
   (fn [tile]
     (let [rand-value (rs/rand)]
       (and (< rand-value spawn-chance)
-           (some #{(:terrain-type tile)} terrain-types)))))
+           (some #{(get-in tile [:attributes :terrain-type])} terrain-types)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Parsing the resources EDN file
