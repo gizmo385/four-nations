@@ -1,7 +1,8 @@
 (ns four-nations.model.map.utils
   (:require
     [clojure.term.colors :as color]
-    [four-nations.general.types :refer [->Dimension ->Point]]))
+    [four-nations.general.types :refer [->Dimension ->Point]]
+    [random-seed.core :as rs]))
 
 (defn get-cell
   "Given a 2 dimensional game map and an (x, y) coordinate pair, retrieves the value at the
@@ -93,7 +94,69 @@
 ;;;
 ;;; Subdividing the map into smaller tiles
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn select-random-points
+  [dimension points-to-generate]
+  (for [_ (range points-to-generate)]
+    (->Point (int (rs/rand (:width dimension)))
+             (int (rs/rand (:height dimension))))))
 
+(defn fully-grouped?
+  "Given a map m, determines if the tiles in that map have been fully-grouped by a group ID."
+  [m]
+  (->> m vals (map #(get-in % [:attributes :group-id])) (every? some?)))
+
+(defn select-group-id-from-neighbors
+  "Given a tile from a map, randomly selects one of the group IDs from that tiles neighbors."
+  [tile m dimension]
+  (let [group-id (some->> (map-over-neighbors
+                            (fn [neighbor] (get-in neighbor [:attributes :group-id]))
+                            tile
+                            m
+                            dimension)
+                          (filter some?)
+                          (not-empty)
+                          (rs/rand-nth))]
+    (assoc-in tile [:attributes :group-id] group-id)))
+
+(defn spread-groups
+  "Given map, spreads tile ids to neighbors."
+  [m dimension]
+  (map-over-tiles
+    (fn [tile]
+      ;; If the tile doesn't have a group ID, then we'll set its group ID to a random selection of
+      ;; one of the group IDs next to it (or skip it if none of its neighbors have group IDs).
+      (if (some? (get-in tile [:attributes :group-id]))
+        tile
+        (select-group-id-from-neighbors tile m dimension)))
+    m
+    dimension))
+
+(defn randomized-grouping
+  "Given a map and its dimension, groups that map into the specified number of subgroups. These
+   groups are randomly initialized throughout the map and will then spread."
+  [m dimension group-count]
+  (let [initial-points (select-random-points dimension group-count)
+        initial-tiling (reduce
+                         (fn [game-map [idx p]]
+                           (assoc-in game-map [p :attributes :group-id] idx))
+                         m
+                         (zipmap (range) initial-points))]
+    (loop [updated-map initial-tiling]
+      (if (fully-grouped? updated-map)
+        updated-map
+        (recur (spread-groups updated-map dimension))))))
+
+(comment
+  (require '[four-nations.model.map :as m])
+  (use 'clojure.pprint)
+  (let [dimension (->Dimension 175 30)
+        game-map (m/build-map dimension)
+        grouped-map (randomized-grouping game-map dimension 5)]
+    (doseq [x (range (:width dimension))]
+      (doseq [y (range (:height dimension))]
+        (let [group-id (-> grouped-map (get-cell x y) (get-in [:attributes :group-id]))]
+          (print group-id)))
+      (println))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Printing maps to stdout
@@ -132,4 +195,3 @@
        (let [tile (get-cell m (->Point x y))]
          (print (tile->printable-char tile color?))))
      (println))))
-
