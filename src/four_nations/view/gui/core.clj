@@ -29,16 +29,25 @@
           cache/lru-cache-factory)))
 
 ;; TODO: Maybe in a config file?
-(def terrain-type->image
-  {:water "images/tiles/water.png"
-   :land "images/tiles/grass.png"
-   :mountain "images/tiles/mountain.png"
-   :coast "images/tiles/coast.png"})
+(def biome->terrain-types->image
+  {:forest {:land "images/tiles/dark-grass.png"
+            :mountain "images/tiles/mountain.png"
+            :coast "images/tiles/coast.png"}
+   :plains {:land "images/tiles/grass.png"
+            :mountain "images/tiles/mountain.png"
+            :coast "images/tiles/coast.png"}
+   :desert {:land "images/tiles/sand.png"
+            :mountain "images/tiles/mountain.png"
+            :coast "images/tiles/coast.png"}})
 
-(defn tile->terrain-image [tile]
+(defn tile->terrain-image
+  "Given a tile, determines the image that should be painted for the terrain on that tile."
+  [tile]
   (let [terrain-type (get-in tile [:attributes :terrain-type])
-        biome (get-in tile [:attributes :biome])]
-    (terrain-type->image terrain-type)))
+        biome (get-in tile [:attributes :biome :name])]
+    (if (= :water terrain-type)
+      "images/tiles/water.png"
+      (get-in biome->terrain-types->image [biome terrain-type]))))
 
 (defmulti event-handler
   "A multimethod defining how to handle events occurring within the map display"
