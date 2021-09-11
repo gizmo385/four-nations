@@ -1,6 +1,6 @@
-(ns four-nations.model.map.game-map
+(ns four-nations.model.map.enrichments
   (:require
-    [clojure.term.colors :as color]
+    [four-nations.model.map.biomes :as biomes]
     [four-nations.model.map.utils :as utils]
     [four-nations.model.map.resources :as res]
     [four-nations.general.types :refer [->Dimension]]
@@ -29,7 +29,7 @@
     :else :land))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Building the game map and adding variety to the terrain
+;;; Various enrichments to the game map, such as adding coastline or placing resources
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn water-should-spread-to-tile?
   "Determines if water should spread to a particular tile, based on the terrain types of the
@@ -42,10 +42,10 @@
 (defn spread-water
   "Given a game map and spread chance, for every land tile within the game that is near water, the
    spread chance determines how likely it is that the water will spread to that tile."
-  [m dimension spread-chance]
+  [m dimension {:keys [water-spread-chance]}]
   (utils/map-over-tiles
     (fn [tile]
-      (if (water-should-spread-to-tile? tile m dimension spread-chance)
+      (if (water-should-spread-to-tile? tile m dimension water-spread-chance)
         (assoc-in tile [:attributes :terrain-type] :water)
         tile))
     m
@@ -90,7 +90,7 @@
 (defn add-water-border
   "Adds a water border, where all tiles along the edge of the map become water, of a specified size
    to the map."
-  [m dimension water-border]
+  [m dimension {:keys [water-border]}]
   (let [water-width-edge (- (:width dimension) water-border)
         water-height-edge (- (:height dimension) water-border)]
     (map
@@ -114,10 +114,10 @@
 (defn add-resources
   "Given a map, its dimensions and available resources; adds resources to the map based on the
    specified spawn predicates for those resources."
-  [m dimension available-resources]
+  [m dimension {:keys [resources]}]
   (utils/map-over-tiles
     (fn [tile]
-      (reduce maybe-add-resource-to-tile tile available-resources))
+      (reduce maybe-add-resource-to-tile tile resources))
     m
     dimension))
 
@@ -130,31 +130,51 @@
            [point (assoc-in tile [:attributes :terrain-type] terrain-type)]))
        noise))
 
+(defn add-biomes
+  "Adds biomes to the map through random subdivision."
+  [m dimension {:keys [biomes biome-count]}]
+  (biomes/add-biomes m dimension biome-count biomes))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Main entry point for taking a noise map and adding enrichments to it
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(def default-biomes (biomes/load-biome-definitions "biomes.edn"))
+(def default-resources (res/load-resource-definitions "resources.edn"))
+(def default-enrichment-options
+  {:water-spread-chance 0.1
+   :water-border 2
+   :biome-count 5
+   :biomes default-biomes
+   :resources default-resources})
+
 (defn enrich-noise-map
   "Given a generated and smoothed noisemap, generates a game map with additional attributes."
-  [noise dimension water-spread-chance water-border]
-  (let [average-value (average-map-value noise)
-        resources (res/load-resource-definitions "resources.edn")]
-    (-> noise
-        (add-basic-terrain average-value)
-        (add-water-border dimension water-border)
-        (spread-water dimension water-spread-chance)
-        (drench-surrounded-land dimension)
-        (add-coastline dimension)
-        (add-resources dimension resources))))
+  ([noise dimension]
+   (enrich-noise-map noise dimension default-enrichment-options))
+
+  ([noise dimension options]
+   (let [average-value (average-map-value noise)]
+     (-> noise
+         (add-basic-terrain average-value)
+         (add-biomes dimension options)
+         (add-water-border dimension options)
+         (spread-water dimension options)
+         (drench-surrounded-land dimension)
+         (add-coastline dimension)
+         (add-resources dimension options)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Rich comments for experimenting :)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (comment
-  (require '[four-nations.model.map.noise-map :as nm])
-  (use 'clojure.pprint)
+  (require
+    '[four-nations.model.map.noise-map :as nm]
+    '[clojure.pprint :refer [pprint]])
+
   (let [dimension (->Dimension 175 40)
         smoothing-passes 15
         noise (nm/generate-noisemap dimension smoothing-passes)
-        water-spread-chance 0.1
-        water-border 1
-        enriched-map (enrich-noise-map noise dimension water-spread-chance water-border)]
+        enriched-map (enrich-noise-map noise dimension)]
     (utils/print-map enriched-map dimension)
     )
   )

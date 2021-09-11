@@ -1,7 +1,8 @@
 (ns four-nations.general.utils
   (:require
     [clojure.edn :as edn]
-    [clojure.java.io :as io]))
+    [clojure.java.io :as io]
+    [random-seed.core :as rs]))
 
 (defn load-edn-resource
   "Given a filename, reads that filename from the resources/ directory and loads its EDN contents."
@@ -21,6 +22,13 @@
   "Generates version 4 UUID string."
   []
   (str (java.util.UUID/randomUUID)))
+
+(defn seeded-shuffle
+  "A shuffle using the random-seed library"
+  [^java.util.Collection coll]
+  (let [al (java.util.ArrayList. coll)]
+    (java.util.Collections/shuffle al rs/rng)
+    (clojure.lang.RT/vector (.toArray al))))
 
 (defn map-by
   "Given a key k and collection of maps, returns a map that maps the value of k in each item in the

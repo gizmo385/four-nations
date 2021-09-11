@@ -2,19 +2,18 @@
   (:require
     [clojure.tools.cli :as cli]
     [clojure.string :as string]
+    [four-nations.general.types :refer [->Dimension]]
     [four-nations.model.map.noise-map :as nm]
     [four-nations.model.map.utils :as map-utils]
-    [four-nations.model.map.game-map :as gm]
+    [four-nations.model.map.enrichments :as enrichments]
     [random-seed.core :as rs]))
 
 (defn build-map
-  [dimension & {:keys [water-spread-chance water-border smoothing-passes]
-                :or {water-spread-chance 0.05
-                     water-border 2
-                     smoothing-passes 20}
-                :as options}]
-  (-> (nm/generate-noisemap dimension smoothing-passes)
-      (gm/enrich-noise-map dimension water-spread-chance water-border)))
+  "Builds a noisemap and then enriches that noise map to form a final game map."
+  [dimensions smoothing-passes enrichment-options]
+  (let [final-enrichment-options (merge enrichments/default-enrichment-options enrichment-options)]
+    (-> (nm/generate-noisemap dimensions smoothing-passes)
+        (enrichments/enrich-noise-map dimensions final-enrichment-options))))
 
 (def cli-options
   [["-h" "--height HEIGHT" "Map height"
@@ -23,7 +22,8 @@
     :parse-fn #(Integer/parseInt %)]
    [nil "--smoothing-passes PASSES" "Number of times to smooth randomly generated terrain out."
     :parse-fn #(Integer/parseInt %)
-    :validate [#(nat-int? %) "Should be a non-negative integer"]]
+    :validate [#(nat-int? %) "Should be a non-negative integer"]
+    :default 20]
    [nil "--water-border BORDER" "The number of tiles along the edge that should be filled with water."
     :parse-fn #(Integer/parseInt %)
     :validate [#(nat-int? %) "Should be a non-negative integer"]]
@@ -32,8 +32,6 @@
     :validate [#(< 0 % 1) "Should be a decimal between 0 and 1"]]
    [nil "--seed SEED" "Seed the random number generator"
     :parse-fn #(Integer/parseInt %)]
-   ["-c" "--[no-]color" "Print in color" :default true]
-   [nil "--[no-]print" "Specifies whether or not to print the generated map" :default true]
 
    [nil "--help"]])
 
@@ -62,7 +60,8 @@
       (println (format "Setting random seed to: %s" seed))
       (rs/set-random-seed! seed))
 
-    (let [gm (-> (time (build-map (:height options) (:width options) options)))]
-      (when (:print options)
-        (-> gm :game-map (map-utils/print-map true)))))
+    (let [dimension (->Dimension (:height options) (:width options))
+          smoothing-passes (:smoothing-passes options)]
+      (-> (build-map dimension smoothing-passes options)
+          (map-utils/print-map dimension))))
   (shutdown-agents))

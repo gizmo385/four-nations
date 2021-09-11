@@ -38,18 +38,19 @@
 (defn average-2d-noise
   "Given a 2-dimensional array of noise, returns a 2-dimensional array of averaged noise, where the
    value of each cell is the average of the values of its neighbors."
-  [noise dimension]
+  [dimension noise]
   (->> noise
        (map (fn [[point tile]]
               [point (assoc tile :value (average-of-neighbors noise dimension point))]))
        (into {})))
 
 (defn smooth-noisemap
+  "Given a smooth map, smoothes that map by averaging cell values with neighbors the specified number
+   of times."
   [noise dimension smoothing-passes]
-  (->> (utils/n-times
-         #(average-2d-noise % dimension)
-         noise
-         smoothing-passes)))
+  (-> (partial average-2d-noise dimension)
+      (iterate noise)
+      (nth smoothing-passes)))
 
 (defn generate-noisemap
   "Given a dimension, generates a 2-dimensional map of averaged noise, which can be used for
@@ -59,5 +60,6 @@
    (generate-noisemap dimension 1))
 
   ([dimension smoothing-passes]
+   (println :dim dimension :sp smoothing-passes)
    (-> (generate-2d-noise dimension)
        (smooth-noisemap dimension smoothing-passes))))

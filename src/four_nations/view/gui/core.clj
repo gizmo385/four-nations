@@ -35,6 +35,10 @@
    :mountain "images/tiles/mountain.png"
    :coast "images/tiles/coast.png"})
 
+(defn tile->terrain-image [tile]
+  (let [terrain-type (get-in tile [:attributes :terrain-type])
+        biome (get-in tile [:attributes :biome])]
+    (terrain-type->image terrain-type)))
 
 (defmulti event-handler
   "A multimethod defining how to handle events occurring within the map display"
@@ -55,7 +59,7 @@
   "For a tile at a particular spot on the graphics canvas, draw images on that position."
   [canvas tile x y tile-size]
   (let [graphics (.getGraphicsContext2D canvas)
-        tile-image (-> tile (get-in [:attributes :terrain-type]) terrain-type->image images/load-image)]
+        tile-image (-> tile tile->terrain-image images/load-image)]
     (doto graphics
       (.drawImage tile-image x y tile-size tile-size))
     (when-let [resource-image (get-in tile [:attributes :resource :image])]
@@ -178,7 +182,7 @@
   (let [map-height 100
         map-width 100
         dimension (->Dimension map-height map-width)
-        game-map (m/build-map dimension {:smoothing-passes 15})
+        game-map (m/build-map dimension 15 nil)
         view-renderer (build-renderer dimension)]
     (swap! *state fx/swap-context assoc :game-map game-map)
     (fx/mount-renderer *state view-renderer)))
