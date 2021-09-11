@@ -60,6 +60,5 @@
    (generate-noisemap dimension 1))
 
   ([dimension smoothing-passes]
-   (println :dim dimension :sp smoothing-passes)
    (-> (generate-2d-noise dimension)
        (smooth-noisemap dimension smoothing-passes))))
