@@ -5,7 +5,8 @@
     [four-nations.general.types :refer [->Dimension]]
     [four-nations.model.map :as m]
     [four-nations.model.map.utils :as map-utils]
-    [four-nations.view.gui.images :as images])
+    [four-nations.view.gui.images :as images]
+    [random-seed.core :as rs])
   (:import
     [javafx.application Platform]
     [javafx.stage Screen]
@@ -25,6 +26,7 @@
            :tile-size 32
            :height 500
            :width 500
+           :dimension nil
            :game-map nil}
           cache/lru-cache-factory)))
 
@@ -48,6 +50,10 @@
     (if (= :water terrain-type)
       "images/tiles/water.png"
       (get-in biome->terrain-types->image [biome terrain-type]))))
+
+(defn generate-map!
+  [dimension]
+  (swap! *state fx/swap-context assoc :game-map (m/build-map dimension 15 nil)))
 
 (defmulti event-handler
   "A multimethod defining how to handle events occurring within the map display"
@@ -130,7 +136,7 @@
     (swap! *state fx/swap-context assoc :viewport new-viewport)))
 
 (defmethod event-handler ::key-pressed
-  [{:keys [fx/event viewport map-height map-width]}]
+  [{:keys [fx/context fx/event viewport map-height map-width dimension]}]
   (let [key-code (.getCode event)]
     (condp = key-code
       ;; Moving up/down/left/right across the map
@@ -138,6 +144,9 @@
       KeyCode/A (translate-viewport! viewport -1 0 map-height map-width)
       KeyCode/S (translate-viewport! viewport 0 1 map-height map-width)
       KeyCode/D (translate-viewport! viewport 1 0 map-height map-width)
+
+      ;; Regenerating the map
+      KeyCode/R (generate-map! dimension)
 
       ;; Zooming out/in on the map
       KeyCode/E (update-tile-size! 1)
@@ -166,13 +175,16 @@
              :on-key-pressed {:event/type ::key-pressed
                               :viewport viewport
                               :map-height (:height dimension)
-                              :map-width (:width dimension)}
+                              :map-width (:width dimension)
+                              :dimension dimension}
              :root {:fx/type :v-box
                     :padding 10
                     :spacing 10
                     :children [{:fx/type canvas-map
                                 :max-height max-height
                                 :max-width max-width}]}}}))
+
+
 
 (defn build-renderer
   "Given some information about the map, we'll build a renderer that the map-display stage/scene."
@@ -193,5 +205,6 @@
         dimension (->Dimension map-height map-width)
         game-map (m/build-map dimension 15 nil)
         view-renderer (build-renderer dimension)]
+    (swap! *state fx/swap-context assoc :dimension dimension)
     (swap! *state fx/swap-context assoc :game-map game-map)
     (fx/mount-renderer *state view-renderer)))
