@@ -23,10 +23,7 @@
   "Determines if a cell should be land, water, or mountain based on the cell value's relation to
    the average value of the game map."
   [cell-value average-value]
-  (cond
-    (> cell-value (+ average-value 20)) :mountain
-    (< cell-value average-value) :water
-    :else :land))
+  (if (< cell-value average-value) :water :land))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Various enrichments to the game map, such as adding coastline or placing resources
@@ -143,7 +140,7 @@
 (def default-enrichment-options
   {:water-spread-chance 0.1
    :water-border 2
-   :biome-count 5
+   :biome-count (* 5 (count default-biomes))
    :biomes default-biomes
    :resources default-resources})
 
