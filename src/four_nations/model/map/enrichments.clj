@@ -31,65 +31,65 @@
 (defn water-should-spread-to-tile?
   "Determines if water should spread to a particular tile, based on the terrain types of the
    neighbors and a random chance."
-  [tile m dimension spread-chance]
-  (and (utils/some-neighbors-are? (partial utils/has-terrain-type? :water) tile m dimension)
+  [tile m dimensions spread-chance]
+  (and (utils/some-neighbors-are? (partial utils/has-terrain-type? :water) tile m dimensions)
        (utils/has-terrain-type? :land tile)
        (< (rs/rand) spread-chance)))
 
 (defn spread-water
   "Given a game map and spread chance, for every land tile within the game that is near water, the
    spread chance determines how likely it is that the water will spread to that tile."
-  [m dimension {:keys [water-spread-chance]}]
+  [m dimensions {:keys [water-spread-chance]}]
   (utils/map-over-tiles
     (fn [tile]
-      (if (water-should-spread-to-tile? tile m dimension water-spread-chance)
+      (if (water-should-spread-to-tile? tile m dimensions water-spread-chance)
         (assoc-in tile [:attributes :terrain-type] :water)
         tile))
     m
-    dimension))
+    dimensions))
 
 (defn tile-should-be-drenched?
   "Given a tile, a map, and its dimensions, determines if that tile should be drenched with water,
    which happens when a land tile is surrounded by water tiles."
-  [tile m dimension]
-  (and (utils/all-neighbors-are? (partial utils/has-terrain-type? :water) tile m dimension)
+  [tile m dimensions]
+  (and (utils/all-neighbors-are? (partial utils/has-terrain-type? :water) tile m dimensions)
        (utils/has-terrain-type? :land tile)))
 
 (defn drench-surrounded-land
   "Given a game map, finds any land tiles where all of its cardinal neighbors are water and sets
    those tiles to also be water. This prevents tiny, nonsensical islands."
-  [m dimension]
+  [m dimensions]
   (utils/map-over-tiles
     (fn [tile]
-      (if (tile-should-be-drenched? tile m dimension)
+      (if (tile-should-be-drenched? tile m dimensions)
         (assoc-in tile [:attributes :terrain-type] :water)
         tile))
     m
-    dimension))
+    dimensions))
 
 (defn should-be-coastline?
   "Returns true if the specified tile should be coastline."
-  [tile m dimension]
+  [tile m dimensions]
   (and (utils/has-terrain-type? :land tile)
-       (utils/some-neighbors-are? (partial utils/has-terrain-type? :water) tile m dimension)))
+       (utils/some-neighbors-are? (partial utils/has-terrain-type? :water) tile m dimensions)))
 
 (defn add-coastline
   "Given a map, changes the terrain type of any land tiles that are near water to be coastline."
-  [m dimension]
+  [m dimensions]
   (utils/map-over-tiles
     (fn [tile]
-      (if (should-be-coastline? tile m dimension)
+      (if (should-be-coastline? tile m dimensions)
         (assoc-in tile [:attributes :terrain-type] :coast)
         tile))
     m
-    dimension))
+    dimensions))
 
 (defn add-water-border
   "Adds a water border, where all tiles along the edge of the map become water, of a specified size
    to the map."
-  [m dimension {:keys [water-border]}]
-  (let [water-width-edge (- (:width dimension) water-border)
-        water-height-edge (- (:height dimension) water-border)]
+  [m dimensions {:keys [water-border]}]
+  (let [water-width-edge (- (:width dimensions) water-border)
+        water-height-edge (- (:height dimensions) water-border)]
     (map
       (fn [[{:keys [x y] :as point} tile]]
         [point
@@ -111,12 +111,12 @@
 (defn add-resources
   "Given a map, its dimensions and available resources; adds resources to the map based on the
    specified spawn predicates for those resources."
-  [m dimension {:keys [resources]}]
+  [m dimensions {:keys [resources]}]
   (utils/map-over-tiles
     (fn [tile]
       (reduce maybe-add-resource-to-tile tile resources))
     m
-    dimension))
+    dimensions))
 
 (defn add-basic-terrain
   "Given the noise map and the average value of cells across the map, builds basic game map with
@@ -129,8 +129,8 @@
 
 (defn add-biomes
   "Adds biomes to the map through random subdivision."
-  [m dimension {:keys [biomes biome-count]}]
-  (biomes/add-biomes m dimension biome-count biomes))
+  [m dimensions {:keys [biomes biome-count]}]
+  (biomes/add-biomes m dimensions biome-count biomes))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Main entry point for taking a noise map and adding enrichments to it
@@ -146,19 +146,19 @@
 
 (defn enrich-noise-map
   "Given a generated and smoothed noisemap, generates a game map with additional attributes."
-  ([noise dimension]
-   (enrich-noise-map noise dimension default-enrichment-options))
+  ([noise dimensions]
+   (enrich-noise-map noise dimensions default-enrichment-options))
 
-  ([noise dimension options]
+  ([noise dimensions options]
    (let [average-value (average-map-value noise)]
      (-> noise
          (add-basic-terrain average-value)
-         (add-biomes dimension options)
-         (add-water-border dimension options)
-         (spread-water dimension options)
-         (drench-surrounded-land dimension)
-         (add-coastline dimension)
-         (add-resources dimension options)))))
+         (add-biomes dimensions options)
+         (add-water-border dimensions options)
+         (spread-water dimensions options)
+         (drench-surrounded-land dimensions)
+         (add-coastline dimensions)
+         (add-resources dimensions options)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Rich comments for experimenting :)
@@ -168,10 +168,10 @@
     '[four-nations.model.map.noise-map :as nm]
     '[clojure.pprint :refer [pprint]])
 
-  (let [dimension (->Dimension 175 40)
-        smoothing-passes 15
-        noise (nm/generate-noisemap dimension smoothing-passes)
-        enriched-map (enrich-noise-map noise dimension)]
-    (utils/print-map enriched-map dimension)
+  (let [dimensions (->Dimension 175 40)
+        smoothing-passes 5
+        noise (nm/generate-noisemap dimensions smoothing-passes)
+        enriched-map (enrich-noise-map noise dimensions)]
+    (utils/print-map enriched-map dimensions)
     )
   )
