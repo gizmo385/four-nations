@@ -1,23 +1,26 @@
-[
- {:name :gold-vein
+[{:name :gold-vein
   :display-name "Gold Vein"
   :symbol "$"
-  :predicate :spawn-on-terrain-types
-  :terrain-types [:land :mountain]
-  :spawn-chance 0.01
+  :spawning {:chance 0.01
+             :attributes {:terrain-types #{:land :mountain}}}
   :image "images/resources/gold.png"}
  {:name :oak-tree
   :display-name "Oak Tree"
   :symbol "T"
-  :predicate :spawn-on-terrain-types
-  :terrain-types [:land]
-  :spawn-chance 0.30
-  :image "images/resources/tree.png"}
+  :spawning {:chance 0.30
+             :attributes {:terrain-types #{:land}
+                          :biomes #{:plains}}}
+  :image "images/resources/oak-tree.png"}
+ {:name :fir-tree
+  :display-name "Fir Tree"
+  :symbol "F"
+  :spawning {:chance 0.90
+             :attributes {:terrain-types #{:land}
+                          :biomes #{:forest}}}
+  :image "images/resources/fir-tree.png"}
  {:name :oil-deposit
   :display-name "Oil Deposit"
   :symbol "O"
-  :predicate :spawn-on-terrain-types
-  :terrain-types [:water]
-  :spawn-chance 0.005
-  :image "images/resources/oil.png"}
- ]
+  :spawning {:chance 0.005
+             :attributes {:terrain-types #{:water}}}
+  :image "images/resources/oil.png"}]

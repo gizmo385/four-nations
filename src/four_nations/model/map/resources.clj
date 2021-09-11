@@ -9,41 +9,26 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Validating resource definitions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn valid-base-resource?
+(defn valid-resource-definition?
   "Ensures that the resource has all of the basic required fields."
   [resource]
-  (and (:name resource) (:symbol resource) (:predicate resource)))
-
-(defmulti valid-resource-definition?
-  "The validation of a resource definition is done based on what kind of predicate the resource
-   defines."
-  (fn [resource] (:predicate resource)))
-
-(defmethod valid-resource-definition? :default [& _] false)
-
-(defmethod valid-resource-definition? :spawn-on-terrain-types
-  [{:keys [spawn-chance terrain-types] :as resource}]
-  (and (valid-base-resource? resource) spawn-chance terrain-types))
+  (and (:name resource) (:symbol resource) (:spawning resource)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Building spawn predicates
+;;; Determining if a resource can spawn on a particular tile
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmulti resource-definition->spawn-predicate
-  "For a particular resource, builds the spawn predicate function that takes a tile and determines
-   if the resource will spawn there."
-  (fn [resource] (:predicate resource)))
-
-(defmethod resource-definition->spawn-predicate :default [& _]
-  ;; If a resource is declared and the predicate is unknown, we'll ignore it. This should
-  ;; get caught in the validation steps.
-  (constantly false))
-
-(defmethod resource-definition->spawn-predicate :spawn-on-terrain-types
-  [{:keys [terrain-types spawn-chance] :as resource}]
-  (fn [tile]
-    (let [rand-value (rs/rand)]
-      (and (< rand-value spawn-chance)
-           (some #{(get-in tile [:attributes :terrain-type])} terrain-types)))))
+(defn spawn-resource-on-tile?
+  [resource tile]
+  (let [spawn-chance (get-in resource [:spawning :chance])
+        allowed-biomes (get-in resource [:spawning :attributes :biomes])
+        allowed-terrain-types (get-in resource [:spawning :attributes :terrain-types])
+        tile-biome (get-in tile [:attributes :biome :name])
+        tile-terrain-type (get-in tile [:attributes :terrain-type])]
+    (and (< (rs/rand) spawn-chance)
+         (or (nil? allowed-biomes)
+             (contains? allowed-biomes tile-biome))
+         (or (nil? allowed-terrain-types)
+             (contains? allowed-terrain-types tile-terrain-type)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Parsing the resources EDN file
@@ -53,7 +38,7 @@
    resource record will include the tile-based spawn predicate."
   [resource-definition]
   (if (valid-resource-definition? resource-definition)
-    (let [spawn-predicate (resource-definition->spawn-predicate resource-definition)]
+    (let [spawn-predicate (partial spawn-resource-on-tile? resource-definition)]
       (map->Resource (assoc resource-definition :spawn-predicate spawn-predicate)))
     (throw (ex-info "Invalid resource definition!" resource-definition))))
 
