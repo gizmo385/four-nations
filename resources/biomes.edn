@@ -1,3 +1,6 @@
-[{:name "Plains"}
- {:name "Forest"}
- {:name "Desert"}]
+[{:name :plains
+  :display-name "Plains"}
+ {:name :forest
+  :display-name "Forest"}
+ {:name :desert
+  :display-name "Desert"}]
