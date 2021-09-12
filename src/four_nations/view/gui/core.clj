@@ -19,7 +19,7 @@
     [javafx.scene.input KeyCode]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; State and constants
+;;; Top-level state definitions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defrecord MapViewPort [x y])
 
@@ -34,6 +34,33 @@
            :civilization nil}
           cache/lru-cache-factory)))
 
+(defn update-tile-size!
+  "Updates the tile size, which specifies how large the tiles will be drawn, based on the supplied
+   delta value."
+  [delta]
+  (letfn [(update-ts [ts] (max 1 (min 64 (+ ts delta))))]
+    (swap! *state fx/swap-context update :tile-size update-ts)))
+
+(defn translate-viewport!
+  "Moves the current viewport in a by the specifies delta values.
+
+   TODO: Currently, it's possible to move the viewport _past_ the sides of the map. This is
+   something that should be fixed, but is not a large issue at the moment."
+  [{:keys [x y] :as viewport} delta-x delta-y map-height map-width]
+  (let [new-x (max 0 (min (+ x delta-x) map-width))
+        new-y (max 0 (min (+ y delta-y) map-height))
+        new-viewport (assoc viewport :x new-x :y new-y)]
+    (swap! *state fx/swap-context assoc :viewport new-viewport)))
+
+(defn set-viewport!
+  "Sets the viewport center to the specified location"
+  [{:keys [x y] :as viewport} {:keys [height width] :as map-dimensions}]
+  (let [new-viewport (assoc viewport :x (max 0 (min x width)) :y (max 0 (min y height)))]
+    (swap! *state fx/swap-context assoc :viewport new-viewport)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Image loading
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (def biome->terrain-types->image
   (utils/load-edn-resource "image-configuration.edn"))
 
@@ -46,9 +73,14 @@
       "images/tiles/water.png"
       (get-in biome->terrain-types->image [biome terrain-type]))))
 
-(defn generate-map!
+(defn regenerate-civilization!
   [strategy]
-  (swap! *state fx/swap-context assoc :civilization (game/initialize-game strategy)))
+  (let [new-civ (game/initialize-game strategy)]
+    (swap! *state fx/swap-context assoc :civilization new-civ)
+    ;; TODO: Right now, this sets the top left corner to one of the units, but it should center on
+    ;; the units instead. This means we need to calculate how to put the tile in the middle, or as
+    ;; close as possible
+    (set-viewport! (-> new-civ :units keys rs/rand-nth) (:map-dimensions new-civ))))
 
 (defmulti event-handler
   "A multimethod defining how to handle events occurring within the map display"
@@ -89,7 +121,7 @@
         game-map-height (-> civilization :map-dimension :height)
         ;; We need to calculate how many tiles we can actually draw. We calculate this by dividing
         ;; the size of the canvas in pixels by the size of an individual tile in pixels. This tells
-        ;; us how many cells (from our starting position) we need to draw.
+        ;; us how many cells, from our starting position, we need to draw.
         horizontal-viewport-size (quot canvas-width tile-size)
         vertical-viewport-size (quot canvas-height tile-size)]
     (doseq [x-index (range horizontal-viewport-size)]
@@ -118,24 +150,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Event handler
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn update-tile-size!
-  "Updates the tile size, which specifies how large the tiles will be drawn, based on the supplied
-   delta value."
-  [delta]
-  (letfn [(update-ts [ts] (max 1 (min 64 (+ ts delta))))]
-    (swap! *state fx/swap-context update :tile-size update-ts)))
-
-(defn translate-viewport!
-  "Moves the current viewport in a by the specifies delta values.
-
-   TODO: Currently, it's possible to move the viewport _past_ the sides of the map. This is
-   something that should be fixed, but is not a large issue at the moment."
-  [{:keys [x y] :as viewport} delta-x delta-y map-height map-width]
-  (let [new-x (max 0 (min (+ x delta-x) map-width))
-        new-y (max 0 (min (+ y delta-y) map-height))
-        new-viewport (assoc viewport :x new-x :y new-y)]
-    (swap! *state fx/swap-context assoc :viewport new-viewport)))
-
 (defmethod event-handler ::key-pressed
   [{:keys [fx/context fx/event viewport map-height map-width game-init-strat]}]
   (let [key-code (.getCode event)]
@@ -147,7 +161,7 @@
       KeyCode/D (translate-viewport! viewport 1 0 map-height map-width)
 
       ;; Regenerating the map
-      KeyCode/R (generate-map! game-init-strat)
+      KeyCode/R (regenerate-civilization! game-init-strat)
 
       ;; Zooming out/in on the map
       KeyCode/E (update-tile-size! 1)
@@ -205,11 +219,10 @@
   (let [dimensions (->Dimension 100 100)
         unit-attributes (units/file->unit-attributes "unit-attributes.edn")
         unit-types (units/file->unit-types "unit-types.edn" unit-attributes)
-        map-gen-strat (game/->MapGenerationStrategy dimensions 5 {})
+        map-gen-strat (game/->MapGenerationStrategy dimensions 15 {})
         unit-spawn-strat (game/->UnitSpawnStrategy 5 (->Dimension 5 5) (:basic-worker unit-types))
         game-init-strat (game/->GameInitializationStrategy map-gen-strat unit-spawn-strat :water)
-        view-renderer (build-renderer dimensions game-init-strat)
-        civilization (game/initialize-game game-init-strat)]
+        view-renderer (build-renderer dimensions game-init-strat)]
     (swap! *state fx/swap-context assoc :game-init-strat game-init-strat)
-    (swap! *state fx/swap-context assoc :civilization civilization)
+    (regenerate-civilization! game-init-strat)
     (fx/mount-renderer *state view-renderer)))

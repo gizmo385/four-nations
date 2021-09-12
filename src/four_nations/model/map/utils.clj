@@ -2,7 +2,8 @@
   (:require
     [clojure.term.colors :as color]
     [four-nations.general.utils :as utils]
-    [four-nations.general.types :refer [->Dimension ->Point]]))
+    [four-nations.general.types :refer [->Dimension ->Point]]
+    [random-seed.core :as rs]))
 
 
 (defn get-cell
@@ -16,6 +17,12 @@
    their respective bounds (y < height, x < width). Assumes zero-indexed coordinates."
   [{:keys [height width] :as dimension} {:keys [x y] :as point}]
   (and (nat-int? x) (nat-int? y) (< y height) (< x width)))
+
+(defn random-point-in-dimensions
+  "Given some dimensions, returns a random point within those dimensions."
+  [dimensions]
+  (->Point (int (rs/rand (:width dimensions)))
+           (int (rs/rand (:height dimensions)))))
 
 (defn point->neighbor-points
   "Given a height, a width, and a (x, y) coordinate pair, returns all valid coordinates that are
@@ -126,31 +133,26 @@
 (def terrain-type->color
   {:land color/green
    :water color/blue
-   :mountain color/bold
    :coast color/yellow})
 
 (def terrain-type->char
   {:land "*"
    :water "~"
-   :mountain "^"
    :coast "."})
 
 (defn- tile->printable-char
-  [tile color?]
+  [tile]
   (let [terrain-type (get-in tile [:attributes :terrain-type])
         resource (get-in tile [:attributes :resource])
-        color (or (when color? (terrain-type->color terrain-type)) identity)
+        color (terrain-type->color terrain-type)
         output-char (or (:symbol resource) (terrain-type->char terrain-type) "?")]
     (color output-char)))
 
 (defn print-map
   "Given a game map, prints it out in a readable way."
-  ([m dimension]
-   (print-map m dimension false))
-
-  ([m dimension color?]
+  ([m dimension ]
    (doseq [y (range (:height dimension))]
      (doseq [x (range (:width dimension))]
        (let [tile (get-cell m (->Point x y))]
-         (print (tile->printable-char tile color?))))
+         (print (tile->printable-char tile))))
      (println))))

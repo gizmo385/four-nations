@@ -14,10 +14,9 @@
 ;;; Algorithm for randomly subdividing the map and adding IDs to it.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn select-random-points
+  "Generates the specified number of points within the given dimensions."
   [dimensions points-to-generate]
-  (for [_ (range points-to-generate)]
-    (->Point (int (rs/rand (:width dimensions)))
-             (int (rs/rand (:height dimensions))))))
+  (repeatedly points-to-generate (partial map-utils/random-point-in-dimensions dimensions)))
 
 (defn fully-grouped?
   "Given a map m, determines if the tiles in that map have been fully-grouped by a group ID."
@@ -27,12 +26,9 @@
 (defn select-group-id-from-neighbors
   "Given a tile from a map, randomly selects one of the group IDs from that tiles neighbors."
   [tile m dimensions]
-  (let [group-id (some->> (map-utils/randomly-map-over-neighbors
-                            (fn [neighbor] (get-in neighbor [:attributes :group-id]))
-                            tile
-                            m
-                            dimensions
-                            false)
+  (let [tile->group-id (fn [t] (get-in t [:attributes :group-id]))
+        ;; Select a random group ID from the tiles neighbors, or nil if no neighbors have group IDs
+        group-id (some->> (map-utils/map-over-neighbors tile->group-id tile m dimensions)
                           (filter some?)
                           (not-empty)
                           (rs/rand-nth))]
@@ -40,14 +36,13 @@
 
 (defn spread-groups
   "Given map, spreads tile ids to neighbors."
-  [m dimensions]
+  [dimensions m]
   (map-utils/randomly-map-over-tiles
     (fn [tile]
       ;; If the tile doesn't have a group ID, then we'll set its group ID to a random selection of
       ;; one of the group IDs next to it (or skip it if none of its neighbors have group IDs).
-      (if (some? (get-in tile [:attributes :group-id]))
-        tile
-        (select-group-id-from-neighbors tile m dimensions)))
+      (cond-> tile
+        (nil? (get-in tile [:attributes :group-id])) (select-group-id-from-neighbors m dimensions)))
     m
     dimensions))
 
@@ -62,10 +57,12 @@
                            (assoc-in game-map [p :attributes :group-id] idx))
                          m
                          (zipmap (repeatedly #(int (rs/rand subgroup-id-count))) initial-points))]
-    (loop [updated-map initial-tiling]
-      (if (fully-grouped? updated-map)
-        updated-map
-        (recur (spread-groups updated-map dimensions))))))
+    ;; We'll repeatedly spread the groups until the map is fully grouped and every tile has an
+    ;; assigned group-id.
+    (->> initial-tiling ;; Take the map with the initial groups applied
+         (iterate (partial spread-groups dimensions)) ;; Iteratively spread the groups
+         (take-while (complement fully-grouped?)) ;; Until every tile has a group-id
+         (last)))) ;; Iterate produces a sequence of results. The last one is fully grouped.
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -88,7 +85,7 @@
    biomes."
   [m dimensions biome-count biomes]
   (let [id->biome (zipmap (range) biomes)]
-    (-> (into {}  m)
+    (-> (into {} m)
         (subdivide-map dimensions biome-count (count biomes))
         (group-ids->biomes dimensions id->biome))))
 
@@ -113,7 +110,7 @@
   (let [dimensions (->Dimension 175 30)
         group-count 10
         group-id-count 5
-        game-map (m/build-map dimensions)
+        game-map (m/build-map dimensions 5 nil)
         grouped-map (subdivide-map game-map dimensions group-count group-id-count)]
     (doseq [x (range (:width dimensions))]
       (doseq [y (range (:height dimensions))]
