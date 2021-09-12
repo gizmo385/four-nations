@@ -149,8 +149,8 @@
    (print-map m dimension false))
 
   ([m dimension color?]
-   (doseq [x (range (:width dimension))]
-     (doseq [y (range (:height dimension))]
+   (doseq [y (range (:height dimension))]
+     (doseq [x (range (:width dimension))]
        (let [tile (get-cell m (->Point x y))]
          (print (tile->printable-char tile color?))))
      (println))))
