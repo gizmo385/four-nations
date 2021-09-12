@@ -1,0 +1,12 @@
+{:forest {:land "images/tiles/dark-grass.png"
+          :water "images/tiles/water.png"
+          :coast "images/tiles/coast.png"}
+ :plains {:land "images/tiles/grass.png"
+          :water "images/tiles/water.png"
+          :coast "images/tiles/coast.png"}
+ :desert {:land "images/tiles/sand.png"
+          :water "images/tiles/water.png"
+          :coast "images/tiles/coast.png"}
+ :tundra {:land "images/tiles/ice.png"
+          :water "images/tiles/water.png"
+          :coast "images/tiles/coast.png"}}

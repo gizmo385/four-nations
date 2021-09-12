@@ -3,4 +3,6 @@
  {:name :forest
   :display-name "Forest"}
  {:name :desert
-  :display-name "Desert"}]
+  :display-name "Desert"}
+ {:name :tundra
+  :display-name "Tundra"}]

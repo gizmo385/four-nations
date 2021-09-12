@@ -3,6 +3,7 @@
     [cljfx.api :as fx]
     [clojure.core.cache :as cache]
     [four-nations.general.types :refer [->Dimension]]
+    [four-nations.general.utils :as utils]
     [four-nations.model.map :as m]
     [four-nations.model.map.utils :as map-utils]
     [four-nations.view.gui.images :as images]
@@ -27,20 +28,12 @@
            :height 500
            :width 500
            :dimension nil
+           :civilization nil
            :game-map nil}
           cache/lru-cache-factory)))
 
-;; TODO: Maybe in a config file?
 (def biome->terrain-types->image
-  {:forest {:land "images/tiles/dark-grass.png"
-            :mountain "images/tiles/mountain.png"
-            :coast "images/tiles/coast.png"}
-   :plains {:land "images/tiles/grass.png"
-            :mountain "images/tiles/mountain.png"
-            :coast "images/tiles/coast.png"}
-   :desert {:land "images/tiles/sand.png"
-            :mountain "images/tiles/mountain.png"
-            :coast "images/tiles/coast.png"}})
+  (utils/load-edn-resource "image-configuration.edn"))
 
 (defn tile->terrain-image
   "Given a tile, determines the image that should be painted for the terrain on that tile."
