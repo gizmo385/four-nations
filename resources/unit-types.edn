@@ -2,4 +2,5 @@
   :name "Basic Worker"
   :description "A unit which can be used to complete manual labor tasks, such as woodcutting."
   :tribes [:water :air :fire :earth]
-  :attribute-names [:health :energy :hunger :thirst]}]
+  :attribute-names [:health :energy :hunger :thirst]
+  :image "images/units/airDude2.png"}]

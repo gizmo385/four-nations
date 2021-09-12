@@ -11,7 +11,7 @@
   [name display-name description minimum-value maximum-value starting-value])
 
 (defrecord GameUnitType
-  [id name description tribes attributes])
+  [id name description tribes attributes image])
 
 (defrecord GameUnit
   [id unit-type tribe current-attributes first-name last-name])

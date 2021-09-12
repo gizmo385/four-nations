@@ -5,6 +5,8 @@
     [four-nations.general.types :refer [->Dimension]]
     [four-nations.general.utils :as utils]
     [four-nations.model.map :as m]
+    [four-nations.model.units.core :as units]
+    [four-nations.model.game :as game]
     [four-nations.model.map.utils :as map-utils]
     [four-nations.view.gui.images :as images]
     [random-seed.core :as rs])
@@ -28,8 +30,8 @@
            :height 500
            :width 500
            :dimension nil
-           :civilization nil
-           :game-map nil}
+           :game-init-strat nil
+           :civilization nil}
           cache/lru-cache-factory)))
 
 (def biome->terrain-types->image
@@ -45,8 +47,8 @@
       (get-in biome->terrain-types->image [biome terrain-type]))))
 
 (defn generate-map!
-  [dimension]
-  (swap! *state fx/swap-context assoc :game-map (m/build-map dimension 15 nil)))
+  [strategy]
+  (swap! *state fx/swap-context assoc :civilization (game/initialize-game strategy)))
 
 (defmulti event-handler
   "A multimethod defining how to handle events occurring within the map display"
@@ -65,23 +67,26 @@
 
 (defn draw-image
   "For a tile at a particular spot on the graphics canvas, draw images on that position."
-  [canvas tile x y tile-size]
+  [canvas tile maybe-unit x y tile-size]
   (let [graphics (.getGraphicsContext2D canvas)
         tile-image (-> tile tile->terrain-image images/load-image)]
     (doto graphics
       (.drawImage tile-image x y tile-size tile-size))
     (when-let [resource-image (get-in tile [:attributes :resource :image])]
       (doto graphics
-        (.drawImage (images/load-image resource-image) x y tile-size tile-size)))))
+        (.drawImage (images/load-image resource-image) x y tile-size tile-size)))
+    (when-let [unit-image (some-> maybe-unit :unit-type :image images/load-image)]
+      (doto graphics
+        (.drawImage unit-image x y tile-size tile-size)))))
 
 (defn draw-map
   "Given a canvas and information about the game map, draws the map onto the canvas."
-  [canvas game-map tile-size dimension viewport]
+  [canvas civilization tile-size viewport]
   (clear-canvas! canvas)
   (let [canvas-height (.getHeight canvas)
         canvas-width (.getWidth canvas)
-        game-map-width (:width dimension)
-        game-map-height (:height dimension)
+        game-map-width (-> civilization :map-dimension :width)
+        game-map-height (-> civilization :map-dimension :height)
         ;; We need to calculate how many tiles we can actually draw. We calculate this by dividing
         ;; the size of the canvas in pixels by the size of an individual tile in pixels. This tells
         ;; us how many cells (from our starting position) we need to draw.
@@ -90,22 +95,25 @@
     (doseq [x-index (range horizontal-viewport-size)]
       (doseq [y-index (range vertical-viewport-size)]
         (when-let [tile (map-utils/get-cell
-                          game-map
+                          (:game-map civilization)
                           (+ x-index (:x viewport))
                           (+ y-index (:y viewport)))]
-          (draw-image canvas tile (* x-index tile-size) (* y-index tile-size) tile-size))))))
+          (let [tile-point (:point tile)
+                maybe-unit (get-in civilization [:units tile-point])]
+            (draw-image
+              canvas tile maybe-unit (* x-index tile-size) (* y-index tile-size) tile-size)))))))
 
 (defn canvas-map
   "Defines a JavaFX canvas component that draws the game map."
-  [{:keys [fx/context dimension max-height max-width]}]
-  (let [game-map (fx/sub-val context :game-map)
+  [{:keys [fx/context max-height max-width]}]
+  (let [civilization (fx/sub-val context :civilization)
         tile-size (fx/sub-val context :tile-size)
         viewport (fx/sub-val context :viewport)]
     {:fx/type :canvas
      :height max-width
      :width max-height
      :draw (fn [^Canvas canvas]
-             (draw-map canvas game-map tile-size dimension viewport))}))
+             (draw-map canvas civilization tile-size viewport))}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Event handler
@@ -129,7 +137,7 @@
     (swap! *state fx/swap-context assoc :viewport new-viewport)))
 
 (defmethod event-handler ::key-pressed
-  [{:keys [fx/context fx/event viewport map-height map-width dimension]}]
+  [{:keys [fx/context fx/event viewport map-height map-width game-init-strat]}]
   (let [key-code (.getCode event)]
     (condp = key-code
       ;; Moving up/down/left/right across the map
@@ -139,7 +147,7 @@
       KeyCode/D (translate-viewport! viewport 1 0 map-height map-width)
 
       ;; Regenerating the map
-      KeyCode/R (generate-map! dimension)
+      KeyCode/R (generate-map! game-init-strat)
 
       ;; Zooming out/in on the map
       KeyCode/E (update-tile-size! 1)
@@ -154,7 +162,7 @@
 
    TODO: As more elements of the game UI start to be created, this stage definition will likely need
    to be simplified, and this function will only include the scene definition."
-  [{:keys [fx/context dimension]}]
+  [{:keys [fx/context dimension game-init-strat]}]
   (let [bounds (-> (Screen/getPrimary) .getBounds)
         max-height (.getHeight bounds)
         max-width (.getWidth bounds)
@@ -169,7 +177,7 @@
                               :viewport viewport
                               :map-height (:height dimension)
                               :map-width (:width dimension)
-                              :dimension dimension}
+                              :game-init-strat game-init-strat}
              :root {:fx/type :v-box
                     :padding 10
                     :spacing 10
@@ -181,23 +189,27 @@
 
 (defn build-renderer
   "Given some information about the map, we'll build a renderer that the map-display stage/scene."
-  [dimension]
+  [dimension strategy]
   (fx/create-renderer
     :middleware (comp
                   fx/wrap-context-desc
                   (fx/wrap-map-desc (fn [_] {:fx/type map-display-stage
-                                             :dimension dimension})))
+                                             :dimension dimension
+                                             :game-init-strat strategy})))
     :opts {:fx.opt/map-event-handler event-handler
            :fx.opt/type->lifecycle #(or (fx/keyword->lifecycle %)
                                         (fx/fn->lifecycle-with-context %))}))
 
 (defn -main [& args]
   (Platform/setImplicitExit true)
-  (let [map-height 100
-        map-width 100
-        dimension (->Dimension map-height map-width)
-        game-map (m/build-map dimension 15 nil)
-        view-renderer (build-renderer dimension)]
-    (swap! *state fx/swap-context assoc :dimension dimension)
-    (swap! *state fx/swap-context assoc :game-map game-map)
+  (let [dimensions (->Dimension 100 100)
+        unit-attributes (units/file->unit-attributes "unit-attributes.edn")
+        unit-types (units/file->unit-types "unit-types.edn" unit-attributes)
+        map-gen-strat (game/->MapGenerationStrategy dimensions 5 {})
+        unit-spawn-strat (game/->UnitSpawnStrategy 5 (->Dimension 5 5) (:basic-worker unit-types))
+        game-init-strat (game/->GameInitializationStrategy map-gen-strat unit-spawn-strat :water)
+        view-renderer (build-renderer dimensions game-init-strat)
+        civilization (game/initialize-game game-init-strat)]
+    (swap! *state fx/swap-context assoc :game-init-strat game-init-strat)
+    (swap! *state fx/swap-context assoc :civilization civilization)
     (fx/mount-renderer *state view-renderer)))
