@@ -61,7 +61,10 @@
         subimage-tiles (tile-coordinates->subimage-coordinates tiles tile-size)]
     ;; Image bounds checking
     (when-not (valid-tile-definitions? subimage-tiles tileset-image-height tileset-image-width)
-      (throw (ex-info "Invalid tileset definition. Some coordinates go beyond image boundaries.")))
+      (throw (ex-info "Invalid tileset definition. Some coordinates go beyond image boundaries."
+                      {:tileset tileset
+                       :tileset-image-height tileset-image-height
+                       :tileset-image-width tileset-image-width})))
 
     (zipmap
       (keys subimage-tiles)

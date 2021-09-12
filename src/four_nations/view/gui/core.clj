@@ -2,7 +2,7 @@
   (:require
     [cljfx.api :as fx]
     [clojure.core.cache :as cache]
-    [four-nations.general.types :refer [->Dimension]]
+    [four-nations.general.types :refer [->Dimension ->Point]]
     [four-nations.general.utils :as utils]
     [four-nations.model.map :as m]
     [four-nations.model.units.core :as units]
@@ -31,7 +31,7 @@
            :width 500
            :dimension nil
            :game-init-strat nil
-           :civilization nil}
+           :game nil}
           cache/lru-cache-factory)))
 
 (defn update-tile-size!
@@ -77,14 +77,16 @@
 
 (def tile->terrain-image (memoize tile->terrain-image*))
 
-(defn regenerate-civilization!
+(defn regenerate-game!
   [strategy]
-  (let [new-civ (game/initialize-game strategy)]
-    (swap! *state fx/swap-context assoc :civilization new-civ)
+  (let [new-game (game/initialize-game strategy)
+        {:keys [height width] :as map-dimensions} (:map-dimensions new-game)]
+    (swap! *state fx/swap-context assoc :game new-game)
     ;; TODO: Right now, this sets the top left corner to one of the units, but it should center on
     ;; the units instead. This means we need to calculate how to put the tile in the middle, or as
     ;; close as possible
-    (set-viewport! (-> new-civ :units keys rs/rand-nth) (:map-dimensions new-civ))))
+    #_(set-viewport! (-> new-game :units keys rs/rand-nth) (:map-dimensions new-game))
+    (set-viewport! (->Point (int (quot height 2)) (int (quot width 2))) map-dimensions)))
 
 (defmulti event-handler
   "A multimethod defining how to handle events occurring within the map display"
@@ -117,12 +119,12 @@
 
 (defn draw-map
   "Given a canvas and information about the game map, draws the map onto the canvas."
-  [canvas civilization tile-size viewport]
+  [canvas game tile-size viewport]
   (clear-canvas! canvas)
   (let [canvas-height (.getHeight canvas)
         canvas-width (.getWidth canvas)
-        game-map-width (-> civilization :map-dimension :width)
-        game-map-height (-> civilization :map-dimension :height)
+        game-map-width (-> game :map-dimension :width)
+        game-map-height (-> game :map-dimension :height)
         ;; We need to calculate how many tiles we can actually draw. We calculate this by dividing
         ;; the size of the canvas in pixels by the size of an individual tile in pixels. This tells
         ;; us how many cells, from our starting position, we need to draw.
@@ -131,25 +133,29 @@
     (doseq [x-index (range horizontal-viewport-size)]
       (doseq [y-index (range vertical-viewport-size)]
         (when-let [tile (map-utils/get-cell
-                          (:game-map civilization)
+                          (:game-map game)
                           (+ x-index (:x viewport))
                           (+ y-index (:y viewport)))]
           (let [tile-point (:point tile)
-                maybe-unit (get-in civilization [:units tile-point])]
+                maybe-unit (get-in game [:units tile-point])]
             (draw-image
               canvas tile maybe-unit (* x-index tile-size) (* y-index tile-size) tile-size)))))))
 
 (defn canvas-map
   "Defines a JavaFX canvas component that draws the game map."
   [{:keys [fx/context max-height max-width]}]
-  (let [civilization (fx/sub-val context :civilization)
+  (let [game (fx/sub-val context :game)
         tile-size (fx/sub-val context :tile-size)
         viewport (fx/sub-val context :viewport)]
     {:fx/type :canvas
      :height max-width
      :width max-height
+     :on-mouse-clicked {:event/type ::tile-clicked
+                              :viewport viewport
+                              :game game
+                              :tile-size tile-size}
      :draw (fn [^Canvas canvas]
-             (draw-map canvas civilization tile-size viewport))}))
+             (draw-map canvas game tile-size viewport))}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Event handler
@@ -165,12 +171,29 @@
       KeyCode/D (translate-viewport! viewport 1 0 map-height map-width)
 
       ;; Regenerating the map
-      KeyCode/R (regenerate-civilization! game-init-strat)
+      KeyCode/R (regenerate-game! game-init-strat)
 
       ;; Zooming out/in on the map
       KeyCode/E (update-tile-size! 1)
       KeyCode/Q (update-tile-size! -1)
       nil)))
+
+(defn canvas-click-location->map-tile-location
+  "Given a mouse click event from within the map canvas, determines which coordinates on the game
+   map that click originated from."
+  [click-event viewport tile-size]
+  (let [click-x (.getX click-event)
+        click-y (.getY click-event)
+        tile-x (-> click-x (quot tile-size) (+ (:x viewport)) int)
+        tile-y (-> click-y (quot tile-size) (+ (:y viewport)) int)]
+    (->Point (-> click-x (quot tile-size) (+ (:x viewport)) int)
+             (-> click-y (quot tile-size) (+ (:y viewport)) int))))
+
+(defmethod event-handler ::tile-clicked
+  [{:keys [fx/event game viewport tile-size]}]
+  (let [tile-location (canvas-click-location->map-tile-location event viewport tile-size)
+        clicked-cell (map-utils/get-cell (:game-map game) tile-location)]
+    (println clicked-cell)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Map display stage definition
@@ -200,6 +223,7 @@
                     :padding 10
                     :spacing 10
                     :children [{:fx/type canvas-map
+                                :viewport viewport
                                 :max-height max-height
                                 :max-width max-width}]}}}))
 
@@ -228,5 +252,5 @@
         game-init-strat (game/->GameInitializationStrategy map-gen-strat unit-spawn-strat :water)
         view-renderer (build-renderer dimensions game-init-strat)]
     (swap! *state fx/swap-context assoc :game-init-strat game-init-strat)
-    (regenerate-civilization! game-init-strat)
+    (regenerate-game! game-init-strat)
     (fx/mount-renderer *state view-renderer)))

@@ -1,1 +1,2 @@
-Tileset: Ivan Voirol - https://ivanvoirol.itch.io/
+Slate Tileset: Ivan Voirol - https://ivanvoirol.itch.io/
+Basic tiles: Lanea Zimmerman

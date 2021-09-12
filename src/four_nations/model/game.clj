@@ -8,7 +8,7 @@
     [random-seed.core :as rs]
     ))
 
-(defrecord Civilization [game-map map-dimensions units])
+(defrecord Game [game-map map-dimensions units])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Initializing the game map initialization
@@ -69,19 +69,19 @@
       random-starting-points)))
 
 (defn spawn-units
-  "Given a civilization, a strategy for spawning units, and a tribe, creates and spawns new units in
+  "Given a game, a strategy for spawning units, and a tribe, creates and spawns new units in
    a valid spawn square."
-  [{:keys [game-map map-dimensions] :as civilization}
+  [{:keys [game-map map-dimensions] :as game}
    {:keys [spawn-square-dimensions unit-count unit-type] :as unit-spawn-strategy}
    tribe]
   (let [valid-spawn-points (->> (find-valid-spawn-points game-map map-dimensions spawn-square-dimensions unit-count)
                                 utils/seeded-shuffle
                                 (take unit-count))]
     (reduce
-      (fn [civilization spawn-point]
+      (fn [game spawn-point]
         (let [new-unit (units/unit-type->unit unit-type tribe)]
-          (assoc-in civilization [:units (:point spawn-point)] new-unit)))
-      civilization
+          (assoc-in game [:units (:point spawn-point)] new-unit)))
+      game
       valid-spawn-points)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -95,5 +95,5 @@
   [{:keys [map-generation-strategy unit-spawn-strategy tribe] :as game-init-strategy}]
   (let [game-map (initialize-map map-generation-strategy)]
     (-> game-map
-        (->Civilization (:map-dimensions map-generation-strategy) nil)
+        (->Game (:map-dimensions map-generation-strategy) nil)
         (spawn-units unit-spawn-strategy tribe))))
