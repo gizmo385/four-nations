@@ -61,17 +61,21 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Image loading
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(def tilesets (-> "tilesets.edn" utils/load-edn-resource images/config->tilesets))
 (def biome->terrain-types->image
   (utils/load-edn-resource "image-configuration.edn"))
 
-(defn tile->terrain-image
+(defn tile->terrain-image*
   "Given a tile, determines the image that should be painted for the terrain on that tile."
   [tile]
   (let [terrain-type (get-in tile [:attributes :terrain-type])
-        biome (get-in tile [:attributes :biome :name])]
-    (if (= :water terrain-type)
-      "images/tiles/water.png"
-      (get-in biome->terrain-types->image [biome terrain-type]))))
+        biome (get-in tile [:attributes :biome :name])
+        image-key (get-in biome->terrain-types->image [biome terrain-type])]
+    (cond
+      (keyword? image-key) (images/random-tile-from-tilesets tilesets image-key)
+      (string? image-key) (images/load-image image-key))))
+
+(def tile->terrain-image (memoize tile->terrain-image*))
 
 (defn regenerate-civilization!
   [strategy]
@@ -101,7 +105,7 @@
   "For a tile at a particular spot on the graphics canvas, draw images on that position."
   [canvas tile maybe-unit x y tile-size]
   (let [graphics (.getGraphicsContext2D canvas)
-        tile-image (-> tile tile->terrain-image images/load-image)]
+        tile-image (tile->terrain-image tile)]
     (doto graphics
       (.drawImage tile-image x y tile-size tile-size))
     (when-let [resource-image (get-in tile [:attributes :resource :image])]

@@ -5,6 +5,7 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.10.0"]
                  [cljfx/cljfx                             "1.7.13"]
+                 [org.openjfx/javafx-swing                "16"]
                  [clojure-term-colors/clojure-term-colors "0.1.0"]
                  [faker/faker                             "0.3.2"]
                  [org.clojure/clojure                     "1.11.0-alpha1"]

@@ -1,7 +1,7 @@
 {:forest {:land "images/tiles/dark-grass.png"
           :water "images/tiles/water.png"
           :coast "images/tiles/coast.png"}
- :plains {:land "images/tiles/grass.png"
+ :plains {:land :grass
           :water "images/tiles/water.png"
           :coast "images/tiles/coast.png"}
  :desert {:land "images/tiles/sand.png"
