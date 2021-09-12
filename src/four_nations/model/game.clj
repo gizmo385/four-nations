@@ -57,8 +57,10 @@
            (int (rs/rand (:height map-dimensions)))))
 
 (defn find-valid-spawn-points
+  "Given a game map and information about how the user wants to place units, returns all valid spawn
+   points from random potential spawn points."
   [game-map map-dimensions spawn-square-dimensions unit-count]
-  (let [random-starting-points (repeatedly 50 (partial random-starting-point map-dimensions))]
+  (let [random-starting-points (repeatedly (partial random-starting-point map-dimensions))]
     (reduce
       (fn [_ starting-point]
         (some->> (->PotentialSpawnSquare starting-point spawn-square-dimensions)
@@ -67,15 +69,18 @@
       random-starting-points)))
 
 (defn spawn-units
+  "Given a civilization, a strategy for spawning units, and a tribe, creates and spawns new units in
+   a valid spawn square."
   [{:keys [game-map map-dimensions] :as civilization}
    {:keys [spawn-square-dimensions unit-count unit-type] :as unit-spawn-strategy}
    tribe]
-  (let [valid-spawn-points (find-valid-spawn-points
-                             game-map map-dimensions spawn-square-dimensions unit-count)]
+  (let [valid-spawn-points (->> (find-valid-spawn-points game-map map-dimensions spawn-square-dimensions unit-count)
+                                utils/seeded-shuffle
+                                (take unit-count))]
     (reduce
-      (fn unit-spawner [civilization spawn-point]
+      (fn [civilization spawn-point]
         (let [new-unit (units/unit-type->unit unit-type tribe)]
-          (assoc-in civilization [:units spawn-point] new-unit)))
+          (assoc-in civilization [:units (:point spawn-point)] new-unit)))
       civilization
       valid-spawn-points)))
 
@@ -86,20 +91,9 @@
   [map-generation-strategy unit-spawn-strategy tribe])
 
 (defn initialize-game
+  "Creates a game map and spawns initial units in the game."
   [{:keys [map-generation-strategy unit-spawn-strategy tribe] :as game-init-strategy}]
   (let [game-map (initialize-map map-generation-strategy)]
     (-> game-map
         (->Civilization (:map-dimensions map-generation-strategy) nil)
         (spawn-units unit-spawn-strategy tribe))))
-
-(comment
-  (require
-    '[clojure.pprint :refer [pprint]])
-  (let [dimensions (->Dimension 50 50)
-        unit-attributes (units/file->unit-attributes "unit-attributes.edn")
-        unit-types (units/file->unit-types "unit-types.edn" unit-attributes)
-        map-gen-strat (->MapGenerationStrategy dimensions 5 {})
-        unit-spawn-strat (->UnitSpawnStrategy 5 (->Dimension 5 5) (:basic-worker unit-types))
-        game-init-strat (->GameInitializationStrategy map-gen-strat unit-spawn-strat :water)]
-    (-> game-init-strat initialize-game :units pprint))
-  )
