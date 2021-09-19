@@ -65,15 +65,19 @@
 (def biome->terrain-types->image
   (utils/load-edn-resource "image-configuration.edn"))
 
+(defn image-key->image
+  [image-key]
+  (cond
+      (keyword? image-key) (images/random-tile-from-tilesets tilesets image-key)
+      (string? image-key) (images/load-image image-key)))
+
 (defn tile->terrain-image*
   "Given a tile, determines the image that should be painted for the terrain on that tile."
   [tile]
   (let [terrain-type (get-in tile [:attributes :terrain-type])
         biome (get-in tile [:attributes :biome :name])
         image-key (get-in biome->terrain-types->image [biome terrain-type])]
-    (cond
-      (keyword? image-key) (images/random-tile-from-tilesets tilesets image-key)
-      (string? image-key) (images/load-image image-key))))
+    (image-key->image image-key)))
 
 (def tile->terrain-image (memoize tile->terrain-image*))
 
@@ -110,10 +114,10 @@
         tile-image (tile->terrain-image tile)]
     (doto graphics
       (.drawImage tile-image x y tile-size tile-size))
-    (when-let [resource-image (get-in tile [:attributes :resource :image])]
+    (when-let [resource-image (some-> tile (get-in [:attributes :resource :image]) image-key->image)]
       (doto graphics
-        (.drawImage (images/load-image resource-image) x y tile-size tile-size)))
-    (when-let [unit-image (some-> maybe-unit :unit-type :image images/load-image)]
+        (.drawImage resource-image x y tile-size tile-size)))
+    (when-let [unit-image (some-> maybe-unit :unit-type :image image-key->image)]
       (doto graphics
         (.drawImage unit-image x y tile-size tile-size)))))
 
