@@ -13,4 +13,10 @@
  {:name :lpc-water
   :file "images/tilesets/lpc_dirt.png"
   :tile-size 32
-  :tiles {:sand [[0 5] [1 5] [2 5]]}}]
+  :tiles {:sand [[0 5] [1 5] [2 5]]}}
+ {:name :oga-trees-32px
+  :file "images/tilesets/oga-tree-pack.png"
+  :tile-size 32
+  :tiles {:oak-tree [[11 24]]
+          :fir-tree [[7 15] [7 20]]}}
+ ]

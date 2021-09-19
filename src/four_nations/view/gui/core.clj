@@ -26,9 +26,7 @@
 (def *state
   (atom (fx/create-context
           {:viewport (->MapViewPort 0 0)
-           :tile-size 32
-           :height 500
-           :width 500
+           :tile-size 48
            :dimension nil
            :game-init-strat nil
            :game nil}
@@ -50,6 +48,8 @@
   (let [new-x (max 0 (min (+ x delta-x) map-width))
         new-y (max 0 (min (+ y delta-y) map-height))
         new-viewport (assoc viewport :x new-x :y new-y)]
+    ;; TODO: We need to calculate if this translation will move the edge of the viewable map _past_
+    ;; the edge of the display
     (swap! *state fx/swap-context assoc :viewport new-viewport)))
 
 (defn set-viewport!
@@ -86,11 +86,8 @@
   (let [new-game (game/initialize-game strategy)
         {:keys [height width] :as map-dimensions} (:map-dimensions new-game)]
     (swap! *state fx/swap-context assoc :game new-game)
-    ;; TODO: Right now, this sets the top left corner to one of the units, but it should center on
-    ;; the units instead. This means we need to calculate how to put the tile in the middle, or as
-    ;; close as possible
-    #_(set-viewport! (-> new-game :units keys rs/rand-nth) (:map-dimensions new-game))
-    (set-viewport! (->Point (int (quot height 2)) (int (quot width 2))) map-dimensions)))
+    ;; Center the viewport on the map
+    (set-viewport! (->Point (int (quot width 2)) (int (quot height 2))) map-dimensions)))
 
 (defmulti event-handler
   "A multimethod defining how to handle events occurring within the map display"
@@ -155,9 +152,10 @@
      :height max-width
      :width max-height
      :on-mouse-clicked {:event/type ::tile-clicked
-                              :viewport viewport
-                              :game game
-                              :tile-size tile-size}
+                        :viewport viewport
+                        :game game
+                        :tile-size tile-size}
+     :on-scroll {:event/type ::canvas-scrolled}
      :draw (fn [^Canvas canvas]
              (draw-map canvas game tile-size viewport))}))
 
@@ -169,18 +167,22 @@
   (let [key-code (.getCode event)]
     (condp = key-code
       ;; Moving up/down/left/right across the map
-      KeyCode/W (translate-viewport! viewport 0 -1 map-height map-width)
-      KeyCode/A (translate-viewport! viewport -1 0 map-height map-width)
-      KeyCode/S (translate-viewport! viewport 0 1 map-height map-width)
-      KeyCode/D (translate-viewport! viewport 1 0 map-height map-width)
-
-      ;; Regenerating the map
-      KeyCode/R (regenerate-game! game-init-strat)
+      KeyCode/W (translate-viewport! viewport 0 -5 map-height map-width)
+      KeyCode/A (translate-viewport! viewport -5 0 map-height map-width)
+      KeyCode/S (translate-viewport! viewport 0 5 map-height map-width)
+      KeyCode/D (translate-viewport! viewport 5 0 map-height map-width)
 
       ;; Zooming out/in on the map
       KeyCode/E (update-tile-size! 1)
       KeyCode/Q (update-tile-size! -1)
       nil)))
+
+(defmethod event-handler ::canvas-scrolled
+  [{:keys [fx/event]}]
+  (let [delta-y (.getDeltaY event)]
+    (if (pos? delta-y)
+      (update-tile-size! 5)
+      (update-tile-size! -5))))
 
 (defn canvas-click-location->map-tile-location
   "Given a mouse click event from within the map canvas, determines which coordinates on the game
@@ -217,6 +219,8 @@
      :title "Game Map"
      :max-height max-height
      :max-width max-width
+     :height 1000
+     :width 1000
      :scene {:fx/type :scene
              :on-key-pressed {:event/type ::key-pressed
                               :viewport viewport

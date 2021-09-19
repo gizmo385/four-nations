@@ -10,14 +10,14 @@
   :spawning {:chance 0.30
              :attributes {:terrain-types #{:land}
                           :biomes #{:plains}}}
-  :image "images/resources/oak-tree.png"}
+  :image :oak-tree}
  {:name :fir-tree
   :display-name "Fir Tree"
   :symbol "F"
   :spawning {:chance 0.90
              :attributes {:terrain-types #{:land}
                           :biomes #{:forest}}}
-  :image "images/resources/fir-tree.png"}
+  :image :fir-tree}
  {:name :oil-deposit
   :display-name "Oil Deposit"
   :symbol "O"
