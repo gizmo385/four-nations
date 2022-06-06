@@ -16,3 +16,5 @@ jobs:
         with:
           lein: 2.9.8
 
+      - name: Compile Clojurescript
+        run: lein cljsbuild once min
