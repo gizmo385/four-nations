@@ -3,8 +3,7 @@
     [four-nations.model.map.biomes :as biomes]
     [four-nations.model.map.utils :as utils]
     [four-nations.model.map.resources :as res]
-    [four-nations.general.types :refer [->Dimension]]
-    ))
+    [four-nations.general.types :refer [->Dimension]]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Helper functions
