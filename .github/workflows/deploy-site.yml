@@ -1,4 +1,4 @@
-name: Octo Organization CI
+name: Deploy cljs site to github-pages
 
 on:
   push:
@@ -13,4 +13,6 @@ jobs:
 
       - name: Setup Clojure
         uses: DeLaGuardo/setup-clojure@5.1
+        with:
+          lein: 2.9.8
 
