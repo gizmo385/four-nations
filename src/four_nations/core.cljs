@@ -6,6 +6,7 @@
     [four-nations.general.types :as types]
     [reagent.core :as reagent :refer [atom]]
     [goog.string :as gstring]
+    [goog.string.format]
     [reagent.dom :as rd]))
 
 (enable-console-print!)
