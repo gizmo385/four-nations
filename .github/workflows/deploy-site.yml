@@ -18,3 +18,9 @@ jobs:
 
       - name: Compile Clojurescript
         run: lein cljsbuild once min
+
+      - name: Deploy 🚀
+        uses: JamesIves/github-pages-deploy-action@v4.3.3
+        with:
+          branch: gh-pages # The branch the action should deploy to.
+          folder: resources/public # The folder the action should deploy.
