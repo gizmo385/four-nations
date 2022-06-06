@@ -5,6 +5,7 @@
     [four-nations.model.map.enrichments :as enrichments]
     [four-nations.general.types :as types]
     [reagent.core :as reagent :refer [atom]]
+    [reagent-modals.modals :as reagent-modals]
     [goog.string :as gstring]
     [goog.string.format]
     [reagent.dom :as rd]))
@@ -15,14 +16,69 @@
   ;; This repesents the settings that the map will be generated using.
   (atom {:enrichments enrichments/default-enrichment-options
          :map-height 50
-         :map-width 150
+         :map-width 50
          :smoothing-passes 15}))
 
 (defonce game-state
   ;; This represents the state of the actual game
-  (atom {:map nil
+  (atom {:game-map nil
          :dimension nil
-         :tile-size 30}))
+         :tile-size 16}))
+
+(defonce generating-map? (atom false))
+
+(defn tile-detail
+  [tile]
+  [:div
+   {:style {:display :inline-block
+            :border "1px solid black"
+            :margin :auto}}
+   [:p (gstring/format "Tile @ (%s, %s)" (-> tile :point :x) (-> tile :point :y))]
+   [:p (gstring/format "Terrain Type: %s" (-> tile :attributes :terrain-type name))]
+   [:p (gstring/format "Biome: %s" (-> tile :attributes :biome :display-name))]
+   [:p (gstring/format "Resource: %s" (get-in tile [:attributes :resource :display-name] "None"))]
+   ])
+
+(def biome-terrain-type-image-config
+  {:tundra {:land "images/tiles/ice.png"
+            :water "images/tiles/water.png"
+            :coast "images/tiles/coast.png"
+            }
+   :forest {:land "images/tiles/dark-grass.png"
+            :water "images/tiles/water.png"
+            :coast "images/tiles/coast.png"
+            }
+   :desert {:land "images/tiles/sand.png"
+            :water "images/tiles/water.png"
+            :coast "images/tiles/coast.png"
+            }
+   :plains {:land "images/tiles/grass.png"
+            :water "images/tiles/water.png"
+            :coast "images/tiles/coast.png"}
+   nil {:land "images/tiles/grass.png"
+        :water "images/tiles/water.png"
+        :coast "images/tiles/coast.png"}})
+
+(def resource-image-config
+  {:oak-tree "images/resources/oak-tree.png"
+   :fir-tree "images/resources/fir-tree.png"
+   :gold-vein "images/resources/gold.png"
+   :oil-deposit "images/resources/oil.png"})
+
+(defn tile-resource-image
+  [tile tile-size]
+  (if-let [resource-image (-> tile :attributes :resource :name resource-image-config)]
+    [:img {:style {:position :absolute :height tile-size :width tile-size}
+           :src resource-image}]))
+
+(defn tile-terrain-image
+  [tile tile-size]
+  (let [terrain-type (get-in tile [:attributes :terrain-type])
+        biome (get-in tile [:attributes :biome :name])]
+    (if-let [image (get-in biome-terrain-type-image-config [biome terrain-type])]
+      [:img {:style {:position :absolute
+                     :height tile-size :width tile-size}
+             :src image}])))
 
 (defn map-tile
   "Render a single map tile"
@@ -33,23 +89,26 @@
      {:style {:height tile-size
               :width tile-size
               :border "1px solid black"
+              :display :inline-block
               :font-family "monospace"
-              :background-color (-> t :attributes :terrain-type map-utils/terrain-type->color)}}
-     (map-utils/tile->printable-char t)]))
+              :background-color (-> t :attributes :terrain-type map-utils/terrain-type->color)}
+      :on-click (fn [_] (reagent-modals/modal! [tile-detail t]))}
+     [tile-terrain-image t tile-size]
+     [tile-resource-image t tile-size]]))
 
 (defn game-map-display
   "Render the entire map based on the current state"
-  []
-  (if-let [{:keys [game-map dimension]} @game-state]
-    [:div
-     (for [y (range (:height dimension))]
-       ^{:key (gstring/format "GameMapRow_y=%s" y)}
-       [:div
-        (for [x (range (:width dimension))]
-          ^{:key (gstring/format "GameMapTile_y=%s_x=%s" y x)}
-          [map-tile
-           (-> game-map (map-utils/get-cell (types/->Point x y)))])
-        [:br]])]))
+  [game-map dimension]
+  [:div
+   (for [y (range (:height dimension))]
+     ^{:key (gstring/format "GameMapRow_y=%s" y)}
+     [:div
+      {:class "map-row"}
+      (for [x (range (:width dimension))]
+        ^{:key (gstring/format "GameMapTile_y=%s_x=%s" y x)}
+        [map-tile
+         (-> game-map (map-utils/get-cell (types/->Point x y)))])
+      [:br]])])
 
 
 (defn re-generate-map
@@ -57,7 +116,6 @@
   [_]
   (let [{:keys [:enrichments :map-height :map-width :smoothing-passes] :as settings} @game-generation-settings
         dimension (types/->Dimension map-height map-width)]
-    (println "Generating new map with settings: " settings)
     (->> (time (m/build-map dimension smoothing-passes enrichments))
          (swap! game-state assoc :dimension dimension :game-map))))
 
@@ -100,12 +158,19 @@
 
    [:button.green {:on-click re-generate-map} "Re-generate Map"]])
 
+(defn game-map-or-loading
+  []
+  ;; TODO: Add a loading mechanism when a new map is being generated
+  (let [{:keys [game-map dimension]} @game-state]
+    [game-map-display game-map dimension]))
+
 
 (defn game-display []
   (let []
     [:div
+     [reagent-modals/modal-window]
      [game-setting-controls]
-     [game-map-display]]))
+     [game-map-or-loading]]))
 
 (rd/render [game-display]
            (. js/document (getElementById "app")))

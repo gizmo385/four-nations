@@ -1,2 +1,5 @@
 /* some style */
-
+.map-row {
+    display: inline-block;
+    white-space: nowrap;
+}
