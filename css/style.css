@@ -1,5 +1,14 @@
 /* some style */
 .map-row {
-    display: inline-block;
+    display: table-row;
     white-space: nowrap;
+}
+
+.map-tile {
+    height: 32px;
+    min-height: 32px;
+    width: 32px;
+    min-width: 32px;
+    display: table-cell;
+    table-layout: fixed;
 }
