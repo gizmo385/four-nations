@@ -84,12 +84,7 @@
   (let [coordinates (:point t)
         tile-size (:tile-size @game-state)]
     [:a
-     {:style {:height tile-size
-              :width tile-size
-              :border "1px solid black"
-              :display :inline-block
-              :font-family "monospace"
-              :background-color (-> t :attributes :terrain-type map-utils/terrain-type->color)}
+     {:class :map-tile
       :on-click (fn [_] (reagent-modals/modal! [tile-detail t]))}
      [tile-terrain-image t tile-size]
      [tile-resource-image t tile-size]]))
@@ -101,7 +96,7 @@
    (for [y (range (:height dimension))]
      ^{:key (gstring/format "GameMapRow_y=%s" y)}
      [:div
-      {:class "map-row"}
+      {:class :map-row}
       (for [x (range (:width dimension))]
         ^{:key (gstring/format "GameMapTile_y=%s_x=%s" y x)}
         [map-tile (-> game-map (map-utils/get-cell (types/->Point x y)))])])])
