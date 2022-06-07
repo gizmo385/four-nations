@@ -23,9 +23,7 @@
   ;; This represents the state of the actual game
   (atom {:game-map nil
          :dimension nil
-         :tile-size 16}))
-
-(defonce generating-map? (atom false))
+         :tile-size 32}))
 
 (defn tile-detail
   [tile]
@@ -68,7 +66,7 @@
 (defn tile-resource-image
   [tile tile-size]
   (if-let [resource-image (-> tile :attributes :resource :name resource-image-config)]
-    [:img {:style {:position :absolute :height tile-size :width tile-size}
+    [:img {:style {:position :absolute}
            :src resource-image}]))
 
 (defn tile-terrain-image
@@ -106,9 +104,7 @@
       {:class "map-row"}
       (for [x (range (:width dimension))]
         ^{:key (gstring/format "GameMapTile_y=%s_x=%s" y x)}
-        [map-tile
-         (-> game-map (map-utils/get-cell (types/->Point x y)))])
-      [:br]])])
+        [map-tile (-> game-map (map-utils/get-cell (types/->Point x y)))])])])
 
 
 (defn re-generate-map
@@ -131,21 +127,21 @@
   (let [value (get-in @game-generation-settings attr-path)]
     [:div
      {:style {:width "50%"}}
-     label ": " (clj-type-fn value)
+     label ": "
      [:input
       {:type "range"
        :value value
        :min min-value
        :max max-value
        :step step
-       :on-change (fn [e] (update-generation-setting attr-path e js-type-fn)) }]]))
+       :on-change (fn [e] (update-generation-setting attr-path e js-type-fn)) }]
+     (clj-type-fn value)]))
 
 (defn game-setting-controls
   "UI elements for altering the generation settings of the map"
   []
   [:div
-   {:style {:width "200px"
-            :margin-bottom "20px"}}
+   {:style {:margin-bottom "20px"}}
    [:h3 "Game Settings"]
 
    [labeled-settings-slider "Height" [:map-height] 10 500 1 int js/parseInt]
