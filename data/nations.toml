@@ -4,6 +4,10 @@
 #
 # `names` is the pool new units are named from (shuffled per seed).
 #
+# `characters` are the Ninja Adventure characters (folder names under
+# assets/third_party/ninja-adventure/Actor/Character/) a nation's units are drawn as; a unit's
+# `variant` indexes this list. The sim only counts them; crates/client/src/sprites.rs finds files.
+#
 # `starting_techs` are known from tick 0 (ids from data/research.toml). Each must be shared or
 # this nation's own, and every prereq of a starting tech must also be a starting tech.
 
@@ -14,6 +18,7 @@ element = "air"
 color = [236, 196, 92]
 description = "Nomadic monks. Fast and light; can power turbines and mills with airbending."
 names = ["Gyatso", "Tashi", "Pasang", "Kunchen", "Jinpa", "Dorje", "Lhamo", "Sonam", "Yangchen", "Kelsang", "Pema", "Iio"]
+characters = ["Monk2", "Master", "NinjaYellow"]
 starting_techs = ["orchards"]
 [nation.modifiers]
 move_speed = 1.6        # airbenders glide/run
@@ -33,6 +38,7 @@ element = "water"
 color = [70, 130, 210]
 description = "Polar fishers and healers. Irrigate fields, heal the injured, travel by water."
 names = ["Kanna", "Pakku", "Hakoda", "Bato", "Yugoda", "Tho", "Kustaa", "Atuat", "Siku", "Nuka", "Malina", "Amaruq"]
+characters = ["Eskimo", "NinjaEskimo", "NinjaWater"]
 starting_techs = ["fishing"]
 [nation.modifiers]
 move_speed = 1.0
@@ -52,6 +58,7 @@ element = "earth"
 color = [90, 160, 80]
 description = "Stubborn builders. Earthworks, quarrying and walls are dramatically cheaper."
 names = ["Haru", "Tyro", "Oma", "Shu", "Ping", "Song", "Jin", "Kuei", "Ming", "Tao", "Lin", "Jang"]
+characters = ["Villager3", "Samurai", "NinjaGreen"]
 starting_techs = ["stoneworking"]
 [nation.modifiers]
 move_speed = 0.9
@@ -71,6 +78,7 @@ element = "fire"
 color = [205, 70, 50]
 description = "Industrious and aggressive. Smelting, forging and heating need little fuel."
 names = ["Lu Ten", "Ilah", "Kuzon", "Shyu", "Ran", "Shaw", "Ursa", "Noriko", "Ikem", "Kiyi", "Jee", "Ming-Hua"]
+characters = ["NinjaFire", "SamuraiRed", "NinjaRed"]
 starting_techs = ["fire_making"]
 [nation.modifiers]
 move_speed = 1.0

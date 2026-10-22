@@ -208,10 +208,11 @@ impl World {
     }
 
     fn spawn_units(&mut self, spawns: &[Pos], defs: &Defs) {
-        let mut names = defs.nation(self.nation).names.clone();
+        let nation = defs.nation(self.nation);
+        let mut names = nation.names.clone();
         names.shuffle(&mut rng::stream(self.seed, "world.names"));
         for (i, &pos) in spawns.iter().enumerate() {
-            let variant = self.rng.random_range(0..3);
+            let variant = self.rng.random_range(0..nation.characters.len() as u8);
             // Reuse the pool with a numeral suffix if there are more units than names.
             let name = match i / names.len() {
                 0 => names[i % names.len()].clone(),

@@ -9,7 +9,7 @@ use fn_sim::jobs::{ItemId, JobKind, Stack};
 use fn_sim::world::{FoodSource, Task, Unit};
 use fn_sim::{Defs, Pos, World};
 
-use super::{MapEntity, Sim, TILE, tile_translation};
+use super::{MARKER_BIAS, MapEntity, Sim, TILE, row_depth, tile_translation};
 
 pub struct JobViewPlugin;
 
@@ -101,8 +101,11 @@ fn sync_item_markers(
             let entity = commands
                 .spawn((
                     Sprite::from_color(item_color(&sim.defs, stack.item), Vec2::splat(side)),
-                    // Above the stockpile tint, below units.
-                    Transform::from_translation(tile_translation(pos, 4.7)),
+                    // Above the stockpile tint, below units on the same row.
+                    Transform::from_translation(tile_translation(
+                        pos,
+                        row_depth(pos.y) + MARKER_BIAS,
+                    )),
                     ItemMarker,
                     MapEntity,
                     children![(

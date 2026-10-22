@@ -9,7 +9,8 @@
 //!
 //! `FN_SCREENSHOT=out.png` runs headless: no window is created at all (winit is disabled and the
 //! camera renders into an offscreen `Image`), and once the art has loaded it saves one frame as a
-//! PNG and exits. `FN_SCREENSHOT_SIZE=WIDTHxHEIGHT` sets the image size (default 1280x720). Agents
+//! PNG and exits. `FN_SCREENSHOT_SIZE=WIDTHxHEIGHT` sets the image size (default 1280x720), and
+//! `FN_SELECT=N` starts with unit N selected so its panel shows in the shot. Agents
 //! use this, via `cargo xtask screenshot SEED NATION OUT.png [WIDTH HEIGHT]`, to check visual
 //! changes without a window popping up and stealing the human's focus.
 
@@ -27,7 +28,7 @@ use bevy::sprite::Anchor;
 use bevy::window::{ExitCondition, PrimaryWindow};
 use bevy::winit::WinitPlugin;
 use designate::{DesignatePlugin, Notice, Tool};
-use fn_sim::world::{TICKS_PER_SECOND, UnitId};
+use fn_sim::world::{TICKS_PER_SECOND, Unit, UnitId};
 use fn_sim::{Defs, MapGenConfig, Nation, Pos, Tile, World};
 use jobview::{JobViewPlugin, ResourceSprite};
 use sprites::Sheet;
@@ -40,7 +41,6 @@ mod ui_style;
 const TILE: f32 = 16.0;
 const STARTING_UNITS: u32 = 6;
 const ASSET_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets");
-const UNITS: &str = "third_party/thefournations-2013";
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -84,7 +84,9 @@ fn main() {
     }
     app.insert_resource(Time::<Fixed>::from_hz(f64::from(TICKS_PER_SECOND)))
         .insert_resource(Sim::new(seed, nation, width, height))
-        .init_resource::<Selection>()
+        .insert_resource(Selection(
+            std::env::var("FN_SELECT").ok().and_then(|s| s.parse().ok()).map(UnitId),
+        ))
         .add_message::<MapClicked>()
         .add_plugins((DesignatePlugin, JobViewPlugin))
         .add_systems(Startup, (load_art, setup_camera_and_ui, spawn_world).chain())
@@ -145,13 +147,28 @@ impl Sim {
 struct Art {
     /// The Ninja Adventure tileset sheets, in `Sheet::ALL` order.
     sheets: [Handle<Image>; Sheet::ALL.len()],
-    /// The 2013 unit sprites, until the units issue (#76) replaces them.
-    units: HashMap<String, Handle<Image>>,
+    /// Every nation's characters by id (`characters` in `data/nations.toml`).
+    characters: HashMap<String, CharacterArt>,
+}
+
+struct CharacterArt {
+    sheet: Handle<Image>,
+    face: Handle<Image>,
 }
 
 impl Art {
-    fn unit(&self, name: &str) -> Handle<Image> {
-        self.units.get(name).unwrap_or_else(|| panic!("unit sprite {name} not loaded")).clone()
+    fn character(&self, id: &str) -> &CharacterArt {
+        self.characters.get(id).unwrap_or_else(|| panic!("character {id} not loaded"))
+    }
+
+    /// A unit's sprite: the character's down-facing idle frame, at native size.
+    fn unit_sprite(&self, character: &str) -> Sprite {
+        let [x0, y0, x1, y1] = sprites::IDLE_DOWN;
+        Sprite {
+            image: self.character(character).sheet.clone(),
+            rect: Some(Rect::new(x0, y0, x1, y1)),
+            ..default()
+        }
     }
 
     /// A sprite showing `cell` of its tileset sheet, at native size.
@@ -172,6 +189,13 @@ struct UnitSprite(UnitId);
 #[derive(Component)]
 struct HoverText;
 
+/// The selection panel: the unit's portrait beside its text. Hidden when nothing is selected.
+#[derive(Component)]
+struct SelectionPanel;
+
+#[derive(Component)]
+struct SelectionPortrait;
+
 #[derive(Component)]
 struct SelectionText;
 
@@ -186,16 +210,17 @@ struct MapClicked(Vec2);
 #[derive(Component)]
 struct HudText;
 
-fn load_art(mut commands: Commands, assets: Res<AssetServer>) {
-    let mut units = HashMap::new();
+fn load_art(mut commands: Commands, assets: Res<AssetServer>, sim: Res<Sim>) {
+    let mut characters = HashMap::new();
     for n in Nation::ALL {
-        for i in 1..=3 {
-            let name = format!("units/{}-{i}", n.as_str());
-            let handle = assets.load(format!("{UNITS}/{name}.png"));
-            units.insert(name, handle);
+        for id in &sim.defs.nation(n).characters {
+            characters.entry(id.clone()).or_insert_with(|| CharacterArt {
+                sheet: assets.load(sprites::character_sheet_path(id)),
+                face: assets.load(sprites::character_face_path(id)),
+            });
         }
     }
-    commands.insert_resource(Art { sheets: Sheet::ALL.map(|s| assets.load(s.path())), units });
+    commands.insert_resource(Art { sheets: Sheet::ALL.map(|s| assets.load(s.path())), characters });
 }
 
 fn setup_camera_and_ui(
@@ -226,8 +251,55 @@ fn setup_camera_and_ui(
         camera.insert(RenderTarget::Image(images.add(target).into()));
     }
     commands.spawn((info_panel(Corner::TopLeft), Visibility::Hidden, HoverText));
-    commands.spawn((info_panel(Corner::TopRight), Visibility::Hidden, SelectionText));
+    spawn_selection_panel(&mut commands);
     commands.spawn((info_panel(Corner::BottomLeft), HudText));
+}
+
+/// The portrait is drawn at this integer scale so the 38px faceset stays crisp.
+const PORTRAIT_SCALE: f32 = 2.0;
+
+/// A top-right panel with a portrait well on the left and the unit's text on the right. Styled
+/// like the other info panels until the full restyle (#80).
+fn spawn_selection_panel(commands: &mut Commands) {
+    use panel_style::*;
+    commands
+        .spawn((
+            SelectionPanel,
+            Visibility::Hidden,
+            BackgroundColor(BACKGROUND),
+            BorderColor::all(BORDER),
+            Node {
+                position_type: PositionType::Absolute,
+                right: Val::Px(MARGIN),
+                top: Val::Px(MARGIN),
+                padding: UiRect::all(Val::Px(PADDING)),
+                border: UiRect::all(Val::Px(BORDER_WIDTH)),
+                border_radius: BorderRadius::all(Val::Px(RADIUS)),
+                column_gap: Val::Px(PADDING),
+                align_items: AlignItems::FlexStart,
+                ..default()
+            },
+        ))
+        .with_children(|p| {
+            p.spawn((
+                SelectionPortrait,
+                ImageNode::default(),
+                BackgroundColor(ui_style::INSET),
+                Node {
+                    width: Val::Px(sprites::FACE_SIZE * PORTRAIT_SCALE),
+                    height: Val::Px(sprites::FACE_SIZE * PORTRAIT_SCALE),
+                    flex_shrink: 0.0,
+                    ..default()
+                },
+            ));
+            p.spawn((
+                SelectionText,
+                Text::new(""),
+                TextFont { font_size: FONT_SIZE.into(), ..default() },
+                TextColor(TEXT),
+                TextShadow { offset: Vec2::splat(1.0), color: SHADOW },
+            ));
+        });
 }
 
 /// Shared look for on-map info panels. Restyle all panels here; the overall UI direction is #39.
@@ -249,7 +321,6 @@ mod panel_style {
 #[derive(Clone, Copy)]
 enum Corner {
     TopLeft,
-    TopRight,
     BottomLeft,
 }
 
@@ -259,7 +330,6 @@ fn info_panel(corner: Corner) -> impl Bundle {
     let at = Val::Px(MARGIN);
     let (left, right, top, bottom) = match corner {
         Corner::TopLeft => (at, Val::Auto, at, Val::Auto),
-        Corner::TopRight => (Val::Auto, at, at, Val::Auto),
         Corner::BottomLeft => (at, Val::Auto, Val::Auto, at),
     };
     (
@@ -285,6 +355,30 @@ fn info_panel(corner: Corner) -> impl Bundle {
 
 fn tile_translation(p: Pos, z: f32) -> Vec3 {
     Vec3::new(p.x as f32 * TILE, -p.y as f32 * TILE, z)
+}
+
+/// The z of things that stand on the ground in row `y`: resources, item markers and units. Rows
+/// further down the screen draw on top, so a tree's canopy covers whatever stands behind it
+/// (above it on screen) and a unit in front of the tree walks over its trunk. Everything in the
+/// band sits above the floor (z 0 and 0.5) and below designation overlays (4.5).
+pub fn row_depth(y: i32) -> f32 {
+    1.0 + y as f32 * 0.001
+}
+
+/// Within one row: item markers over the tree on their tile, units over both.
+pub const MARKER_BIAS: f32 = 0.0002;
+const UNIT_BIAS: f32 = 0.0005;
+
+/// A unit's sprite is centred on its tile, 16px at 1:1, so the feet are `UNIT_FEET` below centre.
+const UNIT_FEET: f32 = -6.0;
+
+fn unit_translation(p: Pos) -> Vec3 {
+    tile_translation(p, row_depth(p.y) + UNIT_BIAS)
+}
+
+/// The art id of the character a unit is drawn as; the nation's `characters` list is data.
+fn unit_character<'a>(sim: &'a Sim, unit: &Unit) -> &'a str {
+    sim.defs.nation(unit.nation).character(unit.variant)
 }
 
 /// The ground rule for a tile; `sprites::GROUND` has a row for every terrain and biome.
@@ -319,8 +413,7 @@ fn spawn_entities(commands: &mut Commands, art: &Art, sim: &Sim) {
         if let Some(sprite) = resource_sprite(art, sim, t) {
             // Lower rows draw on top so tall sprites overlap correctly. The anchor is the bottom
             // middle of the tile, so a sprite of any height stands on its tile.
-            let z = 1.0 + p.y as f32 * 0.001;
-            let mut tf = Transform::from_translation(tile_translation(p, z));
+            let mut tf = Transform::from_translation(tile_translation(p, row_depth(p.y)));
             tf.translation.y -= TILE / 2.0;
             commands.spawn((sprite, Anchor::BOTTOM_CENTER, tf, ResourceSprite(p), MapEntity));
         } else if let Some(cell) = rule.decor_at(p) {
@@ -332,11 +425,9 @@ fn spawn_entities(commands: &mut Commands, art: &Art, sim: &Sim) {
         }
     }
     for u in &sim.world.units {
-        let name = format!("units/{}-{}", u.nation.as_str(), u.variant + 1);
         commands.spawn((
-            Sprite::from_image(art.unit(&name)),
-            Transform::from_translation(tile_translation(u.pos, 5.0) + Vec3::Y * UNIT_Y_OFFSET)
-                .with_scale(Vec3::splat(0.6)),
+            art.unit_sprite(unit_character(sim, u)),
+            Transform::from_translation(unit_translation(u.pos)),
             UnitSprite(u.id),
             MapEntity,
         ));
@@ -485,8 +576,7 @@ fn sync_units(sim: Res<Sim>, time: Res<Time>, mut units: Query<(&UnitSprite, &mu
     let t = 1.0 - (-time.delta_secs() * 12.0).exp();
     for (UnitSprite(id), mut tf) in &mut units {
         let Some(u) = sim.world.unit(*id) else { continue };
-        let target =
-            tile_translation(u.pos, 5.0 + u.pos.y as f32 * 0.001) + Vec3::Y * UNIT_Y_OFFSET;
+        let target = unit_translation(u.pos);
         tf.translation = tf.translation.lerp(target, t);
     }
 }
@@ -573,9 +663,6 @@ fn hud(
     );
 }
 
-/// Unit sprites are drawn this far above their tile center (they're taller than a tile).
-const UNIT_Y_OFFSET: f32 = 4.0;
-
 /// Selects the unit under a map click, or clears the selection when clicking empty ground.
 fn select_units(
     mut clicks: MessageReader<MapClicked>,
@@ -600,10 +687,10 @@ fn draw_selection(
 ) {
     let Some(selected) = selection.0 else { return };
     if let Some((_, tf)) = units.iter().find(|(UnitSprite(id), _)| *id == selected) {
-        let feet = tf.translation.truncate() - Vec2::Y * UNIT_Y_OFFSET;
+        let feet = tf.translation.truncate() + Vec2::Y * UNIT_FEET;
         gizmos.ellipse_2d(
             Isometry2d::from_translation(feet),
-            Vec2::new(8.0, 4.0),
+            Vec2::new(6.0, 3.0),
             Color::srgb(1.0, 0.85, 0.2),
         );
     }
@@ -611,15 +698,26 @@ fn draw_selection(
 
 fn selection_info(
     sim: Res<Sim>,
+    art: Res<Art>,
     selection: Res<Selection>,
-    mut text: Query<(&mut Text, &mut Visibility), With<SelectionText>>,
+    mut panel: Query<&mut Visibility, With<SelectionPanel>>,
+    mut portrait: Query<&mut ImageNode, With<SelectionPortrait>>,
+    mut text: Query<&mut Text, With<SelectionText>>,
 ) {
-    let Ok((mut text, mut visibility)) = text.single_mut() else { return };
+    let (Ok(mut visibility), Ok(mut portrait), Ok(mut text)) =
+        (panel.single_mut(), portrait.single_mut(), text.single_mut())
+    else {
+        return;
+    };
     let Some(unit) = selection.0.and_then(|id| sim.world.unit(id)) else {
         *visibility = Visibility::Hidden;
         return;
     };
     *visibility = Visibility::Inherited;
+    let face = &art.character(unit_character(&sim, unit)).face;
+    if portrait.image != *face {
+        portrait.image = face.clone();
+    }
     text.0 = format!(
         "{}\n{}\nTile ({}, {})\nHealth {:.0}  Hunger {:.0}\nThirst {:.0}  Energy {:.0}\nTask: {}\nCarrying: {}\n[Esc] deselect",
         unit.name,
@@ -659,8 +757,11 @@ fn headless_screenshot(
         return;
     }
     let Some(art) = art else { return };
-    let loaded =
-        art.sheets.iter().chain(art.units.values()).all(|h| assets.is_loaded_with_dependencies(h));
+    let loaded = art
+        .sheets
+        .iter()
+        .chain(art.characters.values().flat_map(|c| [&c.sheet, &c.face]))
+        .all(|h| assets.is_loaded_with_dependencies(h));
     if *requested || !loaded {
         return;
     }

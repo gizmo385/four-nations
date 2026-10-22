@@ -225,10 +225,73 @@ impl GroundRule {
     }
 }
 
+/// Where each character's art lives. Which characters a nation uses is data
+/// (`characters` in `data/nations.toml`); this is only how a character id becomes files.
+const CHARACTER_DIR: &str = "third_party/ninja-adventure/Actor/Character";
+
+/// Characters whose sprite sheet isn't called `SpriteSheet.png` upstream.
+const SHEET_FILES: &[(&str, &str)] = &[("SamuraiRed", "redsamurai.png")];
+
+/// The sprite sheet of a character: 4 columns of walk frames, 7 rows of 16px cells.
+pub fn character_sheet_path(character: &str) -> String {
+    let file = SHEET_FILES.iter().find(|(c, _)| *c == character).map_or("SpriteSheet.png", |f| f.1);
+    format!("{CHARACTER_DIR}/{character}/{file}")
+}
+
+/// The 38x38 portrait of a character.
+pub fn character_face_path(character: &str) -> String {
+    format!("{CHARACTER_DIR}/{character}/Faceset.png")
+}
+
+/// The down-facing idle frame: the top-left cell of a character's sheet, in pixels:
+/// (min x, min y, max x, max y). Walk cycles and other directions come later.
+pub const IDLE_DOWN: [f32; 4] = [0.0, 0.0, CELL, CELL];
+
+/// Portraits are drawn at integer scale, so the 38px pixels stay crisp and square.
+pub const FACE_SIZE: f32 = 38.0;
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fn_sim::Defs;
+    use fn_sim::{Defs, Nation};
+
+    /// The pixel size of a PNG, from its IHDR chunk.
+    fn png_size(path: &str) -> (u32, u32) {
+        let bytes = std::fs::read(format!("{}/{path}", crate::ASSET_DIR))
+            .unwrap_or_else(|e| panic!("{path}: {e}"));
+        assert_eq!(&bytes[1..4], b"PNG", "{path}");
+        let u32_at = |i: usize| u32::from_be_bytes(bytes[i..i + 4].try_into().unwrap());
+        (u32_at(16), u32_at(20))
+    }
+
+    #[test]
+    fn every_nation_has_three_characters_with_art() {
+        let defs = Defs::bundled();
+        for nation in Nation::ALL {
+            let characters = &defs.nation(nation).characters;
+            assert_eq!(characters.len(), 3, "{nation:?}");
+            for c in characters {
+                assert_eq!(png_size(&character_sheet_path(c)), (64, 112), "{c} sheet");
+                assert_eq!(png_size(&character_face_path(c)), (38, 38), "{c} face");
+            }
+        }
+    }
+
+    #[test]
+    fn no_character_is_shared_between_nations() {
+        let defs = Defs::bundled();
+        let all: Vec<&String> =
+            Nation::ALL.iter().flat_map(|n| defs.nation(*n).characters.iter()).collect();
+        for (i, c) in all.iter().enumerate() {
+            assert!(!all[..i].contains(c), "{c} is used twice");
+        }
+    }
+
+    #[test]
+    fn samurai_red_uses_its_odd_sheet_name() {
+        assert!(character_sheet_path("SamuraiRed").ends_with("SamuraiRed/redsamurai.png"));
+        assert!(character_sheet_path("Monk2").ends_with("Monk2/SpriteSheet.png"));
+    }
 
     const TERRAINS: [Terrain; 7] = [
         Terrain::Water,
