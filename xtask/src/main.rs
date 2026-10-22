@@ -1,7 +1,7 @@
 //! Repo maintenance commands. Run from anywhere in the repo:
 //!
 //!     cargo xtask assets [--release]   verify assets/manifest.toml covers and matches assets/
-//!     cargo xtask ci                   fmt + clippy + tests + assets
+//!     cargo xtask ci [sim|client]      fmt + clippy + tests + assets (default: everything)
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -19,7 +19,9 @@ fn main() -> ExitCode {
     let result = match args.as_slice() {
         ["assets"] => assets(false),
         ["assets", "--release"] => assets(true),
-        ["ci"] => ci(),
+        ["ci"] => ci(Scope::All),
+        ["ci", "sim"] => ci(Scope::Sim),
+        ["ci", "client"] => ci(Scope::Client),
         _ => Err(include_str!("main.rs")
             .lines()
             .skip(1)
@@ -159,11 +161,37 @@ fn cargo(args: &[&str]) -> Result {
     if status.success() { Ok(()) } else { Err(format!("cargo {} failed", args.join(" "))) }
 }
 
-fn ci() -> Result {
-    cargo(&["fmt", "--all", "--check"])?;
-    cargo(&["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"])?;
-    cargo(&["test", "--workspace"])?;
-    assets(false)?;
+/// Which part of the workspace `cargo xtask ci` checks. CI runs `sim` and `client` as separate
+/// jobs so changes that can't affect the client skip compiling Bevy entirely.
+#[derive(Clone, Copy, PartialEq)]
+enum Scope {
+    All,
+    /// Everything except the Bevy client: fmt, the sim, xtask and the asset check.
+    Sim,
+    /// Only the Bevy client.
+    Client,
+}
+
+fn ci(scope: Scope) -> Result {
+    let packages: &[&str] = match scope {
+        Scope::All => &["--workspace"],
+        Scope::Sim => &["-p", "fn_sim", "-p", "xtask"],
+        Scope::Client => &["-p", "fn_client"],
+    };
+    // On CI (GitHub sets $CI), build with the `ci` profile: unoptimized dependencies and no debug
+    // info compile several times faster, and tests don't need Bevy to run fast.
+    let profile: &[&str] =
+        if std::env::var_os("CI").is_some() { &["--profile", "ci"] } else { &[] };
+
+    if scope != Scope::Client {
+        cargo(&["fmt", "--all", "--check"])?;
+    }
+    let clippy = [&["clippy", "--all-targets"][..], packages, profile, &["--", "-D", "warnings"]];
+    cargo(&clippy.concat())?;
+    cargo(&[&["test"][..], packages, profile].concat())?;
+    if scope != Scope::Client {
+        assets(false)?;
+    }
     println!("ci OK");
     Ok(())
 }
