@@ -23,8 +23,9 @@ gets in your way, stop and say so in the work item's Notes instead of working ar
 
 ## Hard rules
 
-1. **Work from a GitHub issue labelled `ready`**, and claim it first (`in-progress` label plus a
-   claim comment). One issue at a time. Don't add `ready` to issues yourself.
+1. **Work from an unblocked GitHub issue labelled `ready`**, and claim it first (`in-progress`
+   label plus a claim comment). One issue at a time. Only the owner or the orchestrator's triage
+   pass (docs/process/work-tracking.md) adds `ready`.
 2. **Choose the landing flow** from docs/process/work-tracking.md. Small or medium work, with
    you as the only active agent: commit straight to `main` with `Fixes #N`. Parallel agents or
    `large` work: branch `issue/N-slug` and a PR with `Closes #N`.
