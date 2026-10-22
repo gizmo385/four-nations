@@ -125,8 +125,12 @@ impl Defs {
             }
         }
         for n in Nation::ALL {
-            if !self.nations.iter().any(|d| d.id == n) {
-                return Err(DefsError(format!("nations.toml is missing {n:?}")));
+            match self.nations.iter().find(|d| d.id == n) {
+                None => return Err(DefsError(format!("nations.toml is missing {n:?}"))),
+                Some(d) if d.names.is_empty() => {
+                    return Err(DefsError(format!("nation {n:?} needs at least one name")));
+                }
+                Some(_) => {}
             }
         }
         Ok(())

@@ -4,6 +4,7 @@
 //! in and may interpolate between ticks, but must never mutate it except through commands.
 
 use rand::RngExt;
+use rand::seq::SliceRandom;
 
 use crate::defs::Defs;
 use crate::geom::Pos;
@@ -23,6 +24,7 @@ pub struct UnitId(pub u32);
 #[derive(Debug, Clone, PartialEq)]
 pub struct Unit {
     pub id: UnitId,
+    pub name: String,
     pub nation: Nation,
     pub pos: Pos,
     /// Which of the nation's sprite variants to draw. Purely cosmetic.
@@ -52,12 +54,14 @@ impl World {
             units: Vec::new(),
             rng: rng::stream(cfg.seed, "world.units"),
         };
-        world.spawn_starting_units(starting_units);
+        world.spawn_starting_units(starting_units, defs);
         world
     }
 
     /// Places units on walkable tiles, spiralling out from the map center.
-    fn spawn_starting_units(&mut self, count: u32) {
+    fn spawn_starting_units(&mut self, count: u32, defs: &Defs) {
+        let mut names = defs.nation(self.nation).names.clone();
+        names.shuffle(&mut rng::stream(self.seed, "world.names"));
         let center = Pos::new(self.map.width() / 2, self.map.height() / 2);
         let mut candidates: Vec<Pos> = self
             .map
@@ -68,8 +72,14 @@ impl World {
         candidates.sort_by_key(|p| ((p.x - center.x).pow(2) + (p.y - center.y).pow(2), *p));
         for (i, pos) in candidates.into_iter().take(count as usize).enumerate() {
             let variant = self.rng.random_range(0..3);
+            // Reuse the pool with a numeral suffix if there are more units than names.
+            let name = match i / names.len() {
+                0 => names[i % names.len()].clone(),
+                n => format!("{} {}", names[i % names.len()], n + 1),
+            };
             self.units.push(Unit {
                 id: UnitId(i as u32),
+                name,
                 nation: self.nation,
                 pos,
                 variant,
@@ -118,6 +128,16 @@ mod tests {
         let (w, _) = world(Nation::Earth);
         assert_eq!(w.units.len(), 4);
         assert!(w.units.iter().all(|u| w.walkable(u.pos)));
+    }
+
+    #[test]
+    fn units_get_unique_deterministic_names() {
+        let (a, _) = world(Nation::Fire);
+        let (b, _) = world(Nation::Fire);
+        let names: Vec<_> = a.units.iter().map(|u| u.name.clone()).collect();
+        assert_eq!(names, b.units.iter().map(|u| u.name.clone()).collect::<Vec<_>>());
+        let unique: std::collections::BTreeSet<_> = names.iter().collect();
+        assert_eq!(unique.len(), names.len());
     }
 
     #[test]

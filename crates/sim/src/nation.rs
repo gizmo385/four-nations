@@ -43,5 +43,7 @@ pub struct NationDef {
     pub element: String,
     pub color: [u8; 3],
     pub description: String,
+    /// Pool of personal names for this nation's units.
+    pub names: Vec<String>,
     pub modifiers: Modifiers,
 }

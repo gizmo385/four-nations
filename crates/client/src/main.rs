@@ -2,7 +2,8 @@
 //!
 //!     cargo run -p fn_client -- [seed] [air|water|earth|fire] [width] [height]
 //!
-//! Controls: WASD/arrows or mouse drag pan, mouse wheel zoom, R new map, 1-4 switch nation, Space pause.
+//! Controls: click a unit to select it (Esc deselects), WASD/arrows or mouse drag pan, mouse wheel
+//! zoom, R new map, 1-4 switch nation, Space pause.
 //!
 //! `FN_SCREENSHOT=out.png` renders a few seconds, saves a screenshot and exits. Agents use this
 //! to check visual changes without a human looking at the window.
@@ -38,7 +39,7 @@ fn main() {
                 .set(ImagePlugin::default_nearest())
                 .set(WindowPlugin {
                     primary_window: Some(Window {
-                        title: "The Four Nations (rust spike)".into(),
+                        title: "The Four Nations".into(),
                         // Screenshot runs are for agents; don't grab the human's focus.
                         focused: !screenshot_mode,
                         window_level: if screenshot_mode {
@@ -53,9 +54,24 @@ fn main() {
         )
         .insert_resource(Time::<Fixed>::from_hz(f64::from(TICKS_PER_SECOND)))
         .insert_resource(Sim::new(seed, nation, width, height))
+        .init_resource::<Selection>()
+        .add_message::<MapClicked>()
         .add_systems(Startup, (load_art, setup_camera_and_ui, spawn_world).chain())
         .add_systems(FixedUpdate, tick_sim)
-        .add_systems(Update, (controls, camera_controls, sync_units, hover_info, hud).chain())
+        .add_systems(
+            Update,
+            (
+                controls,
+                camera_controls,
+                sync_units,
+                select_units,
+                draw_selection,
+                selection_info,
+                hover_info,
+                hud,
+            )
+                .chain(),
+        )
         .add_systems(Update, auto_screenshot.run_if(|| std::env::var_os("FN_SCREENSHOT").is_some()))
         .run();
 }
@@ -121,6 +137,17 @@ struct UnitSprite(usize);
 struct HoverText;
 
 #[derive(Component)]
+struct SelectionText;
+
+/// Index into `World::units` of the selected unit, if any.
+#[derive(Resource, Default)]
+struct Selection(Option<usize>);
+
+/// A left click on the map that wasn't part of a drag, in world coordinates.
+#[derive(Message)]
+struct MapClicked(Vec2);
+
+#[derive(Component)]
 struct HudText;
 
 fn load_art(
@@ -181,7 +208,20 @@ fn setup_camera_and_ui(mut commands: Commands, sim: Res<Sim>) {
         TextFont { font_size: 14.0.into(), ..default() },
         BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.65)),
     );
-    commands.spawn((Text::new(""), style.clone(), panel(true), HoverText));
+    commands.spawn((Text::new(""), style.clone(), panel(true), Visibility::Hidden, HoverText));
+    commands.spawn((
+        Text::new(""),
+        style.clone(),
+        Node {
+            position_type: PositionType::Absolute,
+            right: Val::Px(8.0),
+            top: Val::Px(8.0),
+            padding: UiRect::all(Val::Px(6.0)),
+            ..default()
+        },
+        Visibility::Hidden,
+        SelectionText,
+    ));
     commands.spawn((Text::new(""), style, panel(false), HudText));
 }
 
@@ -249,7 +289,7 @@ fn spawn_entities(commands: &mut Commands, art: &Art, sim: &Sim) {
         let name = format!("units/{}-{}", u.nation.as_str(), u.variant + 1);
         commands.spawn((
             Sprite::from_image(art.legacy(&name)),
-            Transform::from_translation(tile_translation(u.pos, 5.0) + Vec3::Y * 4.0)
+            Transform::from_translation(tile_translation(u.pos, 5.0) + Vec3::Y * UNIT_Y_OFFSET)
                 .with_scale(Vec3::splat(0.6)),
             UnitSprite(i),
             MapEntity,
@@ -269,9 +309,13 @@ fn controls(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     mut sim: ResMut<Sim>,
+    mut selection: ResMut<Selection>,
     art: Res<Art>,
     existing: Query<Entity, With<MapEntity>>,
 ) {
+    if keys.just_pressed(KeyCode::Escape) {
+        selection.0 = None;
+    }
     if keys.just_pressed(KeyCode::Space) {
         sim.paused = !sim.paused;
     }
@@ -284,6 +328,7 @@ fn controls(
     let seed = new_seed.unwrap_or(sim.world.seed);
     let (width, height) = (sim.world.map.width(), sim.world.map.height());
     *sim = Sim::new(seed, nation.unwrap_or(sim.world.nation), width, height);
+    selection.0 = None;
     for e in &existing {
         commands.entity(e).despawn();
     }
@@ -307,9 +352,12 @@ fn camera_controls(
     sim: Res<Sim>,
     window: Query<&Window, With<PrimaryWindow>>,
     mut drag: Local<DragState>,
-    mut camera: Query<(&mut Transform, &mut Projection), With<Camera2d>>,
+    mut clicks: MessageWriter<MapClicked>,
+    mut camera: Query<(&mut Transform, &mut Projection, &Camera, &GlobalTransform), With<Camera2d>>,
 ) {
-    let (Ok(window), Ok((mut tf, mut projection))) = (window.single(), camera.single_mut()) else {
+    let (Ok(window), Ok((mut tf, mut projection, cam, cam_tf))) =
+        (window.single(), camera.single_mut())
+    else {
         return;
     };
     let Projection::Orthographic(ortho) = &mut *projection else { return };
@@ -354,6 +402,12 @@ fn camera_controls(
         }
         drag.last = Some(now);
     }
+    if mouse.just_released(MouseButton::Left)
+        && drag.travelled <= DRAG_THRESHOLD
+        && let Some(world) = cursor.and_then(|c| cam.viewport_to_world_2d(cam_tf, c).ok())
+    {
+        clicks.write(MapClicked(world));
+    }
 
     // Tiles are centered on their coordinates, so the map extends half a tile past them.
     let map_min = Vec2::new(-TILE / 2.0, -(map_size.y - TILE / 2.0));
@@ -377,7 +431,8 @@ fn sync_units(sim: Res<Sim>, time: Res<Time>, mut units: Query<(&UnitSprite, &mu
     let t = 1.0 - (-time.delta_secs() * 12.0).exp();
     for (UnitSprite(i), mut tf) in &mut units {
         let Some(u) = sim.world.units.get(*i) else { continue };
-        let target = tile_translation(u.pos, 5.0 + u.pos.y as f32 * 0.001) + Vec3::Y * 4.0;
+        let target =
+            tile_translation(u.pos, 5.0 + u.pos.y as f32 * 0.001) + Vec3::Y * UNIT_Y_OFFSET;
         tf.translation = tf.translation.lerp(target, t);
     }
 }
@@ -392,18 +447,20 @@ fn hover_info(
     sim: Res<Sim>,
     window: Query<&Window, With<PrimaryWindow>>,
     camera: Query<(&Camera, &GlobalTransform)>,
-    mut text: Query<&mut Text, With<HoverText>>,
+    mut text: Query<(&mut Text, &mut Visibility), With<HoverText>>,
 ) {
-    let (Ok(window), Ok((camera, camera_tf)), Ok(mut text)) =
+    let (Ok(window), Ok((camera, camera_tf)), Ok((mut text, mut visibility))) =
         (window.single(), camera.single(), text.single_mut())
     else {
         return;
     };
-    let Some(p) = cursor_tile(window, camera, camera_tf) else { return };
-    let Some(tile) = sim.world.map.get(p) else {
-        text.0 = String::new();
+    let tile =
+        cursor_tile(window, camera, camera_tf).and_then(|p| Some((p, sim.world.map.get(p)?)));
+    let Some((p, tile)) = tile else {
+        *visibility = Visibility::Hidden;
         return;
     };
+    *visibility = Visibility::Inherited;
     let resource = tile.resource.map_or("None", |r| sim.defs.resource(r).name.as_str());
     text.0 = format!(
         "Tile ({}, {})\nTerrain: {:?}\nBiome: {}\nElevation: {}\nResource: {}",
@@ -421,7 +478,7 @@ fn hud(sim: Res<Sim>, mut text: Query<&mut Text, With<HudText>>) {
     let def = sim.defs.nation(sim.world.nation);
     let m = &def.modifiers;
     text.0 = format!(
-        "{} | seed {} | tick {}{}\nmove x{} carry x{} earthworks x{} heat x{} water x{} power x{} build x{}\n[WASD/drag] pan  [wheel] zoom  [R] new map  [1-4] nation  [Space] pause",
+        "{} | seed {} | tick {}{}\nmove x{} carry x{} earthworks x{} heat x{} water x{} power x{} build x{}\n[click] select  [WASD/drag] pan  [wheel] zoom  [R] new map  [1-4] nation  [Space] pause",
         def.name,
         sim.world.seed,
         sim.world.tick,
@@ -433,6 +490,62 @@ fn hud(sim: Res<Sim>, mut text: Query<&mut Text, With<HudText>>) {
         m.water_work,
         m.power_generation,
         m.construction,
+    );
+}
+
+/// Unit sprites are drawn this far above their tile center (they're taller than a tile).
+const UNIT_Y_OFFSET: f32 = 4.0;
+
+/// Selects the unit under a map click, or clears the selection when clicking empty ground.
+fn select_units(
+    mut clicks: MessageReader<MapClicked>,
+    mut selection: ResMut<Selection>,
+    units: Query<(&UnitSprite, &Transform)>,
+) {
+    for MapClicked(at) in clicks.read() {
+        // Pick the closest unit whose (interpolated) sprite is within roughly half a tile.
+        selection.0 = units
+            .iter()
+            .map(|(UnitSprite(i), tf)| (*i, tf.translation.truncate().distance(*at)))
+            .filter(|(_, d)| *d <= TILE * 0.75)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i);
+    }
+}
+
+fn draw_selection(
+    selection: Res<Selection>,
+    units: Query<(&UnitSprite, &Transform)>,
+    mut gizmos: Gizmos,
+) {
+    let Some(selected) = selection.0 else { return };
+    if let Some((_, tf)) = units.iter().find(|(UnitSprite(i), _)| *i == selected) {
+        let feet = tf.translation.truncate() - Vec2::Y * UNIT_Y_OFFSET;
+        gizmos.ellipse_2d(
+            Isometry2d::from_translation(feet),
+            Vec2::new(8.0, 4.0),
+            Color::srgb(1.0, 0.85, 0.2),
+        );
+    }
+}
+
+fn selection_info(
+    sim: Res<Sim>,
+    selection: Res<Selection>,
+    mut text: Query<(&mut Text, &mut Visibility), With<SelectionText>>,
+) {
+    let Ok((mut text, mut visibility)) = text.single_mut() else { return };
+    let Some(unit) = selection.0.and_then(|i| sim.world.units.get(i)) else {
+        *visibility = Visibility::Hidden;
+        return;
+    };
+    *visibility = Visibility::Inherited;
+    text.0 = format!(
+        "{}\n{}\nTile ({}, {})\n[Esc] deselect",
+        unit.name,
+        sim.defs.nation(unit.nation).name,
+        unit.pos.x,
+        unit.pos.y
     );
 }
 

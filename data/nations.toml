@@ -1,6 +1,8 @@
 # Playable civilizations. Modifiers are multipliers on a 1.0 baseline: 2.0 = twice as good/fast.
 # Systems should read modifiers through `Modifiers` rather than branching on the nation id, so
 # that balance lives here and not in code.
+#
+# `names` is the pool new units are named from (shuffled per seed).
 
 [[nation]]
 id = "air"
@@ -8,6 +10,7 @@ name = "Air Nomads"
 element = "air"
 color = [236, 196, 92]
 description = "Nomadic monks. Fast and light; can power turbines and mills with airbending."
+names = ["Gyatso", "Tashi", "Pasang", "Kunchen", "Jinpa", "Dorje", "Lhamo", "Sonam", "Yangchen", "Kelsang", "Pema", "Iio"]
 [nation.modifiers]
 move_speed = 1.6        # airbenders glide/run
 carry_capacity = 0.8
@@ -23,6 +26,7 @@ name = "Water Tribes"
 element = "water"
 color = [70, 130, 210]
 description = "Polar fishers and healers. Irrigate fields, heal the injured, travel by water."
+names = ["Kanna", "Pakku", "Hakoda", "Bato", "Yugoda", "Tho", "Kustaa", "Atuat", "Siku", "Nuka", "Malina", "Amaruq"]
 [nation.modifiers]
 move_speed = 1.0
 carry_capacity = 1.0
@@ -38,6 +42,7 @@ name = "Earth Kingdom"
 element = "earth"
 color = [90, 160, 80]
 description = "Stubborn builders. Earthworks, quarrying and walls are dramatically cheaper."
+names = ["Haru", "Tyro", "Oma", "Shu", "Ping", "Song", "Jin", "Kuei", "Ming", "Tao", "Lin", "Jang"]
 [nation.modifiers]
 move_speed = 0.9
 carry_capacity = 1.3
@@ -53,6 +58,7 @@ name = "Fire Nation"
 element = "fire"
 color = [205, 70, 50]
 description = "Industrious and aggressive. Smelting, forging and heating need little fuel."
+names = ["Lu Ten", "Ilah", "Kuzon", "Shyu", "Ran", "Shaw", "Ursa", "Noriko", "Ikem", "Kiyi", "Jee", "Ming-Hua"]
 [nation.modifiers]
 move_speed = 1.0
 carry_capacity = 1.0
