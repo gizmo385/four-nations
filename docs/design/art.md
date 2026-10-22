@@ -8,8 +8,7 @@ options that were considered follow for the record.
 - **Ninja Adventure** (Pixel-Boy and AAA, **CC0**) is the single primary art source, at **16px
   tiles**. `TILE` doesn't change.
 - It **replaces both** Kenney Tiny Town and the 2013 textures. The 2013 fan-art units go too, so
-  once the follow-ups land, the `thefournations-2013` source (`release_ok = false`) leaves the
-  manifest.
+  `thefournations-2013` source (`release_ok = false`) has left the manifest (#75, #76).
 - **Units:** generic pack characters, three per nation (table below). Canon characters come later,
   as special sprites in the same style (#78).
 - **UI:** used with #39's **Seal** panels (owner's pick, `docs/design/ui.md`). Cool, opaque
@@ -17,9 +16,9 @@ options that were considered follow for the record.
   1px dark outline to match the pack's outlined sprites, and facesets and icons are drawn at
   integer scale. Details are in ui.md under "Fitting Seal to Ninja Adventure".
 - **Follow-ups:**
-  - #74: import the pack and record it in the manifest.
-  - #75: terrain and resources (blocked by #74).
-  - #76: units and portraits (blocked by #74).
+  - #74: import the pack and record it in the manifest (done).
+  - #75: terrain and resources (done).
+  - #76: units and portraits (done).
   - #77: fade forest canopies (p3, blocked by #75).
   - #78: canon characters (p3, blocked by #76).
 
@@ -61,7 +60,12 @@ The audit was done on the owner's download, `Ninja Adventure - Asset Pack.zip` (
 | Fire Nation | `NinjaFire`, `SamuraiRed`, `NinjaRed` |
 
 The cast lives in `data/nations.toml` as a `characters` list (rule 7: nations differ through
-data). Units pick one by their existing `variant`.
+data). Units pick one by their existing `variant` (`NationDef::character`); the sim only checks
+the list is non-empty. `sprites.rs` turns a character id into its sheet and faceset paths
+(`SamuraiRed`'s sheet is `redsamurai.png`) and names the frame drawn: the down-facing idle cell
+(0,0), at 1:1. The selection panel shows the unit's faceset at 2x. Units, item markers and
+resources share one depth band by row (`row_depth` in `main.rs`), so a unit passes behind the
+canopy of a tree in the row below it and in front of one in its own row or above.
 
 **Map mapping** (#75, implemented). Coordinates are (column, row) in 16px cells of each sheet.
 The table lives in one place, `crates/client/src/sprites.rs` (`GROUND` and `RESOURCES`); a new

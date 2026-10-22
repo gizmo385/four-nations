@@ -164,6 +164,15 @@ impl Layer {
         }
     }
 
+    /// Harvest marks draw over everything, trees included, so a marked tree is easy to see.
+    /// A stockpile is flat ground: it goes under whatever stands on it (item markers, units).
+    fn depth(self) -> f32 {
+        match self {
+            Self::Harvest => 4.5,
+            Self::Stockpile => 0.6,
+        }
+    }
+
     fn outline(self) -> Color {
         self.tint().with_alpha(1.0)
     }
@@ -201,8 +210,7 @@ fn sync_overlays(
             commands
                 .spawn((
                     Sprite::from_color(layer.tint(), Vec2::splat(TILE)),
-                    // Above resources, below units.
-                    Transform::from_translation(tile_translation(pos, 4.5)),
+                    Transform::from_translation(tile_translation(pos, layer.depth())),
                     Overlay,
                     MapEntity,
                 ))
