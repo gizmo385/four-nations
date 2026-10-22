@@ -1,0 +1,26 @@
+[package]
+name = "fn_client"
+description = "Bevy desktop client for The Four Nations. Renders fn_sim state; owns no game rules."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+fn_sim = { path = "../sim" }
+
+# Feature set chosen to avoid native build deps (alsa/udev/wayland headers): no audio, no gamepad,
+# X11 only. Revisit when we need sound.
+[dependencies.bevy]
+version = "0.20"
+default-features = false
+features = [
+  "std",
+  "default_app",
+  "2d_bevy_render",
+  "ui_api",
+  "ui_bevy_render",
+  "bevy_winit",
+  "x11",
+  "default_font",
+  "multi_threaded",
+]

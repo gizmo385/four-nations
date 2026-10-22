@@ -1,0 +1,63 @@
+# Playable civilizations. Modifiers are multipliers on a 1.0 baseline: 2.0 = twice as good/fast.
+# Systems should read modifiers through `Modifiers` rather than branching on the nation id, so
+# that balance lives here and not in code.
+
+[[nation]]
+id = "air"
+name = "Air Nomads"
+element = "air"
+color = [236, 196, 92]
+description = "Nomadic monks. Fast and light; can power turbines and mills with airbending."
+[nation.modifiers]
+move_speed = 1.6        # airbenders glide/run
+carry_capacity = 0.8
+earthworks = 0.7        # digging, levelling, quarrying
+heating = 1.0           # smelting, cooking, warmth
+water_work = 1.0        # irrigation, fishing, healing
+power_generation = 2.0  # turbines, windmills, gliders
+construction = 0.9
+
+[[nation]]
+id = "water"
+name = "Water Tribes"
+element = "water"
+color = [70, 130, 210]
+description = "Polar fishers and healers. Irrigate fields, heal the injured, travel by water."
+[nation.modifiers]
+move_speed = 1.0
+carry_capacity = 1.0
+earthworks = 0.9
+heating = 0.8
+water_work = 2.0
+power_generation = 1.0
+construction = 1.0
+
+[[nation]]
+id = "earth"
+name = "Earth Kingdom"
+element = "earth"
+color = [90, 160, 80]
+description = "Stubborn builders. Earthworks, quarrying and walls are dramatically cheaper."
+[nation.modifiers]
+move_speed = 0.9
+carry_capacity = 1.3
+earthworks = 2.5
+heating = 1.0
+water_work = 0.9
+power_generation = 0.8
+construction = 1.5
+
+[[nation]]
+id = "fire"
+name = "Fire Nation"
+element = "fire"
+color = [205, 70, 50]
+description = "Industrious and aggressive. Smelting, forging and heating need little fuel."
+[nation.modifiers]
+move_speed = 1.0
+carry_capacity = 1.0
+earthworks = 1.0
+heating = 2.5
+water_work = 0.7
+power_generation = 1.3
+construction = 1.1

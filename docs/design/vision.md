@@ -1,0 +1,39 @@
+# Vision
+
+Status: **draft**. Open questions are tracked as work items.
+
+## Pitch
+
+A colony/settlement management game set in the world of *Avatar: The Last Airbender*. You lead a
+small settlement of one of the four nations. Your people gather, build, eat, sleep and bend.
+**Which nation you pick changes how you play**, not just your stats.
+
+## Pillars
+
+1. **Nations play differently.** Every nation has passive modifiers (`data/nations.toml`) and,
+   later, signature bending abilities (FN-0010) that open strategies other nations lack.
+   - **Air Nomads**: fast movement; wind power (turbines, mills); weak at heavy labor.
+   - **Water Tribes**: irrigation, fishing, healing; can work and travel on water.
+   - **Earth Kingdom**: earthworks, quarrying and walls are cheap; strong carriers; slow.
+   - **Fire Nation**: smelting, forging and warmth without much fuel; poor with water.
+2. **Indirect control.** You designate work and the people do it, subject to their needs, as
+   in the 2013 version, RimWorld, or Dwarf Fortress.
+3. **Survival pressure first, then growth.** Hunger, thirst and energy (and later, chi) keep
+   early decisions meaningful.
+4. **Readable simulation.** You can hover anything and see why it's happening.
+
+## Core loop (first playable)
+
+Generate world → place settlement → designate (chop, mine, farm, build) → units claim jobs →
+resources flow to stockpiles → needs are met or units die → population grows.
+Win: reach N population (the 2013 goal was 10). Lose: everyone dies.
+
+## Open questions
+
+- **IP stance** (FN-0005). This is Paramount/Nickelodeon IP. The choice is between a private
+  fan project, where canon names are fine but nothing can be published or sold, and an
+  original "four elements" setting that we can share freely. The code keeps nation ids generic
+  (`air`, `water`, `earth`, `fire`) so this stays a data and art decision.
+- **Single nation vs. multiple**: do the other nations exist as neighbors, traders or rivals?
+- **Scale**: one settlement on a 96×64 map, or a larger world map with travel?
+- **Art direction**: 16px top-down (current) or something else.

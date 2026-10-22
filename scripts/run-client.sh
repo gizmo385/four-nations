@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Runs fn_client on a Nix-toolchain + Ubuntu (incl. WSL2/WSLg) machine.
+#
+# Nix-built binaries don't search /usr/lib, and pointing LD_LIBRARY_PATH at all of /usr/lib breaks
+# Nix's glibc. So we symlink the system's graphics libs (minus glibc itself) into target/syslibs,
+# and take libxkbcommon from nixpkgs (Ubuntu doesn't ship the -x11 variant by default).
+# Replace with a flake devShell when FN-0015 lands.
+#
+#   scripts/run-client.sh [seed] [nation]
+#   FN_SCREENSHOT=/tmp/shot.png scripts/run-client.sh 42 earth   # render, save, exit
+set -euo pipefail
+root="$(cd "$(dirname "$0")/.." && pwd)"
+libs="$root/target/syslibs"
+if [[ ! -d "$libs" ]]; then
+  mkdir -p "$libs"
+  for f in /usr/lib/x86_64-linux-gnu/lib*.so*; do
+    case "$(basename "$f")" in
+      libc.so*|libc-*|ld-linux*|libm.so*|libmvec*|libpthread*|libdl.so*|librt.so*|libresolv*|\
+      libutil.so*|libanl*|libnss*|libthread_db*|libBrokenLocale*|libmemusage*|libpcprofile*|libc_malloc*) ;;
+      *) ln -sf "$f" "$libs/" ;;
+    esac
+  done
+fi
+xkb="$(nix build --no-link --print-out-paths nixpkgs#libxkbcommon)"
+cargo build -q -p fn_client --manifest-path "$root/Cargo.toml"
+LD_LIBRARY_PATH="$xkb/lib:$libs" exec "$root/target/debug/fn_client" "$@"

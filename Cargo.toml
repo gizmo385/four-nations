@@ -1,0 +1,21 @@
+[workspace]
+resolver = "3"
+members = ["crates/sim", "crates/client", "xtask"]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "MIT"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "1"
+rand = "0.10"
+rand_chacha = "0.10"
+
+# Bevy is slow in debug builds; optimize dependencies but keep our own crates fast to compile.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev]
+opt-level = 1

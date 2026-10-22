@@ -1,3 +1,6 @@
 .cpcache
 resources/public/js/compiled
 .rebel_readline_history
+
+# Rust
+/target

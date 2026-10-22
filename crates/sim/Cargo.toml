@@ -1,0 +1,12 @@
+[package]
+name = "fn_sim"
+description = "Headless, deterministic simulation core for The Four Nations. No rendering, no I/O."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+toml.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true

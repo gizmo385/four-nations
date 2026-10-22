@@ -1,0 +1,40 @@
+# Map resources, rolled per tile in file order; the first one that passes wins.
+# Omitting `terrains` or `biomes` means "any".
+
+[[resource]]
+id = "gold_vein"
+name = "Gold Vein"
+glyph = "$"
+chance = 0.01
+terrains = ["land", "mountain"]
+
+[[resource]]
+id = "stone"
+name = "Stone Outcrop"
+glyph = "o"
+chance = 0.25
+terrains = ["mountain"]
+
+[[resource]]
+id = "oak_tree"
+name = "Oak Tree"
+glyph = "T"
+chance = 0.30
+terrains = ["land"]
+biomes = ["plains"]
+
+[[resource]]
+id = "fir_tree"
+name = "Fir Tree"
+glyph = "F"
+chance = 0.70
+terrains = ["land"]
+biomes = ["forest", "tundra"]
+
+[[resource]]
+id = "cabbage"
+name = "Wild Cabbage"
+glyph = "c"
+chance = 0.02
+terrains = ["land"]
+biomes = ["plains", "forest"]

@@ -1,4 +1,24 @@
-# four-nations
+# The Four Nations
+
+A colony/settlement management game set in the world of *Avatar: The Last Airbender*, where each
+nation plays differently. See [docs/design/vision.md](docs/design/vision.md).
+
+## Rust prototype (this branch)
+
+```sh
+cargo run -p fn_client -- [seed] [air|water|earth|fire]   # Bevy client (first build takes minutes)
+cargo run -p fn_sim --bin mapgen -- [seed] [width] [height] # ASCII map, no GPU needed
+cargo xtask work next                                       # what to work on
+cargo xtask ci                                              # fmt, clippy, tests, asset + work checks
+```
+
+Contributors and agents: read [AGENTS.md](AGENTS.md). Asset credits and licenses:
+[assets/manifest.toml](assets/manifest.toml).
+
+---
+
+# Legacy ClojureScript version (below)
+
 
 FIXME: Write a one-line description of your library/project.
 
