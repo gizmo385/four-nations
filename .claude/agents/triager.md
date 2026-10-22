@@ -37,7 +37,14 @@ Mark an open issue `ready` only if **all** of these hold:
    - Passes everything: `gh issue edit N --add-label ready`.
 3. Sanity-check existing `ready` issues for anything new in their comments that adds an owner
    question. If so, swap `ready` for `needs-owner`.
-4. Build a **dispatch plan** from issues that are `ready`, not blocked and not `in-progress`, by
+4. Check each `needs-owner` issue for owner replies. Owners often answer in a comment and forget
+   to remove the label. Find when the label was last added:
+   `gh api repos/gizmo385/four-nations/issues/N/timeline --paginate --jq 'map(select(.event == "labeled" and .label.name == "needs-owner")) | last | .created_at'`,
+   then read `gh issue view N --comments` for comments after that time. Agents post as the
+   owner's account too, so judge by content: a reply that answers the open question counts, but
+   a claim note or a triage note doesn't. Leave the label alone and report the issue under
+   "Owner replied", with a summary of the answer and whether it settles every open question.
+5. Build a **dispatch plan** from issues that are `ready`, not blocked and not `in-progress`, by
    priority (p0 first):
    - Group conflicts: don't schedule two issues together that likely edit the same files (same
      `feat:*` group, same module, both touching `crates/sim/src/defs.rs`, or both changing
@@ -53,4 +60,5 @@ yourself; the orchestrator does that.
 - Marked ready: #N … (one line each, why if not obvious)
 - Fixed: #N: what changed
 - Needs owner: #N: the question (with a suggested answer if you have one)
+- Owner replied: #N: their answer in brief; settles everything, or what's still open
 - Dispatch plan: batch 1 = [#N implementer, …]; deferred = [#M: conflicts with #N]
