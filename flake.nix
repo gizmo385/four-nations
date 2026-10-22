@@ -49,10 +49,10 @@
           runtimeLibs = with pkgs; [
             vulkan-loader
             libxkbcommon
-            xorg.libX11
-            xorg.libXcursor
-            xorg.libXi
-            xorg.libXrandr
+            libx11
+            libxcursor
+            libxi
+            libxrandr
             wayland
             alsa-lib
             udev
@@ -68,6 +68,8 @@
             # them on is a Cargo.toml change only.
             buildInputs = runtimeLibs;
             LD_LIBRARY_PATH = lib.makeLibraryPath runtimeLibs;
+            # Lets scripts/run-client.sh tell it is already inside this shell.
+            FN_DEVSHELL = "1";
             shellHook = ''
               # Mesa's Vulkan drivers: lavapipe (CPU) everywhere, plus dozen (Vulkan on D3D12) for
               # WSL2 GPUs. Outside NixOS the loader would otherwise read /usr/share/vulkan, whose

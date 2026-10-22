@@ -2,3 +2,4 @@
 
 # Agent worktrees (Claude Code); never commit them.
 /.claude/worktrees/
+/.direnv
