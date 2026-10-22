@@ -22,6 +22,11 @@ pub enum Command {
     DesignateStockpile { pos: Pos },
     /// Set the research target (see `Research::set_target`).
     SetResearch { tech: TechId },
+    /// Designate a bend: a unit with enough chi walks to the tile, channels the ability and
+    /// spends the chi when it completes.
+    Bend { ability: AbilityId, pos: Pos },
+    /// Withdraw a bend designation. Channeling already done is lost.
+    CancelBend { pos: Pos },
 }
 
 /// Why a command was refused. The world is unchanged when `apply` returns one of these.
@@ -29,6 +34,7 @@ pub enum Command {
 pub enum CommandError {
     Designate(DesignateError),
     Research(ResearchError),
+    Bend(BendError),
 }
 
 impl From<DesignateError> for CommandError {
@@ -43,6 +49,12 @@ impl From<ResearchError> for CommandError {
     }
 }
 
+impl From<BendError> for CommandError {
+    fn from(e: BendError) -> Self {
+        Self::Bend(e)
+    }
+}
+
 impl std::fmt::Display for CommandError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -53,6 +65,7 @@ impl std::fmt::Display for CommandError {
             Self::Designate(DesignateError::NotDesignated) => f.write_str("not designated"),
             Self::Designate(DesignateError::CannotStockpile) => f.write_str("can't stockpile here"),
             Self::Research(e) => e.fmt(f),
+            Self::Bend(e) => e.fmt(f),
         }
     }
 }
@@ -76,6 +89,8 @@ impl World {
             Command::CancelHarvest { pos } => self.cancel_harvest(pos)?,
             Command::DesignateStockpile { pos } => self.designate_stockpile(pos)?,
             Command::SetResearch { tech } => self.set_research(tech, defs)?,
+            Command::Bend { ability, pos } => self.designate_bend(ability, pos, defs).map(drop)?,
+            Command::CancelBend { pos } => self.cancel_bend(pos)?,
         }
         self.command_log.push(Recorded { tick: self.tick, command });
         Ok(())

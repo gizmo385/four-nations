@@ -20,6 +20,10 @@
 //! foraged, or claimed. The rate is `World::growth_rate`, the one place something like wet
 //! soil (docs/design/bending.md, "Water the Land") plugs in to make plants grow faster.
 //!
+//! **Bending** (`bending.rs`) rides on the same queue: a `JobKind::Bend` job is claimed by the
+//! nearest unit whose chi covers the cost, pre-empted by needs like any job, and completes by
+//! spending chi.
+//!
 //! Hungry units eat from the closest of: food they carry, food in a stockpile, food lying on the
 //! ground, or a wild food resource they work for themselves. Raw food always works (owner rule,
 //! #3): nobody starves because their nation lacks fire. Cooking would need a hearth, which
@@ -57,6 +61,8 @@ pub enum Task {
     Harvest(JobId),
     /// Walking to pick up a stack for a haul job.
     Haul(JobId),
+    /// Channeling a designated bend.
+    Bend(JobId),
     /// Carrying a stack to a stockpile tile.
     Deliver,
     Eat(FoodSource),
@@ -97,7 +103,7 @@ impl Unit {
 }
 
 /// The remaining steps of a path, next step last.
-fn route_from(path: Vec<Pos>) -> Vec<Pos> {
+pub(super) fn route_from(path: Vec<Pos>) -> Vec<Pos> {
     path.into_iter().skip(1).rev().collect()
 }
 
@@ -112,7 +118,7 @@ impl World {
     pub fn harvest_designations(&self) -> impl Iterator<Item = Pos> + '_ {
         self.jobs.iter().filter_map(|j| match j.kind {
             JobKind::Harvest { pos } => Some(pos),
-            JobKind::Haul { .. } => None,
+            JobKind::Haul { .. } | JobKind::Bend { .. } => None,
         })
     }
 
@@ -191,7 +197,7 @@ impl World {
 }
 
 impl World {
-    fn add_job(&mut self, kind: JobKind) -> JobId {
+    pub(super) fn add_job(&mut self, kind: JobKind) -> JobId {
         let id = JobId(self.next_job);
         self.next_job += 1;
         self.jobs.push(Job { id, kind, claimed_by: None, progress: 0.0 });
@@ -199,7 +205,7 @@ impl World {
         id
     }
 
-    fn job_index(&self, id: JobId) -> Option<usize> {
+    pub(super) fn job_index(&self, id: JobId) -> Option<usize> {
         self.jobs.binary_search_by_key(&id, |j| j.id).ok()
     }
 
@@ -350,13 +356,16 @@ impl World {
                         map[pos].resource.is_some_and(|r| defs.harvest(r).is_some())
                     }
                     JobKind::Haul { pos } => ground.contains_key(&pos),
+                    // Left for a unit to find out: a bend that can't happen is reported as a
+                    // failed event, not silently dropped.
+                    JobKind::Bend { .. } => true,
                 }
         });
     }
 
     /// The cheapest tile to stand on to work `pos`: the tile itself if units can enter it, else
     /// one of its neighbours (a tree can't be walked onto, but can be chopped from beside it).
-    fn stand(&self, flood: &Flood, pos: Pos) -> Option<(u32, Pos)> {
+    pub(super) fn stand(&self, flood: &Flood, pos: Pos) -> Option<(u32, Pos)> {
         if self.map.get(pos).is_some_and(|t| self.rules.passable(t)) {
             return flood.cost(pos).map(|c| (c, pos));
         }
@@ -369,7 +378,7 @@ impl World {
             .min()
     }
 
-    fn flood_from(&self, i: usize) -> Flood {
+    pub(super) fn flood_from(&self, i: usize) -> Flood {
         Flood::new(&self.map, self.units[i].pos, &self.rules)
     }
 
@@ -380,14 +389,14 @@ impl World {
         u.work = 0.0;
     }
 
-    fn finish_job(&mut self, i: usize) {
+    pub(super) fn finish_job(&mut self, i: usize) {
         let u = &mut self.units[i];
         u.job_task = None;
         u.route = None;
     }
 
     /// Lets go of a claimed job without finishing it (it became unreachable).
-    fn abandon_job(&mut self, i: usize, id: JobId, defs: &Defs) {
+    pub(super) fn abandon_job(&mut self, i: usize, id: JobId, defs: &Defs) {
         if let Some(j) = self.job_index(id) {
             self.jobs[j].claimed_by = None;
         }
@@ -397,7 +406,7 @@ impl World {
 
     /// One tick of walking along the route. True once the unit is at the end of it (or the
     /// route is empty to begin with); arriving costs the tick the last step landed on.
-    fn walk(&mut self, i: usize, _defs: &Defs) -> bool {
+    pub(super) fn walk(&mut self, i: usize, _defs: &Defs) -> bool {
         let speed = self.modifiers().move_speed;
         let u = &mut self.units[i];
         let Some(route) = u.route.as_mut() else { return false };
@@ -701,6 +710,10 @@ impl World {
                     };
                     room.then(|| flood.cost(pos).map(|c| (c, pos))).flatten()
                 }
+                JobKind::Bend { ability, pos } => self
+                    .unit_can_bend(i, defs.ability(ability))
+                    .then(|| self.stand(&flood, pos))
+                    .flatten(),
             };
             if let Some((cost, stand)) = found {
                 let key = (cost, job.id);
@@ -719,6 +732,7 @@ impl World {
         let task = match job.kind {
             JobKind::Harvest { .. } => Task::Harvest(job.id),
             JobKind::Haul { .. } => Task::Haul(job.id),
+            JobKind::Bend { .. } => Task::Bend(job.id),
         };
         let u = &mut self.units[i];
         u.job_task = Some(task);
@@ -751,6 +765,9 @@ impl World {
                 in_here(pos)
                     && self.zones.iter().any(|&z| in_here(z) && self.room_at(z, item, defs) > 0)
             }
+            JobKind::Bend { ability, pos } => {
+                self.unit_can_bend(i, defs.ability(ability)) && can_stand(pos)
+            }
         })
     }
 
@@ -767,6 +784,7 @@ impl World {
         match task {
             Task::Harvest(id) => self.run_harvest(i, id, defs),
             Task::Haul(id) => self.run_haul(i, id, defs),
+            Task::Bend(id) => self.run_bend(i, id, defs),
             Task::Deliver => self.run_deliver(i, defs),
             // Need tasks never sit in the job slot.
             _ => self.finish_job(i),

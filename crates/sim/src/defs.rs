@@ -7,6 +7,7 @@
 
 use serde::Deserialize;
 
+use crate::bending::{AbilityDef, AbilityId, BendingFile, ChiSettings};
 use crate::jobs::{HarvestDef, ItemDef, ItemId, JobSettings, JobsFile};
 use crate::nation::{Nation, NationDef};
 use crate::needs::{FoodDef, NeedsFile, NeedsSettings};
@@ -119,6 +120,10 @@ pub struct Defs {
     /// What working each harvestable resource yields (data/jobs.toml).
     pub harvests: Vec<HarvestDef>,
     pub jobs: JobSettings,
+    /// The chi meter every unit has (data/bending.toml).
+    pub chi: ChiSettings,
+    /// Bending abilities, in file order; indexed by `AbilityId`.
+    pub abilities: Vec<AbilityDef>,
     /// `harvests` index by `ResourceId`, so the lookup is O(1).
     harvest_by_resource: Vec<Option<usize>>,
 }
@@ -168,6 +173,7 @@ impl Defs {
             include_str!("../../../data/research.toml"),
             include_str!("../../../data/needs.toml"),
             include_str!("../../../data/jobs.toml"),
+            include_str!("../../../data/bending.toml"),
         )
         .expect("bundled data/*.toml must be valid; run `cargo test -p fn_sim`")
     }
@@ -179,6 +185,7 @@ impl Defs {
         research: &str,
         needs: &str,
         jobs: &str,
+        bending: &str,
     ) -> Result<Self, DefsError> {
         let (research, techs) = parse::<ResearchFile>("research.toml", research)?.resolve()?;
         let mut nations = parse::<NationFile>("nations.toml", nations)?.nation;
@@ -191,12 +198,15 @@ impl Defs {
         let (needs, foods) = parse::<NeedsFile>("needs.toml", needs)?.resolve(&resource_ids)?;
         let (jobs, items, harvests) =
             parse::<JobsFile>("jobs.toml", jobs)?.resolve(&resources, &foods, &needs, &techs)?;
+        let biomes = parse::<BiomeFile>("biomes.toml", biomes)?.biome;
+        let (chi, abilities) = parse::<BendingFile>("bending.toml", bending)?
+            .resolve(&biomes, &resources, &harvests, &techs)?;
         let mut harvest_by_resource = vec![None; resources.len()];
         for (i, h) in harvests.iter().enumerate() {
             harvest_by_resource[h.resource.0 as usize] = Some(i);
         }
         let defs = Self {
-            biomes: parse::<BiomeFile>("biomes.toml", biomes)?.biome,
+            biomes,
             resources,
             nations,
             techs,
@@ -206,6 +216,8 @@ impl Defs {
             items,
             harvests,
             jobs,
+            chi,
+            abilities,
             harvest_by_resource,
         };
         defs.validate()?;
@@ -311,6 +323,14 @@ impl Defs {
         self.techs.iter().position(|t| t.id == id).map(|i| TechId(i as u16))
     }
 
+    pub fn ability_id(&self, id: &str) -> Option<AbilityId> {
+        self.abilities.iter().position(|a| a.id == id).map(|i| AbilityId(i as u16))
+    }
+
+    pub fn ability(&self, id: AbilityId) -> &AbilityDef {
+        &self.abilities[id.0 as usize]
+    }
+
     pub fn biome(&self, id: BiomeId) -> &BiomeDef {
         &self.biomes[id.0 as usize]
     }
@@ -337,6 +357,7 @@ mod tests {
     const RESEARCH: &str = include_str!("../../../data/research.toml");
     const NEEDS: &str = include_str!("../../../data/needs.toml");
     const JOBS: &str = include_str!("../../../data/jobs.toml");
+    const BENDING: &str = include_str!("../../../data/bending.toml");
 
     /// The bundled needs without the food-to-resource link, for tests with their own resources.
     fn unlinked_needs() -> String {
@@ -349,14 +370,35 @@ mod tests {
         format!("harvest = []\n{}", &JOBS[..end])
     }
 
+    /// The bundled bending without abilities, for tests with their own biomes and resources.
+    fn bare_bending() -> &'static str {
+        &BENDING[..BENDING.find("\n[[ability]]").unwrap()]
+    }
+
     fn with_biomes(biomes: &str) -> Result<Defs, DefsError> {
         // No resources, so they can't reference biomes missing from the test table.
-        Defs::from_toml(biomes, "resource = []", NATIONS, RESEARCH, &unlinked_needs(), &bare_jobs())
+        Defs::from_toml(
+            biomes,
+            "resource = []",
+            NATIONS,
+            RESEARCH,
+            &unlinked_needs(),
+            &bare_jobs(),
+            bare_bending(),
+        )
     }
 
     fn with_resource(fields: &str) -> Result<Defs, DefsError> {
         let src = format!("[[resource]]\nid='x'\nname='X'\nglyph='x'\nchance=0.5\n{fields}");
-        Defs::from_toml(BIOMES, &src, NATIONS, RESEARCH, &unlinked_needs(), &bare_jobs())
+        Defs::from_toml(
+            BIOMES,
+            &src,
+            NATIONS,
+            RESEARCH,
+            &unlinked_needs(),
+            &bare_jobs(),
+            bare_bending(),
+        )
     }
 
     fn one_biome(t: &str, m: &str) -> String {
@@ -441,6 +483,7 @@ mod tests {
             RESEARCH,
             needs,
             JOBS,
+            BENDING,
         )
     }
 
@@ -474,6 +517,7 @@ mod tests {
             RESEARCH,
             NEEDS,
             jobs,
+            BENDING,
         )
     }
 

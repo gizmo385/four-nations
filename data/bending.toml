@@ -1,0 +1,91 @@
+# Bending: the chi meter and each nation's signature ability.
+# Design and rationale: docs/design/bending.md.
+#
+# `[chi]`: every unit has a chi meter from 0 to `max`. It regenerates per in-game minute (times
+# the nation's `chi_regen` modifier in data/nations.toml) and is spent when a bend completes. A
+# unit only claims a bend job if its chi covers the cost.
+#
+# `[[ability]]`: one per ability, in file order (`AbilityId` is the index).
+# - `nation`: only this nation can use it.
+# - `chi`: cost, in (0, chi.max]. `work`: channel seconds at a modifier of 1.0, >= 0.
+# - `speed_modifier` (optional): a nation modifier (data/nations.toml) that divides the channel
+#   time, like a harvest's `modifier`.
+# - `magnitude_modifier` (optional): a nation modifier that scales the effect's one documented
+#   magnitude (named per kind below).
+# - `[ability.effect]`: `kind` picks one variant of the effect enum in crates/sim/src/bending.rs;
+#   unknown keys are rejected. Terrain, biome and resource ids must exist.
+# - An ability is available from the start unless a tech lists it under `unlocks.abilities` in
+#   data/research.toml (that tech must be of the same nation, and the only one to list it).
+#
+# The effects themselves are separate work (#68 to #71): until then a bend of any of these is
+# refused as "not implemented yet".
+
+[chi]
+max = 100.0
+regen_per_minute = 2.0         # awake
+sleep_regen_per_minute = 8.0   # asleep: rest restores chi
+
+# Earth: turns a river or lake tile beside dry ground into a permanent, walkable ford.
+[[ability]]
+id = "raise_earth"
+nation = "earth"
+name = "Raise Earth"
+verb = "Raise stones"
+description = "Raise the riverbed into stepping stones."
+chi = 50.0
+work = 15.0
+speed_modifier = "earthworks"
+[ability.effect]
+kind = "reshape"
+from = ["river", "lake"]
+to = "ford"
+
+# Water: wets a 3x3 patch near fresh water; later, wild greens sprout there.
+[[ability]]
+id = "water_the_land"
+nation = "water"
+name = "Water the Land"
+verb = "Water"
+description = "Pull water from the river and pour it into the soil. Greens sprout where it wets."
+chi = 40.0
+work = 10.0
+speed_modifier = "water_work"
+[ability.effect]
+kind = "irrigate"
+source_range = 4          # tiles from fresh water (river, lake or ford)
+wet_minutes = 6.0
+sprouts = 2               # tiles of the patch that sprout when it dries
+sprout_resource = "cabbage"
+biomes = ["plains", "forest", "swamp"]   # fertile ground
+fallow_minutes = 30.0     # a tile that sprouted can't sprout again for this long
+
+# Fire: a fuel-free flame. Meals eaten near it count as cooked, and sleep near it is better.
+[[ability]]
+id = "hearthflame"
+nation = "fire"
+name = "Hearthflame"
+verb = "Kindle"
+description = "A flame that needs no fuel. Meals eaten near it are cooked, and sleep is warmer."
+chi = 30.0
+work = 4.0
+magnitude_modifier = "heating"   # scales duration_minutes
+[ability.effect]
+kind = "heat_source"
+duration_minutes = 8.0
+radius = 3                # tiles, Chebyshev
+sleep_bonus = 1.5         # energy regained asleep nearby, times the base rate
+seek_tiles = 20           # a unit about to sleep walks to a flame within this many path tiles
+
+# Air: blows a whole ground stack into a stockpile, over anything.
+[[ability]]
+id = "wind_carry"
+nation = "air"
+name = "Wind Carry"
+verb = "Blow"
+description = "A gust that lifts the load: send a whole stack to a stockpile."
+chi = 15.0
+work = 2.0
+magnitude_modifier = "power_generation"   # scales range
+[ability.effect]
+kind = "wind_carry"
+range = 8                 # tiles, Chebyshev

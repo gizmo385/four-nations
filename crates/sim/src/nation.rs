@@ -87,6 +87,7 @@ modifiers! {
     power_generation,
     construction,
     study,
+    chi_regen,
 }
 
 #[derive(Debug, Clone, Deserialize)]
