@@ -8,7 +8,11 @@
 # - `[tech.unlocks]` `modifiers` multiply a nation's modifiers (data/nations.toml) once the tech
 #   is known. Each multiplier must be in (0, 4]; unknown modifier names fail to load.
 #
-# Only modifier unlocks exist so far. Building, job and ability unlocks are added by the issues
+# `abilities` lists ids from data/bending.toml that the tech unlocks. An ability can only be
+# unlocked by a tech of its own nation, and by at most one tech; an ability no tech unlocks is
+# available from the start (a nation's signature ability).
+#
+# Modifier and ability unlocks exist so far. Building and job unlocks are added by the issues
 # that introduce those defs (see "Staging" in research.md); until then the `# Later:` comments
 # record what each tech is meant to unlock.
 
@@ -323,9 +327,8 @@ name = "Meditation"
 description = "Quiet the mind; chi flows and lessons come easier."
 nation = "air"
 cost = 60
-# Later: chi regeneration
 [tech.unlocks]
-modifiers = { study = 1.2 }
+modifiers = { study = 1.2, chi_regen = 1.25 }
 
 [[tech]]
 id = "gliders"

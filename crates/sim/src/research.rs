@@ -92,14 +92,19 @@ fn millis_per_tick(per_minute: f64) -> u64 {
     (per_minute * MILLIS_PER_POINT as f64 / (60.0 * f64::from(TICKS_PER_SECOND))).round() as u64
 }
 
-/// What learning a tech makes available. Only modifier multipliers exist for now; buildings, jobs
-/// and abilities are added (with their validation) by the issues that introduce those defs, so
-/// unknown keys are rejected until then.
+/// What learning a tech makes available. Modifier multipliers and bending abilities exist so far;
+/// buildings and jobs are added (with their validation) by the issues that introduce those defs,
+/// so unknown keys are rejected until then.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Unlocks {
     #[serde(default)]
     pub modifiers: ModifierMultipliers,
+    /// Ids of abilities in `data/bending.toml` this tech unlocks. Checked against the ability
+    /// defs when they load (`bending::BendingFile::resolve`), which also records the unlocking
+    /// tech on `AbilityDef::unlocked_by`.
+    #[serde(default)]
+    pub abilities: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -391,6 +396,7 @@ mod tests {
     const JOBS: &str = include_str!("../../../data/jobs.toml");
     const NATIONS: &str = include_str!("../../../data/nations.toml");
     const RESEARCH: &str = include_str!("../../../data/research.toml");
+    const BENDING: &str = include_str!("../../../data/bending.toml");
 
     const SETTINGS: &str =
         "[settings]\npassive_knowledge_per_minute = 3.0\nstudy_knowledge_per_minute = 9.0\n";
@@ -421,7 +427,7 @@ mod tests {
     ";
 
     fn load(research: &str, nations: &str) -> Result<Defs, DefsError> {
-        Defs::from_toml(BIOMES, RESOURCES, nations, research, NEEDS, JOBS)
+        Defs::from_toml(BIOMES, RESOURCES, nations, research, NEEDS, JOBS, BENDING)
     }
 
     /// Loads the bundled nations with `BASICS` plus `techs`.

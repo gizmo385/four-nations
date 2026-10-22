@@ -6,6 +6,7 @@
 
 use serde::Deserialize;
 
+use crate::bending::AbilityId;
 use crate::defs::{DefsError, ResourceDef, ResourceId};
 use crate::geom::Pos;
 use crate::nation::Modifiers;
@@ -206,6 +207,8 @@ pub enum JobKind {
     Harvest { pos: Pos },
     /// Carry the item stack lying on this tile to a stockpile. Created automatically.
     Haul { pos: Pos },
+    /// Channel this ability on this tile (`data/bending.toml`). Needs a unit with enough chi.
+    Bend { ability: AbilityId, pos: Pos },
 }
 
 #[derive(Debug, Clone, PartialEq)]

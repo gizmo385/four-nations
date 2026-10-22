@@ -149,7 +149,7 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
         Task::Haul(id) => {
             let at = world.job(id).and_then(|j| match j.kind {
                 JobKind::Haul { pos } => Some(pos),
-                JobKind::Harvest { .. } => None,
+                JobKind::Harvest { .. } | JobKind::Bend { .. } => None,
             });
             let stack = at.and_then(|p| world.ground_items().find(|(q, _)| *q == p));
             match (stack, at) {
@@ -159,6 +159,13 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
                 _ => "Fetching items".into(),
             }
         }
+        // Minimal text; the proper bending display is the client work in #72.
+        Task::Bend(id) => match world.job(id).map(|j| j.kind) {
+            Some(JobKind::Bend { ability, pos }) => {
+                format!("{} at ({}, {})", defs.ability(ability).verb, pos.x, pos.y)
+            }
+            _ => "Bending".into(),
+        },
         Task::Deliver => {
             format!("Delivering {} to a stockpile", describe_stack(defs, unit.carrying))
         }

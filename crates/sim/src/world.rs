@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use rand::RngExt;
 use rand::seq::SliceRandom;
 
+use crate::bending::AbilityId;
 use crate::defs::Defs;
 use crate::geom::Pos;
 use crate::jobs::{Job, JobId, Stack};
@@ -19,9 +20,11 @@ use crate::regions::Regions;
 use crate::research::{self, Research, ResearchError, TechId};
 use crate::rng::{self, SimRng};
 
+mod bending;
 mod command;
 mod work;
 
+pub use bending::{BendError, BendEvent, BendOutcome};
 pub use command::{Command, CommandError, Recorded};
 pub use work::{DesignateError, FoodSource, Task};
 
@@ -44,6 +47,9 @@ pub struct Unit {
     pub variant: u8,
     /// Hunger, thirst, energy and health (data/needs.toml). At 0 health the unit dies.
     pub needs: Needs,
+    /// Bending energy, from 0 to `data/bending.toml`'s `chi.max`. Regenerates every tick (faster
+    /// asleep) and is spent when a bend completes. Never hurts the unit.
+    pub chi: f32,
     /// What this unit is carrying to a stockpile (or has picked up to eat).
     pub carrying: Option<Stack>,
     /// A need it is acting on (eat, drink, sleep). Takes priority over `job_task`.
@@ -121,6 +127,8 @@ pub struct World {
     /// Which tiles can reach which under `rules`, or `None` when the map has changed since it
     /// was computed. Recomputed on demand; see `regions.rs`.
     regions: Option<Regions>,
+    /// Every bend that has finished or failed, oldest first.
+    bend_events: Vec<BendEvent>,
     rng: SimRng,
 }
 
@@ -152,6 +160,7 @@ impl World {
             stored: BTreeMap::new(),
             rules: MoveRules::default(),
             regions: None,
+            bend_events: Vec::new(),
             rng: rng::stream(seed, "world.units"),
         };
         world.refresh_modifiers(defs);
@@ -204,6 +213,7 @@ impl World {
                 pos,
                 variant,
                 needs: Needs::full(&defs.needs),
+                chi: defs.chi.max,
                 carrying: None,
                 need_task: None,
                 job_task: None,
@@ -238,7 +248,7 @@ impl World {
         self.map.get(p).is_some_and(|t| t.terrain.is_walkable() && t.resource.is_none())
     }
 
-    /// Advances the world by one tick: research, units' needs and resource regrowth run (units whose health reaches 0
+    /// Advances the world by one tick: research, units' needs and chi, and resource regrowth run (units whose health reaches 0
     /// die and are removed, in id order), then each survivor acts, in id order: it meets a need
     /// if one is low, else carries on with its job, else claims one, else wanders. See
     /// `work.rs`.
@@ -278,8 +288,10 @@ impl World {
     fn tick_needs(&mut self, defs: &Defs) {
         let tick = self.tick;
         let mut dead = Vec::new();
+        let chi_regen = self.modifiers.chi_regen;
         for mut u in std::mem::take(&mut self.units) {
             u.needs.tick(&defs.needs, u.is_sleeping());
+            u.chi = defs.chi.regen(u.chi, u.is_sleeping(), chi_regen);
             if u.needs.is_dead() {
                 dead.push(u);
             } else {
