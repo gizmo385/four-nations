@@ -2,7 +2,12 @@
 # Seeds a fresh git worktree's target/ with a copy of the main checkout's, so the first build in
 # the worktree reuses already-compiled dependencies (Bevy above all) instead of rebuilding them.
 # Cargo stores fingerprint paths relative to the package or target root, so a moved target/ stays
-# valid and only the workspace crates rebuild.
+# valid for registry crates.
+#
+# Workspace crates are the trap: Cargo judges them fresh by mtime, and the copied artifacts (built
+# from the main checkout's sources) are usually newer than this worktree's edits. Left alone, Cargo
+# would silently test main's code. So after copying we touch every workspace file, which forces
+# the workspace crates to rebuild while registry dependencies stay cached.
 #
 #   scripts/warm-target.sh    # run from inside the worktree; does nothing if target/ exists
 #
@@ -23,4 +28,6 @@ if ! cp -cRp "$main/target" "$here/target" 2>/dev/null; then
   rm -rf "$here/target" # a partial clone; we checked above that target/ didn't exist before
   cp -a --reflink=auto "$main/target" "$here/target"
 fi
-say "seeded target/ from $main/target"
+git -C "$here" ls-files -z --cached --others --exclude-standard \
+  | (cd "$here" && xargs -0 touch)
+say "seeded target/ from $main/target; workspace crates will rebuild"
