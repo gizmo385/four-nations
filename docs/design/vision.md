@@ -28,6 +28,13 @@ small settlement of one of the four nations. Your people gather, build, eat, sle
    early decisions meaningful.
 4. **Readable simulation.** You can hover anything and see why it's happening.
 
+## One nation, no war (decided 2026-10-21)
+
+The player controls **a single nation**. Other civilizations may be modelled later as neighbors
+to trade, exchange culture and knowledge with, or help, but **nations never fight each other**.
+Avatar is about balance and unity. Pressure comes from survival, the environment and growth,
+not conquest. Design features (research #17, bending #6) around peaceful progress.
+
 ## Core loop (first playable)
 
 Generate world → place settlement → designate (chop, mine, farm, build) → units claim jobs →
@@ -36,6 +43,5 @@ Win: reach N population (the 2013 goal was 10). Lose: everyone dies.
 
 ## Open questions
 
-- **Single nation vs. multiple**: do the other nations exist as neighbors, traders or rivals?
 - **Scale**: one settlement on a 96×64 map, or a larger world map with travel?
 - **Art direction** (#1): 16px top-down (current) or something else.
