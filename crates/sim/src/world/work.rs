@@ -97,8 +97,10 @@ impl Unit {
         self.need_task.or(self.job_task)
     }
 
+    /// Asleep: it has chosen to sleep and has finished walking to its spot (a unit may first
+    /// walk to a warm place, see `heat.rs`).
     pub fn is_sleeping(&self) -> bool {
-        self.need_task == Some(Task::Sleep)
+        self.need_task == Some(Task::Sleep) && self.route.as_ref().is_none_or(|r| r.is_empty())
     }
 }
 
@@ -478,7 +480,8 @@ impl World {
 
     fn plan_need(&self, i: usize, need: Need, defs: &Defs) -> Option<(Task, Vec<Pos>)> {
         match need {
-            Need::Energy => Some((Task::Sleep, Vec::new())),
+            // Near a lit heat source if there is one in reach, else right here.
+            Need::Energy => Some((Task::Sleep, self.warm_sleep_route(i).unwrap_or_default())),
             Need::Thirst => self.plan_drink(i),
             Need::Hunger => self.plan_food(i, defs),
         }
@@ -561,6 +564,8 @@ impl World {
                     || ready(Need::Thirst, u.needs.thirst)
                 {
                     self.finish_need(i);
+                } else if u.route.as_ref().is_some_and(|r| !r.is_empty()) {
+                    self.walk(i, defs);
                 }
             }
             Task::Drink | Task::Eat(_) => {
@@ -614,9 +619,10 @@ impl World {
             Task::Eat(source) => {
                 let item = self.food_item(i, source, defs).expect("checked above");
                 self.take_food(i, source, item, defs);
-                // Always raw: cooking needs a hearth, which doesn't exist yet.
+                // Cooked if the unit is eating within reach of a lit heat source.
                 let food = defs.food_of(item).expect("food_item checked");
-                self.units[i].needs.eat(food, false, &defs.needs);
+                let cooked = self.is_heated(self.units[i].pos);
+                self.units[i].needs.eat(food, cooked, &defs.needs);
             }
             _ => {}
         }
