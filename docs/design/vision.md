@@ -44,4 +44,4 @@ Win: reach N population (the 2013 goal was 10). Lose: everyone dies.
 ## Open questions
 
 - **Scale**: one settlement on a 96×64 map, or a larger world map with travel?
-- **Art direction** (#1): 16px top-down (current) or something else.
+- **Art direction** (#1): three rendered options in [art.md](art.md), waiting on the owner's pick.
