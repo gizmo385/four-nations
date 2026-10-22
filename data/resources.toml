@@ -8,12 +8,14 @@
 # - min_spacing:     no two of this resource within this many tiles (Chebyshev), for spread-out
 #                    deposits.
 
+# Gold is a find, not wallpaper: mountains only, roughly 20-25 veins on a 192x128 map
+# (a few per screen at default zoom). Listed first so it wins over stone on a mountain tile.
 [[resource]]
 id = "gold_vein"
 name = "Gold Vein"
 glyph = "$"
-chance = 0.03
-terrains = ["land", "mountain"]
+chance = 0.05
+terrains = ["mountain"]
 min_spacing = 6
 
 [[resource]]
