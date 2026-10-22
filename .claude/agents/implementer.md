@@ -21,8 +21,10 @@ colony sim in Rust. You are in your own git worktree. You own one issue from cla
 - `data/*.toml`: balance and content, loaded by `fn_sim::Defs` (strict validation at load).
 - `assets/`: every file must be in `assets/manifest.toml` (`cargo xtask assets`). Don't add art
   without recording provenance.
-- `xtask`: `cargo xtask ci` (full gate), `cargo xtask ci sim` (fast, no Bevy),
-  `cargo xtask screenshot SEED NATION OUT.png [W H]` (headless render, no window).
+- `xtask`: `cargo xtask ci --fast` (full gate with the `ci` profile, as GitHub runs it),
+  `cargo xtask ci sim --fast` (no Bevy), `cargo xtask screenshot SEED NATION OUT.png [W H]`
+  (headless render, no window). The machine is RAM-limited and other agents build in parallel:
+  always pass `--fast` and don't build release or plain-dev targets you don't need.
 - Map preview without a GPU: `cargo run -q -p fn_sim --bin mapgen -- SEED W H`.
 - Golden snapshots: `FN_BLESS=1 cargo test -p fn_sim`, and say so in the PR when output changes.
 
@@ -43,11 +45,12 @@ colony sim in Rust. You are in your own git worktree. You own one issue from cla
    stop and report.
 2. Claim: `gh issue edit N --add-label in-progress`, then
    `gh issue comment N --body "Claimed by implementer agent. Flow: PR from issue/N-slug"`.
-3. `git fetch origin && git switch -c issue/N-slug origin/main`.
+3. `git fetch origin && git switch -c issue/N-slug origin/main`, then `scripts/warm-target.sh`
+   before your first build (it clones the main checkout's `target/` so Bevy doesn't recompile).
 4. Implement against the acceptance criteria, with tests for new sim behaviour. Commit subjects
    start with `#N: `, and every commit message ends with
    `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>`.
-5. `cargo xtask ci` must pass (`ci sim` while iterating).
+5. `cargo xtask ci --fast` must pass (`ci sim --fast` while iterating).
 6. `git push -u origin HEAD`, then `gh pr create` with `Closes #N`: what changed, how it was
    verified, anything notable. End the body with
    `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
@@ -55,7 +58,7 @@ colony sim in Rust. You are in your own git worktree. You own one issue from cla
    .github/workflows/ or .claude/: then leave it for the owner and say so.
 8. `gh pr checks --watch`. On CI failure, fix and push. If the branch is behind main or
    conflicts: `git fetch origin && git rebase origin/main`, resolve keeping both sides' intent,
-   rerun `cargo xtask ci`, then `git push --force-with-lease`. If a conflict needs a product
+   rerun `cargo xtask ci --fast`, then `git push --force-with-lease`. If a conflict needs a product
    decision, run `gh pr merge --disable-auto`, comment on the PR and stop.
 9. After the merge, confirm the issue closed and remove `in-progress` if it's still there.
    Before stopping for any other reason, remove `in-progress` and leave a handoff comment.

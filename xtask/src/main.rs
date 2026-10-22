@@ -1,7 +1,9 @@
 //! Repo maintenance commands. Run from anywhere in the repo:
 //!
 //!     cargo xtask assets [--release]   verify assets/manifest.toml covers and matches assets/
-//!     cargo xtask ci [sim|client]      fmt + clippy + tests + assets (default: everything)
+//!     cargo xtask ci [sim|client] [--fast]
+//!                                      fmt + clippy + tests + assets (default: everything);
+//!                                      --fast uses the `ci` profile, as CI does
 //!     cargo xtask screenshot SEED NATION OUT.png [WIDTH HEIGHT]
 //!                                      render the client headless (no window) to a PNG
 
@@ -18,12 +20,14 @@ type Result<T = ()> = std::result::Result<T, String>;
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let fast = args.first() == Some(&"ci") && args.contains(&"--fast");
+    let args: Vec<&str> = args.into_iter().filter(|a| !(fast && *a == "--fast")).collect();
     let result = match args.as_slice() {
         ["assets"] => assets(false),
         ["assets", "--release"] => assets(true),
-        ["ci"] => ci(Scope::All),
-        ["ci", "sim"] => ci(Scope::Sim),
-        ["ci", "client"] => ci(Scope::Client),
+        ["ci"] => ci(Scope::All, fast),
+        ["ci", "sim"] => ci(Scope::Sim, fast),
+        ["ci", "client"] => ci(Scope::Client, fast),
         ["screenshot", seed, nation, out] => screenshot(seed, nation, out, "1280", "720"),
         ["screenshot", seed, nation, out, w, h] => screenshot(seed, nation, out, w, h),
         _ => Err(include_str!("main.rs")
@@ -176,16 +180,17 @@ enum Scope {
     Client,
 }
 
-fn ci(scope: Scope) -> Result {
+fn ci(scope: Scope, fast: bool) -> Result {
     let packages: &[&str] = match scope {
         Scope::All => &["--workspace"],
         Scope::Sim => &["-p", "fn_sim", "-p", "xtask"],
         Scope::Client => &["-p", "fn_client"],
     };
-    // On CI (GitHub sets $CI), build with the `ci` profile: unoptimized dependencies and no debug
-    // info compile several times faster, and tests don't need Bevy to run fast.
+    // On CI (GitHub sets $CI) or with --fast, build with the `ci` profile: unoptimized
+    // dependencies and no debug info compile several times faster and use far less memory, and
+    // tests don't need Bevy to run fast. Agents use --fast so parallel worktree builds fit in RAM.
     let profile: &[&str] =
-        if std::env::var_os("CI").is_some() { &["--profile", "ci"] } else { &[] };
+        if fast || std::env::var_os("CI").is_some() { &["--profile", "ci"] } else { &[] };
 
     if scope != Scope::Client {
         cargo(&["fmt", "--all", "--check"])?;

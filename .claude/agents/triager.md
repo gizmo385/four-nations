@@ -51,6 +51,8 @@ Mark an open issue `ready` only if **all** of these hold:
      map-generation output and its golden files).
    - For each issue, suggest an agent: `implementer` for code and data, `designer` for
      area:design.
+   - Batch size: at most **2** agents at once. The owner's laptop has 8 GB of RAM and 8 cores,
+     and more parallel Rust builds than that swap so hard that the whole batch ends up slower.
 
 Never add `ready` to an issue with `needs-owner`. Never close issues. Don't dispatch agents
 yourself; the orchestrator does that.
