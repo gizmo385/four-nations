@@ -6,7 +6,7 @@
 # and take libxkbcommon from nixpkgs (Ubuntu doesn't ship the -x11 variant by default).
 # Replace with a flake devShell when issue #10 lands.
 #
-#   scripts/run-client.sh [seed] [nation]
+#   scripts/run-client.sh [seed] [nation] [width] [height]
 #   FN_SCREENSHOT=/tmp/shot.png scripts/run-client.sh 42 earth   # render, save, exit
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"

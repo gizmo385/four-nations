@@ -1,6 +1,6 @@
 //! Bevy client: draws the `fn_sim` world and forwards player input. Owns no game rules.
 //!
-//!     cargo run -p fn_client -- [seed] [air|water|earth|fire]
+//!     cargo run -p fn_client -- [seed] [air|water|earth|fire] [width] [height]
 //!
 //! Controls: WASD/arrows pan, mouse wheel zoom, R new map, 1-4 switch nation, Space pause.
 //!
@@ -17,8 +17,6 @@ use fn_sim::world::TICKS_PER_SECOND;
 use fn_sim::{Defs, MapGenConfig, Nation, Pos, Terrain, Tile, World};
 
 const TILE: f32 = 16.0;
-const MAP_WIDTH: i32 = 96;
-const MAP_HEIGHT: i32 = 64;
 const STARTING_UNITS: u32 = 6;
 const ASSET_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets");
 const KENNEY: &str = "third_party/kenney-tiny-town/tilemap_packed.png";
@@ -28,6 +26,9 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let seed = args.next().and_then(|s| s.parse().ok()).unwrap_or(1);
     let nation = args.next().and_then(|s| parse_nation(&s)).unwrap_or(Nation::Earth);
+    let defaults = MapGenConfig::default();
+    let width = args.next().and_then(|s| s.parse().ok()).unwrap_or(defaults.width);
+    let height = args.next().and_then(|s| s.parse().ok()).unwrap_or(defaults.height);
     let screenshot_mode = std::env::var_os("FN_SCREENSHOT").is_some();
 
     App::new()
@@ -51,7 +52,7 @@ fn main() {
                 }),
         )
         .insert_resource(Time::<Fixed>::from_hz(f64::from(TICKS_PER_SECOND)))
-        .insert_resource(Sim::new(seed, nation))
+        .insert_resource(Sim::new(seed, nation, width, height))
         .add_systems(Startup, (load_art, setup_camera_and_ui, spawn_world).chain())
         .add_systems(FixedUpdate, tick_sim)
         .add_systems(Update, (controls, camera_controls, sync_units, hover_info, hud).chain())
@@ -71,9 +72,9 @@ struct Sim {
 }
 
 impl Sim {
-    fn new(seed: u64, nation: Nation) -> Self {
+    fn new(seed: u64, nation: Nation, width: i32, height: i32) -> Self {
         let defs = Defs::bundled();
-        let cfg = MapGenConfig { seed, width: MAP_WIDTH, height: MAP_HEIGHT, ..default() };
+        let cfg = MapGenConfig { seed, width, height, ..default() };
         let world = World::new(&cfg, nation, STARTING_UNITS, &defs);
         Self { world, defs, paused: false }
     }
@@ -158,10 +159,15 @@ fn load_art(
     });
 }
 
-fn setup_camera_and_ui(mut commands: Commands) {
+fn setup_camera_and_ui(mut commands: Commands, sim: Res<Sim>) {
+    let map = &sim.world.map;
     commands.spawn((
         Camera2d,
-        Transform::from_xyz(MAP_WIDTH as f32 * TILE / 2.0, -MAP_HEIGHT as f32 * TILE / 2.0, 0.0),
+        Transform::from_xyz(
+            map.width() as f32 * TILE / 2.0,
+            -map.height() as f32 * TILE / 2.0,
+            0.0,
+        ),
     ));
     let panel = |top: bool| Node {
         position_type: PositionType::Absolute,
@@ -276,7 +282,8 @@ fn controls(
         return;
     }
     let seed = new_seed.unwrap_or(sim.world.seed);
-    *sim = Sim::new(seed, nation.unwrap_or(sim.world.nation));
+    let (width, height) = (sim.world.map.width(), sim.world.map.height());
+    *sim = Sim::new(seed, nation.unwrap_or(sim.world.nation), width, height);
     for e in &existing {
         commands.entity(e).despawn();
     }

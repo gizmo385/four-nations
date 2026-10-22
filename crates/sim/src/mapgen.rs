@@ -30,21 +30,22 @@ pub struct MapGenConfig {
     pub mountain_fraction: f64,
     pub water_border: i32,
     pub water_spread_chance: f64,
-    /// Number of biome seed points per biome definition.
-    pub biome_seeds_per_biome: u32,
+    /// Average tiles per biome region; the number of region seeds scales with map area so
+    /// regions stay a similar size on any map.
+    pub biome_region_area: u32,
 }
 
 impl Default for MapGenConfig {
     fn default() -> Self {
         Self {
-            width: 64,
-            height: 48,
+            width: 192,
+            height: 128,
             seed: 0,
             smoothing_passes: 15,
             mountain_fraction: 0.06,
             water_border: 2,
             water_spread_chance: 0.1,
-            biome_seeds_per_biome: 5,
+            biome_region_area: 150,
         }
     }
 }
@@ -114,7 +115,8 @@ fn base_terrain(elevation: &Grid<u8>, mountain_fraction: f64) -> Grid<Terrain> {
 fn assign_biomes(cfg: &MapGenConfig, biome_count: usize) -> Grid<BiomeId> {
     let mut rng = rng::stream(cfg.seed, "mapgen.biomes");
     let mut groups: Grid<Option<BiomeId>> = Grid::from_fn(cfg.width, cfg.height, |_| None);
-    let seeds = (cfg.biome_seeds_per_biome as usize * biome_count).max(1);
+    let area = (cfg.width * cfg.height) as usize;
+    let seeds = (area / cfg.biome_region_area.max(1) as usize).max(biome_count);
     for _ in 0..seeds {
         let p = Pos::new(rng.random_range(0..cfg.width), rng.random_range(0..cfg.height));
         groups[p] = Some(BiomeId(rng.random_range(0..biome_count) as u8));
