@@ -3,7 +3,9 @@
 //!     cargo run -p fn_client -- [seed] [air|water|earth|fire] [width] [height]
 //!
 //! Controls: click a unit to select it (Esc deselects), WASD/arrows or mouse drag pan, mouse wheel
-//! zoom, R new map, 1-4 switch nation, Space pause.
+//! zoom, R new map, 1-4 switch nation, Space pause. H/X/P pick a designation tool (harvest, cancel
+//! harvest, stockpile): drag a rectangle with the left button, middle/right still pan; Esc returns
+//! to selecting. See `designate`.
 //!
 //! `FN_SCREENSHOT=out.png` runs headless: no window is created at all (winit is disabled and the
 //! camera renders into an offscreen `Image`), and once the art has loaded it saves one frame as a
@@ -23,8 +25,11 @@ use bevy::render::render_resource::{TextureFormat, TextureUsages};
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use bevy::window::{ExitCondition, PrimaryWindow};
 use bevy::winit::WinitPlugin;
+use designate::{DesignatePlugin, Notice, Tool};
 use fn_sim::world::{TICKS_PER_SECOND, UnitId};
 use fn_sim::{Defs, MapGenConfig, Nation, Pos, Terrain, Tile, World};
+
+mod designate;
 
 const TILE: f32 = 16.0;
 const STARTING_UNITS: u32 = 6;
@@ -76,6 +81,7 @@ fn main() {
         .insert_resource(Sim::new(seed, nation, width, height))
         .init_resource::<Selection>()
         .add_message::<MapClicked>()
+        .add_plugins(DesignatePlugin)
         .add_systems(Startup, (load_art, setup_camera_and_ui, spawn_world).chain())
         .add_systems(FixedUpdate, tick_sim)
         .add_systems(
@@ -438,6 +444,7 @@ fn camera_controls(
     scroll: Res<AccumulatedMouseScroll>,
     time: Res<Time>,
     sim: Res<Sim>,
+    tool: Res<Tool>,
     window: Query<&Window, With<PrimaryWindow>>,
     mut drag: Local<DragState>,
     mut clicks: MessageWriter<MapClicked>,
@@ -473,8 +480,14 @@ fn camera_controls(
     tf.translation +=
         (dir.normalize_or_zero() * 600.0 * ortho.scale * time.delta_secs()).extend(0.0);
 
-    // Grab-and-drag panning with any mouse button. Screen y points down, world y points up.
-    let buttons = [MouseButton::Left, MouseButton::Middle, MouseButton::Right];
+    // Grab-and-drag panning with any mouse button (a designation tool owns the left one). Screen
+    // y points down, world y points up.
+    let selecting = *tool == Tool::Select;
+    let buttons: &[MouseButton] = if selecting {
+        &[MouseButton::Left, MouseButton::Middle, MouseButton::Right]
+    } else {
+        &[MouseButton::Middle, MouseButton::Right]
+    };
     let cursor = window.cursor_position();
     if buttons.iter().any(|b| mouse.just_pressed(*b)) {
         *drag = DragState { last: cursor, travelled: 0.0 };
@@ -490,7 +503,8 @@ fn camera_controls(
         }
         drag.last = Some(now);
     }
-    if mouse.just_released(MouseButton::Left)
+    if selecting
+        && mouse.just_released(MouseButton::Left)
         && drag.travelled <= DRAG_THRESHOLD
         && let Some(world) = cursor.and_then(|c| cam.viewport_to_world_2d(cam_tf, c).ok())
     {
@@ -578,12 +592,17 @@ fn hover_info(
     );
 }
 
-fn hud(sim: Res<Sim>, mut text: Query<&mut Text, With<HudText>>) {
+fn hud(
+    sim: Res<Sim>,
+    tool: Res<Tool>,
+    notice: Res<Notice>,
+    mut text: Query<&mut Text, With<HudText>>,
+) {
     let Ok(mut text) = text.single_mut() else { return };
     let def = sim.defs.nation(sim.world.nation);
     let m = sim.world.modifiers();
     text.0 = format!(
-        "{} | seed {} | tick {}{}\nmove x{} carry x{} earthworks x{} heat x{} water x{} power x{} build x{}\n[click] select  [WASD/drag] pan  [wheel] zoom  [R] new map  [1-4] nation  [Space] pause",
+        "{} | seed {} | tick {}{}\nmove x{} carry x{} earthworks x{} heat x{} water x{} power x{} build x{}\nTool: {}{}\n[H] harvest  [X] cancel harvest  [P] stockpile  [Esc] select  [WASD/drag] pan  [wheel] zoom  [R] new map  [1-4] nation  [Space] pause",
         def.name,
         sim.world.seed,
         sim.world.tick,
@@ -595,6 +614,8 @@ fn hud(sim: Res<Sim>, mut text: Query<&mut Text, With<HudText>>) {
         m.water_work,
         m.power_generation,
         m.construction,
+        tool.label(),
+        if notice.0.is_empty() { String::new() } else { format!(" ({})", notice.0) },
     );
 }
 
