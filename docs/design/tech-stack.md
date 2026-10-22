@@ -79,3 +79,11 @@ code-first workflows. Because of the crate split above, that switch would replac
 - Bevy was built with `default-features = false`, plus 2D, UI, and X11 only, to avoid needing
   alsa, udev, or wayland dev headers on this machine (Nix toolchain on Ubuntu/WSL2). Audio and
   gamepad support will need those system libraries later.
+
+## Dev environment (2026-10-22)
+
+`flake.nix` provides a devShell with Rust (pinned via rust-overlay, kept in sync with CI's
+version), pkg-config, and Bevy's native libraries, including alsa, udev, and wayland, so enabling
+those Bevy features later only needs a Cargo.toml change. It points the Vulkan loader at nixpkgs
+Mesa's drivers, because Ubuntu's drivers can't load into Nix-built binaries. CI doesn't use the
+flake.

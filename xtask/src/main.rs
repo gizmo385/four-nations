@@ -205,7 +205,7 @@ fn ci(scope: Scope) -> Result {
 // ---------------------------------------------------------------------------------------------
 
 /// Renders one frame of the client headless (no window is ever created) and saves it as a PNG.
-/// Goes through `scripts/run-client.sh`, which sets up the graphics libraries on this machine.
+/// Goes through `scripts/run-client.sh`, which uses the flake devShell when Nix is present.
 fn screenshot(seed: &str, nation: &str, out: &str, width: &str, height: &str) -> Result {
     for (name, n) in [("WIDTH", width), ("HEIGHT", height)] {
         if !n.parse::<u32>().is_ok_and(|n| n > 0) {
