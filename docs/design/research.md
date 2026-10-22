@@ -275,7 +275,7 @@ effective.construction = nation.construction × Π (known techs' construction mu
   `World::apply` (#19 added the logic, #5 the command enum), so research choices replay
   deterministically. Locked items are rejected by the sim with a reason ("Requires Pottery")
   that the client shows (#22).
-- **Bending (#6).** Each nation's signature ability from #6 is available **from the start**,
+- **Bending (#6, see [bending.md](bending.md)).** Each nation's signature ability from #6 is available **from the start**,
   not researched, so nations play differently from minute one. Branch techs unlock the
   *second and later* abilities (seismic sense, metalbend, healing water, air scooter, inner
   fire) and raise the modifiers those abilities scale with. All ability code stays in the one
