@@ -55,6 +55,10 @@ Unclaim if you stop without finishing: remove `in-progress` and leave a handoff 
 
 ## Two ways to land work
 
+`main` is protected: the `ci` GitHub Actions check must pass before a PR can merge. Direct
+pushes by the owner's account aren't blocked, which is what makes the direct flow possible. So
+running `cargo xtask ci` locally before pushing is mandatory.
+
 ### Direct to `main` (default for small and medium changes)
 
 Use this when **all** of these hold:
@@ -80,14 +84,29 @@ Use this when **any** of these hold:
   upgrades, golden or save-format changes, cross-crate API changes);
 - you're unsure. When in doubt, use a PR.
 
-Steps:
+The PR flow exists to **prevent conflicts**, not to gate on human review. The agent that
+opens a PR **owns it until it merges**:
 
 1. Branch `issue/N-short-slug` from `origin/main`.
-2. Commit as above, and push the branch.
+2. Commit as above, run `cargo xtask ci`, and push the branch.
 3. `gh pr create --fill`, with `Closes #N` in the body. Fill in what changed, how it was
-   verified, and anything the reviewer should look at.
-4. The owner reviews and merges (squash or rebase). Agents don't merge their own PRs unless
-   told to in the session.
+   verified, and anything the owner should look at.
+4. Turn on auto-merge right away: `gh pr merge --auto --squash`. GitHub merges once the required
+   `ci` check passes and the branch is up to date with `main`. Merging is squash-only and merged
+   branches are deleted automatically.
+5. Watch it through: `gh pr checks --watch`.
+   - **CI failed**: fix it, push, repeat.
+   - **Out of date with `main`**: `gh pr update-branch --rebase`, or rebase locally and push
+     with `--force-with-lease` (allowed only on your own PR branch).
+   - **Conflicts**: rebase onto `origin/main` and resolve them. Keep both sides' intent, rerun
+     `cargo xtask ci`, and push. If the resolution needs a design decision, comment on the PR,
+     turn off auto-merge (`gh pr merge --disable-auto`) and tell the owner.
+6. Once merged, check that the issue closed, and leave a short closing comment if anything is
+   notable.
+
+Exceptions, where the agent turns off auto-merge and asks the owner instead: the PR changes
+`AGENTS.md`, `docs/process/`, CI/workflow files or repo settings, or it needs a design call the
+issue doesn't settle. The owner may also comment "hold" on any PR.
 
 If you started direct-to-main and the change grows, move it to a branch and switch to the PR flow.
 

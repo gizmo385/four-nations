@@ -42,9 +42,12 @@ gets in your way, stop and say so in the work item's Notes instead of working ar
 7. **Nations differ through data first.** Read `Modifiers` and nation definitions; don't
    write `if nation == Fire` in systems unless the feature truly is unique to one nation
    (bending abilities), and then keep it in one obvious place.
-8. **Git safety.** Never force-push, rewrite published history, delete branches you didn't
-   create, or merge your own PR unless the owner asks in this session. Pushing to `main` is
-   allowed only through the direct-to-main flow, after `git pull --rebase` and a passing CI run.
+8. **Git safety and PR ownership.** Never force-push `main`, rewrite published history, or
+   delete branches you didn't create. You own the PRs you open: turn on auto-merge
+   (`gh pr merge --auto --squash`), fix CI failures, keep the branch rebased (`--force-with-lease`
+   only on your own PR branch), and resolve conflicts until it merges. Don't auto-merge changes to
+   AGENTS.md, docs/process/, or CI/workflows; leave those for the owner. Pushing to `main` is allowed
+   only through the direct-to-main flow, after `git pull --rebase` and a passing `cargo xtask ci`.
 9. **Stay in scope.** Found something else that needs doing? File an issue
    (`gh issue create --template work-item.md`, without `ready`) and keep going.
 
