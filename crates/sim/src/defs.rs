@@ -95,6 +95,10 @@ pub struct ResourceDef {
     /// Minimum Chebyshev distance between two tiles of this resource, for spaced deposits.
     #[serde(default)]
     pub min_spacing: Option<u32>,
+    /// The tile must touch (8 neighbours) one of these terrains; `None` means no condition. Keeps
+    /// fish spots within reach of the shore.
+    #[serde(default)]
+    pub beside: Option<Vec<Terrain>>,
 }
 
 #[derive(Debug, Clone)]
@@ -186,7 +190,7 @@ impl Defs {
         let resource_ids: Vec<&str> = resources.iter().map(|r| r.id.as_str()).collect();
         let (needs, foods) = parse::<NeedsFile>("needs.toml", needs)?.resolve(&resource_ids)?;
         let (jobs, items, harvests) =
-            parse::<JobsFile>("jobs.toml", jobs)?.resolve(&resources, &foods, &needs)?;
+            parse::<JobsFile>("jobs.toml", jobs)?.resolve(&resources, &foods, &needs, &techs)?;
         let mut harvest_by_resource = vec![None; resources.len()];
         for (i, h) in harvests.iter().enumerate() {
             harvest_by_resource[h.resource.0 as usize] = Some(i);
@@ -336,7 +340,7 @@ mod tests {
 
     /// The bundled needs without the food-to-resource link, for tests with their own resources.
     fn unlinked_needs() -> String {
-        NEEDS.replace("resource = \"cabbage\"", "")
+        NEEDS.lines().filter(|l| !l.starts_with("resource = ")).collect::<Vec<_>>().join("\n")
     }
 
     /// The bundled jobs without harvests, for tests with their own resources.
@@ -424,6 +428,8 @@ mod tests {
         assert!(with_resource("clustering=0.5\nmin_spacing=3\nmoisture_scaled=true").is_ok());
         assert!(with_resource("clustering=1.5").unwrap_err().0.contains("clustering"));
         assert!(with_resource("min_spacing=0").unwrap_err().0.contains("min_spacing"));
+        assert!(with_resource("beside=['coast','land']").is_ok());
+        assert!(with_resource("beside=['beach']").unwrap_err().0.contains("beach"));
         assert!(with_resource("chanse=0.1").unwrap_err().0.contains("chanse"));
     }
 
@@ -485,6 +491,10 @@ mod tests {
         assert!(bad("sleep_until = 90.0", "sleep_until = 20.0").contains("sleep_until"));
         assert!(bad("base_carry = 5", "base_carry = 0").contains("base_carry"));
         assert!(bad("eat_seconds = 3.0", "eat_secs = 3.0").contains("eat_secs"));
+        assert!(bad("regrow = 300.0", "regrow = 0.0").contains("regrow"));
+        assert!(
+            bad("requires_tech = \"fishing\"", "requires_tech = \"fishin\"").contains("fishin")
+        );
         // Two entries for one resource.
         let twice = format!(
             "{JOBS}\n[[harvest]]\nresource = \"stone\"\nverb = \"X\"\nitem = \"stone\"\ncount = 1\nwork = 1.0\n"

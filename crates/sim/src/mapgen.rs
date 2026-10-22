@@ -339,7 +339,11 @@ fn add_resources(map: &mut TileMap, cfg: &MapGenConfig, defs: &Defs) {
             let roll: f64 = rng.random();
             let terrain_ok = r.terrains.as_ref().is_none_or(|ts| ts.contains(&tile.terrain));
             let biome_ok = biome_filters[i].as_ref().is_none_or(|bs| bs.contains(&tile.biome));
-            if !(terrain_ok && biome_ok) {
+            let beside_ok = r
+                .beside
+                .as_ref()
+                .is_none_or(|ts| map.neighbors(p, true).any(|q| ts.contains(&map[q].terrain)));
+            if !(terrain_ok && biome_ok && beside_ok) {
                 continue;
             }
             let mut chance = r.chance;

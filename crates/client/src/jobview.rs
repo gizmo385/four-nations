@@ -24,19 +24,27 @@ impl Plugin for JobViewPlugin {
 #[derive(Component)]
 pub struct ResourceSprite(pub Pos);
 
-/// Despawns resource sprites whose tile no longer has a resource (harvested).
+/// Despawns resource sprites whose tile no longer has a resource (harvested), and greys out the
+/// renewable ones that are growing back until they ripen again.
 fn sync_resources(
     mut commands: Commands,
     sim: Res<Sim>,
-    sprites: Query<(Entity, &ResourceSprite)>,
+    mut sprites: Query<(Entity, &ResourceSprite, &mut Sprite)>,
 ) {
-    for (entity, ResourceSprite(pos)) in &sprites {
+    for (entity, ResourceSprite(pos), mut sprite) in &mut sprites {
         if sim.world.map.get(*pos).is_none_or(|t| t.resource.is_none()) {
             commands.entity(entity).despawn();
+            continue;
+        }
+        let tint = if sim.world.is_resting(*pos) { RESTING_TINT } else { Color::WHITE };
+        if sprite.color != tint {
+            sprite.color = tint;
         }
     }
 }
 
+/// How a renewable resource looks between being worked and ripening again.
+const RESTING_TINT: Color = Color::srgba(0.6, 0.6, 0.6, 0.6);
 /// Where an item marker is: lying on the ground, or held in a stockpile tile.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum Place {
@@ -179,13 +187,22 @@ mod tests {
         app
     }
 
+    /// The resource that is used up when worked (a tree, not a fishing spot) and that anyone can
+    /// work, closest to the first unit so it is within reach.
     fn first_tree(sim: &Sim) -> Pos {
+        nearest(sim, |h| h.regrow.is_none() && h.requires_tech.is_none())
+    }
+
+    /// The closest resource to the first unit whose harvest satisfies `want`.
+    fn nearest(sim: &Sim, want: impl Fn(&fn_sim::jobs::HarvestDef) -> bool) -> Pos {
+        let home = sim.world.units[0].pos;
         sim.world
             .map
             .iter()
-            .find(|(_, t)| t.resource.is_some_and(|r| sim.defs.harvest(r).is_some()))
+            .filter(|(_, t)| t.resource.and_then(|r| sim.defs.harvest(r)).is_some_and(&want))
             .map(|(p, _)| p)
-            .expect("a harvestable resource on the map")
+            .min_by_key(|p| (p.x - home.x).abs().max((p.y - home.y).abs()))
+            .expect("a matching resource on the map")
     }
 
     fn shown(app: &App) -> Vec<(Pos, Place)> {
@@ -196,13 +213,54 @@ mod tests {
     fn cleared_resource_loses_its_sprite() {
         let mut app = test_app(1);
         let pos = first_tree(app.world().resource::<Sim>());
-        let sprite = app.world_mut().spawn(ResourceSprite(pos)).id();
+        let sprite = app.world_mut().spawn((ResourceSprite(pos), Sprite::default())).id();
         app.update();
         assert!(app.world().get_entity(sprite).is_ok(), "still has its resource");
 
         app.world_mut().resource_mut::<Sim>().world.map.get_mut(pos).unwrap().resource = None;
         app.update();
         assert!(app.world().get_entity(sprite).is_err(), "sprite should be gone");
+    }
+
+    #[test]
+    fn a_resting_resource_is_greyed_out_until_it_ripens() {
+        let mut app = test_app(1);
+        let (pos, ripe_after) = {
+            let sim = app.world().resource::<Sim>();
+            let cabbage = sim.defs.resource_id("cabbage").unwrap();
+            let pos = nearest(sim, |h| h.item == sim.defs.item_id("cabbage").unwrap());
+            (pos, sim.defs.harvest(cabbage).unwrap().regrow.unwrap())
+        };
+        let sprite = app.world_mut().spawn((ResourceSprite(pos), Sprite::default())).id();
+        let color = |app: &App| app.world().get::<Sprite>(sprite).unwrap().color;
+        app.update();
+        assert_eq!(color(&app), Color::WHITE);
+
+        {
+            let mut sim = app.world_mut().resource_mut::<Sim>();
+            let Sim { world, defs, .. } = &mut *sim;
+            world.apply(Command::DesignateHarvest { pos }, defs).unwrap();
+            for _ in 0..20_000 {
+                world.tick(defs);
+                if world.is_resting(pos) {
+                    break;
+                }
+            }
+            assert!(world.is_resting(pos), "gathered, so the plant is regrowing");
+        }
+        app.update();
+        assert_eq!(color(&app), RESTING_TINT);
+
+        let ticks = (ripe_after * 10.0) as u64 + 1;
+        {
+            let mut sim = app.world_mut().resource_mut::<Sim>();
+            let Sim { world, defs, .. } = &mut *sim;
+            for _ in 0..ticks {
+                world.tick(defs);
+            }
+        }
+        app.update();
+        assert_eq!(color(&app), Color::WHITE);
     }
 
     #[test]

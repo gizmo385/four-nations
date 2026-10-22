@@ -70,8 +70,10 @@ fn the_job_system_is_deterministic() {
             .collect();
         assert!(!near.is_empty());
         for p in &near {
-            w.apply(Command::DesignateHarvest { pos: *p }, &defs).unwrap();
+            // Not everything is workable yet (fish need fishing, which Earth lacks).
+            let _ = w.apply(Command::DesignateHarvest { pos: *p }, &defs);
         }
+        assert!(w.harvest_designations().count() > 0);
         // A stockpile on the open tiles around the first unit.
         let home = w.units[0].pos;
         for dy in -3..=3 {

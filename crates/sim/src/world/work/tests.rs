@@ -3,12 +3,13 @@ use crate::defs::{BiomeId, Terrain};
 use crate::geom::Grid;
 use crate::mapgen::Tile;
 
-/// A map from ASCII rows: `.` land, `~` water, `^` mountain, `T` oak tree, `s` stone, `c` cabbage.
+/// A map from ASCII rows: `.` land, `~` water, `^` mountain, `T` oak tree, `s` stone, `c` cabbage,
+/// `Y` fruit tree, `f` fishing spot (on water).
 fn arena(defs: &Defs, rows: &[&str]) -> TileMap {
     Grid::from_fn(rows[0].len() as i32, rows.len() as i32, |p| {
         let c = rows[p.y as usize].as_bytes()[p.x as usize];
         let terrain = match c {
-            b'~' => Terrain::Water,
+            b'~' | b'f' => Terrain::Water,
             b'^' => Terrain::Mountain,
             _ => Terrain::Land,
         };
@@ -16,6 +17,8 @@ fn arena(defs: &Defs, rows: &[&str]) -> TileMap {
             b'T' => defs.resource_id("oak_tree"),
             b's' => defs.resource_id("stone"),
             b'c' => defs.resource_id("cabbage"),
+            b'Y' => defs.resource_id("fruit_tree"),
+            b'f' => defs.resource_id("fish_spot"),
             _ => None,
         };
         Tile {
@@ -218,9 +221,9 @@ fn the_most_urgent_need_goes_first_and_a_hungry_unit_forages_without_fire() {
     assert!(matches!(w.units[0].task(), Some(Task::Eat(FoodSource::Forage(_)))));
     run_until(&mut w, &defs, 2000, |w| w.units[0].task().is_none());
     let n = w.units[0].needs;
-    // The raw cabbage (30) is eaten and gone, and then it goes to drink.
+    // The raw cabbage (30) is eaten, leaving the plant to regrow, and then it goes to drink.
     assert!(n.hunger > 30.0 && n.hunger < 45.0, "{n:?}");
-    assert!(w.map[at(6, 2)].resource.is_none());
+    assert!(w.is_resting(at(6, 2)));
     run_until(&mut w, &defs, 2000, |w| w.units[0].needs.thirst > 80.0);
 }
 
@@ -294,8 +297,7 @@ fn designating_is_checked_and_cancelling_frees_the_unit() {
 
 #[test]
 fn units_still_starve_where_there_is_no_food_at_all() {
-    // Water alone isn't enough. (Wild food is finite; renewable food comes with fishing and
-    // farming.)
+    // Water alone isn't enough.
     let rows = ["~~~~~~~~~", ".........", ".........", "........."];
     let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 2), at(5, 2)]);
     run_until(&mut w, &defs, 100_000, |w| w.units.is_empty());
@@ -325,4 +327,99 @@ fn clearing_a_blocking_tree_makes_the_far_side_reachable() {
     assert_eq!(w.regions().clone(), fresh);
     assert!(fresh.connected(at(1, 1), at(4, 1)));
     run_until(&mut w, &defs, 3000, |w| w.map[at(5, 1)].resource.is_none());
+}
+
+// ---- renewable food (#56) ----
+
+/// The seconds a harvest takes to ripen again.
+fn regrow_of(defs: &Defs, resource: &str) -> f32 {
+    defs.harvest(defs.resource_id(resource).unwrap()).unwrap().regrow.unwrap()
+}
+
+#[test]
+fn a_renewable_resource_stays_after_harvest_and_ripens_on_schedule() {
+    let rows = ["~~~~~~~~~", ".........", "....Y....", ".........", "........."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 3)]);
+    let fruit = defs.item_id("fruit").unwrap();
+    let job = w.designate_harvest(at(4, 2), &defs).unwrap();
+    run_until(&mut w, &defs, 2000, |w| w.job(job).is_none());
+    // The tree is still there, bare, and the pick dropped beside it.
+    assert!(w.map[at(4, 2)].resource.is_some());
+    assert!(w.is_resting(at(4, 2)));
+    assert_eq!(w.ground_items().map(|(_, s)| s.count).sum::<u32>(), 2);
+    assert_eq!(w.ground_items().next().map(|(_, s)| s.item), Some(fruit));
+
+    // Resting trees can't be picked or foraged, though they can be queued.
+    let again = w.designate_harvest(at(4, 2), &defs).unwrap();
+    w.units[0].needs.hunger = 5.0;
+    for _ in 0..50 {
+        w.tick(&defs);
+    }
+    assert_eq!(w.job(again).unwrap().claimed_by, None);
+    assert!(w.is_resting(at(4, 2)));
+
+    // It ripens `regrow` seconds after the pick (the clock has run 50 ticks), and then the
+    // queued job is claimed and done.
+    let ticks = run_until(&mut w, &defs, 10_000, |w| !w.is_resting(at(4, 2)));
+    let total = (regrow_of(&defs, "fruit_tree") * 10.0) as i64;
+    assert!((ticks as i64 + 50 - total).abs() <= 5, "{ticks} ticks left of {total}");
+    run_until(&mut w, &defs, 2000, |w| w.job(again).is_none());
+    assert!(w.is_resting(at(4, 2)), "picked again");
+}
+
+#[test]
+fn hungry_units_forage_a_plant_again_once_it_has_regrown() {
+    let rows = ["~~~~~~~~~", ".........", "......c..", ".........", "........."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 3)]);
+    let eat = |w: &mut World| {
+        w.units[0].needs.hunger = 10.0;
+        w.tick(&defs);
+        assert!(matches!(w.units[0].task(), Some(Task::Eat(FoodSource::Forage(_)))));
+        run_until(w, &defs, 2000, |w| w.units[0].task().is_none());
+    };
+    eat(&mut w);
+    assert!(w.is_resting(at(6, 2)));
+    // Nothing else to eat: it waits, hungry, instead of eating the resting plant.
+    w.units[0].needs.hunger = 10.0;
+    for _ in 0..100 {
+        w.tick(&defs);
+        assert!(!matches!(w.units[0].task(), Some(Task::Eat(_))));
+    }
+    let wait = (regrow_of(&defs, "cabbage") * 10.0) as u64;
+    run_until(&mut w, &defs, wait, |w| !w.is_resting(at(6, 2)));
+    eat(&mut w);
+    assert!(w.map[at(6, 2)].resource.is_some());
+}
+
+#[test]
+fn fishing_needs_the_tech_and_runs_on_water_work() {
+    let rows = ["~~~~~~~~~", "~~~f~~~~~", ".........", ".........", "........."];
+    // Earth doesn't know fishing: no designation, and a starving unit doesn't fish either.
+    let (mut earth, defs) = setup(Nation::Earth, &rows, &[at(1, 3)]);
+    assert_eq!(earth.designate_harvest(at(3, 1), &defs), Err(DesignateError::NotResearched));
+    earth.units[0].needs.hunger = 5.0;
+    earth.tick(&defs);
+    assert_eq!(earth.units[0].task(), None);
+
+    // Water starts with fishing. Fishing is 8 work-seconds at a modifier of 1.0 and Water's
+    // water_work is 2.0, so about 4 seconds.
+    let (mut w, defs) = setup(Nation::Water, &rows, &[at(3, 2)]);
+    let job = w.designate_harvest(at(3, 1), &defs).unwrap();
+    let ticks = run_until(&mut w, &defs, 5000, |w| w.job(job).is_none());
+    assert!((ticks as i64 - 40).abs() <= 4, "{ticks} ticks");
+    assert!(w.is_resting(at(3, 1)));
+    assert_eq!(w.ground_items().map(|(_, s)| s.count).sum::<u32>(), 2);
+}
+
+#[test]
+fn a_resting_resource_stops_resting_if_it_is_cleared() {
+    let rows = ["~~~~~~~~~", ".........", "......c..", "........."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 3)]);
+    let job = w.designate_harvest(at(6, 2), &defs).unwrap();
+    run_until(&mut w, &defs, 2000, |w| w.job(job).is_none());
+    assert!(w.is_resting(at(6, 2)));
+    w.map[at(6, 2)].resource = None;
+    w.map_changed();
+    w.tick(&defs);
+    assert!(!w.is_resting(at(6, 2)));
 }

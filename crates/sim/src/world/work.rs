@@ -14,6 +14,12 @@
 //! * **Work speed** is `1.0 / TICKS_PER_SECOND` work-seconds per tick times the nation modifier
 //!   named by the harvest in `data/jobs.toml` (quarrying uses `earthworks`).
 //!
+//! **Renewable food** (#56): a harvest with a `regrow` time in `data/jobs.toml` (cabbages, fruit
+//! trees, fishing spots) is not cleared when worked. The resource stays on the map, *resting*,
+//! and `tick_growth` counts down the seconds it needs to ripen; until then it can't be worked,
+//! foraged, or claimed. The rate is `World::growth_rate`, the one place something like wet
+//! soil (docs/design/bending.md, "Water the Land") plugs in to make plants grow faster.
+//!
 //! Hungry units eat from the closest of: food they carry, food in a stockpile, food lying on the
 //! ground, or a wild food resource they work for themselves. Raw food always works (owner rule,
 //! #3): nobody starves because their nation lacks fire. Cooking would need a hearth, which
@@ -63,6 +69,8 @@ pub enum DesignateError {
     OutOfBounds,
     /// There is no resource with a harvest entry on that tile.
     NothingToHarvest,
+    /// The resource needs a tech the nation doesn't know yet (fishing, say).
+    NotResearched,
     AlreadyDesignated,
     /// There is no harvest designation on that tile to cancel.
     NotDesignated,
@@ -112,6 +120,11 @@ impl World {
         self.jobs.binary_search_by_key(&id, |j| j.id).ok().map(|i| &self.jobs[i])
     }
 
+    /// Is the resource on `pos` a renewable one that has been worked and is still growing back?
+    pub fn is_resting(&self, pos: Pos) -> bool {
+        self.resting.contains_key(&pos)
+    }
+
     /// Item stacks lying on the ground waiting for a hauler, by tile.
     pub fn ground_items(&self) -> impl Iterator<Item = (Pos, Stack)> + '_ {
         self.ground.iter().map(|(&p, &s)| (p, s))
@@ -138,8 +151,11 @@ impl World {
         defs: &Defs,
     ) -> Result<JobId, DesignateError> {
         let tile = self.map.get(pos).ok_or(DesignateError::OutOfBounds)?;
-        if !tile.resource.is_some_and(|r| defs.harvest(r).is_some()) {
+        let Some(h) = tile.resource.and_then(|r| defs.harvest(r)) else {
             return Err(DesignateError::NothingToHarvest);
+        };
+        if !self.can_work(h) {
+            return Err(DesignateError::NotResearched);
         }
         if self.jobs.iter().any(|j| j.kind == JobKind::Harvest { pos }) {
             return Err(DesignateError::AlreadyDesignated);
@@ -241,6 +257,60 @@ impl World {
             None => cap,
             Some(s) if s.item == item => cap.saturating_sub(s.count),
             Some(_) => 0,
+        }
+    }
+
+    /// Does the nation know what it takes to work this kind of resource?
+    fn can_work(&self, h: &HarvestDef) -> bool {
+        h.requires_tech.is_none_or(|t| self.research.is_known(t))
+    }
+
+    /// The harvest for the resource on `pos`, if it can be worked right now: it has a harvest
+    /// entry, the nation knows how, and it isn't resting after the last time.
+    fn ripe_harvest<'d>(&self, pos: Pos, defs: &'d Defs) -> Option<&'d HarvestDef> {
+        let h = defs.harvest(self.map.get(pos)?.resource?)?;
+        (self.can_work(h) && !self.resting.contains_key(&pos)).then_some(h)
+    }
+
+    /// Seconds of growth a resting resource on `pos` gains per second. 1.0 today.
+    ///
+    /// This is the hook for faster growth: Water's "Water the Land" (docs/design/bending.md,
+    /// #69) leaves tiles wet for a while, and plants on wet tiles (and later, farm plots) should
+    /// ripen faster by a data-driven multiplier. Read a per-tile wet state here and scale the
+    /// result; nothing else in the regrowth code needs to change.
+    fn growth_rate(&self, _pos: Pos, _defs: &Defs) -> f32 {
+        1.0
+    }
+
+    /// Advances every resting resource, ripening those that are done. A resource that was
+    /// cleared some other way stops resting.
+    pub(super) fn tick_growth(&mut self, defs: &Defs) {
+        if self.resting.is_empty() {
+            return;
+        }
+        let step = 1.0 / TICKS_PER_SECOND as f32;
+        let spots: Vec<Pos> = self.resting.keys().copied().collect();
+        for pos in spots {
+            let rate = self.growth_rate(pos, defs);
+            let left = self.resting.get_mut(&pos).expect("just listed");
+            *left -= rate * step;
+            if *left <= 0.0 || self.map[pos].resource.is_none() {
+                self.resting.remove(&pos);
+            }
+        }
+    }
+
+    /// The work on `pos` is done: a renewable resource goes back to growing, anything else is
+    /// used up and its tile cleared.
+    fn work_done(&mut self, pos: Pos, h: &HarvestDef) {
+        match h.regrow {
+            Some(seconds) => {
+                self.resting.insert(pos, seconds);
+            }
+            None => {
+                self.map[pos].resource = None;
+                self.map_changed();
+            }
         }
     }
 
@@ -447,8 +517,8 @@ impl World {
                 consider(1, pos, FoodSource::Ground(pos), self.stand(&flood, pos));
             }
         }
-        for (pos, tile) in self.map.iter() {
-            let Some(h) = tile.resource.and_then(|r| defs.harvest(r)) else { continue };
+        for pos in self.map.positions() {
+            let Some(h) = self.ripe_harvest(pos, defs) else { continue };
             if defs.food_of(h.item).is_none() || self.forage_taken(pos, i) {
                 continue;
             }
@@ -499,7 +569,7 @@ impl World {
             FoodSource::Carried => self.units[i].carrying?.item,
             FoodSource::Stockpile(p) => self.stored.get(&p)?.item,
             FoodSource::Ground(p) => self.ground.get(&p)?.item,
-            FoodSource::Forage(p) => defs.harvest(self.map.get(p)?.resource?)?.item,
+            FoodSource::Forage(p) => self.ripe_harvest(p, defs)?.item,
         };
         defs.food_of(item).map(|_| item)
     }
@@ -571,9 +641,8 @@ impl World {
                 }
             }
             FoodSource::Forage(p) => {
-                let tile = &mut self.map[p];
-                let h = defs.harvest(tile.resource.take().expect("checked")).expect("checked");
-                self.map_changed();
+                let h = defs.harvest(self.map[p].resource.expect("checked")).expect("checked");
+                self.work_done(p, h);
                 if h.count > 1 {
                     self.place_ground(p, Stack { item, count: h.count - 1 });
                 }
@@ -617,7 +686,9 @@ impl World {
                 continue;
             }
             let found = match job.kind {
-                JobKind::Harvest { pos } => self.stand(&flood, pos),
+                JobKind::Harvest { pos } => {
+                    self.ripe_harvest(pos, defs).and_then(|_| self.stand(&flood, pos))
+                }
                 JobKind::Haul { pos } => {
                     let item = self.ground[&pos].item;
                     let room = match room_cache.iter().find(|(it, _)| *it == item) {
@@ -674,7 +745,7 @@ impl World {
             }
         };
         self.jobs.iter().filter(|j| j.claimed_by.is_none()).any(|job| match job.kind {
-            JobKind::Harvest { pos } => can_stand(pos),
+            JobKind::Harvest { pos } => self.ripe_harvest(pos, defs).is_some() && can_stand(pos),
             JobKind::Haul { pos } => {
                 let item = self.ground[&pos].item;
                 in_here(pos)
@@ -710,6 +781,10 @@ impl World {
             self.jobs.remove(idx);
             return self.finish_job(i);
         };
+        if self.resting.contains_key(&pos) {
+            // Not ripe (it can't have been when the job was claimed): wait for it.
+            return self.abandon_job(i, id, defs);
+        }
         if self.units[i].route.is_none() {
             // Resuming after a need, or the claim's route was lost: plan from here.
             let flood = self.flood_from(i);
@@ -728,8 +803,7 @@ impl World {
             return;
         }
         self.jobs.remove(idx);
-        self.map[pos].resource = None;
-        self.map_changed();
+        self.work_done(pos, h);
         self.place_ground(pos, Stack { item: h.item, count: h.count });
         self.finish_job(i);
     }
