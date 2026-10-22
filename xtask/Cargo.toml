@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "Repo maintenance commands: `cargo xtask <assets|ci>`."
+description = "Repo maintenance commands: `cargo xtask <assets|ci|screenshot>`."
 edition.workspace = true
 version.workspace = true
 license.workspace = true

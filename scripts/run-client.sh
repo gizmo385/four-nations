@@ -7,7 +7,10 @@
 # Replace with a flake devShell when issue #10 lands.
 #
 #   scripts/run-client.sh [seed] [nation] [width] [height]
-#   FN_SCREENSHOT=/tmp/shot.png scripts/run-client.sh 42 earth   # render, save, exit
+#   FN_SCREENSHOT=/tmp/shot.png scripts/run-client.sh 42 earth   # headless: no window, save, exit
+#
+# Prefer `cargo xtask screenshot SEED NATION OUT.png [WIDTH HEIGHT]` for headless screenshots; it
+# calls this script. Headless runs need no X11, but still load Vulkan (llvmpipe) from target/syslibs.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 libs="$root/target/syslibs"

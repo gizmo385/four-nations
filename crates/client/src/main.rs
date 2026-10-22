@@ -5,15 +5,24 @@
 //! Controls: click a unit to select it (Esc deselects), WASD/arrows or mouse drag pan, mouse wheel
 //! zoom, R new map, 1-4 switch nation, Space pause.
 //!
-//! `FN_SCREENSHOT=out.png` renders a few seconds, saves a screenshot and exits. Agents use this
-//! to check visual changes without a human looking at the window.
+//! `FN_SCREENSHOT=out.png` runs headless: no window is created at all (winit is disabled and the
+//! camera renders into an offscreen `Image`), and once the art has loaded it saves one frame as a
+//! PNG and exits. `FN_SCREENSHOT_SIZE=WIDTHxHEIGHT` sets the image size (default 1280x720). Agents
+//! use this, via `cargo xtask screenshot SEED NATION OUT.png [WIDTH HEIGHT]`, to check visual
+//! changes without a window popping up and stealing the human's focus.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::time::Duration;
 
+use bevy::app::ScheduleRunnerPlugin;
+use bevy::camera::RenderTarget;
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
-use bevy::render::view::screenshot::{Screenshot, save_to_disk};
-use bevy::window::{PrimaryWindow, WindowLevel};
+use bevy::render::render_resource::{TextureFormat, TextureUsages};
+use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
+use bevy::window::{ExitCondition, PrimaryWindow};
+use bevy::winit::WinitPlugin;
 use fn_sim::world::TICKS_PER_SECOND;
 use fn_sim::{Defs, MapGenConfig, Nation, Pos, Terrain, Tile, World};
 
@@ -30,29 +39,40 @@ fn main() {
     let defaults = MapGenConfig::default();
     let width = args.next().and_then(|s| s.parse().ok()).unwrap_or(defaults.width);
     let height = args.next().and_then(|s| s.parse().ok()).unwrap_or(defaults.height);
-    let screenshot_mode = std::env::var_os("FN_SCREENSHOT").is_some();
+    let headless = std::env::var_os("FN_SCREENSHOT").map(|path| Headless {
+        path: path.into(),
+        size: std::env::var("FN_SCREENSHOT_SIZE")
+            .ok()
+            .map(|s| parse_size(&s).unwrap_or_else(|| panic!("bad FN_SCREENSHOT_SIZE {s:?}")))
+            .unwrap_or(UVec2::new(1280, 720)),
+    });
 
-    App::new()
-        .add_plugins(
-            DefaultPlugins
-                .set(AssetPlugin { file_path: ASSET_DIR.into(), ..default() })
-                .set(ImagePlugin::default_nearest())
+    let plugins = DefaultPlugins
+        .set(AssetPlugin { file_path: ASSET_DIR.into(), ..default() })
+        .set(ImagePlugin::default_nearest());
+    let mut app = App::new();
+    if let Some(headless) = headless {
+        // No window, no winit: frames are driven by the schedule runner and the camera renders
+        // into an offscreen image (see `setup_camera_and_ui`).
+        app.add_plugins((
+            plugins
                 .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "The Four Nations".into(),
-                        // Screenshot runs are for agents; don't grab the human's focus.
-                        focused: !screenshot_mode,
-                        window_level: if screenshot_mode {
-                            WindowLevel::AlwaysOnBottom
-                        } else {
-                            WindowLevel::Normal
-                        },
-                        ..default()
-                    }),
+                    primary_window: None,
+                    exit_condition: ExitCondition::DontExit,
                     ..default()
-                }),
-        )
-        .insert_resource(Time::<Fixed>::from_hz(f64::from(TICKS_PER_SECOND)))
+                })
+                .disable::<WinitPlugin>(),
+            ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(1.0 / 60.0)),
+        ))
+        .insert_resource(headless)
+        .add_systems(Update, headless_screenshot);
+    } else {
+        app.add_plugins(plugins.set(WindowPlugin {
+            primary_window: Some(Window { title: "The Four Nations".into(), ..default() }),
+            ..default()
+        }));
+    }
+    app.insert_resource(Time::<Fixed>::from_hz(f64::from(TICKS_PER_SECOND)))
         .insert_resource(Sim::new(seed, nation, width, height))
         .init_resource::<Selection>()
         .add_message::<MapClicked>()
@@ -72,8 +92,21 @@ fn main() {
             )
                 .chain(),
         )
-        .add_systems(Update, auto_screenshot.run_if(|| std::env::var_os("FN_SCREENSHOT").is_some()))
         .run();
+}
+
+/// Present when running as a headless screenshot (`FN_SCREENSHOT`).
+#[derive(Resource)]
+struct Headless {
+    path: PathBuf,
+    size: UVec2,
+}
+
+/// Parses `WIDTHxHEIGHT`, e.g. `1280x720`.
+fn parse_size(s: &str) -> Option<UVec2> {
+    let (w, h) = s.split_once('x')?;
+    let size = UVec2::new(w.parse().ok()?, h.parse().ok()?);
+    (size.min_element() > 0).then_some(size)
 }
 
 fn parse_nation(s: &str) -> Option<Nation> {
@@ -186,16 +219,33 @@ fn load_art(
     });
 }
 
-fn setup_camera_and_ui(mut commands: Commands, sim: Res<Sim>) {
+fn setup_camera_and_ui(
+    mut commands: Commands,
+    sim: Res<Sim>,
+    headless: Option<Res<Headless>>,
+    mut images: ResMut<Assets<Image>>,
+) {
     let map = &sim.world.map;
-    commands.spawn((
+    let mut camera = commands.spawn((
         Camera2d,
+        // UI only picks a camera by itself when that camera draws to the primary window.
+        IsDefaultUiCamera,
         Transform::from_xyz(
             map.width() as f32 * TILE / 2.0,
             -map.height() as f32 * TILE / 2.0,
             0.0,
         ),
     ));
+    if let Some(headless) = headless {
+        let mut target = Image::new_target_texture(
+            headless.size.x,
+            headless.size.y,
+            TextureFormat::Rgba8UnormSrgb,
+            None,
+        );
+        target.texture_descriptor.usage |= TextureUsages::COPY_SRC;
+        camera.insert(RenderTarget::Image(images.add(target).into()));
+    }
     let panel = |top: bool| Node {
         position_type: PositionType::Absolute,
         left: Val::Px(8.0),
@@ -549,25 +599,50 @@ fn selection_info(
     );
 }
 
-/// Saves a screenshot to `$FN_SCREENSHOT` after the world has rendered for a while, then exits.
-fn auto_screenshot(
+/// Frames to render after the art has loaded before capturing, so sprites and text are settled.
+const SETTLE_FRAMES: u32 = 10;
+/// Give up if the art hasn't loaded and a frame been captured by then.
+const HEADLESS_TIMEOUT_SECS: f32 = 60.0;
+
+/// In headless mode: once the art has loaded, captures the camera's target image to
+/// `Headless::path` and exits.
+fn headless_screenshot(
     mut commands: Commands,
-    time: Res<Time>,
-    mut taken_at: Local<Option<f32>>,
+    headless: Res<Headless>,
+    assets: Res<AssetServer>,
+    art: Option<Res<Art>>,
+    camera: Query<&RenderTarget, With<Camera2d>>,
+    time: Res<Time<Real>>,
+    mut settled: Local<u32>,
+    mut requested: Local<bool>,
     mut exit: MessageWriter<AppExit>,
 ) {
-    let now = time.elapsed_secs();
-    match *taken_at {
-        None if now > 3.0 => {
-            let path = std::env::var("FN_SCREENSHOT").expect("checked by run_if");
-            commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
-            *taken_at = Some(now);
-        }
-        Some(t) if now > t + 1.0 => {
-            exit.write(AppExit::Success);
-        }
-        _ => {}
+    if time.elapsed_secs() > HEADLESS_TIMEOUT_SECS {
+        error!("headless screenshot timed out after {HEADLESS_TIMEOUT_SECS}s");
+        exit.write(AppExit::error());
+        return;
     }
+    let Some(art) = art else { return };
+    let loaded = std::iter::once(&art.kenney)
+        .chain(art.legacy.values())
+        .all(|h| assets.is_loaded_with_dependencies(h));
+    if *requested || !loaded {
+        return;
+    }
+    *settled += 1;
+    if *settled < SETTLE_FRAMES {
+        return;
+    }
+    let Ok(RenderTarget::Image(target)) = camera.single() else {
+        panic!("headless camera must render to an image");
+    };
+    commands
+        .spawn(Screenshot::image(target.handle.clone()))
+        .observe(save_to_disk(headless.path.clone()))
+        .observe(|_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
+            exit.write(AppExit::Success);
+        });
+    *requested = true;
 }
 
 #[cfg(test)]
@@ -576,6 +651,13 @@ mod tests {
 
     const MIN: Vec2 = Vec2::new(0.0, 0.0);
     const MAX: Vec2 = Vec2::new(100.0, 50.0);
+
+    #[test]
+    fn parses_screenshot_size() {
+        assert_eq!(parse_size("1280x720"), Some(UVec2::new(1280, 720)));
+        assert_eq!(parse_size("0x720"), None);
+        assert_eq!(parse_size("1280"), None);
+    }
 
     #[test]
     fn camera_inside_bounds_is_unchanged() {
