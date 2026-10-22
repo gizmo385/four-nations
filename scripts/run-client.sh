@@ -9,11 +9,17 @@
 # Prefer `cargo xtask screenshot SEED NATION OUT.png [WIDTH HEIGHT]` for headless screenshots; it
 # calls this script. Already in `nix develop`? Then `cargo run -p fn_client` works directly too.
 # Without Nix the script just builds and runs with whatever toolchain and system libraries exist.
+#
+# macOS (Darwin): flake.nix only defines devShells for Linux, and Bevy needs no extra native
+# libraries there, so the script skips `nix develop` and builds with the host toolchain. Setting
+# FN_DEVSHELL=1 by hand is no longer needed (it still skips Nix on any platform).
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 say() { echo "run-client: $*" >&2; }
 
-if [[ -z "${FN_DEVSHELL:-}" ]] && command -v nix >/dev/null; then
+if [[ -z "${FN_DEVSHELL:-}" && "$(uname -s)" == "Darwin" ]]; then
+  say "macOS: the flake has no devShell for this system, using the host toolchain"
+elif [[ -z "${FN_DEVSHELL:-}" ]] && command -v nix >/dev/null; then
   say "entering the flake devShell (first run downloads the toolchain and libraries)"
   exec nix develop "$root" -c "$0" "$@"
 fi
