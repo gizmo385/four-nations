@@ -246,33 +246,62 @@ fn setup_camera_and_ui(
         target.texture_descriptor.usage |= TextureUsages::COPY_SRC;
         camera.insert(RenderTarget::Image(images.add(target).into()));
     }
-    let panel = |top: bool| Node {
-        position_type: PositionType::Absolute,
-        left: Val::Px(8.0),
-        top: if top { Val::Px(8.0) } else { Val::Auto },
-        bottom: if top { Val::Auto } else { Val::Px(8.0) },
-        padding: UiRect::all(Val::Px(6.0)),
-        ..default()
+    commands.spawn((info_panel(Corner::TopLeft), Visibility::Hidden, HoverText));
+    commands.spawn((info_panel(Corner::TopRight), Visibility::Hidden, SelectionText));
+    commands.spawn((info_panel(Corner::BottomLeft), HudText));
+}
+
+/// Shared look for on-map info panels. Restyle all panels here; the overall UI direction is #39.
+mod panel_style {
+    use bevy::prelude::*;
+
+    /// Near-opaque so bright terrain (snow, sand) can't wash the panel out.
+    pub const BACKGROUND: Color = Color::srgba(0.06, 0.06, 0.09, 0.92);
+    pub const BORDER: Color = Color::srgba(0.85, 0.75, 0.45, 0.6);
+    pub const TEXT: Color = Color::srgb(0.96, 0.95, 0.9);
+    pub const SHADOW: Color = Color::srgba(0.0, 0.0, 0.0, 0.9);
+    pub const FONT_SIZE: f32 = 15.0;
+    pub const MARGIN: f32 = 8.0;
+    pub const PADDING: f32 = 8.0;
+    pub const BORDER_WIDTH: f32 = 1.0;
+    pub const RADIUS: f32 = 4.0;
+}
+
+#[derive(Clone, Copy)]
+enum Corner {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+}
+
+/// A text panel anchored to a screen corner, styled by `panel_style`.
+fn info_panel(corner: Corner) -> impl Bundle {
+    use panel_style::*;
+    let at = Val::Px(MARGIN);
+    let (left, right, top, bottom) = match corner {
+        Corner::TopLeft => (at, Val::Auto, at, Val::Auto),
+        Corner::TopRight => (Val::Auto, at, at, Val::Auto),
+        Corner::BottomLeft => (at, Val::Auto, Val::Auto, at),
     };
-    let style = (
-        TextFont { font_size: 14.0.into(), ..default() },
-        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.65)),
-    );
-    commands.spawn((Text::new(""), style.clone(), panel(true), Visibility::Hidden, HoverText));
-    commands.spawn((
+    (
         Text::new(""),
-        style.clone(),
+        TextFont { font_size: FONT_SIZE.into(), ..default() },
+        TextColor(TEXT),
+        TextShadow { offset: Vec2::splat(1.0), color: SHADOW },
+        BackgroundColor(BACKGROUND),
+        BorderColor::all(BORDER),
         Node {
             position_type: PositionType::Absolute,
-            right: Val::Px(8.0),
-            top: Val::Px(8.0),
-            padding: UiRect::all(Val::Px(6.0)),
+            left,
+            right,
+            top,
+            bottom,
+            padding: UiRect::all(Val::Px(PADDING)),
+            border: UiRect::all(Val::Px(BORDER_WIDTH)),
+            border_radius: BorderRadius::all(Val::Px(RADIUS)),
             ..default()
         },
-        Visibility::Hidden,
-        SelectionText,
-    ));
-    commands.spawn((Text::new(""), style, panel(false), HudText));
+    )
 }
 
 fn tile_translation(p: Pos, z: f32) -> Vec3 {
