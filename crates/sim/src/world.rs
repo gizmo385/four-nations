@@ -24,6 +24,7 @@ mod bending;
 mod command;
 mod work;
 
+use bending::Patch;
 pub use bending::{BendError, BendEvent, BendOutcome};
 pub use command::{Command, CommandError, Recorded};
 pub use work::{DesignateError, FoodSource, Task};
@@ -129,6 +130,13 @@ pub struct World {
     regions: Option<Regions>,
     /// Every bend that has finished or failed, oldest first.
     bend_events: Vec<BendEvent>,
+    /// Watered patches that haven't dried yet, in `(dries_at, centre)` order (Water the Land).
+    patches: Vec<Patch>,
+    /// Tiles that sprouted lately and the tick their fallow time ends. Expired entries are
+    /// dropped as time passes.
+    fallow: BTreeMap<Pos, u64>,
+    /// Picks which tiles of a dried patch sprout (`bending.sprout`).
+    sprout_rng: SimRng,
     rng: SimRng,
 }
 
@@ -161,6 +169,9 @@ impl World {
             rules: MoveRules::default(),
             regions: None,
             bend_events: Vec::new(),
+            patches: Vec::new(),
+            fallow: BTreeMap::new(),
+            sprout_rng: rng::stream(seed, "bending.sprout"),
             rng: rng::stream(seed, "world.units"),
         };
         world.refresh_modifiers(defs);
@@ -248,10 +259,10 @@ impl World {
         self.map.get(p).is_some_and(|t| t.terrain.is_walkable() && t.resource.is_none())
     }
 
-    /// Advances the world by one tick: research, units' needs and chi, and resource regrowth run (units whose health reaches 0
-    /// die and are removed, in id order), then each survivor acts, in id order: it meets a need
-    /// if one is low, else carries on with its job, else claims one, else wanders. See
-    /// `work.rs`.
+    /// Advances the world by one tick: research, units' needs and chi, resource regrowth and
+    /// drying patches run (units whose health reaches 0 die and are removed, in id order), then
+    /// each survivor acts, in id order: it meets a need if one is low, else carries on with its
+    /// job, else claims one, else wanders. See `work.rs`.
     pub fn tick(&mut self, defs: &Defs) {
         self.tick += 1;
         let completed = self.research.completions().len();
@@ -261,6 +272,7 @@ impl World {
         }
         self.tick_needs(defs);
         self.tick_growth(defs);
+        self.tick_irrigation(defs);
         for i in 0..self.units.len() {
             self.act(i, defs);
         }
