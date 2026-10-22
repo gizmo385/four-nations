@@ -15,6 +15,7 @@ use crate::mapgen::{self, MapGenConfig, TileMap};
 use crate::nation::{Modifiers, Nation};
 use crate::needs::{DeathCause, Needs};
 use crate::path::MoveRules;
+use crate::regions::Regions;
 use crate::research::{self, Research, ResearchError, TechId};
 use crate::rng::{self, SimRng};
 
@@ -110,6 +111,9 @@ pub struct World {
     /// How units walk. Every unit uses these for now; a nation that can cross water would get
     /// its own.
     rules: MoveRules,
+    /// Which tiles can reach which under `rules`, or `None` when the map has changed since it
+    /// was computed. Recomputed on demand; see `regions.rs`.
+    regions: Option<Regions>,
     rng: SimRng,
 }
 
@@ -138,6 +142,7 @@ impl World {
             zones: BTreeSet::new(),
             stored: BTreeMap::new(),
             rules: MoveRules::default(),
+            regions: None,
             rng: rng::stream(seed, "world.units"),
         };
         world.refresh_modifiers(defs);
@@ -205,6 +210,19 @@ impl World {
     /// The living unit with this id, if it hasn't died.
     pub fn unit(&self, id: UnitId) -> Option<&Unit> {
         self.units.binary_search_by_key(&id, |u| u.id).ok().map(|i| &self.units[i])
+    }
+
+    /// Tells the world that `map` was edited, so cached connectivity can't be trusted. The world
+    /// does this itself for changes it makes (clearing a resource); only code that writes to
+    /// `map` directly needs to call it.
+    pub fn map_changed(&mut self) {
+        self.regions = None;
+    }
+
+    /// The connected regions of the current map, recomputed first if the map has changed.
+    fn regions(&mut self) -> &Regions {
+        let (map, rules) = (&self.map, &self.rules);
+        self.regions.get_or_insert_with(|| Regions::compute(map, rules))
     }
 
     fn walkable(&self, p: Pos) -> bool {
@@ -530,6 +548,7 @@ mod tests {
             for p in food {
                 w.map[p].resource = None;
             }
+            w.map_changed();
             let mut ticks = 0;
             while !w.units.is_empty() {
                 w.tick(&defs);

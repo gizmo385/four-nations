@@ -302,3 +302,27 @@ fn units_still_starve_where_there_is_no_food_at_all() {
     assert_eq!(w.deaths.len(), 2);
     assert!(w.deaths.iter().all(|d| d.cause == DeathCause::Starvation));
 }
+
+#[test]
+fn clearing_a_blocking_tree_makes_the_far_side_reachable() {
+    // A column of trees splits the map in two, and the unit is on the left. The far tree can't
+    // be reached until the one in the middle of the column is gone: the connectivity cache has
+    // to notice that.
+    let rows = ["...T...", "...T.T.", "...T..."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 1)]);
+    let far = w.designate_harvest(at(5, 1), &defs).unwrap();
+    for _ in 0..50 {
+        w.tick(&defs);
+    }
+    assert_eq!(w.job(far).unwrap().claimed_by, None, "the far tree is across the column");
+
+    let gate = w.designate_harvest(at(3, 1), &defs).unwrap();
+    run_until(&mut w, &defs, 3000, |w| w.job(gate).is_none());
+    // The cache is rebuilt for the opened map, not left holding the old split.
+    w.tick(&defs);
+    w.tick(&defs);
+    let fresh = Regions::compute(&w.map, &w.rules);
+    assert_eq!(w.regions().clone(), fresh);
+    assert!(fresh.connected(at(1, 1), at(4, 1)));
+    run_until(&mut w, &defs, 3000, |w| w.map[at(5, 1)].resource.is_none());
+}
