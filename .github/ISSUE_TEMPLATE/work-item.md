@@ -6,7 +6,7 @@ labels: []
 
 <!-- Add labels: one or more area:*, one feat:* group, one priority p0-p3.
      Dependencies: use the "Blocked by" relationship (sidebar, or `gh issue create --blocked-by N`).
-     Add `large` if it should go through the PR flow. Only a human adds `ready`. -->
+     Add `large` if it should go through the PR flow. `ready` is added by the owner or by triage (see docs/process/work-tracking.md). -->
 
 ## Why
 What problem this solves / what it unlocks.

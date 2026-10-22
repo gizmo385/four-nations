@@ -10,10 +10,13 @@ repo with one human owner). Agents use the `gh` CLI.
 | Area | `area:sim` `area:client` `area:data` `area:art` `area:tooling` `area:design` | One or more per issue |
 | Feature group | `feat:mapgen` `feat:units` `feat:jobs` `feat:bending` `feat:persistence` `feat:rendering` `feat:dev-tools` | Exactly one. Add a new `feat:*` label when a new feature area starts |
 | Priority | `p0` (blocking) `p1` (next) `p2` (soon) `p3` (someday) | Exactly one |
-| Workflow | `ready` `in-progress` `large` | See below |
+| Workflow | `ready` `needs-owner` `in-progress` `large` | See below |
 
-- **`ready`**: only the owner adds this. It means "agents may pick this up". Issues without it
-  are ideas or need more detail.
+- **`ready`**: the issue is fully specified and has no open questions for the owner, so an
+  agent may pick it up **once it is unblocked**. Ready says nothing about ordering;
+  dependencies handle that. The owner or the orchestrator's triage pass (below) adds it.
+- **`needs-owner`**: the issue contains a decision only the owner can make. It is never marked
+  ready until the owner answers and removes the label.
 - **`in-progress`**: claimed. The claim comment says by whom and where.
 - **`large`**: must use the PR flow (below).
 
@@ -30,6 +33,32 @@ gh issue edit 7 --remove-blocked-by 5
 gh issue list --search "is:open is:blocked"       # what's waiting on something
 gh api repos/gizmo385/four-nations/issues/4/dependencies/blocking --jq 'map(.number)'  # what #4 unblocks
 ```
+
+## Triage and sequencing
+
+The orchestrator (the main Claude session that dispatches agents) runs a **triage pass** when
+issues are filed, after each merge, and whenever the owner asks. For every open issue without
+`ready`, it marks the issue `ready` only if **all** of these hold:
+
+1. **Concrete acceptance criteria**: observable, testable outcomes, not "implement X".
+2. **No owner decisions**: no `needs-owner` label, and nothing in the body or comments asks the
+   owner to choose (style, tone, scope, balance targets that need taste). Technical choices an
+   agent can make and justify in its PR (e.g. which algorithm, which data layout) don't count.
+3. **Dependencies are recorded**: anything it obviously needs first is linked as "blocked by".
+   Ready issues can still be blocked; they become pickable automatically when their blockers
+   close.
+4. **Sized for one PR**, or labelled `large`.
+
+If an issue fails 2, the orchestrator adds `needs-owner` and asks the owner in its next update.
+If it fails 1, 3 or 4, the orchestrator fixes the issue (rewrites criteria, adds links, splits
+it) and then re-checks. Every triage pass ends with a short note to the owner listing what was
+marked ready and what is waiting on them. The owner can remove `ready` at any time to hold
+something back.
+
+**Dispatch.** The orchestrator then starts agents on the top unblocked ready issues, by priority.
+It avoids running two issues at once that are likely to edit the same files (same `feat:*` group
+or the same module), so parallel PRs rarely conflict. As PRs merge, newly unblocked issues
+become pickable and the loop continues.
 
 ## Finding work
 
@@ -118,7 +147,7 @@ Found work outside your current scope? File it instead of expanding scope:
 gh issue create --template work-item.md --title "..." --label area:sim,feat:units,p2 --blocked-by 4
 ```
 
-Don't add `ready` yourself. Keep issues small: one focused session, reviewable in under
+Don't add `ready` to issues you file; the next triage pass decides. Keep issues small: one focused session, reviewable in under
 30 minutes. Split bigger work and link the pieces with `--blocked-by`.
 
 ## Handoff
