@@ -282,8 +282,9 @@ impl World {
     ///
     /// This is the hook for faster growth: Water's "Water the Land" (docs/design/bending.md,
     /// #69) leaves tiles wet for a while, and plants on wet tiles (and later, farm plots) should
-    /// ripen faster by a data-driven multiplier. Read a per-tile wet state here and scale the
-    /// result; nothing else in the regrowth code needs to change.
+    /// ripen faster by a data-driven multiplier. Wet tiles now exist (`World::wet_tiles`, #69),
+    /// but no multiplier is defined yet: Water the Land's payoff is sprouts, not faster
+    /// regrowth. When one is, scale the result here; nothing else in the regrowth code changes.
     fn growth_rate(&self, _pos: Pos, _defs: &Defs) -> f32 {
         1.0
     }

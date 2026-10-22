@@ -17,8 +17,8 @@
 # - An ability is available from the start unless a tech lists it under `unlocks.abilities` in
 #   data/research.toml (that tech must be of the same nation, and the only one to list it).
 #
-# The effects themselves are separate work (#68 to #71): until then a bend of any of these is
-# refused as "not implemented yet".
+# The effects are separate work (#68 to #71): until one lands, a bend of that ability is refused
+# as "not implemented yet". Water the Land (`irrigate`) is in; its magnitude scales `wet_minutes`.
 
 [chi]
 max = 100.0
@@ -40,7 +40,7 @@ kind = "reshape"
 from = ["river", "lake"]
 to = "ford"
 
-# Water: wets a 3x3 patch near fresh water; later, wild greens sprout there.
+# Water: wets a 3x3 patch near fresh water; when it dries, wild greens sprout there.
 [[ability]]
 id = "water_the_land"
 nation = "water"
