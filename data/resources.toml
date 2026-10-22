@@ -1,12 +1,20 @@
 # Map resources, rolled per tile in file order; the first one that passes wins.
 # Omitting `terrains` or `biomes` means "any".
+#
+# - chance:          base probability per eligible tile, in [0, 1].
+# - clustering:      0..1 (default 0). How much the chance follows a per-resource noise field;
+#                    1 = dense groves/outcrops with clearings between, 0 = salt-and-pepper.
+# - moisture_scaled: true makes the chance follow tile moisture (x0.5 dry .. x1.5 wet).
+# - min_spacing:     no two of this resource within this many tiles (Chebyshev), for spread-out
+#                    deposits.
 
 [[resource]]
 id = "gold_vein"
 name = "Gold Vein"
 glyph = "$"
-chance = 0.01
+chance = 0.03
 terrains = ["land", "mountain"]
+min_spacing = 6
 
 [[resource]]
 id = "stone"
@@ -14,22 +22,27 @@ name = "Stone Outcrop"
 glyph = "o"
 chance = 0.25
 terrains = ["mountain"]
+clustering = 0.6
 
 [[resource]]
 id = "oak_tree"
 name = "Oak Tree"
 glyph = "T"
-chance = 0.30
+chance = 0.25
 terrains = ["land"]
-biomes = ["plains"]
+biomes = ["plains", "swamp"]
+clustering = 0.9
+moisture_scaled = true
 
 [[resource]]
 id = "fir_tree"
 name = "Fir Tree"
 glyph = "F"
-chance = 0.70
+chance = 0.45
 terrains = ["land"]
-biomes = ["forest", "tundra"]
+biomes = ["forest", "taiga", "tundra"]
+clustering = 0.7
+moisture_scaled = true
 
 [[resource]]
 id = "cabbage"

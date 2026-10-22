@@ -285,16 +285,22 @@ fn ground_sprite(art: &Art, sim: &Sim, p: Pos, t: &Tile) -> Sprite {
     // Cheap per-position variation so grass doesn't look tiled.
     let vary = ((p.x * 7 + p.y * 13) % 5) as usize;
     match (t.terrain, biome) {
-        (Terrain::Water, _) => art.legacy_terrain("terrain/water"),
+        // Rivers and lakes reuse the sea tile until they get their own art.
+        (Terrain::Water | Terrain::River | Terrain::Lake, _) => art.legacy_terrain("terrain/water"),
         (Terrain::Coast, "tundra") => art.legacy_terrain("terrain/snow-coast"),
         (Terrain::Coast, _) => art.legacy_terrain("terrain/coast"),
         (Terrain::Mountain, "tundra") => art.legacy_terrain("terrain/snow-stones"),
         (Terrain::Mountain, _) => art.legacy_terrain("terrain/stones"),
         (Terrain::Land, "desert") => art.legacy_terrain("terrain/desert"),
         (Terrain::Land, "tundra") => art.legacy_terrain("terrain/snow"),
-        (Terrain::Land, "forest") => {
+        // Wooded biomes share the grass sprite, told apart by tint.
+        (Terrain::Land, "forest" | "taiga" | "swamp") => {
             let mut s = art.kenney(if vary == 0 { 1 } else { 0 });
-            s.color = Color::srgb(0.75, 0.9, 0.75);
+            s.color = match biome {
+                "taiga" => Color::srgb(0.75, 0.85, 0.85),
+                "swamp" => Color::srgb(0.6, 0.7, 0.5),
+                _ => Color::srgb(0.75, 0.9, 0.75),
+            };
             s
         }
         (Terrain::Land, _) => art.kenney([0, 0, 0, 1, 2][vary]),

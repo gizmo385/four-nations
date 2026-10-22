@@ -1,22 +1,54 @@
-# Biomes are painted onto land by region-growing from random seeds (see mapgen::assign_biomes).
-# `glyph` is used by the ASCII renderer and golden tests.
-
-[[biome]]
-id = "plains"
-name = "Plains"
-glyph = ","
-
-[[biome]]
-id = "forest"
-name = "Forest"
-glyph = "\""
-
-[[biome]]
-id = "desert"
-name = "Desert"
-glyph = ":"
+# Biomes are chosen from climate, Whittaker-style (see mapgen::assign_biomes):
+#
+# - temperature: 0 = polar, 1 = equatorial. Mostly latitude (poles at the top and bottom of the
+#   map, as with the Water Tribes), cooled with altitude and nudged by noise.
+# - moisture: 0 = arid, 1 = saturated. Noise plus nearness to the sea, lakes and rivers, so
+#   continental interiors dry out and river valleys are green.
+#
+# Each tile gets the FIRST biome below whose inclusive `temperature` and `moisture` ranges
+# (`[min, max]`, within [0, 1]) contain its climate, so order matters: put narrow, specific
+# biomes first and keep a catch-all last. Loading fails if any climate is left uncovered.
+# `glyph` is used by the ASCII renderer and golden tests. The client must render every biome
+# (crates/client ground_sprite); a new biome may reuse an existing sprite.
 
 [[biome]]
 id = "tundra"
 name = "Tundra"
 glyph = "*"
+temperature = [0.0, 0.28]
+moisture = [0.0, 1.0]
+
+[[biome]]
+id = "taiga"
+name = "Taiga"
+glyph = "&"
+temperature = [0.28, 0.42]
+moisture = [0.45, 1.0]
+
+[[biome]]
+id = "swamp"
+name = "Swamp"
+glyph = "%"
+temperature = [0.55, 1.0]
+moisture = [0.84, 1.0]
+
+[[biome]]
+id = "desert"
+name = "Desert"
+glyph = ":"
+temperature = [0.58, 1.0]
+moisture = [0.0, 0.3]
+
+[[biome]]
+id = "forest"
+name = "Forest"
+glyph = "\""
+temperature = [0.28, 1.0]
+moisture = [0.55, 1.0]
+
+[[biome]]
+id = "plains"
+name = "Plains"
+glyph = ","
+temperature = [0.0, 1.0]
+moisture = [0.0, 1.0]
