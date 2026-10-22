@@ -5,19 +5,6 @@
 # before anything is published (web build, itch.io, public repo, screenshots on social media...).
 
 [[source]]
-id = "kenney-tiny-town"
-title = "Tiny Town 1.1"
-author = "Kenney (www.kenney.nl)"
-url = "https://kenney.nl/assets/tiny-town"
-download_url = "https://kenney.nl/media/pages/assets/tiny-town/a415fbeb49-1735736916/kenney_tiny-town.zip"
-download_sha256 = "9768692dccff1d706408a5aedd6ca4f6cd1409506cbc84cb2f862919764be977"
-license = "CC0-1.0"
-release_ok = true
-retrieved = "2026-10-21"
-retrieved_by = "claude (rust-spike scoping session)"
-notes = "Only Tilemap/tilemap_packed.png (12x11 grid of 16px tiles, no spacing) and License.txt were copied."
-
-[[source]]
 id = "thefournations-2013"
 title = "The Four Nations (2013 Java/Swing version)"
 author = "Christopher Chapline, James Fagan, Emily Leones, Michelle Yung (repo); original artists UNKNOWN"
@@ -29,8 +16,9 @@ retrieved_by = "claude (rust-spike scoping session)"
 notes = """
 The repo code is MIT, but the images' origin is undocumented. Unit sprites are chibi fan-art of
 canon Avatar characters (Aang, Katara, Azula, ...) and were almost certainly not drawn by the team.
+The terrain and resource textures were retired in #75; only the unit sprites remain until #76.
 Unit sprites were GIF files with a .png extension; they were re-encoded to real RGBA PNGs
-(pixels unchanged) and renamed, e.g. airDude1.png -> units/air-1.png, snowCoast.png -> terrain/snow-coast.png.
+(pixels unchanged) and renamed, e.g. airDude1.png -> units/air-1.png.
 """
 
 [[source]]
@@ -52,76 +40,6 @@ characters in docs/design/art.md under Actor/Character/. SamuraiRed's sheet is n
 redsamurai.png upstream rather than SpriteSheet.png. Attribution is not required (CC0) but is
 appreciated.
 """
-
-[[file]]
-path = "third_party/kenney-tiny-town/License.txt"
-source = "kenney-tiny-town"
-sha256 = "c483c167cc3bdfe17c15f957ff847d409f64d81b410b28783636cf3b2b7814c5"
-
-[[file]]
-path = "third_party/kenney-tiny-town/tilemap_packed.png"
-source = "kenney-tiny-town"
-sha256 = "3a54d99ecde790d4fdea207a3644cf130fc56fa838f1beb1507c185a95b8e902"
-
-[[file]]
-path = "third_party/thefournations-2013/resources/cabbage1.png"
-source = "thefournations-2013"
-sha256 = "5e1edf3d101b818c61cb1da5a8b2e158269cdcede391330a3e562b360f035fa5"
-
-[[file]]
-path = "third_party/thefournations-2013/resources/gold.png"
-source = "thefournations-2013"
-sha256 = "ae75455b71d88f2c6c6e87811721af15f5cf706081faf64438a80a36794f6650"
-
-[[file]]
-path = "third_party/thefournations-2013/terrain/coast.png"
-source = "thefournations-2013"
-sha256 = "0389db41df3166849292657eb3c3a9c3fe46af3b982cee380c63fe1d08f190a7"
-
-[[file]]
-path = "third_party/thefournations-2013/terrain/desert.png"
-source = "thefournations-2013"
-sha256 = "ff18ff837fecddc4da933483f98e7656f7228e561bc3a28fadd2f3bd3967e703"
-
-[[file]]
-path = "third_party/thefournations-2013/terrain/earth-stones.png"
-source = "thefournations-2013"
-sha256 = "2f9b7481728265c0fb44b628313511c63f5080c8a525c29bdeda8ff8dd7da00d"
-
-[[file]]
-path = "third_party/thefournations-2013/terrain/earth-tree.png"
-source = "thefournations-2013"
-sha256 = "2c62371de000484b4f792cab49f94aae2930d70359af93b688ae2a76279c6469"
-
-[[file]]
-path = "third_party/thefournations-2013/terrain/snow-coast.png"
-source = "thefournations-2013"
-sha256 = "42517e448d13a28e3bd3754495276546e54b70c6201f509e13684f6f7d380856"
-
-[[file]]
-path = "third_party/thefournations-2013/terrain/snow-stones.png"
-source = "thefournations-2013"
-sha256 = "f4ad89ddea43f0eff197dae8564f0e1a349dd2882cb7ca7c6ef59497579cddbf"
-
-[[file]]
-path = "third_party/thefournations-2013/terrain/snow-tree.png"
-source = "thefournations-2013"
-sha256 = "2676e391934f0a9dcde9997189746e63690df97ea0fa094da1c173a8028672cf"
-
-[[file]]
-path = "third_party/thefournations-2013/terrain/snow.png"
-source = "thefournations-2013"
-sha256 = "9f1223fa8db72914cdc36aa8f80f1f727ef3320adf9bd72de55da1bf8753bfba"
-
-[[file]]
-path = "third_party/thefournations-2013/terrain/stones.png"
-source = "thefournations-2013"
-sha256 = "30f7c58cf981700d81165fab5bf6dbdb459bc6dfedac4d0785b84db7af3eaa6b"
-
-[[file]]
-path = "third_party/thefournations-2013/terrain/water.png"
-source = "thefournations-2013"
-sha256 = "5eb1eed7252b0b694f908a9a5f210a2b6ee2553669dfcc1f0dc7ed7348577be9"
 
 [[file]]
 path = "third_party/thefournations-2013/units/air-1.png"

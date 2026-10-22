@@ -23,22 +23,24 @@ use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
 use bevy::render::render_resource::{TextureFormat, TextureUsages};
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
+use bevy::sprite::Anchor;
 use bevy::window::{ExitCondition, PrimaryWindow};
 use bevy::winit::WinitPlugin;
 use designate::{DesignatePlugin, Notice, Tool};
 use fn_sim::world::{TICKS_PER_SECOND, UnitId};
-use fn_sim::{Defs, MapGenConfig, Nation, Pos, Terrain, Tile, World};
+use fn_sim::{Defs, MapGenConfig, Nation, Pos, Tile, World};
 use jobview::{JobViewPlugin, ResourceSprite};
+use sprites::Sheet;
 
 mod designate;
 mod jobview;
+mod sprites;
 mod ui_style;
 
 const TILE: f32 = 16.0;
 const STARTING_UNITS: u32 = 6;
 const ASSET_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets");
-const KENNEY: &str = "third_party/kenney-tiny-town/tilemap_packed.png";
-const LEGACY: &str = "third_party/thefournations-2013";
+const UNITS: &str = "third_party/thefournations-2013";
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -141,31 +143,22 @@ impl Sim {
 
 #[derive(Resource)]
 struct Art {
-    kenney: Handle<Image>,
-    kenney_layout: Handle<TextureAtlasLayout>,
-    legacy: HashMap<String, Handle<Image>>,
+    /// The Ninja Adventure tileset sheets, in `Sheet::ALL` order.
+    sheets: [Handle<Image>; Sheet::ALL.len()],
+    /// The 2013 unit sprites, until the units issue (#76) replaces them.
+    units: HashMap<String, Handle<Image>>,
 }
 
 impl Art {
-    fn legacy(&self, name: &str) -> Handle<Image> {
-        self.legacy.get(name).unwrap_or_else(|| panic!("legacy sprite {name} not loaded")).clone()
+    fn unit(&self, name: &str) -> Handle<Image> {
+        self.units.get(name).unwrap_or_else(|| panic!("unit sprite {name} not loaded")).clone()
     }
 
-    /// A 16px 2013 terrain tile with its baked-in 1px frame cropped off, so tiles join seamlessly.
-    fn legacy_terrain(&self, name: &str) -> Sprite {
-        Sprite {
-            image: self.legacy(name),
-            rect: Some(Rect::new(1.0, 1.0, 15.0, 15.0)),
-            custom_size: Some(Vec2::splat(TILE)),
-            ..default()
-        }
-    }
-
-    fn kenney(&self, index: usize) -> Sprite {
-        Sprite::from_atlas_image(
-            self.kenney.clone(),
-            TextureAtlas { layout: self.kenney_layout.clone(), index },
-        )
+    /// A sprite showing `cell` of its tileset sheet, at native size.
+    fn sprite(&self, cell: sprites::Cell) -> Sprite {
+        let i = Sheet::ALL.iter().position(|s| *s == cell.sheet).expect("sheet is in Sheet::ALL");
+        let [x0, y0, x1, y1] = cell.pixel_rect();
+        Sprite { image: self.sheets[i].clone(), rect: Some(Rect::new(x0, y0, x1, y1)), ..default() }
     }
 }
 
@@ -193,40 +186,16 @@ struct MapClicked(Vec2);
 #[derive(Component)]
 struct HudText;
 
-fn load_art(
-    mut commands: Commands,
-    assets: Res<AssetServer>,
-    mut layouts: ResMut<Assets<TextureAtlasLayout>>,
-) {
-    let mut legacy = HashMap::new();
-    let mut names: Vec<String> = [
-        "terrain/water",
-        "terrain/coast",
-        "terrain/desert",
-        "terrain/snow",
-        "terrain/snow-coast",
-        "terrain/stones",
-        "terrain/snow-stones",
-        "terrain/earth-stones",
-        "terrain/snow-tree",
-        "resources/gold",
-        "resources/cabbage1",
-    ]
-    .map(String::from)
-    .to_vec();
+fn load_art(mut commands: Commands, assets: Res<AssetServer>) {
+    let mut units = HashMap::new();
     for n in Nation::ALL {
-        names.extend((1..=3).map(|i| format!("units/{}-{i}", n.as_str())));
+        for i in 1..=3 {
+            let name = format!("units/{}-{i}", n.as_str());
+            let handle = assets.load(format!("{UNITS}/{name}.png"));
+            units.insert(name, handle);
+        }
     }
-    for name in names {
-        let handle = assets.load(format!("{LEGACY}/{name}.png"));
-        legacy.insert(name, handle);
-    }
-    let layout = TextureAtlasLayout::from_grid(UVec2::splat(16), 12, 11, None, None);
-    commands.insert_resource(Art {
-        kenney: assets.load(KENNEY),
-        kenney_layout: layouts.add(layout),
-        legacy,
-    });
+    commands.insert_resource(Art { sheets: Sheet::ALL.map(|s| assets.load(s.path())), units });
 }
 
 fn setup_camera_and_ui(
@@ -318,54 +287,21 @@ fn tile_translation(p: Pos, z: f32) -> Vec3 {
     Vec3::new(p.x as f32 * TILE, -p.y as f32 * TILE, z)
 }
 
-/// Picks a sprite for a tile's ground layer.
-fn ground_sprite(art: &Art, sim: &Sim, p: Pos, t: &Tile) -> Sprite {
+/// The ground rule for a tile; `sprites::GROUND` has a row for every terrain and biome.
+fn ground_rule(sim: &Sim, t: &Tile) -> &'static sprites::GroundRule {
     let biome = sim.defs.biome(t.biome).id.as_str();
-    // Cheap per-position variation so grass doesn't look tiled.
-    let vary = ((p.x * 7 + p.y * 13) % 5) as usize;
-    match (t.terrain, biome) {
-        // Rivers and lakes reuse the sea tile until they get their own art.
-        (Terrain::Water | Terrain::River | Terrain::Lake, _) => art.legacy_terrain("terrain/water"),
-        // Fords borrow the shoreline sprite until they get their own art.
-        (Terrain::Ford, _) => art.legacy_terrain("terrain/coast"),
-        (Terrain::Coast, "tundra") => art.legacy_terrain("terrain/snow-coast"),
-        (Terrain::Coast, _) => art.legacy_terrain("terrain/coast"),
-        (Terrain::Mountain, "tundra") => art.legacy_terrain("terrain/snow-stones"),
-        (Terrain::Mountain, _) => art.legacy_terrain("terrain/stones"),
-        (Terrain::Land, "desert") => art.legacy_terrain("terrain/desert"),
-        (Terrain::Land, "tundra") => art.legacy_terrain("terrain/snow"),
-        // Wooded biomes share the grass sprite, told apart by tint.
-        (Terrain::Land, "forest" | "taiga" | "swamp") => {
-            let mut s = art.kenney(if vary == 0 { 1 } else { 0 });
-            s.color = match biome {
-                "taiga" => Color::srgb(0.75, 0.85, 0.85),
-                "swamp" => Color::srgb(0.6, 0.7, 0.5),
-                _ => Color::srgb(0.75, 0.9, 0.75),
-            };
-            s
-        }
-        (Terrain::Land, _) => art.kenney([0, 0, 0, 1, 2][vary]),
-    }
+    sprites::ground_rule(t.terrain, biome)
+        .unwrap_or_else(|| panic!("no ground sprite for {:?} in {biome}", t.terrain))
 }
 
-/// Picks a sprite (and vertical offset, for tall sprites) for a tile's resource, if any.
-fn resource_sprite(art: &Art, sim: &Sim, t: &Tile) -> Option<(Sprite, f32)> {
+/// Picks a sprite for a tile's resource, if any. Sprites are bottom-aligned to their tile, so a
+/// 2x2 tree stands on its tile and its canopy overlaps the tiles above and beside it.
+fn resource_sprite(art: &Art, sim: &Sim, t: &Tile) -> Option<Sprite> {
     let res = sim.defs.resource(t.resource?).id.as_str();
     let biome = sim.defs.biome(t.biome).id.as_str();
-    Some(match (res, biome) {
-        ("fir_tree", "tundra") => (Sprite::from_image(art.legacy("terrain/snow-tree")), TILE / 2.0),
-        ("fir_tree", _) => (art.kenney(28), 0.0),
-        ("oak_tree", _) => (art.kenney(5), 0.0),
-        ("gold_vein", _) => (Sprite::from_image(art.legacy("resources/gold")), 0.0),
-        ("stone", _) => (Sprite::from_image(art.legacy("terrain/earth-stones")), 0.0),
-        ("cabbage", _) => (Sprite::from_image(art.legacy("resources/cabbage1")), 0.0),
-        // The small orange tree from the Kenney sheet stands in for a fruit tree until the art
-        // pass (#1).
-        ("fruit_tree", _) => (art.kenney(27), 0.0),
-        // A white fleck on the water, until fish have art (#1).
-        ("fish_spot", _) => (Sprite::from_color(Color::WHITE, Vec2::splat(TILE / 4.0)), 0.0),
-        _ => (art.kenney(29), 0.0),
-    })
+    let rule = sprites::resource_rule(res, biome)
+        .unwrap_or_else(|| panic!("no sprite for resource {res} in {biome}"));
+    Some(art.sprite(rule.cell))
 }
 
 fn spawn_world(mut commands: Commands, art: Res<Art>, sim: Res<Sim>) {
@@ -374,23 +310,31 @@ fn spawn_world(mut commands: Commands, art: Res<Art>, sim: Res<Sim>) {
 
 fn spawn_entities(commands: &mut Commands, art: &Art, sim: &Sim) {
     for (p, t) in sim.world.map.iter() {
+        let rule = ground_rule(sim, t);
         commands.spawn((
-            ground_sprite(art, sim, p, t),
+            art.sprite(rule.floor_at(p)),
             Transform::from_translation(tile_translation(p, 0.0)),
             MapEntity,
         ));
-        if let Some((sprite, dy)) = resource_sprite(art, sim, t) {
-            // Lower rows draw on top so tall sprites overlap correctly.
+        if let Some(sprite) = resource_sprite(art, sim, t) {
+            // Lower rows draw on top so tall sprites overlap correctly. The anchor is the bottom
+            // middle of the tile, so a sprite of any height stands on its tile.
             let z = 1.0 + p.y as f32 * 0.001;
             let mut tf = Transform::from_translation(tile_translation(p, z));
-            tf.translation.y += dy;
-            commands.spawn((sprite, tf, ResourceSprite(p), MapEntity));
+            tf.translation.y -= TILE / 2.0;
+            commands.spawn((sprite, Anchor::BOTTOM_CENTER, tf, ResourceSprite(p), MapEntity));
+        } else if let Some(cell) = rule.decor_at(p) {
+            commands.spawn((
+                art.sprite(cell),
+                Transform::from_translation(tile_translation(p, 0.5)),
+                MapEntity,
+            ));
         }
     }
     for u in &sim.world.units {
         let name = format!("units/{}-{}", u.nation.as_str(), u.variant + 1);
         commands.spawn((
-            Sprite::from_image(art.legacy(&name)),
+            Sprite::from_image(art.unit(&name)),
             Transform::from_translation(tile_translation(u.pos, 5.0) + Vec3::Y * UNIT_Y_OFFSET)
                 .with_scale(Vec3::splat(0.6)),
             UnitSprite(u.id),
@@ -715,9 +659,8 @@ fn headless_screenshot(
         return;
     }
     let Some(art) = art else { return };
-    let loaded = std::iter::once(&art.kenney)
-        .chain(art.legacy.values())
-        .all(|h| assets.is_loaded_with_dependencies(h));
+    let loaded =
+        art.sheets.iter().chain(art.units.values()).all(|h| assets.is_loaded_with_dependencies(h));
     if *requested || !loaded {
         return;
     }
