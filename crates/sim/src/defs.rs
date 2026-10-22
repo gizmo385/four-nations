@@ -7,6 +7,7 @@
 
 use serde::Deserialize;
 
+use crate::jobs::{HarvestDef, ItemDef, ItemId, JobSettings, JobsFile};
 use crate::nation::{Nation, NationDef};
 use crate::needs::{FoodDef, NeedsFile, NeedsSettings};
 use crate::research::{self, ResearchFile, ResearchSettings, TechDef, TechId};
@@ -105,6 +106,14 @@ pub struct Defs {
     pub needs: NeedsSettings,
     /// Edible foods, in file order.
     pub foods: Vec<FoodDef>,
+    /// Everything that can be carried and stockpiled: the materials in data/jobs.toml, then
+    /// every food. Indexed by `ItemId`.
+    pub items: Vec<ItemDef>,
+    /// What working each harvestable resource yields (data/jobs.toml).
+    pub harvests: Vec<HarvestDef>,
+    pub jobs: JobSettings,
+    /// `harvests` index by `ResourceId`, so the lookup is O(1).
+    harvest_by_resource: Vec<Option<usize>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -151,6 +160,7 @@ impl Defs {
             include_str!("../../../data/nations.toml"),
             include_str!("../../../data/research.toml"),
             include_str!("../../../data/needs.toml"),
+            include_str!("../../../data/jobs.toml"),
         )
         .expect("bundled data/*.toml must be valid; run `cargo test -p fn_sim`")
     }
@@ -161,6 +171,7 @@ impl Defs {
         nations: &str,
         research: &str,
         needs: &str,
+        jobs: &str,
     ) -> Result<Self, DefsError> {
         let (research, techs) = parse::<ResearchFile>("research.toml", research)?.resolve()?;
         let mut nations = parse::<NationFile>("nations.toml", nations)?.nation;
@@ -171,6 +182,12 @@ impl Defs {
         let resources = parse::<ResourceFile>("resources.toml", resources)?.resource;
         let resource_ids: Vec<&str> = resources.iter().map(|r| r.id.as_str()).collect();
         let (needs, foods) = parse::<NeedsFile>("needs.toml", needs)?.resolve(&resource_ids)?;
+        let (jobs, items, harvests) =
+            parse::<JobsFile>("jobs.toml", jobs)?.resolve(&resources, &foods, &needs)?;
+        let mut harvest_by_resource = vec![None; resources.len()];
+        for (i, h) in harvests.iter().enumerate() {
+            harvest_by_resource[h.resource.0 as usize] = Some(i);
+        }
         let defs = Self {
             biomes: parse::<BiomeFile>("biomes.toml", biomes)?.biome,
             resources,
@@ -179,6 +196,10 @@ impl Defs {
             research,
             needs,
             foods,
+            items,
+            harvests,
+            jobs,
+            harvest_by_resource,
         };
         defs.validate()?;
         Ok(defs)
@@ -261,6 +282,24 @@ impl Defs {
         self.foods.iter().find(|f| f.id == id)
     }
 
+    pub fn item_id(&self, id: &str) -> Option<ItemId> {
+        self.items.iter().position(|i| i.id == id).map(|i| ItemId(i as u16))
+    }
+
+    pub fn item(&self, id: ItemId) -> &ItemDef {
+        &self.items[id.0 as usize]
+    }
+
+    /// The food an item is, if it can be eaten.
+    pub fn food_of(&self, id: ItemId) -> Option<&FoodDef> {
+        self.item(id).food.map(|f| &self.foods[f])
+    }
+
+    /// What working this resource yields, if it can be worked.
+    pub fn harvest(&self, id: ResourceId) -> Option<&HarvestDef> {
+        self.harvest_by_resource[id.0 as usize].map(|i| &self.harvests[i])
+    }
+
     pub fn tech_id(&self, id: &str) -> Option<TechId> {
         self.techs.iter().position(|t| t.id == id).map(|i| TechId(i as u16))
     }
@@ -290,20 +329,27 @@ mod tests {
     const NATIONS: &str = include_str!("../../../data/nations.toml");
     const RESEARCH: &str = include_str!("../../../data/research.toml");
     const NEEDS: &str = include_str!("../../../data/needs.toml");
+    const JOBS: &str = include_str!("../../../data/jobs.toml");
 
     /// The bundled needs without the food-to-resource link, for tests with their own resources.
     fn unlinked_needs() -> String {
         NEEDS.replace("resource = \"cabbage\"", "")
     }
 
+    /// The bundled jobs without harvests, for tests with their own resources.
+    fn bare_jobs() -> String {
+        let end = JOBS.find("[[harvest]]").unwrap();
+        format!("harvest = []\n{}", &JOBS[..end])
+    }
+
     fn with_biomes(biomes: &str) -> Result<Defs, DefsError> {
         // No resources, so they can't reference biomes missing from the test table.
-        Defs::from_toml(biomes, "resource = []", NATIONS, RESEARCH, &unlinked_needs())
+        Defs::from_toml(biomes, "resource = []", NATIONS, RESEARCH, &unlinked_needs(), &bare_jobs())
     }
 
     fn with_resource(fields: &str) -> Result<Defs, DefsError> {
         let src = format!("[[resource]]\nid='x'\nname='X'\nglyph='x'\nchance=0.5\n{fields}");
-        Defs::from_toml(BIOMES, &src, NATIONS, RESEARCH, &unlinked_needs())
+        Defs::from_toml(BIOMES, &src, NATIONS, RESEARCH, &unlinked_needs(), &bare_jobs())
     }
 
     fn one_biome(t: &str, m: &str) -> String {
@@ -385,6 +431,7 @@ mod tests {
             NATIONS,
             RESEARCH,
             needs,
+            JOBS,
         )
     }
 
@@ -408,5 +455,50 @@ mod tests {
         // tastes cooked: cooking must never be required.
         let err = with_needs(&NEEDS.replacen("hunger = 40.0", "hunger = 20.0", 1)).unwrap_err();
         assert!(err.0.contains("sustain"), "{err}");
+    }
+
+    fn with_jobs(jobs: &str) -> Result<Defs, DefsError> {
+        Defs::from_toml(
+            BIOMES,
+            include_str!("../../../data/resources.toml"),
+            NATIONS,
+            RESEARCH,
+            NEEDS,
+            jobs,
+        )
+    }
+
+    #[test]
+    fn jobs_data_is_validated() {
+        let bad = |from: &str, to: &str| {
+            assert!(JOBS.contains(from), "{from}");
+            with_jobs(&JOBS.replacen(from, to, 1)).unwrap_err().0
+        };
+        assert!(bad("resource = \"oak_tree\"", "resource = \"oak\"").contains("oak"));
+        assert!(bad("item = \"wood\"", "item = \"plank\"").contains("plank"));
+        assert!(bad("modifier = \"earthworks\"", "modifier = \"earthwork\"").contains("earthwork"));
+        assert!(bad("count = 4", "count = 0").contains("count"));
+        assert!(bad("id = \"wood\"", "id = \"fish\"").contains("duplicate"));
+        assert!(bad("sleep_until = 90.0", "sleep_until = 20.0").contains("sleep_until"));
+        assert!(bad("base_carry = 5", "base_carry = 0").contains("base_carry"));
+        assert!(bad("eat_seconds = 3.0", "eat_secs = 3.0").contains("eat_secs"));
+        // Two entries for one resource.
+        let twice = format!(
+            "{JOBS}\n[[harvest]]\nresource = \"stone\"\nverb = \"X\"\nitem = \"stone\"\ncount = 1\nwork = 1.0\n"
+        );
+        assert!(with_jobs(&twice).unwrap_err().0.contains("two harvest"));
+    }
+
+    #[test]
+    fn every_harvest_modifier_and_food_item_resolves() {
+        let defs = Defs::bundled();
+        let quarry = defs.harvest(defs.resource_id("stone").unwrap()).unwrap();
+        assert_eq!(quarry.modifier.as_deref(), Some("earthworks"));
+        assert_eq!(defs.item(quarry.item).id, "stone");
+        let cabbage = defs.item_id("cabbage").unwrap();
+        assert_eq!(defs.food_of(cabbage).unwrap().id, "cabbage");
+        assert!(defs.food_of(defs.item_id("wood").unwrap()).is_none());
+        // Resources without a harvest entry simply can't be designated.
+        assert!(defs.harvests.len() <= defs.resources.len());
     }
 }

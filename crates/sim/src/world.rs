@@ -3,16 +3,24 @@
 //! The sim advances in discrete ticks (`World::tick`). Clients render whatever state the world is
 //! in and may interpolate between ticks, but must never mutate it except through commands.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use rand::RngExt;
 use rand::seq::SliceRandom;
 
 use crate::defs::Defs;
 use crate::geom::Pos;
+use crate::jobs::{Job, JobId, Stack};
 use crate::mapgen::{self, MapGenConfig, TileMap};
 use crate::nation::Nation;
 use crate::needs::{DeathCause, Needs};
+use crate::path::MoveRules;
 use crate::research::{Research, ResearchError, TechId};
 use crate::rng::{self, SimRng};
+
+mod work;
+
+pub use work::{DesignateError, FoodSource, Task};
 
 /// Ticks per in-game second. Movement and needs are expressed per tick.
 pub const TICKS_PER_SECOND: u32 = 10;
@@ -33,6 +41,22 @@ pub struct Unit {
     pub variant: u8,
     /// Hunger, thirst, energy and health (data/needs.toml). At 0 health the unit dies.
     pub needs: Needs,
+    /// What this unit is carrying to a stockpile (or has picked up to eat).
+    pub carrying: Option<Stack>,
+    /// A need it is acting on (eat, drink, sleep). Takes priority over `job_task`.
+    need_task: Option<Task>,
+    /// The job it has claimed. Set aside, not dropped, while a need is being met.
+    job_task: Option<Task>,
+    /// Steps left to the current task's destination, the next step last. `None` means the
+    /// route needs planning (a new claim has just resumed, say).
+    route: Option<Vec<Pos>>,
+    /// Seconds into the current need task's work (eating, drinking).
+    work: f32,
+    /// Tick before which a failed attempt to act on a need isn't repeated (hunger, thirst,
+    /// energy).
+    need_retry_at: [u64; 3],
+    /// Tick before which an idle unit doesn't look for a job again.
+    claim_retry_at: u64,
     /// Progress toward the next step; a step happens when this reaches `BASE_TICKS_PER_STEP`.
     move_progress: f32,
 }
@@ -44,6 +68,19 @@ pub struct Death {
     pub name: String,
     pub tick: u64,
     pub cause: DeathCause,
+}
+
+/// Where `count` starting units go: walkable tiles, spiralling out from the map center.
+fn spawn_points(map: &TileMap, count: usize) -> Vec<Pos> {
+    let center = Pos::new(map.width() / 2, map.height() / 2);
+    let mut candidates: Vec<Pos> = map
+        .iter()
+        .filter(|(_, t)| t.terrain.is_walkable() && t.resource.is_none())
+        .map(|(p, _)| p)
+        .collect();
+    candidates.sort_by_key(|p| ((p.x - center.x).pow(2) + (p.y - center.y).pow(2), *p));
+    candidates.truncate(count);
+    candidates
 }
 
 #[derive(Debug, Clone)]
@@ -58,23 +95,48 @@ pub struct World {
     research: Research,
     /// Units that have died, oldest first.
     pub deaths: Vec<Death>,
+    /// Designated work that isn't finished, in creation order.
+    jobs: Vec<Job>,
+    next_job: u32,
+    /// Item stacks lying on the ground, one stack per tile, waiting to be hauled.
+    ground: BTreeMap<Pos, Stack>,
+    /// Tiles designated as stockpile.
+    zones: BTreeSet<Pos>,
+    /// What the stockpile tiles hold, one kind of item per tile.
+    stored: BTreeMap<Pos, Stack>,
+    /// How units walk. Every unit uses these for now; a nation that can cross water would get
+    /// its own.
+    rules: MoveRules,
     rng: SimRng,
 }
 
 impl World {
     pub fn new(cfg: &MapGenConfig, nation: Nation, starting_units: u32, defs: &Defs) -> Self {
         let map = mapgen::generate(cfg, defs);
+        let spawns = spawn_points(&map, starting_units as usize);
+        Self::with_map(cfg.seed, map, nation, &spawns, defs)
+    }
+
+    /// A world on a given map, with one unit at each of `spawns`. For tests and tools that need a
+    /// hand-built map; `new` is the usual way in.
+    pub fn with_map(seed: u64, map: TileMap, nation: Nation, spawns: &[Pos], defs: &Defs) -> Self {
         let mut world = Self {
-            seed: cfg.seed,
+            seed,
             tick: 0,
             map,
             nation,
             units: Vec::new(),
             research: Research::new(nation, defs),
             deaths: Vec::new(),
-            rng: rng::stream(cfg.seed, "world.units"),
+            jobs: Vec::new(),
+            next_job: 0,
+            ground: BTreeMap::new(),
+            zones: BTreeSet::new(),
+            stored: BTreeMap::new(),
+            rules: MoveRules::default(),
+            rng: rng::stream(seed, "world.units"),
         };
-        world.spawn_starting_units(starting_units, defs);
+        world.spawn_units(spawns, defs);
         world
     }
 
@@ -88,19 +150,10 @@ impl World {
         self.research.set_target(tech, self.nation, defs)
     }
 
-    /// Places units on walkable tiles, spiralling out from the map center.
-    fn spawn_starting_units(&mut self, count: u32, defs: &Defs) {
+    fn spawn_units(&mut self, spawns: &[Pos], defs: &Defs) {
         let mut names = defs.nation(self.nation).names.clone();
         names.shuffle(&mut rng::stream(self.seed, "world.names"));
-        let center = Pos::new(self.map.width() / 2, self.map.height() / 2);
-        let mut candidates: Vec<Pos> = self
-            .map
-            .iter()
-            .filter(|(_, t)| t.terrain.is_walkable() && t.resource.is_none())
-            .map(|(p, _)| p)
-            .collect();
-        candidates.sort_by_key(|p| ((p.x - center.x).pow(2) + (p.y - center.y).pow(2), *p));
-        for (i, pos) in candidates.into_iter().take(count as usize).enumerate() {
+        for (i, &pos) in spawns.iter().enumerate() {
             let variant = self.rng.random_range(0..3);
             // Reuse the pool with a numeral suffix if there are more units than names.
             let name = match i / names.len() {
@@ -114,6 +167,13 @@ impl World {
                 pos,
                 variant,
                 needs: Needs::full(&defs.needs),
+                carrying: None,
+                need_task: None,
+                job_task: None,
+                route: None,
+                work: 0.0,
+                need_retry_at: [0; 3],
+                claim_retry_at: 0,
                 move_progress: 0.0,
             });
         }
@@ -128,27 +188,33 @@ impl World {
         self.map.get(p).is_some_and(|t| t.terrain.is_walkable() && t.resource.is_none())
     }
 
-    /// Advances the world by one tick: units' needs run down (and units whose health reaches 0
-    /// die and are removed, in id order), then the survivors move. Placeholder behaviour: units
-    /// wander randomly, at a speed set by their nation's `move_speed` modifier. Until the job
-    /// system (#4) lets them eat and drink, every unit eventually dies.
+    /// Advances the world by one tick: research and units' needs run (units whose health reaches 0
+    /// die and are removed, in id order), then each survivor acts, in id order: it meets a need
+    /// if one is low, else carries on with its job, else claims one, else wanders. See
+    /// `work.rs`.
     pub fn tick(&mut self, defs: &Defs) {
         self.tick += 1;
         self.research.tick(self.tick, defs);
         self.tick_needs(defs);
         for i in 0..self.units.len() {
-            let speed = defs.nation(self.units[i].nation).modifiers.move_speed;
-            self.units[i].move_progress += speed;
-            if self.units[i].move_progress < BASE_TICKS_PER_STEP {
-                continue;
-            }
-            self.units[i].move_progress -= BASE_TICKS_PER_STEP;
-            let pos = self.units[i].pos;
-            let options: Vec<Pos> =
-                self.map.neighbors(pos, false).filter(|&q| self.walkable(q)).collect();
-            if !options.is_empty() {
-                self.units[i].pos = options[self.rng.random_range(0..options.len())];
-            }
+            self.act(i, defs);
+        }
+    }
+
+    /// One random step, at a speed set by the unit's nation's `move_speed` modifier. What a unit
+    /// with nothing to do does.
+    fn wander(&mut self, i: usize, defs: &Defs) {
+        let speed = defs.nation(self.units[i].nation).modifiers.move_speed;
+        self.units[i].move_progress += speed;
+        if self.units[i].move_progress < BASE_TICKS_PER_STEP {
+            return;
+        }
+        self.units[i].move_progress -= BASE_TICKS_PER_STEP;
+        let pos = self.units[i].pos;
+        let options: Vec<Pos> =
+            self.map.neighbors(pos, false).filter(|&q| self.walkable(q)).collect();
+        if !options.is_empty() {
+            self.units[i].pos = options[self.rng.random_range(0..options.len())];
         }
     }
 }
@@ -156,17 +222,20 @@ impl World {
 impl World {
     fn tick_needs(&mut self, defs: &Defs) {
         let tick = self.tick;
-        let deaths = &mut self.deaths;
-        self.units.retain_mut(|u| {
-            // Nothing sleeps yet; the job system will pass the unit's real state.
-            u.needs.tick(&defs.needs, false);
-            if !u.needs.is_dead() {
-                return true;
+        let mut dead = Vec::new();
+        for mut u in std::mem::take(&mut self.units) {
+            u.needs.tick(&defs.needs, u.is_sleeping());
+            if u.needs.is_dead() {
+                dead.push(u);
+            } else {
+                self.units.push(u);
             }
+        }
+        for u in dead {
             let cause = u.needs.depleted().unwrap_or(DeathCause::Starvation);
-            deaths.push(Death { id: u.id, name: u.name.clone(), tick, cause });
-            false
-        });
+            self.deaths.push(Death { id: u.id, name: u.name.clone(), tick, cause });
+            self.release(&u);
+        }
     }
 }
 
@@ -361,6 +430,20 @@ mod tests {
     fn units_without_food_die_and_are_removed_deterministically() {
         let run = || {
             let (mut w, defs) = world(Nation::Earth);
+            // No wild food anywhere: the units can drink but never eat.
+            let food: Vec<Pos> = w
+                .map
+                .iter()
+                .filter(|(_, t)| {
+                    t.resource.is_some_and(|r| {
+                        defs.harvest(r).is_some_and(|h| defs.food_of(h.item).is_some())
+                    })
+                })
+                .map(|(p, _)| p)
+                .collect();
+            for p in food {
+                w.map[p].resource = None;
+            }
             let mut ticks = 0;
             while !w.units.is_empty() {
                 w.tick(&defs);

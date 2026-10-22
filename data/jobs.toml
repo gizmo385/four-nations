@@ -1,0 +1,81 @@
+# Jobs, items and what the settlers' work yields. Design: docs/design/vision.md (core loop).
+#
+# The player designates work (chop this tree, quarry this rock, gather this cabbage); a unit
+# claims it, walks over, works, and the yield lands on the ground as an item stack. That stack
+# becomes a haul job, and a unit carries it to a stockpile zone. Units also act on their own
+# needs (data/needs.toml): below a need's `low` level they drop what they're doing, eat, drink
+# or sleep, then go back to the job.
+
+[settings]
+# How many items one stockpile tile holds (one kind of item per tile).
+stockpile_stack = 20
+# Items a unit carries in one trip, times its nation's `carry_capacity` modifier (rounded, at
+# least 1).
+base_carry = 5
+# In-game seconds spent eating one item, and taking one drink.
+eat_seconds = 3.0
+drink_seconds = 2.0
+# A sleeping unit wakes at this energy level...
+sleep_until = 90.0
+# ...or earlier, when hunger or thirst falls below this level and it could do something about it.
+sleep_interrupt_below = 10.0
+# In-game seconds before a unit with nothing reachable to do looks again.
+retry_seconds = 5.0
+
+# Items that aren't food. Foods (data/needs.toml) are items too, with the id they have there.
+[[item]]
+id = "wood"
+name = "Wood"
+
+[[item]]
+id = "stone"
+name = "Stone"
+
+[[item]]
+id = "gold_ore"
+name = "Gold Ore"
+
+# What working a map resource yields. The resource tile is cleared when the work finishes and
+# `count` of `item` drops there.
+# - verb:     what the designation is called in the UI.
+# - work:     in-game seconds of work for a unit whose modifier is 1.0.
+# - modifier: optional nation modifier (data/nations.toml) that scales how fast the work goes,
+#             e.g. quarrying runs on `earthworks`.
+# A harvest whose item is a food can also be foraged by a hungry unit on its own.
+
+[[harvest]]
+resource = "oak_tree"
+verb = "Chop"
+item = "wood"
+count = 4
+work = 8.0
+
+[[harvest]]
+resource = "fir_tree"
+verb = "Chop"
+item = "wood"
+count = 4
+work = 8.0
+
+[[harvest]]
+resource = "stone"
+verb = "Quarry"
+item = "stone"
+count = 3
+work = 12.0
+modifier = "earthworks"
+
+[[harvest]]
+resource = "gold_vein"
+verb = "Mine"
+item = "gold_ore"
+count = 1
+work = 30.0
+modifier = "earthworks"
+
+[[harvest]]
+resource = "cabbage"
+verb = "Gather"
+item = "cabbage"
+count = 1
+work = 2.0

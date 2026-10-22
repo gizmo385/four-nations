@@ -46,6 +46,20 @@ macro_rules! modifiers {
             $(#[serde(default)] pub $field: Option<f32>,)*
         }
 
+        impl Modifiers {
+            /// Every modifier name, in field order.
+            pub const NAMES: &'static [&'static str] = &[$(stringify!($field)),*];
+
+            /// The modifier called `name`, for data that refers to one by name (e.g. a harvest's
+            /// `modifier` in `data/jobs.toml`). `None` if there is no such modifier.
+            pub fn get(&self, name: &str) -> Option<f32> {
+                match name {
+                    $(stringify!($field) => Some(self.$field),)*
+                    _ => None,
+                }
+            }
+        }
+
         impl ModifierMultipliers {
             /// The multipliers that are set, as `(field name, multiplier)`, in field order.
             pub fn iter(&self) -> impl Iterator<Item = (&'static str, f32)> {
@@ -96,6 +110,15 @@ mod tests {
     fn multipliers_iterate_set_fields_in_order() {
         let m: ModifierMultipliers = toml::from_str("study = 1.25\nmove_speed = 1.5").unwrap();
         assert_eq!(m.iter().collect::<Vec<_>>(), [("move_speed", 1.5), ("study", 1.25)]);
+    }
+
+    #[test]
+    fn modifiers_can_be_looked_up_by_name() {
+        let defs = crate::Defs::bundled();
+        let earth = defs.nation(Nation::Earth).modifiers;
+        assert_eq!(earth.get("earthworks"), Some(earth.earthworks));
+        assert_eq!(earth.get("nonsense"), None);
+        assert!(Modifiers::NAMES.iter().all(|n| earth.get(n).is_some()));
     }
 
     #[test]
