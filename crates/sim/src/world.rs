@@ -12,10 +12,10 @@ use crate::defs::Defs;
 use crate::geom::Pos;
 use crate::jobs::{Job, JobId, Stack};
 use crate::mapgen::{self, MapGenConfig, TileMap};
-use crate::nation::Nation;
+use crate::nation::{Modifiers, Nation};
 use crate::needs::{DeathCause, Needs};
 use crate::path::MoveRules;
-use crate::research::{Research, ResearchError, TechId};
+use crate::research::{self, Research, ResearchError, TechId};
 use crate::rng::{self, SimRng};
 
 mod work;
@@ -93,6 +93,9 @@ pub struct World {
     /// here can change; use `UnitId` to refer to one.
     pub units: Vec<Unit>,
     research: Research,
+    /// The nation's modifiers with every known tech applied. Recomputed when a tech completes;
+    /// read it through `modifiers()`.
+    modifiers: Modifiers,
     /// Units that have died, oldest first.
     pub deaths: Vec<Death>,
     /// Designated work that isn't finished, in creation order.
@@ -127,6 +130,7 @@ impl World {
             nation,
             units: Vec::new(),
             research: Research::new(nation, defs),
+            modifiers: defs.nation(nation).modifiers,
             deaths: Vec::new(),
             jobs: Vec::new(),
             next_job: 0,
@@ -136,8 +140,27 @@ impl World {
             rules: MoveRules::default(),
             rng: rng::stream(seed, "world.units"),
         };
+        world.refresh_modifiers(defs);
         world.spawn_units(spawns, defs);
         world
+    }
+
+    /// The modifiers systems must read: the nation's base times every completed tech's
+    /// multipliers. Never read `NationDef::modifiers` directly, or techs do nothing.
+    pub fn modifiers(&self) -> &Modifiers {
+        &self.modifiers
+    }
+
+    /// How the effective value of the modifier `name` is built up, for tooltips: the nation's
+    /// base, then each known tech that multiplies it, as `(source name, factor)`. Empty for an
+    /// unknown name.
+    pub fn modifier_breakdown<'d>(&self, name: &str, defs: &'d Defs) -> Vec<(&'d str, f32)> {
+        research::modifier_breakdown(name, self.nation, self.research.known_techs(), defs)
+    }
+
+    fn refresh_modifiers(&mut self, defs: &Defs) {
+        self.modifiers =
+            research::effective_modifiers(self.nation, self.research.known_techs(), defs);
     }
 
     pub fn research(&self) -> &Research {
@@ -194,17 +217,21 @@ impl World {
     /// `work.rs`.
     pub fn tick(&mut self, defs: &Defs) {
         self.tick += 1;
+        let completed = self.research.completions().len();
         self.research.tick(self.tick, defs);
+        if self.research.completions().len() != completed {
+            self.refresh_modifiers(defs);
+        }
         self.tick_needs(defs);
         for i in 0..self.units.len() {
             self.act(i, defs);
         }
     }
 
-    /// One random step, at a speed set by the unit's nation's `move_speed` modifier. What a unit
+    /// One random step, at a speed set by the `move_speed` modifier. What a unit
     /// with nothing to do does.
-    fn wander(&mut self, i: usize, defs: &Defs) {
-        let speed = defs.nation(self.units[i].nation).modifiers.move_speed;
+    fn wander(&mut self, i: usize, _defs: &Defs) {
+        let speed = self.modifiers.move_speed;
         self.units[i].move_progress += speed;
         if self.units[i].move_progress < BASE_TICKS_PER_STEP {
             return;
@@ -424,6 +451,65 @@ mod tests {
             w.research().clone()
         };
         assert_eq!(run(), run());
+    }
+
+    /// All of `m`'s modifiers as raw bits, so tests can demand bitwise equality.
+    fn bits(m: &Modifiers) -> Vec<u32> {
+        Modifiers::NAMES.iter().map(|n| m.get(n).unwrap().to_bits()).collect()
+    }
+
+    #[test]
+    fn modifiers_start_as_the_nations_base() {
+        let (w, defs) = world(Nation::Earth);
+        assert_eq!(w.modifiers(), &defs.nation(Nation::Earth).modifiers);
+    }
+
+    #[test]
+    fn completing_a_tech_changes_the_relevant_modifier() {
+        let (mut w, defs) = world(Nation::Earth);
+        let base = defs.nation(Nation::Earth).modifiers;
+        // 100 points banked pays for shelter (25) and carpentry (60) in one tick.
+        for _ in 0..20_000 {
+            w.tick(&defs);
+        }
+        assert_eq!(w.modifiers(), &base);
+        w.set_research(tech(&defs, "carpentry"), &defs).unwrap();
+        w.tick(&defs);
+        assert_eq!(w.modifiers().construction, base.construction * 1.1);
+        assert_eq!(w.modifiers(), &Modifiers { construction: base.construction * 1.1, ..base });
+        assert_eq!(
+            w.modifier_breakdown("construction", &defs),
+            [("Earth Kingdom", base.construction), ("Carpentry", 1.1)]
+        );
+        // A modifier no known tech touches has just the nation's entry.
+        assert_eq!(w.modifier_breakdown("move_speed", &defs), [("Earth Kingdom", base.move_speed)]);
+        assert!(w.modifier_breakdown("nonsense", &defs).is_empty());
+    }
+
+    #[test]
+    fn research_order_does_not_change_the_modifiers() {
+        let (mut w, defs) = world(Nation::Earth);
+        // Enough banked for shelter, carpentry, masonry and earth_shaping (265 points).
+        for _ in 0..54_000 {
+            w.tick(&defs);
+        }
+        let reach = |first: &str, then: &str| {
+            let mut w = w.clone();
+            for t in [first, then] {
+                w.set_research(tech(&defs, t), &defs).unwrap();
+                w.tick(&defs);
+            }
+            let order: Vec<_> = w.research().completions().iter().map(|c| c.tech).collect();
+            (order, w)
+        };
+        let (order_a, a) = reach("masonry", "earth_shaping");
+        let (order_b, b) = reach("earth_shaping", "masonry");
+        assert_ne!(order_a, order_b, "the two runs should complete techs in different orders");
+        assert!(a.research().known_techs().eq(b.research().known_techs()));
+        assert_eq!(bits(a.modifiers()), bits(b.modifiers()));
+        // And both match a recomputation from the known set alone.
+        let fresh = research::effective_modifiers(Nation::Earth, a.research().known_techs(), &defs);
+        assert_eq!(bits(a.modifiers()), bits(&fresh));
     }
 
     #[test]
