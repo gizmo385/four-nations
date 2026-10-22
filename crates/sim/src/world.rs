@@ -19,8 +19,10 @@ use crate::regions::Regions;
 use crate::research::{self, Research, ResearchError, TechId};
 use crate::rng::{self, SimRng};
 
+mod command;
 mod work;
 
+pub use command::{Command, CommandError, Recorded};
 pub use work::{DesignateError, FoodSource, Task};
 
 /// Ticks per in-game second. Movement and needs are expressed per tick.
@@ -102,6 +104,8 @@ pub struct World {
     /// Designated work that isn't finished, in creation order.
     jobs: Vec<Job>,
     next_job: u32,
+    /// Commands applied so far (`World::apply`), for replay.
+    command_log: Vec<Recorded>,
     /// Item stacks lying on the ground, one stack per tile, waiting to be hauled.
     ground: BTreeMap<Pos, Stack>,
     /// Tiles designated as stockpile.
@@ -138,6 +142,7 @@ impl World {
             deaths: Vec::new(),
             jobs: Vec::new(),
             next_job: 0,
+            command_log: Vec::new(),
             ground: BTreeMap::new(),
             zones: BTreeSet::new(),
             stored: BTreeMap::new(),
@@ -173,8 +178,8 @@ impl World {
     }
 
     /// Sets the research target: the queue becomes `tech` plus its unknown prereqs. Banked
-    /// knowledge is kept. Becomes `Command::SetResearch` when the command enum lands (#5).
-    pub fn set_research(&mut self, tech: TechId, defs: &Defs) -> Result<(), ResearchError> {
+    /// knowledge is kept. Reached through `Command::SetResearch`.
+    fn set_research(&mut self, tech: TechId, defs: &Defs) -> Result<(), ResearchError> {
         self.research.set_target(tech, self.nation, defs)
     }
 

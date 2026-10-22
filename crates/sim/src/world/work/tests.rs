@@ -285,8 +285,8 @@ fn designating_is_checked_and_cancelling_frees_the_unit() {
     assert_eq!(w.designate_stockpile(at(7, 2)), Err(DesignateError::CannotStockpile));
     w.tick(&defs);
     assert!(w.units[0].task().is_some());
-    assert!(w.cancel_harvest(at(7, 2)));
-    assert!(!w.cancel_harvest(at(7, 2)));
+    assert_eq!(w.cancel_harvest(at(7, 2)), Ok(()));
+    assert_eq!(w.cancel_harvest(at(7, 2)), Err(DesignateError::NotDesignated));
     w.tick(&defs);
     assert_eq!(w.units[0].task(), None);
     assert!(w.map[at(7, 2)].resource.is_some());

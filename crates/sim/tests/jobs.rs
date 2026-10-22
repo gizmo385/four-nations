@@ -1,7 +1,7 @@
 //! The job system on generated maps: survival without fire (owner requirement from #3) and
 //! determinism.
 
-use fn_sim::world::Task;
+use fn_sim::world::{Command, Task};
 use fn_sim::{Defs, MapGenConfig, Nation, Pos, World};
 
 const MINUTE: u64 = 600; // ticks
@@ -70,13 +70,14 @@ fn the_job_system_is_deterministic() {
             .collect();
         assert!(!near.is_empty());
         for p in &near {
-            w.designate_harvest(*p, &defs).unwrap();
+            w.apply(Command::DesignateHarvest { pos: *p }, &defs).unwrap();
         }
         // A stockpile on the open tiles around the first unit.
         let home = w.units[0].pos;
         for dy in -3..=3 {
             for dx in -3..=3 {
-                let _ = w.designate_stockpile(Pos::new(home.x + dx, home.y + dy));
+                let pos = Pos::new(home.x + dx, home.y + dy);
+                let _ = w.apply(Command::DesignateStockpile { pos }, &defs);
             }
         }
         assert!(w.stockpile_zones().count() >= 3);

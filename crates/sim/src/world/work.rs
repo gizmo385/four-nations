@@ -2,8 +2,8 @@
 //!
 //! The shape, which follows the 2013 version's task queue:
 //!
-//! * The player **designates** work (`designate_harvest`) and a stockpile zone
-//!   (`designate_stockpile`). Each harvest designation becomes a `Job` in the queue.
+//! * The player **designates** work (`Command::DesignateHarvest`) and a stockpile zone
+//!   (`Command::DesignateStockpile`). Each harvest designation becomes a `Job` in the queue.
 //! * An **idle unit claims the nearest reachable job** (by path cost, ties by job id). It walks
 //!   to a tile beside the target, works, and the yield drops on the ground as an item stack.
 //!   Every stack lying outside a stockpile gets a **haul job**; a unit picks up as much as it can
@@ -64,6 +64,8 @@ pub enum DesignateError {
     /// There is no resource with a harvest entry on that tile.
     NothingToHarvest,
     AlreadyDesignated,
+    /// There is no harvest designation on that tile to cancel.
+    NotDesignated,
     /// Stockpiles need a walkable tile with nothing on it.
     CannotStockpile,
 }
@@ -91,11 +93,19 @@ fn route_from(path: Vec<Pos>) -> Vec<Pos> {
     path.into_iter().skip(1).rev().collect()
 }
 
-/// Commands and queries. (A `Command` enum arrives with #5; until then these are the API.)
+/// Queries, and the designations behind `Command`s (`World::apply` is the way in from outside).
 impl World {
     /// Designated work that isn't finished, oldest first.
     pub fn jobs(&self) -> &[Job] {
         &self.jobs
+    }
+
+    /// Tiles with a harvest designation that isn't finished, claimed or not.
+    pub fn harvest_designations(&self) -> impl Iterator<Item = Pos> + '_ {
+        self.jobs.iter().filter_map(|j| match j.kind {
+            JobKind::Harvest { pos } => Some(pos),
+            JobKind::Haul { .. } => None,
+        })
     }
 
     pub fn job(&self, id: JobId) -> Option<&Job> {
@@ -122,7 +132,11 @@ impl World {
     }
 
     /// Designates the resource on `pos` for harvesting (chop, quarry, gather, mine).
-    pub fn designate_harvest(&mut self, pos: Pos, defs: &Defs) -> Result<JobId, DesignateError> {
+    pub(super) fn designate_harvest(
+        &mut self,
+        pos: Pos,
+        defs: &Defs,
+    ) -> Result<JobId, DesignateError> {
         let tile = self.map.get(pos).ok_or(DesignateError::OutOfBounds)?;
         if !tile.resource.is_some_and(|r| defs.harvest(r).is_some()) {
             return Err(DesignateError::NothingToHarvest);
@@ -133,17 +147,19 @@ impl World {
         Ok(self.add_job(JobKind::Harvest { pos }))
     }
 
-    /// Withdraws the harvest designation on `pos`. Work done on it is lost. Returns whether there
-    /// was one.
-    pub fn cancel_harvest(&mut self, pos: Pos) -> bool {
+    /// Withdraws the harvest designation on `pos`. Work done on it is lost.
+    pub(super) fn cancel_harvest(&mut self, pos: Pos) -> Result<(), DesignateError> {
         let before = self.jobs.len();
         self.jobs.retain(|j| j.kind != JobKind::Harvest { pos });
-        self.jobs.len() != before
+        if self.jobs.len() == before {
+            return Err(DesignateError::NotDesignated);
+        }
+        Ok(())
     }
 
     /// Marks a tile as stockpile. Anything lying on the ground gets hauled to it (or another
     /// stockpile tile).
-    pub fn designate_stockpile(&mut self, pos: Pos) -> Result<(), DesignateError> {
+    pub(super) fn designate_stockpile(&mut self, pos: Pos) -> Result<(), DesignateError> {
         let tile = self.map.get(pos).ok_or(DesignateError::OutOfBounds)?;
         if !self.rules.passable(tile) {
             return Err(DesignateError::CannotStockpile);
