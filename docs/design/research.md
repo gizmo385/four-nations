@@ -271,8 +271,8 @@ effective.construction = nation.construction × Π (known techs' construction mu
 - **Needs (#3).** Techs help needs *indirectly*, through what they unlock: huts (sleep),
   cooking (hunger), pots (thirst), herbalism and healing (health). Needs also make research
   costly: hungry scholars leave their desks. No tech directly changes need rates for now.
-- **Player commands (#5).** `World::set_research(tech)` is added by #19 and becomes
-  `Command::SetResearch { tech }` when #5's `Command` enum lands, so research choices replay
+- **Player commands (#5).** Research is chosen with `Command::SetResearch { tech }` through
+  `World::apply` (#19 added the logic, #5 the command enum), so research choices replay
   deterministically. Locked items are rejected by the sim with a reason ("Requires Pottery")
   that the client shows (#22).
 - **Bending (#6).** Each nation's signature ability from #6 is available **from the start**,
