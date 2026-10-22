@@ -2,6 +2,8 @@
 //!
 //!     cargo xtask assets [--release]   verify assets/manifest.toml covers and matches assets/
 //!     cargo xtask ci [sim|client]      fmt + clippy + tests + assets (default: everything)
+//!     cargo xtask screenshot SEED NATION OUT.png [WIDTH HEIGHT]
+//!                                      render the client headless (no window) to a PNG
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -22,6 +24,8 @@ fn main() -> ExitCode {
         ["ci"] => ci(Scope::All),
         ["ci", "sim"] => ci(Scope::Sim),
         ["ci", "client"] => ci(Scope::Client),
+        ["screenshot", seed, nation, out] => screenshot(seed, nation, out, "1280", "720"),
+        ["screenshot", seed, nation, out, w, h] => screenshot(seed, nation, out, w, h),
         _ => Err(include_str!("main.rs")
             .lines()
             .skip(1)
@@ -193,5 +197,36 @@ fn ci(scope: Scope) -> Result {
         assets(false)?;
     }
     println!("ci OK");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Screenshot
+// ---------------------------------------------------------------------------------------------
+
+/// Renders one frame of the client headless (no window is ever created) and saves it as a PNG.
+/// Goes through `scripts/run-client.sh`, which sets up the graphics libraries on this machine.
+fn screenshot(seed: &str, nation: &str, out: &str, width: &str, height: &str) -> Result {
+    for (name, n) in [("WIDTH", width), ("HEIGHT", height)] {
+        if !n.parse::<u32>().is_ok_and(|n| n > 0) {
+            return Err(format!("{name} must be a positive integer, got {n:?}"));
+        }
+    }
+    // The client runs from the repo root, so resolve OUT against the caller's directory.
+    let out = std::path::absolute(out).map_err(|e| format!("{out}: {e}"))?;
+    let status = Command::new(root().join("scripts/run-client.sh"))
+        .args([seed, nation])
+        .env("FN_SCREENSHOT", &out)
+        .env("FN_SCREENSHOT_SIZE", format!("{width}x{height}"))
+        .current_dir(root())
+        .status()
+        .map_err(|e| format!("scripts/run-client.sh: {e}"))?;
+    if !status.success() {
+        return Err(format!("headless client failed ({status})"));
+    }
+    if !out.is_file() {
+        return Err(format!("client exited but {} was not written", out.display()));
+    }
+    println!("wrote {}", out.display());
     Ok(())
 }

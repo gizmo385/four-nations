@@ -59,9 +59,9 @@ gets in your way, stop and say so in the work item's Notes instead of working ar
 - Commit messages: imperative subject that starts with the issue number, e.g.
   `#2: Add A* pathfinding`; `Fixes #N` / `Closes #N` in the body or PR.
 - **Don't open the GUI unless a human asks.** It pops a window and steals focus. Verify with
-  tests and the ASCII renderer first. If you truly need pixels, use one
-  `FN_SCREENSHOT=out.png scripts/run-client.sh SEED NATION` run (it opens unfocused and behind other
-  windows, then exits after about 4s), and say in the issue that you did.
+  tests and the ASCII renderer first. If you need pixels, use
+  `cargo xtask screenshot SEED NATION OUT.png [WIDTH HEIGHT]`: it renders headless (no window at
+  all) to a PNG and exits. Write the PNG under `target/`, not into the repo tree.
 - Visual changes: the sim has an ASCII renderer (`cargo run -p fn_sim --bin mapgen -- SEED W H`).
   Paste relevant output into the issue or PR when it helps the reviewer.
 
