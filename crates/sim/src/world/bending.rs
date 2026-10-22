@@ -12,7 +12,7 @@
 //! whether a target is acceptable and `apply_effect` changes the world. The four real effects
 //! are separate work (#68 Raise Earth, #69 Water the Land, #70 Hearthflame, #71 Wind Carry); until
 //! an effect lands its arm refuses every target as "not implemented yet", so a bend can't be spent
-//! on nothing. (Raise Earth and Water the Land are in.) Everything else here is effect-agnostic.
+//! on nothing. (All but Wind Carry are in.) Everything else here is effect-agnostic.
 //!
 //! **Raise Earth** (#68) turns a river or lake tile with dry ground on one of its four sides
 //! into a `Ford`. Fords are permanent. The regions cache is invalidated and idle units woken,
@@ -23,6 +23,11 @@
 //! its empty, fertile, non-fallow tiles grow the sprout resource, picked with the `bending.sprout`
 //! stream. A tile that sprouted is fallow for a while and can't sprout again. The patch carries
 //! the effect's numbers with it, so drying never has to look at the ability again.
+//!
+//! **Hearthflame** (#70) lights a `HeatSource` on an empty Land or Coast tile for
+//! `duration_minutes` x the `heating` modifier; bending a lit tile again resets the timer. What
+//! a lit source does (cooked meals, faster and sought-out sleep) lives in `heat.rs`, which a
+//! campfire (#58) can reuse.
 
 use rand::seq::SliceRandom;
 
@@ -311,8 +316,17 @@ impl World {
                     .any(|t| matches!(t.terrain, Terrain::River | Terrain::Lake | Terrain::Ford));
                 if fresh { Ok(()) } else { Err("needs fresh water nearby") }
             }
-            // TODO(#70): an empty Land or Coast tile.
-            Effect::HeatSource { .. } => Err("not implemented yet"),
+            // An empty open tile. A lit flame is a fine target too: that restokes it.
+            Effect::HeatSource { .. } => {
+                let tile = &self.map[pos];
+                if !matches!(tile.terrain, Terrain::Land | Terrain::Coast) {
+                    Err("needs open ground to kindle")
+                } else if tile.resource.is_some() {
+                    Err("something is in the way")
+                } else {
+                    Ok(())
+                }
+            }
             // TODO(#71): a ground stack, and a stockpile in range.
             Effect::WindCarry { .. } => Err("not implemented yet"),
             #[cfg(test)]
@@ -326,8 +340,6 @@ impl World {
         }
     }
 
-    // `magnitude` is unused until the effects that scale by it land.
-    #[allow(unused_variables)]
     fn apply_effect(&mut self, effect: &Effect, pos: Pos, magnitude: f32) {
         match effect {
             // The new terrain is permanent (no undo in v1). It changes who can walk where, so
@@ -337,8 +349,18 @@ impl World {
                 self.map_changed();
                 self.wake_idle();
             }
-            // TODO(#70), TODO(#71): unreachable until `validate_effect` accepts a target.
-            Effect::HeatSource { .. } | Effect::WindCarry { .. } => {}
+            // TODO(#71): unreachable until `validate_effect` accepts a target.
+            Effect::WindCarry { .. } => {}
+            // The magnitude scales how long the flame burns. Lighting a lit tile restokes it.
+            Effect::HeatSource { duration_minutes, radius, sleep_bonus, seek_tiles } => {
+                self.light_heat_source(HeatSource {
+                    pos,
+                    radius: *radius,
+                    sleep_bonus: *sleep_bonus,
+                    seek_tiles: *seek_tiles,
+                    until: self.tick + minutes_to_ticks(duration_minutes * magnitude),
+                });
+            }
             // The magnitude scales how long the patch stays wet.
             Effect::Irrigate {
                 wet_minutes,
@@ -435,6 +457,8 @@ impl World {
 
 #[cfg(test)]
 mod earth_tests;
+#[cfg(test)]
+mod fire_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

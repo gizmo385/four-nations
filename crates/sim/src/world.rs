@@ -22,11 +22,13 @@ use crate::rng::{self, SimRng};
 
 mod bending;
 mod command;
+mod heat;
 mod work;
 
 use bending::Patch;
 pub use bending::{BendError, BendEvent, BendOutcome};
 pub use command::{Command, CommandError, Recorded};
+pub use heat::{Flame, HeatSource};
 pub use work::{DesignateError, FoodSource, Task};
 
 /// Ticks per in-game second. Movement and needs are expressed per tick.
@@ -135,6 +137,8 @@ pub struct World {
     /// Tiles that sprouted lately and the tick their fallow time ends. Expired entries are
     /// dropped as time passes.
     fallow: BTreeMap<Pos, u64>,
+    /// Lit heat sources by tile: Hearthflames today, campfires later (`heat.rs`).
+    heat: BTreeMap<Pos, HeatSource>,
     /// Picks which tiles of a dried patch sprout (`bending.sprout`).
     sprout_rng: SimRng,
     rng: SimRng,
@@ -171,6 +175,7 @@ impl World {
             bend_events: Vec::new(),
             patches: Vec::new(),
             fallow: BTreeMap::new(),
+            heat: BTreeMap::new(),
             sprout_rng: rng::stream(seed, "bending.sprout"),
             rng: rng::stream(seed, "world.units"),
         };
@@ -261,7 +266,7 @@ impl World {
     }
 
     /// Advances the world by one tick: research, units' needs and chi, resource regrowth and
-    /// drying patches run (units whose health reaches 0 die and are removed, in id order), then
+    /// drying patches and burning-out flames run (units whose health reaches 0 die and are removed, in id order), then
     /// each survivor acts, in id order: it meets a need if one is low, else carries on with its
     /// job, else claims one, else wanders. See `work.rs`.
     pub fn tick(&mut self, defs: &Defs) {
@@ -274,6 +279,7 @@ impl World {
         self.tick_needs(defs);
         self.tick_growth(defs);
         self.tick_irrigation(defs);
+        self.tick_heat();
         for i in 0..self.units.len() {
             self.act(i, defs);
         }
@@ -303,7 +309,8 @@ impl World {
         let mut dead = Vec::new();
         let chi_regen = self.modifiers.chi_regen;
         for mut u in std::mem::take(&mut self.units) {
-            u.needs.tick(&defs.needs, u.is_sleeping());
+            let rest = self.sleep_factor_at(u.pos);
+            u.needs.tick_scaled(&defs.needs, u.is_sleeping(), rest);
             u.chi = defs.chi.regen(u.chi, u.is_sleeping(), chi_regen);
             if u.needs.is_dead() {
                 dead.push(u);

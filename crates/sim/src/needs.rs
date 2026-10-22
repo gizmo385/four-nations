@@ -220,19 +220,35 @@ impl Needs {
 
     /// Advances the meters by one sim tick (`TICKS_PER_SECOND` per in-game second).
     pub fn tick(&mut self, s: &NeedsSettings, sleeping: bool) {
-        self.tick_at(s, crate::world::TICKS_PER_SECOND, sleeping);
+        self.tick_scaled(s, sleeping, 1.0);
+    }
+
+    /// `tick` with energy regained asleep at `sleep_scale` times the base rate (a warm bed).
+    pub fn tick_scaled(&mut self, s: &NeedsSettings, sleeping: bool, sleep_scale: f32) {
+        self.tick_at_scaled(s, crate::world::TICKS_PER_SECOND, sleeping, sleep_scale);
     }
 
     /// `tick` at an explicit tick rate. Rates are per minute, so a minute's worth of ticks at any
     /// rate changes the meters by the same amount.
     pub fn tick_at(&mut self, s: &NeedsSettings, ticks_per_second: u32, sleeping: bool) {
+        self.tick_at_scaled(s, ticks_per_second, sleeping, 1.0);
+    }
+
+    /// `tick_at` with a sleep-rate multiplier.
+    pub fn tick_at_scaled(
+        &mut self,
+        s: &NeedsSettings,
+        ticks_per_second: u32,
+        sleeping: bool,
+        sleep_scale: f32,
+    ) {
         let per_tick =
             |per_minute: f32| per_minute / (SECONDS_PER_MINUTE * ticks_per_second as f32);
         let max = s.max();
         self.hunger = (self.hunger - per_tick(s.hunger.decay_per_minute)).max(0.0);
         self.thirst = (self.thirst - per_tick(s.thirst.decay_per_minute)).max(0.0);
         if sleeping {
-            let gain = per_tick(s.general.sleep_energy_per_minute);
+            let gain = per_tick(s.general.sleep_energy_per_minute) * sleep_scale;
             self.energy = (self.energy + gain).min(max);
         } else {
             self.energy = (self.energy - per_tick(s.energy.decay_per_minute)).max(0.0);
