@@ -8,6 +8,7 @@
 use serde::Deserialize;
 
 use crate::nation::{Nation, NationDef};
+use crate::needs::{FoodDef, NeedsFile, NeedsSettings};
 use crate::research::{self, ResearchFile, ResearchSettings, TechDef, TechId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
@@ -100,6 +101,10 @@ pub struct Defs {
     /// The tech tree, in file order (a topological order); indexed by `TechId`.
     pub techs: Vec<TechDef>,
     pub research: ResearchSettings,
+    /// Hunger, thirst, energy and health rates (data/needs.toml).
+    pub needs: NeedsSettings,
+    /// Edible foods, in file order.
+    pub foods: Vec<FoodDef>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -145,6 +150,7 @@ impl Defs {
             include_str!("../../../data/resources.toml"),
             include_str!("../../../data/nations.toml"),
             include_str!("../../../data/research.toml"),
+            include_str!("../../../data/needs.toml"),
         )
         .expect("bundled data/*.toml must be valid; run `cargo test -p fn_sim`")
     }
@@ -154,6 +160,7 @@ impl Defs {
         resources: &str,
         nations: &str,
         research: &str,
+        needs: &str,
     ) -> Result<Self, DefsError> {
         let (research, techs) = parse::<ResearchFile>("research.toml", research)?.resolve()?;
         let mut nations = parse::<NationFile>("nations.toml", nations)?.nation;
@@ -161,12 +168,17 @@ impl Defs {
             n.starting_techs =
                 research::resolve_starting_techs(n.id, &n.starting_tech_ids, &techs)?;
         }
+        let resources = parse::<ResourceFile>("resources.toml", resources)?.resource;
+        let resource_ids: Vec<&str> = resources.iter().map(|r| r.id.as_str()).collect();
+        let (needs, foods) = parse::<NeedsFile>("needs.toml", needs)?.resolve(&resource_ids)?;
         let defs = Self {
             biomes: parse::<BiomeFile>("biomes.toml", biomes)?.biome,
-            resources: parse::<ResourceFile>("resources.toml", resources)?.resource,
+            resources,
             nations,
             techs,
             research,
+            needs,
+            foods,
         };
         defs.validate()?;
         Ok(defs)
@@ -245,6 +257,10 @@ impl Defs {
         self.resources.iter().position(|r| r.id == id).map(|i| ResourceId(i as u16))
     }
 
+    pub fn food(&self, id: &str) -> Option<&FoodDef> {
+        self.foods.iter().find(|f| f.id == id)
+    }
+
     pub fn tech_id(&self, id: &str) -> Option<TechId> {
         self.techs.iter().position(|t| t.id == id).map(|i| TechId(i as u16))
     }
@@ -273,15 +289,21 @@ mod tests {
     const BIOMES: &str = include_str!("../../../data/biomes.toml");
     const NATIONS: &str = include_str!("../../../data/nations.toml");
     const RESEARCH: &str = include_str!("../../../data/research.toml");
+    const NEEDS: &str = include_str!("../../../data/needs.toml");
+
+    /// The bundled needs without the food-to-resource link, for tests with their own resources.
+    fn unlinked_needs() -> String {
+        NEEDS.replace("resource = \"cabbage\"", "")
+    }
 
     fn with_biomes(biomes: &str) -> Result<Defs, DefsError> {
         // No resources, so they can't reference biomes missing from the test table.
-        Defs::from_toml(biomes, "resource = []", NATIONS, RESEARCH)
+        Defs::from_toml(biomes, "resource = []", NATIONS, RESEARCH, &unlinked_needs())
     }
 
     fn with_resource(fields: &str) -> Result<Defs, DefsError> {
         let src = format!("[[resource]]\nid='x'\nname='X'\nglyph='x'\nchance=0.5\n{fields}");
-        Defs::from_toml(BIOMES, &src, NATIONS, RESEARCH)
+        Defs::from_toml(BIOMES, &src, NATIONS, RESEARCH, &unlinked_needs())
     }
 
     fn one_biome(t: &str, m: &str) -> String {
@@ -354,5 +376,37 @@ mod tests {
         assert!(with_resource("clustering=1.5").unwrap_err().0.contains("clustering"));
         assert!(with_resource("min_spacing=0").unwrap_err().0.contains("min_spacing"));
         assert!(with_resource("chanse=0.1").unwrap_err().0.contains("chanse"));
+    }
+
+    fn with_needs(needs: &str) -> Result<Defs, DefsError> {
+        Defs::from_toml(
+            BIOMES,
+            include_str!("../../../data/resources.toml"),
+            NATIONS,
+            RESEARCH,
+            needs,
+        )
+    }
+
+    #[test]
+    fn needs_data_is_validated() {
+        let bad = |from: &str, to: &str| {
+            assert!(NEEDS.contains(from), "{from}");
+            with_needs(&NEEDS.replacen(from, to, 1)).unwrap_err().0
+        };
+        assert!(bad("decay_per_minute = 4.0", "decay_per_minute = 0.0").contains("hunger"));
+        assert!(bad("low = 30.0", "low = 130.0").contains("energy.low"));
+        assert!(bad("cooked_hunger = 70.0", "cooked_hunger = 20.0").contains("cooked_hunger"));
+        assert!(bad("resource = \"cabbage\"", "resource = \"nope\"").contains("nope"));
+        assert!(bad("id = \"fruit\"", "id = \"fish\"").contains("duplicate"));
+        assert!(bad("drink_thirst = 50.0", "drnk = 50.0").contains("drnk"));
+    }
+
+    #[test]
+    fn raw_food_that_cannot_sustain_a_unit_is_rejected() {
+        // Fish at 20 hunger can't replace the 24 a unit loses between meals, however good it
+        // tastes cooked: cooking must never be required.
+        let err = with_needs(&NEEDS.replacen("hunger = 40.0", "hunger = 20.0", 1)).unwrap_err();
+        assert!(err.0.contains("sustain"), "{err}");
     }
 }

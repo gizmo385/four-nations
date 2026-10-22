@@ -23,7 +23,7 @@ use bevy::render::render_resource::{TextureFormat, TextureUsages};
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use bevy::window::{ExitCondition, PrimaryWindow};
 use bevy::winit::WinitPlugin;
-use fn_sim::world::TICKS_PER_SECOND;
+use fn_sim::world::{TICKS_PER_SECOND, UnitId};
 use fn_sim::{Defs, MapGenConfig, Nation, Pos, Terrain, Tile, World};
 
 const TILE: f32 = 16.0;
@@ -84,6 +84,7 @@ fn main() {
                 controls,
                 camera_controls,
                 sync_units,
+                despawn_dead_units,
                 select_units,
                 draw_selection,
                 selection_info,
@@ -164,7 +165,7 @@ impl Art {
 struct MapEntity;
 
 #[derive(Component)]
-struct UnitSprite(usize);
+struct UnitSprite(UnitId);
 
 #[derive(Component)]
 struct HoverText;
@@ -172,9 +173,9 @@ struct HoverText;
 #[derive(Component)]
 struct SelectionText;
 
-/// Index into `World::units` of the selected unit, if any.
+/// The selected unit, if any. By id, because dead units leave `World::units` and shift indices.
 #[derive(Resource, Default)]
-struct Selection(Option<usize>);
+struct Selection(Option<UnitId>);
 
 /// A left click on the map that wasn't part of a drag, in world coordinates.
 #[derive(Message)]
@@ -370,13 +371,13 @@ fn spawn_entities(commands: &mut Commands, art: &Art, sim: &Sim) {
             commands.spawn((sprite, tf, MapEntity));
         }
     }
-    for (i, u) in sim.world.units.iter().enumerate() {
+    for u in &sim.world.units {
         let name = format!("units/{}-{}", u.nation.as_str(), u.variant + 1);
         commands.spawn((
             Sprite::from_image(art.legacy(&name)),
             Transform::from_translation(tile_translation(u.pos, 5.0) + Vec3::Y * UNIT_Y_OFFSET)
                 .with_scale(Vec3::splat(0.6)),
-            UnitSprite(i),
+            UnitSprite(u.id),
             MapEntity,
         ));
     }
@@ -514,11 +515,28 @@ fn clamp_camera(center: Vec2, half_view: Vec2, min: Vec2, max: Vec2) -> Vec2 {
 /// Smoothly moves unit sprites toward their sim positions.
 fn sync_units(sim: Res<Sim>, time: Res<Time>, mut units: Query<(&UnitSprite, &mut Transform)>) {
     let t = 1.0 - (-time.delta_secs() * 12.0).exp();
-    for (UnitSprite(i), mut tf) in &mut units {
-        let Some(u) = sim.world.units.get(*i) else { continue };
+    for (UnitSprite(id), mut tf) in &mut units {
+        let Some(u) = sim.world.unit(*id) else { continue };
         let target =
             tile_translation(u.pos, 5.0 + u.pos.y as f32 * 0.001) + Vec3::Y * UNIT_Y_OFFSET;
         tf.translation = tf.translation.lerp(target, t);
+    }
+}
+
+/// Removes the sprites of units that have died, and clears the selection if it was one of them.
+fn despawn_dead_units(
+    mut commands: Commands,
+    sim: Res<Sim>,
+    mut selection: ResMut<Selection>,
+    units: Query<(Entity, &UnitSprite)>,
+) {
+    for (entity, UnitSprite(id)) in &units {
+        if sim.world.unit(*id).is_none() {
+            commands.entity(entity).despawn();
+        }
+    }
+    if selection.0.is_some_and(|id| sim.world.unit(id).is_none()) {
+        selection.0 = None;
     }
 }
 
@@ -591,10 +609,10 @@ fn select_units(
         // Pick the closest unit whose (interpolated) sprite is within roughly half a tile.
         selection.0 = units
             .iter()
-            .map(|(UnitSprite(i), tf)| (*i, tf.translation.truncate().distance(*at)))
+            .map(|(UnitSprite(id), tf)| (*id, tf.translation.truncate().distance(*at)))
             .filter(|(_, d)| *d <= TILE * 0.75)
             .min_by(|a, b| a.1.total_cmp(&b.1))
-            .map(|(i, _)| i);
+            .map(|(id, _)| id);
     }
 }
 
@@ -604,7 +622,7 @@ fn draw_selection(
     mut gizmos: Gizmos,
 ) {
     let Some(selected) = selection.0 else { return };
-    if let Some((_, tf)) = units.iter().find(|(UnitSprite(i), _)| *i == selected) {
+    if let Some((_, tf)) = units.iter().find(|(UnitSprite(id), _)| *id == selected) {
         let feet = tf.translation.truncate() - Vec2::Y * UNIT_Y_OFFSET;
         gizmos.ellipse_2d(
             Isometry2d::from_translation(feet),
@@ -620,17 +638,21 @@ fn selection_info(
     mut text: Query<(&mut Text, &mut Visibility), With<SelectionText>>,
 ) {
     let Ok((mut text, mut visibility)) = text.single_mut() else { return };
-    let Some(unit) = selection.0.and_then(|i| sim.world.units.get(i)) else {
+    let Some(unit) = selection.0.and_then(|id| sim.world.unit(id)) else {
         *visibility = Visibility::Hidden;
         return;
     };
     *visibility = Visibility::Inherited;
     text.0 = format!(
-        "{}\n{}\nTile ({}, {})\n[Esc] deselect",
+        "{}\n{}\nTile ({}, {})\nHealth {:.0}  Hunger {:.0}\nThirst {:.0}  Energy {:.0}\n[Esc] deselect",
         unit.name,
         sim.defs.nation(unit.nation).name,
         unit.pos.x,
-        unit.pos.y
+        unit.pos.y,
+        unit.needs.health,
+        unit.needs.hunger,
+        unit.needs.thirst,
+        unit.needs.energy
     );
 }
 

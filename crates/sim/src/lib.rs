@@ -8,6 +8,7 @@ pub mod defs;
 pub mod geom;
 pub mod mapgen;
 pub mod nation;
+pub mod needs;
 pub mod noise;
 pub mod path;
 pub mod research;

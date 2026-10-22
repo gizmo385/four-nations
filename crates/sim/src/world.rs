@@ -10,6 +10,7 @@ use crate::defs::Defs;
 use crate::geom::Pos;
 use crate::mapgen::{self, MapGenConfig, TileMap};
 use crate::nation::Nation;
+use crate::needs::{DeathCause, Needs};
 use crate::research::{Research, ResearchError, TechId};
 use crate::rng::{self, SimRng};
 
@@ -30,8 +31,19 @@ pub struct Unit {
     pub pos: Pos,
     /// Which of the nation's sprite variants to draw. Purely cosmetic.
     pub variant: u8,
+    /// Hunger, thirst, energy and health (data/needs.toml). At 0 health the unit dies.
+    pub needs: Needs,
     /// Progress toward the next step; a step happens when this reaches `BASE_TICKS_PER_STEP`.
     move_progress: f32,
+}
+
+/// A unit that died, kept so the UI and tests can see what happened.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Death {
+    pub id: UnitId,
+    pub name: String,
+    pub tick: u64,
+    pub cause: DeathCause,
 }
 
 #[derive(Debug, Clone)]
@@ -40,8 +52,12 @@ pub struct World {
     pub tick: u64,
     pub map: TileMap,
     pub nation: Nation,
+    /// Living units, ordered by id. Dead units are removed (see `deaths`), so a unit's index
+    /// here can change; use `UnitId` to refer to one.
     pub units: Vec<Unit>,
     research: Research,
+    /// Units that have died, oldest first.
+    pub deaths: Vec<Death>,
     rng: SimRng,
 }
 
@@ -55,6 +71,7 @@ impl World {
             nation,
             units: Vec::new(),
             research: Research::new(nation, defs),
+            deaths: Vec::new(),
             rng: rng::stream(cfg.seed, "world.units"),
         };
         world.spawn_starting_units(starting_units, defs);
@@ -96,20 +113,29 @@ impl World {
                 nation: self.nation,
                 pos,
                 variant,
+                needs: Needs::full(&defs.needs),
                 move_progress: 0.0,
             });
         }
+    }
+
+    /// The living unit with this id, if it hasn't died.
+    pub fn unit(&self, id: UnitId) -> Option<&Unit> {
+        self.units.binary_search_by_key(&id, |u| u.id).ok().map(|i| &self.units[i])
     }
 
     fn walkable(&self, p: Pos) -> bool {
         self.map.get(p).is_some_and(|t| t.terrain.is_walkable() && t.resource.is_none())
     }
 
-    /// Advances the world by one tick. Placeholder behaviour: units wander randomly, at a speed
-    /// set by their nation's `move_speed` modifier.
+    /// Advances the world by one tick: units' needs run down (and units whose health reaches 0
+    /// die and are removed, in id order), then the survivors move. Placeholder behaviour: units
+    /// wander randomly, at a speed set by their nation's `move_speed` modifier. Until the job
+    /// system (#4) lets them eat and drink, every unit eventually dies.
     pub fn tick(&mut self, defs: &Defs) {
         self.tick += 1;
         self.research.tick(self.tick, defs);
+        self.tick_needs(defs);
         for i in 0..self.units.len() {
             let speed = defs.nation(self.units[i].nation).modifiers.move_speed;
             self.units[i].move_progress += speed;
@@ -124,6 +150,23 @@ impl World {
                 self.units[i].pos = options[self.rng.random_range(0..options.len())];
             }
         }
+    }
+}
+
+impl World {
+    fn tick_needs(&mut self, defs: &Defs) {
+        let tick = self.tick;
+        let deaths = &mut self.deaths;
+        self.units.retain_mut(|u| {
+            // Nothing sleeps yet; the job system will pass the unit's real state.
+            u.needs.tick(&defs.needs, false);
+            if !u.needs.is_dead() {
+                return true;
+            }
+            let cause = u.needs.depleted().unwrap_or(DeathCause::Starvation);
+            deaths.push(Death { id: u.id, name: u.name.clone(), tick, cause });
+            false
+        });
     }
 }
 
@@ -312,5 +355,38 @@ mod tests {
             w.research().clone()
         };
         assert_eq!(run(), run());
+    }
+
+    #[test]
+    fn units_without_food_die_and_are_removed_deterministically() {
+        let run = || {
+            let (mut w, defs) = world(Nation::Earth);
+            let mut ticks = 0;
+            while !w.units.is_empty() {
+                w.tick(&defs);
+                ticks += 1;
+                assert!(ticks < 100_000, "units never died");
+            }
+            w
+        };
+        let (a, b) = (run(), run());
+        assert_eq!(a.deaths.len(), 4);
+        assert_eq!(a.deaths, b.deaths);
+        assert!(a.deaths.windows(2).all(|w| w[0].tick <= w[1].tick));
+    }
+
+    #[test]
+    fn dead_units_leave_lookup_and_the_rest_carry_on() {
+        let (mut w, defs) = world(Nation::Fire);
+        // Make only unit 1 fatally ill; the others are fine.
+        w.units[1].needs.hunger = 0.0;
+        w.units[1].needs.health = 0.01;
+        w.tick(&defs);
+        assert_eq!(w.units.len(), 3);
+        assert!(w.unit(UnitId(1)).is_none());
+        assert_eq!(w.unit(UnitId(2)).map(|u| u.id), Some(UnitId(2)));
+        assert_eq!(w.deaths.len(), 1);
+        assert_eq!(w.deaths[0].id, UnitId(1));
+        assert_eq!(w.deaths[0].cause, DeathCause::Starvation);
     }
 }
