@@ -1,7 +1,9 @@
 //! Static game definitions loaded from the TOML files in `data/`.
 //!
 //! Definitions are referenced at runtime by small index newtypes (`BiomeId`, `ResourceId`) so
-//! that map cells stay `Copy` and cheap. Validation happens once, at load time.
+//! that map cells stay `Copy` and cheap. Validation happens once, at load time, and is strict
+//! (unknown fields, out-of-range numbers and climate gaps are all errors) so that a typo in the
+//! data fails `cargo test` instead of silently changing the game.
 
 use serde::Deserialize;
 
@@ -10,15 +12,26 @@ use crate::nation::{Nation, NationDef};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Terrain {
+    /// Sea: everything below sea level.
     Water,
     Coast,
     Land,
     Mountain,
+    /// Fresh water flowing from the highlands to the sea. One tile wide.
+    River,
+    /// Fresh water standing in a filled depression.
+    Lake,
 }
 
 impl Terrain {
+    /// Any kind of water: sea, river or lake.
     pub fn is_water(self) -> bool {
-        self == Terrain::Water
+        matches!(self, Terrain::Water | Terrain::River | Terrain::Lake)
+    }
+
+    /// Standing water that gets a shoreline (`Coast`) around it. Rivers don't.
+    pub fn has_shore(self) -> bool {
+        matches!(self, Terrain::Water | Terrain::Lake)
     }
 
     pub fn is_walkable(self) -> bool {
@@ -32,24 +45,50 @@ pub struct BiomeId(pub u8);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ResourceId(pub u16);
 
+/// A biome and the climate it occupies. Mapgen picks the *first* biome (in file order) whose
+/// inclusive `temperature` and `moisture` ranges contain a tile's climate, Whittaker-style.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BiomeDef {
     pub id: String,
     pub name: String,
     pub glyph: char,
+    /// `[min, max]` within `[0, 1]`; 0 is polar cold, 1 is equatorial heat.
+    pub temperature: [f64; 2],
+    /// `[min, max]` within `[0, 1]`; 0 is arid, 1 is saturated.
+    pub moisture: [f64; 2],
+}
+
+impl BiomeDef {
+    pub fn contains(&self, temperature: f64, moisture: f64) -> bool {
+        let [t0, t1] = self.temperature;
+        let [m0, m1] = self.moisture;
+        (t0..=t1).contains(&temperature) && (m0..=m1).contains(&moisture)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ResourceDef {
     pub id: String,
     pub name: String,
     pub glyph: char,
-    /// Probability in `[0, 1]` that this resource spawns on an eligible tile.
+    /// Base probability in `[0, 1]` that this resource spawns on an eligible tile.
     pub chance: f64,
     /// Terrains this may spawn on; `None` means any.
     pub terrains: Option<Vec<Terrain>>,
     /// Biome ids this may spawn in; `None` means any.
     pub biomes: Option<Vec<String>>,
+    /// In `[0, 1]`. 0 rolls every tile independently; 1 makes the chance follow a noise field,
+    /// so the resource grows in clumps (groves, outcrops) with gaps between. Default 0.
+    #[serde(default)]
+    pub clustering: f64,
+    /// If true, the chance scales with tile moisture (x0.5 when arid, up to x1.5 when wet).
+    #[serde(default)]
+    pub moisture_scaled: bool,
+    /// Minimum Chebyshev distance between two tiles of this resource, for spaced deposits.
+    #[serde(default)]
+    pub min_spacing: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -89,6 +128,11 @@ fn parse<T: for<'de> Deserialize<'de>>(name: &str, src: &str) -> Result<T, DefsE
     toml::from_str(src).map_err(|e| DefsError(format!("{name}: {e}")))
 }
 
+/// Maps a quantized climate value (`Tile::temperature`, `Tile::moisture`) to `[0, 1]`.
+pub fn climate_unit(v: u8) -> f64 {
+    f64::from(v) / 255.0
+}
+
 impl Defs {
     /// The definitions shipped in `data/`, embedded at compile time.
     pub fn bundled() -> Self {
@@ -114,9 +158,37 @@ impl Defs {
         if self.biomes.is_empty() || self.biomes.len() > u8::MAX as usize {
             return Err(DefsError(format!("need 1..=255 biomes, got {}", self.biomes.len())));
         }
+        for b in &self.biomes {
+            for (what, [lo, hi]) in [("temperature", b.temperature), ("moisture", b.moisture)] {
+                if !(0.0 <= lo && lo <= hi && hi <= 1.0) {
+                    return Err(DefsError(format!(
+                        "biome {}: {what} must be [min, max] with 0 <= min <= max <= 1",
+                        b.id
+                    )));
+                }
+            }
+        }
+        // Every climate a tile can have must map to a biome: check the whole quantized grid.
+        for t in 0..=u8::MAX {
+            for m in 0..=u8::MAX {
+                if self.try_classify_biome(t, m).is_none() {
+                    return Err(DefsError(format!(
+                        "no biome covers temperature {:.3}, moisture {:.3}; add a catch-all",
+                        climate_unit(t),
+                        climate_unit(m)
+                    )));
+                }
+            }
+        }
         for r in &self.resources {
             if !(0.0..=1.0).contains(&r.chance) {
                 return Err(DefsError(format!("resource {}: chance must be in [0, 1]", r.id)));
+            }
+            if !(0.0..=1.0).contains(&r.clustering) {
+                return Err(DefsError(format!("resource {}: clustering must be in [0, 1]", r.id)));
+            }
+            if r.min_spacing == Some(0) {
+                return Err(DefsError(format!("resource {}: min_spacing must be >= 1", r.id)));
             }
             for b in r.biomes.iter().flatten() {
                 if self.biome_id(b).is_none() {
@@ -134,6 +206,17 @@ impl Defs {
             }
         }
         Ok(())
+    }
+
+    fn try_classify_biome(&self, temperature: u8, moisture: u8) -> Option<BiomeId> {
+        let (t, m) = (climate_unit(temperature), climate_unit(moisture));
+        self.biomes.iter().position(|b| b.contains(t, m)).map(|i| BiomeId(i as u8))
+    }
+
+    /// The biome for a quantized climate: the first biome in `biomes.toml` whose ranges contain
+    /// it. Total, because validation checks that the table covers every climate.
+    pub fn classify_biome(&self, temperature: u8, moisture: u8) -> BiomeId {
+        self.try_classify_biome(temperature, moisture).expect("coverage validated at load")
     }
 
     pub fn biome_id(&self, id: &str) -> Option<BiomeId> {
@@ -161,6 +244,23 @@ impl Defs {
 mod tests {
     use super::*;
 
+    const BIOMES: &str = include_str!("../../../data/biomes.toml");
+    const NATIONS: &str = include_str!("../../../data/nations.toml");
+
+    fn with_biomes(biomes: &str) -> Result<Defs, DefsError> {
+        // No resources, so they can't reference biomes missing from the test table.
+        Defs::from_toml(biomes, "resource = []", NATIONS)
+    }
+
+    fn with_resource(fields: &str) -> Result<Defs, DefsError> {
+        let src = format!("[[resource]]\nid='x'\nname='X'\nglyph='x'\nchance=0.5\n{fields}");
+        Defs::from_toml(BIOMES, &src, NATIONS)
+    }
+
+    fn one_biome(t: &str, m: &str) -> String {
+        format!("[[biome]]\nid='a'\nname='A'\nglyph='a'\ntemperature={t}\nmoisture={m}")
+    }
+
     #[test]
     fn bundled_data_is_valid() {
         let defs = Defs::bundled();
@@ -170,12 +270,62 @@ mod tests {
 
     #[test]
     fn unknown_biome_reference_is_rejected() {
-        let err = Defs::from_toml(
-            include_str!("../../../data/biomes.toml"),
-            "[[resource]]\nid='x'\nname='X'\nglyph='x'\nchance=0.5\nbiomes=['swamp']",
-            include_str!("../../../data/nations.toml"),
+        let err = with_resource("biomes=['mangrove']").unwrap_err();
+        assert!(err.0.contains("mangrove"), "{err}");
+    }
+
+    #[test]
+    fn bundled_biome_table_is_climate_driven() {
+        let defs = Defs::bundled();
+        let at = |t: f64, m: f64| {
+            let id = defs.classify_biome((t * 255.0) as u8, (m * 255.0) as u8);
+            defs.biome(id).id.as_str()
+        };
+        assert_eq!(at(0.05, 0.5), "tundra");
+        assert_eq!(at(0.05, 0.95), "tundra");
+        assert_eq!(at(0.85, 0.1), "desert");
+        assert_eq!(at(0.5, 0.75), "forest");
+        assert_eq!(at(0.5, 0.35), "plains");
+    }
+
+    #[test]
+    fn first_matching_biome_wins() {
+        let toml = format!(
+            "{}\n{}",
+            one_biome("[0.0, 0.5]", "[0.0, 1.0]"),
+            one_biome("[0.0, 1.0]", "[0.0, 1.0]")
         )
-        .unwrap_err();
-        assert!(err.0.contains("swamp"), "{err}");
+        .replacen("id='a'", "id='b'", 1);
+        let defs = with_biomes(&toml).unwrap();
+        assert_eq!(defs.classify_biome(0, 0), BiomeId(0));
+        assert_eq!(defs.classify_biome(255, 0), BiomeId(1));
+    }
+
+    #[test]
+    fn biome_gaps_are_rejected() {
+        let err = with_biomes(&one_biome("[0.0, 0.5]", "[0.0, 1.0]")).unwrap_err();
+        assert!(err.0.contains("no biome covers"), "{err}");
+    }
+
+    #[test]
+    fn bad_biome_ranges_are_rejected() {
+        let err = with_biomes(&one_biome("[0.6, 0.5]", "[0.0, 1.0]")).unwrap_err();
+        assert!(err.0.contains("temperature"), "{err}");
+        let err = with_biomes(&one_biome("[0.0, 1.0]", "[0.0, 1.5]")).unwrap_err();
+        assert!(err.0.contains("moisture"), "{err}");
+    }
+
+    #[test]
+    fn biomes_need_climate_ranges() {
+        let err = with_biomes("[[biome]]\nid='a'\nname='A'\nglyph='a'").unwrap_err();
+        assert!(err.0.contains("temperature"), "{err}");
+    }
+
+    #[test]
+    fn resource_fields_are_validated() {
+        assert!(with_resource("clustering=0.5\nmin_spacing=3\nmoisture_scaled=true").is_ok());
+        assert!(with_resource("clustering=1.5").unwrap_err().0.contains("clustering"));
+        assert!(with_resource("min_spacing=0").unwrap_err().0.contains("min_spacing"));
+        assert!(with_resource("chanse=0.1").unwrap_err().0.contains("chanse"));
     }
 }
