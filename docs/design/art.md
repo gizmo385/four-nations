@@ -1,12 +1,82 @@
 # Art direction
 
-Status: **draft, waiting on the owner's pick** (#1). Three rendered options below. Once the owner
-chooses, this doc records the decision (and vision.md links to it). Follow-up issues come after
-that, and nothing is added to `assets/` before then.
+Status: **decided** (#1, owner, 2026-10-22). The decision and the coverage audit come first. The
+options that were considered follow for the record.
 
-## The problem
+## Decision
 
-Today the map mixes two styles that don't belong together:
+- **Ninja Adventure** (Pixel-Boy and AAA, **CC0**) is the single primary art source, at **16px
+  tiles**. `TILE` doesn't change.
+- It **replaces both** Kenney Tiny Town and the 2013 textures. The 2013 fan-art units go too, so
+  once the follow-ups land, the `thefournations-2013` source (`release_ok = false`) leaves the
+  manifest.
+- **Units:** generic pack characters, three per nation (table below). Canon characters come later,
+  as special sprites in the same style (#78).
+- **UI:** the pack's warm, outlined look pairs best with #39's **Scroll** panels. #39 is still
+  the owner's call.
+- **Follow-ups:**
+  - #74: import the pack and record it in the manifest.
+  - #75: terrain and resources (blocked by #74).
+  - #76: units and portraits (blocked by #74).
+  - #77: fade forest canopies (p3, blocked by #75).
+  - #78: canon characters (p3, blocked by #76).
+
+![Full pack, Water Tribes, Scroll UI](https://github.com/gizmo385/four-nations/blob/d4a70353b8cb52e2364f9b32a75b2a82751d1f2c/mockups/1/ninja-full-ui.png?raw=true)
+![Full pack, whole map](https://github.com/gizmo385/four-nations/blob/d4a70353b8cb52e2364f9b32a75b2a82751d1f2c/mockups/1/ninja-full-map.png?raw=true)
+
+These two renders use the owner's full download: real water (purple in swamps), conifers, grey
+boulders on mountains, and the Water Tribes cast with an `Eskimo` faceset as the portrait. Hard
+edges between terrains remain until autotiling (#8).
+
+## Coverage audit (full pack)
+
+The audit was done on the owner's download, `Ninja Adventure - Asset Pack.zip` (2,674 entries,
+1,915 PNGs, sha256 `95a06f4f…7b15`), unzipped under `target/art/` only.
+
+| Need | In the pack | Verdict |
+|---|---|---|
+| Sea, rivers, lakes | `TilesetWater`: autotiled water on sand, grass and snow; ice; purple swamp water; bridges, dock, boat. Animated `Water Ripples` and `Waterfall` | **Covered** |
+| Plains, forest | `TilesetFloor`: light and dark grass with tuft variants | **Covered** |
+| Taiga | Dark grass plus `TilesetNature` conifers and snowy conifers | **Covered** |
+| Swamp | `TilesetFloor` mud, purple swamp water, a rooted tree | **Covered** |
+| Desert | `TilesetFloor` sand; `TilesetDesert` palms, oasis water, desert houses | **Covered**, but no cactus (palms and dry shrubs stand in) |
+| Tundra | `TilesetFloor` snow and ice, snowy trees, snow boulders, igloos in `TilesetHouse` | **Covered** |
+| Mountains | No single mountain tile. `TilesetRelief` has cliff faces and tops (they need autotiling), and `TilesetNature` has grey and brown boulders | **Partly covered:** rock floor plus boulders now, cliffs with #8 |
+| Oak, fir | `TilesetNature`: broadleaf, conifer, snowy conifer, cherry blossom, dead trees. All trees are **2×2** | **Covered** (2×2 sizing is why #77 exists) |
+| Stone, gold vein | `TilesetNature` grey rocks and gem- or ore-studded rocks | **Covered** |
+| Cabbage | No cabbage. Leafy plants in `TilesetNature`, sprouts and vegetables in `TilesetFloorDetail`, farmland in `TilesetField` | **Stand-in:** leafy plant |
+| Units | 95 characters, each with a 4-direction sprite sheet and a 38×38 `Faceset.png` | **Covered.** Air is the thinnest (only `Monk2` is a bald monk) |
+| Later | `TilesetHouse` (dojo, torii, pagoda roofs, tents, igloos, statues), `MillPropeller` and `WaterMill` animations (Air wind power), 60+ items with elemental FX, UI, 2 fonts, music and SFX | Good for #21, #22, #23 and #6 |
+
+**Per-nation cast** (#76; first frame shown in the render above):
+
+| Nation | Characters |
+|---|---|
+| Air Nomads | `Monk2`, `Master`, `NinjaYellow` |
+| Water Tribes | `Eskimo`, `NinjaEskimo`, `NinjaWater` |
+| Earth Kingdom | `Villager3`, `Samurai`, `NinjaGreen` |
+| Fire Nation | `NinjaFire`, `SamuraiRed`, `NinjaRed` |
+
+The cast lives in `data/nations.toml` as a `characters` list (rule 7: nations differ through
+data). Units pick one by their existing `variant`.
+
+**Map mapping** (#75). Coordinates are (column, row) in 16px cells of each sheet, as used in the
+mockup. #75 puts them in one client-side table:
+
+| Map element | Sprite |
+|---|---|
+| Plains / forest floor | `TilesetFloor` light grass (0,12) with tufts (1–3,12) / dark grass (11,12) with tufts (12–13,12) |
+| Desert, coast | `TilesetFloor` sand (1,1); tundra coast uses snow |
+| Tundra | `TilesetFloor` snow (1,15) with variants (1–2,19) |
+| Swamp | `TilesetFloor` mud (12,15); swamp water `TilesetWater` (14,7) |
+| Water, river, lake | `TilesetWater` (1,1) |
+| Mountain | Rock floor plus a `TilesetNature` grey rock (17,9) on about two in three tiles |
+| Oak / fir / tundra fir | `TilesetNature` 2×2 at (0,0) / (2,0) / (8,0), drawn bottom-aligned |
+| Stone / gold vein / cabbage | `TilesetNature` (17,9) / (4,15) / (1,10) |
+
+## The problem (before the decision)
+
+The map mixed two styles that don't belong together:
 
 - **Kenney Tiny Town** (CC0, flat 16px pixel art): grass, broadleaf and pine trees.
 - **The 2013 textures** (unknown artists, `release_ok = false`): water, coast, desert, snow,
@@ -18,7 +88,7 @@ don't share a pixel scale with the tiles.
 
 ![Today, seed 7](https://github.com/gizmo385/four-nations/blob/2b41f02f7fed3698855af7c2f8986dbd0392c8b8/mockups/1/today-map.png?raw=true)
 
-## Constraints every option meets
+## Constraints every option met
 
 - **16px tiles stay.** Nothing below needs a different `TILE`. A 96×64 map is 1536×1024 px at
   1:1, and the camera zooms in from there.
@@ -41,7 +111,7 @@ downloaded to `target/` only and staged under `target/art/stage`. The client poi
 `issue/1-art-mockups` (`crates/client/src/artset.rs`, `mockups/1/`). Tile picks are quick
 approximations to judge the look, not final mappings.
 
-## Option A: Ninja Adventure (outlined, East Asian, 16px). Recommended
+## Option A: Ninja Adventure (outlined, East Asian, 16px). Chosen
 
 ![Ninja Adventure with the Scroll UI](https://github.com/gizmo385/four-nations/blob/2b41f02f7fed3698855af7c2f8986dbd0392c8b8/mockups/1/ninja-ui.png?raw=true)
 ![Ninja Adventure, whole map](https://github.com/gizmo385/four-nations/blob/2b41f02f7fed3698855af7c2f8986dbd0392c8b8/mockups/1/ninja-map.png?raw=true)
@@ -57,15 +127,8 @@ approximations to judge the look, not final mappings.
   100+ sound effects and 37 music tracks. itch only serves the full zip through a browser
   download ("name your own price", $0 is allowed). The mockup uses the subset in the author's
   Godot repo, [pixel-boy/NinjaAdventure](https://github.com/pixel-boy/NinjaAdventure).
-- **Coverage:**
-  - **Seen in the subset:** two grass shades, sand, snow, mud and ice floors with autotile
-    edges; broadleaf trees (2×2 tiles); bushes; stones; ninja and samurai characters with
-    4-direction walk cycles.
-  - **Listed but not yet checked:** water (the mockup uses tinted ice), conifers, cliffs for
-    mountains, ore, crops, and monk or villager characters to dress each nation.
-  - The **first follow-up audits coverage** against the list above.
-  - Air and Fire units in the mockup are hue-shifted ninjas; the full pack's 50+ characters
-    should give each nation its own outfit.
+- **Coverage:** these first renders used only the GitHub subset (tinted ice for water,
+  hue-shifted ninjas for Air and Fire). The full-pack audit above replaces those caveats.
 - **Today's mix:** Tiny Town and the 2013 textures are both replaced, and the 2013 fan-art units
   go too. Kenney stays only as a fallback for gaps, though the style clash (Kenney has no
   outlines) makes that a last resort.
@@ -142,41 +205,23 @@ approximations to judge the look, not final mappings.
 |---|---|---|---|
 | Avatar feel | **Strong** (East Asian setting, elemental icons) | Weak | Through colour only |
 | Coherence | One artist, one palette | Same studio; snow is improvised | Perfect |
-| Coverage today | Likely good; needs an audit of the full pack | Good except tundra | Complete |
+| Coverage | Good (full pack audited after the pick) | Good except tundra | Complete |
 | Units | 50+ characters with portraits | Paper-doll recolours | Tinted glyphs |
 | Licence | CC0 | CC0 | CC0 |
 | Getting it | Browser download from itch (or the GitHub subset) | Direct download | Direct download |
 | Best #39 UI | A Scroll | A Scroll or B Seal | B Seal |
 
-## Recommendation
+## Recommendation (as proposed)
 
-**Option A, Ninja Adventure, at 16px, with the Scroll UI.** It's the only option that looks like
-the Avatar world without original art. It's CC0, so nothing needs replacing later. It's one
-artist's work, so it stays coherent as buildings, crops and icons arrive. Its facesets and
-elemental icons cover needs we already have (#39's portrait, #23's tech icons). The risk is
-coverage we haven't seen yet (water, conifers, mountains, desert). The first follow-up checks
-that, and B remains the fallback if the audit finds big gaps.
+**Option A, at 16px, with the Scroll UI.** It was the only option that looks like the Avatar
+world without original art. It's CC0, it's one artist's work, so it stays coherent as buildings
+and icons arrive, and its facesets and elemental icons cover #39 and #23. The owner agreed, and
+the audit above confirmed the coverage.
 
-## Follow-up issues (after the owner picks)
+## Owner answers (2026-10-22)
 
-Not filed yet. For option A they would be:
-
-1. Import the pack: record it in `assets/manifest.toml` per docs/process/assets.md, and audit
-   its coverage against the list above.
-2. Replace the terrain and resource sprites, and retire the 2013 textures.
-3. Replace the units with per-nation characters, and wire the facesets into the selection bar.
-4. Forest canopies: fade near the cursor and the selection (only if the 2×2 trees stay).
-
-Autotiling (#8) and the river/lake art in #31 would then target this pack.
-
-## Open questions for the owner
-
-1. **Which direction: A (Ninja Adventure), B (Kenney family) or C (1-bit)?**
-   *Recommendation: A.*
-2. **Can you download the full Ninja Adventure zip once** from itch.io (browser only, $0 is
-   fine) and drop it somewhere an agent can read? Agents can't complete itch's download flow.
-   Without it we're limited to the GitHub subset. *Recommendation: yes. One download unlocks the
-   whole pack, and the agent then records it in the manifest.*
-3. **Units: generic pack characters dressed per nation, or canon characters?**
-   *Recommendation: generic characters with nation colours now; canon characters later only as
-   special sprites in the same style.*
+1. Direction: **A, Ninja Adventure**.
+2. The full zip was downloaded to `/Users/chris/workspace/Ninja Adventure - Asset Pack.zip`,
+   outside the repo. #74 imports what we use.
+3. Units: **generic pack characters dressed per nation** for now. Canon characters come later
+   (#78).

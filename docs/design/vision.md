@@ -35,6 +35,14 @@ to trade, exchange culture and knowledge with, or help, but **nations never figh
 Avatar is about balance and unity. Pressure comes from survival, the environment and growth,
 not conquest. Design features (research #17, bending #6) around peaceful progress.
 
+## Art direction (decided 2026-10-22)
+
+**16px top-down pixel art from the Ninja Adventure pack** (Pixel-Boy and AAA, CC0). Its stylised
+East Asian setting is the closest off-the-shelf match to the Avatar world. It replaces the
+Kenney Tiny Town and 2013 mix. Units are generic pack characters dressed per nation; canon
+characters may come later as special sprites in the same style. Details, the coverage audit and
+the follow-ups (#74 to #78) are in [art.md](art.md).
+
 ## Core loop (first playable)
 
 Generate world → place settlement → designate (chop, mine, farm, build) → units claim jobs →
@@ -44,4 +52,3 @@ Win: reach N population (the 2013 goal was 10). Lose: everyone dies.
 ## Open questions
 
 - **Scale**: one settlement on a 96×64 map, or a larger world map with travel?
-- **Art direction** (#1): three rendered options in [art.md](art.md), waiting on the owner's pick.
