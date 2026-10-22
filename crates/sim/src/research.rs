@@ -342,6 +342,7 @@ mod tests {
     const BIOMES: &str = include_str!("../../../data/biomes.toml");
     const RESOURCES: &str = include_str!("../../../data/resources.toml");
     const NEEDS: &str = include_str!("../../../data/needs.toml");
+    const JOBS: &str = include_str!("../../../data/jobs.toml");
     const NATIONS: &str = include_str!("../../../data/nations.toml");
     const RESEARCH: &str = include_str!("../../../data/research.toml");
 
@@ -374,7 +375,7 @@ mod tests {
     ";
 
     fn load(research: &str, nations: &str) -> Result<Defs, DefsError> {
-        Defs::from_toml(BIOMES, RESOURCES, nations, research, NEEDS)
+        Defs::from_toml(BIOMES, RESOURCES, nations, research, NEEDS, JOBS)
     }
 
     /// Loads the bundled nations with `BASICS` plus `techs`.

@@ -20,9 +20,9 @@ use crate::geom::Pos;
 use crate::mapgen::{Tile, TileMap};
 
 /// Cost of one cardinal step onto a tile of cost 1.
-const STRAIGHT: u32 = 10;
+pub(crate) const STRAIGHT: u32 = 10;
 /// Cost of one diagonal step onto a tile of cost 1 (10 * sqrt(2), rounded).
-const DIAGONAL: u32 = 14;
+pub(crate) const DIAGONAL: u32 = 14;
 
 const TERRAINS: usize = 6;
 
@@ -105,10 +105,10 @@ fn octile(a: Pos, b: Pos) -> u32 {
 }
 
 /// Cardinals first (indices 0..4), then diagonals.
-const NEIGHBORS: [(i32, i32); 8] =
+pub(crate) const NEIGHBORS: [(i32, i32); 8] =
     [(0, -1), (1, 0), (0, 1), (-1, 0), (1, -1), (1, 1), (-1, 1), (-1, -1)];
 /// For each diagonal in `NEIGHBORS[4..]`, the indices of the two cardinals it squeezes between.
-const DIAGONAL_SIDES: [(usize, usize); 4] = [(1, 0), (1, 2), (3, 2), (3, 0)];
+pub(crate) const DIAGONAL_SIDES: [(usize, usize); 4] = [(1, 0), (1, 2), (3, 2), (3, 0)];
 
 /// Packs an open-set entry as `f | h | index`, so integer order is (f, h, index) order.
 fn key(f: u32, h: u32, index: usize) -> u128 {
