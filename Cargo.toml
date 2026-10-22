@@ -19,3 +19,13 @@ opt-level = 3
 
 [profile.dev]
 opt-level = 1
+
+# Used by `cargo xtask ci` on CI ($CI set). Tests don't need Bevy to run fast, so skip optimizing
+# dependencies and drop debug info: the cold build is several times faster on small runners.
+[profile.ci]
+inherits = "dev"
+opt-level = 0
+debug = false
+
+[profile.ci.package."*"]
+opt-level = 0

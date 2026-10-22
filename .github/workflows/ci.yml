@@ -1,5 +1,7 @@
-# Runs the same gate agents run locally. Branch protection requires the `ci` job, so PRs with
-# auto-merge enabled land only once this passes.
+# Runs the same gate agents run locally (`cargo xtask ci`), split so that changes which can't
+# affect the Bevy client never compile it. Branch protection requires the `ci` job, which passes
+# only if every other job passed or was legitimately skipped. PRs with auto-merge enabled land once
+# it's green.
 name: CI
 
 on:
@@ -17,10 +19,35 @@ env:
   CARGO_INCREMENTAL: 0
 
 jobs:
-  ci:
-    name: ci
+  # Decides whether the client job is needed. Pushes to main always build everything, which also
+  # refreshes both caches.
+  changes:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    outputs:
+      client: ${{ steps.filter.outputs.client }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: filter
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "client=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")
+          echo "$changed"
+          # The client depends on the sim and on game data, so any of these can break it.
+          if echo "$changed" | grep -qE '^(crates/|data/|Cargo\.(toml|lock)$|\.github/workflows/)'; then
+            echo "client=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "client=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # fmt, sim + xtask clippy/tests, asset check. Never compiles Bevy.
+  sim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       # Keep in sync with the toolchain in the Nix profile (currently 1.98) so lints match.
@@ -32,4 +59,33 @@ jobs:
         with:
           # Only main writes the cache; PRs restore it. Keeps us within the private-repo quota.
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo xtask ci
+      - run: cargo xtask ci sim
+
+  # Bevy client clippy/tests. Slow when the cache is cold.
+  client:
+    needs: changes
+    if: needs.changes.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.98"
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo xtask ci client
+
+  # The single required status check.
+  ci:
+    needs: [changes, sim, client]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "changes=${{ needs.changes.result }} sim=${{ needs.sim.result }} client=${{ needs.client.result }}"
+          [ "${{ needs.changes.result }}" = success ] || exit 1
+          [ "${{ needs.sim.result }}" = success ] || exit 1
+          case "${{ needs.client.result }}" in success|skipped) ;; *) exit 1 ;; esac
