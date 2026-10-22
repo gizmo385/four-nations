@@ -10,6 +10,7 @@ use crate::defs::Defs;
 use crate::geom::Pos;
 use crate::mapgen::{self, MapGenConfig, TileMap};
 use crate::nation::Nation;
+use crate::research::{Research, ResearchError, TechId};
 use crate::rng::{self, SimRng};
 
 /// Ticks per in-game second. Movement and needs are expressed per tick.
@@ -40,6 +41,7 @@ pub struct World {
     pub map: TileMap,
     pub nation: Nation,
     pub units: Vec<Unit>,
+    research: Research,
     rng: SimRng,
 }
 
@@ -52,10 +54,21 @@ impl World {
             map,
             nation,
             units: Vec::new(),
+            research: Research::new(nation, defs),
             rng: rng::stream(cfg.seed, "world.units"),
         };
         world.spawn_starting_units(starting_units, defs);
         world
+    }
+
+    pub fn research(&self) -> &Research {
+        &self.research
+    }
+
+    /// Sets the research target: the queue becomes `tech` plus its unknown prereqs. Banked
+    /// knowledge is kept. Becomes `Command::SetResearch` when the command enum lands (#5).
+    pub fn set_research(&mut self, tech: TechId, defs: &Defs) -> Result<(), ResearchError> {
+        self.research.set_target(tech, self.nation, defs)
     }
 
     /// Places units on walkable tiles, spiralling out from the map center.
@@ -96,6 +109,7 @@ impl World {
     /// set by their nation's `move_speed` modifier.
     pub fn tick(&mut self, defs: &Defs) {
         self.tick += 1;
+        self.research.tick(self.tick, defs);
         for i in 0..self.units.len() {
             let speed = defs.nation(self.units[i].nation).modifiers.move_speed;
             self.units[i].move_progress += speed;
@@ -116,6 +130,7 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::research::TechCompleted;
 
     fn world(nation: Nation) -> (World, Defs) {
         let defs = Defs::bundled();
@@ -163,5 +178,139 @@ mod tests {
             moved
         };
         assert!(steps(Nation::Air) > steps(Nation::Earth));
+    }
+
+    fn tech(defs: &Defs, id: &str) -> TechId {
+        defs.tech_id(id).unwrap()
+    }
+
+    fn spent_millis(w: &World, defs: &Defs) -> u64 {
+        w.research().completions().iter().map(|c| u64::from(defs.tech(c.tech).cost) * 1000).sum()
+    }
+
+    #[test]
+    fn research_starts_with_the_nations_starting_techs() {
+        let (w, defs) = world(Nation::Fire);
+        let known: Vec<_> = w.research().known_techs().collect();
+        assert_eq!(known, [tech(&defs, "fire_making")]);
+        assert!(w.research().queue().is_empty());
+        assert_eq!(w.research().pool_millis(), 0);
+    }
+
+    #[test]
+    fn passive_rate_is_converted_to_millis_per_tick() {
+        // 3 and 9 points a minute at 10 ticks a second.
+        assert_eq!(Defs::bundled().research.passive_millis_per_tick, 5);
+        assert_eq!(Defs::bundled().research.study_millis_per_tick, 15);
+    }
+
+    #[test]
+    fn fire_making_completes_when_the_pacing_math_says() {
+        let (mut w, defs) = world(Nation::Earth);
+        let fm = tech(&defs, "fire_making");
+        w.set_research(fm, &defs).unwrap();
+        // 25 points at 3 a minute is 500 seconds, so tick 5000.
+        for _ in 0..4999 {
+            w.tick(&defs);
+        }
+        assert!(!w.research().is_known(fm));
+        w.tick(&defs);
+        assert!(w.research().is_known(fm));
+        assert_eq!(w.research().completions(), [TechCompleted { tech: fm, tick: 5000 }]);
+        assert!(w.research().queue().is_empty());
+        assert_eq!(w.research().pool_millis(), 0);
+    }
+
+    #[test]
+    fn deep_tech_queues_its_unknown_prereq_chain() {
+        let (mut w, defs) = world(Nation::Earth);
+        let target = tech(&defs, "earthen_walls");
+        w.set_research(target, &defs).unwrap();
+        let mut expected: Vec<TechId> =
+            ["shelter", "carpentry", "masonry", "earth_shaping", "earthen_walls"]
+                .iter()
+                .map(|n| tech(&defs, n))
+                .collect();
+        expected.sort();
+        // stoneworking is a starting tech, so it isn't queued.
+        assert_eq!(w.research().queue(), expected);
+        assert_eq!(w.research().queue().last(), Some(&target));
+    }
+
+    #[test]
+    fn set_research_rejects_other_nations_and_known_techs() {
+        let (mut w, defs) = world(Nation::Earth);
+        assert_eq!(
+            w.set_research(tech(&defs, "lightning_generation"), &defs),
+            Err(ResearchError::WrongNation)
+        );
+        assert_eq!(
+            w.set_research(tech(&defs, "stoneworking"), &defs),
+            Err(ResearchError::AlreadyKnown)
+        );
+        assert_eq!(w.set_research(TechId(u16::MAX), &defs), Err(ResearchError::UnknownTech));
+        assert!(w.research().queue().is_empty());
+    }
+
+    #[test]
+    fn knowledge_banks_while_idle_and_carries_over() {
+        let (mut w, defs) = world(Nation::Earth);
+        for _ in 0..6000 {
+            w.tick(&defs);
+        }
+        assert_eq!(w.research().pool_millis(), 30_000);
+        w.set_research(tech(&defs, "shelter"), &defs).unwrap();
+        w.tick(&defs);
+        // 30_005 in the pool, minus shelter's 25_000.
+        assert_eq!(w.research().pool_millis(), 5_005);
+        assert_eq!(w.research().completions().len(), 1);
+    }
+
+    #[test]
+    fn several_techs_can_complete_in_one_tick() {
+        let (mut w, defs) = world(Nation::Earth);
+        // 100 points banked pays for shelter (25) and carpentry (60) together.
+        for _ in 0..20_000 {
+            w.tick(&defs);
+        }
+        w.set_research(tech(&defs, "carpentry"), &defs).unwrap();
+        w.tick(&defs);
+        let ticks: Vec<_> = w.research().completions().iter().map(|c| c.tick).collect();
+        assert_eq!(ticks, [20_001, 20_001]);
+        assert!(w.research().is_known(tech(&defs, "carpentry")));
+    }
+
+    #[test]
+    fn changing_target_loses_no_knowledge() {
+        let (mut w, defs) = world(Nation::Earth);
+        w.set_research(tech(&defs, "fire_making"), &defs).unwrap();
+        for _ in 0..3000 {
+            w.tick(&defs);
+        }
+        let before = w.research().pool_millis();
+        w.set_research(tech(&defs, "masonry"), &defs).unwrap();
+        assert_eq!(w.research().pool_millis(), before);
+        for _ in 0..9000 {
+            w.tick(&defs);
+        }
+        // Everything earned is either still banked or was spent on a completed tech.
+        assert_eq!(w.research().pool_millis() + spent_millis(&w, &defs), 5 * 12_000);
+        assert!(!w.research().completions().is_empty());
+    }
+
+    #[test]
+    fn research_is_deterministic() {
+        let run = || {
+            let (mut w, defs) = world(Nation::Water);
+            w.set_research(tech(&defs, "healing"), &defs).unwrap();
+            for t in 0..20_000 {
+                if t == 7_000 {
+                    w.set_research(tech(&defs, "water_travel"), &defs).unwrap();
+                }
+                w.tick(&defs);
+            }
+            w.research().clone()
+        };
+        assert_eq!(run(), run());
     }
 }

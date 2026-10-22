@@ -5,13 +5,15 @@
 //! topological order and cycles are impossible by construction. Later code relies on that: it can
 //! walk techs in id order and know every prereq has already been visited.
 //!
-//! This module only holds static definitions. Research progress lives elsewhere (#19), as does
-//! applying multipliers to a nation's modifiers (#20).
+//! Static definitions come first. `Research` at the bottom is the live state that `World` holds:
+//! known techs, the knowledge pool and the queue. Applying multipliers to a nation's modifiers is
+//! separate work (#20).
 
 use serde::Deserialize;
 
-use crate::defs::DefsError;
+use crate::defs::{Defs, DefsError};
 use crate::nation::{ModifierMultipliers, Nation};
+use crate::world::TICKS_PER_SECOND;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TechId(pub u16);
@@ -28,6 +30,20 @@ pub struct ResearchSettings {
     pub passive_knowledge_per_minute: f64,
     /// Per scholar at a study hall, before the `study` modifier.
     pub study_knowledge_per_minute: f64,
+    /// `passive_knowledge_per_minute` as integer millis per tick, filled in at load.
+    #[serde(skip)]
+    pub passive_millis_per_tick: u64,
+    /// `study_knowledge_per_minute` as integer millis per tick, filled in at load.
+    #[serde(skip)]
+    pub study_millis_per_tick: u64,
+}
+
+/// Knowledge is stored in milli-points so rates stay integers.
+pub const MILLIS_PER_POINT: u64 = 1000;
+
+/// Converts a points-per-minute rate to whole millis per tick (rounded to nearest).
+fn millis_per_tick(per_minute: f64) -> u64 {
+    (per_minute * MILLIS_PER_POINT as f64 / (60.0 * f64::from(TICKS_PER_SECOND))).round() as u64
 }
 
 /// What learning a tech makes available. Only modifier multipliers exist for now; buildings, jobs
@@ -84,7 +100,7 @@ fn nation_label(n: Option<Nation>) -> &'static str {
 impl ResearchFile {
     /// Validates the file and resolves string prereqs to `TechId`s.
     pub(crate) fn resolve(self) -> Result<(ResearchSettings, Vec<TechDef>), DefsError> {
-        let s = self.settings;
+        let mut s = self.settings;
         for (what, v) in [
             ("passive_knowledge_per_minute", s.passive_knowledge_per_minute),
             ("study_knowledge_per_minute", s.study_knowledge_per_minute),
@@ -95,6 +111,8 @@ impl ResearchFile {
                 )));
             }
         }
+        s.passive_millis_per_tick = millis_per_tick(s.passive_knowledge_per_minute);
+        s.study_millis_per_tick = millis_per_tick(s.study_knowledge_per_minute);
         if self.tech.len() > usize::from(u16::MAX) {
             return Err(DefsError(format!("too many techs: {}", self.tech.len())));
         }
@@ -186,6 +204,132 @@ pub(crate) fn resolve_starting_techs(
         }
     }
     Ok(out)
+}
+
+/// A tech finishing, as recorded in the research log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TechCompleted {
+    pub tech: TechId,
+    /// The world tick on which the tech completed.
+    pub tick: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResearchError {
+    /// No tech with this id exists.
+    UnknownTech,
+    /// The tech belongs to another nation's branch.
+    WrongNation,
+    AlreadyKnown,
+}
+
+impl std::fmt::Display for ResearchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::UnknownTech => "no such tech",
+            Self::WrongNation => "that tech belongs to another nation",
+            Self::AlreadyKnown => "that tech is already known",
+        })
+    }
+}
+
+impl std::error::Error for ResearchError {}
+
+/// A settlement's research state. Knowledge is one pool shared by the whole settlement; the
+/// queue is spent from it in order, and leftover knowledge carries over.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Research {
+    /// Indexed by `TechId`.
+    known: Vec<bool>,
+    pool_millis: u64,
+    /// The next tech to finish is at the front. Always ascending by `TechId`, so every tech's
+    /// unknown prereqs are ahead of it.
+    queue: Vec<TechId>,
+    /// Completions in order. Starting techs are not logged.
+    log: Vec<TechCompleted>,
+}
+
+impl Research {
+    /// Seeds the known set from the nation's `starting_techs`, with an empty pool and queue.
+    pub fn new(nation: Nation, defs: &Defs) -> Self {
+        let mut known = vec![false; defs.techs.len()];
+        for t in &defs.nation(nation).starting_techs {
+            known[t.0 as usize] = true;
+        }
+        Self { known, pool_millis: 0, queue: Vec::new(), log: Vec::new() }
+    }
+
+    pub fn is_known(&self, tech: TechId) -> bool {
+        self.known.get(tech.0 as usize).copied().unwrap_or(false)
+    }
+
+    /// Known techs in `TechId` order.
+    pub fn known_techs(&self) -> impl Iterator<Item = TechId> + '_ {
+        self.known.iter().enumerate().filter(|(_, k)| **k).map(|(i, _)| TechId(i as u16))
+    }
+
+    /// Banked knowledge in milli-points (1000 per point).
+    pub fn pool_millis(&self) -> u64 {
+        self.pool_millis
+    }
+
+    /// The research queue, front first.
+    pub fn queue(&self) -> &[TechId] {
+        &self.queue
+    }
+
+    /// Every completion so far, oldest first, with the tick it happened on.
+    pub fn completions(&self) -> &[TechCompleted] {
+        &self.log
+    }
+
+    /// Replaces the queue with `tech` plus its unknown prereqs, in ascending `TechId` order.
+    /// Knowledge already banked is kept.
+    pub fn set_target(
+        &mut self,
+        tech: TechId,
+        nation: Nation,
+        defs: &Defs,
+    ) -> Result<(), ResearchError> {
+        let def = defs.techs.get(tech.0 as usize).ok_or(ResearchError::UnknownTech)?;
+        if def.nation.is_some_and(|n| n != nation) {
+            return Err(ResearchError::WrongNation);
+        }
+        if self.is_known(tech) {
+            return Err(ResearchError::AlreadyKnown);
+        }
+        // Prereqs always have smaller ids, so one descending pass finds the whole closure.
+        let mut needed = vec![false; tech.0 as usize + 1];
+        needed[tech.0 as usize] = true;
+        for i in (0..=tech.0 as usize).rev() {
+            if needed[i] && !self.known[i] {
+                for p in &defs.techs[i].prereqs {
+                    needed[p.0 as usize] = true;
+                }
+            }
+        }
+        self.queue = (0..needed.len())
+            .filter(|&i| needed[i] && !self.known[i])
+            .map(|i| TechId(i as u16))
+            .collect();
+        Ok(())
+    }
+
+    /// Adds one tick of passive knowledge, then completes queued techs the pool can pay for.
+    /// `tick` is the world tick being simulated, recorded on completions.
+    pub fn tick(&mut self, tick: u64, defs: &Defs) {
+        self.pool_millis += defs.research.passive_millis_per_tick;
+        while let Some(&front) = self.queue.first() {
+            let cost = u64::from(defs.tech(front).cost) * MILLIS_PER_POINT;
+            if cost > self.pool_millis {
+                break;
+            }
+            self.pool_millis -= cost;
+            self.queue.remove(0);
+            self.known[front.0 as usize] = true;
+            self.log.push(TechCompleted { tech: front, tick });
+        }
+    }
 }
 
 #[cfg(test)]
