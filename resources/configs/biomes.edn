@@ -1,8 +1,0 @@
-[{:name :plains
-  :display-name "Plains"}
- {:name :forest
-  :display-name "Forest"}
- {:name :desert
-  :display-name "Desert"}
- {:name :tundra
-  :display-name "Tundra"}]

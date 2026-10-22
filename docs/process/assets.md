@@ -5,9 +5,9 @@ and sha256. `cargo xtask assets` enforces this and runs as part of `cargo xtask 
 
 ## Adding an asset
 
-1. Prefer, in order: **CC0** (Kenney, OpenGameArt CC0), then **CC-BY** (credit required), then
-   **CC-BY-SA / GPL** (share-alike; ask first). Never: "free for personal use", ripped game
-   sprites, AI-generated images of canon characters, or anything without a stated license.
+1. Prefer **CC0** (Kenney, OpenGameArt CC0), then **CC-BY**, then anything else. Because the
+   game is personal-only, "free for personal use" packs and fan art are acceptable. They just
+   need `release_ok = false` and an honest `license` field (`UNKNOWN` is fine).
 2. Put it under `assets/third_party/<source-id>/` (or `assets/original/` for our own art) and
    keep the upstream license file next to it.
 3. Add a `[[source]]` entry (url, download_url, author, license, `release_ok`, retrieved date,
@@ -15,9 +15,10 @@ and sha256. `cargo xtask assets` enforces this and runs as part of `cargo xtask 
    re-encodes, recolors.
 4. Run `cargo xtask assets`.
 
-## `release_ok = false`
+## `release_ok`
 
-This marks assets we can use locally while prototyping but must not publish. Today, that's all
-of `thefournations-2013`: the original artists are unknown and the unit sprites depict canon
-characters. `cargo xtask assets --release` fails while any of these are present, and the web
-build (FN-0014) is gated on it.
+The game is personal and never distributed (see docs/design/vision.md), so assets with unknown
+or non-commercial licenses are allowed. We still record provenance. `release_ok = false` flags
+sources that would have to be replaced *if* that ever changed. `cargo xtask assets --release`
+lists them as errors, and `cargo xtask assets` only warns. Today the flagged source is
+`thefournations-2013` (unknown artists, canon-character fan art).

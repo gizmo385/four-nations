@@ -1,6 +1,12 @@
 # Vision
 
-Status: **draft**. Open questions are tracked as work items.
+Status: **draft**. Open questions are tracked as GitHub issues.
+
+## Audience and IP (decided 2026-10-21)
+
+A **personal project**: one player, the owner. It lives in a private repo and is never sold,
+published or distributed. So canon Avatar names, characters and fan art are fine. No web build
+or public deploys.
 
 ## Pitch
 
@@ -11,7 +17,7 @@ small settlement of one of the four nations. Your people gather, build, eat, sle
 ## Pillars
 
 1. **Nations play differently.** Every nation has passive modifiers (`data/nations.toml`) and,
-   later, signature bending abilities (FN-0010) that open strategies other nations lack.
+   later, signature bending abilities (#6) that open strategies other nations lack.
    - **Air Nomads**: fast movement; wind power (turbines, mills); weak at heavy labor.
    - **Water Tribes**: irrigation, fishing, healing; can work and travel on water.
    - **Earth Kingdom**: earthworks, quarrying and walls are cheap; strong carriers; slow.
@@ -30,10 +36,6 @@ Win: reach N population (the 2013 goal was 10). Lose: everyone dies.
 
 ## Open questions
 
-- **IP stance** (FN-0005). This is Paramount/Nickelodeon IP. The choice is between a private
-  fan project, where canon names are fine but nothing can be published or sold, and an
-  original "four elements" setting that we can share freely. The code keeps nation ids generic
-  (`air`, `water`, `earth`, `fire`) so this stays a data and art decision.
 - **Single nation vs. multiple**: do the other nations exist as neighbors, traders or rivals?
 - **Scale**: one settlement on a 96×64 map, or a larger world map with travel?
-- **Art direction**: 16px top-down (current) or something else.
+- **Art direction** (#1): 16px top-down (current) or something else.

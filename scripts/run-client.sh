@@ -4,7 +4,7 @@
 # Nix-built binaries don't search /usr/lib, and pointing LD_LIBRARY_PATH at all of /usr/lib breaks
 # Nix's glibc. So we symlink the system's graphics libs (minus glibc itself) into target/syslibs,
 # and take libxkbcommon from nixpkgs (Ubuntu doesn't ship the -x11 variant by default).
-# Replace with a flake devShell when FN-0015 lands.
+# Replace with a flake devShell when issue #10 lands.
 #
 #   scripts/run-client.sh [seed] [nation]
 #   FN_SCREENSHOT=/tmp/shot.png scripts/run-client.sh 42 earth   # render, save, exit

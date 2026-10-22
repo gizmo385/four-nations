@@ -1,7 +1,7 @@
 //! Procedural map generation.
 //!
-//! A port of the ClojureScript generator (`src/four_nations/model/map/*.cljs` on the `cljs`
-//! branch), pass for pass:
+//! A port of the ClojureScript generator (`src/four_nations/model/map/*.cljs` at the
+//! `archive/cljs` tag), pass for pass:
 //!
 //! 1. random noise in `1..=255`, smoothed by repeatedly averaging each cell's neighbors;
 //! 2. cells below the mean become water, the rest land (new: the highest cells become mountain);

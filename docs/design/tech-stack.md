@@ -1,14 +1,14 @@
 # Tech stack options
 
-Status: **proposal** (rust-spike branch, 2026-10-21). Decision tracked in FN-0004.
+Status: **decided** 2026-10-21: Rust + Bevy, merged to `main`.
 
 ## History
 
 | Attempt | Years | Stack | Got as far as |
 |---|---|---|---|
 | [TheFourNations](https://github.com/gizmo385/TheFourNations) | 2013 | Java + Swing, mutable OO singletons | Playable: 4 tribes, units with hunger/energy/skills, task queue (collect, store, build, plant, eat, drink, sleep), A* paths, structures, save/load, win/lose |
-| `main` branch | 2021 | Clojure (JVM), EDN data files | Map gen, data-driven unit types and attributes, Swing-ish GUI, unit tests |
-| `cljs` branch | 2022 | ClojureScript + Reagent, deployed to GitHub Pages | Map gen with biomes, coast and resources, rendered as DOM tiles |
+| `archive/clojure-jvm` tag | 2021 | Clojure (JVM), EDN data files | Map gen, data-driven unit types and attributes, Swing-ish GUI, unit tests |
+| `archive/cljs` tag | 2022 | ClojureScript + Reagent, deployed to GitHub Pages | Map gen with biomes, coast and resources, rendered as DOM tiles |
 
 Each rewrite got the world generator working, but the colony sim itself (jobs, needs, AI) was
 never rebuilt after 2013. The next stack should make **the simulation** easy to grow and test,
@@ -23,7 +23,7 @@ not just the map.
 3. **Lots of UI** eventually: inventories, job lists, tooltips, menus.
 4. **Data-driven content** (nations, biomes, resources, jobs) that people can edit without
    touching code.
-5. Optionally, **web builds**, since the cljs version shipped to GitHub Pages.
+5. ~~Web builds~~: no longer needed, since the game is personal-only (see vision.md).
 
 ## Options
 
@@ -71,7 +71,7 @@ Costs we accept:
 code-first workflows. Because of the crate split above, that switch would replace only
 `crates/client`.
 
-## Spike results (this branch)
+## Spike results (2026-10-21)
 
 - `fn_sim` ports the cljs map generator pass for pass: deterministic, 13 tests, ASCII renderer.
 - `fn_client` (Bevy 0.20) renders it with Kenney + 2013 sprites; units wander at nation-specific
