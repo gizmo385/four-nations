@@ -1,0 +1,227 @@
+# Art direction
+
+Status: **decided** (#1, owner, 2026-10-22). The decision and the coverage audit come first. The
+options that were considered follow for the record.
+
+## Decision
+
+- **Ninja Adventure** (Pixel-Boy and AAA, **CC0**) is the single primary art source, at **16px
+  tiles**. `TILE` doesn't change.
+- It **replaces both** Kenney Tiny Town and the 2013 textures. The 2013 fan-art units go too, so
+  once the follow-ups land, the `thefournations-2013` source (`release_ok = false`) leaves the
+  manifest.
+- **Units:** generic pack characters, three per nation (table below). Canon characters come later,
+  as special sprites in the same style (#78).
+- **UI:** the pack's warm, outlined look pairs best with #39's **Scroll** panels. #39 is still
+  the owner's call.
+- **Follow-ups:**
+  - #74: import the pack and record it in the manifest.
+  - #75: terrain and resources (blocked by #74).
+  - #76: units and portraits (blocked by #74).
+  - #77: fade forest canopies (p3, blocked by #75).
+  - #78: canon characters (p3, blocked by #76).
+
+![Full pack, Water Tribes, Scroll UI](https://github.com/gizmo385/four-nations/blob/d4a70353b8cb52e2364f9b32a75b2a82751d1f2c/mockups/1/ninja-full-ui.png?raw=true)
+![Full pack, whole map](https://github.com/gizmo385/four-nations/blob/d4a70353b8cb52e2364f9b32a75b2a82751d1f2c/mockups/1/ninja-full-map.png?raw=true)
+
+These two renders use the owner's full download: real water (purple in swamps), conifers, grey
+boulders on mountains, and the Water Tribes cast with an `Eskimo` faceset as the portrait. Hard
+edges between terrains remain until autotiling (#8).
+
+## Coverage audit (full pack)
+
+The audit was done on the owner's download, `Ninja Adventure - Asset Pack.zip` (2,674 entries,
+1,915 PNGs, sha256 `95a06f4f…7b15`), unzipped under `target/art/` only.
+
+| Need | In the pack | Verdict |
+|---|---|---|
+| Sea, rivers, lakes | `TilesetWater`: autotiled water on sand, grass and snow; ice; purple swamp water; bridges, dock, boat. Animated `Water Ripples` and `Waterfall` | **Covered** |
+| Plains, forest | `TilesetFloor`: light and dark grass with tuft variants | **Covered** |
+| Taiga | Dark grass plus `TilesetNature` conifers and snowy conifers | **Covered** |
+| Swamp | `TilesetFloor` mud, purple swamp water, a rooted tree | **Covered** |
+| Desert | `TilesetFloor` sand; `TilesetDesert` palms, oasis water, desert houses | **Covered**, but no cactus (palms and dry shrubs stand in) |
+| Tundra | `TilesetFloor` snow and ice, snowy trees, snow boulders, igloos in `TilesetHouse` | **Covered** |
+| Mountains | No single mountain tile. `TilesetRelief` has cliff faces and tops (they need autotiling), and `TilesetNature` has grey and brown boulders | **Partly covered:** rock floor plus boulders now, cliffs with #8 |
+| Oak, fir | `TilesetNature`: broadleaf, conifer, snowy conifer, cherry blossom, dead trees. All trees are **2×2** | **Covered** (2×2 sizing is why #77 exists) |
+| Stone, gold vein | `TilesetNature` grey rocks and gem- or ore-studded rocks | **Covered** |
+| Cabbage | No cabbage. Leafy plants in `TilesetNature`, sprouts and vegetables in `TilesetFloorDetail`, farmland in `TilesetField` | **Stand-in:** leafy plant |
+| Units | 95 characters, each with a 4-direction sprite sheet and a 38×38 `Faceset.png` | **Covered.** Air is the thinnest (only `Monk2` is a bald monk) |
+| Later | `TilesetHouse` (dojo, torii, pagoda roofs, tents, igloos, statues), `MillPropeller` and `WaterMill` animations (Air wind power), 60+ items with elemental FX, UI, 2 fonts, music and SFX | Good for #21, #22, #23 and #6 |
+
+**Per-nation cast** (#76; first frame shown in the render above):
+
+| Nation | Characters |
+|---|---|
+| Air Nomads | `Monk2`, `Master`, `NinjaYellow` |
+| Water Tribes | `Eskimo`, `NinjaEskimo`, `NinjaWater` |
+| Earth Kingdom | `Villager3`, `Samurai`, `NinjaGreen` |
+| Fire Nation | `NinjaFire`, `SamuraiRed`, `NinjaRed` |
+
+The cast lives in `data/nations.toml` as a `characters` list (rule 7: nations differ through
+data). Units pick one by their existing `variant`.
+
+**Map mapping** (#75). Coordinates are (column, row) in 16px cells of each sheet, as used in the
+mockup. #75 puts them in one client-side table:
+
+| Map element | Sprite |
+|---|---|
+| Plains / forest floor | `TilesetFloor` light grass (0,12) with tufts (1–3,12) / dark grass (11,12) with tufts (12–13,12) |
+| Desert, coast | `TilesetFloor` sand (1,1); tundra coast uses snow |
+| Tundra | `TilesetFloor` snow (1,15) with variants (1–2,19) |
+| Swamp | `TilesetFloor` mud (12,15); swamp water `TilesetWater` (14,7) |
+| Water, river, lake | `TilesetWater` (1,1) |
+| Mountain | Rock floor plus a `TilesetNature` grey rock (17,9) on about two in three tiles |
+| Oak / fir / tundra fir | `TilesetNature` 2×2 at (0,0) / (2,0) / (8,0), drawn bottom-aligned |
+| Stone / gold vein / cabbage | `TilesetNature` (17,9) / (4,15) / (1,10) |
+
+## The problem (before the decision)
+
+The map mixed two styles that don't belong together:
+
+- **Kenney Tiny Town** (CC0, flat 16px pixel art): grass, broadleaf and pine trees.
+- **The 2013 textures** (unknown artists, `release_ok = false`): water, coast, desert, snow,
+  stone, gold and cabbage, which look photographic and noisy at 16px. The unit sprites are chibi
+  fan-art of canon characters, about 32×30 px and drawn at 0.6 scale.
+
+The result: water and mountains look like a different game from the grass and trees, and units
+don't share a pixel scale with the tiles.
+
+![Today, seed 7](https://github.com/gizmo385/four-nations/blob/2b41f02f7fed3698855af7c2f8986dbd0392c8b8/mockups/1/today-map.png?raw=true)
+
+## Constraints every option met
+
+- **16px tiles stay.** Nothing below needs a different `TILE`. A 96×64 map is 1536×1024 px at
+  1:1, and the camera zooms in from there.
+- **One primary source**, so outlines, palette and lighting match. A second source only fills
+  gaps, and only if it shares the primary's style.
+- **Licence:** the game is personal-only (vision.md), so any licence works. CC0 is still
+  preferred because it keeps `release_ok = true` and needs no attribution bookkeeping.
+- **Coverage we need now:** 4 terrains plus rivers and lakes, 6 biomes (plains, forest, taiga,
+  swamp, desert, tundra), 5 resources (oak, fir, stone, gold vein, cabbage), and units for 4
+  nations × 3 variants, plus a portrait for the selection bar (#39). **Soon:** buildings
+  (study halls, #21), crops, item and tech icons (#23), and bending effects (#6).
+- **UI fit:** it has to work with the #39 panel styles (A Scroll, B Seal, C Parchment).
+
+## How the mockups were made
+
+Each option was rendered headless with `cargo xtask screenshot` on seed 7, Earth Kingdom. Every
+option has one whole-map shot and one zoomed shot with a #39 UI style. The candidate sheets were
+downloaded to `target/` only and staged under `target/art/stage`. The client points at them with
+`FN_ART=<option>` and `FN_ASSET_DIR`. Code and screenshots are on the unmerged reference branch
+`issue/1-art-mockups` (`crates/client/src/artset.rs`, `mockups/1/`). Tile picks are quick
+approximations to judge the look, not final mappings.
+
+## Option A: Ninja Adventure (outlined, East Asian, 16px). Chosen
+
+![Ninja Adventure with the Scroll UI](https://github.com/gizmo385/four-nations/blob/2b41f02f7fed3698855af7c2f8986dbd0392c8b8/mockups/1/ninja-ui.png?raw=true)
+![Ninja Adventure, whole map](https://github.com/gizmo385/four-nations/blob/2b41f02f7fed3698855af7c2f8986dbd0392c8b8/mockups/1/ninja-map.png?raw=true)
+
+- **Style:** warm, saturated 16px pixel art with dark outlines, in the style of a SNES/GBA
+  action RPG. The pack's setting is a stylised feudal East Asia (ninja, samurai, pagodas,
+  torii, elemental icons for fire, water, wind and earth), which is the closest off-the-shelf
+  match to the Avatar world we found.
+- **Source:** [Ninja Adventure Asset Pack](https://pixel-boy.itch.io/ninja-adventure-asset-pack)
+  by Pixel-Boy and AAA. **CC0**. Actively updated (update #8 landed in March 2026). The full zip
+  (89 MB) lists 50+ characters with animations **and facesets** (portraits), 30+ monsters,
+  autotiling floor tilesets, exterior and interior elements, 60+ items, UI elements, 2 fonts,
+  100+ sound effects and 37 music tracks. itch only serves the full zip through a browser
+  download ("name your own price", $0 is allowed). The mockup uses the subset in the author's
+  Godot repo, [pixel-boy/NinjaAdventure](https://github.com/pixel-boy/NinjaAdventure).
+- **Coverage:** these first renders used only the GitHub subset (tinted ice for water,
+  hue-shifted ninjas for Air and Fire). The full-pack audit above replaces those caveats.
+- **Today's mix:** Tiny Town and the 2013 textures are both replaced, and the 2013 fan-art units
+  go too. Kenney stays only as a fallback for gaps, though the style clash (Kenney has no
+  outlines) makes that a last resort.
+- **Design notes:**
+  - The 2×2 trees read as a dense canopy, which looks great but can hide units in forests. A
+    follow-up can fade canopies near the cursor or the selection.
+  - The facesets fill the #39 selection-bar portrait at native resolution.
+- **UI fit:** best with **A Scroll**: the warm wood and dark ink match its palette and outlines.
+  B Seal works. C Parchment is too close to its sand tones.
+
+## Option B: the whole Kenney family (flat, clean, 16px). Least change
+
+![Kenney family with the Scroll UI](https://github.com/gizmo385/four-nations/blob/2b41f02f7fed3698855af7c2f8986dbd0392c8b8/mockups/1/kenney-ui.png?raw=true)
+![Kenney family, whole map](https://github.com/gizmo385/four-nations/blob/2b41f02f7fed3698855af7c2f8986dbd0392c8b8/mockups/1/kenney-map.png?raw=true)
+
+- **Style:** soft, flat colours without outlines: what Tiny Town already looks like, applied to
+  everything.
+- **Sources:** all from [Kenney](https://kenney.nl), all **CC0** with direct downloads. Tiny
+  Town is already in the repo. [Roguelike RPG Pack](https://kenney.nl/assets/roguelike-rpg-pack)
+  (about 1,700 tiles) covers water, sand, stone, dirt, trees, cacti, rocks and gold.
+  [Roguelike Characters](https://kenney.nl/assets/roguelike-characters) provides paper-doll
+  layers (bodies, shirts, trousers, hair, hats).
+- **Coverage:**
+  - **Good:** water, coast, plains, forest, desert, mountains, all five resources.
+  - **Weak:** tundra. There's no snow tile, so the mockup uses a plain white panel tile and
+    tinted pines, and swamp and taiga are tinted grass.
+  - **Units:** composed from layers, with one outfit colour per nation (Air: bald, cream and
+    orange; Water: teal; Earth: green; Fire: dark and red). They're generic western-RPG figures,
+    and portraits would be upscaled 16px sprites.
+  - **Missing:** anything East Asian (architecture, clothing).
+  - Tiny Town grass has a faint diagonal dotted pattern that shows as stripes at map scale.
+- **Today's mix:** Tiny Town stays. Every 2013 texture and unit sprite is replaced.
+- **UI fit:** neutral; works with **A Scroll** or **B Seal**. Of the three options, this one has
+  the least Avatar flavour.
+
+## Option C: 1-bit glyphs (minimal, tinted, 16px)
+
+![1-bit with the Seal UI](https://github.com/gizmo385/four-nations/blob/2b41f02f7fed3698855af7c2f8986dbd0392c8b8/mockups/1/onebit-ui.png?raw=true)
+![1-bit, whole map](https://github.com/gizmo385/four-nations/blob/2b41f02f7fed3698855af7c2f8986dbd0392c8b8/mockups/1/onebit-map.png?raw=true)
+
+- **Style:** single-colour glyphs on dark ground, in the spirit of Dwarf Fortress tilesets or
+  Caves of Qud. Colour carries the meaning: each biome, resource and nation gets a tint.
+- **Source:** [Kenney 1-Bit Pack](https://kenney.nl/assets/1-bit-pack) (1,078 tiles), **CC0**.
+  The glyphs are white, and every tint comes from code or data (a `color` per biome in
+  `data/biomes.toml` would fit the existing `glyph` field there).
+- **Coverage:**
+  - **The most complete of the three:** trees, rocks, mountains, crops, ore, people, buildings,
+    tools, items and UI icons are all present, in one consistent style.
+  - **Weak spots:** Avatar flavour comes only through colour and the UI. Units differ only by
+    glyph and tint, and a nation colour can disappear against similar ground (Earth's green
+    units on grass, shown). The mockup lightens unit tints; a final version would want an
+    outline or a neutral body with an accent marker.
+- **Today's mix:** everything is replaced.
+- **Design notes:**
+  - It suits pillar 4 (readable simulation) and mirrors the sim's ASCII renderer.
+  - It's the cheapest to extend: a new building or item is usually just a glyph and a colour.
+- **UI fit:** best with **B Seal** (crisp, dark, square). Scroll's wooden rods feel heavy over it.
+
+## Also considered (not rendered)
+
+- **LPC (Liberated Pixel Cup), 32px.** CC-BY-SA 3.0 / GPL 3.0, with a large
+  character-generator ecosystem. Rejected for now: it's western-medieval, the base terrain has no
+  sand or snow, and moving to 32px tiles quadruples texture memory and the effort for every new
+  sprite.
+- **Original or commissioned Avatar art.** The best possible fit, but a big time and cost
+  commitment. Any option above can be replaced piece by piece later.
+- **Keeping the canon fan-art units** (the 2013 chibi Aang, Katara and others). It's allowed
+  (personal project), but they clash with every option's pixel scale. If the owner wants canon
+  characters, the better route is named special sprites drawn in the chosen style.
+
+## Comparison
+
+| | A Ninja Adventure | B Kenney family | C 1-bit |
+|---|---|---|---|
+| Avatar feel | **Strong** (East Asian setting, elemental icons) | Weak | Through colour only |
+| Coherence | One artist, one palette | Same studio; snow is improvised | Perfect |
+| Coverage | Good (full pack audited after the pick) | Good except tundra | Complete |
+| Units | 50+ characters with portraits | Paper-doll recolours | Tinted glyphs |
+| Licence | CC0 | CC0 | CC0 |
+| Getting it | Browser download from itch (or the GitHub subset) | Direct download | Direct download |
+| Best #39 UI | A Scroll | A Scroll or B Seal | B Seal |
+
+## Recommendation (as proposed)
+
+**Option A, at 16px, with the Scroll UI.** It was the only option that looks like the Avatar
+world without original art. It's CC0, it's one artist's work, so it stays coherent as buildings
+and icons arrive, and its facesets and elemental icons cover #39 and #23. The owner agreed, and
+the audit above confirmed the coverage.
+
+## Owner answers (2026-10-22)
+
+1. Direction: **A, Ninja Adventure**.
+2. The full zip was downloaded to `/Users/chris/workspace/Ninja Adventure - Asset Pack.zip`,
+   outside the repo. #74 imports what we use.
+3. Units: **generic pack characters dressed per nation** for now. Canon characters come later
+   (#78).
