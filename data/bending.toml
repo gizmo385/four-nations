@@ -18,7 +18,8 @@
 #   data/research.toml (that tech must be of the same nation, and the only one to list it).
 #
 # The effects are separate work (#68 to #71): until one lands, a bend of that ability is refused
-# as "not implemented yet". Water the Land (`irrigate`) is in; its magnitude scales `wet_minutes`.
+# as "not implemented yet". Raise Earth (`reshape`) and Water the Land (`irrigate`) are in; the
+# latter's magnitude scales `wet_minutes`.
 
 [chi]
 max = 100.0
