@@ -60,6 +60,19 @@ It avoids running two issues at once that are likely to edit the same files (sam
 or the same module), so parallel PRs rarely conflict. As PRs merge, newly unblocked issues
 become pickable and the loop continues.
 
+**Agents.** The orchestrator dispatches project agents from `.claude/agents/`, each with the
+repo rules built into its prompt, so dispatch prompts stay one line ("Implement #3; #18 runs in
+parallel"):
+
+| Agent | Model | Use for |
+|---|---|---|
+| `implementer` | Sonnet | `ready` code, data and tooling issues, end to end through merge |
+| `designer` | Opus | `area:design` issues: design doc plus follow-up issues; owner questions go to `needs-owner` |
+| `pr-shepherd` | Haiku | Getting an existing PR merged: auto-merge, CI watch, trivial rebases |
+| `triager` | Sonnet | The triage pass above; returns a dispatch plan |
+
+Use `general-purpose` only for one-off work that fits none of these.
+
 ## Finding work
 
 ```sh
