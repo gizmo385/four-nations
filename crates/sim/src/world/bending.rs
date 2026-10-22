@@ -12,7 +12,11 @@
 //! whether a target is acceptable and `apply_effect` changes the world. The four real effects
 //! are separate work (#68 Raise Earth, #69 Water the Land, #70 Hearthflame, #71 Wind Carry); until
 //! an effect lands its arm refuses every target as "not implemented yet", so a bend can't be spent
-//! on nothing. (Water the Land is in.) Everything else here is effect-agnostic.
+//! on nothing. (Raise Earth and Water the Land are in.) Everything else here is effect-agnostic.
+//!
+//! **Raise Earth** (#68) turns a river or lake tile with dry ground on one of its four sides
+//! into a `Ford`. Fords are permanent. The regions cache is invalidated and idle units woken,
+//! since jobs across the water may have become reachable.
 //!
 //! **Water the Land** (#69) leaves a `Patch` behind: a 3x3 area that stays wet for a while. When
 //! `tick_irrigation` finds a patch dry (patches dry in `(tick, centre)` order) up to `sprouts` of
@@ -277,8 +281,24 @@ impl World {
     #[allow(unused_variables)]
     fn validate_effect(&self, effect: &Effect, pos: Pos) -> Result<(), &'static str> {
         match effect {
-            // TODO(#68): the tile is a `from` terrain, 4-adjacent to a passable tile.
-            Effect::Reshape { .. } => Err("not implemented yet"),
+            Effect::Reshape { from, .. } => {
+                let tile = &self.map[pos];
+                if !from.contains(&tile.terrain) {
+                    return Err(match tile.terrain {
+                        Terrain::Water | Terrain::Coast => "the sea is out of reach",
+                        Terrain::Ford => "already a ford",
+                        _ => "needs a river or lake tile",
+                    });
+                }
+                // A fishing spot (or anything else) on the tile would be left on the new terrain.
+                if tile.resource.is_some() {
+                    return Err("something is in the way");
+                }
+                let bank = [(0, -1), (1, 0), (0, 1), (-1, 0)]
+                    .iter()
+                    .any(|&(dx, dy)| self.walkable(Pos::new(pos.x + dx, pos.y + dy)));
+                if bank { Ok(()) } else { Err("needs dry ground beside it") }
+            }
             Effect::Irrigate { source_range, .. } => {
                 let range = *source_range as i32;
                 let open = |t: Terrain| matches!(t, Terrain::Land | Terrain::Coast);
@@ -310,9 +330,15 @@ impl World {
     #[allow(unused_variables)]
     fn apply_effect(&mut self, effect: &Effect, pos: Pos, magnitude: f32) {
         match effect {
-            // TODO(#68), TODO(#70), TODO(#71): unreachable until `validate_effect` accepts a
-            // target.
-            Effect::Reshape { .. } | Effect::HeatSource { .. } | Effect::WindCarry { .. } => {}
+            // The new terrain is permanent (no undo in v1). It changes who can walk where, so
+            // the cached regions are stale and idle units should look for jobs that opened up.
+            Effect::Reshape { to, .. } => {
+                self.map[pos].terrain = *to;
+                self.map_changed();
+                self.wake_idle();
+            }
+            // TODO(#70), TODO(#71): unreachable until `validate_effect` accepts a target.
+            Effect::HeatSource { .. } | Effect::WindCarry { .. } => {}
             // The magnitude scales how long the patch stays wet.
             Effect::Irrigate {
                 wet_minutes,
@@ -407,6 +433,8 @@ impl World {
     }
 }
 
+#[cfg(test)]
+mod earth_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

@@ -210,7 +210,7 @@ impl World {
     }
 
     /// New work exists, so idle units shouldn't wait out their retry timer.
-    fn wake_idle(&mut self) {
+    pub(super) fn wake_idle(&mut self) {
         for u in &mut self.units {
             u.claim_retry_at = 0;
         }

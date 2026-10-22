@@ -104,11 +104,6 @@ fn bend_commands_that_cannot_be_given_are_refused_and_not_logged() {
             Command::Bend { ability: probe, pos: at(8, 4) },
             BendError::InvalidTarget("probe needs walkable ground"),
         ),
-        (
-            // The real abilities refuse every target until their effects land.
-            Command::Bend { ability: id(&defs, "raise_earth"), pos: at(1, 1) },
-            BendError::InvalidTarget("not implemented yet"),
-        ),
         (Command::CancelBend { pos: at(1, 1) }, BendError::NotDesignated),
     ] {
         assert_eq!(w.apply(command, &defs), Err(CommandError::Bend(error)), "{command:?}");
