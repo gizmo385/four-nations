@@ -14,7 +14,10 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 libs="$root/target/syslibs"
+say() { echo "run-client: $*" >&2; }
+
 if [[ ! -d "$libs" ]]; then
+  say "linking system graphics libraries into target/syslibs (first run only)"
   mkdir -p "$libs"
   for f in /usr/lib/x86_64-linux-gnu/lib*.so*; do
     case "$(basename "$f")" in
@@ -24,6 +27,14 @@ if [[ ! -d "$libs" ]]; then
     esac
   done
 fi
+say "resolving libxkbcommon from nixpkgs"
 xkb="$(nix build --no-link --print-out-paths nixpkgs#libxkbcommon)"
-cargo build -q -p fn_client --manifest-path "$root/Cargo.toml"
+# Not -q: after pulling changes the rebuild can take a minute, and silence looks like a hang.
+say "building fn_client"
+cargo build -p fn_client --manifest-path "$root/Cargo.toml"
+if [[ -n "${FN_SCREENSHOT:-}" ]]; then
+  say "rendering headless screenshot to $FN_SCREENSHOT"
+else
+  say "starting (the window can take a few seconds to appear with software rendering)"
+fi
 LD_LIBRARY_PATH="$xkb/lib:$libs" exec "$root/target/debug/fn_client" "$@"
