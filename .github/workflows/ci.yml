@@ -1,0 +1,35 @@
+# Runs the same gate agents run locally. Branch protection requires the `ci` job, so PRs with
+# auto-merge enabled land only once this passes.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  # Incremental builds don't help CI and bloat the cache.
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      # Keep in sync with the toolchain in the Nix profile (currently 1.98) so lints match.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.98"
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Only main writes the cache; PRs restore it. Keeps us within the private-repo quota.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo xtask ci
