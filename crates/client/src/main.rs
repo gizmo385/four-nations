@@ -2,7 +2,7 @@
 //!
 //!     cargo run -p fn_client -- [seed] [air|water|earth|fire] [width] [height]
 //!
-//! Controls: WASD/arrows pan, mouse wheel zoom, R new map, 1-4 switch nation, Space pause.
+//! Controls: WASD/arrows or mouse drag pan, mouse wheel zoom, R new map, 1-4 switch nation, Space pause.
 //!
 //! `FN_SCREENSHOT=out.png` renders a few seconds, saves a screenshot and exits. Agents use this
 //! to check visual changes without a human looking at the window.
@@ -290,18 +290,39 @@ fn controls(
     spawn_entities(&mut commands, &art, &sim);
 }
 
+/// Mouse movement (in screen pixels) after which a press becomes a drag rather than a click.
+const DRAG_THRESHOLD: f32 = 4.0;
+
+#[derive(Default)]
+struct DragState {
+    last: Option<Vec2>,
+    travelled: f32,
+}
+
 fn camera_controls(
     keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     scroll: Res<AccumulatedMouseScroll>,
     time: Res<Time>,
+    sim: Res<Sim>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    mut drag: Local<DragState>,
     mut camera: Query<(&mut Transform, &mut Projection), With<Camera2d>>,
 ) {
-    let Ok((mut tf, mut projection)) = camera.single_mut() else { return };
+    let (Ok(window), Ok((mut tf, mut projection))) = (window.single(), camera.single_mut()) else {
+        return;
+    };
     let Projection::Orthographic(ortho) = &mut *projection else { return };
+    let map_size = Vec2::new(sim.world.map.width() as f32, sim.world.map.height() as f32) * TILE;
 
+    // Zoom, but never out past the point where the whole map fits on screen.
+    let fit_scale = (map_size / window.size()).max_element().max(0.2);
     if scroll.delta.y != 0.0 {
-        ortho.scale = (ortho.scale * (1.0 - scroll.delta.y.signum() * 0.1)).clamp(0.2, 4.0);
+        ortho.scale *= 1.0 - scroll.delta.y.signum() * 0.1;
     }
+    ortho.scale = ortho.scale.clamp(0.2, fit_scale);
+
+    // Keyboard panning.
     let mut dir = Vec2::ZERO;
     for (keys_for, d) in [
         ([KeyCode::KeyW, KeyCode::ArrowUp], Vec2::Y),
@@ -315,6 +336,40 @@ fn camera_controls(
     }
     tf.translation +=
         (dir.normalize_or_zero() * 600.0 * ortho.scale * time.delta_secs()).extend(0.0);
+
+    // Grab-and-drag panning with any mouse button. Screen y points down, world y points up.
+    let buttons = [MouseButton::Left, MouseButton::Middle, MouseButton::Right];
+    let cursor = window.cursor_position();
+    if buttons.iter().any(|b| mouse.just_pressed(*b)) {
+        *drag = DragState { last: cursor, travelled: 0.0 };
+    }
+    if buttons.iter().any(|b| mouse.pressed(*b))
+        && let (Some(last), Some(now)) = (drag.last, cursor)
+    {
+        let delta = now - last;
+        drag.travelled += delta.length();
+        if drag.travelled > DRAG_THRESHOLD {
+            tf.translation.x -= delta.x * ortho.scale;
+            tf.translation.y += delta.y * ortho.scale;
+        }
+        drag.last = Some(now);
+    }
+
+    // Tiles are centered on their coordinates, so the map extends half a tile past them.
+    let map_min = Vec2::new(-TILE / 2.0, -(map_size.y - TILE / 2.0));
+    let map_max = Vec2::new(map_size.x - TILE / 2.0, TILE / 2.0);
+    let half_view = window.size() * ortho.scale / 2.0;
+    let clamped = clamp_camera(tf.translation.truncate(), half_view, map_min, map_max);
+    tf.translation = clamped.extend(tf.translation.z);
+}
+
+/// Clamps a camera center so a view with half-extents `half_view` stays inside the rectangle
+/// `[min, max]`. On any axis where the view is larger than the map, the map is centered instead.
+fn clamp_camera(center: Vec2, half_view: Vec2, min: Vec2, max: Vec2) -> Vec2 {
+    let axis = |c: f32, h: f32, lo: f32, hi: f32| {
+        if hi - lo <= 2.0 * h { (lo + hi) / 2.0 } else { c.clamp(lo + h, hi - h) }
+    };
+    Vec2::new(axis(center.x, half_view.x, min.x, max.x), axis(center.y, half_view.y, min.y, max.y))
 }
 
 /// Smoothly moves unit sprites toward their sim positions.
@@ -366,7 +421,7 @@ fn hud(sim: Res<Sim>, mut text: Query<&mut Text, With<HudText>>) {
     let def = sim.defs.nation(sim.world.nation);
     let m = &def.modifiers;
     text.0 = format!(
-        "{} | seed {} | tick {}{}\nmove x{} carry x{} earthworks x{} heat x{} water x{} power x{} build x{}\n[WASD] pan  [wheel] zoom  [R] new map  [1-4] nation  [Space] pause",
+        "{} | seed {} | tick {}{}\nmove x{} carry x{} earthworks x{} heat x{} water x{} power x{} build x{}\n[WASD/drag] pan  [wheel] zoom  [R] new map  [1-4] nation  [Space] pause",
         def.name,
         sim.world.seed,
         sim.world.tick,
@@ -399,5 +454,33 @@ fn auto_screenshot(
             exit.write(AppExit::Success);
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MIN: Vec2 = Vec2::new(0.0, 0.0);
+    const MAX: Vec2 = Vec2::new(100.0, 50.0);
+
+    #[test]
+    fn camera_inside_bounds_is_unchanged() {
+        let c = Vec2::new(50.0, 25.0);
+        assert_eq!(clamp_camera(c, Vec2::new(10.0, 10.0), MIN, MAX), c);
+    }
+
+    #[test]
+    fn camera_is_pushed_back_from_each_edge() {
+        let half = Vec2::new(10.0, 5.0);
+        assert_eq!(clamp_camera(Vec2::new(-30.0, -30.0), half, MIN, MAX), Vec2::new(10.0, 5.0));
+        assert_eq!(clamp_camera(Vec2::new(500.0, 500.0), half, MIN, MAX), Vec2::new(90.0, 45.0));
+    }
+
+    #[test]
+    fn view_larger_than_map_centers_that_axis() {
+        // Wider than the map horizontally only.
+        let c = clamp_camera(Vec2::new(0.0, 0.0), Vec2::new(80.0, 5.0), MIN, MAX);
+        assert_eq!(c, Vec2::new(50.0, 5.0));
     }
 }

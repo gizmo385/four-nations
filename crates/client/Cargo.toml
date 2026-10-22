@@ -24,3 +24,8 @@ features = [
   "default_font",
   "multi_threaded",
 ]
+
+# Bevy systems receive their dependencies as parameters; these lints fight that idiom.
+[lints.clippy]
+too_many_arguments = "allow"
+type_complexity = "allow"
