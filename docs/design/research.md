@@ -19,7 +19,7 @@ There are no weapon or military techs.
    six-tech branch per nation that expresses its bending and culture. A nation never sees other
    nations' branches.
 4. **Nations start differently.** Each nation starts knowing one tech: Fire knows `fire_making`,
-   Water knows `fishing`, Earth knows `stoneworking`, Air knows `meditation`. Fire is *not* a
+   Water knows `fishing`, Earth knows `stoneworking`, Air knows `orchards`. Fire is *not* a
    given for the others. A Water settlement eats raw fish until it researches fire.
 5. **Everything is data.** `data/research.toml` defines techs, costs, prereqs, nation
    restrictions and unlocks. The sim validates it strictly at load, like `defs.rs` does today.
@@ -127,15 +127,22 @@ No bloodbending. It's a dark art that doesn't fit peaceful progress.
 
 | id | Cost | Prereqs | Unlocks |
 |---|---|---|---|
-| `meditation` | 60 | none | meditation pavilion; chi regeneration; study ×1.2. *Air starts with it* |
+| `orchards` | 25 | none | orchard (plant and tend fruit trees: renewable fruit, edible raw); fruit-picking job. *Air starts with it* |
+| `meditation` | 60 | none | chi regeneration; study ×1.2 |
 | `gliders` | 60 | carpentry | glider staffs; move_speed ×1.15; scouting reveals the map |
 | `windmills` | 120 | gliders, farming | windmill (grinds grain for more food); power_generation ×1.2 |
 | `air_scooter` | 250 | gliders, meditation | ability: air scooter; move_speed ×1.2 |
 | `wind_turbines` | 250 | windmills | wind turbine powers workshops; power_generation ×1.25 |
 | `sky_bison` | 500 | meditation, air_scooter | bison stable; bison haul and fast travel; carry_capacity ×1.3 |
 
-Air starts behind on labor (carry 0.8, earthworks 0.7) but ahead on research through
-`meditation`. Monks are good at study, and that is their early path.
+Air starts behind on labor (carry 0.8, earthworks 0.7), so its starting tech secures food
+instead. The Air Temples' orchards fit the nomads' vegetarian life and give a steady supply of
+food that needs no fire. `meditation` is an early research choice, not a starting tech. The
+study hall exists from the start anyway (named Meditation Pavilion for Air), so meditation
+doesn't unlock a building.
+
+Speed check: Air's base `move_speed` is 1.6, and `gliders` (×1.15) and `air_scooter` (×1.2)
+bring it to about 2.2× baseline. Revisit in a balance pass.
 
 ## Data schema: `data/research.toml`
 
@@ -303,8 +310,9 @@ tree grows beyond one nation's identity.
    (e.g. an optional `reveals` field later), so scrolls can unlock hidden techs without a
    schema break.
 
-Still open: what Air's starting tech, `meditation`, should do in practice (see the owner
-discussion on PR #34).
+5. **Air's starting tech is `orchards`, not `meditation`** (owner's choice). Meditation alone gave
+   only a research bonus, while every other nation's start helps it survive. Orchards give the
+   nomads renewable food without fire, and meditation becomes a 60-cost Air tech.
 
 ## Follow-up issues
 
