@@ -228,14 +228,14 @@ impl World {
         }
     }
 
-    fn carry_capacity(&self, i: usize, defs: &Defs) -> u32 {
-        let m = defs.nation(self.units[i].nation).modifiers.carry_capacity;
+    fn carry_capacity(&self, _i: usize, defs: &Defs) -> u32 {
+        let m = self.modifiers().carry_capacity;
         ((defs.jobs.base_carry as f32 * m).round() as u32).max(1)
     }
 
     /// Work-seconds per second for this unit on this harvest: the nation modifier it names.
-    fn work_rate(&self, i: usize, h: &HarvestDef, defs: &Defs) -> f32 {
-        let mods = &defs.nation(self.units[i].nation).modifiers;
+    fn work_rate(&self, _i: usize, h: &HarvestDef, _defs: &Defs) -> f32 {
+        let mods = self.modifiers();
         h.modifier.as_deref().and_then(|m| mods.get(m)).unwrap_or(1.0)
     }
 
@@ -311,8 +311,8 @@ impl World {
 
     /// One tick of walking along the route. True once the unit is at the end of it (or the
     /// route is empty to begin with); arriving costs the tick the last step landed on.
-    fn walk(&mut self, i: usize, defs: &Defs) -> bool {
-        let speed = defs.nation(self.units[i].nation).modifiers.move_speed;
+    fn walk(&mut self, i: usize, _defs: &Defs) -> bool {
+        let speed = self.modifiers().move_speed;
         let u = &mut self.units[i];
         let Some(route) = u.route.as_mut() else { return false };
         let Some(&next) = route.last() else {

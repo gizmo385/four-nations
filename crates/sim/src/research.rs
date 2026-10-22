@@ -6,13 +6,13 @@
 //! walk techs in id order and know every prereq has already been visited.
 //!
 //! Static definitions come first. `Research` at the bottom is the live state that `World` holds:
-//! known techs, the knowledge pool and the queue. Applying multipliers to a nation's modifiers is
-//! separate work (#20).
+//! known techs, the knowledge pool and the queue. `effective_modifiers` and
+//! `modifier_breakdown` apply completed techs' multipliers to a nation's modifiers.
 
 use serde::Deserialize;
 
 use crate::defs::{Defs, DefsError};
-use crate::nation::{ModifierMultipliers, Nation};
+use crate::nation::{ModifierMultipliers, Modifiers, Nation};
 use crate::world::TICKS_PER_SECOND;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -21,6 +21,52 @@ pub struct TechId(pub u16);
 /// Largest multiplier a single tech may apply. Keeps a typo like `12` instead of `1.2` from
 /// loading.
 pub const MAX_MULTIPLIER: f32 = 4.0;
+
+/// The nation's base modifiers times every known tech's multipliers, applied in ascending
+/// `TechId` order. `f32` multiplication isn't associative, so the order is fixed here rather than
+/// left to completion order: any research order that reaches the same known set gives
+/// bitwise-identical results.
+pub fn effective_modifiers(
+    nation: Nation,
+    known: impl IntoIterator<Item = TechId>,
+    defs: &Defs,
+) -> Modifiers {
+    let mut mods = defs.nation(nation).modifiers;
+    for t in sorted(known) {
+        mods.apply(&defs.tech(t).unlocks.modifiers);
+    }
+    mods
+}
+
+/// How `effective_modifiers` arrives at the modifier called `name`: the nation's base value, then
+/// each known tech that multiplies it, in the same order as `effective_modifiers`. Each entry is
+/// `(source name, factor)`; the product of the factors (left to right) is the effective value.
+/// Empty if `name` isn't a modifier.
+pub fn modifier_breakdown<'d>(
+    name: &str,
+    nation: Nation,
+    known: impl IntoIterator<Item = TechId>,
+    defs: &'d Defs,
+) -> Vec<(&'d str, f32)> {
+    let nation = defs.nation(nation);
+    let Some(base) = nation.modifiers.get(name) else { return Vec::new() };
+    let mut out = vec![(nation.name.as_str(), base)];
+    for t in sorted(known) {
+        let tech = defs.tech(t);
+        if let Some((_, f)) = tech.unlocks.modifiers.iter().find(|(n, _)| *n == name) {
+            out.push((tech.name.as_str(), f));
+        }
+    }
+    out
+}
+
+/// `ids` in ascending order, without duplicates.
+fn sorted(ids: impl IntoIterator<Item = TechId>) -> Vec<TechId> {
+    let mut v: Vec<TechId> = ids.into_iter().collect();
+    v.sort_unstable();
+    v.dedup();
+    v
+}
 
 /// Knowledge production rates. Converted to integer millis per tick by the research system.
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -498,6 +544,32 @@ mod tests {
     #[test]
     fn zero_cost_is_rejected() {
         assert_err(with_techs(&tech("a", "cost = 0")), "cost must be > 0");
+    }
+
+    #[test]
+    fn effective_modifiers_ignore_the_order_techs_are_listed_in() {
+        use super::{effective_modifiers, modifier_breakdown};
+        let defs = Defs::bundled();
+        let id = |s: &str| defs.tech_id(s).unwrap();
+        // Three techs that all multiply `construction`.
+        let known = ["carpentry", "masonry", "earthen_walls"].map(id);
+        let bits = |k: &[TechId]| {
+            let m = effective_modifiers(Nation::Earth, k.iter().copied(), &defs);
+            m.construction.to_bits()
+        };
+        let want = bits(&known);
+        let mut k = known;
+        for _ in 0..known.len() {
+            k.rotate_left(1);
+            assert_eq!(bits(&k), want);
+            k.reverse();
+            assert_eq!(bits(&k), want);
+        }
+        // The breakdown multiplies out (left to right) to the effective value.
+        let parts = modifier_breakdown("construction", Nation::Earth, known, &defs);
+        let names: Vec<_> = parts.iter().map(|p| p.0).collect();
+        assert_eq!(names, ["Earth Kingdom", "Carpentry", "Masonry", "Earthen Walls"]);
+        assert_eq!(parts.iter().fold(1.0f32, |acc, p| acc * p.1).to_bits(), want);
     }
 
     #[test]

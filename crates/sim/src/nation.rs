@@ -60,6 +60,13 @@ macro_rules! modifiers {
             }
         }
 
+        impl Modifiers {
+            /// Multiplies each modifier `m` sets, leaving the others alone.
+            pub fn apply(&mut self, m: &ModifierMultipliers) {
+                $(if let Some(f) = m.$field { self.$field *= f; })*
+            }
+        }
+
         impl ModifierMultipliers {
             /// The multipliers that are set, as `(field name, multiplier)`, in field order.
             pub fn iter(&self) -> impl Iterator<Item = (&'static str, f32)> {
@@ -119,6 +126,15 @@ mod tests {
         assert_eq!(earth.get("earthworks"), Some(earth.earthworks));
         assert_eq!(earth.get("nonsense"), None);
         assert!(Modifiers::NAMES.iter().all(|n| earth.get(n).is_some()));
+    }
+
+    #[test]
+    fn apply_multiplies_only_the_modifiers_set() {
+        let mut m = crate::Defs::bundled().nation(Nation::Earth).modifiers;
+        let before = m;
+        m.apply(&toml::from_str("construction = 1.25").unwrap());
+        assert_eq!(m.construction, before.construction * 1.25);
+        assert_eq!(Modifiers { construction: before.construction, ..m }, before);
     }
 
     #[test]

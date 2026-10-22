@@ -579,7 +579,7 @@ fn hover_info(
 fn hud(sim: Res<Sim>, mut text: Query<&mut Text, With<HudText>>) {
     let Ok(mut text) = text.single_mut() else { return };
     let def = sim.defs.nation(sim.world.nation);
-    let m = &def.modifiers;
+    let m = sim.world.modifiers();
     text.0 = format!(
         "{} | seed {} | tick {}{}\nmove x{} carry x{} earthworks x{} heat x{} water x{} power x{} build x{}\n[click] select  [WASD/drag] pan  [wheel] zoom  [R] new map  [1-4] nation  [Space] pause",
         def.name,
