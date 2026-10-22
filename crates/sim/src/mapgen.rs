@@ -14,6 +14,10 @@
 //! 4. **Hydrology** (see `hydrology`): fill depressions into lakes, route rain downhill, and
 //!    turn high-flow tiles into rivers. Moisture is then recomputed so rivers green their
 //!    valleys.
+//!    **River crossings** (see `crossings`, issue #30): rivers are not walkable, so the
+//!    narrowest river tiles that would otherwise split a landmass become `Terrain::Ford`.
+//!    Chosen over bridges-as-a-build-job (the start of the game would be unplayable on a split
+//!    continent) and slow-river movement cost (rivers should stay a real obstacle).
 //! 5. **Biomes** from `data/biomes.toml`'s temperature x moisture table.
 //! 6. **Resources** (`mapgen.resources`): per-tile rolls whose chance follows a per-resource
 //!    noise field (clumped groves), moisture, and an optional minimum spacing.
@@ -21,6 +25,7 @@
 //! All arithmetic is plain `f64` `+ - * /` and `floor` (no `powf`/`exp`/FMA), so maps are
 //! identical on every platform. See `noise` for why the noise is in-house.
 
+mod crossings;
 mod hydrology;
 
 use std::collections::VecDeque;
@@ -120,7 +125,8 @@ pub fn generate(cfg: &MapGenConfig, defs: &Defs) -> TileMap {
             Terrain::Land
         }
     });
-    let terrain = add_coastline(&terrain);
+    let mut terrain = add_coastline(&terrain);
+    crossings::add_fords(&mut terrain, &hydro.flow);
     let fresh_or_sea = terrain.map_with(|_, t| t.is_water());
     let moisture = moisture(&moisture_noise, &fresh_or_sea);
     let temperature = temperature(cfg, &elevation, sea_level, &temperature_noise);
@@ -372,6 +378,7 @@ pub fn to_ascii(map: &TileMap, defs: &Defs) -> String {
             (None, Terrain::Water) => '~',
             (None, Terrain::Lake) => '-',
             (None, Terrain::River) => '=',
+            (None, Terrain::Ford) => '+',
             (None, Terrain::Coast) => '.',
             (None, Terrain::Mountain) => '^',
             (None, Terrain::Land) => defs.biome(t.biome).glyph,

@@ -131,13 +131,14 @@ fn poles_are_cold_and_the_equator_is_warm() {
     }
 }
 
-/// Tiles reachable from the sea through rivers and lakes (8-connected).
+/// Tiles reachable from the sea through rivers, fords and lakes (8-connected).
 fn drains_to_sea(map: &TileMap) -> Grid<bool> {
     let mut seen = Grid::from_fn(map.width(), map.height(), |p| map[p].terrain == Terrain::Water);
     let mut queue: VecDeque<Pos> = map.positions().filter(|&p| seen[p]).collect();
     while let Some(p) = queue.pop_front() {
         for q in map.neighbors(p, true) {
-            if !seen[q] && matches!(map[q].terrain, Terrain::River | Terrain::Lake) {
+            if !seen[q] && matches!(map[q].terrain, Terrain::River | Terrain::Lake | Terrain::Ford)
+            {
                 seen[q] = true;
                 queue.push_back(q);
             }
@@ -167,6 +168,66 @@ fn rivers_and_lakes_are_not_walkable() {
         assert!(!t.is_walkable(), "{t:?}");
     }
     assert!(Terrain::River.is_water() && Terrain::Lake.is_water());
+    // A ford is the exception: shallow water you can wade.
+    assert!(Terrain::Ford.is_walkable() && Terrain::Ford.is_water());
+}
+
+/// Labels 4-connected regions of tiles for which `member` holds. 0 means "not a member".
+fn regions(map: &TileMap, member: impl Fn(Terrain) -> bool) -> Grid<usize> {
+    let mut label = Grid::from_fn(map.width(), map.height(), |_| 0);
+    let mut count = 0;
+    for start in map.positions() {
+        if label[start] != 0 || !member(map[start].terrain) {
+            continue;
+        }
+        count += 1;
+        label[start] = count;
+        let mut queue = VecDeque::from([start]);
+        while let Some(p) = queue.pop_front() {
+            for q in map.neighbors(p, false) {
+                if label[q] == 0 && member(map[q].terrain) {
+                    label[q] = count;
+                    queue.push_back(q);
+                }
+            }
+        }
+    }
+    label
+}
+
+#[test]
+fn rivers_do_not_disconnect_land() {
+    // A landmass is land held together by rivers and fords too (not lakes or sea); within it,
+    // every walkable tile must reach every other on foot, 4-connected (the strictest step rule).
+    let mut fords = 0;
+    for (c, map) in
+        maps((0..8).map(big).chain((0..3).map(|s| MapGenConfig { seed: s, ..Default::default() })))
+    {
+        let landmass = regions(&map, |t| {
+            matches!(t, Terrain::Land | Terrain::Coast | Terrain::Ford | Terrain::River)
+        });
+        let walkable = regions(&map, Terrain::is_walkable);
+        let mut walk_region_of: std::collections::HashMap<usize, usize> = Default::default();
+        for p in map.positions().filter(|&p| walkable[p] != 0) {
+            let first = *walk_region_of.entry(landmass[p]).or_insert(walkable[p]);
+            assert_eq!(first, walkable[p], "seed {}: {p:?} is cut off by a river", c.seed);
+        }
+        fords += map.iter().filter(|(_, t)| t.terrain == Terrain::Ford).count();
+    }
+    assert!(fords > 0, "expected some fords on full-size maps");
+}
+
+#[test]
+fn fords_are_single_river_tiles_and_stay_connected_to_the_sea() {
+    for (c, map) in maps((0..6).map(big)) {
+        let drained = drains_to_sea(&map);
+        for (p, t) in map.iter() {
+            if t.terrain == Terrain::Ford {
+                assert!(t.resource.is_none(), "seed {}: resource on ford {p:?}", c.seed);
+                assert!(drained[p], "seed {}: ford at {p:?} doesn't reach the sea", c.seed);
+            }
+        }
+    }
 }
 
 #[test]

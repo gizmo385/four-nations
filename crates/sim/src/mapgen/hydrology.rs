@@ -20,6 +20,8 @@ const EPSILON: f64 = 1e-7;
 pub struct Hydrology {
     pub lake: Grid<bool>,
     pub river: Grid<bool>,
+    /// Rain accumulated at each tile from everything upstream: a proxy for river size.
+    pub flow: Grid<f64>,
 }
 
 /// Min-heap entry ordered by height, then position (for deterministic tie-breaking).
@@ -98,7 +100,7 @@ pub fn rivers_and_lakes(
         }
     }
     let river = acc.map_with(|p, &a| !sea[p] && !lake[p] && a >= river_threshold);
-    Hydrology { lake, river }
+    Hydrology { lake, river, flow: acc }
 }
 
 #[cfg(test)]
