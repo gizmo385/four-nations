@@ -24,7 +24,7 @@ pub(crate) const STRAIGHT: u32 = 10;
 /// Cost of one diagonal step onto a tile of cost 1 (10 * sqrt(2), rounded).
 pub(crate) const DIAGONAL: u32 = 14;
 
-const TERRAINS: usize = 6;
+const TERRAINS: usize = 7;
 
 fn terrain_index(t: Terrain) -> usize {
     match t {
@@ -34,6 +34,7 @@ fn terrain_index(t: Terrain) -> usize {
         Terrain::Mountain => 3,
         Terrain::River => 4,
         Terrain::Lake => 5,
+        Terrain::Ford => 6,
     }
 }
 
@@ -59,6 +60,7 @@ impl Default for MoveRules {
             Terrain::Mountain,
             Terrain::River,
             Terrain::Lake,
+            Terrain::Ford,
         ] {
             terrain_cost[terrain_index(t)] = t.is_walkable().then_some(1);
         }

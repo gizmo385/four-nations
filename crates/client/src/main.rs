@@ -317,6 +317,8 @@ fn ground_sprite(art: &Art, sim: &Sim, p: Pos, t: &Tile) -> Sprite {
     match (t.terrain, biome) {
         // Rivers and lakes reuse the sea tile until they get their own art.
         (Terrain::Water | Terrain::River | Terrain::Lake, _) => art.legacy_terrain("terrain/water"),
+        // Fords borrow the shoreline sprite until they get their own art.
+        (Terrain::Ford, _) => art.legacy_terrain("terrain/coast"),
         (Terrain::Coast, "tundra") => art.legacy_terrain("terrain/snow-coast"),
         (Terrain::Coast, _) => art.legacy_terrain("terrain/coast"),
         (Terrain::Mountain, "tundra") => art.legacy_terrain("terrain/snow-stones"),

@@ -24,12 +24,15 @@ pub enum Terrain {
     River,
     /// Fresh water standing in a filled depression.
     Lake,
+    /// A shallow, walkable crossing where mapgen cut a river (issue #30). Replaces a single
+    /// river tile so land on both banks stays connected.
+    Ford,
 }
 
 impl Terrain {
-    /// Any kind of water: sea, river or lake.
+    /// Any kind of water: sea, river, lake or ford (shallow water you can wade).
     pub fn is_water(self) -> bool {
-        matches!(self, Terrain::Water | Terrain::River | Terrain::Lake)
+        matches!(self, Terrain::Water | Terrain::River | Terrain::Lake | Terrain::Ford)
     }
 
     /// Standing water that gets a shoreline (`Coast`) around it. Rivers don't.
@@ -38,7 +41,7 @@ impl Terrain {
     }
 
     pub fn is_walkable(self) -> bool {
-        matches!(self, Terrain::Coast | Terrain::Land)
+        matches!(self, Terrain::Coast | Terrain::Land | Terrain::Ford)
     }
 }
 
