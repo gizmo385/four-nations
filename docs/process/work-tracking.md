@@ -10,22 +10,35 @@ repo with one human owner). Agents use the `gh` CLI.
 | Area | `area:sim` `area:client` `area:data` `area:art` `area:tooling` `area:design` | One or more per issue |
 | Feature group | `feat:mapgen` `feat:units` `feat:jobs` `feat:bending` `feat:persistence` `feat:rendering` `feat:dev-tools` | Exactly one. Add a new `feat:*` label when a new feature area starts |
 | Priority | `p0` (blocking) `p1` (next) `p2` (soon) `p3` (someday) | Exactly one |
-| Workflow | `ready` `in-progress` `blocked` `large` | See below |
+| Workflow | `ready` `in-progress` `large` | See below |
 
 - **`ready`**: only the owner adds this. It means "agents may pick this up". Issues without it
   are ideas or need more detail.
 - **`in-progress`**: claimed. The claim comment says by whom and where.
-- **`blocked`**: the body's first line is `Blocked by #N, #M`. Remove the label when those close.
 - **`large`**: must use the PR flow (below).
+
+## Dependencies
+
+Use GitHub's **issue relationships** ("Blocked by" / "Blocking" in the issue sidebar), not
+labels or body text. An issue counts as blocked while any issue blocking it is still open. When
+the blocker closes it's unblocked automatically, with nothing to clean up.
+
+```sh
+gh issue create ... --blocked-by 4,5              # new issue that depends on #4 and #5
+gh issue edit 7 --add-blocked-by 5                # #7 can't start until #5 is done
+gh issue edit 7 --remove-blocked-by 5
+gh issue list --search "is:open is:blocked"       # what's waiting on something
+gh api repos/gizmo385/four-nations/issues/4/dependencies/blocking --jq 'map(.number)'  # what #4 unblocks
+```
 
 ## Finding work
 
 ```sh
-gh issue list --label ready --search "-label:in-progress -label:blocked" --json number,title,labels \
+gh issue list --search "is:open label:ready -label:in-progress -is:blocked" --json number,title,labels \
   --jq 'sort_by(.labels | map(.name) | map(select(test("^p[0-3]$")))[0]) | .[] | "#\(.number) \(.title)"'
 ```
 
-Or, more simply: `gh issue list --label ready,p1`.
+Never pick up a blocked issue, even if it's labelled `ready`.
 
 ## Claiming
 
@@ -83,11 +96,11 @@ If you started direct-to-main and the change grows, move it to a branch and swit
 Found work outside your current scope? File it instead of expanding scope:
 
 ```sh
-gh issue create --template work-item.md --title "..." --label area:sim,feat:units,p2
+gh issue create --template work-item.md --title "..." --label area:sim,feat:units,p2 --blocked-by 4
 ```
 
 Don't add `ready` yourself. Keep issues small: one focused session, reviewable in under
-30 minutes. Split bigger work and link the pieces with `Blocked by`.
+30 minutes. Split bigger work and link the pieces with `--blocked-by`.
 
 ## Handoff
 
