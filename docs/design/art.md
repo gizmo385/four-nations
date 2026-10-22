@@ -12,8 +12,10 @@ options that were considered follow for the record.
   manifest.
 - **Units:** generic pack characters, three per nation (table below). Canon characters come later,
   as special sprites in the same style (#78).
-- **UI:** the pack's warm, outlined look pairs best with #39's **Scroll** panels. #39 is still
-  the owner's call.
+- **UI:** used with #39's **Seal** panels (owner's pick, `docs/design/ui.md`). Cool, opaque
+  slate panels separate cleanly from the pack's warm, saturated map. The brackets and seal get a
+  1px dark outline to match the pack's outlined sprites, and facesets and icons are drawn at
+  integer scale. Details are in ui.md under "Fitting Seal to Ninja Adventure".
 - **Follow-ups:**
   - #74: import the pack and record it in the manifest.
   - #75: terrain and resources (blocked by #74).
@@ -21,12 +23,13 @@ options that were considered follow for the record.
   - #77: fade forest canopies (p3, blocked by #75).
   - #78: canon characters (p3, blocked by #76).
 
-![Full pack, Water Tribes, Scroll UI](https://github.com/gizmo385/four-nations/blob/d4a70353b8cb52e2364f9b32a75b2a82751d1f2c/mockups/1/ninja-full-ui.png?raw=true)
+![Full pack, Water Tribes, Seal UI](https://github.com/gizmo385/four-nations/blob/92ea0705fc25b2dc46ec2b8c1fdfd848d95ef781/mockups/1/ninja-seal-ui.png?raw=true)
 ![Full pack, whole map](https://github.com/gizmo385/four-nations/blob/d4a70353b8cb52e2364f9b32a75b2a82751d1f2c/mockups/1/ninja-full-map.png?raw=true)
 
-These two renders use the owner's full download: real water (purple in swamps), conifers, grey
-boulders on mountains, and the Water Tribes cast with an `Eskimo` faceset as the portrait. Hard
-edges between terrains remain until autotiling (#8).
+These two renders use the owner's full download, the first with the chosen Seal UI. They show
+real water (purple in swamps), conifers, grey boulders on mountains, and the Water Tribes cast
+with an `Eskimo` faceset as the portrait. Hard edges between terrains remain until autotiling
+(#8).
 
 ## Coverage audit (full pack)
 
@@ -136,8 +139,8 @@ approximations to judge the look, not final mappings.
   - The 2×2 trees read as a dense canopy, which looks great but can hide units in forests. A
     follow-up can fade canopies near the cursor or the selection.
   - The facesets fill the #39 selection-bar portrait at native resolution.
-- **UI fit:** best with **A Scroll**: the warm wood and dark ink match its palette and outlines.
-  B Seal works. C Parchment is too close to its sand tones.
+- **UI fit (as proposed):** best with A Scroll, with B Seal workable. The owner then chose
+  **Seal** for #39, and it fits well (see Decision). C Parchment is too close to its sand tones.
 
 ## Option B: the whole Kenney family (flat, clean, 16px). Least change
 

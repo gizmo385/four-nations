@@ -32,6 +32,7 @@ use jobview::{JobViewPlugin, ResourceSprite};
 
 mod designate;
 mod jobview;
+mod ui_style;
 
 const TILE: f32 = 16.0;
 const STARTING_UNITS: u32 = 6;
