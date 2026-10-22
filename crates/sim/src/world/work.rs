@@ -557,6 +557,7 @@ impl World {
             FoodSource::Forage(p) => {
                 let tile = &mut self.map[p];
                 let h = defs.harvest(tile.resource.take().expect("checked")).expect("checked");
+                self.map_changed();
                 if h.count > 1 {
                     self.place_ground(p, Stack { item, count: h.count - 1 });
                 }
@@ -584,6 +585,11 @@ impl World {
         }
         self.prune_jobs(defs);
         if self.jobs.iter().all(|j| j.claimed_by.is_some()) {
+            return false;
+        }
+        if !self.any_job_in_region(i, defs) {
+            // Nothing open is on this unit's side of a river, wall or shore: skip the flood.
+            self.units[i].claim_retry_at = self.tick + self.retry_ticks(defs);
             return false;
         }
         let flood = self.flood_from(i);
@@ -633,6 +639,34 @@ impl World {
         true
     }
 
+    /// A cheap, conservative check against the connectivity cache: false only if no unclaimed
+    /// job could possibly be reached from unit `i`'s tile, so claiming can skip the flood. True
+    /// means "maybe" (the flood still decides), and it is always true when the unit stands on a
+    /// tile it couldn't walk onto, which the cache has no region for.
+    fn any_job_in_region(&mut self, i: usize, defs: &Defs) -> bool {
+        let from = self.units[i].pos;
+        self.regions();
+        let Some(regions) = self.regions.as_ref() else { return true };
+        let Some(here) = regions.region(from) else { return true };
+        let in_here = |p: Pos| regions.region(p) == Some(here);
+        // The tile itself if units can enter it, else any neighbour (see `stand`).
+        let can_stand = |pos: Pos| {
+            if self.map.get(pos).is_some_and(|t| self.rules.passable(t)) {
+                in_here(pos)
+            } else {
+                NEIGHBORS.iter().any(|&(dx, dy)| in_here(Pos::new(pos.x + dx, pos.y + dy)))
+            }
+        };
+        self.jobs.iter().filter(|j| j.claimed_by.is_none()).any(|job| match job.kind {
+            JobKind::Harvest { pos } => can_stand(pos),
+            JobKind::Haul { pos } => {
+                let item = self.ground[&pos].item;
+                in_here(pos)
+                    && self.zones.iter().any(|&z| in_here(z) && self.room_at(z, item, defs) > 0)
+            }
+        })
+    }
+
     /// The nearest stockpile tile with room for `item`, with its cost.
     fn reachable_room(&self, flood: &Flood, item: ItemId, defs: &Defs) -> Option<(u32, Pos)> {
         self.zones
@@ -679,6 +713,7 @@ impl World {
         }
         self.jobs.remove(idx);
         self.map[pos].resource = None;
+        self.map_changed();
         self.place_ground(pos, Stack { item: h.item, count: h.count });
         self.finish_job(i);
     }
