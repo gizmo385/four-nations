@@ -45,19 +45,21 @@ regen_per_minute = 2.0
 
 # Foods. `hunger` is what one raw item restores. `cooked_hunger` (optional) is what it restores
 # once cooked, and must be higher. `resource` (optional) links to a map resource in
-# data/resources.toml that yields this food; fish and fruit get theirs with their techs.
+# data/resources.toml that yields this food (what the harvest yields is in data/jobs.toml).
 
 [[food]]
 id = "fish"
 name = "Fish"
 hunger = 40.0
 cooked_hunger = 70.0
+resource = "fish_spot"
 
 [[food]]
 id = "fruit"
 name = "Fruit"
 hunger = 30.0
 cooked_hunger = 40.0
+resource = "fruit_tree"
 
 [[food]]
 id = "cabbage"

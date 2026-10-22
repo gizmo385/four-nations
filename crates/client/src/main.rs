@@ -359,6 +359,11 @@ fn resource_sprite(art: &Art, sim: &Sim, t: &Tile) -> Option<(Sprite, f32)> {
         ("gold_vein", _) => (Sprite::from_image(art.legacy("resources/gold")), 0.0),
         ("stone", _) => (Sprite::from_image(art.legacy("terrain/earth-stones")), 0.0),
         ("cabbage", _) => (Sprite::from_image(art.legacy("resources/cabbage1")), 0.0),
+        // The small orange tree from the Kenney sheet stands in for a fruit tree until the art
+        // pass (#1).
+        ("fruit_tree", _) => (art.kenney(27), 0.0),
+        // A white fleck on the water, until fish have art (#1).
+        ("fish_spot", _) => (Sprite::from_color(Color::WHITE, Vec2::splat(TILE / 4.0)), 0.0),
         _ => (art.kenney(29), 0.0),
     })
 }
@@ -584,14 +589,16 @@ fn hover_info(
     };
     *visibility = Visibility::Inherited;
     let resource = tile.resource.map_or("None", |r| sim.defs.resource(r).name.as_str());
+    let growing = if sim.world.is_resting(p) { " (growing back)" } else { "" };
     text.0 = format!(
-        "Tile ({}, {})\nTerrain: {:?}\nBiome: {}\nElevation: {}\nResource: {}",
+        "Tile ({}, {})\nTerrain: {:?}\nBiome: {}\nElevation: {}\nResource: {}{}",
         p.x,
         p.y,
         tile.terrain,
         sim.defs.biome(tile.biome).name,
         tile.elevation,
-        resource
+        resource,
+        growing
     );
 }
 

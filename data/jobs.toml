@@ -35,12 +35,19 @@ name = "Stone"
 id = "gold_ore"
 name = "Gold Ore"
 
-# What working a map resource yields. The resource tile is cleared when the work finishes and
-# `count` of `item` drops there.
+# What working a map resource yields. When the work finishes `count` of `item` drops beside the
+# resource, and the resource is cleared unless it regrows (see `regrow`).
 # - verb:     what the designation is called in the UI.
 # - work:     in-game seconds of work for a unit whose modifier is 1.0.
 # - modifier: optional nation modifier (data/nations.toml) that scales how fast the work goes,
 #             e.g. quarrying runs on `earthworks`.
+# - regrow:   optional, in-game seconds. A renewable resource is not cleared by harvesting: it
+#             stays on the map, can't be worked again until it has regrown, and then ripens
+#             again. This is what keeps a settlement fed past the first few hours. Without it
+#             the resource is used up.
+# - requires_tech: optional tech id (data/research.toml). Until the nation knows it the resource
+#             can't be designated, and hungry units won't forage it. Water Tribes start with
+#             `fishing`.
 # A harvest whose item is a food can also be foraged by a hungry unit on its own.
 
 [[harvest]]
@@ -79,3 +86,23 @@ verb = "Gather"
 item = "cabbage"
 count = 1
 work = 2.0
+regrow = 480.0
+
+[[harvest]]
+resource = "fruit_tree"
+verb = "Pick"
+item = "fruit"
+count = 2
+work = 4.0
+regrow = 360.0
+
+# Fishing is slow work, and the water-working nations are good at it.
+[[harvest]]
+resource = "fish_spot"
+verb = "Fish"
+item = "fish"
+count = 2
+work = 8.0
+modifier = "water_work"
+regrow = 300.0
+requires_tech = "fishing"

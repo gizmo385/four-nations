@@ -234,11 +234,18 @@ fn fords_are_single_river_tiles_and_stay_connected_to_the_sea() {
 fn resources_respect_their_rules() {
     let defs = Defs::bundled();
     for (_, map) in maps((0..10).map(cfg).chain((0..3).map(big))) {
-        for (_, t) in map.iter() {
+        for (p, t) in map.iter() {
             if let Some(r) = t.resource {
                 let def = defs.resource(r);
                 if let Some(ts) = &def.terrains {
                     assert!(ts.contains(&t.terrain), "{} on {:?}", def.id, t.terrain);
+                }
+                if let Some(ts) = &def.beside {
+                    assert!(
+                        map.neighbors(p, true).any(|q| ts.contains(&map[q].terrain)),
+                        "{} at {p:?} isn't beside {ts:?}",
+                        def.id
+                    );
                 }
                 if let Some(bs) = &def.biomes {
                     let biome = &defs.biome(t.biome).id;
@@ -246,6 +253,19 @@ fn resources_respect_their_rules() {
                 }
             }
         }
+    }
+}
+
+/// Renewable food (#56) exists on real maps: fishing spots in the water, fruit trees on land.
+#[test]
+fn renewable_food_sources_appear_on_generated_maps() {
+    let defs = Defs::bundled();
+    let (fish, fruit) =
+        (defs.resource_id("fish_spot").unwrap(), defs.resource_id("fruit_tree").unwrap());
+    for (c, map) in maps((0..3).map(big)) {
+        let count = |id| map.iter().filter(|(_, t)| t.resource == Some(id)).count();
+        assert!(count(fish) >= 10, "seed {}: {} fishing spots", c.seed, count(fish));
+        assert!(count(fruit) >= 5, "seed {}: {} fruit trees", c.seed, count(fruit));
     }
 }
 

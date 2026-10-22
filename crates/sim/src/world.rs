@@ -106,6 +106,9 @@ pub struct World {
     next_job: u32,
     /// Commands applied so far (`World::apply`), for replay.
     command_log: Vec<Recorded>,
+    /// Renewable resources that have been worked and are growing back, with the seconds of
+    /// growth each still needs. They stay on the map but can't be worked until they ripen.
+    resting: BTreeMap<Pos, f32>,
     /// Item stacks lying on the ground, one stack per tile, waiting to be hauled.
     ground: BTreeMap<Pos, Stack>,
     /// Tiles designated as stockpile.
@@ -143,6 +146,7 @@ impl World {
             jobs: Vec::new(),
             next_job: 0,
             command_log: Vec::new(),
+            resting: BTreeMap::new(),
             ground: BTreeMap::new(),
             zones: BTreeSet::new(),
             stored: BTreeMap::new(),
@@ -234,7 +238,7 @@ impl World {
         self.map.get(p).is_some_and(|t| t.terrain.is_walkable() && t.resource.is_none())
     }
 
-    /// Advances the world by one tick: research and units' needs run (units whose health reaches 0
+    /// Advances the world by one tick: research, units' needs and resource regrowth run (units whose health reaches 0
     /// die and are removed, in id order), then each survivor acts, in id order: it meets a need
     /// if one is low, else carries on with its job, else claims one, else wanders. See
     /// `work.rs`.
@@ -246,6 +250,7 @@ impl World {
             self.refresh_modifiers(defs);
         }
         self.tick_needs(defs);
+        self.tick_growth(defs);
         for i in 0..self.units.len() {
             self.act(i, defs);
         }

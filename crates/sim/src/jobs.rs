@@ -10,6 +10,7 @@ use crate::defs::{DefsError, ResourceDef, ResourceId};
 use crate::geom::Pos;
 use crate::nation::Modifiers;
 use crate::needs::{FoodDef, NeedsSettings};
+use crate::research::{TechDef, TechId};
 use crate::world::UnitId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -42,6 +43,11 @@ pub struct HarvestDef {
     pub work: f32,
     /// Nation modifier (`Modifiers::get`) that scales the work speed, if any.
     pub modifier: Option<String>,
+    /// In-game seconds a renewable resource takes to ripen again after being worked. `None`
+    /// means the resource is used up. See `World::growth_rate` for what speeds this up.
+    pub regrow: Option<f32>,
+    /// A tech the nation must know before this can be worked.
+    pub requires_tech: Option<TechId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -77,6 +83,8 @@ struct RawHarvest {
     count: u32,
     work: f32,
     modifier: Option<String>,
+    regrow: Option<f32>,
+    requires_tech: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -94,6 +102,7 @@ impl JobsFile {
         resources: &[ResourceDef],
         foods: &[FoodDef],
         needs: &NeedsSettings,
+        techs: &[TechDef],
     ) -> Result<(JobSettings, Vec<ItemDef>, Vec<HarvestDef>), DefsError> {
         let err = |msg: String| Err(DefsError(format!("jobs.toml: {msg}")));
         let s = self.settings;
@@ -159,6 +168,18 @@ impl JobsFile {
             {
                 return err(format!("harvest {r}: unknown modifier {m:?}"));
             }
+            if let Some(g) = h.regrow
+                && !(g.is_finite() && g > 0.0)
+            {
+                return err(format!("harvest {r}: regrow must be a positive number of seconds"));
+            }
+            let requires_tech = match &h.requires_tech {
+                None => None,
+                Some(t) => match techs.iter().position(|d| d.id == *t) {
+                    Some(i) => Some(TechId(i as u16)),
+                    None => return err(format!("harvest {r}: unknown tech {t:?}")),
+                },
+            };
             harvests.push(HarvestDef {
                 resource: ResourceId(resource as u16),
                 verb: h.verb,
@@ -166,6 +187,8 @@ impl JobsFile {
                 count: h.count,
                 work: h.work,
                 modifier: h.modifier,
+                regrow: h.regrow,
+                requires_tech,
             });
         }
         Ok((s, items, harvests))
