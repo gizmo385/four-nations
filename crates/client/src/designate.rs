@@ -1,6 +1,6 @@
 //! Designation tools: pick a tool with a key, drag a rectangle on the map, and every tile in it
 //! becomes a `Command` for `World::apply`. Designated tiles are tinted so you can see what is
-//! queued. Minimal on purpose: the overall UI style is #39 and job state display is #57.
+//! queued. Minimal on purpose: the overall UI style is #39. Job state display is in `jobview`.
 //!
 //! Keys: `H` harvest (chop, quarry, gather, mine, whatever each tile's resource gives), `X` cancel
 //! harvest, `P` stockpile, `Esc` back to selecting units. While a tool is active the left mouse

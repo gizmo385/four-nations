@@ -28,8 +28,10 @@ use bevy::winit::WinitPlugin;
 use designate::{DesignatePlugin, Notice, Tool};
 use fn_sim::world::{TICKS_PER_SECOND, UnitId};
 use fn_sim::{Defs, MapGenConfig, Nation, Pos, Terrain, Tile, World};
+use jobview::{JobViewPlugin, ResourceSprite};
 
 mod designate;
+mod jobview;
 
 const TILE: f32 = 16.0;
 const STARTING_UNITS: u32 = 6;
@@ -81,7 +83,7 @@ fn main() {
         .insert_resource(Sim::new(seed, nation, width, height))
         .init_resource::<Selection>()
         .add_message::<MapClicked>()
-        .add_plugins(DesignatePlugin)
+        .add_plugins((DesignatePlugin, JobViewPlugin))
         .add_systems(Startup, (load_art, setup_camera_and_ui, spawn_world).chain())
         .add_systems(FixedUpdate, tick_sim)
         .add_systems(
@@ -376,7 +378,7 @@ fn spawn_entities(commands: &mut Commands, art: &Art, sim: &Sim) {
             let z = 1.0 + p.y as f32 * 0.001;
             let mut tf = Transform::from_translation(tile_translation(p, z));
             tf.translation.y += dy;
-            commands.spawn((sprite, tf, MapEntity));
+            commands.spawn((sprite, tf, ResourceSprite(p), MapEntity));
         }
     }
     for u in &sim.world.units {
@@ -667,7 +669,7 @@ fn selection_info(
     };
     *visibility = Visibility::Inherited;
     text.0 = format!(
-        "{}\n{}\nTile ({}, {})\nHealth {:.0}  Hunger {:.0}\nThirst {:.0}  Energy {:.0}\n[Esc] deselect",
+        "{}\n{}\nTile ({}, {})\nHealth {:.0}  Hunger {:.0}\nThirst {:.0}  Energy {:.0}\nTask: {}\nCarrying: {}\n[Esc] deselect",
         unit.name,
         sim.defs.nation(unit.nation).name,
         unit.pos.x,
@@ -675,7 +677,9 @@ fn selection_info(
         unit.needs.health,
         unit.needs.hunger,
         unit.needs.thirst,
-        unit.needs.energy
+        unit.needs.energy,
+        jobview::describe_task(&sim.world, &sim.defs, unit),
+        jobview::describe_stack(&sim.defs, unit.carrying),
     );
 }
 
