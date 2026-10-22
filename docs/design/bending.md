@@ -293,24 +293,19 @@ impl World {
   question 1).
 - Auto-cast (see question 3).
 
-## Open questions for the owner
+## Owner decisions (2026-10-22)
 
-1. **Does every settler bend?** In canon, benders are a minority. **Recommendation:** every
-   unit bends for now, because with 4 to 10 units a non-bender is just a weaker unit. Revisit
-   when population growth exists, for example with a `bender_chance` per nation for newborns.
-2. **Fire's ability: Hearthflame (cooked meals, warm sleep) or a land-clearing Controlled
-   Burn?** **Recommendation:** Hearthflame. It's peaceful, iconic (Iroh's tea) and helps
-   survival now. Burning forests echoes the Fire Nation's worst moments in the show, and wood
-   is something the settlement needs.
-3. **Designate each use, or allow standing orders?** Flames need restoking and stacks keep
-   appearing. **Recommendation:** designation only for v1, which keeps indirect control
-   explicit and the code small. Add a per-ability auto-cast toggle (for example "keep this
-   flame lit" or "wind-carry stacks near this stockpile") as a later issue if the micro gets
-   tedious in play.
-4. **Should Earth's fords be permanent?** **Recommendation:** permanent, with no undo in v1.
-   Shaping the land for good is the Earth Kingdom fantasy, and the chi cost already makes
-   players place fords carefully. `earth_shaping` could add "Sink" later if regret becomes a
-   problem.
+The owner accepted every recommendation:
+
+1. **Every settler bends** for now. With 4 to 10 units, a non-bender is just a weaker unit.
+   Revisit when population growth exists, for example with a `bender_chance` per nation for
+   newborns.
+2. **Fire gets Hearthflame** (cooked meals, warm sleep), not a land-clearing Controlled Burn.
+   It's peaceful and iconic, and wood is something the settlement needs.
+3. **Designation only for v1.** A per-ability auto-cast toggle (for example "keep this flame lit"
+   or "wind-carry stacks near this stockpile") is a later issue if the micro gets tedious.
+4. **Earth's fords are permanent**, with no undo in v1. `earth_shaping` could add "Sink" later if
+   regret becomes a problem.
 
 ## Follow-up issues
 
