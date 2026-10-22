@@ -33,6 +33,26 @@ Unit sprites were GIF files with a .png extension; they were re-encoded to real 
 (pixels unchanged) and renamed, e.g. airDude1.png -> units/air-1.png, snowCoast.png -> terrain/snow-coast.png.
 """
 
+[[source]]
+id = "ninja-adventure"
+title = "Ninja Adventure - Asset Pack"
+author = "Pixel-Boy and AAA"
+url = "https://pixel-boy.itch.io/ninja-adventure-asset-pack"
+license = "CC0-1.0"
+release_ok = true
+download_sha256 = "95a06f4fdcfd1882f061a45ff313b7c905dbe2de1e8512b281d7937df62a7b15"
+retrieved = "2026-10-22"
+retrieved_by = "claude (implementer agent, #74), from the owner's local download"
+notes = """
+Copied from the owner's local itch.io download ("Ninja Adventure - Asset Pack.zip", 2,674 entries,
+agents cannot fetch it themselves). Only the subset the game uses was copied, with the pack's
+relative paths unchanged and no modifications: LICENSE.txt, six tilesets from Backgrounds/Tilesets
+(Floor, Water, Nature, Relief, Desert, Field), and the sprite sheet and Faceset.png of the twelve
+characters in docs/design/art.md under Actor/Character/. SamuraiRed's sheet is named
+redsamurai.png upstream rather than SpriteSheet.png. Attribution is not required (CC0) but is
+appreciated.
+"""
+
 [[file]]
 path = "third_party/kenney-tiny-town/License.txt"
 source = "kenney-tiny-town"
@@ -163,3 +183,157 @@ path = "third_party/thefournations-2013/units/water-3.png"
 source = "thefournations-2013"
 sha256 = "dcb8b62443980530e1597c6a8cc48ea0408c6db7b8946106b0f1b32cc727e0a8"
 
+[[file]]
+path = "third_party/ninja-adventure/LICENSE.txt"
+source = "ninja-adventure"
+sha256 = "9bc2cd77030dd73fd2497c5729556a11524fa04099d8351bc527fd4d4c31b916"
+
+[[file]]
+path = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetFloor.png"
+source = "ninja-adventure"
+sha256 = "e111065065edf806e7e893330086e68efc8755175d92f14d087b42d40a331e16"
+
+[[file]]
+path = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetWater.png"
+source = "ninja-adventure"
+sha256 = "927e1fa1e793bb0398fdaad40cea22792c20f66703cdba80fb9462df7cbc275c"
+
+[[file]]
+path = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetNature.png"
+source = "ninja-adventure"
+sha256 = "51eedd957ad4ac88988d170aa83a42404ef8fdebff9e6753b6fe80841ab3d5bb"
+
+[[file]]
+path = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetRelief.png"
+source = "ninja-adventure"
+sha256 = "9f4156d97efe449e161ec9065edd48f296e977cfd77f7e60474f2ddaae34c2e9"
+
+[[file]]
+path = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetDesert.png"
+source = "ninja-adventure"
+sha256 = "c75577d52061aab5637585d6c33592a7fe47d5870f0cc0206ec4de0159d4f8a9"
+
+[[file]]
+path = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetField.png"
+source = "ninja-adventure"
+sha256 = "a519353dfdb4dfe8d2a1c67061be063056bbf0275eafa87ff711614e278c7261"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/Monk2/SpriteSheet.png"
+source = "ninja-adventure"
+sha256 = "c81d5a53a7de4b29019b00918a8321ef593a13db9f7f1fd3f0132855d193e7f2"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/Monk2/Faceset.png"
+source = "ninja-adventure"
+sha256 = "d60c36993139a5194fdcc07975e3b1ee1837b6235e1172e8c16a09e0b5b6a455"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/Master/SpriteSheet.png"
+source = "ninja-adventure"
+sha256 = "3d6b256d939e79943d3fd217429d06f36e8a77f243b5d63efb41f024acc143ae"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/Master/Faceset.png"
+source = "ninja-adventure"
+sha256 = "123248ae36db8956197323284a34707a33c958d7cc816a35c3882e8abe479542"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/NinjaYellow/SpriteSheet.png"
+source = "ninja-adventure"
+sha256 = "8ac74521878527a0277e23696d4310538deb1c0e899d9937f939a8c37f230f3b"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/NinjaYellow/Faceset.png"
+source = "ninja-adventure"
+sha256 = "20d43509ad88d9328655c334352c970c6cb5c590f84d108e93a76a1cf3456f6d"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/Eskimo/SpriteSheet.png"
+source = "ninja-adventure"
+sha256 = "dd8fa6b0f46362e12ff27181da8b8b54588b40fd67ab330c308e12ee63c7431d"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/Eskimo/Faceset.png"
+source = "ninja-adventure"
+sha256 = "91b8ef837cf78a7d047d952e02403f6533454b121b09ba3818766ce363a61880"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/NinjaEskimo/SpriteSheet.png"
+source = "ninja-adventure"
+sha256 = "8e45c30adcd8a0d7f2f384e28dd5bfd54bbcca096ac3d05d68d4afd0cd8eb186"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/NinjaEskimo/Faceset.png"
+source = "ninja-adventure"
+sha256 = "c96eb72abd1fe6a8dfa29d365910a6af9bbffe5bf811d46f21110b409d8c4302"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/NinjaWater/SpriteSheet.png"
+source = "ninja-adventure"
+sha256 = "ce464d2f306c0eacd18380a48352d5018bc9a82ab46fff6fe17feef41c0236c8"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/NinjaWater/Faceset.png"
+source = "ninja-adventure"
+sha256 = "ce2de5004f1760d440c81e586eb6687933f7994385f1dc5bc2fb2c61c9284c5f"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/Villager3/SpriteSheet.png"
+source = "ninja-adventure"
+sha256 = "6bd45886f6d91516416d6848bbe9e4090270822e3106349c7d54da40f9247f8b"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/Villager3/Faceset.png"
+source = "ninja-adventure"
+sha256 = "3f8f86a1a246fb0014378ee08c84f6ff7e3003dd841a4ca6e22dddac850ffc8c"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/Samurai/SpriteSheet.png"
+source = "ninja-adventure"
+sha256 = "68287c9e0c5cc1089286b0a3955f476c9d8f3f2e4f38755c52b68edf24aaa0d4"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/Samurai/Faceset.png"
+source = "ninja-adventure"
+sha256 = "d8504b5357c99ae81250a0bcdd8214bf11c055fea073591f215c5a615de155e0"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/NinjaGreen/SpriteSheet.png"
+source = "ninja-adventure"
+sha256 = "c99c8142f4813562a4e76e96d93bbe8e0b04c22e0625c98b75cf564c99e36358"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/NinjaGreen/Faceset.png"
+source = "ninja-adventure"
+sha256 = "d73020126261f52aa43e5109723985887ad27d0c259c378c8c94fc319c277309"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/NinjaFire/SpriteSheet.png"
+source = "ninja-adventure"
+sha256 = "a0b353001f494207b868a22479a2689e4de044af59ffa5b79f1a840a973d486f"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/NinjaFire/Faceset.png"
+source = "ninja-adventure"
+sha256 = "01496a7fa347c410401fb58e9c28e92c2ae2e1d83620f5adf6de356d63cc0d32"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/SamuraiRed/redsamurai.png"
+source = "ninja-adventure"
+sha256 = "23882535ffe03657c9d4c65769dfba265701da4f9eff9cf5a821e540e7228d31"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/SamuraiRed/Faceset.png"
+source = "ninja-adventure"
+sha256 = "a870cc1edbfc10dbd8ae3d291e159b8bde346d773d18c6043373cb24acde72c4"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/NinjaRed/SpriteSheet.png"
+source = "ninja-adventure"
+sha256 = "447bd8fec385066b3b358671932d979b6e420876e4fd5daf04a038c1b6887209"
+
+[[file]]
+path = "third_party/ninja-adventure/Actor/Character/NinjaRed/Faceset.png"
+source = "ninja-adventure"
+sha256 = "0a9e889a88f437521284748c676167844ec05dcbf8d121a454350de030fcd0bf"
