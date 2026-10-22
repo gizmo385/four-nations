@@ -1,13 +1,14 @@
 //! Static game definitions loaded from the TOML files in `data/`.
 //!
-//! Definitions are referenced at runtime by small index newtypes (`BiomeId`, `ResourceId`) so
-//! that map cells stay `Copy` and cheap. Validation happens once, at load time, and is strict
-//! (unknown fields, out-of-range numbers and climate gaps are all errors) so that a typo in the
-//! data fails `cargo test` instead of silently changing the game.
+//! Definitions are referenced at runtime by small index newtypes (`BiomeId`, `ResourceId`,
+//! `TechId`) so that map cells stay `Copy` and cheap. Validation happens once, at load time, and
+//! is strict (unknown fields, out-of-range numbers and climate gaps are all errors) so that a
+//! typo in the data fails `cargo test` instead of silently changing the game.
 
 use serde::Deserialize;
 
 use crate::nation::{Nation, NationDef};
+use crate::research::{self, ResearchFile, ResearchSettings, TechDef, TechId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -96,6 +97,9 @@ pub struct Defs {
     pub biomes: Vec<BiomeDef>,
     pub resources: Vec<ResourceDef>,
     pub nations: Vec<NationDef>,
+    /// The tech tree, in file order (a topological order); indexed by `TechId`.
+    pub techs: Vec<TechDef>,
+    pub research: ResearchSettings,
 }
 
 #[derive(Debug, PartialEq)]
@@ -140,15 +144,29 @@ impl Defs {
             include_str!("../../../data/biomes.toml"),
             include_str!("../../../data/resources.toml"),
             include_str!("../../../data/nations.toml"),
+            include_str!("../../../data/research.toml"),
         )
         .expect("bundled data/*.toml must be valid; run `cargo test -p fn_sim`")
     }
 
-    pub fn from_toml(biomes: &str, resources: &str, nations: &str) -> Result<Self, DefsError> {
+    pub fn from_toml(
+        biomes: &str,
+        resources: &str,
+        nations: &str,
+        research: &str,
+    ) -> Result<Self, DefsError> {
+        let (research, techs) = parse::<ResearchFile>("research.toml", research)?.resolve()?;
+        let mut nations = parse::<NationFile>("nations.toml", nations)?.nation;
+        for n in &mut nations {
+            n.starting_techs =
+                research::resolve_starting_techs(n.id, &n.starting_tech_ids, &techs)?;
+        }
         let defs = Self {
             biomes: parse::<BiomeFile>("biomes.toml", biomes)?.biome,
             resources: parse::<ResourceFile>("resources.toml", resources)?.resource,
-            nations: parse::<NationFile>("nations.toml", nations)?.nation,
+            nations,
+            techs,
+            research,
         };
         defs.validate()?;
         Ok(defs)
@@ -227,12 +245,20 @@ impl Defs {
         self.resources.iter().position(|r| r.id == id).map(|i| ResourceId(i as u16))
     }
 
+    pub fn tech_id(&self, id: &str) -> Option<TechId> {
+        self.techs.iter().position(|t| t.id == id).map(|i| TechId(i as u16))
+    }
+
     pub fn biome(&self, id: BiomeId) -> &BiomeDef {
         &self.biomes[id.0 as usize]
     }
 
     pub fn resource(&self, id: ResourceId) -> &ResourceDef {
         &self.resources[id.0 as usize]
+    }
+
+    pub fn tech(&self, id: TechId) -> &TechDef {
+        &self.techs[id.0 as usize]
     }
 
     pub fn nation(&self, n: Nation) -> &NationDef {
@@ -246,15 +272,16 @@ mod tests {
 
     const BIOMES: &str = include_str!("../../../data/biomes.toml");
     const NATIONS: &str = include_str!("../../../data/nations.toml");
+    const RESEARCH: &str = include_str!("../../../data/research.toml");
 
     fn with_biomes(biomes: &str) -> Result<Defs, DefsError> {
         // No resources, so they can't reference biomes missing from the test table.
-        Defs::from_toml(biomes, "resource = []", NATIONS)
+        Defs::from_toml(biomes, "resource = []", NATIONS, RESEARCH)
     }
 
     fn with_resource(fields: &str) -> Result<Defs, DefsError> {
         let src = format!("[[resource]]\nid='x'\nname='X'\nglyph='x'\nchance=0.5\n{fields}");
-        Defs::from_toml(BIOMES, &src, NATIONS)
+        Defs::from_toml(BIOMES, &src, NATIONS, RESEARCH)
     }
 
     fn one_biome(t: &str, m: &str) -> String {

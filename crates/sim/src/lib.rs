@@ -9,6 +9,7 @@ pub mod geom;
 pub mod mapgen;
 pub mod nation;
 pub mod noise;
+pub mod research;
 pub mod rng;
 pub mod world;
 

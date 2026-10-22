@@ -1,0 +1,383 @@
+# The tech tree. Design and rationale: docs/design/research.md.
+#
+# - File order must be topological: a tech's prereqs appear before it. `TechId` is the index here.
+# - `nation` omitted = shared civilization tier, which every nation can research. With a nation,
+#   only that nation sees the tech. Shared techs may only require shared techs; a nation tech may
+#   require shared techs and its own nation's techs.
+# - `cost` is in knowledge points, > 0. Cost tiers: 25 / 60 / 120 / 250 / 500.
+# - `[tech.unlocks]` `modifiers` multiply a nation's modifiers (data/nations.toml) once the tech
+#   is known. Each multiplier must be in (0, 4]; unknown modifier names fail to load.
+#
+# Only modifier unlocks exist so far. Building, job and ability unlocks are added by the issues
+# that introduce those defs (see "Staging" in research.md); until then the `# Later:` comments
+# record what each tech is meant to unlock.
+
+[settings]
+passive_knowledge_per_minute = 3.0   # settlement-wide "oral tradition" trickle
+study_knowledge_per_minute = 9.0     # per scholar, before the `study` modifier
+
+# ---------------------------------------------------------------------------------------------
+# Shared civilization tier
+# ---------------------------------------------------------------------------------------------
+
+[[tech]]
+id = "fire_making"
+name = "Fire Making"
+description = "Keep a flame alive: cook food and stay warm."
+cost = 25
+# Later: buildings = ["campfire"], jobs = ["cook"]
+
+[[tech]]
+id = "shelter"
+name = "Shelter"
+description = "Raise simple huts so people sleep dry and warm."
+cost = 25
+# Later: buildings = ["hut"]
+
+[[tech]]
+id = "fishing"
+name = "Fishing"
+description = "Nets, lines and the patience to use them."
+cost = 25
+# Later: fishing-spot designation, jobs = ["fish"]
+
+[[tech]]
+id = "stoneworking"
+name = "Stoneworking"
+description = "Split and shape stone from the land."
+cost = 25
+# Later: quarry designation on stone
+
+[[tech]]
+id = "farming"
+name = "Farming"
+description = "Sow seed in tilled plots and harvest what grows."
+cost = 60
+# Later: buildings = ["farm_plot"], jobs = ["sow", "harvest"]
+
+[[tech]]
+id = "pottery"
+name = "Pottery"
+description = "Fire clay into pots for storing water and grain."
+cost = 60
+prereqs = ["fire_making"]
+# Later: buildings = ["kiln", "granary"], pots
+
+[[tech]]
+id = "carpentry"
+name = "Carpentry"
+description = "Saws, joints and the workbench: build in wood."
+cost = 60
+prereqs = ["shelter"]
+# Later: buildings = ["workbench"], wooden buildings
+[tech.unlocks]
+modifiers = { construction = 1.1 }
+
+[[tech]]
+id = "masonry"
+name = "Masonry"
+description = "Dress stone and mortar it into lasting walls."
+cost = 120
+prereqs = ["stoneworking", "carpentry"]
+# Later: stone buildings
+[tech.unlocks]
+modifiers = { construction = 1.15 }
+
+[[tech]]
+id = "herbalism"
+name = "Herbalism"
+description = "Know which plants soothe and which ones heal."
+cost = 120
+prereqs = ["farming"]
+# Later: buildings = ["herb_garden"], jobs = ["herbalist"]
+
+[[tech]]
+id = "writing"
+name = "Writing"
+description = "Set knowledge down in scrolls so it outlives the teller."
+cost = 120
+prereqs = ["pottery"]
+# Later: +2 study hall seats
+[tech.unlocks]
+modifiers = { study = 1.25 }
+
+[[tech]]
+id = "cartography"
+name = "Cartography"
+description = "Map the lands around the settlement."
+cost = 250
+prereqs = ["writing"]
+# Later: reveals the region around the settlement; scrolls shown on the map
+
+# ---------------------------------------------------------------------------------------------
+# Earth Kingdom: shaping the land
+# ---------------------------------------------------------------------------------------------
+
+[[tech]]
+id = "earth_shaping"
+name = "Earth Shaping"
+description = "Level and raise the ground with earthbending."
+nation = "earth"
+cost = 60
+prereqs = ["stoneworking"]
+# Later: level/raise-terrain designation
+[tech.unlocks]
+modifiers = { earthworks = 1.2 }
+
+[[tech]]
+id = "earthen_walls"
+name = "Earthen Walls"
+description = "Raise walls and flood barriers straight from the ground."
+nation = "earth"
+cost = 120
+prereqs = ["earth_shaping", "masonry"]
+# Later: buildings = ["earth_wall", "flood_barrier", "terrace"]
+[tech.unlocks]
+modifiers = { construction = 1.25 }
+
+[[tech]]
+id = "tunneling"
+name = "Tunneling"
+description = "Bore tunnels through mountains and mine inside them."
+nation = "earth"
+cost = 120
+prereqs = ["earth_shaping"]
+# Later: tunnel designation through mountain tiles; mining inside mountains
+
+[[tech]]
+id = "earth_rail"
+name = "Earth Rail"
+description = "Stone carts pushed along rails by earthbenders, as in Ba Sing Se."
+nation = "earth"
+cost = 250
+prereqs = ["earthen_walls"]
+# Later: rail for haul routes
+[tech.unlocks]
+modifiers = { carry_capacity = 1.25 }
+
+[[tech]]
+id = "seismic_sense"
+name = "Seismic Sense"
+description = "Feel vibrations through the earth to find what lies beneath."
+nation = "earth"
+cost = 250
+prereqs = ["tunneling"]
+# Later: abilities = ["seismic_sense"] (reveal ore and gems in a radius)
+
+[[tech]]
+id = "metalbending"
+name = "Metalbending"
+description = "Bend the earth still left in metal."
+nation = "earth"
+cost = 500
+prereqs = ["seismic_sense", "masonry"]
+# Later: metal from ore without a smelter; abilities = ["metalbend"]
+
+# ---------------------------------------------------------------------------------------------
+# Fire Nation: heat and industry
+# ---------------------------------------------------------------------------------------------
+
+[[tech]]
+id = "forging"
+name = "Forging"
+description = "Work hot metal into tools at the forge."
+nation = "fire"
+cost = 60
+prereqs = ["fire_making"]
+# Later: buildings = ["forge"], jobs = ["smith"]
+
+[[tech]]
+id = "brickmaking"
+name = "Brickmaking"
+description = "Fire bricks by the thousand for strong, quick building."
+nation = "fire"
+cost = 120
+prereqs = ["forging", "pottery"]
+# Later: buildings = ["brick_kiln"]
+[tech.unlocks]
+modifiers = { construction = 1.15 }
+
+[[tech]]
+id = "smelting"
+name = "Smelting"
+description = "Draw metal out of ore with steady firebending heat."
+nation = "fire"
+cost = 120
+prereqs = ["forging"]
+# Later: buildings = ["smelter"]
+[tech.unlocks]
+modifiers = { heating = 1.2 }
+
+[[tech]]
+id = "dancing_dragon"
+name = "Dancing Dragon"
+description = "The Sun Warriors' teaching: fire is life and energy, not rage."
+nation = "fire"
+cost = 250
+prereqs = ["smelting"]
+# Later: abilities = ["inner_fire"] (warmth aura)
+[tech.unlocks]
+modifiers = { heating = 1.25 }
+
+[[tech]]
+id = "steam_engines"
+name = "Steam Engines"
+description = "Boil water to drive mills and pumps."
+nation = "fire"
+cost = 250
+prereqs = ["smelting", "brickmaking"]
+# Later: buildings = ["steam_engine"]
+[tech.unlocks]
+modifiers = { power_generation = 1.25 }
+
+[[tech]]
+id = "lightning_generation"
+name = "Lightning Generation"
+description = "Firebenders feed lightning into a power station, Republic City style."
+nation = "fire"
+cost = 500
+prereqs = ["dancing_dragon", "steam_engines"]
+# Later: buildings = ["lightning_station"]
+[tech.unlocks]
+modifiers = { power_generation = 1.5 }
+
+# ---------------------------------------------------------------------------------------------
+# Water Tribes: flow and healing
+# ---------------------------------------------------------------------------------------------
+
+[[tech]]
+id = "irrigation"
+name = "Irrigation"
+description = "Bend water along channels so nearby crops grow faster."
+nation = "water"
+cost = 60
+prereqs = ["farming"]
+# Later: buildings = ["irrigation_channel"]
+[tech.unlocks]
+modifiers = { water_work = 1.15 }
+
+[[tech]]
+id = "ice_construction"
+name = "Ice Construction"
+description = "Cut and bend ice into a cheap, sturdy building material."
+nation = "water"
+cost = 120
+prereqs = ["shelter"]
+# Later: ice blocks; buildings = ["igloo"]
+
+[[tech]]
+id = "healing"
+name = "Healing"
+description = "Guide the body's own energy with water to mend wounds."
+nation = "water"
+cost = 120
+prereqs = ["herbalism"]
+# Later: buildings = ["healing_hut"], jobs = ["healer"], abilities = ["healing_water"]
+
+[[tech]]
+id = "tide_mills"
+name = "Tide Mills"
+description = "Push and pull the tide to turn coastal mills."
+nation = "water"
+cost = 250
+prereqs = ["irrigation"]
+# Later: buildings = ["tide_mill"]
+[tech.unlocks]
+modifiers = { power_generation = 1.25 }
+
+[[tech]]
+id = "water_travel"
+name = "Water Travel"
+description = "Canoes and ice skiffs carry people across the water."
+nation = "water"
+cost = 250
+prereqs = ["fishing", "ice_construction"]
+# Later: units can cross water tiles
+
+[[tech]]
+id = "spirit_oasis"
+name = "Spirit Oasis"
+description = "A still pool where push and pull find balance, restoring chi and spirits."
+nation = "water"
+cost = 500
+prereqs = ["healing", "tide_mills"]
+# Later: buildings = ["spirit_oasis"]
+[tech.unlocks]
+modifiers = { water_work = 1.25 }
+
+# ---------------------------------------------------------------------------------------------
+# Air Nomads: lightness and spirit
+# ---------------------------------------------------------------------------------------------
+
+[[tech]]
+id = "orchards"
+name = "Orchards"
+description = "Plant and tend fruit trees for food that needs no fire."
+nation = "air"
+cost = 25
+# Later: buildings = ["orchard"], jobs = ["pick_fruit"]
+
+[[tech]]
+id = "meditation"
+name = "Meditation"
+description = "Quiet the mind; chi flows and lessons come easier."
+nation = "air"
+cost = 60
+# Later: chi regeneration
+[tech.unlocks]
+modifiers = { study = 1.2 }
+
+[[tech]]
+id = "gliders"
+name = "Gliders"
+description = "Glider staffs carry airbenders over the land."
+nation = "air"
+cost = 60
+prereqs = ["carpentry"]
+# Later: glider staffs; scouting reveals the map
+[tech.unlocks]
+modifiers = { move_speed = 1.15 }
+
+[[tech]]
+id = "windmills"
+name = "Windmills"
+description = "Catch the wind to grind grain into more food."
+nation = "air"
+cost = 120
+prereqs = ["gliders", "farming"]
+# Later: buildings = ["windmill"]
+[tech.unlocks]
+modifiers = { power_generation = 1.2 }
+
+[[tech]]
+id = "air_scooter"
+name = "Air Scooter"
+description = "Ride a spinning ball of air."
+nation = "air"
+cost = 250
+prereqs = ["gliders", "meditation"]
+# Later: abilities = ["air_scooter"]
+[tech.unlocks]
+modifiers = { move_speed = 1.2 }
+
+[[tech]]
+id = "wind_turbines"
+name = "Wind Turbines"
+description = "Airbenders spin turbines that power workshops."
+nation = "air"
+cost = 250
+prereqs = ["windmills"]
+# Later: buildings = ["wind_turbine"]
+[tech.unlocks]
+modifiers = { power_generation = 1.25 }
+
+[[tech]]
+id = "sky_bison"
+name = "Sky Bison"
+description = "Befriend sky bison to haul loads and fly far."
+nation = "air"
+cost = 500
+prereqs = ["meditation", "air_scooter"]
+# Later: buildings = ["bison_stable"]; bison haul and fast travel
+[tech.unlocks]
+modifiers = { carry_capacity = 1.3 }
