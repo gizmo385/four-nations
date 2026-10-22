@@ -1,0 +1,67 @@
+# Unit needs: hunger, thirst, energy and health. Design: docs/design/vision.md ("Survival pressure").
+#
+# Every need is a meter from 0 to `max` where `max` is fully satisfied. Rates are per IN-GAME
+# MINUTE; the sim converts them to per-tick amounts using TICKS_PER_SECOND, so changing the tick
+# rate never changes balance.
+#
+# - Hunger, thirst and energy fall by `decay_per_minute`. `low` is the level at which a unit
+#   starts looking for a way to fix it (the job system, #4, reads this).
+# - A need at 0 is "depleted". Each depleted need drains health by
+#   `health.depleted_damage_per_minute`. At 0 health the unit dies and is removed.
+# - When no need is below its `low` level, health recovers by `health.regen_per_minute`.
+#
+# Owner requirement (#3, docs/design/research.md): nobody may starve because their nation lacks
+# fire. Every food below must work raw; `cooked_hunger` is an optional bonus unlocked by
+# `fire_making`, never a requirement. Loading fails unless every raw food restores at least as
+# much hunger as a unit loses over `expected_meal_minutes`, so a unit eating raw food at that
+# pace never starves.
+
+[settings]
+max = 100.0
+# How often a unit is expected to get to eat or drink, in in-game minutes. Used to validate that
+# raw food alone can sustain a unit (see above).
+expected_meal_minutes = 6.0
+# Thirst restored by one drink of water.
+drink_thirst = 50.0
+# Energy restored per minute of sleep. Energy does not decay while asleep.
+sleep_energy_per_minute = 15.0
+
+[hunger]
+decay_per_minute = 4.0    # full to empty in 25 minutes
+low = 40.0
+
+[thirst]
+decay_per_minute = 6.0    # full to empty in about 17 minutes
+low = 40.0
+
+[energy]
+decay_per_minute = 3.0    # full to empty in about 33 minutes
+low = 30.0
+
+[health]
+max = 100.0
+depleted_damage_per_minute = 10.0   # per depleted need
+regen_per_minute = 2.0
+
+# Foods. `hunger` is what one raw item restores. `cooked_hunger` (optional) is what it restores
+# once cooked, and must be higher. `resource` (optional) links to a map resource in
+# data/resources.toml that yields this food; fish and fruit get theirs with their techs.
+
+[[food]]
+id = "fish"
+name = "Fish"
+hunger = 40.0
+cooked_hunger = 70.0
+
+[[food]]
+id = "fruit"
+name = "Fruit"
+hunger = 30.0
+cooked_hunger = 40.0
+
+[[food]]
+id = "cabbage"
+name = "Wild Cabbage"
+hunger = 30.0
+cooked_hunger = 45.0
+resource = "cabbage"

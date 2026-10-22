@@ -1,0 +1,386 @@
+//! Unit needs: hunger, thirst, energy and health, and the death that follows from neglecting them.
+//!
+//! All numbers live in `data/needs.toml` (`NeedsSettings`, `FoodDef`). Rates there are per
+//! in-game minute and converted to per-tick amounts here, so the tick rate can change without
+//! rebalancing. This module only models the meters; *acting* on them (fetching food, sleeping) is
+//! the job system's business (#4), which calls `Needs::eat`, `drink` and `tick(.., sleeping)`.
+//!
+//! Floating point is fine for determinism here: the same operations run in the same order on
+//! every tick, and nothing depends on the platform's math library beyond `+ - * /`.
+
+use serde::Deserialize;
+
+use crate::defs::DefsError;
+
+/// Seconds in an in-game minute.
+const SECONDS_PER_MINUTE: f32 = 60.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NeedDef {
+    pub decay_per_minute: f32,
+    /// Below this level a unit wants to fix the need.
+    pub low: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HealthDef {
+    pub max: f32,
+    /// Health lost per minute for each depleted need (hunger, thirst or energy at 0).
+    pub depleted_damage_per_minute: f32,
+    /// Health regained per minute while no need is below its `low` level.
+    pub regen_per_minute: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeneralSettings {
+    /// The full level of hunger, thirst and energy.
+    pub max: f32,
+    /// In-game minutes between meals that raw food alone must be able to sustain.
+    pub expected_meal_minutes: f32,
+    /// Thirst restored by one drink of water.
+    pub drink_thirst: f32,
+    /// Energy restored per minute of sleep (energy doesn't decay while asleep).
+    pub sleep_energy_per_minute: f32,
+}
+
+/// `[settings]`, `[hunger]`, `[thirst]`, `[energy]` and `[health]` of `data/needs.toml`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NeedsSettings {
+    pub general: GeneralSettings,
+    pub hunger: NeedDef,
+    pub thirst: NeedDef,
+    pub energy: NeedDef,
+    pub health: HealthDef,
+}
+
+impl NeedsSettings {
+    /// The full level of hunger, thirst and energy.
+    pub fn max(&self) -> f32 {
+        self.general.max
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FoodDef {
+    pub id: String,
+    pub name: String,
+    /// Hunger restored by one raw item. Never requires fire.
+    pub hunger: f32,
+    /// Hunger restored once cooked (needs `fire_making`); a bonus, so higher than `hunger`.
+    pub cooked_hunger: Option<f32>,
+    /// Id of the map resource that yields this food, if it has one yet.
+    pub resource: Option<String>,
+}
+
+impl FoodDef {
+    /// Hunger restored by one item; `cooked` only helps if this food can be cooked.
+    pub fn hunger_restored(&self, cooked: bool) -> f32 {
+        match (cooked, self.cooked_hunger) {
+            (true, Some(c)) => c,
+            _ => self.hunger,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct NeedsFile {
+    settings: GeneralSettings,
+    hunger: NeedDef,
+    thirst: NeedDef,
+    energy: NeedDef,
+    health: HealthDef,
+    food: Vec<FoodDef>,
+}
+
+impl NeedsFile {
+    /// Checks the numbers and returns the settings and foods. `resource_ids` are the ids in
+    /// `resources.toml`, for validating `FoodDef::resource`.
+    pub(crate) fn resolve(
+        self,
+        resource_ids: &[&str],
+    ) -> Result<(NeedsSettings, Vec<FoodDef>), DefsError> {
+        let err = |msg: String| Err(DefsError(format!("needs.toml: {msg}")));
+        let s = NeedsSettings {
+            general: self.settings,
+            hunger: self.hunger,
+            thirst: self.thirst,
+            energy: self.energy,
+            health: self.health,
+        };
+        let g = s.general;
+        for (what, v) in [
+            ("settings.max", g.max),
+            ("settings.expected_meal_minutes", g.expected_meal_minutes),
+            ("settings.drink_thirst", g.drink_thirst),
+            ("settings.sleep_energy_per_minute", g.sleep_energy_per_minute),
+            ("health.max", s.health.max),
+            ("health.depleted_damage_per_minute", s.health.depleted_damage_per_minute),
+            ("health.regen_per_minute", s.health.regen_per_minute),
+        ] {
+            if !(v.is_finite() && v > 0.0) {
+                return err(format!("{what} must be a positive number"));
+            }
+        }
+        if g.drink_thirst > g.max {
+            return err("settings.drink_thirst can't exceed settings.max".into());
+        }
+        for (what, n) in [("hunger", s.hunger), ("thirst", s.thirst), ("energy", s.energy)] {
+            if !(n.decay_per_minute.is_finite() && n.decay_per_minute > 0.0) {
+                return err(format!("{what}.decay_per_minute must be a positive number"));
+            }
+            if !(0.0..=g.max).contains(&n.low) {
+                return err(format!("{what}.low must be in [0, settings.max]"));
+            }
+        }
+        if self.food.is_empty() {
+            return err("need at least one [[food]]".into());
+        }
+        // Raw food must sustain a unit on its own: one item per expected meal interval has to
+        // replace what hunger lost in that time. Cooking is only ever a bonus.
+        let lost_between_meals = s.hunger.decay_per_minute * g.expected_meal_minutes;
+        for (i, f) in self.food.iter().enumerate() {
+            let id = &f.id;
+            if self.food[..i].iter().any(|o| o.id == *id) {
+                return err(format!("duplicate food {id}"));
+            }
+            if !(f.hunger.is_finite() && f.hunger > 0.0 && f.hunger <= g.max) {
+                return err(format!("food {id}: hunger must be in (0, settings.max]"));
+            }
+            if f.hunger < lost_between_meals {
+                return err(format!(
+                    "food {id}: raw hunger {} can't sustain a unit (it loses {lost_between_meals} \
+                     per {} min); raise it or lower hunger.decay_per_minute",
+                    f.hunger, g.expected_meal_minutes
+                ));
+            }
+            if let Some(c) = f.cooked_hunger
+                && !(c.is_finite() && c > f.hunger && c <= g.max)
+            {
+                return err(format!("food {id}: cooked_hunger must be in (hunger, settings.max]"));
+            }
+            if let Some(r) = &f.resource
+                && !resource_ids.contains(&r.as_str())
+            {
+                return err(format!("food {id}: unknown resource {r:?}"));
+            }
+        }
+        Ok((s, self.food))
+    }
+}
+
+/// Why a unit died: the first depleted need, in the order hunger, thirst, energy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeathCause {
+    Starvation,
+    Dehydration,
+    Exhaustion,
+}
+
+/// A unit's current meters. Each is in `[0, max]`; `health` has its own max.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Needs {
+    pub hunger: f32,
+    pub thirst: f32,
+    pub energy: f32,
+    pub health: f32,
+}
+
+impl Needs {
+    /// A unit that has just eaten, drunk and slept.
+    pub fn full(s: &NeedsSettings) -> Self {
+        Self { hunger: s.max(), thirst: s.max(), energy: s.max(), health: s.health.max }
+    }
+
+    pub fn is_dead(&self) -> bool {
+        self.health <= 0.0
+    }
+
+    /// What is draining this unit's health right now, if any need is depleted.
+    pub fn depleted(&self) -> Option<DeathCause> {
+        if self.hunger <= 0.0 {
+            Some(DeathCause::Starvation)
+        } else if self.thirst <= 0.0 {
+            Some(DeathCause::Dehydration)
+        } else if self.energy <= 0.0 {
+            Some(DeathCause::Exhaustion)
+        } else {
+            None
+        }
+    }
+
+    /// True when any need is at or below its `low` level.
+    pub fn any_low(&self, s: &NeedsSettings) -> bool {
+        self.hunger <= s.hunger.low || self.thirst <= s.thirst.low || self.energy <= s.energy.low
+    }
+
+    /// Advances the meters by one sim tick (`TICKS_PER_SECOND` per in-game second).
+    pub fn tick(&mut self, s: &NeedsSettings, sleeping: bool) {
+        self.tick_at(s, crate::world::TICKS_PER_SECOND, sleeping);
+    }
+
+    /// `tick` at an explicit tick rate. Rates are per minute, so a minute's worth of ticks at any
+    /// rate changes the meters by the same amount.
+    pub fn tick_at(&mut self, s: &NeedsSettings, ticks_per_second: u32, sleeping: bool) {
+        let per_tick =
+            |per_minute: f32| per_minute / (SECONDS_PER_MINUTE * ticks_per_second as f32);
+        let max = s.max();
+        self.hunger = (self.hunger - per_tick(s.hunger.decay_per_minute)).max(0.0);
+        self.thirst = (self.thirst - per_tick(s.thirst.decay_per_minute)).max(0.0);
+        if sleeping {
+            let gain = per_tick(s.general.sleep_energy_per_minute);
+            self.energy = (self.energy + gain).min(max);
+        } else {
+            self.energy = (self.energy - per_tick(s.energy.decay_per_minute)).max(0.0);
+        }
+        let depleted =
+            [self.hunger, self.thirst, self.energy].iter().filter(|&&v| v <= 0.0).count();
+        if depleted > 0 {
+            let dmg = per_tick(s.health.depleted_damage_per_minute) * depleted as f32;
+            self.health = (self.health - dmg).max(0.0);
+        } else if !self.any_low(s) {
+            self.health = (self.health + per_tick(s.health.regen_per_minute)).min(s.health.max);
+        }
+    }
+
+    /// Eats one item of `food`, raw or cooked.
+    pub fn eat(&mut self, food: &FoodDef, cooked: bool, s: &NeedsSettings) {
+        self.hunger = (self.hunger + food.hunger_restored(cooked)).min(s.max());
+    }
+
+    /// Drinks once.
+    pub fn drink(&mut self, s: &NeedsSettings) {
+        self.thirst = (self.thirst + s.general.drink_thirst).min(s.max());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::defs::Defs;
+    use crate::world::TICKS_PER_SECOND;
+
+    fn minute_ticks() -> u32 {
+        TICKS_PER_SECOND * 60
+    }
+
+    #[test]
+    fn a_unit_with_no_food_or_water_eventually_dies() {
+        let defs = Defs::bundled();
+        let s = &defs.needs;
+        let mut n = Needs::full(s);
+        let mut ticks = 0u64;
+        while !n.is_dead() {
+            n.tick(s, false);
+            ticks += 1;
+            assert!(ticks < 10 * 60 * u64::from(minute_ticks()), "never died");
+        }
+        // Not instant: it lasted at least until thirst ran out.
+        let thirst_minutes = s.max() / s.thirst.decay_per_minute;
+        assert!(ticks as f32 / minute_ticks() as f32 > thirst_minutes);
+        assert!(n.depleted().is_some());
+    }
+
+    #[test]
+    fn rates_are_per_minute_whatever_the_tick_rate() {
+        let defs = Defs::bundled();
+        let s = &defs.needs;
+        for tps in [1, 10, 25, 60] {
+            let mut n = Needs::full(s);
+            for _ in 0..tps * 60 {
+                n.tick_at(s, tps, false);
+            }
+            assert!((s.max() - n.hunger - s.hunger.decay_per_minute).abs() < 0.05, "tps {tps}");
+            assert!((s.max() - n.thirst - s.thirst.decay_per_minute).abs() < 0.05, "tps {tps}");
+            assert!((s.max() - n.energy - s.energy.decay_per_minute).abs() < 0.05, "tps {tps}");
+            assert_eq!(n.health, s.health.max);
+        }
+    }
+
+    #[test]
+    fn needs_never_leave_their_range() {
+        let defs = Defs::bundled();
+        let s = &defs.needs;
+        let mut n = Needs::full(s);
+        n.energy = 1.0;
+        for _ in 0..minute_ticks() * 10 {
+            n.tick(s, true);
+        }
+        assert_eq!(n.energy, s.max());
+        for f in &defs.foods {
+            n.eat(f, true, s);
+        }
+        (0..3).for_each(|_| n.drink(s));
+        assert_eq!((n.hunger, n.thirst), (s.max(), s.max()));
+    }
+
+    #[test]
+    fn sleeping_restores_energy_and_depleted_needs_cost_health() {
+        let defs = Defs::bundled();
+        let s = &defs.needs;
+        let mut n = Needs { hunger: 50.0, thirst: 50.0, energy: 10.0, health: 100.0 };
+        for _ in 0..minute_ticks() {
+            n.tick(s, true);
+        }
+        assert!(n.energy > 10.0 + s.general.sleep_energy_per_minute - 0.1);
+        let mut n = Needs { hunger: 0.0, thirst: 0.0, energy: 50.0, health: 100.0 };
+        for _ in 0..minute_ticks() {
+            n.tick(s, false);
+        }
+        // Two depleted needs drain twice as fast.
+        let expected = 100.0 - 2.0 * s.health.depleted_damage_per_minute;
+        assert!((n.health - expected).abs() < 0.01, "{}", n.health);
+    }
+
+    #[test]
+    fn health_regenerates_only_when_comfortable() {
+        let defs = Defs::bundled();
+        let s = &defs.needs;
+        let mut n = Needs::full(s);
+        n.health = 50.0;
+        n.tick(s, false);
+        assert!(n.health > 50.0);
+        let mut n = Needs::full(s);
+        n.health = 50.0;
+        n.hunger = s.hunger.low - 1.0;
+        n.tick(s, false);
+        assert_eq!(n.health, 50.0);
+    }
+
+    #[test]
+    fn raw_food_alone_sustains_a_unit() {
+        // Owner requirement (#3): nobody starves for lack of fire. Eat each raw food at the
+        // expected meal pace, with thirst and energy kept up, for three in-game days.
+        let defs = Defs::bundled();
+        let s = &defs.needs;
+        let meal_ticks = (s.general.expected_meal_minutes * minute_ticks() as f32) as u32;
+        for food in &defs.foods {
+            let mut n = Needs::full(s);
+            n.hunger = s.hunger.low; // start hungry
+            for tick in 0..minute_ticks() * 60 * 24 * 3 {
+                if tick % meal_ticks == 0 {
+                    n.eat(food, false, s);
+                }
+                n.thirst = s.max();
+                n.energy = s.max();
+                n.tick(s, false);
+                assert!(n.hunger > 0.0, "{} left a unit starving at tick {tick}", food.id);
+                assert_eq!(n.health, s.health.max, "{} cost a unit health", food.id);
+            }
+        }
+    }
+
+    #[test]
+    fn cooking_is_only_a_bonus() {
+        let defs = Defs::bundled();
+        for f in &defs.foods {
+            assert!(f.hunger > 0.0);
+            assert!(f.hunger_restored(true) >= f.hunger_restored(false), "{}", f.id);
+        }
+        assert!(defs.foods.iter().any(|f| f.cooked_hunger.is_some()));
+    }
+}
