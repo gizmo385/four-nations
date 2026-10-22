@@ -290,17 +290,21 @@ teach its *non-bending* branch techs (e.g. Fire's `brickmaking`, Air's `windmill
 a per-tech `teachable` flag, which isn't added until neighbors exist. It's the main way the
 tree grows beyond one nation's identity.
 
-## Open questions for the owner
+## Owner decisions (2026-10-22)
 
-1. **Starting without fire.** Is it acceptable that Water, Earth and Air settlements can't cook
-   until `fire_making` (about 6 minutes in)? The alternative is that every nation starts with
-   it, which flattens the asymmetry.
-2. **Cross-nation learning.** Should non-bending techs from other branches ever be learnable
-   (via neighbors, as proposed above), or should branches stay exclusive forever?
-3. **Era ceiling.** The tree reaches Korra-era technology (steam engines, lightning power
-   stations). Is that in tone, or should it stop at the original series' level of technology?
-4. **Scrolls.** Should scrolls only grant knowledge (proposed, #24), or should some reveal
-   or unlock specific hidden techs (more exploration payoff, more content work)?
+1. **Starting without fire: accepted, on one condition.** Nobody may starve because their
+   nation lacks fire. Raw food (fish, fruit, foraged plants) must fully sustain a starting
+   settlement. Cooking is a bonus (more hunger filled per item), not a requirement. This is a
+   hard requirement on the needs work (#3).
+2. **Cross-nation learning: deferred.** Don't design or build `teachable` techs yet. The
+   neighbors section above stays a sketch.
+3. **Era ceiling: Korra-era is in tone.** Steam engines and lightning power stations stay.
+4. **Scrolls: knowledge points first.** #24 implements points only. Keep the data shape open
+   (e.g. an optional `reveals` field later), so scrolls can unlock hidden techs without a
+   schema break.
+
+Still open: what Air's starting tech, `meditation`, should do in practice (see the owner
+discussion on PR #34).
 
 ## Follow-up issues
 
