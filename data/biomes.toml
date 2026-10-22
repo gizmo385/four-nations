@@ -9,7 +9,7 @@
 # (`[min, max]`, within [0, 1]) contain its climate, so order matters: put narrow, specific
 # biomes first and keep a catch-all last. Loading fails if any climate is left uncovered.
 # `glyph` is used by the ASCII renderer and golden tests. The client must render every biome
-# (crates/client ground_sprite); a new biome may reuse an existing sprite.
+# (crates/client sprites::GROUND); a new biome may reuse an existing sprite.
 
 [[biome]]
 id = "tundra"

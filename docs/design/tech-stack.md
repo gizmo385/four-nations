@@ -74,7 +74,7 @@ code-first workflows. Because of the crate split above, that switch would replac
 ## Spike results (2026-10-21)
 
 - `fn_sim` ports the cljs map generator pass for pass: deterministic, 13 tests, ASCII renderer.
-- `fn_client` (Bevy 0.20) renders it with Kenney + 2013 sprites; units wander at nation-specific
+- `fn_client` (Bevy 0.20) renders it with Ninja Adventure terrain and 2013 unit sprites; units wander at nation-specific
   speeds; pan, zoom, regenerate, and switch nation.
 - Bevy was built with `default-features = false`, plus 2D, UI, and X11 only, to avoid needing
   alsa, udev, or wayland dev headers on this machine (Nix toolchain on Ubuntu/WSL2). Audio and

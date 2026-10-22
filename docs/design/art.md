@@ -63,19 +63,25 @@ The audit was done on the owner's download, `Ninja Adventure - Asset Pack.zip` (
 The cast lives in `data/nations.toml` as a `characters` list (rule 7: nations differ through
 data). Units pick one by their existing `variant`.
 
-**Map mapping** (#75). Coordinates are (column, row) in 16px cells of each sheet, as used in the
-mockup. #75 puts them in one client-side table:
+**Map mapping** (#75, implemented). Coordinates are (column, row) in 16px cells of each sheet.
+The table lives in one place, `crates/client/src/sprites.rs` (`GROUND` and `RESOURCES`); a new
+biome or resource is one new row there, and its tests fail until every biome has one. Where the
+cells differ from the first audit, the shipped cell is shown:
 
 | Map element | Sprite |
 |---|---|
-| Plains / forest floor | `TilesetFloor` light grass (0,12) with tufts (1–3,12) / dark grass (11,12) with tufts (12–13,12) |
-| Desert, coast | `TilesetFloor` sand (1,1); tundra coast uses snow |
-| Tundra | `TilesetFloor` snow (1,15) with variants (1–2,19) |
-| Swamp | `TilesetFloor` mud (12,15); swamp water `TilesetWater` (14,7) |
+| Plains floor | `TilesetFloor` light grass (0,12) with tufts (1-3,12) |
+| Forest, taiga floor | dark grass (11,12) with tufts (12-13,12) |
+| Desert, coast, ford | sand (1,1); desert has twig and pebble variants (0-1,4); tundra coast and ford use snow |
+| Tundra | snow (1,15), flat: the (1-2,19) variants are lavender and read as boxes |
+| Swamp | mud (12,15) with variants (13-14,19); swamp water `TilesetWater` (14,7) |
 | Water, river, lake | `TilesetWater` (1,1) |
-| Mountain | Rock floor plus a `TilesetNature` grey rock (17,9) on about two in three tiles |
-| Oak / fir / tundra fir | `TilesetNature` 2×2 at (0,0) / (2,0) / (8,0), drawn bottom-aligned |
-| Stone / gold vein / cabbage | `TilesetNature` (17,9) / (4,15) / (1,10) |
+| Mountain | dirt floor (1,9) plus a `TilesetNature` grey rock (18,9) on about two in three tiles with no resource; tundra: snow floor and a snow-capped rock (4,12) |
+| Oak / fir / tundra fir | `TilesetNature` 2x2 at (0,0) / (2,0) / (8,0), bottom-aligned to the tile |
+| Stone / gold vein | `TilesetNature` plain grey rock (6,14) / the same rock with orange ore (4,14) |
+| Cabbage | `TilesetNature` leafy head (8,11), a stand-in |
+| Fruit tree (#56) | `TilesetNature` 2x2 cherry blossom (14,0), a stand-in: no tree in the pack carries fruit |
+| Fish spot (#56) | `TilesetWater` fish shadows (11,4), a full cyan tile (it shows cyan on swamp water too) |
 
 ## The problem (before the decision)
 
