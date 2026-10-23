@@ -3,9 +3,9 @@
 //!     cargo run -p fn_client -- [seed] [air|water|earth|fire] [width] [height]
 //!
 //! Controls: click a unit to select it (Esc deselects, and the camera centres it), WASD/arrows or mouse drag pan, mouse wheel
-//! zoom, R new map, 1-4 switch nation, Space pause. H/X/P pick a designation tool (harvest, cancel
-//! harvest, stockpile): drag a rectangle with the left button, middle/right still pan; Esc returns
-//! to selecting. See `designate`.
+//! zoom, R new map, 1-4 switch nation, Space pause. H/X/P/B pick a designation tool (harvest,
+//! cancel harvest, stockpile, the nation's bending ability): drag a rectangle with the left
+//! button, middle/right still pan; Esc returns to selecting. See `designate` and `bending`.
 //!
 //! `FN_SCREENSHOT=out.png` runs headless: no window is created at all (winit is disabled and the
 //! camera renders into an offscreen `Image`), and once the art has loaded it saves one frame as a
@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use bending::{BendingPlugin, TerrainSprite};
 use bevy::app::ScheduleRunnerPlugin;
 use bevy::camera::RenderTarget;
 use bevy::input::mouse::AccumulatedMouseScroll;
@@ -34,6 +35,7 @@ use hud::HudPlugin;
 use jobview::{JobViewPlugin, ResourceSprite};
 use sprites::Sheet;
 
+mod bending;
 mod designate;
 mod hud;
 mod jobview;
@@ -90,7 +92,7 @@ fn main() {
             std::env::var("FN_SELECT").ok().and_then(|s| s.parse().ok()).map(UnitId),
         ))
         .add_message::<MapClicked>()
-        .add_plugins((DesignatePlugin, JobViewPlugin, HudPlugin))
+        .add_plugins((DesignatePlugin, JobViewPlugin, HudPlugin, BendingPlugin))
         .add_systems(Startup, (load_art, setup_camera_and_ui, spawn_world).chain())
         .add_systems(FixedUpdate, tick_sim)
         .add_systems(
@@ -291,6 +293,9 @@ fn spawn_entities(commands: &mut Commands, art: &Art, sim: &Sim) {
         commands.spawn((
             art.sprite(rule.floor_at(p)),
             Transform::from_translation(tile_translation(p, 0.0)),
+            // Bending can reshape a tile's terrain later (Earth's Raise Earth, #68); this is
+            // what lets `bending::sync_terrain` redraw it when that happens.
+            TerrainSprite(p, t.terrain),
             MapEntity,
         ));
         if let Some(sprite) = resource_sprite(art, sim, t) {
