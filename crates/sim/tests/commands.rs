@@ -29,8 +29,11 @@ fn snapshot(w: &World, defs: &Defs) -> String {
         (0..defs.items.len()).map(|i| w.stored_total(ItemId(i as u16))).collect();
     let ground: Vec<_> = w.ground_items().collect();
     let zones: Vec<_> = w.stockpile_zones().collect();
+    let buildings: Vec<_> =
+        w.map.iter().filter_map(|(p, t)| t.building.map(|b| (p, b.id))).collect();
+    let sites: Vec<_> = w.build_sites().collect();
     format!(
-        "tick {} {units:?} {:?} {stored:?} {ground:?} {zones:?} {:?} {:?}",
+        "tick {} {units:?} {:?} {stored:?} {ground:?} {zones:?} {buildings:?} {sites:?} {:?} {:?}",
         w.tick,
         w.jobs(),
         w.deaths,
@@ -104,13 +107,30 @@ fn rejected_commands_change_nothing_and_are_not_logged() {
     assert_eq!(w.command_log().len(), 1);
 }
 
-/// Plays a scripted session: commands at several ticks, including a cancel and a research change.
+/// A walkable, resource-free tile near `near` that isn't in `avoid`, for a build designation.
+fn free_tile_near(w: &World, near: Pos, avoid: &[Pos]) -> Pos {
+    w.map
+        .iter()
+        .filter(|(p, t)| {
+            t.terrain.is_walkable()
+                && t.resource.is_none()
+                && (p.x - near.x).abs().max((p.y - near.y).abs()) <= 8
+        })
+        .map(|(p, _)| p)
+        .find(|p| !avoid.contains(p))
+        .expect("a free tile near home")
+}
+
+/// Plays a scripted session: commands at several ticks, including a cancel and a research
+/// change, and a building (a bed) put up from wood the harvests bring in.
 fn play_session(defs: &Defs) -> World {
     let mut w = fresh(defs);
     let center = Pos::new(w.map.width() / 2, w.map.height() / 2);
     let targets = harvestable(&w, defs, center, 14);
     assert!(targets.len() >= 6, "seed has too little to harvest near the start");
     let home = w.units[0].pos;
+    let bed = defs.building_id("bed").expect("starter building");
+    let build_pos = free_tile_near(&w, home, &targets);
     for t in 0..9000u64 {
         match t {
             0 => {
@@ -124,6 +144,7 @@ fn play_session(defs: &Defs) -> World {
                         let _ = w.apply(Command::DesignateStockpile { pos }, defs);
                     }
                 }
+                w.apply(Command::DesignateBuild { pos: build_pos, building: bed }, defs).unwrap();
             }
             300 => {
                 w.apply(Command::CancelHarvest { pos: targets[1] }, defs).unwrap();
@@ -153,6 +174,11 @@ fn replaying_the_command_log_reproduces_the_session() {
     assert!(
         (0..defs.items.len()).any(|i| original.stored_total(ItemId(i as u16)) > 0),
         "the session should have stockpiled something, or the test proves little"
+    );
+    let bed = defs.building_id("bed").unwrap();
+    assert!(
+        original.map.iter().any(|(_, t)| t.building.is_some_and(|b| b.id == bed)),
+        "the designated bed should have been built during the session"
     );
 
     let mut replayed = fresh(&defs);

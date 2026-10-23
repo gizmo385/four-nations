@@ -8,6 +8,7 @@
 use serde::Deserialize;
 
 use crate::bending::{AbilityDef, AbilityId, BendingFile, ChiSettings};
+use crate::building::{BuildingDef, BuildingId, BuildingsFile};
 use crate::jobs::{HarvestDef, ItemDef, ItemId, JobSettings, JobsFile};
 use crate::nation::{Nation, NationDef};
 use crate::needs::{FoodDef, NeedsFile, NeedsSettings};
@@ -120,6 +121,8 @@ pub struct Defs {
     /// What working each harvestable resource yields (data/jobs.toml).
     pub harvests: Vec<HarvestDef>,
     pub jobs: JobSettings,
+    /// Constructible structures, in file order; indexed by `BuildingId` (data/buildings.toml).
+    pub buildings: Vec<BuildingDef>,
     /// The chi meter every unit has (data/bending.toml).
     pub chi: ChiSettings,
     /// Bending abilities, in file order; indexed by `AbilityId`.
@@ -174,10 +177,14 @@ impl Defs {
             include_str!("../../../data/needs.toml"),
             include_str!("../../../data/jobs.toml"),
             include_str!("../../../data/bending.toml"),
+            include_str!("../../../data/buildings.toml"),
         )
         .expect("bundled data/*.toml must be valid; run `cargo test -p fn_sim`")
     }
 
+    // One `data/*.toml` file per argument keeps every call site self-explanatory; a struct of
+    // `&str`s would just move the long argument list one level out.
+    #[allow(clippy::too_many_arguments)]
     pub fn from_toml(
         biomes: &str,
         resources: &str,
@@ -186,6 +193,7 @@ impl Defs {
         needs: &str,
         jobs: &str,
         bending: &str,
+        buildings: &str,
     ) -> Result<Self, DefsError> {
         let (research, techs) = parse::<ResearchFile>("research.toml", research)?.resolve()?;
         let mut nations = parse::<NationFile>("nations.toml", nations)?.nation;
@@ -198,6 +206,7 @@ impl Defs {
         let (needs, foods) = parse::<NeedsFile>("needs.toml", needs)?.resolve(&resource_ids)?;
         let (jobs, items, harvests) =
             parse::<JobsFile>("jobs.toml", jobs)?.resolve(&resources, &foods, &needs, &techs)?;
+        let buildings = parse::<BuildingsFile>("buildings.toml", buildings)?.resolve(&items)?;
         let biomes = parse::<BiomeFile>("biomes.toml", biomes)?.biome;
         let (chi, abilities) = parse::<BendingFile>("bending.toml", bending)?
             .resolve(&biomes, &resources, &harvests, &techs)?;
@@ -216,6 +225,7 @@ impl Defs {
             items,
             harvests,
             jobs,
+            buildings,
             chi,
             abilities,
             harvest_by_resource,
@@ -334,6 +344,14 @@ impl Defs {
         &self.abilities[id.0 as usize]
     }
 
+    pub fn building_id(&self, id: &str) -> Option<BuildingId> {
+        self.buildings.iter().position(|b| b.id == id).map(|i| BuildingId(i as u16))
+    }
+
+    pub fn building(&self, id: BuildingId) -> &BuildingDef {
+        &self.buildings[id.0 as usize]
+    }
+
     pub fn biome(&self, id: BiomeId) -> &BiomeDef {
         &self.biomes[id.0 as usize]
     }
@@ -361,6 +379,7 @@ mod tests {
     const NEEDS: &str = include_str!("../../../data/needs.toml");
     const JOBS: &str = include_str!("../../../data/jobs.toml");
     const BENDING: &str = include_str!("../../../data/bending.toml");
+    const BUILDINGS: &str = include_str!("../../../data/buildings.toml");
 
     /// The bundled needs without the food-to-resource link, for tests with their own resources.
     fn unlinked_needs() -> String {
@@ -388,6 +407,7 @@ mod tests {
             &unlinked_needs(),
             &bare_jobs(),
             bare_bending(),
+            BUILDINGS,
         )
     }
 
@@ -401,6 +421,7 @@ mod tests {
             &unlinked_needs(),
             &bare_jobs(),
             bare_bending(),
+            BUILDINGS,
         )
     }
 
@@ -491,6 +512,7 @@ mod tests {
             NEEDS,
             JOBS,
             BENDING,
+            BUILDINGS,
         )
         .unwrap_err();
         assert!(err.0.contains("character"), "{err}");
@@ -505,6 +527,7 @@ mod tests {
             needs,
             JOBS,
             BENDING,
+            BUILDINGS,
         )
     }
 
@@ -539,6 +562,7 @@ mod tests {
             NEEDS,
             jobs,
             BENDING,
+            BUILDINGS,
         )
     }
 
@@ -565,6 +589,41 @@ mod tests {
             "{JOBS}\n[[harvest]]\nresource = \"stone\"\nverb = \"X\"\nitem = \"stone\"\ncount = 1\nwork = 1.0\n"
         );
         assert!(with_jobs(&twice).unwrap_err().0.contains("two harvest"));
+    }
+
+    fn with_buildings(buildings: &str) -> Result<Defs, DefsError> {
+        Defs::from_toml(
+            BIOMES,
+            include_str!("../../../data/resources.toml"),
+            NATIONS,
+            RESEARCH,
+            NEEDS,
+            JOBS,
+            BENDING,
+            buildings,
+        )
+    }
+
+    #[test]
+    fn buildings_data_is_validated() {
+        let bad = |from: &str, to: &str| {
+            assert!(BUILDINGS.contains(from), "{from}");
+            with_buildings(&BUILDINGS.replacen(from, to, 1)).unwrap_err().0
+        };
+        assert!(bad("item = \"wood\"", "item = \"plank\"").contains("plank"));
+        assert!(bad("count = 5", "count = 0").contains("count"));
+        assert!(bad("work = 20.0", "work = 0.0").contains("work"));
+        // Two buildings with the same id.
+        let dup = format!(
+            "{BUILDINGS}\n[[building]]\nid = \"bed\"\nname = \"Bed\"\nverb = \"Build\"\nwork = 1.0\npassable = true\n"
+        );
+        assert!(with_buildings(&dup).unwrap_err().0.contains("duplicate"));
+        // Two cost entries for the same item.
+        let twice = BUILDINGS.replace(
+            "[[building.cost]]\nitem = \"wood\"\ncount = 5",
+            "[[building.cost]]\nitem = \"wood\"\ncount = 5\n[[building.cost]]\nitem = \"wood\"\ncount = 1",
+        );
+        assert!(with_buildings(&twice).unwrap_err().0.contains("costed twice"));
     }
 
     #[test]

@@ -1,0 +1,19 @@
+# Buildings: constructible structures (issue #64). What a building costs and how long it takes
+# to put up lives here; what a built building *does* (sleeping, cooking...) is follow-up work
+# (#58 beds/hearth) and isn't assumed by anything that reads this file.
+#
+# - verb:     what the designation is called in the UI.
+# - cost:     items a construct job hauls to the site before work can start.
+# - work:     in-game seconds of work once the cost is fully delivered, at a `construction`
+#             modifier of 1.0 (data/nations.toml).
+# - passable: whether units may walk onto the tile once the building is finished.
+
+[[building]]
+id = "bed"
+name = "Bed"
+verb = "Build"
+work = 20.0
+passable = false
+[[building.cost]]
+item = "wood"
+count = 5
