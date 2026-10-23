@@ -2,7 +2,7 @@
 //!
 //!     cargo run -p fn_client -- [seed] [air|water|earth|fire] [width] [height]
 //!
-//! Controls: click a unit to select it (Esc deselects), WASD/arrows or mouse drag pan, mouse wheel
+//! Controls: click a unit to select it (Esc deselects, and the camera centres it), WASD/arrows or mouse drag pan, mouse wheel
 //! zoom, R new map, 1-4 switch nation, Space pause. H/X/P pick a designation tool (harvest, cancel
 //! harvest, stockpile): drag a rectangle with the left button, middle/right still pan; Esc returns
 //! to selecting. See `designate`.
@@ -27,13 +27,15 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 use bevy::sprite::Anchor;
 use bevy::window::{ExitCondition, PrimaryWindow};
 use bevy::winit::WinitPlugin;
-use designate::{DesignatePlugin, Notice, Tool};
+use designate::{DesignatePlugin, Tool};
 use fn_sim::world::{TICKS_PER_SECOND, Unit, UnitId};
 use fn_sim::{Defs, MapGenConfig, Nation, Pos, Tile, World};
+use hud::HudPlugin;
 use jobview::{JobViewPlugin, ResourceSprite};
 use sprites::Sheet;
 
 mod designate;
+mod hud;
 mod jobview;
 mod sprites;
 mod ui_style;
@@ -88,7 +90,7 @@ fn main() {
             std::env::var("FN_SELECT").ok().and_then(|s| s.parse().ok()).map(UnitId),
         ))
         .add_message::<MapClicked>()
-        .add_plugins((DesignatePlugin, JobViewPlugin))
+        .add_plugins((DesignatePlugin, JobViewPlugin, HudPlugin))
         .add_systems(Startup, (load_art, setup_camera_and_ui, spawn_world).chain())
         .add_systems(FixedUpdate, tick_sim)
         .add_systems(
@@ -99,10 +101,8 @@ fn main() {
                 sync_units,
                 despawn_dead_units,
                 select_units,
+                center_on_selection,
                 draw_selection,
-                selection_info,
-                hover_info,
-                hud,
             )
                 .chain(),
         )
@@ -186,19 +186,6 @@ struct MapEntity;
 #[derive(Component)]
 struct UnitSprite(UnitId);
 
-#[derive(Component)]
-struct HoverText;
-
-/// The selection panel: the unit's portrait beside its text. Hidden when nothing is selected.
-#[derive(Component)]
-struct SelectionPanel;
-
-#[derive(Component)]
-struct SelectionPortrait;
-
-#[derive(Component)]
-struct SelectionText;
-
 /// The selected unit, if any. By id, because dead units leave `World::units` and shift indices.
 #[derive(Resource, Default)]
 struct Selection(Option<UnitId>);
@@ -206,9 +193,6 @@ struct Selection(Option<UnitId>);
 /// A left click on the map that wasn't part of a drag, in world coordinates.
 #[derive(Message)]
 struct MapClicked(Vec2);
-
-#[derive(Component)]
-struct HudText;
 
 fn load_art(mut commands: Commands, assets: Res<AssetServer>, sim: Res<Sim>) {
     let mut characters = HashMap::new();
@@ -250,107 +234,6 @@ fn setup_camera_and_ui(
         target.texture_descriptor.usage |= TextureUsages::COPY_SRC;
         camera.insert(RenderTarget::Image(images.add(target).into()));
     }
-    commands.spawn((info_panel(Corner::TopLeft), Visibility::Hidden, HoverText));
-    spawn_selection_panel(&mut commands);
-    commands.spawn((info_panel(Corner::BottomLeft), HudText));
-}
-
-/// The portrait is drawn at this integer scale so the 38px faceset stays crisp.
-const PORTRAIT_SCALE: f32 = 2.0;
-
-/// A top-right panel with a portrait well on the left and the unit's text on the right. Styled
-/// like the other info panels until the full restyle (#80).
-fn spawn_selection_panel(commands: &mut Commands) {
-    use panel_style::*;
-    commands
-        .spawn((
-            SelectionPanel,
-            Visibility::Hidden,
-            BackgroundColor(BACKGROUND),
-            BorderColor::all(BORDER),
-            Node {
-                position_type: PositionType::Absolute,
-                right: Val::Px(MARGIN),
-                top: Val::Px(MARGIN),
-                padding: UiRect::all(Val::Px(PADDING)),
-                border: UiRect::all(Val::Px(BORDER_WIDTH)),
-                border_radius: BorderRadius::all(Val::Px(RADIUS)),
-                column_gap: Val::Px(PADDING),
-                align_items: AlignItems::FlexStart,
-                ..default()
-            },
-        ))
-        .with_children(|p| {
-            p.spawn((
-                SelectionPortrait,
-                ImageNode::default(),
-                BackgroundColor(ui_style::INSET),
-                Node {
-                    width: Val::Px(sprites::FACE_SIZE * PORTRAIT_SCALE),
-                    height: Val::Px(sprites::FACE_SIZE * PORTRAIT_SCALE),
-                    flex_shrink: 0.0,
-                    ..default()
-                },
-            ));
-            p.spawn((
-                SelectionText,
-                Text::new(""),
-                TextFont { font_size: FONT_SIZE.into(), ..default() },
-                TextColor(TEXT),
-                TextShadow { offset: Vec2::splat(1.0), color: SHADOW },
-            ));
-        });
-}
-
-/// Shared look for on-map info panels. Restyle all panels here; the overall UI direction is #39.
-mod panel_style {
-    use bevy::prelude::*;
-
-    /// Near-opaque so bright terrain (snow, sand) can't wash the panel out.
-    pub const BACKGROUND: Color = Color::srgba(0.06, 0.06, 0.09, 0.92);
-    pub const BORDER: Color = Color::srgba(0.85, 0.75, 0.45, 0.6);
-    pub const TEXT: Color = Color::srgb(0.96, 0.95, 0.9);
-    pub const SHADOW: Color = Color::srgba(0.0, 0.0, 0.0, 0.9);
-    pub const FONT_SIZE: f32 = 15.0;
-    pub const MARGIN: f32 = 8.0;
-    pub const PADDING: f32 = 8.0;
-    pub const BORDER_WIDTH: f32 = 1.0;
-    pub const RADIUS: f32 = 4.0;
-}
-
-#[derive(Clone, Copy)]
-enum Corner {
-    TopLeft,
-    BottomLeft,
-}
-
-/// A text panel anchored to a screen corner, styled by `panel_style`.
-fn info_panel(corner: Corner) -> impl Bundle {
-    use panel_style::*;
-    let at = Val::Px(MARGIN);
-    let (left, right, top, bottom) = match corner {
-        Corner::TopLeft => (at, Val::Auto, at, Val::Auto),
-        Corner::BottomLeft => (at, Val::Auto, Val::Auto, at),
-    };
-    (
-        Text::new(""),
-        TextFont { font_size: FONT_SIZE.into(), ..default() },
-        TextColor(TEXT),
-        TextShadow { offset: Vec2::splat(1.0), color: SHADOW },
-        BackgroundColor(BACKGROUND),
-        BorderColor::all(BORDER),
-        Node {
-            position_type: PositionType::Absolute,
-            left,
-            right,
-            top,
-            bottom,
-            padding: UiRect::all(Val::Px(PADDING)),
-            border: UiRect::all(Val::Px(BORDER_WIDTH)),
-            border_radius: BorderRadius::all(Val::Px(RADIUS)),
-            ..default()
-        },
-    )
 }
 
 fn tile_translation(p: Pos, z: f32) -> Vec3 {
@@ -604,65 +487,6 @@ fn cursor_tile(window: &Window, camera: &Camera, camera_tf: &GlobalTransform) ->
     Some(Pos::new((world.x / TILE).round() as i32, (-world.y / TILE).round() as i32))
 }
 
-fn hover_info(
-    sim: Res<Sim>,
-    window: Query<&Window, With<PrimaryWindow>>,
-    camera: Query<(&Camera, &GlobalTransform)>,
-    mut text: Query<(&mut Text, &mut Visibility), With<HoverText>>,
-) {
-    let (Ok(window), Ok((camera, camera_tf)), Ok((mut text, mut visibility))) =
-        (window.single(), camera.single(), text.single_mut())
-    else {
-        return;
-    };
-    let tile =
-        cursor_tile(window, camera, camera_tf).and_then(|p| Some((p, sim.world.map.get(p)?)));
-    let Some((p, tile)) = tile else {
-        *visibility = Visibility::Hidden;
-        return;
-    };
-    *visibility = Visibility::Inherited;
-    let resource = tile.resource.map_or("None", |r| sim.defs.resource(r).name.as_str());
-    let growing = if sim.world.is_resting(p) { " (growing back)" } else { "" };
-    text.0 = format!(
-        "Tile ({}, {})\nTerrain: {:?}\nBiome: {}\nElevation: {}\nResource: {}{}",
-        p.x,
-        p.y,
-        tile.terrain,
-        sim.defs.biome(tile.biome).name,
-        tile.elevation,
-        resource,
-        growing
-    );
-}
-
-fn hud(
-    sim: Res<Sim>,
-    tool: Res<Tool>,
-    notice: Res<Notice>,
-    mut text: Query<&mut Text, With<HudText>>,
-) {
-    let Ok(mut text) = text.single_mut() else { return };
-    let def = sim.defs.nation(sim.world.nation);
-    let m = sim.world.modifiers();
-    text.0 = format!(
-        "{} | seed {} | tick {}{}\nmove x{} carry x{} earthworks x{} heat x{} water x{} power x{} build x{}\nTool: {}{}\n[H] harvest  [X] cancel harvest  [P] stockpile  [Esc] select  [WASD/drag] pan  [wheel] zoom  [R] new map  [1-4] nation  [Space] pause",
-        def.name,
-        sim.world.seed,
-        sim.world.tick,
-        if sim.paused { " (paused)" } else { "" },
-        m.move_speed,
-        m.carry_capacity,
-        m.earthworks,
-        m.heating,
-        m.water_work,
-        m.power_generation,
-        m.construction,
-        tool.label(),
-        if notice.0.is_empty() { String::new() } else { format!(" ({})", notice.0) },
-    );
-}
-
 /// Selects the unit under a map click, or clears the selection when clicking empty ground.
 fn select_units(
     mut clicks: MessageReader<MapClicked>,
@@ -680,6 +504,34 @@ fn select_units(
     }
 }
 
+/// When a unit becomes selected, moves the camera so the unit is centred in the part of the
+/// screen the panels leave free: left of the side panel and above the selection bar. Later
+/// panning is the player's; this runs only when the selection changes.
+fn center_on_selection(
+    sim: Res<Sim>,
+    selection: Res<Selection>,
+    mut centred: Local<Option<UnitId>>,
+    mut camera: Query<(&mut Transform, &Projection, &Camera), With<Camera2d>>,
+) {
+    let Some(unit) = selection.0.and_then(|id| sim.world.unit(id)) else {
+        *centred = None;
+        return;
+    };
+    if *centred == Some(unit.id) {
+        return;
+    }
+    let Ok((mut tf, Projection::Orthographic(ortho), cam)) = camera.single_mut() else { return };
+    if cam.logical_viewport_size().is_none() {
+        return;
+    }
+    let (side, bar) = hud::covered_by_panels();
+    let at = tile_translation(unit.pos, 0.0).truncate();
+    // The free area's centre is `side / 2` left and `bar / 2` above the view's centre.
+    let center = at + Vec2::new(side / 2.0, -bar / 2.0) * ortho.scale;
+    tf.translation = center.extend(tf.translation.z);
+    *centred = Some(unit.id);
+}
+
 fn draw_selection(
     selection: Res<Selection>,
     units: Query<(&UnitSprite, &Transform)>,
@@ -694,43 +546,6 @@ fn draw_selection(
             Color::srgb(1.0, 0.85, 0.2),
         );
     }
-}
-
-fn selection_info(
-    sim: Res<Sim>,
-    art: Res<Art>,
-    selection: Res<Selection>,
-    mut panel: Query<&mut Visibility, With<SelectionPanel>>,
-    mut portrait: Query<&mut ImageNode, With<SelectionPortrait>>,
-    mut text: Query<&mut Text, With<SelectionText>>,
-) {
-    let (Ok(mut visibility), Ok(mut portrait), Ok(mut text)) =
-        (panel.single_mut(), portrait.single_mut(), text.single_mut())
-    else {
-        return;
-    };
-    let Some(unit) = selection.0.and_then(|id| sim.world.unit(id)) else {
-        *visibility = Visibility::Hidden;
-        return;
-    };
-    *visibility = Visibility::Inherited;
-    let face = &art.character(unit_character(&sim, unit)).face;
-    if portrait.image != *face {
-        portrait.image = face.clone();
-    }
-    text.0 = format!(
-        "{}\n{}\nTile ({}, {})\nHealth {:.0}  Hunger {:.0}\nThirst {:.0}  Energy {:.0}\nTask: {}\nCarrying: {}\n[Esc] deselect",
-        unit.name,
-        sim.defs.nation(unit.nation).name,
-        unit.pos.x,
-        unit.pos.y,
-        unit.needs.health,
-        unit.needs.hunger,
-        unit.needs.thirst,
-        unit.needs.energy,
-        jobview::describe_task(&sim.world, &sim.defs, unit),
-        jobview::describe_stack(&sim.defs, unit.carrying),
-    );
 }
 
 /// Frames to render after the art has loaded before capturing, so sprites and text are settled.

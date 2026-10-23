@@ -6,10 +6,6 @@
 //! The accent is the player nation's `color` from data/nations.toml; everything else is fixed so
 //! status colours (ok/warn/bad) never change meaning between nations.
 
-// The existing debug panels move onto this module in #80; until then not every builder has a
-// caller. Remove this once they all do.
-#![allow(dead_code)]
-
 use bevy::prelude::*;
 
 /// Text sizes in logical pixels (Bevy's default font).

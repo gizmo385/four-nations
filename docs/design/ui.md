@@ -121,8 +121,9 @@ For comparison, [the UI before #39](https://github.com/gizmo385/four-nations/blo
 
 ## Follow-ups
 
-- **#80:** restyle the HUD, the selection and hover info, and the job and designation lines into
-  the side panel, selection bar and tooltip using `ui_style`; delete `panel_style`.
+- **#80 (done):** the HUD, the selection and hover info, and the job and designation lines are
+  now the side panel, selection bar and tooltip in `crates/client/src/hud.rs`; `panel_style` is
+  gone. The selection bar leaves room under its needs bars for the chi bar (#72).
 - **#23:** the research screen and HUD progress must use `ui_style` and this doc (commented on
   the issue, which is now blocked by #80).
 - Portraits arrive with #76 (Ninja Adventure facesets).
