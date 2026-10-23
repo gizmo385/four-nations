@@ -21,12 +21,15 @@ use crate::research::{self, Research, ResearchError, TechId};
 use crate::rng::{self, SimRng};
 
 mod bending;
+mod build;
 mod command;
 mod heat;
 mod work;
 
 use bending::Patch;
 pub use bending::{BendError, BendEvent, BendOutcome};
+pub use build::BuildError;
+use build::Site;
 pub use command::{Command, CommandError, Recorded};
 pub use heat::{Flame, HeatSource};
 pub use work::{DesignateError, FoodSource, Task};
@@ -124,6 +127,8 @@ pub struct World {
     zones: BTreeSet<Pos>,
     /// What the stockpile tiles hold, one kind of item per tile.
     stored: BTreeMap<Pos, Stack>,
+    /// Build designations that aren't finished, by tile (`Command::DesignateBuild`, #64).
+    sites: BTreeMap<Pos, Site>,
     /// How units walk. Every unit uses these for now; a nation that can cross water would get
     /// its own.
     rules: MoveRules,
@@ -170,6 +175,7 @@ impl World {
             ground: BTreeMap::new(),
             zones: BTreeSet::new(),
             stored: BTreeMap::new(),
+            sites: BTreeMap::new(),
             rules: MoveRules::default(),
             regions: None,
             bend_events: Vec::new(),

@@ -5,6 +5,7 @@
 //! the commands applied. That keeps it testable without a GPU and reusable from any frontend.
 
 pub mod bending;
+pub mod building;
 pub mod defs;
 pub mod flood;
 pub mod geom;

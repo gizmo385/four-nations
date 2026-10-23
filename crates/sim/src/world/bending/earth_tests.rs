@@ -21,6 +21,7 @@ fn field(defs: &Defs, water: Terrain, last: i32) -> TileMap {
         terrain: if (5..=last).contains(&p.x) { water } else { Terrain::Land },
         biome: plains,
         resource: if p == at(10, 3) { cabbage } else { None },
+        building: None,
     })
 }
 

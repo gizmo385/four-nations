@@ -9,6 +9,8 @@
 //! keeps the enum (and any save format built on it) trivial. Commands that fail validation change
 //! nothing and aren't logged, so replaying a log never depends on what was rejected.
 
+use crate::building::BuildingId;
+
 use super::*;
 
 /// Something the player asks the settlement to do.
@@ -27,6 +29,11 @@ pub enum Command {
     Bend { ability: AbilityId, pos: Pos },
     /// Withdraw a bend designation. Channeling already done is lost.
     CancelBend { pos: Pos },
+    /// Designate a building: a unit hauls its cost to the tile and constructs it
+    /// (`data/buildings.toml`).
+    DesignateBuild { pos: Pos, building: BuildingId },
+    /// Withdraw a build designation. Materials delivered drop on the ground; work done is lost.
+    CancelBuild { pos: Pos },
 }
 
 /// Why a command was refused. The world is unchanged when `apply` returns one of these.
@@ -35,6 +42,7 @@ pub enum CommandError {
     Designate(DesignateError),
     Research(ResearchError),
     Bend(BendError),
+    Build(BuildError),
 }
 
 impl From<DesignateError> for CommandError {
@@ -55,6 +63,12 @@ impl From<BendError> for CommandError {
     }
 }
 
+impl From<BuildError> for CommandError {
+    fn from(e: BuildError) -> Self {
+        Self::Build(e)
+    }
+}
+
 impl std::fmt::Display for CommandError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -66,6 +80,7 @@ impl std::fmt::Display for CommandError {
             Self::Designate(DesignateError::CannotStockpile) => f.write_str("can't stockpile here"),
             Self::Research(e) => e.fmt(f),
             Self::Bend(e) => e.fmt(f),
+            Self::Build(e) => e.fmt(f),
         }
     }
 }
@@ -91,6 +106,10 @@ impl World {
             Command::SetResearch { tech } => self.set_research(tech, defs)?,
             Command::Bend { ability, pos } => self.designate_bend(ability, pos, defs).map(drop)?,
             Command::CancelBend { pos } => self.cancel_bend(pos)?,
+            Command::DesignateBuild { pos, building } => {
+                self.designate_build(pos, building, defs).map(drop)?
+            }
+            Command::CancelBuild { pos } => self.cancel_build(pos, defs)?,
         }
         self.command_log.push(Recorded { tick: self.tick, command });
         Ok(())

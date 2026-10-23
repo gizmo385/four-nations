@@ -9,6 +9,7 @@ const RESEARCH: &str = include_str!("../../../../data/research.toml");
 const NEEDS: &str = include_str!("../../../../data/needs.toml");
 const JOBS: &str = include_str!("../../../../data/jobs.toml");
 pub const BENDING: &str = include_str!("../../../../data/bending.toml");
+const BUILDINGS: &str = include_str!("../../../../data/buildings.toml");
 
 /// The bundled data, with `bending` appended to `data/bending.toml` and `research` appended to
 /// `data/research.toml`.
@@ -21,12 +22,13 @@ pub fn load(bending: &str, research: &str) -> Result<Defs, DefsError> {
         NEEDS,
         JOBS,
         &format!("{BENDING}\n{bending}"),
+        BUILDINGS,
     )
 }
 
 /// The bundled data with `bending.toml` replaced by `bending`.
 pub fn load_only(bending: &str) -> Result<Defs, DefsError> {
-    Defs::from_toml(BIOMES, RESOURCES, NATIONS, RESEARCH, NEEDS, JOBS, bending)
+    Defs::from_toml(BIOMES, RESOURCES, NATIONS, RESEARCH, NEEDS, JOBS, bending, BUILDINGS)
 }
 
 /// An earth tech that unlocks `probe_locked`.

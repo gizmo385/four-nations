@@ -25,6 +25,7 @@ fn field(defs: &Defs) -> TileMap {
         terrain: Terrain::Land,
         biome: plains,
         resource: None,
+        building: None,
     })
 }
 

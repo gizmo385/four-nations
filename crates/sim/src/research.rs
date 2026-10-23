@@ -397,6 +397,7 @@ mod tests {
     const NATIONS: &str = include_str!("../../../data/nations.toml");
     const RESEARCH: &str = include_str!("../../../data/research.toml");
     const BENDING: &str = include_str!("../../../data/bending.toml");
+    const BUILDINGS: &str = include_str!("../../../data/buildings.toml");
 
     const SETTINGS: &str =
         "[settings]\npassive_knowledge_per_minute = 3.0\nstudy_knowledge_per_minute = 9.0\n";
@@ -427,7 +428,7 @@ mod tests {
     ";
 
     fn load(research: &str, nations: &str) -> Result<Defs, DefsError> {
-        Defs::from_toml(BIOMES, RESOURCES, nations, research, NEEDS, JOBS, BENDING)
+        Defs::from_toml(BIOMES, RESOURCES, nations, research, NEEDS, JOBS, BENDING, BUILDINGS)
     }
 
     /// Loads the bundled nations with `BASICS` plus `techs`.

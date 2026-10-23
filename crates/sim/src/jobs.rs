@@ -209,6 +209,8 @@ pub enum JobKind {
     Haul { pos: Pos },
     /// Channel this ability on this tile (`data/bending.toml`). Needs a unit with enough chi.
     Bend { ability: AbilityId, pos: Pos },
+    /// Haul a building's cost to this tile and construct it (`data/buildings.toml`, #64).
+    Build { pos: Pos },
 }
 
 #[derive(Debug, Clone, PartialEq)]

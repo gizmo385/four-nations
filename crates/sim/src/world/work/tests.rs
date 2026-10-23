@@ -28,6 +28,7 @@ fn arena(defs: &Defs, rows: &[&str]) -> TileMap {
             terrain,
             biome: BiomeId(0),
             resource,
+            building: None,
         }
     })
 }

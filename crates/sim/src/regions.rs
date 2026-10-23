@@ -159,6 +159,7 @@ mod tests {
             },
             biome: BiomeId(0),
             resource: None,
+            building: None,
         })
     }
 

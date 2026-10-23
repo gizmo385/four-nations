@@ -32,6 +32,7 @@ use std::collections::VecDeque;
 
 use rand::RngExt;
 
+use crate::building::Building;
 use crate::defs::{BiomeId, Defs, ResourceId, Terrain};
 use crate::geom::{Grid, Pos};
 use crate::noise::{Fbm, lerp, smoothstep};
@@ -94,6 +95,8 @@ pub struct Tile {
     pub terrain: Terrain,
     pub biome: BiomeId,
     pub resource: Option<ResourceId>,
+    /// A finished building (`Command::DesignateBuild`, issue #64), if any.
+    pub building: Option<Building>,
 }
 
 pub type TileMap = Grid<Tile>;
@@ -141,6 +144,7 @@ pub fn generate(cfg: &MapGenConfig, defs: &Defs) -> TileMap {
             terrain: terrain[p],
             biome: defs.classify_biome(t, m),
             resource: None,
+            building: None,
         }
     });
     add_resources(&mut map, cfg, defs);

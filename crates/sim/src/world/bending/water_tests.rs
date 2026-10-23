@@ -24,6 +24,7 @@ fn field(defs: &Defs) -> TileMap {
         terrain: if p.x == 0 { Terrain::River } else { Terrain::Land },
         biome: plains,
         resource: None,
+        building: None,
     })
 }
 

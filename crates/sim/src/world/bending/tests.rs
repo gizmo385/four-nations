@@ -17,6 +17,7 @@ fn arena(width: i32, height: i32) -> TileMap {
         terrain: Terrain::Land,
         biome: BiomeId(0),
         resource: None,
+        building: None,
     })
 }
 

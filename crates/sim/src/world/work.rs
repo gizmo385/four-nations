@@ -63,6 +63,9 @@ pub enum Task {
     Haul(JobId),
     /// Channeling a designated bend.
     Bend(JobId),
+    /// Fetching a building's cost or working the site (`run_build` tells which from the site's
+    /// state; the task itself doesn't need to know).
+    Build(JobId),
     /// Carrying a stack to a stockpile tile.
     Deliver,
     Eat(FoodSource),
@@ -120,7 +123,7 @@ impl World {
     pub fn harvest_designations(&self) -> impl Iterator<Item = Pos> + '_ {
         self.jobs.iter().filter_map(|j| match j.kind {
             JobKind::Harvest { pos } => Some(pos),
-            JobKind::Haul { .. } | JobKind::Bend { .. } => None,
+            JobKind::Haul { .. } | JobKind::Bend { .. } | JobKind::Build { .. } => None,
         })
     }
 
@@ -230,7 +233,7 @@ impl World {
 
     /// Puts a stack on the ground at `near`, or the closest free tile (one with no other kind of
     /// item, and not a stockpile tile), and queues a haul for it.
-    fn place_ground(&mut self, near: Pos, stack: Stack) {
+    pub(super) fn place_ground(&mut self, near: Pos, stack: Stack) {
         for r in 0..=GROUND_SEARCH_RADIUS {
             for dy in -r..=r {
                 for dx in -r..=r {
@@ -323,7 +326,7 @@ impl World {
         }
     }
 
-    fn carry_capacity(&self, _i: usize, defs: &Defs) -> u32 {
+    pub(super) fn carry_capacity(&self, _i: usize, defs: &Defs) -> u32 {
         let m = self.modifiers().carry_capacity;
         ((defs.jobs.base_carry as f32 * m).round() as u32).max(1)
     }
@@ -351,7 +354,7 @@ impl World {
     /// Drops unclaimed jobs whose target has gone: a tree someone else cleared, a stack that was
     /// eaten.
     fn prune_jobs(&mut self, defs: &Defs) {
-        let (map, ground) = (&self.map, &self.ground);
+        let (map, ground, sites) = (&self.map, &self.ground, &self.sites);
         self.jobs.retain(|j| {
             j.claimed_by.is_some()
                 || match j.kind {
@@ -362,6 +365,7 @@ impl World {
                     // Left for a unit to find out: a bend that can't happen is reported as a
                     // failed event, not silently dropped.
                     JobKind::Bend { .. } => true,
+                    JobKind::Build { pos } => sites.contains_key(&pos),
                 }
         });
     }
@@ -721,6 +725,9 @@ impl World {
                     .unit_can_bend(i, defs.ability(ability))
                     .then(|| self.stand(&flood, pos))
                     .flatten(),
+                // Reachable as soon as the site itself is, whether or not its materials are yet:
+                // a unit will wait on those, as a resting harvest does.
+                JobKind::Build { pos } => self.stand(&flood, pos),
             };
             if let Some((cost, stand)) = found {
                 let key = (cost, job.id);
@@ -740,6 +747,7 @@ impl World {
             JobKind::Harvest { .. } => Task::Harvest(job.id),
             JobKind::Haul { .. } => Task::Haul(job.id),
             JobKind::Bend { .. } => Task::Bend(job.id),
+            JobKind::Build { .. } => Task::Build(job.id),
         };
         let u = &mut self.units[i];
         u.job_task = Some(task);
@@ -775,6 +783,7 @@ impl World {
             JobKind::Bend { ability, pos } => {
                 self.unit_can_bend(i, defs.ability(ability)) && can_stand(pos)
             }
+            JobKind::Build { pos } => can_stand(pos),
         })
     }
 
@@ -792,6 +801,7 @@ impl World {
             Task::Harvest(id) => self.run_harvest(i, id, defs),
             Task::Haul(id) => self.run_haul(i, id, defs),
             Task::Bend(id) => self.run_bend(i, id, defs),
+            Task::Build(id) => self.run_build(i, id, defs),
             Task::Deliver => self.run_deliver(i, defs),
             // Need tasks never sit in the job slot.
             _ => self.finish_job(i),

@@ -85,6 +85,9 @@ impl MoveRules {
         if self.resources_block && tile.resource.is_some() {
             return None;
         }
+        if tile.building.is_some_and(|b| !b.passable) {
+            return None;
+        }
         self.terrain_cost(tile.terrain)
     }
 
@@ -234,6 +237,7 @@ mod tests {
                 terrain,
                 biome: BiomeId(0),
                 resource: None,
+                building: None,
             }
         })
     }
@@ -360,6 +364,21 @@ mod tests {
         let mut r = MoveRules::default();
         assert_eq!(find(&m, Pos::new(0, 1), Pos::new(2, 1), &r), None);
         r.resources_block = false;
+        assert!(find(&m, Pos::new(0, 1), Pos::new(2, 1), &r).is_some());
+    }
+
+    #[test]
+    fn a_building_blocks_or_allows_pathing_per_its_def() {
+        use crate::building::{Building, BuildingId};
+        let mut m = map(&["...", "...", "..."]);
+        let r = MoveRules::default();
+        for y in 0..3 {
+            m[Pos::new(1, y)].building = Some(Building { id: BuildingId(0), passable: false });
+        }
+        assert_eq!(find(&m, Pos::new(0, 1), Pos::new(2, 1), &r), None);
+        for y in 0..3 {
+            m[Pos::new(1, y)].building = Some(Building { id: BuildingId(0), passable: true });
+        }
         assert!(find(&m, Pos::new(0, 1), Pos::new(2, 1), &r).is_some());
     }
 
