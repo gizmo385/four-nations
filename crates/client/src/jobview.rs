@@ -162,10 +162,16 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
                 _ => "Fetching items".into(),
             }
         }
-        // Minimal text; the proper bending display is the client work in #72.
-        Task::Bend(id) => match world.job(id).map(|j| j.kind) {
-            Some(JobKind::Bend { ability, pos }) => {
-                format!("{} at ({}, {})", defs.ability(ability).verb, pos.x, pos.y)
+        Task::Bend(id) => match world.job(id).map(|j| (j.kind, j.progress)) {
+            Some((JobKind::Bend { ability, pos }, progress)) => {
+                let def = defs.ability(ability);
+                format!(
+                    "{} at ({}, {}), {:.0}% done",
+                    def.verb,
+                    pos.x,
+                    pos.y,
+                    (progress / def.work * 100.0).clamp(0.0, 100.0)
+                )
             }
             _ => "Bending".into(),
         },
