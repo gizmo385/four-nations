@@ -23,36 +23,36 @@ macro_rules! pack {
 }
 
 pub const CHARACTERS: &[CharacterRow] = &[
-    // Air Nomads
+    // Air Nomads. The portraits stay on the pack's facesets until the portraits issue (#152).
     CharacterRow {
-        id: "Monk2",
-        sheet: pack!("Monk2/SpriteSheet.png"),
+        id: "air_monk",
+        sheet: "original/air_monk.png",
         face: pack!("Monk2/Faceset.png"),
     },
     CharacterRow {
-        id: "Master",
-        sheet: pack!("Master/SpriteSheet.png"),
+        id: "air_elder",
+        sheet: "original/air_elder.png",
         face: pack!("Master/Faceset.png"),
     },
     CharacterRow {
-        id: "NinjaYellow",
-        sheet: pack!("NinjaYellow/SpriteSheet.png"),
+        id: "air_acolyte",
+        sheet: "original/air_acolyte.png",
         face: pack!("NinjaYellow/Faceset.png"),
     },
     // Water Tribes
     CharacterRow {
-        id: "Eskimo",
-        sheet: pack!("Eskimo/SpriteSheet.png"),
+        id: "water_hunter",
+        sheet: "original/water_hunter.png",
         face: pack!("Eskimo/Faceset.png"),
     },
     CharacterRow {
-        id: "NinjaEskimo",
-        sheet: pack!("NinjaEskimo/SpriteSheet.png"),
+        id: "water_healer",
+        sheet: "original/water_healer.png",
         face: pack!("NinjaEskimo/Faceset.png"),
     },
     CharacterRow {
-        id: "NinjaWater",
-        sheet: pack!("NinjaWater/SpriteSheet.png"),
+        id: "water_warrior",
+        sheet: "original/water_warrior.png",
         face: pack!("NinjaWater/Faceset.png"),
     },
     // Earth Kingdom (art/earth_*.toml, #151; faces in art/faces_earth.toml, #153)
@@ -127,8 +127,7 @@ mod tests {
             let characters = &defs.nation(nation).characters;
             assert_eq!(characters.len(), 3, "{nation:?}");
             for c in characters {
-                let size = png_size(character_sheet_path(c));
-                assert!(size == (64, 64) || size == (64, 112), "{c} sheet is {size:?}");
+                assert_eq!(png_size(character_sheet_path(c)), (64, 64), "{c} sheet");
                 let (w, h) = png_size(character_face_path(c));
                 assert!(h == 38 || h == 32, "{c} face cells are {h}px");
                 let cells =
@@ -183,7 +182,7 @@ mod tests {
             }
             seen += 1;
         }
-        assert!(seen >= 6, "only {seen} original character sheets");
+        assert!(seen >= 12, "only {seen} original character sheets");
     }
 
     #[test]

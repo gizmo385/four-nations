@@ -60,19 +60,9 @@ source = "ninja-adventure"
 sha256 = "a519353dfdb4dfe8d2a1c67061be063056bbf0275eafa87ff711614e278c7261"
 
 [[file]]
-path = "third_party/ninja-adventure/Actor/Character/Monk2/SpriteSheet.png"
-source = "ninja-adventure"
-sha256 = "c81d5a53a7de4b29019b00918a8321ef593a13db9f7f1fd3f0132855d193e7f2"
-
-[[file]]
 path = "third_party/ninja-adventure/Actor/Character/Monk2/Faceset.png"
 source = "ninja-adventure"
 sha256 = "d60c36993139a5194fdcc07975e3b1ee1837b6235e1172e8c16a09e0b5b6a455"
-
-[[file]]
-path = "third_party/ninja-adventure/Actor/Character/Master/SpriteSheet.png"
-source = "ninja-adventure"
-sha256 = "3d6b256d939e79943d3fd217429d06f36e8a77f243b5d63efb41f024acc143ae"
 
 [[file]]
 path = "third_party/ninja-adventure/Actor/Character/Master/Faceset.png"
@@ -80,19 +70,9 @@ source = "ninja-adventure"
 sha256 = "123248ae36db8956197323284a34707a33c958d7cc816a35c3882e8abe479542"
 
 [[file]]
-path = "third_party/ninja-adventure/Actor/Character/NinjaYellow/SpriteSheet.png"
-source = "ninja-adventure"
-sha256 = "8ac74521878527a0277e23696d4310538deb1c0e899d9937f939a8c37f230f3b"
-
-[[file]]
 path = "third_party/ninja-adventure/Actor/Character/NinjaYellow/Faceset.png"
 source = "ninja-adventure"
 sha256 = "20d43509ad88d9328655c334352c970c6cb5c590f84d108e93a76a1cf3456f6d"
-
-[[file]]
-path = "third_party/ninja-adventure/Actor/Character/Eskimo/SpriteSheet.png"
-source = "ninja-adventure"
-sha256 = "dd8fa6b0f46362e12ff27181da8b8b54588b40fd67ab330c308e12ee63c7431d"
 
 [[file]]
 path = "third_party/ninja-adventure/Actor/Character/Eskimo/Faceset.png"
@@ -100,24 +80,32 @@ source = "ninja-adventure"
 sha256 = "91b8ef837cf78a7d047d952e02403f6533454b121b09ba3818766ce363a61880"
 
 [[file]]
-path = "third_party/ninja-adventure/Actor/Character/NinjaEskimo/SpriteSheet.png"
-source = "ninja-adventure"
-sha256 = "8e45c30adcd8a0d7f2f384e28dd5bfd54bbcca096ac3d05d68d4afd0cd8eb186"
-
-[[file]]
 path = "third_party/ninja-adventure/Actor/Character/NinjaEskimo/Faceset.png"
 source = "ninja-adventure"
 sha256 = "c96eb72abd1fe6a8dfa29d365910a6af9bbffe5bf811d46f21110b409d8c4302"
 
 [[file]]
-path = "third_party/ninja-adventure/Actor/Character/NinjaWater/SpriteSheet.png"
-source = "ninja-adventure"
-sha256 = "ce464d2f306c0eacd18380a48352d5018bc9a82ab46fff6fe17feef41c0236c8"
-
-[[file]]
 path = "third_party/ninja-adventure/Actor/Character/NinjaWater/Faceset.png"
 source = "ninja-adventure"
 sha256 = "ce2de5004f1760d440c81e586eb6687933f7994385f1dc5bc2fb2c61c9284c5f"
+
+[[file]]
+path = "original/air_acolyte.png"
+source = "original"
+generated_from = "art/air_acolyte.toml"
+sha256 = "8cf749e7d7321134296bee00c13e88c45fa6fcde740954995f7f72fd7aac0d84"
+
+[[file]]
+path = "original/air_elder.png"
+source = "original"
+generated_from = "art/air_elder.toml"
+sha256 = "ebcc8ff4da3f24dd99645865bb3e5c0de7859cf22c0209b6e8cb7ee0c87aa841"
+
+[[file]]
+path = "original/air_monk.png"
+source = "original"
+generated_from = "art/air_monk.toml"
+sha256 = "e97bdbcb129cb39e4712a4970869d3d5bb884785411fc69edb74c1da8e0d96ec"
 
 [[file]]
 path = "original/buildings.png"
@@ -298,3 +286,21 @@ path = "original/water.png"
 source = "original"
 generated_from = "art/water.toml"
 sha256 = "52bd3c3c4f0265135ebe675af925505a7b7f28bec641daf2f631d627564e38e3"
+
+[[file]]
+path = "original/water_healer.png"
+source = "original"
+generated_from = "art/water_healer.toml"
+sha256 = "b8ea66419ed31e63d711c664b3015477cccd4127fc7b86057860846c17763110"
+
+[[file]]
+path = "original/water_hunter.png"
+source = "original"
+generated_from = "art/water_hunter.toml"
+sha256 = "e2c0e8d9c0b5dfad16b88885e881e50aa3f155901d6204592aee3f561b88d4c7"
+
+[[file]]
+path = "original/water_warrior.png"
+source = "original"
+generated_from = "art/water_warrior.toml"
+sha256 = "0948d6a87ffd19c894bb88a793b64055d3256bd7810077cbc6832b6776029746"

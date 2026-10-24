@@ -78,6 +78,15 @@ hair0 = "#2a1a14"
 hair1 = "#4a2e20"
 hair2 = "#6e4a30"
 
+# Air Nomad robes (the yellow half of the robes is the `gold` ramp).
+orange0 = "#8e3410"
+orange1 = "#c8541a"
+orange2 = "#ee8a2c"
+orange3 = "#f8ae48"
+
+# Water Tribe warrior navy (under the `water` ramp).
+navy0 = "#162850"
+
 # The accent ramp around the nation's `color`: mixes toward a palette colour, like fn_ui::theme.
 [accent]
 accent_dark = { toward = "ink", t = 0.45 }
