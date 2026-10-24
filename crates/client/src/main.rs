@@ -614,7 +614,9 @@ const HEADLESS_TIMEOUT_SECS: f32 = 60.0;
 fn headless_screenshot(
     mut commands: Commands,
     headless: Res<Headless>,
+    assets: Res<AssetServer>,
     art: Option<Res<Art>>,
+    ui_art: Res<ui_style::UiArt>,
     camera: Query<&RenderTarget, With<Camera2d>>,
     time: Res<Time<Real>>,
     mut settled: Local<u32>,
@@ -627,7 +629,8 @@ fn headless_screenshot(
         return;
     }
     let Some(art) = art else { return };
-    if *requested || !art.all_loaded() {
+    let ui_loaded = ui_art.handles().all(|h| assets.is_loaded_with_dependencies(h));
+    if *requested || !art.all_loaded() || !ui_loaded {
         return;
     }
     *settled += 1;

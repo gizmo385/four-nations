@@ -18,7 +18,7 @@ use fn_ui::view::{self, SideView, Status, UnitView};
 use crate::bending::AlertLog;
 use crate::designate::{ActiveTool, BuildChoice, Notice};
 use crate::research::ScreenOpen;
-use crate::ui_style::{self, Frame, Theme, font, layout, space};
+use crate::ui_style::{self, Frame, Skin, Theme, UiArt, font, layout, space};
 use crate::{Art, Selection, Sim, cursor_tile, unit_character};
 
 pub struct HudPlugin;
@@ -27,7 +27,9 @@ impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         let sim = app.world().resource::<Sim>();
         let theme = Theme::for_nation(sim.defs.nation(sim.world.nation).color);
-        app.insert_resource(theme).add_systems(
+        let art = UiArt::load(app.world().resource::<AssetServer>());
+        let skin = art.skin(sim.world.nation);
+        app.insert_resource(theme).insert_resource(skin).insert_resource(art).add_systems(
             Update,
             (sync_hud_root, update_side_panel, update_selection_bar, update_tooltip).chain(),
         );
@@ -74,12 +76,14 @@ const TOOLTIP_GAP: f32 = 16.0;
 // ---------------------------------------------------------------------------------------------
 // Root and theme
 
-/// Builds the HUD on the first frame, and rebuilds it with a fresh `Theme` whenever the player's
-/// nation changes (keys 1 to 4).
+/// Builds the HUD on the first frame, and rebuilds it with a fresh `Theme` and `Skin` whenever the
+/// player's nation changes (keys 1 to 4).
 fn sync_hud_root(
     mut commands: Commands,
     sim: Res<Sim>,
     mut theme: ResMut<Theme>,
+    mut skin: ResMut<Skin>,
+    art: Res<UiArt>,
     roots: Query<Entity, With<HudRoot>>,
     mut built_for: Local<Option<Nation>>,
 ) {
@@ -89,13 +93,14 @@ fn sync_hud_root(
     }
     *built_for = Some(nation);
     *theme = Theme::for_nation(sim.defs.nation(nation).color);
+    *skin = art.skin(nation);
     for e in &roots {
         commands.entity(e).despawn();
     }
-    spawn_hud(&mut commands, &theme);
+    spawn_hud(&mut commands, &theme, &skin);
 }
 
-fn spawn_hud(commands: &mut Commands, theme: &Theme) {
+fn spawn_hud(commands: &mut Commands, theme: &Theme, skin: &Skin) {
     let margin = Val::Px(layout::SCREEN_MARGIN);
     let column = |gap: f32| Node {
         flex_direction: FlexDirection::Column,
@@ -110,12 +115,20 @@ fn spawn_hud(commands: &mut Commands, theme: &Theme) {
         bottom: margin,
         width: Val::Px(layout::SIDE_PANEL_WIDTH),
         padding: UiRect::all(Val::Px(space::XL)),
-        overflow: Overflow::clip(),
         ..column(space::M)
     };
-    commands.spawn((HudRoot, ui_style::panel(theme, side))).with_children(|p| {
-        ui_style::frame(p, theme, Frame::Panel);
-        p.spawn((SideContent, Node { width: Val::Percent(100.0), ..column(space::M) }));
+    commands.spawn((HudRoot, ui_style::panel(theme, Frame::Panel, side))).with_children(|p| {
+        ui_style::frame(p, theme, skin, Frame::Panel);
+        // Clips here, not on the panel: the frame draws outside the panel's edge.
+        p.spawn((
+            SideContent,
+            Node {
+                width: Val::Percent(100.0),
+                min_height: Val::Px(0.0),
+                overflow: Overflow::clip(),
+                ..column(space::M)
+            },
+        ));
     });
 
     let bar = Node {
@@ -130,9 +143,14 @@ fn spawn_hud(commands: &mut Commands, theme: &Theme) {
         ..default()
     };
     commands
-        .spawn((HudRoot, SelectionBar, Visibility::Hidden, ui_style::panel(theme, bar)))
+        .spawn((
+            HudRoot,
+            SelectionBar,
+            Visibility::Hidden,
+            ui_style::panel(theme, Frame::Panel, bar),
+        ))
         .with_children(|p| {
-            ui_style::frame(p, theme, Frame::Panel);
+            ui_style::frame(p, theme, skin, Frame::Panel);
             p.spawn((
                 SelectionContent,
                 Node {
@@ -152,9 +170,14 @@ fn spawn_hud(commands: &mut Commands, theme: &Theme) {
         ..default()
     };
     commands
-        .spawn((HudRoot, Tooltip, Visibility::Hidden, ui_style::panel(theme, tooltip)))
+        .spawn((
+            HudRoot,
+            Tooltip,
+            Visibility::Hidden,
+            ui_style::panel(theme, Frame::Tooltip, tooltip),
+        ))
         .with_children(|p| {
-            ui_style::frame(p, theme, Frame::Tooltip);
+            ui_style::frame(p, theme, skin, Frame::Tooltip);
             p.spawn((TooltipLines, column(2.0)));
         });
 }
@@ -181,6 +204,7 @@ fn update_side_panel(
     choice: Res<BuildChoice>,
     alerts: Res<AlertLog>,
     theme: Res<Theme>,
+    skin: Res<Skin>,
     content: Query<Entity, With<SideContent>>,
     fresh: Query<(), Added<SideContent>>,
     mut last: Local<Option<SideView>>,
@@ -190,39 +214,18 @@ fn update_side_panel(
     if last.as_ref() == Some(&view) && fresh.is_empty() {
         return;
     }
-    commands.entity(content).despawn_children().with_children(|p| spawn_side(p, &theme, &view));
+    commands
+        .entity(content)
+        .despawn_children()
+        .with_children(|p| spawn_side(p, &theme, &skin, &view));
     *last = Some(view);
 }
 
-fn spawn_side(p: &mut ChildSpawnerCommands, theme: &Theme, v: &SideView) {
+fn spawn_side(p: &mut ChildSpawnerCommands, theme: &Theme, skin: &Skin, v: &SideView) {
     // Header: emblem, nation, seed and people.
     p.spawn(Node { column_gap: Val::Px(space::L), align_items: AlignItems::Center, ..default() })
         .with_children(|h| {
-            h.spawn((
-                Node {
-                    width: Val::Px(36.0),
-                    height: Val::Px(36.0),
-                    border: UiRect::all(Val::Px(3.0)),
-                    border_radius: BorderRadius::MAX,
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    flex_shrink: 0.0,
-                    ..default()
-                },
-                BackgroundColor(theme.inset),
-                BorderColor::all(theme.accent),
-            ))
-            .with_children(|e| {
-                e.spawn((
-                    Node {
-                        width: Val::Px(12.0),
-                        height: Val::Px(12.0),
-                        border_radius: BorderRadius::MAX,
-                        ..default()
-                    },
-                    BackgroundColor(theme.accent),
-                ));
-            });
+            h.spawn(ui_style::emblem(skin));
             h.spawn(Node { flex_direction: FlexDirection::Column, ..default() }).with_children(
                 |c| {
                     c.spawn(ui_style::text(v.nation.clone(), font::TITLE, theme.text));
@@ -246,7 +249,7 @@ fn spawn_side(p: &mut ChildSpawnerCommands, theme: &Theme, v: &SideView) {
     });
 
     // The tool the left mouse button has, and the last designation's result.
-    ui_style::section_title(p, theme, "Tool");
+    ui_style::section_title(p, theme, skin, "Tool");
     p.spawn(Node {
         flex_wrap: FlexWrap::Wrap,
         column_gap: Val::Px(space::S),
@@ -266,7 +269,7 @@ fn spawn_side(p: &mut ChildSpawnerCommands, theme: &Theme, v: &SideView) {
 
     // Secondary: the nation's modifiers, only those that differ from the baseline.
     if !v.modifiers.is_empty() {
-        ui_style::section_title(p, theme, "Nation");
+        ui_style::section_title(p, theme, skin, "Nation");
         for (label, value) in &v.modifiers {
             p.spawn(Node { justify_content: JustifyContent::SpaceBetween, ..default() })
                 .with_children(|r| {
@@ -278,7 +281,7 @@ fn spawn_side(p: &mut ChildSpawnerCommands, theme: &Theme, v: &SideView) {
 
     // Research (#23): the tech the pool is paying for right now, its progress and rate. The full
     // tree is `T`'s screen (`research.rs`).
-    ui_style::section_title(p, theme, "Research");
+    ui_style::section_title(p, theme, skin, "Research");
     p.spawn(Node { justify_content: JustifyContent::SpaceBetween, ..default() }).with_children(
         |r| {
             r.spawn(ui_style::text(v.research.label.clone(), font::BODY, theme.text));
@@ -300,13 +303,13 @@ fn spawn_side(p: &mut ChildSpawnerCommands, theme: &Theme, v: &SideView) {
     // Recent bend events (#72) and tech completions (#23), newest last. Hidden while there's
     // nothing to show.
     if !v.alerts.is_empty() {
-        ui_style::section_title(p, theme, "Alerts");
+        ui_style::section_title(p, theme, skin, "Alerts");
         for line in &v.alerts {
             p.spawn(ui_style::text(line.clone(), font::BODY, theme.accent_text));
         }
     }
 
-    ui_style::section_title(p, theme, "Controls");
+    ui_style::section_title(p, theme, skin, "Controls");
     for line in CONTROLS {
         p.spawn(ui_style::text(line, font::LABEL, theme.dim));
     }

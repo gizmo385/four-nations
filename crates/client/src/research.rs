@@ -17,7 +17,7 @@ use fn_sim::world::Command;
 use fn_ui::research::{ScreenView, TechCard, TechState, screen_view};
 
 use crate::Sim;
-use crate::ui_style::{self, Frame, Theme, font, layout, space};
+use crate::ui_style::{self, Frame, Skin, Theme, font, layout, space};
 
 pub struct ResearchPlugin;
 
@@ -67,7 +67,7 @@ const CARD_WIDTH: f32 = 168.0;
 const PANEL_MAX_WIDTH: f32 = 960.0;
 const COLUMN_GAP: f32 = space::M;
 
-fn spawn_screen(commands: &mut Commands, theme: &Theme) {
+fn spawn_screen(commands: &mut Commands, theme: &Theme, skin: &Skin) {
     // Covers everything left of the side panel, full height, and dims the map under it.
     let dim = Node {
         position_type: PositionType::Absolute,
@@ -88,11 +88,10 @@ fn spawn_screen(commands: &mut Commands, theme: &Theme) {
                 flex_direction: FlexDirection::Column,
                 row_gap: Val::Px(space::M),
                 padding: UiRect::all(Val::Px(space::XL)),
-                overflow: Overflow::clip(),
                 ..default()
             };
-            root.spawn(ui_style::panel(theme, panel)).with_children(|p| {
-                ui_style::frame(p, theme, Frame::Panel);
+            root.spawn(ui_style::panel(theme, Frame::Panel, panel)).with_children(|p| {
+                ui_style::frame(p, theme, skin, Frame::Panel);
                 p.spawn(ui_style::text("Research", font::TITLE, theme.text));
                 p.spawn((
                     ScreenGrid,
@@ -100,6 +99,8 @@ fn spawn_screen(commands: &mut Commands, theme: &Theme) {
                         flex_direction: FlexDirection::Row,
                         column_gap: Val::Px(COLUMN_GAP),
                         align_items: AlignItems::FlexStart,
+                        // The panel itself can't clip: its frame draws outside it.
+                        overflow: Overflow::clip(),
                         ..default()
                     },
                 ));
@@ -140,7 +141,7 @@ fn spawn_tech_card(p: &mut ChildSpawnerCommands, theme: &Theme, card: &TechCard)
         });
 }
 
-fn spawn_columns(p: &mut ChildSpawnerCommands, theme: &Theme, view: &ScreenView) {
+fn spawn_columns(p: &mut ChildSpawnerCommands, theme: &Theme, skin: &Skin, view: &ScreenView) {
     for (depth, column) in view.columns.iter().enumerate() {
         if column.is_empty() {
             continue;
@@ -153,7 +154,7 @@ fn spawn_columns(p: &mut ChildSpawnerCommands, theme: &Theme, view: &ScreenView)
             ..default()
         })
         .with_children(|col| {
-            ui_style::section_title(col, theme, &format!("Tier {depth}"));
+            ui_style::section_title(col, theme, skin, &format!("Tier {depth}"));
             for card in column {
                 spawn_tech_card(col, theme, card);
             }
@@ -168,6 +169,7 @@ fn sync_screen_root(
     open: Res<ScreenOpen>,
     sim: Res<Sim>,
     theme: Res<Theme>,
+    skin: Res<Skin>,
     roots: Query<Entity, With<ScreenRoot>>,
     mut shown_for: Local<Option<Nation>>,
 ) {
@@ -186,7 +188,7 @@ fn sync_screen_root(
         commands.entity(e).despawn();
     }
     *shown_for = Some(sim.world.nation);
-    spawn_screen(&mut commands, &theme);
+    spawn_screen(&mut commands, &theme, &skin);
 }
 
 fn update_screen_content(
@@ -194,6 +196,7 @@ fn update_screen_content(
     open: Res<ScreenOpen>,
     sim: Res<Sim>,
     theme: Res<Theme>,
+    skin: Res<Skin>,
     grid: Query<Entity, With<ScreenGrid>>,
     fresh: Query<(), Added<ScreenGrid>>,
     mut last: Local<Option<ScreenView>>,
@@ -206,7 +209,10 @@ fn update_screen_content(
     if last.as_ref() == Some(&view) && fresh.is_empty() {
         return;
     }
-    commands.entity(grid).despawn_children().with_children(|p| spawn_columns(p, &theme, &view));
+    commands
+        .entity(grid)
+        .despawn_children()
+        .with_children(|p| spawn_columns(p, &theme, &skin, &view));
     *last = Some(view);
 }
 

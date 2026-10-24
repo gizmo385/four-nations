@@ -69,17 +69,24 @@ Default font only, in `ui_style::font`:
 | `LABEL` | 12 px | Upper-case section titles, small labels |
 
 Spacing steps in `ui_style::space`: 4, 6, 8, 12, 16 px. Layout constants are in
-`ui_style::layout`: side panel width, bar height, screen margin and bracket offset.
+`ui_style::layout`: side panel width, bar height, screen margin and the frame art's margin.
 
 ## Builders
 
 `ui_style.rs` provides:
 
-- `panel(theme, node)`: the body, with 1px `accent_soft` border, square corners and a soft shadow.
-- `frame(p, theme, Frame::Panel | Frame::Tooltip)`: the flair, added inside the panel's
-  children. It's absolutely positioned, so it never affects layout.
-- `corner_brackets` and `seal`: the flair parts on their own.
-- `section_title`, `bar`, `button` and `text`.
+- `panel(theme, Frame::Panel | Frame::Tooltip, node)`: the body, with square corners and a soft
+  shadow. A tooltip keeps a 1px `accent_soft` border; a panel's edge is the frame art's line.
+- `frame(p, theme, skin, kind)`: the flair, added inside the panel's children. A panel gets the
+  9-slice frame and the seal from `assets/original/ui_frame.<nation>.png` and
+  `ui_flair.<nation>.png` (#129, `docs/design/pixel-art.md`), a tooltip small code-drawn
+  brackets. It's absolutely positioned, so it never affects layout. Because the frame draws 8px
+  outside the panel, a panel must not clip its own children: put `overflow` on an inner node.
+- `emblem(skin)`: the nation's medallion from `emblems.png`, for the side-panel header.
+- `section_title(p, theme, skin, title)`, `bar`, `button` and `text`.
+
+`Skin` is the player nation's sheets, rebuilt with `Theme` on a nation change and chosen by the
+nation's id. All UI art is drawn at `ART_SCALE` (2x), so no two pixel sizes meet.
 
 New screens use only these. If a screen needs something new, add a builder here rather than
 styling inline.
