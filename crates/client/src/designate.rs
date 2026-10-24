@@ -371,4 +371,35 @@ mod tests {
         app.update();
         assert!(overlays(&mut app).is_empty());
     }
+
+    #[test]
+    fn a_stockpile_tile_loses_its_tint_when_cancelled() {
+        let mut sim = Session::new(7, Nation::Earth, 64, 64);
+        let pos = sim
+            .world
+            .map
+            .iter()
+            .find(|(p, t)| {
+                t.terrain == fn_sim::Terrain::Land
+                    && t.resource.is_none()
+                    && !sim.world.units.iter().any(|u| u.pos == *p)
+            })
+            .map(|(p, _)| p)
+            .unwrap();
+        sim.apply(Command::DesignateStockpile { pos }).unwrap();
+        let theme = Theme::for_nation(sim.defs.nation(Nation::Earth).color);
+        let mut app = App::new();
+        app.insert_resource(Sim(sim))
+            .insert_resource(theme)
+            .init_resource::<Overlays>()
+            .add_systems(Update, sync_overlays);
+        app.update();
+        let overlays = |app: &mut App| app.world().resource::<Overlays>().0.clone();
+        assert_eq!(overlays(&mut app).keys().collect::<Vec<_>>(), [&(pos, Layer::Stockpile)]);
+
+        let mut sim = app.world_mut().resource_mut::<Sim>();
+        sim.apply(Command::CancelStockpile { pos }).unwrap();
+        app.update();
+        assert!(overlays(&mut app).is_empty());
+    }
 }

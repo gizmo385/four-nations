@@ -25,6 +25,9 @@ pub enum Command {
     CancelHarvest { pos: Pos },
     /// Mark a tile as stockpile.
     DesignateStockpile { pos: Pos },
+    /// Withdraw a stockpile designation. Items stored on the tile are dropped on the ground
+    /// there (not lost), to be hauled elsewhere.
+    CancelStockpile { pos: Pos },
     /// Set the research target (see `Research::set_target`).
     SetResearch { tech: TechId },
     /// Designate a bend: a unit with enough chi walks to the tile, channels the ability and
@@ -109,6 +112,7 @@ impl World {
             }
             Command::CancelHarvest { pos } => self.cancel_harvest(pos)?,
             Command::DesignateStockpile { pos } => self.designate_stockpile(pos)?,
+            Command::CancelStockpile { pos } => self.cancel_stockpile(pos)?,
             Command::SetResearch { tech } => self.set_research(tech, defs)?,
             Command::Bend { ability, pos } => self.designate_bend(ability, pos, defs).map(drop)?,
             Command::CancelBend { pos } => self.cancel_bend(pos, defs)?,

@@ -89,6 +89,22 @@ fn designate_repeating_harvest_is_logged_and_cleared_by_cancel() {
 }
 
 #[test]
+fn cancel_stockpile_is_logged_and_rejected_where_there_is_no_zone() {
+    let defs = Defs::bundled();
+    let mut w = fresh(&defs);
+    let pos = free_tile_near(&w, Pos::new(w.map.width() / 2, w.map.height() / 2), &[]);
+    let cancel = Command::CancelStockpile { pos };
+    assert_eq!(w.apply(cancel, &defs), Err(CommandError::Designate(DesignateError::NotDesignated)));
+    w.apply(Command::DesignateStockpile { pos }, &defs).unwrap();
+    assert_eq!(w.stockpile_zones().collect::<Vec<_>>(), [pos]);
+    w.apply(cancel, &defs).unwrap();
+    assert_eq!(w.stockpile_zones().count(), 0);
+    // Only the accepted commands are logged.
+    let logged: Vec<_> = w.command_log().iter().map(|r| r.command).collect();
+    assert_eq!(logged, [Command::DesignateStockpile { pos }, cancel]);
+}
+
+#[test]
 fn rejected_commands_change_nothing_and_are_not_logged() {
     let defs = Defs::bundled();
     let mut w = fresh(&defs);

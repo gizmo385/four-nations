@@ -93,6 +93,31 @@ fn wood_waits_on_the_ground_until_a_stockpile_exists() {
 }
 
 #[test]
+fn cancelling_a_stockpile_drops_what_it_held_on_the_ground_there() {
+    let (mut w, defs) = setup(Nation::Earth, &WOODS, &[at(3, 2)]);
+    let wood = defs.item_id("wood").unwrap();
+    w.designate_stockpile(at(1, 2)).unwrap();
+    w.designate_harvest(at(7, 2), &defs).unwrap();
+    run_until(&mut w, &defs, 3000, |w| w.stored_total(wood) == 4);
+    assert_eq!(w.cancel_stockpile(at(5, 5)), Err(DesignateError::NotDesignated));
+
+    assert_eq!(w.cancel_stockpile(at(1, 2)), Ok(()));
+    assert_eq!(w.stockpile_zones().count(), 0);
+    assert_eq!(w.stored_total(wood), 0);
+    // Nothing is lost: the stack lies on the tile it was stored on, with a haul queued.
+    let on_ground: Vec<_> = w.ground_items().collect();
+    assert_eq!(on_ground, [(at(1, 2), Stack { item: wood, count: 4 })]);
+    assert!(w.jobs().iter().any(|j| j.kind == JobKind::Haul { pos: at(1, 2) }));
+    assert_eq!(w.cancel_stockpile(at(1, 2)), Err(DesignateError::NotDesignated));
+
+    // With another zone, normal hauling stores it there.
+    w.designate_stockpile(at(2, 3)).unwrap();
+    run_until(&mut w, &defs, 3000, |w| w.stored_at(at(2, 3)).is_some());
+    assert_eq!(w.stored_at(at(2, 3)), Some(Stack { item: wood, count: 4 }));
+    assert_eq!(w.ground_items().count(), 0);
+}
+
+#[test]
 fn units_claim_the_nearest_reachable_job_not_the_oldest() {
     let rows = ["..........", "..........", "..........", "..T......T"];
     let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 1)]);
