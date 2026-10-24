@@ -46,7 +46,6 @@ The audit was done on the owner's download, `Ninja Adventure - Asset Pack.zip` (
 | Swamp | our mud floor, a rooted tree; its water is the blue grass-edged set (#109) | **Covered** |
 | Desert | our sand floor; `TilesetDesert` palms, oasis water, desert houses | **Covered**, but no cactus (palms and dry shrubs stand in) |
 | Tundra | our snow floor, snowy trees, snow boulders, igloos in `TilesetHouse` | **Covered** |
-
 | Mountains | No single mountain tile. `TilesetRelief` has cliff faces and tops, and `TilesetNature` has grey and brown boulders | **Replaced** (#147): our own cliff sets with inner corners and ridge caps, and boulders, from `art/cliffs.toml` (docs/design/pixel-art.md) |
 | Oak, fir | `TilesetNature`: broadleaf, conifer, snowy conifer, cherry blossom, dead trees. All trees are **2×2** | **Covered** (2×2 sizing is why #77 exists) |
 | Stone, gold vein | `TilesetNature` grey rocks and gem- or ore-studded rocks | **Covered** |
@@ -84,7 +83,7 @@ cells differ from the first audit, the shipped cell is shown:
 | Tundra | `art/floors.toml` snow, 4 variants (#145) |
 | Swamp | `art/floors.toml` mud, 4 variants (#145); water is the blue grass-edged set, not the purple bog block (#109) |
 | Water, river, lake | bitmask-autotiled (#8, below) against which cardinal neighbors are dry land; interior piece `TilesetWater` (1,1) |
-| Mountain | cliff-autotiled (#104, #147, below). Interior: the plateau's flat top from `art/cliffs.toml`, plus one of three grey boulders on about one in three tiles with no resource; tundra: the snow top and three snow-capped boulders |
+| Mountain | cliff-autotiled (#104, #147, below). Interior: the rock floor (#145, four variants), plus one of three grey boulders on about one in three tiles with no resource; tundra: the snow floor and three snow-capped boulders |
 | Oak / fir / tundra fir | `TilesetNature` 2x2 at (0,0) / (2,0) / (8,0), bottom-aligned to the tile |
 | Stone / gold vein | `TilesetNature` plain grey rock (6,14) / the same rock with orange ore (4,14) |
 | Cabbage | `TilesetNature` leafy head (8,11), a stand-in |
@@ -115,8 +114,8 @@ tile; off-map does not count) and, for a corner whose two sides are both mountai
 diagonal is lower (an inner corner). Each of the 16 side masks has a piece for every subset of its
 inner corners, 47 a set, so a ridge one tile wide, one tile tall (rim and face) or ending in a cap
 needs no special case. `GroundRule::cliff` matches tundra to snow and everything else to rock. A
-mountain with no lower neighbor at all is the set's flat top, and only that interior tile carries
-boulders. The tops use the rock and snow floors' tones, so the interior and the rim show no seam.
+mountain with no lower neighbor at all is floor (the rock or snow floor of `floors`, with its variants), and only
+that interior tile carries boulders. The rim pieces use the floors' tones and marks, so the interior and the rim show no seam.
 (The pack's `TilesetRelief`, which this replaced, had no inner corners, no caps for a horizontal
 ridge and dropped the north rim of a ridge one tile tall.)
 

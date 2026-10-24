@@ -320,7 +320,7 @@ fn floor_cell(sim: &Sim, p: Pos, rule: &sprites::GroundRule) -> sprites::Cell {
     let map = &sim.world.map;
     match (rule.water, rule.cliff) {
         (Some(set), _) => sprites::water_cell(map, p, set),
-        (None, Some(set)) => sprites::cliff_cell(map, p, set).unwrap_or(rule.base),
+        (None, Some(set)) => sprites::cliff_cell(map, p, set).unwrap_or_else(|| rule.floor_at(p)),
         (None, None) => rule.floor_at(p),
     }
 }

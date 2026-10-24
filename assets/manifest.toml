@@ -187,7 +187,7 @@ sha256 = "0a9e889a88f437521284748c676167844ec05dcbf8d121a454350de030fcd0bf"
 path = "original/cliffs.png"
 source = "original"
 generated_from = "art/cliffs.toml"
-sha256 = "12af739003b581c6c970763ca6077deb13c6a0893cfac9ba65043bb16ce5121b"
+sha256 = "b95a643c43f66bcea16ad9de2ce6e0226820dfe4d886fc13f6d02d89dadca033"
 
 [[file]]
 path = "original/emblems.png"

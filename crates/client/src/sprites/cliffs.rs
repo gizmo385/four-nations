@@ -2,7 +2,7 @@
 
 use fn_sim::{Pos, Terrain, TileMap};
 
-use super::{Cell, Decor, GroundRule, one};
+use super::{Cell, Decor, GroundRule, floors, one};
 
 /// The sheet the cliff pieces and boulders are on (`art/cliffs.toml`).
 pub const SHEET: &str = "original/cliffs.png";
@@ -87,14 +87,9 @@ impl CliffSet {
         CliffSet { first }
     }
 
-    /// The flat plateau top, which the interior of a range uses.
-    const fn top(&self) -> Cell {
-        at(self.first)
-    }
-
     /// The piece for a mountain tile whose lower sides are `lower` (bits `N`, `S`, `E`, `W`) and
     /// whose lower diagonals are `diag` (bits `NW`, `NE`, `SW`, `SE`); `None` for a tile with no
-    /// lower neighbor at all, which stays the flat top.
+    /// lower neighbor at all, which is floor.
     fn cell(&self, lower: u8, diag: u8) -> Option<Cell> {
         let diag = diag & corners(lower);
         if lower == 0 && diag == 0 {
@@ -148,13 +143,23 @@ impl GroundRule {
 }
 
 /// The two plateaus (`docs/design/pixel-art.md`): a grey-faced cliff with a snow top for tundra,
-/// and a grey-brown-faced cliff with a rock top for every other biome. The tops have the tones
-/// of the snow and rock floors, so the interior and the rim show no seam. The sheet holds the
-/// rock set, then the snow set, then the boulders.
+/// and a grey-brown-faced cliff with a rock top for every other biome. The sheet holds the rock
+/// set, then the snow set, then the boulders. A set's `flat` piece is the rock or snow floor's
+/// first variant (the tests keep them in step), and the interior of a range is that floor, four
+/// variants and all (`floors`, #145): the rim pieces carry the same tones and marks, so the
+/// interior and the rim show no seam.
 const ROCK_CLIFF: CliffSet = CliffSet::new(0);
 const SNOW_CLIFF: CliffSet = CliffSet::new(PIECES);
 
 const MOUNTAIN: &[Terrain] = &[Terrain::Mountain];
+
+/// The snow floor's row on `floors`' sheet, which `floors` keeps to itself: the tundra interior.
+const SNOW_FLOOR: [Cell; 4] = [
+    one(floors::SHEET, 0, 3),
+    one(floors::SHEET, 1, 3),
+    one(floors::SHEET, 2, 3),
+    one(floors::SHEET, 3, 3),
+];
 
 /// Boulders on a range's flat interior; its rim is a cliff (#104). Grey, and snow-capped for
 /// tundra, three of each after the cliff sets.
@@ -168,8 +173,8 @@ pub const GROUND: &[GroundRule] = &[
     GroundRule {
         terrains: MOUNTAIN,
         biome: Some("tundra"),
-        base: SNOW_CLIFF.top(),
-        variants: &[],
+        base: SNOW_FLOOR[0],
+        variants: &SNOW_FLOOR,
         decor: Some(SNOWY_BOULDERS),
         water: None,
         cliff: Some(&SNOW_CLIFF),
@@ -177,8 +182,8 @@ pub const GROUND: &[GroundRule] = &[
     GroundRule {
         terrains: MOUNTAIN,
         biome: None,
-        base: ROCK_CLIFF.top(),
-        variants: &[],
+        base: floors::ROCK[0],
+        variants: &floors::ROCK,
         decor: Some(BOULDERS),
         water: None,
         cliff: Some(&ROCK_CLIFF),
@@ -262,8 +267,8 @@ mod tests {
         let defs = Defs::bundled();
         for biome in &defs.biomes {
             let rule = ground_rule(Terrain::Mountain, &biome.id).unwrap();
-            let set = rule.cliff.unwrap_or_else(|| panic!("{} mountain has no cliff", biome.id));
-            assert_eq!(rule.base, set.top(), "{}: interior blends into the rim", biome.id);
+            assert!(rule.cliff.is_some(), "{} mountain has no cliff", biome.id);
+            assert_eq!(rule.base, rule.variants[0], "{}: a floor with variants", biome.id);
             assert!(rule.decor.is_some(), "{}: interior keeps its boulders", biome.id);
         }
         for terrain in TERRAINS.iter().filter(|t| **t != Terrain::Mountain) {
@@ -276,10 +281,20 @@ mod tests {
     fn tundra_cliffs_are_snowy_and_the_rest_are_rocky() {
         let snow = ground_rule(Terrain::Mountain, "tundra").unwrap().cliff.unwrap();
         let rock = ground_rule(Terrain::Mountain, "plains").unwrap().cliff.unwrap();
-        assert_eq!(snow.top(), named("snow_flat"));
-        assert_eq!(rock.top(), named("rock_flat"));
+        assert_eq!(snow.first, PIECES);
+        assert_eq!(rock.first, 0);
         let desert = ground_rule(Terrain::Mountain, "desert").unwrap().cliff.unwrap();
-        assert_eq!(desert.top(), rock.top());
+        assert_eq!(desert.first, rock.first);
+    }
+
+    /// The interior is the rock and snow floors of `floors`, whole.
+    #[test]
+    fn the_interior_is_the_rock_and_snow_floors() {
+        let tundra = ground_rule(Terrain::Mountain, "tundra").unwrap();
+        let land = ground_rule(Terrain::Land, "tundra").unwrap();
+        assert_eq!(tundra.variants, land.variants, "snow floor");
+        let rock = ground_rule(Terrain::Mountain, "plains").unwrap();
+        assert_eq!(rock.variants, floors::ROCK);
     }
 
     /// The sheet lists every piece of both sets in the order the code indexes them, then the
