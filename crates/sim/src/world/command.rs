@@ -105,7 +105,7 @@ impl World {
             Command::DesignateStockpile { pos } => self.designate_stockpile(pos)?,
             Command::SetResearch { tech } => self.set_research(tech, defs)?,
             Command::Bend { ability, pos } => self.designate_bend(ability, pos, defs).map(drop)?,
-            Command::CancelBend { pos } => self.cancel_bend(pos)?,
+            Command::CancelBend { pos } => self.cancel_bend(pos, defs)?,
             Command::DesignateBuild { pos, building } => {
                 self.designate_build(pos, building, defs).map(drop)?
             }

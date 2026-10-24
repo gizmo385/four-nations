@@ -10,9 +10,8 @@
 //!
 //! **This file holds every `match` on `Effect`** (AGENTS.md rule 7): `validate_effect` says
 //! whether a target is acceptable and `apply_effect` changes the world. The four real effects
-//! are separate work (#68 Raise Earth, #69 Water the Land, #70 Hearthflame, #71 Wind Carry); until
-//! an effect lands its arm refuses every target as "not implemented yet", so a bend can't be spent
-//! on nothing. (All but Wind Carry are in.) Everything else here is effect-agnostic.
+//! are #68 Raise Earth, #69 Water the Land, #70 Hearthflame and #71 Wind Carry. Everything else
+//! here is effect-agnostic.
 //!
 //! **Raise Earth** (#68) turns a river or lake tile with dry ground on one of its four sides
 //! into a `Ford`. Fords are permanent. The regions cache is invalidated and idle units woken,
@@ -28,13 +27,21 @@
 //! `duration_minutes` x the `heating` modifier; bending a lit tile again resets the timer. What
 //! a lit source does (cooked meals, faster and sought-out sleep) lives in `heat.rs`, which a
 //! campfire (#58) can reuse.
+//!
+//! **Wind Carry** (#71) sends the whole stack on the ground tile, ignoring carry capacity, to
+//! the nearest stockpile tile with room (holding that item, or empty) within `range` tiles of
+//! Chebyshev distance x the `power_generation` modifier, straight over rivers and mountains.
+//! Whatever doesn't fit stays on the ground with a fresh haul job. Designating it over a ground
+//! stack takes over the tile's existing haul job: a hauler who claimed it but hasn't walked
+//! there yet is released back to idle, and the haul job comes back if the bend is cancelled or
+//! the target is no longer valid when the channel finishes.
 
 use rand::seq::SliceRandom;
 
 use super::work::route_from;
 use crate::bending::{AbilityDef, Effect};
 use crate::defs::{BiomeId, ResourceId, Terrain};
-use crate::jobs::JobKind;
+use crate::jobs::{ItemId, JobKind};
 
 use super::*;
 
@@ -117,6 +124,17 @@ fn block(centre: Pos) -> impl Iterator<Item = Pos> {
     (-1..=1).flat_map(move |dy| (-1..=1).map(move |dx| Pos::new(centre.x + dx, centre.y + dy)))
 }
 
+/// Chebyshev distance between two tiles, in tiles (Wind Carry's range, straight over anything).
+fn chebyshev(a: Pos, b: Pos) -> u32 {
+    (a.x - b.x).unsigned_abs().max((a.y - b.y).unsigned_abs())
+}
+
+/// `range` scaled by the ability's magnitude (Wind Carry's `power_generation`), rounded to the
+/// nearest tile.
+fn scaled_range(range: u32, magnitude: f32) -> u32 {
+    ((range as f32) * magnitude).max(0.0).round() as u32
+}
+
 /// Queries and the designations behind `Command::Bend` and `Command::CancelBend`.
 impl World {
     /// Every bend that has finished or failed, oldest first.
@@ -189,18 +207,53 @@ impl World {
         if self.bend_designations().any(|(_, p)| p == pos) {
             return Err(BendError::AlreadyDesignated);
         }
-        self.validate_bend(defs.ability(ability), pos).map_err(BendError::InvalidTarget)?;
-        Ok(self.add_job(JobKind::Bend { ability, pos }))
+        let def = defs.ability(ability);
+        self.validate_bend(def, pos, defs).map_err(BendError::InvalidTarget)?;
+        let id = self.add_job(JobKind::Bend { ability, pos });
+        // Wind Carry takes over the tile's haul job (validation just confirmed a stack is there).
+        if matches!(def.effect, Effect::WindCarry { .. }) {
+            self.take_haul_job(pos);
+        }
+        Ok(id)
     }
 
-    /// Withdraws the bend designation on `pos`. Channeling done on it is lost.
-    pub(super) fn cancel_bend(&mut self, pos: Pos) -> Result<(), BendError> {
-        let before = self.jobs.len();
-        self.jobs.retain(|j| !matches!(j.kind, JobKind::Bend { pos: p, .. } if p == pos));
-        if self.jobs.len() == before {
+    /// Withdraws the bend designation on `pos`. Channeling done on it is lost. A Wind Carry
+    /// designation gives the tile's haul job back, if the stack is still there.
+    pub(super) fn cancel_bend(&mut self, pos: Pos, defs: &Defs) -> Result<(), BendError> {
+        let Some(idx) = self
+            .jobs
+            .iter()
+            .position(|j| matches!(j.kind, JobKind::Bend { pos: p, .. } if p == pos))
+        else {
             return Err(BendError::NotDesignated);
+        };
+        let JobKind::Bend { ability, .. } = self.jobs[idx].kind else {
+            unreachable!("just matched above")
+        };
+        self.jobs.remove(idx);
+        if matches!(defs.ability(ability).effect, Effect::WindCarry { .. })
+            && self.ground.contains_key(&pos)
+        {
+            self.ensure_haul_job(pos);
         }
         Ok(())
+    }
+
+    /// Removes the haul job on `pos`, if any, releasing a unit that claimed it but hasn't
+    /// walked there yet. Per `run_haul`, a claimed haul job's unit never has picked anything up:
+    /// the pickup and the claim's release happen in the same step.
+    fn take_haul_job(&mut self, pos: Pos) {
+        let Some(idx) = self.jobs.iter().position(|j| j.kind == JobKind::Haul { pos }) else {
+            return;
+        };
+        let job = self.jobs.remove(idx);
+        if let Some(unit_id) = job.claimed_by {
+            if let Some(u) = self.units.iter_mut().find(|u| u.id == unit_id) {
+                u.job_task = None;
+                u.route = None;
+            }
+            self.wake_idle();
+        }
     }
 }
 
@@ -247,12 +300,20 @@ impl World {
         }
         self.jobs.remove(idx);
         self.finish_job(i);
-        let outcome = match self.validate_bend(def, pos) {
+        let outcome = match self.validate_bend(def, pos, defs) {
             Ok(()) => {
-                self.apply_bend(i, def, pos);
+                self.apply_bend(i, def, pos, defs);
                 BendOutcome::Done
             }
-            Err(why) => BendOutcome::Failed(why),
+            Err(why) => {
+                // Wind Carry's target was a ground stack that had taken over the haul job: give
+                // it back, if the stack is still there to haul.
+                if matches!(def.effect, Effect::WindCarry { .. }) && self.ground.contains_key(&pos)
+                {
+                    self.ensure_haul_job(pos);
+                }
+                BendOutcome::Failed(why)
+            }
         };
         let unit = self.units[i].id;
         self.bend_events.push(BendEvent { tick: self.tick, unit, ability, pos, outcome });
@@ -260,11 +321,12 @@ impl World {
 
     /// Is `pos` an acceptable target for `def` right now? Run when the command is given and
     /// again when the channel finishes. The error is the reason, shown to the player.
-    fn validate_bend(&self, def: &AbilityDef, pos: Pos) -> Result<(), &'static str> {
+    fn validate_bend(&self, def: &AbilityDef, pos: Pos, defs: &Defs) -> Result<(), &'static str> {
         if self.map.get(pos).is_none() {
             return Err("off the map");
         }
-        self.validate_effect(&def.effect, pos)
+        let magnitude = self.bend_magnitude(def);
+        self.validate_effect(&def.effect, pos, magnitude, defs)
     }
 
     /// The nation modifier the ability scales its effect's magnitude by, or 1.0.
@@ -272,19 +334,33 @@ impl World {
         def.magnitude_modifier.as_deref().and_then(|m| self.modifiers().get(m)).unwrap_or(1.0)
     }
 
+    /// The nearest stockpile tile within `reach` tiles of `pos` (Chebyshev) that has room for
+    /// `item`: holds some of that item already, or is empty. Ties by position.
+    fn stockpile_in_reach(&self, pos: Pos, item: ItemId, reach: u32, defs: &Defs) -> Option<Pos> {
+        self.zones
+            .iter()
+            .filter(|&&z| chebyshev(pos, z) <= reach && self.room_at(z, item, defs) > 0)
+            .min_by_key(|&&z| (chebyshev(pos, z), z))
+            .copied()
+    }
+
     /// Spends the chi and takes effect. The target was just validated.
-    fn apply_bend(&mut self, i: usize, def: &AbilityDef, pos: Pos) {
+    fn apply_bend(&mut self, i: usize, def: &AbilityDef, pos: Pos, defs: &Defs) {
         let u = &mut self.units[i];
         u.chi = (u.chi - def.chi).max(0.0);
         let magnitude = self.bend_magnitude(def);
-        self.apply_effect(&def.effect, pos, magnitude);
+        self.apply_effect(&def.effect, pos, magnitude, defs);
     }
 
     // ---- the effects: the only matches on `Effect` ----
 
-    // `pos` is unused outside tests until the real effects land.
-    #[allow(unused_variables)]
-    fn validate_effect(&self, effect: &Effect, pos: Pos) -> Result<(), &'static str> {
+    fn validate_effect(
+        &self,
+        effect: &Effect,
+        pos: Pos,
+        magnitude: f32,
+        defs: &Defs,
+    ) -> Result<(), &'static str> {
         match effect {
             Effect::Reshape { from, .. } => {
                 let tile = &self.map[pos];
@@ -327,8 +403,18 @@ impl World {
                     Ok(())
                 }
             }
-            // TODO(#71): a ground stack, and a stockpile in range.
-            Effect::WindCarry { .. } => Err("not implemented yet"),
+            // A ground stack with a stockpile tile in reach that could take at least some of it.
+            Effect::WindCarry { range } => {
+                let Some(stack) = self.ground.get(&pos) else {
+                    return Err("needs a stack to blow");
+                };
+                let reach = scaled_range(*range, magnitude);
+                if self.stockpile_in_reach(pos, stack.item, reach, defs).is_some() {
+                    Ok(())
+                } else {
+                    Err("no stockpile with room in reach")
+                }
+            }
             #[cfg(test)]
             Effect::Probe => {
                 if self.map[pos].terrain.is_walkable() {
@@ -340,7 +426,7 @@ impl World {
         }
     }
 
-    fn apply_effect(&mut self, effect: &Effect, pos: Pos, magnitude: f32) {
+    fn apply_effect(&mut self, effect: &Effect, pos: Pos, magnitude: f32, defs: &Defs) {
         match effect {
             // The new terrain is permanent (no undo in v1). It changes who can walk where, so
             // the cached regions are stale and idle units should look for jobs that opened up.
@@ -349,8 +435,28 @@ impl World {
                 self.map_changed();
                 self.wake_idle();
             }
-            // TODO(#71): unreachable until `validate_effect` accepts a target.
-            Effect::WindCarry { .. } => {}
+            // The whole stack, ignoring carry capacity, to the nearest stockpile tile with room
+            // within reach, re-checked now (a destination `validate_effect` saw may have filled
+            // up since). What doesn't fit stays on the ground with a fresh haul job.
+            Effect::WindCarry { range } => {
+                let Some(stack) = self.ground.get(&pos).copied() else { return };
+                let reach = scaled_range(*range, magnitude);
+                let Some(dest) = self.stockpile_in_reach(pos, stack.item, reach, defs) else {
+                    return;
+                };
+                let put = stack.count.min(self.room_at(dest, stack.item, defs));
+                self.stored
+                    .entry(dest)
+                    .and_modify(|s| s.count += put)
+                    .or_insert(Stack { item: stack.item, count: put });
+                let rest = stack.count - put;
+                if rest > 0 {
+                    self.ground.insert(pos, Stack { item: stack.item, count: rest });
+                    self.ensure_haul_job(pos);
+                } else {
+                    self.ground.remove(&pos);
+                }
+            }
             // The magnitude scales how long the flame burns. Lighting a lit tile restokes it.
             Effect::HeatSource { duration_minutes, radius, sleep_bonus, seek_tiles } => {
                 self.light_heat_source(HeatSource {
@@ -455,6 +561,8 @@ impl World {
     }
 }
 
+#[cfg(test)]
+mod air_tests;
 #[cfg(test)]
 mod earth_tests;
 #[cfg(test)]
