@@ -368,6 +368,16 @@ impl Defs {
         self.techs.iter().position(|t| t.id == id).map(|i| TechId(i as u16))
     }
 
+    /// The techs `nation` can see and research, with their ids, in file order: the shared tier
+    /// (no `nation`) plus that nation's own branch. Other nations' branches are never listed.
+    pub fn techs_for(&self, nation: Nation) -> impl Iterator<Item = (TechId, &TechDef)> + '_ {
+        self.techs
+            .iter()
+            .enumerate()
+            .filter(move |(_, t)| t.nation.is_none_or(|n| n == nation))
+            .map(|(i, t)| (TechId(i as u16), t))
+    }
+
     pub fn ability_id(&self, id: &str) -> Option<AbilityId> {
         self.abilities.iter().position(|a| a.id == id).map(|i| AbilityId(i as u16))
     }
@@ -471,6 +481,24 @@ mod tests {
 
     fn one_biome(t: &str, m: &str) -> String {
         format!("[[biome]]\nid='a'\nname='A'\nglyph='a'\ntemperature={t}\nmoisture={m}")
+    }
+
+    #[test]
+    fn techs_for_is_the_shared_tier_plus_the_nation_s_own_branch() {
+        let defs = Defs::bundled();
+        let shared = defs.techs.iter().filter(|t| t.nation.is_none()).count();
+        for nation in Nation::ALL {
+            let own = defs.techs.iter().filter(|t| t.nation == Some(nation)).count();
+            let seen: Vec<_> = defs.techs_for(nation).collect();
+            assert_eq!(seen.len(), shared + own, "{nation:?}");
+            assert!(seen.iter().all(|(_, t)| t.nation.is_none_or(|n| n == nation)));
+            // File order, and the ids point at the same defs.
+            assert!(seen.windows(2).all(|w| w[0].0 < w[1].0));
+            assert!(seen.iter().all(|(id, t)| defs.tech(*id).id == t.id));
+        }
+        let healing = defs.tech_id("healing").unwrap();
+        assert!(defs.techs_for(Nation::Water).any(|(id, _)| id == healing));
+        assert!(defs.techs_for(Nation::Fire).all(|(id, _)| id != healing));
     }
 
     #[test]

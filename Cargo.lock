@@ -2186,6 +2186,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "fn_sim",
+ "fn_ui",
 ]
 
 [[package]]
@@ -2197,6 +2198,13 @@ dependencies = [
  "ron",
  "serde",
  "toml",
+]
+
+[[package]]
+name = "fn_ui"
+version = "0.1.0"
+dependencies = [
+ "fn_sim",
 ]
 
 [[package]]

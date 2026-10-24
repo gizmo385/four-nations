@@ -1,0 +1,9 @@
+[package]
+name = "fn_ui"
+description = "Frontend logic shared by the Bevy client and the terminal UI: tools, view text, alerts and the session clock. Depends on fn_sim only: no engine, no I/O, no wall-clock reads."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+fn_sim = { path = "../sim" }

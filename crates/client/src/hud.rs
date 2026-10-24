@@ -8,17 +8,18 @@
 
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
+use fn_sim::Nation;
 use fn_sim::building::BuildingId;
-use fn_sim::nation::Modifiers;
-use fn_sim::world::{TICKS_PER_SECOND, Unit, UnitId};
-use fn_sim::{Nation, Pos};
+use fn_ui::Tool;
+use fn_ui::build::PickerRow;
+use fn_ui::inspect::{self, Hint, Line};
+use fn_ui::view::{self, SideView, Status, UnitView};
 
-use crate::bending::Alerts;
-use crate::build::{self, BuildChoice, PickerRow};
-use crate::designate::{Notice, Tool, ability_for_nation};
-use crate::research::{self, CompletionLog, ResearchStatus, ScreenOpen};
+use crate::bending::AlertLog;
+use crate::designate::{ActiveTool, BuildChoice, Notice};
+use crate::research::ScreenOpen;
 use crate::ui_style::{self, Frame, Theme, font, layout, space};
-use crate::{Art, Selection, Sim, cursor_tile, jobview, unit_character};
+use crate::{Art, Selection, Sim, cursor_tile, unit_character};
 
 pub struct HudPlugin;
 
@@ -69,8 +70,6 @@ const PORTRAIT_WELL: f32 = 96.0;
 const NEEDS_WIDTH: f32 = 260.0;
 /// Cursor offset of the tooltip's near corner.
 const TOOLTIP_GAP: f32 = 16.0;
-/// In-game speed shown in the side panel. The sim runs at one fixed rate for now.
-const SPEED: u32 = 1;
 
 // ---------------------------------------------------------------------------------------------
 // Root and theme
@@ -163,16 +162,6 @@ fn spawn_hud(commands: &mut Commands, theme: &Theme) {
 // ---------------------------------------------------------------------------------------------
 // Side panel
 
-/// The tools the side panel lists: the tool, its label and its key.
-const TOOLS: [(Tool, &str, &str); 6] = [
-    (Tool::Select, "Select", "Esc"),
-    (Tool::Harvest, "Harvest", "H"),
-    (Tool::CancelHarvest, "Cancel", "X"),
-    (Tool::Stockpile, "Stockpile", "P"),
-    (Tool::Bend, "Bend", "B"),
-    (Tool::Build, "Build", "U"),
-];
-
 /// The camera and game keys, shown at the foot of the side panel.
 const CONTROLS: [&str; 7] = [
     "WASD or drag: pan",
@@ -184,124 +173,20 @@ const CONTROLS: [&str; 7] = [
     "Shift+H: repeating harvest",
 ];
 
-/// Everything the side panel shows.
-#[derive(Clone, PartialEq, Debug)]
-struct SideView {
-    nation: String,
-    seed: u64,
-    people: usize,
-    clock: String,
-    paused: bool,
-    tool: Tool,
-    /// What the current tool does, shown under its buttons. Generic for most tools; for `Bend`
-    /// it names the nation's actual ability (#72).
-    tool_hint: String,
-    notice: String,
-    /// The building picker's rows, listed while the Build tool is active (#111); empty otherwise.
-    picker: Vec<PickerRow>,
-    /// The building the Build tool would place, if it can place any.
-    choice: Option<BuildingId>,
-    /// The nation's modifiers that differ from 1.0, as (label, value).
-    modifiers: Vec<(String, String)>,
-    /// The tech the knowledge pool is currently paying for, its progress and rate (#23).
-    research: ResearchStatus,
-    /// Recent `BendEvent`s and tech completions, newest last. Empty most of the time, which
-    /// hides the section (ui.md: "a section with nothing to show hides itself").
-    alerts: Vec<String>,
-}
-
-fn side_view(
-    sim: &Sim,
-    tool: Tool,
-    notice: &str,
-    choice: &BuildChoice,
-    alerts: &Alerts,
-    completions: &CompletionLog,
-) -> SideView {
-    let (picker, choice) = if tool == Tool::Build {
-        let rows = build::picker_rows(sim);
-        let choice = build::valid_choice(&rows, choice.0);
-        (rows, choice)
-    } else {
-        (Vec::new(), None)
-    };
-    let mut alert_lines = alerts.lines();
-    alert_lines.extend(completions.lines());
-    SideView {
-        nation: sim.defs.nation(sim.world.nation).name.clone(),
-        seed: sim.world.seed,
-        people: sim.world.units.len(),
-        clock: format_clock(sim.world.tick),
-        paused: sim.paused,
-        tool,
-        tool_hint: tool_hint(sim, tool),
-        notice: notice.to_owned(),
-        picker,
-        choice,
-        modifiers: modifier_rows(sim.world.modifiers()),
-        research: research::research_status(sim.world.research(), &sim.defs),
-        alerts: alert_lines,
-    }
-}
-
-/// `Tool::label` for most tools; `Tool::Bend` names the nation's one ability instead, since
-/// "channel the nation's ability" alone doesn't say which (docs/design/bending.md).
-fn tool_hint(sim: &Sim, tool: Tool) -> String {
-    if tool == Tool::Bend
-        && let Some(id) = ability_for_nation(&sim.defs, sim.world.nation)
-    {
-        let def = sim.defs.ability(id);
-        return format!("{}: {}", def.verb, def.description);
-    }
-    tool.label().to_owned()
-}
-
-/// In-game time since the start as `MM:SS`. There is no calendar yet.
-fn format_clock(tick: u64) -> String {
-    let secs = tick / u64::from(TICKS_PER_SECOND);
-    format!("{:02}:{:02}", secs / 60, secs % 60)
-}
-
-/// The modifiers that aren't 1.0, as (label, "x1.6"). A modifier at its baseline says nothing.
-fn modifier_rows(m: &Modifiers) -> Vec<(String, String)> {
-    Modifiers::NAMES
-        .iter()
-        .filter_map(|name| Some((*name, m.get(name)?)))
-        .filter(|(_, v)| (v - 1.0).abs() > 0.005)
-        .map(|(name, v)| (humanize(name), multiplier(v)))
-        .collect()
-}
-
-/// 1.6 becomes "x1.6" and 2.0 becomes "x2".
-pub(crate) fn multiplier(v: f32) -> String {
-    let s = format!("{v:.2}");
-    format!("x{}", s.trim_end_matches('0').trim_end_matches('.'))
-}
-
-/// "move_speed" becomes "Move speed".
-pub(crate) fn humanize(name: &str) -> String {
-    let mut s = name.replace('_', " ");
-    if let Some(first) = s.get_mut(..1) {
-        first.make_ascii_uppercase();
-    }
-    s
-}
-
 fn update_side_panel(
     mut commands: Commands,
     sim: Res<Sim>,
-    tool: Res<Tool>,
+    tool: Res<ActiveTool>,
     notice: Res<Notice>,
     choice: Res<BuildChoice>,
-    alerts: Res<Alerts>,
-    completions: Res<CompletionLog>,
+    alerts: Res<AlertLog>,
     theme: Res<Theme>,
     content: Query<Entity, With<SideContent>>,
     fresh: Query<(), Added<SideContent>>,
     mut last: Local<Option<SideView>>,
 ) {
     let Ok(content) = content.single() else { return };
-    let view = side_view(&sim, *tool, &notice.0, &choice, &alerts, &completions);
+    let view = view::side_view(&sim, tool.0, &notice.0, choice.0, &alerts);
     if last.as_ref() == Some(&view) && fresh.is_empty() {
         return;
     }
@@ -357,7 +242,7 @@ fn spawn_side(p: &mut ChildSpawnerCommands, theme: &Theme, v: &SideView) {
     .with_children(|r| {
         r.spawn(ui_style::text(format!("Time {}", v.clock), font::BODY, theme.text));
         let (state, color) = if v.paused { ("Paused", theme.warn) } else { ("Running", theme.dim) };
-        r.spawn(ui_style::text(format!("{state}  x{SPEED}"), font::BODY, color));
+        r.spawn(ui_style::text(format!("{state}  x{}", v.speed), font::BODY, color));
     });
 
     // The tool the left mouse button has, and the last designation's result.
@@ -369,8 +254,8 @@ fn spawn_side(p: &mut ChildSpawnerCommands, theme: &Theme, v: &SideView) {
         ..default()
     })
     .with_children(|row| {
-        for (tool, label, key) in TOOLS {
-            ui_style::button(row, theme, label, key, tool == v.tool);
+        for tool in Tool::ALL {
+            ui_style::button(row, theme, tool.name(), tool.key(), tool == v.tool);
         }
     });
     p.spawn(ui_style::text(v.tool_hint.clone(), font::BODY, theme.dim));
@@ -473,93 +358,20 @@ fn spawn_picker(
 // ---------------------------------------------------------------------------------------------
 // Selection bar
 
-/// How a meter reads: the same colours for every nation (`Theme::ok`, `warn`, `bad`).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Status {
-    Ok,
-    Warn,
-    Bad,
-}
-
-impl Status {
-    fn color(self, theme: &Theme) -> Color {
-        match self {
-            Self::Ok => theme.ok,
-            Self::Warn => theme.warn,
-            Self::Bad => theme.bad,
-        }
+/// A meter's colour: the same for every nation (`Theme::ok`, `warn`, `bad`).
+fn status_color(status: Status, theme: &Theme) -> Color {
+    match status {
+        Status::Ok => theme.ok,
+        Status::Warn => theme.warn,
+        Status::Bad => theme.bad,
     }
 }
 
-/// A meter at `frac` of full is `Ok` down to `low` (the level where a unit goes to fix it),
-/// `Warn` down to half of that, and `Bad` below.
-fn need_status(frac: f32, low: f32) -> Status {
-    if frac >= low {
-        Status::Ok
-    } else if frac >= low / 2.0 {
-        Status::Warn
-    } else {
-        Status::Bad
-    }
-}
-
-/// Health has no `low` in the data; it reads as a warning at half.
-const HEALTH_LOW: f32 = 0.5;
-
+/// What the selection bar shows: the unit's view and the art id of its portrait.
 #[derive(Clone, PartialEq, Debug)]
-struct NeedView {
-    label: &'static str,
-    /// In `[0, 1]`.
-    frac: f32,
-    status: Status,
-}
-
-impl NeedView {
-    fn percent(&self) -> String {
-        format!("{:.0}%", self.frac * 100.0)
-    }
-}
-
-/// Everything the selection bar shows for a unit.
-#[derive(Clone, PartialEq, Debug)]
-struct UnitView {
-    id: UnitId,
-    name: String,
-    nation: String,
-    tile: Pos,
-    task: String,
-    carrying: String,
-    /// Art id of the character, for the portrait.
+struct SelectionView {
+    unit: UnitView,
     character: String,
-    needs: Vec<NeedView>,
-    /// Chi, as a fraction of `data/bending.toml`'s `chi.max`. Not a `NeedView`: chi never hurts
-    /// the unit, so it has no "low" threshold or warning colour (docs/design/bending.md).
-    chi_frac: f32,
-}
-
-fn unit_view(sim: &Sim, unit: &Unit) -> UnitView {
-    let s = &sim.defs.needs;
-    let meter = |label, value: f32, max: f32, low: f32| {
-        let frac = (value / max).clamp(0.0, 1.0);
-        NeedView { label, frac, status: need_status(frac, low) }
-    };
-    let low = |n: fn_sim::needs::NeedDef| n.low / s.max();
-    UnitView {
-        id: unit.id,
-        name: unit.name.clone(),
-        nation: sim.defs.nation(unit.nation).name.clone(),
-        tile: unit.pos,
-        task: jobview::describe_task(&sim.world, &sim.defs, unit),
-        carrying: jobview::describe_stack(&sim.defs, unit.carrying),
-        character: unit_character(sim, unit).to_owned(),
-        needs: vec![
-            meter("Health", unit.needs.health, s.health.max, HEALTH_LOW),
-            meter("Hunger", unit.needs.hunger, s.max(), low(s.hunger)),
-            meter("Thirst", unit.needs.thirst, s.max(), low(s.thirst)),
-            meter("Energy", unit.needs.energy, s.max(), low(s.energy)),
-        ],
-        chi_frac: (unit.chi / sim.defs.chi.max).clamp(0.0, 1.0),
-    }
 }
 
 fn update_selection_bar(
@@ -572,7 +384,7 @@ fn update_selection_bar(
     mut bar: Query<&mut Visibility, With<SelectionBar>>,
     content: Query<Entity, With<SelectionContent>>,
     fresh: Query<(), Added<SelectionContent>>,
-    mut last: Local<Option<UnitView>>,
+    mut last: Local<Option<SelectionView>>,
 ) {
     let (Ok(mut visibility), Ok(content)) = (bar.single_mut(), content.single()) else { return };
     // The research screen (#23) is a full `ui.md` "Screens" overlay: the selection bar hides
@@ -586,7 +398,10 @@ fn update_selection_bar(
         return;
     };
     *visibility = Visibility::Inherited;
-    let view = unit_view(&sim, unit);
+    let view = SelectionView {
+        unit: view::unit_view(&sim, unit),
+        character: unit_character(&sim, unit).to_owned(),
+    };
     if last.as_ref() == Some(&view) && fresh.is_empty() {
         return;
     }
@@ -594,7 +409,7 @@ fn update_selection_bar(
     commands
         .entity(content)
         .despawn_children()
-        .with_children(|p| spawn_selection(p, &theme, &view, face));
+        .with_children(|p| spawn_selection(p, &theme, &view.unit, face));
     *last = Some(view);
 }
 
@@ -658,7 +473,7 @@ fn spawn_selection(p: &mut ChildSpawnerCommands, theme: &Theme, v: &UnitView, fa
                     theme,
                     need.label,
                     need.frac,
-                    need.status.color(theme),
+                    status_color(need.status, theme),
                     &need.percent(),
                 );
             });
@@ -704,104 +519,22 @@ fn meter_row(
 // ---------------------------------------------------------------------------------------------
 // Tooltip
 
-/// What a tooltip line is for, and so its colour.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Line {
-    Title,
-    Detail,
-    Hint,
-}
-
-type TooltipText = Vec<(Line, String)>;
-
-/// "Lit: 12m 03s left" for a flame on `tile`, or "Wet: sprouts in 3m 20s" for a watered one.
-/// `None` for anything else.
-fn bending_status_line(sim: &Sim, tile: Pos) -> Option<String> {
-    let clock = |secs: f32| {
-        let secs = secs.max(0.0) as u64;
-        format!("{}m {:02}s", secs / 60, secs % 60)
-    };
-    if let Some(flame) = sim.world.flames().into_iter().find(|f| f.pos == tile) {
-        return Some(format!("Lit: {} left", clock(flame.seconds_left)));
-    }
-    let (_, left) = sim.world.wet_tiles().into_iter().find(|(p, _)| *p == tile)?;
-    Some(format!("Wet: sprouts in {}", clock(left)))
-}
-
-/// The tooltip for what is under the cursor at `tile`: up to 4 lines (name, context, a yield or
-/// reason, then an action hint). `None` when `tile` is off the map.
-fn tooltip_lines(sim: &Sim, tool: Tool, tile: Pos) -> Option<TooltipText> {
-    let t = sim.world.map.get(tile)?;
-    let mut lines = TooltipText::new();
-    if let Some(unit) = sim.world.units.iter().find(|u| u.pos == tile) {
-        lines.push((Line::Title, unit.name.clone()));
-        let task = jobview::describe_task(&sim.world, &sim.defs, unit);
-        lines.push((Line::Detail, format!("{} - {task}", sim.defs.nation(unit.nation).name)));
-        lines.push((
-            Line::Detail,
-            format!("Carrying: {}", jobview::describe_stack(&sim.defs, unit.carrying)),
-        ));
-        if tool == Tool::Select {
-            lines.push((Line::Hint, "Click to select".into()));
-        }
-        return Some(lines);
-    }
-    // A construction site or a finished building (#111): what it is and how far along.
-    if let Some(report) = build::site_report(sim, tile) {
-        lines.push((Line::Title, format!("{} (under construction)", report.name)));
-        lines.push((Line::Detail, report.materials));
-        lines.push((Line::Detail, report.work));
-        let hint = if tool == Tool::CancelHarvest {
-            "Click to cancel the build"
-        } else {
-            "[X] then click to cancel"
-        };
-        lines.push((Line::Hint, hint.into()));
-        return Some(lines);
-    }
-    if let Some(name) = build::built_name(sim, tile) {
-        lines.push((Line::Title, name));
-        lines.push((Line::Detail, format!("Built ({}, {})", tile.x, tile.y)));
-        return Some(lines);
-    }
-    let biome = &sim.defs.biome(t.biome).name;
-    let at = format!("{biome} - {:?} ({}, {})", t.terrain, tile.x, tile.y);
-    let Some(res) = t.resource else {
-        lines.push((Line::Title, format!("{:?}", t.terrain)));
-        lines.push((Line::Detail, format!("{biome} ({}, {})", tile.x, tile.y)));
-        lines.push((Line::Detail, format!("Elevation {}", t.elevation)));
-        // A lit flame or a wet patch (#72): the result of a bend, so hovering explains it
-        // (pillar 4, "readable simulation").
-        if let Some(status) = bending_status_line(sim, tile) {
-            lines.push((Line::Detail, status));
-        }
-        return Some(lines);
-    };
-    lines.push((Line::Title, sim.defs.resource(res).name.clone()));
-    lines.push((Line::Detail, at));
-    if let Some(h) = sim.defs.harvest(res) {
-        // A standing order (#81) outlives the resting period it's shown through, so it's folded
-        // into the existing lines rather than a line of its own (tooltips top out at 4 lines).
-        let repeating = sim.world.is_repeating_harvest(tile);
-        if sim.world.is_resting(tile) {
-            let text = if repeating { "Growing back - repeating order" } else { "Growing back" };
-            lines.push((Line::Detail, text.into()));
-        } else {
-            let item = &sim.defs.item(h.item).name;
-            let suffix = if repeating { " (repeating)" } else { "" };
-            lines.push((
-                Line::Detail,
-                format!("{}: {} {item} - {:.0}s{suffix}", h.verb, h.count, h.work),
-            ));
-            let hint = if tool == Tool::Harvest {
-                "Drag to designate (Shift: repeating)"
-            } else {
-                "[H] then drag to harvest"
+/// A hint line in this frontend's words: the mouse clicks and drags.
+fn hint_text(hint: Hint) -> String {
+    match hint {
+        Hint::SelectUnit => "Click to select".into(),
+        Hint::ApplyTool(Tool::CancelHarvest) => "Click to cancel the build".into(),
+        Hint::ApplyTool(Tool::Harvest) => "Drag to designate (Shift: repeating)".into(),
+        Hint::ApplyTool(tool) => format!("Drag to {}", tool.label()),
+        Hint::StartTool(tool) => {
+            let then = match tool {
+                Tool::CancelHarvest => "click to cancel",
+                Tool::Harvest => "drag to harvest",
+                other => other.label(),
             };
-            lines.push((Line::Hint, hint.into()));
+            format!("[{}] then {then}", tool.key())
         }
     }
-    Some(lines)
 }
 
 /// How much of the view the panels cover: the width the side panel takes from the
@@ -848,7 +581,7 @@ fn tooltip_insets(cursor: Vec2, window: Vec2) -> (Val, Val, Val, Val) {
 fn update_tooltip(
     mut commands: Commands,
     sim: Res<Sim>,
-    tool: Res<Tool>,
+    tool: Res<ActiveTool>,
     theme: Res<Theme>,
     window: Query<&Window, With<PrimaryWindow>>,
     camera: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
@@ -856,7 +589,7 @@ fn update_tooltip(
     mut tooltip: Query<(&mut Node, &mut Visibility), With<Tooltip>>,
     lines: Query<Entity, With<TooltipLines>>,
     fresh: Query<(), Added<TooltipLines>>,
-    mut last: Local<TooltipText>,
+    mut last: Local<inspect::Lines>,
 ) {
     let (Ok((mut node, mut visibility)), Ok(lines_entity)) = (tooltip.single_mut(), lines.single())
     else {
@@ -869,7 +602,7 @@ fn update_tooltip(
         if over_panel(cursor, window.size(), bar_open) {
             return None;
         }
-        let text = tooltip_lines(&sim, *tool, cursor_tile(window, camera, camera_tf)?)?;
+        let text = inspect::tooltip_lines(&sim, tool.0, cursor_tile(window, camera, camera_tf)?)?;
         Some((cursor, window.size(), text))
     })();
     let Some((cursor, size, text)) = hovered else {
@@ -882,13 +615,13 @@ fn update_tooltip(
         return;
     }
     commands.entity(lines_entity).despawn_children().with_children(|p| {
-        for (kind, line) in &text {
-            let color = match kind {
-                Line::Title => theme.text,
-                Line::Detail => theme.dim,
-                Line::Hint => theme.accent_text,
+        for line in &text {
+            let (color, text) = match line {
+                Line::Title(t) => (theme.text, t.clone()),
+                Line::Detail(t) => (theme.dim, t.clone()),
+                Line::Hint(h) => (theme.accent_text, hint_text(*h)),
             };
-            p.spawn(ui_style::text(line.clone(), font::BODY, color));
+            p.spawn(ui_style::text(text, font::BODY, color));
         }
     });
     *last = text;
@@ -896,50 +629,18 @@ fn update_tooltip(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use fn_sim::Nation;
+    use fn_ui::Session;
+    use fn_ui::build::picker_rows;
 
-    #[test]
-    fn need_status_thresholds() {
-        // Hunger's `low` is 40% of full.
-        assert_eq!(need_status(1.0, 0.4), Status::Ok);
-        assert_eq!(need_status(0.4, 0.4), Status::Ok);
-        assert_eq!(need_status(0.39, 0.4), Status::Warn);
-        assert_eq!(need_status(0.2, 0.4), Status::Warn);
-        assert_eq!(need_status(0.19, 0.4), Status::Bad);
-        assert_eq!(need_status(0.0, 0.4), Status::Bad);
-    }
+    use super::*;
 
     #[test]
     fn status_colours_come_from_the_theme() {
         let t = Theme::for_nation([70, 130, 210]);
-        assert_eq!(Status::Ok.color(&t), t.ok);
-        assert_eq!(Status::Warn.color(&t), t.warn);
-        assert_eq!(Status::Bad.color(&t), t.bad);
-    }
-
-    #[test]
-    fn clock_counts_minutes_and_seconds() {
-        let tps = u64::from(TICKS_PER_SECOND);
-        assert_eq!(format_clock(0), "00:00");
-        assert_eq!(format_clock(59 * tps + tps - 1), "00:59");
-        assert_eq!(format_clock(60 * tps), "01:00");
-        assert_eq!(format_clock((100 * 60 + 5) * tps), "100:05");
-    }
-
-    #[test]
-    fn modifier_rows_skip_baseline_and_format_values() {
-        let defs = fn_sim::Defs::bundled();
-        let m = defs.nation(Nation::Air).modifiers;
-        let rows = modifier_rows(&m);
-        assert!(rows.contains(&("Move speed".to_owned(), "x1.6".to_owned())), "{rows:?}");
-        assert!(rows.contains(&("Power generation".to_owned(), "x2".to_owned())), "{rows:?}");
-        assert!(rows.iter().all(|(label, _)| label != "Heating"), "baseline shown: {rows:?}");
-    }
-
-    #[test]
-    fn humanize_capitalises_and_spaces() {
-        assert_eq!(humanize("water_work"), "Water work");
-        assert_eq!(humanize("study"), "Study");
+        assert_eq!(status_color(Status::Ok, &t), t.ok);
+        assert_eq!(status_color(Status::Warn, &t), t.warn);
+        assert_eq!(status_color(Status::Bad, &t), t.bad);
     }
 
     #[test]
@@ -963,81 +664,24 @@ mod tests {
         assert_eq!((l, r, t, b), (Val::Auto, Val::Px(116.0), Val::Auto, Val::Px(116.0)));
     }
 
+    /// The mouse wording the client has always used.
     #[test]
-    fn tooltips_have_at_most_four_lines() {
-        let sim = Sim::new(7, Nation::Earth, 64, 64);
-        let mut seen_resource = false;
-        let mut seen_unit = false;
-        for (p, t) in sim.world.map.iter() {
-            for tool in [Tool::Select, Tool::Harvest] {
-                let lines = tooltip_lines(&sim, tool, p).expect("on the map");
-                assert!((2..=4).contains(&lines.len()), "{p:?}: {lines:?}");
-                assert_eq!(lines[0].0, Line::Title);
-            }
-            seen_resource |= t.resource.is_some();
-        }
-        for u in &sim.world.units {
-            seen_unit = true;
-            let lines = tooltip_lines(&sim, Tool::Select, u.pos).unwrap();
-            assert_eq!(lines[0].1, u.name);
-            assert_eq!(lines.last().unwrap().0, Line::Hint);
-        }
-        assert!(seen_resource && seen_unit);
-        assert_eq!(tooltip_lines(&sim, Tool::Select, Pos::new(-1, -1)), None);
-    }
-
-    #[test]
-    fn a_site_s_tooltip_shows_materials_and_work() {
-        let mut sim = Sim::new(7, Nation::Earth, 64, 64);
-        let bed = sim.defs.building_id("bed").unwrap();
-        let pos = sim
-            .world
-            .map
-            .iter()
-            .find(|(p, t)| {
-                t.terrain == fn_sim::Terrain::Land
-                    && t.resource.is_none()
-                    && !sim.world.units.iter().any(|u| u.pos == *p)
-            })
-            .map(|(p, _)| p)
-            .unwrap();
-        let Sim { world, defs, .. } = &mut sim;
-        world.apply(fn_sim::world::Command::DesignateBuild { pos, building: bed }, defs).unwrap();
-        let lines = tooltip_lines(&sim, Tool::Build, pos).unwrap();
-        let text: Vec<&str> = lines.iter().map(|(_, l)| l.as_str()).collect();
+    fn hints_read_as_mouse_actions() {
+        assert_eq!(hint_text(Hint::SelectUnit), "Click to select");
         assert_eq!(
-            text,
-            [
-                "Bed (under construction)",
-                "Materials: 0/5 Wood",
-                "Work: 0/20s",
-                "[X] then click to cancel"
-            ]
+            hint_text(Hint::ApplyTool(Tool::Harvest)),
+            "Drag to designate (Shift: repeating)"
         );
-        let lines = tooltip_lines(&sim, Tool::CancelHarvest, pos).unwrap();
-        assert_eq!(lines.last().unwrap().1, "Click to cancel the build");
-    }
-
-    #[test]
-    fn the_build_tool_lists_the_picker_and_other_tools_do_not() {
-        let sim = Sim::new(7, Nation::Earth, 64, 64);
-        let (alerts, log) = (Alerts::default(), CompletionLog::default());
-        let build_view = side_view(&sim, Tool::Build, "", &BuildChoice::default(), &alerts, &log);
-        assert_eq!(build_view.picker.len(), sim.defs.buildings.len());
-        let bed = sim.defs.building_id("bed").unwrap();
-        // With no choice yet the first placeable building is shown as the choice.
-        assert!(build_view.picker.iter().any(|r| Some(r.id) == build_view.choice && !r.locked()));
-        let chosen = BuildChoice(Some(bed));
-        assert_eq!(side_view(&sim, Tool::Build, "", &chosen, &alerts, &log).choice, Some(bed));
-        let harvest = side_view(&sim, Tool::Harvest, "", &chosen, &alerts, &log);
-        assert!(harvest.picker.is_empty() && harvest.choice.is_none());
+        assert_eq!(hint_text(Hint::StartTool(Tool::Harvest)), "[H] then drag to harvest");
+        assert_eq!(hint_text(Hint::ApplyTool(Tool::CancelHarvest)), "Click to cancel the build");
+        assert_eq!(hint_text(Hint::StartTool(Tool::CancelHarvest)), "[X] then click to cancel");
     }
 
     #[test]
     fn only_placeable_picker_rows_are_clickable() {
-        let sim = Sim::new(7, Nation::Earth, 64, 64);
-        let rows = build::picker_rows(&sim);
-        let theme = Theme::for_nation(sim.defs.nation(Nation::Earth).color);
+        let session = Session::new(7, Nation::Earth, 64, 64);
+        let rows = picker_rows(&session);
+        let theme = Theme::for_nation(session.defs.nation(Nation::Earth).color);
         let mut world = bevy::ecs::world::World::new();
         let root = world.spawn(Node::default()).id();
         world.commands().entity(root).with_children(|p| spawn_picker(p, &theme, &rows, None));
@@ -1051,47 +695,5 @@ mod tests {
             world.query::<&Node>().iter(&world).filter(|n| n.border.left == Val::Px(1.0)).count(),
             rows.len()
         );
-    }
-
-    #[test]
-    fn unit_view_has_every_meter_in_range() {
-        let sim = Sim::new(7, Nation::Water, 64, 64);
-        let v = unit_view(&sim, &sim.world.units[0]);
-        let labels: Vec<_> = v.needs.iter().map(|n| n.label).collect();
-        assert_eq!(labels, ["Health", "Hunger", "Thirst", "Energy"]);
-        // New units start full.
-        assert!(v.needs.iter().all(|n| n.frac == 1.0 && n.status == Status::Ok), "{v:?}");
-        assert_eq!(v.needs[0].percent(), "100%");
-        assert_eq!(v.chi_frac, 1.0, "a fresh unit's chi starts full too");
-    }
-
-    #[test]
-    fn tool_hint_names_the_nation_s_own_ability() {
-        let sim = Sim::new(1, Nation::Fire, 48, 32);
-        let hint = tool_hint(&sim, Tool::Bend);
-        let id = ability_for_nation(&sim.defs, Nation::Fire).unwrap();
-        assert!(hint.starts_with(&sim.defs.ability(id).verb), "{hint}");
-        assert_eq!(tool_hint(&sim, Tool::Harvest), Tool::Harvest.label());
-    }
-
-    #[test]
-    fn bending_status_line_names_a_lit_flame() {
-        use fn_sim::world::Command;
-
-        let mut sim = Sim::new(1, Nation::Fire, 48, 32);
-        let pos = sim.world.units[0].pos;
-        let ability = ability_for_nation(&sim.defs, Nation::Fire).unwrap();
-        let Sim { world, defs, .. } = &mut sim;
-        world.apply(Command::Bend { ability, pos }, defs).expect("a unit's own tile validates");
-        for _ in 0..20_000 {
-            world.tick(defs);
-            if world.is_lit(pos) {
-                break;
-            }
-        }
-        assert!(world.is_lit(pos), "the flame should finish lighting");
-        let line = bending_status_line(&sim, pos).expect("a lit flame");
-        assert!(line.starts_with("Lit:"), "{line}");
-        assert_eq!(bending_status_line(&sim, Pos::new(-1, -1)), None);
     }
 }

@@ -32,16 +32,16 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 use bevy::sprite::Anchor;
 use bevy::window::{ExitCondition, PrimaryWindow};
 use bevy::winit::WinitPlugin;
-use designate::{DesignatePlugin, Tool};
+use designate::{ActiveTool, DesignatePlugin};
 use fn_sim::world::{TICKS_PER_SECOND, Unit, UnitId};
-use fn_sim::{Defs, MapGenConfig, Nation, Pos, Tile, World};
+use fn_sim::{MapGenConfig, Nation, Pos, Tile};
+use fn_ui::{Session, Tool};
 use hud::HudPlugin;
 use jobview::{JobViewPlugin, ResourceSprite};
 use research::{ResearchPlugin, ScreenOpen};
 use sprites::Sheet;
 
 mod bending;
-mod build;
 mod designate;
 mod hud;
 mod jobview;
@@ -50,7 +50,6 @@ mod sprites;
 mod ui_style;
 
 const TILE: f32 = 16.0;
-const STARTING_UNITS: u32 = 6;
 const ASSET_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets");
 
 fn main() {
@@ -93,14 +92,14 @@ fn main() {
             ..default()
         }));
     }
-    let mut sim = Sim::new(seed, nation, width, height);
+    let mut sim = Session::new(seed, nation, width, height);
     let build_demo = std::env::var_os("FN_BUILD_DEMO").is_some();
     if build_demo {
-        sim.designate_demo_sites();
+        designate_demo_sites(&mut sim);
     }
     app.insert_resource(Time::<Fixed>::from_hz(f64::from(TICKS_PER_SECOND)))
-        .insert_resource(if build_demo { Tool::Build } else { Tool::Select })
-        .insert_resource(sim)
+        .insert_resource(ActiveTool(if build_demo { Tool::Build } else { Tool::Select }))
+        .insert_resource(Sim(sim))
         .insert_resource(Selection(
             std::env::var("FN_SELECT").ok().and_then(|s| s.parse().ok()).map(UnitId),
         ))
@@ -149,33 +148,20 @@ fn screen_closed(open: Res<ScreenOpen>) -> bool {
     !open.0
 }
 
-#[derive(Resource)]
-struct Sim {
-    world: World,
-    defs: Defs,
-    paused: bool,
-}
+/// The game being played: `fn_ui`'s `Session` (world, data and clock) as a Bevy resource.
+#[derive(Resource, Deref, DerefMut)]
+struct Sim(Session);
 
-impl Sim {
-    fn new(seed: u64, nation: Nation, width: i32, height: i32) -> Self {
-        let defs = Defs::bundled();
-        let cfg = MapGenConfig { seed, width, height, ..default() };
-        let world = World::new(&cfg, nation, STARTING_UNITS, &defs);
-        Self { world, defs, paused: false }
-    }
-
-    /// `FN_BUILD_DEMO`: designates each building in the data on a free tile near the first unit
-    /// (the ones this nation can't place yet are refused, which is fine).
-    fn designate_demo_sites(&mut self) {
-        let Some(origin) = self.world.units.first().map(|u| u.pos) else { return };
-        let Self { world, defs, .. } = self;
-        let mut dy = 0;
-        for i in 0..defs.buildings.len() {
-            let building = fn_sim::building::BuildingId(i as u16);
-            let pos = Pos::new(origin.x + 2, origin.y + dy);
-            if world.apply(fn_sim::world::Command::DesignateBuild { pos, building }, defs).is_ok() {
-                dy += 2;
-            }
+/// `FN_BUILD_DEMO`: designates each building in the data on a free tile near the first unit
+/// (the ones this nation can't place yet are refused, which is fine).
+fn designate_demo_sites(session: &mut Session) {
+    let Some(origin) = session.world.units.first().map(|u| u.pos) else { return };
+    let mut dy = 0;
+    for i in 0..session.defs.buildings.len() {
+        let building = fn_sim::building::BuildingId(i as u16);
+        let pos = Pos::new(origin.x + 2, origin.y + dy);
+        if session.apply(fn_sim::world::Command::DesignateBuild { pos, building }).is_ok() {
+            dy += 2;
         }
     }
 }
@@ -366,12 +352,11 @@ fn spawn_entities(commands: &mut Commands, art: &Art, sim: &Sim) {
     }
 }
 
+/// One `FixedUpdate` step (`TICKS_PER_SECOND` a second): the clock says how many ticks that is,
+/// none while paused.
 fn tick_sim(mut sim: ResMut<Sim>) {
-    if sim.paused {
-        return;
-    }
-    let Sim { world, defs, .. } = &mut *sim;
-    world.tick(defs);
+    let ticks = sim.clock.per_fixed_step();
+    sim.tick_n(ticks);
 }
 
 fn controls(
@@ -386,7 +371,7 @@ fn controls(
         selection.0 = None;
     }
     if keys.just_pressed(KeyCode::Space) {
-        sim.paused = !sim.paused;
+        sim.clock.toggle_pause();
     }
     let digits = [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4];
     let nation = digits.iter().position(|k| keys.just_pressed(*k)).map(|i| Nation::ALL[i]);
@@ -396,7 +381,7 @@ fn controls(
     }
     let seed = new_seed.unwrap_or(sim.world.seed);
     let (width, height) = (sim.world.map.width(), sim.world.map.height());
-    *sim = Sim::new(seed, nation.unwrap_or(sim.world.nation), width, height);
+    sim.0 = Session::new(seed, nation.unwrap_or(sim.world.nation), width, height);
     selection.0 = None;
     for e in &existing {
         commands.entity(e).despawn();
@@ -419,7 +404,7 @@ fn camera_controls(
     scroll: Res<AccumulatedMouseScroll>,
     time: Res<Time>,
     sim: Res<Sim>,
-    tool: Res<Tool>,
+    tool: Res<ActiveTool>,
     window: Query<&Window, With<PrimaryWindow>>,
     mut drag: Local<DragState>,
     mut clicks: MessageWriter<MapClicked>,
@@ -457,7 +442,7 @@ fn camera_controls(
 
     // Grab-and-drag panning with any mouse button (a designation tool owns the left one). Screen
     // y points down, world y points up.
-    let selecting = *tool == Tool::Select;
+    let selecting = tool.0 == Tool::Select;
     let buttons: &[MouseButton] = if selecting {
         &[MouseButton::Left, MouseButton::Middle, MouseButton::Right]
     } else {
