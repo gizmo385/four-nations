@@ -27,9 +27,13 @@ fn at(x: i32, y: i32) -> Pos {
 }
 
 fn setup(rows: &[&str], units: &[Pos]) -> (World, Defs) {
+    setup_as(Nation::Earth, rows, units)
+}
+
+fn setup_as(nation: Nation, rows: &[&str], units: &[Pos]) -> (World, Defs) {
     let defs = Defs::bundled();
     let map = arena(rows);
-    (World::with_map(1, map, Nation::Earth, units, &defs), defs)
+    (World::with_map(1, map, nation, units, &defs), defs)
 }
 
 fn run_until(w: &mut World, defs: &Defs, limit: u64, mut done: impl FnMut(&World) -> bool) -> u64 {
@@ -122,4 +126,32 @@ fn cancelling_a_build_drops_delivered_materials_and_frees_the_unit() {
     assert!(w.build_sites().next().is_none());
     // What had been delivered is now on the ground somewhere, to be hauled again.
     assert_eq!(w.ground_items().map(|(_, s)| s.count).sum::<u32>(), 3);
+}
+
+#[test]
+fn a_locked_building_needs_its_tech_but_fire_starts_with_it() {
+    let defs = Defs::bundled();
+    let campfire = defs.building_id("campfire").expect("added by issue #22");
+    let fire_making = defs.tech_id("fire_making").unwrap();
+
+    // Water doesn't start with `fire_making`: the campfire is locked.
+    let (mut w, _) = setup_as(Nation::Water, &GRID, &[at(1, 1)]);
+    assert_eq!(
+        w.designate_build(at(2, 2), campfire, &defs),
+        Err(BuildError::NotResearched(fire_making))
+    );
+    assert!(!w.research().is_known(fire_making));
+
+    // Once it finishes researching `fire_making` (25 points at 3/min, so tick 5000), it can.
+    w.apply(Command::SetResearch { tech: fire_making }, &defs).unwrap();
+    for _ in 0..5000 {
+        w.tick(&defs);
+    }
+    assert!(w.research().is_known(fire_making));
+    assert!(w.designate_build(at(2, 2), campfire, &defs).is_ok());
+
+    // Fire Nation starts with `fire_making`, so it can build one from tick 0.
+    let (mut fire, _) = setup_as(Nation::Fire, &GRID, &[at(1, 1)]);
+    assert!(fire.research().is_known(fire_making));
+    assert!(fire.designate_build(at(2, 2), campfire, &defs).is_ok());
 }

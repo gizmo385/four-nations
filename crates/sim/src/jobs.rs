@@ -47,8 +47,10 @@ pub struct HarvestDef {
     /// In-game seconds a renewable resource takes to ripen again after being worked. `None`
     /// means the resource is used up. See `World::growth_rate` for what speeds this up.
     pub regrow: Option<f32>,
-    /// A tech the nation must know before this can be worked.
-    pub requires_tech: Option<TechId>,
+    /// The tech that must be known before this can be designated or foraged
+    /// (`data/research.toml`, `Unlocks::jobs`, issue #22). `None` means every nation can work it
+    /// from the start.
+    pub unlocked_by: Option<TechId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -85,7 +87,6 @@ struct RawHarvest {
     work: f32,
     modifier: Option<String>,
     regrow: Option<f32>,
-    requires_tech: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -174,13 +175,6 @@ impl JobsFile {
             {
                 return err(format!("harvest {r}: regrow must be a positive number of seconds"));
             }
-            let requires_tech = match &h.requires_tech {
-                None => None,
-                Some(t) => match techs.iter().position(|d| d.id == *t) {
-                    Some(i) => Some(TechId(i as u16)),
-                    None => return err(format!("harvest {r}: unknown tech {t:?}")),
-                },
-            };
             harvests.push(HarvestDef {
                 resource: ResourceId(resource as u16),
                 verb: h.verb,
@@ -189,11 +183,46 @@ impl JobsFile {
                 work: h.work,
                 modifier: h.modifier,
                 regrow: h.regrow,
-                requires_tech,
+                unlocked_by: None,
             });
         }
+        link_unlocks(&mut harvests, resources, techs)?;
         Ok((s, items, harvests))
     }
+}
+
+/// Resolves every tech's `unlocks.jobs` into `HarvestDef::unlocked_by`: each entry names a
+/// resource (`data/resources.toml`) that has a harvest entry, and may be unlocked by no other
+/// tech.
+fn link_unlocks(
+    harvests: &mut [HarvestDef],
+    resources: &[ResourceDef],
+    techs: &[TechDef],
+) -> Result<(), DefsError> {
+    for (t, tech) in techs.iter().enumerate() {
+        let err = |msg: String| Err(DefsError(format!("tech {}: unlocks.jobs: {msg}", tech.id)));
+        for name in &tech.unlocks.jobs {
+            let Some(r) = resources.iter().position(|r| r.id == *name) else {
+                return err(format!("unknown resource {name:?}"));
+            };
+            let resource = ResourceId(r as u16);
+            let Some(h) = harvests.iter_mut().find(|h| h.resource == resource) else {
+                return err(format!("resource {name:?} has no harvest entry"));
+            };
+            if let Some(other) = h.unlocked_by {
+                return if other == TechId(t as u16) {
+                    err(format!("{name:?} listed twice"))
+                } else {
+                    err(format!(
+                        "{name:?} is already unlocked by {:?}; a job has one tech",
+                        techs[other.0 as usize].id
+                    ))
+                };
+            }
+            h.unlocked_by = Some(TechId(t as u16));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -225,4 +254,73 @@ pub struct Job {
     pub claimed_by: Option<UnitId>,
     /// Work done so far, in work-seconds. Kept when the unit is pulled away, so the job resumes.
     pub progress: f32,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::defs::{Defs, DefsError};
+
+    const BIOMES: &str = include_str!("../../../data/biomes.toml");
+    const RESOURCES: &str = include_str!("../../../data/resources.toml");
+    const NATIONS: &str = include_str!("../../../data/nations.toml");
+    const RESEARCH: &str = include_str!("../../../data/research.toml");
+    const NEEDS: &str = include_str!("../../../data/needs.toml");
+    const JOBS: &str = include_str!("../../../data/jobs.toml");
+    const BENDING: &str = include_str!("../../../data/bending.toml");
+    const BUILDINGS: &str = include_str!("../../../data/buildings.toml");
+
+    /// The bundled data, with `tech` appended to `data/research.toml` and `resource` appended to
+    /// `data/resources.toml` (so a test can name a resource with no harvest entry).
+    fn load(tech: &str, resource: &str) -> Result<Defs, DefsError> {
+        Defs::from_toml(
+            BIOMES,
+            &format!("{RESOURCES}\n{resource}"),
+            NATIONS,
+            &format!("{RESEARCH}\n{tech}"),
+            NEEDS,
+            JOBS,
+            BENDING,
+            BUILDINGS,
+        )
+    }
+
+    /// A tech named `id` that unlocks `jobs` (a TOML array literal, e.g. `"['stone']"`).
+    fn tech(id: &str, jobs: &str) -> String {
+        format!(
+            "[[tech]]\nid = '{id}'\nname = 'T'\ndescription = ''\ncost = 1\n\
+             [tech.unlocks]\njobs = {jobs}\n"
+        )
+    }
+
+    #[test]
+    fn a_tech_records_the_job_it_unlocks() {
+        let defs = Defs::bundled();
+        let fishing = defs.tech_id("fishing").unwrap();
+        let fish_spot = defs.resource_id("fish_spot").unwrap();
+        assert_eq!(defs.harvest(fish_spot).unwrap().unlocked_by, Some(fishing));
+        let stone = defs.resource_id("stone").unwrap();
+        assert_eq!(defs.harvest(stone).unwrap().unlocked_by, None);
+    }
+
+    #[test]
+    fn a_tech_may_only_unlock_jobs_whose_resource_exists() {
+        let err = load(&tech("a", "['nope']"), "").unwrap_err();
+        assert!(err.0.contains("unknown resource \"nope\""), "{err}");
+    }
+
+    #[test]
+    fn a_tech_may_only_unlock_a_resource_with_a_harvest_entry() {
+        let driftwood = "[[resource]]\nid = 'driftwood'\nname = 'Driftwood'\nglyph = 'd'\n\
+                          chance = 0.1\n";
+        let err = load(&tech("a", "['driftwood']"), driftwood).unwrap_err();
+        assert!(err.0.contains("no harvest entry"), "{err}");
+    }
+
+    #[test]
+    fn a_job_has_at_most_one_tech() {
+        let two = load(&format!("{}{}", tech("a", "['stone']"), tech("b", "['stone']")), "");
+        assert!(two.unwrap_err().0.contains("one tech"));
+        let twice = load(&tech("a", "['stone', 'stone']"), "");
+        assert!(twice.unwrap_err().0.contains("listed twice"));
+    }
 }

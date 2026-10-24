@@ -218,7 +218,7 @@ mod tests {
     /// The resource that is used up when worked (a tree, not a fishing spot) and that anyone can
     /// work, closest to the first unit so it is within reach.
     fn first_tree(sim: &Sim) -> Pos {
-        nearest(sim, |h| h.regrow.is_none() && h.requires_tech.is_none())
+        nearest(sim, |h| h.regrow.is_none() && h.unlocked_by.is_none())
     }
 
     /// The closest resource to the first unit whose harvest satisfies `want`.

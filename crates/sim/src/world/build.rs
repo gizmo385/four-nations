@@ -29,6 +29,9 @@ pub enum BuildError {
     /// The tile isn't free: it's impassable, or a building already stands (or is being built)
     /// there.
     CannotBuild,
+    /// The building needs a tech the nation doesn't know yet. The client can look up its name
+    /// for a reason like "Requires Fire Making" (issue #22).
+    NotResearched(TechId),
     /// There is no build designation on that tile to cancel.
     NotDesignated,
 }
@@ -39,6 +42,7 @@ impl std::fmt::Display for BuildError {
             Self::UnknownBuilding => f.write_str("no such building"),
             Self::OutOfBounds => f.write_str("off the map"),
             Self::CannotBuild => f.write_str("can't build here"),
+            Self::NotResearched(_) => f.write_str("not researched yet"),
             Self::NotDesignated => f.write_str("not designated"),
         }
     }
@@ -83,6 +87,9 @@ impl World {
         defs: &Defs,
     ) -> Result<JobId, BuildError> {
         let def = defs.buildings.get(building.0 as usize).ok_or(BuildError::UnknownBuilding)?;
+        if let Some(t) = def.unlocked_by.filter(|&t| !self.research.is_known(t)) {
+            return Err(BuildError::NotResearched(t));
+        }
         let tile = self.map.get(pos).ok_or(BuildError::OutOfBounds)?;
         if !self.rules.passable(tile) || tile.building.is_some() || self.sites.contains_key(&pos) {
             return Err(BuildError::CannotBuild);

@@ -218,6 +218,13 @@ impl World {
         &self.research
     }
 
+    /// Is something whose `unlocked_by` is `unlocked_by` available to this settlement right now:
+    /// no tech locks it (`None`), or the nation knows the one that does (`Unlocks::buildings`,
+    /// `Unlocks::jobs`, issue #22).
+    pub fn is_unlocked(&self, unlocked_by: Option<TechId>) -> bool {
+        unlocked_by.is_none_or(|t| self.research.is_known(t))
+    }
+
     /// Sets the research target: the queue becomes `tech` plus its unknown prereqs. Banked
     /// knowledge is kept. Reached through `Command::SetResearch`.
     fn set_research(&mut self, tech: TechId, defs: &Defs) -> Result<(), ResearchError> {

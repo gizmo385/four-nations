@@ -397,7 +397,11 @@ fn fishing_needs_the_tech_and_runs_on_water_work() {
     let rows = ["~~~~~~~~~", "~~~f~~~~~", ".........", ".........", "........."];
     // Earth doesn't know fishing: no designation, and a starving unit doesn't fish either.
     let (mut earth, defs) = setup(Nation::Earth, &rows, &[at(1, 3)]);
-    assert_eq!(earth.designate_harvest(at(3, 1), &defs), Err(DesignateError::NotResearched));
+    let fishing = defs.tech_id("fishing").unwrap();
+    assert_eq!(
+        earth.designate_harvest(at(3, 1), &defs),
+        Err(DesignateError::NotResearched(fishing))
+    );
     earth.units[0].needs.hunger = 5.0;
     earth.tick(&defs);
     assert_eq!(earth.units[0].task(), None);

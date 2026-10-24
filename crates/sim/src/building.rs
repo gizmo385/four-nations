@@ -6,6 +6,10 @@
 //! *does* (sleeping, cooking...) is mostly follow-up work (#58 beds/hearth), except seats: a
 //! building with `seats > 0` is a study hall, and the moment one finishes construction
 //! `world/study.rs` opens that many `JobKind::Study` jobs on it (issue #21).
+//!
+//! Which tech must be known before a building may be designated is `Unlocks::buildings` in
+//! `data/research.toml`, resolved here into `BuildingDef::unlocked_by` (issue #22). A building no
+//! tech names is available from the start.
 
 use std::collections::HashMap;
 
@@ -14,6 +18,7 @@ use serde::Deserialize;
 use crate::defs::DefsError;
 use crate::jobs::{ItemDef, ItemId};
 use crate::nation::Nation;
+use crate::research::{TechDef, TechId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BuildingId(pub u16);
@@ -54,6 +59,9 @@ pub struct BuildingDef {
     /// Pavilion for Air). Empty when every nation uses the plain `name`. If set at all, every
     /// nation has an entry (`display_name` is the one place that matters).
     pub names: HashMap<Nation, String>,
+    /// The tech that must be known before this building may be designated (`data/research.toml`,
+    /// `Unlocks::buildings`, issue #22). `None` means every nation can build it from the start.
+    pub unlocked_by: Option<TechId>,
 }
 
 impl BuildingDef {
@@ -93,8 +101,12 @@ pub(crate) struct BuildingsFile {
 }
 
 impl BuildingsFile {
-    /// Checks the data and links item names to ids.
-    pub(crate) fn resolve(self, items: &[ItemDef]) -> Result<Vec<BuildingDef>, DefsError> {
+    /// Checks the data, links item names to ids, and records which tech unlocks each building.
+    pub(crate) fn resolve(
+        self,
+        items: &[ItemDef],
+        techs: &[TechDef],
+    ) -> Result<Vec<BuildingDef>, DefsError> {
         let err = |msg: String| Err(DefsError(format!("buildings.toml: {msg}")));
         let mut buildings: Vec<BuildingDef> = Vec::new();
         for b in self.building {
@@ -141,10 +153,39 @@ impl BuildingsFile {
                 passable: b.passable,
                 seats: b.seats,
                 names: b.names,
+                unlocked_by: None,
             });
         }
+        link_unlocks(&mut buildings, techs)?;
         Ok(buildings)
     }
+}
+
+/// Resolves every tech's `unlocks.buildings` into `BuildingDef::unlocked_by`: the building must
+/// exist and be unlocked by no other tech. Unlike abilities, a building isn't owned by one
+/// nation, so any tech (shared or a nation's own) may unlock any building.
+fn link_unlocks(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(), DefsError> {
+    for (t, tech) in techs.iter().enumerate() {
+        let err =
+            |msg: String| Err(DefsError(format!("tech {}: unlocks.buildings: {msg}", tech.id)));
+        for name in &tech.unlocks.buildings {
+            let Some(b) = buildings.iter_mut().find(|b| b.id == *name) else {
+                return err(format!("unknown building {name:?}"));
+            };
+            if let Some(other) = b.unlocked_by {
+                return if other == TechId(t as u16) {
+                    err(format!("{name:?} listed twice"))
+                } else {
+                    err(format!(
+                        "{name:?} is already unlocked by {:?}; a building has one tech",
+                        techs[other.0 as usize].id
+                    ))
+                };
+            }
+            b.unlocked_by = Some(TechId(t as u16));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -187,8 +228,8 @@ mod tests {
     }
 
     fn resolve(toml: &str) -> Result<Vec<BuildingDef>, DefsError> {
-        let items = Defs::bundled().items;
-        toml::from_str::<BuildingsFile>(toml).unwrap().resolve(&items)
+        let defs = Defs::bundled();
+        toml::from_str::<BuildingsFile>(toml).unwrap().resolve(&defs.items, &defs.techs)
     }
 
     #[test]
@@ -224,5 +265,60 @@ mod tests {
         "#;
         let err = resolve(toml).unwrap_err();
         assert!(err.0.contains("must not be empty"), "{err}");
+    }
+
+    const BIOMES: &str = include_str!("../../../data/biomes.toml");
+    const RESOURCES: &str = include_str!("../../../data/resources.toml");
+    const NATIONS: &str = include_str!("../../../data/nations.toml");
+    const RESEARCH: &str = include_str!("../../../data/research.toml");
+    const NEEDS: &str = include_str!("../../../data/needs.toml");
+    const JOBS: &str = include_str!("../../../data/jobs.toml");
+    const BENDING: &str = include_str!("../../../data/bending.toml");
+    const BUILDINGS: &str = include_str!("../../../data/buildings.toml");
+
+    /// The bundled data, with `tech` appended to `data/research.toml`.
+    fn load(tech: &str) -> Result<Defs, DefsError> {
+        Defs::from_toml(
+            BIOMES,
+            RESOURCES,
+            NATIONS,
+            &format!("{RESEARCH}\n{tech}"),
+            NEEDS,
+            JOBS,
+            BENDING,
+            BUILDINGS,
+        )
+    }
+
+    /// A tech named `id` that unlocks `buildings` (a TOML array literal, e.g. `"['bed']"`).
+    fn tech(id: &str, buildings: &str) -> String {
+        format!(
+            "[[tech]]\nid = '{id}'\nname = 'T'\ndescription = ''\ncost = 1\n\
+             [tech.unlocks]\nbuildings = {buildings}\n"
+        )
+    }
+
+    #[test]
+    fn a_tech_records_the_building_it_unlocks() {
+        let defs = Defs::bundled();
+        let fire_making = defs.tech_id("fire_making").unwrap();
+        let campfire = defs.building_id("campfire").expect("added by issue #22");
+        assert_eq!(defs.building(campfire).unlocked_by, Some(fire_making));
+        let bed = defs.building_id("bed").unwrap();
+        assert_eq!(defs.building(bed).unlocked_by, None);
+    }
+
+    #[test]
+    fn a_tech_may_only_unlock_buildings_that_exist() {
+        let err = load(&tech("a", "['nope']")).unwrap_err();
+        assert!(err.0.contains("unknown building \"nope\""), "{err}");
+    }
+
+    #[test]
+    fn a_building_has_at_most_one_tech() {
+        let two = load(&format!("{}{}", tech("a", "['bed']"), tech("b", "['bed']")));
+        assert!(two.unwrap_err().0.contains("one tech"));
+        let twice = load(&tech("a", "['bed', 'bed']"));
+        assert!(twice.unwrap_err().0.contains("listed twice"));
     }
 }

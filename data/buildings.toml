@@ -23,6 +23,18 @@ passable = false
 item = "wood"
 count = 5
 
+# A place to keep a flame (issue #22's research gate; what it actually lights is #58). Unlocked
+# by `fire_making` (data/research.toml); Fire starts knowing that tech.
+[[building]]
+id = "campfire"
+name = "Campfire"
+verb = "Build"
+work = 15.0
+passable = true
+[[building.cost]]
+item = "wood"
+count = 3
+
 [[building]]
 id = "study_hall"
 name = "Study Hall"
