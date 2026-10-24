@@ -21,6 +21,9 @@ options that were considered follow for the record.
   - #76: units and portraits (done).
   - #77: fade forest canopies (p3, blocked by #75).
   - #78: canon characters (p3, blocked by #76).
+- **Original art (proposed, #122):** Claude-authored pixel art, written as text and rendered by
+  `cargo xtask art`, may replace this pack piece by piece, UI first. See
+  [pixel-art.md](pixel-art.md).
 
 ![Full pack, Water Tribes, Seal UI](https://github.com/gizmo385/four-nations/blob/92ea0705fc25b2dc46ec2b8c1fdfd848d95ef781/mockups/1/ninja-seal-ui.png?raw=true)
 ![Full pack, whole map](https://github.com/gizmo385/four-nations/blob/d4a70353b8cb52e2364f9b32a75b2a82751d1f2c/mockups/1/ninja-full-map.png?raw=true)
