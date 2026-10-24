@@ -281,7 +281,7 @@ description = "Bend water along channels so nearby crops grow faster."
 nation = "water"
 cost = 60
 prereqs = ["farming"]
-# Later: buildings = ["irrigation_channel"]
+# Modifier-only for now: the irrigation channel needs farm plots to act on (issue #126).
 [tech.unlocks]
 modifiers = { water_work = 1.15 }
 
@@ -292,7 +292,9 @@ description = "Cut and bend ice into a cheap, sturdy building material."
 nation = "water"
 cost = 120
 prereqs = ["shelter"]
-# Later: ice blocks; buildings = ["igloo"]
+# There is no ice item yet, so the igloo costs wood; ice blocks as a material are future work.
+[tech.unlocks]
+buildings = ["igloo"]
 
 [[tech]]
 id = "healing"
@@ -301,7 +303,7 @@ description = "Guide the body's own energy with water to mend wounds."
 nation = "water"
 cost = 120
 prereqs = ["herbalism"]
-# Later: buildings = ["healing_hut"], jobs = ["healer"], abilities = ["healing_water"]
+# No unlocks yet: healing hut, healer job and Healing Water need a healing mechanic (issue #125).
 
 [[tech]]
 id = "tide_mills"
@@ -310,7 +312,7 @@ description = "Push and pull the tide to turn coastal mills."
 nation = "water"
 cost = 250
 prereqs = ["irrigation"]
-# Later: buildings = ["tide_mill"]
+# Modifier-only for now: there is no power or mill system for a tide mill (issue #127).
 [tech.unlocks]
 modifiers = { power_generation = 1.25 }
 
@@ -321,7 +323,7 @@ description = "Canoes and ice skiffs carry people across the water."
 nation = "water"
 cost = 250
 prereqs = ["fishing", "ice_construction"]
-# Later: units can cross water tiles
+# No unlocks yet: crossing water tiles needs a movement rule (issue #127).
 
 [[tech]]
 id = "spirit_oasis"
@@ -330,7 +332,7 @@ description = "A still pool where push and pull find balance, restoring chi and 
 nation = "water"
 cost = 500
 prereqs = ["healing", "tide_mills"]
-# Later: buildings = ["spirit_oasis"]
+# Modifier-only for now: the oasis needs chi and mood regeneration (issue #127).
 [tech.unlocks]
 modifiers = { water_work = 1.25 }
 

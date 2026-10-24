@@ -132,12 +132,18 @@ Lightning is a *power source*, not an attack. Redirection can stay flavor text.
 
 | id | Cost | Prereqs | Unlocks |
 |---|---|---|---|
-| `irrigation` | 60 | farming | irrigation channel (crops near it grow faster); water_work ×1.15 |
-| `ice_construction` | 120 | shelter | ice blocks as a cheap building material; igloo |
-| `healing` | 120 | herbalism | healing hut; healer job; ability: healing water |
-| `tide_mills` | 250 | irrigation | push-and-pull tide mill on the coast; power_generation ×1.25 |
-| `water_travel` | 250 | fishing, ice_construction | canoes and ice skiffs; units can cross water tiles |
-| `spirit_oasis` | 500 | healing, tide_mills | spirit oasis (chi and mood regeneration); water_work ×1.25 |
+| `irrigation` | 60 | farming | irrigation channel (crops near it grow faster; waits on farm plots, #126); water_work ×1.15 |
+| `ice_construction` | 120 | shelter | igloo (a cheap bed with better sleep; wood until there is an ice item); ice blocks as a material later |
+| `healing` | 120 | herbalism | healing hut; healer job; ability: healing water (all wait on a healing mechanic, #125) |
+| `tide_mills` | 250 | irrigation | push-and-pull tide mill on the coast (waits on a power system, #127); power_generation ×1.25 |
+| `water_travel` | 250 | fishing, ice_construction | canoes and ice skiffs; units can cross water tiles (#127) |
+| `spirit_oasis` | 500 | healing, tide_mills | spirit oasis (chi and mood regeneration, #127); water_work ×1.25 |
+
+Only `ice_construction` unlocks a concrete def so far (#27); the rest stay modifier-only or empty
+until the issues above add the mechanics they need. No tree costs changed: a headless playtest
+(`crates/sim/tests/research_water.rs`) following the pacing assumptions above researches the whole
+Water tree (2190 points) in about 108 minutes with ~950 points earned by minute 60, which is
+inside the targets within 25%.
 
 No bloodbending. It's a dark art that doesn't fit peaceful progress.
 

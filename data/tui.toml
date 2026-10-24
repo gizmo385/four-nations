@@ -217,6 +217,12 @@ glyph = "Ϟ"
 ascii = "Z"
 fg = [250, 230, 90]
 
+# --- Water Tribe ---
+[building.igloo]
+glyph = "⌂"
+ascii = "n"
+fg = [200, 228, 245]
+
 # Units draw in their nation's `color` (data/nations.toml), mixed toward white by `lift`.
 [unit]
 glyph = "☺"
