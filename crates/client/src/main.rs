@@ -295,11 +295,14 @@ fn ground_rule(sim: &Sim, t: &Tile) -> &'static sprites::GroundRule {
 }
 
 /// The floor cell for the tile at `p`. Water tiles are bitmask-autotiled against their neighbors
-/// (#8, `sprites::water_cell`); everything else is the ground rule's own pick.
+/// (#8, `sprites::water_cell`), and mountain tiles with lower ground beside them draw a cliff
+/// (#104, `sprites::cliff_cell`); everything else is the ground rule's own pick.
 fn floor_cell(sim: &Sim, p: Pos, rule: &sprites::GroundRule) -> sprites::Cell {
-    match rule.water {
-        Some(set) => sprites::water_cell(&sim.world.map, p, set),
-        None => rule.floor_at(p),
+    let map = &sim.world.map;
+    match (rule.water, rule.cliff) {
+        (Some(set), _) => sprites::water_cell(map, p, set),
+        (None, Some(set)) => sprites::cliff_cell(map, p, set).unwrap_or(rule.base),
+        (None, None) => rule.floor_at(p),
     }
 }
 
@@ -334,7 +337,7 @@ fn spawn_entities(commands: &mut Commands, art: &Art, sim: &Sim) {
             let mut tf = Transform::from_translation(tile_translation(p, row_depth(p.y)));
             tf.translation.y -= TILE / 2.0;
             commands.spawn((sprite, Anchor::BOTTOM_CENTER, tf, ResourceSprite(p), MapEntity));
-        } else if let Some(cell) = rule.decor_at(p) {
+        } else if let Some(cell) = rule.decor_on(&sim.world.map, p) {
             commands.spawn((
                 art.sprite(cell),
                 Transform::from_translation(tile_translation(p, 0.5)),

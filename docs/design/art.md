@@ -27,8 +27,8 @@ options that were considered follow for the record.
 
 These two renders use the owner's full download, the first with the chosen Seal UI. They show
 real water, conifers, grey boulders on mountains, and the Water Tribes cast
-with an `Eskimo` faceset as the portrait. Water/coast edges are now bitmask-autotiled (#8); hard
-edges remain at mountains until cliffs land (#104).
+with an `Eskimo` faceset as the portrait. Water/coast edges are now bitmask-autotiled (#8), and
+mountains are autotiled cliffs (#104).
 
 ## Coverage audit (full pack)
 
@@ -43,7 +43,7 @@ The audit was done on the owner's download, `Ninja Adventure - Asset Pack.zip` (
 | Swamp | `TilesetFloor` mud, a rooted tree; its water is the blue grass-edged set (#109) | **Covered** |
 | Desert | `TilesetFloor` sand; `TilesetDesert` palms, oasis water, desert houses | **Covered**, but no cactus (palms and dry shrubs stand in) |
 | Tundra | `TilesetFloor` snow and ice, snowy trees, snow boulders, igloos in `TilesetHouse` | **Covered** |
-| Mountains | No single mountain tile. `TilesetRelief` has cliff faces and tops (they need autotiling), and `TilesetNature` has grey and brown boulders | **Partly covered:** rock floor plus boulders now, cliffs with #104 |
+| Mountains | No single mountain tile. `TilesetRelief` has cliff faces and tops, and `TilesetNature` has grey and brown boulders | **Covered** (#104): `TilesetRelief` plateau pieces for the rim, boulders on the interior. No inner-corner pieces |
 | Oak, fir | `TilesetNature`: broadleaf, conifer, snowy conifer, cherry blossom, dead trees. All trees are **2×2** | **Covered** (2×2 sizing is why #77 exists) |
 | Stone, gold vein | `TilesetNature` grey rocks and gem- or ore-studded rocks | **Covered** |
 | Cabbage | No cabbage. Leafy plants in `TilesetNature`, sprouts and vegetables in `TilesetFloorDetail`, farmland in `TilesetField` | **Stand-in:** leafy plant |
@@ -80,7 +80,7 @@ cells differ from the first audit, the shipped cell is shown:
 | Tundra | snow (1,15), flat: the (1-2,19) variants are lavender and read as boxes |
 | Swamp | mud (12,15) with variants (13-14,19); water is the blue grass-edged set, not the purple bog block (#109) |
 | Water, river, lake | bitmask-autotiled (#8, below) against which cardinal neighbors are dry land; interior piece `TilesetWater` (1,1) |
-| Mountain | dirt floor (1,9) plus a `TilesetNature` grey rock (18,9) on about two in three tiles with no resource; tundra: snow floor and a snow-capped rock (4,12) |
+| Mountain | cliff-autotiled (#104, below). Interior: the plateau's flat top, `TilesetRelief` (2,6), plus a `TilesetNature` grey rock (18,9) on about two in three tiles with no resource; tundra: the snow top (2,1) and a snow-capped rock (4,12) |
 | Oak / fir / tundra fir | `TilesetNature` 2x2 at (0,0) / (2,0) / (8,0), bottom-aligned to the tile |
 | Stone / gold vein | `TilesetNature` plain grey rock (6,14) / the same rock with orange ore (4,14) |
 | Cabbage | `TilesetNature` leafy head (8,11), a stand-in |
@@ -99,6 +99,20 @@ swamp lakes turned out pink in play (#109); it waits for a real bog terrain. A t
 on the mapgen's rounded water bodies) falls back to the open-water interior rather than guess,
 since the pack's "isolated puddle" piece isn't present for every block. Shore (`Coast`/`Ford`)
 tiles stay flat; only the water side of the boundary carries the transition art.
+
+**Mountain cliffs** (#104, implemented). `TilesetRelief` is two raised-plateau sets (a grey-faced
+cliff with a snow top at rows 0-2, a brown-faced one with a sand top at rows 5-7), each a 3x3 block
+of corner/edge/top pieces plus a 1-wide ridge column at its left; the rest of the sheet (the tall
+wall blocks, ice bridges and stairs) is unused. Unlike the water pieces, every cliff piece is still
+one 16px tile: the face is painted into the lower two thirds of the south pieces, so it does not
+overlap the row below and needs no extra depth banding (trees, resources and units in the row
+below already draw over the floor layer). `sprites::CliffSet` reads one set and `cliff_cell` picks
+a piece by which cardinal neighbors are lower ground (any non-mountain tile; off-map does not
+count); `GroundRule::cliff` matches tundra→snow, everything else→sand. A mountain with no lower
+neighbor is the set's flat top, and only that interior tile carries boulders. The top colours
+differ from the old dirt floor, so the interior now uses the plateau top instead, or the rim would
+show a seam. Gaps: no inner-corner pieces (a tile whose only lower neighbor is diagonal reads as
+interior), no end caps for a horizontal ridge, and a ridge one tile tall drops its north rim.
 
 ## The problem (before the decision)
 
