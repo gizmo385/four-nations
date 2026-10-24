@@ -79,6 +79,19 @@ pub fn side_view(
     }
 }
 
+/// What the stockpiles hold, as (item name, count), in the order of `data/items.toml`. Items with
+/// none stored are left out, so a settlement with no stockpile has an empty list.
+pub fn stores(session: &Session) -> Vec<(String, u32)> {
+    let (world, defs) = (&session.world, &session.defs);
+    defs.items
+        .iter()
+        .filter_map(|item| {
+            let total = world.stored_total(defs.item_id(&item.id)?);
+            (total > 0).then(|| (item.name.clone(), total))
+        })
+        .collect()
+}
+
 /// In-game time since the start as `MM:SS`. There is no calendar yet.
 pub fn format_clock(tick: u64) -> String {
     let secs = tick / u64::from(TICKS_PER_SECOND);
@@ -203,6 +216,53 @@ mod tests {
         assert_eq!(need_status(0.2, 0.4), Status::Warn);
         assert_eq!(need_status(0.19, 0.4), Status::Bad);
         assert_eq!(need_status(0.0, 0.4), Status::Bad);
+    }
+
+    #[test]
+    fn stores_lists_only_what_the_stockpiles_hold() {
+        use fn_sim::world::Command;
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        assert!(stores(&s).is_empty(), "a new game has stored nothing");
+        // Harvest what is near the settlers and give them a stockpile to fill.
+        let from = s.world.units[0].pos;
+        let near: Vec<Pos> = s
+            .world
+            .map
+            .iter()
+            .filter(|(p, t)| {
+                (p.x - from.x).abs() < 12
+                    && (p.y - from.y).abs() < 8
+                    && t.resource.is_some_and(|r| s.defs.harvest(r).is_some())
+            })
+            .map(|(p, _)| p)
+            .collect();
+        for p in near {
+            let _ = s.apply(Command::DesignateHarvest { pos: p });
+        }
+        let mut zone: Vec<Pos> = s
+            .world
+            .map
+            .iter()
+            .filter(|(_, t)| t.terrain == fn_sim::Terrain::Land && t.resource.is_none())
+            .map(|(p, _)| p)
+            .collect();
+        zone.sort_by_key(|p| (p.x - from.x).pow(2) + (p.y - from.y).pow(2));
+        for pos in zone.into_iter().take(4) {
+            s.apply(Command::DesignateStockpile { pos }).unwrap();
+        }
+        assert!(stores(&s).is_empty(), "an empty zone is not a store");
+        for _ in 0..40 {
+            s.tick_n(100);
+            if !stores(&s).is_empty() {
+                break;
+            }
+        }
+        let rows = stores(&s);
+        assert!(!rows.is_empty(), "the settlers should have stored something");
+        for (name, count) in rows {
+            let item = s.defs.items.iter().find(|i| i.name == name).unwrap();
+            assert_eq!(count, s.world.stored_total(s.defs.item_id(&item.id).unwrap()));
+        }
     }
 
     #[test]

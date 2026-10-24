@@ -1,10 +1,13 @@
 //! Keys to actions, and actions to changes of the app (docs/design/tui.md, "Input").
 //!
-//! Mapping a key is a pure function, so the tests cover the whole table. The selection and panel
-//! keys (#99) and the research screen (#100) add their actions to
-//! [`Action`] and their keys to [`map_key`].
+//! One table, [`bindings`], says which key means which action and what to call it. Mapping a key
+//! ([`map_key`]) reads it, and so does the key help screen ([`help_rows`]), so the help can't drift
+//! from what the keys do. The research screen (#100) adds its action and its keys here.
+
+use std::sync::LazyLock;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+use fn_sim::Nation;
 use fn_ui::Tool;
 
 /// How far Shift moves the cursor.
@@ -25,10 +28,24 @@ pub enum Action {
     },
     /// `H` `X` `P` or `B`: switch to a designation tool (dropping the corner).
     PickTool(Tool),
-    /// `Enter`: in a tool, set a corner or apply the rectangle. (Selecting is #99.)
+    /// `Enter`: in Select mode, select the unit under the cursor (again: the next one there); in
+    /// a tool, set a corner or apply the rectangle.
     Confirm,
-    /// `Esc`: drop the corner, or with none leave the tool.
+    /// `Esc`: close the screen; in a tool, drop the corner or with none leave the tool; in Select
+    /// mode, close the selection bar.
     Cancel,
+    /// `Tab` and Shift+`Tab`: the next and the previous unit, and the cursor goes to it.
+    NextUnit,
+    PrevUnit,
+    /// `F`: the cursor tracks the selected unit.
+    Follow,
+    /// `L` and `?`: the message log and the key help.
+    ShowLog,
+    ShowHelp,
+    /// `R`: a new map, after a y/n prompt.
+    AskNewMap,
+    /// `1`-`4`: switch nation, after a y/n prompt.
+    AskNation(Nation),
     TogglePause,
     Faster,
     Slower,
@@ -40,6 +57,187 @@ pub enum Action {
     QuitNow,
 }
 
+/// A key as the table names it. Shift is not part of it: it only makes a move ten tiles, and
+/// letters ignore case.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Key {
+    pub code: KeyCode,
+    pub ctrl: bool,
+    /// A numpad key, on a terminal that tells the numpad from the number row.
+    pub keypad: bool,
+}
+
+impl Key {
+    const fn plain(code: KeyCode) -> Self {
+        Self { code, ctrl: false, keypad: false }
+    }
+
+    const fn ch(c: char) -> Self {
+        Self::plain(KeyCode::Char(c))
+    }
+
+    const fn ctrl(code: KeyCode) -> Self {
+        Self { code, ctrl: true, keypad: false }
+    }
+
+    const fn pad(c: char) -> Self {
+        Self { code: KeyCode::Char(c), ctrl: false, keypad: true }
+    }
+
+    /// How the key is written in the help: "Enter", "W", "Ctrl+Up".
+    pub fn name(&self) -> String {
+        let base = match self.code {
+            KeyCode::Char(' ') => "Space".to_owned(),
+            KeyCode::Char(c) => c.to_ascii_uppercase().to_string(),
+            KeyCode::Enter => "Enter".to_owned(),
+            KeyCode::Esc => "Esc".to_owned(),
+            KeyCode::Tab => "Tab".to_owned(),
+            KeyCode::BackTab => "Shift+Tab".to_owned(),
+            KeyCode::PageUp => "PgUp".to_owned(),
+            KeyCode::PageDown => "PgDn".to_owned(),
+            KeyCode::Up => "Up".to_owned(),
+            KeyCode::Down => "Down".to_owned(),
+            KeyCode::Left => "Left".to_owned(),
+            KeyCode::Right => "Right".to_owned(),
+            KeyCode::Home => "Home".to_owned(),
+            KeyCode::End => "End".to_owned(),
+            other => format!("{other:?}"),
+        };
+        match (self.ctrl, self.keypad) {
+            (true, _) => format!("Ctrl+{base}"),
+            (_, true) => format!("Num{base}"),
+            _ => base,
+        }
+    }
+}
+
+/// Where the key help lists a binding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Group {
+    Cursor,
+    Units,
+    Tools,
+    Time,
+    Game,
+}
+
+impl Group {
+    pub const ALL: [Group; 5] = [Self::Cursor, Self::Units, Self::Tools, Self::Time, Self::Game];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Cursor => "Cursor and view",
+            Self::Units => "Units",
+            Self::Tools => "Designating",
+            Self::Time => "Time",
+            Self::Game => "Screens and game",
+        }
+    }
+}
+
+/// One key, what it does, and how the help words that. Bindings that follow each other with the
+/// same `what` are one line of the help, and one with an empty `what` is not listed (a second
+/// spelling of a key that is).
+#[derive(Clone, Debug)]
+pub struct Binding {
+    pub key: Key,
+    pub action: Action,
+    pub group: Group,
+    pub what: String,
+}
+
+/// Every key the game answers to, in the order the help lists them.
+pub fn bindings() -> &'static [Binding] {
+    static TABLE: LazyLock<Vec<Binding>> = LazyLock::new(build_table);
+    &TABLE
+}
+
+fn build_table() -> Vec<Binding> {
+    use KeyCode::{BackTab, Down, End, Enter, Esc, Home, Left, PageDown, PageUp, Right, Tab, Up};
+    let mut t = Vec::new();
+    let mut add = |group, what: &str, key, action| {
+        t.push(Binding { key, action, group, what: what.to_owned() });
+    };
+    let step = |dx, dy| Action::Move { dx, dy, tiles: 1 };
+
+    let walk = "Move the cursor 1 tile (Shift: 10)";
+    for (code, dx, dy) in [(Up, 0, -1), (Down, 0, 1), (Left, -1, 0), (Right, 1, 0)] {
+        add(Group::Cursor, walk, Key::plain(code), step(dx, dy));
+    }
+    for (c, dx, dy) in [('w', 0, -1), ('a', -1, 0), ('s', 0, 1), ('d', 1, 0)] {
+        add(Group::Cursor, walk, Key::ch(c), step(dx, dy));
+    }
+    // The numpad, diagonals too. Numpad 7 and 1 with NumLock off arrive as Home and End.
+    for (c, dx, dy) in [
+        ('7', -1, -1),
+        ('8', 0, -1),
+        ('9', 1, -1),
+        ('4', -1, 0),
+        ('6', 1, 0),
+        ('1', -1, 1),
+        ('2', 0, 1),
+        ('3', 1, 1),
+    ] {
+        add(Group::Cursor, "", Key::pad(c), step(dx, dy));
+    }
+    add(Group::Cursor, "", Key::plain(Home), step(-1, -1));
+    add(Group::Cursor, "", Key::plain(End), step(-1, 1));
+
+    let jump = "Jump the view a quarter screen";
+    for (code, dx, dy) in [(Up, 0, -1), (Down, 0, 1), (Left, -1, 0), (Right, 1, 0)] {
+        add(Group::Cursor, jump, Key::ctrl(code), Action::Jump { dx, dy });
+    }
+    add(Group::Cursor, jump, Key::plain(PageUp), Action::Jump { dx: 0, dy: -1 });
+    add(Group::Cursor, jump, Key::plain(PageDown), Action::Jump { dx: 0, dy: 1 });
+
+    add(
+        Group::Units,
+        "Select the unit under the cursor; again: the next one there. In a tool: set a corner, \
+         then apply",
+        Key::plain(Enter),
+        Action::Confirm,
+    );
+    add(
+        Group::Units,
+        "Close the screen or the bar. In a tool: drop the corner, then leave the tool",
+        Key::plain(Esc),
+        Action::Cancel,
+    );
+    add(Group::Units, "Select the next unit (Select mode)", Key::plain(Tab), Action::NextUnit);
+    add(
+        Group::Units,
+        "Select the previous unit (Select mode)",
+        Key::plain(BackTab),
+        Action::PrevUnit,
+    );
+    add(Group::Units, "Follow the selected unit (Select mode)", Key::ch('f'), Action::Follow);
+
+    for tool in Tool::ALL {
+        // Select is Esc. Build needs a building picker, which has no key yet.
+        let Some(letter) = tool.letter().filter(|_| tool != Tool::Build) else { continue };
+        let what = format!("{} tool: {}", tool.name(), tool.label());
+        add(Group::Tools, &what, Key::ch(letter.to_ascii_lowercase()), Action::PickTool(tool));
+    }
+
+    add(Group::Time, "Pause or run", Key::ch(' '), Action::TogglePause);
+    add(Group::Time, "Faster", Key::ch('+'), Action::Faster);
+    add(Group::Time, "Faster", Key::ch('='), Action::Faster);
+    add(Group::Time, "Slower", Key::ch('-'), Action::Slower);
+    add(Group::Time, "Slower", Key::ch('_'), Action::Slower);
+    add(Group::Time, "One tick, while paused", Key::ch('.'), Action::Step);
+
+    add(Group::Game, "Message log", Key::ch('l'), Action::ShowLog);
+    add(Group::Game, "Key help", Key::ch('?'), Action::ShowHelp);
+    add(Group::Game, "New map (asks first)", Key::ch('r'), Action::AskNewMap);
+    let switch = "Switch nation: 1 Air, 2 Water, 3 Earth, 4 Fire (asks first)";
+    for (i, nation) in Nation::ALL.into_iter().enumerate() {
+        let digit = char::from(b'1' + i as u8);
+        add(Group::Game, switch, Key::ch(digit), Action::AskNation(nation));
+    }
+    add(Group::Game, "Quit (asks first)", Key::ch('q'), Action::AskQuit);
+    t
+}
+
 /// What a key means when no prompt is open, if anything.
 pub fn map_key(key: KeyEvent) -> Option<Action> {
     if key.kind == KeyEventKind::Release {
@@ -47,80 +245,76 @@ pub fn map_key(key: KeyEvent) -> Option<Action> {
     }
     let KeyEvent { code, modifiers, state, .. } = key;
     let ctrl = modifiers.contains(KeyModifiers::CONTROL);
-    let shift = modifiers.contains(KeyModifiers::SHIFT);
-    let step = |upper: bool| if upper { SHIFT_STEP } else { 1 };
-    let walk = |dx, dy, upper| Some(Action::Move { dx, dy, tiles: step(upper) });
+    let alt = modifiers.contains(KeyModifiers::ALT);
+    let upper = matches!(code, KeyCode::Char(c) if c.is_ascii_uppercase());
+    let shift = modifiers.contains(KeyModifiers::SHIFT) || upper;
 
-    match code {
-        KeyCode::Char('c') | KeyCode::Char('C') if ctrl => Some(Action::QuitNow),
-        // Ctrl and Alt chords are the terminal's and the shell's.
-        KeyCode::Char(_) if ctrl || modifiers.contains(KeyModifiers::ALT) => None,
-
-        KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right if ctrl => {
-            let (dx, dy) = arrow(code);
-            Some(Action::Jump { dx, dy })
-        }
-        KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right => {
-            let (dx, dy) = arrow(code);
-            walk(dx, dy, shift)
-        }
-        KeyCode::PageUp => Some(Action::Jump { dx: 0, dy: -1 }),
-        KeyCode::PageDown => Some(Action::Jump { dx: 0, dy: 1 }),
-        // Numpad 7 and 1 with NumLock off arrive as Home and End.
-        KeyCode::Home => walk(-1, -1, shift),
-        KeyCode::End => walk(-1, 1, shift),
-
-        // W A S D move like the arrows; upper case (Shift, or Caps Lock) moves 10.
-        KeyCode::Char(c @ ('w' | 'a' | 's' | 'd' | 'W' | 'A' | 'S' | 'D')) => {
-            let (dx, dy) = match c.to_ascii_lowercase() {
-                'w' => (0, -1),
-                's' => (0, 1),
-                'a' => (-1, 0),
-                _ => (1, 0),
-            };
-            walk(dx, dy, c.is_ascii_uppercase() || shift)
-        }
-
-        // Numpad digits are only told apart from the number row on terminals that report
-        // keypad keys (the kitty keyboard protocol); the number row is for later.
-        KeyCode::Char(c @ '1'..='9') if state.contains(KeyEventState::KEYPAD) => {
-            let (dx, dy) = match c {
-                '7' => (-1, -1),
-                '8' => (0, -1),
-                '9' => (1, -1),
-                '4' => (-1, 0),
-                '6' => (1, 0),
-                '1' => (-1, 1),
-                '2' => (0, 1),
-                '3' => (1, 1),
-                _ => return None,
-            };
-            walk(dx, dy, shift)
-        }
-
-        // The tools, in either case. `U` (build) is not here: it needs a picker (follow-up).
-        KeyCode::Char(c @ ('h' | 'H' | 'x' | 'X' | 'p' | 'P' | 'b' | 'B')) => {
-            Tool::from_letter(c).map(Action::PickTool)
-        }
-        KeyCode::Enter => Some(Action::Confirm),
-        KeyCode::Esc => Some(Action::Cancel),
-
-        KeyCode::Char(' ') => Some(Action::TogglePause),
-        KeyCode::Char('+' | '=') => Some(Action::Faster),
-        KeyCode::Char('-' | '_') => Some(Action::Slower),
-        KeyCode::Char('.') => Some(Action::Step),
-        KeyCode::Char('q' | 'Q') => Some(Action::AskQuit),
-        _ => None,
+    if ctrl && matches!(code, KeyCode::Char('c' | 'C')) {
+        return Some(Action::QuitNow);
     }
+    // Ctrl and Alt chords are the terminal's and the shell's.
+    if matches!(code, KeyCode::Char(_)) && (ctrl || alt) {
+        return None;
+    }
+    let code = match code {
+        KeyCode::Char(c) => KeyCode::Char(c.to_ascii_lowercase()),
+        KeyCode::Tab if shift => KeyCode::BackTab,
+        other => other,
+    };
+    let want = Key { code, ctrl, keypad: state.contains(KeyEventState::KEYPAD) };
+    let binding = bindings().iter().find(|b| b.key == want)?;
+    Some(match binding.action {
+        // Shift (or an upper-case letter, or Caps Lock) makes a move ten tiles.
+        Action::Move { dx, dy, tiles } if shift => {
+            Action::Move { dx, dy, tiles: tiles * SHIFT_STEP }
+        }
+        other => other,
+    })
 }
 
-fn arrow(code: KeyCode) -> (i32, i32) {
-    match code {
-        KeyCode::Up => (0, -1),
-        KeyCode::Down => (0, 1),
-        KeyCode::Left => (-1, 0),
-        _ => (1, 0),
+/// One line of the key help: the keys, and what they do.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HelpRow {
+    pub group: Group,
+    pub keys: String,
+    pub what: String,
+}
+
+/// The key help, generated from [`bindings`]: bindings that do the same thing share a row, and
+/// the four arrows (or Ctrl+arrows) are written as one.
+pub fn help_rows() -> Vec<HelpRow> {
+    let mut rows: Vec<(Group, String, Vec<Key>)> = Vec::new();
+    for b in bindings().iter().filter(|b| !b.what.is_empty()) {
+        match rows.last_mut() {
+            Some((g, what, keys)) if *g == b.group && *what == b.what => keys.push(b.key),
+            _ => rows.push((b.group, b.what.clone(), vec![b.key])),
+        }
     }
+    rows.into_iter()
+        .map(|(group, what, keys)| HelpRow { group, keys: join_keys(&keys), what })
+        .collect()
+}
+
+/// The keys' names in a row, with Up Down Left Right (and their Ctrl versions) as "Arrows".
+fn join_keys(keys: &[Key]) -> String {
+    let all_four = |ctrl: bool| {
+        [KeyCode::Up, KeyCode::Down, KeyCode::Left, KeyCode::Right]
+            .iter()
+            .all(|&code| keys.iter().any(|k| k.code == code && k.ctrl == ctrl && !k.keypad))
+    };
+    let mut names: Vec<String> = Vec::new();
+    for k in keys {
+        let arrow = matches!(k.code, KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right);
+        let name = match (arrow, k.ctrl) {
+            (true, false) if all_four(false) => "Arrows".to_owned(),
+            (true, true) if all_four(true) => "Ctrl+Arrows".to_owned(),
+            _ => k.name(),
+        };
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names.join(" ")
 }
 
 #[cfg(test)]
@@ -187,8 +381,9 @@ mod tests {
         // NumLock off: 7 and 1 are Home and End.
         assert_eq!(map_key(key(KeyCode::Home)), Some(Action::Move { dx: -1, dy: -1, tiles: 1 }));
         assert_eq!(map_key(key(KeyCode::End)), Some(Action::Move { dx: -1, dy: 1, tiles: 1 }));
-        // The number row is not the numpad.
+        // The number row is not the numpad: 7 does nothing, and 1 to 4 switch nation.
         assert_eq!(map_key(key(KeyCode::Char('7'))), None);
+        assert_eq!(map_key(key(KeyCode::Char('1'))), Some(Action::AskNation(Nation::Air)));
     }
 
     #[test]
@@ -235,6 +430,27 @@ mod tests {
     }
 
     #[test]
+    fn the_selection_and_panel_keys() {
+        assert_eq!(map_key(key(KeyCode::Tab)), Some(Action::NextUnit));
+        assert_eq!(map_key(key(KeyCode::BackTab)), Some(Action::PrevUnit));
+        assert_eq!(map_key(with(KeyCode::Tab, KeyModifiers::SHIFT)), Some(Action::PrevUnit));
+        assert_eq!(map_key(key(KeyCode::Char('f'))), Some(Action::Follow));
+        assert_eq!(map_key(key(KeyCode::Char('F'))), Some(Action::Follow));
+        assert_eq!(map_key(key(KeyCode::Char('l'))), Some(Action::ShowLog));
+        assert_eq!(map_key(key(KeyCode::Char('L'))), Some(Action::ShowLog));
+        // A terminal sends `?` as Shift+/, so it may carry the Shift flag.
+        assert_eq!(map_key(key(KeyCode::Char('?'))), Some(Action::ShowHelp));
+        assert_eq!(map_key(with(KeyCode::Char('?'), KeyModifiers::SHIFT)), Some(Action::ShowHelp));
+        assert_eq!(map_key(key(KeyCode::Char('r'))), Some(Action::AskNewMap));
+        assert_eq!(map_key(key(KeyCode::Char('R'))), Some(Action::AskNewMap));
+        for (i, nation) in Nation::ALL.into_iter().enumerate() {
+            let digit = char::from(b'1' + i as u8);
+            assert_eq!(map_key(key(KeyCode::Char(digit))), Some(Action::AskNation(nation)));
+        }
+        assert_eq!(map_key(key(KeyCode::Char('5'))), None);
+    }
+
+    #[test]
     fn key_releases_do_nothing() {
         let release = KeyEvent {
             code: KeyCode::Up,
@@ -243,5 +459,49 @@ mod tests {
             state: KeyEventState::NONE,
         };
         assert_eq!(map_key(release), None);
+    }
+
+    #[test]
+    fn no_key_is_bound_twice() {
+        let table = bindings();
+        for (i, a) in table.iter().enumerate() {
+            for b in &table[i + 1..] {
+                assert_ne!(a.key, b.key, "{} is bound twice", a.key.name());
+            }
+        }
+    }
+
+    #[test]
+    fn every_listed_binding_maps_back_to_its_action() {
+        // The table is what map_key reads, so a key typed as the help names it does its action.
+        for b in bindings() {
+            let mods = if b.key.ctrl { KeyModifiers::CONTROL } else { KeyModifiers::NONE };
+            let state = if b.key.keypad { KeyEventState::KEYPAD } else { KeyEventState::NONE };
+            let event =
+                KeyEvent { code: b.key.code, modifiers: mods, kind: KeyEventKind::Press, state };
+            assert_eq!(map_key(event), Some(b.action), "{}", b.key.name());
+        }
+    }
+
+    #[test]
+    fn the_help_lists_every_tool_and_group_from_the_table() {
+        let rows = help_rows();
+        for tool in [Tool::Harvest, Tool::CancelHarvest, Tool::Stockpile, Tool::Bend] {
+            let row = rows
+                .iter()
+                .find(|r| r.what.starts_with(tool.name()))
+                .unwrap_or_else(|| panic!("{} missing", tool.name()));
+            assert_eq!(row.keys, tool.key(), "from the tool table");
+        }
+        let walk = rows.iter().find(|r| r.what.starts_with("Move the cursor")).unwrap();
+        assert_eq!(walk.keys, "Arrows W A S D");
+        let jump = rows.iter().find(|r| r.what.starts_with("Jump")).unwrap();
+        assert_eq!(jump.keys, "Ctrl+Arrows PgUp PgDn");
+        let nation = rows.iter().find(|r| r.what.starts_with("Switch nation")).unwrap();
+        assert_eq!(nation.keys, "1 2 3 4");
+        for group in Group::ALL {
+            assert!(rows.iter().any(|r| r.group == group), "{group:?} has no rows");
+        }
+        assert!(rows.iter().all(|r| !r.keys.is_empty() && !r.what.is_empty()));
     }
 }

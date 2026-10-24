@@ -57,7 +57,7 @@ pub struct Entry {
 }
 
 /// The alert log. Feed it every frame with [`Alerts::update`].
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Alerts {
     /// Oldest first.
     log: Vec<Entry>,

@@ -1,81 +1,37 @@
 //! The Seal side panel (docs/design/ui.md, docs/design/tui.md): a framed column with the nation's
-//! name on the top edge, then sections: the header (seed, clock, speed), People (the count), Tool
-//! (the active designation tool, its hint and the last rectangle's result; hidden in Select mode)
-//! and Cursor (what is under the keyboard cursor, and what `Enter` does next). Stores, Research
-//! and Alerts come with the panels issue (#99); `fn_ui::view::SideView` already carries what
-//! they show.
+//! name on the top edge, then sections in ui.md's order, each hidden while it has nothing to show:
+//! the header (seed, clock, speed), People (the count, then a line per unit while they fit),
+//! Stores, Research (target, bar, rate), the nation's modifiers, Tool (the active designation
+//! tool, its hint and the last rectangle's result), Alerts and Cursor (what is under the keyboard
+//! cursor, and what `Enter` does next).
+//!
+//! The panel is a fixed height, so a terminal that is too short for every section gives up the
+//! least useful lines first: the tool's hint (the status line says it too), the modifiers, the
+//! unit lines, the older alerts and all but one line of stores. The header, Research and Cursor
+//! always stay.
 
-use fn_ui::alerts::Alerts;
 use fn_ui::inspect::{Hint, Line, tooltip_lines};
 use fn_ui::text::describe_stack;
-use fn_ui::view::{SideView, side_view};
+use fn_ui::view::{SideView, side_view, stores};
 use fn_ui::{Session, Tool};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::Color;
 
 use crate::color::Palette;
 use crate::state::UiState;
-
-/// The characters of the frame and the section marks, in Unicode and in the ASCII fallback.
-struct Marks {
-    tl: char,
-    tr: char,
-    bl: char,
-    br: char,
-    h: char,
-    v: char,
-    seal: &'static str,
-    bullet: &'static str,
-    run: &'static str,
-    pause: &'static str,
-    ellipsis: char,
-}
-
-impl Marks {
-    fn new(ascii: bool) -> Self {
-        if ascii {
-            Self {
-                tl: '+',
-                tr: '+',
-                bl: '+',
-                br: '+',
-                h: '-',
-                v: '|',
-                seal: "*",
-                bullet: "o",
-                run: ">",
-                pause: "|",
-                ellipsis: '~',
-            }
-        } else {
-            Self {
-                tl: '┏',
-                tr: '┓',
-                bl: '┗',
-                br: '┛',
-                h: '─',
-                v: '│',
-                seal: "◆",
-                bullet: "◇",
-                run: "▶",
-                pause: "‖",
-                ellipsis: '…',
-            }
-        }
-    }
-}
+use crate::widgets::{Marks, Painter, Row, TitleAt, Tone, draw_frame, meter, wrap};
 
 /// How an action hint reads in the terminal, if it can be taken yet.
 ///
-/// * Selecting a unit arrives with the selection (#99); until then a hint would promise a key
-///   that does nothing, so there is none.
+/// * Selecting a unit names its key.
 /// * Starting a tool names its key.
 /// * Applying the active tool is the rectangle line ([`rect_hint`]), which the Cursor section
 ///   shows in every tool, so the tooltip's own hint adds nothing.
 pub fn hint_text(hint: Hint) -> Option<String> {
     match hint {
-        Hint::SelectUnit | Hint::ApplyTool(_) => None,
+        Hint::SelectUnit => Some("Press Enter to select".to_owned()),
+        Hint::ApplyTool(_) => None,
         Hint::StartTool(tool) => Some(format!("Press {} for the {} tool", tool.key(), tool.name())),
     }
 }
@@ -103,213 +59,156 @@ fn apply_verb(tool: Tool) -> &'static str {
     }
 }
 
-/// `text` broken at spaces into lines of at most `width` cells (a word longer than a line is
-/// cut), and at most `max_lines` of them: if there is more, the last line ends in `ellipsis`.
-pub fn wrap(text: &str, width: usize, max_lines: usize, ellipsis: char) -> Vec<String> {
-    if width == 0 {
-        return Vec::new();
-    }
-    let mut lines: Vec<String> = Vec::new();
-    let mut line = String::new();
-    for word in text.split_whitespace() {
-        let mut word: Vec<char> = word.chars().collect();
-        while word.len() > width {
-            if !line.is_empty() {
-                lines.push(std::mem::take(&mut line));
-            }
-            lines.push(word.drain(..width).collect());
-        }
-        let word: String = word.into_iter().collect();
-        if word.is_empty() {
-            continue;
-        }
-        if line.is_empty() {
-            line = word;
-        } else if line.chars().count() + 1 + word.chars().count() <= width {
-            line.push(' ');
-            line.push_str(&word);
-        } else {
-            lines.push(std::mem::replace(&mut line, word));
-        }
-    }
-    if !line.is_empty() {
-        lines.push(line);
-    }
-    if lines.len() > max_lines {
-        lines.truncate(max_lines);
-        if let Some(last) = lines.last_mut() {
-            let kept: String = last.chars().take(width.saturating_sub(1)).collect();
-            *last = format!("{}{ellipsis}", kept.trim_end());
-        }
-    }
-    lines
-}
-
-/// `text` cut to `width` cells, with an ellipsis if it didn't fit.
-pub fn fit(text: &str, width: usize, ellipsis: char) -> String {
-    if text.chars().count() <= width {
-        return text.to_owned();
-    }
-    let mut out: String = text.chars().take(width.saturating_sub(1)).collect();
-    out.push(ellipsis);
-    out
-}
-
-/// Writes lines down the inside of the frame.
-struct Painter<'a> {
-    buf: &'a mut Buffer,
-    inner: Rect,
-    row: u16,
-    marks: Marks,
-    palette: &'a Palette,
-}
-
-impl Painter<'_> {
-    fn style(&self, fg: [f32; 3]) -> Style {
-        Style::new().fg(self.palette.token(fg)).bg(self.palette.token(self.palette.theme.panel))
-    }
-
-    fn full(&self) -> bool {
-        self.row >= self.inner.height
-    }
-
-    /// One line: `left`, and `right` flush against the right edge.
-    fn line(&mut self, left: &str, left_style: Style, right: &str, right_style: Style) {
-        if self.full() {
-            return;
-        }
-        let width = usize::from(self.inner.width);
-        let right_len = right.chars().count();
-        let left = fit(
-            left,
-            width.saturating_sub(right_len + usize::from(right_len > 0)),
-            self.marks.ellipsis,
-        );
-        let y = self.inner.y + self.row;
-        self.buf.set_stringn(self.inner.x, y, &left, width, left_style);
-        if right_len > 0 {
-            let x = self.inner.right() - right_len as u16;
-            self.buf.set_stringn(x, y, right, right_len, right_style);
-        }
-        self.row += 1;
-    }
-
-    fn text(&mut self, text: &str, style: Style) {
-        self.line(text, style, "", style);
-    }
-
-    fn blank(&mut self) {
-        self.row += 1;
-    }
-
-    /// `◇ TITLE` in the accent, with `right` flush right in the text colour.
-    fn section(&mut self, title: &str, right: &str) {
-        let head = format!("{} {title}", self.marks.bullet);
-        let accent = self.style(self.palette.theme.accent_text).add_modifier(Modifier::BOLD);
-        let text = self.style(self.palette.theme.text);
-        self.line(&head, accent, right, text);
-    }
-}
-
-/// Draws the panel into `area`: the frame, then the sections.
-pub fn draw_panel(
-    session: &Session,
-    ui: &UiState,
-    palette: &Palette,
-    area: Rect,
-    buf: &mut Buffer,
-) {
-    let view = side_view(session, ui.tool, &ui.notice, None, &Alerts::default());
-    let marks = Marks::new(palette.ascii);
-    let theme = &palette.theme;
-    let panel_bg = palette.token(theme.panel);
-
-    // Fill, then the frame.
-    for y in area.top()..area.bottom() {
-        for x in area.left()..area.right() {
-            buf[(x, y)].set_char(' ').set_style(Style::new().bg(panel_bg));
-        }
-    }
-    let line = Style::new().fg(palette.token(theme.accent_soft)).bg(panel_bg);
-    let corner = Style::new().fg(palette.token(theme.accent)).bg(panel_bg);
-    let (l, r, t, b) = (area.left(), area.right() - 1, area.top(), area.bottom() - 1);
-    for x in l + 1..r {
-        buf[(x, t)].set_char(marks.h).set_style(line);
-        buf[(x, b)].set_char(marks.h).set_style(line);
-    }
-    for y in t + 1..b {
-        buf[(l, y)].set_char(marks.v).set_style(line);
-        buf[(r, y)].set_char(marks.v).set_style(line);
-    }
-    for (x, y, c) in [(l, t, marks.tl), (r, t, marks.tr), (l, b, marks.bl), (r, b, marks.br)] {
-        buf[(x, y)].set_char(c).set_style(corner);
-    }
-    let title = format!(" {0} {1} {0} ", marks.seal, view.nation.to_uppercase());
-    let title = fit(&title, usize::from(area.width) - 4, marks.ellipsis);
-    let x = l + (area.width - title.chars().count() as u16) / 2;
-    buf.set_string(
-        x,
-        t,
-        &title,
-        Style::new().fg(palette.token(theme.accent_text)).bg(panel_bg).add_modifier(Modifier::BOLD),
-    );
-
-    let inner = Rect::new(l + 2, t + 1, area.width - 4, area.height - 2);
-    let mut p = Painter { buf, inner, row: 0, marks, palette };
-    header(&mut p, &view);
-    p.blank();
-    p.section("PEOPLE", &view.people.to_string());
-    p.blank();
-    tool_section(&mut p, &view);
-    cursor_section(&mut p, session, ui);
-}
-
 /// The most lines the Tool section gives its hint (a bend ability's takes four) and the last
-/// result, so the Cursor section below keeps its room on a 24-row terminal.
+/// result.
 const HINT_LINES: usize = 4;
 const NOTICE_LINES: usize = 5;
+/// The most lines one alert takes.
+const ALERT_LINES: usize = 2;
+/// A research bar is this many cells.
+const BAR_CELLS: usize = 10;
 
-/// The Tool section: the active tool with its key, what it does and the last rectangle's
-/// result. It hides itself in Select mode, which has nothing to say.
-fn tool_section(p: &mut Painter, view: &SideView) {
-    if view.tool == Tool::Select {
-        return;
-    }
-    p.section("TOOL", &format!("{} [{}]", view.tool.name(), view.tool.key()));
-    let width = usize::from(p.inner.width);
-    let (dim, text) = (p.style(p.palette.theme.dim), p.style(p.palette.theme.text));
-    let ellipsis = p.marks.ellipsis;
-    for line in wrap(&view.tool_hint, width, HINT_LINES, ellipsis) {
-        p.text(&line, dim);
-    }
-    for line in wrap(&view.notice, width, NOTICE_LINES, ellipsis) {
-        p.text(&line, text);
-    }
-    p.blank();
+/// What a task says in a unit's line: the phrase before the place and the progress.
+pub fn short_task(task: &str) -> &str {
+    let cut = [" at (", " to ("].iter().filter_map(|m| task.find(m)).min();
+    cut.map_or(task, |i| &task[..i])
 }
 
-fn header(p: &mut Painter, view: &SideView) {
-    let (text, dim) = (p.style(p.palette.theme.text), p.style(p.palette.theme.dim));
-    p.line(&format!("Seed {}", view.seed), dim, &view.clock, text);
-    let (icon, word, color) = if view.paused {
-        (p.marks.pause, "Paused", p.palette.theme.warn)
+/// A titled block of rows.
+struct Section {
+    title: &'static str,
+    right: String,
+    rows: Vec<Row>,
+    /// Shown even with no rows (People, Cursor).
+    always: bool,
+}
+
+impl Section {
+    fn new(title: &'static str, right: impl Into<String>, rows: Vec<Row>) -> Self {
+        Self { title, right: right.into(), rows, always: false }
+    }
+
+    fn always(mut self) -> Self {
+        self.always = true;
+        self
+    }
+
+    fn visible(&self) -> bool {
+        self.always || !self.rows.is_empty()
+    }
+}
+
+/// Everything the sections show, computed once; the fitting loop picks how much of it to use.
+struct Data {
+    view: SideView,
+    units: Vec<Row>,
+    stores: Vec<Row>,
+    research: Vec<Row>,
+    modifiers: Vec<Row>,
+    hint: Vec<Row>,
+    notice: Vec<Row>,
+    alerts: Vec<Row>,
+    cursor: Vec<Row>,
+    cursor_pos: String,
+}
+
+/// How much of each trimmable block to show.
+#[derive(Clone, Copy)]
+struct Knobs {
+    units: usize,
+    modifiers: usize,
+    alerts: usize,
+    hint: usize,
+    stores: usize,
+}
+
+fn header(view: &SideView, marks: &Marks) -> Vec<Row> {
+    let (icon, word, tone) = if view.paused {
+        (marks.pause, "Paused", Tone::Paused)
     } else {
-        (p.marks.run, "Running", p.palette.theme.ok)
+        (marks.run, "Running", Tone::Running)
     };
-    let state = p.style(color).add_modifier(Modifier::BOLD);
-    p.line(&format!("{icon} {word} x{}", view.speed), state, "Space  + -", dim);
+    vec![
+        Row::pair(format!("Seed {}", view.seed), Tone::Dim, view.clock.clone(), Tone::Text),
+        Row::pair(format!("{icon} {word} x{}", view.speed), tone, "Space  + -", Tone::Dim),
+    ]
 }
 
-/// The Cursor section: the tile's tooltip, and anything lying on it.
-fn cursor_section(p: &mut Painter, session: &Session, ui: &UiState) {
+/// A line per unit: its name, then what it is doing. The selected unit is marked, so it can be
+/// told without colour.
+fn unit_rows(session: &Session, ui: &UiState, marks: &Marks) -> Vec<Row> {
+    let units = &session.world.units;
+    let name_width = units.iter().map(|u| u.name.chars().count()).max().unwrap_or(0);
+    units
+        .iter()
+        .map(|u| {
+            let selected = ui.selected == Some(u.id);
+            let mark = if selected { if marks.h == '-' { ">" } else { "▸" } } else { " " };
+            let task = fn_ui::text::describe_task(&session.world, &session.defs, u);
+            Row::spans(vec![
+                (
+                    format!("{mark}{:<name_width$} ", u.name),
+                    if selected { Tone::Title } else { Tone::Text },
+                ),
+                (short_task(&task).to_owned(), Tone::Dim),
+            ])
+        })
+        .collect()
+}
+
+/// What the stockpiles hold, "Wood 12  Stone 4", packed into as few lines as fit `width`.
+fn store_rows(session: &Session, width: usize) -> Vec<Row> {
+    let mut rows = Vec::new();
+    let mut line = String::new();
+    for (name, count) in stores(session) {
+        let entry = format!("{name} {count}");
+        if !line.is_empty() && line.chars().count() + 2 + entry.chars().count() > width {
+            rows.push(Row::text(std::mem::take(&mut line), Tone::Text));
+        }
+        if !line.is_empty() {
+            line.push_str("  ");
+        }
+        line.push_str(&entry);
+    }
+    if !line.is_empty() {
+        rows.push(Row::text(line, Tone::Text));
+    }
+    rows
+}
+
+/// The target and how far along it is: the tech and the rate, then the bar, the percentage and
+/// the points. With no target, the points banked.
+fn research_rows(view: &SideView, marks: &Marks) -> Vec<Row> {
+    let r = &view.research;
+    if r.frac == 0.0 && r.label == "No target set" {
+        return vec![
+            Row::pair(r.label.clone(), Tone::Dim, r.rate.clone(), Tone::Dim),
+            Row::text(r.pool.clone(), Tone::Dim),
+        ];
+    }
+    let label =
+        if r.more_queued > 0 { format!("{} +{}", r.label, r.more_queued) } else { r.label.clone() };
+    let (full, empty) = meter(r.frac, BAR_CELLS, marks);
+    vec![
+        Row::pair(label, Tone::Strong, r.rate.clone(), Tone::Dim),
+        Row::spans(vec![
+            (full, Tone::Accent),
+            (empty, Tone::Dim),
+            (format!(" {:>3.0}% ", r.frac * 100.0), Tone::Text),
+            (r.pool.clone(), Tone::Dim),
+        ]),
+    ]
+}
+
+/// The tile under the cursor: what `Enter` does next in a tool, then the tooltip, then anything
+/// else lying on it.
+fn cursor_rows(session: &Session, ui: &UiState) -> Vec<Row> {
     let pos = ui.cursor;
-    p.section("CURSOR", &format!("({}, {})", pos.x, pos.y));
-    let (title, text) =
-        (p.style(p.palette.theme.text).add_modifier(Modifier::BOLD), p.style(p.palette.theme.text));
-    // What Enter does next in a tool, with the rectangle's size once a corner is set. It comes
-    // first, so a small terminal cuts the tile's details before it.
+    let mut rows = Vec::new();
+    // What Enter does next in a tool comes first, so a small terminal cuts the tile's details
+    // before it.
     if let Some(s) = rect_hint(ui) {
-        p.text(&s, p.style(p.palette.theme.accent_text).add_modifier(Modifier::BOLD));
+        rows.push(Row::text(s, Tone::Title));
     }
     let mut lines = tooltip_lines(session, ui.tool, pos).unwrap_or_default();
     // The tooltip names the top thing on the tile; the section lists what else is there.
@@ -327,13 +226,141 @@ fn cursor_section(p: &mut Painter, session: &Session, ui: &UiState) {
     }
     for line in lines {
         match line {
-            Line::Title(s) => p.text(&s, title),
-            Line::Detail(s) => p.text(&s, text),
+            Line::Title(s) => rows.push(Row::text(s, Tone::Strong)),
+            Line::Detail(s) => rows.push(Row::text(s, Tone::Text)),
             Line::Hint(h) => {
                 if let Some(s) = hint_text(h) {
-                    p.text(&s, p.style(p.palette.theme.dim));
+                    rows.push(Row::text(s, Tone::Dim));
                 }
             }
+        }
+    }
+    rows
+}
+
+fn gather(session: &Session, ui: &UiState, marks: &Marks, width: usize) -> Data {
+    let view = side_view(session, ui.tool, &ui.notice, None, &ui.alerts);
+    let ellipsis = marks.ellipsis;
+    let modifiers = view
+        .modifiers
+        .iter()
+        .map(|(label, value)| Row::pair(label.clone(), Tone::Dim, value.clone(), Tone::Text))
+        .collect();
+    let hint = wrap(&view.tool_hint, width, HINT_LINES, ellipsis)
+        .into_iter()
+        .map(|l| Row::text(l, Tone::Dim))
+        .collect();
+    let notice = wrap(&view.notice, width, NOTICE_LINES, ellipsis)
+        .into_iter()
+        .map(|l| Row::text(l, Tone::Text))
+        .collect();
+    let alerts = ui
+        .alerts
+        .toasts()
+        .into_iter()
+        .flat_map(|e| {
+            let tone = if e.kind == fn_ui::alerts::Kind::Death { Tone::Bad } else { Tone::Text };
+            wrap(&e.text, width, ALERT_LINES, ellipsis).into_iter().map(move |l| Row::text(l, tone))
+        })
+        .collect();
+    Data {
+        units: unit_rows(session, ui, marks),
+        stores: store_rows(session, width),
+        research: research_rows(&view, marks),
+        modifiers,
+        hint,
+        notice,
+        alerts,
+        cursor: cursor_rows(session, ui),
+        cursor_pos: format!("({}, {})", ui.cursor.x, ui.cursor.y),
+        view,
+    }
+}
+
+/// The sections as the knobs allow, in order, with the hidden ones left out.
+fn sections(d: &Data, k: Knobs) -> Vec<Section> {
+    let people = {
+        let n = d.units.len();
+        let mut rows: Vec<Row> = d.units.iter().take(k.units).cloned().collect();
+        if k.units < n && k.units > 0 {
+            rows.push(Row::pair(format!("+{} more", n - k.units), Tone::Dim, "[Tab]", Tone::Dim));
+        }
+        Section::new("PEOPLE", d.view.people.to_string(), rows).always()
+    };
+    let stores = Section::new("STORES", "", d.stores.iter().take(k.stores).cloned().collect());
+    let research = Section::new("RESEARCH", "", d.research.clone());
+    let modifiers =
+        Section::new("MODIFIERS", "", d.modifiers.iter().take(k.modifiers).cloned().collect());
+    // Select mode has no tool to talk about.
+    let tool = (d.view.tool != Tool::Select).then(|| {
+        let mut rows: Vec<Row> = d.hint.iter().take(k.hint).cloned().collect();
+        rows.extend(d.notice.iter().cloned());
+        Section::new("TOOL", format!("{} [{}]", d.view.tool.name(), d.view.tool.key()), rows)
+            .always()
+    });
+    // The newest alerts are the last rows; a short panel keeps those.
+    let skip = d.alerts.len().saturating_sub(k.alerts);
+    let alerts = Section::new("ALERTS", "", d.alerts.iter().skip(skip).cloned().collect());
+    let cursor = Section::new("CURSOR", d.cursor_pos.clone(), d.cursor.clone()).always();
+    let all = [Some(people), Some(stores), Some(research), Some(modifiers), tool, Some(alerts)];
+    all.into_iter().flatten().chain([cursor]).filter(Section::visible).collect()
+}
+
+/// The rows the header and `sections` take, with a blank row before each section.
+fn height(header_rows: usize, sections: &[Section]) -> usize {
+    header_rows + sections.iter().map(|s| 2 + s.rows.len()).sum::<usize>()
+}
+
+/// Draws the panel into `area`: the frame, then the sections.
+pub fn draw_panel(
+    session: &Session,
+    ui: &UiState,
+    palette: &Palette,
+    area: Rect,
+    buf: &mut Buffer,
+) {
+    let marks = Marks::new(palette.ascii);
+    let inner = Rect::new(area.left() + 2, area.top() + 1, area.width - 4, area.height - 2);
+    let d = gather(session, ui, &marks, usize::from(inner.width));
+    let title = format!(" {0} {1} {0} ", marks.seal, d.view.nation.to_uppercase());
+    draw_frame(buf, area, palette, &title, TitleAt::Centre, "");
+
+    // Fit: give up the least useful lines first until the sections fit the panel.
+    let head = header(&d.view, &marks);
+    let mut k = Knobs {
+        units: d.units.len(),
+        modifiers: d.modifiers.len(),
+        alerts: d.alerts.len(),
+        hint: d.hint.len(),
+        stores: d.stores.len(),
+    };
+    while height(head.len(), &sections(&d, k)) > usize::from(inner.height) {
+        if k.hint > 0 {
+            k.hint -= 1;
+        } else if k.modifiers > 0 {
+            k.modifiers -= 1;
+        } else if k.units > 0 {
+            k.units -= 1;
+        } else if k.alerts > 0 {
+            k.alerts -= 1;
+        } else if k.stores > 1 {
+            k.stores -= 1;
+        } else {
+            break;
+        }
+    }
+
+    let mut p = Painter::new(buf, inner, palette);
+    for row in &head {
+        p.row(row);
+    }
+    for section in sections(&d, k) {
+        p.blank();
+        let head = format!("{} {}", p.marks.bullet, section.title);
+        let right = (!section.right.is_empty()).then(|| (section.right.clone(), Tone::Text));
+        p.row(&Row { left: vec![(head, Tone::Title)], right });
+        for row in &section.rows {
+            p.row(row);
         }
     }
 }
@@ -346,20 +373,6 @@ pub fn panel_bg(palette: &Palette) -> Color {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn wrap_breaks_at_spaces_cuts_long_words_and_marks_what_is_left_out() {
-        let lines = |t: &str, w, n| wrap(t, w, n, '…');
-        assert_eq!(lines("one two three", 7, 5), ["one two", "three"]);
-        assert_eq!(lines("", 7, 5), Vec::<String>::new());
-        assert_eq!(lines("abcdefghij", 4, 5), ["abcd", "efgh", "ij"]);
-        assert_eq!(lines("aa bb cc dd ee", 5, 2), ["aa bb", "cc d…"]);
-        assert_eq!(lines("aa bb cc", 5, 1), ["aa b…"]);
-        assert!(lines("anything", 0, 3).is_empty());
-        for line in lines("designate harvest (chop, mine, gather); hold Shift to repeat", 28, 3) {
-            assert!(line.chars().count() <= 28, "{line}");
-        }
-    }
 
     #[test]
     fn the_rectangle_hint_follows_the_corner() {
@@ -376,10 +389,19 @@ mod tests {
     }
 
     #[test]
-    fn fit_cuts_with_an_ellipsis() {
-        assert_eq!(fit("short", 10, '…'), "short");
-        assert_eq!(fit("exactly ten", 11, '…'), "exactly ten");
-        assert_eq!(fit("a rather long line", 8, '…'), "a rathe…");
-        assert_eq!(fit("anything", 0, '~'), "~");
+    fn a_unit_line_keeps_the_phrase_and_drops_the_place() {
+        assert_eq!(short_task("Chopping Oak Tree at (76, 64), 40% done"), "Chopping Oak Tree");
+        assert_eq!(short_task("Hauling 5 Wood to (3, 4)"), "Hauling 5 Wood");
+        assert_eq!(short_task("Sleeping"), "Sleeping");
+    }
+
+    #[test]
+    fn selecting_a_unit_has_a_hint() {
+        assert_eq!(hint_text(Hint::SelectUnit).as_deref(), Some("Press Enter to select"));
+        assert_eq!(hint_text(Hint::ApplyTool(Tool::Harvest)), None);
+        assert_eq!(
+            hint_text(Hint::StartTool(Tool::Harvest)).as_deref(),
+            Some("Press H for the Harvest tool")
+        );
     }
 }

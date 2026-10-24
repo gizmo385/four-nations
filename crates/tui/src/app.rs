@@ -1,12 +1,14 @@
 //! The app: the game session plus what the player sees of it, and the one place keys change them.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use fn_sim::Nation;
 use fn_ui::tools::{apply_rect, switch_tool};
 use fn_ui::{Session, Tool};
 
 use crate::input::{Action, map_key};
 use crate::keys::Step;
-use crate::state::{Prompt, UiState};
+use crate::screens;
+use crate::state::{PINNED, Prompt, Screen, UiState};
 
 /// The game and what the player sees of it. All input goes through [`App::key`].
 pub struct App {
@@ -14,15 +16,19 @@ pub struct App {
     pub ui: UiState,
     /// Set by anything that changes what the frame shows, cleared when the frame is drawn.
     pub dirty: bool,
+    /// The terminal's size, for a new map's view.
+    screen: (u16, u16),
 }
 
 impl App {
     pub fn new(session: Session, screen: (u16, u16)) -> Self {
-        let ui = UiState::new(&session, screen);
-        Self { session, ui, dirty: true }
+        let mut ui = UiState::new(&session, screen);
+        ui.alerts.update(&session, 0.0);
+        Self { session, ui, dirty: true, screen }
     }
 
     pub fn resize(&mut self, width: u16, height: u16) {
+        self.screen = (width, height);
         self.ui.resize(width, height);
         self.dirty = true;
     }
@@ -34,10 +40,11 @@ impl App {
             return;
         }
         self.dirty = true;
-        if let Some(Prompt::Quit) = self.ui.prompt {
+        if let Some(prompt) = self.ui.prompt.take() {
             // Only a plain y confirms; anything else (Esc, n, a stray key) stays.
-            self.ui.quit = matches!(key.code, KeyCode::Char('y' | 'Y'));
-            self.ui.prompt = None;
+            if matches!(key.code, KeyCode::Char('y' | 'Y')) {
+                self.confirm_prompt(prompt);
+            }
             return;
         }
         if let Some(action) = map_key(key) {
@@ -46,21 +53,117 @@ impl App {
     }
 
     pub fn act(&mut self, action: Action) {
+        if self.ui.screen.is_some() {
+            return self.act_in_screen(action);
+        }
         match action {
             Action::Move { dx, dy, tiles } => self.ui.move_cursor(dx * tiles, dy * tiles),
             Action::Jump { dx, dy } => self.ui.jump(dx, dy),
             Action::PickTool(tool) => self.pick_tool(tool),
             Action::Confirm => self.confirm(),
             Action::Cancel => self.cancel(),
+            Action::NextUnit if self.ui.tool == Tool::Select => self.ui.cycle(&self.session, 1),
+            Action::PrevUnit if self.ui.tool == Tool::Select => self.ui.cycle(&self.session, -1),
+            Action::Follow if self.ui.tool == Tool::Select => {
+                self.ui.toggle_follow(&self.session);
+            }
+            // Selecting and following are for Select mode: in a tool these keys do nothing.
+            Action::NextUnit | Action::PrevUnit | Action::Follow => {}
+            Action::ShowLog => self.open(Screen::Log),
+            Action::ShowHelp => self.open(Screen::Help),
+            Action::AskNewMap => self.ui.prompt = Some(Prompt::NewMap),
+            Action::AskNation(nation) => self.ui.prompt = Some(Prompt::Nation(nation)),
             Action::TogglePause => self.session.clock.toggle_pause(),
             Action::Faster => self.session.clock.faster(),
             Action::Slower => self.session.clock.slower(),
-            Action::Step => {
-                self.session.step();
-            }
+            Action::Step => self.step(),
             Action::AskQuit => self.ui.prompt = Some(Prompt::Quit),
             Action::QuitNow => self.ui.quit = true,
         }
+    }
+
+    /// What the keys do while a screen is open: they scroll it and close it, and the clock, the
+    /// prompts and quitting still work. Everything else waits until it is closed.
+    fn act_in_screen(&mut self, action: Action) {
+        match action {
+            Action::Move { dy, tiles, .. } => self.scroll_by(dy * tiles),
+            Action::Jump { dy, .. } => {
+                let page = self.screen_rows();
+                self.scroll_by(dy * page);
+            }
+            Action::Cancel => self.ui.screen = None,
+            Action::ShowLog => self.open(Screen::Log),
+            Action::ShowHelp => self.open(Screen::Help),
+            Action::TogglePause => self.session.clock.toggle_pause(),
+            Action::Faster => self.session.clock.faster(),
+            Action::Slower => self.session.clock.slower(),
+            Action::Step => self.step(),
+            Action::AskNewMap => self.ui.prompt = Some(Prompt::NewMap),
+            Action::AskNation(nation) => self.ui.prompt = Some(Prompt::Nation(nation)),
+            Action::AskQuit => self.ui.prompt = Some(Prompt::Quit),
+            Action::QuitNow => self.ui.quit = true,
+            Action::PickTool(_)
+            | Action::Confirm
+            | Action::NextUnit
+            | Action::PrevUnit
+            | Action::Follow => {}
+        }
+    }
+
+    /// `.`: one tick while paused.
+    fn step(&mut self) {
+        if self.session.step() > 0 {
+            self.settle(0.0);
+        }
+    }
+
+    /// Opens `screen`, or closes it if it is the one that is open (`L` and `?` toggle).
+    fn open(&mut self, screen: Screen) {
+        if self.ui.screen == Some(screen) {
+            self.ui.screen = None;
+        } else {
+            self.ui.screen = Some(screen);
+            // The log opens at its newest line, the help at its top.
+            self.ui.scroll = if screen == Screen::Log { PINNED } else { 0 };
+        }
+    }
+
+    /// How many rows of text the open screen shows at once.
+    fn screen_rows(&self) -> i32 {
+        screens::text_size(self.ui.viewport()).1 as i32
+    }
+
+    /// Scrolls the open screen `lines` down (negative: up), within its text.
+    fn scroll_by(&mut self, lines: i32) {
+        let Some(screen) = self.ui.screen else { return };
+        let (width, rows) = screens::text_size(self.ui.viewport());
+        let total = screens::line_count(screen, &self.session, &self.ui.alerts, width);
+        let max = total.saturating_sub(rows);
+        let now = self.ui.scroll.min(max) as i64;
+        let to = (now + i64::from(lines)).clamp(0, max as i64) as usize;
+        // The log sticks to its newest line once it has been scrolled back there.
+        self.ui.scroll = if screen == Screen::Log && to == max { PINNED } else { to };
+    }
+
+    /// The answer to a prompt was yes.
+    fn confirm_prompt(&mut self, prompt: Prompt) {
+        let world = &self.session.world;
+        match prompt {
+            Prompt::Quit => self.ui.quit = true,
+            // The client's own rule: R takes the next seed, a digit keeps the seed.
+            Prompt::NewMap => self.restart(world.seed.wrapping_add(1), world.nation),
+            Prompt::Nation(nation) => self.restart(world.seed, nation),
+        }
+    }
+
+    /// A new game on a map of the same size: the clock, the selection, the log and the screens
+    /// all start over.
+    pub fn restart(&mut self, seed: u64, nation: Nation) {
+        let map = &self.session.world.map;
+        self.session = Session::new(seed, nation, map.width(), map.height());
+        self.ui = UiState::new(&self.session, self.screen);
+        self.ui.alerts.update(&self.session, 0.0);
+        self.dirty = true;
     }
 
     /// A tool key: the tool becomes active, and the corner and the last result are dropped
@@ -72,11 +175,12 @@ impl App {
         self.ui.set_tool(tool);
     }
 
-    /// `Enter` in a tool: the first sets a corner, the second applies the tool to every tile of
-    /// the rectangle through `fn_ui`'s shared logic. The tool stays active for the next one. In
-    /// Select mode `Enter` is for selecting a unit (#99).
+    /// `Enter`. In Select mode it selects the unit under the cursor (again: the next one on that
+    /// tile). In a tool the first sets a corner, the second applies the tool to every tile of the
+    /// rectangle through `fn_ui`'s shared logic, and the tool stays active for the next one.
     fn confirm(&mut self) {
         if self.ui.tool == Tool::Select {
+            self.ui.select_here(&self.session);
             return;
         }
         match self.ui.anchor.take() {
@@ -96,30 +200,58 @@ impl App {
         }
     }
 
-    /// `Esc` in a tool: drop the corner, or with none leave the tool.
+    /// `Esc` in a tool: drop the corner, or with none leave the tool. In Select mode it closes
+    /// the selection bar.
     fn cancel(&mut self) {
-        if self.ui.anchor.take().is_none() {
+        if self.ui.tool == Tool::Select {
+            self.ui.select(None);
+        } else if self.ui.anchor.take().is_none() {
             self.ui.set_tool(Tool::Select);
         }
+    }
+
+    /// After ticks ran: turns what the world logged into alerts (the toasts age by `dt` real
+    /// seconds), closes the bar on a unit that died and moves the cursor with a followed one.
+    fn settle(&mut self, dt: f32) {
+        self.ui.alerts.update(&self.session, dt);
+        self.ui.track(&self.session);
+        self.dirty = true;
+    }
+
+    /// Whether a toast is showing, so the loop keeps waking to age it.
+    pub fn has_toasts(&self) -> bool {
+        !self.ui.alerts.toasts().is_empty()
     }
 
     /// Runs the ticks `real_secs` of wall time is worth.
     pub fn advance(&mut self, real_secs: f64) {
         if self.session.advance(real_secs) > 0 {
-            self.dirty = true;
+            self.settle(real_secs as f32);
+        } else {
+            self.age(real_secs);
+        }
+    }
+
+    /// Time passed with no tick (the game is paused): only the toasts age.
+    pub fn age(&mut self, real_secs: f64) {
+        if self.has_toasts() {
+            self.settle(real_secs as f32);
         }
     }
 
     /// Plays a key script (`--keys`): each key as if pressed between ticks, and `<tick N>` as N
     /// ticks of the world whatever the clock says. No time passes except through those, so a
     /// seed and a script always give the same game.
+    ///
+    /// A toast has no real time to age by here, so it stays until later alerts push it out: a
+    /// frame after `<tick N>` shows what those ticks just logged.
     pub fn play(&mut self, steps: &[Step]) {
         for step in steps {
             match *step {
                 Step::Key(key) => self.key(key),
                 Step::Tick(n) => {
                     self.session.tick_n(n);
-                    self.dirty = true;
+                    self.settle(0.0);
                 }
             }
             if self.ui.quit {

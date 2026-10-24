@@ -1,0 +1,40 @@
+┏──────────────────────────────────── ◆ KEY HELP ◆ ────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
+│ CURSOR AND VIEW                                                                      ││ Seed 7                 00:00 │
+│ Arrows W A S D         Move the cursor 1 tile (Shift: 10)                            ││ ▶ Running x1      Space  + - │
+│ Ctrl+Arrows PgUp PgDn  Jump the view a quarter screen                                ││                              │
+│                                                                                      ││ ◇ PEOPLE                   6 │
+│ UNITS                                                                                ││  Tyro Idle                   │
+│ Enter                  Select the unit under the cursor; again: the next one there.  ││  Ping Idle                   │
+│                        In a tool: set a corner, then apply                           ││  Ming Idle                   │
+│ Esc                    Close the screen or the bar. In a tool: drop the corner, then ││  Oma  Idle                   │
+│                        leave the tool                                                ││  Song Idle                   │
+│ Tab                    Select the next unit (Select mode)                            ││  Lin  Idle                   │
+│ Shift+Tab              Select the previous unit (Select mode)                        ││                              │
+│ F                      Follow the selected unit (Select mode)                        ││ ◇ RESEARCH                   │
+│                                                                                      ││ No target set        3.0/min │
+│ DESIGNATING                                                                          ││ 0 pts banked                 │
+│ H                      Harvest tool: designate harvest (chop, mine, gather); hold    ││                              │
+│                        Shift to repeat                                               ││ ◇ MODIFIERS                  │
+│ X                      Cancel tool: cancel harvest, build site or stockpile          ││ Move speed              x0.9 │
+│ P                      Stockpile tool: designate stockpile                           ││ Carry capacity          x1.3 │
+│ B                      Bend tool: channel the nation's ability                       ││ Earthworks              x2.5 │
+│                                                                                      ││ Water work              x0.9 │
+│ TIME                                                                                 ││ Power generation        x0.8 │
+│ Space                  Pause or run                                                  ││ Construction            x1.5 │
+│ + =                    Faster                                                        ││                              │
+│ - _                    Slower                                                        ││ ◇ CURSOR            (94, 64) │
+│ .                      One tick, while paused                                        ││ Tyro                         │
+│                                                                                      ││ Earth Kingdom - Idle         │
+│ SCREENS AND GAME                                                                     ││ Carrying: nothing            │
+│ L                      Message log                                                   ││ Press Enter to select        │
+│ ?                      Key help                                                      ││                              │
+│ R                      New map (asks first)                                          ││                              │
+│ 1 2 3 4                Switch nation: 1 Air, 2 Water, 3 Earth, 4 Fire (asks first)   ││                              │
+│ Q                      Quit (asks first)                                             ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+┗─ Arrows W S scroll  PgUp PgDn page  Esc close  L log ────────────────────────────────┛┗──────────────────────────────┛
+ KEYS  arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause

@@ -10,6 +10,7 @@
 //! [`run`] touches the terminal or the wall clock.
 
 pub mod app;
+pub mod bar;
 pub mod cli;
 pub mod color;
 pub mod draw;
@@ -21,7 +22,9 @@ pub mod layout;
 pub mod map;
 pub mod panel;
 pub mod run;
+pub mod screens;
 pub mod state;
+pub mod widgets;
 
 use fn_sim::{MapGenConfig, Nation};
 use fn_ui::Session;

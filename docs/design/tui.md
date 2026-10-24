@@ -468,6 +468,65 @@ The designation tools and key scripts. Where it differs from the proposal above:
   accepts tile by tile; the script's command log replayed into a fresh world (`World::replay`)
   draws the same frame; two golden frames show a rectangle mid-drag and after it is applied.
 
+## What #99 built
+
+Selection, the rest of the side panel, the alert log, the message log and key help. Where it
+differs from the proposal above:
+
+- **One key table.** `input::bindings()` lists every key with its action, its help group and its
+  wording. `map_key` reads it, and the key help screen is generated from it (`input::help_rows`:
+  bindings with the same wording share a row, the four arrows read "Arrows"), so the help can't
+  drift from the handlers. The tool rows come from `fn_ui`'s `Tool::ALL`. The research screen
+  (#100) adds its action and its row to this table. Shift is not part of a key: it makes a move
+  ten tiles and does nothing else.
+- **Selecting.** `Enter` in Select mode selects the unit under the cursor, and again the next unit
+  there. `Tab` and `Shift+Tab` step through the people list (the first and the last unit when
+  nothing is selected) and put the cursor on the unit. `F` toggles following: the cursor tracks the
+  unit each tick, and moving the cursor by hand stops it. `Tab` and `F` do nothing in a tool. `Esc`
+  closes the bar in Select mode (in a tool it still drops the corner, then leaves the tool). A unit
+  that dies closes the bar. Selecting issues no command, so a replay needs nothing for it.
+- **The bar.** `bar.rs` draws the 7 rows on the bottom of the map region: name, `·` and nation on
+  the top edge; the task (two lines at most), what the unit carries and its tile on the left; the
+  key hints on the last row, as many as fit; and the five meters on the right (10 cells, a `!` after
+  any that is not `ok`; chi in the accent, never flagged). While it is open `UiState::visible()` is
+  7 rows shorter than the map region, and the view scrolls by that, so the cursor and the selected
+  unit stay above the bar (the client's `center_on_selection`). The selected unit is drawn in
+  reverse video. A screen hides the bar, as ui.md says.
+- **The side panel.** Sections in ui.md's order, then Tool and Cursor: header, **People** (the
+  count, then a line per unit: name and what it is doing without the place, `▸` marking the selected
+  one), **Stores** (`fn_ui::view::stores`, new: the stockpiles' totals, "Wood 12  Stone 4"),
+  **Research** (target and rate, then a bar, the percentage and the points; "No target set" and the
+  points banked without one), **Modifiers** (those not at 1.0, as the client's `modifier_rows`),
+  Tool, **Alerts** (the toasts from `fn_ui::alerts`) and Cursor. A section with nothing to show
+  hides. When the panel is too short (80x24 with a tool active, say) it gives up lines in this
+  order: the tool's hint (the status line says it too), the modifiers, the unit lines (the rest are
+  counted as "+N more [Tab]"), the older alerts, all but one line of stores. The header, Research
+  and Cursor stay. `panel.rs` builds each section as rows and the fitting loop picks how many.
+- **Alerts and the log.** `UiState::alerts` is a `fn_ui::Alerts`, fed by `App` after every tick.
+  The toasts age by real seconds (the interactive loop passes the elapsed time, including while
+  paused, and keeps waking while one shows). In `--frame` there is no real time: `<tick N>` and `.`
+  add the new lines without ageing, so a frame after the ticks shows what they just logged, and the
+  oldest toasts leave only when newer ones push them out. The log keeps the whole history (1000
+  lines), newest last, each line stamped with the game time and wrapped under it; deaths are `bad`
+  and tech completions `ok`.
+- **Screens.** `L` and `?` open the log and the key help over the map region (`screens.rs`; the
+  side panel stays). Each toggles itself and switches to the other. While one is open the arrows,
+  `W` `S` and `PgUp` `PgDn` scroll it (Shift: 10 lines), `Esc` closes it, the clock keys, the
+  prompts and quit work, and the map keys wait. The log opens pinned to its newest line and sticks
+  there when scrolled back to the end. The status line shows `LOG` or `KEYS`.
+- **Prompts.** `R` asks to start a new map (the next seed, the same nation, as the client does) and
+  `1` `2` `3` `4` ask to restart the same seed as Air, Water, Earth or Fire (the client's order).
+  Only a plain `y` confirms. A restart is a new `Session` and `UiState` on a map of the same size:
+  a running clock, no selection, no log. The interactive loop rebuilds the palette for the new
+  nation, and `--frame` draws the last frame in the nation it ended on.
+- **Numpad.** The number row's digits now switch nation. A terminal that does not report keypad keys
+  sends the numpad's digits as the number row's, so there they ask to switch nation too (the prompt
+  makes that harmless); the Home/End/arrow forms still move.
+- **Goldens.** Re-blessed: every nation's first frame, the ASCII frame and the paused, dragging and
+  designated frames (the side panel gained Research and Modifiers, and People lists the units). New:
+  `earth_seed7_selected` (and its ASCII, no-colour twin), `fire_seed1_log` and `earth_seed7_help`.
+  `tests/panels.rs` covers the rest cell by cell and in text.
+
 ## Owner decisions (2026-10-24)
 
 The four open questions on #93, as the owner answered them.

@@ -29,8 +29,10 @@ options:
                  WT_SESSION and TERM)
 
 Without --frame this starts the game in the terminal: arrows or WASD move the cursor
-(Shift: 10 tiles), H X P B pick the harvest, cancel, stockpile and bend tools, Enter sets a
-rectangle's corners, Esc backs out, Space pauses, + and - change speed, . steps a tick, q quits.";
+(Shift: 10 tiles), Enter selects a unit (Tab cycles, F follows, Esc closes the bar), H X P B
+pick the harvest, cancel, stockpile and bend tools and Enter sets a rectangle's corners, Space
+pauses, + and - change speed, . steps a tick, L opens the message log, ? the key help, R starts a
+new map, 1-4 switch nation (each asks y/n first) and q quits.";
 
 pub const DEFAULT_SIZE: (u16, u16) = (120, 40);
 
