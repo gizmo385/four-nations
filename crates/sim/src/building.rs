@@ -346,7 +346,13 @@ mod tests {
 
     fn resolve(toml: &str) -> Result<Vec<BuildingDef>, DefsError> {
         let defs = Defs::bundled();
-        toml::from_str::<BuildingsFile>(toml).unwrap().resolve(&defs.items, &defs.techs)
+        // The bundled techs unlock the bundled buildings, which these small fixtures don't
+        // define, so resolve them against a tree that unlocks no buildings.
+        let mut techs = defs.techs.clone();
+        for t in &mut techs {
+            t.unlocks.buildings.clear();
+        }
+        toml::from_str::<BuildingsFile>(toml).unwrap().resolve(&defs.items, &techs)
     }
 
     #[test]

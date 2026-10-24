@@ -91,11 +91,21 @@ written as `field ×N`.
 | id | Cost | Prereqs | Unlocks |
 |---|---|---|---|
 | `earth_shaping` | 60 | stoneworking | level/raise-terrain designation; earthworks ×1.2 |
-| `earthen_walls` | 120 | earth_shaping, masonry | earth wall, flood barrier, terraces; construction ×1.25 |
+| `earthen_walls` | 120 | earth_shaping, masonry | earth wall (built, #25); flood barrier and terraces (not yet: nothing for them to do); construction ×1.25 |
 | `tunneling` | 120 | earth_shaping | tunnel designation through mountain tiles; mining inside mountains |
 | `earth_rail` | 250 | earthen_walls | Ba Sing Se–style rail for haul routes; carry_capacity ×1.25 |
 | `seismic_sense` | 250 | tunneling | ability: reveal ore and gems in a radius |
 | `metalbending` | 500 | seismic_sense, masonry | metal from ore without a smelter; ability: metalbend |
+
+Earth content pass (#25): only `earthen_walls` unlocks a concrete thing today (the `earth_wall`
+building). `earth_shaping` and `earth_rail` are modifier-only for now (Raise Earth already
+scales with earthworks, and there is no rail mechanic), and `tunneling`, `seismic_sense` and
+`metalbending` unlock nothing until their mechanics exist: tunnels (#132), revealing hidden ore
+(#133), metal (#134). Rail is #135, and the flood barrier and terraces are #136.
+`crates/sim/tests/research_earth.rs` keeps that list honest. No costs or multipliers changed:
+with the pacing assumptions above (one scholar from minute 5, two from 15, three from 40, each
+two-thirds effective), an Earth settlement has about 1000 points at minute 60 and the whole tree
+(shared tier plus branch, 2285 points) known at about minute 107, `metalbending` at about 71.
 
 ### Fire Nation: heat and industry
 
