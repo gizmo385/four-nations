@@ -1,7 +1,8 @@
 # Art direction
 
-Status: **decided** (#1, owner, 2026-10-22). The decision and the coverage audit come first. The
-options that were considered follow for the record.
+Status: **historical** (#1, owner, 2026-10-22). The pack was replaced by original art
+([pixel-art.md](pixel-art.md), #122) and removed in #155. The decision and the coverage audit
+come first. The options that were considered follow for the record.
 
 ## Decision
 
@@ -273,3 +274,15 @@ the audit above confirmed the coverage.
    outside the repo. #74 imports what we use.
 3. Units: **generic pack characters dressed per nation** for now. Canon characters come later
    (#78).
+
+## Closing note (#155, 2026-10-24)
+
+The Ninja Adventure pack has been fully replaced by original art (see
+[pixel-art.md](pixel-art.md)). Floors, water, cliffs, trees, resources, buildings, units,
+portraits, UI and effects are all drawn by `cargo xtask art` from the sheets in `art/`, and the
+last pack files (`LICENSE.txt` and three tilesets that nothing loaded) were deleted along with
+the `ninja-adventure` source in `assets/manifest.toml`. Nothing under `assets/` or in
+`crates/` refers to the pack any more. This document is the record of why we chose it and what its
+audit found, and the sheet and tile names in it are historical. The pack stays recoverable from the
+owner's download and from git history, but `mockups/122/mock.py` and similar mockup scripts
+that read it no longer run on a fresh checkout.

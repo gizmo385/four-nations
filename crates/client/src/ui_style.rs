@@ -319,7 +319,7 @@ fn nine_slice(p: &mut ChildSpawnerCommands, skin: &Skin) {
     ));
 }
 
-/// A 1px dark outline for flair drawn over the map. It echoes Ninja Adventure's outlined sprites
+/// A 1px dark outline for flair drawn over the map. It echoes the outlined sprites
 /// (docs/design/art.md) and keeps accent brackets visible on terrain of the same hue (Earth's
 /// green on grass).
 fn flair_outline(theme: &Theme) -> Outline {
