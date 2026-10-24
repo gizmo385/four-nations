@@ -59,3 +59,17 @@ line: it rewrites them (sorted, at the end of the file), removes the PNG of a sh
 and adds the `original` `[[source]]` if it is missing. Other entries are left untouched. An
 unchanged PNG keeps its bytes, so a `png` crate upgrade doesn't churn hashes. The CI check compares
 decoded pixels, not bytes.
+
+## Facesets: `art/faces_<nation>.toml`
+
+Portraits (docs/design/pixel-art.md, "Units and portraits") are one sheet per nation:
+`art/faces_<nation>.toml` (`cell = [32, 32]`, `columns = 3`, `outline = true`) renders to
+`assets/original/faces_<nation>.png`, 96x32. Each sprite is named by the **character id** of the
+unit it shows (`earth_farmer`, ...) and sprite `n` is the cell at column `n`, in the order of that
+nation's `characters` in `data/nations.toml`. A face is head and shoulders, facing three-quarters
+to the right, with the clothes and palette ramps of the unit sheet of the same name.
+
+`sprites/characters.rs` points a character's `face` at the sheet path. The cell is the character's
+position among the table rows with the same `face` path, and a test checks the sprite names match.
+The HUD takes the portrait's size from the image's height, so a 32px face is drawn at 64px and a
+38px pack face at 76px.

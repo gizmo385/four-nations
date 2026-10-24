@@ -33,7 +33,7 @@ pub mod water;
 
 use fn_sim::{Pos, Terrain};
 
-pub use characters::{character_face_path, character_sheet_path};
+pub use characters::{character_face_cell, character_face_path, character_sheet_path};
 pub use cliffs::{CliffSet, cliff_cell};
 pub use water::{WaterSet, water_tile};
 
@@ -141,9 +141,6 @@ fn tile_hash(p: Pos, salt: u32) -> u32 {
 /// The down-facing idle frame: the top-left cell of a character's sheet, in pixels:
 /// (min x, min y, max x, max y). Walk cycles and other directions come later.
 pub const IDLE_DOWN: [f32; 4] = [0.0, 0.0, CELL, CELL];
-
-/// Portraits are drawn at integer scale, so the 38px pixels stay crisp and square.
-pub const FACE_SIZE: f32 = 38.0;
 
 /// Helpers shared by the family modules' tests.
 #[cfg(test)]

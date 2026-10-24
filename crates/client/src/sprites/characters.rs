@@ -9,7 +9,10 @@ pub struct CharacterRow {
     /// 64x64: the columns face down, up, left and right, the rows are 4 walk frames and row 0 is
     /// the idle pose. A pack sheet is 4 columns by 7 rows (64x112).
     pub sheet: &'static str,
-    /// The 38x38 portrait.
+    /// The portrait faceset. A pack faceset is one 38x38 image. Original art
+    /// (`original/faces_<nation>.png`, from `art/faces_<nation>.toml`) is one row of square cells,
+    /// 32x32 each, shared by the nation's characters: the face is the cell at the character's
+    /// position among the rows with the same `face` path (see `character_face_cell`).
     pub face: &'static str,
 }
 
@@ -52,37 +55,37 @@ pub const CHARACTERS: &[CharacterRow] = &[
         sheet: pack!("NinjaWater/SpriteSheet.png"),
         face: pack!("NinjaWater/Faceset.png"),
     },
-    // Earth Kingdom (art/earth_*.toml, #151). Portraits stay on the pack until #153.
+    // Earth Kingdom (art/earth_*.toml, #151; faces in art/faces_earth.toml, #153)
     CharacterRow {
         id: "earth_farmer",
         sheet: "original/earth_farmer.png",
-        face: pack!("Villager3/Faceset.png"),
+        face: "original/faces_earth.png",
     },
     CharacterRow {
         id: "earth_guard",
         sheet: "original/earth_guard.png",
-        face: pack!("Samurai/Faceset.png"),
+        face: "original/faces_earth.png",
     },
     CharacterRow {
         id: "earth_villager",
         sheet: "original/earth_villager.png",
-        face: pack!("NinjaGreen/Faceset.png"),
+        face: "original/faces_earth.png",
     },
-    // Fire Nation (art/fire_*.toml, #151)
+    // Fire Nation (art/fire_*.toml, #151; faces in art/faces_fire.toml, #153)
     CharacterRow {
         id: "fire_soldier",
         sheet: "original/fire_soldier.png",
-        face: pack!("NinjaFire/Faceset.png"),
+        face: "original/faces_fire.png",
     },
     CharacterRow {
         id: "fire_noble",
         sheet: "original/fire_noble.png",
-        face: pack!("SamuraiRed/Faceset.png"),
+        face: "original/faces_fire.png",
     },
     CharacterRow {
         id: "fire_smith",
         sheet: "original/fire_smith.png",
-        face: pack!("NinjaRed/Faceset.png"),
+        face: "original/faces_fire.png",
     },
 ];
 
@@ -96,9 +99,19 @@ pub fn character_sheet_path(character: &str) -> &'static str {
     character_row(character).unwrap_or_else(|| panic!("no art for character {character}")).sheet
 }
 
-/// The 38x38 portrait of a character.
+/// The faceset image of a character (see `character_face_cell` for which cell is the face).
 pub fn character_face_path(character: &str) -> &'static str {
     character_row(character).unwrap_or_else(|| panic!("no art for character {character}")).face
+}
+
+/// Which square cell of the faceset is this character's face: its position among the rows that
+/// share the faceset, so a pack faceset (one face per image) is cell 0. The cell's side is the
+/// image's height.
+pub fn character_face_cell(character: &str) -> u32 {
+    let row =
+        character_row(character).unwrap_or_else(|| panic!("no art for character {character}"));
+    CHARACTERS.iter().filter(|r| r.face == row.face).position(|r| r.id == row.id).unwrap_or(0)
+        as u32
 }
 
 #[cfg(test)]
@@ -116,7 +129,11 @@ mod tests {
             for c in characters {
                 let size = png_size(character_sheet_path(c));
                 assert!(size == (64, 64) || size == (64, 112), "{c} sheet is {size:?}");
-                assert_eq!(png_size(character_face_path(c)), (38, 38), "{c} face");
+                let (w, h) = png_size(character_face_path(c));
+                assert!(h == 38 || h == 32, "{c} face cells are {h}px");
+                let cells =
+                    CHARACTERS.iter().filter(|r| r.face == character_face_path(c)).count() as u32;
+                assert_eq!(w, h * cells, "{c} faceset is {cells} cells of {h}px");
             }
         }
     }
@@ -167,5 +184,23 @@ mod tests {
             seen += 1;
         }
         assert!(seen >= 6, "only {seen} original character sheets");
+    }
+
+    #[test]
+    fn original_facesets_hold_one_32px_face_per_character_in_row_order() {
+        let mut seen = 0;
+        for face in ["original/faces_earth.png", "original/faces_fire.png"] {
+            let ids: Vec<&str> =
+                CHARACTERS.iter().filter(|r| r.face == face).map(|r| r.id).collect();
+            assert_eq!(png_size(face), (32 * ids.len() as u32, 32), "{face}");
+            // `art/faces_<nation>.toml` names its sprites by character id, and sprite `n` is cell `n`.
+            let sheet = face.trim_start_matches("original/").trim_end_matches(".png");
+            assert_eq!(art_sprites(sheet), ids, "{face}");
+            for (n, id) in ids.iter().enumerate() {
+                assert_eq!(character_face_cell(id), n as u32, "{id}");
+            }
+            seen += ids.len();
+        }
+        assert_eq!(seen, 6);
     }
 }
