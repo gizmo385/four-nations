@@ -15,7 +15,9 @@ use crate::defs::{Defs, DefsError};
 use crate::nation::{ModifierMultipliers, Modifiers, Nation};
 use crate::world::TICKS_PER_SECOND;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct TechId(pub u16);
 
 /// Largest multiplier a single tech may apply. Keeps a typo like `12` instead of `1.2` from
@@ -264,7 +266,7 @@ pub(crate) fn resolve_starting_techs(
 }
 
 /// A tech finishing, as recorded in the research log.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TechCompleted {
     pub tech: TechId,
     /// The world tick on which the tech completed.
@@ -294,7 +296,7 @@ impl std::error::Error for ResearchError {}
 
 /// A settlement's research state. Knowledge is one pool shared by the whole settlement; the
 /// queue is spent from it in order, and leftover knowledge carries over.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Research {
     /// Indexed by `TechId`.
     known: Vec<bool>,
@@ -314,6 +316,14 @@ impl Research {
             known[t.0 as usize] = true;
         }
         Self { known, pool_millis: 0, queue: Vec::new(), log: Vec::new() }
+    }
+
+    /// Does this state cover exactly `defs`' techs, with a queue that names only real ones? False
+    /// for a state read from a save made against other data.
+    pub(crate) fn fits(&self, defs: &Defs) -> bool {
+        self.known.len() == defs.techs.len()
+            && self.queue.iter().all(|t| (t.0 as usize) < defs.techs.len())
+            && self.log.iter().all(|c| (c.tech.0 as usize) < defs.techs.len())
     }
 
     pub fn is_known(&self, tech: TechId) -> bool {

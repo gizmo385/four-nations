@@ -41,10 +41,12 @@ pub const TICKS_PER_SECOND: u32 = 10;
 /// Ticks a baseline (move_speed 1.0) unit waits between steps.
 const BASE_TICKS_PER_STEP: f32 = 6.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct UnitId(pub u32);
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Unit {
     pub id: UnitId,
     pub name: String,
@@ -78,7 +80,7 @@ pub struct Unit {
 }
 
 /// A unit that died, kept so the UI and tests can see what happened.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Death {
     pub id: UnitId,
     pub name: String,
@@ -99,7 +101,7 @@ fn spawn_points(map: &TileMap, count: usize) -> Vec<Pos> {
     candidates
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct World {
     pub seed: u64,
     pub tick: u64,
@@ -139,6 +141,7 @@ pub struct World {
     rules: MoveRules,
     /// Which tiles can reach which under `rules`, or `None` when the map has changed since it
     /// was computed. Recomputed on demand; see `regions.rs`.
+    #[serde(skip)]
     regions: Option<Regions>,
     /// Every bend that has finished or failed, oldest first.
     bend_events: Vec<BendEvent>,
@@ -194,6 +197,24 @@ impl World {
         world.refresh_modifiers(defs);
         world.spawn_units(spawns, defs);
         world
+    }
+
+    /// Checks that a world read from a save is consistent enough to run: the things that would
+    /// panic later (grid shape, research tables, unit placement), not every invariant.
+    pub(crate) fn validate(&self, defs: &Defs) -> Result<(), String> {
+        if !self.map.is_well_formed() {
+            return Err("the map's size doesn't match its tiles".into());
+        }
+        if !self.research.fits(defs) {
+            return Err("the research state doesn't match the tech tree".into());
+        }
+        if !self.units.windows(2).all(|w| w[0].id < w[1].id) {
+            return Err("units are out of order".into());
+        }
+        if let Some(u) = self.units.iter().find(|u| !self.map.in_bounds(u.pos)) {
+            return Err(format!("{} is off the map", u.name));
+        }
+        Ok(())
     }
 
     /// The modifiers systems must read: the nation's base times every completed tech's

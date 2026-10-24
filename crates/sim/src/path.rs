@@ -42,7 +42,7 @@ fn terrain_index(t: Terrain) -> usize {
 ///
 /// A terrain cost of `None` means impassable; `Some(c)` multiplies the step length by `c` (so 1
 /// is normal speed, 2 is twice as slow). Costs must be at least 1.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MoveRules {
     terrain_cost: [Option<u32>; TERRAINS],
     /// Whether tiles holding a resource (trees, rocks, ...) block movement.

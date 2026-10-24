@@ -14,7 +14,7 @@ use crate::nation::{Nation, NationDef};
 use crate::needs::{FoodDef, NeedsFile, NeedsSettings};
 use crate::research::{self, ResearchFile, ResearchSettings, TechDef, TechId};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Terrain {
     /// Sea: everything below sea level.
@@ -47,10 +47,10 @@ impl Terrain {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct BiomeId(pub u8);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ResourceId(pub u16);
 
 /// A biome and the climate it occupies. Mapgen picks the *first* biome (in file order) whose
@@ -167,6 +167,37 @@ pub fn climate_unit(v: u8) -> f64 {
 }
 
 impl Defs {
+    /// A hash of every id table (biomes, resources, nations, techs, items, buildings, abilities) in
+    /// order. Ids such as `TechId` and `ItemId` are indices into these tables, so a save is only
+    /// meaningful against data whose hash matches. Balance numbers don't enter into it: retuning a
+    /// rate or a cost keeps old saves loadable, while adding, removing or reordering an entry
+    /// doesn't.
+    pub fn id_hash(&self) -> u64 {
+        let tables: [Vec<&str>; 7] = [
+            self.biomes.iter().map(|d| d.id.as_str()).collect(),
+            self.resources.iter().map(|d| d.id.as_str()).collect(),
+            self.nations.iter().map(|d| d.name.as_str()).collect(),
+            self.techs.iter().map(|d| d.id.as_str()).collect(),
+            self.items.iter().map(|d| d.id.as_str()).collect(),
+            self.buildings.iter().map(|d| d.id.as_str()).collect(),
+            self.abilities.iter().map(|d| d.id.as_str()).collect(),
+        ];
+        // FNV-1a, as in `rng::stream`; stable across platforms and Rust versions.
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut feed = |b: u8| {
+            h ^= u64::from(b);
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        };
+        for table in &tables {
+            for id in table {
+                id.bytes().for_each(&mut feed);
+                feed(0);
+            }
+            feed(1);
+        }
+        h
+    }
+
     /// The definitions shipped in `data/`, embedded at compile time.
     pub fn bundled() -> Self {
         Self::from_toml(

@@ -14,7 +14,7 @@ use crate::building::BuildingId;
 use super::*;
 
 /// Something the player asks the settlement to do.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Command {
     /// Mark the resource on a tile for harvesting (chop, quarry, gather, mine).
     DesignateHarvest { pos: Pos },
@@ -91,7 +91,7 @@ impl std::fmt::Display for CommandError {
 impl std::error::Error for CommandError {}
 
 /// A command that was applied, and when.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Recorded {
     /// `World::tick` at the moment it was applied, i.e. before the next tick ran.
     pub tick: u64,

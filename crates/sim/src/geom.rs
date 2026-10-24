@@ -1,7 +1,9 @@
 //! Grid coordinates and a dense 2D grid container.
 
 /// A tile coordinate. `(0, 0)` is the top-left corner; `y` grows downward.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct Pos {
     pub x: i32,
     pub y: i32,
@@ -17,7 +19,7 @@ const CARDINAL: [(i32, i32); 4] = [(0, 1), (0, -1), (1, 0), (-1, 0)];
 const DIAGONAL: [(i32, i32); 4] = [(1, 1), (1, -1), (-1, 1), (-1, -1)];
 
 /// A dense, row-major 2D grid.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Grid<T> {
     width: i32,
     height: i32,
@@ -25,6 +27,14 @@ pub struct Grid<T> {
 }
 
 impl<T> Grid<T> {
+    /// Do the dimensions agree with the number of cells? Always true for a grid built here; a
+    /// grid read from a save file might not be.
+    pub fn is_well_formed(&self) -> bool {
+        self.width > 0
+            && self.height > 0
+            && self.cells.len() == self.width as usize * self.height as usize
+    }
+
     pub fn from_fn(width: i32, height: i32, mut f: impl FnMut(Pos) -> T) -> Self {
         assert!(width > 0 && height > 0, "grid dimensions must be positive");
         let cells =

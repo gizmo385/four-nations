@@ -174,7 +174,7 @@ impl NeedsFile {
 }
 
 /// Why a unit died: the first depleted need, in the order hunger, thirst, energy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DeathCause {
     Starvation,
     Dehydration,
@@ -182,7 +182,7 @@ pub enum DeathCause {
 }
 
 /// A unit's current meters. Each is in `[0, max]`; `health` has its own max.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Needs {
     pub hunger: f32,
     pub thirst: f32,

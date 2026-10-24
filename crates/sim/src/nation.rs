@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 use crate::research::TechId;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Nation {
     Air,
@@ -31,7 +31,7 @@ impl Nation {
 macro_rules! modifiers {
     ($($field:ident),* $(,)?) => {
         /// Multipliers on a 1.0 baseline. See `data/nations.toml` for what each one covers.
-        #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+        #[derive(Debug, Clone, Copy, PartialEq, Deserialize, serde::Serialize)]
         #[serde(deny_unknown_fields)]
         pub struct Modifiers {
             $(pub $field: f32,)*

@@ -88,7 +88,7 @@ pub enum BendOutcome {
 }
 
 /// A bend that finished or failed, for the client's toasts and hover text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct BendEvent {
     pub tick: u64,
     pub unit: UnitId,
@@ -98,7 +98,7 @@ pub struct BendEvent {
 }
 
 /// A watered 3x3 patch waiting to dry out.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(super) struct Patch {
     centre: Pos,
     /// The tick it is dry, and sprouts.

@@ -14,7 +14,9 @@ use crate::needs::{FoodDef, NeedsSettings};
 use crate::research::{TechDef, TechId};
 use crate::world::UnitId;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct ItemId(pub u16);
 
 #[derive(Debug, Clone, PartialEq)]
@@ -26,7 +28,7 @@ pub struct ItemDef {
 }
 
 /// A number of one kind of item.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Stack {
     pub item: ItemId,
     pub count: u32,
@@ -225,12 +227,14 @@ fn link_unlocks(
     Ok(())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct JobId(pub u32);
 
 /// Player-designated work, waiting for a unit. Needs (eat, drink, sleep) are not jobs: units
 /// handle those themselves.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum JobKind {
     /// Work the resource on this tile until it yields its items (chop, quarry, gather, mine).
     Harvest { pos: Pos },
@@ -246,7 +250,7 @@ pub enum JobKind {
     Study { pos: Pos },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Job {
     pub id: JobId,
     pub kind: JobKind,

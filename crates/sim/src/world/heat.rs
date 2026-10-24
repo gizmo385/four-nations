@@ -18,7 +18,7 @@ use super::*;
 use crate::path::STRAIGHT;
 
 /// A lit place of heat.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HeatSource {
     pub pos: Pos,
     /// Tiles around `pos`, Chebyshev, that count as near it.
@@ -42,7 +42,7 @@ impl HeatSource {
 }
 
 /// A lit flame as the client sees it.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Flame {
     pub pos: Pos,
     pub radius: u32,

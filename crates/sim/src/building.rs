@@ -20,12 +20,14 @@ use crate::jobs::{ItemDef, ItemId};
 use crate::nation::Nation;
 use crate::research::{TechDef, TechId};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct BuildingId(pub u16);
 
 /// A building placed on a tile (`Tile::building`): baked onto the tile so pathfinding
 /// (`path.rs`, `flood.rs`) never has to consult the defs to know whether it blocks movement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Building {
     pub id: BuildingId,
     /// Whether units may walk onto this tile now that the building stands on it.

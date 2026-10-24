@@ -18,6 +18,7 @@ pub mod path;
 pub mod regions;
 pub mod research;
 pub mod rng;
+pub mod save;
 pub mod world;
 
 pub use defs::{Defs, Terrain};
@@ -26,4 +27,5 @@ pub use mapgen::{MapGenConfig, Tile, TileMap};
 pub use nation::Nation;
 pub use path::MoveRules;
 pub use regions::Regions;
+pub use save::{SAVE_VERSION, SaveError, SaveInfo};
 pub use world::World;
