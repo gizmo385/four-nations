@@ -5,25 +5,6 @@
 # before anything is published (web build, itch.io, public repo, screenshots on social media...).
 
 [[source]]
-id = "ninja-adventure"
-title = "Ninja Adventure - Asset Pack"
-author = "Pixel-Boy and AAA"
-url = "https://pixel-boy.itch.io/ninja-adventure-asset-pack"
-license = "CC0-1.0"
-release_ok = true
-download_sha256 = "95a06f4fdcfd1882f061a45ff313b7c905dbe2de1e8512b281d7937df62a7b15"
-retrieved = "2026-10-22"
-retrieved_by = "claude (implementer agent, #74), from the owner's local download"
-notes = """
-Copied from the owner's local itch.io download ("Ninja Adventure - Asset Pack.zip", 2,674 entries,
-agents cannot fetch it themselves). Only the subset the game uses was copied, with the pack's
-relative paths unchanged and no modifications: LICENSE.txt and six tilesets from
-Backgrounds/Tilesets (Floor, Water, Nature, Relief, Desert, Field). The character sprite sheets and
-portraits that were also copied have since been replaced by original art (#150, #151, #152, #153), so
-no Actor/ files remain. Attribution is not required (CC0) but is appreciated.
-"""
-
-[[source]]
 id = "original"
 title = "Original art"
 author = "Claude (agents) for the owner"
@@ -36,26 +17,6 @@ notes = """
 Rendered by `cargo xtask art` from the palette-indexed text sheets in art/*.toml (format:
 art/README.md). Every file has a generated_from entry; edit the sheet, never the PNG.
 """
-
-[[file]]
-path = "third_party/ninja-adventure/LICENSE.txt"
-source = "ninja-adventure"
-sha256 = "9bc2cd77030dd73fd2497c5729556a11524fa04099d8351bc527fd4d4c31b916"
-
-[[file]]
-path = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetNature.png"
-source = "ninja-adventure"
-sha256 = "51eedd957ad4ac88988d170aa83a42404ef8fdebff9e6753b6fe80841ab3d5bb"
-
-[[file]]
-path = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetDesert.png"
-source = "ninja-adventure"
-sha256 = "c75577d52061aab5637585d6c33592a7fe47d5870f0cc0206ec4de0159d4f8a9"
-
-[[file]]
-path = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetField.png"
-source = "ninja-adventure"
-sha256 = "a519353dfdb4dfe8d2a1c67061be063056bbf0275eafa87ff711614e278c7261"
 
 [[file]]
 path = "original/air_acolyte.png"

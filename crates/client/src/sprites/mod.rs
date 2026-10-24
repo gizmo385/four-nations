@@ -37,7 +37,7 @@ pub use characters::{character_face_cell, character_face_path, character_sheet_p
 pub use cliffs::{CliffSet, cliff_cell};
 pub use water::{WaterSet, water_tile};
 
-/// The tile size of the pack, and of the map.
+/// The tile size of the art sheets, and of the map.
 pub const CELL: f32 = 16.0;
 
 /// A rectangle of cells on a sheet: `w` by `h` cells with its top-left at (`col`, `row`).
