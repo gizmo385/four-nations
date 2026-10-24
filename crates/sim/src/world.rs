@@ -73,6 +73,7 @@ pub struct Unit {
     work: f32,
     /// The bed this unit is sleeping in or walking to, while its need task is `Task::Sleep`.
     /// Other units treat it as taken (`work.rs`, issue #58).
+    #[serde(default)]
     bed: Option<Pos>,
     /// Tick before which a failed attempt to act on a need isn't repeated (hunger, thirst,
     /// energy).

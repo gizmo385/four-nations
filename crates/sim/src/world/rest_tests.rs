@@ -247,3 +247,27 @@ fn a_hearthflame_cannot_be_kindled_on_a_campfire() {
         Err(CommandError::Bend(BendError::InvalidTarget("something is in the way")))
     );
 }
+
+#[test]
+fn a_sleeper_in_a_bed_by_a_campfire_survives_a_save_and_load() {
+    let defs = Defs::bundled();
+    let mut w = world(Nation::Fire, &[at(2, 4)], &defs);
+    place(&mut w, &defs, at(8, 4), "campfire");
+    place(&mut w, &defs, at(9, 4), "bed");
+    tire(&mut w, &defs, 0);
+    run_until(&mut w, &defs, 400, |w| w.units[0].is_sleeping());
+    assert_eq!(w.units[0].bed, Some(at(9, 4)));
+
+    let text = w.save(&defs).unwrap();
+    let mut loaded = World::load(&text, &defs).unwrap();
+    assert_eq!(loaded.save(&defs).unwrap(), text);
+    assert_eq!(loaded.units, w.units);
+    assert!(loaded.heat[&at(8, 4)].is_permanent());
+    // It carries on the same: still in its bed, still warm, waking at the same moment.
+    for _ in 0..3000 {
+        w.tick(&defs);
+        loaded.tick(&defs);
+    }
+    assert_eq!(loaded.save(&defs).unwrap(), w.save(&defs).unwrap());
+    assert!(loaded.is_heated(at(9, 4)));
+}
