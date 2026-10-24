@@ -164,6 +164,12 @@ glyph = "Π"
 ascii = "H"
 fg = [196, 176, 236]
 
+# --- Earth Kingdom ---
+[building.earth_wall]
+glyph = "▓"
+ascii = "#"
+fg = [176, 160, 120]
+
 # Units draw in their nation's `color` (data/nations.toml), mixed toward white by `lift`.
 [unit]
 glyph = "☺"
