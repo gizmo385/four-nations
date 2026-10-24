@@ -19,7 +19,7 @@ use crate::bending::AlertLog;
 use crate::designate::{ActiveTool, BuildChoice, Notice};
 use crate::research::ScreenOpen;
 use crate::ui_style::{self, Frame, Skin, Theme, UiArt, font, layout, space};
-use crate::{Art, Selection, Sim, cursor_tile, unit_character};
+use crate::{Art, CharacterArt, Selection, Sim, cursor_tile, unit_character};
 
 pub struct HudPlugin;
 
@@ -64,7 +64,8 @@ struct Tooltip;
 #[derive(Component)]
 struct TooltipLines;
 
-/// The portrait is drawn at this integer scale so the 38px faceset stays crisp.
+/// The portrait is drawn at this integer scale so the faceset's pixels stay crisp: 64px for an
+/// original 32px face, 76px for a 38px pack face. The size comes from the faceset's real size.
 const PORTRAIT_SCALE: f32 = 2.0;
 /// The portrait well around it (ui.md "Portraits").
 const PORTRAIT_WELL: f32 = 96.0;
@@ -411,12 +412,22 @@ fn status_color(status: Status, theme: &Theme) -> Color {
 struct SelectionView {
     unit: UnitView,
     character: String,
+    /// The side of one face cell, in pixels. 0 until the faceset has loaded.
+    face_size: u32,
+}
+
+/// The portrait: one square cell of a faceset image, `size` px a side.
+struct Face {
+    image: Handle<Image>,
+    cell: u32,
+    size: u32,
 }
 
 fn update_selection_bar(
     mut commands: Commands,
     sim: Res<Sim>,
     art: Res<Art>,
+    images: Res<Assets<Image>>,
     selection: Res<Selection>,
     screen_open: Res<ScreenOpen>,
     theme: Res<Theme>,
@@ -437,14 +448,15 @@ fn update_selection_bar(
         return;
     };
     *visibility = Visibility::Inherited;
-    let view = SelectionView {
-        unit: view::unit_view(&sim, unit),
-        character: unit_character(&sim, unit).to_owned(),
-    };
+    let character = unit_character(&sim, unit).to_owned();
+    let CharacterArt { face, face_cell, .. } = art.character(&character);
+    // Cells are square, so the image's height is the face's size.
+    let face_size = images.get(&face).map_or(0, |image| image.height());
+    let view = SelectionView { unit: view::unit_view(&sim, unit), character, face_size };
     if last.as_ref() == Some(&view) && fresh.is_empty() {
         return;
     }
-    let face = art.character(&view.character).face.clone();
+    let face = Face { image: face, cell: face_cell, size: face_size };
     commands
         .entity(content)
         .despawn_children()
@@ -452,7 +464,7 @@ fn update_selection_bar(
     *last = Some(view);
 }
 
-fn spawn_selection(p: &mut ChildSpawnerCommands, theme: &Theme, v: &UnitView, face: Handle<Image>) {
+fn spawn_selection(p: &mut ChildSpawnerCommands, theme: &Theme, v: &UnitView, face: Face) {
     // Portrait: the faceset at an integer scale on an inset well.
     let well = Val::Px(PORTRAIT_WELL);
     p.spawn((
@@ -469,11 +481,18 @@ fn spawn_selection(p: &mut ChildSpawnerCommands, theme: &Theme, v: &UnitView, fa
         BorderColor::all(theme.accent_soft),
     ))
     .with_children(|w| {
+        let side = face.size as f32;
+        let mut image = ImageNode::new(face.image);
+        // The faceset is a row of square cells (a pack face is a row of one).
+        if face.size > 0 {
+            image.rect =
+                Some(Rect::new(face.cell as f32 * side, 0.0, (face.cell + 1) as f32 * side, side));
+        }
         w.spawn((
-            ImageNode::new(face),
+            image,
             Node {
-                width: Val::Px(crate::sprites::FACE_SIZE * PORTRAIT_SCALE),
-                height: Val::Px(crate::sprites::FACE_SIZE * PORTRAIT_SCALE),
+                width: Val::Px(side * PORTRAIT_SCALE),
+                height: Val::Px(side * PORTRAIT_SCALE),
                 ..default()
             },
         ));

@@ -317,7 +317,9 @@ struct Art {
 /// The images of one character (`sprites::characters`).
 struct CharacterArt {
     sheet: Handle<Image>,
+    /// The faceset, and which of its square cells is this character (`sprites::characters`).
     face: Handle<Image>,
+    face_cell: u32,
 }
 
 impl Art {
@@ -342,6 +344,7 @@ impl Art {
         CharacterArt {
             sheet: self.image(sprites::character_sheet_path(id)),
             face: self.image(sprites::character_face_path(id)),
+            face_cell: sprites::character_face_cell(id),
         }
     }
 
