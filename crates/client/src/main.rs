@@ -405,7 +405,9 @@ fn load_art(
     let mut art = Art::new((*assets).clone());
     art.trunks = images.add(canopy::blank_trunks());
     // Buildings appear mid-game; loading the sheet now keeps the headless screenshot waiting for it.
-    art.image(sprites::buildings::SHEET);
+    for sheet in sprites::buildings::SHEETS {
+        art.image(sheet);
+    }
     // Start every nation's characters loading now, so the headless screenshot waits for them.
     for n in Nation::ALL {
         for id in &sim.defs.nation(n).characters {
