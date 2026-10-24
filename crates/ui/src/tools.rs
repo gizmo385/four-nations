@@ -422,6 +422,21 @@ mod tests {
     }
 
     #[test]
+    fn the_build_key_never_cycles_through_another_nation_s_buildings() {
+        let s = Session::new(7, Nation::Earth, 64, 64);
+        let orchard = s.defs.building_id("orchard").unwrap();
+        let (mut tool, mut choice) = (Tool::Select, None);
+        for _ in 0..s.defs.buildings.len() * 2 {
+            (tool, choice) = switch_tool(&s, tool, choice, Tool::Build);
+            assert_ne!(choice, Some(orchard));
+        }
+        // A stale choice of a hidden building falls back to a placeable one.
+        let (_, fixed) = switch_tool(&s, Tool::Select, Some(orchard), Tool::Build);
+        assert_ne!(fixed, Some(orchard));
+        assert!(fixed.is_some());
+    }
+
+    #[test]
     fn applying_a_rectangle_counts_what_the_sim_accepted_and_says_why_for_the_rest() {
         let mut s = Session::new(7, Nation::Earth, 64, 64);
         let pos = free_tile(&s);

@@ -331,7 +331,10 @@ mod tests {
         let s = Session::new(7, Nation::Earth, 64, 64);
         let alerts = Alerts::default();
         let build_view = side_view(&s, Tool::Build, "", None, &alerts);
-        assert_eq!(build_view.picker.len(), s.defs.buildings.len());
+        let earth_wall = s.defs.building_id("earth_wall").unwrap();
+        let orchard = s.defs.building_id("orchard").unwrap();
+        let listed: Vec<_> = build_view.picker.iter().map(|r| r.id).collect();
+        assert!(listed.contains(&earth_wall) && !listed.contains(&orchard));
         let bed = s.defs.building_id("bed").unwrap();
         // With no choice yet the first placeable building is shown as the choice.
         assert!(build_view.picker.iter().any(|r| Some(r.id) == build_view.choice && !r.locked()));
