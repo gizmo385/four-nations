@@ -6,7 +6,7 @@
 #
 # `characters` are the Ninja Adventure characters (folder names under
 # assets/third_party/ninja-adventure/Actor/Character/) a nation's units are drawn as; a unit's
-# `variant` indexes this list. The sim only counts them; crates/client/src/sprites.rs finds files.
+# `variant` indexes this list. The sim only counts them; crates/client/src/sprites/characters.rs finds files.
 #
 # `starting_techs` are known from tick 0 (ids from data/research.toml). Each must be shared or
 # this nation's own, and every prereq of a starting tech must also be a starting tech.

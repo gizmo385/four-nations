@@ -64,14 +64,14 @@ The audit was done on the owner's download, `Ninja Adventure - Asset Pack.zip` (
 
 The cast lives in `data/nations.toml` as a `characters` list (rule 7: nations differ through
 data). Units pick one by their existing `variant` (`NationDef::character`); the sim only checks
-the list is non-empty. `sprites.rs` turns a character id into its sheet and faceset paths
+the list is non-empty. `sprites/characters.rs` turns a character id into its sheet and faceset paths
 (`SamuraiRed`'s sheet is `redsamurai.png`) and names the frame drawn: the down-facing idle cell
 (0,0), at 1:1. The selection panel shows the unit's faceset at 2x. Units, item markers and
 resources share one depth band by row (`row_depth` in `main.rs`), so a unit passes behind the
 canopy of a tree in the row below it and in front of one in its own row or above.
 
 **Map mapping** (#75, implemented). Coordinates are (column, row) in 16px cells of each sheet.
-The table lives in one place, `crates/client/src/sprites.rs` (`GROUND` and `RESOURCES`); a new
+The table lives in one place, `crates/client/src/sprites/` (`GROUND` and `RESOURCES`, one module per family); a new
 biome or resource is one new row there, and its tests fail until every biome has one. Where the
 cells differ from the first audit, the shipped cell is shown:
 
