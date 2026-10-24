@@ -21,8 +21,8 @@
 //! The sprite's `Transform` is what the selection ring, the canopy fade and `unit_anim` read.
 
 use bevy::prelude::*;
-use fn_sim::world::{Stride, TICKS_PER_SECOND};
 use fn_sim::Pos;
+use fn_sim::world::{Stride, TICKS_PER_SECOND};
 
 use super::{Sim, TILE, UnitSprite, unit_translation};
 
@@ -63,11 +63,7 @@ pub struct Placement {
 pub fn place(s: &Stride, extra: f32) -> Placement {
     let (i, t) = locate(&s.needed, s.progress + extra * s.speed);
     let (from, to) = (s.tiles[i], s.tiles[i + 1]);
-    Placement {
-        at: unit_translation(from).lerp(unit_translation(to), t),
-        from,
-        to,
-    }
+    Placement { at: unit_translation(from).lerp(unit_translation(to), t), from, to }
 }
 
 /// Whether a jump of `distance` pixels between two samples, with `ticks` sim ticks run in between,
@@ -299,10 +295,10 @@ mod tests {
     // ---- in an app, on a real world ----
 
     use crate::sprites::CELL;
-    use crate::unit_anim::{UnitView, animate_units};
     use crate::unit_anim;
-    use fn_sim::world::UnitId;
+    use crate::unit_anim::{UnitView, animate_units};
     use fn_sim::world::Command;
+    use fn_sim::world::UnitId;
     use std::time::Duration;
 
     const FRAME: Duration = Duration::from_micros(16_667);

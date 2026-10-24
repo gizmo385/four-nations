@@ -25,8 +25,9 @@
 //! X,Y (tiles may be fractional), since a headless run has no mouse, so the tree fade near the
 //! cursor shows in the shot (#77). `FN_CANOPY_DEMO=TICKS` first moves the settlers into
 //! the densest forest near them, designates trees there and runs TICKS ticks, and `FN_CANOPY_FADE=off` turns the fade off for a "before" shot.
-//! `FN_WALK_DEMO=STEPS` pauses the game and has the settlers walk to and fro on a levelled meadow
-//! beside the first one, facing every way, and takes the shot after STEPS steps (`walk_demo`, #165).
+//! `FN_WALK_DEMO=FRAMES` levels a meadow beside the first settler, sends three settlers across it
+//! to trees marked for harvest and takes the shot FRAMES frames (at 60 a second, by hand) after the
+//! art has loaded, with the game paused there (`walk_demo`, #165, #194).
 //! `FN_CAST_DEMO=T` stages the nation's ability on a levelled meadow and pauses the game `T`
 //! seconds from the moment the bend completes (negative: mid-channel, e.g. `-0.4`; positive: it
 //! has landed, e.g. `0.3`), so the shot catches the bender's pose and the cast effect (`cast_demo`,
@@ -179,9 +180,9 @@ fn main() {
                 .chain(),
         );
     if let Some(demo) = walk_demo {
-        app.insert_resource(demo).add_systems(
+        app.insert_resource(demo).insert_resource(walk_demo::time_strategy()).add_systems(
             Update,
-            (walk_demo::step_walkers.before(sync_units), walk_demo::frame_camera.after(controls)),
+            (walk_demo::run.before(sync_units), walk_demo::frame_camera.after(controls)),
         );
     }
     if let Some(demo) = cast_demo {

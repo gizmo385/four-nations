@@ -25,8 +25,8 @@ mod bending;
 mod build;
 mod command;
 mod heat;
-mod study;
 mod stride;
+mod study;
 mod work;
 
 use bending::Patch;
