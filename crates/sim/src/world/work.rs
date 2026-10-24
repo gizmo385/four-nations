@@ -46,7 +46,7 @@
 //! warm place if a heat source is near, else it sleeps on the ground where it stands.
 //!
 //! Everything is deterministic: units act in id order, searches break ties by position or id, and
-//! the only randomness is the idle wander (`world.units` stream).
+//! the only randomness is the idle wander and pause (`world.units` stream).
 
 use crate::flood::Flood;
 use crate::jobs::{HarvestDef, ItemId, JobKind};
@@ -818,7 +818,9 @@ impl World {
             let u = &mut self.units[i];
             u.job_task = Some(Task::Deliver);
             u.route = None;
-        } else if !self.claim_job(i, defs) {
+        } else if self.claim_job(i, defs) {
+            self.units[i].wander_left = 0;
+        } else {
             self.wander(i, defs);
         }
     }

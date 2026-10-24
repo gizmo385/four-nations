@@ -21,6 +21,12 @@ sleep_until = 90.0
 sleep_interrupt_below = 10.0
 # In-game seconds before a unit with nothing reachable to do looks again.
 retry_seconds = 5.0
+# A unit with nothing to do stands still for this many seconds, then with this chance wanders
+# 1 to `idle_wander_steps` random steps before standing still again. Jobs and needs are looked
+# at every tick regardless, so standing costs no latency.
+idle_pause_seconds = 8.0
+idle_wander_chance = 0.5
+idle_wander_steps = 4
 
 # Items that aren't food. Foods (data/needs.toml) are items too, with the id they have there.
 [[item]]

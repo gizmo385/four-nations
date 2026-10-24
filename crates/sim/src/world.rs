@@ -82,6 +82,13 @@ pub struct Unit {
     claim_retry_at: u64,
     /// Progress toward the next step; a step happens when this reaches `BASE_TICKS_PER_STEP`.
     move_progress: f32,
+    /// Tick before which an idle unit stands still instead of deciding whether to wander
+    /// (`data/jobs.toml`, `idle_pause_seconds`; issue #110).
+    #[serde(default)]
+    idle_until: u64,
+    /// Steps left in the idle wander in progress; 0 when standing.
+    #[serde(default)]
+    wander_left: u8,
 }
 
 /// A unit that died, kept so the UI and tests can see what happened.
@@ -286,6 +293,8 @@ impl World {
                 need_retry_at: [0; 3],
                 claim_retry_at: 0,
                 move_progress: 0.0,
+                idle_until: 0,
+                wander_left: 0,
             });
         }
     }
@@ -332,9 +341,23 @@ impl World {
         }
     }
 
-    /// One random step, at a speed set by the `move_speed` modifier. What a unit
-    /// with nothing to do does.
-    fn wander(&mut self, i: usize, _defs: &Defs) {
+    /// What a unit with nothing to do does (issue #110). It stands still for `idle_pause_seconds`;
+    /// then, with chance `idle_wander_chance`, it wanders 1 to `idle_wander_steps` random steps
+    /// (at a speed set by the `move_speed` modifier) before standing again. All draws come from
+    /// the `world.units` stream.
+    fn wander(&mut self, i: usize, defs: &Defs) {
+        if self.tick < self.units[i].idle_until {
+            return;
+        }
+        let s = defs.jobs;
+        if self.units[i].wander_left == 0 {
+            if self.rng.random::<f32>() >= s.idle_wander_chance {
+                self.rest_idle(i, defs);
+                return;
+            }
+            self.units[i].wander_left = self.rng.random_range(1..=s.idle_wander_steps);
+            self.units[i].move_progress = 0.0;
+        }
         let speed = self.modifiers.move_speed;
         self.units[i].move_progress += speed;
         if self.units[i].move_progress < BASE_TICKS_PER_STEP {
@@ -344,9 +367,22 @@ impl World {
         let pos = self.units[i].pos;
         let options: Vec<Pos> =
             self.map.neighbors(pos, false).filter(|&q| self.walkable(q)).collect();
-        if !options.is_empty() {
+        if options.is_empty() {
+            self.units[i].wander_left = 0;
+        } else {
             self.units[i].pos = options[self.rng.random_range(0..options.len())];
+            self.units[i].wander_left -= 1;
         }
+        if self.units[i].wander_left == 0 {
+            self.rest_idle(i, defs);
+        }
+    }
+
+    /// Starts an idle pause: the unit stands still for `idle_pause_seconds`.
+    fn rest_idle(&mut self, i: usize, defs: &Defs) {
+        let pause = (defs.jobs.idle_pause_seconds * TICKS_PER_SECOND as f32).ceil() as u64;
+        self.units[i].wander_left = 0;
+        self.units[i].idle_until = self.tick + pause;
     }
 }
 
@@ -372,6 +408,9 @@ impl World {
         }
     }
 }
+
+#[cfg(test)]
+mod idle_tests;
 
 #[cfg(test)]
 mod rest_tests;
@@ -415,11 +454,14 @@ mod tests {
 
     #[test]
     fn airbenders_cover_more_ground_than_earthbenders() {
-        // Count steps taken: air's move_speed modifier is higher than earth's.
+        // Count steps taken during a long wander: air's move_speed modifier is higher than earth's.
         let steps = |nation| {
             let (mut w, defs) = world(nation);
+            for u in &mut w.units {
+                u.wander_left = 200;
+            }
             let mut moved = 0;
-            for _ in 0..600 {
+            for _ in 0..300 {
                 let before: Vec<Pos> = w.units.iter().map(|u| u.pos).collect();
                 w.tick(&defs);
                 moved += w.units.iter().zip(&before).filter(|(u, b)| u.pos != **b).count();
