@@ -27,8 +27,11 @@ pub const SHEET_EARTH: &str = "original/buildings_earth.png";
 /// station.
 pub const SHEET_FIRE: &str = "original/buildings_fire.png";
 
+/// The Water Tribe buildings' sheet (#178): the igloo.
+pub const SHEET_WATER: &str = "original/buildings_water.png";
+
 /// Every sheet, for the loader and the tests.
-pub const SHEETS: &[&str] = &[SHEET, SHEET_AIR, SHEET_EARTH, SHEET_FIRE];
+pub const SHEETS: &[&str] = &[SHEET, SHEET_AIR, SHEET_EARTH, SHEET_FIRE, SHEET_WATER];
 
 /// One building's sprite: its frames, in the order they play (one for most buildings).
 pub struct BuildingArt {
@@ -84,6 +87,8 @@ pub const ART: &[BuildingArt] = &[
         name: "lightning_station",
         frames: &[big(SHEET_FIRE, 0, 6), big(SHEET_FIRE, 2, 6)],
     },
+    // Water Tribes (`SHEET_WATER`)
+    BuildingArt { name: "igloo", frames: &[big(SHEET_WATER, 0, 0)] },
 ];
 
 /// What a building with no art yet is drawn as.
@@ -98,7 +103,6 @@ pub const NO_ART_YET: &[&str] = &[
     // Air Nomads
     // Fire Nation
     // Water Tribe
-    "igloo",
 ];
 
 /// The frames of the sprite called `art`, if it has one.
@@ -157,6 +161,8 @@ mod tests {
         assert_eq!(sprite_names(SHEET_EARTH).len(), 1);
         assert_eq!(png_size(SHEET_FIRE), (4 * 32, 4 * 32));
         assert_eq!(sprite_names(SHEET_FIRE).len(), 14);
+        assert_eq!(png_size(SHEET_WATER), (4 * 32, 32));
+        assert_eq!(sprite_names(SHEET_WATER).len(), 1);
     }
 
     #[test]
