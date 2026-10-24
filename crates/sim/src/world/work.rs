@@ -90,8 +90,9 @@ pub enum DesignateError {
     OutOfBounds,
     /// There is no resource with a harvest entry on that tile.
     NothingToHarvest,
-    /// The resource needs a tech the nation doesn't know yet (fishing, say).
-    NotResearched,
+    /// The resource needs a tech the nation doesn't know yet (fishing, say). The client can look
+    /// up its name for a reason like "Requires Fishing" (issue #22).
+    NotResearched(TechId),
     AlreadyDesignated,
     /// There is no harvest designation on that tile to cancel.
     NotDesignated,
@@ -188,8 +189,8 @@ impl World {
         let Some(h) = tile.resource.and_then(|r| defs.harvest(r)) else {
             return Err(DesignateError::NothingToHarvest);
         };
-        if !self.can_work(h) {
-            return Err(DesignateError::NotResearched);
+        if let Some(t) = h.unlocked_by.filter(|&t| !self.research.is_known(t)) {
+            return Err(DesignateError::NotResearched(t));
         }
         Ok(h)
     }
@@ -329,7 +330,7 @@ impl World {
 
     /// Does the nation know what it takes to work this kind of resource?
     fn can_work(&self, h: &HarvestDef) -> bool {
-        h.requires_tech.is_none_or(|t| self.research.is_known(t))
+        self.is_unlocked(h.unlocked_by)
     }
 
     /// The harvest for the resource on `pos`, if it can be worked right now: it has a harvest

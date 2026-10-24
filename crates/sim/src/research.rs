@@ -92,17 +92,23 @@ fn millis_per_tick(per_minute: f64) -> u64 {
     (per_minute * MILLIS_PER_POINT as f64 / (60.0 * f64::from(TICKS_PER_SECOND))).round() as u64
 }
 
-/// What learning a tech makes available. Modifier multipliers and bending abilities exist so far;
-/// buildings and jobs are added (with their validation) by the issues that introduce those defs,
-/// so unknown keys are rejected until then.
+/// What learning a tech makes available: modifier multipliers, plus ids checked against the def
+/// kind they name once it loads (`building::BuildingsFile::resolve`, `jobs::JobsFile::resolve`,
+/// `bending::BendingFile::resolve`), which also records the unlocking tech on that def's
+/// `unlocked_by` field. An item no tech names this way is available from the start (issue #22).
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Unlocks {
     #[serde(default)]
     pub modifiers: ModifierMultipliers,
-    /// Ids of abilities in `data/bending.toml` this tech unlocks. Checked against the ability
-    /// defs when they load (`bending::BendingFile::resolve`), which also records the unlocking
-    /// tech on `AbilityDef::unlocked_by`.
+    /// Ids of buildings in `data/buildings.toml` this tech unlocks.
+    #[serde(default)]
+    pub buildings: Vec<String>,
+    /// Ids of resources in `data/resources.toml` whose harvest designation (`data/jobs.toml`)
+    /// this tech unlocks.
+    #[serde(default)]
+    pub jobs: Vec<String>,
+    /// Ids of abilities in `data/bending.toml` this tech unlocks.
     #[serde(default)]
     pub abilities: Vec<String>,
 }
@@ -602,12 +608,6 @@ mod tests {
     fn unknown_modifier_name_is_rejected() {
         let src = tech("a", "cost = 1\n[tech.unlocks]\nmodifiers = { contstruction = 1.2 }");
         assert_err(with_techs(&src), "contstruction");
-    }
-
-    #[test]
-    fn unlock_kinds_without_defs_are_rejected() {
-        let src = tech("a", "cost = 1\n[tech.unlocks]\nbuildings = ['campfire']");
-        assert_err(with_techs(&src), "buildings");
     }
 
     #[test]

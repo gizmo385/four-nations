@@ -77,7 +77,7 @@ impl std::fmt::Display for CommandError {
         match self {
             Self::Designate(DesignateError::OutOfBounds) => f.write_str("off the map"),
             Self::Designate(DesignateError::NothingToHarvest) => f.write_str("nothing to harvest"),
-            Self::Designate(DesignateError::NotResearched) => f.write_str("not researched yet"),
+            Self::Designate(DesignateError::NotResearched(_)) => f.write_str("not researched yet"),
             Self::Designate(DesignateError::AlreadyDesignated) => f.write_str("already designated"),
             Self::Designate(DesignateError::NotDesignated) => f.write_str("not designated"),
             Self::Designate(DesignateError::CannotStockpile) => f.write_str("can't stockpile here"),

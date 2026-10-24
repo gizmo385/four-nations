@@ -12,9 +12,13 @@
 # unlocked by a tech of its own nation, and by at most one tech; an ability no tech unlocks is
 # available from the start (a nation's signature ability).
 #
-# Modifier and ability unlocks exist so far. Building and job unlocks are added by the issues
-# that introduce those defs (see "Staging" in research.md); until then the `# Later:` comments
-# record what each tech is meant to unlock.
+# `buildings` lists ids from data/buildings.toml, and `jobs` lists resource ids from
+# data/resources.toml whose harvest designation (data/jobs.toml) the tech unlocks (issue #22).
+# Either may be unlocked by at most one tech; an item no tech names is available from the start.
+#
+# Most buildings and jobs in the starter tree below don't exist as data yet. The `# Later:`
+# comments record what each tech is meant to unlock once the issue that adds that content wires
+# it up (see "Staging" in research.md).
 
 [settings]
 passive_knowledge_per_minute = 3.0   # settlement-wide "oral tradition" trickle
@@ -29,7 +33,9 @@ id = "fire_making"
 name = "Fire Making"
 description = "Keep a flame alive: cook food and stay warm."
 cost = 25
-# Later: buildings = ["campfire"], jobs = ["cook"]
+# Later: jobs = ["cook"]
+[tech.unlocks]
+buildings = ["campfire"]
 
 [[tech]]
 id = "shelter"
@@ -43,7 +49,8 @@ id = "fishing"
 name = "Fishing"
 description = "Nets, lines and the patience to use them."
 cost = 25
-# Later: fishing-spot designation, jobs = ["fish"]
+[tech.unlocks]
+jobs = ["fish_spot"]
 
 [[tech]]
 id = "stoneworking"

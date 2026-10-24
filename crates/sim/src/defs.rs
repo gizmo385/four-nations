@@ -206,7 +206,8 @@ impl Defs {
         let (needs, foods) = parse::<NeedsFile>("needs.toml", needs)?.resolve(&resource_ids)?;
         let (jobs, items, harvests) =
             parse::<JobsFile>("jobs.toml", jobs)?.resolve(&resources, &foods, &needs, &techs)?;
-        let buildings = parse::<BuildingsFile>("buildings.toml", buildings)?.resolve(&items)?;
+        let buildings =
+            parse::<BuildingsFile>("buildings.toml", buildings)?.resolve(&items, &techs)?;
         let biomes = parse::<BiomeFile>("biomes.toml", biomes)?.biome;
         let (chi, abilities) = parse::<BendingFile>("bending.toml", bending)?
             .resolve(&biomes, &resources, &harvests, &techs)?;
@@ -392,6 +393,14 @@ mod tests {
         format!("harvest = []\n{}", &JOBS[..end])
     }
 
+    /// The bundled research tree without `fishing`'s job unlock, for tests with their own
+    /// resources (so `fish_spot` doesn't dangle).
+    fn bare_research() -> String {
+        let src = RESEARCH.replace("[tech.unlocks]\njobs = [\"fish_spot\"]\n", "");
+        assert_ne!(src, RESEARCH, "fishing's unlocks.jobs moved; update this helper");
+        src
+    }
+
     /// The bundled bending without abilities, for tests with their own biomes and resources.
     fn bare_bending() -> &'static str {
         &BENDING[..BENDING.find("\n[[ability]]").unwrap()]
@@ -403,7 +412,7 @@ mod tests {
             biomes,
             "resource = []",
             NATIONS,
-            RESEARCH,
+            &bare_research(),
             &unlinked_needs(),
             &bare_jobs(),
             bare_bending(),
@@ -417,7 +426,7 @@ mod tests {
             BIOMES,
             &src,
             NATIONS,
-            RESEARCH,
+            &bare_research(),
             &unlinked_needs(),
             &bare_jobs(),
             bare_bending(),
@@ -581,9 +590,6 @@ mod tests {
         assert!(bad("base_carry = 5", "base_carry = 0").contains("base_carry"));
         assert!(bad("eat_seconds = 3.0", "eat_secs = 3.0").contains("eat_secs"));
         assert!(bad("regrow = 300.0", "regrow = 0.0").contains("regrow"));
-        assert!(
-            bad("requires_tech = \"fishing\"", "requires_tech = \"fishin\"").contains("fishin")
-        );
         // Two entries for one resource.
         let twice = format!(
             "{JOBS}\n[[harvest]]\nresource = \"stone\"\nverb = \"X\"\nitem = \"stone\"\ncount = 1\nwork = 1.0\n"

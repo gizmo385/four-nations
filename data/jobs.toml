@@ -45,9 +45,9 @@ name = "Gold Ore"
 #             stays on the map, can't be worked again until it has regrown, and then ripens
 #             again. This is what keeps a settlement fed past the first few hours. Without it
 #             the resource is used up.
-# - requires_tech: optional tech id (data/research.toml). Until the nation knows it the resource
-#             can't be designated, and hungry units won't forage it. Water Tribes start with
-#             `fishing`.
+# Which tech, if any, must be known before a resource's designation is available is
+# `[tech.unlocks] jobs` in data/research.toml (issue #22): until the nation knows it, the
+# resource can't be designated, and hungry units won't forage it either.
 # A harvest whose item is a food can also be foraged by a hungry unit on its own.
 
 [[harvest]]
@@ -105,4 +105,3 @@ count = 2
 work = 8.0
 modifier = "water_work"
 regrow = 300.0
-requires_tech = "fishing"
