@@ -202,6 +202,11 @@ like a tree: bottom-aligned, drawn by `row_depth`, free to overhang the tiles ar
   and `sprites/buildings.rs` names each sheet. The windmill's sails (30 degree steps) and the
   turbine's blades (40) are three frames each, played like the campfire. Air buildings are Air
   Temple wood, cream plaster and gold on the same stone plinth as the halls.
+- **The Earth Kingdom's buildings** are `art/buildings_earth.toml` (#175), a sheet of their own.
+  `earth_wall` is the one impassable 1x1 piece: a battlemented stone wall on a rammed-earth
+  footing. It fills its 16px tile exactly (the outline is the tile's edge), so neighbouring walls
+  sit side by side with a two-pixel joint and never overlap. There is no autotile: a straight run
+  or a corner reads as a battlement without one.
 - **Nation differences are shape and material**, not the accent: a gold-roofed open pavilion, an
   ice-block lodge, a green-tiled hall and a red two-tier pagoda.
 - **Seeing them.** `FN_BUILD_DEMO=buildings cargo xtask screenshot ...` levels a meadow beside
