@@ -130,6 +130,34 @@ fn cancelling_a_build_drops_delivered_materials_and_frees_the_unit() {
 }
 
 #[test]
+fn another_nation_s_building_is_refused_because_its_tech_can_never_be_known() {
+    let defs = Defs::bundled();
+    let mut checked = 0;
+    for nation in Nation::ALL {
+        let (mut w, _) = setup_as(nation, &GRID, &[at(1, 1)]);
+        for (i, def) in defs.buildings.iter().enumerate() {
+            let Some(tech) = def.unlocked_by else { continue };
+            if defs.tech(tech).nation.is_none_or(|n| n == nation) {
+                continue;
+            }
+            assert_eq!(
+                w.designate_build(at(2, 2), BuildingId(i as u16), &defs),
+                Err(BuildError::NotResearched(tech)),
+                "{nation:?} building {}",
+                def.id
+            );
+            // And the tech can't be researched to get round it.
+            assert_eq!(
+                w.apply(Command::SetResearch { tech }, &defs),
+                Err(CommandError::Research(ResearchError::WrongNation))
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked > 0);
+}
+
+#[test]
 fn a_locked_building_needs_its_tech_but_fire_starts_with_it() {
     let defs = Defs::bundled();
     let campfire = defs.building_id("campfire").expect("added by issue #22");

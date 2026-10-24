@@ -45,8 +45,17 @@ fn cost_text(session: &Session, def: &BuildingDef) -> String {
     parts.join(", ")
 }
 
-/// Every building in the data, in file order, by the current nation's name, with its cost and
-/// work, and the tech it still needs if it's locked.
+/// Whether the current nation could ever build `def`: not if the tech that unlocks it belongs
+/// to another nation's branch (`TechDef::nation`), which the nation can never research.
+fn available_to_nation(session: &Session, def: &BuildingDef) -> bool {
+    def.unlocked_by
+        .and_then(|t| session.defs.tech(t).nation)
+        .is_none_or(|n| n == session.world.nation)
+}
+
+/// Every building the current nation can build or may yet unlock, in file order, by its name for
+/// them, with cost and work, and the tech it still needs if it's locked. Buildings behind
+/// another nation's tech are left out (issue #137).
 pub fn picker_rows(session: &Session) -> Vec<PickerRow> {
     let nation = session.world.nation;
     session
@@ -54,6 +63,7 @@ pub fn picker_rows(session: &Session) -> Vec<PickerRow> {
         .buildings
         .iter()
         .enumerate()
+        .filter(|(_, def)| available_to_nation(session, def))
         .map(|(i, def)| PickerRow {
             id: BuildingId(i as u16),
             name: def.display_name(nation).to_owned(),
@@ -161,12 +171,19 @@ mod tests {
     }
 
     #[test]
-    fn the_picker_lists_every_building_by_the_nation_s_name_with_cost_and_work() {
+    fn the_picker_lists_each_building_the_nation_can_have_by_its_name_with_cost_and_work() {
         for nation in Nation::ALL {
             let session = session(nation);
             let rows = picker_rows(&session);
-            assert_eq!(rows.len(), session.defs.buildings.len());
-            for (row, def) in rows.iter().zip(&session.defs.buildings) {
+            let mine: Vec<&BuildingDef> = session
+                .defs
+                .buildings
+                .iter()
+                .filter(|d| available_to_nation(&session, d))
+                .collect();
+            assert_eq!(rows.len(), mine.len());
+            assert!(rows.len() < session.defs.buildings.len(), "{nation:?} has hidden buildings");
+            for (row, def) in rows.iter().zip(mine) {
                 assert_eq!(row.name, def.display_name(nation));
                 assert_eq!(row.work, format!("{:.0}s work", def.work));
             }
@@ -182,7 +199,9 @@ mod tests {
     fn buildings_a_nation_has_not_unlocked_are_locked_with_the_tech_named() {
         for nation in Nation::ALL {
             let session = session(nation);
-            for (row, def) in picker_rows(&session).iter().zip(&session.defs.buildings) {
+            let rows = picker_rows(&session);
+            let mine = session.defs.buildings.iter().filter(|d| available_to_nation(&session, d));
+            for (row, def) in rows.iter().zip(mine) {
                 assert_eq!(row.locked(), !session.world.is_unlocked(def.unlocked_by), "{}", def.id);
                 if let Some(t) = def.unlocked_by.filter(|_| row.locked()) {
                     assert_eq!(
@@ -202,6 +221,29 @@ mod tests {
             Some("Requires Fire Making")
         );
         assert!(!row(&rows, &earth, "bed").locked());
+    }
+
+    #[test]
+    fn buildings_behind_another_nation_s_tech_are_hidden() {
+        let ids =
+            |s: &Session| -> Vec<BuildingId> { picker_rows(s).iter().map(|r| r.id).collect() };
+        let earth = session(Nation::Earth);
+        let fire = session(Nation::Fire);
+        let wall = earth.defs.building_id("earth_wall").unwrap();
+        let earthen_walls = earth.defs.tech(earth.defs.building(wall).unlocked_by.unwrap());
+        assert_eq!(earthen_walls.nation, Some(Nation::Earth));
+        // Listed (and locked) for Earth, absent for Fire.
+        assert!(row(&picker_rows(&earth), &earth, "earth_wall").locked());
+        assert!(!ids(&fire).contains(&wall));
+        // Earth in turn never sees Air's orchard.
+        let orchard = earth.defs.building_id("orchard").unwrap();
+        assert!(!ids(&earth).contains(&orchard));
+        assert!(ids(&session(Nation::Air)).contains(&orchard));
+        // Shared buildings stay visible to everyone.
+        let bed = earth.defs.building_id("bed").unwrap();
+        for nation in Nation::ALL {
+            assert!(ids(&session(nation)).contains(&bed));
+        }
     }
 
     #[test]
