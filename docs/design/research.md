@@ -111,12 +111,20 @@ two-thirds effective), an Earth settlement has about 1000 points at minute 60 an
 
 | id | Cost | Prereqs | Unlocks |
 |---|---|---|---|
-| `forging` | 60 | fire_making | forge; smith job (tools) |
+| `forging` | 60 | fire_making | forge; smith job (tools, not yet built: #124) |
 | `brickmaking` | 120 | forging, pottery | brick kiln; construction ×1.15 |
 | `smelting` | 120 | forging | smelter (ore to metal); heating ×1.2 |
-| `dancing_dragon` | 250 | smelting | Sun Warrior teachings: heating ×1.25; ability: inner fire (warmth aura) |
+| `dancing_dragon` | 250 | smelting | Sun Warrior teachings: heating ×1.25; ability: inner fire (warmth aura). *Modifier-only until the ability is designed: #123* |
 | `steam_engines` | 250 | smelting, brickmaking | steam engine powers mills and pumps; power_generation ×1.25 |
 | `lightning_generation` | 500 | dancing_dragon, steam_engines | lightning power station (Republic City style); power_generation ×1.5 |
+
+The buildings (`forge`, `brick_kiln`, `smelter`, `steam_engine`, `lightning_station`) exist in
+`data/buildings.toml` and are gated by their techs (#26), but are structures only: what they
+produce needs the production and power systems (#124). Their costs are placeholders. No branch
+cost or multiplier changed in #26; the playtest in `crates/sim/tests/research_fire.rs` has a
+Fire settlement with an Academy (two scholars) finish the whole Fire tree, shared tier included,
+in about 107 minutes, inside the 90 to 187 minute window (the 2 to 2.5 h target, plus or minus
+25%).
 
 Lightning is a *power source*, not an attack. Redirection can stay flavor text.
 

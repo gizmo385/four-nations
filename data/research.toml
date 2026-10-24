@@ -204,7 +204,10 @@ description = "Work hot metal into tools at the forge."
 nation = "fire"
 cost = 60
 prereqs = ["fire_making"]
-# Later: buildings = ["forge"], jobs = ["smith"]
+# No `smith` job yet: jobs unlock harvest designations (resources), and smithing isn't one.
+# Later: jobs = ["smith"] once the work-order jobs (tools) exist.
+[tech.unlocks]
+buildings = ["forge"]
 
 [[tech]]
 id = "brickmaking"
@@ -213,8 +216,8 @@ description = "Fire bricks by the thousand for strong, quick building."
 nation = "fire"
 cost = 120
 prereqs = ["forging", "pottery"]
-# Later: buildings = ["brick_kiln"]
 [tech.unlocks]
+buildings = ["brick_kiln"]
 modifiers = { construction = 1.15 }
 
 [[tech]]
@@ -224,8 +227,9 @@ description = "Draw metal out of ore with steady firebending heat."
 nation = "fire"
 cost = 120
 prereqs = ["forging"]
-# Later: buildings = ["smelter"]
+# Later: the smelter's ore-to-metal recipe (no metal item exists yet).
 [tech.unlocks]
+buildings = ["smelter"]
 modifiers = { heating = 1.2 }
 
 [[tech]]
@@ -235,7 +239,10 @@ description = "The Sun Warriors' teaching: fire is life and energy, not rage."
 nation = "fire"
 cost = 250
 prereqs = ["smelting"]
-# Later: abilities = ["inner_fire"] (warmth aura)
+# Modifier-only for now: its ability, inner fire (a warmth aura that follows a unit), needs a new
+# bending effect that the four in data/bending.toml don't cover; tracked in issue #123 (the
+# design table in research.md still lists it).
+# Later: abilities = ["inner_fire"]
 [tech.unlocks]
 modifiers = { heating = 1.25 }
 
@@ -246,8 +253,9 @@ description = "Boil water to drive mills and pumps."
 nation = "fire"
 cost = 250
 prereqs = ["smelting", "brickmaking"]
-# Later: buildings = ["steam_engine"]
+# Later: the steam engine powering mills and pumps (no power system yet).
 [tech.unlocks]
+buildings = ["steam_engine"]
 modifiers = { power_generation = 1.25 }
 
 [[tech]]
@@ -257,8 +265,9 @@ description = "Firebenders feed lightning into a power station, Republic City st
 nation = "fire"
 cost = 500
 prereqs = ["dancing_dragon", "steam_engines"]
-# Later: buildings = ["lightning_station"]
+# Later: the station's power output (no power system yet).
 [tech.unlocks]
+buildings = ["lightning_station"]
 modifiers = { power_generation = 1.5 }
 
 # ---------------------------------------------------------------------------------------------

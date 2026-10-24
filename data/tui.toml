@@ -191,6 +191,32 @@ glyph = "∩"
 ascii = "S"
 fg = [210, 190, 150]
 
+# --- Fire Nation ---
+[building.forge]
+glyph = "Ω"
+ascii = "F"
+fg = [232, 96, 48]
+
+[building.brick_kiln]
+glyph = "▦"
+ascii = "K"
+fg = [200, 90, 60]
+
+[building.smelter]
+glyph = "Ψ"
+ascii = "S"
+fg = [240, 130, 50]
+
+[building.steam_engine]
+glyph = "Φ"
+ascii = "E"
+fg = [190, 190, 200]
+
+[building.lightning_station]
+glyph = "Ϟ"
+ascii = "Z"
+fg = [250, 230, 90]
+
 # Units draw in their nation's `color` (data/nations.toml), mixed toward white by `lift`.
 [unit]
 glyph = "☺"

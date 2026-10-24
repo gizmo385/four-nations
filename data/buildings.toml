@@ -146,3 +146,75 @@ count = 20
 [[building.cost]]
 item = "stone"
 count = 6
+
+# --- Fire Nation ---
+# The Fire branch's buildings (issue #26), each unlocked by its tech in data/research.toml. They
+# are structures only so far: what they produce (smithing, bricks, metal, power) needs the
+# production and power systems, which don't exist yet (issue #124). Costs scale with the tech's
+# tier and use the items that exist today; they are starting values for a balance pass, not a
+# design target.
+
+[[building]]
+id = "forge"
+name = "Forge"
+verb = "Build"
+work = 60.0
+passable = false
+[[building.cost]]
+item = "stone"
+count = 8
+[[building.cost]]
+item = "wood"
+count = 4
+
+[[building]]
+id = "brick_kiln"
+name = "Brick Kiln"
+verb = "Build"
+work = 60.0
+passable = false
+[[building.cost]]
+item = "stone"
+count = 10
+[[building.cost]]
+item = "wood"
+count = 6
+
+[[building]]
+id = "smelter"
+name = "Smelter"
+verb = "Build"
+work = 80.0
+passable = false
+[[building.cost]]
+item = "stone"
+count = 12
+[[building.cost]]
+item = "wood"
+count = 4
+
+[[building]]
+id = "steam_engine"
+name = "Steam Engine"
+verb = "Build"
+work = 120.0
+passable = false
+[[building.cost]]
+item = "stone"
+count = 15
+[[building.cost]]
+item = "wood"
+count = 10
+
+[[building]]
+id = "lightning_station"
+name = "Lightning Station"
+verb = "Build"
+work = 200.0
+passable = false
+[[building.cost]]
+item = "stone"
+count = 25
+[[building.cost]]
+item = "wood"
+count = 15
