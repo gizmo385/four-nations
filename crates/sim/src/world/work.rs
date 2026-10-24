@@ -100,7 +100,7 @@ pub enum DesignateError {
     /// up its name for a reason like "Requires Fishing" (issue #22).
     NotResearched(TechId),
     AlreadyDesignated,
-    /// There is no harvest designation on that tile to cancel.
+    /// There is no designation on that tile to cancel (harvest or stockpile).
     NotDesignated,
     /// Stockpiles need a walkable tile with nothing on it.
     CannotStockpile,
@@ -260,6 +260,19 @@ impl World {
             self.ensure_haul_job(p);
         }
         self.wake_idle();
+        Ok(())
+    }
+
+    /// Removes a tile's stockpile designation. What the tile held isn't lost and isn't hauled
+    /// away: it is dropped on the ground on that tile (or the closest free one, if something
+    /// else already lies there), where normal hauling can store it in another zone.
+    pub(super) fn cancel_stockpile(&mut self, pos: Pos) -> Result<(), DesignateError> {
+        if !self.zones.remove(&pos) {
+            return Err(DesignateError::NotDesignated);
+        }
+        if let Some(stack) = self.stored.remove(&pos) {
+            self.place_ground(pos, stack);
+        }
         Ok(())
     }
 }

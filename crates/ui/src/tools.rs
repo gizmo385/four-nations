@@ -3,7 +3,7 @@
 //! `Enter`s) into a rectangle; this turns the rectangle into `Command`s and a notice.
 //!
 //! Keys: `H` harvest (chop, quarry, gather, mine, whatever each tile's resource gives), `X` cancel
-//! harvest (also withdraws a build site), `P` stockpile, `B` the nation's bending ability, `U` the
+//! harvest (also withdraws a build site or a stockpile tile), `P` stockpile, `B` the nation's bending ability, `U` the
 //! build tool (pressed again it cycles through the buildings the nation can place) and `Esc` back
 //! to selecting.
 
@@ -41,6 +41,26 @@ pub struct Pick {
     pub repeating: bool,
     /// The building to place; `Build` issues nothing without one.
     pub building: Option<BuildingId>,
+}
+
+/// What the cancel tool can withdraw on a tile, other than a harvest designation.
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct Here {
+    /// A build site is pending on the tile.
+    pub site: bool,
+    /// The tile is designated as stockpile.
+    pub zone: bool,
+}
+
+impl Here {
+    /// What is designated on `pos` right now.
+    pub fn at(session: &Session, pos: Pos) -> Self {
+        let world = &session.world;
+        Self {
+            site: world.build_site(pos).is_some(),
+            zone: world.stockpile_zones().any(|z| z == pos),
+        }
+    }
 }
 
 impl Tool {
@@ -97,7 +117,7 @@ impl Tool {
         match self {
             Self::Select => "select units",
             Self::Harvest => "designate harvest (chop, mine, gather); hold Shift to repeat",
-            Self::CancelHarvest => "cancel harvest or build site",
+            Self::CancelHarvest => "cancel harvest, build site or stockpile",
             Self::Stockpile => "designate stockpile",
             Self::Bend => "channel the nation's ability",
             Self::Build => "build: pick a building, then click a tile (U: next building)",
@@ -116,14 +136,16 @@ impl Tool {
         self.label().to_owned()
     }
 
-    /// The command this tool issues for one tile, if it issues any. `site_here` says a build
-    /// site is pending on the tile, which the cancel tool withdraws instead of a harvest.
-    pub fn command(self, pos: Pos, site_here: bool, pick: Pick) -> Option<Command> {
+    /// The command this tool issues for one tile, if it issues any. `here` says what else is
+    /// designated on the tile: the cancel tool withdraws a build site, else a stockpile tile,
+    /// instead of a harvest.
+    pub fn command(self, pos: Pos, here: Here, pick: Pick) -> Option<Command> {
         match self {
             Self::Select => None,
             Self::Harvest if pick.repeating => Some(Command::DesignateRepeatingHarvest { pos }),
             Self::Harvest => Some(Command::DesignateHarvest { pos }),
-            Self::CancelHarvest if site_here => Some(Command::CancelBuild { pos }),
+            Self::CancelHarvest if here.site => Some(Command::CancelBuild { pos }),
+            Self::CancelHarvest if here.zone => Some(Command::CancelStockpile { pos }),
             Self::CancelHarvest => Some(Command::CancelHarvest { pos }),
             Self::Stockpile => Some(Command::DesignateStockpile { pos }),
             Self::Bend => Some(Command::Bend { ability: pick.ability?, pos }),
@@ -202,8 +224,7 @@ pub fn apply_rect(
     let (mut done, mut refused) = (0, 0);
     let mut last_error = None;
     for pos in tiles_between(from, to) {
-        let site_here = session.world.build_site(pos).is_some();
-        if let Some(command) = tool.command(pos, site_here, pick) {
+        if let Some(command) = tool.command(pos, Here::at(session, pos), pick) {
             match session.apply(command) {
                 Ok(()) => done += 1,
                 Err(e) => {
@@ -249,45 +270,70 @@ mod tests {
     fn each_tool_issues_its_own_command() {
         let pos = Pos::new(1, 2);
         let none = Pick::default();
-        assert_eq!(Tool::Select.command(pos, false, none), None);
+        assert_eq!(Tool::Select.command(pos, Here::default(), none), None);
         assert_eq!(
-            Tool::Harvest.command(pos, false, none),
+            Tool::Harvest.command(pos, Here::default(), none),
             Some(Command::DesignateHarvest { pos })
         );
         assert_eq!(
-            Tool::CancelHarvest.command(pos, false, none),
+            Tool::CancelHarvest.command(pos, Here::default(), none),
             Some(Command::CancelHarvest { pos })
         );
         assert_eq!(
-            Tool::Stockpile.command(pos, false, none),
+            Tool::Stockpile.command(pos, Here::default(), none),
             Some(Command::DesignateStockpile { pos })
         );
         let ability = AbilityId(0);
         let bend = Pick { ability: Some(ability), ..none };
-        assert_eq!(Tool::Bend.command(pos, false, bend), Some(Command::Bend { ability, pos }));
+        assert_eq!(
+            Tool::Bend.command(pos, Here::default(), bend),
+            Some(Command::Bend { ability, pos })
+        );
         let building = BuildingId(2);
         let build = Pick { building: Some(building), ..none };
         assert_eq!(
-            Tool::Build.command(pos, false, build),
+            Tool::Build.command(pos, Here::default(), build),
             Some(Command::DesignateBuild { pos, building })
         );
     }
 
     #[test]
     fn build_needs_a_chosen_building_to_issue_a_command() {
-        assert_eq!(Tool::Build.command(Pos::new(0, 0), false, Pick::default()), None);
+        assert_eq!(Tool::Build.command(Pos::new(0, 0), Here::default(), Pick::default()), None);
     }
 
     #[test]
     fn cancel_withdraws_a_build_site_where_there_is_one() {
         let pos = Pos::new(4, 4);
         let none = Pick::default();
+        let site = Here { site: true, zone: false };
         assert_eq!(
-            Tool::CancelHarvest.command(pos, true, none),
+            Tool::CancelHarvest.command(pos, site, none),
             Some(Command::CancelBuild { pos })
         );
         // Only the cancel tool does.
-        assert_eq!(Tool::Harvest.command(pos, true, none), Some(Command::DesignateHarvest { pos }));
+        assert_eq!(Tool::Harvest.command(pos, site, none), Some(Command::DesignateHarvest { pos }));
+    }
+
+    #[test]
+    fn cancel_withdraws_a_stockpile_tile_where_there_is_one() {
+        let pos = Pos::new(4, 4);
+        let none = Pick::default();
+        let zone = Here { site: false, zone: true };
+        assert_eq!(
+            Tool::CancelHarvest.command(pos, zone, none),
+            Some(Command::CancelStockpile { pos })
+        );
+        assert_eq!(
+            Tool::Stockpile.command(pos, zone, none),
+            Some(Command::DesignateStockpile { pos })
+        );
+        // A build site comes first.
+        let both = Here { site: true, zone: true };
+        assert_eq!(
+            Tool::CancelHarvest.command(pos, both, none),
+            Some(Command::CancelBuild { pos })
+        );
     }
 
     #[test]
@@ -295,20 +341,20 @@ mod tests {
         let pos = Pos::new(1, 2);
         let shift = Pick { repeating: true, ..Pick::default() };
         assert_eq!(
-            Tool::Harvest.command(pos, false, shift),
+            Tool::Harvest.command(pos, Here::default(), shift),
             Some(Command::DesignateRepeatingHarvest { pos })
         );
         // Shift only changes what the harvest tool does.
         assert_eq!(
-            Tool::CancelHarvest.command(pos, false, shift),
+            Tool::CancelHarvest.command(pos, Here::default(), shift),
             Some(Command::CancelHarvest { pos })
         );
-        assert_eq!(Tool::Select.command(pos, false, shift), None);
+        assert_eq!(Tool::Select.command(pos, Here::default(), shift), None);
     }
 
     #[test]
     fn bend_needs_an_ability_to_issue_a_command() {
-        assert_eq!(Tool::Bend.command(Pos::new(0, 0), false, Pick::default()), None);
+        assert_eq!(Tool::Bend.command(Pos::new(0, 0), Here::default(), Pick::default()), None);
     }
 
     #[test]
@@ -411,6 +457,19 @@ mod tests {
         let notice = apply_rect(&mut s, Tool::CancelHarvest, pos, pos, false, None);
         assert!(notice.ends_with("1 done, 0 skipped"), "{notice}");
         assert!(s.world.build_site(pos).is_none());
+    }
+
+    #[test]
+    fn cancel_drags_over_a_stockpile_and_clears_it() {
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let pos = free_tile(&s);
+        let to = Pos::new(pos.x + 1, pos.y);
+        apply_rect(&mut s, Tool::Stockpile, pos, to, false, None);
+        let zones: Vec<Pos> = s.world.stockpile_zones().collect();
+        assert!(!zones.is_empty());
+        let notice = apply_rect(&mut s, Tool::CancelHarvest, pos, to, false, None);
+        assert!(notice.contains(&format!("{} done", zones.len())), "{notice}");
+        assert_eq!(s.world.stockpile_zones().count(), 0);
     }
 
     #[test]

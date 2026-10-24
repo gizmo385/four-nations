@@ -4,7 +4,7 @@
 //! the frontends draw the picker and `tools::apply_rect` turns a drag into `DesignateBuild`.
 //!
 //! The Cancel tool withdraws a build designation too: on a tile with a site it issues
-//! `CancelBuild`, elsewhere `CancelHarvest`.
+//! `CancelBuild`, on a stockpile tile `CancelStockpile`, elsewhere `CancelHarvest`.
 
 use fn_sim::Pos;
 use fn_sim::building::{BuildingDef, BuildingId};
