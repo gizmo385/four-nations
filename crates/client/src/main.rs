@@ -5,14 +5,16 @@
 //! Controls: click a unit to select it (Esc deselects, and the camera centres it), WASD/arrows or mouse drag pan, mouse wheel
 //! zoom, R new map, 1-4 switch nation, Space pause. H/X/P/B pick a designation tool (harvest,
 //! cancel harvest, stockpile, the nation's bending ability): drag a rectangle with the left
-//! button, middle/right still pan; Esc returns to selecting. See `designate` and `bending`.
+//! button, middle/right still pan; Esc returns to selecting. `T` opens the research screen (Esc
+//! closes it); map input is suspended while it's open. See `designate`, `bending` and `research`.
 //!
 //! `FN_SCREENSHOT=out.png` runs headless: no window is created at all (winit is disabled and the
 //! camera renders into an offscreen `Image`), and once the art has loaded it saves one frame as a
-//! PNG and exits. `FN_SCREENSHOT_SIZE=WIDTHxHEIGHT` sets the image size (default 1280x720), and
-//! `FN_SELECT=N` starts with unit N selected so its panel shows in the shot. Agents
-//! use this, via `cargo xtask screenshot SEED NATION OUT.png [WIDTH HEIGHT]`, to check visual
-//! changes without a window popping up and stealing the human's focus.
+//! PNG and exits. `FN_SCREENSHOT_SIZE=WIDTHxHEIGHT` sets the image size (default 1280x720),
+//! `FN_SELECT=N` starts with unit N selected so its panel shows in the shot, and
+//! `FN_RESEARCH_OPEN=1` starts with the research screen (`T`) open. Agents use this, via
+//! `cargo xtask screenshot SEED NATION OUT.png [WIDTH HEIGHT]`, to check visual changes without a
+//! window popping up and stealing the human's focus.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -33,12 +35,14 @@ use fn_sim::world::{TICKS_PER_SECOND, Unit, UnitId};
 use fn_sim::{Defs, MapGenConfig, Nation, Pos, Tile, World};
 use hud::HudPlugin;
 use jobview::{JobViewPlugin, ResourceSprite};
+use research::{ResearchPlugin, ScreenOpen};
 use sprites::Sheet;
 
 mod bending;
 mod designate;
 mod hud;
 mod jobview;
+mod research;
 mod sprites;
 mod ui_style;
 
@@ -91,18 +95,19 @@ fn main() {
         .insert_resource(Selection(
             std::env::var("FN_SELECT").ok().and_then(|s| s.parse().ok()).map(UnitId),
         ))
+        .insert_resource(ScreenOpen(std::env::var_os("FN_RESEARCH_OPEN").is_some()))
         .add_message::<MapClicked>()
-        .add_plugins((DesignatePlugin, JobViewPlugin, HudPlugin, BendingPlugin))
+        .add_plugins((DesignatePlugin, JobViewPlugin, HudPlugin, BendingPlugin, ResearchPlugin))
         .add_systems(Startup, (load_art, setup_camera_and_ui, spawn_world).chain())
         .add_systems(FixedUpdate, tick_sim)
         .add_systems(
             Update,
             (
                 controls,
-                camera_controls,
+                camera_controls.run_if(screen_closed),
                 sync_units,
                 despawn_dead_units,
-                select_units,
+                select_units.run_if(screen_closed),
                 center_on_selection,
                 draw_selection,
             )
@@ -127,6 +132,12 @@ fn parse_size(s: &str) -> Option<UVec2> {
 
 fn parse_nation(s: &str) -> Option<Nation> {
     Nation::ALL.into_iter().find(|n| n.as_str() == s)
+}
+
+/// A run condition for map input systems: suspended while the research screen (`T`) covers the
+/// map, so a click or drag meant for a tech card never also moves the camera or selects a unit.
+fn screen_closed(open: Res<ScreenOpen>) -> bool {
+    !open.0
 }
 
 #[derive(Resource)]
