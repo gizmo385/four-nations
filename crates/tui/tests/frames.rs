@@ -4,15 +4,17 @@
 //! Colours are checked cell by cell here and not in colour goldens, which would churn on every
 //! palette tweak.
 
+use std::collections::BTreeSet;
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fn_sim::world::Command;
 use fn_sim::{Nation, Pos};
 use fn_tui::app::App;
 use fn_tui::color::{ColorDepth, Palette, Tint};
-use fn_tui::frame::{render_app, to_ansi, to_text};
-use fn_tui::layout;
-use fn_tui::new_session;
-use fn_ui::Session;
+use fn_tui::frame::{render, render_app, to_ansi, to_text};
+use fn_tui::{keys, layout, new_session};
+use fn_ui::tools::tiles_between;
+use fn_ui::{Session, Tool};
 use ratatui::buffer::{Buffer, Cell};
 use ratatui::style::{Color, Modifier};
 
@@ -206,6 +208,271 @@ fn a_terminal_resize_keeps_the_cursor_in_view() {
     assert!(app.ui.cursor_cell().is_some());
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, (80, 24)));
     assert!(text.contains("EARTH KINGDOM"));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Designation tools and key scripts
+// ---------------------------------------------------------------------------------------------
+
+/// Plays `script` on a new Earth game on seed 7, the first settler under the cursor.
+fn play(script: &str) -> App {
+    let mut app = App::new(new_session(7, Nation::Earth), SIZE);
+    app.play(&keys::parse(script).expect("a valid script"));
+    app
+}
+
+/// A rectangle of trees west of the first settler, as a script and as its corners.
+const HARVEST_SCRIPT: &str = "h <left*6> <up*3> <enter> <right*5> <down*4> <enter>";
+
+fn harvest_corners(start: Pos) -> (Pos, Pos) {
+    (Pos::new(start.x - 6, start.y - 3), Pos::new(start.x - 1, start.y + 1))
+}
+
+#[test]
+fn a_script_designates_a_harvest_rectangle_and_the_world_agrees() {
+    let start = App::new(new_session(7, Nation::Earth), SIZE).ui.cursor;
+    let app = play(HARVEST_SCRIPT);
+    let (a, b) = harvest_corners(start);
+
+    // The sim decides what a tile accepts: ask it, tile by tile, on a world of its own.
+    let mut fresh = new_session(7, Nation::Earth);
+    let want: BTreeSet<Pos> = tiles_between(a, b)
+        .filter(|&pos| fresh.apply(Command::DesignateHarvest { pos }).is_ok())
+        .collect();
+    assert!(!want.is_empty(), "the rectangle should hold something to harvest");
+    assert!(want.len() < 6 * 5, "and something that isn't, so the notice has skips");
+    let got: BTreeSet<Pos> = app.session.world.harvest_designations().collect();
+    assert_eq!(got, want);
+
+    // The tool stays active, the corner is spent, and the Tool section reports.
+    assert_eq!((app.ui.tool, app.ui.anchor), (Tool::Harvest, None));
+    assert_eq!(app.ui.cursor, Pos::new(start.x - 1, start.y + 1));
+    let done = want.len();
+    let notice = &app.ui.notice;
+    assert!(notice.starts_with("designate harvest"), "{notice}");
+    assert!(notice.contains(&format!("{done} done, {} skipped (", 30 - done)), "{notice}");
+}
+
+#[test]
+fn the_panel_and_the_status_line_show_the_tool_its_hint_and_the_result() {
+    let mut app = play("h");
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
+    let status = text.lines().last().unwrap();
+    assert!(status.starts_with(" HARVEST "), "{status}");
+    assert!(status.contains("Enter set corner") && status.contains("designate harvest"));
+    assert!(text.contains("TOOL") && text.contains("Harvest [H]"), "{text}");
+    assert!(text.contains("Enter: set a corner"), "{text}");
+
+    app.play(&keys::parse("<left*2> <enter> <down> <left>").unwrap());
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
+    assert!(text.contains("Enter: designate 2x2"), "the Cursor section has the size:\n{text}");
+    assert!(text.lines().last().unwrap().contains("Enter apply 2x2"));
+
+    app.play(&keys::parse("<enter>").unwrap());
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
+    assert!(text.contains("done"), "the result is in the Tool section:\n{text}");
+    assert!(text.contains("Enter: set a corner"));
+}
+
+#[test]
+fn the_result_notice_fits_on_the_smallest_terminal() {
+    let mut app = App::new(new_session(7, Nation::Earth), (80, 24));
+    // Harvesting where there is nothing to harvest is refused with a reason.
+    let sea = (0..app.session.world.map.width())
+        .map(|x| Pos::new(x, 0))
+        .find(|&p| app.session.apply(Command::DesignateHarvest { pos: p }).is_err())
+        .unwrap();
+    app.ui.cursor = sea;
+    app.play(&keys::parse("h <enter> <enter>").unwrap());
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, (80, 24)));
+    assert!(text.contains("0 done, 1 skipped"), "{text}");
+    assert!(text.contains("Enter: set a corner"), "the Cursor section survives:\n{text}");
+}
+
+#[test]
+fn bend_names_the_nations_ability_in_the_status_line_and_the_panel() {
+    for nation in Nation::ALL {
+        let mut app = App::new(new_session(3, nation), SIZE);
+        app.play(&keys::parse("B").unwrap());
+        assert_eq!(app.ui.tool, Tool::Bend, "{nation:?}");
+        let id = fn_ui::tools::ability_for_nation(&app.session.defs, nation).unwrap();
+        let verb = app.session.defs.ability(id).verb.clone();
+        let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
+        let status = text.lines().last().unwrap();
+        assert!(status.starts_with(" BEND "), "{status}");
+        assert!(status.contains(&format!("{verb}:")), "{nation:?} status: {status}");
+        assert!(text.contains(&verb), "{nation:?} panel:\n{text}");
+    }
+}
+
+#[test]
+fn escape_drops_the_corner_then_leaves_the_tool() {
+    let mut app = play("p <enter> <right*2>");
+    assert!(app.ui.anchor.is_some());
+    app.play(&keys::parse("<esc>").unwrap());
+    assert_eq!((app.ui.tool, app.ui.anchor), (Tool::Stockpile, None));
+    app.play(&keys::parse("<enter> <esc> <esc>").unwrap());
+    assert_eq!((app.ui.tool, app.ui.anchor), (Tool::Select, None));
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
+    assert!(text.lines().last().unwrap().starts_with(" SELECT "));
+    assert!(!text.contains("TOOL"), "Select mode hides the section:\n{text}");
+}
+
+#[test]
+fn a_tool_key_switches_tools_and_drops_the_corner_and_the_result() {
+    let mut app = play("h <enter> <right> <enter> <enter>");
+    assert!(!app.ui.notice.is_empty() && app.ui.anchor.is_some());
+    app.play(&keys::parse("x").unwrap());
+    assert_eq!((app.ui.tool, app.ui.anchor), (Tool::CancelHarvest, None));
+    assert!(app.ui.notice.is_empty());
+    app.play(&keys::parse("<enter> X").unwrap());
+    assert_eq!((app.ui.tool, app.ui.anchor), (Tool::CancelHarvest, None), "the same key again");
+}
+
+#[test]
+fn designating_changes_nothing_in_select_mode() {
+    let app = play("<enter> <right> <enter> <esc>");
+    assert_eq!(app.session.world.command_log().len(), 0);
+    assert_eq!((app.ui.tool, app.ui.anchor), (Tool::Select, None));
+}
+
+#[test]
+fn cancel_withdraws_what_the_rectangle_covers() {
+    let app =
+        play(&format!("{HARVEST_SCRIPT} x <up*4> <left*5> <enter> <down*4> <right*5> <enter>"));
+    assert!(app.ui.notice.starts_with("cancel harvest"), "{}", app.ui.notice);
+    assert_eq!(app.session.world.harvest_designations().count(), 0, "{}", app.ui.notice);
+}
+
+#[test]
+fn stockpile_and_bend_designations_show_as_tints() {
+    let start = App::new(new_session(7, Nation::Earth), SIZE).ui.cursor;
+    // A stockpile 3 wide west of the settler, on tiles that take one.
+    let mut app = play("p <left*5> <enter> <left*2> <enter> <up*3>");
+    let p = palette(&app.session, ColorDepth::TrueColor, false);
+    let zones: Vec<Pos> = app.session.world.stockpile_zones().collect();
+    assert!(!zones.is_empty());
+    let buf = frame(&mut app, ColorDepth::TrueColor, false, SIZE);
+    for pos in zones {
+        assert!(pos.y == start.y && (start.x - 7..=start.x - 5).contains(&pos.x), "{pos:?}");
+        let want = p.tinted(ground_bg(&p, &app.session, pos), Tint::Stockpile);
+        assert_eq!(cell_at(&app, &buf, pos).bg, want, "{pos:?}");
+    }
+}
+
+#[test]
+fn wasd_scripts_move_the_cursor_like_the_arrows() {
+    let by_letter = play("d d s S");
+    let by_arrow = play("<right*2> <down> <s-down>");
+    assert_eq!(by_letter.ui.cursor, by_arrow.ui.cursor);
+    let start = App::new(new_session(7, Nation::Earth), SIZE).ui.cursor;
+    assert_eq!(by_letter.ui.cursor, Pos::new(start.x + 2, start.y + 11));
+    // a, w and W go the other way.
+    let back = play("a W w");
+    assert_eq!(back.ui.cursor, Pos::new(start.x - 1, start.y - 11));
+}
+
+#[test]
+fn a_script_never_reads_time_so_the_same_script_is_the_same_game() {
+    let script = format!("{HARVEST_SCRIPT} <tick 600>");
+    let (mut a, mut b) = (play(&script), play(&script));
+    assert_eq!(a.session.world.tick, 600);
+    let p = palette(&a.session, ColorDepth::TrueColor, false);
+    let (fa, fb) = (render_app(&mut a, &p, SIZE), render_app(&mut b, &p, SIZE));
+    assert_eq!(to_ansi(&fa), to_ansi(&fb));
+    // The clock never ran: only <tick> moved the world.
+    assert!(!a.session.clock.paused);
+}
+
+/// The script's command log, replayed into a fresh world, draws the same frame.
+#[test]
+fn the_command_log_of_a_script_replays_into_the_same_frame() {
+    let script = format!(
+        "{HARVEST_SCRIPT} <tick 300> p <left*8> <enter> <left*2> <enter> <tick 200> \
+         x <left> <enter> <enter> <tick 100> b <enter> <enter> <tick 50> h <up*6>"
+    );
+    let mut app = play(&script);
+    let log = app.session.world.command_log().to_vec();
+    assert!(log.len() >= 3, "the script should have issued commands: {log:?}");
+    assert!(log.iter().any(|r| r.tick > 0), "and some of them after time passed");
+
+    let mut fresh = new_session(7, Nation::Earth);
+    let until = app.session.world.tick;
+    let defs = fresh.defs.clone();
+    fresh.world.replay(&log, until, &defs);
+    assert_eq!(fresh.world.tick, until);
+    assert_eq!(fresh.world.command_log(), app.session.world.command_log());
+
+    let p = palette(&app.session, ColorDepth::TrueColor, false);
+    let played = render_app(&mut app, &p, SIZE);
+    let replayed = render(&fresh, &app.ui, &p, SIZE);
+    assert_eq!(to_text(&played), to_text(&replayed));
+    assert_eq!(to_ansi(&played), to_ansi(&replayed));
+}
+
+/// Mid-drag: the corner is set, the cursor has moved, and the Cursor section shows the size.
+#[test]
+fn golden_frame_of_a_rectangle_being_dragged() {
+    let mut app = play("h <left*6> <up*3> <enter> <right*4> <down*2>");
+    golden("earth_seed7_dragging", &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)));
+}
+
+/// After the second `Enter`: the designations stay and the Tool section reports.
+#[test]
+fn golden_frame_after_the_rectangle_is_applied() {
+    let mut app = play(HARVEST_SCRIPT);
+    golden(
+        "earth_seed7_designated",
+        &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)),
+    );
+}
+
+/// The rectangle's tiles take the tool's hue (stronger than a designation's), the cursor keeps
+/// its own colour, and tiles outside the rectangle are untouched.
+#[test]
+fn the_dragged_rectangle_is_tinted_between_the_cursor_and_the_designations() {
+    for (keys, tint) in
+        [("h", Tint::Harvest), ("x", Tint::Harvest), ("p", Tint::Stockpile), ("b", Tint::Bend)]
+    {
+        for depth in [ColorDepth::TrueColor, ColorDepth::Indexed256, ColorDepth::Ansi16] {
+            let mut app = play(&format!("{keys} <left*4> <up*2> <enter> <right*2> <down>"));
+            let p = palette(&app.session, depth, false);
+            let buf = frame(&mut app, depth, false, SIZE);
+            let (a, b) = app.ui.rect().unwrap();
+            let unit_free = |pos: &Pos| !app.session.world.units.iter().any(|u| u.pos == *pos);
+            let mut checked = 0;
+            for pos in tiles_between(a, b).filter(unit_free) {
+                let cell = cell_at(&app, &buf, pos);
+                if pos == app.ui.cursor {
+                    assert_eq!(cell.bg, p.cursor_bg(), "{keys} {depth:?}: the cursor wins");
+                } else {
+                    let want = p.dragged(ground_bg(&p, &app.session, pos), tint);
+                    assert_eq!(cell.bg, want, "{keys} {depth:?} {pos:?}");
+                    assert_ne!(cell.bg, p.color(ground_bg(&p, &app.session, pos)));
+                    assert_ne!(cell.bg, p.cursor_bg());
+                    checked += 1;
+                }
+            }
+            assert!(checked >= 5, "{keys} {depth:?}: {checked}");
+            // One tile outside is the plain ground.
+            let outside = Pos::new(a.x.min(b.x) - 1, a.y.min(b.y));
+            let cell = cell_at(&app, &buf, outside);
+            assert_eq!(cell.bg, p.color(ground_bg(&p, &app.session, outside)));
+        }
+    }
+}
+
+#[test]
+fn without_colour_the_dragged_rectangle_is_reversed_and_dim() {
+    let mut app = play("h <left*4> <enter> <right*2>");
+    let buf = frame(&mut app, ColorDepth::Never, false, SIZE);
+    let (a, b) = app.ui.rect().unwrap();
+    let (cursor, other) = (cell_at(&app, &buf, b), cell_at(&app, &buf, a));
+    assert!(other.modifier.contains(Modifier::REVERSED | Modifier::DIM), "{other:?}");
+    assert!(cursor.modifier.contains(Modifier::REVERSED));
+    assert!(!cursor.modifier.contains(Modifier::DIM), "{cursor:?}");
+    let outside = Pos::new(a.x - 1, a.y);
+    assert!(!cell_at(&app, &buf, outside).modifier.contains(Modifier::REVERSED));
 }
 
 // ---------------------------------------------------------------------------------------------

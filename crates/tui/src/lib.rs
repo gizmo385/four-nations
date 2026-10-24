@@ -16,6 +16,7 @@ pub mod draw;
 pub mod frame;
 pub mod glyphs;
 pub mod input;
+pub mod keys;
 pub mod layout;
 pub mod map;
 pub mod panel;

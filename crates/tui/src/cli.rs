@@ -1,12 +1,14 @@
 //! The command line:
 //!
 //! ```text
-//! fn_tui SEED NATION [--frame [--size WxH] [--ticks N] [--ansi]] [--ascii] [--color MODE]
+//! fn_tui SEED NATION [--frame [--size WxH] [--ticks N] [--keys SCRIPT] [--ansi]] [--ascii]
+//!        [--color MODE]
 //! ```
 
 use fn_sim::Nation;
 
 use crate::color::ColorDepth;
+use crate::keys::{self, Step};
 
 pub const USAGE: &str = "\
 usage: fn_tui SEED NATION [options]
@@ -17,13 +19,18 @@ options:
   --frame        print one frame to stdout and exit (no terminal needed)
   --size WxH     the frame's size in cells, with --frame (default 120x40)
   --ticks N      run N ticks before the frame, with --frame (default 0)
-  --ansi         keep the colour escapes in the frame, with --frame
+  --keys SCRIPT  play a key script after those ticks, with --frame: tokens separated by
+                 spaces, each a key (h, d, S), a named key (<enter> <esc> <space> <tab>
+                 <up> <s-up> <c-up> <pgdn>), a repeat (<right*5>) or ticks (<tick 600>).
+                 Example: 'h <right*5> <enter> <down*3> <enter> <tick 600>'
+  --ansi        keep the colour escapes in the frame, with --frame
   --ascii        draw with the ASCII glyph set
   --color MODE   truecolor, 256, 16 or never (default: from NO_COLOR, COLORTERM,
                  WT_SESSION and TERM)
 
 Without --frame this starts the game in the terminal: arrows or WASD move the cursor
-(Shift: 10 tiles), Space pauses, + and - change speed, . steps a tick, q quits.";
+(Shift: 10 tiles), H X P B pick the harvest, cancel, stockpile and bend tools, Enter sets a
+rectangle's corners, Esc backs out, Space pauses, + and - change speed, . steps a tick, q quits.";
 
 pub const DEFAULT_SIZE: (u16, u16) = (120, 40);
 
@@ -34,6 +41,8 @@ pub struct Args {
     pub frame: bool,
     pub size: (u16, u16),
     pub ticks: u32,
+    /// The parsed `--keys` script, played after the ticks.
+    pub keys: Vec<Step>,
     pub ascii: bool,
     pub ansi: bool,
     pub color: Option<ColorDepth>,
@@ -53,12 +62,14 @@ fn parse_size(s: &str) -> Option<(u16, u16)> {
 pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let mut args = args.into_iter();
     let (mut seed, mut nation) = (None, None);
+    let mut keys_given = false;
     let mut out = Args {
         seed: 0,
         nation: Nation::Earth,
         frame: false,
         size: DEFAULT_SIZE,
         ticks: 0,
+        keys: Vec::new(),
         ascii: false,
         ansi: false,
         color: None,
@@ -86,6 +97,11 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                 out.ticks =
                     v.parse().map_err(|_| format!("--ticks wants a whole number, got {v:?}"))?;
             }
+            "--keys" => {
+                let v = value("--keys")?;
+                out.keys = keys::parse(&v).map_err(|e| format!("--keys: {e}"))?;
+                keys_given = true;
+            }
             "--color" => {
                 let v = value("--color")?;
                 out.color = Some(
@@ -112,9 +128,12 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     }
     out.seed = seed.ok_or("missing SEED")?;
     out.nation = nation.ok_or("missing NATION")?;
-    for (flag, given) in
-        [("--size", out.size != DEFAULT_SIZE), ("--ticks", out.ticks > 0), ("--ansi", out.ansi)]
-    {
+    for (flag, given) in [
+        ("--size", out.size != DEFAULT_SIZE),
+        ("--ticks", out.ticks > 0),
+        ("--keys", keys_given),
+        ("--ansi", out.ansi),
+    ] {
         if given && !out.frame {
             return Err(format!("{flag} only means something with --frame"));
         }
@@ -148,6 +167,20 @@ mod tests {
         let a = parse_str("3 air").unwrap();
         assert!(!a.frame && !a.ascii);
         assert_eq!((a.size, a.ticks, a.color), (DEFAULT_SIZE, 0, None));
+    }
+
+    #[test]
+    fn a_key_script_is_one_argument_and_is_parsed_up_front() {
+        let args = ["7", "earth", "--frame", "--keys", "h <right*2> <tick 5>"].map(str::to_owned);
+        let a = parse(args).unwrap();
+        assert_eq!(a.keys.len(), 1 + 2 + 1);
+        assert_eq!(a.keys[3], Step::Tick(5));
+        let a = parse_str("7 earth --frame --keys=d").unwrap();
+        assert_eq!(a.keys.len(), 1);
+        assert!(parse_str("7 earth --frame").unwrap().keys.is_empty());
+        let err = parse(["7", "earth", "--frame", "--keys", "oops"].map(str::to_owned));
+        assert!(err.unwrap_err().starts_with("--keys: \"oops\""));
+        assert!(parse_str("7 earth --keys d").unwrap_err().contains("only means something"));
     }
 
     #[test]

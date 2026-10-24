@@ -184,8 +184,27 @@ pub enum Tint {
     Warm,
 }
 
+impl Tint {
+    /// The tint a tool's rectangle (and its result) wears: the client's hues. Cancelling shows
+    /// the harvest hue, as the client's drag does. `None` for the tool that designates nothing.
+    pub fn for_tool(tool: fn_ui::Tool) -> Option<Self> {
+        use fn_ui::Tool;
+        match tool {
+            Tool::Harvest | Tool::CancelHarvest => Some(Self::Harvest),
+            Tool::Stockpile => Some(Self::Stockpile),
+            Tool::Bend => Some(Self::Bend),
+            Tool::Build => Some(Self::Build),
+            Tool::Select => None,
+        }
+    }
+}
+
 /// How much of a tint is mixed into the tile's own background.
 const TINT_STRENGTH: f32 = 0.5;
+
+/// How much of a tint the rectangle being dragged mixes in: more than a designation, so the two
+/// can be told apart where they overlap.
+const DRAG_STRENGTH: f32 = 0.85;
 
 /// Everything the renderer needs to turn the design into styled cells: the glyph table, the
 /// nation's theme, the colour depth and whether the glyphs are the ASCII set.
@@ -273,6 +292,21 @@ impl Palette {
             (_, Tint::Wet) => self.color(mix(base, self.tint_rgb(tint), 0.75)),
             (ColorDepth::Indexed256, _) => Color::Indexed(self.designation_256(base, tint)),
             (_, _) => self.color(mix(base, self.tint_rgb(tint), TINT_STRENGTH)),
+        }
+    }
+
+    /// The background of a tile of the rectangle being dragged with a tool that wears `tint`.
+    /// Stronger than the designation itself; on 16 colours the designation's own solid colour,
+    /// and with no colour `Color::Reset` (the caller marks the cell another way).
+    pub fn dragged(&self, base: Rgb8, tint: Tint) -> Color {
+        let target = mix(base, self.tint_rgb(tint), DRAG_STRENGTH);
+        match self.depth {
+            ColorDepth::Never => Color::Reset,
+            ColorDepth::Ansi16 => self.tinted(base, tint),
+            ColorDepth::Indexed256 => {
+                Color::Indexed(nearest_256_apart(target, &[base, self.glyphs.overlay.cursor]))
+            }
+            ColorDepth::TrueColor => self.color(target),
         }
     }
 
@@ -440,6 +474,40 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The rectangle being dragged looks different from a designation of its own kind (so the
+    /// two can be told apart where they overlap), from the ground and from the cursor, on every
+    /// ground and nation, in every colour depth that has colour.
+    #[test]
+    fn the_dragged_rectangle_stands_out_from_designations_the_ground_and_the_cursor() {
+        let defs = Defs::bundled();
+        for n in Nation::ALL {
+            for depth in [ColorDepth::TrueColor, ColorDepth::Indexed256, ColorDepth::Ansi16] {
+                let p = Palette::new(&defs, n, depth, false);
+                for (what, base) in bases(&p.glyphs) {
+                    for tint in [Tint::Harvest, Tint::Stockpile, Tint::Bend] {
+                        let dragged = p.dragged(base, tint);
+                        let who = format!("{n:?} {depth:?} {tint:?} on {what}");
+                        assert_ne!(dragged, p.color(base), "{who}: ground");
+                        assert_ne!(dragged, p.cursor_bg(), "{who}: cursor");
+                        if depth == ColorDepth::TrueColor {
+                            assert_ne!(dragged, p.tinted(base, tint), "{who}: designation");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn tools_wear_the_clients_hues() {
+        use fn_ui::Tool;
+        assert_eq!(Tint::for_tool(Tool::Harvest), Some(Tint::Harvest));
+        assert_eq!(Tint::for_tool(Tool::CancelHarvest), Some(Tint::Harvest));
+        assert_eq!(Tint::for_tool(Tool::Stockpile), Some(Tint::Stockpile));
+        assert_eq!(Tint::for_tool(Tool::Bend), Some(Tint::Bend));
+        assert_eq!(Tint::for_tool(Tool::Select), None);
     }
 
     #[test]

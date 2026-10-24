@@ -1,7 +1,7 @@
 //! The whole frame as a pure function into a ratatui `Buffer`: no terminal, no clock, so golden
 //! frames, `--frame` and the interactive loop all draw through here.
 
-use fn_ui::Session;
+use fn_ui::{Session, Tool};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
 use ratatui::style::{Modifier, Style};
@@ -36,10 +36,20 @@ pub fn terminal_cursor(ui: &UiState, area: Rect) -> Option<Position> {
     Some(Position::new(regions.map.x + x as u16, regions.map.y + y as u16))
 }
 
-/// The keys the status line teaches. The designation tools (#98) and screens (#99, #100) add
-/// theirs when they land.
-const KEYS: &str =
-    "arrows/wasd move  Shift x10  Ctrl/PgUp/PgDn jump  Space pause  +/- speed  . step  q quit";
+/// The keys the status line teaches in Select mode. The screens (#99, #100) add theirs when they
+/// land.
+const KEYS: &str = "arrows/wasd move  H X P B tools  Shift x10  Ctrl/PgUp/PgDn jump  Space pause  \
+                    +/- speed  . step  q quit";
+
+/// The status line in a tool: what `Enter` and `Esc` do now, then what the tool does (for `B`,
+/// the nation's ability).
+fn tool_status(session: &Session, ui: &UiState) -> String {
+    let keys = match ui.rect_size() {
+        None => "Enter set corner  Esc leave".to_owned(),
+        Some((w, h)) => format!("Enter apply {w}x{h}  Esc drop corner"),
+    };
+    format!("{keys}  |  {}", ui.tool.hint(session))
+}
 
 fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, buf: &mut Buffer) {
     let theme = &palette.theme;
@@ -66,14 +76,19 @@ fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, b
         Some(Prompt::Quit) => {
             let text = " QUIT? ";
             buf.set_string(area.x, area.y, text, badge(theme.on_accent, theme.warn));
-            (text.len() as u16, "Press y to quit, any other key to stay.")
+            (text.len() as u16, "Press y to quit, any other key to stay.".to_owned())
         }
-        None => {
+        None if ui.tool == Tool::Select => {
             let text = " SELECT ";
             buf.set_string(area.x, area.y, text, badge(theme.on_accent, theme.accent));
-            (text.len() as u16, KEYS)
+            (text.len() as u16, KEYS.to_owned())
+        }
+        None => {
+            let text = format!(" {} ", ui.tool.name().to_uppercase());
+            buf.set_string(area.x, area.y, &text, badge(theme.on_accent, theme.accent));
+            (text.len() as u16, tool_status(session, ui))
         }
     };
     let room = usize::from(area.width.saturating_sub(badge_len + right + 2));
-    buf.set_string(area.x + badge_len + 1, area.y, fit(hints, room, ellipsis), panel);
+    buf.set_string(area.x + badge_len + 1, area.y, fit(&hints, room, ellipsis), panel);
 }

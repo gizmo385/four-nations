@@ -1,10 +1,11 @@
 //! Keys to actions, and actions to changes of the app (docs/design/tui.md, "Input").
 //!
-//! Mapping a key is a pure function, so the tests cover the whole table. The designation tools
-//! (#98), the selection and panel keys (#99) and the research screen (#100) add their actions to
+//! Mapping a key is a pure function, so the tests cover the whole table. The selection and panel
+//! keys (#99) and the research screen (#100) add their actions to
 //! [`Action`] and their keys to [`map_key`].
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+use fn_ui::Tool;
 
 /// How far Shift moves the cursor.
 pub const SHIFT_STEP: i32 = 10;
@@ -22,6 +23,12 @@ pub enum Action {
         dx: i32,
         dy: i32,
     },
+    /// `H` `X` `P` or `B`: switch to a designation tool (dropping the corner).
+    PickTool(Tool),
+    /// `Enter`: in a tool, set a corner or apply the rectangle. (Selecting is #99.)
+    Confirm,
+    /// `Esc`: drop the corner, or with none leave the tool.
+    Cancel,
     TogglePause,
     Faster,
     Slower,
@@ -90,6 +97,13 @@ pub fn map_key(key: KeyEvent) -> Option<Action> {
             };
             walk(dx, dy, shift)
         }
+
+        // The tools, in either case. `U` (build) is not here: it needs a picker (follow-up).
+        KeyCode::Char(c @ ('h' | 'H' | 'x' | 'X' | 'p' | 'P' | 'b' | 'B')) => {
+            Tool::from_letter(c).map(Action::PickTool)
+        }
+        KeyCode::Enter => Some(Action::Confirm),
+        KeyCode::Esc => Some(Action::Cancel),
 
         KeyCode::Char(' ') => Some(Action::TogglePause),
         KeyCode::Char('+' | '=') => Some(Action::Faster),
@@ -195,6 +209,29 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('q'))), Some(Action::AskQuit));
         assert_eq!(map_key(key(KeyCode::Char('Q'))), Some(Action::AskQuit));
         assert_eq!(map_key(key(KeyCode::F(5))), None);
+    }
+
+    #[test]
+    fn the_tool_keys_ignore_case_and_enter_and_esc_drive_the_rectangle() {
+        for (c, tool) in [
+            ('h', Tool::Harvest),
+            ('x', Tool::CancelHarvest),
+            ('p', Tool::Stockpile),
+            ('b', Tool::Bend),
+        ] {
+            let want = Some(Action::PickTool(tool));
+            assert_eq!(map_key(key(KeyCode::Char(c))), want);
+            assert_eq!(map_key(key(KeyCode::Char(c.to_ascii_uppercase()))), want);
+            assert_eq!(
+                map_key(with(KeyCode::Char(c.to_ascii_uppercase()), KeyModifiers::SHIFT)),
+                want
+            );
+            assert_eq!(map_key(with(KeyCode::Char(c), KeyModifiers::CONTROL)), None);
+        }
+        // The build tool needs a picker, which comes with its own issue.
+        assert_eq!(map_key(key(KeyCode::Char('u'))), None);
+        assert_eq!(map_key(key(KeyCode::Enter)), Some(Action::Confirm));
+        assert_eq!(map_key(key(KeyCode::Esc)), Some(Action::Cancel));
     }
 
     #[test]
