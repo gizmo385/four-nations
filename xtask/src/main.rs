@@ -1,11 +1,15 @@
 //! Repo maintenance commands. Run from anywhere in the repo:
 //!
 //!     cargo xtask assets [--release]   verify assets/manifest.toml covers and matches assets/
+//!     cargo xtask art                  render art/*.toml to assets/original/*.png and update their
+//!                                      manifest entries (cargo xtask assets fails if they're stale)
 //!     cargo xtask ci [sim|client] [--fast]
 //!                                      fmt + clippy + tests + assets (default: everything);
 //!                                      --fast uses the `ci` profile, as CI does
 //!     cargo xtask screenshot SEED NATION OUT.png [WIDTH HEIGHT]
 //!                                      render the client headless (no window) to a PNG
+
+mod art;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -25,6 +29,7 @@ fn main() -> ExitCode {
     let result = match args.as_slice() {
         ["assets"] => assets(false),
         ["assets", "--release"] => assets(true),
+        ["art"] => art::generate(&root()),
         ["ci"] => ci(Scope::All, fast),
         ["ci", "sim"] => ci(Scope::Sim, fast),
         ["ci", "client"] => ci(Scope::Client, fast),
@@ -79,6 +84,8 @@ struct AssetFile {
     path: String,
     source: String,
     sha256: String,
+    /// The art/ sheet a file is rendered from; `cargo xtask art` owns these entries.
+    generated_from: Option<String>,
 }
 
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Result {
@@ -138,6 +145,17 @@ fn assets(release: bool) -> Result {
             errors.push(format!("{rel}: listed in manifest but missing on disk"));
         }
     }
+
+    let listed_files: Vec<art::Listed> = manifest
+        .file
+        .iter()
+        .map(|f| art::Listed {
+            path: &f.path,
+            source: &f.source,
+            generated_from: f.generated_from.as_deref(),
+        })
+        .collect();
+    errors.extend(art::check(&root(), &listed_files));
 
     if !not_releasable.is_empty() {
         let msg = format!("sources not cleared for release: {not_releasable:?}");
