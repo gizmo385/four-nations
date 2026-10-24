@@ -67,6 +67,17 @@ earth1 = "#5e5249"
 earth2 = "#85766a"
 earth3 = "#aa9b8b"
 
+# Skin and hair (units). `skin` is the fair-to-warm ramp, `tan` the deeper one; `hair` is brown.
+skin0 = "#a8683f"
+skin1 = "#dba06a"
+skin2 = "#f2c28e"
+tan0 = "#8a5530"
+tan1 = "#bd7f4e"
+tan2 = "#dba070"
+hair0 = "#2a1a14"
+hair1 = "#4a2e20"
+hair2 = "#6e4a30"
+
 # The accent ramp around the nation's `color`: mixes toward a palette colour, like fn_ui::theme.
 [accent]
 accent_dark = { toward = "ink", t = 0.45 }
