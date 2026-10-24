@@ -281,8 +281,9 @@ impl World {
 
 - `B` opens the nation's ability tool, and drag-designation works like #62's tools. There's
   one ability now; a small picker appears once research unlocks more.
-- A tint shows pending bend designations, a glow tile marks a lit flame with its radius on
-  hover, and a darker soil overlay marks wet tiles. Fords reuse #53's sprite.
+- A tint shows pending bend designations, a flame sprite (`art/fx.toml`, cycled on the world
+  clock) marks a lit flame with its radius on hover, and puddle marks over the floor show wet
+  tiles. Fords reuse #53's sprite.
 - The selected unit's panel shows a chi bar, and bend events become toasts.
 
 ## Not in this design

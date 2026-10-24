@@ -10,6 +10,7 @@
 //! | `trees` | the 2x2 tree `RESOURCES` rows |
 //! | `resources` | the other `RESOURCES` rows |
 //! | `characters` | character id to sheet and face paths |
+//! | `fx` | bending's lasting effects: flames and wet ground (`art/fx.toml`) |
 //!
 //! A sheet is named by its asset path (a `&'static str`, a `pub const` in the family module that
 //! uses it); `Art` loads each path once on first use, so a new sheet is only a new path constant.
@@ -23,6 +24,7 @@
 pub mod characters;
 pub mod cliffs;
 pub mod floors;
+pub mod fx;
 pub mod resources;
 pub mod trees;
 pub mod water;
@@ -143,7 +145,7 @@ pub const FACE_SIZE: f32 = 38.0;
 
 /// Helpers shared by the family modules' tests.
 #[cfg(test)]
-mod test_support {
+pub(crate) mod test_support {
     use fn_sim::defs::BiomeId;
     use fn_sim::{Grid, Pos, Terrain, Tile, TileMap};
 
