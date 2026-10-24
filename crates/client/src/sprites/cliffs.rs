@@ -1,95 +1,115 @@
-//! Mountains (#104): autotiled cliffs around a flat interior, and the boulders on it.
+//! Mountains (#104, #147): autotiled cliffs around a flat interior, and the boulders on it.
 
 use fn_sim::{Pos, Terrain, TileMap};
 
-use super::{Cell, Decor, GroundRule, one};
+use super::{Cell, Decor, GroundRule, floors, one};
 
-/// The tileset sheet the cliff art is on.
-pub const SHEET: &str = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetRelief.png";
+/// The sheet the cliff pieces and boulders are on (`art/cliffs.toml`).
+pub const SHEET: &str = "original/cliffs.png";
 
-/// The sheet the boulders are on.
-pub const BOULDER_SHEET: &str =
-    "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetNature.png";
+/// Sprites per row of the sheet.
+const COLUMNS: u32 = 10;
 
-/// Autotiled mountain cliffs (#104): a raised plateau from `TilesetRelief`, 1 cell per piece. A
-/// piece is picked by which cardinal neighbors are lower ground (any non-mountain tile). The sheet
-/// has a 3x3 block for a plateau and a 1-wide, 3-tall column for a ridge:
+/// The sprite at `index` (file order in `art/cliffs.toml`).
+const fn at(index: u32) -> Cell {
+    one(SHEET, index % COLUMNS, index / COLUMNS)
+}
+
+/// The sides of a tile that are lower ground, as bits.
+const N: u8 = 1;
+const S: u8 = 2;
+const E: u8 = 4;
+const W: u8 = 8;
+/// The diagonals that are lower ground, as bits.
+const NW: u8 = 1;
+const NE: u8 = 2;
+const SW: u8 = 4;
+const SE: u8 = 8;
+
+/// The inner corners a tile with these lower sides can have: the diagonals whose two sides are
+/// both mountain. A diagonal beside a lower side is already part of that side's rim.
+const fn corners(lower: u8) -> u8 {
+    let mut c = 0;
+    if lower & (N | W) == 0 {
+        c |= NW;
+    }
+    if lower & (N | E) == 0 {
+        c |= NE;
+    }
+    if lower & (S | W) == 0 {
+        c |= SW;
+    }
+    if lower & (S | E) == 0 {
+        c |= SE;
+    }
+    c
+}
+
+/// How many pieces of a set come before the first one for the lower sides `lower`: each mask has
+/// a piece for every subset of its inner corners.
+const fn pieces_before(lower: u8) -> u32 {
+    let mut n = 0;
+    let mut m = 0;
+    while m < lower {
+        n += 1 << corners(m).count_ones();
+        m += 1;
+    }
+    n
+}
+
+/// The pieces in a set: all 16 masks of lower sides, each with every subset of its inner corners.
+const PIECES: u32 = pieces_before(16);
+
+/// Autotiled mountain cliffs (#104, #147): a raised plateau drawn from `art/cliffs.toml`, one
+/// 16px piece per tile. A piece is picked by which cardinal neighbors are lower ground (any
+/// non-mountain tile) and, for a corner whose two sides are both mountain, by whether that
+/// diagonal is lower ground (an inner corner). Every combination has its own piece (47 a set), so
+/// a plateau one tile wide, one tile tall, or ending in a cap needs no special case. Named by
+/// their lower sides in the order `n s e w`, with `flat` for none, and by the inner corners after:
 ///
 /// ```text
-/// strip_top |NW   N    NE
-/// strip_mid |W    top  E
-/// strip_bot |SW   S    SE
+/// nw   n   ne      ew       a ridge one tile wide, running north to south
+/// w  flat  e       ns       a ridge one tile tall, running west to east
+/// sw   s   se      nsw      the east end of that ridge (an end cap)
+///                  flat_se  the interior, with lower ground only to its south-east
 /// ```
 ///
-/// Every piece is one tile and the cliff face is painted inside the south pieces (the lower two
-/// thirds of `S`, `SW`, `SE` and `strip_bot`), so it never overlaps the row below and needs no
-/// depth banding of its own, unlike a tree.
-///
-/// The sheet has no inner-corner pieces, no end caps for a horizontal ridge and no face-only
-/// pieces for a plateau two cells thick, so a tile whose only lower neighbor is diagonal reads as
-/// interior, and a ridge one tile tall (lower ground north and south) draws its south face
-/// without a north rim.
+/// The cliff face is painted inside the south pieces (the lower rows of any piece with lower
+/// ground to the south), so it never overlaps the row below and needs no depth banding of its
+/// own, unlike a tree.
 pub struct CliffSet {
-    top: Cell,
-    n: Cell,
-    s: Cell,
-    e: Cell,
-    w: Cell,
-    nw: Cell,
-    ne: Cell,
-    sw: Cell,
-    se: Cell,
-    strip_top: Cell,
-    strip_mid: Cell,
-    strip_bot: Cell,
+    /// The index of the set's first piece, `flat`.
+    first: u32,
 }
 
 impl CliffSet {
-    /// `col`/`row` is the top-left cell of the 1-wide column; the 3x3 block starts one right.
-    const fn new(sheet: &'static str, col: u32, row: u32) -> Self {
-        CliffSet {
-            strip_top: one(sheet, col, row),
-            strip_mid: one(sheet, col, row + 1),
-            strip_bot: one(sheet, col, row + 2),
-            nw: one(sheet, col + 1, row),
-            n: one(sheet, col + 2, row),
-            ne: one(sheet, col + 3, row),
-            w: one(sheet, col + 1, row + 1),
-            top: one(sheet, col + 2, row + 1),
-            e: one(sheet, col + 3, row + 1),
-            sw: one(sheet, col + 1, row + 2),
-            s: one(sheet, col + 2, row + 2),
-            se: one(sheet, col + 3, row + 2),
-        }
+    const fn new(first: u32) -> Self {
+        CliffSet { first }
     }
 
-    /// The piece for a mountain tile whose cardinal neighbors are lower ground (`true`) or more
-    /// mountain (`false`); `None` for a tile with no lower neighbor, which stays flat floor.
-    fn cell(&self, n: bool, s: bool, e: bool, w: bool) -> Option<Cell> {
-        Some(match (n, s, e, w) {
-            (false, false, false, false) => return None,
-            // Lower ground on both sides: a ridge one tile wide, capped where it ends. A lone
-            // tile (lower on all four sides) takes the base of a ridge, face included.
-            (_, _, true, true) => match (n, s) {
-                (false, false) => self.strip_mid,
-                (true, false) => self.strip_top,
-                (_, true) => self.strip_bot,
-            },
-            // Anything facing south wears the face: with lower ground north as well (a ridge one
-            // tile tall) the north rim is dropped, there is no piece for it.
-            (_, true, false, true) => self.sw,
-            (_, true, true, false) => self.se,
-            (_, true, false, false) => self.s,
-            (true, false, false, true) => self.nw,
-            (true, false, true, false) => self.ne,
-            (true, false, false, false) => self.n,
-            (false, false, true, false) => self.e,
-            (false, false, false, true) => self.w,
-        })
+    /// The piece for a mountain tile whose lower sides are `lower` (bits `N`, `S`, `E`, `W`) and
+    /// whose lower diagonals are `diag` (bits `NW`, `NE`, `SW`, `SE`); `None` for a tile with no
+    /// lower neighbor at all, which is floor.
+    fn cell(&self, lower: u8, diag: u8) -> Option<Cell> {
+        let diag = diag & corners(lower);
+        if lower == 0 && diag == 0 {
+            return None;
+        }
+        // The inner corners as a number: one bit for each corner this mask can have, in the order
+        // nw, ne, sw, se.
+        let mut subset = 0;
+        let mut bit = 0;
+        for corner in [NW, NE, SW, SE] {
+            if corners(lower) & corner != 0 {
+                subset |= u32::from(diag & corner != 0) << bit;
+                bit += 1;
+            }
+        }
+        Some(at(self.first + pieces_before(lower) + subset))
     }
 }
 
-/// The cliff piece for a mountain tile at `p` (#104), bitmask-autotiled against its four cardinal
+/// The cliff piece for a mountain tile at `p` (#104, #147), bitmask-autotiled against its eight
 /// neighbors: a neighbor is "lower" unless it is mountain too. Off the edge of the map doesn't
 /// count, so a range running off the map doesn't grow a false cliff there. `None` for a tile
 /// with no lower neighbor, which is the rule's flat `base`.
@@ -97,7 +117,13 @@ pub fn cliff_cell(map: &TileMap, p: Pos, set: &CliffSet) -> Option<Cell> {
     let lower = |dx: i32, dy: i32| {
         map.get(Pos::new(p.x + dx, p.y + dy)).is_some_and(|t| t.terrain != Terrain::Mountain)
     };
-    set.cell(lower(0, -1), lower(0, 1), lower(1, 0), lower(-1, 0))
+    let bits = |flags: [(bool, u8); 4]| {
+        flags.into_iter().filter(|(l, _)| *l).fold(0, |mask, (_, bit)| mask | bit)
+    };
+    let sides = bits([(lower(0, -1), N), (lower(0, 1), S), (lower(1, 0), E), (lower(-1, 0), W)]);
+    let diag =
+        bits([(lower(-1, -1), NW), (lower(1, -1), NE), (lower(-1, 1), SW), (lower(1, 1), SE)]);
+    set.cell(sides, diag)
 }
 
 impl GroundRule {
@@ -116,23 +142,39 @@ impl GroundRule {
     }
 }
 
-/// The pack's two plateaus (`docs/design/art.md`): a grey-faced cliff with a snow top for tundra,
-/// and a brown-faced cliff with a sand top for every other biome.
-const SNOW_CLIFF: CliffSet = CliffSet::new(SHEET, 0, 0);
-const SAND_CLIFF: CliffSet = CliffSet::new(SHEET, 0, 5);
+/// The two plateaus (`docs/design/pixel-art.md`): a grey-faced cliff with a snow top for tundra,
+/// and a grey-brown-faced cliff with a rock top for every other biome. The sheet holds the rock
+/// set, then the snow set, then the boulders. A set's `flat` piece is the rock or snow floor's
+/// first variant (the tests keep them in step), and the interior of a range is that floor, four
+/// variants and all (`floors`, #145): the rim pieces carry the same tones and marks, so the
+/// interior and the rim show no seam.
+const ROCK_CLIFF: CliffSet = CliffSet::new(0);
+const SNOW_CLIFF: CliffSet = CliffSet::new(PIECES);
 
 const MOUNTAIN: &[Terrain] = &[Terrain::Mountain];
 
-/// Boulders on a range's flat interior; its rim is a cliff (#104).
-const BOULDERS: Decor = Decor { cells: &[one(BOULDER_SHEET, 18, 9)], num: 2, den: 3 };
-const SNOWY_BOULDERS: Decor = Decor { cells: &[one(BOULDER_SHEET, 4, 12)], num: 2, den: 3 };
+/// The snow floor's row on `floors`' sheet, which `floors` keeps to itself: the tundra interior.
+const SNOW_FLOOR: [Cell; 4] = [
+    one(floors::SHEET, 0, 3),
+    one(floors::SHEET, 1, 3),
+    one(floors::SHEET, 2, 3),
+    one(floors::SHEET, 3, 3),
+];
+
+/// Boulders on a range's flat interior; its rim is a cliff (#104). Grey, and snow-capped for
+/// tundra, three of each after the cliff sets.
+const BOULDER_0: u32 = 2 * PIECES;
+const BOULDERS: Decor =
+    Decor { cells: &[at(BOULDER_0), at(BOULDER_0 + 1), at(BOULDER_0 + 2)], num: 1, den: 3 };
+const SNOWY_BOULDERS: Decor =
+    Decor { cells: &[at(BOULDER_0 + 3), at(BOULDER_0 + 4), at(BOULDER_0 + 5)], num: 1, den: 3 };
 
 pub const GROUND: &[GroundRule] = &[
     GroundRule {
         terrains: MOUNTAIN,
         biome: Some("tundra"),
-        base: SNOW_CLIFF.top,
-        variants: &[],
+        base: SNOW_FLOOR[0],
+        variants: &SNOW_FLOOR,
         decor: Some(SNOWY_BOULDERS),
         water: None,
         cliff: Some(&SNOW_CLIFF),
@@ -140,11 +182,11 @@ pub const GROUND: &[GroundRule] = &[
     GroundRule {
         terrains: MOUNTAIN,
         biome: None,
-        base: SAND_CLIFF.top,
-        variants: &[],
+        base: floors::ROCK[0],
+        variants: &floors::ROCK,
         decor: Some(BOULDERS),
         water: None,
-        cliff: Some(&SAND_CLIFF),
+        cliff: Some(&ROCK_CLIFF),
     },
 ];
 
@@ -155,33 +197,78 @@ mod tests {
     use super::*;
     use fn_sim::Defs;
 
-    /// A 3x3 map whose center is a mountain and whose cardinal neighbors are lower ground
-    /// (`true`, land) or more mountain (`false`). Corners are mountain.
-    fn mountain_neighbor_map(n: bool, s: bool, e: bool, w: bool) -> TileMap {
-        let at = |lower: bool| if lower { Terrain::Land } else { Terrain::Mountain };
-        terrain_map(3, 3, |p| match (p.x, p.y) {
-            (1, 0) => at(n),
-            (1, 2) => at(s),
-            (2, 1) => at(e),
-            (0, 1) => at(w),
-            _ => Terrain::Mountain,
+    /// The sprite names of `art/cliffs.toml` in file order.
+    fn sprite_names() -> Vec<String> {
+        let path = format!("{}/../../art/cliffs.toml", env!("CARGO_MANIFEST_DIR"));
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let doc: toml::Table = text.parse().unwrap();
+        doc["sprite"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["name"].as_str().unwrap().to_owned())
+            .collect()
+    }
+
+    /// The cell of the sprite called `name` in `art/cliffs.toml`.
+    fn named(name: &str) -> Cell {
+        let i = sprite_names().iter().position(|n| n == name);
+        at(i.unwrap_or_else(|| panic!("no sprite {name} in art/cliffs.toml")) as u32)
+    }
+
+    /// The name `art/cliffs.toml` gives the piece with these lower sides and inner corners.
+    fn piece_name(prefix: &str, lower: u8, diag: u8) -> String {
+        let sides: String = [(N, 'n'), (S, 's'), (E, 'e'), (W, 'w')]
+            .iter()
+            .filter(|(bit, _)| lower & bit != 0)
+            .map(|(_, c)| *c)
+            .collect();
+        let mut name = format!("{prefix}_{}", if sides.is_empty() { "flat" } else { &sides });
+        for (bit, c) in [(NW, "nw"), (NE, "ne"), (SW, "sw"), (SE, "se")] {
+            if diag & bit != 0 {
+                name = format!("{name}_{c}");
+            }
+        }
+        name
+    }
+
+    /// A 3x3 map whose center is a mountain and whose neighbors are lower ground (land) where
+    /// the bits of `sides` and `diag` say so, and more mountain elsewhere.
+    fn map_around(sides: u8, diag: u8) -> TileMap {
+        terrain_map(3, 3, |p| {
+            let lower = match (p.x, p.y) {
+                (1, 0) => sides & N != 0,
+                (1, 2) => sides & S != 0,
+                (2, 1) => sides & E != 0,
+                (0, 1) => sides & W != 0,
+                (0, 0) => diag & NW != 0,
+                (2, 0) => diag & NE != 0,
+                (0, 2) => diag & SW != 0,
+                (2, 2) => diag & SE != 0,
+                _ => false,
+            };
+            if lower { Terrain::Land } else { Terrain::Mountain }
         })
     }
 
-    #[test]
-    fn about_two_in_three_mountain_tiles_get_a_boulder() {
-        let rule = ground_rule(Terrain::Mountain, "plains").unwrap();
-        let n = (0..900).filter(|i| rule.decor_at(Pos::new(i % 30, i / 30)).is_some()).count();
-        assert!((540..660).contains(&n), "{n}");
+    fn cliff_at(sides: u8, diag: u8, set: &CliffSet) -> Option<Cell> {
+        cliff_cell(&map_around(sides, diag), Pos::new(1, 1), set)
     }
 
     #[test]
-    fn every_mountain_is_a_cliff_on_the_relief_sheet() {
+    fn about_one_in_three_mountain_tiles_get_a_boulder() {
+        let rule = ground_rule(Terrain::Mountain, "plains").unwrap();
+        let n = (0..900).filter(|i| rule.decor_at(Pos::new(i % 30, i / 30)).is_some()).count();
+        assert!((240..360).contains(&n), "{n}");
+    }
+
+    #[test]
+    fn every_mountain_is_a_cliff_on_the_cliffs_sheet() {
         let defs = Defs::bundled();
         for biome in &defs.biomes {
             let rule = ground_rule(Terrain::Mountain, &biome.id).unwrap();
-            let set = rule.cliff.unwrap_or_else(|| panic!("{} mountain has no cliff", biome.id));
-            assert_eq!(rule.base, set.top, "{}: interior blends into the rim", biome.id);
+            assert!(rule.cliff.is_some(), "{} mountain has no cliff", biome.id);
+            assert_eq!(rule.base, rule.variants[0], "{}: a floor with variants", biome.id);
             assert!(rule.decor.is_some(), "{}: interior keeps its boulders", biome.id);
         }
         for terrain in TERRAINS.iter().filter(|t| **t != Terrain::Mountain) {
@@ -191,82 +278,151 @@ mod tests {
     }
 
     #[test]
-    fn tundra_cliffs_are_snowy_and_the_rest_are_sandy() {
+    fn tundra_cliffs_are_snowy_and_the_rest_are_rocky() {
         let snow = ground_rule(Terrain::Mountain, "tundra").unwrap().cliff.unwrap();
-        let sand = ground_rule(Terrain::Mountain, "plains").unwrap().cliff.unwrap();
-        assert_eq!(snow.top, one(SHEET, 2, 1));
-        assert_eq!(sand.top, one(SHEET, 2, 6));
-        assert_eq!(ground_rule(Terrain::Mountain, "desert").unwrap().cliff.unwrap().top, sand.top);
+        let rock = ground_rule(Terrain::Mountain, "plains").unwrap().cliff.unwrap();
+        assert_eq!(snow.first, PIECES);
+        assert_eq!(rock.first, 0);
+        let desert = ground_rule(Terrain::Mountain, "desert").unwrap().cliff.unwrap();
+        assert_eq!(desert.first, rock.first);
+    }
+
+    /// The interior is the rock and snow floors of `floors`, whole.
+    #[test]
+    fn the_interior_is_the_rock_and_snow_floors() {
+        let tundra = ground_rule(Terrain::Mountain, "tundra").unwrap();
+        let land = ground_rule(Terrain::Land, "tundra").unwrap();
+        assert_eq!(tundra.variants, land.variants, "snow floor");
+        let rock = ground_rule(Terrain::Mountain, "plains").unwrap();
+        assert_eq!(rock.variants, floors::ROCK);
+    }
+
+    /// The sheet lists every piece of both sets in the order the code indexes them, then the
+    /// boulders the decor rows use.
+    #[test]
+    fn the_sheet_holds_every_piece_then_the_boulders() {
+        assert_eq!(PIECES, 47);
+        let names = sprite_names();
+        for (prefix, set) in [("rock", &ROCK_CLIFF), ("snow", &SNOW_CLIFF)] {
+            let mut i = set.first as usize;
+            for lower in 0..16u8 {
+                let mask = corners(lower);
+                for diag in 0..16u8 {
+                    if diag & !mask == 0 {
+                        assert_eq!(names[i], piece_name(prefix, lower, diag), "sprite {i}");
+                        assert_eq!(
+                            set.cell(lower, diag),
+                            (i as u32 > set.first).then(|| at(i as u32))
+                        );
+                        i += 1;
+                    }
+                }
+            }
+            assert_eq!(i, (set.first + PIECES) as usize, "{prefix}");
+        }
+        let boulders = ["boulder_a", "boulder_b", "boulder_c"];
+        let snowy = ["snow_boulder_a", "snow_boulder_b", "snow_boulder_c"];
+        assert_eq!(&names[BOULDER_0 as usize..], [boulders, snowy].concat());
+        assert_eq!(BOULDERS.cells, boulders.map(named));
+        assert_eq!(SNOWY_BOULDERS.cells, snowy.map(named));
     }
 
     #[test]
-    fn cliff_pieces_stay_inside_the_relief_sheet() {
+    fn cliff_pieces_stay_inside_the_cliffs_sheet() {
         let (w, h) = png_size(SHEET);
-        for set in [&SNOW_CLIFF, &SAND_CLIFF] {
-            let pieces = [
-                set.top,
-                set.n,
-                set.s,
-                set.e,
-                set.w,
-                set.nw,
-                set.ne,
-                set.sw,
-                set.se,
-                set.strip_top,
-                set.strip_mid,
-                set.strip_bot,
-            ];
-            for c in pieces {
-                assert_eq!((c.sheet, c.w, c.h), (SHEET, 1, 1));
-                let [x0, y0, x1, y1] = c.pixel_rect();
-                assert!(x0 >= 0.0 && y0 >= 0.0 && x1 <= w as f32 && y1 <= h as f32, "{c:?}");
-            }
+        let total = 2 * PIECES + 6;
+        assert_eq!(sprite_names().len() as u32, total);
+        assert_eq!((w, h), (COLUMNS * 16, total.div_ceil(COLUMNS) * 16));
+        for i in 0..total {
+            let c = at(i);
+            assert_eq!((c.sheet, c.w, c.h), (SHEET, 1, 1));
+            let [x0, y0, x1, y1] = c.pixel_rect();
+            assert!(x0 >= 0.0 && y0 >= 0.0 && x1 <= w as f32 && y1 <= h as f32, "{c:?}");
         }
     }
 
     #[test]
     fn cliff_cell_picks_every_piece_from_its_lower_neighbors() {
-        let set = &SAND_CLIFF;
+        let set = &ROCK_CLIFF;
         let cases = [
-            ((true, false, false, false), Some(set.n)),
-            ((false, true, false, false), Some(set.s)),
-            ((false, false, true, false), Some(set.e)),
-            ((false, false, false, true), Some(set.w)),
-            ((true, false, false, true), Some(set.nw)),
-            ((true, false, true, false), Some(set.ne)),
-            ((false, true, false, true), Some(set.sw)),
-            ((false, true, true, false), Some(set.se)),
-            // A ridge one tile wide, running north to south.
-            ((false, false, true, true), Some(set.strip_mid)),
-            ((true, false, true, true), Some(set.strip_top)),
-            ((false, true, true, true), Some(set.strip_bot)),
-            ((true, true, true, true), Some(set.strip_bot)),
-            // A ridge one tile tall keeps its south face.
-            ((true, true, false, false), Some(set.s)),
-            ((true, true, false, true), Some(set.sw)),
-            ((true, true, true, false), Some(set.se)),
+            (N, "rock_n"),
+            (S, "rock_s"),
+            (E, "rock_e"),
+            (W, "rock_w"),
+            (N | W, "rock_nw"),
+            (N | E, "rock_ne"),
+            (S | W, "rock_sw"),
+            (S | E, "rock_se"),
+            // A ridge one tile wide, running north to south, and its caps.
+            (E | W, "rock_ew"),
+            (N | E | W, "rock_new"),
+            (S | E | W, "rock_sew"),
+            (N | S | E | W, "rock_nsew"),
         ];
-        for ((n, s, e, w), expected) in cases {
-            let map = mountain_neighbor_map(n, s, e, w);
-            assert_eq!(cliff_cell(&map, Pos::new(1, 1), set), expected, "n={n} s={s} e={e} w={w}");
+        for (sides, name) in cases {
+            assert_eq!(cliff_at(sides, 0, set), Some(named(name)), "{name}");
         }
     }
 
-    /// Mountain on every side, even with lower ground on the diagonals, stays a flat floor.
+    /// A ridge one tile tall keeps both its north rim and its south face, and has a cap at each
+    /// end (#104 left it without the rim).
+    #[test]
+    fn a_one_tall_ridge_has_a_rim_a_face_and_end_caps() {
+        let set = &ROCK_CLIFF;
+        assert_eq!(cliff_at(N | S, 0, set), Some(named("rock_ns")));
+        assert_eq!(cliff_at(N | S | W, 0, set), Some(named("rock_nsw")));
+        assert_eq!(cliff_at(N | S | E, 0, set), Some(named("rock_nse")));
+        let pieces = [N | S, N | S | W, N | S | E, N, S];
+        let cells: Vec<_> = pieces.iter().map(|m| cliff_at(*m, 0, set)).collect();
+        for (i, a) in cells.iter().enumerate() {
+            assert!(cells[i + 1..].iter().all(|b| a != b), "ridge pieces are all different");
+        }
+        // A real row: three mountains with lower ground all round.
+        let row = terrain_map(5, 3, |p| {
+            if p.y == 1 && (1..4).contains(&p.x) { Terrain::Mountain } else { Terrain::Land }
+        });
+        let at_x = |x| cliff_cell(&row, Pos::new(x, 1), set);
+        assert_eq!(at_x(1), Some(named("rock_nsw")));
+        assert_eq!(at_x(2), Some(named("rock_ns")));
+        assert_eq!(at_x(3), Some(named("rock_nse")));
+    }
+
+    #[test]
+    fn a_lower_diagonal_with_mountain_sides_is_an_inner_corner() {
+        let set = &ROCK_CLIFF;
+        for (diag, name) in [
+            (NW, "rock_flat_nw"),
+            (NE, "rock_flat_ne"),
+            (SW, "rock_flat_sw"),
+            (SE, "rock_flat_se"),
+            (NW | SE, "rock_flat_nw_se"),
+            (NW | NE | SW | SE, "rock_flat_nw_ne_sw_se"),
+        ] {
+            assert_eq!(cliff_at(0, diag, set), Some(named(name)), "{name}");
+        }
+        // Beside a lower side it can still have the corners on the other side.
+        assert_eq!(cliff_at(N, SE, set), Some(named("rock_n_se")));
+        assert_eq!(cliff_at(N, SW | SE, set), Some(named("rock_n_sw_se")));
+        assert_eq!(cliff_at(S | E, NW, set), Some(named("rock_se_nw")));
+        // A diagonal next to a lower side is part of that side's rim: no corner piece.
+        assert_eq!(cliff_at(N, NW | NE, set), Some(named("rock_n")));
+        assert_eq!(cliff_at(E | W, NW | NE | SW | SE, set), Some(named("rock_ew")));
+    }
+
+    #[test]
+    fn the_snow_set_has_the_same_pieces() {
+        for (sides, diag, name) in
+            [(N | S | E, 0, "snow_nse"), (0, SW, "snow_flat_sw"), (S | W, NE, "snow_sw_ne")]
+        {
+            assert_eq!(cliff_at(sides, diag, &SNOW_CLIFF), Some(named(name)), "{name}");
+        }
+    }
+
+    /// Mountain on every side stays a flat floor, whatever the sets draw for its corners.
     #[test]
     fn interior_mountain_tiles_have_no_cliff() {
-        let map = mountain_neighbor_map(false, false, false, false);
-        assert_eq!(cliff_cell(&map, Pos::new(1, 1), &SAND_CLIFF), None);
-        let diagonals =
-            terrain_map(
-                3,
-                3,
-                |p| {
-                    if p.x != 1 && p.y != 1 { Terrain::Land } else { Terrain::Mountain }
-                },
-            );
-        assert_eq!(cliff_cell(&diagonals, Pos::new(1, 1), &SAND_CLIFF), None);
+        assert_eq!(cliff_at(0, 0, &ROCK_CLIFF), None);
+        assert_eq!(cliff_at(0, 0, &SNOW_CLIFF), None);
     }
 
     /// Water, coast and ford all count as lower ground.
@@ -275,7 +431,7 @@ mod tests {
         for lower in [Terrain::Water, Terrain::Coast, Terrain::River, Terrain::Lake, Terrain::Ford]
         {
             let map = terrain_map(1, 2, |p| if p.y == 0 { lower } else { Terrain::Mountain });
-            assert_eq!(cliff_cell(&map, Pos::new(0, 1), &SAND_CLIFF), Some(SAND_CLIFF.n));
+            assert_eq!(cliff_cell(&map, Pos::new(0, 1), &ROCK_CLIFF), Some(named("rock_n")));
         }
     }
 
@@ -283,7 +439,7 @@ mod tests {
     #[test]
     fn off_map_is_not_lower_ground() {
         let map = terrain_map(1, 1, |_| Terrain::Mountain);
-        assert_eq!(cliff_cell(&map, Pos::new(0, 0), &SAND_CLIFF), None);
+        assert_eq!(cliff_cell(&map, Pos::new(0, 0), &ROCK_CLIFF), None);
     }
 
     #[test]
@@ -295,5 +451,17 @@ mod tests {
         assert_eq!(rule.decor_on(&range, p), rule.decor_at(p));
         let peak = terrain_map(3, 42, |q| if q == p { Terrain::Mountain } else { Terrain::Land });
         assert_eq!(rule.decor_on(&peak, p), None, "a lone peak is all cliff");
+    }
+
+    /// An inner corner is part of the rim, so a boulder doesn't sit on it either.
+    #[test]
+    fn no_boulder_on_an_inner_corner() {
+        let rule = ground_rule(Terrain::Mountain, "plains").unwrap();
+        let p = (1..400).map(|y| Pos::new(1, y)).find(|p| rule.decor_at(*p).is_some()).unwrap();
+        let notch = terrain_map(3, 402, |q| {
+            if q == Pos::new(2, p.y + 1) { Terrain::Land } else { Terrain::Mountain }
+        });
+        assert!(cliff_cell(&notch, p, &ROCK_CLIFF).is_some());
+        assert_eq!(rule.decor_on(&notch, p), None);
     }
 }

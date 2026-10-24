@@ -54,11 +54,6 @@ source = "ninja-adventure"
 sha256 = "51eedd957ad4ac88988d170aa83a42404ef8fdebff9e6753b6fe80841ab3d5bb"
 
 [[file]]
-path = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetRelief.png"
-source = "ninja-adventure"
-sha256 = "9f4156d97efe449e161ec9065edd48f296e977cfd77f7e60474f2ddaae34c2e9"
-
-[[file]]
 path = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetDesert.png"
 source = "ninja-adventure"
 sha256 = "c75577d52061aab5637585d6c33592a7fe47d5870f0cc0206ec4de0159d4f8a9"
@@ -187,6 +182,12 @@ sha256 = "447bd8fec385066b3b358671932d979b6e420876e4fd5daf04a038c1b6887209"
 path = "third_party/ninja-adventure/Actor/Character/NinjaRed/Faceset.png"
 source = "ninja-adventure"
 sha256 = "0a9e889a88f437521284748c676167844ec05dcbf8d121a454350de030fcd0bf"
+
+[[file]]
+path = "original/cliffs.png"
+source = "original"
+generated_from = "art/cliffs.toml"
+sha256 = "b95a643c43f66bcea16ad9de2ce6e0226820dfe4d886fc13f6d02d89dadca033"
 
 [[file]]
 path = "original/emblems.png"

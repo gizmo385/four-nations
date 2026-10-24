@@ -61,6 +61,12 @@ cream0 = "#8a6e4a"
 cream1 = "#c8aa78"
 cream2 = "#ecdcb0"
 
+# Cliffs (#147): a grey-brown rock face. The snow top uses the snow floor's ramp above.
+earth0 = "#3b3431"
+earth1 = "#5e5249"
+earth2 = "#85766a"
+earth3 = "#aa9b8b"
+
 # The accent ramp around the nation's `color`: mixes toward a palette colour, like fn_ui::theme.
 [accent]
 accent_dark = { toward = "ink", t = 0.45 }
