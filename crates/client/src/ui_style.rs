@@ -41,7 +41,8 @@ pub mod layout {
     pub const BRACKET_OFFSET: f32 = 6.0;
 }
 
-/// Colour tokens for one nation. Build with [`Theme::for_nation`].
+/// Colour tokens for one nation, as Bevy colours. The values and the maths behind them are
+/// `fn_ui::theme::Theme`'s; build with [`Theme::for_nation`].
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 pub struct Theme {
     /// Panel body. Opaque so snow and sand can't wash it out.
@@ -65,41 +66,48 @@ pub struct Theme {
     pub bad: Color,
 }
 
-pub const PANEL: Color = Color::srgb(0.07, 0.08, 0.1);
-pub const INSET: Color = Color::srgb(0.04, 0.045, 0.06);
-pub const TEXT: Color = Color::srgb(0.93, 0.94, 0.96);
-pub const DIM: Color = Color::srgb(0.58, 0.61, 0.67);
-pub const ON_ACCENT: Color = Color::srgb(0.05, 0.05, 0.07);
-pub const OK: Color = Color::srgb(0.5, 0.78, 0.55);
-pub const WARN: Color = Color::srgb(0.92, 0.6, 0.28);
-pub const BAD: Color = Color::srgb(0.92, 0.38, 0.34);
 pub const SHADOW: Color = Color::srgba(0.0, 0.0, 0.0, 0.45);
 
-impl Theme {
-    /// Tokens for a nation whose `color` in nations.toml is `rgb`.
-    pub fn for_nation(rgb: [u8; 3]) -> Self {
-        let accent = Color::srgb_u8(rgb[0], rgb[1], rgb[2]);
+fn color([r, g, b]: fn_ui::theme::Rgb) -> Color {
+    Color::srgb(r, g, b)
+}
+
+impl From<fn_ui::theme::Theme> for Theme {
+    fn from(t: fn_ui::theme::Theme) -> Self {
         Self {
-            panel: PANEL,
-            inset: INSET,
-            text: TEXT,
-            dim: DIM,
-            accent,
-            accent_text: mix(accent, Color::WHITE, 0.25),
-            accent_soft: mix(accent, PANEL, 0.55),
-            on_accent: ON_ACCENT,
-            ok: OK,
-            warn: WARN,
-            bad: BAD,
+            panel: color(t.panel),
+            inset: color(t.inset),
+            text: color(t.text),
+            dim: color(t.dim),
+            accent: color(t.accent),
+            accent_text: color(t.accent_text),
+            accent_soft: color(t.accent_soft),
+            on_accent: color(t.on_accent),
+            ok: color(t.ok),
+            warn: color(t.warn),
+            bad: color(t.bad),
         }
     }
 }
 
-/// Linear blend in sRGB space: `t = 0` is `a`, `t = 1` is `b`.
-pub fn mix(a: Color, b: Color, t: f32) -> Color {
-    let (a, b) = (a.to_srgba(), b.to_srgba());
-    let l = |x: f32, y: f32| x + (y - x) * t;
-    Color::srgba(l(a.red, b.red), l(a.green, b.green), l(a.blue, b.blue), l(a.alpha, b.alpha))
+impl Theme {
+    /// Tokens for a nation whose `color` in nations.toml is `rgb`.
+    pub fn for_nation(rgb: [u8; 3]) -> Self {
+        fn_ui::theme::Theme::for_nation(rgb).into()
+    }
+}
+
+/// Hit testing. The client uses no `Interaction` or `Button` (Bevy 0.20 deprecates them), so a
+/// click is tested against the laid-out nodes by hand. `ComputedNode` geometry is in physical
+/// pixels, so the cursor is scaled to match.
+pub fn node_under_cursor<'a, T>(
+    window: &Window,
+    nodes: impl IntoIterator<Item = (T, &'a ComputedNode, &'a UiGlobalTransform)>,
+) -> Option<T> {
+    let cursor = window.cursor_position()? * window.scale_factor();
+    nodes
+        .into_iter()
+        .find_map(|(id, node, transform)| node.contains_point(*transform, cursor).then_some(id))
 }
 
 /// A text bundle in the default font.
@@ -270,45 +278,17 @@ pub fn button(p: &mut ChildSpawnerCommands, theme: &Theme, label: &str, key: &st
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fn_sim::{Defs, Nation};
-
-    /// WCAG relative luminance of an sRGB colour.
-    fn luminance(c: Color) -> f32 {
-        let c = c.to_linear();
-        0.2126 * c.red + 0.7152 * c.green + 0.0722 * c.blue
-    }
-
-    fn contrast(a: Color, b: Color) -> f32 {
-        let (la, lb) = (luminance(a), luminance(b));
-        (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
-    }
 
     #[test]
-    fn accent_is_the_nation_colour() {
+    fn the_theme_is_the_shared_tokens_as_bevy_colours() {
+        let shared = fn_ui::theme::Theme::for_nation([90, 160, 80]);
         let t = Theme::for_nation([90, 160, 80]);
         assert_eq!(t.accent, Color::srgb_u8(90, 160, 80));
-    }
-
-    /// Every bundled nation's accent text, and the shared text colours, stay readable on the
-    /// panel (WCAG AA for body text: 4.5:1). Guards against a new nation colour in data.
-    #[test]
-    fn text_tokens_are_readable_on_the_panel_for_every_nation() {
-        let defs = Defs::bundled();
-        for n in Nation::ALL {
-            let t = Theme::for_nation(defs.nation(n).color);
-            for (name, c) in [("accent_text", t.accent_text), ("text", t.text), ("dim", t.dim)] {
-                let ratio = contrast(c, t.panel);
-                assert!(ratio >= 4.5, "{n:?} {name} contrast {ratio:.2} < 4.5");
-            }
-            let on = contrast(t.on_accent, t.accent);
-            assert!(on >= 3.0, "{n:?} on_accent contrast {on:.2} < 3");
-        }
-    }
-
-    #[test]
-    fn mix_endpoints() {
-        let (a, b) = (Color::BLACK, Color::WHITE);
-        assert_eq!(mix(a, b, 0.0).to_srgba(), a.to_srgba());
-        assert_eq!(mix(a, b, 1.0).to_srgba(), b.to_srgba());
+        assert_eq!(
+            t.accent_soft,
+            Color::srgb(shared.accent_soft[0], shared.accent_soft[1], shared.accent_soft[2])
+        );
+        assert_eq!(t.panel, Color::srgb(0.07, 0.08, 0.1));
+        assert_eq!(t, Theme::from(shared));
     }
 }

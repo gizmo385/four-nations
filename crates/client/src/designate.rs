@@ -1,6 +1,7 @@
 //! Designation tools: pick a tool with a key, drag a rectangle on the map, and every tile in it
 //! becomes a `Command` for `World::apply`. Designated tiles are tinted so you can see what is
-//! queued. Minimal on purpose: the overall UI style is #39. Job state display is in `jobview`.
+//! queued. Which command each tool issues, and its key, are `fn_ui::tools`; this module reads
+//! the mouse and keyboard and draws the tints. Job state display is in `jobview`.
 //!
 //! Keys: `H` harvest (chop, quarry, gather, mine, whatever each tile's resource gives), `X` cancel
 //! harvest (also withdraws a build site), `P` stockpile, `B` the nation's bending ability (#72),
@@ -12,21 +13,19 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use fn_sim::bending::AbilityId;
+use fn_sim::Pos;
 use fn_sim::building::BuildingId;
-use fn_sim::world::Command;
-use fn_sim::{Defs, Nation, Pos};
+use fn_ui::tools::{self, Tool};
 
 use super::{MapEntity, Sim, TILE, cursor_tile, tile_translation};
-use crate::build::{self, BuildChoice};
 use crate::hud;
-use crate::ui_style::Theme;
+use crate::ui_style::{self, Theme};
 
 pub struct DesignatePlugin;
 
 impl Plugin for DesignatePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Tool>()
+        app.init_resource::<ActiveTool>()
             .init_resource::<Notice>()
             .init_resource::<Overlays>()
             .init_resource::<BuildChoice>()
@@ -43,128 +42,87 @@ impl Plugin for DesignatePlugin {
     }
 }
 
-/// What the left mouse button does on the map.
+/// What the left mouse button does on the map (`fn_ui`'s `Tool`, as a resource).
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Tool {
-    /// Click to select a unit.
-    #[default]
-    Select,
-    Harvest,
-    CancelHarvest,
-    Stockpile,
-    /// Channel the nation's signature ability (docs/design/bending.md).
-    Bend,
-    /// Place the building picked in `BuildChoice` (#111).
-    Build,
-}
+pub struct ActiveTool(pub Tool);
 
-/// What a drag needs besides the tool and the tile to decide on a command.
-#[derive(Clone, Copy, Default, Debug)]
-struct Pick {
-    /// The nation's bending ability, resolved once per drag (`ability_for_nation`); `Bend`
-    /// issues nothing without one.
-    ability: Option<AbilityId>,
-    /// Held Shift (#81): a harvest designation becomes a standing order that re-queues itself
-    /// every time the resource ripens again. No effect on any other tool.
-    repeating: bool,
-    /// The building to place; `Build` issues nothing without one.
-    building: Option<BuildingId>,
-}
-
-impl Tool {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Select => "select units",
-            Self::Harvest => "designate harvest (chop, mine, gather); hold Shift to repeat",
-            Self::CancelHarvest => "cancel harvest or build site",
-            Self::Stockpile => "designate stockpile",
-            Self::Bend => "channel the nation's ability",
-            Self::Build => "build: pick a building, then click a tile (U: next building)",
-        }
-    }
-
-    /// The command this tool issues for one tile, if it issues any. `site_here` says a build
-    /// site is pending on the tile, which the cancel tool withdraws instead of a harvest.
-    fn command(self, pos: Pos, site_here: bool, pick: Pick) -> Option<Command> {
-        match self {
-            Self::Select => None,
-            Self::Harvest if pick.repeating => Some(Command::DesignateRepeatingHarvest { pos }),
-            Self::Harvest => Some(Command::DesignateHarvest { pos }),
-            Self::CancelHarvest if site_here => Some(Command::CancelBuild { pos }),
-            Self::CancelHarvest => Some(Command::CancelHarvest { pos }),
-            Self::Stockpile => Some(Command::DesignateStockpile { pos }),
-            Self::Bend => Some(Command::Bend { ability: pick.ability?, pos }),
-            Self::Build => Some(Command::DesignateBuild { pos, building: pick.building? }),
-        }
-    }
-
-    /// Color of the drag rectangle.
-    fn drag_color(self, theme: &Theme, repeating: bool) -> Color {
-        match self {
-            Self::CancelHarvest => Layer::Harvest.outline(theme).with_alpha(0.5),
-            Self::Harvest if repeating => Layer::RepeatingHarvest.outline(theme),
-            Self::Stockpile => Layer::Stockpile.outline(theme),
-            Self::Bend => Layer::Bend.outline(theme),
-            Self::Build => Layer::Site.outline(theme),
-            _ => Layer::Harvest.outline(theme),
-        }
-    }
-}
-
-/// The nation's one bending ability right now (docs/design/bending.md: "There's one ability
-/// now; a small picker appears once research unlocks more"). `None` only if a nation has no
-/// ability defined at all, which the data tests guard against.
-pub(crate) fn ability_for_nation(defs: &Defs, nation: Nation) -> Option<AbilityId> {
-    defs.abilities.iter().position(|a| a.nation == nation).map(|i| AbilityId(i as u16))
-}
+/// The building the Build tool places. Kept across tool changes so `U` returns to it.
+#[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct BuildChoice(pub Option<BuildingId>);
 
 /// The result of the last designation, shown in the HUD.
 #[derive(Resource, Default)]
 pub struct Notice(pub String);
 
-/// Every tile in the rectangle spanned by two corners, row by row.
-fn tiles_between(a: Pos, b: Pos) -> impl Iterator<Item = Pos> {
-    let (x0, x1) = (a.x.min(b.x), a.x.max(b.x));
-    let (y0, y1) = (a.y.min(b.y), a.y.max(b.y));
-    (y0..=y1).flat_map(move |y| (x0..=x1).map(move |x| Pos::new(x, y)))
+/// Color of the drag rectangle.
+fn drag_color(tool: Tool, theme: &Theme, repeating: bool) -> Color {
+    match tool {
+        Tool::CancelHarvest => Layer::Harvest.outline(theme).with_alpha(0.5),
+        Tool::Harvest if repeating => Layer::RepeatingHarvest.outline(theme),
+        Tool::Stockpile => Layer::Stockpile.outline(theme),
+        Tool::Bend => Layer::Bend.outline(theme),
+        Tool::Build => Layer::Site.outline(theme),
+        _ => Layer::Harvest.outline(theme),
+    }
+}
+
+/// The key code of the letter key that picks a tool (`Tool::letter`).
+fn letter_key(letter: char) -> Option<KeyCode> {
+    const LETTERS: [KeyCode; 26] = [
+        KeyCode::KeyA,
+        KeyCode::KeyB,
+        KeyCode::KeyC,
+        KeyCode::KeyD,
+        KeyCode::KeyE,
+        KeyCode::KeyF,
+        KeyCode::KeyG,
+        KeyCode::KeyH,
+        KeyCode::KeyI,
+        KeyCode::KeyJ,
+        KeyCode::KeyK,
+        KeyCode::KeyL,
+        KeyCode::KeyM,
+        KeyCode::KeyN,
+        KeyCode::KeyO,
+        KeyCode::KeyP,
+        KeyCode::KeyQ,
+        KeyCode::KeyR,
+        KeyCode::KeyS,
+        KeyCode::KeyT,
+        KeyCode::KeyU,
+        KeyCode::KeyV,
+        KeyCode::KeyW,
+        KeyCode::KeyX,
+        KeyCode::KeyY,
+        KeyCode::KeyZ,
+    ];
+    letter.is_ascii_uppercase().then(|| LETTERS[(letter as u8 - b'A') as usize])
+}
+
+/// The tool whose key was pressed this frame: `Esc` is `Select`, the rest are letters.
+fn tool_pressed(keys: &ButtonInput<KeyCode>) -> Option<Tool> {
+    if keys.just_pressed(KeyCode::Escape) {
+        return Some(Tool::Select);
+    }
+    Tool::ALL
+        .into_iter()
+        .find(|t| t.letter().and_then(letter_key).is_some_and(|k| keys.just_pressed(k)))
 }
 
 fn choose_tool(
     keys: Res<ButtonInput<KeyCode>>,
     sim: Res<Sim>,
-    mut tool: ResMut<Tool>,
+    mut tool: ResMut<ActiveTool>,
     mut choice: ResMut<BuildChoice>,
     mut notice: ResMut<Notice>,
 ) {
+    let Some(requested) = tool_pressed(&keys) else { return };
     // `U` picks the build tool; pressed again it moves on to the next building the nation can
-    // place.
-    if keys.just_pressed(KeyCode::KeyU) {
-        let rows = build::picker_rows(&sim);
-        choice.0 = if *tool == Tool::Build {
-            build::next_choice(&rows, choice.0)
-        } else {
-            build::valid_choice(&rows, choice.0)
-        };
-        if *tool != Tool::Build {
-            *tool = Tool::Build;
-            notice.0.clear();
-        }
-        return;
-    }
-    let next = [
-        (KeyCode::KeyH, Tool::Harvest),
-        (KeyCode::KeyX, Tool::CancelHarvest),
-        (KeyCode::KeyP, Tool::Stockpile),
-        (KeyCode::KeyB, Tool::Bend),
-        (KeyCode::Escape, Tool::Select),
-    ]
-    .into_iter()
-    .find(|(k, _)| keys.just_pressed(*k))
-    .map(|(_, t)| t);
-    if let Some(next) = next
-        && *tool != next
-    {
-        *tool = next;
+    // place (`switch_tool`).
+    let (next, building) = tools::switch_tool(&sim, tool.0, choice.0, requested);
+    choice.0 = building;
+    if next != tool.0 {
+        tool.0 = next;
         notice.0.clear();
     }
 }
@@ -181,16 +139,10 @@ fn click_picker(
     if !mouse.just_pressed(MouseButton::Left) {
         return;
     }
-    let Some(cursor) =
-        window.single().ok().and_then(|w| Some(w.cursor_position()? * w.scale_factor()))
-    else {
-        return;
-    };
-    // Node geometry is in physical pixels; the cursor above is scaled to match.
-    for (button, node, transform) in &rows {
-        if node.contains_point(*transform, cursor) {
-            choice.0 = Some(button.0);
-        }
+    let Ok(window) = window.single() else { return };
+    let hit = ui_style::node_under_cursor(window, rows.iter().map(|(b, n, t)| (b.0, n, t)));
+    if let Some(building) = hit {
+        choice.0 = Some(building);
     }
 }
 
@@ -199,7 +151,7 @@ fn click_picker(
 fn designate_drag(
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
-    tool: Res<Tool>,
+    tool: Res<ActiveTool>,
     choice: Res<BuildChoice>,
     theme: Res<Theme>,
     window: Query<&Window, With<PrimaryWindow>>,
@@ -209,7 +161,7 @@ fn designate_drag(
     mut start: Local<Option<Pos>>,
     mut gizmos: Gizmos,
 ) {
-    if *tool == Tool::Select {
+    if tool.0 == Tool::Select {
         *start = None;
         return;
     }
@@ -237,46 +189,12 @@ fn designate_drag(
         gizmos.rect_2d(
             Isometry2d::from_translation(center),
             size,
-            tool.drag_color(&theme, repeating),
+            drag_color(tool.0, &theme, repeating),
         );
     }
     if mouse.just_released(MouseButton::Left) {
         *start = None;
-        let rows = build::picker_rows(&sim);
-        let building = build::valid_choice(&rows, choice.0);
-        let pick =
-            Pick { ability: ability_for_nation(&sim.defs, sim.world.nation), repeating, building };
-        let what = match (*tool, building) {
-            (Tool::Build, Some(id)) => {
-                let name = rows.iter().find(|r| r.id == id).map_or("", |r| r.name.as_str());
-                format!("build {name}")
-            }
-            _ => tool.label().to_owned(),
-        };
-        let (mut done, mut refused) = (0, 0);
-        let mut last_error = None;
-        for pos in tiles_between(from, to) {
-            let site_here = sim.world.build_site(pos).is_some();
-            if let Some(command) = tool.command(pos, site_here, pick) {
-                let Sim { world, defs, .. } = &mut *sim;
-                match world.apply(command, defs) {
-                    Ok(()) => done += 1,
-                    Err(e) => {
-                        refused += 1;
-                        last_error = Some(e);
-                    }
-                }
-            }
-        }
-        // A reason is shown even for a one-tile click, so a rejected bend (or harvest, or
-        // stockpile, or build) says why.
-        notice.0 = match last_error {
-            Some(e) => {
-                let why = build::describe_error(&sim, e);
-                format!("{what}: {done} done, {refused} skipped ({why})")
-            }
-            None => format!("{what}: {done} done, {refused} skipped"),
-        };
+        notice.0 = tools::apply_rect(&mut sim, tool.0, from, to, repeating, choice.0);
     }
 }
 
@@ -391,56 +309,40 @@ fn sync_overlays(
 
 #[cfg(test)]
 mod tests {
+    use fn_sim::Nation;
+    use fn_sim::world::Command;
+    use fn_ui::Session;
+
     use super::*;
 
     #[test]
-    fn rectangle_covers_both_corners_whatever_the_drag_direction() {
-        let a = Pos::new(5, 7);
-        let b = Pos::new(3, 8);
-        let tiles: Vec<Pos> = tiles_between(a, b).collect();
-        assert_eq!(tiles.len(), 6);
-        assert_eq!(tiles.first(), Some(&Pos::new(3, 7)));
-        assert_eq!(tiles.last(), Some(&Pos::new(5, 8)));
-        assert_eq!(tiles, tiles_between(b, a).collect::<Vec<_>>());
+    fn every_tool_key_is_a_keyboard_key() {
+        let keys: Vec<KeyCode> = Tool::ALL
+            .iter()
+            .filter_map(|t| t.letter())
+            .map(|c| letter_key(c).unwrap_or_else(|| panic!("no key for {c}")))
+            .collect();
+        assert_eq!(
+            keys,
+            [KeyCode::KeyH, KeyCode::KeyX, KeyCode::KeyP, KeyCode::KeyB, KeyCode::KeyU]
+        );
+        assert_eq!(letter_key('h'), None, "letters are upper case");
     }
 
     #[test]
-    fn a_click_is_a_one_tile_rectangle() {
-        let p = Pos::new(2, 2);
-        assert_eq!(tiles_between(p, p).collect::<Vec<_>>(), [p]);
-    }
-
-    #[test]
-    fn each_tool_issues_its_own_command() {
-        let pos = Pos::new(1, 2);
-        let none = Pick::default();
-        assert_eq!(Tool::Select.command(pos, false, none), None);
-        assert_eq!(
-            Tool::Harvest.command(pos, false, none),
-            Some(Command::DesignateHarvest { pos })
-        );
-        assert_eq!(
-            Tool::CancelHarvest.command(pos, false, none),
-            Some(Command::CancelHarvest { pos })
-        );
-        assert_eq!(
-            Tool::Stockpile.command(pos, false, none),
-            Some(Command::DesignateStockpile { pos })
-        );
-        let ability = AbilityId(0);
-        let bend = Pick { ability: Some(ability), ..none };
-        assert_eq!(Tool::Bend.command(pos, false, bend), Some(Command::Bend { ability, pos }));
-        let building = BuildingId(2);
-        let build = Pick { building: Some(building), ..none };
-        assert_eq!(
-            Tool::Build.command(pos, false, build),
-            Some(Command::DesignateBuild { pos, building })
-        );
+    fn a_tool_is_picked_by_its_key_and_esc_selects() {
+        let mut keys = ButtonInput::<KeyCode>::default();
+        assert_eq!(tool_pressed(&keys), None);
+        keys.press(KeyCode::KeyX);
+        assert_eq!(tool_pressed(&keys), Some(Tool::CancelHarvest));
+        keys.clear();
+        keys.press(KeyCode::Escape);
+        assert_eq!(tool_pressed(&keys), Some(Tool::Select));
     }
 
     #[test]
     fn a_build_site_gets_an_overlay_and_loses_it_when_cancelled() {
-        let mut sim = Sim::new(7, Nation::Earth, 64, 64);
+        let mut sim = Session::new(7, Nation::Earth, 64, 64);
         let bed = sim.defs.building_id("bed").unwrap();
         let pos = sim
             .world
@@ -453,11 +355,10 @@ mod tests {
             })
             .map(|(p, _)| p)
             .unwrap();
-        let Sim { world, defs, .. } = &mut sim;
-        world.apply(Command::DesignateBuild { pos, building: bed }, defs).unwrap();
+        sim.apply(Command::DesignateBuild { pos, building: bed }).unwrap();
         let theme = Theme::for_nation(sim.defs.nation(Nation::Earth).color);
         let mut app = App::new();
-        app.insert_resource(sim)
+        app.insert_resource(Sim(sim))
             .insert_resource(theme)
             .init_resource::<Overlays>()
             .add_systems(Update, sync_overlays);
@@ -466,56 +367,8 @@ mod tests {
         assert_eq!(overlays(&mut app).keys().collect::<Vec<_>>(), [&(pos, Layer::Site)]);
 
         let mut sim = app.world_mut().resource_mut::<Sim>();
-        let Sim { world, defs, .. } = &mut *sim;
-        world.apply(Command::CancelBuild { pos }, defs).unwrap();
+        sim.apply(Command::CancelBuild { pos }).unwrap();
         app.update();
         assert!(overlays(&mut app).is_empty());
-    }
-
-    #[test]
-    fn build_needs_a_chosen_building_to_issue_a_command() {
-        assert_eq!(Tool::Build.command(Pos::new(0, 0), false, Pick::default()), None);
-    }
-
-    #[test]
-    fn cancel_withdraws_a_build_site_where_there_is_one() {
-        let pos = Pos::new(4, 4);
-        let none = Pick::default();
-        assert_eq!(
-            Tool::CancelHarvest.command(pos, true, none),
-            Some(Command::CancelBuild { pos })
-        );
-        // Only the cancel tool does.
-        assert_eq!(Tool::Harvest.command(pos, true, none), Some(Command::DesignateHarvest { pos }));
-    }
-
-    #[test]
-    fn holding_shift_makes_a_harvest_designation_repeating() {
-        let pos = Pos::new(1, 2);
-        let shift = Pick { repeating: true, ..Pick::default() };
-        assert_eq!(
-            Tool::Harvest.command(pos, false, shift),
-            Some(Command::DesignateRepeatingHarvest { pos })
-        );
-        // Shift only changes what the harvest tool does.
-        assert_eq!(
-            Tool::CancelHarvest.command(pos, false, shift),
-            Some(Command::CancelHarvest { pos })
-        );
-        assert_eq!(Tool::Select.command(pos, false, shift), None);
-    }
-
-    #[test]
-    fn bend_needs_an_ability_to_issue_a_command() {
-        assert_eq!(Tool::Bend.command(Pos::new(0, 0), false, Pick::default()), None);
-    }
-
-    #[test]
-    fn ability_for_nation_finds_each_nation_s_one_signature_ability() {
-        let defs = fn_sim::Defs::bundled();
-        for nation in fn_sim::Nation::ALL {
-            let id = ability_for_nation(&defs, nation).unwrap_or_else(|| panic!("{nation:?}"));
-            assert_eq!(defs.ability(id).nation, nation);
-        }
     }
 }

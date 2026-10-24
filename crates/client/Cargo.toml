@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 fn_sim = { path = "../sim" }
+fn_ui = { path = "../ui" }
 
 # Feature set chosen to avoid native build deps (alsa/udev/wayland headers): no audio, no gamepad,
 # X11 only. Revisit when we need sound.

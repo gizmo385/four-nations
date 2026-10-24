@@ -1,7 +1,7 @@
 //! Shows bending's *results* on the map and in the HUD (#72; docs/design/bending.md "Client
 //! (minimum)"). Designating a bend and its pending tint are `designate`; this module draws what
-//! a finished bend left behind (a lit flame, a wet patch, a new ford) and turns `BendEvent`s into
-//! short-lived alerts.
+//! a finished bend left behind (a lit flame, a wet patch, a new ford) and feeds `fn_ui`'s alert
+//! log, whose toasts the side panel shows.
 //!
 //! - A lit flame is a warm glow tile; hovering it outlines its reach.
 //! - A wet patch is a darker soil overlay, gone once it dries (and sprouts, drawn by `jobview`
@@ -9,13 +9,12 @@
 //! - A reshaped tile (today: Earth's river or lake turned into a ford) needs its floor sprite
 //!   redrawn, since the client otherwise draws each tile's ground once, at spawn.
 //! - Each `BendEvent` becomes a line in the side panel's "Alerts" section (ui.md), shown for a
-//!   few seconds and then dropped.
+//!   few seconds and then dropped (`fn_ui::alerts`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use fn_sim::world::{BendEvent, BendOutcome};
 use fn_sim::{Pos, Terrain};
 
 use super::{
@@ -26,12 +25,12 @@ pub struct BendingPlugin;
 
 impl Plugin for BendingPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Alerts>()
+        app.init_resource::<AlertLog>()
             .init_resource::<FlameSprites>()
             .init_resource::<WetSprites>()
             // `PreUpdate` so the side panel's `Update` systems see this frame's new alerts, with
             // no one-frame lag.
-            .add_systems(PreUpdate, track_bend_events)
+            .add_systems(PreUpdate, track_alerts)
             .add_systems(Update, (sync_terrain, sync_flames, sync_wet, flame_radius_hover).chain());
     }
 }
@@ -170,66 +169,16 @@ fn sync_wet(
 }
 
 // -------------------------------------------------------------------------------------------
-// Alerts: BendEvents as short-lived toasts
+// Alerts: the log's toasts
 
-/// How long an alert stays in the side panel, in real seconds.
-const ALERT_SECONDS: f32 = 6.0;
-/// At most this many alerts show at once; the oldest drops first.
-const MAX_ALERTS: usize = 4;
+/// `fn_ui`'s alert log (bend results, tech completions, deaths) as a Bevy resource. The side panel
+/// shows its toasts.
+#[derive(Resource, Default, Deref, DerefMut)]
+pub struct AlertLog(pub fn_ui::Alerts);
 
-/// Recent `BendEvent`s as short-lived lines for the side panel's "Alerts" section (ui.md:
-/// "a section with nothing to show hides itself").
-#[derive(Resource, Default)]
-pub struct Alerts {
-    /// (line, seconds left), oldest first.
-    entries: Vec<(String, f32)>,
-    /// How many of `World::bend_events` have already become an alert.
-    seen: usize,
-}
-
-impl Alerts {
-    /// The alerts still showing, oldest first.
-    pub fn lines(&self) -> Vec<String> {
-        self.entries.iter().map(|(line, _)| line.clone()).collect()
-    }
-}
-
-/// "Haru used Raise Earth at (5, 3)" or "Haru's Raise Earth failed: needs dry ground beside it".
-fn describe_bend_event(sim: &Sim, ev: &BendEvent) -> String {
-    let def = sim.defs.ability(ev.ability);
-    let who = sim.world.unit(ev.unit).map_or("Someone", |u| u.name.as_str());
-    match ev.outcome {
-        BendOutcome::Done => format!("{who} used {} at ({}, {})", def.name, ev.pos.x, ev.pos.y),
-        BendOutcome::Failed(why) => format!("{who}'s {} failed: {why}", def.name),
-    }
-}
-
-/// Ages every alert's time left down by `dt`, dropping those that reach zero, then keeps only
-/// the newest `MAX_ALERTS`.
-fn age_alerts(entries: &mut Vec<(String, f32)>, dt: f32) {
-    entries.retain_mut(|(_, left)| {
-        *left -= dt;
-        *left > 0.0
-    });
-    let len = entries.len();
-    if len > MAX_ALERTS {
-        entries.drain(0..len - MAX_ALERTS);
-    }
-}
-
-/// Turns new `BendEvent`s into alerts and ages out old ones.
-fn track_bend_events(mut alerts: ResMut<Alerts>, sim: Res<Sim>, time: Res<Time>) {
-    let events = sim.world.bend_events();
-    if alerts.seen > events.len() {
-        // A new world (regenerate, nation switch): the old log is gone.
-        alerts.seen = 0;
-        alerts.entries.clear();
-    }
-    for ev in &events[alerts.seen..] {
-        alerts.entries.push((describe_bend_event(&sim, ev), ALERT_SECONDS));
-    }
-    alerts.seen = events.len();
-    age_alerts(&mut alerts.entries, time.delta_secs());
+/// Feeds the log what the sim recorded since last frame and ages its toasts by the frame time.
+fn track_alerts(mut alerts: ResMut<AlertLog>, sim: Res<Sim>, time: Res<Time>) {
+    alerts.update(&sim, time.delta_secs());
 }
 
 #[cfg(test)]
@@ -237,56 +186,22 @@ mod tests {
     use std::time::Duration;
 
     use fn_sim::Nation;
-    use fn_sim::bending::AbilityId;
-    use fn_sim::world::{BendOutcome, Command};
+    use fn_sim::world::Command;
+    use fn_ui::Session;
+    use fn_ui::tools::ability_for_nation;
 
     use super::*;
 
     fn test_app(seed: u64, nation: Nation) -> App {
         let mut app = App::new();
-        app.insert_resource(Sim::new(seed, nation, 48, 32))
+        app.insert_resource(Sim(Session::new(seed, nation, 48, 32)))
             .init_resource::<Time>()
-            .init_resource::<Alerts>()
+            .init_resource::<AlertLog>()
             .init_resource::<FlameSprites>()
             .init_resource::<WetSprites>()
-            .add_systems(PreUpdate, track_bend_events)
+            .add_systems(PreUpdate, track_alerts)
             .add_systems(Update, (sync_flames, sync_wet).chain());
         app
-    }
-
-    #[test]
-    fn describes_a_done_and_a_failed_bend() {
-        let sim = Sim::new(1, Nation::Earth, 48, 32);
-        let ability = AbilityId(
-            sim.defs.abilities.iter().position(|a| a.nation == Nation::Earth).unwrap() as u16,
-        );
-        let unit = sim.world.units[0].id;
-        let pos = Pos::new(5, 3);
-        let done = BendEvent { tick: 0, unit, ability, pos, outcome: BendOutcome::Done };
-        let line = describe_bend_event(&sim, &done);
-        assert!(line.contains(&sim.world.units[0].name), "{line}");
-        assert!(line.contains("(5, 3)"), "{line}");
-
-        let failed = BendEvent {
-            tick: 0,
-            unit,
-            ability,
-            pos,
-            outcome: BendOutcome::Failed("needs dry ground beside it"),
-        };
-        let line = describe_bend_event(&sim, &failed);
-        assert!(line.contains("failed: needs dry ground beside it"), "{line}");
-    }
-
-    #[test]
-    fn alerts_age_out_and_cap_at_the_newest_few() {
-        let mut entries: Vec<(String, f32)> = (0..6).map(|i| (i.to_string(), 1.0)).collect();
-        age_alerts(&mut entries, 0.5);
-        assert_eq!(entries.len(), MAX_ALERTS, "capped even before anything expires");
-        assert_eq!(entries.last().unwrap().0, "5", "kept the newest");
-
-        age_alerts(&mut entries, 10.0);
-        assert!(entries.is_empty(), "everything has expired");
     }
 
     #[test]
@@ -294,29 +209,24 @@ mod tests {
         let mut app = test_app(1, Nation::Fire);
         let (pos, ability) = {
             let mut sim = app.world_mut().resource_mut::<Sim>();
-            let Sim { world, defs, .. } = &mut *sim;
-            let home = world.units[0].pos;
-            let ability = AbilityId(
-                defs.abilities.iter().position(|a| a.nation == Nation::Fire).unwrap() as u16,
-            );
-            let pos = Pos::new(home.x, home.y);
-            world.apply(Command::Bend { ability, pos }, defs).unwrap();
+            let ability = ability_for_nation(&sim.defs, Nation::Fire).unwrap();
+            let pos = sim.world.units[0].pos;
+            sim.apply(Command::Bend { ability, pos }).unwrap();
             (pos, ability)
         };
         {
             let mut sim = app.world_mut().resource_mut::<Sim>();
-            let Sim { world, defs, .. } = &mut *sim;
             for _ in 0..20_000 {
-                world.tick(defs);
-                if !world.bend_events().is_empty() {
+                sim.tick();
+                if !sim.world.bend_events().is_empty() {
                     break;
                 }
             }
-            assert!(!world.bend_events().is_empty(), "the bend should finish or fail");
+            assert!(!sim.world.bend_events().is_empty(), "the bend should finish or fail");
         }
         app.world_mut().resource_mut::<Time>().advance_by(Duration::from_millis(16));
         app.update();
-        let lines = app.world().resource::<Alerts>().lines();
+        let lines = app.world().resource::<AlertLog>().toast_lines();
         assert_eq!(lines.len(), 1, "{lines:?}");
         assert!(lines[0].contains(&app.world().resource::<Sim>().defs.ability(ability).name));
 
@@ -332,32 +242,24 @@ mod tests {
         let mut app = test_app(2, Nation::Water);
         let target = {
             let sim = app.world().resource::<Sim>();
-            let home = sim.world.units[0].pos;
             // A tile within source_range of the unit that `irrigate` can actually target: just
             // use the unit's own tile if it validates, else skip (data-driven, so not guaranteed
             // on every seed; the overlay logic is what this test checks).
-            home
-        };
-        let ability = {
-            let sim = app.world().resource::<Sim>();
-            AbilityId(
-                sim.defs.abilities.iter().position(|a| a.nation == Nation::Water).unwrap() as u16
-            )
+            sim.world.units[0].pos
         };
         let designated = {
             let mut sim = app.world_mut().resource_mut::<Sim>();
-            let Sim { world, defs, .. } = &mut *sim;
-            world.apply(Command::Bend { ability, pos: target }, defs).is_ok()
+            let ability = ability_for_nation(&sim.defs, Nation::Water).unwrap();
+            sim.apply(Command::Bend { ability, pos: target }).is_ok()
         };
         if !designated {
             return; // this seed's starting tile doesn't validate; nothing more to check here.
         }
         {
             let mut sim = app.world_mut().resource_mut::<Sim>();
-            let Sim { world, defs, .. } = &mut *sim;
             for _ in 0..20_000 {
-                world.tick(defs);
-                if !world.wet_tiles().is_empty() {
+                sim.tick();
+                if !sim.world.wet_tiles().is_empty() {
                     break;
                 }
             }

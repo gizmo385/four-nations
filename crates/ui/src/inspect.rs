@@ -1,0 +1,224 @@
+//! What is under the cursor: the lines of the hover tooltip (the Bevy client) or the Cursor
+//! section (the terminal UI).
+
+use fn_sim::{Pos, World};
+
+use crate::build;
+use crate::session::Session;
+use crate::text::{describe_stack, describe_task};
+use crate::tools::Tool;
+
+/// An action the player could take on what they're looking at. Each frontend words it for its
+/// own input: "Click to select" in one, "Enter to select" in the other.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Hint {
+    /// Select the unit here.
+    SelectUnit,
+    /// The tool isn't active; picking it (its key) would let you act on this tile.
+    StartTool(Tool),
+    /// The tool is active; acting now (a drag, or a rectangle's `Enter`) applies it here.
+    ApplyTool(Tool),
+}
+
+/// One line of a tooltip, and so its role. The text is final English except for hints.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Line {
+    Title(String),
+    Detail(String),
+    Hint(Hint),
+}
+
+pub type Lines = Vec<Line>;
+
+/// "Lit: 12m 03s left" for a flame on `tile`, or "Wet: sprouts in 3m 20s" for a watered one.
+/// `None` for anything else.
+pub fn bending_status_line(world: &World, tile: Pos) -> Option<String> {
+    let clock = |secs: f32| {
+        let secs = secs.max(0.0) as u64;
+        format!("{}m {:02}s", secs / 60, secs % 60)
+    };
+    if let Some(flame) = world.flames().into_iter().find(|f| f.pos == tile) {
+        return Some(format!("Lit: {} left", clock(flame.seconds_left)));
+    }
+    let (_, left) = world.wet_tiles().into_iter().find(|(p, _)| *p == tile)?;
+    Some(format!("Wet: sprouts in {}", clock(left)))
+}
+
+/// The tooltip for what is under the cursor at `tile`: up to 4 lines (name, context, a yield or
+/// reason, then an action hint). `None` when `tile` is off the map.
+pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
+    let (world, defs) = (&session.world, &session.defs);
+    let t = world.map.get(tile)?;
+    let mut lines = Lines::new();
+    if let Some(unit) = world.units.iter().find(|u| u.pos == tile) {
+        lines.push(Line::Title(unit.name.clone()));
+        let task = describe_task(world, defs, unit);
+        lines.push(Line::Detail(format!("{} - {task}", defs.nation(unit.nation).name)));
+        lines.push(Line::Detail(format!("Carrying: {}", describe_stack(defs, unit.carrying))));
+        if tool == Tool::Select {
+            lines.push(Line::Hint(Hint::SelectUnit));
+        }
+        return Some(lines);
+    }
+    // A construction site or a finished building (#111): what it is and how far along.
+    if let Some(report) = build::site_report(session, tile) {
+        lines.push(Line::Title(format!("{} (under construction)", report.name)));
+        lines.push(Line::Detail(report.materials));
+        lines.push(Line::Detail(report.work));
+        lines.push(Line::Hint(if tool == Tool::CancelHarvest {
+            Hint::ApplyTool(Tool::CancelHarvest)
+        } else {
+            Hint::StartTool(Tool::CancelHarvest)
+        }));
+        return Some(lines);
+    }
+    if let Some(name) = build::built_name(session, tile) {
+        lines.push(Line::Title(name));
+        lines.push(Line::Detail(format!("Built ({}, {})", tile.x, tile.y)));
+        return Some(lines);
+    }
+    let biome = &defs.biome(t.biome).name;
+    let at = format!("{biome} - {:?} ({}, {})", t.terrain, tile.x, tile.y);
+    let Some(res) = t.resource else {
+        lines.push(Line::Title(format!("{:?}", t.terrain)));
+        lines.push(Line::Detail(format!("{biome} ({}, {})", tile.x, tile.y)));
+        lines.push(Line::Detail(format!("Elevation {}", t.elevation)));
+        // A lit flame or a wet patch (#72): the result of a bend, so hovering explains it
+        // (pillar 4, "readable simulation").
+        if let Some(status) = bending_status_line(world, tile) {
+            lines.push(Line::Detail(status));
+        }
+        return Some(lines);
+    };
+    lines.push(Line::Title(defs.resource(res).name.clone()));
+    lines.push(Line::Detail(at));
+    if let Some(h) = defs.harvest(res) {
+        // A standing order (#81) outlives the resting period it's shown through, so it's folded
+        // into the existing lines rather than a line of its own (tooltips top out at 4 lines).
+        let repeating = world.is_repeating_harvest(tile);
+        if world.is_resting(tile) {
+            let text = if repeating { "Growing back - repeating order" } else { "Growing back" };
+            lines.push(Line::Detail(text.into()));
+        } else {
+            let item = &defs.item(h.item).name;
+            let suffix = if repeating { " (repeating)" } else { "" };
+            lines.push(Line::Detail(format!(
+                "{}: {} {item} - {:.0}s{suffix}",
+                h.verb, h.count, h.work
+            )));
+            lines.push(Line::Hint(if tool == Tool::Harvest {
+                Hint::ApplyTool(Tool::Harvest)
+            } else {
+                Hint::StartTool(Tool::Harvest)
+            }));
+        }
+    }
+    Some(lines)
+}
+
+#[cfg(test)]
+mod tests {
+    use fn_sim::Nation;
+    use fn_sim::world::Command;
+
+    use super::*;
+    use crate::tools::ability_for_nation;
+
+    #[test]
+    fn tooltips_have_at_most_four_lines() {
+        let s = Session::new(7, Nation::Earth, 64, 64);
+        let mut seen_resource = false;
+        let mut seen_unit = false;
+        for (p, t) in s.world.map.iter() {
+            for tool in [Tool::Select, Tool::Harvest] {
+                let lines = tooltip_lines(&s, tool, p).expect("on the map");
+                assert!((2..=4).contains(&lines.len()), "{p:?}: {lines:?}");
+                assert!(matches!(lines[0], Line::Title(_)));
+            }
+            seen_resource |= t.resource.is_some();
+        }
+        for u in &s.world.units {
+            seen_unit = true;
+            let lines = tooltip_lines(&s, Tool::Select, u.pos).unwrap();
+            assert_eq!(lines[0], Line::Title(u.name.clone()));
+            assert_eq!(lines.last(), Some(&Line::Hint(Hint::SelectUnit)));
+        }
+        assert!(seen_resource && seen_unit);
+        assert_eq!(tooltip_lines(&s, Tool::Select, Pos::new(-1, -1)), None);
+    }
+
+    #[test]
+    fn a_unit_only_offers_to_be_selected_with_the_select_tool() {
+        let s = Session::new(7, Nation::Earth, 64, 64);
+        let at = s.world.units[0].pos;
+        let lines = tooltip_lines(&s, Tool::Harvest, at).unwrap();
+        assert_eq!(lines.len(), 3);
+        assert!(!lines.contains(&Line::Hint(Hint::SelectUnit)));
+    }
+
+    #[test]
+    fn a_resource_hints_at_the_harvest_tool_and_applies_it_when_active() {
+        let s = Session::new(7, Nation::Earth, 64, 64);
+        let tree = s
+            .world
+            .map
+            .iter()
+            .find(|(p, t)| {
+                t.resource.and_then(|r| s.defs.harvest(r)).is_some_and(|h| h.regrow.is_none())
+                    && !s.world.units.iter().any(|u| u.pos == *p)
+            })
+            .map(|(p, _)| p)
+            .unwrap();
+        let hint = |tool| tooltip_lines(&s, tool, tree).unwrap().pop().unwrap();
+        assert_eq!(hint(Tool::Select), Line::Hint(Hint::StartTool(Tool::Harvest)));
+        assert_eq!(hint(Tool::Harvest), Line::Hint(Hint::ApplyTool(Tool::Harvest)));
+    }
+
+    #[test]
+    fn a_site_s_tooltip_shows_materials_and_work() {
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let bed = s.defs.building_id("bed").unwrap();
+        let pos = s
+            .world
+            .map
+            .iter()
+            .find(|(p, t)| {
+                t.terrain == fn_sim::Terrain::Land
+                    && t.resource.is_none()
+                    && !s.world.units.iter().any(|u| u.pos == *p)
+            })
+            .map(|(p, _)| p)
+            .unwrap();
+        s.apply(Command::DesignateBuild { pos, building: bed }).unwrap();
+        let lines = tooltip_lines(&s, Tool::Build, pos).unwrap();
+        assert_eq!(
+            lines,
+            [
+                Line::Title("Bed (under construction)".into()),
+                Line::Detail("Materials: 0/5 Wood".into()),
+                Line::Detail("Work: 0/20s".into()),
+                Line::Hint(Hint::StartTool(Tool::CancelHarvest)),
+            ]
+        );
+        let lines = tooltip_lines(&s, Tool::CancelHarvest, pos).unwrap();
+        assert_eq!(lines.last(), Some(&Line::Hint(Hint::ApplyTool(Tool::CancelHarvest))));
+    }
+
+    #[test]
+    fn bending_status_line_names_a_lit_flame() {
+        let mut s = Session::new(1, Nation::Fire, 48, 32);
+        let pos = s.world.units[0].pos;
+        let ability = ability_for_nation(&s.defs, Nation::Fire).unwrap();
+        s.apply(Command::Bend { ability, pos }).expect("a unit's own tile validates");
+        for _ in 0..20_000 {
+            s.tick();
+            if s.world.is_lit(pos) {
+                break;
+            }
+        }
+        assert!(s.world.is_lit(pos), "the flame should finish lighting");
+        let line = bending_status_line(&s.world, pos).expect("a lit flame");
+        assert!(line.starts_with("Lit:"), "{line}");
+        assert_eq!(bending_status_line(&s.world, Pos::new(-1, -1)), None);
+    }
+}
