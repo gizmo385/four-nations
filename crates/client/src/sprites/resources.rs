@@ -1,19 +1,25 @@
-//! Resources that aren't trees: one-cell sprites, bottom-aligned to their tile.
+//! Resources that aren't trees: one-cell sprites, bottom-aligned to their tile. The rocks and the
+//! cabbage are Claude-authored (`art/resources.toml`, docs/design/pixel-art.md); the fish
+//! shadows still come from the pack until the water issue (#146) redraws them.
 
 use super::{ResourceRule, one};
 
-/// The sheet the rocks and crops are on.
-pub const SHEET: &str = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetNature.png";
+/// The sheet the rocks and crops are on, rendered by `cargo xtask art`.
+pub const SHEET: &str = "original/resources.png";
+
+// The columns of `SHEET`, in the order of the sprites in `art/resources.toml`.
+const STONE: u32 = 0;
+const CABBAGE: u32 = 1;
+const GOLD_VEIN: u32 = 2;
 
 /// The sheet the fish shadows are on.
 pub const WATER_SHEET: &str = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetWater.png";
 
 pub const RESOURCES: &[ResourceRule] = &[
-    // Grey rock, and the same rock studded with orange ore.
-    ResourceRule { resource: "stone", biome: None, cell: one(SHEET, 6, 14) },
-    ResourceRule { resource: "gold_vein", biome: None, cell: one(SHEET, 4, 14) },
-    // The pack has no cabbage; a head of leafy greens stands in.
-    ResourceRule { resource: "cabbage", biome: None, cell: one(SHEET, 8, 11) },
+    // Grey rock, and the same rock with gold in it: one silhouette.
+    ResourceRule { resource: "stone", biome: None, cell: one(SHEET, STONE, 0) },
+    ResourceRule { resource: "gold_vein", biome: None, cell: one(SHEET, GOLD_VEIN, 0) },
+    ResourceRule { resource: "cabbage", biome: None, cell: one(SHEET, CABBAGE, 0) },
     // Fish shadows on water, drawn over the whole tile.
     ResourceRule { resource: "fish_spot", biome: None, cell: one(WATER_SHEET, 11, 4) },
 ];
@@ -21,12 +27,49 @@ pub const RESOURCES: &[ResourceRule] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fn_sim::{Defs, Terrain};
+
+    /// The sprite names of `art/resources.toml` in file order.
+    fn sprite_names() -> Vec<String> {
+        let path = format!("{}/../../art/resources.toml", env!("CARGO_MANIFEST_DIR"));
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let doc: toml::Table = text.parse().unwrap();
+        let sprites = doc["sprite"].as_array().unwrap();
+        sprites.iter().map(|s| s["name"].as_str().unwrap().to_owned()).collect()
+    }
 
     #[test]
     fn the_rest_are_one_cell() {
         for r in RESOURCES {
             assert!(!r.resource.ends_with("_tree"), "{}", r.resource);
             assert_eq!((r.cell.w, r.cell.h), (1, 1), "{}", r.resource);
+        }
+    }
+
+    #[test]
+    fn the_cells_are_the_sprites_they_claim() {
+        let names = sprite_names();
+        assert_eq!(names[STONE as usize], "stone");
+        assert_eq!(names[GOLD_VEIN as usize], "gold_vein");
+        assert_eq!(names[CABBAGE as usize], "cabbage");
+    }
+
+    /// Every land resource that isn't a tree has a sprite on our sheet, named like the resource.
+    #[test]
+    fn every_land_resource_has_an_authored_sprite() {
+        let names = sprite_names();
+        let on_water = |t: &Terrain| matches!(t, Terrain::Water | Terrain::Lake | Terrain::River);
+        for res in &Defs::bundled().resources {
+            let wet = res.terrains.as_ref().is_some_and(|ts| ts.iter().any(on_water));
+            if res.id.ends_with("_tree") || wet {
+                continue;
+            }
+            let rule = RESOURCES
+                .iter()
+                .find(|r| r.resource == res.id)
+                .unwrap_or_else(|| panic!("no sprite for land resource {}", res.id));
+            assert_eq!(rule.cell.sheet, SHEET, "{}", res.id);
+            assert_eq!(names[rule.cell.col as usize], res.id);
         }
     }
 }

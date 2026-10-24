@@ -1,7 +1,31 @@
-# Map resource sprites that fill Ninja Adventure gaps (docs/design/art.md audit), 16px, drawn
-# at 1:1 on the map. Same palette and outline as the icons, so an item and its source match.
+# The map's non-tree land resources (data/resources.toml), 16px, drawn at 1:1 and bottom-aligned
+# to their tile. Same palette and outline as the icons, so an item and its source match. Stone
+# and gold_vein share one silhouette and crack line: the ore is the same rock with gold in it.
+# The client names cells by this order (sprites/resources.rs).
 cell = [16, 16]
 outline = true
+
+[[sprite]]
+name = "stone"
+legend = { "1" = "stone0", "2" = "stone1", "3" = "stone2", "4" = "stone3", "5" = "stone4" }
+grid = """
+................
+................
+................
+......55444.....
+....554444443...
+...55444444433..
+..3344444443322.
+.33333334433222.
+.33332333332221.
+.33332333232221.
+.33323333322211.
+.33333333322211.
+..222222222111..
+....111111111...
+................
+................
+"""
 
 [[sprite]]
 name = "cabbage"
@@ -46,3 +70,5 @@ grid = """
 ................
 ................
 """
+
+
