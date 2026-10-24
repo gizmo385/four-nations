@@ -410,6 +410,31 @@ Chained in order, each blocked by the one before it:
 4. **#99**: panels: selection bar, side panel sections, alerts, message log, key help.
 5. **#100**: research screen.
 
+## What #97 built
+
+The MVP, in `crates/tui`. Where it differs from the proposal above:
+
+- **`draw(&Session, &UiState, &Palette, &mut Buffer)`.** `Palette` holds the glyph table
+  (`data/tui.toml`), the nation's `fn_ui::theme::Theme`, the colour depth and `--ascii`. It
+  hands out every colour already quantised, so the renderer never branches on depth.
+- **Tints on 256 and 16 colours.** A tint mixed into a dark ground collapses onto a neighbour
+  (an Air Nomad's yellow bend and the amber harvest are one palette entry). On 256 colours each
+  designation takes the nearest entry that is clearly apart from the ground, the cursor and the
+  tints before it. On 16 colours each gets a solid colour of its own. A test checks this for
+  every nation and every ground.
+- **Numpad.** A terminal sends the numpad's digits as the number row's unless it speaks the
+  kitty keyboard protocol, which `fn_tui` asks for when it is offered. Without it, numpad
+  `7` and `1` work as Home and End (NumLock off), and `8` `4` `6` `2` as the arrows, but `9` and
+  `3` arrive as PageUp and PageDown, which jump the view. Digits on the number row do nothing yet:
+  `1`-`4` are for switching nation (#99).
+- **Status line.** It shows `SELECT` and the keys until the tools (#98) give it a mode to show.
+- **Hints.** The Cursor section drops the `fn_ui::inspect::Hint` lines (`panel::hint_text`) until
+  `Enter` selects (#99) and the tool keys exist (#98), rather than promise a key that does nothing.
+
+Seams for the next issues: `UiState::tool` and `Prompt` (modal state), `input::Action` and
+`input::map_key` (keys), `panel::draw_panel` (sections) and `map::tile_cell` (the rectangle being
+dragged goes between the cursor and the designation tints).
+
 ## Owner decisions (2026-10-24)
 
 The four open questions on #93, as the owner answered them.

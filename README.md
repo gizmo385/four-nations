@@ -12,6 +12,8 @@ direnv, put `use flake` in an `.envrc`. `scripts/run-client.sh` enters the shell
 ```sh
 cargo run -p fn_client -- [seed] [air|water|earth|fire]   # Bevy client (first build takes minutes)
 cargo run -p fn_sim --bin mapgen -- [seed] [width] [height] # ASCII map, no GPU needed
+cargo run -p fn_tui -- SEED NATION                          # play in the terminal (--help)
+cargo run -p fn_tui -- SEED NATION --frame                  # print one frame, no TTY needed
 gh issue list --label ready                                 # what to work on
 cargo xtask ci                                              # fmt, clippy, tests, asset check
 cargo xtask ci sim                                          # same, minus the Bevy client (fast)
