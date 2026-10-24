@@ -1,0 +1,1100 @@
+# Water and shore autotiles (docs/design/pixel-art.md; #146). Three 4x4 sets of 16px cells, one per
+# land colour, stacked in this order: sand (rows 0-3), snow (rows 4-7), grass (rows 8-11). The
+# client's `WaterSet` (sprites/water.rs) reads each set as
+#
+#   nw      n       ne       v_top    land N, E, W
+#   w       .       e        v_mid    land N, S
+#   sw      s       se       v_bot    land S, E, W
+#   h_left  h_mid   h_right  .alt     land N, S, W / E, W / N, S, E; the last cell is the second
+#                                     open-water variant (the pack's "isolated" slot)
+#
+# A piece named for a side has land on that side. Land is drawn in the floor's base tone (`g`, the
+# `,` tone of the textured floors) for 2px, then a 1px bank (`G`), so a shore meets its floor
+# without a seam. Water is `2` with waves in `3`/`4`; `1` is the shadow under a bank. The fish
+# spot (last cell) is drawn over any water tile, on a transparent background.
+cell = [16, 16]
+columns = 4
+
+[legend]
+"1" = "water0"
+"2" = "water1"
+"3" = "water2"
+"4" = "water3"
+
+
+[[sprite]]
+name = "sand_nw"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGGG
+ggG1111111111111
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222223332222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+"""
+
+[[sprite]]
+name = "sand_n"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGGG
+1111111111111111
+2222222222222222
+2222222222222222
+2222222222222222
+2222222223332222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222332222222222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "sand_ne"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGgg
+1111111111111Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222332222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+"""
+
+[[sprite]]
+name = "sand_v_top"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGgg
+ggG1111111111Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+"""
+
+[[sprite]]
+name = "sand_w"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2" }
+grid = """
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222223332222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+"""
+
+[[sprite]]
+name = "sand_interior"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2" }
+grid = """
+2222222222222222
+2222222222222222
+2222222222222222
+2233322222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222223332222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222332222222222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "sand_e"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2" }
+grid = """
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2233322222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222332222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+"""
+
+[[sprite]]
+name = "sand_v_mid"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGGG
+1111111111111111
+2222222222222222
+2222222222222222
+2222222222222222
+2222222223332222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+3333333333333333
+GGGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "sand_sw"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2" }
+grid = """
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222223332222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1333333333333
+ggGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "sand_s"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2" }
+grid = """
+2222222222222222
+2222222222222222
+2222222222222222
+2233322222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222223332222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+3333333333333333
+GGGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "sand_se"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2" }
+grid = """
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2233322222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+3333333333333Ggg
+GGGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "sand_v_bot"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2" }
+grid = """
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1333333333Ggg
+ggGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "sand_h_left"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGGG
+ggG1111111111111
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222223332222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1333333333333
+ggGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "sand_h_mid"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2" }
+grid = """
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+"""
+
+[[sprite]]
+name = "sand_h_right"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGgg
+1111111111111Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+3333333333333Ggg
+GGGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "sand_interior_alt"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2" }
+grid = """
+2222222222222222
+2222222222222222
+2222222233222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222422
+2222222222222222
+2223332222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222333222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "snow_nw"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGGG
+ggG1111111111111
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222224442222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+"""
+
+[[sprite]]
+name = "snow_n"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGGG
+1111111111111111
+2222222222222222
+2222222222222222
+2222222222222222
+2222222224442222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222442222222222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "snow_ne"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGgg
+1111111111111Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222442222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+"""
+
+[[sprite]]
+name = "snow_v_top"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGgg
+ggG1111111111Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+"""
+
+[[sprite]]
+name = "snow_w"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2" }
+grid = """
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222224442222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+"""
+
+[[sprite]]
+name = "snow_interior"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2" }
+grid = """
+2222222222222222
+2222222222222222
+2222222222222222
+2244422222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222224442222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222442222222222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "snow_e"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2" }
+grid = """
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2244422222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222442222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+"""
+
+[[sprite]]
+name = "snow_v_mid"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGGG
+1111111111111111
+2222222222222222
+2222222222222222
+2222222222222222
+2222222224442222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+3333333333333333
+GGGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "snow_sw"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2" }
+grid = """
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222224442222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1333333333333
+ggGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "snow_s"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2" }
+grid = """
+2222222222222222
+2222222222222222
+2222222222222222
+2244422222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222224442222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+3333333333333333
+GGGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "snow_se"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2" }
+grid = """
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2244422222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+3333333333333Ggg
+GGGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "snow_v_bot"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2" }
+grid = """
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1333333333Ggg
+ggGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "snow_h_left"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGGG
+ggG1111111111111
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222224442222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1333333333333
+ggGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "snow_h_mid"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2" }
+grid = """
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+"""
+
+[[sprite]]
+name = "snow_h_right"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGgg
+1111111111111Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+3333333333333Ggg
+GGGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "snow_interior_alt"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2" }
+grid = """
+2222222222222222
+2222222222222222
+2222222244222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222422
+2222222222222222
+2224442222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222444222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "grass_nw"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGGG
+ggG1111111111111
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222223332222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+"""
+
+[[sprite]]
+name = "grass_n"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGGG
+1111111111111111
+2222222222222222
+2222222222222222
+2222222222222222
+2222222223332222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222332222222222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "grass_ne"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGgg
+1111111111111Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222332222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+"""
+
+[[sprite]]
+name = "grass_v_top"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGgg
+ggG1111111111Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+"""
+
+[[sprite]]
+name = "grass_w"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2" }
+grid = """
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222223332222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+"""
+
+[[sprite]]
+name = "grass_interior"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2" }
+grid = """
+2222222222222222
+2222222222222222
+2222222222222222
+2233322222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222223332222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222332222222222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "grass_e"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2" }
+grid = """
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2233322222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222332222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+"""
+
+[[sprite]]
+name = "grass_v_mid"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGGG
+1111111111111111
+2222222222222222
+2222222222222222
+2222222222222222
+2222222223332222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+3333333333333333
+GGGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "grass_sw"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2" }
+grid = """
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222223332222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1333333333333
+ggGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "grass_s"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2" }
+grid = """
+2222222222222222
+2222222222222222
+2222222222222222
+2233322222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222223332222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+3333333333333333
+GGGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "grass_se"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2" }
+grid = """
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2233322222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+3333333333333Ggg
+GGGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "grass_v_bot"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2" }
+grid = """
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1333333333Ggg
+ggGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "grass_h_left"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGGG
+ggG1111111111111
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222223332222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1333333333333
+ggGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "grass_h_mid"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2" }
+grid = """
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+"""
+
+[[sprite]]
+name = "grass_h_right"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGgg
+1111111111111Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+3333333333333Ggg
+GGGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "grass_interior_alt"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2" }
+grid = """
+2222222222222222
+2222222222222222
+2222222233222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222422
+2222222222222222
+2223332222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222333222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "fish_spot"
+grid = """
+................
+....11..........
+.1.11111...4....
+.11111111...4...
+.1.11111....4...
+....11.....4....
+................
+................
+................
+..........11....
+....3...11111.1.
+...3...11111111.
+...3....11111.1.
+....3.....11....
+................
+................
+"""

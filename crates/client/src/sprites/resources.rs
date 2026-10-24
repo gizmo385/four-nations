@@ -1,6 +1,6 @@
 //! Resources that aren't trees: one-cell sprites, bottom-aligned to their tile. The rocks and the
-//! cabbage are Claude-authored (`art/resources.toml`, docs/design/pixel-art.md); the fish
-//! shadows still come from the pack until the water issue (#146) redraws them.
+//! cabbage are Claude-authored (`art/resources.toml`, docs/design/pixel-art.md). The fish spot is
+//! drawn on the water sheet (`art/water.toml`, #146), so it comes from `sprites::water`.
 
 use super::{ResourceRule, one};
 
@@ -12,16 +12,13 @@ const STONE: u32 = 0;
 const CABBAGE: u32 = 1;
 const GOLD_VEIN: u32 = 2;
 
-/// The sheet the fish shadows are on.
-pub const WATER_SHEET: &str = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetWater.png";
-
 pub const RESOURCES: &[ResourceRule] = &[
     // Grey rock, and the same rock with gold in it: one silhouette.
     ResourceRule { resource: "stone", biome: None, cell: one(SHEET, STONE, 0) },
     ResourceRule { resource: "gold_vein", biome: None, cell: one(SHEET, GOLD_VEIN, 0) },
     ResourceRule { resource: "cabbage", biome: None, cell: one(SHEET, CABBAGE, 0) },
-    // Fish shadows on water, drawn over the whole tile.
-    ResourceRule { resource: "fish_spot", biome: None, cell: one(WATER_SHEET, 11, 4) },
+    // Fish shadows and ripples, on a transparent background over the water tile (#146).
+    ResourceRule { resource: "fish_spot", biome: None, cell: super::water::FISH_SPOT },
 ];
 
 #[cfg(test)]
