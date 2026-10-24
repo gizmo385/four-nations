@@ -20,8 +20,8 @@ agents cannot fetch it themselves). Only the subset the game uses was copied, wi
 relative paths unchanged and no modifications: LICENSE.txt, six tilesets from Backgrounds/Tilesets
 (Floor, Water, Nature, Relief, Desert, Field), and the sprite sheet and Faceset.png of the twelve
 characters in docs/design/art.md under Actor/Character/. The Earth Kingdom and Fire Nation sprite
-sheets have since been replaced by original art (#151), and their Faceset.png files stay until
-the portraits are (#153). Attribution is not required (CC0) but is
+sheets and portraits have since been replaced by original art (#151, #153). Attribution is not
+required (CC0) but is
 appreciated.
 """
 
@@ -120,36 +120,6 @@ source = "ninja-adventure"
 sha256 = "ce2de5004f1760d440c81e586eb6687933f7994385f1dc5bc2fb2c61c9284c5f"
 
 [[file]]
-path = "third_party/ninja-adventure/Actor/Character/Villager3/Faceset.png"
-source = "ninja-adventure"
-sha256 = "3f8f86a1a246fb0014378ee08c84f6ff7e3003dd841a4ca6e22dddac850ffc8c"
-
-[[file]]
-path = "third_party/ninja-adventure/Actor/Character/Samurai/Faceset.png"
-source = "ninja-adventure"
-sha256 = "d8504b5357c99ae81250a0bcdd8214bf11c055fea073591f215c5a615de155e0"
-
-[[file]]
-path = "third_party/ninja-adventure/Actor/Character/NinjaGreen/Faceset.png"
-source = "ninja-adventure"
-sha256 = "d73020126261f52aa43e5109723985887ad27d0c259c378c8c94fc319c277309"
-
-[[file]]
-path = "third_party/ninja-adventure/Actor/Character/NinjaFire/Faceset.png"
-source = "ninja-adventure"
-sha256 = "01496a7fa347c410401fb58e9c28e92c2ae2e1d83620f5adf6de356d63cc0d32"
-
-[[file]]
-path = "third_party/ninja-adventure/Actor/Character/SamuraiRed/Faceset.png"
-source = "ninja-adventure"
-sha256 = "a870cc1edbfc10dbd8ae3d291e159b8bde346d773d18c6043373cb24acde72c4"
-
-[[file]]
-path = "third_party/ninja-adventure/Actor/Character/NinjaRed/Faceset.png"
-source = "ninja-adventure"
-sha256 = "0a9e889a88f437521284748c676167844ec05dcbf8d121a454350de030fcd0bf"
-
-[[file]]
 path = "original/buildings.png"
 source = "original"
 generated_from = "art/buildings.toml"
@@ -202,6 +172,18 @@ path = "original/emblems.png"
 source = "original"
 generated_from = "art/emblems.toml"
 sha256 = "27ad896fd08d8c3fc3c523ae0623907227641c7fcbede5aa9a9519368b500f20"
+
+[[file]]
+path = "original/faces_earth.png"
+source = "original"
+generated_from = "art/faces_earth.toml"
+sha256 = "38c557dc492d6827ec1ae6c05d539929a57341f8b25585c9ac62f3a0767b863a"
+
+[[file]]
+path = "original/faces_fire.png"
+source = "original"
+generated_from = "art/faces_fire.toml"
+sha256 = "636d601e660a9f749ae1d64b6bea0cfaf419d56c45609497a88d061bd6fd3d66"
 
 [[file]]
 path = "original/fire_noble.png"
