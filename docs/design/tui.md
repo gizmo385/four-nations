@@ -408,7 +408,7 @@ Chained in order, each blocked by the one before it:
 3. **#98**: designation tools with Dwarf Fortress-style rectangles, and key scripts for
    `--frame`.
 4. **#99**: panels: selection bar, side panel sections, alerts, message log, key help.
-5. **#100**: research screen.
+5. **#100**: research screen (done).
 
 ## What #97 built
 
@@ -526,6 +526,40 @@ differs from the proposal above:
   designated frames (the side panel gained Research and Modifiers, and People lists the units). New:
   `earth_seed7_selected` (and its ASCII, no-colour twin), `fire_seed1_log` and `earth_seed7_help`.
   `tests/panels.rs` covers the rest cell by cell and in text.
+
+## What #100 built
+
+The research screen, the last of the chain. Where it differs from the proposal above:
+
+- **`T`** (`input::Action::ShowResearch`, in the key table and so in the help) opens the tree over
+  the map region, and `T` or `Esc` closes it; it switches to and from the log and the help like
+  they do. The side panel stays, the status line shows `RESEARCH`, and the map keys wait (the
+  clock, the prompts and quit still work). `research.rs` draws it and moves its cursor;
+  `screens::draw_screen` and `App::act_in_screen` dispatch to it.
+- **What shows** is `fn_ui::research::screen_view` as the client uses it: columns by depth (`TIER
+  n`), shared techs and the player's own branch only (`Defs::techs_for`). A card is three rows: a
+  state mark and the name; the state word on the left and the cost on the right; the unlock
+  summary. The marks (`✓ ◆ ◇ ·`, ASCII `+ * o -`) and the words (`Known`, `Queued`, `Available`,
+  `Locked`) carry the state without colour. A queued prereq is drawn the same as the target, as in
+  the client. Under the grid a rule and three rows tell about the tech under the cursor: name,
+  state and cost; its description; its unlocks and the prereqs still unknown (`Needs:`).
+- **Fitting.** A column is at least 18 cells wide. A terminal too narrow for every column shows as
+  many as fit and slides along with the cursor (`◂` and `▸` on the frame's edge say there are more),
+  and a column with more cards than rows slides the same way (`▲` and `▼` after its title). The
+  window is a pure function of the cursor and the size, so a frame stays a function of the state.
+  At 80x24 that is two columns of four cards; at 120x40 four columns of up to eight.
+- **Keys.** The arrows and `W` `A` `S` `D` move the cursor one card (Shift makes no difference; it
+  stops at the edges, and a step sideways keeps the row where the next column has it). `PgUp` and
+  `PgDn` move a page of cards. `Enter` issues `Command::SetResearch` for the card; on a locked tech
+  the sim queues its whole prereq chain, on a known one it refuses and nothing changes. The cursor
+  starts on the current target, or else the first tech that can be researched.
+- **Status line.** The Select-mode keys now teach `T research` in place of `+/- speed` (the help
+  has it), so `q quit` still fits at 120 columns.
+- **Side fix.** `draw_frame` resets the cells it covers. It only restyled them, so with no colour
+  the map cursor's reverse video showed through the log, the help and the tree.
+- **Goldens.** New: `earth_seed7_research` (a target set), `earth_seed7_research_small` (80x24,
+  scrolled to the deep end) and `fire_seed3_research_ascii`. Re-blessed: the status line of every
+  Select-mode frame, and the help (it gained the `T` row).
 
 ## Owner decisions (2026-10-24)
 

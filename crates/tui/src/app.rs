@@ -2,11 +2,13 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use fn_sim::Nation;
+use fn_ui::research::screen_view;
 use fn_ui::tools::{apply_rect, switch_tool};
 use fn_ui::{Session, Tool};
 
 use crate::input::{Action, map_key};
 use crate::keys::Step;
+use crate::research;
 use crate::screens;
 use crate::state::{PINNED, Prompt, Screen, UiState};
 
@@ -69,6 +71,7 @@ impl App {
             }
             // Selecting and following are for Select mode: in a tool these keys do nothing.
             Action::NextUnit | Action::PrevUnit | Action::Follow => {}
+            Action::ShowResearch => self.open(Screen::Research),
             Action::ShowLog => self.open(Screen::Log),
             Action::ShowHelp => self.open(Screen::Help),
             Action::AskNewMap => self.ui.prompt = Some(Prompt::NewMap),
@@ -85,6 +88,16 @@ impl App {
     /// What the keys do while a screen is open: they scroll it and close it, and the clock, the
     /// prompts and quitting still work. Everything else waits until it is closed.
     fn act_in_screen(&mut self, action: Action) {
+        if self.ui.screen == Some(Screen::Research) {
+            // The tree has a cursor on its cards, not a scroll: the arrows move it (a Shift
+            // step is still one card) and Enter chooses.
+            match action {
+                Action::Move { dx, dy, .. } => return self.move_tech(dx, dy),
+                Action::Jump { dy, .. } => return self.move_tech(0, dy * self.tech_page()),
+                Action::Confirm => return research::choose(&mut self.session, self.ui.tech),
+                _ => {}
+            }
+        }
         match action {
             Action::Move { dy, tiles, .. } => self.scroll_by(dy * tiles),
             Action::Jump { dy, .. } => {
@@ -92,6 +105,7 @@ impl App {
                 self.scroll_by(dy * page);
             }
             Action::Cancel => self.ui.screen = None,
+            Action::ShowResearch => self.open(Screen::Research),
             Action::ShowLog => self.open(Screen::Log),
             Action::ShowHelp => self.open(Screen::Help),
             Action::TogglePause => self.session.clock.toggle_pause(),
@@ -123,9 +137,26 @@ impl App {
             self.ui.screen = None;
         } else {
             self.ui.screen = Some(screen);
-            // The log opens at its newest line, the help at its top.
+            // The log opens at its newest line, the help at its top, the tree on its target.
             self.ui.scroll = if screen == Screen::Log { PINNED } else { 0 };
+            if screen == Screen::Research {
+                let view = screen_view(&self.session);
+                self.ui.tech = research::initial_cursor(&self.session, &view);
+            }
         }
+    }
+
+    /// Moves the research cursor `(dx, dy)` cards.
+    fn move_tech(&mut self, dx: i32, dy: i32) {
+        let view = screen_view(&self.session);
+        self.ui.tech = research::step(&view, self.ui.tech, dx.signum(), dy);
+    }
+
+    /// How many cards PgUp and PgDn move in the research screen: a page of them.
+    fn tech_page(&self) -> i32 {
+        let view = screen_view(&self.session);
+        let (width, rows) = screens::text_size(self.ui.viewport());
+        research::Grid::new((width, rows), view.columns.len()).cards as i32
     }
 
     /// How many rows of text the open screen shows at once.
@@ -135,7 +166,7 @@ impl App {
 
     /// Scrolls the open screen `lines` down (negative: up), within its text.
     fn scroll_by(&mut self, lines: i32) {
-        let Some(screen) = self.ui.screen else { return };
+        let Some(screen) = self.ui.screen.filter(|s| *s != Screen::Research) else { return };
         let (width, rows) = screens::text_size(self.ui.viewport());
         let total = screens::line_count(screen, &self.session, &self.ui.alerts, width);
         let max = total.saturating_sub(rows);

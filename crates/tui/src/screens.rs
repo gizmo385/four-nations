@@ -1,6 +1,6 @@
 //! The screens that open over the map area (the side panel stays): the message log (`L`) and the
-//! key help (`?`). Each is a framed page of rows that scrolls. The research screen (#100) is
-//! another.
+//! key help (`?`) are framed pages of rows that scroll; the research screen (`T`) is a framed grid
+//! of tech cards with a cursor (`research.rs`).
 
 use fn_ui::Session;
 use fn_ui::alerts::{Alerts, Kind};
@@ -10,6 +10,7 @@ use ratatui::layout::Rect;
 
 use crate::color::Palette;
 use crate::input::{Group, help_rows};
+use crate::research;
 use crate::state::{Screen, UiState};
 use crate::widgets::{Painter, Row, TitleAt, Tone, draw_frame, wrap};
 
@@ -29,6 +30,8 @@ pub fn lines(screen: Screen, alerts: &Alerts, width: usize, ellipsis: char) -> V
             log_lines(&history, width, ellipsis)
         }
         Screen::Help => help_lines(width, ellipsis),
+        // A grid with a cursor, not rows that scroll: `research::draw` lays it out.
+        Screen::Research => Vec::new(),
     }
 }
 
@@ -105,15 +108,27 @@ pub fn help_lines(width: usize, ellipsis: char) -> Vec<Row> {
 }
 
 /// Draws the open screen into `area` (the map region): the frame, then the rows from the scroll.
-pub fn draw_screen(ui: &UiState, screen: Screen, palette: &Palette, area: Rect, buf: &mut Buffer) {
+pub fn draw_screen(
+    session: &Session,
+    ui: &UiState,
+    screen: Screen,
+    palette: &Palette,
+    area: Rect,
+    buf: &mut Buffer,
+) {
     let marks = crate::widgets::Marks::new(palette.ascii);
     let (title, footer) = match screen {
         Screen::Log => ("MESSAGE LOG", "Arrows W S scroll  PgUp PgDn page  Esc close  ? keys"),
         Screen::Help => ("KEY HELP", "Arrows W S scroll  PgUp PgDn page  Esc close  L log"),
+        Screen::Research => ("RESEARCH", "Arrows WASD choose  Enter target  Esc/T close"),
     };
     let title = format!(" {0} {title} {0} ", marks.seal);
     draw_frame(buf, area, palette, &title, TitleAt::Centre, footer);
     let inner = Rect::new(area.x + 2, area.y + 1, area.width - 4, area.height - 2);
+    if screen == Screen::Research {
+        research::draw(session, ui.tech, palette, inner, buf);
+        return;
+    }
     let rows = lines(screen, &ui.alerts, usize::from(inner.width), marks.ellipsis);
     let max = rows.len().saturating_sub(usize::from(inner.height));
     let start = ui.scroll.min(max);

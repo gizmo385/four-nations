@@ -23,11 +23,13 @@ pub enum Prompt {
     Nation(Nation),
 }
 
-/// A screen over the map area (the side panel stays). The research screen (#100) is another.
+/// A screen over the map area (the side panel stays).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
     Log,
     Help,
+    /// `T`: the tech tree. It moves a card cursor ([`UiState::tech`]) and does not scroll.
+    Research,
 }
 
 /// The scroll of a screen that sticks to its end: the newest line of the log.
@@ -61,6 +63,8 @@ pub struct UiState {
     pub screen: Option<Screen>,
     /// The first line of the open screen that shows ([`PINNED`] for the end of the log).
     pub scroll: usize,
+    /// The research screen's cursor: a column of the tech tree and a card in it.
+    pub tech: (usize, usize),
     /// Bend results, tech completions and deaths: the Alerts section and the message log.
     pub alerts: Alerts,
 }
@@ -89,6 +93,7 @@ impl UiState {
             following: false,
             screen: None,
             scroll: 0,
+            tech: (0, 0),
             alerts: Alerts::default(),
         };
         ui.center_view();

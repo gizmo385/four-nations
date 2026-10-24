@@ -27,6 +27,15 @@ pub struct Marks {
     pub empty: char,
     /// Between a name and a nation in a title.
     pub dot: &'static str,
+    /// The research screen: a known and a locked tech, the cursor's pointer, and the arrows for
+    /// cards or columns out of sight.
+    pub known: &'static str,
+    pub locked: &'static str,
+    pub pointer: &'static str,
+    pub up: &'static str,
+    pub down: &'static str,
+    pub left: &'static str,
+    pub right: &'static str,
 }
 
 impl Marks {
@@ -47,6 +56,13 @@ impl Marks {
                 full: '#',
                 empty: '.',
                 dot: "-",
+                known: "+",
+                locked: "-",
+                pointer: ">",
+                up: "^",
+                down: "v",
+                left: "<",
+                right: ">",
             }
         } else {
             Self {
@@ -64,6 +80,13 @@ impl Marks {
                 full: '█',
                 empty: '░',
                 dot: "·",
+                known: "✓",
+                locked: "·",
+                pointer: "▸",
+                up: "▲",
+                down: "▼",
+                left: "◂",
+                right: "▸",
             }
         }
     }
@@ -232,7 +255,11 @@ pub fn draw_frame(
     let panel_bg = palette.token(theme.panel);
     for y in area.top()..area.bottom() {
         for x in area.left()..area.right() {
-            buf[(x, y)].set_char(' ').set_style(Style::new().bg(panel_bg));
+            // Reset, not just restyle: the map below may have left reverse video or bold on the
+            // cell (the cursor with no colour), and a patch would keep it.
+            let cell = &mut buf[(x, y)];
+            cell.reset();
+            cell.set_char(' ').set_style(Style::new().bg(panel_bg));
         }
     }
     let line = Style::new().fg(palette.token(theme.accent_soft)).bg(panel_bg);
