@@ -8,12 +8,20 @@
 //! about it, and it is named in `NO_ART_YET` until its art lands (a test checks both lists).
 //!
 //! The sheet is four sprites wide: row 0 is the bed and the three campfire frames, row 1 the four
-//! study halls, row 2 the fallback.
+//! study halls, row 2 the fallback. A nation's own buildings are on a sheet of their own
+//! (`SHEET_AIR` is `art/buildings_air.toml`), so parallel art PRs don't share a file. A sheet's
+//! TOML is the `art/` file with its PNG's name.
 
 use super::{Cell, big};
 
 /// The sheet the buildings are on.
 pub const SHEET: &str = "original/buildings.png";
+
+/// The Air Nomad buildings' sheet (#176): orchard, windmill, wind turbine, bison stable.
+pub const SHEET_AIR: &str = "original/buildings_air.png";
+
+/// Every sheet, for the loader and the tests.
+pub const SHEETS: &[&str] = &[SHEET, SHEET_AIR];
 
 /// One building's sprite: its frames, in the order they play (one for most buildings).
 pub struct BuildingArt {
@@ -35,6 +43,17 @@ pub const ART: &[BuildingArt] = &[
     BuildingArt { name: "elders_lodge", frames: &[big(SHEET, 2, 2)] },
     BuildingArt { name: "scroll_library", frames: &[big(SHEET, 4, 2)] },
     BuildingArt { name: "academy", frames: &[big(SHEET, 6, 2)] },
+    // Air Nomads (`SHEET_AIR`)
+    BuildingArt { name: "orchard", frames: &[big(SHEET_AIR, 0, 0)] },
+    BuildingArt {
+        name: "windmill",
+        frames: &[big(SHEET_AIR, 2, 0), big(SHEET_AIR, 4, 0), big(SHEET_AIR, 6, 0)],
+    },
+    BuildingArt {
+        name: "wind_turbine",
+        frames: &[big(SHEET_AIR, 0, 2), big(SHEET_AIR, 2, 2), big(SHEET_AIR, 4, 2)],
+    },
+    BuildingArt { name: "bison_stable", frames: &[big(SHEET_AIR, 6, 2)] },
 ];
 
 /// What a building with no art yet is drawn as.
@@ -48,10 +67,6 @@ pub const NO_ART_YET: &[&str] = &[
     // Earth Kingdom
     "earth_wall",
     // Air Nomads
-    "orchard",
-    "windmill",
-    "wind_turbine",
-    "bison_stable",
     // Fire Nation
     "forge",
     "brick_kiln",
@@ -75,7 +90,7 @@ pub fn frames(art: &str) -> &'static [Cell] {
     }
 }
 
-/// How fast a multi-frame sprite (the campfire) plays, in frames a second.
+/// How fast a multi-frame sprite (the campfire, the windmill, the turbine) plays, in frames a second.
 pub const FRAMES_PER_SECOND: f32 = 6.0;
 
 #[cfg(test)]
@@ -85,12 +100,17 @@ mod tests {
     use super::super::test_support::png_size;
     use super::*;
 
-    /// The names of the sprites of `art/buildings.toml`, in sheet order.
-    fn sprite_names() -> Vec<String> {
-        let path = format!("{}/../../art/buildings.toml", env!("CARGO_MANIFEST_DIR"));
+    /// The `art/` TOML of a sheet's PNG: `original/buildings_air.png` is `art/buildings_air.toml`.
+    fn sheet_doc(sheet: &str) -> toml::Table {
+        let stem = sheet.strip_prefix("original/").and_then(|s| s.strip_suffix(".png")).unwrap();
+        let path = format!("{}/../../art/{stem}.toml", env!("CARGO_MANIFEST_DIR"));
         let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
-        let doc: toml::Table = text.parse().unwrap();
-        doc["sprite"]
+        text.parse().unwrap()
+    }
+
+    /// The names of the sprites of a sheet's TOML, in sheet order.
+    fn sprite_names(sheet: &str) -> Vec<String> {
+        sheet_doc(sheet)["sprite"]
             .as_array()
             .unwrap()
             .iter()
@@ -98,16 +118,17 @@ mod tests {
             .collect()
     }
 
-    /// The name of the sprite at a cell of the sheet (4 sprites a row, each 2x2 cells).
+    /// The name of the sprite at a cell of its sheet (4 sprites a row, each 2x2 cells).
     fn name_at(cell: Cell) -> String {
-        sprite_names().swap_remove(((cell.row / 2) * 4 + cell.col / 2) as usize)
+        sprite_names(cell.sheet).swap_remove(((cell.row / 2) * 4 + cell.col / 2) as usize)
     }
 
     #[test]
-    fn the_sheet_is_four_wide_with_a_sprite_per_cell() {
-        let names = sprite_names();
+    fn each_sheet_is_four_wide_with_a_sprite_per_cell() {
         assert_eq!(png_size(SHEET), (4 * 32, 3 * 32));
-        assert_eq!(names.len(), 9);
+        assert_eq!(sprite_names(SHEET).len(), 9);
+        assert_eq!(png_size(SHEET_AIR), (4 * 32, 2 * 32));
+        assert_eq!(sprite_names(SHEET_AIR).len(), 8);
     }
 
     #[test]
@@ -116,7 +137,8 @@ mod tests {
             for (i, frame) in a.frames.iter().enumerate() {
                 let want = if i == 0 { a.name.to_owned() } else { format!("{}_{}", a.name, i + 1) };
                 assert_eq!(name_at(*frame), want);
-                assert_eq!((frame.w, frame.h, frame.sheet), (2, 2, SHEET), "{want}");
+                assert_eq!((frame.w, frame.h), (2, 2), "{want}");
+                assert!(SHEETS.contains(&frame.sheet), "{want}: sheet {}", frame.sheet);
             }
         }
         assert_eq!(name_at(UNFINISHED), "unfinished");
@@ -165,6 +187,8 @@ mod tests {
     fn an_unknown_sprite_name_draws_the_fallback() {
         assert_eq!(frames("no_such_building"), &[UNFINISHED]);
         assert_eq!(frames("campfire").len(), 3);
+        assert_eq!(frames("windmill").len(), 3);
+        assert_eq!(frames("wind_turbine").len(), 3);
         assert_eq!(frames("bed").len(), 1);
     }
 
@@ -172,9 +196,15 @@ mod tests {
     /// of that tile's 16px: the foot (outline) is on row 31 of its cell and nothing is lower.
     #[test]
     fn every_sprite_stands_on_the_bottom_of_its_tile_and_fits_its_cell() {
-        let path = format!("{}/../../art/buildings.toml", env!("CARGO_MANIFEST_DIR"));
-        let doc: toml::Table = std::fs::read_to_string(&path).unwrap().parse().unwrap();
-        for s in doc["sprite"].as_array().unwrap() {
+        for sheet in SHEETS {
+            for s in sheet_doc(sheet)["sprite"].as_array().unwrap() {
+                check_standing(s);
+            }
+        }
+    }
+
+    fn check_standing(s: &toml::Value) {
+        {
             let name = s["name"].as_str().unwrap();
             let grid: Vec<&str> = s["grid"].as_str().unwrap().lines().collect();
             assert_eq!(grid.len(), 32, "{name}");

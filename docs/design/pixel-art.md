@@ -197,6 +197,11 @@ like a tree: bottom-aligned, drawn by `row_depth`, free to overhang the tiles ar
 - **Finished and unfinished.** `buildings.rs` draws a finished building at full strength and a
   build site as the same sprite at 30% to 80% opacity as the work progresses, over the site's
   footprint tint. A building in `NO_ART_YET` draws the signboard either way.
+- **A nation's own buildings get their own sheet**, so art PRs don't share a file: the Air
+  Nomads' orchard, windmill, wind turbine and bison stable are `art/buildings_air.toml` (#176),
+  and `sprites/buildings.rs` names each sheet. The windmill's sails (30 degree steps) and the
+  turbine's blades (40) are three frames each, played like the campfire. Air buildings are Air
+  Temple wood, cream plaster and gold on the same stone plinth as the halls.
 - **Nation differences are shape and material**, not the accent: a gold-roofed open pavilion, an
   ice-block lodge, a green-tiled hall and a red two-tier pagoda.
 - **Seeing them.** `FN_BUILD_DEMO=buildings cargo xtask screenshot ...` levels a meadow beside
