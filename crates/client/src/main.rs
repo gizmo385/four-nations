@@ -356,12 +356,12 @@ fn ground_rule(sim: &Sim, t: &Tile) -> &'static sprites::GroundRule {
 }
 
 /// The floor cell for the tile at `p`. Water tiles are bitmask-autotiled against their neighbors
-/// (#8, `sprites::water_cell`), and mountain tiles with lower ground beside them draw a cliff
+/// (#8, `sprites::water_tile`), and mountain tiles with lower ground beside them draw a cliff
 /// (#104, `sprites::cliff_cell`); everything else is the ground rule's own pick.
 fn floor_cell(sim: &Sim, p: Pos, rule: &sprites::GroundRule) -> sprites::Cell {
     let map = &sim.world.map;
     match (rule.water, rule.cliff) {
-        (Some(set), _) => sprites::water_cell(map, p, set),
+        (Some(set), _) => sprites::water_tile(map, p, set),
         (None, Some(set)) => sprites::cliff_cell(map, p, set).unwrap_or_else(|| rule.floor_at(p)),
         (None, None) => rule.floor_at(p),
     }

@@ -5,7 +5,7 @@
 //! | Module | Owns |
 //! |---|---|
 //! | `floors` | the land and shore `GROUND` rows, `floor_at` |
-//! | `water` | `WaterSet`, `water_cell`, the water `GROUND` rows |
+//! | `water` | `WaterSet`, `water_cell`, `water_tile`, the water `GROUND` rows, `FISH_SPOT` |
 //! | `cliffs` | `CliffSet`, `cliff_cell`, the mountain `GROUND` rows and boulders |
 //! | `trees` | the 2x2 tree `RESOURCES` rows |
 //! | `resources` | the other `RESOURCES` rows |
@@ -31,7 +31,7 @@ use fn_sim::{Pos, Terrain};
 
 pub use characters::{character_face_path, character_sheet_path};
 pub use cliffs::{CliffSet, cliff_cell};
-pub use water::{WaterSet, water_cell};
+pub use water::{WaterSet, water_tile};
 
 /// The tile size of the pack, and of the map.
 pub const CELL: f32 = 16.0;
@@ -83,7 +83,7 @@ pub struct GroundRule {
     pub variants: &'static [Cell],
     pub decor: Option<Decor>,
     /// Water tiles (#8): when set, `base`/`variants` are ignored and the tile is drawn with
-    /// `water_cell`, which picks a shore piece from this set by which neighbors are dry land.
+    /// `water_tile`, which picks a shore piece from this set by which neighbors are dry land.
     pub water: Option<&'static WaterSet>,
     /// Mountain tiles (#104): when set, a tile with lower ground beside it is drawn with the
     /// matching `cliff_cell` piece instead of `base`. `base` is then the set's flat top, so the
