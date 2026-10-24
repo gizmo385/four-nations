@@ -8,7 +8,8 @@ use super::{Cell, Decor, GroundRule, one};
 pub const SHEET: &str = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetRelief.png";
 
 /// The sheet the boulders are on.
-pub const BOULDER_SHEET: &str = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetNature.png";
+pub const BOULDER_SHEET: &str =
+    "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetNature.png";
 
 /// Autotiled mountain cliffs (#104): a raised plateau from `TilesetRelief`, 1 cell per piece. A
 /// piece is picked by which cardinal neighbors are lower ground (any non-mountain tile). The sheet

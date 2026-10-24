@@ -15,8 +15,7 @@ const DARK_GRASS: Cell = one(SHEET, 11, 12);
 
 const SAND_VARIANTS: &[Cell] = &[one(SHEET, 0, 4), one(SHEET, 1, 4)];
 const MUD_VARIANTS: &[Cell] = &[one(SHEET, 13, 19), one(SHEET, 14, 19)];
-const LIGHT_GRASS_VARIANTS: &[Cell] =
-    &[one(SHEET, 1, 12), one(SHEET, 2, 12), one(SHEET, 3, 12)];
+const LIGHT_GRASS_VARIANTS: &[Cell] = &[one(SHEET, 1, 12), one(SHEET, 2, 12), one(SHEET, 3, 12)];
 const DARK_GRASS_VARIANTS: &[Cell] = &[one(SHEET, 12, 12), one(SHEET, 13, 12)];
 
 const SHORES: &[Terrain] = &[Terrain::Coast, Terrain::Ford];

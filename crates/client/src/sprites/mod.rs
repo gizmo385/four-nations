@@ -232,7 +232,8 @@ mod tests {
             assert_eq!(families.count(), 1, "{terrain:?}");
         }
         for r in resource_rules() {
-            let families = RESOURCE_FAMILIES.iter().filter(|f| f.iter().any(|o| o.resource == r.resource));
+            let families =
+                RESOURCE_FAMILIES.iter().filter(|f| f.iter().any(|o| o.resource == r.resource));
             assert_eq!(families.count(), 1, "{}", r.resource);
         }
     }
