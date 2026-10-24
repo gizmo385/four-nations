@@ -1,7 +1,7 @@
 # Terminal UI (Dwarf Fortress-style)
 
-Status: **proposed** (#93). Follow-up work: #96 to #100 (see the end of this doc). The
-owner decisions are under "Open questions for the owner".
+Status: **proposed** (#93), with the owner's answers recorded under "Owner decisions
+(2026-10-24)". Follow-up work: #96 to #100 (see the end of this doc).
 
 The owner wants to play the whole game from a terminal: a glyph map, keyboard menus, no window.
 `fn_sim` is already headless and the Bevy client changes the world only through
@@ -22,9 +22,10 @@ agents a way to play and check the game without opening the GUI.
    terrain, biome, resource, item, building and overlay a Unicode glyph, an ASCII fallback and
    sRGB colours. Units take their nation's `color`. Colour is quantised automatically for
    256- and 16-colour terminals.
-4. **Keyboard first, Dwarf Fortress-style.** Arrow keys move a cursor, the view scrolls to
-   follow it, and a rectangle is designated with **tool key, Enter, move, Enter**. Tool hotkeys
-   are the client's: `H` `X` `P` `B`, `T` for research, `Space` to pause.
+4. **Keyboard first, Dwarf Fortress-style.** The arrows *and* `W` `A` `S` `D` move a cursor
+   (the owner's choice), the view scrolls to follow it, and a rectangle is designated with
+   **tool key, Enter, move, Enter**. Tool hotkeys are the client's: `H` `X` `P` `B`, `T` for
+   research, `Space` to pause.
 5. **A deterministic clock.** `fn_ui::Clock` turns real elapsed time and a speed into a whole
    number of ticks. Commands apply only between ticks, and `World` logs the tick of each one, so
    a session replays exactly, whatever the frame rate was.
@@ -117,7 +118,8 @@ backgrounds, the stockpile is blue, the cursor is yellow and the selected unit i
   Dwarf Fortress-style play wants density. A `--square` option can come later if the stretch
   bothers the owner.
 - **The view follows the cursor.** It scrolls when the cursor comes within 3 tiles of an edge,
-  and it never scrolls past the map. When the selection bar opens, the view shifts so the
+  and it never scrolls past the map. Ctrl+arrows and PageUp/PageDown jump it a quarter screen
+  (see "Input"). When the selection bar opens, the view shifts so the
   selected unit stays visible (the client's `center_on_selection`).
 
 ## Glyphs and colour
@@ -240,13 +242,15 @@ underlined, and meters rely on their `!` marks.
 
 The TUI is modal like Dwarf Fortress: **Select** mode by default, a **tool** mode after a tool
 key, and **screens** that take over the keys while open. Letter keys ignore case, so `h` and `H`
-are the same key, matching the client, which ignores Shift.
+are the same key, matching the client, which ignores Shift. The exception is `W` `A` `S` `D`:
+they move the cursor exactly like the arrows, so Shift (an upper-case letter) moves 10 tiles,
+like Shift+arrows. With Caps Lock on, they move 10 tiles too.
 
 | Key | Select mode | Tool mode | Client today |
 |---|---|---|---|
-| Arrows, numpad (with diagonals) | Move the cursor 1 tile | same | Arrows pan |
-| Shift + arrows | Move 10 tiles | same | none |
-| `W` `A` `S` `D` | Scroll the view a quarter screen; the cursor moves with it | same | Pan |
+| Arrows, `W` `A` `S` `D`, numpad (with diagonals) | Move the cursor 1 tile | same | Pan |
+| Shift + arrows, Shift + `W` `A` `S` `D` | Move 10 tiles | same | none |
+| Ctrl + arrows; PageUp / PageDown | Jump the view a quarter screen; the cursor moves with it | same | Pan |
 | `Enter` | Select the unit under the cursor (again: the next unit on that tile) | 1st: set a corner. 2nd: apply to the rectangle | Click / drag |
 | `Esc` | Close the selection bar | Drop the corner, or (with none) back to Select | Same |
 | `Tab` / Shift+`Tab` | Select the next / previous unit; the cursor jumps to it | none | none |
@@ -267,8 +271,14 @@ are the same key, matching the client, which ignores Shift.
 - **Applying** is the client's logic, moved to `fn_ui`: one `Command` per tile through
   `World::apply`, then a notice such as "designate harvest: 12 done, 3 skipped (nothing to
   harvest)" in the Tool section.
-- **Why no vi-keys.** `hjkl` would collide with `H` (harvest) and with the client's other
-  letters, and keeping the client's hotkeys matters more. See owner question 4.
+- **Why WASD and not vi-keys.** `W` `A` `S` `D` are free: no tool, screen or prompt in this
+  table or in #97 to #100 uses them, and they are the client's pan keys, so the hands already
+  know them. `hjkl` would collide with `H` (harvest).
+- **Where scrolling went.** The view follows the cursor at the edges, which covers ordinary
+  movement. For quarter-screen jumps, Ctrl+arrows (all four directions) and PageUp/PageDown
+  (vertical) were chosen because they collide with nothing. Ctrl+`W` `A` `S` `D` was rejected:
+  Ctrl+S is the terminal's flow-control stop outside raw mode, and Ctrl+D is end-of-input,
+  which makes them risky in the shells and multiplexers the TUI runs in.
 - **Mouse** is later: crossterm reports clicks and drags, which can map onto the same
   cursor-and-corner actions.
 - **Build tool.** The sim has build designations (#64), but neither frontend has a tool yet.
@@ -377,8 +387,9 @@ panel's header and Cursor section already make the MVP playable to watch.
   one frame to stdout and exits. It never enters raw mode or the alternate screen, and it needs
   no TTY. `--ansi` keeps the colour escapes for a human to `cat`. This is how an agent "plays"
   and checks a change, in place of the GUI or a screenshot.
-- **Key scripts** are whitespace-separated tokens: a character is that key; `<enter>`,
-  `<esc>`, `<space>`, `<tab>`, `<up>`, `<s-up>` and so on name keys; `<right*5>` repeats; and
+- **Key scripts** are whitespace-separated tokens: a character is that key (so `w` and `W`
+  move the cursor 1 and 10 tiles); `<enter>`, `<esc>`, `<space>`, `<tab>`, `<up>`, `<s-up>`,
+  `<c-up>`, `<pgdn>` and so on name keys; `<right*5>` repeats; and
   `<tick 600>` runs 600 ticks. A script never uses real time, so seed plus script is
   deterministic. For example, `h <right*5> <enter> <down*3> <enter> <tick 600>` designates a
   rectangle and lets the settlers work.
@@ -399,23 +410,18 @@ Chained in order, each blocked by the one before it:
 4. **#99**: panels: selection bar, side panel sections, alerts, message log, key help.
 5. **#100**: research screen.
 
-## Open questions for the owner
+## Owner decisions (2026-10-24)
 
-1. **Default glyph set.** CP437-style Unicode (`♣ ≈ ▲ ☺`), with `--ascii` falling back to the
-   mapgen ASCII glyphs, or plain ASCII by default?
-   *Recommendation:* Unicode by default. It reads like Dwarf Fortress, modern terminal fonts
-   cover CP437, and Windows Terminal falls back to another font for any glyph its font lacks.
-   Compare the two linked mockups.
-2. **Parity policy.** Must every new player-facing feature land in both frontends, or does the
-   TUI trail behind?
-   *Recommendation:* trailing parity. Bevy stays the main frontend. Any issue that adds
-   player-facing UI gets a sibling `feat:tui` issue at triage, and `fn_ui` keeps that sibling
-   small. Revisit if the TUI becomes the way you actually play.
-3. **Priority.** #93 is p3, and the follow-ups are filed at p3 to match.
-   *Recommendation:* raise #96 and #97 to p2. `fn_ui` tidies the client as well, and
-   `--frame` gives agents a way to play-test every later feature without the GUI. Keep #98 to
-   #100 at p3.
-4. **Movement keys.** Arrows and numpad only (Dwarf Fortress), keeping the client's letter
-   hotkeys, or add vi-keys (`hjkl`), which would mean moving `H` (harvest) and friends?
-   *Recommendation:* arrows and numpad only, with letters matching the client. Mouse support
-   later.
+The four open questions on #93, as the owner answered them.
+
+1. **Glyphs: Unicode by default**, CP437-style (`♣ ≈ ▲ ☺`), with `--ascii` falling back to the
+   mapgen ASCII glyphs. As recommended.
+2. **Parity: the TUI trails the Bevy client.** Bevy stays the main frontend. When triage files
+   an issue that adds player-facing client UI, it also files a sibling `feat:tui` issue, and
+   `fn_ui` keeps that sibling small. As recommended.
+3. **Priority: #96 and #97 are p2**, because `fn_ui` tidies the client too and `--frame` lets
+   agents play-test later features without the GUI. #98 to #100 stay p3. As recommended.
+4. **Movement: arrows and `W` `A` `S` `D`.** Not the recommendation (arrows and numpad only).
+   `W` `A` `S` `D` move the cursor 1 tile exactly like the arrows, and Shift moves 10. They no
+   longer scroll the view. Scrolling follows the cursor at the edges, and Ctrl+arrows and
+   PageUp/PageDown jump a quarter screen ("Input" above). Numpad diagonals stay.
