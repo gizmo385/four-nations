@@ -24,6 +24,9 @@
 //! nearest unit whose chi covers the cost, pre-empted by needs like any job, and completes by
 //! spending chi.
 //!
+//! **Study** (`study.rs`, #21) also rides on the same queue, but a seat never completes: it
+//! produces knowledge for as long as someone holds it, and pre-emption just pauses that.
+//!
 //! Hungry units eat from the closest of: food they carry, food in a stockpile, food lying on the
 //! ground, or a wild food resource they work for themselves. Raw food always works (owner rule,
 //! #3): nobody starves because their nation lacks fire. Cooking would need a hearth, which
@@ -66,6 +69,8 @@ pub enum Task {
     /// Fetching a building's cost or working the site (`run_build` tells which from the site's
     /// state; the task itself doesn't need to know).
     Build(JobId),
+    /// Holding a study hall's seat (`world/study.rs`, #21).
+    Study(JobId),
     /// Carrying a stack to a stockpile tile.
     Deliver,
     Eat(FoodSource),
@@ -123,7 +128,10 @@ impl World {
     pub fn harvest_designations(&self) -> impl Iterator<Item = Pos> + '_ {
         self.jobs.iter().filter_map(|j| match j.kind {
             JobKind::Harvest { pos } => Some(pos),
-            JobKind::Haul { .. } | JobKind::Bend { .. } | JobKind::Build { .. } => None,
+            JobKind::Haul { .. }
+            | JobKind::Bend { .. }
+            | JobKind::Build { .. }
+            | JobKind::Study { .. } => None,
         })
     }
 
@@ -366,6 +374,9 @@ impl World {
                     // failed event, not silently dropped.
                     JobKind::Bend { .. } => true,
                     JobKind::Build { pos } => sites.contains_key(&pos),
+                    // No demolish command yet, so a seat opened for a study hall stays open for
+                    // as long as the building does, which today is forever.
+                    JobKind::Study { pos } => map[pos].building.is_some(),
                 }
         });
     }
@@ -728,6 +739,7 @@ impl World {
                 // Reachable as soon as the site itself is, whether or not its materials are yet:
                 // a unit will wait on those, as a resting harvest does.
                 JobKind::Build { pos } => self.stand(&flood, pos),
+                JobKind::Study { pos } => self.stand(&flood, pos),
             };
             if let Some((cost, stand)) = found {
                 let key = (cost, job.id);
@@ -748,6 +760,7 @@ impl World {
             JobKind::Haul { .. } => Task::Haul(job.id),
             JobKind::Bend { .. } => Task::Bend(job.id),
             JobKind::Build { .. } => Task::Build(job.id),
+            JobKind::Study { .. } => Task::Study(job.id),
         };
         let u = &mut self.units[i];
         u.job_task = Some(task);
@@ -784,6 +797,7 @@ impl World {
                 self.unit_can_bend(i, defs.ability(ability)) && can_stand(pos)
             }
             JobKind::Build { pos } => can_stand(pos),
+            JobKind::Study { pos } => can_stand(pos),
         })
     }
 
@@ -802,6 +816,7 @@ impl World {
             Task::Haul(id) => self.run_haul(i, id, defs),
             Task::Bend(id) => self.run_bend(i, id, defs),
             Task::Build(id) => self.run_build(i, id, defs),
+            Task::Study(id) => self.run_study(i, id, defs),
             Task::Deliver => self.run_deliver(i, defs),
             // Need tasks never sit in the job slot.
             _ => self.finish_job(i),

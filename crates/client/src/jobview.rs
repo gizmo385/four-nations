@@ -152,7 +152,10 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
         Task::Haul(id) => {
             let at = world.job(id).and_then(|j| match j.kind {
                 JobKind::Haul { pos } => Some(pos),
-                JobKind::Harvest { .. } | JobKind::Bend { .. } | JobKind::Build { .. } => None,
+                JobKind::Harvest { .. }
+                | JobKind::Bend { .. }
+                | JobKind::Build { .. }
+                | JobKind::Study { .. } => None,
             });
             let stack = at.and_then(|p| world.ground_items().find(|(q, _)| *q == p));
             match (stack, at) {
@@ -179,6 +182,10 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
         Task::Build(id) => match world.job(id).map(|j| j.kind) {
             Some(JobKind::Build { pos }) => format!("Building at ({}, {})", pos.x, pos.y),
             _ => "Building".into(),
+        },
+        Task::Study(id) => match world.job(id).map(|j| j.kind) {
+            Some(JobKind::Study { pos }) => format!("Studying at ({}, {})", pos.x, pos.y),
+            _ => "Studying".into(),
         },
         Task::Deliver => {
             format!("Delivering {} to a stockpile", describe_stack(defs, unit.carrying))
