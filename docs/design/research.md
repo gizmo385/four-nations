@@ -137,13 +137,22 @@ No bloodbending. It's a dark art that doesn't fit peaceful progress.
 
 | id | Cost | Prereqs | Unlocks |
 |---|---|---|---|
-| `orchards` | 25 | none | orchard (plant and tend fruit trees: renewable fruit, edible raw); fruit-picking job. *Air starts with it* |
+| `orchards` | 25 | none | orchard (plant and tend fruit trees: renewable fruit, edible raw); fruit-picking job (open to all for now: #142). *Air starts with it* |
 | `meditation` | 60 | none | chi regeneration; study ×1.2 |
-| `gliders` | 60 | carpentry | glider staffs; move_speed ×1.15; scouting reveals the map |
+| `gliders` | 60 | carpentry | glider staffs; move_speed ×1.15; scouting reveals the map. *Modifier-only until the reveal exists: #143* |
 | `windmills` | 120 | gliders, farming | windmill (grinds grain for more food); power_generation ×1.2 |
-| `air_scooter` | 250 | gliders, meditation | ability: air scooter; move_speed ×1.2 |
+| `air_scooter` | 250 | gliders, meditation | ability: air scooter; move_speed ×1.2. *Modifier-only until the ability is designed: #143* |
 | `wind_turbines` | 250 | windmills | wind turbine powers workshops; power_generation ×1.25 |
 | `sky_bison` | 500 | meditation, air_scooter | bison stable; bison haul and fast travel; carry_capacity ×1.3 |
+
+The buildings (`orchard`, `windmill`, `wind_turbine`, `bison_stable`) exist in
+`data/buildings.toml` and are gated by their techs (#28), but are structures only: what they do
+needs planting, grain, power and bison systems (#142). Their costs are placeholders.
+`meditation` is modifier-only by design. No branch cost or multiplier changed in #28; the
+playtest in `crates/sim/tests/research_air.rs` has an Air settlement with a Meditation Pavilion
+(two scholars) finish the whole Air tree, shared tier included, in about 94 minutes (meditation's
+study ×1.2 puts it near the fast end), inside
+the 90 to 187 minute window (the 2 to 2.5 h target, plus or minus 25%).
 
 Air starts behind on labor (carry 0.8, earthworks 0.7), so its starting tech secures food
 instead. The Air Temples' orchards fit the nomads' vegetarian life and give a steady supply of

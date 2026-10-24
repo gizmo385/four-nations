@@ -90,3 +90,59 @@ passable = false
 [[building.cost]]
 item = "stone"
 count = 3
+
+# --- Air Nomads ---
+# The Air branch's buildings (issue #28), each unlocked by its tech in data/research.toml. They
+# are structures only so far: what they do (planting and tending fruit, grinding grain, turning
+# wind into power, housing bison) needs systems that don't exist yet (issue #142). Costs scale
+# with the tech's tier and use the items that exist today; they are starting values for a
+# balance pass, not a design target.
+
+[[building]]
+id = "orchard"
+name = "Orchard"
+verb = "Plant"
+work = 30.0
+passable = true
+[[building.cost]]
+item = "wood"
+count = 4
+
+[[building]]
+id = "windmill"
+name = "Windmill"
+verb = "Build"
+work = 70.0
+passable = false
+[[building.cost]]
+item = "wood"
+count = 10
+[[building.cost]]
+item = "stone"
+count = 4
+
+[[building]]
+id = "wind_turbine"
+name = "Wind Turbine"
+verb = "Build"
+work = 110.0
+passable = false
+[[building.cost]]
+item = "wood"
+count = 12
+[[building.cost]]
+item = "stone"
+count = 8
+
+[[building]]
+id = "bison_stable"
+name = "Bison Stable"
+verb = "Build"
+work = 160.0
+passable = false
+[[building.cost]]
+item = "wood"
+count = 20
+[[building.cost]]
+item = "stone"
+count = 6
