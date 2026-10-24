@@ -9,8 +9,8 @@
 //!
 //! The sheet is four sprites wide: row 0 is the bed and the three campfire frames, row 1 the four
 //! study halls, row 2 the fallback. A nation's own buildings are on a sheet of their own
-//! (`SHEET_AIR` is `art/buildings_air.toml`), so parallel art PRs don't share a file. A sheet's
-//! TOML is the `art/` file with its PNG's name.
+//! (`SHEET_AIR` is `art/buildings_air.toml`, `SHEET_EARTH` `art/buildings_earth.toml`), so
+//! parallel art PRs don't share a file. A sheet's TOML is the `art/` file with its PNG's name.
 
 use super::{Cell, big};
 
@@ -20,8 +20,11 @@ pub const SHEET: &str = "original/buildings.png";
 /// The Air Nomad buildings' sheet (#176): orchard, windmill, wind turbine, bison stable.
 pub const SHEET_AIR: &str = "original/buildings_air.png";
 
+/// The Earth Kingdom buildings' sheet (#175): the earth wall.
+pub const SHEET_EARTH: &str = "original/buildings_earth.png";
+
 /// Every sheet, for the loader and the tests.
-pub const SHEETS: &[&str] = &[SHEET, SHEET_AIR];
+pub const SHEETS: &[&str] = &[SHEET, SHEET_AIR, SHEET_EARTH];
 
 /// One building's sprite: its frames, in the order they play (one for most buildings).
 pub struct BuildingArt {
@@ -54,6 +57,8 @@ pub const ART: &[BuildingArt] = &[
         frames: &[big(SHEET_AIR, 0, 2), big(SHEET_AIR, 2, 2), big(SHEET_AIR, 4, 2)],
     },
     BuildingArt { name: "bison_stable", frames: &[big(SHEET_AIR, 6, 2)] },
+    // Earth Kingdom (`SHEET_EARTH`)
+    BuildingArt { name: "earth_wall", frames: &[big(SHEET_EARTH, 0, 0)] },
 ];
 
 /// What a building with no art yet is drawn as.
@@ -65,7 +70,6 @@ pub const UNFINISHED: Cell = big(SHEET, 0, 4);
 #[cfg(test)]
 pub const NO_ART_YET: &[&str] = &[
     // Earth Kingdom
-    "earth_wall",
     // Air Nomads
     // Fire Nation
     "forge",
@@ -129,6 +133,8 @@ mod tests {
         assert_eq!(sprite_names(SHEET).len(), 9);
         assert_eq!(png_size(SHEET_AIR), (4 * 32, 2 * 32));
         assert_eq!(sprite_names(SHEET_AIR).len(), 8);
+        assert_eq!(png_size(SHEET_EARTH), (4 * 32, 32));
+        assert_eq!(sprite_names(SHEET_EARTH).len(), 1);
     }
 
     #[test]
