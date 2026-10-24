@@ -21,7 +21,10 @@
 //! has the settlers cast the nation's ability on tiles near the first unit, so a lit flame or a
 //! wet patch is on the map when the shot is taken. Agents use this, via
 //! `cargo xtask screenshot SEED NATION OUT.png [WIDTH HEIGHT]`, to check visual changes without a
-//! window popping up and stealing the human's focus.
+//! window popping up and stealing the human's focus. `FN_CURSOR=X,Y` puts the cursor on map tile
+//! X,Y (tiles may be fractional), since a headless run has no mouse, so the tree fade near the
+//! cursor shows in the shot (#77). `FN_CANOPY_DEMO=TICKS` first moves the settlers into
+//! the densest forest near them, designates trees there and runs TICKS ticks, and `FN_CANOPY_FADE=off` turns the fade off for a "before" shot.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -39,6 +42,7 @@ use bevy::sprite::Anchor;
 use bevy::window::{ExitCondition, PrimaryWindow};
 use bevy::winit::WinitPlugin;
 use buildings::BuildingsPlugin;
+use canopy::{CanopyFade, CanopyPlugin};
 use designate::{ActiveTool, DesignatePlugin};
 use fn_sim::world::{TICKS_PER_SECOND, Unit, UnitId};
 use fn_sim::{MapGenConfig, Nation, Pos, Tile};
@@ -49,6 +53,7 @@ use research::{ResearchPlugin, ScreenOpen};
 
 mod bending;
 mod buildings;
+mod canopy;
 mod designate;
 mod hud;
 mod jobview;
@@ -110,6 +115,9 @@ fn main() {
     if std::env::var_os("FN_STORES_DEMO").is_some() {
         fill_demo_stores(&mut sim);
     }
+    if let Some(ticks) = std::env::var("FN_CANOPY_DEMO").ok().and_then(|s| s.parse().ok()) {
+        canopy::place_demo_units(&mut sim, ticks);
+    }
     if std::env::var_os("FN_FX_DEMO").is_some() {
         cast_demo_effects(&mut sim);
     }
@@ -128,6 +136,7 @@ fn main() {
             HudPlugin,
             BendingPlugin,
             ResearchPlugin,
+            CanopyPlugin,
         ))
         .add_systems(Startup, (load_art, setup_camera_and_ui, spawn_world).chain())
         .add_systems(FixedUpdate, tick_sim)
@@ -298,6 +307,9 @@ fn cast_demo_effects(session: &mut Session) {
 #[derive(Resource)]
 struct Art {
     assets: AssetServer,
+    /// The tree trunks alone (`canopy::build_trunks`), in the layout of the tree sheet: blank
+    /// until the sheet has loaded.
+    trunks: Handle<Image>,
     /// Every sheet asked for so far, by asset path.
     images: Mutex<HashMap<&'static str, Handle<Image>>>,
 }
@@ -310,7 +322,7 @@ struct CharacterArt {
 
 impl Art {
     fn new(assets: AssetServer) -> Self {
-        Art { assets, images: Mutex::default() }
+        Art { assets, trunks: Handle::default(), images: Mutex::default() }
     }
 
     /// The image at asset `path`, loaded on first use.
@@ -341,6 +353,12 @@ impl Art {
             rect: Some(Rect::new(x0, y0, x1, y1)),
             ..default()
         }
+    }
+
+    /// A tree's trunk without its canopy: `cell` (a tree on the tree sheet) of the trunk image.
+    fn trunk_sprite(&self, cell: sprites::Cell) -> Sprite {
+        let [x0, y0, x1, y1] = cell.pixel_rect();
+        Sprite { image: self.trunks.clone(), rect: Some(Rect::new(x0, y0, x1, y1)), ..default() }
     }
 
     /// A sprite showing `cell` of its sheet, at native size.
@@ -378,8 +396,14 @@ struct Selection(Option<UnitId>);
 #[derive(Message)]
 struct MapClicked(Vec2);
 
-fn load_art(mut commands: Commands, assets: Res<AssetServer>, sim: Res<Sim>) {
-    let art = Art::new((*assets).clone());
+fn load_art(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    sim: Res<Sim>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let mut art = Art::new((*assets).clone());
+    art.trunks = images.add(canopy::blank_trunks());
     // Buildings appear mid-game; loading the sheet now keeps the headless screenshot waiting for it.
     art.image(sprites::buildings::SHEET);
     // Start every nation's characters loading now, so the headless screenshot waits for them.
@@ -467,14 +491,28 @@ fn floor_cell(sim: &Sim, p: Pos, rule: &sprites::GroundRule) -> sprites::Cell {
     }
 }
 
-/// Picks a sprite for a tile's resource, if any. Sprites are bottom-aligned to their tile, so a
-/// 2x2 tree stands on its tile and its canopy overlaps the tiles above and beside it.
-fn resource_sprite(art: &Art, sim: &Sim, t: &Tile) -> Option<Sprite> {
+/// The sprites of a tile's resource. Sprites are bottom-aligned to their tile, so a 2x2 tree
+/// stands on its tile and its canopy overlaps the tiles above and beside it.
+struct ResourceSprites {
+    /// The resource, or for a tree its trunk.
+    base: Sprite,
+    /// A tree's canopy, a child of `base` that fades when it hides something (`canopy`).
+    canopy: Option<Sprite>,
+}
+
+fn resource_sprites(art: &Art, sim: &Sim, t: &Tile) -> Option<ResourceSprites> {
     let res = sim.defs.resource(t.resource?).id.as_str();
     let biome = sim.defs.biome(t.biome).id.as_str();
     let rule = sprites::resource_rule(res, biome)
         .unwrap_or_else(|| panic!("no sprite for resource {res} in {biome}"));
-    Some(art.sprite(rule.cell))
+    Some(if sprites::trees::is_tree(rule.cell) {
+        ResourceSprites {
+            base: art.trunk_sprite(rule.cell),
+            canopy: Some(art.sprite(sprites::trees::canopy_of(rule.cell))),
+        }
+    } else {
+        ResourceSprites { base: art.sprite(rule.cell), canopy: None }
+    })
 }
 
 fn spawn_world(mut commands: Commands, art: Res<Art>, sim: Res<Sim>) {
@@ -492,12 +530,29 @@ fn spawn_entities(commands: &mut Commands, art: &Art, sim: &Sim) {
             TerrainSprite(p, t.terrain),
             MapEntity,
         ));
-        if let Some(sprite) = resource_sprite(art, sim, t) {
+        if let Some(parts) = resource_sprites(art, sim, t) {
             // Lower rows draw on top so tall sprites overlap correctly. The anchor is the bottom
             // middle of the tile, so a sprite of any height stands on its tile.
             let mut tf = Transform::from_translation(tile_translation(p, row_depth(p.y)));
             tf.translation.y -= TILE / 2.0;
-            commands.spawn((sprite, Anchor::BOTTOM_CENTER, tf, ResourceSprite(p), MapEntity));
+            let mut resource = commands.spawn((
+                parts.base,
+                Anchor::BOTTOM_CENTER,
+                tf,
+                ResourceSprite(p),
+                MapEntity,
+            ));
+            if let Some(canopy) = parts.canopy {
+                resource.with_children(|tree| {
+                    tree.spawn((
+                        canopy,
+                        Anchor::BOTTOM_CENTER,
+                        // A hair above the trunk; their pixels never overlap.
+                        Transform::from_xyz(0.0, 0.0, canopy::CANOPY_Z),
+                        CanopyFade::new(p),
+                    ));
+                });
+            }
         } else if let Some(cell) = rule.decor_on(&sim.world.map, p) {
             commands.spawn((
                 art.sprite(cell),
