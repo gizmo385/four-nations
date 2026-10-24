@@ -219,8 +219,10 @@ mod tests {
 
     #[test]
     fn a_building_with_no_art_yet_draws_the_fallback() {
+        // Whichever building is still waiting for its art; once every one has it, nothing to test.
+        let Some(waiting) = sprites::buildings::NO_ART_YET.first() else { return };
         let mut app = app(Nation::Earth);
-        let wall = app.world().resource::<Sim>().defs.building_id("earth_wall").unwrap();
+        let wall = app.world().resource::<Sim>().defs.building_id(waiting).unwrap();
         let pos = free_tile(app.world().resource::<Sim>());
         app.world_mut().resource_mut::<Sim>().world.map.get_mut(pos).unwrap().building =
             Some(fn_sim::building::Building { id: wall, passable: false });
