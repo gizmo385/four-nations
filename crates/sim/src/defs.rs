@@ -573,7 +573,7 @@ mod tests {
 
     #[test]
     fn a_nation_needs_characters() {
-        let from = r#"characters = ["Monk2", "Master", "NinjaYellow"]"#;
+        let from = r#"characters = ["air_monk", "air_elder", "air_acolyte"]"#;
         assert!(NATIONS.contains(from));
         let nations = NATIONS.replacen(from, "characters = []", 1);
         let err = Defs::from_toml(

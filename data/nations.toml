@@ -18,7 +18,7 @@ element = "air"
 color = [236, 196, 92]
 description = "Nomadic monks. Fast and light; can power turbines and mills with airbending."
 names = ["Gyatso", "Tashi", "Pasang", "Kunchen", "Jinpa", "Dorje", "Lhamo", "Sonam", "Yangchen", "Kelsang", "Pema", "Iio"]
-characters = ["Monk2", "Master", "NinjaYellow"]
+characters = ["air_monk", "air_elder", "air_acolyte"]
 starting_techs = ["orchards"]
 [nation.modifiers]
 move_speed = 1.6        # airbenders glide/run
@@ -38,7 +38,7 @@ element = "water"
 color = [70, 130, 210]
 description = "Polar fishers and healers. Irrigate fields, heal the injured, travel by water."
 names = ["Kanna", "Pakku", "Hakoda", "Bato", "Yugoda", "Tho", "Kustaa", "Atuat", "Siku", "Nuka", "Malina", "Amaruq"]
-characters = ["Eskimo", "NinjaEskimo", "NinjaWater"]
+characters = ["water_hunter", "water_healer", "water_warrior"]
 starting_techs = ["fishing"]
 [nation.modifiers]
 move_speed = 1.0
