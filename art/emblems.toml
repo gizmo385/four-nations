@@ -1,0 +1,91 @@
+# Nation emblems for the side-panel header (docs/design/ui.md), shown at 2x. Each is a medallion
+# in its own nation's accent ramp with the symbol cut in `inset`, so the four read as one set.
+cell = [16, 16]
+
+[[sprite]]
+name = "air"
+nation = "air"
+grid = """
+.....oooooo.....
+...ooLLLLLLoo...
+..oLLaaaaaaDDo..
+.oLaaaiiiiaaaDo.
+.oLaaiaaaaiaaDo.
+oLaaiaaiiaaiaaDo
+oLaaiaiaaiaiaaDo
+oLaaiaiaiiaiaaDo
+oLaaiaiaaaaiaaDo
+oLaaiaaiiiiaaaDo
+oLaaaiaaaaaaaaDo
+.oLaaaiiiiiiaDo.
+.oaaaaaaaaaaaDo.
+..oaaaaaaaaDDo..
+...ooDDDDDDoo...
+.....oooooo.....
+"""
+
+[[sprite]]
+name = "water"
+nation = "water"
+grid = """
+.....oooooo.....
+...ooLLLLLLoo...
+..oLLaaaaaaDDo..
+.oLaaaiiiiaaaDo.
+.oLaaiiaaaaiaDo.
+oLaaiiiaaaaaaaDo
+oLaaiiiaaaaaaaDo
+oLaaaiiaaaaiaaDo
+oLaaaaiiiiaaaaDo
+oLaaaaaaaaaaaaDo
+oLaiaaiaaiaaiaDo
+.oaiiaiiaiiaiDo.
+.oaaaaaaaaaaaDo.
+..oaaaaaaaaDDo..
+...ooDDDDDDoo...
+.....oooooo.....
+"""
+
+[[sprite]]
+name = "earth"
+nation = "earth"
+grid = """
+.....oooooo.....
+...ooLLLLLLoo...
+..oLLaaaaaaDDo..
+.oLaaaaaaaaaaDo.
+.oLaiiiiiiiiaDo.
+oLaaiaaaaaaiaaDo
+oLaaiaaiiaaiaaDo
+oLaaiaiiiiaiaaDo
+oLaaiiiiiiiiaaDo
+oLaaiaaaaaaiaaDo
+oLaaiaaaaaaiaaDo
+.oaaiiiiiiiiaDo.
+.oaaaaaaaaaaaDo.
+..oaaaaaaaaDDo..
+...ooDDDDDDoo...
+.....oooooo.....
+"""
+
+[[sprite]]
+name = "fire"
+nation = "fire"
+grid = """
+.....oooooo.....
+...ooLLLLLLoo...
+..oLLaaaiaaDDo..
+.oLaaaaaiiaaaDo.
+.oLaaaaaiiaaaDo.
+oLaaiaaiiiaaiaDo
+oLaaiaiiiiiaiaDo
+oLaaiiiiaiiiiaDo
+oLaaiiiaaaiiiaDo
+oLaaaiiaaaiiaaDo
+oLaaaaiiaiiaaaDo
+.oaaaaaiiiaaaDo.
+.oaaaaaaaaaaaDo.
+..oaaaaaaaaDDo..
+...ooDDDDDDoo...
+.....oooooo.....
+"""

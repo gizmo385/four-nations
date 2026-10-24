@@ -24,6 +24,20 @@ redsamurai.png upstream rather than SpriteSheet.png. Attribution is not required
 appreciated.
 """
 
+[[source]]
+id = "original"
+title = "Original art"
+author = "Claude (agents) for the owner"
+url = "art/"
+license = "Original work, owner's"
+release_ok = true
+retrieved = "2026-10-24"
+retrieved_by = "cargo xtask art"
+notes = """
+Rendered by `cargo xtask art` from the palette-indexed text sheets in art/*.toml (format:
+art/README.md). Every file has a generated_from entry; edit the sheet, never the PNG.
+"""
+
 [[file]]
 path = "third_party/ninja-adventure/LICENSE.txt"
 source = "ninja-adventure"
@@ -178,3 +192,75 @@ sha256 = "447bd8fec385066b3b358671932d979b6e420876e4fd5daf04a038c1b6887209"
 path = "third_party/ninja-adventure/Actor/Character/NinjaRed/Faceset.png"
 source = "ninja-adventure"
 sha256 = "0a9e889a88f437521284748c676167844ec05dcbf8d121a454350de030fcd0bf"
+
+[[file]]
+path = "original/emblems.png"
+source = "original"
+generated_from = "art/emblems.toml"
+sha256 = "27ad896fd08d8c3fc3c523ae0623907227641c7fcbede5aa9a9519368b500f20"
+
+[[file]]
+path = "original/icons.png"
+source = "original"
+generated_from = "art/icons.toml"
+sha256 = "ef3809933be1725b0981d886efffcf05852873a802f13313750009f64c651f12"
+
+[[file]]
+path = "original/map.png"
+source = "original"
+generated_from = "art/map.toml"
+sha256 = "8d6d361a6d70db50cd3c96eb3b9a0fd501b8ab32b4a5cae3380d07edb1162d13"
+
+[[file]]
+path = "original/tools.png"
+source = "original"
+generated_from = "art/tools.toml"
+sha256 = "4ce95828cbd6c24cf5143d6137dd6bf201021668fbcdfbf787af193a472b2417"
+
+[[file]]
+path = "original/ui_flair.air.png"
+source = "original"
+generated_from = "art/ui_flair.toml"
+sha256 = "5c2081dcb2624edb44df0517a96d6bc2d4ad278f730582737cd7817813fcc310"
+
+[[file]]
+path = "original/ui_flair.earth.png"
+source = "original"
+generated_from = "art/ui_flair.toml"
+sha256 = "0e1871b19c40e40917081889746f317c0ad0667c48bf6ecb95c9fb1f9255ee75"
+
+[[file]]
+path = "original/ui_flair.fire.png"
+source = "original"
+generated_from = "art/ui_flair.toml"
+sha256 = "00237e5f97d8422c0cea22d04e28a0de2ee9a9f5f6701c54f1cd992933625fa9"
+
+[[file]]
+path = "original/ui_flair.water.png"
+source = "original"
+generated_from = "art/ui_flair.toml"
+sha256 = "4536e48663a008ce314b0953386c1f5cf36784679e7dfbf8248d0fcb504f6f64"
+
+[[file]]
+path = "original/ui_frame.air.png"
+source = "original"
+generated_from = "art/ui_frame.toml"
+sha256 = "52b25f6cbb83ff715c5d5a31abdaaf8ff8566db706e7340deea8691a9f1c5b0f"
+
+[[file]]
+path = "original/ui_frame.earth.png"
+source = "original"
+generated_from = "art/ui_frame.toml"
+sha256 = "7c2872a2624c8c6677147e02bfdd96c90cc705829ca406215637d9ccd9e33861"
+
+[[file]]
+path = "original/ui_frame.fire.png"
+source = "original"
+generated_from = "art/ui_frame.toml"
+sha256 = "669aedc3321d52e38f1a8e4899877063342c1fe599ea62986daaeef8b4c78d98"
+
+[[file]]
+path = "original/ui_frame.water.png"
+source = "original"
+generated_from = "art/ui_frame.toml"
+sha256 = "c3b6ccc876907b8b7ce69e3dec3d1a25d6278c77c8d7507896376eb2716b889d"
