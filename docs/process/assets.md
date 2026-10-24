@@ -20,8 +20,9 @@ and sha256. `cargo xtask assets` enforces this and runs as part of `cargo xtask 
 The game is personal and never distributed (see docs/design/vision.md), so assets with unknown
 or non-commercial licenses are allowed. We still record provenance. `release_ok = false` flags
 sources that would have to be replaced *if* that ever changed. `cargo xtask assets --release`
-lists them as errors, and `cargo xtask assets` only warns. Today the flagged source is
-`thefournations-2013` (unknown artists, canon-character fan art).
+lists them as errors, and `cargo xtask assets` only warns. Today no source is flagged: the
+last third-party ones (Kenney, `thefournations-2013`, Ninja Adventure) have been replaced by
+original art.
 
 ## Original art
 
