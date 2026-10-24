@@ -1,0 +1,79 @@
+# The shared palette for Claude-authored art (docs/design/pixel-art.md). Every pixel in every
+# sheet is one of these names. Theme names (panel, inset, accent, accent_soft, accent_text) are
+# not listed: the renderer takes them from fn_ui::theme so pixel frames match code-drawn widgets.
+
+[colors]
+ink = "#161821"      # outline for map and icon sprites
+white = "#f2f4f7"
+
+stone0 = "#2e3340"
+stone1 = "#555c6b"
+stone2 = "#838b99"
+stone3 = "#b6bcc6"
+stone4 = "#e1e4e9"
+
+wood0 = "#3d2620"
+wood1 = "#6e422d"
+wood2 = "#a06842"
+wood3 = "#d2a46a"
+
+leaf0 = "#23452f"
+leaf1 = "#3d7c3b"
+leaf2 = "#6caa40"
+leaf3 = "#aad25c"
+leaf4 = "#e0f09e"
+
+gold0 = "#6e4316"
+gold1 = "#c58a26"
+gold2 = "#f2c64e"
+gold3 = "#fff1b4"
+
+water0 = "#1c3f78"
+water1 = "#2f70c2"
+water2 = "#60b2e8"
+water3 = "#cbedfb"
+
+red0 = "#5a1a1e"
+red1 = "#b03a2e"
+red2 = "#e8703a"
+red3 = "#f8bc62"
+
+# Floors (land tiles): base is the middle tone, marks use the others.
+grass0 = "#3f7a2e"
+grass1 = "#6aa33a"
+grass2 = "#8fbd48"
+grass3 = "#c4df78"
+moss0 = "#24492a"
+moss1 = "#3a6b33"
+moss2 = "#55893e"
+sand0 = "#b48650"
+sand1 = "#d9b676"
+sand2 = "#ead199"
+sand3 = "#f6e7c0"
+snow0 = "#8fa6c2"
+snow1 = "#cfdcea"
+snow2 = "#e9f0f8"
+mud0 = "#3e2c22"
+mud1 = "#654a35"
+mud2 = "#83654a"
+
+cream0 = "#8a6e4a"
+cream1 = "#c8aa78"
+cream2 = "#ecdcb0"
+
+# The accent ramp around the nation's `color`: mixes toward a palette colour, like fn_ui::theme.
+[accent]
+accent_dark = { toward = "ink", t = 0.45 }
+accent_light = { toward = "white", t = 0.40 }
+
+# Keys every sheet can use. A sheet's [legend] and a sprite's legend add to or override these.
+[legend]
+"." = "clear"
+o = "ink"
+i = "inset"
+p = "panel"
+s = "accent_soft"
+D = "accent_dark"
+a = "accent"
+L = "accent_light"
+w = "white"
