@@ -3,8 +3,9 @@
 //!
 //! The sheet has two rows of four 32x32 trees. Row 0 is the whole tree: canopy over a trunk in
 //! the bottom-centre 16px, which is the tile the tree stands on. Row 1 is the same canopy with the
-//! trunk removed, so the fade of #77 can draw the trunk at full strength and fade only the canopy
-//! over it (`canopy_of`).
+//! trunk removed (`canopy_of`). A trunk and its canopy cover disjoint pixels, so the fade of #77
+//! (`canopy.rs`) draws them as two sprites: `trunks_of_sheet` blanks the canopy out of row 0 at
+//! load time to get the trunk alone, and the canopy sprite on top of it is the part that fades.
 
 use super::{Cell, ResourceRule, big};
 
@@ -29,11 +30,36 @@ pub const RESOURCES: &[ResourceRule] = &[
 ];
 
 /// The canopy-only copy of a whole tree's cell: the same tree with its trunk removed, on the same
-/// footprint, so it can be drawn over the whole tree at the same transform. (For #77; nothing
-/// draws it yet.)
-#[allow(dead_code)]
+/// footprint, so it can be drawn over the trunk at the same transform and faded on its own.
 pub const fn canopy_of(tree: Cell) -> Cell {
     Cell { row: tree.row + CANOPY_ROW, ..tree }
+}
+
+/// Whether a resource's cell is one of the trees above (the resources with a canopy to fade).
+pub fn is_tree(cell: Cell) -> bool {
+    cell.sheet == SHEET
+}
+
+/// Where the canopy pixels are on a tree sprite, in pixels from the middle of its bottom edge
+/// (x right, y up): (min x, min y, max x, max y). Every tree's canopy lies inside this box; it is
+/// what hides a unit, so the fade doesn't count the transparent corners of the 32x32 sprite. A
+/// test checks it against the art.
+pub const CANOPY_EXTENT: [f32; 4] = [-15.0, 5.0, 15.0, 30.0];
+
+/// The trunks alone, from the RGBA pixels of the tree sheet (`width` pixels wide): the sheet with
+/// every pixel of row 0 blanked wherever the canopy copy, `CANOPY_ROW` cells below it, has one,
+/// and everything below row 0 transparent. In the art the two are disjoint (a pixel is canopy or
+/// trunk), so the trunk sprite with the canopy sprite over it is the whole tree.
+pub fn trunks_of_sheet(rgba: &[u8], width: u32) -> Vec<u8> {
+    let canopy = (CANOPY_ROW * super::CELL as u32 * width) as usize * 4;
+    let mut out = vec![0; rgba.len()];
+    for i in 0..canopy / 4 {
+        let covered = rgba.get(canopy + i * 4 + 3).is_some_and(|&alpha| alpha != 0);
+        if !covered {
+            out[i * 4..i * 4 + 4].copy_from_slice(&rgba[i * 4..i * 4 + 4]);
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -133,6 +159,77 @@ mod tests {
                 .collect();
             assert_eq!(canopy.1, blanked, "{}", canopy.0);
         }
+    }
+
+    /// The pixel columns and rows of a sprite's non-empty pixels, as (min x, min y, max x, max y)
+    /// of the pixels themselves.
+    fn pixel_box(grid: &[String]) -> (usize, usize, usize, usize) {
+        let filled = |(_, c): (usize, char)| c != '.';
+        let cols: Vec<usize> = grid
+            .iter()
+            .flat_map(|r| r.chars().enumerate().filter(|&p| filled(p)))
+            .map(|p| p.0)
+            .collect();
+        let rows: Vec<usize> =
+            (0..grid.len()).filter(|&y| grid[y].contains(|c| c != '.')).collect();
+        (
+            cols.iter().copied().min().unwrap(),
+            rows[0],
+            *cols.iter().max().unwrap(),
+            rows[rows.len() - 1],
+        )
+    }
+
+    /// The fade's idea of where a canopy is holds every tree's canopy, and is no looser than a
+    /// pixel around all of them together (or a unit would be "under" empty air).
+    #[test]
+    fn the_canopy_extent_is_the_art() {
+        let [x0, y0, x1, y1] = CANOPY_EXTENT;
+        // The union of the canopies' boxes, in pixels from the middle of the bottom edge.
+        let mut union = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
+        for (name, grid) in sprites().iter().filter(|(n, _)| n.ends_with("_canopy")) {
+            let (min_x, min_y, max_x, max_y) = pixel_box(grid);
+            let (left, right) = (min_x as f32 - 16.0, max_x as f32 + 1.0 - 16.0);
+            let (bottom, top) = (32.0 - (max_y as f32 + 1.0), 32.0 - min_y as f32);
+            assert!(x0 <= left && right <= x1 && y0 <= bottom && top <= y1, "{name}");
+            union =
+                [union[0].min(left), union[1].min(bottom), union[2].max(right), union[3].max(top)];
+        }
+        assert!(union[0] - x0 <= 1.0 && x1 - union[2] <= 1.0, "extent too wide: {union:?}");
+        assert!(union[1] - y0 <= 1.0 && y1 - union[3] <= 1.0, "extent too tall: {union:?}");
+    }
+
+    /// Blanking the canopy out of the whole trees leaves exactly the trunk pixels, and so the
+    /// trunk and the canopy together are the whole tree.
+    #[test]
+    fn the_trunks_are_the_trees_minus_the_canopy() {
+        let all = sprites();
+        let rgba: Vec<u8> = (0..64)
+            .flat_map(|y| (0..128).map(move |x| (x, y)))
+            .flat_map(|(x, y)| {
+                let grid = &all[(y / 32) * 4 + x / 32].1;
+                match grid[y % 32].as_bytes()[x % 32] {
+                    b'.' => [0, 0, 0, 0],
+                    c => [c, 1, 2, 255],
+                }
+            })
+            .collect();
+        let trunks = trunks_of_sheet(&rgba, 128);
+        assert_eq!(trunks.len(), rgba.len());
+        for (i, tree) in all.iter().take(4).enumerate() {
+            for y in 0..32 {
+                for x in 0..32 {
+                    let at = ((y * 128) + i * 32 + x) * 4;
+                    let is_trunk = matches!(tree.1[y].as_bytes()[x], b'6'..=b'9');
+                    assert_eq!(trunks[at + 3] != 0, is_trunk, "{} at {x},{y}", tree.0);
+                    if is_trunk {
+                        assert_eq!(trunks[at..at + 4], rgba[at..at + 4]);
+                    }
+                }
+            }
+        }
+        // Row 1 (the canopy copies) is left transparent.
+        assert!(trunks[128 * 32 * 4..].iter().all(|&b| b == 0));
     }
 
     #[test]
