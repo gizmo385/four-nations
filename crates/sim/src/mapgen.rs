@@ -84,7 +84,7 @@ impl Default for MapGenConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Tile {
     /// Elevation rescaled to `0..=255` over the map (lowest sea floor to highest peak).
     pub elevation: u8,

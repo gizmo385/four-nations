@@ -52,7 +52,7 @@ use super::*;
 const GROUND_SEARCH_RADIUS: i32 = 8;
 
 /// Where a hungry unit gets its food.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum FoodSource {
     /// Something it is already carrying.
     Carried,
@@ -65,7 +65,7 @@ pub enum FoodSource {
 }
 
 /// What a unit is doing. Needs outrank jobs; `Unit::task` reports the one in effect.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Task {
     /// Working a designated harvest.
     Harvest(JobId),

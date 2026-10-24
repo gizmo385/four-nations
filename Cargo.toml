@@ -11,7 +11,8 @@ license = "MIT"
 serde = { version = "1", features = ["derive"] }
 toml = "1"
 rand = "0.10"
-rand_chacha = "0.10"
+rand_chacha = { version = "0.10", features = ["serde"] }
+ron = { version = "0.12", features = ["integer128"] }
 
 # Bevy is slow in debug builds; optimize dependencies but keep our own crates fast to compile.
 [profile.dev.package."*"]

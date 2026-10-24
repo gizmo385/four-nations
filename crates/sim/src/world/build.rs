@@ -59,7 +59,7 @@ enum Source {
 
 /// A build designation in progress: how much of the building's cost has been delivered so far
 /// (parallel to `BuildingDef::cost`), and work done on the site once it's fully supplied.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(super) struct Site {
     pub building: BuildingId,
     delivered: Vec<u32>,

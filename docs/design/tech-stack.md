@@ -87,3 +87,18 @@ version), pkg-config, and Bevy's native libraries, including alsa, udev, and way
 those Bevy features later only needs a Cargo.toml change. It points the Vulkan loader at nixpkgs
 Mesa's drivers, because Ubuntu's drivers can't load into Nix-built binaries. CI doesn't use the
 flake.
+
+## Saves (#7)
+
+A save is a snapshot of the whole `World` as RON text (`World::save` / `World::load`, in
+`crates/sim/src/save.rs`), not a seed plus command log. Replaying a log re-simulates every tick
+played and silently becomes a different game when any rule or balance number changes; a snapshot
+loads in about a tenth of a second and survives retuning. The command log is saved inside the
+snapshot, so replay still works for tests and debugging. A save carries a format version
+(`SAVE_VERSION`) and a hash of the data tables' ids (`Defs::id_hash`); `load` refuses either
+mismatch with a clear error. The sim does no I/O: it produces and consumes the text, and the
+client decides where it lives.
+
+Adding state to `World` needs no save code: the derive makes a field either serialize or fail to
+compile. Change the serialized shape of existing state in a way old files can't be read as, and
+bump `SAVE_VERSION`.

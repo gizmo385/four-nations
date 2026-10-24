@@ -18,7 +18,9 @@ use crate::nation::{Modifiers, Nation};
 use crate::research::{TechDef, TechId};
 use crate::world::TICKS_PER_SECOND;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct AbilityId(pub u16);
 
 /// `[chi]` in `data/bending.toml`. Every unit has a meter from 0 to `max`.
