@@ -25,6 +25,8 @@
 //! X,Y (tiles may be fractional), since a headless run has no mouse, so the tree fade near the
 //! cursor shows in the shot (#77). `FN_CANOPY_DEMO=TICKS` first moves the settlers into
 //! the densest forest near them, designates trees there and runs TICKS ticks, and `FN_CANOPY_FADE=off` turns the fade off for a "before" shot.
+//! `FN_WALK_DEMO=STEPS` pauses the game and has the settlers walk to and fro on a levelled meadow
+//! beside the first one, facing every way, and takes the shot after STEPS steps (`walk_demo`, #165).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -50,6 +52,7 @@ use fn_ui::{Session, Tool};
 use hud::HudPlugin;
 use jobview::{JobViewPlugin, ResourceSprite};
 use research::{ResearchPlugin, ScreenOpen};
+use unit_anim::{Facing, Pose, UnitAnimPlugin, UnitView, pick_frame};
 
 mod bending;
 mod buildings;
@@ -60,6 +63,8 @@ mod jobview;
 mod research;
 mod sprites;
 mod ui_style;
+mod unit_anim;
+mod walk_demo;
 
 const TILE: f32 = 16.0;
 const ASSET_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets");
@@ -121,6 +126,10 @@ fn main() {
     if std::env::var_os("FN_FX_DEMO").is_some() {
         cast_demo_effects(&mut sim);
     }
+    let walk_demo = std::env::var("FN_WALK_DEMO")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .map(|steps| walk_demo::prepare(&mut sim, steps));
     app.insert_resource(Time::<Fixed>::from_hz(f64::from(TICKS_PER_SECOND)))
         .insert_resource(ActiveTool(if build_demo { Tool::Build } else { Tool::Select }))
         .insert_resource(Sim(sim))
@@ -130,6 +139,7 @@ fn main() {
         .insert_resource(ScreenOpen(std::env::var_os("FN_RESEARCH_OPEN").is_some()))
         .add_message::<MapClicked>()
         .add_plugins((
+            UnitAnimPlugin,
             DesignatePlugin,
             JobViewPlugin,
             BuildingsPlugin,
@@ -152,8 +162,14 @@ fn main() {
                 draw_selection,
             )
                 .chain(),
-        )
-        .run();
+        );
+    if let Some(demo) = walk_demo {
+        app.insert_resource(demo).add_systems(
+            Update,
+            (walk_demo::step_walkers.before(sync_units), walk_demo::frame_camera.after(controls)),
+        );
+    }
+    app.run();
 }
 
 /// Present when running as a headless screenshot (`FN_SCREENSHOT`).
@@ -348,14 +364,11 @@ impl Art {
         }
     }
 
-    /// A unit's sprite: the character's down-facing idle frame, at native size.
+    /// A unit's sprite: the character's down-facing idle frame, at native size. `UnitView`
+    /// (`unit_anim`) picks the frame from then on.
     fn unit_sprite(&self, character: &str) -> Sprite {
-        let [x0, y0, x1, y1] = sprites::IDLE_DOWN;
-        Sprite {
-            image: self.character(character).sheet,
-            rect: Some(Rect::new(x0, y0, x1, y1)),
-            ..default()
-        }
+        let rest = pick_frame(Facing::Down, Pose::Stand);
+        Sprite { image: self.character(character).sheet, rect: Some(rest.rect()), ..default() }
     }
 
     /// A tree's trunk without its canopy: `cell` (a tree on the tree sheet) of the trunk image.
@@ -571,6 +584,7 @@ fn spawn_entities(commands: &mut Commands, art: &Art, sim: &Sim) {
             art.unit_sprite(unit_character(sim, u)),
             Transform::from_translation(unit_translation(u.pos)),
             UnitSprite(u.id),
+            UnitView::new(u.pos, unit_translation(u.pos).truncate()),
             MapEntity,
         ));
     }
@@ -818,6 +832,7 @@ fn headless_screenshot(
     headless: Res<Headless>,
     assets: Res<AssetServer>,
     art: Option<Res<Art>>,
+    demo: Option<Res<walk_demo::WalkDemo>>,
     ui_art: Res<ui_style::UiArt>,
     camera: Query<&RenderTarget, With<Camera2d>>,
     time: Res<Time<Real>>,
@@ -832,7 +847,7 @@ fn headless_screenshot(
     }
     let Some(art) = art else { return };
     let ui_loaded = ui_art.handles().all(|h| assets.is_loaded_with_dependencies(h));
-    if *requested || !art.all_loaded() || !ui_loaded {
+    if *requested || !art.all_loaded() || !ui_loaded || demo.is_some_and(|d| !d.done()) {
         return;
     }
     *settled += 1;
