@@ -225,7 +225,7 @@ impl World {
         (defs.jobs.retry_seconds * TICKS_PER_SECOND as f32).ceil() as u64
     }
 
-    fn ensure_haul_job(&mut self, pos: Pos) {
+    pub(super) fn ensure_haul_job(&mut self, pos: Pos) {
         if !self.jobs.iter().any(|j| j.kind == JobKind::Haul { pos }) {
             self.add_job(JobKind::Haul { pos });
         }
@@ -262,7 +262,7 @@ impl World {
     }
 
     /// How many more of `item` a stockpile tile can take.
-    fn room_at(&self, zone: Pos, item: ItemId, defs: &Defs) -> u32 {
+    pub(super) fn room_at(&self, zone: Pos, item: ItemId, defs: &Defs) -> u32 {
         let cap = defs.jobs.stockpile_stack;
         match self.stored.get(&zone) {
             None => cap,
