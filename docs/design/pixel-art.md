@@ -210,6 +210,10 @@ like a tree: bottom-aligned, drawn by `row_depth`, free to overhang the tiles ar
   footing. It fills its 16px tile exactly (the outline is the tile's edge), so neighbouring walls
   sit side by side with a two-pixel joint and never overlap. There is no autotile: a straight run
   or a corner reads as a battlement without one.
+- **The igloo** (`art/buildings_water.toml`, #178) is a bed, so it is bed-scale: a low smooth
+  snow dome about half the Elders' Lodge's size, no flag, a short entrance tunnel facing down and
+  right with a fur flap over the door, and snow banked at its sides. Don't give it the lodge's
+  tall block-built silhouette or blue flag, or the two read as the same building.
 - **Nation differences are shape and material**, not the accent: a gold-roofed open pavilion, an
   ice-block lodge, a green-tiled hall and a red two-tier pagoda.
 - **Seeing them.** `FN_BUILD_DEMO=buildings cargo xtask screenshot ...` levels a meadow beside
