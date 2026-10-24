@@ -57,7 +57,8 @@ id = "stoneworking"
 name = "Stoneworking"
 description = "Split and shape stone from the land."
 cost = 25
-# Later: quarry designation on stone
+[tech.unlocks]
+jobs = ["stone"]
 
 [[tech]]
 id = "farming"

@@ -148,6 +148,8 @@ fn unreachable_jobs_are_skipped_without_blocking_others() {
 /// Ticks from designation until the resource on `target` is cleared, with one unit beside it.
 fn ticks_to_clear(nation: Nation, rows: &[&str], target: Pos) -> u64 {
     let (mut w, defs) = setup(nation, rows, &[at(1, 1)]);
+    // Quarrying needs stoneworking, which only Earth starts with; the others get it for free here.
+    w.research.grant(defs.tech_id("stoneworking").unwrap());
     w.designate_harvest(target, &defs).unwrap();
     run_until(&mut w, &defs, 5000, |w| w.map[target].resource.is_none())
 }
@@ -168,6 +170,33 @@ fn work_speed_uses_the_nation_modifier_the_harvest_names() {
     let chop = ["....", "..T.", "...."];
     let times: Vec<u64> = Nation::ALL.iter().map(|&n| ticks_to_clear(n, &chop, at(2, 1))).collect();
     assert!(times.iter().all(|&t| (t as i64 - 80).abs() <= 4), "{times:?}");
+}
+
+#[test]
+fn quarrying_stone_needs_stoneworking_but_earth_starts_with_it() {
+    let rows = ["....", "..s.", "...."];
+    let stoneworking = Defs::bundled().tech_id("stoneworking").unwrap();
+    // Earth knows stoneworking from tick 0.
+    let (mut earth, defs) = setup(Nation::Earth, &rows, &[at(1, 1)]);
+    assert!(earth.research().is_known(stoneworking));
+    assert!(earth.designate_harvest(at(2, 1), &defs).is_ok());
+
+    // Air doesn't: no designation, and nothing was queued by the refusal.
+    let (mut air, defs) = setup(Nation::Air, &rows, &[at(1, 1)]);
+    assert!(!air.research().is_known(stoneworking));
+    assert_eq!(
+        air.designate_harvest(at(2, 1), &defs),
+        Err(DesignateError::NotResearched(stoneworking))
+    );
+    assert!(air.jobs().is_empty());
+
+    // Once it has researched it (25 points at 3/min, so tick 5000), it can.
+    air.apply(Command::SetResearch { tech: stoneworking }, &defs).unwrap();
+    for _ in 0..5000 {
+        air.tick(&defs);
+    }
+    assert!(air.research().is_known(stoneworking));
+    assert!(air.designate_harvest(at(2, 1), &defs).is_ok());
 }
 
 #[test]
