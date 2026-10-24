@@ -2,7 +2,8 @@
 //!
 //! One table, [`bindings`], says which key means which action and what to call it. Mapping a key
 //! ([`map_key`]) reads it, and so does the key help screen ([`help_rows`]), so the help can't drift
-//! from what the keys do. The research screen (#100) adds its action and its keys here.
+//! from what the keys do. The research screen's key (`T`) is one more row; inside it the same arrows
+//! and `Enter` mean "choose a tech".
 
 use std::sync::LazyLock;
 
@@ -39,6 +40,8 @@ pub enum Action {
     PrevUnit,
     /// `F`: the cursor tracks the selected unit.
     Follow,
+    /// `T`: the research screen.
+    ShowResearch,
     /// `L` and `?`: the message log and the key help.
     ShowLog,
     ShowHelp,
@@ -226,6 +229,12 @@ fn build_table() -> Vec<Binding> {
     add(Group::Time, "Slower", Key::ch('_'), Action::Slower);
     add(Group::Time, "One tick, while paused", Key::ch('.'), Action::Step);
 
+    add(
+        Group::Game,
+        "Research: arrows W A S D choose a tech, Enter sets it as the target",
+        Key::ch('t'),
+        Action::ShowResearch,
+    );
     add(Group::Game, "Message log", Key::ch('l'), Action::ShowLog);
     add(Group::Game, "Key help", Key::ch('?'), Action::ShowHelp);
     add(Group::Game, "New map (asks first)", Key::ch('r'), Action::AskNewMap);
@@ -436,6 +445,8 @@ mod tests {
         assert_eq!(map_key(with(KeyCode::Tab, KeyModifiers::SHIFT)), Some(Action::PrevUnit));
         assert_eq!(map_key(key(KeyCode::Char('f'))), Some(Action::Follow));
         assert_eq!(map_key(key(KeyCode::Char('F'))), Some(Action::Follow));
+        assert_eq!(map_key(key(KeyCode::Char('t'))), Some(Action::ShowResearch));
+        assert_eq!(map_key(key(KeyCode::Char('T'))), Some(Action::ShowResearch));
         assert_eq!(map_key(key(KeyCode::Char('l'))), Some(Action::ShowLog));
         assert_eq!(map_key(key(KeyCode::Char('L'))), Some(Action::ShowLog));
         // A terminal sends `?` as Shift+/, so it may carry the Shift flag.

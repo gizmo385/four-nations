@@ -21,6 +21,7 @@ pub mod keys;
 pub mod layout;
 pub mod map;
 pub mod panel;
+pub mod research;
 pub mod run;
 pub mod screens;
 pub mod state;

@@ -1,0 +1,40 @@
+┏──────────────────────────────────── ◆ RESEARCH ◆ ────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
+│ TIER 1               TIER 2               TIER 3               TIER 4               ▸││ Seed 7                 00:00 │
+│  ◇ Fire Making        · Pottery           ▸◆ Masonry            · Cartography        ││ ▶ Running x1      Space  + - │
+│   Available   25 pts   Locked      60 pts   Queued     120 pts   Locked     250 pts  ││                              │
+│   -                    -                    Construction x1.15   -                   ││ ◇ PEOPLE                   6 │
+│                                                                                      ││  Tyro Idle                   │
+│  ◆ Shelter            ◆ Carpentry          · Writing            · Earthen Walls      ││  Ping Idle                   │
+│   Queued      25 pts   Queued      60 pts   Locked     120 pts   Locked     120 pts  ││  Ming Idle                   │
+│   -                    Construction x1.1    Study x1.25          Construction x1.25  ││  Oma  Idle                   │
+│                                                                                      ││  Song Idle                   │
+│  ◇ Fishing            · Herbalism          · Tunneling          · Seismic Sense      ││  Lin  Idle                   │
+│   Available   25 pts   Locked     120 pts   Locked     120 pts   Locked     250 pts  ││                              │
+│   -                    -                    -                    -                   ││ ◇ RESEARCH                   │
+│                                                                                      ││ Shelter +2           3.0/min │
+│  ✓ Stoneworking       ◇ Earth Shaping                                                ││ ░░░░░░░░░░   0% 0/25 pts     │
+│   Known       25 pts   Available   60 pts                                            ││                              │
+│   -                    Earthworks x1.2                                               ││ ◇ MODIFIERS                  │
+│                                                                                      ││ Move speed              x0.9 │
+│  ◇ Farming                                                                           ││ Carry capacity          x1.3 │
+│   Available   60 pts                                                                 ││ Earthworks              x2.5 │
+│   -                                                                                  ││ Water work              x0.9 │
+│                                                                                      ││ Power generation        x0.8 │
+│                                                                                      ││ Construction            x1.5 │
+│                                                                                      ││                              │
+│                                                                                      ││ ◇ CURSOR            (94, 64) │
+│                                                                                      ││ Tyro                         │
+│                                                                                      ││ Earth Kingdom - Idle         │
+│                                                                                      ││ Carrying: nothing            │
+│                                                                                      ││ Press Enter to select        │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│ ──────────────────────────────────────────────────────────────────────────────────── ││                              │
+│ Masonry                                                              Queued  120 pts ││                              │
+│ Dress stone and mortar it into lasting walls.                                        ││                              │
+│ Unlocks: Construction x1.15   Needs: Carpentry                                       ││                              │
+┗─ Arrows WASD choose  Enter target  Esc/T close ──────────────────────────────────────┛┗──────────────────────────────┛
+ RESEARCH  arrows/WASD choose  Enter set target  Esc/T close  L log  ? keys

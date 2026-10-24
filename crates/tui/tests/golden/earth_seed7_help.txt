@@ -26,13 +26,13 @@
 │ .                      One tick, while paused                                        ││ Tyro                         │
 │                                                                                      ││ Earth Kingdom - Idle         │
 │ SCREENS AND GAME                                                                     ││ Carrying: nothing            │
-│ L                      Message log                                                   ││ Press Enter to select        │
+│ T                      Research: arrows W A S D choose a tech, Enter sets it as the  ││ Press Enter to select        │
+│                        target                                                        ││                              │
+│ L                      Message log                                                   ││                              │
 │ ?                      Key help                                                      ││                              │
 │ R                      New map (asks first)                                          ││                              │
 │ 1 2 3 4                Switch nation: 1 Air, 2 Water, 3 Earth, 4 Fire (asks first)   ││                              │
 │ Q                      Quit (asks first)                                             ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
