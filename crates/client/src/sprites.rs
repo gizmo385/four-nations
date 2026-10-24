@@ -5,7 +5,7 @@
 //! Cells are (column, row) in 16px cells of a tileset sheet. Rows are matched top to bottom and
 //! the first match wins, so put specific rows (a biome) before general ones (`biome: None`).
 
-use fn_sim::{Pos, Terrain};
+use fn_sim::{Pos, Terrain, TileMap};
 
 /// The tile size of the pack, and of the map.
 pub const CELL: f32 = 16.0;
@@ -74,6 +74,88 @@ pub struct GroundRule {
     /// One in four tiles shows one of these instead of `base`, so flat floors don't look tiled.
     pub variants: &'static [Cell],
     pub decor: Option<Decor>,
+    /// Water tiles (#8): when set, `base`/`variants` are ignored and the tile is drawn with
+    /// `water_cell`, which picks a shore piece from this set by which neighbors are dry land.
+    pub water: Option<&'static WaterSet>,
+}
+
+/// A bitmask-autotiled water shore: 16 pieces of a `Sheet::Water` sub-sheet (#8), one per
+/// combination of which cardinal neighbors of a water tile are dry land. Laid out as a 4x4 block
+/// of 16px cells, read off the pack's own "pond" demo (`docs/design/art.md`):
+///
+/// ```text
+/// NW   N    NE   |strait
+/// W    .    E    |strait
+/// SW   S    SE   |strait
+/// -strait-  isolated (unused: art differs between variants, see `cell`)
+/// ```
+///
+/// where `.` is the open-water interior and the right column and bottom-left row are 1-wide
+/// straits (land on both sides, water flowing through) and their closed end caps.
+pub struct WaterSet {
+    interior: Cell,
+    n: Cell,
+    s: Cell,
+    e: Cell,
+    w: Cell,
+    nw: Cell,
+    ne: Cell,
+    sw: Cell,
+    se: Cell,
+    v_top: Cell,
+    v_mid: Cell,
+    v_bot: Cell,
+    h_left: Cell,
+    h_mid: Cell,
+    h_right: Cell,
+}
+
+impl WaterSet {
+    /// `col`/`row` is the top-left (NW corner) cell of the 4x4 block.
+    const fn new(sheet: Sheet, col: u32, row: u32) -> Self {
+        WaterSet {
+            nw: one(sheet, col, row),
+            n: one(sheet, col + 1, row),
+            ne: one(sheet, col + 2, row),
+            v_top: one(sheet, col + 3, row),
+            w: one(sheet, col, row + 1),
+            interior: one(sheet, col + 1, row + 1),
+            e: one(sheet, col + 2, row + 1),
+            v_mid: one(sheet, col + 3, row + 1),
+            sw: one(sheet, col, row + 2),
+            s: one(sheet, col + 1, row + 2),
+            se: one(sheet, col + 2, row + 2),
+            v_bot: one(sheet, col + 3, row + 2),
+            h_left: one(sheet, col, row + 3),
+            h_mid: one(sheet, col + 1, row + 3),
+            h_right: one(sheet, col + 2, row + 3),
+        }
+    }
+
+    /// The piece for a water tile whose cardinal neighbors are land (`true`) or more water
+    /// (`false`). A tile boxed in on all four sides has no single piece that reads right (and the
+    /// pack's "isolated puddle" tile isn't present for every variant), so it falls back to the
+    /// open-water interior.
+    fn cell(&self, n: bool, s: bool, e: bool, w: bool) -> Cell {
+        match (n, s, e, w) {
+            (false, false, false, false) => self.interior,
+            (true, false, false, false) => self.n,
+            (false, true, false, false) => self.s,
+            (false, false, true, false) => self.e,
+            (false, false, false, true) => self.w,
+            (true, false, false, true) => self.nw,
+            (true, false, true, false) => self.ne,
+            (false, true, false, true) => self.sw,
+            (false, true, true, false) => self.se,
+            (true, true, false, false) => self.v_mid,
+            (false, false, true, true) => self.h_mid,
+            (true, true, false, true) => self.h_left,
+            (true, true, true, false) => self.h_right,
+            (true, false, true, true) => self.v_top,
+            (false, true, true, true) => self.v_bot,
+            (true, true, true, true) => self.interior,
+        }
+    }
 }
 
 /// How a resource looks. Every sprite is bottom-aligned to its tile.
@@ -88,6 +170,15 @@ use Sheet::{Floor, Nature, Water};
 
 const WATER: Cell = one(Water, 1, 1);
 const SWAMP_WATER: Cell = one(Water, 14, 7);
+
+/// The pack's four pre-coloured water shores (`docs/design/art.md`): sand for desert, snow for
+/// tundra, grass for the rest and the purple swamp water already used flat above. Each is a 4x4
+/// block of 16px cells on `TilesetWater`; see `WaterSet` for the layout within a block.
+const SAND_WATER: WaterSet = WaterSet::new(Water, 0, 0);
+const SNOW_WATER: WaterSet = WaterSet::new(Water, 13, 0);
+const GRASS_WATER: WaterSet = WaterSet::new(Water, 0, 6);
+const SWAMP_WATER_SET: WaterSet = WaterSet::new(Water, 13, 6);
+
 const SAND: Cell = one(Floor, 1, 1);
 const SNOW: Cell = one(Floor, 1, 15);
 const DIRT: Cell = one(Floor, 1, 9);
@@ -105,28 +196,68 @@ const SHORES: &[Terrain] = &[Terrain::Coast, Terrain::Ford];
 const MOUNTAIN: &[Terrain] = &[Terrain::Mountain];
 const LAND: &[Terrain] = &[Terrain::Land];
 
-/// Mountains are a rock floor with grey boulders until autotiling (#8) brings the cliffs.
+/// Mountains are a rock floor with grey boulders until autotiled cliffs land (#104).
 const BOULDERS: Decor = Decor { cells: &[one(Nature, 18, 9)], num: 2, den: 3 };
 const SNOWY_BOULDERS: Decor = Decor { cells: &[one(Nature, 4, 12)], num: 2, den: 3 };
 
 pub const GROUND: &[GroundRule] = &[
+    // Water (#8): bitmask-autotiled by `water_cell`, biome-matched to the land it touches.
     GroundRule {
         terrains: WATERS,
         biome: Some("swamp"),
         base: SWAMP_WATER,
         variants: &[],
         decor: None,
+        water: Some(&SWAMP_WATER_SET),
     },
-    GroundRule { terrains: WATERS, biome: None, base: WATER, variants: &[], decor: None },
+    GroundRule {
+        terrains: WATERS,
+        biome: Some("tundra"),
+        base: SNOW_WATER.interior,
+        variants: &[],
+        decor: None,
+        water: Some(&SNOW_WATER),
+    },
+    GroundRule {
+        terrains: WATERS,
+        biome: Some("desert"),
+        base: WATER,
+        variants: &[],
+        decor: None,
+        water: Some(&SAND_WATER),
+    },
+    GroundRule {
+        terrains: WATERS,
+        biome: None,
+        base: GRASS_WATER.interior,
+        variants: &[],
+        decor: None,
+        water: Some(&GRASS_WATER),
+    },
     // Fords share the shore tile until autotiling can draw a crossing.
-    GroundRule { terrains: SHORES, biome: Some("tundra"), base: SNOW, variants: &[], decor: None },
-    GroundRule { terrains: SHORES, biome: None, base: SAND, variants: &[], decor: None },
+    GroundRule {
+        terrains: SHORES,
+        biome: Some("tundra"),
+        base: SNOW,
+        variants: &[],
+        decor: None,
+        water: None,
+    },
+    GroundRule {
+        terrains: SHORES,
+        biome: None,
+        base: SAND,
+        variants: &[],
+        decor: None,
+        water: None,
+    },
     GroundRule {
         terrains: MOUNTAIN,
         biome: Some("tundra"),
         base: SNOW,
         variants: &[],
         decor: Some(SNOWY_BOULDERS),
+        water: None,
     },
     GroundRule {
         terrains: MOUNTAIN,
@@ -134,6 +265,7 @@ pub const GROUND: &[GroundRule] = &[
         base: DIRT,
         variants: &[],
         decor: Some(BOULDERS),
+        water: None,
     },
     GroundRule {
         terrains: LAND,
@@ -141,14 +273,23 @@ pub const GROUND: &[GroundRule] = &[
         base: SAND,
         variants: SAND_VARIANTS,
         decor: None,
+        water: None,
     },
-    GroundRule { terrains: LAND, biome: Some("tundra"), base: SNOW, variants: &[], decor: None },
+    GroundRule {
+        terrains: LAND,
+        biome: Some("tundra"),
+        base: SNOW,
+        variants: &[],
+        decor: None,
+        water: None,
+    },
     GroundRule {
         terrains: LAND,
         biome: Some("swamp"),
         base: MUD,
         variants: MUD_VARIANTS,
         decor: None,
+        water: None,
     },
     GroundRule {
         terrains: LAND,
@@ -156,6 +297,7 @@ pub const GROUND: &[GroundRule] = &[
         base: DARK_GRASS,
         variants: DARK_GRASS_VARIANTS,
         decor: None,
+        water: None,
     },
     GroundRule {
         terrains: LAND,
@@ -163,6 +305,7 @@ pub const GROUND: &[GroundRule] = &[
         base: DARK_GRASS,
         variants: DARK_GRASS_VARIANTS,
         decor: None,
+        water: None,
     },
     GroundRule {
         terrains: LAND,
@@ -170,6 +313,7 @@ pub const GROUND: &[GroundRule] = &[
         base: LIGHT_GRASS,
         variants: LIGHT_GRASS_VARIANTS,
         decor: None,
+        water: None,
     },
 ];
 
@@ -194,6 +338,17 @@ pub fn ground_rule(terrain: Terrain, biome: &str) -> Option<&'static GroundRule>
 
 pub fn resource_rule(resource: &str, biome: &str) -> Option<&'static ResourceRule> {
     RESOURCES.iter().find(|r| r.resource == resource && r.biome.is_none_or(|b| b == biome))
+}
+
+/// The floor cell for a water tile at `p`, bitmask-autotiled (#8) against its four cardinal
+/// neighbors: a neighbor counts as "land" (picks an edge or corner piece) unless it's also
+/// `Terrain::is_water` (sea, river, lake or a shallow ford all blend together), including off the
+/// edge of the map, which stays open water rather than growing a false shore.
+pub fn water_cell(map: &TileMap, p: Pos, set: &WaterSet) -> Cell {
+    let land = |dx: i32, dy: i32| {
+        map.get(Pos::new(p.x + dx, p.y + dy)).is_some_and(|t| !t.terrain.is_water())
+    };
+    set.cell(land(0, -1), land(0, 1), land(1, 0), land(-1, 0))
 }
 
 /// A cheap, stable per-tile hash; `salt` gives independent rolls for the same tile.
@@ -253,7 +408,8 @@ pub const FACE_SIZE: f32 = 38.0;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fn_sim::{Defs, Nation};
+    use fn_sim::defs::BiomeId;
+    use fn_sim::{Defs, Grid, Nation, Tile};
 
     /// The pixel size of a PNG, from its IHDR chunk.
     fn png_size(path: &str) -> (u32, u32) {
@@ -362,5 +518,96 @@ mod tests {
         let rule = ground_rule(Terrain::Mountain, "plains").unwrap();
         let n = (0..900).filter(|i| rule.decor_at(Pos::new(i % 30, i / 30)).is_some()).count();
         assert!((540..660).contains(&n), "{n}");
+    }
+
+    // -------------------------------------------------------------------------------------
+    // #8: water autotiling
+
+    /// Every `WATERS` row (not `SHORES`/`LAND`/`MOUNTAIN`) is autotiled rather than flat.
+    #[test]
+    fn every_biome_s_water_is_autotiled() {
+        let defs = Defs::bundled();
+        for biome in &defs.biomes {
+            let rule = ground_rule(Terrain::Water, &biome.id).unwrap();
+            assert!(rule.water.is_some(), "{} water isn't autotiled", biome.id);
+        }
+    }
+
+    /// A 3x3 map whose center is water, with `n`/`s`/`e`/`w` marking which cardinal neighbor is
+    /// land; the corners are irrelevant (only cardinals feed the bitmask) so they're left water.
+    fn water_neighbor_map(n: bool, s: bool, e: bool, w: bool) -> TileMap {
+        let ch = |land: bool| if land { '.' } else { '~' };
+        let rows = [format!("~{}~", ch(n)), format!("{}~{}", ch(w), ch(e)), format!("~{}~", ch(s))];
+        Grid::from_fn(3, 3, |p| Tile {
+            elevation: 0,
+            temperature: 0,
+            moisture: 0,
+            terrain: if rows[p.y as usize].as_bytes()[p.x as usize] == b'.' {
+                Terrain::Land
+            } else {
+                Terrain::Water
+            },
+            biome: BiomeId(0),
+            resource: None,
+            building: None,
+        })
+    }
+
+    #[test]
+    fn water_cell_picks_every_piece_from_its_land_neighbors() {
+        let set = &SAND_WATER;
+        let cases = [
+            ((false, false, false, false), set.interior),
+            ((true, false, false, false), set.n),
+            ((false, true, false, false), set.s),
+            ((false, false, true, false), set.e),
+            ((false, false, false, true), set.w),
+            ((true, false, false, true), set.nw),
+            ((true, false, true, false), set.ne),
+            ((false, true, false, true), set.sw),
+            ((false, true, true, false), set.se),
+            ((true, true, false, false), set.v_mid),
+            ((false, false, true, true), set.h_mid),
+            ((true, true, false, true), set.h_left),
+            ((true, true, true, false), set.h_right),
+            ((true, false, true, true), set.v_top),
+            ((false, true, true, true), set.v_bot),
+            ((true, true, true, true), set.interior),
+        ];
+        for ((n, s, e, w), expected) in cases {
+            let map = water_neighbor_map(n, s, e, w);
+            let got = water_cell(&map, Pos::new(1, 1), set);
+            assert_eq!(got, expected, "n={n} s={s} e={e} w={w}");
+        }
+    }
+
+    /// A ford is still water as far as the shore goes: it doesn't grow a false edge next to it.
+    #[test]
+    fn a_ford_neighbor_does_not_count_as_land() {
+        let map = Grid::from_fn(3, 1, |p| Tile {
+            elevation: 0,
+            temperature: 0,
+            moisture: 0,
+            terrain: if p.x == 0 { Terrain::Water } else { Terrain::Ford },
+            biome: BiomeId(0),
+            resource: None,
+            building: None,
+        });
+        assert_eq!(water_cell(&map, Pos::new(0, 0), &SAND_WATER), SAND_WATER.interior);
+    }
+
+    /// Off the edge of the map stays open water rather than growing a false shore.
+    #[test]
+    fn off_map_does_not_count_as_land() {
+        let map = Grid::from_fn(1, 1, |_| Tile {
+            elevation: 0,
+            temperature: 0,
+            moisture: 0,
+            terrain: Terrain::Water,
+            biome: BiomeId(0),
+            resource: None,
+            building: None,
+        });
+        assert_eq!(water_cell(&map, Pos::new(0, 0), &SAND_WATER), SAND_WATER.interior);
     }
 }
