@@ -61,6 +61,34 @@ fn a_small_size_prints_only_the_notice() {
 }
 
 #[test]
+fn keys_play_a_script_before_the_frame() {
+    let frame = |keys: &str| {
+        let out = fn_tui().args(["7", "earth", "--frame", "--keys", keys]).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let text = frame("h <left*6> <up*3> <enter> <right*5> <down*4> <enter> <tick 600>");
+    assert!(text.lines().last().unwrap().starts_with(" HARVEST "), "{text}");
+    assert!(text.contains("done"), "{text}");
+    assert!(text.contains("01:00"), "<tick 600> is a minute:\n{text}");
+    // WASD scripts move the cursor like the arrows do.
+    assert_eq!(frame("d d s"), frame("<right*2> <down>"));
+    assert_ne!(frame("d d s"), frame(""));
+}
+
+#[test]
+fn a_bad_key_script_fails_with_usage_before_anything_runs() {
+    let out = fn_tui().args(["7", "earth", "--frame", "--keys", "h <bogus>"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("--keys:") && err.contains("<bogus>"), "{err}");
+    assert!(out.stdout.is_empty());
+    let out = fn_tui().args(["7", "earth", "--keys", "h"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("only means something with --frame"));
+}
+
+#[test]
 fn interactive_mode_refuses_without_a_tty_and_points_to_frame() {
     let out = fn_tui().args(["7", "earth"]).output().unwrap();
     assert!(!out.status.success());

@@ -1,13 +1,15 @@
 //! The Seal side panel (docs/design/ui.md, docs/design/tui.md): a framed column with the nation's
-//! name on the top edge, then sections. The MVP has the header (seed, clock, speed), People (the
-//! count) and Cursor (what is under the keyboard cursor). Stores, Research, Tool and Alerts come
-//! with the panels issue (#99); `fn_ui::view::SideView` already carries what they show.
+//! name on the top edge, then sections: the header (seed, clock, speed), People (the count), Tool
+//! (the active designation tool, its hint and the last rectangle's result; hidden in Select mode)
+//! and Cursor (what is under the keyboard cursor, and what `Enter` does next). Stores, Research
+//! and Alerts come with the panels issue (#99); `fn_ui::view::SideView` already carries what
+//! they show.
 
-use fn_ui::Session;
 use fn_ui::alerts::Alerts;
 use fn_ui::inspect::{Hint, Line, tooltip_lines};
 use fn_ui::text::describe_stack;
 use fn_ui::view::{SideView, side_view};
+use fn_ui::{Session, Tool};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -64,13 +66,83 @@ impl Marks {
     }
 }
 
-/// How an action hint reads in the terminal, if it can be taken yet. The select and tool keys
-/// arrive with the selection (#99) and the designation tools (#98); until then a hint would
-/// promise a key that does nothing, so there is none.
+/// How an action hint reads in the terminal, if it can be taken yet.
+///
+/// * Selecting a unit arrives with the selection (#99); until then a hint would promise a key
+///   that does nothing, so there is none.
+/// * Starting a tool names its key.
+/// * Applying the active tool is the rectangle line ([`rect_hint`]), which the Cursor section
+///   shows in every tool, so the tooltip's own hint adds nothing.
 pub fn hint_text(hint: Hint) -> Option<String> {
     match hint {
-        Hint::SelectUnit | Hint::StartTool(_) | Hint::ApplyTool(_) => None,
+        Hint::SelectUnit | Hint::ApplyTool(_) => None,
+        Hint::StartTool(tool) => Some(format!("Press {} for the {} tool", tool.key(), tool.name())),
     }
+}
+
+/// What `Enter` does next in the active tool: set a corner, or apply the tool to the rectangle
+/// ("Enter: designate 5x3"). `None` in Select mode.
+pub fn rect_hint(ui: &UiState) -> Option<String> {
+    if ui.tool == Tool::Select {
+        return None;
+    }
+    Some(match ui.rect_size() {
+        None => "Enter: set a corner".to_owned(),
+        Some((w, h)) => format!("Enter: {} {w}x{h}", apply_verb(ui.tool)),
+    })
+}
+
+/// The verb for applying a tool to a rectangle.
+fn apply_verb(tool: Tool) -> &'static str {
+    match tool {
+        Tool::Harvest | Tool::Stockpile => "designate",
+        Tool::CancelHarvest => "cancel",
+        Tool::Bend => "bend",
+        Tool::Build => "build",
+        Tool::Select => "select",
+    }
+}
+
+/// `text` broken at spaces into lines of at most `width` cells (a word longer than a line is
+/// cut), and at most `max_lines` of them: if there is more, the last line ends in `ellipsis`.
+pub fn wrap(text: &str, width: usize, max_lines: usize, ellipsis: char) -> Vec<String> {
+    if width == 0 {
+        return Vec::new();
+    }
+    let mut lines: Vec<String> = Vec::new();
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        let mut word: Vec<char> = word.chars().collect();
+        while word.len() > width {
+            if !line.is_empty() {
+                lines.push(std::mem::take(&mut line));
+            }
+            lines.push(word.drain(..width).collect());
+        }
+        let word: String = word.into_iter().collect();
+        if word.is_empty() {
+            continue;
+        }
+        if line.is_empty() {
+            line = word;
+        } else if line.chars().count() + 1 + word.chars().count() <= width {
+            line.push(' ');
+            line.push_str(&word);
+        } else {
+            lines.push(std::mem::replace(&mut line, word));
+        }
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    if lines.len() > max_lines {
+        lines.truncate(max_lines);
+        if let Some(last) = lines.last_mut() {
+            let kept: String = last.chars().take(width.saturating_sub(1)).collect();
+            *last = format!("{}{ellipsis}", kept.trim_end());
+        }
+    }
+    lines
 }
 
 /// `text` cut to `width` cells, with an ellipsis if it didn't fit.
@@ -147,7 +219,7 @@ pub fn draw_panel(
     area: Rect,
     buf: &mut Buffer,
 ) {
-    let view = side_view(session, ui.tool, "", None, &Alerts::default());
+    let view = side_view(session, ui.tool, &ui.notice, None, &Alerts::default());
     let marks = Marks::new(palette.ascii);
     let theme = &palette.theme;
     let panel_bg = palette.token(theme.panel);
@@ -188,7 +260,32 @@ pub fn draw_panel(
     p.blank();
     p.section("PEOPLE", &view.people.to_string());
     p.blank();
+    tool_section(&mut p, &view);
     cursor_section(&mut p, session, ui);
+}
+
+/// The most lines the Tool section gives its hint (a bend ability's takes four) and the last
+/// result, so the Cursor section below keeps its room on a 24-row terminal.
+const HINT_LINES: usize = 4;
+const NOTICE_LINES: usize = 5;
+
+/// The Tool section: the active tool with its key, what it does and the last rectangle's
+/// result. It hides itself in Select mode, which has nothing to say.
+fn tool_section(p: &mut Painter, view: &SideView) {
+    if view.tool == Tool::Select {
+        return;
+    }
+    p.section("TOOL", &format!("{} [{}]", view.tool.name(), view.tool.key()));
+    let width = usize::from(p.inner.width);
+    let (dim, text) = (p.style(p.palette.theme.dim), p.style(p.palette.theme.text));
+    let ellipsis = p.marks.ellipsis;
+    for line in wrap(&view.tool_hint, width, HINT_LINES, ellipsis) {
+        p.text(&line, dim);
+    }
+    for line in wrap(&view.notice, width, NOTICE_LINES, ellipsis) {
+        p.text(&line, text);
+    }
+    p.blank();
 }
 
 fn header(p: &mut Painter, view: &SideView) {
@@ -209,6 +306,11 @@ fn cursor_section(p: &mut Painter, session: &Session, ui: &UiState) {
     p.section("CURSOR", &format!("({}, {})", pos.x, pos.y));
     let (title, text) =
         (p.style(p.palette.theme.text).add_modifier(Modifier::BOLD), p.style(p.palette.theme.text));
+    // What Enter does next in a tool, with the rectangle's size once a corner is set. It comes
+    // first, so a small terminal cuts the tile's details before it.
+    if let Some(s) = rect_hint(ui) {
+        p.text(&s, p.style(p.palette.theme.accent_text).add_modifier(Modifier::BOLD));
+    }
     let mut lines = tooltip_lines(session, ui.tool, pos).unwrap_or_default();
     // The tooltip names the top thing on the tile; the section lists what else is there.
     if let Some((_, stack)) = session.world.ground_items().find(|&(q, _)| q == pos) {
@@ -244,6 +346,34 @@ pub fn panel_bg(palette: &Palette) -> Color {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wrap_breaks_at_spaces_cuts_long_words_and_marks_what_is_left_out() {
+        let lines = |t: &str, w, n| wrap(t, w, n, '…');
+        assert_eq!(lines("one two three", 7, 5), ["one two", "three"]);
+        assert_eq!(lines("", 7, 5), Vec::<String>::new());
+        assert_eq!(lines("abcdefghij", 4, 5), ["abcd", "efgh", "ij"]);
+        assert_eq!(lines("aa bb cc dd ee", 5, 2), ["aa bb", "cc d…"]);
+        assert_eq!(lines("aa bb cc", 5, 1), ["aa b…"]);
+        assert!(lines("anything", 0, 3).is_empty());
+        for line in lines("designate harvest (chop, mine, gather); hold Shift to repeat", 28, 3) {
+            assert!(line.chars().count() <= 28, "{line}");
+        }
+    }
+
+    #[test]
+    fn the_rectangle_hint_follows_the_corner() {
+        use fn_sim::{Nation, Pos};
+        let mut ui = UiState::new(&Session::new(7, Nation::Earth, 48, 32), (120, 40));
+        assert_eq!(rect_hint(&ui), None, "Select mode has none");
+        ui.set_tool(Tool::Harvest);
+        assert_eq!(rect_hint(&ui).as_deref(), Some("Enter: set a corner"));
+        ui.anchor = Some(Pos::new(3, 3));
+        ui.cursor = Pos::new(7, 5);
+        assert_eq!(rect_hint(&ui).as_deref(), Some("Enter: designate 5x3"));
+        ui.set_tool(Tool::CancelHarvest);
+        assert_eq!(rect_hint(&ui).as_deref(), Some("Enter: set a corner"), "a new tool drops it");
+    }
 
     #[test]
     fn fit_cuts_with_an_ellipsis() {
