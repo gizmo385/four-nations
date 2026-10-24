@@ -284,6 +284,15 @@ fn ground_rule(sim: &Sim, t: &Tile) -> &'static sprites::GroundRule {
         .unwrap_or_else(|| panic!("no ground sprite for {:?} in {biome}", t.terrain))
 }
 
+/// The floor cell for the tile at `p`. Water tiles are bitmask-autotiled against their neighbors
+/// (#8, `sprites::water_cell`); everything else is the ground rule's own pick.
+fn floor_cell(sim: &Sim, p: Pos, rule: &sprites::GroundRule) -> sprites::Cell {
+    match rule.water {
+        Some(set) => sprites::water_cell(&sim.world.map, p, set),
+        None => rule.floor_at(p),
+    }
+}
+
 /// Picks a sprite for a tile's resource, if any. Sprites are bottom-aligned to their tile, so a
 /// 2x2 tree stands on its tile and its canopy overlaps the tiles above and beside it.
 fn resource_sprite(art: &Art, sim: &Sim, t: &Tile) -> Option<Sprite> {
@@ -302,7 +311,7 @@ fn spawn_entities(commands: &mut Commands, art: &Art, sim: &Sim) {
     for (p, t) in sim.world.map.iter() {
         let rule = ground_rule(sim, t);
         commands.spawn((
-            art.sprite(rule.floor_at(p)),
+            art.sprite(floor_cell(sim, p, rule)),
             Transform::from_translation(tile_translation(p, 0.0)),
             // Bending can reshape a tile's terrain later (Earth's Raise Earth, #68); this is
             // what lets `bending::sync_terrain` redraw it when that happens.

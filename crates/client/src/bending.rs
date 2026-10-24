@@ -18,7 +18,9 @@ use bevy::window::PrimaryWindow;
 use fn_sim::world::{BendEvent, BendOutcome};
 use fn_sim::{Pos, Terrain};
 
-use super::{Art, MapEntity, Sim, TILE, cursor_tile, ground_rule, row_depth, tile_translation};
+use super::{
+    Art, MapEntity, Sim, TILE, cursor_tile, floor_cell, ground_rule, row_depth, tile_translation,
+};
 
 pub struct BendingPlugin;
 
@@ -54,7 +56,7 @@ fn sync_terrain(
             continue;
         }
         let rule = ground_rule(&sim, tile);
-        *sprite = art.sprite(rule.floor_at(cached.0));
+        *sprite = art.sprite(floor_cell(&sim, cached.0, rule));
         cached.1 = tile.terrain;
     }
 }
