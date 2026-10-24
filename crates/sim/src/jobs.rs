@@ -70,6 +70,12 @@ pub struct JobSettings {
     pub sleep_interrupt_below: f32,
     /// Seconds before a unit with nothing reachable to do looks again.
     pub retry_seconds: f32,
+    /// Seconds an idle unit stands still before it decides whether to wander (issue #110).
+    pub idle_pause_seconds: f32,
+    /// Chance, in (0, 1], that an idle unit wanders after a pause rather than standing again.
+    pub idle_wander_chance: f32,
+    /// A wander is 1 to this many random steps.
+    pub idle_wander_steps: u8,
 }
 
 #[derive(Deserialize)]
@@ -114,10 +120,17 @@ impl JobsFile {
             ("eat_seconds", s.eat_seconds),
             ("drink_seconds", s.drink_seconds),
             ("retry_seconds", s.retry_seconds),
+            ("idle_pause_seconds", s.idle_pause_seconds),
         ] {
             if !(v.is_finite() && v > 0.0) {
                 return err(format!("settings.{what} must be a positive number"));
             }
+        }
+        if !(s.idle_wander_chance > 0.0 && s.idle_wander_chance <= 1.0) {
+            return err("settings.idle_wander_chance must be in (0, 1]".into());
+        }
+        if s.idle_wander_steps == 0 {
+            return err("settings.idle_wander_steps must be at least 1".into());
         }
         if s.stockpile_stack == 0 || s.base_carry == 0 {
             return err("settings.stockpile_stack and base_carry must be at least 1".into());
