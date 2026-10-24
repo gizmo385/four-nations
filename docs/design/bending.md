@@ -37,7 +37,7 @@ harm one.
 ## Where the pressure comes from today
 
 On `main`, food is the binding constraint. Wild cabbage is finite, and a settlement of four
-starves in about two hours (#56). Thirst means walking to water, sleep happens wherever a
+starves in about two hours (#56). Thirst means walking to water, sleep happens in a bed or wherever a
 unit drops (#58), and rivers and lakes cut the land, with one ford per divided region once #53
 lands. Each ability answers that pressure in its own way:
 
@@ -155,9 +155,10 @@ flame burns without fuel for a while, and it doesn't block movement.
 - **Counterplay:** the radius is small, so the camp has to be compact: the stockpile where people
   eat goes next to the flame. Foragers eating in the field eat raw. The flame dies if no one
   restokes it. It can't be lit on water or on a resource tile.
-- **#58 alignment:** campfires and hearths there should be the same kind of **heat source**
-  with the same radius semantics, so the cook and warm-sleep code is shared. Hearthflame is
-  then a timed heat source that needs no building. `dancing_dragon` (heating ×1.25) lengthens
+- **#58 alignment (done):** a built campfire is the same kind of **heat source** with the same
+  radius semantics, so the cook and warm-sleep code is shared. It is lit for good once built
+  (no fuel yet), and its radius scales with `heating`. Hearthflame is the timed heat source that
+  needs no building. `dancing_dragon` (heating ×1.25) lengthens
   the flame. Its "inner fire" ability stays a separate later design.
 
 ### Air Nomads: Wind Carry

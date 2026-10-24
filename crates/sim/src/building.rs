@@ -3,9 +3,15 @@
 //! A `BuildingDef` just says what a building costs, how long it takes to build and whether units
 //! may walk onto it once it's finished; everything about *designating* one, hauling its cost to
 //! the site and the work that finishes it lives in `world/build.rs`. What a finished building
-//! *does* (sleeping, cooking...) is mostly follow-up work (#58 beds/hearth), except seats: a
-//! building with `seats > 0` is a study hall, and the moment one finishes construction
-//! `world/study.rs` opens that many `JobKind::Study` jobs on it (issue #21).
+//! *does* is data on its def too:
+//!
+//! - `seats > 0` makes it a study hall: the moment one finishes construction `world/study.rs`
+//!   opens that many `JobKind::Study` jobs on it (issue #21).
+//! - `bed` makes it somewhere to sleep: a tired unit walks to the nearest free one and regains
+//!   energy faster there (`world/work.rs`, issue #58).
+//! - `heat` makes it a permanent heat source (`world/heat.rs`, issue #58): meals eaten within
+//!   its radius are cooked, and sleep within it is better. It is the same `HeatSource` Fire's
+//!   Hearthflame lights for a while, so the cooking and warm-sleep code is shared.
 //!
 //! Which tech must be known before a building may be designated is `Unlocks::buildings` in
 //! `data/research.toml`, resolved here into `BuildingDef::unlocked_by` (issue #22). A building no
@@ -34,6 +40,35 @@ pub struct Building {
     pub passable: bool,
 }
 
+/// A building units sleep in (`[building.bed]`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BedDef {
+    /// Energy regained asleep here, times the base rate (at least 1.0). Stacks with warmth.
+    pub sleep_bonus: f32,
+    /// A tired unit walks to a free bed within this many path tiles; further than that, it
+    /// sleeps where it is.
+    pub seek_tiles: u32,
+}
+
+/// A building that keeps a fire (`[building.heat]`). Unlike Hearthflame it never goes out.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HeatDef {
+    /// Tiles around it, Chebyshev, that count as near it at a `heating` modifier of 1.0. The
+    /// nation's `heating` modifier scales it (`HeatDef::radius_for`).
+    pub radius: u32,
+    /// Energy regained asleep nearby, times the base rate (at least 1.0).
+    pub sleep_bonus: f32,
+    /// A unit about to sleep walks to the warmth if it is within this many path tiles.
+    pub seek_tiles: u32,
+}
+
+impl HeatDef {
+    /// The radius at a nation's `heating` modifier: rounded, and never less than 1.
+    pub fn radius_for(&self, heating: f32) -> u32 {
+        ((self.radius as f32 * heating).round() as u32).max(1)
+    }
+}
+
 /// One item and the count of it a building costs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CostItem {
@@ -57,6 +92,10 @@ pub struct BuildingDef {
     /// nonzero value is what tells `world/build.rs` to open that many `JobKind::Study` jobs when
     /// construction finishes.
     pub seats: u32,
+    /// Set if units sleep here (issue #58).
+    pub bed: Option<BedDef>,
+    /// Set if this keeps a permanent fire: it cooks meals and warms sleep nearby (issue #58).
+    pub heat: Option<HeatDef>,
     /// What each nation calls this building, if it varies (e.g. the study hall: Meditation
     /// Pavilion for Air). Empty when every nation uses the plain `name`. If set at all, every
     /// nation has an entry (`display_name` is the one place that matters).
@@ -82,6 +121,21 @@ struct RawCost {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawBed {
+    sleep_bonus: f32,
+    seek_tiles: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawHeat {
+    radius: u32,
+    sleep_bonus: f32,
+    seek_tiles: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawBuilding {
     id: String,
     name: String,
@@ -92,6 +146,8 @@ struct RawBuilding {
     passable: bool,
     #[serde(default)]
     seats: u32,
+    bed: Option<RawBed>,
+    heat: Option<RawHeat>,
     #[serde(default)]
     names: HashMap<Nation, String>,
 }
@@ -137,6 +193,23 @@ impl BuildingsFile {
                     b.id
                 ));
             }
+            let bonus_ok = |x: f32| x.is_finite() && x >= 1.0;
+            if let Some(bed) = &b.bed
+                && !(bonus_ok(bed.sleep_bonus) && bed.seek_tiles > 0)
+            {
+                return err(format!(
+                    "building {}: bed needs sleep_bonus >= 1.0 and seek_tiles > 0",
+                    b.id
+                ));
+            }
+            if let Some(heat) = &b.heat
+                && !(bonus_ok(heat.sleep_bonus) && heat.radius > 0 && heat.seek_tiles > 0)
+            {
+                return err(format!(
+                    "building {}: heat needs radius > 0, sleep_bonus >= 1.0 and seek_tiles > 0",
+                    b.id
+                ));
+            }
             for (nation, name) in &b.names {
                 if name.trim().is_empty() {
                     return err(format!(
@@ -154,6 +227,12 @@ impl BuildingsFile {
                 work: b.work,
                 passable: b.passable,
                 seats: b.seats,
+                bed: b.bed.map(|d| BedDef { sleep_bonus: d.sleep_bonus, seek_tiles: d.seek_tiles }),
+                heat: b.heat.map(|d| HeatDef {
+                    radius: d.radius,
+                    sleep_bonus: d.sleep_bonus,
+                    seek_tiles: d.seek_tiles,
+                }),
                 names: b.names,
                 unlocked_by: None,
             });
@@ -227,6 +306,42 @@ mod tests {
         for n in Nation::ALL {
             assert_eq!(def.display_name(n), def.name);
         }
+    }
+
+    #[test]
+    fn beds_and_campfires_are_data() {
+        let defs = Defs::bundled();
+        let bed = defs.building(defs.building_id("bed").unwrap());
+        let bedding = bed.bed.expect("a bed is a bed");
+        assert!(bed.passable, "a unit lies on its bed");
+        assert!(bedding.sleep_bonus > 1.0 && bedding.seek_tiles > 0);
+        assert!(bed.heat.is_none());
+        let fire = defs.building(defs.building_id("campfire").unwrap());
+        let heat = fire.heat.expect("a campfire keeps a fire");
+        assert!(fire.bed.is_none() && heat.sleep_bonus > 1.0);
+        // The nation's `heating` modifier scales the reach, never below one tile.
+        assert_eq!(heat.radius_for(1.0), heat.radius);
+        assert!(heat.radius_for(2.5) > heat.radius);
+        assert_eq!(heat.radius_for(0.01), 1);
+    }
+
+    #[test]
+    fn bed_and_heat_numbers_are_validated() {
+        let one = |extra: &str| {
+            format!(
+                "[[building]]\nid = \"hut\"\nname = \"Hut\"\nverb = \"Build\"\nwork = 1.0\n\
+                 passable = true\n{extra}\n\
+                 [[building]]\nid = \"campfire\"\nname = \"Campfire\"\nverb = \"Build\"\n\
+                 work = 1.0\npassable = true\n"
+            )
+        };
+        resolve(&one("[building.bed]\nsleep_bonus = 1.2\nseek_tiles = 5")).unwrap();
+        let weak = resolve(&one("[building.bed]\nsleep_bonus = 0.5\nseek_tiles = 5"));
+        assert!(weak.unwrap_err().0.contains("bed needs"));
+        let none = resolve(&one("[building.bed]\nsleep_bonus = 1.2\nseek_tiles = 0"));
+        assert!(none.unwrap_err().0.contains("bed needs"));
+        let tiny = resolve(&one("[building.heat]\nradius = 0\nsleep_bonus = 1.2\nseek_tiles = 5"));
+        assert!(tiny.unwrap_err().0.contains("heat needs"));
     }
 
     fn resolve(toml: &str) -> Result<Vec<BuildingDef>, DefsError> {

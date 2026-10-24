@@ -9,6 +9,7 @@ use rand::RngExt;
 use rand::seq::SliceRandom;
 
 use crate::bending::AbilityId;
+use crate::building::BuildingDef;
 use crate::defs::Defs;
 use crate::geom::Pos;
 use crate::jobs::{Job, JobId, Stack};
@@ -70,6 +71,9 @@ pub struct Unit {
     route: Option<Vec<Pos>>,
     /// Seconds into the current need task's work (eating, drinking).
     work: f32,
+    /// The bed this unit is sleeping in or walking to, while its need task is `Task::Sleep`.
+    /// Other units treat it as taken (`work.rs`, issue #58).
+    bed: Option<Pos>,
     /// Tick before which a failed attempt to act on a need isn't repeated (hunger, thirst,
     /// energy).
     need_retry_at: [u64; 3],
@@ -233,6 +237,7 @@ impl World {
     fn refresh_modifiers(&mut self, defs: &Defs) {
         self.modifiers =
             research::effective_modifiers(self.nation, self.research.known_techs(), defs);
+        self.refresh_heat_radii(defs);
     }
 
     pub fn research(&self) -> &Research {
@@ -276,6 +281,7 @@ impl World {
                 job_task: None,
                 route: None,
                 work: 0.0,
+                bed: None,
                 need_retry_at: [0; 3],
                 claim_retry_at: 0,
                 move_progress: 0.0,
@@ -349,7 +355,7 @@ impl World {
         let mut dead = Vec::new();
         let chi_regen = self.modifiers.chi_regen;
         for mut u in std::mem::take(&mut self.units) {
-            let rest = self.sleep_factor_at(u.pos);
+            let rest = if u.is_sleeping() { self.sleep_factor_for(&u, defs) } else { 1.0 };
             u.needs.tick_scaled(&defs.needs, u.is_sleeping(), rest);
             u.chi = defs.chi.regen(u.chi, u.is_sleeping(), chi_regen);
             if u.needs.is_dead() {
@@ -365,6 +371,9 @@ impl World {
         }
     }
 }
+
+#[cfg(test)]
+mod rest_tests;
 
 #[cfg(test)]
 mod tests {

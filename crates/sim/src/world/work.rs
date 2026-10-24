@@ -36,8 +36,14 @@
 //!
 //! Hungry units eat from the closest of: food they carry, food in a stockpile, food lying on the
 //! ground, or a wild food resource they work for themselves. Raw food always works (owner rule,
-//! #3): nobody starves because their nation lacks fire. Cooking would need a hearth, which
-//! doesn't exist yet, so every meal is raw for now.
+//! #3): nobody starves because their nation lacks fire. A meal eaten within reach of a lit heat
+//! source (a campfire, or Fire's Hearthflame, `heat.rs`) is cooked and restores the food's
+//! `cooked_hunger`; anywhere else it is raw.
+//!
+//! **Sleep** (#58): an exhausted unit walks to the nearest free bed (`BuildingDef::bed`, within
+//! its `seek_tiles`) and sleeps there, regaining energy faster. A bed holds one sleeper: the
+//! unit's `bed` field claims it from the moment it sets off. With no bed in reach it goes to a
+//! warm place if a heat source is near, else it sleeps on the ground where it stands.
 //!
 //! Everything is deterministic: units act in id order, searches break ties by position or id, and
 //! the only randomness is the idle wander (`world.units` stream).
@@ -475,6 +481,7 @@ impl World {
         u.need_task = None;
         u.route = None;
         u.work = 0.0;
+        u.bed = None;
     }
 
     pub(super) fn finish_job(&mut self, i: usize) {
@@ -549,11 +556,12 @@ impl World {
         urgent.sort_by(|a, b| a.0.total_cmp(&b.0));
         for (_, need) in urgent {
             match self.plan_need(i, need, defs) {
-                Some((task, route)) => {
+                Some((task, route, bed)) => {
                     let u = &mut self.units[i];
                     u.need_task = Some(task);
                     u.route = Some(route);
                     u.work = 0.0;
+                    u.bed = bed;
                     return;
                 }
                 None => {
@@ -563,13 +571,64 @@ impl World {
         }
     }
 
-    fn plan_need(&self, i: usize, need: Need, defs: &Defs) -> Option<(Task, Vec<Pos>)> {
+    /// The task for a need, the route to where it happens, and the bed it claims (sleeping only).
+    fn plan_need(
+        &self,
+        i: usize,
+        need: Need,
+        defs: &Defs,
+    ) -> Option<(Task, Vec<Pos>, Option<Pos>)> {
+        let plain = |(task, route)| (task, route, None);
         match need {
-            // Near a lit heat source if there is one in reach, else right here.
-            Need::Energy => Some((Task::Sleep, self.warm_sleep_route(i).unwrap_or_default())),
-            Need::Thirst => self.plan_drink(i),
-            Need::Hunger => self.plan_food(i, defs),
+            Need::Energy => Some(self.plan_sleep(i, defs)),
+            Need::Thirst => self.plan_drink(i).map(plain),
+            Need::Hunger => self.plan_food(i, defs).map(plain),
         }
+    }
+
+    /// Where to sleep: the nearest free bed within its `seek_tiles`, else near a lit heat
+    /// source if there is one in reach, else right here on the ground.
+    fn plan_sleep(&self, i: usize, defs: &Defs) -> (Task, Vec<Pos>, Option<Pos>) {
+        if let Some((route, bed)) = self.bed_route(i, defs) {
+            return (Task::Sleep, route, Some(bed));
+        }
+        (Task::Sleep, self.warm_sleep_route(i).unwrap_or_default(), None)
+    }
+
+    /// Is the bed on `pos` free for unit `me`: no other unit is sleeping in it or on its way?
+    fn bed_is_free(&self, pos: Pos, me: usize) -> bool {
+        !self.units.iter().enumerate().any(|(k, u)| k != me && u.bed == Some(pos))
+    }
+
+    /// The route to the nearest free bed unit `i` can reach within the bed's `seek_tiles` (by
+    /// walking cost, ties by position), and where it is. Empty if the unit is already on it.
+    fn bed_route(&self, i: usize, defs: &Defs) -> Option<(Vec<Pos>, Pos)> {
+        if !defs.buildings.iter().any(|b| b.bed.is_some()) {
+            return None;
+        }
+        let flood = self.flood_from(i);
+        let mut best: Option<(u32, Pos)> = None;
+        for (p, tile) in self.map.iter() {
+            let Some(bed) = tile.building.and_then(|b| defs.building(b.id).bed) else { continue };
+            let Some(cost) = flood.cost(p).filter(|&c| c <= bed.seek_tiles * STRAIGHT) else {
+                continue;
+            };
+            if best.is_none_or(|b| (cost, p) < b) && self.bed_is_free(p, i) {
+                best = Some((cost, p));
+            }
+        }
+        let (_, bed) = best?;
+        Some((route_from(flood.path_to(bed)?), bed))
+    }
+
+    /// How much faster than the base rate sleeping unit `u` regains energy: the warmth of the
+    /// heat source it is near (`sleep_factor_at`) times the bed it is lying in, if any.
+    pub(super) fn sleep_factor_for(&self, u: &Unit, defs: &Defs) -> f32 {
+        let bed = self.map[u.pos]
+            .building
+            .and_then(|b| defs.building(b.id).bed)
+            .map_or(1.0, |b| b.sleep_bonus);
+        self.sleep_factor_at(u.pos) * bed
     }
 
     /// The nearest tile beside water.
