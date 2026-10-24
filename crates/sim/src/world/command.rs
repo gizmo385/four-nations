@@ -18,7 +18,10 @@ use super::*;
 pub enum Command {
     /// Mark the resource on a tile for harvesting (chop, quarry, gather, mine).
     DesignateHarvest { pos: Pos },
-    /// Withdraw a harvest designation. Work already done on it is lost.
+    /// Mark the resource on a tile for harvesting, and keep re-queuing the job every time it
+    /// ripens again, so a renewable resource (#56) doesn't need re-designating by hand (#81).
+    DesignateRepeatingHarvest { pos: Pos },
+    /// Withdraw a harvest designation and any standing order on it. Work already done is lost.
     CancelHarvest { pos: Pos },
     /// Mark a tile as stockpile.
     DesignateStockpile { pos: Pos },
@@ -101,6 +104,9 @@ impl World {
     pub fn apply(&mut self, command: Command, defs: &Defs) -> Result<(), CommandError> {
         match command {
             Command::DesignateHarvest { pos } => self.designate_harvest(pos, defs).map(drop)?,
+            Command::DesignateRepeatingHarvest { pos } => {
+                self.designate_repeating_harvest(pos, defs)?
+            }
             Command::CancelHarvest { pos } => self.cancel_harvest(pos)?,
             Command::DesignateStockpile { pos } => self.designate_stockpile(pos)?,
             Command::SetResearch { tech } => self.set_research(tech, defs)?,

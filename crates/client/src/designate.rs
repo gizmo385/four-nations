@@ -53,7 +53,7 @@ impl Tool {
     pub fn label(self) -> &'static str {
         match self {
             Self::Select => "select units",
-            Self::Harvest => "designate harvest (chop, mine, gather)",
+            Self::Harvest => "designate harvest (chop, mine, gather); hold Shift to repeat",
             Self::CancelHarvest => "cancel harvest",
             Self::Stockpile => "designate stockpile",
             Self::Bend => "channel the nation's ability",
@@ -62,10 +62,13 @@ impl Tool {
 
     /// The command this tool issues for one tile, if it issues any. `ability` is the nation's
     /// bending ability, resolved once per drag (`ability_for_nation`); `Bend` issues nothing
-    /// without one.
-    fn command(self, pos: Pos, ability: Option<AbilityId>) -> Option<Command> {
+    /// without one. `repeating` (held Shift, #81) turns a harvest designation into a standing
+    /// order that re-queues itself every time the resource ripens again; it has no effect on any
+    /// other tool.
+    fn command(self, pos: Pos, ability: Option<AbilityId>, repeating: bool) -> Option<Command> {
         match self {
             Self::Select => None,
+            Self::Harvest if repeating => Some(Command::DesignateRepeatingHarvest { pos }),
             Self::Harvest => Some(Command::DesignateHarvest { pos }),
             Self::CancelHarvest => Some(Command::CancelHarvest { pos }),
             Self::Stockpile => Some(Command::DesignateStockpile { pos }),
@@ -74,9 +77,10 @@ impl Tool {
     }
 
     /// Color of the drag rectangle.
-    fn drag_color(self, theme: &Theme) -> Color {
+    fn drag_color(self, theme: &Theme, repeating: bool) -> Color {
         match self {
             Self::CancelHarvest => Layer::Harvest.outline(theme).with_alpha(0.5),
+            Self::Harvest if repeating => Layer::RepeatingHarvest.outline(theme),
             Self::Stockpile => Layer::Stockpile.outline(theme),
             Self::Bend => Layer::Bend.outline(theme),
             _ => Layer::Harvest.outline(theme),
@@ -125,9 +129,11 @@ fn choose_tool(
     }
 }
 
-/// Tracks a left-button drag with a designation tool and issues its commands on release.
+/// Tracks a left-button drag with a designation tool and issues its commands on release. Holding
+/// Shift while dragging the harvest tool marks the designation repeating (#81).
 fn designate_drag(
     mouse: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
     tool: Res<Tool>,
     theme: Res<Theme>,
     window: Query<&Window, With<PrimaryWindow>>,
@@ -141,6 +147,7 @@ fn designate_drag(
         *start = None;
         return;
     }
+    let repeating = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
     let (Ok(window), Ok((camera, camera_tf))) = (window.single(), camera.single()) else { return };
     let here = cursor_tile(window, camera, camera_tf);
     if mouse.just_pressed(MouseButton::Left) {
@@ -157,7 +164,11 @@ fn designate_drag(
     if mouse.pressed(MouseButton::Left) {
         let center = (tile_translation(min, 0.0) + tile_translation(max, 0.0)).truncate() / 2.0;
         let size = Vec2::new((max.x - min.x + 1) as f32, (max.y - min.y + 1) as f32) * TILE;
-        gizmos.rect_2d(Isometry2d::from_translation(center), size, tool.drag_color(&theme));
+        gizmos.rect_2d(
+            Isometry2d::from_translation(center),
+            size,
+            tool.drag_color(&theme, repeating),
+        );
     }
     if mouse.just_released(MouseButton::Left) {
         *start = None;
@@ -166,7 +177,7 @@ fn designate_drag(
         let (mut done, mut refused) = (0, 0);
         let mut last_error = None;
         for pos in tiles_between(from, to) {
-            if let Some(command) = tool.command(pos, ability) {
+            if let Some(command) = tool.command(pos, ability, repeating) {
                 match world.apply(command, defs) {
                     Ok(()) => done += 1,
                     Err(e) => {
@@ -185,19 +196,24 @@ fn designate_drag(
     }
 }
 
-/// Which designation an overlay tile shows.
+/// Which designation an overlay tile shows. `RepeatingHarvest` is a harvest with a standing
+/// order on it (#81), tinted differently so it reads apart from a one-shot `Harvest`.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Layer {
     Harvest,
+    RepeatingHarvest,
     Stockpile,
     Bend,
 }
 
 impl Layer {
     /// `Bend` uses the nation's accent, so it reads as "your ability" rather than a fixed hue.
+    /// `RepeatingHarvest` is `Harvest`'s hue pushed toward green, reading as "standing" rather
+    /// than "one-shot" without needing a second colour family.
     fn tint(self, theme: &Theme) -> Color {
         match self {
             Self::Harvest => Color::srgba(1.0, 0.65, 0.1, 0.4),
+            Self::RepeatingHarvest => Color::srgba(0.65, 0.85, 0.1, 0.4),
             Self::Stockpile => Color::srgba(0.2, 0.55, 1.0, 0.4),
             Self::Bend => theme.accent.with_alpha(0.4),
         }
@@ -207,7 +223,7 @@ impl Layer {
     /// see. A stockpile is flat ground: it goes under whatever stands on it (item markers, units).
     fn depth(self) -> f32 {
         match self {
-            Self::Harvest | Self::Bend => 4.5,
+            Self::Harvest | Self::RepeatingHarvest | Self::Bend => 4.5,
             Self::Stockpile => 0.6,
         }
     }
@@ -236,7 +252,14 @@ fn sync_overlays(
     overlays.0.retain(|_, e| alive.contains(*e));
     let mut wanted: BTreeSet<(Pos, Layer)> =
         sim.world.stockpile_zones().map(|p| (p, Layer::Stockpile)).collect();
-    wanted.extend(sim.world.harvest_designations().map(|p| (p, Layer::Harvest)));
+    wanted.extend(sim.world.harvest_designations().map(|p| {
+        let layer = if sim.world.is_repeating_harvest(p) {
+            Layer::RepeatingHarvest
+        } else {
+            Layer::Harvest
+        };
+        (p, layer)
+    }));
     wanted.extend(sim.world.bend_designations().map(|(_, p)| (p, Layer::Bend)));
     overlays.0.retain(|key, e| {
         let keep = wanted.contains(key);
@@ -284,17 +307,44 @@ mod tests {
     #[test]
     fn each_tool_issues_its_own_command() {
         let pos = Pos::new(1, 2);
-        assert_eq!(Tool::Select.command(pos, None), None);
-        assert_eq!(Tool::Harvest.command(pos, None), Some(Command::DesignateHarvest { pos }));
-        assert_eq!(Tool::CancelHarvest.command(pos, None), Some(Command::CancelHarvest { pos }));
-        assert_eq!(Tool::Stockpile.command(pos, None), Some(Command::DesignateStockpile { pos }));
+        assert_eq!(Tool::Select.command(pos, None, false), None);
+        assert_eq!(
+            Tool::Harvest.command(pos, None, false),
+            Some(Command::DesignateHarvest { pos })
+        );
+        assert_eq!(
+            Tool::CancelHarvest.command(pos, None, false),
+            Some(Command::CancelHarvest { pos })
+        );
+        assert_eq!(
+            Tool::Stockpile.command(pos, None, false),
+            Some(Command::DesignateStockpile { pos })
+        );
         let ability = AbilityId(0);
-        assert_eq!(Tool::Bend.command(pos, Some(ability)), Some(Command::Bend { ability, pos }));
+        assert_eq!(
+            Tool::Bend.command(pos, Some(ability), false),
+            Some(Command::Bend { ability, pos })
+        );
+    }
+
+    #[test]
+    fn holding_shift_makes_a_harvest_designation_repeating() {
+        let pos = Pos::new(1, 2);
+        assert_eq!(
+            Tool::Harvest.command(pos, None, true),
+            Some(Command::DesignateRepeatingHarvest { pos })
+        );
+        // Shift only changes what the harvest tool does.
+        assert_eq!(
+            Tool::CancelHarvest.command(pos, None, true),
+            Some(Command::CancelHarvest { pos })
+        );
+        assert_eq!(Tool::Select.command(pos, None, true), None);
     }
 
     #[test]
     fn bend_needs_an_ability_to_issue_a_command() {
-        assert_eq!(Tool::Bend.command(Pos::new(0, 0), None), None);
+        assert_eq!(Tool::Bend.command(Pos::new(0, 0), None, false), None);
     }
 
     #[test]

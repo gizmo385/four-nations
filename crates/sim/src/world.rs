@@ -122,6 +122,10 @@ pub struct World {
     /// Renewable resources that have been worked and are growing back, with the seconds of
     /// growth each still needs. They stay on the map but can't be worked until they ripen.
     resting: BTreeMap<Pos, f32>,
+    /// Harvest tiles with a standing order (#81): when the resource here next ripens, a new
+    /// `JobKind::Harvest` is queued automatically instead of waiting for the player to
+    /// re-designate it. Cleared by `CancelHarvest`.
+    standing_harvest: BTreeSet<Pos>,
     /// Item stacks lying on the ground, one stack per tile, waiting to be hauled.
     ground: BTreeMap<Pos, Stack>,
     /// Tiles designated as stockpile.
@@ -173,6 +177,7 @@ impl World {
             next_job: 0,
             command_log: Vec::new(),
             resting: BTreeMap::new(),
+            standing_harvest: BTreeSet::new(),
             ground: BTreeMap::new(),
             zones: BTreeSet::new(),
             stored: BTreeMap::new(),

@@ -166,13 +166,14 @@ const TOOLS: [(Tool, &str, &str); 5] = [
 ];
 
 /// The camera and game keys, shown at the foot of the side panel.
-const CONTROLS: [&str; 6] = [
+const CONTROLS: [&str; 7] = [
     "WASD or drag: pan",
     "Wheel: zoom",
     "Space: pause",
     "1-4: nation",
     "R: new map",
     "T: research",
+    "Shift+H: repeating harvest",
 ];
 
 /// Everything the side panel shows.
@@ -694,13 +695,21 @@ fn tooltip_lines(sim: &Sim, tool: Tool, tile: Pos) -> Option<TooltipText> {
     lines.push((Line::Title, sim.defs.resource(res).name.clone()));
     lines.push((Line::Detail, at));
     if let Some(h) = sim.defs.harvest(res) {
+        // A standing order (#81) outlives the resting period it's shown through, so it's folded
+        // into the existing lines rather than a line of its own (tooltips top out at 4 lines).
+        let repeating = sim.world.is_repeating_harvest(tile);
         if sim.world.is_resting(tile) {
-            lines.push((Line::Detail, "Growing back".into()));
+            let text = if repeating { "Growing back - repeating order" } else { "Growing back" };
+            lines.push((Line::Detail, text.into()));
         } else {
             let item = &sim.defs.item(h.item).name;
-            lines.push((Line::Detail, format!("{}: {} {item} - {:.0}s", h.verb, h.count, h.work)));
+            let suffix = if repeating { " (repeating)" } else { "" };
+            lines.push((
+                Line::Detail,
+                format!("{}: {} {item} - {:.0}s{suffix}", h.verb, h.count, h.work),
+            ));
             let hint = if tool == Tool::Harvest {
-                "Drag to designate"
+                "Drag to designate (Shift: repeating)"
             } else {
                 "[H] then drag to harvest"
             };

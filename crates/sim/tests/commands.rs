@@ -66,6 +66,26 @@ fn applied_commands_change_the_world_and_are_logged_with_their_tick() {
 }
 
 #[test]
+fn designate_repeating_harvest_is_logged_and_cleared_by_cancel() {
+    let defs = Defs::bundled();
+    let mut w = fresh(&defs);
+    let center = Pos::new(w.map.width() / 2, w.map.height() / 2);
+    let target = harvestable(&w, &defs, center, 20)[0];
+    w.apply(Command::DesignateRepeatingHarvest { pos: target }, &defs).unwrap();
+    assert_eq!(w.jobs().len(), 1);
+    assert!(w.is_repeating_harvest(target));
+    assert_eq!(
+        w.command_log(),
+        [Recorded { tick: 0, command: Command::DesignateRepeatingHarvest { pos: target } }]
+    );
+
+    // Cancelling drops the job and the standing order together.
+    w.apply(Command::CancelHarvest { pos: target }, &defs).unwrap();
+    assert!(w.jobs().is_empty());
+    assert!(!w.is_repeating_harvest(target));
+}
+
+#[test]
 fn rejected_commands_change_nothing_and_are_not_logged() {
     let defs = Defs::bundled();
     let mut w = fresh(&defs);
@@ -75,6 +95,10 @@ fn rejected_commands_change_nothing_and_are_not_logged() {
     for (command, error) in [
         (
             Command::DesignateHarvest { pos: off_map },
+            CommandError::Designate(DesignateError::OutOfBounds),
+        ),
+        (
+            Command::DesignateRepeatingHarvest { pos: off_map },
             CommandError::Designate(DesignateError::OutOfBounds),
         ),
         (
