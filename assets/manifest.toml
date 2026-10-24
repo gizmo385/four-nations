@@ -208,10 +208,10 @@ generated_from = "art/icons.toml"
 sha256 = "4683601a24896be0401a872de7bed4427f78f916b55b04990a33769ca6b32b7d"
 
 [[file]]
-path = "original/map.png"
+path = "original/resources.png"
 source = "original"
-generated_from = "art/map.toml"
-sha256 = "8d6d361a6d70db50cd3c96eb3b9a0fd501b8ab32b4a5cae3380d07edb1162d13"
+generated_from = "art/resources.toml"
+sha256 = "d6f771ef59894b2b55b2b164031a7ac65b75e8927b2b520dbdcdbdb385b6d95f"
 
 [[file]]
 path = "original/tools.png"
