@@ -12,7 +12,9 @@
 //! camera renders into an offscreen `Image`), and once the art has loaded it saves one frame as a
 //! PNG and exits. `FN_SCREENSHOT_SIZE=WIDTHxHEIGHT` sets the image size (default 1280x720),
 //! `FN_SELECT=N` starts with unit N selected so its panel shows in the shot, and
-//! `FN_RESEARCH_OPEN=1` starts with the research screen (`T`) open. Agents use this, via
+//! `FN_RESEARCH_OPEN=1` starts with the research screen (`T`) open, and `FN_BUILD_DEMO=1`
+//! starts with the build tool (`U`) active and a few construction sites designated beside the
+//! first unit, so the picker and the site overlay show in the shot. Agents use this, via
 //! `cargo xtask screenshot SEED NATION OUT.png [WIDTH HEIGHT]`, to check visual changes without a
 //! window popping up and stealing the human's focus.
 
@@ -39,6 +41,7 @@ use research::{ResearchPlugin, ScreenOpen};
 use sprites::Sheet;
 
 mod bending;
+mod build;
 mod designate;
 mod hud;
 mod jobview;
@@ -90,8 +93,14 @@ fn main() {
             ..default()
         }));
     }
+    let mut sim = Sim::new(seed, nation, width, height);
+    let build_demo = std::env::var_os("FN_BUILD_DEMO").is_some();
+    if build_demo {
+        sim.designate_demo_sites();
+    }
     app.insert_resource(Time::<Fixed>::from_hz(f64::from(TICKS_PER_SECOND)))
-        .insert_resource(Sim::new(seed, nation, width, height))
+        .insert_resource(if build_demo { Tool::Build } else { Tool::Select })
+        .insert_resource(sim)
         .insert_resource(Selection(
             std::env::var("FN_SELECT").ok().and_then(|s| s.parse().ok()).map(UnitId),
         ))
@@ -153,6 +162,21 @@ impl Sim {
         let cfg = MapGenConfig { seed, width, height, ..default() };
         let world = World::new(&cfg, nation, STARTING_UNITS, &defs);
         Self { world, defs, paused: false }
+    }
+
+    /// `FN_BUILD_DEMO`: designates each building in the data on a free tile near the first unit
+    /// (the ones this nation can't place yet are refused, which is fine).
+    fn designate_demo_sites(&mut self) {
+        let Some(origin) = self.world.units.first().map(|u| u.pos) else { return };
+        let Self { world, defs, .. } = self;
+        let mut dy = 0;
+        for i in 0..defs.buildings.len() {
+            let building = fn_sim::building::BuildingId(i as u16);
+            let pos = Pos::new(origin.x + 2, origin.y + dy);
+            if world.apply(fn_sim::world::Command::DesignateBuild { pos, building }, defs).is_ok() {
+                dy += 2;
+            }
+        }
     }
 }
 

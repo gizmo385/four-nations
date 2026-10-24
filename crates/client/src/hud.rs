@@ -8,11 +8,13 @@
 
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
+use fn_sim::building::BuildingId;
 use fn_sim::nation::Modifiers;
 use fn_sim::world::{TICKS_PER_SECOND, Unit, UnitId};
 use fn_sim::{Nation, Pos};
 
 use crate::bending::Alerts;
+use crate::build::{self, BuildChoice, PickerRow};
 use crate::designate::{Notice, Tool, ability_for_nation};
 use crate::research::{self, CompletionLog, ResearchStatus, ScreenOpen};
 use crate::ui_style::{self, Frame, Theme, font, layout, space};
@@ -46,6 +48,11 @@ struct SelectionBar;
 /// The selection bar's contents, rebuilt when its `UnitView` changes.
 #[derive(Component)]
 struct SelectionContent;
+
+/// A building picker row that can be chosen (locked rows don't get one); `designate.rs` hit-tests
+/// clicks against it.
+#[derive(Component)]
+pub struct PickerButton(pub BuildingId);
 
 #[derive(Component)]
 struct Tooltip;
@@ -157,12 +164,13 @@ fn spawn_hud(commands: &mut Commands, theme: &Theme) {
 // Side panel
 
 /// The tools the side panel lists: the tool, its label and its key.
-const TOOLS: [(Tool, &str, &str); 5] = [
+const TOOLS: [(Tool, &str, &str); 6] = [
     (Tool::Select, "Select", "Esc"),
     (Tool::Harvest, "Harvest", "H"),
     (Tool::CancelHarvest, "Cancel", "X"),
     (Tool::Stockpile, "Stockpile", "P"),
     (Tool::Bend, "Bend", "B"),
+    (Tool::Build, "Build", "U"),
 ];
 
 /// The camera and game keys, shown at the foot of the side panel.
@@ -189,6 +197,10 @@ struct SideView {
     /// it names the nation's actual ability (#72).
     tool_hint: String,
     notice: String,
+    /// The building picker's rows, listed while the Build tool is active (#111); empty otherwise.
+    picker: Vec<PickerRow>,
+    /// The building the Build tool would place, if it can place any.
+    choice: Option<BuildingId>,
     /// The nation's modifiers that differ from 1.0, as (label, value).
     modifiers: Vec<(String, String)>,
     /// The tech the knowledge pool is currently paying for, its progress and rate (#23).
@@ -202,9 +214,17 @@ fn side_view(
     sim: &Sim,
     tool: Tool,
     notice: &str,
+    choice: &BuildChoice,
     alerts: &Alerts,
     completions: &CompletionLog,
 ) -> SideView {
+    let (picker, choice) = if tool == Tool::Build {
+        let rows = build::picker_rows(sim);
+        let choice = build::valid_choice(&rows, choice.0);
+        (rows, choice)
+    } else {
+        (Vec::new(), None)
+    };
     let mut alert_lines = alerts.lines();
     alert_lines.extend(completions.lines());
     SideView {
@@ -216,6 +236,8 @@ fn side_view(
         tool,
         tool_hint: tool_hint(sim, tool),
         notice: notice.to_owned(),
+        picker,
+        choice,
         modifiers: modifier_rows(sim.world.modifiers()),
         research: research::research_status(sim.world.research(), &sim.defs),
         alerts: alert_lines,
@@ -270,6 +292,7 @@ fn update_side_panel(
     sim: Res<Sim>,
     tool: Res<Tool>,
     notice: Res<Notice>,
+    choice: Res<BuildChoice>,
     alerts: Res<Alerts>,
     completions: Res<CompletionLog>,
     theme: Res<Theme>,
@@ -278,7 +301,7 @@ fn update_side_panel(
     mut last: Local<Option<SideView>>,
 ) {
     let Ok(content) = content.single() else { return };
-    let view = side_view(&sim, *tool, &notice.0, &alerts, &completions);
+    let view = side_view(&sim, *tool, &notice.0, &choice, &alerts, &completions);
     if last.as_ref() == Some(&view) && fresh.is_empty() {
         return;
     }
@@ -351,6 +374,7 @@ fn spawn_side(p: &mut ChildSpawnerCommands, theme: &Theme, v: &SideView) {
         }
     });
     p.spawn(ui_style::text(v.tool_hint.clone(), font::BODY, theme.dim));
+    spawn_picker(p, theme, &v.picker, v.choice);
     if !v.notice.is_empty() {
         p.spawn(ui_style::text(v.notice.clone(), font::BODY, theme.accent_text));
     }
@@ -400,6 +424,49 @@ fn spawn_side(p: &mut ChildSpawnerCommands, theme: &Theme, v: &SideView) {
     ui_style::section_title(p, theme, "Controls");
     for line in CONTROLS {
         p.spawn(ui_style::text(line, font::LABEL, theme.dim));
+    }
+}
+
+/// The building picker (#111): a row per building with its cost and work. A building the nation
+/// can't place yet is greyed out, says what it requires, and isn't a button. The chosen one is
+/// filled with the accent's soft tone.
+fn spawn_picker(
+    p: &mut ChildSpawnerCommands,
+    theme: &Theme,
+    rows: &[PickerRow],
+    choice: Option<BuildingId>,
+) {
+    for row in rows {
+        let (bg, border) = if choice == Some(row.id) {
+            (theme.accent_soft, theme.accent)
+        } else {
+            (theme.inset, theme.accent_soft)
+        };
+        let node = Node {
+            flex_direction: FlexDirection::Column,
+            padding: UiRect::all(Val::Px(space::S)),
+            border: UiRect::all(Val::Px(1.0)),
+            row_gap: Val::Px(2.0),
+            ..default()
+        };
+        let mut entry = p.spawn((node, BackgroundColor(bg), BorderColor::all(border)));
+        if !row.locked() {
+            entry.insert(PickerButton(row.id));
+        }
+        let name_color = if row.locked() { theme.dim } else { theme.text };
+        entry.with_children(|r| {
+            r.spawn(Node { justify_content: JustifyContent::SpaceBetween, ..default() })
+                .with_children(|l| {
+                    l.spawn(ui_style::text(row.name.clone(), font::BODY, name_color));
+                    l.spawn(ui_style::text(row.cost.clone(), font::LABEL, theme.dim));
+                });
+            match &row.requires {
+                Some(requires) => {
+                    r.spawn(ui_style::text(requires.clone(), font::LABEL, theme.warn))
+                }
+                None => r.spawn(ui_style::text(row.work.clone(), font::LABEL, theme.dim)),
+            };
+        });
     }
 }
 
@@ -679,6 +746,24 @@ fn tooltip_lines(sim: &Sim, tool: Tool, tile: Pos) -> Option<TooltipText> {
         }
         return Some(lines);
     }
+    // A construction site or a finished building (#111): what it is and how far along.
+    if let Some(report) = build::site_report(sim, tile) {
+        lines.push((Line::Title, format!("{} (under construction)", report.name)));
+        lines.push((Line::Detail, report.materials));
+        lines.push((Line::Detail, report.work));
+        let hint = if tool == Tool::CancelHarvest {
+            "Click to cancel the build"
+        } else {
+            "[X] then click to cancel"
+        };
+        lines.push((Line::Hint, hint.into()));
+        return Some(lines);
+    }
+    if let Some(name) = build::built_name(sim, tile) {
+        lines.push((Line::Title, name));
+        lines.push((Line::Detail, format!("Built ({}, {})", tile.x, tile.y)));
+        return Some(lines);
+    }
     let biome = &sim.defs.biome(t.biome).name;
     let at = format!("{biome} - {:?} ({}, {})", t.terrain, tile.x, tile.y);
     let Some(res) = t.resource else {
@@ -728,6 +813,11 @@ pub fn covered_by_panels() -> (f32, f32) {
         layout::SIDE_PANEL_WIDTH + 2.0 * layout::SCREEN_MARGIN,
         layout::SELECTION_BAR_HEIGHT + 2.0 * layout::SCREEN_MARGIN,
     )
+}
+
+/// Whether the cursor is over the side panel.
+pub(crate) fn over_side_panel(cursor: Vec2, window: Vec2) -> bool {
+    over_panel(cursor, window, false)
 }
 
 /// Whether the cursor is over the side panel or the open selection bar, where the map tooltip
@@ -894,6 +984,73 @@ mod tests {
         }
         assert!(seen_resource && seen_unit);
         assert_eq!(tooltip_lines(&sim, Tool::Select, Pos::new(-1, -1)), None);
+    }
+
+    #[test]
+    fn a_site_s_tooltip_shows_materials_and_work() {
+        let mut sim = Sim::new(7, Nation::Earth, 64, 64);
+        let bed = sim.defs.building_id("bed").unwrap();
+        let pos = sim
+            .world
+            .map
+            .iter()
+            .find(|(p, t)| {
+                t.terrain == fn_sim::Terrain::Land
+                    && t.resource.is_none()
+                    && !sim.world.units.iter().any(|u| u.pos == *p)
+            })
+            .map(|(p, _)| p)
+            .unwrap();
+        let Sim { world, defs, .. } = &mut sim;
+        world.apply(fn_sim::world::Command::DesignateBuild { pos, building: bed }, defs).unwrap();
+        let lines = tooltip_lines(&sim, Tool::Build, pos).unwrap();
+        let text: Vec<&str> = lines.iter().map(|(_, l)| l.as_str()).collect();
+        assert_eq!(
+            text,
+            [
+                "Bed (under construction)",
+                "Materials: 0/5 Wood",
+                "Work: 0/20s",
+                "[X] then click to cancel"
+            ]
+        );
+        let lines = tooltip_lines(&sim, Tool::CancelHarvest, pos).unwrap();
+        assert_eq!(lines.last().unwrap().1, "Click to cancel the build");
+    }
+
+    #[test]
+    fn the_build_tool_lists_the_picker_and_other_tools_do_not() {
+        let sim = Sim::new(7, Nation::Earth, 64, 64);
+        let (alerts, log) = (Alerts::default(), CompletionLog::default());
+        let build_view = side_view(&sim, Tool::Build, "", &BuildChoice::default(), &alerts, &log);
+        assert_eq!(build_view.picker.len(), sim.defs.buildings.len());
+        let bed = sim.defs.building_id("bed").unwrap();
+        // With no choice yet the first placeable building is shown as the choice.
+        assert!(build_view.picker.iter().any(|r| Some(r.id) == build_view.choice && !r.locked()));
+        let chosen = BuildChoice(Some(bed));
+        assert_eq!(side_view(&sim, Tool::Build, "", &chosen, &alerts, &log).choice, Some(bed));
+        let harvest = side_view(&sim, Tool::Harvest, "", &chosen, &alerts, &log);
+        assert!(harvest.picker.is_empty() && harvest.choice.is_none());
+    }
+
+    #[test]
+    fn only_placeable_picker_rows_are_clickable() {
+        let sim = Sim::new(7, Nation::Earth, 64, 64);
+        let rows = build::picker_rows(&sim);
+        let theme = Theme::for_nation(sim.defs.nation(Nation::Earth).color);
+        let mut world = bevy::ecs::world::World::new();
+        let root = world.spawn(Node::default()).id();
+        world.commands().entity(root).with_children(|p| spawn_picker(p, &theme, &rows, None));
+        world.flush();
+        let clickable: Vec<BuildingId> =
+            world.query::<&PickerButton>().iter(&world).map(|b| b.0).collect();
+        let open: Vec<BuildingId> = rows.iter().filter(|r| !r.locked()).map(|r| r.id).collect();
+        assert_eq!(clickable, open);
+        assert!(rows.iter().any(PickerRow::locked), "Earth can't build a campfire yet");
+        assert_eq!(
+            world.query::<&Node>().iter(&world).filter(|n| n.border.left == Val::Px(1.0)).count(),
+            rows.len()
+        );
     }
 
     #[test]
