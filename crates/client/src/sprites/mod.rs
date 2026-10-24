@@ -138,10 +138,6 @@ fn tile_hash(p: Pos, salt: u32) -> u32 {
     h ^ (h >> 15)
 }
 
-/// The down-facing idle frame: the top-left cell of a character's sheet, in pixels:
-/// (min x, min y, max x, max y). Walk cycles and other directions come later.
-pub const IDLE_DOWN: [f32; 4] = [0.0, 0.0, CELL, CELL];
-
 /// Helpers shared by the family modules' tests.
 #[cfg(test)]
 pub(crate) mod test_support {

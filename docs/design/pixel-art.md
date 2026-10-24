@@ -223,8 +223,9 @@ like a tree: bottom-aligned, drawn by `row_depth`, free to overhang the tiles ar
 
 Units keep the pack's proportions (a 16px figure, head about 6px), so trees, buildings and
 units stay in scale. Each character is one 64x64 sheet: the columns face down, up, left and
-right, and the rows are 4 walk frames, with row 0 the idle pose. Idle-down is (0,0), as the
-client draws today. Clothes use palette colours chosen per nation, not the UI accent. Portraits
+right, and the rows are 4 walk frames, with row 0 the idle pose. Idle-down is (0,0). The client
+(`unit_anim.rs`, #165) picks the column from the way the unit last stepped and the row from how
+far it has walked: row 0 standing, rows 0-3 in turn while walking. Clothes use palette colours chosen per nation, not the UI accent. Portraits
 are 32x32 (head and shoulders, facing three-quarters), drawn at 2x (64px) in the 96px portrait
 well.
 
@@ -269,8 +270,8 @@ so two art PRs can conflict at the end of `assets/manifest.toml`. Rebase and re-
 | #155 | Remove the Ninja Adventure source (after all of the above) | `assets/manifest.toml`, docs | `TilesetNature.png`, `TilesetDesert.png`, `TilesetField.png`, `LICENSE.txt`, the source |
 
 Once #128 and #144 land, #145-#151, #129, #130 and #131 can all run at the same time. #152,
-#153 and #154 each wait for one predecessor, and #155 goes last. The client doesn't play walk
-cycles yet; the unit sheets include the frames, and playing them is separate client work.
+#153 and #154 each wait for one predecessor, and #155 goes last. The client plays the walk
+cycles (#165).
 
 ## How a pack leaves the manifest
 
