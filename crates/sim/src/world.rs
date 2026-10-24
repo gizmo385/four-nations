@@ -25,6 +25,7 @@ mod bending;
 mod build;
 mod command;
 mod heat;
+mod stride;
 mod study;
 mod work;
 
@@ -34,6 +35,7 @@ pub use build::BuildError;
 use build::Site;
 pub use command::{Command, CommandError, Recorded};
 pub use heat::{Flame, HeatSource};
+pub use stride::{STRIDE_LOOKAHEAD, Stride};
 pub use work::{DesignateError, FoodSource, Task};
 
 /// Ticks per in-game second. Movement and needs are expressed per tick.

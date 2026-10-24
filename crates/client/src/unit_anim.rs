@@ -7,7 +7,9 @@
 //! and 5 are the bend pose.
 //!
 //! - **Facing** is the way the unit last stepped on the map (`facing_after`): the larger axis of
-//!   the step, a tie (a diagonal) keeps the old facing, and an idle unit keeps its last one.
+//!   the step, a tie (a diagonal) keeps the old facing, and an idle unit keeps its last one. On a
+//!   route it is the way of the step the sprite is in (`UnitMotion::heading`); otherwise the way
+//!   the unit's tile changed.
 //! - **Walking** is the sprite visibly travelling toward its tile (`is_walking`), and the frame
 //!   follows the distance it has covered (`walk_row`), so the feet keep pace with the ground and
 //!   a faster unit steps faster. A unit that isn't travelling (idling, working, sleeping, or in
@@ -16,20 +18,20 @@
 //!   to the bend rows (4 and 5) while a unit bends, and turns the unit to its target; the picker
 //!   doesn't change.
 //!
-//! The sprite itself is moved by `sync_units`, so the selection ring and the canopy fade, which
+//! The sprite itself is moved by `sync_units` (`unit_motion`), so the selection ring and the canopy fade, which
 //! read its transform, follow it, and every frame is a 16px cell like the one it replaces.
 
 use bevy::prelude::*;
 use fn_sim::Pos;
 
 use super::sprites::CELL;
+use super::unit_motion::UnitMotion;
 use super::{Sim, UnitSprite, sync_units, unit_translation};
 
 /// How far (world pixels) a unit walks per frame of its cycle; a cycle is 4 frames.
 pub const STRIDE_PX: f32 = 6.0;
-/// The sprite is walking while it is more than this far (world pixels) from its tile. The glide
-/// toward a tile decays toward zero without reaching it, so a little slack tells "still arriving"
-/// from "there".
+/// The sprite is walking while it is more than this far (world pixels) from the tile it is heading
+/// for (`UnitMotion::dest`). A little slack tells "still arriving" from "there".
 pub const ARRIVED_PX: f32 = 0.75;
 /// Rows of a sheet taken by the walk cycle.
 pub const WALK_ROWS: u32 = 4;
@@ -163,17 +165,21 @@ impl UnitView {
 /// Points each unit sprite at the frame its facing and walk call for.
 pub fn animate_units(
     sim: Res<Sim>,
-    mut units: Query<(&UnitSprite, &Transform, &mut UnitView, &mut Sprite)>,
+    mut units: Query<(&UnitSprite, &Transform, &mut UnitView, &mut Sprite, Option<&UnitMotion>)>,
 ) {
-    for (UnitSprite(id), tf, mut view, mut sprite) in &mut units {
+    for (UnitSprite(id), tf, mut view, mut sprite, motion) in &mut units {
         let Some(unit) = sim.world.unit(*id) else { continue };
-        if unit.pos != view.seen_at {
+        let heading = motion.and_then(|m| m.heading);
+        if let Some((dx, dy)) = heading {
+            view.facing = facing_after(view.facing, dx, dy);
+        } else if unit.pos != view.seen_at {
             view.facing =
                 facing_after(view.facing, unit.pos.x - view.seen_at.x, unit.pos.y - view.seen_at.y);
-            view.seen_at = unit.pos;
         }
+        view.seen_at = unit.pos;
         let here = tf.translation.truncate();
-        let remaining = here.distance(unit_translation(unit.pos).truncate());
+        let dest = motion.map_or(unit.pos, |m| m.dest);
+        let remaining = here.distance(unit_translation(dest).truncate());
         if is_walking(remaining) {
             view.travelled += here.distance(view.drawn_at);
         }
