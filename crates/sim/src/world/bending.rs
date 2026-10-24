@@ -95,6 +95,31 @@ pub struct BendEvent {
     pub ability: AbilityId,
     pub pos: Pos,
     pub outcome: BendOutcome,
+    /// Wind Carry: the stack that was blown away and where it landed (#166), for the client to
+    /// fly it there. `None` for every other effect, and for a bend that failed.
+    #[serde(default)]
+    pub moved: Option<Moved>,
+}
+
+/// A stack Wind Carry moved: `count` of `item` from the bent tile to the stockpile tile `to`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Moved {
+    pub to: Pos,
+    pub item: ItemId,
+    pub count: u32,
+}
+
+/// A bend being channelled right now (the unit stands at its spot and the channel is running),
+/// for the client's cast animation (#166). Read-only: a view of the job, not a second clock.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BendChannel {
+    pub unit: UnitId,
+    pub ability: AbilityId,
+    /// The tile being bent.
+    pub pos: Pos,
+    /// In-game seconds of channelling left at the unit's current rate: until the bend completes
+    /// and its effect lands.
+    pub remaining_secs: f32,
 }
 
 /// A watered 3x3 patch waiting to dry out.
@@ -140,6 +165,25 @@ impl World {
     /// Every bend that has finished or failed, oldest first.
     pub fn bend_events(&self) -> &[BendEvent] {
         &self.bend_events
+    }
+
+    /// Every bend being channelled right now, in unit order: the unit has reached its spot, no
+    /// need has pre-empted the job, and the channel has not yet completed. A unit still walking
+    /// to the tile, or set aside to eat, is not channelling.
+    pub fn bend_channels(&self, defs: &Defs) -> Vec<BendChannel> {
+        let mut out = Vec::new();
+        for u in &self.units {
+            let (None, Some(Task::Bend(id))) = (u.need_task, u.job_task) else { continue };
+            if !u.route.as_ref().is_some_and(|r| r.is_empty()) {
+                continue;
+            }
+            let Some(job) = self.job(id) else { continue };
+            let JobKind::Bend { ability, pos } = job.kind else { continue };
+            let def = defs.ability(ability);
+            let remaining_secs = (def.work - job.progress).max(0.0) / self.bend_rate(def).max(1e-3);
+            out.push(BendChannel { unit: u.id, ability, pos, remaining_secs });
+        }
+        out
     }
 
     /// Tiles with a bend designation that isn't finished, claimed or not, with the ability.
@@ -300,9 +344,10 @@ impl World {
         }
         self.jobs.remove(idx);
         self.finish_job(i);
+        let mut moved = None;
         let outcome = match self.validate_bend(def, pos, defs) {
             Ok(()) => {
-                self.apply_bend(i, def, pos, defs);
+                moved = self.apply_bend(i, def, pos, defs);
                 BendOutcome::Done
             }
             Err(why) => {
@@ -316,7 +361,7 @@ impl World {
             }
         };
         let unit = self.units[i].id;
-        self.bend_events.push(BendEvent { tick: self.tick, unit, ability, pos, outcome });
+        self.bend_events.push(BendEvent { tick: self.tick, unit, ability, pos, outcome, moved });
     }
 
     /// Is `pos` an acceptable target for `def` right now? Run when the command is given and
@@ -344,12 +389,13 @@ impl World {
             .copied()
     }
 
-    /// Spends the chi and takes effect. The target was just validated.
-    fn apply_bend(&mut self, i: usize, def: &AbilityDef, pos: Pos, defs: &Defs) {
+    /// Spends the chi and takes effect. The target was just validated. Returns the stack Wind
+    /// Carry moved, if that is what it was.
+    fn apply_bend(&mut self, i: usize, def: &AbilityDef, pos: Pos, defs: &Defs) -> Option<Moved> {
         let u = &mut self.units[i];
         u.chi = (u.chi - def.chi).max(0.0);
         let magnitude = self.bend_magnitude(def);
-        self.apply_effect(&def.effect, pos, magnitude, defs);
+        self.apply_effect(&def.effect, pos, magnitude, defs)
     }
 
     // ---- the effects: the only matches on `Effect` ----
@@ -426,7 +472,13 @@ impl World {
         }
     }
 
-    fn apply_effect(&mut self, effect: &Effect, pos: Pos, magnitude: f32, defs: &Defs) {
+    fn apply_effect(
+        &mut self,
+        effect: &Effect,
+        pos: Pos,
+        magnitude: f32,
+        defs: &Defs,
+    ) -> Option<Moved> {
         match effect {
             // The new terrain is permanent (no undo in v1). It changes who can walk where, so
             // the cached regions are stale and idle units should look for jobs that opened up.
@@ -434,16 +486,15 @@ impl World {
                 self.map[pos].terrain = *to;
                 self.map_changed();
                 self.wake_idle();
+                None
             }
             // The whole stack, ignoring carry capacity, to the nearest stockpile tile with room
             // within reach, re-checked now (a destination `validate_effect` saw may have filled
             // up since). What doesn't fit stays on the ground with a fresh haul job.
             Effect::WindCarry { range } => {
-                let Some(stack) = self.ground.get(&pos).copied() else { return };
+                let stack = self.ground.get(&pos).copied()?;
                 let reach = scaled_range(*range, magnitude);
-                let Some(dest) = self.stockpile_in_reach(pos, stack.item, reach, defs) else {
-                    return;
-                };
+                let dest = self.stockpile_in_reach(pos, stack.item, reach, defs)?;
                 let put = stack.count.min(self.room_at(dest, stack.item, defs));
                 self.stored
                     .entry(dest)
@@ -456,6 +507,7 @@ impl World {
                 } else {
                     self.ground.remove(&pos);
                 }
+                Some(Moved { to: dest, item: stack.item, count: put })
             }
             // The magnitude scales how long the flame burns. Lighting a lit tile restokes it.
             Effect::HeatSource { duration_minutes, radius, sleep_bonus, seek_tiles } => {
@@ -466,6 +518,7 @@ impl World {
                     seek_tiles: *seek_tiles,
                     until: self.tick + minutes_to_ticks(duration_minutes * magnitude),
                 });
+                None
             }
             // The magnitude scales how long the patch stays wet.
             Effect::Irrigate {
@@ -488,9 +541,10 @@ impl World {
                 let key = (patch.dries_at, patch.centre);
                 let at = self.patches.partition_point(|p| (p.dries_at, p.centre) <= key);
                 self.patches.insert(at, patch);
+                None
             }
             #[cfg(test)]
-            Effect::Probe => {}
+            Effect::Probe => None,
         }
     }
 }

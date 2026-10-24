@@ -9,6 +9,7 @@
 //!   once it dries (and sprouts, drawn by `jobview` like any other resource).
 //! - A reshaped tile (today: Earth's river or lake turned into a ford) needs its floor sprite
 //!   redrawn, since the client otherwise draws each tile's ground once, at spawn.
+//! - The moment of a bend (the pose and the cast effect) is `cast`'s, #166.
 //! - Each `BendEvent` becomes a line in the side panel's "Alerts" section (ui.md), shown for a
 //!   few seconds and then dropped (`fn_ui::alerts`).
 

@@ -62,9 +62,16 @@ struct ItemMarker;
 #[derive(Resource, Default)]
 pub struct ItemMarkers(BTreeMap<(Pos, Place), ((u16, u32), Entity)>);
 
+impl ItemMarkers {
+    /// The marker entity of the stack stored on `pos`, if it has one.
+    pub fn stored(&self, pos: Pos) -> Option<Entity> {
+        self.0.get(&(pos, Place::Stored)).map(|(_, e)| *e)
+    }
+}
+
 /// The icon cell of an item (`icon` in data/jobs.toml and data/needs.toml): the sprite of that
 /// name in `icons.png`, one 16px cell, so a stack draws at the size of a tile.
-fn item_cell(defs: &Defs, item: ItemId) -> sprites::Cell {
+pub fn item_cell(defs: &Defs, item: ItemId) -> sprites::Cell {
     let def = defs.item(item);
     let col = ui_style::icon_cell(&def.icon).unwrap_or_else(|| {
         panic!("item {} names icon {:?}, which art/icons.toml doesn't have", def.id, def.icon)

@@ -27,6 +27,10 @@
 //! the densest forest near them, designates trees there and runs TICKS ticks, and `FN_CANOPY_FADE=off` turns the fade off for a "before" shot.
 //! `FN_WALK_DEMO=STEPS` pauses the game and has the settlers walk to and fro on a levelled meadow
 //! beside the first one, facing every way, and takes the shot after STEPS steps (`walk_demo`, #165).
+//! `FN_CAST_DEMO=T` stages the nation's ability on a levelled meadow and pauses the game `T`
+//! seconds from the moment the bend completes (negative: mid-channel, e.g. `-0.4`; positive: it
+//! has landed, e.g. `0.3`), so the shot catches the bender's pose and the cast effect (`cast_demo`,
+//! #166).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -45,6 +49,7 @@ use bevy::window::{ExitCondition, PrimaryWindow};
 use bevy::winit::WinitPlugin;
 use buildings::BuildingsPlugin;
 use canopy::{CanopyFade, CanopyPlugin};
+use cast::CastPlugin;
 use designate::{ActiveTool, DesignatePlugin};
 use fn_sim::world::{TICKS_PER_SECOND, Unit, UnitId};
 use fn_sim::{MapGenConfig, Nation, Pos, Tile};
@@ -57,6 +62,8 @@ use unit_anim::{Facing, Pose, UnitAnimPlugin, UnitView, pick_frame};
 mod bending;
 mod buildings;
 mod canopy;
+mod cast;
+mod cast_demo;
 mod designate;
 mod hud;
 mod jobview;
@@ -130,6 +137,10 @@ fn main() {
         .ok()
         .and_then(|s| s.parse().ok())
         .map(|steps| walk_demo::prepare(&mut sim, steps));
+    let cast_demo = std::env::var("FN_CAST_DEMO")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .and_then(|t| cast_demo::prepare(&mut sim, t));
     app.insert_resource(Time::<Fixed>::from_hz(f64::from(TICKS_PER_SECOND)))
         .insert_resource(ActiveTool(if build_demo { Tool::Build } else { Tool::Select }))
         .insert_resource(Sim(sim))
@@ -145,6 +156,7 @@ fn main() {
             BuildingsPlugin,
             HudPlugin,
             BendingPlugin,
+            CastPlugin,
             ResearchPlugin,
             CanopyPlugin,
         ))
@@ -168,6 +180,9 @@ fn main() {
             Update,
             (walk_demo::step_walkers.before(sync_units), walk_demo::frame_camera.after(controls)),
         );
+    }
+    if let Some(demo) = cast_demo {
+        app.insert_resource(demo).add_systems(Update, cast_demo::frame_camera.after(controls));
     }
     app.run();
 }

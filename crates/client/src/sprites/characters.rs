@@ -6,8 +6,8 @@
 pub struct CharacterRow {
     pub id: &'static str,
     /// The sprite sheet of 16px cells. Original art (`original/<id>.png`, from `art/<id>.toml`) is
-    /// 64x64: the columns face down, up, left and right, the rows are 4 walk frames and row 0 is
-    /// the idle pose.
+    /// 64x96: the columns face down, up, left and right; rows 0-3 are the walk frames (row 0 is
+    /// the idle pose) and rows 4 and 5 the bend pose (#166).
     pub sheet: &'static str,
     /// The portrait faceset (`original/faces_<nation>.png`, from `art/faces_<nation>.toml`): one
     /// row of square cells, 32x32 each, shared by the nation's characters. The face is the cell at
@@ -116,7 +116,7 @@ mod tests {
             let characters = &defs.nation(nation).characters;
             assert_eq!(characters.len(), 3, "{nation:?}");
             for c in characters {
-                assert_eq!(png_size(character_sheet_path(c)), (64, 64), "{c} sheet");
+                assert_eq!(png_size(character_sheet_path(c)), (64, 96), "{c} sheet");
                 let (w, h) = png_size(character_face_path(c));
                 assert_eq!(h, 32, "{c} face cells are {h}px");
                 let cells =
@@ -156,15 +156,60 @@ mod tests {
             .collect()
     }
 
+    /// The grids of `art/<id>.toml`'s sprites by name.
+    fn art_grids(id: &str) -> std::collections::BTreeMap<String, String> {
+        let path = format!("{}/../../art/{id}.toml", env!("CARGO_MANIFEST_DIR"));
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let doc: toml::Table = text.parse().unwrap();
+        doc["sprite"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| {
+                (s["name"].as_str().unwrap().to_owned(), s["grid"].as_str().unwrap().to_owned())
+            })
+            .collect()
+    }
+
+    /// Each character has a bend pose (#166, rows 4 and 5) for every facing: not the idle cell,
+    /// the two poses differ, and the right-facing cell mirrors the left-facing one.
     #[test]
-    fn original_sheets_are_four_facings_by_four_walk_frames() {
+    fn every_character_has_a_bend_stance_and_release_in_every_facing() {
+        let mirror = |g: &str| -> String {
+            g.lines().map(|l| l.chars().rev().collect::<String>()).collect::<Vec<_>>().join("\n")
+        };
+        for row in CHARACTERS.iter().filter(|r| r.sheet.starts_with("original/")) {
+            let grids = art_grids(row.id);
+            for facing in ["down", "up", "left", "right"] {
+                let (idle, stance, release) = (
+                    &grids[&format!("{facing}_0")],
+                    &grids[&format!("{facing}_4")],
+                    &grids[&format!("{facing}_5")],
+                );
+                assert_ne!(stance, idle, "{} {facing} stance is the idle pose", row.id);
+                assert_ne!(release, idle, "{} {facing} release is the idle pose", row.id);
+                assert_ne!(stance, release, "{} {facing} has one bend pose", row.id);
+            }
+            for n in [4, 5] {
+                assert_eq!(
+                    mirror(grids[&format!("left_{n}")].trim_end()),
+                    grids[&format!("right_{n}")].trim_end(),
+                    "{} right_{n} mirrors left_{n}",
+                    row.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn original_sheets_are_four_facings_by_walk_and_bend_rows() {
         let mut seen = 0;
         for row in CHARACTERS.iter().filter(|r| r.sheet.starts_with("original/")) {
             assert_eq!(row.sheet, format!("original/{}.png", row.id));
-            assert_eq!(png_size(row.sheet), (64, 64), "{}", row.id);
+            assert_eq!(png_size(row.sheet), (64, 96), "{}", row.id);
             let names = art_sprites(row.id);
             // Sprite `n` sits at column `n % 4`, row `n / 4`: idle-down is (0, 0).
-            assert_eq!(names.len(), 16, "{}", row.id);
+            assert_eq!(names.len(), 24, "{}", row.id);
             for (n, name) in names.iter().enumerate() {
                 let facing = ["down", "up", "left", "right"][n % 4];
                 assert_eq!(*name, format!("{facing}_{}", n / 4), "{} sprite {n}", row.id);

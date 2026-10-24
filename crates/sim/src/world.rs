@@ -29,7 +29,7 @@ mod study;
 mod work;
 
 use bending::Patch;
-pub use bending::{BendError, BendEvent, BendOutcome};
+pub use bending::{BendChannel, BendError, BendEvent, BendOutcome, Moved};
 pub use build::BuildError;
 use build::Site;
 pub use command::{Command, CommandError, Recorded};

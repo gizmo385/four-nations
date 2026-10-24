@@ -181,7 +181,8 @@ mod tests {
         let ability = ability_for_nation(&s.defs, Nation::Earth).unwrap();
         let unit = s.world.units[0].id;
         let pos = Pos::new(5, 3);
-        let done = BendEvent { tick: 0, unit, ability, pos, outcome: BendOutcome::Done };
+        let done =
+            BendEvent { tick: 0, unit, ability, pos, outcome: BendOutcome::Done, moved: None };
         let line = describe_bend_event(&s, &done);
         assert!(line.contains(&s.world.units[0].name), "{line}");
         assert!(line.contains("(5, 3)"), "{line}");

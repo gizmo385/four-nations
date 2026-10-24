@@ -154,7 +154,8 @@ fn a_bend_spends_chi_only_when_it_completes() {
             unit: w.units[0].id,
             ability: probe,
             pos: at(6, 2),
-            outcome: BendOutcome::Done
+            outcome: BendOutcome::Done,
+            moved: None,
         }
     );
     assert_eq!(w.units[0].chi, 60.0);

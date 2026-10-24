@@ -22,19 +22,19 @@ art/README.md). Every file has a generated_from entry; edit the sheet, never the
 path = "original/air_acolyte.png"
 source = "original"
 generated_from = "art/air_acolyte.toml"
-sha256 = "8cf749e7d7321134296bee00c13e88c45fa6fcde740954995f7f72fd7aac0d84"
+sha256 = "cf2b2be96d38a1d75a9c04d887da901e7f5dd860f2fa1da0bd8108fa5ede52a2"
 
 [[file]]
 path = "original/air_elder.png"
 source = "original"
 generated_from = "art/air_elder.toml"
-sha256 = "ebcc8ff4da3f24dd99645865bb3e5c0de7859cf22c0209b6e8cb7ee0c87aa841"
+sha256 = "c5607e3387de2c68d910594c7e1008c66a2a0f81c3892ce19111b375b0cc77d0"
 
 [[file]]
 path = "original/air_monk.png"
 source = "original"
 generated_from = "art/air_monk.toml"
-sha256 = "e97bdbcb129cb39e4712a4970869d3d5bb884785411fc69edb74c1da8e0d96ec"
+sha256 = "011982068b63b03117703ac068c4187fcdf3a68fbe73e4011850a85ea2a33e5b"
 
 [[file]]
 path = "original/buildings.png"
@@ -76,19 +76,19 @@ sha256 = "b95a643c43f66bcea16ad9de2ce6e0226820dfe4d886fc13f6d02d89dadca033"
 path = "original/earth_farmer.png"
 source = "original"
 generated_from = "art/earth_farmer.toml"
-sha256 = "15db9e4fbbc161b4e9954915eca39cb0c29fa602da3ed7f988d727b1733e1452"
+sha256 = "05b63773b6ef05b253e7cdc8370d3a28394ca238893240fdd6f42d64861e6ce9"
 
 [[file]]
 path = "original/earth_guard.png"
 source = "original"
 generated_from = "art/earth_guard.toml"
-sha256 = "c26f089e7af9e13a01d1f728af8ae38fdb04c8ec489ecb0e3890fcb614a9c90f"
+sha256 = "84f9a34eedf633f94b39f0d50caa39304eecc29184e73729a18dd1769447947f"
 
 [[file]]
 path = "original/earth_villager.png"
 source = "original"
 generated_from = "art/earth_villager.toml"
-sha256 = "f9610e8316cf61cb61d86cbe0397bb3b5657de3583728a84fba5fda54b60e242"
+sha256 = "a3183f8da28877b6f1c3a48b4b6b1d7a273e571907f8f3e69ed65adc2feae445"
 
 [[file]]
 path = "original/emblems.png"
@@ -124,19 +124,19 @@ sha256 = "cfd8e7c3cc78d06745578b44d4fac883c682854ff399c904e6ebc904d2cc9777"
 path = "original/fire_noble.png"
 source = "original"
 generated_from = "art/fire_noble.toml"
-sha256 = "7ba0e15100f2e3ea5ec1347853c1c342094b228f3c17d7c544d3f39f899b7118"
+sha256 = "3b2a48f8d5b737b40c299dbaae99f8c5918987c03982a60c9ace50200f9587cd"
 
 [[file]]
 path = "original/fire_smith.png"
 source = "original"
 generated_from = "art/fire_smith.toml"
-sha256 = "08ce4112ba32a50a44bde5c9521cba3ab55b880d01311fb3ed432f8940c81136"
+sha256 = "0d823c85e8848c8a6dc34fc50ad74b99c511b669c6fdf5f12bf1d0ddd17c9d0a"
 
 [[file]]
 path = "original/fire_soldier.png"
 source = "original"
 generated_from = "art/fire_soldier.toml"
-sha256 = "debfb7255d6486cddfeb632e9fb610c1af2372279be5c8c7d57ff0b61f17bd16"
+sha256 = "5929bbf5a035c9bc9380bb7f37a87a3c26ebe95d151a435a2b67944d9b425f4d"
 
 [[file]]
 path = "original/floors.png"
@@ -148,7 +148,7 @@ sha256 = "399e94c90e96dada0339e67e791ec40f9c34e9e9abaae3d9b0da7e19c26c4bac"
 path = "original/fx.png"
 source = "original"
 generated_from = "art/fx.toml"
-sha256 = "cb8549572c4f4383d1adf1578c43327523d6f11ce4a078eeb75497906bfc62f9"
+sha256 = "8363af86d94cad2f3edea29f5a0a335b19f6fc96596aabc23f94d1d946c90aa7"
 
 [[file]]
 path = "original/icons.png"
@@ -232,16 +232,16 @@ sha256 = "52bd3c3c4f0265135ebe675af925505a7b7f28bec641daf2f631d627564e38e3"
 path = "original/water_healer.png"
 source = "original"
 generated_from = "art/water_healer.toml"
-sha256 = "b8ea66419ed31e63d711c664b3015477cccd4127fc7b86057860846c17763110"
+sha256 = "d78b6d0ae8d6d65043e07d13693f5cf990e5f2dced19b39a6a3a8cbeebb3313f"
 
 [[file]]
 path = "original/water_hunter.png"
 source = "original"
 generated_from = "art/water_hunter.toml"
-sha256 = "e2c0e8d9c0b5dfad16b88885e881e50aa3f155901d6204592aee3f561b88d4c7"
+sha256 = "df7702bd7c2896334cc3f9a3668b4e8baef3e8c49356f4118c0a585910874e70"
 
 [[file]]
 path = "original/water_warrior.png"
 source = "original"
 generated_from = "art/water_warrior.toml"
-sha256 = "0948d6a87ffd19c894bb88a793b64055d3256bd7810077cbc6832b6776029746"
+sha256 = "336e932fbf3e946560f3527fd82af1312698ad02666d1d57fccd00a4a6062eef"
