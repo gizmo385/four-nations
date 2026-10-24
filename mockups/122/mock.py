@@ -221,6 +221,69 @@ def compare_map(sheets, out_dir):
     vstack([hstack([left, right]), mix]).convert("RGB").save(out_dir / "compare-map.png")
 
 
+def tile_hash(x, y, salt):
+    """crates/client/src/sprites.rs `tile_hash`, in u32 arithmetic."""
+    m = 0xFFFFFFFF
+    h = ((x * 0x9E3779B1) & m) ^ ((y * 0x85EBCA77) & m)
+    h ^= (salt * 0xC2B2AE3D) & m
+    h ^= h >> 15
+    h = (h * 0x2C1B3C6D) & m
+    h ^= h >> 12
+    h = (h * 0x297A2D39) & m
+    return h ^ (h >> 15)
+
+
+# Proposed weights for variants 0-3: the quiet tile dominates so marks stay sparse.
+WEIGHTS = [8, 3, 3, 2]
+
+
+def pick_weighted(x, y, n):
+    r = tile_hash(x, y, 1) % sum(WEIGHTS[:n])
+    for i, w in enumerate(WEIGHTS[:n]):
+        if r < w:
+            return i
+        r -= w
+    return 0
+
+
+def pick_today(x, y, n_variants):
+    """GroundRule::floor_at today: one tile in four shows a variant."""
+    h = tile_hash(x, y, 1)
+    if n_variants == 0 or h % 4 != 0:
+        return None
+    return (h >> 8) % n_variants
+
+
+def compare_floors(sheets, out_dir, cols=8, rows=5, k=3):
+    """Each biome's floor today (Ninja Adventure cells, as GROUND picks them) next to ours."""
+    floor = Image.open(NA / "TilesetFloor.png").convert("RGBA")
+    relief = Image.open(NA / "TilesetRelief.png").convert("RGBA")
+    cell = lambda im, c, r: im.crop((c * 16, r * 16, c * 16 + 16, r * 16 + 16))  # noqa: E731
+    biomes = [  # (label, today's base, today's variants, our floor)
+        ("plains", cell(floor, 0, 12), [cell(floor, c, 12) for c in (1, 2, 3)], "grass"),
+        ("forest, taiga", cell(floor, 11, 12), [cell(floor, c, 12) for c in (12, 13)], "forest_floor"),
+        ("desert, coast", cell(floor, 1, 1), [cell(floor, 0, 4), cell(floor, 1, 4)], "sand"),
+        ("tundra", cell(floor, 1, 15), [], "snow"),
+        ("swamp", cell(floor, 12, 15), [cell(floor, 13, 19), cell(floor, 14, 19)], "mud"),
+        ("mountain top", cell(relief, 2, 6), [], "rock"),
+    ]
+    blocks = []
+    for name, base, variants, ours in biomes:
+        today = Image.new("RGBA", (cols * 16, rows * 16))
+        mine = Image.new("RGBA", (cols * 16, rows * 16))
+        mine_cells = [render.sprite(sheets, "floors", f"{ours}{i}") for i in range(4)]
+        for y in range(rows):
+            for x in range(cols):
+                v = pick_today(x, y, len(variants))
+                today.alpha_composite(base if v is None else variants[v], (x * 16, y * 16))
+                mine.alpha_composite(mine_cells[pick_weighted(x, y, 4)], (x * 16, y * 16))
+        strip = hstack([up(c, k) for c in mine_cells], gap=4)
+        row = hstack([caption(up(today, k), f"{name}: today"), caption(up(mine, k), "ours"),
+                      caption(strip, "our 4 variants")])
+        blocks.append(row)
+    vstack(blocks, gap=0).convert("RGB").save(out_dir / "compare-floors.png")
+
+
 if __name__ == "__main__":
     seal_ui, out_dir = sys.argv[1], Path(sys.argv[2])
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -228,5 +291,6 @@ if __name__ == "__main__":
     samples(sheets, out_dir)
     compare_ui(sheets, seal_ui, out_dir)
     compare_map(sheets, out_dir)
+    compare_floors(sheets, out_dir)
     for p in sorted(out_dir.glob("*.png")):
         print(p)
