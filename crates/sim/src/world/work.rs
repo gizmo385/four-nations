@@ -126,6 +126,20 @@ impl Unit {
     }
 }
 
+/// The movement progress a step from `from` onto the adjacent tile `to` takes: 6 ticks at speed
+/// 1.0 for a straight step on plain ground, more for a diagonal or a costly terrain.
+pub(super) fn step_needed(
+    rules: &crate::path::MoveRules,
+    map: &crate::mapgen::TileMap,
+    from: Pos,
+    to: Pos,
+) -> f32 {
+    let diagonal = to.x != from.x && to.y != from.y;
+    let step = if diagonal { DIAGONAL } else { STRAIGHT };
+    let tile_cost = rules.tile_cost(&map[to]).unwrap_or(1);
+    BASE_TICKS_PER_STEP * (step * tile_cost) as f32 / STRAIGHT as f32
+}
+
 /// The remaining steps of a path, next step last.
 pub(super) fn route_from(path: Vec<Pos>) -> Vec<Pos> {
     path.into_iter().skip(1).rev().collect()
@@ -523,10 +537,7 @@ impl World {
             return true;
         };
         u.move_progress += speed;
-        let diagonal = next.x != u.pos.x && next.y != u.pos.y;
-        let step = if diagonal { DIAGONAL } else { STRAIGHT };
-        let tile_cost = self.rules.tile_cost(&self.map[next]).unwrap_or(1);
-        let needed = BASE_TICKS_PER_STEP * (step * tile_cost) as f32 / STRAIGHT as f32;
+        let needed = step_needed(&self.rules, &self.map, u.pos, next);
         if u.move_progress >= needed {
             u.move_progress -= needed;
             u.pos = next;

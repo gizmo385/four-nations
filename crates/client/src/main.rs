@@ -58,6 +58,7 @@ use hud::HudPlugin;
 use jobview::{JobViewPlugin, ResourceSprite};
 use research::{ResearchPlugin, ScreenOpen};
 use unit_anim::{Facing, Pose, UnitAnimPlugin, UnitView, pick_frame};
+use unit_motion::{UnitMotion, UnitMotionPlugin, sync_units};
 
 mod bending;
 mod buildings;
@@ -71,6 +72,7 @@ mod research;
 mod sprites;
 mod ui_style;
 mod unit_anim;
+mod unit_motion;
 mod walk_demo;
 
 const TILE: f32 = 16.0;
@@ -150,6 +152,7 @@ fn main() {
         .insert_resource(ScreenOpen(std::env::var_os("FN_RESEARCH_OPEN").is_some()))
         .add_message::<MapClicked>()
         .add_plugins((
+            UnitMotionPlugin,
             UnitAnimPlugin,
             DesignatePlugin,
             JobViewPlugin,
@@ -600,6 +603,7 @@ fn spawn_entities(commands: &mut Commands, art: &Art, sim: &Sim) {
             Transform::from_translation(unit_translation(u.pos)),
             UnitSprite(u.id),
             UnitView::new(u.pos, unit_translation(u.pos).truncate()),
+            UnitMotion::new(u.pos, unit_translation(u.pos)),
             MapEntity,
         ));
     }
@@ -739,16 +743,6 @@ fn clamp_camera(center: Vec2, half_view: Vec2, min: Vec2, max: Vec2) -> Vec2 {
         if hi - lo <= 2.0 * h { (lo + hi) / 2.0 } else { c.clamp(lo + h, hi - h) }
     };
     Vec2::new(axis(center.x, half_view.x, min.x, max.x), axis(center.y, half_view.y, min.y, max.y))
-}
-
-/// Smoothly moves unit sprites toward their sim positions.
-fn sync_units(sim: Res<Sim>, time: Res<Time>, mut units: Query<(&UnitSprite, &mut Transform)>) {
-    let t = 1.0 - (-time.delta_secs() * 12.0).exp();
-    for (UnitSprite(id), mut tf) in &mut units {
-        let Some(u) = sim.world.unit(*id) else { continue };
-        let target = unit_translation(u.pos);
-        tf.translation = tf.translation.lerp(target, t);
-    }
 }
 
 /// Removes the sprites of units that have died, and clears the selection if it was one of them.
