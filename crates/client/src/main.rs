@@ -16,7 +16,8 @@
 //! starts with the build tool (`U`) active and a few construction sites designated beside the
 //! first unit, so the picker and the site overlay show in the shot. `FN_STORES_DEMO=1` harvests
 //! what is near the settlers into a stockpile and runs the game until the Stores section has
-//! rows to show. Agents use this, via
+//! rows to show. `FN_FX_DEMO=1` has the settlers cast the nation's ability on tiles near the first
+//! unit, so a lit flame or a wet patch is on the map when the shot is taken. Agents use this, via
 //! `cargo xtask screenshot SEED NATION OUT.png [WIDTH HEIGHT]`, to check visual changes without a
 //! window popping up and stealing the human's focus.
 
@@ -101,6 +102,9 @@ fn main() {
     }
     if std::env::var_os("FN_STORES_DEMO").is_some() {
         fill_demo_stores(&mut sim);
+    }
+    if std::env::var_os("FN_FX_DEMO").is_some() {
+        cast_demo_effects(&mut sim);
     }
     app.insert_resource(Time::<Fixed>::from_hz(f64::from(TICKS_PER_SECOND)))
         .insert_resource(ActiveTool(if build_demo { Tool::Build } else { Tool::Select }))
@@ -208,6 +212,41 @@ fn fill_demo_stores(session: &mut Session) {
     }
 }
 
+/// `FN_FX_DEMO`: designates the nation's bending ability on a few tiles near the first unit it
+/// accepts, then runs the game (at most 3 in-game minutes) until each cast has finished, so the
+/// effect it leaves is on the map.
+fn cast_demo_effects(session: &mut Session) {
+    use fn_sim::world::Command;
+    let Some(ability) = fn_ui::tools::ability_for_nation(&session.defs, session.world.nation)
+    else {
+        return;
+    };
+    let Some(from) = session.world.units.first().map(|u| u.pos) else { return };
+    // Clear ground, so no tree canopy hides the effect.
+    let world = &session.world;
+    let clear = |p: Pos| {
+        (-2..=2).all(|dy| {
+            (-2..=2).all(|dx| {
+                world.map.get(Pos::new(p.x + dx, p.y + dy)).is_none_or(|t| t.resource.is_none())
+            })
+        })
+    };
+    let mut targets: Vec<Pos> = world.map.iter().map(|(p, _)| p).filter(|p| clear(*p)).collect();
+    targets.sort_by_key(|p| ((p.x - from.x).pow(2) + (p.y - from.y).pow(2), *p));
+    let mut cast = 0;
+    for pos in targets.into_iter().filter(|p| (p.x + p.y) % 3 == 0) {
+        if cast < 4 && session.apply(Command::Bend { ability, pos }).is_ok() {
+            cast += 1;
+        }
+    }
+    for _ in 0..3 * 60 {
+        session.tick_n(TICKS_PER_SECOND);
+        if session.world.bend_events().len() >= cast {
+            break;
+        }
+    }
+}
+
 /// The images the game draws with. A sheet is named by its asset path (`sprites/`) and loaded the
 /// first time something asks for it, so a new sheet is only a new path constant in a family module.
 #[derive(Resource)]
@@ -263,6 +302,19 @@ impl Art {
         let [x0, y0, x1, y1] = cell.pixel_rect();
         Sprite { image: self.image(cell.sheet), rect: Some(Rect::new(x0, y0, x1, y1)), ..default() }
     }
+}
+
+/// Adds what `Art` needs to a test `App`: an asset server (it never has to find a file, since a
+/// handle is returned at once) and the `Art` resource over it.
+#[cfg(test)]
+fn insert_test_art(app: &mut App) {
+    app.add_plugins((
+        bevy::app::TaskPoolPlugin::default(),
+        AssetPlugin { file_path: ASSET_DIR.into(), ..default() },
+    ))
+    .init_asset::<Image>();
+    let art = Art::new(app.world().resource::<AssetServer>().clone());
+    app.insert_resource(art);
 }
 
 /// Everything that belongs to the current map; despawned on regenerate.

@@ -155,7 +155,7 @@ impl Skin {
             frame: assets.load(format!("original/ui_frame.{id}.png")),
             flair: assets.load(format!("original/ui_flair.{id}.png")),
             emblems: assets.load("original/emblems.png"),
-            icons: assets.load("original/icons.png"),
+            icons: assets.load(ICONS_SHEET),
             tools: assets.load("original/tools.png"),
             nation: id,
         }
@@ -175,6 +175,8 @@ const BULLET_PIXELS: [f32; 4] = [5.0, 6.0, 9.0, 10.0];
 /// The cells of `emblems.png` in order: the sprite names in art/emblems.toml, which are nation ids.
 const EMBLEMS: [&str; 4] = ["air", "water", "earth", "fire"];
 
+/// The asset path of `icons.png`, also the sheet map item stacks draw from (`jobview`).
+pub const ICONS_SHEET: &str = "original/icons.png";
 /// The cells of `icons.png` in order: the sprite names in art/icons.toml. An item's `icon` in
 /// data/jobs.toml and data/needs.toml is one of these.
 const ITEM_ICONS: [&str; 7] = ["wood", "stone", "gold", "cabbage", "water", "fish", "fruit"];
@@ -202,7 +204,7 @@ fn cell_of(sheet: &[&str], name: &str) -> Option<u32> {
 }
 
 /// The cell in `icons.png` for an item's `icon`, if the sheet has it.
-fn icon_cell(icon: &str) -> Option<u32> {
+pub fn icon_cell(icon: &str) -> Option<u32> {
     cell_of(&ITEM_ICONS, icon)
 }
 
