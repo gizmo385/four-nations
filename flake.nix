@@ -80,6 +80,19 @@
               if [ -d /usr/lib/wsl/lib ]; then
                 export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/lib/wsl/lib"
               fi
+              # WSL2 (/dev/dxg): dozen reports Vulkan conformance version 0.0.0.0 ("not a
+              # conformant Vulkan implementation"), and wgpu-hal's expose_adapter silently hides
+              # such adapters unless InstanceFlags::ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER is set.
+              # Bevy builds its instance flags with InstanceFlags::with_env(), so this variable is
+              # enough (see #46). Scoped to WSL2 so real conformance failures elsewhere stay
+              # visible; export the variable as 0 beforehand to opt out.
+              if [ -e /dev/dxg ]; then
+                export WGPU_ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER="''${WGPU_ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER:-1}"
+                # Ubuntu's implicit MESA_device_select layer (in /usr/share/vulkan) links the
+                # system libc and fails to open with a loader ERROR. It only reorders devices, so
+                # skip it.
+                export VK_LOADER_LAYERS_DISABLE="''${VK_LOADER_LAYERS_DISABLE:-VK_LAYER_MESA_device_select}"
+              fi
             '';
           };
         }
