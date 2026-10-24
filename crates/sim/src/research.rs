@@ -390,6 +390,13 @@ impl Research {
         self.pool_millis += millis;
     }
 
+    /// Marks `tech` known at once, skipping the queue and its cost. For tests that need a nation
+    /// to have a tech without waiting out the research.
+    #[cfg(test)]
+    pub(crate) fn grant(&mut self, tech: TechId) {
+        self.known[tech.0 as usize] = true;
+    }
+
     /// Adds one tick of passive knowledge, then completes queued techs the pool can pay for.
     /// `tick` is the world tick being simulated, recorded on completions.
     pub fn tick(&mut self, tick: u64, defs: &Defs) {

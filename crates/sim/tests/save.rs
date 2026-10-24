@@ -32,7 +32,9 @@ fn play(nation: Nation, ticks: u64, defs: &Defs) -> World {
         .iter()
         .filter(|(p, t)| {
             (p.x - center.x).abs().max((p.y - center.y).abs()) <= 14
-                && t.resource.is_some_and(|r| defs.harvest(r).is_some())
+                && t.resource
+                    .and_then(|r| defs.harvest(r))
+                    .is_some_and(|h| w.is_unlocked(h.unlocked_by))
         })
         .map(|(p, _)| p)
         .collect();

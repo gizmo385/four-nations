@@ -424,11 +424,15 @@ mod tests {
         format!("harvest = []\n{}", &JOBS[..end])
     }
 
-    /// The bundled research tree without `fishing`'s job unlock, for tests with their own
-    /// resources (so `fish_spot` doesn't dangle).
+    /// The bundled research tree without the job unlocks, for tests with their own resources
+    /// (so `fish_spot` and `stone` don't dangle).
     fn bare_research() -> String {
-        let src = RESEARCH.replace("[tech.unlocks]\njobs = [\"fish_spot\"]\n", "");
-        assert_ne!(src, RESEARCH, "fishing's unlocks.jobs moved; update this helper");
+        let mut src = RESEARCH.to_string();
+        for job in ["fish_spot", "stone"] {
+            let unlock = format!("[tech.unlocks]\njobs = [\"{job}\"]\n");
+            assert!(src.contains(&unlock), "{job}'s unlocks.jobs moved; update this helper");
+            src = src.replace(&unlock, "");
+        }
         src
     }
 

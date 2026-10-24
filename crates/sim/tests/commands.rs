@@ -9,13 +9,16 @@ fn fresh(defs: &Defs) -> World {
     World::new(&cfg, Nation::Water, 4, defs)
 }
 
-/// Harvestable tiles within `radius` of `center`, in map order.
+/// Tiles within `radius` of `center` that the settlement can designate for harvest right now
+/// (resources with a harvest entry whose tech, if any, is known), in map order.
 fn harvestable(w: &World, defs: &Defs, center: Pos, radius: i32) -> Vec<Pos> {
     w.map
         .iter()
         .filter(|(p, t)| {
             (p.x - center.x).abs().max((p.y - center.y).abs()) <= radius
-                && t.resource.is_some_and(|r| defs.harvest(r).is_some())
+                && t.resource
+                    .and_then(|r| defs.harvest(r))
+                    .is_some_and(|h| w.is_unlocked(h.unlocked_by))
         })
         .map(|(p, _)| p)
         .collect()

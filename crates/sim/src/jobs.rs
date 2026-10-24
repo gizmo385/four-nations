@@ -303,7 +303,11 @@ mod tests {
         let fish_spot = defs.resource_id("fish_spot").unwrap();
         assert_eq!(defs.harvest(fish_spot).unwrap().unlocked_by, Some(fishing));
         let stone = defs.resource_id("stone").unwrap();
-        assert_eq!(defs.harvest(stone).unwrap().unlocked_by, None);
+        let stoneworking = defs.tech_id("stoneworking").unwrap();
+        assert_eq!(defs.harvest(stone).unwrap().unlocked_by, Some(stoneworking));
+        // Chopping needs no tech.
+        let oak = defs.resource_id("oak_tree").unwrap();
+        assert_eq!(defs.harvest(oak).unwrap().unlocked_by, None);
     }
 
     #[test]
@@ -322,9 +326,13 @@ mod tests {
 
     #[test]
     fn a_job_has_at_most_one_tech() {
-        let two = load(&format!("{}{}", tech("a", "['stone']"), tech("b", "['stone']")), "");
+        // `stone` is already `stoneworking`'s, so a second tech can't take it.
+        let taken = load(&tech("a", "['stone']"), "");
+        assert!(taken.unwrap_err().0.contains("one tech"));
+        // Chopping is free in the bundled data, so these tests claim it themselves.
+        let two = load(&format!("{}{}", tech("a", "['oak_tree']"), tech("b", "['oak_tree']")), "");
         assert!(two.unwrap_err().0.contains("one tech"));
-        let twice = load(&tech("a", "['stone', 'stone']"), "");
+        let twice = load(&tech("a", "['oak_tree', 'oak_tree']"), "");
         assert!(twice.unwrap_err().0.contains("listed twice"));
     }
 }
