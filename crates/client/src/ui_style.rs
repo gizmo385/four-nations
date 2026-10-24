@@ -6,7 +6,8 @@
 //! Since #129 the frame, seal, section bullet and nation emblem are Claude-authored pixel art
 //! (art/ui_frame.toml, art/ui_flair.toml, art/emblems.toml; docs/design/pixel-art.md), drawn at
 //! one integer scale ([`ART_SCALE`]) so no two pixel sizes meet. [`Skin`] holds the current
-//! nation's sheets.
+//! nation's sheets. Since #130 the Stores rows and the tool buttons carry icons from
+//! art/icons.toml and art/tools.toml ([`item_well`], [`tool_button`]).
 //!
 //! The accent is the player nation's `color` from data/nations.toml; everything else is fixed so
 //! status colours (ok/warn/bad) never change meaning between nations.
@@ -14,6 +15,7 @@
 use bevy::prelude::*;
 use bevy::sprite::{BorderRect, SliceScaleMode, TextureSlicer};
 use fn_sim::Nation;
+use fn_ui::Tool;
 
 /// Every UI sprite is drawn at this integer scale: one art pixel is two screen pixels.
 pub const ART_SCALE: f32 = 2.0;
@@ -118,6 +120,10 @@ pub struct Skin {
     pub flair: Handle<Image>,
     /// `emblems.png`: every nation's emblem; [`emblem_cell`] picks one.
     pub emblems: Handle<Image>,
+    /// `icons.png`: item icons, picked by the item's `icon` ([`icon_cell`]).
+    pub icons: Handle<Image>,
+    /// `tools.png`: the tool icons ([`tool_icon`]).
+    pub tools: Handle<Image>,
     /// The nation's data id, e.g. `earth`: names the emblem.
     nation: &'static str,
 }
@@ -138,7 +144,7 @@ impl UiArt {
 
     /// Every image the UI needs, for waiting until they are loaded.
     pub fn handles(&self) -> impl Iterator<Item = &Handle<Image>> {
-        self.0.iter().flat_map(|(_, s)| [&s.frame, &s.flair, &s.emblems])
+        self.0.iter().flat_map(|(_, s)| [&s.frame, &s.flair, &s.emblems, &s.icons, &s.tools])
     }
 }
 
@@ -149,6 +155,8 @@ impl Skin {
             frame: assets.load(format!("original/ui_frame.{id}.png")),
             flair: assets.load(format!("original/ui_flair.{id}.png")),
             emblems: assets.load("original/emblems.png"),
+            icons: assets.load("original/icons.png"),
+            tools: assets.load("original/tools.png"),
             nation: id,
         }
     }
@@ -167,10 +175,40 @@ const BULLET_PIXELS: [f32; 4] = [5.0, 6.0, 9.0, 10.0];
 /// The cells of `emblems.png` in order: the sprite names in art/emblems.toml, which are nation ids.
 const EMBLEMS: [&str; 4] = ["air", "water", "earth", "fire"];
 
+/// The cells of `icons.png` in order: the sprite names in art/icons.toml. An item's `icon` in
+/// data/jobs.toml and data/needs.toml is one of these.
+const ITEM_ICONS: [&str; 7] = ["wood", "stone", "gold", "cabbage", "water", "fish", "fruit"];
+/// The cells of `tools.png` in order: the sprite names in art/tools.toml.
+const TOOL_SHEET: [&str; 6] = ["harvest", "build", "stockpile", "cancel", "select", "bend"];
+/// Which sprite of `tools.png` each tool's button shows.
+const TOOL_ICONS: [(Tool, &str); 6] = [
+    (Tool::Select, "select"),
+    (Tool::Harvest, "harvest"),
+    (Tool::CancelHarvest, "cancel"),
+    (Tool::Stockpile, "stockpile"),
+    (Tool::Bend, "bend"),
+    (Tool::Build, "build"),
+];
+
 /// The pixel rect of cell `column` in a one-row sheet of 16px cells.
 fn cell_rect(column: u32) -> Rect {
     let x = column as f32 * CELL;
     Rect::new(x, 0.0, x + CELL, CELL)
+}
+
+/// The cell of the sprite called `name` in a one-row sheet whose sprites are `sheet`, in order.
+fn cell_of(sheet: &[&str], name: &str) -> Option<u32> {
+    sheet.iter().position(|n| *n == name).map(|i| i as u32)
+}
+
+/// The cell in `icons.png` for an item's `icon`, if the sheet has it.
+fn icon_cell(icon: &str) -> Option<u32> {
+    cell_of(&ITEM_ICONS, icon)
+}
+
+/// The sprite of `tools.png` a tool's button shows.
+fn tool_icon(tool: Tool) -> &'static str {
+    TOOL_ICONS.iter().find(|(t, _)| *t == tool).expect("every tool has an icon").1
 }
 
 /// The emblem's cell in `emblems.png` for a nation id.
@@ -366,25 +404,52 @@ pub fn bar(p: &mut ChildSpawnerCommands, theme: &Theme, frac: f32, fill: Color, 
     });
 }
 
-/// A flat button with an optional hotkey hint. `active` fills it with the accent.
-pub fn button(p: &mut ChildSpawnerCommands, theme: &Theme, label: &str, key: &str, active: bool) {
+/// The padding of an icon well, so a 32px icon sits in a 36px square.
+const WELL_PADDING: f32 = 2.0;
+
+/// An item's icon at [`ART_SCALE`] in an `inset` well, so it reads on any panel. An icon the
+/// sheet doesn't have leaves the well empty (a test checks every item has one).
+pub fn item_well(p: &mut ChildSpawnerCommands, theme: &Theme, skin: &Skin, icon: &str) {
+    let side = CELL * ART_SCALE + 2.0 * WELL_PADDING;
+    let node = Node {
+        padding: UiRect::all(Val::Px(WELL_PADDING)),
+        flex_shrink: 0.0,
+        min_width: Val::Px(side),
+        min_height: Val::Px(side),
+        ..default()
+    };
+    p.spawn((node, BackgroundColor(theme.inset))).with_children(|w| {
+        if let Some(cell) = icon_cell(icon) {
+            w.spawn(sprite_node(&skin.icons, cell_rect(cell)));
+        }
+    });
+}
+
+/// A tool's button: its icon at [`ART_SCALE`] with the hotkey under it. `active` fills it with the
+/// accent. The icon sets the button's width, so six of them fit a side panel row.
+pub fn tool_button(
+    p: &mut ChildSpawnerCommands,
+    theme: &Theme,
+    skin: &Skin,
+    tool: Tool,
+    active: bool,
+) {
     let (bg, fg, border) = if active {
         (theme.accent, theme.on_accent, theme.accent)
     } else {
-        (theme.inset, theme.text, theme.accent_soft)
+        (theme.inset, theme.dim, theme.accent_soft)
     };
     let node = Node {
-        padding: UiRect::axes(Val::Px(10.0), Val::Px(space::S)),
-        border: UiRect::all(Val::Px(1.0)),
-        column_gap: Val::Px(space::S),
+        flex_direction: FlexDirection::Column,
         align_items: AlignItems::Center,
+        border: UiRect::all(Val::Px(1.0)),
+        flex_shrink: 0.0,
         ..default()
     };
     p.spawn((node, BackgroundColor(bg), BorderColor::all(border))).with_children(|b| {
-        b.spawn(text(label, font::BODY, fg));
-        if !key.is_empty() {
-            b.spawn(text(key, font::LABEL, if active { fg } else { theme.dim }));
-        }
+        let cell = cell_of(&TOOL_SHEET, tool_icon(tool)).expect("the tool sheet has the icon");
+        b.spawn(sprite_node(&skin.tools, cell_rect(cell)));
+        b.spawn(text(tool.key(), font::LABEL, fg));
     });
 }
 
@@ -429,6 +494,39 @@ mod tests {
         // Every nation in data has a cell, picked by its id.
         for n in Nation::ALL {
             assert_eq!(EMBLEMS[emblem_cell(n.as_str()) as usize], n.as_str());
+        }
+    }
+
+    #[test]
+    fn the_icon_cells_are_the_sprites_of_the_sheets() {
+        let names = |sheet| sprites(sheet).into_iter().map(|(n, _)| n).collect::<Vec<_>>();
+        assert_eq!(names("icons"), ITEM_ICONS);
+        assert_eq!(names("tools"), TOOL_SHEET);
+    }
+
+    #[test]
+    fn every_item_has_an_icon_cell() {
+        let defs = fn_sim::Defs::bundled();
+        assert!(!defs.items.is_empty());
+        for item in &defs.items {
+            assert!(
+                icon_cell(&item.icon).is_some(),
+                "item {} names icon {:?}, which art/icons.toml doesn't have",
+                item.id,
+                item.icon
+            );
+        }
+    }
+
+    #[test]
+    fn every_tool_has_a_button_icon_cell() {
+        for tool in Tool::ALL {
+            let icon = tool_icon(tool);
+            assert!(cell_of(&TOOL_SHEET, icon).is_some(), "{tool:?}: no {icon:?} in tools.toml");
+        }
+        // The table has no tool twice.
+        for (i, (tool, _)) in TOOL_ICONS.iter().enumerate() {
+            assert!(TOOL_ICONS[..i].iter().all(|(t, _)| t != tool), "{tool:?} twice");
         }
     }
 

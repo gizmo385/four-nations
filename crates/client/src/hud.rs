@@ -13,7 +13,7 @@ use fn_sim::building::BuildingId;
 use fn_ui::Tool;
 use fn_ui::build::PickerRow;
 use fn_ui::inspect::{self, Hint, Line};
-use fn_ui::view::{self, SideView, Status, UnitView};
+use fn_ui::view::{self, SideView, Status, StoreRow, UnitView};
 
 use crate::bending::AlertLog;
 use crate::designate::{ActiveTool, BuildChoice, Notice};
@@ -248,17 +248,19 @@ fn spawn_side(p: &mut ChildSpawnerCommands, theme: &Theme, skin: &Skin, v: &Side
         r.spawn(ui_style::text(format!("{state}  x{}", v.speed), font::BODY, color));
     });
 
+    spawn_stores(p, theme, skin, &v.stores);
+
     // The tool the left mouse button has, and the last designation's result.
     ui_style::section_title(p, theme, skin, "Tool");
     p.spawn(Node {
         flex_wrap: FlexWrap::Wrap,
-        column_gap: Val::Px(space::S),
-        row_gap: Val::Px(space::S),
+        column_gap: Val::Px(space::XS),
+        row_gap: Val::Px(space::XS),
         ..default()
     })
     .with_children(|row| {
         for tool in Tool::ALL {
-            ui_style::button(row, theme, tool.name(), tool.key(), tool == v.tool);
+            ui_style::tool_button(row, theme, skin, tool, tool == v.tool);
         }
     });
     p.spawn(ui_style::text(v.tool_hint.clone(), font::BODY, theme.dim));
@@ -313,6 +315,40 @@ fn spawn_side(p: &mut ChildSpawnerCommands, theme: &Theme, skin: &Skin, v: &Side
     for line in CONTROLS {
         p.spawn(ui_style::text(line, font::LABEL, theme.dim));
     }
+}
+
+/// What the stockpiles hold (#130): a two-column grid of an icon in a well, the item's name in
+/// `dim` and its count in `text`, in the order of the item data. Hidden while nothing is stored.
+fn spawn_stores(p: &mut ChildSpawnerCommands, theme: &Theme, skin: &Skin, rows: &[StoreRow]) {
+    if rows.is_empty() {
+        return;
+    }
+    ui_style::section_title(p, theme, skin, "Stores");
+    let grid = Node {
+        flex_wrap: FlexWrap::Wrap,
+        row_gap: Val::Px(space::S),
+        width: Val::Percent(100.0),
+        ..default()
+    };
+    p.spawn(grid).with_children(|g| {
+        for row in rows {
+            let cell = Node {
+                width: Val::Percent(50.0),
+                column_gap: Val::Px(space::S),
+                align_items: AlignItems::Center,
+                ..default()
+            };
+            g.spawn(cell).with_children(|c| {
+                ui_style::item_well(c, theme, skin, &row.icon);
+                c.spawn(Node { flex_direction: FlexDirection::Column, ..default() }).with_children(
+                    |t| {
+                        t.spawn(ui_style::text(row.name.clone(), font::LABEL, theme.dim));
+                        t.spawn(ui_style::text(row.count.to_string(), font::BODY, theme.text));
+                    },
+                );
+            });
+        }
+    });
 }
 
 /// The building picker (#111): a row per building with its cost and work. A building the nation

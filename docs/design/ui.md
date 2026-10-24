@@ -83,7 +83,10 @@ Spacing steps in `ui_style::space`: 4, 6, 8, 12, 16 px. Layout constants are in
   brackets. It's absolutely positioned, so it never affects layout. Because the frame draws 8px
   outside the panel, a panel must not clip its own children: put `overflow` on an inner node.
 - `emblem(skin)`: the nation's medallion from `emblems.png`, for the side-panel header.
-- `section_title(p, theme, skin, title)`, `bar`, `button` and `text`.
+- `section_title(p, theme, skin, title)`, `bar` and `text`.
+- `item_well(p, theme, skin, icon)`: an item icon (`ItemDef::icon`, a sprite of `icons.png`) at 2x in an
+  `inset` well, for the Stores grid. `tool_button(p, theme, skin, tool, active)`: a tool's icon at 2x
+  with its hotkey under it; the active one is filled with the accent (#130).
 
 `Skin` is the player nation's sheets, rebuilt with `Theme` on a nation change and chosen by the
 nation's id. All UI art is drawn at `ART_SCALE` (2x), so no two pixel sizes meet.
