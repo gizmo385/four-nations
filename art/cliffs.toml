@@ -1,0 +1,2137 @@
+# Mountain cliffs and boulders (docs/design/pixel-art.md, #147). Two cliff sets, `rock` (grey-brown
+# face, rock top; every biome but tundra) and `snow` (grey face, snow top; tundra). One piece for
+# every way a mountain tile can meet lower ground: the lower sides (n, s, e, w) and, for a side
+# pair that is mountain, a lower diagonal (_nw, _ne, _sw, _se: an inner corner). `flat` has no
+# lower neighbour at all and is the plateau top the interior uses. Names go in the order
+# `sprites::cliffs` expects: for each lower-side mask (n=1, s=2, e=4, w=8) the inner-corner
+# subsets in the order nw, ne, sw, se. The tops are the rock and snow floors' tones.
+#
+# The faces are painted into the lower rows of the pieces that have lower ground to the south, so
+# nothing overlaps the row below. Every pixel is opaque: the ink line is the plateau's edge.
+#
+# Legend (one global colour per character, so the sets share a grid style):
+#   o ink   0-4 stone ramp   a-d earth ramp (grey-brown rock face)   x-z snow ramp   w white
+cell = [16, 16]
+columns = 10
+
+[legend]
+o = "ink"
+"0" = "stone0"
+"1" = "stone1"
+"2" = "stone2"
+"3" = "stone3"
+"4" = "stone4"
+a = "earth0"
+b = "earth1"
+c = "earth2"
+d = "earth3"
+x = "snow0"
+y = "snow1"
+z = "snow2"
+
+
+[[sprite]]
+name = "rock_flat"
+grid = """
+2222222222222222
+2222221223222222
+2221222222222222
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+2122222212222222
+2222222222222222
+2222212222222222
+2222222222222222
+2222222222222222
+2222221222222222
+2222212222222232
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "rock_flat_nw"
+grid = """
+o422222222222222
+4222221223222222
+2221222222222222
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+2122222212222222
+2222222222222222
+2222212222222222
+2222222222222222
+2222222222222222
+2222221222222222
+2222212222222232
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "rock_flat_ne"
+grid = """
+222222222222221o
+2222221223222224
+2221222222222222
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+2122222212222222
+2222222222222222
+2222212222222222
+2222222222222222
+2222222222222222
+2222221222222222
+2222212222222232
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "rock_flat_nw_ne"
+grid = """
+o42222222222221o
+4222221223222224
+2221222222222222
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+2122222212222222
+2222222222222222
+2222212222222222
+2222222222222222
+2222222222222222
+2222221222222222
+2222212222222232
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "rock_flat_sw"
+grid = """
+2222222222222222
+2222221223222222
+2221222222222222
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+od22222212222222
+o422222222222222
+o422212222222222
+o422222222222222
+o422222222222222
+o422221222222222
+o422212222222232
+o422222222222222
+o422222222222222
+"""
+
+[[sprite]]
+name = "rock_flat_nw_sw"
+grid = """
+o422222222222222
+4222221223222222
+2221222222222222
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+od22222212222222
+o422222222222222
+o422212222222222
+o422222222222222
+o422222222222222
+o422221222222222
+o422212222222232
+o422222222222222
+o422222222222222
+"""
+
+[[sprite]]
+name = "rock_flat_ne_sw"
+grid = """
+222222222222221o
+2222221223222224
+2221222222222222
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+od22222212222222
+o422222222222222
+o422212222222222
+o422222222222222
+o422222222222222
+o422221222222222
+o422212222222232
+o422222222222222
+o422222222222222
+"""
+
+[[sprite]]
+name = "rock_flat_nw_ne_sw"
+grid = """
+o42222222222221o
+4222221223222224
+2221222222222222
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+od22222212222222
+o422222222222222
+o422212222222222
+o422222222222222
+o422222222222222
+o422221222222222
+o422212222222232
+o422222222222222
+o422222222222222
+"""
+
+[[sprite]]
+name = "rock_flat_se"
+grid = """
+2222222222222222
+2222221223222222
+2221222222222222
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+21222222122222do
+222222222222221o
+222221222222221o
+222222222222221o
+222222222222221o
+222222122222221o
+222221222222221o
+222222222222221o
+222222222222221o
+"""
+
+[[sprite]]
+name = "rock_flat_nw_se"
+grid = """
+o422222222222222
+4222221223222222
+2221222222222222
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+21222222122222do
+222222222222221o
+222221222222221o
+222222222222221o
+222222222222221o
+222222122222221o
+222221222222221o
+222222222222221o
+222222222222221o
+"""
+
+[[sprite]]
+name = "rock_flat_ne_se"
+grid = """
+222222222222221o
+2222221223222224
+2221222222222222
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+21222222122222do
+222222222222221o
+222221222222221o
+222222222222221o
+222222222222221o
+222222122222221o
+222221222222221o
+222222222222221o
+222222222222221o
+"""
+
+[[sprite]]
+name = "rock_flat_nw_ne_se"
+grid = """
+o42222222222221o
+4222221223222224
+2221222222222222
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+21222222122222do
+222222222222221o
+222221222222221o
+222222222222221o
+222222222222221o
+222222122222221o
+222221222222221o
+222222222222221o
+222222222222221o
+"""
+
+[[sprite]]
+name = "rock_flat_sw_se"
+grid = """
+2222222222222222
+2222221223222222
+2221222222222222
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+od222222122222do
+o42222222222221o
+o42221222222221o
+o42222222222221o
+o42222222222221o
+o42222122222221o
+o42221222222221o
+o42222222222221o
+o42222222222221o
+"""
+
+[[sprite]]
+name = "rock_flat_nw_sw_se"
+grid = """
+o422222222222222
+4222221223222222
+2221222222222222
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+od222222122222do
+o42222222222221o
+o42221222222221o
+o42222222222221o
+o42222222222221o
+o42222122222221o
+o42221222222221o
+o42222222222221o
+o42222222222221o
+"""
+
+[[sprite]]
+name = "rock_flat_ne_sw_se"
+grid = """
+222222222222221o
+2222221223222224
+2221222222222222
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+od222222122222do
+o42222222222221o
+o42221222222221o
+o42222222222221o
+o42222222222221o
+o42222122222221o
+o42221222222221o
+o42222222222221o
+o42222222222221o
+"""
+
+[[sprite]]
+name = "rock_flat_nw_ne_sw_se"
+grid = """
+o42222222222221o
+4222221223222224
+2221222222222222
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+od222222122222do
+o42222222222221o
+o42221222222221o
+o42222222222221o
+o42222222222221o
+o42222122222221o
+o42221222222221o
+o42222222222221o
+o42222222222221o
+"""
+
+[[sprite]]
+name = "rock_n"
+grid = """
+oooooooooooooooo
+4444444444444444
+3333333333333333
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+2122222212222222
+2222222222222222
+2222212222222222
+2222222222222222
+2222222222222222
+2222221222222222
+2222212222222232
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "rock_n_sw"
+grid = """
+oooooooooooooooo
+4444444444444444
+3333333333333333
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+od22222212222222
+o422222222222222
+o422212222222222
+o422222222222222
+o422222222222222
+o422221222222222
+o422212222222232
+o422222222222222
+o422222222222222
+"""
+
+[[sprite]]
+name = "rock_n_se"
+grid = """
+oooooooooooooooo
+4444444444444444
+3333333333333333
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+21222222122222do
+222222222222221o
+222221222222221o
+222222222222221o
+222222222222221o
+222222122222221o
+222221222222221o
+222222222222221o
+222222222222221o
+"""
+
+[[sprite]]
+name = "rock_n_sw_se"
+grid = """
+oooooooooooooooo
+4444444444444444
+3333333333333333
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+od222222122222do
+o42222222222221o
+o42221222222221o
+o42222222222221o
+o42222222222221o
+o42222122222221o
+o42221222222221o
+o42222222222221o
+o42222222222221o
+"""
+
+[[sprite]]
+name = "rock_s"
+grid = """
+2222222222222222
+2222221223222222
+2221222222222222
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+dddddddddddddddd
+cccccccccccccccc
+cdccccbccccccbcc
+ccbcccbccbcccbcc
+ccbcdccccbcccbcc
+ccbccccdcbcdcccc
+bbbbbbbbbbbbbbbb
+aaaaaaaaaaaaaaaa
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "rock_s_nw"
+grid = """
+o422222222222222
+4222221223222222
+2221222222222222
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+dddddddddddddddd
+cccccccccccccccc
+cdccccbccccccbcc
+ccbcccbccbcccbcc
+ccbcdccccbcccbcc
+ccbccccdcbcdcccc
+bbbbbbbbbbbbbbbb
+aaaaaaaaaaaaaaaa
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "rock_s_ne"
+grid = """
+222222222222221o
+2222221223222224
+2221222222222222
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+dddddddddddddddd
+cccccccccccccccc
+cdccccbccccccbcc
+ccbcccbccbcccbcc
+ccbcdccccbcccbcc
+ccbccccdcbcdcccc
+bbbbbbbbbbbbbbbb
+aaaaaaaaaaaaaaaa
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "rock_s_nw_ne"
+grid = """
+o42222222222221o
+4222221223222224
+2221222222222222
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+dddddddddddddddd
+cccccccccccccccc
+cdccccbccccccbcc
+ccbcccbccbcccbcc
+ccbcdccccbcccbcc
+ccbccccdcbcdcccc
+bbbbbbbbbbbbbbbb
+aaaaaaaaaaaaaaaa
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "rock_ns"
+grid = """
+oooooooooooooooo
+4444444444444444
+3333333333333333
+2122221222222222
+2222222222232222
+2222222222222222
+2223222222212222
+dddddddddddddddd
+cccccccccccccccc
+cdccccbccccccbcc
+ccbcccbccbcccbcc
+ccbcdccccbcccbcc
+ccbccccdcbcdcccc
+bbbbbbbbbbbbbbbb
+aaaaaaaaaaaaaaaa
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "rock_e"
+grid = """
+222222222222221o
+222222122322221o
+222122222222221o
+212222122222221o
+222222222223221o
+222222222222221o
+222322222221221o
+212222221222221o
+222222222222221o
+222221222222221o
+222222222222221o
+222222222222221o
+222222122222221o
+222221222222221o
+222222222222221o
+222222222222221o
+"""
+
+[[sprite]]
+name = "rock_e_nw"
+grid = """
+o42222222222221o
+422222122322221o
+222122222222221o
+212222122222221o
+222222222223221o
+222222222222221o
+222322222221221o
+212222221222221o
+222222222222221o
+222221222222221o
+222222222222221o
+222222222222221o
+222222122222221o
+222221222222221o
+222222222222221o
+222222222222221o
+"""
+
+[[sprite]]
+name = "rock_e_sw"
+grid = """
+222222222222221o
+222222122322221o
+222122222222221o
+212222122222221o
+222222222223221o
+222222222222221o
+222322222221221o
+od2222221222221o
+o42222222222221o
+o42221222222221o
+o42222222222221o
+o42222222222221o
+o42222122222221o
+o42221222222221o
+o42222222222221o
+o42222222222221o
+"""
+
+[[sprite]]
+name = "rock_e_nw_sw"
+grid = """
+o42222222222221o
+422222122322221o
+222122222222221o
+212222122222221o
+222222222223221o
+222222222222221o
+222322222221221o
+od2222221222221o
+o42222222222221o
+o42221222222221o
+o42222222222221o
+o42222222222221o
+o42222122222221o
+o42221222222221o
+o42222222222221o
+o42222222222221o
+"""
+
+[[sprite]]
+name = "rock_ne"
+grid = """
+oooooooooooooooo
+444444444444444o
+333333333333331o
+212222122222221o
+222222222223221o
+222222222222221o
+222322222221221o
+212222221222221o
+222222222222221o
+222221222222221o
+222222222222221o
+222222222222221o
+222222122222221o
+222221222222221o
+222222222222221o
+222222222222221o
+"""
+
+[[sprite]]
+name = "rock_ne_sw"
+grid = """
+oooooooooooooooo
+444444444444444o
+333333333333331o
+212222122222221o
+222222222223221o
+222222222222221o
+222322222221221o
+od2222221222221o
+o42222222222221o
+o42221222222221o
+o42222222222221o
+o42222222222221o
+o42222122222221o
+o42221222222221o
+o42222222222221o
+o42222222222221o
+"""
+
+[[sprite]]
+name = "rock_se"
+grid = """
+222222222222221o
+222222122322221o
+222122222222221o
+212222122222221o
+222222222223221o
+222222222222221o
+222322222221221o
+dddddddddddddddo
+ccccccccccccccco
+cdccccbccccccbco
+ccbcccbccbcccbco
+ccbcdccccbcccbco
+ccbccccdcbcdccco
+bbbbbbbbbbbbbbbo
+aaaaaaaaaaaaaaao
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "rock_se_nw"
+grid = """
+o42222222222221o
+422222122322221o
+222122222222221o
+212222122222221o
+222222222223221o
+222222222222221o
+222322222221221o
+dddddddddddddddo
+ccccccccccccccco
+cdccccbccccccbco
+ccbcccbccbcccbco
+ccbcdccccbcccbco
+ccbccccdcbcdccco
+bbbbbbbbbbbbbbbo
+aaaaaaaaaaaaaaao
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "rock_nse"
+grid = """
+oooooooooooooooo
+444444444444444o
+333333333333331o
+212222122222221o
+222222222223221o
+222222222222221o
+222322222221221o
+dddddddddddddddo
+ccccccccccccccco
+cdccccbccccccbco
+ccbcccbccbcccbco
+ccbcdccccbcccbco
+ccbccccdcbcdccco
+bbbbbbbbbbbbbbbo
+aaaaaaaaaaaaaaao
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "rock_w"
+grid = """
+o432222222222222
+o432221223222222
+o431222222222222
+o432221222222222
+o432222222232222
+o432222222222222
+o433222222212222
+o432222212222222
+o432222222222222
+o432212222222222
+o432222222222222
+o432222222222222
+o432221222222222
+o432212222222232
+o432222222222222
+o432222222222222
+"""
+
+[[sprite]]
+name = "rock_w_ne"
+grid = """
+o43222222222221o
+o432221223222224
+o431222222222222
+o432221222222222
+o432222222232222
+o432222222222222
+o433222222212222
+o432222212222222
+o432222222222222
+o432212222222222
+o432222222222222
+o432222222222222
+o432221222222222
+o432212222222232
+o432222222222222
+o432222222222222
+"""
+
+[[sprite]]
+name = "rock_w_se"
+grid = """
+o432222222222222
+o432221223222222
+o431222222222222
+o432221222222222
+o432222222232222
+o432222222222222
+o433222222212222
+o4322222122222do
+o43222222222221o
+o43221222222221o
+o43222222222221o
+o43222222222221o
+o43222122222221o
+o43221222222221o
+o43222222222221o
+o43222222222221o
+"""
+
+[[sprite]]
+name = "rock_w_ne_se"
+grid = """
+o43222222222221o
+o432221223222224
+o431222222222222
+o432221222222222
+o432222222232222
+o432222222222222
+o433222222212222
+o4322222122222do
+o43222222222221o
+o43221222222221o
+o43222222222221o
+o43222222222221o
+o43222122222221o
+o43221222222221o
+o43222222222221o
+o43222222222221o
+"""
+
+[[sprite]]
+name = "rock_nw"
+grid = """
+oo3ooooooooooooo
+o434444444444444
+o433333333333333
+o432221222222222
+o432222222232222
+o432222222222222
+o433222222212222
+o432222212222222
+o432222222222222
+o432212222222222
+o432222222222222
+o432222222222222
+o432221222222222
+o432212222222232
+o432222222222222
+o432222222222222
+"""
+
+[[sprite]]
+name = "rock_nw_se"
+grid = """
+oo3ooooooooooooo
+o434444444444444
+o433333333333333
+o432221222222222
+o432222222232222
+o432222222222222
+o433222222212222
+o4322222122222do
+o43222222222221o
+o43221222222221o
+o43222222222221o
+o43222222222221o
+o43222122222221o
+o43221222222221o
+o43222222222221o
+o43222222222221o
+"""
+
+[[sprite]]
+name = "rock_sw"
+grid = """
+o432222222222222
+o432221223222222
+o431222222222222
+o432221222222222
+o432222222232222
+o432222222222222
+o433222222212222
+oddddddddddddddd
+occccccccccccccc
+odccccbccccccbcc
+ocbcccbccbcccbcc
+ocbcdccccbcccbcc
+ocbccccdcbcdcccc
+obbbbbbbbbbbbbbb
+oaaaaaaaaaaaaaaa
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "rock_sw_ne"
+grid = """
+o43222222222221o
+o432221223222224
+o431222222222222
+o432221222222222
+o432222222232222
+o432222222222222
+o433222222212222
+oddddddddddddddd
+occccccccccccccc
+odccccbccccccbcc
+ocbcccbccbcccbcc
+ocbcdccccbcccbcc
+ocbccccdcbcdcccc
+obbbbbbbbbbbbbbb
+oaaaaaaaaaaaaaaa
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "rock_nsw"
+grid = """
+oo3ooooooooooooo
+o434444444444444
+o433333333333333
+o432221222222222
+o432222222232222
+o432222222222222
+o433222222212222
+oddddddddddddddd
+occccccccccccccc
+odccccbccccccbcc
+ocbcccbccbcccbcc
+ocbcdccccbcccbcc
+ocbccccdcbcdcccc
+obbbbbbbbbbbbbbb
+oaaaaaaaaaaaaaaa
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "rock_ew"
+grid = """
+o43222222222221o
+o43222122322221o
+o43122222222221o
+o43222122222221o
+o43222222223221o
+o43222222222221o
+o43322222221221o
+o43222221222221o
+o43222222222221o
+o43221222222221o
+o43222222222221o
+o43222222222221o
+o43222122222221o
+o43221222222221o
+o43222222222221o
+o43222222222221o
+"""
+
+[[sprite]]
+name = "rock_new"
+grid = """
+oo3ooooooooooooo
+o43444444444444o
+o43333333333331o
+o43222122222221o
+o43222222223221o
+o43222222222221o
+o43322222221221o
+o43222221222221o
+o43222222222221o
+o43221222222221o
+o43222222222221o
+o43222222222221o
+o43222122222221o
+o43221222222221o
+o43222222222221o
+o43222222222221o
+"""
+
+[[sprite]]
+name = "rock_sew"
+grid = """
+o43222222222221o
+o43222122322221o
+o43122222222221o
+o43222122222221o
+o43222222223221o
+o43222222222221o
+o43322222221221o
+oddddddddddddddo
+occcccccccccccco
+odccccbccccccbco
+ocbcccbccbcccbco
+ocbcdccccbcccbco
+ocbccccdcbcdccco
+obbbbbbbbbbbbbbo
+oaaaaaaaaaaaaaao
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "rock_nsew"
+grid = """
+oo3ooooooooooooo
+o43444444444444o
+o43333333333331o
+o43222122222221o
+o43222222223221o
+o43222222222221o
+o43322222221221o
+oddddddddddddddo
+occcccccccccccco
+odccccbccccccbco
+ocbcccbccbcccbco
+ocbcdccccbcccbco
+ocbccccdcbcdccco
+obbbbbbbbbbbbbbo
+oaaaaaaaaaaaaaao
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "snow_flat"
+grid = """
+yyyyyyyyyyyyyyyy
+yyyyyyxyyzyyyyyy
+yyyxyyyyyyyyyyyy
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+yxyyyyyyxyyyyyyy
+yyyyyyyyyyyyyyyy
+yyyyyxyyyyyyyyyy
+yyyyyyyyyyyyyyyy
+yyyyyyyyyyyyyyyy
+yyyyyyxyyyyyyyyy
+yyyyyxyyyyyyyyzy
+yyyyyyyyyyyyyyyy
+yyyyyyyyyyyyyyyy
+"""
+
+[[sprite]]
+name = "snow_flat_nw"
+grid = """
+owyyyyyyyyyyyyyy
+wyyyyyxyyzyyyyyy
+yyyxyyyyyyyyyyyy
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+yxyyyyyyxyyyyyyy
+yyyyyyyyyyyyyyyy
+yyyyyxyyyyyyyyyy
+yyyyyyyyyyyyyyyy
+yyyyyyyyyyyyyyyy
+yyyyyyxyyyyyyyyy
+yyyyyxyyyyyyyyzy
+yyyyyyyyyyyyyyyy
+yyyyyyyyyyyyyyyy
+"""
+
+[[sprite]]
+name = "snow_flat_ne"
+grid = """
+yyyyyyyyyyyyyyxo
+yyyyyyxyyzyyyyyw
+yyyxyyyyyyyyyyyy
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+yxyyyyyyxyyyyyyy
+yyyyyyyyyyyyyyyy
+yyyyyxyyyyyyyyyy
+yyyyyyyyyyyyyyyy
+yyyyyyyyyyyyyyyy
+yyyyyyxyyyyyyyyy
+yyyyyxyyyyyyyyzy
+yyyyyyyyyyyyyyyy
+yyyyyyyyyyyyyyyy
+"""
+
+[[sprite]]
+name = "snow_flat_nw_ne"
+grid = """
+owyyyyyyyyyyyyxo
+wyyyyyxyyzyyyyyw
+yyyxyyyyyyyyyyyy
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+yxyyyyyyxyyyyyyy
+yyyyyyyyyyyyyyyy
+yyyyyxyyyyyyyyyy
+yyyyyyyyyyyyyyyy
+yyyyyyyyyyyyyyyy
+yyyyyyxyyyyyyyyy
+yyyyyxyyyyyyyyzy
+yyyyyyyyyyyyyyyy
+yyyyyyyyyyyyyyyy
+"""
+
+[[sprite]]
+name = "snow_flat_sw"
+grid = """
+yyyyyyyyyyyyyyyy
+yyyyyyxyyzyyyyyy
+yyyxyyyyyyyyyyyy
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+ozyyyyyyxyyyyyyy
+owyyyyyyyyyyyyyy
+owyyyxyyyyyyyyyy
+owyyyyyyyyyyyyyy
+owyyyyyyyyyyyyyy
+owyyyyxyyyyyyyyy
+owyyyxyyyyyyyyzy
+owyyyyyyyyyyyyyy
+owyyyyyyyyyyyyyy
+"""
+
+[[sprite]]
+name = "snow_flat_nw_sw"
+grid = """
+owyyyyyyyyyyyyyy
+wyyyyyxyyzyyyyyy
+yyyxyyyyyyyyyyyy
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+ozyyyyyyxyyyyyyy
+owyyyyyyyyyyyyyy
+owyyyxyyyyyyyyyy
+owyyyyyyyyyyyyyy
+owyyyyyyyyyyyyyy
+owyyyyxyyyyyyyyy
+owyyyxyyyyyyyyzy
+owyyyyyyyyyyyyyy
+owyyyyyyyyyyyyyy
+"""
+
+[[sprite]]
+name = "snow_flat_ne_sw"
+grid = """
+yyyyyyyyyyyyyyxo
+yyyyyyxyyzyyyyyw
+yyyxyyyyyyyyyyyy
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+ozyyyyyyxyyyyyyy
+owyyyyyyyyyyyyyy
+owyyyxyyyyyyyyyy
+owyyyyyyyyyyyyyy
+owyyyyyyyyyyyyyy
+owyyyyxyyyyyyyyy
+owyyyxyyyyyyyyzy
+owyyyyyyyyyyyyyy
+owyyyyyyyyyyyyyy
+"""
+
+[[sprite]]
+name = "snow_flat_nw_ne_sw"
+grid = """
+owyyyyyyyyyyyyxo
+wyyyyyxyyzyyyyyw
+yyyxyyyyyyyyyyyy
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+ozyyyyyyxyyyyyyy
+owyyyyyyyyyyyyyy
+owyyyxyyyyyyyyyy
+owyyyyyyyyyyyyyy
+owyyyyyyyyyyyyyy
+owyyyyxyyyyyyyyy
+owyyyxyyyyyyyyzy
+owyyyyyyyyyyyyyy
+owyyyyyyyyyyyyyy
+"""
+
+[[sprite]]
+name = "snow_flat_se"
+grid = """
+yyyyyyyyyyyyyyyy
+yyyyyyxyyzyyyyyy
+yyyxyyyyyyyyyyyy
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+yxyyyyyyxyyyyyzo
+yyyyyyyyyyyyyyxo
+yyyyyxyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyxyyyyyyyxo
+yyyyyxyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_flat_nw_se"
+grid = """
+owyyyyyyyyyyyyyy
+wyyyyyxyyzyyyyyy
+yyyxyyyyyyyyyyyy
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+yxyyyyyyxyyyyyzo
+yyyyyyyyyyyyyyxo
+yyyyyxyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyxyyyyyyyxo
+yyyyyxyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_flat_ne_se"
+grid = """
+yyyyyyyyyyyyyyxo
+yyyyyyxyyzyyyyyw
+yyyxyyyyyyyyyyyy
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+yxyyyyyyxyyyyyzo
+yyyyyyyyyyyyyyxo
+yyyyyxyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyxyyyyyyyxo
+yyyyyxyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_flat_nw_ne_se"
+grid = """
+owyyyyyyyyyyyyxo
+wyyyyyxyyzyyyyyw
+yyyxyyyyyyyyyyyy
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+yxyyyyyyxyyyyyzo
+yyyyyyyyyyyyyyxo
+yyyyyxyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyxyyyyyyyxo
+yyyyyxyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_flat_sw_se"
+grid = """
+yyyyyyyyyyyyyyyy
+yyyyyyxyyzyyyyyy
+yyyxyyyyyyyyyyyy
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+ozyyyyyyxyyyyyzo
+owyyyyyyyyyyyyxo
+owyyyxyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyxyyyyyyyxo
+owyyyxyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_flat_nw_sw_se"
+grid = """
+owyyyyyyyyyyyyyy
+wyyyyyxyyzyyyyyy
+yyyxyyyyyyyyyyyy
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+ozyyyyyyxyyyyyzo
+owyyyyyyyyyyyyxo
+owyyyxyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyxyyyyyyyxo
+owyyyxyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_flat_ne_sw_se"
+grid = """
+yyyyyyyyyyyyyyxo
+yyyyyyxyyzyyyyyw
+yyyxyyyyyyyyyyyy
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+ozyyyyyyxyyyyyzo
+owyyyyyyyyyyyyxo
+owyyyxyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyxyyyyyyyxo
+owyyyxyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_flat_nw_ne_sw_se"
+grid = """
+owyyyyyyyyyyyyxo
+wyyyyyxyyzyyyyyw
+yyyxyyyyyyyyyyyy
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+ozyyyyyyxyyyyyzo
+owyyyyyyyyyyyyxo
+owyyyxyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyxyyyyyyyxo
+owyyyxyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_n"
+grid = """
+oooooooooooooooo
+wwwwwwwwwwwwwwww
+zzzzzzzzzzzzzzzz
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+yxyyyyyyxyyyyyyy
+yyyyyyyyyyyyyyyy
+yyyyyxyyyyyyyyyy
+yyyyyyyyyyyyyyyy
+yyyyyyyyyyyyyyyy
+yyyyyyxyyyyyyyyy
+yyyyyxyyyyyyyyzy
+yyyyyyyyyyyyyyyy
+yyyyyyyyyyyyyyyy
+"""
+
+[[sprite]]
+name = "snow_n_sw"
+grid = """
+oooooooooooooooo
+wwwwwwwwwwwwwwww
+zzzzzzzzzzzzzzzz
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+ozyyyyyyxyyyyyyy
+owyyyyyyyyyyyyyy
+owyyyxyyyyyyyyyy
+owyyyyyyyyyyyyyy
+owyyyyyyyyyyyyyy
+owyyyyxyyyyyyyyy
+owyyyxyyyyyyyyzy
+owyyyyyyyyyyyyyy
+owyyyyyyyyyyyyyy
+"""
+
+[[sprite]]
+name = "snow_n_se"
+grid = """
+oooooooooooooooo
+wwwwwwwwwwwwwwww
+zzzzzzzzzzzzzzzz
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+yxyyyyyyxyyyyyzo
+yyyyyyyyyyyyyyxo
+yyyyyxyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyxyyyyyyyxo
+yyyyyxyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_n_sw_se"
+grid = """
+oooooooooooooooo
+wwwwwwwwwwwwwwww
+zzzzzzzzzzzzzzzz
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+ozyyyyyyxyyyyyzo
+owyyyyyyyyyyyyxo
+owyyyxyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyxyyyyyyyxo
+owyyyxyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_s"
+grid = """
+yyyyyyyyyyyyyyyy
+yyyyyyxyyzyyyyyy
+yyyxyyyyyyyyyyyy
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+zzzzzzzzzzzzzzzz
+2zzz22zz22zzz2z2
+23z2222z222z2222
+2212221221222122
+2212322221222122
+2212222321232222
+1111111111111111
+0000000000000000
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "snow_s_nw"
+grid = """
+owyyyyyyyyyyyyyy
+wyyyyyxyyzyyyyyy
+yyyxyyyyyyyyyyyy
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+zzzzzzzzzzzzzzzz
+2zzz22zz22zzz2z2
+23z2222z222z2222
+2212221221222122
+2212322221222122
+2212222321232222
+1111111111111111
+0000000000000000
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "snow_s_ne"
+grid = """
+yyyyyyyyyyyyyyxo
+yyyyyyxyyzyyyyyw
+yyyxyyyyyyyyyyyy
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+zzzzzzzzzzzzzzzz
+2zzz22zz22zzz2z2
+23z2222z222z2222
+2212221221222122
+2212322221222122
+2212222321232222
+1111111111111111
+0000000000000000
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "snow_s_nw_ne"
+grid = """
+owyyyyyyyyyyyyxo
+wyyyyyxyyzyyyyyw
+yyyxyyyyyyyyyyyy
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+zzzzzzzzzzzzzzzz
+2zzz22zz22zzz2z2
+23z2222z222z2222
+2212221221222122
+2212322221222122
+2212222321232222
+1111111111111111
+0000000000000000
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "snow_ns"
+grid = """
+oooooooooooooooo
+wwwwwwwwwwwwwwww
+zzzzzzzzzzzzzzzz
+yxyyyyxyyyyyyyyy
+yyyyyyyyyyyzyyyy
+yyyyyyyyyyyyyyyy
+yyyzyyyyyyyxyyyy
+zzzzzzzzzzzzzzzz
+2zzz22zz22zzz2z2
+23z2222z222z2222
+2212221221222122
+2212322221222122
+2212222321232222
+1111111111111111
+0000000000000000
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "snow_e"
+grid = """
+yyyyyyyyyyyyyyxo
+yyyyyyxyyzyyyyxo
+yyyxyyyyyyyyyyxo
+yxyyyyxyyyyyyyxo
+yyyyyyyyyyyzyyxo
+yyyyyyyyyyyyyyxo
+yyyzyyyyyyyxyyxo
+yxyyyyyyxyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyxyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyxyyyyyyyxo
+yyyyyxyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_e_nw"
+grid = """
+owyyyyyyyyyyyyxo
+wyyyyyxyyzyyyyxo
+yyyxyyyyyyyyyyxo
+yxyyyyxyyyyyyyxo
+yyyyyyyyyyyzyyxo
+yyyyyyyyyyyyyyxo
+yyyzyyyyyyyxyyxo
+yxyyyyyyxyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyxyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyxyyyyyyyxo
+yyyyyxyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_e_sw"
+grid = """
+yyyyyyyyyyyyyyxo
+yyyyyyxyyzyyyyxo
+yyyxyyyyyyyyyyxo
+yxyyyyxyyyyyyyxo
+yyyyyyyyyyyzyyxo
+yyyyyyyyyyyyyyxo
+yyyzyyyyyyyxyyxo
+ozyyyyyyxyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyxyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyxyyyyyyyxo
+owyyyxyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_e_nw_sw"
+grid = """
+owyyyyyyyyyyyyxo
+wyyyyyxyyzyyyyxo
+yyyxyyyyyyyyyyxo
+yxyyyyxyyyyyyyxo
+yyyyyyyyyyyzyyxo
+yyyyyyyyyyyyyyxo
+yyyzyyyyyyyxyyxo
+ozyyyyyyxyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyxyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyxyyyyyyyxo
+owyyyxyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_ne"
+grid = """
+oooooooooooooooo
+wwwwwwwwwwwwwwwo
+zzzzzzzzzzzzzzxo
+yxyyyyxyyyyyyyxo
+yyyyyyyyyyyzyyxo
+yyyyyyyyyyyyyyxo
+yyyzyyyyyyyxyyxo
+yxyyyyyyxyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyxyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyxyyyyyyyxo
+yyyyyxyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+yyyyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_ne_sw"
+grid = """
+oooooooooooooooo
+wwwwwwwwwwwwwwwo
+zzzzzzzzzzzzzzxo
+yxyyyyxyyyyyyyxo
+yyyyyyyyyyyzyyxo
+yyyyyyyyyyyyyyxo
+yyyzyyyyyyyxyyxo
+ozyyyyyyxyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyxyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyxyyyyyyyxo
+owyyyxyyyyyyyyxo
+owyyyyyyyyyyyyxo
+owyyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_se"
+grid = """
+yyyyyyyyyyyyyyxo
+yyyyyyxyyzyyyyxo
+yyyxyyyyyyyyyyxo
+yxyyyyxyyyyyyyxo
+yyyyyyyyyyyzyyxo
+yyyyyyyyyyyyyyxo
+yyyzyyyyyyyxyyxo
+zzzzzzzzzzzzzzzo
+2zzz22zz22zzz2zo
+23z2222z222z222o
+221222122122212o
+221232222122212o
+221222232123222o
+111111111111111o
+000000000000000o
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "snow_se_nw"
+grid = """
+owyyyyyyyyyyyyxo
+wyyyyyxyyzyyyyxo
+yyyxyyyyyyyyyyxo
+yxyyyyxyyyyyyyxo
+yyyyyyyyyyyzyyxo
+yyyyyyyyyyyyyyxo
+yyyzyyyyyyyxyyxo
+zzzzzzzzzzzzzzzo
+2zzz22zz22zzz2zo
+23z2222z222z222o
+221222122122212o
+221232222122212o
+221222232123222o
+111111111111111o
+000000000000000o
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "snow_nse"
+grid = """
+oooooooooooooooo
+wwwwwwwwwwwwwwwo
+zzzzzzzzzzzzzzxo
+yxyyyyxyyyyyyyxo
+yyyyyyyyyyyzyyxo
+yyyyyyyyyyyyyyxo
+yyyzyyyyyyyxyyxo
+zzzzzzzzzzzzzzzo
+2zzz22zz22zzz2zo
+23z2222z222z222o
+221222122122212o
+221232222122212o
+221222232123222o
+111111111111111o
+000000000000000o
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "snow_w"
+grid = """
+owzyyyyyyyyyyyyy
+owzyyyxyyzyyyyyy
+owzxyyyyyyyyyyyy
+owzyyyxyyyyyyyyy
+owzyyyyyyyyzyyyy
+owzyyyyyyyyyyyyy
+owzzyyyyyyyxyyyy
+owzyyyyyxyyyyyyy
+owzyyyyyyyyyyyyy
+owzyyxyyyyyyyyyy
+owzyyyyyyyyyyyyy
+owzyyyyyyyyyyyyy
+owzyyyxyyyyyyyyy
+owzyyxyyyyyyyyzy
+owzyyyyyyyyyyyyy
+owzyyyyyyyyyyyyy
+"""
+
+[[sprite]]
+name = "snow_w_ne"
+grid = """
+owzyyyyyyyyyyyxo
+owzyyyxyyzyyyyyw
+owzxyyyyyyyyyyyy
+owzyyyxyyyyyyyyy
+owzyyyyyyyyzyyyy
+owzyyyyyyyyyyyyy
+owzzyyyyyyyxyyyy
+owzyyyyyxyyyyyyy
+owzyyyyyyyyyyyyy
+owzyyxyyyyyyyyyy
+owzyyyyyyyyyyyyy
+owzyyyyyyyyyyyyy
+owzyyyxyyyyyyyyy
+owzyyxyyyyyyyyzy
+owzyyyyyyyyyyyyy
+owzyyyyyyyyyyyyy
+"""
+
+[[sprite]]
+name = "snow_w_se"
+grid = """
+owzyyyyyyyyyyyyy
+owzyyyxyyzyyyyyy
+owzxyyyyyyyyyyyy
+owzyyyxyyyyyyyyy
+owzyyyyyyyyzyyyy
+owzyyyyyyyyyyyyy
+owzzyyyyyyyxyyyy
+owzyyyyyxyyyyyzo
+owzyyyyyyyyyyyxo
+owzyyxyyyyyyyyxo
+owzyyyyyyyyyyyxo
+owzyyyyyyyyyyyxo
+owzyyyxyyyyyyyxo
+owzyyxyyyyyyyyxo
+owzyyyyyyyyyyyxo
+owzyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_w_ne_se"
+grid = """
+owzyyyyyyyyyyyxo
+owzyyyxyyzyyyyyw
+owzxyyyyyyyyyyyy
+owzyyyxyyyyyyyyy
+owzyyyyyyyyzyyyy
+owzyyyyyyyyyyyyy
+owzzyyyyyyyxyyyy
+owzyyyyyxyyyyyzo
+owzyyyyyyyyyyyxo
+owzyyxyyyyyyyyxo
+owzyyyyyyyyyyyxo
+owzyyyyyyyyyyyxo
+owzyyyxyyyyyyyxo
+owzyyxyyyyyyyyxo
+owzyyyyyyyyyyyxo
+owzyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_nw"
+grid = """
+oozooooooooooooo
+owzwwwwwwwwwwwww
+owzzzzzzzzzzzzzz
+owzyyyxyyyyyyyyy
+owzyyyyyyyyzyyyy
+owzyyyyyyyyyyyyy
+owzzyyyyyyyxyyyy
+owzyyyyyxyyyyyyy
+owzyyyyyyyyyyyyy
+owzyyxyyyyyyyyyy
+owzyyyyyyyyyyyyy
+owzyyyyyyyyyyyyy
+owzyyyxyyyyyyyyy
+owzyyxyyyyyyyyzy
+owzyyyyyyyyyyyyy
+owzyyyyyyyyyyyyy
+"""
+
+[[sprite]]
+name = "snow_nw_se"
+grid = """
+oozooooooooooooo
+owzwwwwwwwwwwwww
+owzzzzzzzzzzzzzz
+owzyyyxyyyyyyyyy
+owzyyyyyyyyzyyyy
+owzyyyyyyyyyyyyy
+owzzyyyyyyyxyyyy
+owzyyyyyxyyyyyzo
+owzyyyyyyyyyyyxo
+owzyyxyyyyyyyyxo
+owzyyyyyyyyyyyxo
+owzyyyyyyyyyyyxo
+owzyyyxyyyyyyyxo
+owzyyxyyyyyyyyxo
+owzyyyyyyyyyyyxo
+owzyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_sw"
+grid = """
+owzyyyyyyyyyyyyy
+owzyyyxyyzyyyyyy
+owzxyyyyyyyyyyyy
+owzyyyxyyyyyyyyy
+owzyyyyyyyyzyyyy
+owzyyyyyyyyyyyyy
+owzzyyyyyyyxyyyy
+ozzzzzzzzzzzzzzz
+ozzz22zz22zzz2z2
+o3z2222z222z2222
+o212221221222122
+o212322221222122
+o212222321232222
+o111111111111111
+o000000000000000
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "snow_sw_ne"
+grid = """
+owzyyyyyyyyyyyxo
+owzyyyxyyzyyyyyw
+owzxyyyyyyyyyyyy
+owzyyyxyyyyyyyyy
+owzyyyyyyyyzyyyy
+owzyyyyyyyyyyyyy
+owzzyyyyyyyxyyyy
+ozzzzzzzzzzzzzzz
+ozzz22zz22zzz2z2
+o3z2222z222z2222
+o212221221222122
+o212322221222122
+o212222321232222
+o111111111111111
+o000000000000000
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "snow_nsw"
+grid = """
+oozooooooooooooo
+owzwwwwwwwwwwwww
+owzzzzzzzzzzzzzz
+owzyyyxyyyyyyyyy
+owzyyyyyyyyzyyyy
+owzyyyyyyyyyyyyy
+owzzyyyyyyyxyyyy
+ozzzzzzzzzzzzzzz
+ozzz22zz22zzz2z2
+o3z2222z222z2222
+o212221221222122
+o212322221222122
+o212222321232222
+o111111111111111
+o000000000000000
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "snow_ew"
+grid = """
+owzyyyyyyyyyyyxo
+owzyyyxyyzyyyyxo
+owzxyyyyyyyyyyxo
+owzyyyxyyyyyyyxo
+owzyyyyyyyyzyyxo
+owzyyyyyyyyyyyxo
+owzzyyyyyyyxyyxo
+owzyyyyyxyyyyyxo
+owzyyyyyyyyyyyxo
+owzyyxyyyyyyyyxo
+owzyyyyyyyyyyyxo
+owzyyyyyyyyyyyxo
+owzyyyxyyyyyyyxo
+owzyyxyyyyyyyyxo
+owzyyyyyyyyyyyxo
+owzyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_new"
+grid = """
+oozooooooooooooo
+owzwwwwwwwwwwwwo
+owzzzzzzzzzzzzxo
+owzyyyxyyyyyyyxo
+owzyyyyyyyyzyyxo
+owzyyyyyyyyyyyxo
+owzzyyyyyyyxyyxo
+owzyyyyyxyyyyyxo
+owzyyyyyyyyyyyxo
+owzyyxyyyyyyyyxo
+owzyyyyyyyyyyyxo
+owzyyyyyyyyyyyxo
+owzyyyxyyyyyyyxo
+owzyyxyyyyyyyyxo
+owzyyyyyyyyyyyxo
+owzyyyyyyyyyyyxo
+"""
+
+[[sprite]]
+name = "snow_sew"
+grid = """
+owzyyyyyyyyyyyxo
+owzyyyxyyzyyyyxo
+owzxyyyyyyyyyyxo
+owzyyyxyyyyyyyxo
+owzyyyyyyyyzyyxo
+owzyyyyyyyyyyyxo
+owzzyyyyyyyxyyxo
+ozzzzzzzzzzzzzzo
+ozzz22zz22zzz2zo
+o3z2222z222z222o
+o21222122122212o
+o21232222122212o
+o21222232123222o
+o11111111111111o
+o00000000000000o
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "snow_nsew"
+grid = """
+oozooooooooooooo
+owzwwwwwwwwwwwwo
+owzzzzzzzzzzzzxo
+owzyyyxyyyyyyyxo
+owzyyyyyyyyzyyxo
+owzyyyyyyyyyyyxo
+owzzyyyyyyyxyyxo
+ozzzzzzzzzzzzzzo
+ozzz22zz22zzz2zo
+o3z2222z222z222o
+o21222122122212o
+o21232222122212o
+o21222232123222o
+o11111111111111o
+o00000000000000o
+oooooooooooooooo
+"""
+
+[[sprite]]
+name = "boulder_a"
+outline = true
+grid = """
+................
+................
+................
+................
+......4444......
+.....444333.....
+....44333322....
+...4431332222...
+...3333122221...
+...3322122111...
+...3222211110...
+....22211100....
+.....111100.....
+......1000......
+................
+................
+"""
+
+[[sprite]]
+name = "boulder_b"
+outline = true
+grid = """
+................
+................
+................
+.....444........
+...4443333......
+..443333222.....
+..433322222.....
+..333222200.....
+..32222104433...
+..222210433322..
+...21110332221..
+.....100222111..
+.........1110...
+................
+................
+................
+"""
+
+[[sprite]]
+name = "boulder_c"
+outline = true
+grid = """
+................
+................
+................
+................
+.......44.......
+......4332......
+.....333221.....
+.....322211.....
+....442110443...
+...43321043322..
+..333222333222..
+..322211322211..
+...2110.221110..
+....10...1100...
+................
+................
+"""
+
+[[sprite]]
+name = "snow_boulder_a"
+outline = true
+grid = """
+................
+................
+................
+................
+......wwww......
+.....wzzzzw.....
+....wzyyyyzw....
+...wzy1332yzw...
+...z33312222z...
+...3322122111...
+...3222211110...
+....22211100....
+.....111100.....
+......1000......
+................
+................
+"""
+
+[[sprite]]
+name = "snow_boulder_b"
+outline = true
+grid = """
+................
+................
+................
+.....www........
+...wwzzzww......
+..wzzyyyzzw.....
+..z33322yyz.....
+..33322220y.....
+..322221044ww...
+..222210433zzw..
+...21110332221..
+.....100222111..
+.........1110...
+................
+................
+................
+"""
+
+[[sprite]]
+name = "snow_boulder_c"
+outline = true
+grid = """
+................
+................
+................
+................
+.......ww.......
+......wzzw......
+.....wzyyzw.....
+.....zy22yz.....
+....wy2110yww...
+...wz321043zzw..
+..wz322233322z..
+..322211322211..
+...2110.221110..
+....10...1100...
+................
+................
+"""

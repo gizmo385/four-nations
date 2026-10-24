@@ -46,7 +46,8 @@ The audit was done on the owner's download, `Ninja Adventure - Asset Pack.zip` (
 | Swamp | our mud floor, a rooted tree; its water is the blue grass-edged set (#109) | **Covered** |
 | Desert | our sand floor; `TilesetDesert` palms, oasis water, desert houses | **Covered**, but no cactus (palms and dry shrubs stand in) |
 | Tundra | our snow floor, snowy trees, snow boulders, igloos in `TilesetHouse` | **Covered** |
-| Mountains | No single mountain tile. `TilesetRelief` has cliff faces and tops, and `TilesetNature` has grey and brown boulders | **Covered** (#104): `TilesetRelief` plateau pieces for the rim, boulders on the interior. No inner-corner pieces |
+
+| Mountains | No single mountain tile. `TilesetRelief` has cliff faces and tops, and `TilesetNature` has grey and brown boulders | **Replaced** (#147): our own cliff sets with inner corners and ridge caps, and boulders, from `art/cliffs.toml` (docs/design/pixel-art.md) |
 | Oak, fir | `TilesetNature`: broadleaf, conifer, snowy conifer, cherry blossom, dead trees. All trees are **2×2** | **Covered** (2×2 sizing is why #77 exists) |
 | Stone, gold vein | `TilesetNature` grey rocks and gem- or ore-studded rocks | **Covered** |
 | Cabbage | No cabbage. Leafy plants in `TilesetNature`, sprouts and vegetables in `TilesetFloorDetail`, farmland in `TilesetField` | **Stand-in:** leafy plant |
@@ -83,7 +84,7 @@ cells differ from the first audit, the shipped cell is shown:
 | Tundra | `art/floors.toml` snow, 4 variants (#145) |
 | Swamp | `art/floors.toml` mud, 4 variants (#145); water is the blue grass-edged set, not the purple bog block (#109) |
 | Water, river, lake | bitmask-autotiled (#8, below) against which cardinal neighbors are dry land; interior piece `TilesetWater` (1,1) |
-| Mountain | cliff-autotiled (#104, below). Interior: the plateau's flat top, `TilesetRelief` (2,6), plus a `TilesetNature` grey rock (18,9) on about two in three tiles with no resource; tundra: the snow top (2,1) and a snow-capped rock (4,12) |
+| Mountain | cliff-autotiled (#104, #147, below). Interior: the plateau's flat top from `art/cliffs.toml`, plus one of three grey boulders on about one in three tiles with no resource; tundra: the snow top and three snow-capped boulders |
 | Oak / fir / tundra fir | `TilesetNature` 2x2 at (0,0) / (2,0) / (8,0), bottom-aligned to the tile |
 | Stone / gold vein | `TilesetNature` plain grey rock (6,14) / the same rock with orange ore (4,14) |
 | Cabbage | `TilesetNature` leafy head (8,11), a stand-in |
@@ -103,19 +104,21 @@ on the mapgen's rounded water bodies) falls back to the open-water interior rath
 since the pack's "isolated puddle" piece isn't present for every block. Shore (`Coast`/`Ford`)
 tiles stay flat; only the water side of the boundary carries the transition art.
 
-**Mountain cliffs** (#104, implemented). `TilesetRelief` is two raised-plateau sets (a grey-faced
-cliff with a snow top at rows 0-2, a brown-faced one with a sand top at rows 5-7), each a 3x3 block
-of corner/edge/top pieces plus a 1-wide ridge column at its left; the rest of the sheet (the tall
-wall blocks, ice bridges and stairs) is unused. Unlike the water pieces, every cliff piece is still
-one 16px tile: the face is painted into the lower two thirds of the south pieces, so it does not
-overlap the row below and needs no extra depth banding (trees, resources and units in the row
-below already draw over the floor layer). `sprites::CliffSet` reads one set and `cliff_cell` picks
-a piece by which cardinal neighbors are lower ground (any non-mountain tile; off-map does not
-count); `GroundRule::cliff` matches tundra→snow, everything else→sand. A mountain with no lower
-neighbor is the set's flat top, and only that interior tile carries boulders. The top colours
-differ from the old dirt floor, so the interior now uses the plateau top instead, or the rim would
-show a seam. Gaps: no inner-corner pieces (a tile whose only lower neighbor is diagonal reads as
-interior), no end caps for a horizontal ridge, and a ridge one tile tall drops its north rim.
+**Mountain cliffs** (#104, replaced by our own art in #147). `art/cliffs.toml` holds two
+raised-plateau sets, `rock` (a grey-brown face with a rock top, every biome but tundra) and `snow`
+(a grey face with a snow top, tundra), plus three boulders for each. Every piece is one 16px tile:
+the face is painted into the lower rows of any piece with lower ground to the south, so it does
+not overlap the row below and needs no extra depth banding (trees, resources and units in the row
+below already draw over the floor layer). `sprites::CliffSet` indexes a set and `cliff_cell` picks
+a piece from the eight neighbors: which cardinal neighbors are lower ground (any non-mountain
+tile; off-map does not count) and, for a corner whose two sides are both mountain, whether that
+diagonal is lower (an inner corner). Each of the 16 side masks has a piece for every subset of its
+inner corners, 47 a set, so a ridge one tile wide, one tile tall (rim and face) or ending in a cap
+needs no special case. `GroundRule::cliff` matches tundra to snow and everything else to rock. A
+mountain with no lower neighbor at all is the set's flat top, and only that interior tile carries
+boulders. The tops use the rock and snow floors' tones, so the interior and the rim show no seam.
+(The pack's `TilesetRelief`, which this replaced, had no inner corners, no caps for a horizontal
+ridge and dropped the north rim of a ridge one tile tall.)
 
 ## The problem (before the decision)
 
