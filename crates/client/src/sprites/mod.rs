@@ -9,6 +9,7 @@
 //! | `cliffs` | `CliffSet`, `cliff_cell`, the mountain `GROUND` rows and boulders |
 //! | `trees` | the 2x2 tree `RESOURCES` rows |
 //! | `resources` | the other `RESOURCES` rows |
+//! | `buildings` | building art name to its frames, and the fallback for a building with none |
 //! | `characters` | character id to sheet and face paths |
 //! | `fx` | bending's lasting effects: flames and wet ground (`art/fx.toml`) |
 //!
@@ -21,6 +22,7 @@
 //! match wins, so put specific rows (a biome) before general ones (`biome: None`). Families list
 //! disjoint terrains and resources, so the order between families doesn't matter.
 
+pub mod buildings;
 pub mod characters;
 pub mod cliffs;
 pub mod floors;

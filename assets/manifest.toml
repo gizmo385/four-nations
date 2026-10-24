@@ -150,6 +150,12 @@ source = "ninja-adventure"
 sha256 = "0a9e889a88f437521284748c676167844ec05dcbf8d121a454350de030fcd0bf"
 
 [[file]]
+path = "original/buildings.png"
+source = "original"
+generated_from = "art/buildings.toml"
+sha256 = "9dd4f7be30af82f95d90f79d042aed77bac0bd967983ad60709ef5c30ab4a1fd"
+
+[[file]]
 path = "original/cliffs.png"
 source = "original"
 generated_from = "art/cliffs.toml"

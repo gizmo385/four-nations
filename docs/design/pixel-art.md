@@ -182,6 +182,26 @@ ramp around it break it up. Each floor has its own mark vocabulary:
 - **Biome borders** stay hard edges for now, as today. Transition tiles are a later issue if the
   seams look bad once textured.
 
+## Buildings
+
+`art/buildings.toml` is one 4-wide sheet of 32x32 sprites (#149): the bed, three campfire frames,
+the four study halls (Air Meditation Pavilion, Water Elders' Lodge, Earth Scroll Library, Fire
+Academy) and a signboard with a "?" for a building with no art yet. A building stands on its tile
+like a tree: bottom-aligned, drawn by `row_depth`, free to overhang the tiles around it.
+
+- **Which sprite is data.** `data/buildings.toml` gives a building an optional `art` table
+  beside `names` (all four nations or none); the sprite is `art[nation]`, else the building's
+  `id`. The client only turns that name into cells (`sprites/buildings.rs`). A client test fails
+  for a building in the data that has neither a sprite nor an entry in `NO_ART_YET`, so a new
+  building can't ship invisible, and it fails for one that has both.
+- **Finished and unfinished.** `buildings.rs` draws a finished building at full strength and a
+  build site as the same sprite at 30% to 80% opacity as the work progresses, over the site's
+  footprint tint. A building in `NO_ART_YET` draws the signboard either way.
+- **Nation differences are shape and material**, not the accent: a gold-roofed open pavilion, an
+  ice-block lodge, a green-tiled hall and a red two-tier pagoda.
+- **Seeing them.** `FN_BUILD_DEMO=buildings cargo xtask screenshot ...` levels a meadow beside
+  the first unit and puts one finished building of every kind on it, next to the demo sites.
+
 ## Units and portraits
 
 Units keep the pack's proportions (a 16px figure, head about 6px), so trees, buildings and

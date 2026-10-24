@@ -208,8 +208,6 @@ enum Layer {
     Bend,
     /// A pending construction site (#111).
     Site,
-    /// A finished building: a placeholder block until there is building art.
-    Built,
 }
 
 impl Layer {
@@ -223,7 +221,6 @@ impl Layer {
             Self::Stockpile => Color::srgba(0.2, 0.55, 1.0, 0.4),
             Self::Bend => theme.accent.with_alpha(0.4),
             Self::Site => Color::srgba(0.8, 0.6, 0.3, 0.5),
-            Self::Built => Color::srgb(0.55, 0.38, 0.22),
         }
     }
 
@@ -235,15 +232,6 @@ impl Layer {
             Self::Stockpile => 0.6,
             // Flat ground like a stockpile, but above one, and under units.
             Self::Site => 0.65,
-            Self::Built => 0.7,
-        }
-    }
-
-    /// A site tints the whole tile; a finished building is a block inset in it.
-    fn size(self) -> f32 {
-        match self {
-            Self::Built => TILE * 0.7,
-            _ => TILE,
         }
     }
 
@@ -259,8 +247,8 @@ struct Overlay;
 #[derive(Resource, Default)]
 pub struct Overlays(BTreeMap<(Pos, Layer), Entity>);
 
-/// Keeps one translucent tile per designated harvest, stockpile and build-site tile, and a block
-/// per finished building, matching the sim.
+/// Keeps one translucent tile per designated harvest, stockpile and build-site tile, matching the
+/// sim. Finished buildings and the sprite of a site are drawn by `buildings`.
 fn sync_overlays(
     mut commands: Commands,
     sim: Res<Sim>,
@@ -282,9 +270,6 @@ fn sync_overlays(
     }));
     wanted.extend(sim.world.bend_designations().map(|(_, p)| (p, Layer::Bend)));
     wanted.extend(sim.world.build_sites().map(|(p, _, _)| (p, Layer::Site)));
-    wanted.extend(
-        sim.world.map.iter().filter(|(_, t)| t.building.is_some()).map(|(p, _)| (p, Layer::Built)),
-    );
     overlays.0.retain(|key, e| {
         let keep = wanted.contains(key);
         if !keep {
@@ -297,7 +282,7 @@ fn sync_overlays(
             let (pos, layer) = key;
             commands
                 .spawn((
-                    Sprite::from_color(layer.tint(&theme), Vec2::splat(layer.size())),
+                    Sprite::from_color(layer.tint(&theme), Vec2::splat(TILE)),
                     Transform::from_translation(tile_translation(pos, layer.depth())),
                     Overlay,
                     MapEntity,
