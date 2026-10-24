@@ -2406,6 +2406,7 @@ dependencies = [
  "bevy",
  "fn_sim",
  "fn_ui",
+ "toml",
 ]
 
 [[package]]

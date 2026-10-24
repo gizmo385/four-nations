@@ -26,6 +26,9 @@ features = [
   "multi_threaded",
 ]
 
+[dev-dependencies]
+toml = { workspace = true }
+
 # Bevy systems receive their dependencies as parameters; these lints fight that idiom.
 [lints.clippy]
 too_many_arguments = "allow"

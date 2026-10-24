@@ -3,10 +3,20 @@
 //! seal on the top edge. Every screen builds from these tokens and builders instead of literal
 //! colours and sizes, so one edit here restyles the whole UI.
 //!
+//! Since #129 the frame, seal, section bullet and nation emblem are Claude-authored pixel art
+//! (art/ui_frame.toml, art/ui_flair.toml, art/emblems.toml; docs/design/pixel-art.md), drawn at
+//! one integer scale ([`ART_SCALE`]) so no two pixel sizes meet. [`Skin`] holds the current
+//! nation's sheets.
+//!
 //! The accent is the player nation's `color` from data/nations.toml; everything else is fixed so
 //! status colours (ok/warn/bad) never change meaning between nations.
 
 use bevy::prelude::*;
+use bevy::sprite::{BorderRect, SliceScaleMode, TextureSlicer};
+use fn_sim::Nation;
+
+/// Every UI sprite is drawn at this integer scale: one art pixel is two screen pixels.
+pub const ART_SCALE: f32 = 2.0;
 
 /// Text sizes in logical pixels (Bevy's default font).
 pub mod font {
@@ -37,8 +47,9 @@ pub mod layout {
     pub const SELECTION_BAR_HEIGHT: f32 = 128.0;
     /// Gap between the screen edge and a panel, and between panels.
     pub const SCREEN_MARGIN: f32 = 12.0;
-    /// Corner brackets stick out this far past a panel's edge.
-    pub const BRACKET_OFFSET: f32 = 6.0;
+    /// The frame art's transparent margin: its brackets stick out this far past a panel's edge
+    /// (4 art pixels at [`super::ART_SCALE`]). The frame sprite is placed this far outside.
+    pub const FRAME_MARGIN: f32 = 8.0;
 }
 
 /// Colour tokens for one nation, as Bevy colours. The values and the maths behind them are
@@ -97,6 +108,95 @@ impl Theme {
     }
 }
 
+/// One nation's UI sheets (`assets/original/`, drawn by `cargo xtask art`), picked by the nation's
+/// id from data. Rebuilt with the [`Theme`] when the player's nation changes.
+#[derive(Resource, Clone, Debug)]
+pub struct Skin {
+    /// `ui_frame.<nation>.png`: the panel as a 9-slice.
+    pub frame: Handle<Image>,
+    /// `ui_flair.<nation>.png`: the seal and the section bullet.
+    pub flair: Handle<Image>,
+    /// `emblems.png`: every nation's emblem; [`emblem_cell`] picks one.
+    pub emblems: Handle<Image>,
+    /// The nation's data id, e.g. `earth`: names the emblem.
+    nation: &'static str,
+}
+
+/// Every nation's [`Skin`], loaded at startup so switching nation (keys 1 to 4) never shows a
+/// frame-less panel while a sheet loads.
+#[derive(Resource)]
+pub struct UiArt(Vec<(Nation, Skin)>);
+
+impl UiArt {
+    pub fn load(assets: &AssetServer) -> Self {
+        UiArt(Nation::ALL.iter().map(|&n| (n, Skin::load(assets, n))).collect())
+    }
+
+    pub fn skin(&self, nation: Nation) -> Skin {
+        self.0.iter().find(|(n, _)| *n == nation).expect("every nation has a skin").1.clone()
+    }
+
+    /// Every image the UI needs, for waiting until they are loaded.
+    pub fn handles(&self) -> impl Iterator<Item = &Handle<Image>> {
+        self.0.iter().flat_map(|(_, s)| [&s.frame, &s.flair, &s.emblems])
+    }
+}
+
+impl Skin {
+    fn load(assets: &AssetServer, nation: Nation) -> Self {
+        let id = nation.as_str();
+        Self {
+            frame: assets.load(format!("original/ui_frame.{id}.png")),
+            flair: assets.load(format!("original/ui_flair.{id}.png")),
+            emblems: assets.load("original/emblems.png"),
+            nation: id,
+        }
+    }
+}
+
+/// Cell size of the flair and emblem sheets, in art pixels.
+const CELL: f32 = 16.0;
+/// Border of the frame 9-slice, in art pixels: the corner squares.
+const FRAME_BORDER: f32 = 14.0;
+/// The cells of `ui_flair.<nation>.png`, as (column, sprite name in art/ui_flair.toml).
+const FLAIR_SEAL: (u32, &str) = (0, "seal");
+const FLAIR_BULLET: (u32, &str) = (1, "bullet");
+/// Where the bullet's pixels sit inside its cell, as (min x, min y, max x, max y), so a 4px
+/// diamond doesn't make its row 32px tall.
+const BULLET_PIXELS: [f32; 4] = [5.0, 6.0, 9.0, 10.0];
+/// The cells of `emblems.png` in order: the sprite names in art/emblems.toml, which are nation ids.
+const EMBLEMS: [&str; 4] = ["air", "water", "earth", "fire"];
+
+/// The pixel rect of cell `column` in a one-row sheet of 16px cells.
+fn cell_rect(column: u32) -> Rect {
+    let x = column as f32 * CELL;
+    Rect::new(x, 0.0, x + CELL, CELL)
+}
+
+/// The emblem's cell in `emblems.png` for a nation id.
+fn emblem_cell(nation: &str) -> u32 {
+    let i = EMBLEMS.iter().position(|n| *n == nation);
+    i.unwrap_or_else(|| panic!("no emblem for nation {nation}")) as u32
+}
+
+/// An image node showing `rect` of `image`, at [`ART_SCALE`].
+fn sprite_node(image: &Handle<Image>, rect: Rect) -> impl Bundle {
+    (
+        Node {
+            width: Val::Px(rect.width() * ART_SCALE),
+            height: Val::Px(rect.height() * ART_SCALE),
+            flex_shrink: 0.0,
+            ..default()
+        },
+        ImageNode { image: image.clone(), rect: Some(rect), ..default() },
+    )
+}
+
+/// The nation's emblem for the side-panel header: a 32px medallion.
+pub fn emblem(skin: &Skin) -> impl Bundle {
+    sprite_node(&skin.emblems, cell_rect(emblem_cell(skin.nation)))
+}
+
 /// Hit testing. The client uses no `Interaction` or `Button` (Bevy 0.20 deprecates them), so a
 /// click is tested against the laid-out nodes by hand. `ComputedNode` geometry is in physical
 /// pixels, so the cursor is scaled to match.
@@ -118,39 +218,65 @@ pub fn text(s: impl Into<String>, size: f32, color: Color) -> impl Bundle {
 /// How much edge flair a panel gets.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Frame {
-    /// Side panel, selection bar, screens: large brackets and the diamond seal.
+    /// Side panel, selection bar, screens: the pixel-art 9-slice frame and the diamond seal.
     Panel,
-    /// Tooltips and small popups: small brackets, no seal.
+    /// Tooltips and small popups: small code-drawn brackets, no seal.
     Tooltip,
 }
 
-/// The panel body: opaque slate, 1px accent-tinted frame, square corners, soft drop shadow.
-/// `node` supplies position and layout; border and radius are overridden. Spawn it, then call
-/// [`frame`] inside its children so the flair is positioned relative to the panel.
-pub fn panel(theme: &Theme, node: Node) -> impl Bundle {
+/// The panel body: opaque slate, square corners, soft drop shadow. `node` supplies position and
+/// layout; border and radius are overridden. A [`Frame::Tooltip`] keeps a 1px accent-tinted
+/// border; a [`Frame::Panel`] has none, because [`frame`] draws the pixel-art frame over its edge.
+/// Spawn it, then call [`frame`] with the same `kind` inside its children so the flair is
+/// positioned relative to the panel.
+pub fn panel(theme: &Theme, kind: Frame, node: Node) -> impl Bundle {
+    let border = if kind == Frame::Tooltip { 1.0 } else { 0.0 };
     (
-        Node { border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::ZERO, ..node },
+        Node { border: UiRect::all(Val::Px(border)), border_radius: BorderRadius::ZERO, ..node },
         BackgroundColor(theme.panel),
         BorderColor::all(theme.accent_soft),
         BoxShadow::new(SHADOW, Val::Px(0.0), Val::Px(3.0), Val::Px(0.0), Val::Px(8.0)),
     )
 }
 
-/// Edge flair for a panel spawned with [`panel`]: corner brackets, plus the seal for
-/// [`Frame::Panel`]. Everything is absolutely positioned, so it never affects layout.
-pub fn frame(p: &mut ChildSpawnerCommands, theme: &Theme, kind: Frame) {
-    corner_brackets(p, theme, kind);
-    if kind == Frame::Panel {
-        seal(p, theme);
+/// Edge flair for a panel spawned with [`panel`]. [`Frame::Panel`] gets the 9-slice frame and the
+/// seal, [`Frame::Tooltip`] small code-drawn brackets. Everything is absolutely positioned, so it
+/// never affects layout.
+pub fn frame(p: &mut ChildSpawnerCommands, theme: &Theme, skin: &Skin, kind: Frame) {
+    match kind {
+        Frame::Panel => {
+            nine_slice(p, skin);
+            seal(p, skin);
+        }
+        Frame::Tooltip => corner_brackets(p, theme),
     }
 }
 
-/// Bracket (arm length, thickness, offset past the edge) for a frame kind.
-fn bracket_size(kind: Frame) -> (f32, f32, f32) {
-    match kind {
-        Frame::Panel => (26.0, 3.0, -layout::BRACKET_OFFSET),
-        Frame::Tooltip => (8.0, 2.0, -3.0),
-    }
+/// The frame sheet as a 9-slice over the panel, [`layout::FRAME_MARGIN`] outside every edge. The
+/// 14px corners are drawn at [`ART_SCALE`] (`max_corner_scale`); the 4px middle stretches.
+fn nine_slice(p: &mut ChildSpawnerCommands, skin: &Skin) {
+    let out = Val::Px(-layout::FRAME_MARGIN);
+    let slicer = TextureSlicer {
+        border: BorderRect::all(FRAME_BORDER),
+        center_scale_mode: SliceScaleMode::Stretch,
+        sides_scale_mode: SliceScaleMode::Stretch,
+        max_corner_scale: ART_SCALE,
+    };
+    p.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: out,
+            right: out,
+            top: out,
+            bottom: out,
+            ..default()
+        },
+        ImageNode {
+            image: skin.frame.clone(),
+            image_mode: NodeImageMode::Sliced(slicer),
+            ..default()
+        },
+    ));
 }
 
 /// A 1px dark outline for flair drawn over the map. It echoes Ninja Adventure's outlined sprites
@@ -160,9 +286,12 @@ fn flair_outline(theme: &Theme) -> Outline {
     Outline::new(Val::Px(1.0), Val::Px(0.0), theme.inset)
 }
 
-/// An L-shaped accent bracket at each corner, slightly outside the panel edge.
-pub fn corner_brackets(p: &mut ChildSpawnerCommands, theme: &Theme, kind: Frame) {
-    let (len, thick, off) = bracket_size(kind);
+/// A tooltip's L-shaped accent bracket at each corner, slightly outside the panel edge: arm
+/// length, thickness and offset past the edge. Tooltips are too small for the pixel frame.
+const TOOLTIP_BRACKET: (f32, f32, f32) = (8.0, 2.0, -3.0);
+
+fn corner_brackets(p: &mut ChildSpawnerCommands, theme: &Theme) {
+    let (len, thick, off) = TOOLTIP_BRACKET;
     for (top, left) in [(true, true), (true, false), (false, true), (false, false)] {
         let at = |near: bool| if near { Val::Px(off) } else { Val::Auto };
         let base = Node {
@@ -179,52 +308,36 @@ pub fn corner_brackets(p: &mut ChildSpawnerCommands, theme: &Theme, kind: Frame)
     }
 }
 
-/// A diamond centred on the panel's top edge: accent, with an inset-coloured core.
-pub fn seal(p: &mut ChildSpawnerCommands, theme: &Theme) {
-    let holder = Node {
+/// The diamond seal, centred on the panel's top edge.
+fn seal(p: &mut ChildSpawnerCommands, skin: &Skin) {
+    let rect = cell_rect(FLAIR_SEAL.0);
+    let size = rect.size() * ART_SCALE;
+    p.spawn(Node {
         position_type: PositionType::Absolute,
         left: Val::Px(0.0),
         right: Val::Px(0.0),
-        top: Val::Px(-8.0),
+        top: Val::Px(-size.y / 2.0),
         justify_content: JustifyContent::Center,
         ..default()
-    };
-    let diamond = Node {
-        width: Val::Px(16.0),
-        height: Val::Px(16.0),
-        justify_content: JustifyContent::Center,
-        align_items: AlignItems::Center,
-        ..default()
-    };
-    p.spawn(holder).with_children(|h| {
-        let body = (diamond, BackgroundColor(theme.accent), rotated45(), flair_outline(theme));
-        h.spawn(body).with_children(|d| {
-            d.spawn((
-                Node { width: Val::Px(6.0), height: Val::Px(6.0), ..default() },
-                BackgroundColor(theme.inset),
-            ));
-        });
+    })
+    .with_children(|h| {
+        h.spawn(sprite_node(&skin.flair, rect));
     });
 }
 
-fn rotated45() -> UiTransform {
-    UiTransform::from_rotation(Rot2::degrees(45.0))
-}
-
 /// An upper-case section title with a diamond bullet and a rule filling the rest of the row.
-pub fn section_title(p: &mut ChildSpawnerCommands, theme: &Theme, title: &str) {
+pub fn section_title(p: &mut ChildSpawnerCommands, theme: &Theme, skin: &Skin, title: &str) {
     let row = Node {
         column_gap: Val::Px(space::S),
         align_items: AlignItems::Center,
         margin: UiRect::top(Val::Px(space::XS)),
         ..default()
     };
+    let [x0, y0, x1, y1] = BULLET_PIXELS;
+    let at = cell_rect(FLAIR_BULLET.0).min;
+    let rect = Rect::new(at.x + x0, at.y + y0, at.x + x1, at.y + y1);
     p.spawn(row).with_children(|r| {
-        r.spawn((
-            Node { width: Val::Px(6.0), height: Val::Px(6.0), ..default() },
-            BackgroundColor(theme.accent),
-            rotated45(),
-        ));
+        r.spawn(sprite_node(&skin.flair, rect));
         r.spawn(text(title.to_uppercase(), font::LABEL, theme.accent_text));
         r.spawn((
             Node {
@@ -290,5 +403,66 @@ mod tests {
         );
         assert_eq!(t.panel, Color::srgb(0.07, 0.08, 0.1));
         assert_eq!(t, Theme::from(shared));
+    }
+
+    /// The names of `art/<sheet>.toml`'s sprites in file order, and the grid of each.
+    fn sprites(sheet: &str) -> Vec<(String, Vec<String>)> {
+        let path = format!("{}/../../art/{sheet}.toml", env!("CARGO_MANIFEST_DIR"));
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let doc: toml::Table = text.parse().unwrap();
+        doc["sprite"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| {
+                let name = s["name"].as_str().unwrap().to_owned();
+                let grid = s["grid"].as_str().unwrap().lines().map(str::to_owned).collect();
+                (name, grid)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_emblem_cells_are_the_sprites_named_after_the_nations() {
+        let names: Vec<_> = sprites("emblems").into_iter().map(|(n, _)| n).collect();
+        assert_eq!(names, EMBLEMS);
+        // Every nation in data has a cell, picked by its id.
+        for n in Nation::ALL {
+            assert_eq!(EMBLEMS[emblem_cell(n.as_str()) as usize], n.as_str());
+        }
+    }
+
+    #[test]
+    fn the_flair_cells_are_the_sprites_they_claim() {
+        let sprites = sprites("ui_flair");
+        for (column, name) in [FLAIR_SEAL, FLAIR_BULLET] {
+            assert_eq!(sprites[column as usize].0, name);
+        }
+    }
+
+    #[test]
+    fn the_bullet_rect_is_exactly_the_bullets_pixels() {
+        let sprites = sprites("ui_flair");
+        let grid = &sprites[FLAIR_BULLET.0 as usize].1;
+        let filled = |x: usize, y: usize| grid[y].as_bytes()[x] != b'.';
+        let cells = (0..CELL as usize).flat_map(|y| (0..CELL as usize).map(move |x| (x, y)));
+        let (mut min, mut max) = ([usize::MAX; 2], [0; 2]);
+        for (x, y) in cells.filter(|&(x, y)| filled(x, y)) {
+            min = [min[0].min(x), min[1].min(y)];
+            max = [max[0].max(x + 1), max[1].max(y + 1)];
+        }
+        assert_eq!(BULLET_PIXELS, [min[0] as f32, min[1] as f32, max[0] as f32, max[1] as f32]);
+    }
+
+    #[test]
+    fn the_frame_border_is_the_corner_square_of_the_sheet() {
+        // 32x32 sheet: 14px corners leave a 4px stretchable middle.
+        let frame = &sprites("ui_frame")[0].1;
+        assert_eq!((frame.len(), frame[0].len()), (32, 32));
+        assert_eq!(32.0 - 2.0 * FRAME_BORDER, 4.0);
+        // The transparent margin is `layout::FRAME_MARGIN` on screen: the soft line starts there.
+        let margin = (layout::FRAME_MARGIN / ART_SCALE) as usize;
+        assert_eq!(frame[16].as_bytes()[margin], b's');
+        assert_eq!(&frame[16][..margin], "....");
     }
 }
