@@ -201,7 +201,10 @@ like a tree: bottom-aligned, drawn by `row_depth`, free to overhang the tiles ar
   Nomads' orchard, windmill, wind turbine and bison stable are `art/buildings_air.toml` (#176),
   and `sprites/buildings.rs` names each sheet. The windmill's sails (30 degree steps) and the
   turbine's blades (40) are three frames each, played like the campfire. Air buildings are Air
-  Temple wood, cream plaster and gold on the same stone plinth as the halls.
+  Temple wood, cream plaster and gold on the same stone plinth as the halls. The Fire Nation's
+  forge, brick kiln, smelter, steam engine and lightning station are `art/buildings_fire.toml`
+  (#177): red lacquer, gold trim and grey stone on the same plinth. The furnaces and the engine
+  (a turning flywheel) have three frames each, the lightning station two.
 - **The Earth Kingdom's buildings** are `art/buildings_earth.toml` (#175), a sheet of their own.
   `earth_wall` is the one impassable 1x1 piece: a battlemented stone wall on a rammed-earth
   footing. It fills its 16px tile exactly (the outline is the tile's edge), so neighbouring walls
