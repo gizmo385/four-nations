@@ -174,7 +174,8 @@ fn cargo(args: &[&str]) -> Result {
 #[derive(Clone, Copy, PartialEq)]
 enum Scope {
     All,
-    /// Everything except the Bevy client: fmt, the sim, the shared UI crate, xtask and the asset check.
+    /// Everything except the Bevy client: fmt, the sim, the shared UI crate, the terminal UI,
+    /// xtask and the asset check.
     Sim,
     /// Only the Bevy client.
     Client,
@@ -183,7 +184,7 @@ enum Scope {
 fn ci(scope: Scope, fast: bool) -> Result {
     let packages: &[&str] = match scope {
         Scope::All => &["--workspace"],
-        Scope::Sim => &["-p", "fn_sim", "-p", "fn_ui", "-p", "xtask"],
+        Scope::Sim => &["-p", "fn_sim", "-p", "fn_ui", "-p", "fn_tui", "-p", "xtask"],
         Scope::Client => &["-p", "fn_client"],
     };
     // On CI (GitHub sets $CI) or with --fast, build with the `ci` profile: unoptimized

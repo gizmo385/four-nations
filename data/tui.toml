@@ -1,0 +1,183 @@
+# Glyphs and colours for the terminal frontend (docs/design/tui.md). fn_sim never reads this:
+# only crates/tui embeds it (include_str!), and its tests fail if any terrain, biome, resource,
+# item or building in the game data lacks an entry.
+#
+# glyph: one Unicode character, one cell wide. ascii: the --ascii fallback, one printable ASCII
+#        character (for terrain, biomes and resources the same characters the mapgen ASCII
+#        renderer uses; a test checks).
+# fg / bg: sRGB [r, g, b], quantised automatically on 256- and 16-colour terminals.
+# A resource, item or building has no bg: it draws on its tile's terrain or biome colour.
+# Terrain backgrounds stay dark so a unit (its nation colour lifted toward white) reads on every
+# one of them: the tests check 3:1 contrast for every nation.
+
+[terrain.water]
+glyph = "≈"
+ascii = "~"
+fg = [70, 130, 210]
+bg = [12, 32, 72]
+
+[terrain.lake]
+glyph = "≈"
+ascii = "-"
+fg = [100, 170, 230]
+bg = [16, 50, 94]
+
+[terrain.river]
+glyph = "~"
+ascii = "="
+fg = [110, 185, 240]
+bg = [20, 62, 112]
+
+[terrain.ford]
+glyph = "░"
+ascii = "+"
+fg = [205, 175, 115]
+bg = [20, 62, 112]
+
+[terrain.coast]
+glyph = "."
+ascii = "."
+fg = [225, 205, 145]
+bg = [70, 60, 38]
+
+[terrain.mountain]
+glyph = "▲"
+ascii = "^"
+fg = [175, 175, 182]
+bg = [52, 52, 58]
+
+# Bare land, by biome.
+[biome.plains]
+glyph = ","
+ascii = ","
+fg = [150, 192, 82]
+bg = [30, 52, 22]
+
+[biome.forest]
+glyph = "\""
+ascii = "\""
+fg = [96, 172, 84]
+bg = [20, 44, 22]
+
+[biome.taiga]
+glyph = "'"
+ascii = "&"
+fg = [90, 156, 126]
+bg = [18, 42, 36]
+
+[biome.tundra]
+glyph = "°"
+ascii = "*"
+fg = [230, 236, 245]
+bg = [52, 62, 76]
+
+[biome.swamp]
+glyph = "√"
+ascii = "%"
+fg = [150, 160, 60]
+bg = [44, 40, 24]
+
+[biome.desert]
+glyph = "·"
+ascii = ":"
+fg = [230, 190, 90]
+bg = [78, 62, 32]
+
+[resource.oak_tree]
+glyph = "♣"
+ascii = "T"
+fg = [72, 182, 66]
+
+[resource.fir_tree]
+glyph = "♠"
+ascii = "F"
+fg = [64, 156, 96]
+
+[resource.fruit_tree]
+glyph = "¥"
+ascii = "Y"
+fg = [240, 150, 50]
+
+[resource.cabbage]
+glyph = "τ"
+ascii = "c"
+fg = [172, 232, 122]
+
+[resource.stone]
+glyph = "•"
+ascii = "o"
+fg = [205, 205, 212]
+
+[resource.gold_vein]
+glyph = "$"
+ascii = "$"
+fg = [255, 212, 60]
+
+[resource.fish_spot]
+glyph = "ƒ"
+ascii = "f"
+fg = [240, 246, 255]
+
+[item.wood]
+glyph = "≡"
+ascii = "/"
+fg = [186, 124, 62]
+
+[item.stone]
+glyph = "■"
+ascii = "*"
+fg = [175, 175, 182]
+
+[item.gold_ore]
+glyph = "£"
+ascii = "$"
+fg = [255, 212, 60]
+
+# Foods share the glyph and take the food's own colour.
+[item.fish]
+glyph = "%"
+ascii = "%"
+fg = [150, 205, 235]
+
+[item.fruit]
+glyph = "%"
+ascii = "%"
+fg = [240, 150, 50]
+
+[item.cabbage]
+glyph = "%"
+ascii = "%"
+fg = [172, 232, 122]
+
+[building.bed]
+glyph = "Θ"
+ascii = "B"
+fg = [215, 172, 112]
+
+[building.campfire]
+glyph = "♦"
+ascii = "A"
+fg = [255, 140, 40]
+
+[building.study_hall]
+glyph = "Π"
+ascii = "H"
+fg = [196, 176, 236]
+
+# Units draw in their nation's `color` (data/nations.toml), mixed toward white by `lift`.
+[unit]
+glyph = "☺"
+ascii = "@"
+lift = 0.4
+
+# Background tints, mixed into the tile's bg (docs/design/tui.md, "What draws on top"). The bend
+# tint is the nation's accent, as in the client, so it isn't listed.
+[overlay]
+harvest = [255, 166, 26]
+stockpile = [51, 140, 255]
+build = [150, 130, 200]
+wet = [64, 46, 20]
+cursor = [250, 220, 60]
+# The tiles a lit flame warms, while the cursor is on it.
+warm = [150, 70, 24]
+flame = { glyph = "☼", ascii = "!", fg = [255, 150, 40] }
