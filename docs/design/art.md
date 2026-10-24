@@ -41,11 +41,11 @@ The audit was done on the owner's download, `Ninja Adventure - Asset Pack.zip` (
 | Need | In the pack | Verdict |
 |---|---|---|
 | Sea, rivers, lakes | `TilesetWater`: autotiled water on sand, grass and snow; ice; purple bog water (unused, #109); bridges, dock, boat. Animated `Water Ripples` and `Waterfall` | **Covered** |
-| Plains, forest | `TilesetFloor`: light and dark grass with tuft variants | **Covered** |
+| Plains, forest | Floors are now our own textured sheet, `art/floors.toml` (#145); the pack's `TilesetFloor` is retired | **Covered** |
 | Taiga | Dark grass plus `TilesetNature` conifers and snowy conifers | **Covered** |
-| Swamp | `TilesetFloor` mud, a rooted tree; its water is the blue grass-edged set (#109) | **Covered** |
-| Desert | `TilesetFloor` sand; `TilesetDesert` palms, oasis water, desert houses | **Covered**, but no cactus (palms and dry shrubs stand in) |
-| Tundra | `TilesetFloor` snow and ice, snowy trees, snow boulders, igloos in `TilesetHouse` | **Covered** |
+| Swamp | our mud floor, a rooted tree; its water is the blue grass-edged set (#109) | **Covered** |
+| Desert | our sand floor; `TilesetDesert` palms, oasis water, desert houses | **Covered**, but no cactus (palms and dry shrubs stand in) |
+| Tundra | our snow floor, snowy trees, snow boulders, igloos in `TilesetHouse` | **Covered** |
 | Mountains | No single mountain tile. `TilesetRelief` has cliff faces and tops, and `TilesetNature` has grey and brown boulders | **Covered** (#104): `TilesetRelief` plateau pieces for the rim, boulders on the interior. No inner-corner pieces |
 | Oak, fir | `TilesetNature`: broadleaf, conifer, snowy conifer, cherry blossom, dead trees. All trees are **2×2** | **Covered** (2×2 sizing is why #77 exists) |
 | Stone, gold vein | `TilesetNature` grey rocks and gem- or ore-studded rocks | **Covered** |
@@ -77,11 +77,11 @@ cells differ from the first audit, the shipped cell is shown:
 
 | Map element | Sprite |
 |---|---|
-| Plains floor | `TilesetFloor` light grass (0,12) with tufts (1-3,12) |
-| Forest, taiga floor | dark grass (11,12) with tufts (12-13,12) |
-| Desert, coast, ford | sand (1,1); desert has twig and pebble variants (0-1,4); tundra coast and ford use snow |
-| Tundra | snow (1,15), flat: the (1-2,19) variants are lavender and read as boxes |
-| Swamp | mud (12,15) with variants (13-14,19); water is the blue grass-edged set, not the purple bog block (#109) |
+| Plains floor | `art/floors.toml` grass, 4 variants (#145) |
+| Forest, taiga floor | `art/floors.toml` forest floor, 4 variants (#145) |
+| Desert, coast, ford | `art/floors.toml` sand, 4 variants (#145); tundra coast and ford use snow |
+| Tundra | `art/floors.toml` snow, 4 variants (#145) |
+| Swamp | `art/floors.toml` mud, 4 variants (#145); water is the blue grass-edged set, not the purple bog block (#109) |
 | Water, river, lake | bitmask-autotiled (#8, below) against which cardinal neighbors are dry land; interior piece `TilesetWater` (1,1) |
 | Mountain | cliff-autotiled (#104, below). Interior: the plateau's flat top, `TilesetRelief` (2,6), plus a `TilesetNature` grey rock (18,9) on about two in three tiles with no resource; tundra: the snow top (2,1) and a snow-capped rock (4,12) |
 | Oak / fir / tundra fir | `TilesetNature` 2x2 at (0,0) / (2,0) / (8,0), bottom-aligned to the tile |

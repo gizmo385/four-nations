@@ -78,7 +78,8 @@ pub struct GroundRule {
     /// `None` matches every biome.
     pub biome: Option<&'static str>,
     pub base: Cell,
-    /// One in four tiles shows one of these instead of `base`, so flat floors don't look tiled.
+    /// All the variants of a floor, `base` first (empty for a rule with one fixed look). A tile
+    /// shows one by weighted pick (`GroundRule::floor_at`), so flat floors don't look tiled.
     pub variants: &'static [Cell],
     pub decor: Option<Decor>,
     /// Water tiles (#8): when set, `base`/`variants` are ignored and the tile is drawn with

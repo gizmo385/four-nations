@@ -44,11 +44,6 @@ source = "ninja-adventure"
 sha256 = "9bc2cd77030dd73fd2497c5729556a11524fa04099d8351bc527fd4d4c31b916"
 
 [[file]]
-path = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetFloor.png"
-source = "ninja-adventure"
-sha256 = "e111065065edf806e7e893330086e68efc8755175d92f14d087b42d40a331e16"
-
-[[file]]
 path = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetWater.png"
 source = "ninja-adventure"
 sha256 = "927e1fa1e793bb0398fdaad40cea22792c20f66703cdba80fb9462df7cbc275c"
@@ -198,6 +193,12 @@ path = "original/emblems.png"
 source = "original"
 generated_from = "art/emblems.toml"
 sha256 = "27ad896fd08d8c3fc3c523ae0623907227641c7fcbede5aa9a9519368b500f20"
+
+[[file]]
+path = "original/floors.png"
+source = "original"
+generated_from = "art/floors.toml"
+sha256 = "399e94c90e96dada0339e67e791ec40f9c34e9e9abaae3d9b0da7e19c26c4bac"
 
 [[file]]
 path = "original/icons.png"
