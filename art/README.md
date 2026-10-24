@@ -60,6 +60,24 @@ and adds the `original` `[[source]]` if it is missing. Other entries are left un
 unchanged PNG keeps its bytes, so a `png` crate upgrade doesn't churn hashes. The CI check compares
 decoded pixels, not bytes.
 
+## Character sheets: `art/<character>.toml`
+
+One 64x96 sheet per character (`cell = [16, 16]`, `columns = 4`): the columns face down, up, left
+and right, and sprite `n` sits at row `n / 4`. Rows 0-3 are the idle pose and the walk cycle
+(#150/#151, `unit_anim.rs`); **rows 4 and 5 are the bend pose** (#166), the stance held while
+channelling and the release as the bend lands, named `down_4`, `up_4`, `left_4`, `right_4`,
+`down_5`, ... like the rest. They are rows appended to the same sheet rather than separate bend
+sheets, so a unit stays one image (docs/design/pixel-art.md, "Bend poses"). Rows 0-3 never change
+when a pose changes. Every character has all eight bend cells, the right-facing ones mirroring
+the left-facing ones, and `sprites/characters.rs` tests it.
+
+## Effects: `art/fx.toml`
+
+Three columns of 16px cells; rows 0-1 are #154's lasting flame and wet marks, rows 2-8 #166's
+cast animations (`earth`, `dust`, `drop`, `splash`, `spark`, `gust`, `swirl`, three frames each).
+`sprites/fx.rs` names every cell and a test checks the names; `cast.rs` says when each plays.
+Cast frames are centred on the cell so a particle can sit anywhere along a path.
+
 ## Facesets: `art/faces_<nation>.toml`
 
 Portraits (docs/design/pixel-art.md, "Units and portraits") are one sheet per nation:

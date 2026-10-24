@@ -2,8 +2,9 @@
 //! walks, the step of the walk cycle. View state only; nothing here reads more of the sim than
 //! the unit positions the client already follows, and nothing writes it.
 //!
-//! A sheet is 4 columns (down, up, left, right) by 4 rows (`sprites::characters`): row 0 is the
-//! idle pose and rows 1-3 finish a 4-frame walk cycle (frame 2 has the legs together).
+//! A sheet is 4 columns (down, up, left, right) by 6 rows (`sprites::characters`): row 0 is the
+//! idle pose, rows 1-3 finish a 4-frame walk cycle (frame 2 has the legs together), and rows 4
+//! and 5 are the bend pose.
 //!
 //! - **Facing** is the way the unit last stepped on the map (`facing_after`): the larger axis of
 //!   the step, a tie (a diagonal) keeps the old facing, and an idle unit keeps its last one.
@@ -11,8 +12,9 @@
 //!   follows the distance it has covered (`walk_row`), so the feet keep pace with the ground and
 //!   a faster unit steps faster. A unit that isn't travelling (idling, working, sleeping, or in
 //!   a #110 pause) shows row 0 of its facing.
-//! - **Pose override**: `UnitView::pose_override` beats the derived pose. Bending animations
-//!   (#166) set it to a `Pose::Sheet` row beyond the walk rows; the picker doesn't change.
+//! - **Pose override**: `UnitView::pose_override` beats the derived pose. `cast` (#166) sets it
+//!   to the bend rows (4 and 5) while a unit bends, and turns the unit to its target; the picker
+//!   doesn't change.
 //!
 //! The sprite itself is moved by `sync_units`, so the selection ring and the canopy fade, which
 //! read its transform, follow it, and every frame is a 16px cell like the one it replaces.
@@ -31,6 +33,10 @@ pub const STRIDE_PX: f32 = 6.0;
 pub const ARRIVED_PX: f32 = 0.75;
 /// Rows of a sheet taken by the walk cycle.
 pub const WALK_ROWS: u32 = 4;
+/// The bend pose (#166): the stance held while channelling, then the release as the bend lands.
+/// Each nation's stance is in its characters' sheets (`art/<character>.toml`, rows 4 and 5).
+pub const BEND_STANCE_ROW: u32 = WALK_ROWS;
+pub const BEND_RELEASE_ROW: u32 = WALK_ROWS + 1;
 
 /// The way a unit faces; the column of its sheet.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -75,9 +81,8 @@ pub enum Pose {
     /// Walking, having covered `travelled` world pixels in all (only its fraction of a cycle
     /// matters).
     Walk { travelled: f32 },
-    /// An explicit row of the sheet, for poses outside the walk rows (#166's bending). Nothing
-    /// sets one yet.
-    #[allow(dead_code)]
+    /// An explicit row of the sheet, for poses outside the walk rows: the bend pose of `cast`
+    /// (#166).
     Sheet { row: u32 },
 }
 
@@ -156,7 +161,7 @@ impl UnitView {
 }
 
 /// Points each unit sprite at the frame its facing and walk call for.
-fn animate_units(
+pub fn animate_units(
     sim: Res<Sim>,
     mut units: Query<(&UnitSprite, &Transform, &mut UnitView, &mut Sprite)>,
 ) {
@@ -295,13 +300,15 @@ mod tests {
     fn a_frame_is_a_16px_cell_of_the_sheet() {
         let r = Frame { col: 3, row: 2 }.rect();
         assert_eq!((r.min, r.max), (Vec2::new(48.0, 32.0), Vec2::new(64.0, 48.0)));
-        // Every walk cell stays inside a 64x64 sheet.
+        // Every walk and bend cell stays inside a 64x96 sheet, and the bend rows are below the
+        // walk rows.
         for f in ALL {
-            for row in 0..WALK_ROWS {
+            for row in 0..=BEND_RELEASE_ROW {
                 let r = Frame { col: f.column(), row }.rect();
-                assert!(r.max.x <= 64.0 && r.max.y <= 64.0);
+                assert!(r.max.x <= 64.0 && r.max.y <= 96.0);
             }
         }
+        assert_eq!((BEND_STANCE_ROW, BEND_RELEASE_ROW), (4, 5));
     }
 
     #[test]

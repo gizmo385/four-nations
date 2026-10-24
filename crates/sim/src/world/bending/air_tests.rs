@@ -327,3 +327,71 @@ fn replay_without_the_bend_commands_diverges() {
     replayed.replay(&log, original.tick, &defs);
     assert_ne!(snapshot(&replayed, &defs), snapshot(&original, &defs));
 }
+
+#[test]
+fn a_bend_is_a_channel_only_while_the_unit_stands_at_it_and_works() {
+    let defs = Defs::bundled();
+    let wood = wood_item(&defs);
+    let mut w = world(&[at(3, 2)], 40, 5, None, &defs);
+    w.zones.insert(at(14, 2));
+    w.ground.insert(at(10, 2), Stack { item: wood, count: 5 });
+    w.ensure_haul_job(at(10, 2));
+    assert!(w.bend_channels(&defs).is_empty(), "nothing designated");
+
+    w.apply(Command::Bend { ability: wind(&defs), pos: at(10, 2) }, &defs).unwrap();
+    // The unit walks over first: not a channel yet.
+    w.tick(&defs);
+    assert!(w.bend_channels(&defs).is_empty(), "still walking");
+    run_until(&mut w, &defs, 500, |w| !w.bend_channels(&defs).is_empty());
+
+    let first = w.bend_channels(&defs)[0];
+    assert_eq!((first.unit, first.ability, first.pos), (w.units[0].id, wind(&defs), at(10, 2)));
+    let work = defs.ability(wind(&defs)).work;
+    assert!(first.remaining_secs > 0.0 && first.remaining_secs <= work, "{first:?}");
+
+    // The time left counts down with the world's ticks, and stops with them.
+    w.tick(&defs);
+    let later = w.bend_channels(&defs)[0].remaining_secs;
+    assert!(later < first.remaining_secs, "{later} < {}", first.remaining_secs);
+    assert_eq!(w.bend_channels(&defs)[0].remaining_secs, later, "no tick, no change");
+
+    // A need pre-empts the channel: it is set aside, so it isn't one.
+    w.units[0].need_task = Some(Task::Sleep);
+    assert!(w.bend_channels(&defs).is_empty());
+    w.units[0].need_task = None;
+    assert_eq!(w.bend_channels(&defs).len(), 1);
+
+    // Finishing ends the channel and logs the event on the same tick.
+    let events = w.bend_events().len();
+    run_until(&mut w, &defs, 200, |w| w.bend_events().len() > events);
+    assert!(w.bend_channels(&defs).is_empty());
+    assert_eq!(w.bend_events().last().unwrap().outcome, BendOutcome::Done);
+}
+
+#[test]
+fn the_event_says_where_the_stack_went_so_the_client_can_fly_it() {
+    let defs = Defs::bundled();
+    let wood = wood_item(&defs);
+    let cap = defs.jobs.stockpile_stack;
+    let mut w = world(&[at(9, 2)], 40, 5, None, &defs);
+    w.zones.insert(at(14, 2));
+    w.stored.insert(at(14, 2), Stack { item: wood, count: cap - 3 });
+    w.ground.insert(at(10, 2), Stack { item: wood, count: 5 });
+    w.ensure_haul_job(at(10, 2));
+    blow(&mut w, &defs, at(10, 2));
+    // Only what fits is moved; the rest stays on the ground.
+    let event = *w.bend_events().last().unwrap();
+    assert_eq!(event.moved, Some(Moved { to: at(14, 2), item: wood, count: 3 }));
+    assert_eq!(w.ground_items().next(), Some((at(10, 2), Stack { item: wood, count: 2 })));
+}
+
+#[test]
+fn only_wind_carry_moves_a_stack() {
+    let defs = Defs::bundled();
+    let mut w = World::with_map(1, field(&defs, 40, 5, None), Nation::Fire, &[at(9, 2)], &defs);
+    let ability = defs.ability_id("hearthflame").unwrap();
+    w.apply(Command::Bend { ability, pos: at(10, 2) }, &defs).unwrap();
+    run_until(&mut w, &defs, 500, |w| !w.bend_events().is_empty());
+    assert_eq!(w.bend_events()[0].outcome, BendOutcome::Done);
+    assert_eq!(w.bend_events()[0].moved, None);
+}
