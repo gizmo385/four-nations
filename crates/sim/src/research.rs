@@ -366,6 +366,14 @@ impl Research {
         Ok(())
     }
 
+    /// Adds knowledge straight to the pool, outside the passive trickle `tick` adds on its own:
+    /// the Study job (`world/study.rs`, #21), scrolls later (#24). Techs it can now afford
+    /// complete on the next `tick`, not immediately, so knowledge earned partway through a tick
+    /// can't retroactively unlock something earlier in that same tick.
+    pub fn add_knowledge(&mut self, millis: u64) {
+        self.pool_millis += millis;
+    }
+
     /// Adds one tick of passive knowledge, then completes queued techs the pool can pay for.
     /// `tick` is the world tick being simulated, recorded on completions.
     pub fn tick(&mut self, tick: u64, defs: &Defs) {

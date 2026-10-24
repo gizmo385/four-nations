@@ -10,8 +10,8 @@
 //!
 //! On completion the tile gets a `Building` (`World::building_at`): `BuildingDef::passable` is
 //! baked onto it, so pathfinding (`path.rs`, `flood.rs`) never has to consult the defs to know
-//! whether it blocks movement. What a finished building *does* is out of scope here (#58
-//! beds/hearth).
+//! whether it blocks movement. What a finished building *does* is mostly out of scope here (#58
+//! beds/hearth), except a study hall's seats, which `study.rs` opens as jobs right away.
 
 use crate::building::{Building, BuildingId};
 use crate::flood::Flood;
@@ -244,10 +244,12 @@ impl World {
                     return;
                 }
                 let building = Building { id: site.building, passable: def.passable };
+                let seats = def.seats;
                 self.sites.remove(&pos);
                 self.jobs.remove(idx);
                 self.map[pos].building = Some(building);
                 self.map_changed();
+                self.open_study_seats(pos, seats);
                 self.finish_job(i);
             }
         }

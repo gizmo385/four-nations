@@ -211,6 +211,10 @@ pub enum JobKind {
     Bend { ability: AbilityId, pos: Pos },
     /// Haul a building's cost to this tile and construct it (`data/buildings.toml`, #64).
     Build { pos: Pos },
+    /// Work a study hall's seat, adding knowledge to the research pool each tick it's worked
+    /// (`data/buildings.toml`, `data/research.toml`, #21). Opened in sets of `seats` when a study
+    /// hall finishes construction (`world/study.rs`); never completes on its own.
+    Study { pos: Pos },
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -3,12 +3,17 @@
 //! A `BuildingDef` just says what a building costs, how long it takes to build and whether units
 //! may walk onto it once it's finished; everything about *designating* one, hauling its cost to
 //! the site and the work that finishes it lives in `world/build.rs`. What a finished building
-//! *does* (sleeping, cooking...) is follow-up work (#58 beds/hearth): nothing here assumes it.
+//! *does* (sleeping, cooking...) is mostly follow-up work (#58 beds/hearth), except seats: a
+//! building with `seats > 0` is a study hall, and the moment one finishes construction
+//! `world/study.rs` opens that many `JobKind::Study` jobs on it (issue #21).
+
+use std::collections::HashMap;
 
 use serde::Deserialize;
 
 use crate::defs::DefsError;
 use crate::jobs::{ItemDef, ItemId};
+use crate::nation::Nation;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BuildingId(pub u16);
@@ -41,6 +46,21 @@ pub struct BuildingDef {
     pub work: f32,
     /// Whether units may walk onto the tile once the building is finished.
     pub passable: bool,
+    /// How many units may study here at once. 0 unless this is a study hall (issue #21); a
+    /// nonzero value is what tells `world/build.rs` to open that many `JobKind::Study` jobs when
+    /// construction finishes.
+    pub seats: u32,
+    /// What each nation calls this building, if it varies (e.g. the study hall: Meditation
+    /// Pavilion for Air). Empty when every nation uses the plain `name`. If set at all, every
+    /// nation has an entry (`display_name` is the one place that matters).
+    pub names: HashMap<Nation, String>,
+}
+
+impl BuildingDef {
+    /// `names[nation]` if this building has a nation-specific name, else the shared `name`.
+    pub fn display_name(&self, nation: Nation) -> &str {
+        self.names.get(&nation).map(String::as_str).unwrap_or(&self.name)
+    }
 }
 
 #[derive(Deserialize)]
@@ -60,6 +80,10 @@ struct RawBuilding {
     cost: Vec<RawCost>,
     work: f32,
     passable: bool,
+    #[serde(default)]
+    seats: u32,
+    #[serde(default)]
+    names: HashMap<Nation, String>,
 }
 
 #[derive(Deserialize)]
@@ -93,6 +117,21 @@ impl BuildingsFile {
                 }
                 cost.push(CostItem { item: ItemId(item as u16), count: c.count });
             }
+            if !b.names.is_empty() && b.names.len() != Nation::ALL.len() {
+                return err(format!(
+                    "building {}: names must name all four nations, or none",
+                    b.id
+                ));
+            }
+            for (nation, name) in &b.names {
+                if name.trim().is_empty() {
+                    return err(format!(
+                        "building {}: {} name must not be empty",
+                        b.id,
+                        nation.as_str()
+                    ));
+                }
+            }
             buildings.push(BuildingDef {
                 id: b.id,
                 name: b.name,
@@ -100,6 +139,8 @@ impl BuildingsFile {
                 cost,
                 work: b.work,
                 passable: b.passable,
+                seats: b.seats,
+                names: b.names,
             });
         }
         Ok(buildings)
@@ -108,7 +149,10 @@ impl BuildingsFile {
 
 #[cfg(test)]
 mod tests {
-    use crate::defs::Defs;
+    use crate::defs::{Defs, DefsError};
+    use crate::nation::Nation;
+
+    use super::{BuildingDef, BuildingsFile};
 
     #[test]
     fn bundled_buildings_are_valid() {
@@ -118,5 +162,67 @@ mod tests {
         let def = defs.building(bed);
         assert!(def.work > 0.0);
         assert!(!def.cost.is_empty());
+    }
+
+    #[test]
+    fn study_hall_has_seats_and_a_name_per_nation() {
+        let defs = Defs::bundled();
+        let hall = defs.building_id("study_hall").expect("study hall");
+        let def = defs.building(hall);
+        assert!(def.seats > 0);
+        for n in Nation::ALL {
+            assert_ne!(def.display_name(n), def.name, "{n:?} should have its own name");
+        }
+    }
+
+    #[test]
+    fn a_building_without_nation_names_falls_back_to_its_plain_name() {
+        let defs = Defs::bundled();
+        let bed = defs.building_id("bed").unwrap();
+        let def = defs.building(bed);
+        assert_eq!(def.seats, 0);
+        for n in Nation::ALL {
+            assert_eq!(def.display_name(n), def.name);
+        }
+    }
+
+    fn resolve(toml: &str) -> Result<Vec<BuildingDef>, DefsError> {
+        let items = Defs::bundled().items;
+        toml::from_str::<BuildingsFile>(toml).unwrap().resolve(&items)
+    }
+
+    #[test]
+    fn names_must_cover_every_nation_or_none() {
+        let toml = r#"
+            [[building]]
+            id = "hut"
+            name = "Hut"
+            verb = "Build"
+            work = 1.0
+            passable = false
+            [building.names]
+            air = "Shelter"
+        "#;
+        let err = resolve(toml).unwrap_err();
+        assert!(err.0.contains("all four nations"), "{err}");
+    }
+
+    #[test]
+    fn a_blank_nation_name_is_rejected() {
+        let toml = r#"
+            [[building]]
+            id = "hut"
+            name = "Hut"
+            verb = "Build"
+            work = 1.0
+            passable = false
+            [building.names]
+            air = "  "
+            water = "W"
+            earth = "E"
+            fire = "F"
+        "#;
+        let err = resolve(toml).unwrap_err();
+        assert!(err.0.contains("must not be empty"), "{err}");
     }
 }
