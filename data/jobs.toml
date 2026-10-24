@@ -29,16 +29,20 @@ idle_wander_chance = 0.5
 idle_wander_steps = 4
 
 # Items that aren't food. Foods (data/needs.toml) are items too, with the id they have there.
+# `icon` names the item's sprite in art/icons.toml (a client test checks that it exists).
 [[item]]
 id = "wood"
+icon = "wood"
 name = "Wood"
 
 [[item]]
 id = "stone"
+icon = "stone"
 name = "Stone"
 
 [[item]]
 id = "gold_ore"
+icon = "gold"
 name = "Gold Ore"
 
 # What working a map resource yields. When the work finishes `count` of `item` drops beside the

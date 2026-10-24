@@ -205,7 +205,7 @@ sha256 = "399e94c90e96dada0339e67e791ec40f9c34e9e9abaae3d9b0da7e19c26c4bac"
 path = "original/icons.png"
 source = "original"
 generated_from = "art/icons.toml"
-sha256 = "ef3809933be1725b0981d886efffcf05852873a802f13313750009f64c651f12"
+sha256 = "4683601a24896be0401a872de7bed4427f78f916b55b04990a33769ca6b32b7d"
 
 [[file]]
 path = "original/resources.png"
@@ -217,7 +217,13 @@ sha256 = "d6f771ef59894b2b55b2b164031a7ac65b75e8927b2b520dbdcdbdb385b6d95f"
 path = "original/tools.png"
 source = "original"
 generated_from = "art/tools.toml"
-sha256 = "4ce95828cbd6c24cf5143d6137dd6bf201021668fbcdfbf787af193a472b2417"
+sha256 = "e91dcfed71ca8b0d8801189059ba325e580709f6a1121548fb4bf7a186879b1d"
+
+[[file]]
+path = "original/trees.png"
+source = "original"
+generated_from = "art/trees.toml"
+sha256 = "7ec9c52fc64857a788cffeda589cd9698831700e05ba4341ca9bd0ed063747a7"
 
 [[file]]
 path = "original/ui_flair.air.png"

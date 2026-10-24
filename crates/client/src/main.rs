@@ -14,7 +14,9 @@
 //! `FN_SELECT=N` starts with unit N selected so its panel shows in the shot, and
 //! `FN_RESEARCH_OPEN=1` starts with the research screen (`T`) open, and `FN_BUILD_DEMO=1`
 //! starts with the build tool (`U`) active and a few construction sites designated beside the
-//! first unit, so the picker and the site overlay show in the shot. Agents use this, via
+//! first unit, so the picker and the site overlay show in the shot. `FN_STORES_DEMO=1` harvests
+//! what is near the settlers into a stockpile and runs the game until the Stores section has
+//! rows to show. Agents use this, via
 //! `cargo xtask screenshot SEED NATION OUT.png [WIDTH HEIGHT]`, to check visual changes without a
 //! window popping up and stealing the human's focus.
 
@@ -97,6 +99,9 @@ fn main() {
     if build_demo {
         designate_demo_sites(&mut sim);
     }
+    if std::env::var_os("FN_STORES_DEMO").is_some() {
+        fill_demo_stores(&mut sim);
+    }
     app.insert_resource(Time::<Fixed>::from_hz(f64::from(TICKS_PER_SECOND)))
         .insert_resource(ActiveTool(if build_demo { Tool::Build } else { Tool::Select }))
         .insert_resource(Sim(sim))
@@ -162,6 +167,43 @@ fn designate_demo_sites(session: &mut Session) {
         let pos = Pos::new(origin.x + 2, origin.y + dy);
         if session.apply(fn_sim::world::Command::DesignateBuild { pos, building }).is_ok() {
             dy += 2;
+        }
+    }
+}
+
+/// `FN_STORES_DEMO`: designates every harvest near the first unit and a stockpile beside it, then
+/// runs the game (at most 20 in-game minutes) until at least five kinds of item are stored.
+fn fill_demo_stores(session: &mut Session) {
+    use fn_sim::world::Command;
+    let Some(from) = session.world.units.first().map(|u| u.pos) else { return };
+    let near = |p: Pos, w: i32, h: i32| (p.x - from.x).abs() < w && (p.y - from.y).abs() < h;
+    let harvests: Vec<Pos> = session
+        .world
+        .map
+        .iter()
+        .filter(|(p, t)| {
+            near(*p, 30, 20) && t.resource.is_some_and(|r| session.defs.harvest(r).is_some())
+        })
+        .map(|(p, _)| p)
+        .collect();
+    for pos in harvests {
+        let _ = session.apply(Command::DesignateHarvest { pos });
+    }
+    let mut zone: Vec<Pos> = session
+        .world
+        .map
+        .iter()
+        .filter(|(_, t)| t.terrain == fn_sim::Terrain::Land && t.resource.is_none())
+        .map(|(p, _)| p)
+        .collect();
+    zone.sort_by_key(|p| (p.x - from.x).pow(2) + (p.y - from.y).pow(2));
+    for pos in zone.into_iter().take(12) {
+        let _ = session.apply(Command::DesignateStockpile { pos });
+    }
+    for _ in 0..20 * 60 {
+        session.tick_n(TICKS_PER_SECOND);
+        if fn_ui::view::stores(session).len() >= 5 {
+            break;
         }
     }
 }
