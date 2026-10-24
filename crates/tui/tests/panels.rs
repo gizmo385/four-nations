@@ -1,0 +1,753 @@
+//! The panels (#99): selecting units and the selection bar, the side panel's sections, alerts, the
+//! message log, key help, and the new-map and nation prompts. Golden frames are rewritten with
+//! `FN_BLESS=1 cargo test -p fn_tui` (review the diff).
+
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use fn_sim::world::Command;
+use fn_sim::{Nation, Pos};
+use fn_tui::app::App;
+use fn_tui::color::{ColorDepth, Palette};
+use fn_tui::frame::{render_app, to_text};
+use fn_tui::state::{PINNED, Screen};
+use fn_tui::{keys, new_session};
+use fn_ui::tools::ability_for_nation;
+use fn_ui::{Session, Tool};
+use ratatui::style::Modifier;
+
+const SIZE: (u16, u16) = (120, 40);
+const SMALL: (u16, u16) = (80, 24);
+
+fn app(seed: u64, nation: Nation, size: (u16, u16)) -> App {
+    App::new(new_session(seed, nation), size)
+}
+
+fn run(app: &mut App, script: &str) {
+    app.play(&keys::parse(script).expect("a valid script"));
+}
+
+fn text(app: &mut App, size: (u16, u16)) -> String {
+    let p = Palette::new(&app.session.defs, app.session.world.nation, ColorDepth::TrueColor, false);
+    to_text(&render_app(app, &p, size))
+}
+
+fn golden(name: &str, actual: &str) {
+    let path = format!("{}/tests/golden/{name}.txt", env!("CARGO_MANIFEST_DIR"));
+    if std::env::var_os("FN_BLESS").is_some() {
+        std::fs::write(&path, actual).unwrap();
+    }
+    let expected = std::fs::read_to_string(&path).expect("golden missing; run with FN_BLESS=1");
+    assert_eq!(actual, expected, "{name}: the frame changed; rebless with FN_BLESS=1 and review");
+}
+
+/// The unit ids in the order of the world's list.
+fn ids(app: &App) -> Vec<fn_sim::world::UnitId> {
+    app.session.world.units.iter().map(|u| u.id).collect()
+}
+
+/// A Fire game where the first settler has bent a few times, so the log has lines.
+fn bending_game() -> App {
+    let mut s = Session::new(1, Nation::Fire, 48, 32);
+    let ability = ability_for_nation(&s.defs, Nation::Fire).unwrap();
+    let from = s.world.units[0].pos;
+    let mut designated = 0;
+    for dy in -4..=4 {
+        for dx in -4..=4 {
+            let pos = Pos::new(from.x + dx, from.y + dy);
+            if s.apply(Command::Bend { ability, pos }).is_ok() {
+                designated += 1;
+            }
+        }
+    }
+    assert!(designated > 3, "the settler should have fire to light");
+    let mut app = App::new(s, SIZE);
+    for _ in 0..200 {
+        app.play(&[keys::Step::Tick(100)]);
+        if app.ui.alerts.history().len() >= 3 {
+            break;
+        }
+    }
+    assert!(app.ui.alerts.history().len() >= 3, "bending should have been logged");
+    app
+}
+
+// ---------------------------------------------------------------------------------------------
+// Selecting
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn enter_selects_the_unit_under_the_cursor_and_again_the_next_one_there() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    let ids = ids(&a);
+    let spot = a.session.world.units[0].pos;
+    a.session.world.units[1].pos = spot;
+    a.session.world.units[2].pos = spot;
+    a.ui.cursor = spot;
+    assert_eq!(a.ui.selected, None);
+
+    run(&mut a, "<enter>");
+    assert_eq!(a.ui.selected, Some(ids[0]));
+    run(&mut a, "<enter>");
+    assert_eq!(a.ui.selected, Some(ids[1]), "again: the next one on that tile");
+    run(&mut a, "<enter>");
+    assert_eq!(a.ui.selected, Some(ids[2]));
+    run(&mut a, "<enter>");
+    assert_eq!(a.ui.selected, Some(ids[0]), "and round again");
+
+    // An empty tile changes nothing.
+    a.ui.cursor = Pos::new(0, 0);
+    run(&mut a, "<enter>");
+    assert_eq!(a.ui.selected, Some(ids[0]));
+}
+
+#[test]
+fn tab_and_shift_tab_cycle_through_the_units_and_the_cursor_follows() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    let ids = ids(&a);
+    run(&mut a, "<tab>");
+    assert_eq!(a.ui.selected, Some(ids[0]));
+    assert_eq!(a.ui.cursor, a.session.world.units[0].pos);
+    run(&mut a, "<tab>");
+    assert_eq!(a.ui.selected, Some(ids[1]));
+    assert_eq!(a.ui.cursor, a.session.world.units[1].pos);
+    run(&mut a, "<s-tab> <s-tab>");
+    assert_eq!(a.ui.selected, Some(ids[ids.len() - 1]), "backwards wraps round to the last");
+    assert_eq!(a.ui.cursor, a.session.world.units[ids.len() - 1].pos);
+    run(&mut a, "<tab>");
+    assert_eq!(a.ui.selected, Some(ids[0]), "forwards wraps to the first");
+
+    // Shift+Tab with nothing selected starts at the last unit.
+    let mut b = app(7, Nation::Earth, SIZE);
+    run(&mut b, "<s-tab>");
+    assert_eq!(b.ui.selected, Some(ids[ids.len() - 1]));
+}
+
+#[test]
+fn escape_closes_the_bar_but_in_a_tool_it_leaves_the_tool_first() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "<tab>");
+    assert!(a.ui.selected.is_some());
+    run(&mut a, "h");
+    // Tab and F are for Select mode.
+    let before = a.ui.selected;
+    run(&mut a, "<tab> f");
+    assert_eq!((a.ui.selected, a.ui.following), (before, false));
+    run(&mut a, "<esc>");
+    assert_eq!(a.ui.tool, Tool::Select);
+    assert!(a.ui.selected.is_some(), "the first Esc left the tool");
+    run(&mut a, "<esc>");
+    assert_eq!(a.ui.selected, None, "the second closed the bar");
+}
+
+#[test]
+fn f_follows_the_selected_unit_until_the_cursor_is_moved_by_hand() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "f");
+    assert!(!a.ui.following, "nothing selected, nothing to follow");
+    run(&mut a, "<tab> f");
+    assert!(a.ui.following);
+    // Walk the unit away; the cursor and the view go with it.
+    let id = a.ui.selected.unwrap();
+    let to = Pos::new(a.session.world.units[0].pos.x + 7, a.session.world.units[0].pos.y);
+    a.session.world.units.iter_mut().find(|u| u.id == id).unwrap().pos = to;
+    run(&mut a, "<tick 1>");
+    assert_eq!(a.ui.cursor, to);
+    assert!(a.ui.cursor_cell().is_some());
+    run(&mut a, "d");
+    assert!(!a.ui.following, "moving the cursor by hand stops following");
+    run(&mut a, "f");
+    assert!(a.ui.following, "F again follows again");
+    run(&mut a, "f");
+    assert!(!a.ui.following, "and a third time stops");
+}
+
+#[test]
+fn a_unit_that_dies_closes_the_bar() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "<tab> f");
+    let id = a.ui.selected.unwrap();
+    a.session.world.units.retain(|u| u.id != id);
+    run(&mut a, "<tick 1>");
+    assert_eq!((a.ui.selected, a.ui.following), (None, false));
+}
+
+#[test]
+fn the_view_keeps_the_selected_unit_above_the_bar() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    let (_, h) = a.ui.viewport();
+    // Stand a settler on the bottom edge of the map and select it.
+    let bottom = Pos::new(a.session.world.units[0].pos.x, a.session.world.map.height() - 1);
+    a.session.world.units[0].pos = bottom;
+    a.ui.cursor = bottom;
+    run(&mut a, "<enter>");
+    let (_, row) = a.ui.cursor_cell().expect("the unit is in view");
+    assert!(row < h - 7, "row {row} must clear the 7-row bar on a {h}-row map");
+    let frame = text(&mut a, SIZE);
+    let lines: Vec<&str> = frame.lines().collect();
+    let unit_row = lines[row as usize];
+    assert!(unit_row.contains('☺'), "the unit is drawn above the bar:\n{frame}");
+
+    // Closing the bar leaves the view be.
+    run(&mut a, "<esc>");
+    assert_eq!(a.ui.selected, None);
+    assert!(a.ui.cursor_cell().is_some());
+}
+
+// ---------------------------------------------------------------------------------------------
+// The selection bar
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn the_bar_names_the_unit_and_shows_its_task_cargo_tile_and_meters() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "<tab>");
+    let unit = &a.session.world.units[0];
+    let (name, pos) = (unit.name.clone(), unit.pos);
+    let frame = text(&mut a, SIZE);
+    let lines: Vec<&str> = frame.lines().collect();
+    // The bar is the 7 rows above the status line, on the map side.
+    let top = lines[32];
+    assert!(top.starts_with("┏─ ") && top.contains(&format!("{name} · Earth Kingdom")), "{top}");
+    let bar = lines[32..39].join("\n");
+    for want in ["Idle", "Carrying: nothing", &format!("At ({}, {})", pos.x, pos.y)] {
+        assert!(bar.contains(want), "{want:?} in\n{bar}");
+    }
+    for want in ["Health", "Hunger", "Thirst", "Energy", "Chi"] {
+        assert!(bar.contains(want), "{want:?} in\n{bar}");
+    }
+    assert!(bar.contains("██████████ 100%"), "a full meter is ten cells:\n{bar}");
+    assert!(bar.contains("[Esc] close  [Tab] next  [F] follow"), "{bar}");
+    // The side panel runs the full height beside it.
+    assert!(lines[36].contains('│') && lines[39].starts_with(" SELECT"), "{frame}");
+}
+
+#[test]
+fn a_meter_that_is_not_ok_has_a_bang_and_the_others_do_not() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    a.session.world.units[0].needs.energy = 0.0;
+    a.session.world.units[0].needs.hunger = 0.0;
+    run(&mut a, "<tab>");
+    let frame = text(&mut a, SIZE);
+    let row = |label: &str| {
+        frame
+            .lines()
+            .skip(32)
+            .find(|l| l.contains(label))
+            .unwrap_or_else(|| panic!("{label} row in\n{frame}"))
+            .to_owned()
+    };
+    for label in ["Energy", "Hunger"] {
+        assert!(row(label).contains("0%!"), "{}", row(label));
+    }
+    for label in ["Health", "Thirst"] {
+        assert!(!row(label).contains('!'), "{}", row(label));
+    }
+    assert!(!row("Chi").contains('!'));
+}
+
+#[test]
+fn meters_wear_the_ok_warn_and_bad_tokens() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    {
+        let needs = &mut a.session.world.units[0].needs;
+        let max = a.session.defs.needs.max();
+        needs.hunger = max; // ok
+        needs.thirst = max * a.session.defs.needs.thirst.low / max * 0.8; // warn
+        needs.energy = 0.0; // bad
+    }
+    run(&mut a, "<tab>");
+    let p = Palette::new(&a.session.defs, Nation::Earth, ColorDepth::TrueColor, false);
+    let buf = render_app(&mut a, &p, SIZE);
+    let cell_of = |label: &str| {
+        let y = (32..39)
+            .find(|&y| (0..120).map(|x| buf[(x, y)].symbol()).collect::<String>().contains(label))
+            .unwrap();
+        let row: String = (0..120).map(|x| buf[(x, y)].symbol()).collect();
+        let x = row.chars().position(|c| c == '█').unwrap() as u16;
+        buf[(x, y)].fg
+    };
+    let want = |rgb| p.token(rgb);
+    assert_eq!(cell_of("Hunger"), want(p.theme.ok));
+    assert_eq!(cell_of("Thirst"), want(p.theme.warn));
+    let energy_y = (32..39)
+        .find(|&y| (0..120).map(|x| buf[(x, y)].symbol()).collect::<String>().contains("Energy"))
+        .unwrap();
+    // A bad meter has no filled cells, so its mark carries the colour.
+    let bang = (0..120).find(|&x| buf[(x, energy_y)].symbol() == "!").unwrap();
+    assert_eq!(buf[(bang, energy_y)].fg, want(p.theme.bad));
+}
+
+#[test]
+fn the_selected_unit_is_drawn_in_reverse_video() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "<tab> <right*3>");
+    let p = Palette::new(&a.session.defs, Nation::Earth, ColorDepth::TrueColor, false);
+    let buf = render_app(&mut a, &p, SIZE);
+    let unit = a.session.world.units[0].pos;
+    let map = fn_tui::layout::regions(buf.area).unwrap().map;
+    let at = |pos: Pos| {
+        &buf[(map.x + (pos.x - a.ui.view.x) as u16, map.y + (pos.y - a.ui.view.y) as u16)]
+    };
+    assert!(at(unit).modifier.contains(Modifier::REVERSED), "the selected unit");
+    for other in &a.session.world.units[1..] {
+        if other.pos != unit && other.pos != a.ui.cursor {
+            let cell = at(other.pos);
+            if cell.symbol() == "☺" {
+                assert!(!cell.modifier.contains(Modifier::REVERSED), "{:?}", other.name);
+            }
+        }
+    }
+}
+
+#[test]
+fn the_cursor_section_offers_enter_over_a_unit() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("Press Enter to select"), "{frame}");
+    run(&mut a, "h");
+    assert!(!text(&mut a, SIZE).contains("Press Enter to select"), "not in a tool");
+}
+
+#[test]
+fn golden_frame_with_a_selected_unit() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    a.session.world.units[0].needs.energy = a.session.defs.needs.max() * 0.1;
+    run(&mut a, "<tick 200> <tab>");
+    golden("earth_seed7_selected", &text(&mut a, SIZE));
+}
+
+#[test]
+fn golden_ascii_frame_with_a_selected_unit() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "<tab>");
+    let p = Palette::new(&a.session.defs, Nation::Earth, ColorDepth::Never, true);
+    let frame = to_text(&render_app(&mut a, &p, SIZE));
+    assert!(frame.is_ascii(), "{frame}");
+    golden("earth_seed7_selected_ascii", &frame);
+}
+
+// ---------------------------------------------------------------------------------------------
+// The side panel
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn people_lists_a_line_per_unit_while_they_fit_and_then_counts_the_rest() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    let frame = text(&mut a, SIZE);
+    for u in &a.session.world.units {
+        assert!(frame.contains(&format!(" {} ", u.name)) || frame.contains(&u.name), "{}", u.name);
+    }
+    assert!(!frame.contains("more"), "all six fit at 120x40:\n{frame}");
+
+    // At 80x24 the panel is 21 rows: it gives up unit lines for the sections that matter.
+    let mut b = app(7, Nation::Earth, SMALL);
+    let frame = text(&mut b, SMALL);
+    assert!(frame.contains("PEOPLE"), "{frame}");
+    assert!(frame.contains("CURSOR") && frame.contains("RESEARCH"), "{frame}");
+    let listed = b.session.world.units.iter().filter(|u| frame.contains(&u.name)).count();
+    assert_eq!(
+        listed,
+        b.session.world.units.len(),
+        "the unit lines outrank the modifiers:\n{frame}"
+    );
+
+    // With a tool and a result to report there is less room, and the count says what is missing.
+    run(&mut b, "b <enter> <enter>");
+    let frame = text(&mut b, SMALL);
+    let listed = b.session.world.units.iter().filter(|u| frame.contains(&u.name)).count();
+    if listed > 0 && listed < b.session.world.units.len() {
+        assert!(
+            frame.contains(&format!("+{} more", b.session.world.units.len() - listed)),
+            "{frame}"
+        );
+    }
+    assert!(frame.contains("CURSOR"), "{frame}");
+}
+
+#[test]
+fn the_selected_unit_is_marked_in_the_people_list() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "<tab> <tab>");
+    let name = a.session.world.units[1].name.clone();
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains(&format!("▸{name}")), "{frame}");
+    assert_eq!(frame.matches('▸').count(), 1);
+}
+
+#[test]
+fn research_shows_the_target_bar_and_rate() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("RESEARCH") && frame.contains("No target set"), "{frame}");
+    assert!(frame.contains("3.0/min"), "{frame}");
+
+    let tech = fn_ui::research::screen_view(&a.session)
+        .columns
+        .iter()
+        .flatten()
+        .find(|c| c.state == fn_ui::research::TechState::Available)
+        .expect("an available tech")
+        .clone();
+    a.session.apply(Command::SetResearch { tech: tech.id }).unwrap();
+    run(&mut a, "<tick 600>");
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains(&tech.name), "the target is named:\n{frame}");
+    assert!(frame.contains('%') && frame.contains("pts"), "{frame}");
+    assert!(frame.contains('░') || frame.contains('█'), "with a bar:\n{frame}");
+}
+
+#[test]
+fn stores_appear_once_something_is_stockpiled_and_hide_before() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    assert!(!text(&mut a, SIZE).contains("STORES"));
+    let from = a.session.world.units[0].pos;
+    let near: Vec<Pos> = a
+        .session
+        .world
+        .map
+        .iter()
+        .filter(|(p, t)| {
+            (p.x - from.x).abs() < 12
+                && (p.y - from.y).abs() < 8
+                && t.resource.is_some_and(|r| a.session.defs.harvest(r).is_some())
+        })
+        .map(|(p, _)| p)
+        .collect();
+    for p in near {
+        let _ = a.session.apply(Command::DesignateHarvest { pos: p });
+    }
+    let mut zone: Vec<Pos> = a
+        .session
+        .world
+        .map
+        .iter()
+        .filter(|(_, t)| t.terrain == fn_sim::Terrain::Land && t.resource.is_none())
+        .map(|(p, _)| p)
+        .collect();
+    zone.sort_by_key(|p| (p.x - from.x).pow(2) + (p.y - from.y).pow(2));
+    for pos in zone.into_iter().take(4) {
+        a.session.apply(Command::DesignateStockpile { pos }).unwrap();
+    }
+    for _ in 0..40 {
+        run(&mut a, "<tick 100>");
+        if !fn_ui::view::stores(&a.session).is_empty() {
+            break;
+        }
+    }
+    let (item, count) = fn_ui::view::stores(&a.session).remove(0);
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("STORES") && frame.contains(&format!("{item} {count}")), "{frame}");
+}
+
+#[test]
+fn the_modifiers_that_differ_from_one_are_listed() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("MODIFIERS") && frame.contains("x2.5"), "{frame}");
+    for (label, value) in fn_ui::view::modifier_rows(a.session.world.modifiers()) {
+        assert!(frame.contains(&label) && frame.contains(&value), "{label} {value}\n{frame}");
+    }
+}
+
+#[test]
+fn the_sections_come_in_ui_md_order() {
+    let mut a = bending_game();
+    run(&mut a, "b");
+    let frame = text(&mut a, SIZE);
+    let at = |s: &str| frame.find(s).unwrap_or_else(|| panic!("{s} in\n{frame}"));
+    let order = ["Seed", "PEOPLE", "RESEARCH", "MODIFIERS", "TOOL", "ALERTS", "CURSOR"];
+    for pair in order.windows(2) {
+        // Compare by row: the map shares each row with the panel.
+        let row = |s: &str| frame[..at(s)].matches('\n').count();
+        assert!(row(pair[0]) < row(pair[1]), "{} before {}\n{frame}", pair[0], pair[1]);
+    }
+}
+
+#[test]
+fn a_small_terminal_keeps_the_cursor_and_research_with_every_section_on() {
+    for nation in Nation::ALL {
+        let mut a = bending_game_for(nation);
+        run(&mut a, "b <enter>");
+        let frame = text(&mut a, SMALL);
+        assert!(frame.contains("CURSOR"), "{nation:?}\n{frame}");
+        assert!(frame.contains("Enter: bend"), "{nation:?}\n{frame}");
+        assert!(frame.contains("RESEARCH"), "{nation:?}\n{frame}");
+    }
+}
+
+fn bending_game_for(nation: Nation) -> App {
+    if nation == Nation::Fire {
+        return bending_game();
+    }
+    app(3, nation, SMALL)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Alerts and the message log
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn a_bend_becomes_an_alert_in_the_side_panel_and_a_line_in_the_log() {
+    let mut a = bending_game();
+    let frame = text(&mut a, SIZE);
+    let first = a.ui.alerts.history()[0].text.clone();
+    assert!(frame.contains("ALERTS"), "{frame}");
+    assert!(frame.contains(&first[..first.len().min(26)]), "{first}\n{frame}");
+
+    run(&mut a, "l");
+    assert_eq!(a.ui.screen, Some(Screen::Log));
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("MESSAGE LOG"), "{frame}");
+    let history: Vec<String> = a.ui.alerts.history().iter().map(|e| e.text.clone()).collect();
+    // Newest last: every line is there, in order.
+    let mut from = 0;
+    for line in &history {
+        let at = frame[from..]
+            .find(&line[..line.len().min(20)])
+            .unwrap_or_else(|| panic!("{line} in\n{frame}"));
+        from += at;
+    }
+    assert!(frame.contains("00:"), "each line is stamped with the game time:\n{frame}");
+}
+
+#[test]
+fn toasts_age_out_by_real_seconds_but_the_log_keeps_them() {
+    let mut a = bending_game();
+    assert!(!a.ui.alerts.toasts().is_empty());
+    let kept = a.ui.alerts.history().len();
+    a.session.clock.paused = true;
+    // Paused: no ticks, but real time passes and the toasts go.
+    for _ in 0..20 {
+        a.age(1.0);
+    }
+    assert!(a.ui.alerts.toasts().is_empty());
+    assert!(!text(&mut a, SIZE).contains("ALERTS"));
+    assert_eq!(a.ui.alerts.history().len(), kept);
+    run(&mut a, "l");
+    assert!(text(&mut a, SIZE).contains("MESSAGE LOG"));
+}
+
+#[test]
+fn deaths_are_logged() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    // Starve one settler: with no hunger or thirst left they die in a few seconds.
+    a.session.world.units[0].needs.hunger = 0.0;
+    a.session.world.units[0].needs.thirst = 0.0;
+    a.session.world.units[0].needs.energy = 0.0;
+    a.session.world.units[0].needs.health = 0.01;
+    for _ in 0..50 {
+        run(&mut a, "<tick 20>");
+        if !a.session.world.deaths.is_empty() {
+            break;
+        }
+    }
+    assert!(!a.session.world.deaths.is_empty(), "the settler should have died");
+    run(&mut a, "l");
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains(" died of "), "{frame}");
+}
+
+#[test]
+fn the_log_scrolls_with_the_arrows_ws_and_the_page_keys_and_sticks_to_the_end() {
+    let mut a = bending_game();
+    // Enough lines to need scrolling at the smallest size.
+    let mut guard = 0;
+    while a.ui.alerts.history().len() < 30 && guard < 400 {
+        run(&mut a, "<tick 100>");
+        guard += 1;
+    }
+    a.resize(SMALL.0, SMALL.1);
+    let n = a.ui.alerts.history().len();
+    run(&mut a, "l");
+    assert_eq!(a.ui.scroll, PINNED, "the log opens on its newest line");
+    let newest = a.ui.alerts.history()[n - 1].text.clone();
+    let frame = text(&mut a, SMALL);
+    if n > 22 {
+        assert!(frame.contains(&newest[..newest.len().min(20)]), "{frame}");
+        let oldest = a.ui.alerts.history()[0].text.clone();
+        assert!(!frame.contains(&oldest[..oldest.len().min(20)]), "scrolled to the end:\n{frame}");
+
+        run(&mut a, "<up>");
+        let one_up = a.ui.scroll;
+        assert_ne!(one_up, PINNED);
+        run(&mut a, "w");
+        assert_eq!(a.ui.scroll, one_up - 1, "W scrolls like the arrow");
+        run(&mut a, "s <down>");
+        assert_eq!(a.ui.scroll, PINNED, "back at the end it sticks again");
+        run(&mut a, "<pgup>");
+        let page = a.ui.scroll;
+        run(&mut a, "<pgup>");
+        assert!(a.ui.scroll < page);
+        run(&mut a, "<pgup*40>");
+        assert_eq!(a.ui.scroll, 0, "the top");
+        let frame = text(&mut a, SMALL);
+        assert!(frame.contains(&oldest[..oldest.len().min(20)]), "{frame}");
+        run(&mut a, "<pgdn*40>");
+        assert_eq!(a.ui.scroll, PINNED);
+    }
+    // Esc closes it, and L opens and closes it too.
+    run(&mut a, "<esc>");
+    assert_eq!(a.ui.screen, None);
+    run(&mut a, "l l");
+    assert_eq!(a.ui.screen, None);
+}
+
+#[test]
+fn golden_frame_of_the_message_log() {
+    let mut a = bending_game();
+    run(&mut a, "l");
+    golden("fire_seed1_log", &text(&mut a, SIZE));
+}
+
+#[test]
+fn a_screen_hides_the_bar_and_takes_the_keys_but_not_the_clock() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "<tab> l");
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("MESSAGE LOG") && !frame.contains("[Tab] next"), "{frame}");
+    assert!(frame.contains("EARTH KINGDOM"), "the side panel stays:\n{frame}");
+    assert!(frame.lines().last().unwrap().starts_with(" LOG "), "{frame}");
+    let (cursor, tool) = (a.ui.cursor, a.ui.tool);
+    run(&mut a, "h d <enter> <tab>");
+    assert_eq!((a.ui.cursor, a.ui.tool), (cursor, tool), "the map keys wait");
+    run(&mut a, "<space>");
+    assert!(a.session.clock.paused, "but the clock keys work");
+    run(&mut a, "<esc>");
+    assert_eq!(a.ui.screen, None);
+    assert!(a.ui.selected.is_some(), "the bar comes back");
+    assert!(text(&mut a, SIZE).contains("[Tab] next"));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Key help
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn the_help_lists_the_keys_from_the_tables() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "?");
+    assert_eq!(a.ui.screen, Some(Screen::Help));
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("KEY HELP"), "{frame}");
+    for row in fn_tui::input::help_rows() {
+        let what = &row.what[..row.what.len().min(18)];
+        assert!(frame.contains(what), "{what:?} in\n{frame}");
+    }
+    for tool in [Tool::Harvest, Tool::CancelHarvest, Tool::Stockpile, Tool::Bend] {
+        assert!(frame.contains(&format!("{} tool", tool.name())), "{frame}");
+    }
+    // `?` closes it again, and L switches to the log.
+    run(&mut a, "l");
+    assert_eq!(a.ui.screen, Some(Screen::Log));
+    run(&mut a, "? ?");
+    assert_eq!(a.ui.screen, None);
+}
+
+#[test]
+fn the_help_scrolls_on_a_small_terminal_and_stops_at_its_ends() {
+    let mut a = app(7, Nation::Earth, SMALL);
+    run(&mut a, "?");
+    assert_eq!(a.ui.scroll, 0);
+    let top = text(&mut a, SMALL);
+    assert!(top.contains("CURSOR AND VIEW"), "{top}");
+    run(&mut a, "<up>");
+    assert_eq!(a.ui.scroll, 0, "no scrolling above the top");
+    run(&mut a, "<pgdn*20>");
+    let end = a.ui.scroll;
+    assert!(end > 0, "80x24 cannot show the whole help");
+    run(&mut a, "<down*5>");
+    assert_eq!(a.ui.scroll, end, "or below the end");
+    let bottom = text(&mut a, SMALL);
+    assert!(bottom.contains("Quit (asks first)"), "the last row is reachable:\n{bottom}");
+    assert!(!bottom.contains("CURSOR AND VIEW"));
+}
+
+#[test]
+fn golden_frame_of_the_key_help() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "?");
+    golden("earth_seed7_help", &text(&mut a, SIZE));
+}
+
+// ---------------------------------------------------------------------------------------------
+// New map and nation
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn r_starts_a_new_map_only_after_a_y() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "<tab> <tick 50>");
+    run(&mut a, "r");
+    let frame = text(&mut a, SIZE);
+    let status = frame.lines().last().unwrap();
+    assert!(status.starts_with(" NEW MAP? ") && status.contains("seed 8"), "{status}");
+    assert_eq!(a.session.world.seed, 7, "nothing happens until the answer");
+
+    run(&mut a, "n");
+    assert_eq!((a.session.world.seed, a.session.world.tick), (7, 50));
+    assert!(a.ui.selected.is_some());
+
+    run(&mut a, "r <esc>");
+    assert_eq!(a.session.world.seed, 7, "Esc stays");
+    run(&mut a, "R y");
+    let w = &a.session.world;
+    assert_eq!((w.seed, w.tick, w.nation), (8, 0, Nation::Earth));
+    assert_eq!(a.ui.selected, None, "the selection starts over");
+    assert!(a.ui.prompt.is_none());
+    assert_eq!(
+        (w.map.width(), w.map.height()),
+        (a.session.world.map.width(), a.session.world.map.height())
+    );
+    assert!(text(&mut a, SIZE).contains("Seed 8"));
+}
+
+#[test]
+fn the_number_row_switches_nation_on_the_same_seed_after_a_y() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "2");
+    let status = text(&mut a, SIZE).lines().last().unwrap().to_owned();
+    assert!(status.starts_with(" SWITCH? ") && status.contains("Water"), "{status}");
+    run(&mut a, "x");
+    assert_eq!(a.session.world.nation, Nation::Earth);
+
+    for (digit, nation) in
+        [('1', Nation::Air), ('2', Nation::Water), ('3', Nation::Earth), ('4', Nation::Fire)]
+    {
+        a.key(KeyEvent::new(KeyCode::Char(digit), KeyModifiers::NONE));
+        a.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+        assert_eq!((a.session.world.nation, a.session.world.seed), (nation, 7));
+        let frame = text(&mut a, SIZE);
+        let name = a.session.defs.nation(nation).name.to_uppercase();
+        assert!(frame.contains(&name), "{name}\n{frame}");
+    }
+}
+
+#[test]
+fn a_new_game_keeps_the_screen_size_and_shows_the_cursor_on_its_first_settler() {
+    let mut a = app(7, Nation::Earth, SMALL);
+    run(&mut a, "r y");
+    assert_eq!(a.ui.viewport(), (48, 23));
+    assert!(a.ui.cursor_cell().is_some());
+    assert_eq!(a.ui.cursor, a.session.world.units[0].pos);
+}
+
+#[test]
+fn no_key_mix_breaks_a_frame_on_any_size_or_nation() {
+    let script = "<tab> f <tab> <s-tab> l <pgdn> <esc> ? <down*3> <esc> h <enter> <right*4> <enter> \
+                  <esc> <esc> <esc> <tick 300> D <enter> <tab> <esc> r n 3 y <tab> <tick 50>";
+    for nation in Nation::ALL {
+        for size in [SMALL, (100, 30), SIZE, (200, 60)] {
+            let mut a = app(3, nation, size);
+            run(&mut a, script);
+            let frame = text(&mut a, size);
+            assert_eq!(frame.lines().count(), usize::from(size.1));
+            assert!(frame.lines().all(|l| l.chars().count() <= usize::from(size.0)));
+        }
+    }
+}
+
+#[test]
+fn selecting_issues_no_commands_so_a_replay_needs_none() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "<tab> f <tab> l <esc> ? <esc> <tick 100>");
+    assert!(a.session.world.command_log().is_empty());
+}

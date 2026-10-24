@@ -44,7 +44,7 @@ fn main() -> ExitCode {
         );
         return ExitCode::from(2);
     }
-    match fn_tui::run::run(session, &palette) {
+    match fn_tui::run::run(session, palette) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("fn_tui: {e}");
@@ -57,6 +57,15 @@ fn main() -> ExitCode {
 fn print_frame(session: fn_ui::Session, palette: &Palette, args: &Args) {
     let mut app = App::new(session, args.size);
     app.play(&args.keys);
+    // A script may have switched nation: draw in that nation's colours.
+    let switched;
+    let palette = if app.session.world.nation == args.nation {
+        palette
+    } else {
+        switched =
+            Palette::new(&app.session.defs, app.session.world.nation, palette.depth, palette.ascii);
+        &switched
+    };
     let buf = frame::render_app(&mut app, palette, args.size);
     let text = if args.ansi { frame::to_ansi(&buf) } else { frame::to_text(&buf) };
     print!("{text}");

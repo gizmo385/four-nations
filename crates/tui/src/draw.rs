@@ -6,11 +6,14 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
 use ratatui::style::{Modifier, Style};
 
+use crate::bar::{bar_area, draw_bar};
 use crate::color::Palette;
 use crate::layout::{self, MIN_HEIGHT, MIN_WIDTH};
 use crate::map::draw_map;
-use crate::panel::{draw_panel, fit};
-use crate::state::{Prompt, UiState};
+use crate::panel::draw_panel;
+use crate::screens::draw_screen;
+use crate::state::{Prompt, Screen, UiState};
+use crate::widgets::fit;
 
 /// What the frame says below the minimum size, and nothing else.
 pub fn too_small_text() -> String {
@@ -25,21 +28,34 @@ pub fn draw(session: &Session, ui: &UiState, palette: &Palette, buf: &mut Buffer
         return;
     };
     draw_map(session, ui, palette, regions.map, buf);
+    // A screen covers the map and the selection bar hides behind it (docs/design/ui.md).
+    if let Some(screen) = ui.screen {
+        draw_screen(ui, screen, palette, regions.map, buf);
+    } else if ui.selected_unit(session).is_some() {
+        draw_bar(session, ui, palette, bar_area(regions.map), buf);
+    }
     draw_panel(session, ui, palette, regions.panel, buf);
     draw_status(session, ui, palette, regions.status, buf);
 }
 
 /// Where the terminal's own cursor goes: on the cursor tile, if it's in view.
 pub fn terminal_cursor(ui: &UiState, area: Rect) -> Option<Position> {
+    if ui.screen.is_some() {
+        return None;
+    }
     let regions = layout::regions(area)?;
     let (x, y) = ui.cursor_cell()?;
     Some(Position::new(regions.map.x + x as u16, regions.map.y + y as u16))
 }
 
-/// The keys the status line teaches in Select mode. The screens (#99, #100) add theirs when they
-/// land.
-const KEYS: &str = "arrows/wasd move  H X P B tools  Shift x10  Ctrl/PgUp/PgDn jump  Space pause  \
-                    +/- speed  . step  q quit";
+/// The keys the status line teaches in Select mode, and (after `Esc` closes it) with a unit
+/// selected, and in a screen. The key help (`?`) has the whole table.
+const KEYS: &str = "arrows/wasd move  Enter select  Tab units  H X P B tools  Space pause  \
+                    +/- speed  L log  ? keys  q quit";
+const KEYS_SELECTED: &str = "Enter next here  Tab/Shift+Tab units  F follow  Esc close  \
+                             H X P B tools  Space pause  L log  ? keys";
+const KEYS_SCREEN: &str =
+    "arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause";
 
 /// The status line in a tool: what `Enter` and `Esc` do now, then what the tool does (for `B`,
 /// the nation's ability).
@@ -73,15 +89,33 @@ fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, b
         buf.set_string(area.right() - right, area.y, text, badge(theme.on_accent, theme.warn));
     }
     let (badge_len, hints) = match ui.prompt {
-        Some(Prompt::Quit) => {
-            let text = " QUIT? ";
+        Some(prompt) => {
+            let (text, question) = match prompt {
+                Prompt::Quit => (" QUIT? ", "quit".to_owned()),
+                Prompt::NewMap => (
+                    " NEW MAP? ",
+                    format!("start a new map (seed {})", session.world.seed.wrapping_add(1)),
+                ),
+                Prompt::Nation(n) => {
+                    (" SWITCH? ", format!("start over as the {}", session.defs.nation(n).name))
+                }
+            };
             buf.set_string(area.x, area.y, text, badge(theme.on_accent, theme.warn));
-            (text.len() as u16, "Press y to quit, any other key to stay.".to_owned())
+            (text.len() as u16, format!("Press y to {question}, any other key to stay."))
+        }
+        None if ui.screen.is_some() => {
+            let text = match ui.screen {
+                Some(Screen::Help) => " KEYS ",
+                _ => " LOG ",
+            };
+            buf.set_string(area.x, area.y, text, badge(theme.on_accent, theme.accent));
+            (text.len() as u16, KEYS_SCREEN.to_owned())
         }
         None if ui.tool == Tool::Select => {
             let text = " SELECT ";
             buf.set_string(area.x, area.y, text, badge(theme.on_accent, theme.accent));
-            (text.len() as u16, KEYS.to_owned())
+            let keys = if ui.selected_unit(session).is_some() { KEYS_SELECTED } else { KEYS };
+            (text.len() as u16, keys.to_owned())
         }
         None => {
             let text = format!(" {} ", ui.tool.name().to_uppercase());

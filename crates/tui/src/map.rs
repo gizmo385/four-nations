@@ -24,6 +24,8 @@ use crate::state::UiState;
 /// drawing a tile is a handful of lookups.
 pub struct Overlays {
     units: BTreeSet<Pos>,
+    /// Where the selected unit stands: it draws in reverse video.
+    selected: Option<Pos>,
     ground: BTreeMap<Pos, Stack>,
     zones: BTreeSet<Pos>,
     harvest: BTreeSet<Pos>,
@@ -36,11 +38,13 @@ pub struct Overlays {
 }
 
 impl Overlays {
-    pub fn gather(session: &Session, cursor: Pos) -> Self {
+    pub fn gather(session: &Session, ui: &UiState) -> Self {
+        let cursor = ui.cursor;
         let world = &session.world;
         let flames = world.flames();
         Self {
             units: world.units.iter().map(|u| u.pos).collect(),
+            selected: ui.selected_unit(session).map(|u| u.pos),
             ground: world.ground_items().collect(),
             zones: world.stockpile_zones().collect(),
             harvest: world.harvest_designations().collect(),
@@ -92,6 +96,10 @@ pub fn tile_cell(
     let mut mods = Modifier::empty();
     let (glyph, fg): (char, Rgb8) = if over.units.contains(&pos) {
         mods |= Modifier::BOLD;
+        if over.selected == Some(pos) {
+            // The selected unit stands out from the others, whatever the colour depth.
+            mods |= Modifier::REVERSED;
+        }
         (g.unit.glyph(palette.ascii), palette.unit_rgb())
     } else if let Some(b) = world.building_at(pos) {
         let look = &g.building[&defs.building(b).id];
@@ -168,7 +176,7 @@ pub fn tile_cell(
 
 /// Draws the tiles in view into `area`. Cells past the edge of the map stay blank.
 pub fn draw_map(session: &Session, ui: &UiState, palette: &Palette, area: Rect, buf: &mut Buffer) {
-    let over = Overlays::gather(session, ui.cursor);
+    let over = Overlays::gather(session, ui);
     for row in 0..area.height {
         for col in 0..area.width {
             let pos = Pos::new(ui.view.x + i32::from(col), ui.view.y + i32::from(row));

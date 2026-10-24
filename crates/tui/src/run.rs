@@ -79,20 +79,26 @@ fn setup() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
     Terminal::new(CrosstermBackend::new(out))
 }
 
-/// Plays `session` in the terminal until the player quits.
-pub fn run(session: Session, palette: &Palette) -> io::Result<()> {
+/// Plays `session` in the terminal until the player quits. A new nation (`1`-`4`) needs new
+/// colours, so the palette is rebuilt for it at the same depth.
+pub fn run(session: Session, mut palette: Palette) -> io::Result<()> {
     let _restore = Restore;
     let mut terminal = setup()?;
     let (w, h) = terminal::size()?;
     let mut app = App::new(session, (w, h));
+    let mut nation = app.session.world.nation;
 
     let mut last_tick = Instant::now();
     let mut last_draw: Option<Instant> = None;
     while !app.ui.quit {
         if app.dirty && last_draw.is_none_or(|t| t.elapsed() >= FRAME) {
+            if app.session.world.nation != nation {
+                nation = app.session.world.nation;
+                palette = Palette::new(&app.session.defs, nation, palette.depth, palette.ascii);
+            }
             terminal.draw(|f| {
                 let area = f.area();
-                draw(&app.session, &app.ui, palette, f.buffer_mut());
+                draw(&app.session, &app.ui, &palette, f.buffer_mut());
                 if let Some(at) = terminal_cursor(&app.ui, area) {
                     f.set_cursor_position(at);
                 }
@@ -101,8 +107,9 @@ pub fn run(session: Session, palette: &Palette) -> io::Result<()> {
             last_draw = Some(Instant::now());
         }
 
-        // Wake for the next frame; paused with nothing to draw, only input wakes us.
-        let wait = match (app.dirty, app.session.clock.paused) {
+        // Wake for the next frame; paused with nothing to draw, only input wakes us (and a toast
+        // that is still ageing).
+        let wait = match (app.dirty, app.session.clock.paused && !app.has_toasts()) {
             (true, _) => FRAME.saturating_sub(last_draw.map_or(FRAME, |t| t.elapsed())),
             (false, false) => FRAME,
             (false, true) => Duration::from_secs(3600),
@@ -122,7 +129,9 @@ pub fn run(session: Session, palette: &Palette) -> io::Result<()> {
         let now = Instant::now();
         let elapsed = now.duration_since(last_tick).as_secs_f64();
         last_tick = now;
-        if !was_paused {
+        if was_paused {
+            app.age(elapsed);
+        } else {
             app.advance(elapsed);
         }
     }

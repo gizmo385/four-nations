@@ -1,19 +1,37 @@
 //! What the player is looking at: the cursor, the part of the map in view and the modal state.
 //! Nothing here touches the terminal, so the render and input tests drive it directly.
 
-use fn_sim::Pos;
-use fn_ui::{Session, Tool};
+use fn_sim::world::{Unit, UnitId};
+use fn_sim::{Nation, Pos};
+use fn_ui::{Alerts, Session, Tool};
 
 use crate::layout;
 
 /// How close (in tiles) the cursor may come to the edge of the view before the view scrolls.
 pub const SCROLL_MARGIN: i32 = 3;
 
+/// How tall the selection bar is, in rows of the map area.
+pub const BAR_HEIGHT: i32 = 7;
+
 /// A y/n question that takes over the keys until it is answered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Prompt {
     Quit,
+    /// `R`: a new map (the next seed, the same nation).
+    NewMap,
+    /// `1`-`4`: the same map, played as this nation.
+    Nation(Nation),
 }
+
+/// A screen over the map area (the side panel stays). The research screen (#100) is another.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Screen {
+    Log,
+    Help,
+}
+
+/// The scroll of a screen that sticks to its end: the newest line of the log.
+pub const PINNED: usize = usize::MAX;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UiState {
@@ -35,6 +53,16 @@ pub struct UiState {
     pub notice: String,
     pub prompt: Option<Prompt>,
     pub quit: bool,
+    /// The unit the selection bar is about, if the bar is open.
+    pub selected: Option<UnitId>,
+    /// Whether the cursor tracks the selected unit (`F`).
+    pub following: bool,
+    /// The screen over the map, if one is open.
+    pub screen: Option<Screen>,
+    /// The first line of the open screen that shows ([`PINNED`] for the end of the log).
+    pub scroll: usize,
+    /// Bend results, tech completions and deaths: the Alerts section and the message log.
+    pub alerts: Alerts,
 }
 
 impl UiState {
@@ -57,13 +85,26 @@ impl UiState {
             notice: String::new(),
             prompt: None,
             quit: false,
+            selected: None,
+            following: false,
+            screen: None,
+            scroll: 0,
+            alerts: Alerts::default(),
         };
         ui.center_view();
         ui
     }
 
+    /// The map region of the terminal, in tiles.
     pub fn viewport(&self) -> (i32, i32) {
         self.viewport
+    }
+
+    /// The part of [`Self::viewport`] the selection bar leaves free: the view keeps the cursor
+    /// and the selected unit inside it.
+    pub fn visible(&self) -> (i32, i32) {
+        let (w, h) = self.viewport;
+        if self.selected.is_some() { (w, (h - BAR_HEIGHT).max(1)) } else { (w, h) }
     }
 
     /// The terminal changed size: the view keeps the cursor in sight at the new size.
@@ -75,6 +116,7 @@ impl UiState {
     /// Moves the cursor `(dx, dy)` tiles, stopping at the map edge, and scrolls the view if the
     /// cursor came within [`SCROLL_MARGIN`] of its edge.
     pub fn move_cursor(&mut self, dx: i32, dy: i32) {
+        self.following = false;
         self.cursor = self.clamp_to_map(Pos::new(self.cursor.x + dx, self.cursor.y + dy));
         self.follow();
     }
@@ -82,7 +124,8 @@ impl UiState {
     /// Jumps the view `(dx, dy)` quarter screens and carries the cursor the same distance
     /// (Ctrl+arrows, PageUp and PageDown).
     pub fn jump(&mut self, dx: i32, dy: i32) {
-        let (w, h) = self.viewport;
+        self.following = false;
+        let (w, h) = self.visible();
         let (dx, dy) = (dx * (w / 4).max(1), dy * (h / 4).max(1));
         self.view = self.clamp_view(Pos::new(self.view.x + dx, self.view.y + dy));
         self.cursor = self.clamp_to_map(Pos::new(self.cursor.x + dx, self.cursor.y + dy));
@@ -123,9 +166,10 @@ impl UiState {
     /// the view sits at the origin.
     fn clamp_view(&self, view: Pos) -> Pos {
         let max = |bound: i32, shown: i32| (bound - shown).max(0);
+        let shown = self.visible();
         Pos::new(
-            view.x.clamp(0, max(self.bounds.0, self.viewport.0)),
-            view.y.clamp(0, max(self.bounds.1, self.viewport.1)),
+            view.x.clamp(0, max(self.bounds.0, shown.0)),
+            view.y.clamp(0, max(self.bounds.1, shown.1)),
         )
     }
 
@@ -142,23 +186,103 @@ impl UiState {
                 view
             }
         };
+        let shown = self.visible();
         let view = Pos::new(
-            scroll(self.view.x, self.cursor.x, self.viewport.0),
-            scroll(self.view.y, self.cursor.y, self.viewport.1),
+            scroll(self.view.x, self.cursor.x, shown.0),
+            scroll(self.view.y, self.cursor.y, shown.1),
         );
         self.view = self.clamp_view(view);
     }
 
     fn center_view(&mut self) {
-        let view =
-            Pos::new(self.cursor.x - self.viewport.0 / 2, self.cursor.y - self.viewport.1 / 2);
+        let shown = self.visible();
+        let view = Pos::new(self.cursor.x - shown.0 / 2, self.cursor.y - shown.1 / 2);
         self.view = self.clamp_view(view);
     }
 
     /// Where on the map region (column, row) the cursor is drawn, if it's in view.
     pub fn cursor_cell(&self) -> Option<(i32, i32)> {
         let (x, y) = (self.cursor.x - self.view.x, self.cursor.y - self.view.y);
-        ((0..self.viewport.0).contains(&x) && (0..self.viewport.1).contains(&y)).then_some((x, y))
+        let shown = self.visible();
+        ((0..shown.0).contains(&x) && (0..shown.1).contains(&y)).then_some((x, y))
+    }
+
+    /// The selected unit, if the bar is open and the unit is alive.
+    pub fn selected_unit<'a>(&self, session: &'a Session) -> Option<&'a Unit> {
+        let id = self.selected?;
+        session.world.units.iter().find(|u| u.id == id)
+    }
+
+    /// Opens the bar on `id` (or closes it). The view shifts so the cursor stays above the bar.
+    pub fn select(&mut self, id: Option<UnitId>) {
+        self.selected = id;
+        if id.is_none() {
+            self.following = false;
+        }
+        self.follow();
+    }
+
+    /// `Enter` in Select mode: selects the unit under the cursor; with several there, the next
+    /// one after the selected. Nothing happens on a tile with no unit.
+    pub fn select_here(&mut self, session: &Session) {
+        let here: Vec<UnitId> =
+            session.world.units.iter().filter(|u| u.pos == self.cursor).map(|u| u.id).collect();
+        let next = match here.iter().position(|&id| Some(id) == self.selected) {
+            Some(i) => here[(i + 1) % here.len()],
+            None => match here.first() {
+                Some(&id) => id,
+                None => return,
+            },
+        };
+        self.select(Some(next));
+    }
+
+    /// `Tab` (`step` 1) and Shift+`Tab` (`step` -1): the next or previous unit in the order of
+    /// the people list, wrapping round; the cursor goes to it. With none selected, Tab starts at
+    /// the first and Shift+Tab at the last.
+    pub fn cycle(&mut self, session: &Session, step: i32) {
+        let units = &session.world.units;
+        if units.is_empty() {
+            return;
+        }
+        let n = units.len() as i32;
+        let at = self.selected.and_then(|id| units.iter().position(|u| u.id == id));
+        let to = match (at, step.signum()) {
+            (Some(i), s) => (i as i32 + s).rem_euclid(n),
+            (None, s) if s < 0 => n - 1,
+            (None, _) => 0,
+        } as usize;
+        let unit = &units[to];
+        self.selected = Some(unit.id);
+        self.cursor = self.clamp_to_map(unit.pos);
+        self.follow();
+    }
+
+    /// `F`: starts or stops following the selected unit. Only a selected unit can be followed.
+    pub fn toggle_follow(&mut self, session: &Session) {
+        if self.selected_unit(session).is_none() {
+            return;
+        }
+        self.following = !self.following;
+        self.track(session);
+    }
+
+    /// After the world moved: a selected unit that died closes the bar, and a followed one drags
+    /// the cursor (and the view) along.
+    pub fn track(&mut self, session: &Session) {
+        let Some(unit) = self.selected_unit(session) else {
+            if self.selected.is_some() {
+                self.select(None);
+            }
+            return;
+        };
+        if self.following {
+            let pos = self.clamp_to_map(unit.pos);
+            if pos != self.cursor {
+                self.cursor = pos;
+                self.follow();
+            }
+        }
     }
 }
 
