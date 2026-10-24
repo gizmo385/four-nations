@@ -20,6 +20,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use bending::{BendingPlugin, TerrainSprite};
@@ -39,7 +40,6 @@ use fn_ui::{Session, Tool};
 use hud::HudPlugin;
 use jobview::{JobViewPlugin, ResourceSprite};
 use research::{ResearchPlugin, ScreenOpen};
-use sprites::Sheet;
 
 mod bending;
 mod designate;
@@ -166,39 +166,60 @@ fn designate_demo_sites(session: &mut Session) {
     }
 }
 
+/// The images the game draws with. A sheet is named by its asset path (`sprites/`) and loaded the
+/// first time something asks for it, so a new sheet is only a new path constant in a family module.
 #[derive(Resource)]
 struct Art {
-    /// The Ninja Adventure tileset sheets, in `Sheet::ALL` order.
-    sheets: [Handle<Image>; Sheet::ALL.len()],
-    /// Every nation's characters by id (`characters` in `data/nations.toml`).
-    characters: HashMap<String, CharacterArt>,
+    assets: AssetServer,
+    /// Every sheet asked for so far, by asset path.
+    images: Mutex<HashMap<&'static str, Handle<Image>>>,
 }
 
+/// The images of one character (`sprites::characters`).
 struct CharacterArt {
     sheet: Handle<Image>,
     face: Handle<Image>,
 }
 
 impl Art {
-    fn character(&self, id: &str) -> &CharacterArt {
-        self.characters.get(id).unwrap_or_else(|| panic!("character {id} not loaded"))
+    fn new(assets: AssetServer) -> Self {
+        Art { assets, images: Mutex::default() }
+    }
+
+    /// The image at asset `path`, loaded on first use.
+    fn image(&self, path: &'static str) -> Handle<Image> {
+        let mut images = self.images.lock().expect("art lock");
+        images.entry(path).or_insert_with(|| self.assets.load(path)).clone()
+    }
+
+    /// Whether every image asked for so far has finished loading.
+    fn all_loaded(&self) -> bool {
+        let images = self.images.lock().expect("art lock");
+        images.values().all(|h| self.assets.is_loaded_with_dependencies(h))
+    }
+
+    /// The sheet and portrait of a character id (`characters` in `data/nations.toml`).
+    fn character(&self, id: &str) -> CharacterArt {
+        CharacterArt {
+            sheet: self.image(sprites::character_sheet_path(id)),
+            face: self.image(sprites::character_face_path(id)),
+        }
     }
 
     /// A unit's sprite: the character's down-facing idle frame, at native size.
     fn unit_sprite(&self, character: &str) -> Sprite {
         let [x0, y0, x1, y1] = sprites::IDLE_DOWN;
         Sprite {
-            image: self.character(character).sheet.clone(),
+            image: self.character(character).sheet,
             rect: Some(Rect::new(x0, y0, x1, y1)),
             ..default()
         }
     }
 
-    /// A sprite showing `cell` of its tileset sheet, at native size.
+    /// A sprite showing `cell` of its sheet, at native size.
     fn sprite(&self, cell: sprites::Cell) -> Sprite {
-        let i = Sheet::ALL.iter().position(|s| *s == cell.sheet).expect("sheet is in Sheet::ALL");
         let [x0, y0, x1, y1] = cell.pixel_rect();
-        Sprite { image: self.sheets[i].clone(), rect: Some(Rect::new(x0, y0, x1, y1)), ..default() }
+        Sprite { image: self.image(cell.sheet), rect: Some(Rect::new(x0, y0, x1, y1)), ..default() }
     }
 }
 
@@ -218,16 +239,14 @@ struct Selection(Option<UnitId>);
 struct MapClicked(Vec2);
 
 fn load_art(mut commands: Commands, assets: Res<AssetServer>, sim: Res<Sim>) {
-    let mut characters = HashMap::new();
+    let art = Art::new((*assets).clone());
+    // Start every nation's characters loading now, so the headless screenshot waits for them.
     for n in Nation::ALL {
         for id in &sim.defs.nation(n).characters {
-            characters.entry(id.clone()).or_insert_with(|| CharacterArt {
-                sheet: assets.load(sprites::character_sheet_path(id)),
-                face: assets.load(sprites::character_face_path(id)),
-            });
+            art.character(id);
         }
     }
-    commands.insert_resource(Art { sheets: Sheet::ALL.map(|s| assets.load(s.path())), characters });
+    commands.insert_resource(art);
 }
 
 fn setup_camera_and_ui(
@@ -595,7 +614,6 @@ const HEADLESS_TIMEOUT_SECS: f32 = 60.0;
 fn headless_screenshot(
     mut commands: Commands,
     headless: Res<Headless>,
-    assets: Res<AssetServer>,
     art: Option<Res<Art>>,
     camera: Query<&RenderTarget, With<Camera2d>>,
     time: Res<Time<Real>>,
@@ -609,12 +627,7 @@ fn headless_screenshot(
         return;
     }
     let Some(art) = art else { return };
-    let loaded = art
-        .sheets
-        .iter()
-        .chain(art.characters.values().flat_map(|c| [&c.sheet, &c.face]))
-        .all(|h| assets.is_loaded_with_dependencies(h));
-    if *requested || !loaded {
+    if *requested || !art.all_loaded() {
         return;
     }
     *settled += 1;
