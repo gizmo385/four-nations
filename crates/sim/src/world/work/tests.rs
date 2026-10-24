@@ -424,3 +424,103 @@ fn a_resting_resource_stops_resting_if_it_is_cleared() {
     w.tick(&defs);
     assert!(!w.is_resting(at(6, 2)));
 }
+
+// ---- standing harvest orders (#81) ----
+
+/// Whether a `Harvest` job for `pos` is in the queue (claimed or not). A finished harvest also
+/// leaves behind an unrelated `Haul` job for the pick lying on the ground (no stockpile exists in
+/// these tests), so `jobs().is_empty()` never becomes true on its own.
+fn has_harvest_job(w: &World, pos: Pos) -> bool {
+    w.jobs().iter().any(|j| j.kind == JobKind::Harvest { pos })
+}
+
+#[test]
+fn a_repeating_harvest_re_queues_itself_every_time_it_ripens() {
+    let rows = ["~~~~~~~~~", ".........", "......c..", "........."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 3)]);
+    let pos = at(6, 2);
+    w.designate_repeating_harvest(pos, &defs).unwrap();
+    assert!(w.is_repeating_harvest(pos));
+    assert!(w.harvest_designations().any(|p| p == pos));
+
+    // Worked once, same as a one-shot harvest: the job is gone and the plant rests.
+    run_until(&mut w, &defs, 2000, |w| !has_harvest_job(w, pos));
+    assert!(w.is_resting(pos));
+    // No job sits around while it rests, but the standing order still shows.
+    assert!(!has_harvest_job(&w, pos));
+    assert!(w.is_repeating_harvest(pos));
+    assert!(w.harvest_designations().any(|p| p == pos));
+
+    // Once it ripens, a fresh job appears without the player doing anything.
+    let wait = (regrow_of(&defs, "cabbage") * 10.0) as u64 + 30;
+    run_until(&mut w, &defs, wait, |w| !w.is_resting(pos));
+    assert!(has_harvest_job(&w, pos));
+
+    // And it keeps going a second time too.
+    run_until(&mut w, &defs, 2000, |w| !has_harvest_job(w, pos));
+    assert!(w.is_resting(pos));
+    run_until(&mut w, &defs, wait, |w| !w.is_resting(pos));
+    assert!(has_harvest_job(&w, pos));
+}
+
+#[test]
+fn a_one_shot_harvest_does_not_re_queue_when_it_ripens() {
+    let rows = ["~~~~~~~~~", ".........", "......c..", "........."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 3)]);
+    let pos = at(6, 2);
+    w.designate_harvest(pos, &defs).unwrap();
+    assert!(!w.is_repeating_harvest(pos));
+    run_until(&mut w, &defs, 2000, |w| !has_harvest_job(w, pos));
+    assert!(w.is_resting(pos));
+    let wait = (regrow_of(&defs, "cabbage") * 10.0) as u64 + 30;
+    run_until(&mut w, &defs, wait, |w| !w.is_resting(pos));
+    assert!(!has_harvest_job(&w, pos), "a one-shot harvest stays one-shot");
+}
+
+#[test]
+fn marking_a_resting_resource_repeating_queues_the_job_once_it_ripens() {
+    let rows = ["~~~~~~~~~", ".........", "......c..", "........."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 3)]);
+    let pos = at(6, 2);
+    w.designate_harvest(pos, &defs).unwrap();
+    run_until(&mut w, &defs, 2000, |w| !has_harvest_job(w, pos));
+    assert!(w.is_resting(pos));
+
+    // Marked repeating while it's still resting: no job yet, it just waits for the ripening.
+    w.designate_repeating_harvest(pos, &defs).unwrap();
+    assert!(!has_harvest_job(&w, pos));
+    let wait = (regrow_of(&defs, "cabbage") * 10.0) as u64 + 30;
+    run_until(&mut w, &defs, wait, |w| !w.is_resting(pos));
+    assert!(has_harvest_job(&w, pos));
+}
+
+#[test]
+fn canceling_a_repeating_harvest_clears_the_standing_order() {
+    let rows = ["~~~~~~~~~", ".........", "......c..", "........."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 3)]);
+    let pos = at(6, 2);
+    w.designate_repeating_harvest(pos, &defs).unwrap();
+    run_until(&mut w, &defs, 2000, |w| !has_harvest_job(w, pos));
+    assert!(w.is_resting(pos));
+
+    w.cancel_harvest(pos).unwrap();
+    assert!(!w.is_repeating_harvest(pos));
+    assert!(!w.harvest_designations().any(|p| p == pos));
+
+    let wait = (regrow_of(&defs, "cabbage") * 10.0) as u64 + 30;
+    run_until(&mut w, &defs, wait, |w| !w.is_resting(pos));
+    assert!(!has_harvest_job(&w, pos), "the standing order was cancelled, so nothing re-queues");
+
+    // Cancelling again, now that there is neither a job nor an order, is refused.
+    assert_eq!(w.cancel_harvest(pos), Err(DesignateError::NotDesignated));
+}
+
+#[test]
+fn designating_repeating_harvest_twice_does_not_duplicate_the_job() {
+    let rows = ["~~~~~~~~~", ".........", "......c..", "........."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 3)]);
+    let pos = at(6, 2);
+    w.designate_repeating_harvest(pos, &defs).unwrap();
+    w.designate_repeating_harvest(pos, &defs).unwrap();
+    assert_eq!(w.jobs().len(), 1);
+}

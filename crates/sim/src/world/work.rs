@@ -20,6 +20,13 @@
 //! foraged, or claimed. The rate is `World::growth_rate`, the one place something like wet
 //! soil (docs/design/bending.md, "Water the Land") plugs in to make plants grow faster.
 //!
+//! **Standing harvest orders** (#81): `Command::DesignateRepeatingHarvest` marks a tile so that
+//! every time its (renewable) resource ripens again, `tick_growth` queues a fresh `Harvest` job
+//! for it without the player lifting a finger. The mark (`World::standing_harvest`) lives
+//! independently of the `Job`: the job itself still disappears on completion like any one-shot
+//! harvest, and reappears only once the resource is ripe again. `CancelHarvest` clears both the
+//! job and the mark.
+//!
 //! **Bending** (`bending.rs`) rides on the same queue: a `JobKind::Bend` job is claimed by the
 //! nearest unit whose chi covers the cost, pre-empted by needs like any job, and completes by
 //! spending chi.
@@ -124,15 +131,26 @@ impl World {
         &self.jobs
     }
 
-    /// Tiles with a harvest designation that isn't finished, claimed or not.
+    /// Tiles with a harvest designation that isn't finished (claimed or not), plus tiles that
+    /// only have a standing order waiting on a resting resource to ripen (`is_repeating_harvest`
+    /// tells the two apart).
     pub fn harvest_designations(&self) -> impl Iterator<Item = Pos> + '_ {
-        self.jobs.iter().filter_map(|j| match j.kind {
-            JobKind::Harvest { pos } => Some(pos),
-            JobKind::Haul { .. }
-            | JobKind::Bend { .. }
-            | JobKind::Build { .. }
-            | JobKind::Study { .. } => None,
-        })
+        self.jobs
+            .iter()
+            .filter_map(|j| match j.kind {
+                JobKind::Harvest { pos } => Some(pos),
+                JobKind::Haul { .. }
+                | JobKind::Bend { .. }
+                | JobKind::Build { .. }
+                | JobKind::Study { .. } => None,
+            })
+            .chain(self.standing_harvest.iter().copied())
+    }
+
+    /// Is `pos` a repeating harvest (#81): one that re-queues itself every time the resource
+    /// ripens again, instead of needing the player to re-designate it by hand?
+    pub fn is_repeating_harvest(&self, pos: Pos) -> bool {
+        self.standing_harvest.contains(&pos)
     }
 
     pub fn job(&self, id: JobId) -> Option<&Job> {
@@ -163,12 +181,9 @@ impl World {
         self.stored.values().filter(|s| s.item == item).map(|s| s.count).sum()
     }
 
-    /// Designates the resource on `pos` for harvesting (chop, quarry, gather, mine).
-    pub(super) fn designate_harvest(
-        &mut self,
-        pos: Pos,
-        defs: &Defs,
-    ) -> Result<JobId, DesignateError> {
+    /// Checks that `pos` has a resource the nation knows how to work, for either designate
+    /// command.
+    fn harvestable<'d>(&self, pos: Pos, defs: &'d Defs) -> Result<&'d HarvestDef, DesignateError> {
         let tile = self.map.get(pos).ok_or(DesignateError::OutOfBounds)?;
         let Some(h) = tile.resource.and_then(|r| defs.harvest(r)) else {
             return Err(DesignateError::NothingToHarvest);
@@ -176,17 +191,50 @@ impl World {
         if !self.can_work(h) {
             return Err(DesignateError::NotResearched);
         }
+        Ok(h)
+    }
+
+    /// Designates the resource on `pos` for harvesting (chop, quarry, gather, mine).
+    pub(super) fn designate_harvest(
+        &mut self,
+        pos: Pos,
+        defs: &Defs,
+    ) -> Result<JobId, DesignateError> {
+        self.harvestable(pos, defs)?;
         if self.jobs.iter().any(|j| j.kind == JobKind::Harvest { pos }) {
             return Err(DesignateError::AlreadyDesignated);
         }
         Ok(self.add_job(JobKind::Harvest { pos }))
     }
 
-    /// Withdraws the harvest designation on `pos`. Work done on it is lost.
+    /// Designates the resource on `pos` for harvesting, and marks it as a standing order (#81):
+    /// every time it ripens again after being worked, a fresh job is queued without the player
+    /// having to re-designate it. If the resource is currently resting, the mark is kept and the
+    /// job is queued automatically once it ripens; if a job for this tile already exists (one-shot
+    /// or otherwise), it is left alone and just gains the standing order.
+    pub(super) fn designate_repeating_harvest(
+        &mut self,
+        pos: Pos,
+        defs: &Defs,
+    ) -> Result<(), DesignateError> {
+        self.harvestable(pos, defs)?;
+        self.standing_harvest.insert(pos);
+        let resting = self.resting.contains_key(&pos);
+        let queued = self.jobs.iter().any(|j| j.kind == JobKind::Harvest { pos });
+        if !resting && !queued {
+            self.add_job(JobKind::Harvest { pos });
+        }
+        Ok(())
+    }
+
+    /// Withdraws the harvest designation on `pos`, including any standing order on it. Work
+    /// done on it is lost.
     pub(super) fn cancel_harvest(&mut self, pos: Pos) -> Result<(), DesignateError> {
         let before = self.jobs.len();
         self.jobs.retain(|j| j.kind != JobKind::Harvest { pos });
-        if self.jobs.len() == before {
+        let had_job = self.jobs.len() != before;
+        let had_order = self.standing_harvest.remove(&pos);
+        if !had_job && !had_order {
             return Err(DesignateError::NotDesignated);
         }
         Ok(())
@@ -310,12 +358,28 @@ impl World {
         }
         let step = 1.0 / TICKS_PER_SECOND as f32;
         let spots: Vec<Pos> = self.resting.keys().copied().collect();
+        // Resources that ripened just now (as opposed to having been cleared some other way
+        // while resting), collected so a standing order (#81) can re-queue their job once
+        // `self.resting` is done borrowing.
+        let mut ripened: Vec<Pos> = Vec::new();
         for pos in spots {
             let rate = self.growth_rate(pos, defs);
             let left = self.resting.get_mut(&pos).expect("just listed");
             *left -= rate * step;
-            if *left <= 0.0 || self.map[pos].resource.is_none() {
+            if *left <= 0.0 {
                 self.resting.remove(&pos);
+                if self.map[pos].resource.is_some() {
+                    ripened.push(pos);
+                }
+            } else if self.map[pos].resource.is_none() {
+                self.resting.remove(&pos);
+            }
+        }
+        for pos in ripened {
+            if self.standing_harvest.contains(&pos)
+                && !self.jobs.iter().any(|j| j.kind == JobKind::Harvest { pos })
+            {
+                self.add_job(JobKind::Harvest { pos });
             }
         }
     }
@@ -379,6 +443,11 @@ impl World {
                     JobKind::Study { pos } => map[pos].building.is_some(),
                 }
         });
+        // A standing order (#81) outlives its job (which disappears between harvests while the
+        // resource rests), but not the resource itself: once that's gone for good there is
+        // nothing left to re-queue for.
+        self.standing_harvest
+            .retain(|&pos| map[pos].resource.is_some_and(|r| defs.harvest(r).is_some()));
     }
 
     /// The cheapest tile to stand on to work `pos`: the tile itself if units can enter it, else
