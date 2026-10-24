@@ -19,8 +19,9 @@ Copied from the owner's local itch.io download ("Ninja Adventure - Asset Pack.zi
 agents cannot fetch it themselves). Only the subset the game uses was copied, with the pack's
 relative paths unchanged and no modifications: LICENSE.txt, six tilesets from Backgrounds/Tilesets
 (Floor, Water, Nature, Relief, Desert, Field), and the sprite sheet and Faceset.png of the twelve
-characters in docs/design/art.md under Actor/Character/. SamuraiRed's sheet is named
-redsamurai.png upstream rather than SpriteSheet.png. Attribution is not required (CC0) but is
+characters in docs/design/art.md under Actor/Character/. The Earth Kingdom and Fire Nation sprite
+sheets have since been replaced by original art (#151), and their Faceset.png files stay until
+the portraits are (#153). Attribution is not required (CC0) but is
 appreciated.
 """
 
@@ -119,19 +120,9 @@ source = "ninja-adventure"
 sha256 = "ce2de5004f1760d440c81e586eb6687933f7994385f1dc5bc2fb2c61c9284c5f"
 
 [[file]]
-path = "third_party/ninja-adventure/Actor/Character/Villager3/SpriteSheet.png"
-source = "ninja-adventure"
-sha256 = "6bd45886f6d91516416d6848bbe9e4090270822e3106349c7d54da40f9247f8b"
-
-[[file]]
 path = "third_party/ninja-adventure/Actor/Character/Villager3/Faceset.png"
 source = "ninja-adventure"
 sha256 = "3f8f86a1a246fb0014378ee08c84f6ff7e3003dd841a4ca6e22dddac850ffc8c"
-
-[[file]]
-path = "third_party/ninja-adventure/Actor/Character/Samurai/SpriteSheet.png"
-source = "ninja-adventure"
-sha256 = "68287c9e0c5cc1089286b0a3955f476c9d8f3f2e4f38755c52b68edf24aaa0d4"
 
 [[file]]
 path = "third_party/ninja-adventure/Actor/Character/Samurai/Faceset.png"
@@ -139,19 +130,9 @@ source = "ninja-adventure"
 sha256 = "d8504b5357c99ae81250a0bcdd8214bf11c055fea073591f215c5a615de155e0"
 
 [[file]]
-path = "third_party/ninja-adventure/Actor/Character/NinjaGreen/SpriteSheet.png"
-source = "ninja-adventure"
-sha256 = "c99c8142f4813562a4e76e96d93bbe8e0b04c22e0625c98b75cf564c99e36358"
-
-[[file]]
 path = "third_party/ninja-adventure/Actor/Character/NinjaGreen/Faceset.png"
 source = "ninja-adventure"
 sha256 = "d73020126261f52aa43e5109723985887ad27d0c259c378c8c94fc319c277309"
-
-[[file]]
-path = "third_party/ninja-adventure/Actor/Character/NinjaFire/SpriteSheet.png"
-source = "ninja-adventure"
-sha256 = "a0b353001f494207b868a22479a2689e4de044af59ffa5b79f1a840a973d486f"
 
 [[file]]
 path = "third_party/ninja-adventure/Actor/Character/NinjaFire/Faceset.png"
@@ -159,19 +140,9 @@ source = "ninja-adventure"
 sha256 = "01496a7fa347c410401fb58e9c28e92c2ae2e1d83620f5adf6de356d63cc0d32"
 
 [[file]]
-path = "third_party/ninja-adventure/Actor/Character/SamuraiRed/redsamurai.png"
-source = "ninja-adventure"
-sha256 = "23882535ffe03657c9d4c65769dfba265701da4f9eff9cf5a821e540e7228d31"
-
-[[file]]
 path = "third_party/ninja-adventure/Actor/Character/SamuraiRed/Faceset.png"
 source = "ninja-adventure"
 sha256 = "a870cc1edbfc10dbd8ae3d291e159b8bde346d773d18c6043373cb24acde72c4"
-
-[[file]]
-path = "third_party/ninja-adventure/Actor/Character/NinjaRed/SpriteSheet.png"
-source = "ninja-adventure"
-sha256 = "447bd8fec385066b3b358671932d979b6e420876e4fd5daf04a038c1b6887209"
 
 [[file]]
 path = "third_party/ninja-adventure/Actor/Character/NinjaRed/Faceset.png"
@@ -185,10 +156,46 @@ generated_from = "art/cliffs.toml"
 sha256 = "b95a643c43f66bcea16ad9de2ce6e0226820dfe4d886fc13f6d02d89dadca033"
 
 [[file]]
+path = "original/earth_farmer.png"
+source = "original"
+generated_from = "art/earth_farmer.toml"
+sha256 = "15db9e4fbbc161b4e9954915eca39cb0c29fa602da3ed7f988d727b1733e1452"
+
+[[file]]
+path = "original/earth_guard.png"
+source = "original"
+generated_from = "art/earth_guard.toml"
+sha256 = "c26f089e7af9e13a01d1f728af8ae38fdb04c8ec489ecb0e3890fcb614a9c90f"
+
+[[file]]
+path = "original/earth_villager.png"
+source = "original"
+generated_from = "art/earth_villager.toml"
+sha256 = "f9610e8316cf61cb61d86cbe0397bb3b5657de3583728a84fba5fda54b60e242"
+
+[[file]]
 path = "original/emblems.png"
 source = "original"
 generated_from = "art/emblems.toml"
 sha256 = "27ad896fd08d8c3fc3c523ae0623907227641c7fcbede5aa9a9519368b500f20"
+
+[[file]]
+path = "original/fire_noble.png"
+source = "original"
+generated_from = "art/fire_noble.toml"
+sha256 = "7ba0e15100f2e3ea5ec1347853c1c342094b228f3c17d7c544d3f39f899b7118"
+
+[[file]]
+path = "original/fire_smith.png"
+source = "original"
+generated_from = "art/fire_smith.toml"
+sha256 = "08ce4112ba32a50a44bde5c9521cba3ab55b880d01311fb3ed432f8940c81136"
+
+[[file]]
+path = "original/fire_soldier.png"
+source = "original"
+generated_from = "art/fire_soldier.toml"
+sha256 = "debfb7255d6486cddfeb632e9fb610c1af2372279be5c8c7d57ff0b61f17bd16"
 
 [[file]]
 path = "original/floors.png"

@@ -59,14 +59,14 @@ The audit was done on the owner's download, `Ninja Adventure - Asset Pack.zip` (
 |---|---|
 | Air Nomads | `Monk2`, `Master`, `NinjaYellow` |
 | Water Tribes | `Eskimo`, `NinjaEskimo`, `NinjaWater` |
-| Earth Kingdom | `Villager3`, `Samurai`, `NinjaGreen` |
-| Fire Nation | `NinjaFire`, `SamuraiRed`, `NinjaRed` |
+| Earth Kingdom | `earth_farmer`, `earth_guard`, `earth_villager` (original art, #151) |
+| Fire Nation | `fire_soldier`, `fire_noble`, `fire_smith` (original art, #151) |
 
 The cast lives in `data/nations.toml` as a `characters` list (rule 7: nations differ through
 data). Units pick one by their existing `variant` (`NationDef::character`); the sim only checks
 the list is non-empty. `sprites/characters.rs` turns a character id into its sheet and faceset paths
-(`SamuraiRed`'s sheet is `redsamurai.png`) and names the frame drawn: the down-facing idle cell
-(0,0), at 1:1. The selection panel shows the unit's faceset at 2x. Units, item markers and
+and names the frame drawn: the down-facing idle cell (0,0), at 1:1. The original sheets
+(`art/<id>.toml`) are 64x64: columns face down, up, left and right, rows are 4 walk frames. The selection panel shows the unit's faceset at 2x. Units, item markers and
 resources share one depth band by row (`row_depth` in `main.rs`), so a unit passes behind the
 canopy of a tree in the row below it and in front of one in its own row or above.
 
