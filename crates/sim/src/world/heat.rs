@@ -1,9 +1,13 @@
 //! Heat sources: a place that cooks meals eaten near it and makes sleep near it better.
 //!
-//! Today the only source is Fire's Hearthflame (#70), which burns without fuel until its end
-//! tick. Campfires (#58) are meant to be the same thing with a different way of staying lit
-//! (built, fuelled), so everything that *uses* heat asks only these questions and never what
-//! lit it:
+//! There are two kinds, and everything that *uses* heat asks only the questions below and never
+//! what lit it:
+//!
+//! - Fire's Hearthflame (#70) burns without fuel until its end tick.
+//! - A built campfire (`BuildingDef::heat`, #58) is lit for good the moment it is finished
+//!   (`until` is `HeatSource::FOREVER`). Its radius follows the nation's `heating` modifier, so
+//!   `refresh_heat_radii` re-derives it whenever research changes that.
+//!
 //!
 //! - `is_heated(pos)`: is `pos` within the radius of a lit source? A meal eaten there is cooked
 //!   (`work.rs` calls this), so `FoodDef::cooked_hunger` applies.
@@ -32,6 +36,14 @@ pub struct HeatSource {
 }
 
 impl HeatSource {
+    /// The `until` of a source that never goes out: a building's fire.
+    pub const FOREVER: u64 = u64::MAX;
+
+    /// Never goes out: it belongs to a building, rather than being a timed flame.
+    pub fn is_permanent(&self) -> bool {
+        self.until == Self::FOREVER
+    }
+
     fn lit_at(&self, tick: u64) -> bool {
         tick < self.until
     }
@@ -51,9 +63,11 @@ pub struct Flame {
 }
 
 impl World {
-    /// Every lit flame with the time it has left, in position order.
+    /// Every lit timed flame (Hearthflame) with the time it has left, in position order. A
+    /// building's fire isn't listed: it is a building, with the tile it stands on.
     pub fn flames(&self) -> Vec<Flame> {
         self.lit_sources()
+            .filter(|s| !s.is_permanent())
             .map(|s| Flame {
                 pos: s.pos,
                 radius: s.radius,
@@ -62,9 +76,9 @@ impl World {
             .collect()
     }
 
-    /// Is a flame lit on exactly this tile?
+    /// Is a timed flame (Hearthflame) lit on exactly this tile?
     pub fn is_lit(&self, pos: Pos) -> bool {
-        self.lit_sources().any(|s| s.pos == pos)
+        self.lit_sources().any(|s| s.pos == pos && !s.is_permanent())
     }
 
     /// Is `pos` within the radius of a lit heat source: do meals eaten there count as cooked?
@@ -85,6 +99,32 @@ impl World {
     /// Lights `source`, replacing whatever was lit on its tile (a restoke resets the timer).
     pub(super) fn light_heat_source(&mut self, source: HeatSource) {
         self.heat.insert(source.pos, source);
+    }
+
+    /// A finished building keeps a fire if its def says so (`BuildingDef::heat`).
+    pub(super) fn light_building_fire(&mut self, pos: Pos, def: &BuildingDef) {
+        if let Some(heat) = def.heat {
+            self.light_heat_source(HeatSource {
+                pos,
+                radius: heat.radius_for(self.modifiers.heating),
+                sleep_bonus: heat.sleep_bonus,
+                seek_tiles: heat.seek_tiles,
+                until: HeatSource::FOREVER,
+            });
+        }
+    }
+
+    /// Re-derives the radius of every building's fire from the current `heating` modifier, for
+    /// when research changes it.
+    pub(super) fn refresh_heat_radii(&mut self, defs: &Defs) {
+        let heating = self.modifiers.heating;
+        for (pos, source) in self.heat.iter_mut().filter(|(_, s)| s.is_permanent()) {
+            let heat =
+                self.map.get(*pos).and_then(|t| t.building).and_then(|b| defs.building(b.id).heat);
+            if let Some(heat) = heat {
+                source.radius = heat.radius_for(heating);
+            }
+        }
     }
 
     /// Drops the sources whose time is up.

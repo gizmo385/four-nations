@@ -1,8 +1,10 @@
-# Buildings: constructible structures (issue #64). What a building costs and how long it takes
-# to put up lives here; what a built building *does* (sleeping, cooking...) is follow-up work
-# (#58 beds/hearth) and isn't assumed by anything that reads this file, except seats: a building
-# with seats > 0 is a study hall (issue #21, docs/design/research.md), available from the start
-# with no tech. Each of its seats becomes a Study job the moment it's built.
+# Buildings: constructible structures (issue #64). What a building costs, how long it takes to
+# put up and what it does once built lives here.
+#
+# What a building does is whatever optional sections it has: a building with seats > 0 is a
+# study hall (issue #21, docs/design/research.md), available from the start with no tech, and
+# each of its seats becomes a Study job the moment it's built. A building with a [building.bed]
+# is somewhere to sleep, one with a [building.heat] keeps a permanent fire (issue #58).
 #
 # - verb:     what the designation is called in the UI.
 # - cost:     items a construct job hauls to the site before work can start.
@@ -10,6 +12,18 @@
 #             modifier of 1.0 (data/nations.toml).
 # - passable: whether units may walk onto the tile once the building is finished.
 # - seats:    how many units may study here at once (0 unless this is a study hall).
+# - bed:      units sleep here. A tired unit walks to the nearest bed nobody else is using, if
+#             one is within `seek_tiles` path tiles, and sleeps there, regaining energy
+#             `sleep_bonus` times as fast. Otherwise it sleeps on the ground where it stands.
+#             A bed must be passable: the unit lies on its tile.
+# - heat:     a permanent heat source, the same thing Fire's Hearthflame lights for a while
+#             (data/bending.toml). Meals eaten within `radius` tiles (a square) count as cooked,
+#             so they restore the food's `cooked_hunger` (data/needs.toml), and sleep there
+#             regains energy `sleep_bonus` times as fast. A tired unit walks to the warmth when
+#             it is within `seek_tiles` path tiles. `radius` is for a `heating` modifier of 1.0
+#             (data/nations.toml): it is scaled by the nation's, rounded, and at least 1. It
+#             never needs fuel; a fuel economy is future work. Raw food still works with no
+#             fire at all.
 # - names:    what each nation calls this building, if it varies. Either all four nations or
 #             none; falls back to `name` for a building that omits it.
 
@@ -18,19 +32,26 @@ id = "bed"
 name = "Bed"
 verb = "Build"
 work = 20.0
-passable = false
+passable = true
+[building.bed]
+sleep_bonus = 1.4
+seek_tiles = 30
 [[building.cost]]
 item = "wood"
 count = 5
 
-# A place to keep a flame (issue #22's research gate; what it actually lights is #58). Unlocked
-# by `fire_making` (data/research.toml); Fire starts knowing that tech.
+# A place to keep a flame: it cooks the meals eaten near it and warms sleep. Unlocked by
+# `fire_making` (data/research.toml); Fire starts knowing that tech.
 [[building]]
 id = "campfire"
 name = "Campfire"
 verb = "Build"
 work = 15.0
 passable = true
+[building.heat]
+radius = 2
+sleep_bonus = 1.5
+seek_tiles = 20
 [[building.cost]]
 item = "wood"
 count = 3

@@ -10,8 +10,10 @@
 //!
 //! On completion the tile gets a `Building` (`World::building_at`): `BuildingDef::passable` is
 //! baked onto it, so pathfinding (`path.rs`, `flood.rs`) never has to consult the defs to know
-//! whether it blocks movement. What a finished building *does* is mostly out of scope here (#58
-//! beds/hearth), except a study hall's seats, which `study.rs` opens as jobs right away.
+//! whether it blocks movement. What a finished building *does* is mostly elsewhere: beds are
+//! slept in by `work.rs`, and a building that keeps a fire (`BuildingDef::heat`) lights it here,
+//! in `heat.rs`' terms, the moment it is finished (#58). A study hall's seats, which `study.rs`
+//! opens as jobs, are also opened right away.
 
 use crate::building::{Building, BuildingId};
 use crate::flood::Flood;
@@ -257,6 +259,7 @@ impl World {
                 self.map[pos].building = Some(building);
                 self.map_changed();
                 self.open_study_seats(pos, seats);
+                self.light_building_fire(pos, def);
                 self.finish_job(i);
             }
         }

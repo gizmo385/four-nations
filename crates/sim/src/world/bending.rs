@@ -397,7 +397,7 @@ impl World {
                 let tile = &self.map[pos];
                 if !matches!(tile.terrain, Terrain::Land | Terrain::Coast) {
                     Err("needs open ground to kindle")
-                } else if tile.resource.is_some() {
+                } else if tile.resource.is_some() || tile.building.is_some() {
                     Err("something is in the way")
                 } else {
                     Ok(())

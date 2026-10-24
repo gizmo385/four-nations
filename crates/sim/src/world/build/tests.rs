@@ -99,11 +99,12 @@ fn a_build_waits_on_missing_materials_instead_of_failing() {
 
 #[test]
 fn a_finished_building_blocks_pathing_when_its_def_says_so() {
-    let (mut w, defs) = setup(&GRID, &[at(1, 1)]);
+    let (mut w, mut defs) = setup(&GRID, &[at(1, 1)]);
     let wood = defs.item_id("wood").unwrap();
     let bed = defs.building_id("bed").unwrap();
+    // Beds and campfires can be walked onto, so make the bed a wall for this test.
+    defs.buildings[bed.0 as usize].passable = false;
     let def = defs.building(bed).clone();
-    assert!(!def.passable, "the starter building blocks movement");
     w.designate_stockpile(at(0, 0)).unwrap();
     w.stored.insert(at(0, 0), Stack { item: wood, count: def.cost[0].count });
     let job = w.designate_build(at(5, 2), bed, &defs).unwrap();
