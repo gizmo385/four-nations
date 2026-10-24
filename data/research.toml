@@ -335,7 +335,10 @@ name = "Orchards"
 description = "Plant and tend fruit trees for food that needs no fire."
 nation = "air"
 cost = 25
-# Later: buildings = ["orchard"], jobs = ["pick_fruit"]
+# Wild fruit trees stay pickable by every nation, so this unlocks only the orchard building; a
+# `pick_fruit` job would have no resource of its own. Later: planting and tending (issue #142).
+[tech.unlocks]
+buildings = ["orchard"]
 
 [[tech]]
 id = "meditation"
@@ -343,6 +346,8 @@ name = "Meditation"
 description = "Quiet the mind; chi flows and lessons come easier."
 nation = "air"
 cost = 60
+# Modifier-only by design: it raises chi regeneration and study speed, and the study hall
+# exists from the start (named Meditation Pavilion for Air), so there is nothing to unlock.
 [tech.unlocks]
 modifiers = { study = 1.2, chi_regen = 1.25 }
 
@@ -353,7 +358,8 @@ description = "Glider staffs carry airbenders over the land."
 nation = "air"
 cost = 60
 prereqs = ["carpentry"]
-# Later: glider staffs; scouting reveals the map
+# Modifier-only for now: glider staffs reveal the map when scouting, and the sim has no
+# map-reveal mechanic to unlock; tracked in issue #143.
 [tech.unlocks]
 modifiers = { move_speed = 1.15 }
 
@@ -364,8 +370,9 @@ description = "Catch the wind to grind grain into more food."
 nation = "air"
 cost = 120
 prereqs = ["gliders", "farming"]
-# Later: buildings = ["windmill"]
+# Later: the windmill grinding grain into more food (issue #142).
 [tech.unlocks]
+buildings = ["windmill"]
 modifiers = { power_generation = 1.2 }
 
 [[tech]]
@@ -375,6 +382,9 @@ description = "Ride a spinning ball of air."
 nation = "air"
 cost = 250
 prereqs = ["gliders", "meditation"]
+# Modifier-only for now: the air scooter ability needs a new bending effect that the four in
+# data/bending.toml don't cover; tracked in issue #143 (the design table in research.md still
+# lists it).
 # Later: abilities = ["air_scooter"]
 [tech.unlocks]
 modifiers = { move_speed = 1.2 }
@@ -386,8 +396,9 @@ description = "Airbenders spin turbines that power workshops."
 nation = "air"
 cost = 250
 prereqs = ["windmills"]
-# Later: buildings = ["wind_turbine"]
+# Later: the turbine powering workshops (no power system yet, issue #142).
 [tech.unlocks]
+buildings = ["wind_turbine"]
 modifiers = { power_generation = 1.25 }
 
 [[tech]]
@@ -397,6 +408,7 @@ description = "Befriend sky bison to haul loads and fly far."
 nation = "air"
 cost = 500
 prereqs = ["meditation", "air_scooter"]
-# Later: buildings = ["bison_stable"]; bison haul and fast travel
+# Later: bison haul and fast travel (issue #142).
 [tech.unlocks]
+buildings = ["bison_stable"]
 modifiers = { carry_capacity = 1.3 }

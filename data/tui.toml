@@ -170,6 +170,27 @@ glyph = "▓"
 ascii = "#"
 fg = [176, 160, 120]
 
+# --- Air Nomads ---
+[building.orchard]
+glyph = "♣"
+ascii = "O"
+fg = [150, 210, 110]
+
+[building.windmill]
+glyph = "✢"
+ascii = "W"
+fg = [226, 226, 200]
+
+[building.wind_turbine]
+glyph = "✣"
+ascii = "V"
+fg = [190, 220, 240]
+
+[building.bison_stable]
+glyph = "∩"
+ascii = "S"
+fg = [210, 190, 150]
+
 # Units draw in their nation's `color` (data/nations.toml), mixed toward white by `lift`.
 [unit]
 glyph = "☺"
