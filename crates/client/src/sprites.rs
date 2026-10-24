@@ -169,15 +169,15 @@ pub struct ResourceRule {
 use Sheet::{Floor, Nature, Water};
 
 const WATER: Cell = one(Water, 1, 1);
-const SWAMP_WATER: Cell = one(Water, 14, 7);
 
-/// The pack's four pre-coloured water shores (`docs/design/art.md`): sand for desert, snow for
-/// tundra, grass for the rest and the purple swamp water already used flat above. Each is a 4x4
-/// block of 16px cells on `TilesetWater`; see `WaterSet` for the layout within a block.
+/// The pack's pre-coloured water shores (`docs/design/art.md`): sand for desert, snow for tundra
+/// and grass for the rest, swamps included. Each is a 4x4 block of 16px cells on `TilesetWater`;
+/// see `WaterSet` for the layout within a block. The sheet's fourth block, purple bog water on mud
+/// at (13, 6), is left for a future bog terrain: swamp lakes and rivers drawn with it read as pink
+/// (#109).
 const SAND_WATER: WaterSet = WaterSet::new(Water, 0, 0);
 const SNOW_WATER: WaterSet = WaterSet::new(Water, 13, 0);
 const GRASS_WATER: WaterSet = WaterSet::new(Water, 0, 6);
-const SWAMP_WATER_SET: WaterSet = WaterSet::new(Water, 13, 6);
 
 const SAND: Cell = one(Floor, 1, 1);
 const SNOW: Cell = one(Floor, 1, 15);
@@ -202,14 +202,6 @@ const SNOWY_BOULDERS: Decor = Decor { cells: &[one(Nature, 4, 12)], num: 2, den:
 
 pub const GROUND: &[GroundRule] = &[
     // Water (#8): bitmask-autotiled by `water_cell`, biome-matched to the land it touches.
-    GroundRule {
-        terrains: WATERS,
-        biome: Some("swamp"),
-        base: SWAMP_WATER,
-        variants: &[],
-        decor: None,
-        water: Some(&SWAMP_WATER_SET),
-    },
     GroundRule {
         terrains: WATERS,
         biome: Some("tundra"),
@@ -535,6 +527,19 @@ mod tests {
 
     /// A 3x3 map whose center is water, with `n`/`s`/`e`/`w` marking which cardinal neighbor is
     /// land; the corners are irrelevant (only cardinals feed the bitmask) so they're left water.
+    #[test]
+    fn swamp_water_is_blue_not_bog_purple() {
+        for terrain in WATERS {
+            let rule = ground_rule(*terrain, "swamp").unwrap();
+            assert!(
+                rule.water.is_some_and(
+                    |set| set.interior == GRASS_WATER.interior && set.nw == GRASS_WATER.nw
+                ),
+                "{terrain:?} in a swamp should use the grass-edged blue water"
+            );
+        }
+    }
+
     fn water_neighbor_map(n: bool, s: bool, e: bool, w: bool) -> TileMap {
         let ch = |land: bool| if land { '.' } else { '~' };
         let rows = [format!("~{}~", ch(n)), format!("{}~{}", ch(w), ch(e)), format!("~{}~", ch(s))];

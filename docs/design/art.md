@@ -26,7 +26,7 @@ options that were considered follow for the record.
 ![Full pack, whole map](https://github.com/gizmo385/four-nations/blob/d4a70353b8cb52e2364f9b32a75b2a82751d1f2c/mockups/1/ninja-full-map.png?raw=true)
 
 These two renders use the owner's full download, the first with the chosen Seal UI. They show
-real water (purple in swamps), conifers, grey boulders on mountains, and the Water Tribes cast
+real water, conifers, grey boulders on mountains, and the Water Tribes cast
 with an `Eskimo` faceset as the portrait. Water/coast edges are now bitmask-autotiled (#8); hard
 edges remain at mountains until cliffs land (#104).
 
@@ -37,10 +37,10 @@ The audit was done on the owner's download, `Ninja Adventure - Asset Pack.zip` (
 
 | Need | In the pack | Verdict |
 |---|---|---|
-| Sea, rivers, lakes | `TilesetWater`: autotiled water on sand, grass and snow; ice; purple swamp water; bridges, dock, boat. Animated `Water Ripples` and `Waterfall` | **Covered** |
+| Sea, rivers, lakes | `TilesetWater`: autotiled water on sand, grass and snow; ice; purple bog water (unused, #109); bridges, dock, boat. Animated `Water Ripples` and `Waterfall` | **Covered** |
 | Plains, forest | `TilesetFloor`: light and dark grass with tuft variants | **Covered** |
 | Taiga | Dark grass plus `TilesetNature` conifers and snowy conifers | **Covered** |
-| Swamp | `TilesetFloor` mud, purple swamp water, a rooted tree | **Covered** |
+| Swamp | `TilesetFloor` mud, a rooted tree; its water is the blue grass-edged set (#109) | **Covered** |
 | Desert | `TilesetFloor` sand; `TilesetDesert` palms, oasis water, desert houses | **Covered**, but no cactus (palms and dry shrubs stand in) |
 | Tundra | `TilesetFloor` snow and ice, snowy trees, snow boulders, igloos in `TilesetHouse` | **Covered** |
 | Mountains | No single mountain tile. `TilesetRelief` has cliff faces and tops (they need autotiling), and `TilesetNature` has grey and brown boulders | **Partly covered:** rock floor plus boulders now, cliffs with #104 |
@@ -78,23 +78,24 @@ cells differ from the first audit, the shipped cell is shown:
 | Forest, taiga floor | dark grass (11,12) with tufts (12-13,12) |
 | Desert, coast, ford | sand (1,1); desert has twig and pebble variants (0-1,4); tundra coast and ford use snow |
 | Tundra | snow (1,15), flat: the (1-2,19) variants are lavender and read as boxes |
-| Swamp | mud (12,15) with variants (13-14,19); swamp water `TilesetWater` (14,7) |
+| Swamp | mud (12,15) with variants (13-14,19); water is the blue grass-edged set, not the purple bog block (#109) |
 | Water, river, lake | bitmask-autotiled (#8, below) against which cardinal neighbors are dry land; interior piece `TilesetWater` (1,1) |
 | Mountain | dirt floor (1,9) plus a `TilesetNature` grey rock (18,9) on about two in three tiles with no resource; tundra: snow floor and a snow-capped rock (4,12) |
 | Oak / fir / tundra fir | `TilesetNature` 2x2 at (0,0) / (2,0) / (8,0), bottom-aligned to the tile |
 | Stone / gold vein | `TilesetNature` plain grey rock (6,14) / the same rock with orange ore (4,14) |
 | Cabbage | `TilesetNature` leafy head (8,11), a stand-in |
 | Fruit tree (#56) | `TilesetNature` 2x2 cherry blossom (14,0), a stand-in: no tree in the pack carries fruit |
-| Fish spot (#56) | `TilesetWater` fish shadows (11,4), a full cyan tile (it shows cyan on swamp water too) |
+| Fish spot (#56) | `TilesetWater` fish shadows (11,4), a full cyan tile  |
 
 **Water autotiling** (#8, implemented). `TilesetWater` turns out to carry its own "pond" demo:
-four 4x4-cell blocks, one per land colour it blends into (sand, snow, grass, the purple swamp
-water already used flat), each laid out the same way: a 3x3 of corner/edge/interior pieces, a
+four 4x4-cell blocks, one per land colour it blends into (sand, snow, grass, and purple bog
+water on mud), each laid out the same way: a 3x3 of corner/edge/interior pieces, a
 1-wide strait (for rivers, which have no separate shore tile) in the 4th column, and its closed
 ends in the 4th row. `sprites::WaterSet` reads one block and `water_cell` picks a piece per tile
 by which of its four cardinal neighbors are dry land (`Terrain::is_water`, so a shallow ford still
 reads as water to its neighbors); `GroundRule::water` matches a biome to its block: desert→sand,
-tundra→snow, swamp→purple, everything else→grass. A tile boxed in by land on all four sides (rare
+tundra→snow, everything else→grass, swamps included. The purple bog block went unused once
+swamp lakes turned out pink in play (#109); it waits for a real bog terrain. A tile boxed in by land on all four sides (rare
 on the mapgen's rounded water bodies) falls back to the open-water interior rather than guess,
 since the pack's "isolated puddle" piece isn't present for every block. Shore (`Coast`/`Ford`)
 tiles stay flat; only the water side of the boundary carries the transition art.
