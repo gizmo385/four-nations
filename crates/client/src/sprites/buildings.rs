@@ -23,8 +23,12 @@ pub const SHEET_AIR: &str = "original/buildings_air.png";
 /// The Earth Kingdom buildings' sheet (#175): the earth wall.
 pub const SHEET_EARTH: &str = "original/buildings_earth.png";
 
+/// The Fire Nation's buildings' sheet (#177): forge, brick kiln, smelter, steam engine, lightning
+/// station.
+pub const SHEET_FIRE: &str = "original/buildings_fire.png";
+
 /// Every sheet, for the loader and the tests.
-pub const SHEETS: &[&str] = &[SHEET, SHEET_AIR, SHEET_EARTH];
+pub const SHEETS: &[&str] = &[SHEET, SHEET_AIR, SHEET_EARTH, SHEET_FIRE];
 
 /// One building's sprite: its frames, in the order they play (one for most buildings).
 pub struct BuildingArt {
@@ -59,6 +63,27 @@ pub const ART: &[BuildingArt] = &[
     BuildingArt { name: "bison_stable", frames: &[big(SHEET_AIR, 6, 2)] },
     // Earth Kingdom (`SHEET_EARTH`)
     BuildingArt { name: "earth_wall", frames: &[big(SHEET_EARTH, 0, 0)] },
+    // Fire Nation (`SHEET_FIRE`)
+    BuildingArt {
+        name: "forge",
+        frames: &[big(SHEET_FIRE, 0, 0), big(SHEET_FIRE, 2, 0), big(SHEET_FIRE, 4, 0)],
+    },
+    BuildingArt {
+        name: "brick_kiln",
+        frames: &[big(SHEET_FIRE, 6, 0), big(SHEET_FIRE, 0, 2), big(SHEET_FIRE, 2, 2)],
+    },
+    BuildingArt {
+        name: "smelter",
+        frames: &[big(SHEET_FIRE, 4, 2), big(SHEET_FIRE, 6, 2), big(SHEET_FIRE, 0, 4)],
+    },
+    BuildingArt {
+        name: "steam_engine",
+        frames: &[big(SHEET_FIRE, 2, 4), big(SHEET_FIRE, 4, 4), big(SHEET_FIRE, 6, 4)],
+    },
+    BuildingArt {
+        name: "lightning_station",
+        frames: &[big(SHEET_FIRE, 0, 6), big(SHEET_FIRE, 2, 6)],
+    },
 ];
 
 /// What a building with no art yet is drawn as.
@@ -72,11 +97,6 @@ pub const NO_ART_YET: &[&str] = &[
     // Earth Kingdom
     // Air Nomads
     // Fire Nation
-    "forge",
-    "brick_kiln",
-    "smelter",
-    "steam_engine",
-    "lightning_station",
     // Water Tribe
     "igloo",
 ];
@@ -94,7 +114,7 @@ pub fn frames(art: &str) -> &'static [Cell] {
     }
 }
 
-/// How fast a multi-frame sprite (the campfire, the windmill, the turbine) plays, in frames a second.
+/// How fast a multi-frame sprite (the campfire, the windmill, the turbine, the furnaces) plays, in frames a second.
 pub const FRAMES_PER_SECOND: f32 = 6.0;
 
 #[cfg(test)]
@@ -135,6 +155,8 @@ mod tests {
         assert_eq!(sprite_names(SHEET_AIR).len(), 8);
         assert_eq!(png_size(SHEET_EARTH), (4 * 32, 32));
         assert_eq!(sprite_names(SHEET_EARTH).len(), 1);
+        assert_eq!(png_size(SHEET_FIRE), (4 * 32, 4 * 32));
+        assert_eq!(sprite_names(SHEET_FIRE).len(), 14);
     }
 
     #[test]

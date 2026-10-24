@@ -138,6 +138,12 @@ generated_from = "art/buildings_earth.toml"
 sha256 = "736816ba1d1f40ca5747de151a349e9400ad25e6d680ca839cfa27fec33de018"
 
 [[file]]
+path = "original/buildings_fire.png"
+source = "original"
+generated_from = "art/buildings_fire.toml"
+sha256 = "9b748fd1a6636b66af0e029d33d189e90266a5663ced99cc0a3db1bf9367f565"
+
+[[file]]
 path = "original/cliffs.png"
 source = "original"
 generated_from = "art/cliffs.toml"
