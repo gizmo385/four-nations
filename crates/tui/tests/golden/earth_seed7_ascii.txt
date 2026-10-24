@@ -37,4 +37,4 @@ FT%="F".~~~~~~~..FF=F",,,,,,T,,,T,T,,,,,,,,.@~~~~~~~~....,,,,,,,...,"""""=f=-.""
 ~...F.~~~~~~~~~~~~~~~~~~~~~~~~.....,,....~~~~.,T,T,,,,,TTT,T,,T,,,,""=FFFF,,,,"""FFFFFFF|                              |
 ..FF"...~~~~~~~~~~~~~~~~~~~~~~~..,,,,T,,......T,,,,,,,T,,,T,,,,,TTTTFF=F""T,,T"......."F|                              |
 ""FFF""..~~~~~~~~~~~~~~~~~~~~~~~.,,,TTT,,T,,,,,,,,,,,^^T,T,,T,T,T,,"F=FFF",,,,".---.-."F+------------------------------+
- SELECT  arrows/wasd move  Shift x10  Ctrl/PgUp/PgDn jump  Space pause  +/- speed  . step  q quit
+ SELECT  arrows/wasd move  H X P B tools  Shift x10  Ctrl/PgUp/PgDn jump  Space pause  +/- speed  . step  q quit

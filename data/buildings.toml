@@ -72,3 +72,149 @@ air = "Meditation Pavilion"
 water = "Elders' Lodge"
 earth = "Scroll Library"
 fire = "Academy"
+
+# --- Earth Kingdom ---
+# Unlocked by `earthen_walls` (data/research.toml). Nothing in the picker hides a nation's own
+# buildings from the others yet, so the other nations see this one locked behind a tech they
+# can't research (#137).
+
+# A wall of raised stone: the one thing here that is not walkable, so it can fence off ground,
+# divert foot traffic and keep wild resources out. Cost and work are placeholders in the range
+# of the starter buildings (a bed is 5 wood, 20 s), pending a balance pass.
+[[building]]
+id = "earth_wall"
+name = "Earth Wall"
+verb = "Raise"
+work = 20.0
+passable = false
+[[building.cost]]
+item = "stone"
+count = 3
+
+# --- Air Nomads ---
+# The Air branch's buildings (issue #28), each unlocked by its tech in data/research.toml. They
+# are structures only so far: what they do (planting and tending fruit, grinding grain, turning
+# wind into power, housing bison) needs systems that don't exist yet (issue #142). Costs scale
+# with the tech's tier and use the items that exist today; they are starting values for a
+# balance pass, not a design target.
+
+[[building]]
+id = "orchard"
+name = "Orchard"
+verb = "Plant"
+work = 30.0
+passable = true
+[[building.cost]]
+item = "wood"
+count = 4
+
+[[building]]
+id = "windmill"
+name = "Windmill"
+verb = "Build"
+work = 70.0
+passable = false
+[[building.cost]]
+item = "wood"
+count = 10
+[[building.cost]]
+item = "stone"
+count = 4
+
+[[building]]
+id = "wind_turbine"
+name = "Wind Turbine"
+verb = "Build"
+work = 110.0
+passable = false
+[[building.cost]]
+item = "wood"
+count = 12
+[[building.cost]]
+item = "stone"
+count = 8
+
+[[building]]
+id = "bison_stable"
+name = "Bison Stable"
+verb = "Build"
+work = 160.0
+passable = false
+[[building.cost]]
+item = "wood"
+count = 20
+[[building.cost]]
+item = "stone"
+count = 6
+
+# --- Fire Nation ---
+# The Fire branch's buildings (issue #26), each unlocked by its tech in data/research.toml. They
+# are structures only so far: what they produce (smithing, bricks, metal, power) needs the
+# production and power systems, which don't exist yet (issue #124). Costs scale with the tech's
+# tier and use the items that exist today; they are starting values for a balance pass, not a
+# design target.
+
+[[building]]
+id = "forge"
+name = "Forge"
+verb = "Build"
+work = 60.0
+passable = false
+[[building.cost]]
+item = "stone"
+count = 8
+[[building.cost]]
+item = "wood"
+count = 4
+
+[[building]]
+id = "brick_kiln"
+name = "Brick Kiln"
+verb = "Build"
+work = 60.0
+passable = false
+[[building.cost]]
+item = "stone"
+count = 10
+[[building.cost]]
+item = "wood"
+count = 6
+
+[[building]]
+id = "smelter"
+name = "Smelter"
+verb = "Build"
+work = 80.0
+passable = false
+[[building.cost]]
+item = "stone"
+count = 12
+[[building.cost]]
+item = "wood"
+count = 4
+
+[[building]]
+id = "steam_engine"
+name = "Steam Engine"
+verb = "Build"
+work = 120.0
+passable = false
+[[building.cost]]
+item = "stone"
+count = 15
+[[building.cost]]
+item = "wood"
+count = 10
+
+[[building]]
+id = "lightning_station"
+name = "Lightning Station"
+verb = "Build"
+work = 200.0
+passable = false
+[[building.cost]]
+item = "stone"
+count = 25
+[[building.cost]]
+item = "wood"
+count = 15

@@ -56,6 +56,7 @@ fn main() -> ExitCode {
 /// `--frame`: one frame on stdout, with no raw mode and no alternate screen.
 fn print_frame(session: fn_ui::Session, palette: &Palette, args: &Args) {
     let mut app = App::new(session, args.size);
+    app.play(&args.keys);
     let buf = frame::render_app(&mut app, palette, args.size);
     let text = if args.ansi { frame::to_ansi(&buf) } else { frame::to_text(&buf) };
     print!("{text}");

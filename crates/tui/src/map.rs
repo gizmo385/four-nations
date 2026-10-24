@@ -3,10 +3,9 @@
 //!
 //! * Glyph: unit > building or build site > item stack (ground or stored) > lit flame >
 //!   resource > terrain or biome.
-//! * Background: cursor > designation tint (harvest, bend, build, stockpile) > wet patch > the
-//!   warmth of the flame under the cursor > terrain or biome.
-//!
-//! The rectangle being dragged (#98) goes between the cursor and the designation tints.
+//! * Background: cursor > the rectangle being dragged (#98), in its tool's hue > designation tint
+//!   (harvest, bend, build, stockpile) > wet patch > the warmth of the flame under the cursor >
+//!   terrain or biome.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -141,7 +140,15 @@ pub fn tile_cell(
         // Without colour a designated tile is underlined.
         mods |= Modifier::UNDERLINED;
     }
-    let bg = if let Some(tint) = designation {
+    // The rectangle being dragged shows the tool's hue, stronger than a designation's.
+    let dragged = if ui.in_rect(pos) { Tint::for_tool(ui.tool) } else { None };
+    if dragged.is_some() && palette.mono() && pos != ui.cursor {
+        // Without colour a dragged tile is reversed and dimmed; the cursor is reversed alone.
+        mods |= Modifier::REVERSED | Modifier::DIM;
+    }
+    let bg = if let Some(tint) = dragged {
+        palette.dragged(base_bg, tint)
+    } else if let Some(tint) = designation {
         palette.tinted(base_bg, tint)
     } else if over.wet.contains(&pos) {
         palette.tinted(base_bg, Tint::Wet)

@@ -25,9 +25,14 @@ pub struct UiState {
     viewport: (i32, i32),
     /// The map's width and height in tiles.
     bounds: (i32, i32),
-    /// The tool the cursor tooltip words its hints for. `Select` until the designation tools
-    /// (#98) bring a way to change it.
+    /// The active tool: `Select` until a tool key (`H` `X` `P` `B`) picks another.
     pub tool: Tool,
+    /// The rectangle's first corner, set by the tool's first `Enter`. The rectangle runs from
+    /// here to the cursor; only a tool has one, and switching tools drops it.
+    pub anchor: Option<Pos>,
+    /// The last rectangle's result ("designate harvest: 12 done, 3 skipped"), shown in the Tool
+    /// section until the tool changes.
+    pub notice: String,
     pub prompt: Option<Prompt>,
     pub quit: bool,
 }
@@ -48,6 +53,8 @@ impl UiState {
             viewport: layout::viewport(screen.0, screen.1),
             bounds: (map.width(), map.height()),
             tool: Tool::Select,
+            anchor: None,
+            notice: String::new(),
             prompt: None,
             quit: false,
         };
@@ -80,6 +87,32 @@ impl UiState {
         self.view = self.clamp_view(Pos::new(self.view.x + dx, self.view.y + dy));
         self.cursor = self.clamp_to_map(Pos::new(self.cursor.x + dx, self.cursor.y + dy));
         self.follow();
+    }
+
+    /// Switches to `tool`, dropping the corner and the last result.
+    pub fn set_tool(&mut self, tool: Tool) {
+        self.tool = tool;
+        self.anchor = None;
+        self.notice.clear();
+    }
+
+    /// The corners of the rectangle being dragged: the anchor and the cursor, if a tool has an
+    /// anchor.
+    pub fn rect(&self) -> Option<(Pos, Pos)> {
+        (self.tool != Tool::Select).then_some(self.anchor).flatten().map(|a| (a, self.cursor))
+    }
+
+    /// The rectangle being dragged as (width, height) in tiles.
+    pub fn rect_size(&self) -> Option<(i32, i32)> {
+        self.rect().map(|(a, b)| ((a.x - b.x).abs() + 1, (a.y - b.y).abs() + 1))
+    }
+
+    /// Whether `pos` is inside the rectangle being dragged.
+    pub fn in_rect(&self, pos: Pos) -> bool {
+        self.rect().is_some_and(|(a, b)| {
+            (a.x.min(b.x)..=a.x.max(b.x)).contains(&pos.x)
+                && (a.y.min(b.y)..=a.y.max(b.y)).contains(&pos.y)
+        })
     }
 
     fn clamp_to_map(&self, p: Pos) -> Pos {
@@ -202,6 +235,23 @@ mod tests {
         ui.jump(0, 1);
         assert_eq!((ui.view.y, ui.cursor.y), (20 + 9, 40 + 9), "a quarter of 39 rows");
         assert_eq!(ui.cursor_cell(), Some((18, 40 + 9 - 29)));
+    }
+
+    #[test]
+    fn the_rectangle_runs_from_the_anchor_to_the_cursor_whichever_way_it_was_dragged() {
+        let mut ui = ui();
+        assert_eq!((ui.rect(), ui.rect_size()), (None, None));
+        ui.anchor = Some(Pos::new(50, 40));
+        assert_eq!(ui.rect(), None, "Select mode has no rectangle");
+        ui.tool = Tool::Harvest;
+        assert_eq!(ui.rect_size(), Some((1, 1)), "one tile is Enter twice");
+        ui.move_cursor(-4, 2);
+        assert_eq!(ui.rect(), Some((Pos::new(50, 40), Pos::new(46, 42))));
+        assert_eq!(ui.rect_size(), Some((5, 3)));
+        assert!(ui.in_rect(Pos::new(46, 40)) && ui.in_rect(Pos::new(50, 42)));
+        assert!(!ui.in_rect(Pos::new(45, 40)) && !ui.in_rect(Pos::new(50, 43)));
+        ui.set_tool(Tool::Stockpile);
+        assert_eq!((ui.anchor, ui.rect(), ui.notice.as_str()), (None, None, ""));
     }
 
     #[test]

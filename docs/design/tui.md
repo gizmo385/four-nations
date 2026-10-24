@@ -427,13 +427,46 @@ The MVP, in `crates/tui`. Where it differs from the proposal above:
   `7` and `1` work as Home and End (NumLock off), and `8` `4` `6` `2` as the arrows, but `9` and
   `3` arrive as PageUp and PageDown, which jump the view. Digits on the number row do nothing yet:
   `1`-`4` are for switching nation (#99).
-- **Status line.** It shows `SELECT` and the keys until the tools (#98) give it a mode to show.
+- **Status line.** It shows `SELECT` and the keys until a tool gives it a mode to show (#98).
 - **Hints.** The Cursor section drops the `fn_ui::inspect::Hint` lines (`panel::hint_text`) until
-  `Enter` selects (#99) and the tool keys exist (#98), rather than promise a key that does nothing.
+  `Enter` selects (#99), rather than promise a key that does nothing. The tool hints came with
+  #98.
 
 Seams for the next issues: `UiState::tool` and `Prompt` (modal state), `input::Action` and
 `input::map_key` (keys), `panel::draw_panel` (sections) and `map::tile_cell` (the rectangle being
 dragged goes between the cursor and the designation tints).
+
+## What #98 built
+
+The designation tools and key scripts. Where it differs from the proposal above:
+
+- **Keys.** `H` `X` `P` `B` in either case pick `Tool::Harvest`, `CancelHarvest`, `Stockpile` and
+  `Bend` through `fn_ui::tools::switch_tool`; `U` (build) is not bound until the build tool has a
+  picker. `Enter` and `Esc` are `Action::Confirm` and `Action::Cancel`; in Select mode both do
+  nothing yet (#99 gives them selecting and closing the bar). Picking a tool, even the active one,
+  drops the corner and the last result.
+- **Applying** is `fn_ui::tools::apply_rect` as the client calls it. The Shift state (a repeating
+  harvest, #81) and the build choice are not wired, so the Harvest hint still says "hold Shift to
+  repeat", which the TUI can't do yet.
+- **State.** `UiState` gains `anchor` (the first corner) and `notice` (the last result), with
+  `rect()`, `rect_size()` and `in_rect()`.
+- **Screen.** The status line shows the tool's badge, what `Enter` and `Esc` do now, and the
+  tool's `hint` (for `B`, the nation's ability). The side panel's **Tool** section (hidden in
+  Select mode) shows the tool with its key, the hint and the result notice, wrapped. The Cursor
+  section's first line says what `Enter` does next ("Enter: set a corner", then "Enter:
+  designate 5x3"), and its tooltip's "start this tool" hint reads "Press H for the Harvest tool".
+- **The rectangle** is drawn by `map::tile_cell` in the tool's hue (`Tint::for_tool`: the
+  client's harvest, stockpile and bend hues; cancel wears harvest), mixed in more strongly than a
+  designation (`Palette::dragged`) so the two stay apart where they overlap. On 256 colours it
+  avoids the ground and the cursor; on 16 it is the designation's solid colour; with no colour it
+  is reversed and dim (the cursor alone is reversed). The cursor tile keeps its own look.
+- **`--keys SCRIPT`** is parsed up front (`keys::parse`, so a typo is an exit-2 usage error before
+  anything runs) and played by `App::play` after `--ticks`. Tokens are the doc's, plus `<tick N>`;
+  a plain upper-case letter carries Shift, as a terminal sends it. `<tick N>` runs the world
+  directly, so the clock (and real time) never matters.
+- **Tests.** A script designates a rectangle and `harvest_designations()` matches what the sim
+  accepts tile by tile; the script's command log replayed into a fresh world (`World::replay`)
+  draws the same frame; two golden frames show a rectangle mid-drag and after it is applied.
 
 ## Owner decisions (2026-10-24)
 

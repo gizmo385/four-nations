@@ -37,4 +37,4 @@
 ≈...♠.≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈.....,,....≈≈≈≈.,♣,♣,,,,,♣♣♣,♣,,♣,,,,""~♠♠♠♠,,,,"""♠♠♠♠♠♠♠│                              │
 ..♠♠"...≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈..,,,,♣,,......♣,,,,,,,♣,,,♣,,,,,♣♣♣♣♠♠~♠""♣,,♣"......."♠│                              │
 ""♠♠♠""..≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈.,,,♣♣♣,,♣,,,,,,,,,,,▲▲♣,♣,,♣,♣,♣,,"♠~♠♠♠",,,,".≈≈≈.≈."♠┗──────────────────────────────┛
- SELECT  arrows/wasd move  Shift x10  Ctrl/PgUp/PgDn jump  Space pause  +/- speed  . step  q quit                PAUSED
+ SELECT  arrows/wasd move  H X P B tools  Shift x10  Ctrl/PgUp/PgDn jump  Space pause  +/- speed  . step  q qu…  PAUSED

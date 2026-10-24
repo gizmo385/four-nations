@@ -91,22 +91,40 @@ written as `field ×N`.
 | id | Cost | Prereqs | Unlocks |
 |---|---|---|---|
 | `earth_shaping` | 60 | stoneworking | level/raise-terrain designation; earthworks ×1.2 |
-| `earthen_walls` | 120 | earth_shaping, masonry | earth wall, flood barrier, terraces; construction ×1.25 |
+| `earthen_walls` | 120 | earth_shaping, masonry | earth wall (built, #25); flood barrier and terraces (not yet: nothing for them to do); construction ×1.25 |
 | `tunneling` | 120 | earth_shaping | tunnel designation through mountain tiles; mining inside mountains |
 | `earth_rail` | 250 | earthen_walls | Ba Sing Se–style rail for haul routes; carry_capacity ×1.25 |
 | `seismic_sense` | 250 | tunneling | ability: reveal ore and gems in a radius |
 | `metalbending` | 500 | seismic_sense, masonry | metal from ore without a smelter; ability: metalbend |
 
+Earth content pass (#25): only `earthen_walls` unlocks a concrete thing today (the `earth_wall`
+building). `earth_shaping` and `earth_rail` are modifier-only for now (Raise Earth already
+scales with earthworks, and there is no rail mechanic), and `tunneling`, `seismic_sense` and
+`metalbending` unlock nothing until their mechanics exist: tunnels (#132), revealing hidden ore
+(#133), metal (#134). Rail is #135, and the flood barrier and terraces are #136.
+`crates/sim/tests/research_earth.rs` keeps that list honest. No costs or multipliers changed:
+with the pacing assumptions above (one scholar from minute 5, two from 15, three from 40, each
+two-thirds effective), an Earth settlement has about 1000 points at minute 60 and the whole tree
+(shared tier plus branch, 2285 points) known at about minute 107, `metalbending` at about 71.
+
 ### Fire Nation: heat and industry
 
 | id | Cost | Prereqs | Unlocks |
 |---|---|---|---|
-| `forging` | 60 | fire_making | forge; smith job (tools) |
+| `forging` | 60 | fire_making | forge; smith job (tools, not yet built: #124) |
 | `brickmaking` | 120 | forging, pottery | brick kiln; construction ×1.15 |
 | `smelting` | 120 | forging | smelter (ore to metal); heating ×1.2 |
-| `dancing_dragon` | 250 | smelting | Sun Warrior teachings: heating ×1.25; ability: inner fire (warmth aura) |
+| `dancing_dragon` | 250 | smelting | Sun Warrior teachings: heating ×1.25; ability: inner fire (warmth aura). *Modifier-only until the ability is designed: #123* |
 | `steam_engines` | 250 | smelting, brickmaking | steam engine powers mills and pumps; power_generation ×1.25 |
 | `lightning_generation` | 500 | dancing_dragon, steam_engines | lightning power station (Republic City style); power_generation ×1.5 |
+
+The buildings (`forge`, `brick_kiln`, `smelter`, `steam_engine`, `lightning_station`) exist in
+`data/buildings.toml` and are gated by their techs (#26), but are structures only: what they
+produce needs the production and power systems (#124). Their costs are placeholders. No branch
+cost or multiplier changed in #26; the playtest in `crates/sim/tests/research_fire.rs` has a
+Fire settlement with an Academy (two scholars) finish the whole Fire tree, shared tier included,
+in about 107 minutes, inside the 90 to 187 minute window (the 2 to 2.5 h target, plus or minus
+25%).
 
 Lightning is a *power source*, not an attack. Redirection can stay flavor text.
 
@@ -127,13 +145,22 @@ No bloodbending. It's a dark art that doesn't fit peaceful progress.
 
 | id | Cost | Prereqs | Unlocks |
 |---|---|---|---|
-| `orchards` | 25 | none | orchard (plant and tend fruit trees: renewable fruit, edible raw); fruit-picking job. *Air starts with it* |
+| `orchards` | 25 | none | orchard (plant and tend fruit trees: renewable fruit, edible raw); fruit-picking job (open to all for now: #142). *Air starts with it* |
 | `meditation` | 60 | none | chi regeneration; study ×1.2 |
-| `gliders` | 60 | carpentry | glider staffs; move_speed ×1.15; scouting reveals the map |
+| `gliders` | 60 | carpentry | glider staffs; move_speed ×1.15; scouting reveals the map. *Modifier-only until the reveal exists: #143* |
 | `windmills` | 120 | gliders, farming | windmill (grinds grain for more food); power_generation ×1.2 |
-| `air_scooter` | 250 | gliders, meditation | ability: air scooter; move_speed ×1.2 |
+| `air_scooter` | 250 | gliders, meditation | ability: air scooter; move_speed ×1.2. *Modifier-only until the ability is designed: #143* |
 | `wind_turbines` | 250 | windmills | wind turbine powers workshops; power_generation ×1.25 |
 | `sky_bison` | 500 | meditation, air_scooter | bison stable; bison haul and fast travel; carry_capacity ×1.3 |
+
+The buildings (`orchard`, `windmill`, `wind_turbine`, `bison_stable`) exist in
+`data/buildings.toml` and are gated by their techs (#28), but are structures only: what they do
+needs planting, grain, power and bison systems (#142). Their costs are placeholders.
+`meditation` is modifier-only by design. No branch cost or multiplier changed in #28; the
+playtest in `crates/sim/tests/research_air.rs` has an Air settlement with a Meditation Pavilion
+(two scholars) finish the whole Air tree, shared tier included, in about 94 minutes (meditation's
+study ×1.2 puts it near the fast end), inside
+the 90 to 187 minute window (the 2 to 2.5 h target, plus or minus 25%).
 
 Air starts behind on labor (carry 0.8, earthworks 0.7), so its starting tech secures food
 instead. The Air Temples' orchards fit the nomads' vegetarian life and give a steady supply of
