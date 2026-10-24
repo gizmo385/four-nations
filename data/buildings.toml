@@ -72,3 +72,21 @@ air = "Meditation Pavilion"
 water = "Elders' Lodge"
 earth = "Scroll Library"
 fire = "Academy"
+
+# --- Earth Kingdom ---
+# Unlocked by `earthen_walls` (data/research.toml). Nothing in the picker hides a nation's own
+# buildings from the others yet, so the other nations see this one locked behind a tech they
+# can't research (#137).
+
+# A wall of raised stone: the one thing here that is not walkable, so it can fence off ground,
+# divert foot traffic and keep wild resources out. Cost and work are placeholders in the range
+# of the starter buildings (a bed is 5 wood, 20 s), pending a balance pass.
+[[building]]
+id = "earth_wall"
+name = "Earth Wall"
+verb = "Raise"
+work = 20.0
+passable = false
+[[building.cost]]
+item = "stone"
+count = 3

@@ -132,7 +132,9 @@ description = "Level and raise the ground with earthbending."
 nation = "earth"
 cost = 60
 prereqs = ["stoneworking"]
-# Later: level/raise-terrain designation
+# Modifier-only: Raise Earth, the nation's signature ability, is available from the start and
+# earthworks scales its channel time, so this tech makes fords faster (bending.md). A separate
+# level/raise-terrain designation is future work.
 [tech.unlocks]
 modifiers = { earthworks = 1.2 }
 
@@ -143,8 +145,9 @@ description = "Raise walls and flood barriers straight from the ground."
 nation = "earth"
 cost = 120
 prereqs = ["earth_shaping", "masonry"]
-# Later: buildings = ["earth_wall", "flood_barrier", "terrace"]
+# Later: buildings = ["flood_barrier", "terrace"] once something gives them a job to do (#136)
 [tech.unlocks]
+buildings = ["earth_wall"]
 modifiers = { construction = 1.25 }
 
 [[tech]]
@@ -154,7 +157,9 @@ description = "Bore tunnels through mountains and mine inside them."
 nation = "earth"
 cost = 120
 prereqs = ["earth_shaping"]
-# Later: tunnel designation through mountain tiles; mining inside mountains
+# Unlocks nothing yet: a tunnel designation through mountain tiles and mining inside them need a
+# tunnel mechanic that doesn't exist (a new terrain or building kind), so the tech is a
+# prerequisite for seismic_sense and nothing more until that is designed (#132).
 
 [[tech]]
 id = "earth_rail"
@@ -163,7 +168,8 @@ description = "Stone carts pushed along rails by earthbenders, as in Ba Sing Se.
 nation = "earth"
 cost = 250
 prereqs = ["earthen_walls"]
-# Later: rail for haul routes
+# Modifier-only for now: rails for haul routes need a rail mechanic that doesn't exist (hauling
+# is a unit carrying a stack), so the benefit is the carry_capacity multiplier alone (#135).
 [tech.unlocks]
 modifiers = { carry_capacity = 1.25 }
 
@@ -174,7 +180,8 @@ description = "Feel vibrations through the earth to find what lies beneath."
 nation = "earth"
 cost = 250
 prereqs = ["tunneling"]
-# Later: abilities = ["seismic_sense"] (reveal ore and gems in a radius)
+# Unlocks nothing yet: the ability ("seismic_sense", reveal ore and gems in a radius) needs a
+# reveal effect, and the map has no hidden ore to reveal (every resource is visible from tick 0; #133).
 
 [[tech]]
 id = "metalbending"
@@ -183,7 +190,8 @@ description = "Bend the earth still left in metal."
 nation = "earth"
 cost = 500
 prereqs = ["seismic_sense", "masonry"]
-# Later: metal from ore without a smelter; abilities = ["metalbend"]
+# Unlocks nothing yet: metal doesn't exist as an item, and "metalbend" (metal from ore without a
+# smelter) needs one plus a refining mechanic (#134).
 
 # ---------------------------------------------------------------------------------------------
 # Fire Nation: heat and industry
