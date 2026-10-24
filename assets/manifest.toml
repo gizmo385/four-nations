@@ -220,6 +220,12 @@ generated_from = "art/tools.toml"
 sha256 = "4ce95828cbd6c24cf5143d6137dd6bf201021668fbcdfbf787af193a472b2417"
 
 [[file]]
+path = "original/trees.png"
+source = "original"
+generated_from = "art/trees.toml"
+sha256 = "7ec9c52fc64857a788cffeda589cd9698831700e05ba4341ca9bd0ed063747a7"
+
+[[file]]
 path = "original/ui_flair.air.png"
 source = "original"
 generated_from = "art/ui_flair.toml"
