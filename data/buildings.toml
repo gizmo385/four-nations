@@ -26,6 +26,9 @@
 #             fire at all.
 # - names:    what each nation calls this building, if it varies. Either all four nations or
 #             none; falls back to `name` for a building that omits it.
+# - art:      which sprite of art/buildings.toml each nation draws it with, if it varies (the study
+#             hall looks different per nation). Either all four nations or none; falls back to
+#             the building's `id`, so most buildings need no entry.
 
 [[building]]
 id = "bed"
@@ -72,6 +75,12 @@ air = "Meditation Pavilion"
 water = "Elders' Lodge"
 earth = "Scroll Library"
 fire = "Academy"
+
+[building.art]
+air = "meditation_pavilion"
+water = "elders_lodge"
+earth = "scroll_library"
+fire = "academy"
 
 # --- Earth Kingdom ---
 # Unlocked by `earthen_walls` (data/research.toml). Nothing in the picker hides a nation's own

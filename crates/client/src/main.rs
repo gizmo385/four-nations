@@ -13,11 +13,13 @@
 //! PNG and exits. `FN_SCREENSHOT_SIZE=WIDTHxHEIGHT` sets the image size (default 1280x720),
 //! `FN_SELECT=N` starts with unit N selected so its panel shows in the shot, and
 //! `FN_RESEARCH_OPEN=1` starts with the research screen (`T`) open, and `FN_BUILD_DEMO=1`
-//! starts with the build tool (`U`) active and a few construction sites designated beside the
-//! first unit, so the picker and the site overlay show in the shot. `FN_STORES_DEMO=1` harvests
-//! what is near the settlers into a stockpile and runs the game until the Stores section has
-//! rows to show. `FN_FX_DEMO=1` has the settlers cast the nation's ability on tiles near the first
-//! unit, so a lit flame or a wet patch is on the map when the shot is taken. Agents use this, via
+//! starts with the build tool (`U`) active and a construction site designated beside the first
+//! unit for every building the nation can place, so the picker and the site sprites show in the
+//! shot. `FN_BUILD_DEMO=buildings` also levels a meadow and puts a finished building of every
+//! kind in the data on it, to see the art. `FN_STORES_DEMO=1` harvests what is near the settlers
+//! into a stockpile and runs the game until the Stores section has rows to show. `FN_FX_DEMO=1`
+//! has the settlers cast the nation's ability on tiles near the first unit, so a lit flame or a
+//! wet patch is on the map when the shot is taken. Agents use this, via
 //! `cargo xtask screenshot SEED NATION OUT.png [WIDTH HEIGHT]`, to check visual changes without a
 //! window popping up and stealing the human's focus.
 
@@ -36,6 +38,7 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 use bevy::sprite::Anchor;
 use bevy::window::{ExitCondition, PrimaryWindow};
 use bevy::winit::WinitPlugin;
+use buildings::BuildingsPlugin;
 use designate::{ActiveTool, DesignatePlugin};
 use fn_sim::world::{TICKS_PER_SECOND, Unit, UnitId};
 use fn_sim::{MapGenConfig, Nation, Pos, Tile};
@@ -45,6 +48,7 @@ use jobview::{JobViewPlugin, ResourceSprite};
 use research::{ResearchPlugin, ScreenOpen};
 
 mod bending;
+mod buildings;
 mod designate;
 mod hud;
 mod jobview;
@@ -98,7 +102,10 @@ fn main() {
     let mut sim = Session::new(seed, nation, width, height);
     let build_demo = std::env::var_os("FN_BUILD_DEMO").is_some();
     if build_demo {
-        designate_demo_sites(&mut sim);
+        designate_demo_sites(
+            &mut sim,
+            std::env::var("FN_BUILD_DEMO").is_ok_and(|v| v == "buildings"),
+        );
     }
     if std::env::var_os("FN_STORES_DEMO").is_some() {
         fill_demo_stores(&mut sim);
@@ -114,7 +121,14 @@ fn main() {
         ))
         .insert_resource(ScreenOpen(std::env::var_os("FN_RESEARCH_OPEN").is_some()))
         .add_message::<MapClicked>()
-        .add_plugins((DesignatePlugin, JobViewPlugin, HudPlugin, BendingPlugin, ResearchPlugin))
+        .add_plugins((
+            DesignatePlugin,
+            JobViewPlugin,
+            BuildingsPlugin,
+            HudPlugin,
+            BendingPlugin,
+            ResearchPlugin,
+        ))
         .add_systems(Startup, (load_art, setup_camera_and_ui, spawn_world).chain())
         .add_systems(FixedUpdate, tick_sim)
         .add_systems(
@@ -161,16 +175,48 @@ fn screen_closed(open: Res<ScreenOpen>) -> bool {
 #[derive(Resource, Deref, DerefMut)]
 struct Sim(Session);
 
-/// `FN_BUILD_DEMO`: designates each building in the data on a free tile near the first unit
-/// (the ones this nation can't place yet are refused, which is fine).
-fn designate_demo_sites(session: &mut Session) {
+/// `FN_BUILD_DEMO`: designates each building in the data on a free tile near the first unit (the
+/// ones this nation can't place yet are refused, which is fine). With `finished` (the value
+/// `FN_BUILD_DEMO=buildings`) it also levels a meadow beside them and puts a finished one of every
+/// building in the data on it, in a grid, so one shot shows the sites and all the building art.
+fn designate_demo_sites(session: &mut Session, finished: bool) {
     let Some(origin) = session.world.units.first().map(|u| u.pos) else { return };
+    if finished {
+        level_meadow(session, origin);
+    }
     let mut dy = 0;
     for i in 0..session.defs.buildings.len() {
         let building = fn_sim::building::BuildingId(i as u16);
         let pos = Pos::new(origin.x + 2, origin.y + dy);
         if session.apply(fn_sim::world::Command::DesignateBuild { pos, building }).is_ok() {
             dy += 2;
+        }
+    }
+    if !finished {
+        return;
+    }
+    // Four columns, 4 tiles apart so the 2x2 sprites don't overlap, to the right of the sites.
+    for i in 0..session.defs.buildings.len() {
+        let id = fn_sim::building::BuildingId(i as u16);
+        let passable = session.defs.building(id).passable;
+        let pos = Pos::new(origin.x + 6 + 4 * (i as i32 % 4), origin.y - 6 + 4 * (i as i32 / 4));
+        if let Some(tile) = session.world.map.get_mut(pos) {
+            tile.building = Some(fn_sim::building::Building { id, passable });
+        }
+    }
+}
+
+/// `FN_BUILD_DEMO=buildings` only: turns the ground around `origin` into open land with nothing on
+/// it (in the biome the first unit stands in), so the building art isn't lost in a forest or a lake in the shot.
+fn level_meadow(session: &mut Session, origin: Pos) {
+    let Some(biome) = session.world.map.get(origin).map(|t| t.biome) else { return };
+    for y in origin.y - 9..=origin.y + 8 {
+        for x in origin.x..=origin.x + 20 {
+            if let Some(tile) = session.world.map.get_mut(Pos::new(x, y)) {
+                tile.terrain = fn_sim::Terrain::Land;
+                tile.biome = biome;
+                tile.resource = None;
+            }
         }
     }
 }
@@ -334,6 +380,8 @@ struct MapClicked(Vec2);
 
 fn load_art(mut commands: Commands, assets: Res<AssetServer>, sim: Res<Sim>) {
     let art = Art::new((*assets).clone());
+    // Buildings appear mid-game; loading the sheet now keeps the headless screenshot waiting for it.
+    art.image(sprites::buildings::SHEET);
     // Start every nation's characters loading now, so the headless screenshot waits for them.
     for n in Nation::ALL {
         for id in &sim.defs.nation(n).characters {
