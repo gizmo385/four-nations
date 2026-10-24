@@ -22,3 +22,13 @@ or non-commercial licenses are allowed. We still record provenance. `release_ok 
 sources that would have to be replaced *if* that ever changed. `cargo xtask assets --release`
 lists them as errors, and `cargo xtask assets` only warns. Today the flagged source is
 `thefournations-2013` (unknown artists, canon-character fan art).
+
+## Original art
+
+Art we make ourselves lives in `assets/original/` (source `original`) and is never edited by
+hand. It is written as palette-indexed text sheets in `art/*.toml` (format: `art/README.md`;
+design: `docs/design/pixel-art.md`) and rendered by `cargo xtask art`, which also writes the
+`[[file]]` entries (with `generated_from = "art/<sheet>.toml"`) in `assets/manifest.toml`.
+`cargo xtask assets` re-renders each generated file in memory and fails with "stale: run cargo
+xtask art" if the PNG differs, and fails if an `original` PNG has a pixel that isn't a palette
+colour. To change original art, edit the sheet and rerun `cargo xtask art`.
