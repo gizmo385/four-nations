@@ -24,7 +24,15 @@ impl Plugin for DesignatePlugin {
         app.init_resource::<Tool>()
             .init_resource::<Notice>()
             .init_resource::<Overlays>()
-            .add_systems(Update, (choose_tool, designate_drag, sync_overlays).chain());
+            .add_systems(
+                Update,
+                (
+                    choose_tool.run_if(super::screen_closed),
+                    designate_drag.run_if(super::screen_closed),
+                    sync_overlays,
+                )
+                    .chain(),
+            );
     }
 }
 

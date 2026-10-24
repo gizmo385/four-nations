@@ -14,6 +14,7 @@ use fn_sim::{Nation, Pos};
 
 use crate::bending::Alerts;
 use crate::designate::{Notice, Tool, ability_for_nation};
+use crate::research::{self, CompletionLog, ResearchStatus, ScreenOpen};
 use crate::ui_style::{self, Frame, Theme, font, layout, space};
 use crate::{Art, Selection, Sim, cursor_tile, jobview, unit_character};
 
@@ -165,8 +166,14 @@ const TOOLS: [(Tool, &str, &str); 5] = [
 ];
 
 /// The camera and game keys, shown at the foot of the side panel.
-const CONTROLS: [&str; 5] =
-    ["WASD or drag: pan", "Wheel: zoom", "Space: pause", "1-4: nation", "R: new map"];
+const CONTROLS: [&str; 6] = [
+    "WASD or drag: pan",
+    "Wheel: zoom",
+    "Space: pause",
+    "1-4: nation",
+    "R: new map",
+    "T: research",
+];
 
 /// Everything the side panel shows.
 #[derive(Clone, PartialEq, Debug)]
@@ -183,12 +190,22 @@ struct SideView {
     notice: String,
     /// The nation's modifiers that differ from 1.0, as (label, value).
     modifiers: Vec<(String, String)>,
-    /// Recent `BendEvent`s, newest last. Empty most of the time, which hides the section
-    /// (ui.md: "a section with nothing to show hides itself").
+    /// The tech the knowledge pool is currently paying for, its progress and rate (#23).
+    research: ResearchStatus,
+    /// Recent `BendEvent`s and tech completions, newest last. Empty most of the time, which
+    /// hides the section (ui.md: "a section with nothing to show hides itself").
     alerts: Vec<String>,
 }
 
-fn side_view(sim: &Sim, tool: Tool, notice: &str, alerts: &Alerts) -> SideView {
+fn side_view(
+    sim: &Sim,
+    tool: Tool,
+    notice: &str,
+    alerts: &Alerts,
+    completions: &CompletionLog,
+) -> SideView {
+    let mut alert_lines = alerts.lines();
+    alert_lines.extend(completions.lines());
     SideView {
         nation: sim.defs.nation(sim.world.nation).name.clone(),
         seed: sim.world.seed,
@@ -199,7 +216,8 @@ fn side_view(sim: &Sim, tool: Tool, notice: &str, alerts: &Alerts) -> SideView {
         tool_hint: tool_hint(sim, tool),
         notice: notice.to_owned(),
         modifiers: modifier_rows(sim.world.modifiers()),
-        alerts: alerts.lines(),
+        research: research::research_status(sim.world.research(), &sim.defs),
+        alerts: alert_lines,
     }
 }
 
@@ -232,13 +250,13 @@ fn modifier_rows(m: &Modifiers) -> Vec<(String, String)> {
 }
 
 /// 1.6 becomes "x1.6" and 2.0 becomes "x2".
-fn multiplier(v: f32) -> String {
+pub(crate) fn multiplier(v: f32) -> String {
     let s = format!("{v:.2}");
     format!("x{}", s.trim_end_matches('0').trim_end_matches('.'))
 }
 
 /// "move_speed" becomes "Move speed".
-fn humanize(name: &str) -> String {
+pub(crate) fn humanize(name: &str) -> String {
     let mut s = name.replace('_', " ");
     if let Some(first) = s.get_mut(..1) {
         first.make_ascii_uppercase();
@@ -252,13 +270,14 @@ fn update_side_panel(
     tool: Res<Tool>,
     notice: Res<Notice>,
     alerts: Res<Alerts>,
+    completions: Res<CompletionLog>,
     theme: Res<Theme>,
     content: Query<Entity, With<SideContent>>,
     fresh: Query<(), Added<SideContent>>,
     mut last: Local<Option<SideView>>,
 ) {
     let Ok(content) = content.single() else { return };
-    let view = side_view(&sim, *tool, &notice.0, &alerts);
+    let view = side_view(&sim, *tool, &notice.0, &alerts, &completions);
     if last.as_ref() == Some(&view) && fresh.is_empty() {
         return;
     }
@@ -347,7 +366,29 @@ fn spawn_side(p: &mut ChildSpawnerCommands, theme: &Theme, v: &SideView) {
         }
     }
 
-    // Recent bend events (#72), newest last. Hidden while there's nothing to show.
+    // Research (#23): the tech the pool is paying for right now, its progress and rate. The full
+    // tree is `T`'s screen (`research.rs`).
+    ui_style::section_title(p, theme, "Research");
+    p.spawn(Node { justify_content: JustifyContent::SpaceBetween, ..default() }).with_children(
+        |r| {
+            r.spawn(ui_style::text(v.research.label.clone(), font::BODY, theme.text));
+            r.spawn(ui_style::text(v.research.rate.clone(), font::LABEL, theme.dim));
+        },
+    );
+    p.spawn(Node::default())
+        .with_children(|b| ui_style::bar(b, theme, v.research.frac, theme.accent, 8.0));
+    p.spawn(Node { justify_content: JustifyContent::SpaceBetween, ..default() }).with_children(
+        |r| {
+            r.spawn(ui_style::text(v.research.pool.clone(), font::LABEL, theme.dim));
+            if v.research.more_queued > 0 {
+                let more = format!("+{} queued", v.research.more_queued);
+                r.spawn(ui_style::text(more, font::LABEL, theme.dim));
+            }
+        },
+    );
+
+    // Recent bend events (#72) and tech completions (#23), newest last. Hidden while there's
+    // nothing to show.
     if !v.alerts.is_empty() {
         ui_style::section_title(p, theme, "Alerts");
         for line in &v.alerts {
@@ -458,6 +499,7 @@ fn update_selection_bar(
     sim: Res<Sim>,
     art: Res<Art>,
     selection: Res<Selection>,
+    screen_open: Res<ScreenOpen>,
     theme: Res<Theme>,
     mut bar: Query<&mut Visibility, With<SelectionBar>>,
     content: Query<Entity, With<SelectionContent>>,
@@ -465,6 +507,12 @@ fn update_selection_bar(
     mut last: Local<Option<UnitView>>,
 ) {
     let (Ok(mut visibility), Ok(content)) = (bar.single_mut(), content.single()) else { return };
+    // The research screen (#23) is a full `ui.md` "Screens" overlay: the selection bar hides
+    // while it's open so it never fights the tech cards for space or clicks.
+    if screen_open.0 {
+        *visibility = Visibility::Hidden;
+        return;
+    }
     let Some(unit) = selection.0.and_then(|id| sim.world.unit(id)) else {
         *visibility = Visibility::Hidden;
         return;
