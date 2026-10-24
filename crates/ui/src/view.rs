@@ -39,6 +39,8 @@ pub struct SideView {
     pub modifiers: Vec<(String, String)>,
     /// The tech the knowledge pool is currently paying for, its progress and rate (#23).
     pub research: ResearchStatus,
+    /// What the stockpiles hold, in the order of the item data (`store_rows`).
+    pub stores: Vec<StoreRow>,
     /// The alert toasts showing now, oldest first. Empty most of the time, which hides the
     /// section (ui.md: "a section with nothing to show hides itself").
     pub alerts: Vec<String>,
@@ -75,21 +77,42 @@ pub fn side_view(
         choice,
         modifiers: modifier_rows(world.modifiers()),
         research: research_status(world.research(), defs),
+        stores: store_rows(session),
         alerts: alerts.toast_lines(),
     }
 }
 
-/// What the stockpiles hold, as (item name, count), in the order of `data/items.toml`. Items with
-/// none stored are left out, so a settlement with no stockpile has an empty list.
-pub fn stores(session: &Session) -> Vec<(String, u32)> {
+/// One line of the Stores section: an item the stockpiles hold.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct StoreRow {
+    pub name: String,
+    /// The item's icon name (`ItemDef::icon`), a sprite in `art/icons.toml`.
+    pub icon: String,
+    pub count: u32,
+}
+
+/// What the stockpiles hold, in the order of the item data (`data/jobs.toml`, then the foods of
+/// `data/needs.toml`). Items with none stored are left out, so a settlement with no stockpile has
+/// an empty list.
+pub fn store_rows(session: &Session) -> Vec<StoreRow> {
     let (world, defs) = (&session.world, &session.defs);
     defs.items
         .iter()
         .filter_map(|item| {
-            let total = world.stored_total(defs.item_id(&item.id)?);
-            (total > 0).then(|| (item.name.clone(), total))
+            let count = world.stored_total(defs.item_id(&item.id)?);
+            (count > 0).then(|| StoreRow {
+                name: item.name.clone(),
+                icon: item.icon.clone(),
+                count,
+            })
         })
         .collect()
+}
+
+/// What the stockpiles hold, as (item name, count): `store_rows` without the icons, for frontends
+/// that show text only.
+pub fn stores(session: &Session) -> Vec<(String, u32)> {
+    store_rows(session).into_iter().map(|r| (r.name, r.count)).collect()
 }
 
 /// In-game time since the start as `MM:SS`. There is no calendar yet.
@@ -257,12 +280,25 @@ mod tests {
                 break;
             }
         }
-        let rows = stores(&s);
+        let rows = store_rows(&s);
         assert!(!rows.is_empty(), "the settlers should have stored something");
-        for (name, count) in rows {
-            let item = s.defs.items.iter().find(|i| i.name == name).unwrap();
-            assert_eq!(count, s.world.stored_total(s.defs.item_id(&item.id).unwrap()));
+        let order: Vec<_> = rows.iter().map(|r| &r.name).collect();
+        let data_order: Vec<_> = s.defs.items.iter().map(|i| &i.name).collect();
+        assert!(order.iter().all(|n| data_order.contains(n)));
+        assert!(
+            order.windows(2).all(|w| {
+                let at = |n: &&String| data_order.iter().position(|d| d == n);
+                at(&w[0]) < at(&w[1])
+            }),
+            "rows follow the order of the item data"
+        );
+        for row in &rows {
+            let item = s.defs.items.iter().find(|i| i.name == row.name).unwrap();
+            assert_eq!(row.icon, item.icon);
+            assert_eq!(row.count, s.world.stored_total(s.defs.item_id(&item.id).unwrap()));
         }
+        assert_eq!(side_view(&s, Tool::Select, "", None, &Alerts::default()).stores, rows);
+        assert_eq!(stores(&s).len(), rows.len());
     }
 
     #[test]

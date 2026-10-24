@@ -23,6 +23,9 @@ pub struct ItemId(pub u16);
 pub struct ItemDef {
     pub id: String,
     pub name: String,
+    /// The icon's name in the client's icon sheet (`art/icons.toml`). The sim never reads it; it
+    /// is data so which picture an item uses isn't a match in client code.
+    pub icon: String,
     /// Index into `Defs::foods` if this item can be eaten.
     pub food: Option<usize>,
 }
@@ -83,6 +86,7 @@ pub struct JobSettings {
 struct RawItem {
     id: String,
     name: String,
+    icon: String,
 }
 
 #[derive(Deserialize)]
@@ -157,11 +161,15 @@ impl JobsFile {
                 return err(format!("duplicate item {id} (foods are items too)"));
             }
         }
-        let mut items: Vec<ItemDef> =
-            self.item.into_iter().map(|i| ItemDef { id: i.id, name: i.name, food: None }).collect();
+        let mut items: Vec<ItemDef> = self
+            .item
+            .into_iter()
+            .map(|i| ItemDef { id: i.id, name: i.name, icon: i.icon, food: None })
+            .collect();
         items.extend(foods.iter().enumerate().map(|(n, f)| ItemDef {
             id: f.id.clone(),
             name: f.name.clone(),
+            icon: f.icon.clone(),
             food: Some(n),
         }));
 

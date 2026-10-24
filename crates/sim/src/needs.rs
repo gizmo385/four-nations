@@ -68,6 +68,8 @@ impl NeedsSettings {
 pub struct FoodDef {
     pub id: String,
     pub name: String,
+    /// The icon's name in the client's icon sheet (`art/icons.toml`), as `ItemDef::icon`.
+    pub icon: String,
     /// Hunger restored by one raw item. Never requires fire.
     pub hunger: f32,
     /// Hunger restored once cooked (needs `fire_making`); a bonus, so higher than `hunger`.
