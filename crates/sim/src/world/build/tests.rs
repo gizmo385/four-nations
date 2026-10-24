@@ -156,3 +156,17 @@ fn a_locked_building_needs_its_tech_but_fire_starts_with_it() {
     assert!(fire.research().is_known(fire_making));
     assert!(fire.designate_build(at(2, 2), campfire, &defs).is_ok());
 }
+
+#[test]
+fn a_site_reports_its_building_delivery_and_progress() {
+    let (mut w, defs) = setup(&GRID, &[at(1, 1)]);
+    let bed = defs.building_id("bed").unwrap();
+    assert_eq!(w.build_site(at(2, 2)), None);
+    w.designate_build(at(2, 2), bed, &defs).unwrap();
+    let (building, delivered, progress) = w.build_site(at(2, 2)).expect("designated");
+    assert_eq!(building, bed);
+    assert_eq!(delivered, vec![0; defs.building(bed).cost.len()]);
+    assert_eq!(progress, 0.0);
+    w.cancel_build(at(2, 2), &defs).unwrap();
+    assert_eq!(w.build_site(at(2, 2)), None);
+}

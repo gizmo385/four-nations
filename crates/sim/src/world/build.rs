@@ -76,6 +76,14 @@ impl World {
         self.sites.iter().map(|(&p, s)| (p, s.building, s.progress))
     }
 
+    /// The unfinished build designation on `pos`, if any: the building, how much of each cost
+    /// entry has been delivered (parallel to `BuildingDef::cost`) and the work done so far (out
+    /// of `BuildingDef::work`). For a client to show a site's progress.
+    pub fn build_site(&self, pos: Pos) -> Option<(BuildingId, &[u32], f32)> {
+        let s = self.sites.get(&pos)?;
+        Some((s.building, &s.delivered, s.progress))
+    }
+
     /// The building finished on `pos`, if any.
     pub fn building_at(&self, pos: Pos) -> Option<BuildingId> {
         self.map.get(pos)?.building.map(|b| b.id)
