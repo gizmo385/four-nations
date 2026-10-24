@@ -114,7 +114,7 @@ pub const FISH_SPOT: Cell = one(SHEET, 0, 12);
 /// The shore sets, each bordered in the base tone of the floor it meets (`art/palette.toml`):
 /// sand for desert, snow for tundra and grass for the rest, swamps included. Each is a 4x4 block
 /// of 16px cells on `SHEET`; see `WaterSet` for the layout within a block. Water is blue in every
-/// set. Swamp lakes and rivers once read as pink with the pack's purple bog water (#109), so a
+/// set. Swamp lakes and rivers read as pink with purple bog water (#109), so a
 /// future bog terrain would get a set of its own.
 const SAND_WATER: WaterSet = WaterSet::new(SHEET, 0, 0);
 const SNOW_WATER: WaterSet = WaterSet::new(SHEET, 0, 4);
@@ -272,7 +272,7 @@ mod tests {
         }
     }
 
-    /// The fish spot is a cell of the new sheet, so `TilesetWater.png` isn't needed any more.
+    /// The fish spot is a cell of the water sheet, not a separate file.
     #[test]
     fn the_fish_spot_is_a_cell_of_the_water_sheet() {
         let names = sprite_names();

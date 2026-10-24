@@ -7,53 +7,43 @@ pub struct CharacterRow {
     pub id: &'static str,
     /// The sprite sheet of 16px cells. Original art (`original/<id>.png`, from `art/<id>.toml`) is
     /// 64x64: the columns face down, up, left and right, the rows are 4 walk frames and row 0 is
-    /// the idle pose. A pack sheet is 4 columns by 7 rows (64x112).
+    /// the idle pose.
     pub sheet: &'static str,
-    /// The portrait faceset. A pack faceset is one 38x38 image. Original art
-    /// (`original/faces_<nation>.png`, from `art/faces_<nation>.toml`) is one row of square cells,
-    /// 32x32 each, shared by the nation's characters: the face is the cell at the character's
-    /// position among the rows with the same `face` path (see `character_face_cell`).
+    /// The portrait faceset (`original/faces_<nation>.png`, from `art/faces_<nation>.toml`): one
+    /// row of square cells, 32x32 each, shared by the nation's characters. The face is the cell at
+    /// the character's position among the rows with the same `face` path (see
+    /// `character_face_cell`).
     pub face: &'static str,
 }
 
-macro_rules! pack {
-    ($dir:literal) => {
-        concat!("third_party/ninja-adventure/Actor/Character/", $dir)
-    };
-}
-
 pub const CHARACTERS: &[CharacterRow] = &[
-    // Air Nomads. The portraits stay on the pack's facesets until the portraits issue (#152).
-    CharacterRow {
-        id: "air_monk",
-        sheet: "original/air_monk.png",
-        face: pack!("Monk2/Faceset.png"),
-    },
+    // Air Nomads (art/air_*.toml, #150; faces in art/faces_air.toml, #152)
+    CharacterRow { id: "air_monk", sheet: "original/air_monk.png", face: "original/faces_air.png" },
     CharacterRow {
         id: "air_elder",
         sheet: "original/air_elder.png",
-        face: pack!("Master/Faceset.png"),
+        face: "original/faces_air.png",
     },
     CharacterRow {
         id: "air_acolyte",
         sheet: "original/air_acolyte.png",
-        face: pack!("NinjaYellow/Faceset.png"),
+        face: "original/faces_air.png",
     },
-    // Water Tribes
+    // Water Tribes (art/water_*.toml, #150; faces in art/faces_water.toml, #152)
     CharacterRow {
         id: "water_hunter",
         sheet: "original/water_hunter.png",
-        face: pack!("Eskimo/Faceset.png"),
+        face: "original/faces_water.png",
     },
     CharacterRow {
         id: "water_healer",
         sheet: "original/water_healer.png",
-        face: pack!("NinjaEskimo/Faceset.png"),
+        face: "original/faces_water.png",
     },
     CharacterRow {
         id: "water_warrior",
         sheet: "original/water_warrior.png",
-        face: pack!("NinjaWater/Faceset.png"),
+        face: "original/faces_water.png",
     },
     // Earth Kingdom (art/earth_*.toml, #151; faces in art/faces_earth.toml, #153)
     CharacterRow {
@@ -105,8 +95,7 @@ pub fn character_face_path(character: &str) -> &'static str {
 }
 
 /// Which square cell of the faceset is this character's face: its position among the rows that
-/// share the faceset, so a pack faceset (one face per image) is cell 0. The cell's side is the
-/// image's height.
+/// share the faceset. The cell's side is the image's height.
 pub fn character_face_cell(character: &str) -> u32 {
     let row =
         character_row(character).unwrap_or_else(|| panic!("no art for character {character}"));
@@ -129,7 +118,7 @@ mod tests {
             for c in characters {
                 assert_eq!(png_size(character_sheet_path(c)), (64, 64), "{c} sheet");
                 let (w, h) = png_size(character_face_path(c));
-                assert!(h == 38 || h == 32, "{c} face cells are {h}px");
+                assert_eq!(h, 32, "{c} face cells are {h}px");
                 let cells =
                     CHARACTERS.iter().filter(|r| r.face == character_face_path(c)).count() as u32;
                 assert_eq!(w, h * cells, "{c} faceset is {cells} cells of {h}px");
@@ -188,7 +177,12 @@ mod tests {
     #[test]
     fn original_facesets_hold_one_32px_face_per_character_in_row_order() {
         let mut seen = 0;
-        for face in ["original/faces_earth.png", "original/faces_fire.png"] {
+        for face in [
+            "original/faces_air.png",
+            "original/faces_water.png",
+            "original/faces_earth.png",
+            "original/faces_fire.png",
+        ] {
             let ids: Vec<&str> =
                 CHARACTERS.iter().filter(|r| r.face == face).map(|r| r.id).collect();
             assert_eq!(png_size(face), (32 * ids.len() as u32, 32), "{face}");
@@ -200,6 +194,6 @@ mod tests {
             }
             seen += ids.len();
         }
-        assert_eq!(seen, 6);
+        assert_eq!(seen, 12);
     }
 }

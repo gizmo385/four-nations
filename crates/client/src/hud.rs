@@ -64,8 +64,8 @@ struct Tooltip;
 #[derive(Component)]
 struct TooltipLines;
 
-/// The portrait is drawn at this integer scale so the faceset's pixels stay crisp: 64px for an
-/// original 32px face, 76px for a 38px pack face. The size comes from the faceset's real size.
+/// The portrait is drawn at this integer scale so the faceset's pixels stay crisp: 64px for a
+/// 32px face. The size comes from the faceset's real size.
 const PORTRAIT_SCALE: f32 = 2.0;
 /// The portrait well around it (ui.md "Portraits").
 const PORTRAIT_WELL: f32 = 96.0;
@@ -483,7 +483,7 @@ fn spawn_selection(p: &mut ChildSpawnerCommands, theme: &Theme, v: &UnitView, fa
     .with_children(|w| {
         let side = face.size as f32;
         let mut image = ImageNode::new(face.image);
-        // The faceset is a row of square cells (a pack face is a row of one).
+        // The faceset is a row of square cells.
         if face.size > 0 {
             image.rect =
                 Some(Rect::new(face.cell as f32 * side, 0.0, (face.cell + 1) as f32 * side, side));

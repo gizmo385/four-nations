@@ -102,7 +102,7 @@ styling inline.
 - **Outlines.** The pack outlines everything in near-black. The brackets and seal get the same
   1px `inset` outline, so they read like sprites and stay visible when the accent matches the
   terrain (Earth's green brackets on grass vanished without it in the mockup).
-- **Portraits.** Facesets are 38×38. Draw them at an integer scale (2× = 76 px) with nearest
+- **Portraits.** Facesets are one row of 32×32 faces (`art/faces_<nation>.toml`). Draw them at an integer scale (2× = 64 px) with nearest
   sampling inside the 96 px portrait well, so pixels stay crisp.
 - **Icons.** Tech and item icons (#23) come from the pack's items and elemental FX. Draw them at
   integer scale too, on `inset`.

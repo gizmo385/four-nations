@@ -71,5 +71,4 @@ to the right, with the clothes and palette ramps of the unit sheet of the same n
 
 `sprites/characters.rs` points a character's `face` at the sheet path. The cell is the character's
 position among the table rows with the same `face` path, and a test checks the sprite names match.
-The HUD takes the portrait's size from the image's height, so a 32px face is drawn at 64px and a
-38px pack face at 76px.
+The HUD takes the portrait's size from the image's height, so a 32px face is drawn at 64px.

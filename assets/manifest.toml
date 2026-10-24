@@ -5,27 +5,6 @@
 # before anything is published (web build, itch.io, public repo, screenshots on social media...).
 
 [[source]]
-id = "ninja-adventure"
-title = "Ninja Adventure - Asset Pack"
-author = "Pixel-Boy and AAA"
-url = "https://pixel-boy.itch.io/ninja-adventure-asset-pack"
-license = "CC0-1.0"
-release_ok = true
-download_sha256 = "95a06f4fdcfd1882f061a45ff313b7c905dbe2de1e8512b281d7937df62a7b15"
-retrieved = "2026-10-22"
-retrieved_by = "claude (implementer agent, #74), from the owner's local download"
-notes = """
-Copied from the owner's local itch.io download ("Ninja Adventure - Asset Pack.zip", 2,674 entries,
-agents cannot fetch it themselves). Only the subset the game uses was copied, with the pack's
-relative paths unchanged and no modifications: LICENSE.txt, six tilesets from Backgrounds/Tilesets
-(Floor, Water, Nature, Relief, Desert, Field), and the sprite sheet and Faceset.png of the twelve
-characters in docs/design/art.md under Actor/Character/. The Earth Kingdom and Fire Nation sprite
-sheets and portraits have since been replaced by original art (#151, #153). Attribution is not
-required (CC0) but is
-appreciated.
-"""
-
-[[source]]
 id = "original"
 title = "Original art"
 author = "Claude (agents) for the owner"
@@ -38,56 +17,6 @@ notes = """
 Rendered by `cargo xtask art` from the palette-indexed text sheets in art/*.toml (format:
 art/README.md). Every file has a generated_from entry; edit the sheet, never the PNG.
 """
-
-[[file]]
-path = "third_party/ninja-adventure/LICENSE.txt"
-source = "ninja-adventure"
-sha256 = "9bc2cd77030dd73fd2497c5729556a11524fa04099d8351bc527fd4d4c31b916"
-
-[[file]]
-path = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetNature.png"
-source = "ninja-adventure"
-sha256 = "51eedd957ad4ac88988d170aa83a42404ef8fdebff9e6753b6fe80841ab3d5bb"
-
-[[file]]
-path = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetDesert.png"
-source = "ninja-adventure"
-sha256 = "c75577d52061aab5637585d6c33592a7fe47d5870f0cc0206ec4de0159d4f8a9"
-
-[[file]]
-path = "third_party/ninja-adventure/Backgrounds/Tilesets/TilesetField.png"
-source = "ninja-adventure"
-sha256 = "a519353dfdb4dfe8d2a1c67061be063056bbf0275eafa87ff711614e278c7261"
-
-[[file]]
-path = "third_party/ninja-adventure/Actor/Character/Monk2/Faceset.png"
-source = "ninja-adventure"
-sha256 = "d60c36993139a5194fdcc07975e3b1ee1837b6235e1172e8c16a09e0b5b6a455"
-
-[[file]]
-path = "third_party/ninja-adventure/Actor/Character/Master/Faceset.png"
-source = "ninja-adventure"
-sha256 = "123248ae36db8956197323284a34707a33c958d7cc816a35c3882e8abe479542"
-
-[[file]]
-path = "third_party/ninja-adventure/Actor/Character/NinjaYellow/Faceset.png"
-source = "ninja-adventure"
-sha256 = "20d43509ad88d9328655c334352c970c6cb5c590f84d108e93a76a1cf3456f6d"
-
-[[file]]
-path = "third_party/ninja-adventure/Actor/Character/Eskimo/Faceset.png"
-source = "ninja-adventure"
-sha256 = "91b8ef837cf78a7d047d952e02403f6533454b121b09ba3818766ce363a61880"
-
-[[file]]
-path = "third_party/ninja-adventure/Actor/Character/NinjaEskimo/Faceset.png"
-source = "ninja-adventure"
-sha256 = "c96eb72abd1fe6a8dfa29d365910a6af9bbffe5bf811d46f21110b409d8c4302"
-
-[[file]]
-path = "third_party/ninja-adventure/Actor/Character/NinjaWater/Faceset.png"
-source = "ninja-adventure"
-sha256 = "ce2de5004f1760d440c81e586eb6687933f7994385f1dc5bc2fb2c61c9284c5f"
 
 [[file]]
 path = "original/air_acolyte.png"
@@ -168,6 +97,12 @@ generated_from = "art/emblems.toml"
 sha256 = "27ad896fd08d8c3fc3c523ae0623907227641c7fcbede5aa9a9519368b500f20"
 
 [[file]]
+path = "original/faces_air.png"
+source = "original"
+generated_from = "art/faces_air.toml"
+sha256 = "d742db083833a962dd5b5c38f452287532ce86d02aae4c588cdc1e406baa7e38"
+
+[[file]]
 path = "original/faces_earth.png"
 source = "original"
 generated_from = "art/faces_earth.toml"
@@ -178,6 +113,12 @@ path = "original/faces_fire.png"
 source = "original"
 generated_from = "art/faces_fire.toml"
 sha256 = "636d601e660a9f749ae1d64b6bea0cfaf419d56c45609497a88d061bd6fd3d66"
+
+[[file]]
+path = "original/faces_water.png"
+source = "original"
+generated_from = "art/faces_water.toml"
+sha256 = "cfd8e7c3cc78d06745578b44d4fac883c682854ff399c904e6ebc904d2cc9777"
 
 [[file]]
 path = "original/fire_noble.png"
