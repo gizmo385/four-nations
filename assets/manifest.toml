@@ -204,6 +204,12 @@ generated_from = "art/floors.toml"
 sha256 = "399e94c90e96dada0339e67e791ec40f9c34e9e9abaae3d9b0da7e19c26c4bac"
 
 [[file]]
+path = "original/fx.png"
+source = "original"
+generated_from = "art/fx.toml"
+sha256 = "cb8549572c4f4383d1adf1578c43327523d6f11ce4a078eeb75497906bfc62f9"
+
+[[file]]
 path = "original/icons.png"
 source = "original"
 generated_from = "art/icons.toml"

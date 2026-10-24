@@ -1,14 +1,18 @@
 //! Shows job state on the map and in the unit panel: resource tiles that disappear when cleared,
 //! item stacks on the ground and in stockpiles, and what a unit is doing. Designation tints live in
-//! `designate`. Plain shapes and tints only, until the art (#1) and the UI style (#39) land.
+//! `designate`. A stack draws its item's icon from `art/icons.toml` (the sheet the Stores section
+//! uses, #130) at 1:1 with the count beside it (#154).
 
 use std::collections::BTreeMap;
 
 use bevy::prelude::*;
+use bevy::sprite::Anchor;
 use fn_sim::jobs::{ItemId, Stack};
 use fn_sim::{Defs, Pos};
 
-use super::{MARKER_BIAS, MapEntity, Sim, TILE, row_depth, tile_translation};
+use super::{
+    Art, MARKER_BIAS, MapEntity, Sim, TILE, row_depth, sprites, tile_translation, ui_style,
+};
 
 pub struct JobViewPlugin;
 
@@ -58,23 +62,47 @@ struct ItemMarker;
 #[derive(Resource, Default)]
 pub struct ItemMarkers(BTreeMap<(Pos, Place), ((u16, u32), Entity)>);
 
-/// Placeholder colors per item until the real item art exists.
-fn item_color(defs: &Defs, item: ItemId) -> Color {
+/// The icon cell of an item (`icon` in data/jobs.toml and data/needs.toml): the sprite of that
+/// name in `icons.png`, one 16px cell, so a stack draws at the size of a tile.
+fn item_cell(defs: &Defs, item: ItemId) -> sprites::Cell {
     let def = defs.item(item);
-    match def.id.as_str() {
-        "wood" => Color::srgb(0.55, 0.33, 0.14),
-        "stone" => Color::srgb(0.62, 0.62, 0.66),
-        "gold_ore" => Color::srgb(0.95, 0.8, 0.15),
-        _ if def.food.is_some() => Color::srgb(0.45, 0.85, 0.35),
-        _ => Color::srgb(0.9, 0.2, 0.8),
-    }
+    let col = ui_style::icon_cell(&def.icon).unwrap_or_else(|| {
+        panic!("item {} names icon {:?}, which art/icons.toml doesn't have", def.id, def.icon)
+    });
+    sprites::Cell { sheet: ui_style::ICONS_SHEET, col, row: 0, w: 1, h: 1 }
 }
 
-/// Keeps one small square (with the count under it) per ground stack and per stored stack. Ground
-/// stacks are smaller than stored ones, which sit on a stockpile tint.
+/// Where the count sits, as an offset from the tile's centre: the bottom right corner, clear of the
+/// icon's middle.
+const COUNT_CORNER: Vec2 = Vec2::new(TILE * 0.5, -TILE * 0.5);
+
+/// The count of a stack as white digits with a 1px ink edge (four shadow copies behind the text),
+/// so it reads over any icon and any floor. Anchored at the bottom right of the tile.
+fn count_label(count: u32) -> Vec<impl Bundle> {
+    let text = |dx: f32, dy: f32, color: Color, z: f32| {
+        (
+            Text2d::new(count.to_string()),
+            TextFont { font_size: 8.0.into(), ..default() },
+            TextColor(color),
+            Anchor::BOTTOM_RIGHT,
+            Transform::from_translation((COUNT_CORNER + Vec2::new(dx, dy)).extend(z)),
+        )
+    };
+    let ink = Color::srgb_u8(0x16, 0x18, 0x21);
+    let mut label: Vec<_> = [(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)]
+        .into_iter()
+        .map(|(dx, dy)| text(dx, dy, ink, 0.1))
+        .collect();
+    label.push(text(0.0, 0.0, Color::WHITE, 0.11));
+    label
+}
+
+/// Keeps one item icon (with the count under it) per ground stack and per stored stack. Stored
+/// ones sit on a stockpile tint.
 fn sync_item_markers(
     mut commands: Commands,
     sim: Res<Sim>,
+    art: Res<Art>,
     mut markers: ResMut<ItemMarkers>,
     alive: Query<(), With<ItemMarker>>,
 ) {
@@ -95,11 +123,10 @@ fn sync_item_markers(
     });
     for (key, stack) in wanted {
         markers.0.entry(key).or_insert_with(|| {
-            let (pos, place) = key;
-            let side = if place == Place::Ground { 6.0 } else { 9.0 };
+            let (pos, _) = key;
             let entity = commands
                 .spawn((
-                    Sprite::from_color(item_color(&sim.defs, stack.item), Vec2::splat(side)),
+                    art.sprite(item_cell(&sim.defs, stack.item)),
                     // Above the stockpile tint, below units on the same row.
                     Transform::from_translation(tile_translation(
                         pos,
@@ -107,12 +134,7 @@ fn sync_item_markers(
                     )),
                     ItemMarker,
                     MapEntity,
-                    children![(
-                        Text2d::new(stack.count.to_string()),
-                        TextFont { font_size: 7.0.into(), ..default() },
-                        TextColor(Color::WHITE),
-                        Transform::from_translation(Vec3::new(0.0, -TILE * 0.38, 0.1)),
-                    )],
+                    Children::spawn(SpawnIter(count_label(stack.count).into_iter())),
                 ))
                 .id();
             ((stack.item.0, stack.count), entity)
@@ -129,6 +151,7 @@ mod tests {
 
     fn test_app(seed: u64) -> App {
         let mut app = App::new();
+        crate::insert_test_art(&mut app);
         app.insert_resource(Sim(Session::new(seed, Nation::Earth, 48, 32)))
             .init_resource::<ItemMarkers>()
             .add_systems(Update, (sync_resources, sync_item_markers).chain());
@@ -151,6 +174,48 @@ mod tests {
             .map(|(p, _)| p)
             .min_by_key(|p| (p.x - home.x).abs().max((p.y - home.y).abs()))
             .expect("a matching resource on the map")
+    }
+
+    /// Every item in data draws an icon from `icons.png`: `item_cell` panics for an `icon` the
+    /// sheet doesn't have, and the cell must lie inside the sheet.
+    #[test]
+    fn every_item_draws_an_icon_from_the_sheet() {
+        let defs = Defs::bundled();
+        assert!(!defs.items.is_empty());
+        let (w, h) = sprites::test_support::png_size(ui_style::ICONS_SHEET);
+        for i in 0..defs.items.len() {
+            let cell = item_cell(&defs, ItemId(i as u16));
+            assert_eq!(cell.sheet, ui_style::ICONS_SHEET);
+            let [_, _, x1, y1] = cell.pixel_rect();
+            assert!(x1 <= w as f32 && y1 <= h as f32, "{}", defs.items[i].id);
+        }
+    }
+
+    #[test]
+    fn a_stack_is_drawn_as_its_items_icon() {
+        let mut app = test_app(1);
+        let tree = first_tree(app.world().resource::<Sim>());
+        let wood = {
+            let mut sim = app.world_mut().resource_mut::<Sim>();
+            let Session { world, defs, .. } = &mut **sim;
+            world.apply(Command::DesignateHarvest { pos: tree }, defs).unwrap();
+            for _ in 0..20_000 {
+                world.tick(defs);
+                if world.ground_items().next().is_some() {
+                    break;
+                }
+            }
+            world.ground_items().next().expect("wood should drop").1.item
+        };
+        app.update();
+        let want = {
+            let sim = app.world().resource::<Sim>();
+            app.world().resource::<Art>().sprite(item_cell(&sim.defs, wood)).rect
+        };
+        assert!(want.is_some());
+        let mut markers = app.world_mut().query_filtered::<&Sprite, With<ItemMarker>>();
+        let rects: Vec<_> = markers.iter(app.world()).map(|s| s.rect).collect();
+        assert!(!rects.is_empty() && rects.iter().all(|r| *r == want), "{rects:?}");
     }
 
     fn shown(app: &App) -> Vec<(Pos, Place)> {
