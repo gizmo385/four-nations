@@ -127,3 +127,20 @@ speed_modifier = "earthworks"
 kind = "reshape"
 from = ["mountain"]
 to = "tunnel"
+
+# Earth, from `seismic_sense` (#133, docs/design/research.md, "Seismic sense"): the bender stands
+# on open ground (or in a tunnel) and feels through the earth. Every buried resource within
+# `radius` tiles (Chebyshev) of that tile is uncovered: a gold seam appears in the rock, to be
+# mined (or tunnelled to) like any vein. Finding nothing still spends the chi.
+[[ability]]
+id = "seismic_sense"
+nation = "earth"
+name = "Seismic Sense"
+verb = "Sense"
+description = "Feel the earth's vibrations to find what lies buried in the rock."
+chi = 30.0
+work = 6.0
+speed_modifier = "earthworks"
+[ability.effect]
+kind = "reveal"
+radius = 8                # tiles, Chebyshev

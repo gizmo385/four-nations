@@ -184,8 +184,10 @@ description = "Feel vibrations through the earth to find what lies beneath."
 nation = "earth"
 cost = 250
 prereqs = ["tunneling"]
-# Unlocks nothing yet: the ability ("seismic_sense", reveal ore and gems in a radius) needs a
-# reveal effect, and the map has no hidden ore to reveal (every resource is visible from tick 0; #133).
+# Unlocks Seismic Sense (#133, docs/design/research.md, "Seismic sense"): a bend that uncovers the
+# gold seams buried in the rock within a radius (data/resources.toml, `buried`).
+[tech.unlocks]
+abilities = ["seismic_sense"]
 
 [[tech]]
 id = "metalbending"

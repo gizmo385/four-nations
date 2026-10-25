@@ -10,7 +10,7 @@ use rand::seq::SliceRandom;
 
 use crate::bending::AbilityId;
 use crate::building::BuildingDef;
-use crate::defs::Defs;
+use crate::defs::{Defs, ResourceId};
 use crate::geom::Pos;
 use crate::jobs::{Job, JobId, Stack};
 use crate::mapgen::{self, MapGenConfig, TileMap};
@@ -206,6 +206,11 @@ pub struct World {
     /// Which signs have been met so far, and the endeavor's events.
     #[serde(default)]
     endeavor_log: EndeavorLog,
+    /// Resources still underground (`ResourceDef::buried`, #133), by tile: off the map until a
+    /// Seismic Sense or a Bore Tunnel uncovers them (`bending.rs`). Saves from before #133 have
+    /// none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    buried: BTreeMap<Pos, ResourceId>,
     /// Picks which tile an orchard plants next (`orchard.plant`).
     #[serde(default = "orchard::default_rng")]
     orchard_rng: SimRng,
@@ -255,13 +260,35 @@ impl World {
             tallies: Tallies::default(),
             endeavor: EndeavorState::Dormant,
             endeavor_log: EndeavorLog::default(),
+            buried: BTreeMap::new(),
             orchard_rng: orchard::new_rng(seed),
             sprout_rng: rng::stream(seed, "bending.sprout"),
             rng: rng::stream(seed, "world.units"),
         };
+        world.bury(defs);
         world.refresh_modifiers(defs);
         world.spawn_units(spawns, defs);
         world
+    }
+
+    /// Takes every buried resource on the map off it, into `buried`. A world does this when it
+    /// is made; a tool that puts one on the map afterwards (a demo stage) calls it again.
+    pub fn bury(&mut self, defs: &Defs) {
+        let found: Vec<(Pos, ResourceId)> = self
+            .map
+            .iter()
+            .filter_map(|(p, t)| t.resource.filter(|&r| defs.resource(r).buried).map(|r| (p, r)))
+            .collect();
+        for (p, r) in found {
+            self.map[p].resource = None;
+            self.buried.insert(p, r);
+        }
+    }
+
+    /// How many resources are still underground (#133). Where they are is not for the frontends
+    /// to know.
+    pub fn buried_count(&self) -> usize {
+        self.buried.len()
     }
 
     /// Checks that a world read from a save is consistent enough to run: the things that would

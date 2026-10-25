@@ -11,6 +11,9 @@
 #                    deposits.
 # - beside:          the tile must touch (8 neighbours) one of these terrains. Fish spots use it
 #                    to stay within reach of the shore, since units fish from the bank.
+# - buried:          true keeps it underground (#133): the world takes it off the map when it is
+#                    made, and only Earth's Seismic Sense (or a Bore Tunnel that strikes it)
+#                    brings it back, to be worked like any other. Until then nothing shows it.
 
 # Ancient scrolls (#24): a rare find in the barren wastes, the one way exploring pays in
 # knowledge. Hauled to a study hall, each is read for the `knowledge` its item carries
@@ -92,3 +95,15 @@ chance = 0.06
 terrains = ["water", "lake", "river"]
 beside = ["coast", "land"]
 clustering = 0.6
+
+# Gold seams (#133, docs/design/research.md, "Seismic sense"): rich gold buried in the rock, found
+# only by Earth's Seismic Sense. Listed last so it only takes mountain tiles nothing else holds,
+# and spaced out: roughly 20-30 on a 192x128 map.
+[[resource]]
+id = "gold_seam"
+name = "Gold Seam"
+glyph = "!"
+chance = 0.04
+terrains = ["mountain"]
+min_spacing = 5
+buried = true

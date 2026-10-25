@@ -107,6 +107,11 @@ pub struct ResourceDef {
     /// fish spots within reach of the shore.
     #[serde(default)]
     pub beside: Option<Vec<Terrain>>,
+    /// Placed by mapgen but kept underground: a world takes it off the map when it is made
+    /// (`World::buried`) and puts it back only when Earth's Seismic Sense uncovers it, or a Bore
+    /// Tunnel strikes it (#133). Until then nothing shows it or can work it.
+    #[serde(default)]
+    pub buried: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -474,7 +479,7 @@ mod tests {
     }
 
     /// The bundled research tree without the job unlocks, for tests with their own resources
-    /// and ability unlocks (so `fish_spot`, `stone`, `inner_fire` and `bore_tunnel` don't dangle).
+    /// and ability unlocks (so `fish_spot`, `stone` and the abilities don't dangle).
     fn bare_research() -> String {
         let mut src = RESEARCH.to_string();
         for job in ["fish_spot", "stone"] {
@@ -483,7 +488,7 @@ mod tests {
             src = src.replace(&unlock, "");
         }
         // The bare bending has no abilities, so a tech can't unlock one.
-        for id in ["inner_fire", "bore_tunnel"] {
+        for id in ["inner_fire", "bore_tunnel", "seismic_sense"] {
             let ability = format!("abilities = [\"{id}\"]\n");
             assert!(src.contains(&ability), "{id}'s unlock moved; update this helper");
             src = src.replace(&ability, "");

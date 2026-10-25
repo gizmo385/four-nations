@@ -385,6 +385,15 @@ impl World {
         def.magnitude_modifier.as_deref().and_then(|m| self.modifiers().get(m)).unwrap_or(1.0)
     }
 
+    /// Brings the resource buried on `pos`, if any, onto the map (#133). Returns whether there was
+    /// one.
+    fn uncover(&mut self, pos: Pos) -> bool {
+        let Some(r) = self.buried.remove(&pos) else { return false };
+        self.map[pos].resource = Some(r);
+        self.map_changed();
+        true
+    }
+
     /// The nearest stockpile tile within `reach` tiles of `pos` (Chebyshev) that has room for
     /// `item`: holds some of that item already, or is empty. Ties by position.
     fn stockpile_in_reach(&self, pos: Pos, item: ItemId, reach: u32, defs: &Defs) -> Option<Pos> {
@@ -472,6 +481,18 @@ impl World {
                     Ok(())
                 }
             }
+            // Somewhere to stand and feel the ground: open ground or a tunnel with nothing on it.
+            // Whether anything is buried nearby is what the bend finds out, so it isn't checked.
+            Effect::Reveal { .. } => {
+                let tile = &self.map[pos];
+                if !tile.terrain.is_walkable() {
+                    Err("needs open ground to stand on")
+                } else if tile.resource.is_some() || tile.building.is_some() {
+                    Err("something is in the way")
+                } else {
+                    Ok(())
+                }
+            }
             // A ground stack with a stockpile tile in reach that could take at least some of it.
             Effect::WindCarry { range } => {
                 let Some(stack) = self.ground.get(&pos) else {
@@ -506,7 +527,13 @@ impl World {
         match effect {
             // The new terrain is permanent (no undo in v1). It changes who can walk where, so
             // the cached regions are stale and idle units should look for jobs that opened up.
+            // Boring into a buried seam (#133) strikes it instead: the seam is uncovered and the
+            // rock stays, so the miners have something to work from beside it.
             Effect::Reshape { to, .. } => {
+                if self.uncover(pos) {
+                    self.wake_idle();
+                    return None;
+                }
                 self.map[pos].terrain = *to;
                 self.map_changed();
                 self.wake_idle();
@@ -554,6 +581,19 @@ impl World {
                     sleep_bonus: *sleep_bonus,
                     until: self.tick + minutes_to_ticks(duration_minutes * magnitude),
                 });
+                None
+            }
+            // Everything buried within the (scaled) radius comes onto the map.
+            Effect::Reveal { radius } => {
+                let reach = scaled_range(*radius, magnitude);
+                let near: Vec<Pos> =
+                    self.buried.keys().copied().filter(|&b| chebyshev(pos, b) <= reach).collect();
+                for b in &near {
+                    self.uncover(*b);
+                }
+                if !near.is_empty() {
+                    self.wake_idle();
+                }
                 None
             }
             // The magnitude scales how long the patch stays wet.
@@ -657,6 +697,8 @@ mod air_tests;
 mod earth_tests;
 #[cfg(test)]
 mod fire_tests;
+#[cfg(test)]
+mod seismic_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

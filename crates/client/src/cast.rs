@@ -26,6 +26,7 @@
 //! | `Flare` | sparks gather from -0.5, a flare as the flame is kindled, embers rise after |
 //! | `Gust` | curls of wind run to the stack from -1.0, a whirl lifts it, and it flies to the stockpile |
 //! | `Bore` | cracks open in the rock from -0.9, then dust billows out of it and settles toward the bender |
+//! | `Pulse` | the ground cracks under the bender from -0.6, then a ring of dust runs out over the tiles around |
 //! | `Glow` | embers gather on a ring round the bender from -0.8, the ring blooms, then warm motes drift out over the tiles beside it and embers rise |
 //!
 //! Inner Fire's *lasting* aura (a ring of light under the carrier while it lasts) is `bending`'s.
@@ -57,6 +58,8 @@ pub enum Look {
     Glow,
     /// The rock cracks and crumbles into dust as a tunnel opens (Bore Tunnel, #132).
     Bore,
+    /// A tremor running out through the ground from the bender (Seismic Sense, #133).
+    Pulse,
 }
 
 /// The cast effect of each ability, by its id in `data/bending.toml`. The one table of the cast
@@ -68,6 +71,7 @@ pub const LOOKS: &[(&str, Look)] = &[
     ("wind_carry", Look::Gust),
     ("inner_fire", Look::Glow),
     ("bore_tunnel", Look::Bore),
+    ("seismic_sense", Look::Pulse),
 ];
 
 /// The cast effect of ability `id`, if it has one.
@@ -115,6 +119,7 @@ impl Look {
             Look::Gust => (1.0, 0.3_f32.max(flight)),
             Look::Glow => (GLOW_LEAD, GLOW_TAIL),
             Look::Bore => (0.9, 0.51),
+            Look::Pulse => (0.6, PULSE_TAIL),
         }
     }
 }
@@ -189,6 +194,7 @@ pub fn parts(look: Look, t: f32, scene: &Scene) -> Vec<Part> {
     match look {
         Look::Rise => rise(t, scene, &mut out),
         Look::Bore => bore(t, scene, &mut out),
+        Look::Pulse => pulse(t, scene, &mut out),
         Look::Stream => stream(t, scene, &mut out),
         Look::Flare => flare(t, scene, &mut out),
         Look::Gust => gust(t, scene, &mut out),
@@ -229,6 +235,38 @@ fn bore(t: f32, s: &Scene, out: &mut Vec<Part>) {
     // Halfway out of the rock, a beat later.
     if let Some(i) = frame_at(t, 0.0, 0.17) {
         out.push(fx_over(s.target.lerp(s.stand, 0.5), 0.0, sprites::fx::DUST[i]));
+    }
+}
+
+/// How long Seismic Sense's ring of dust runs out after the bend, in seconds.
+const PULSE_TAIL: f32 = 0.6;
+/// How far out the ring gets, in tiles. Only a sign of the tremor: the sense reaches further.
+const PULSE_REACH: f32 = 3.0;
+/// The directions the ring's puffs run in.
+const PULSE_DIRS: [Vec2; 8] = [
+    Vec2::new(1.0, 0.0),
+    Vec2::new(0.707, 0.707),
+    Vec2::new(0.0, 1.0),
+    Vec2::new(-0.707, 0.707),
+    Vec2::new(-1.0, 0.0),
+    Vec2::new(-0.707, -0.707),
+    Vec2::new(0.0, -1.0),
+    Vec2::new(0.707, -0.707),
+];
+
+/// Seismic Sense: the ground cracks under the bender, then a ring of dust runs out from them,
+/// thinning as it goes.
+fn pulse(t: f32, s: &Scene, out: &mut Vec<Part>) {
+    if (-0.6..0.0).contains(&t) {
+        let cell = if t < -0.3 { sprites::fx::EARTH[0] } else { sprites::fx::EARTH[1] };
+        out.push(fx(s.stand, 0.0, cell));
+    }
+    if (0.0..PULSE_TAIL).contains(&t) {
+        let u = t / PULSE_TAIL;
+        let frame = ((u * 3.0) as usize).min(2);
+        for d in PULSE_DIRS {
+            out.push(fx(s.stand + d * (0.6 + u * PULSE_REACH), 0.0, sprites::fx::DUST[frame]));
+        }
     }
 }
 
@@ -703,8 +741,8 @@ mod tests {
     use super::*;
     use crate::unit_anim::Facing;
 
-    const ALL: [Look; 6] =
-        [Look::Rise, Look::Stream, Look::Flare, Look::Gust, Look::Glow, Look::Bore];
+    const ALL: [Look; 7] =
+        [Look::Rise, Look::Stream, Look::Flare, Look::Gust, Look::Glow, Look::Bore, Look::Pulse];
 
     fn scene() -> Scene {
         Scene {

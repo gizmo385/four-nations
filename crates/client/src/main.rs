@@ -38,7 +38,9 @@
 //! meadow, puts a finished orchard and a wild fruit tree on it and runs the game TICKS ticks, so a
 //! shot shows saplings and grown trees (#142; 4500 ticks is 7.5 minutes). `FN_TUNNEL_DEMO=1`
 //! (Earth) researches `tunneling`, bores a tunnel into a block of mountain and mines a vein beside
-//! it and one outside, so a shot shows the tunnel and both yields (`tunnel_demo`, #132).
+//! it and one outside, so a shot shows the tunnel and both yields (`tunnel_demo`, #132). With
+//! `FN_SEISMIC_DEMO=T` it then buries two gold seams beside the tunnel and casts Seismic Sense,
+//! pausing `T` seconds after it lands (#133).
 
 use std::collections::HashMap;
 use std::path::PathBuf;

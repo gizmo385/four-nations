@@ -10,7 +10,7 @@
 │                                              ││  Song Idle                   │
 │  · Seismic Sense                             ││  Lin  Idle                   │
 │   Locked      250 pts                        ││                              │
-│   -                                          ││ ◇ RESEARCH                   │
+│   Seismic Sense                              ││ ◇ RESEARCH                   │
 │                                              ││ Shelter +2           3.0/min │
 │                                              ││ ░░░░░░░░░░   0% 0/25 pts     │
 │                                              ││                              │
