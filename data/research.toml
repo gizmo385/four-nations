@@ -157,9 +157,12 @@ description = "Bore tunnels through mountains and mine inside them."
 nation = "earth"
 cost = 120
 prereqs = ["earth_shaping"]
-# Unlocks nothing yet: a tunnel designation through mountain tiles and mining inside them need a
-# tunnel mechanic that doesn't exist (a new terrain or building kind), so the tech is a
-# prerequisite for seismic_sense and nothing more until that is designed (#132).
+# Unlocks Bore Tunnel (#132, docs/design/research.md, "Tunneling"): a bend that turns a mountain
+# tile into a walkable tunnel. Minerals touching a tunnel yield their harvest's `tunnel_count`
+# (data/jobs.toml). Mining itself stays open to everyone: gold needs no tech, stone needs
+# stoneworking.
+[tech.unlocks]
+abilities = ["bore_tunnel"]
 
 [[tech]]
 id = "earth_rail"

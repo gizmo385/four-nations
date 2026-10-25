@@ -17,7 +17,6 @@ fn branch(defs: &Defs) -> Vec<TechId> {
 /// go stale. The reasons repeat the comments in data/research.toml.
 const WITHOUT_CONCRETE_UNLOCKS: &[(&str, &str)] = &[
     ("earth_shaping", "modifier-only: earthworks speeds up Raise Earth, which Earth starts with"),
-    ("tunneling", "needs a tunnel mechanic (terrain or building kind) that doesn't exist"),
     ("seismic_sense", "needs a reveal effect, and no ore is hidden on the map"),
     ("metalbending", "needs a metal item and a refining mechanic"),
 ];

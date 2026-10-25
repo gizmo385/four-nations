@@ -108,3 +108,22 @@ kind = "heat_aura"
 duration_minutes = 4.0
 radius = 2                # tiles, Chebyshev, around the carrier
 sleep_bonus = 1.25        # energy regained asleep nearby, times the base rate
+
+# Earth, from `tunneling` (#132, docs/design/research.md, "Tunneling"): bores one tile of tunnel
+# into a mountain from open ground or another tunnel beside it, so tunnels grow inward a tile at a
+# time. A tunnel is walkable, and a gold vein or stone outcrop touching one is mined from inside
+# the rock for its harvest's `tunnel_count` (data/jobs.toml). A tile with a resource on it can't be
+# bored: quarry the outcrop first.
+[[ability]]
+id = "bore_tunnel"
+nation = "earth"
+name = "Bore Tunnel"
+verb = "Bore"
+description = "Push the rock aside and open a passage into the mountain."
+chi = 40.0
+work = 20.0
+speed_modifier = "earthworks"
+[ability.effect]
+kind = "reshape"
+from = ["mountain"]
+to = "tunnel"

@@ -166,7 +166,7 @@ sha256 = "5929bbf5a035c9bc9380bb7f37a87a3c26ebe95d151a435a2b67944d9b425f4d"
 path = "original/floors.png"
 source = "original"
 generated_from = "art/floors.toml"
-sha256 = "399e94c90e96dada0339e67e791ec40f9c34e9e9abaae3d9b0da7e19c26c4bac"
+sha256 = "d8d90271f040d7db2f4671e356b3e70897d9377df7d89dc22db02f00832309dc"
 
 [[file]]
 path = "original/fx.png"

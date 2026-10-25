@@ -25,6 +25,7 @@
 //! | `Stream` | a stream of droplets from the bender's hand to the target from -1.0; splashes over the 3x3 patch |
 //! | `Flare` | sparks gather from -0.5, a flare as the flame is kindled, embers rise after |
 //! | `Gust` | curls of wind run to the stack from -1.0, a whirl lifts it, and it flies to the stockpile |
+//! | `Bore` | cracks open in the rock from -0.9, then dust billows out of it and settles toward the bender |
 //! | `Glow` | embers gather on a ring round the bender from -0.8, the ring blooms, then warm motes drift out over the tiles beside it and embers rise |
 //!
 //! Inner Fire's *lasting* aura (a ring of light under the carrier while it lasts) is `bending`'s.
@@ -54,6 +55,8 @@ pub enum Look {
     Gust,
     /// A warm glow gathering round the bender and pulsing out over the tiles beside it.
     Glow,
+    /// The rock cracks and crumbles into dust as a tunnel opens (Bore Tunnel, #132).
+    Bore,
 }
 
 /// The cast effect of each ability, by its id in `data/bending.toml`. The one table of the cast
@@ -64,6 +67,7 @@ pub const LOOKS: &[(&str, Look)] = &[
     ("hearthflame", Look::Flare),
     ("wind_carry", Look::Gust),
     ("inner_fire", Look::Glow),
+    ("bore_tunnel", Look::Bore),
 ];
 
 /// The cast effect of ability `id`, if it has one.
@@ -110,6 +114,7 @@ impl Look {
             Look::Flare => (0.5, 0.6),
             Look::Gust => (1.0, 0.3_f32.max(flight)),
             Look::Glow => (GLOW_LEAD, GLOW_TAIL),
+            Look::Bore => (0.9, 0.51),
         }
     }
 }
@@ -183,6 +188,7 @@ pub fn parts(look: Look, t: f32, scene: &Scene) -> Vec<Part> {
     let mut out = Vec::new();
     match look {
         Look::Rise => rise(t, scene, &mut out),
+        Look::Bore => bore(t, scene, &mut out),
         Look::Stream => stream(t, scene, &mut out),
         Look::Flare => flare(t, scene, &mut out),
         Look::Gust => gust(t, scene, &mut out),
@@ -208,6 +214,22 @@ fn rise(t: f32, s: &Scene, out: &mut Vec<Part>) {
         return;
     };
     out.push(fx(s.target, 0.0, cell));
+}
+
+/// Bore Tunnel: the rock cracks, then crumbles into dust on the target that spills out toward
+/// the bender as the tunnel opens.
+fn bore(t: f32, s: &Scene, out: &mut Vec<Part>) {
+    if (-0.9..-0.3).contains(&t) {
+        let cell = if t < -0.6 { sprites::fx::EARTH[0] } else { sprites::fx::EARTH[1] };
+        out.push(fx(s.target, 0.0, cell));
+    }
+    if let Some(i) = frame_at(t, -0.3, 0.27) {
+        out.push(fx_over(s.target, 2.0, sprites::fx::DUST[i]));
+    }
+    // Halfway out of the rock, a beat later.
+    if let Some(i) = frame_at(t, 0.0, 0.17) {
+        out.push(fx_over(s.target.lerp(s.stand, 0.5), 0.0, sprites::fx::DUST[i]));
+    }
 }
 
 /// How many droplets are in flight at once in Water the Land's stream.
@@ -681,7 +703,8 @@ mod tests {
     use super::*;
     use crate::unit_anim::Facing;
 
-    const ALL: [Look; 5] = [Look::Rise, Look::Stream, Look::Flare, Look::Gust, Look::Glow];
+    const ALL: [Look; 6] =
+        [Look::Rise, Look::Stream, Look::Flare, Look::Gust, Look::Glow, Look::Bore];
 
     fn scene() -> Scene {
         Scene {

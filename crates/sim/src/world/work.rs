@@ -48,6 +48,7 @@
 //! Everything is deterministic: units act in id order, searches break ties by position or id, and
 //! the only randomness is the idle wander and pause (`world.units` stream).
 
+use crate::defs::Terrain;
 use crate::flood::Flood;
 use crate::geom::Footprint;
 use crate::jobs::{HarvestDef, ItemId, JobKind};
@@ -425,10 +426,29 @@ impl World {
         }
     }
 
+    /// How many items working the resource on `pos` yields: `HarvestDef::tunnel_count` when a
+    /// tunnel touches the tile (any of its 8 neighbours), so the vein is mined from inside the
+    /// mountain (issue #132, docs/design/research.md, "Tunneling"), else `count`. Nothing asks
+    /// which nation dug the tunnel or is mining: only Earth can bore one, through its tech.
+    pub fn harvest_yield(&self, pos: Pos, h: &HarvestDef) -> u32 {
+        let tunnel = || {
+            (-1..=1)
+                .flat_map(|dy| (-1..=1).map(move |dx| Pos::new(pos.x + dx, pos.y + dy)))
+                .filter_map(|q| self.map.get(q))
+                .any(|t| t.terrain == Terrain::Tunnel)
+        };
+        match h.tunnel_count {
+            Some(n) if tunnel() => n,
+            _ => h.count,
+        }
+    }
+
     /// The work on `pos` is done: a renewable resource goes back to growing, anything else is
-    /// used up and its tile cleared. Its whole yield counts toward the harvest tally.
-    fn work_done(&mut self, pos: Pos, h: &HarvestDef) {
-        self.tallies.count_harvest(h.item, h.count);
+    /// used up and its tile cleared. Returns its yield (`harvest_yield`), which counts in full
+    /// toward the harvest tally.
+    fn work_done(&mut self, pos: Pos, h: &HarvestDef) -> u32 {
+        let count = self.harvest_yield(pos, h);
+        self.tallies.count_harvest(h.item, count);
         match h.regrow {
             Some(seconds) => {
                 self.resting.insert(pos, seconds);
@@ -438,6 +458,7 @@ impl World {
                 self.map_changed();
             }
         }
+        count
     }
 
     pub(super) fn carry_capacity(&self, _i: usize, defs: &Defs) -> u32 {
@@ -861,9 +882,9 @@ impl World {
             }
             FoodSource::Forage(p) => {
                 let h = defs.harvest(self.map[p].resource.expect("checked")).expect("checked");
-                self.work_done(p, h);
-                if h.count > 1 {
-                    self.place_ground(p, Stack { item, count: h.count - 1 });
+                let count = self.work_done(p, h);
+                if count > 1 {
+                    self.place_ground(p, Stack { item, count: count - 1 });
                 }
             }
         }
@@ -1082,8 +1103,8 @@ impl World {
             return;
         }
         self.jobs.remove(idx);
-        self.work_done(pos, h);
-        self.place_ground(pos, Stack { item: h.item, count: h.count });
+        let count = self.work_done(pos, h);
+        self.place_ground(pos, Stack { item: h.item, count });
         self.finish_job(i);
     }
 

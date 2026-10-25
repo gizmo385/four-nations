@@ -36,14 +36,16 @@
 //! #166). `FN_CAST_ABILITY=ID` picks another of the nation's abilities for it and for `FN_FX_DEMO`
 //! (Fire's `inner_fire`, #123), researching its tech first. `FN_ORCHARD_DEMO=TICKS` levels a
 //! meadow, puts a finished orchard and a wild fruit tree on it and runs the game TICKS ticks, so a
-//! shot shows saplings and grown trees (#142; 4500 ticks is 7.5 minutes).
+//! shot shows saplings and grown trees (#142; 4500 ticks is 7.5 minutes). `FN_TUNNEL_DEMO=1`
+//! (Earth) researches `tunneling`, bores a tunnel into a block of mountain and mines a vein beside
+//! it and one outside, so a shot shows the tunnel and both yields (`tunnel_demo`, #132).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use bending::{BendingPlugin, TerrainSprite};
+use bending::{BendingPlugin, DecorSprite, TerrainSprite};
 use bevy::app::ScheduleRunnerPlugin;
 use bevy::camera::RenderTarget;
 use bevy::input::mouse::AccumulatedMouseScroll;
@@ -78,6 +80,7 @@ mod jobview;
 mod research;
 mod save;
 mod sprites;
+mod tunnel_demo;
 mod ui_style;
 mod unit_anim;
 mod unit_motion;
@@ -153,7 +156,10 @@ fn main() {
     let cast_demo = std::env::var("FN_CAST_DEMO")
         .ok()
         .and_then(|s| s.parse().ok())
-        .and_then(|t| cast_demo::prepare(&mut sim, t));
+        .and_then(|t| cast_demo::prepare(&mut sim, t))
+        .or_else(|| {
+            std::env::var_os("FN_TUNNEL_DEMO").and_then(|_| tunnel_demo::prepare(&mut sim))
+        });
     app.insert_resource(Time::<Fixed>::from_hz(f64::from(TICKS_PER_SECOND)))
         .insert_resource(ActiveTool(if build_demo { Tool::Build } else { Tool::Select }))
         .insert_resource(Sim(sim))
@@ -673,6 +679,17 @@ fn spawn_resource(commands: &mut Commands, p: Pos, parts: ResourceSprites) {
     }
 }
 
+/// Spawns a ground decoration (a boulder on a mountain) on tile `p`.
+fn spawn_decor(commands: &mut Commands, art: &Art, p: Pos, cell: sprites::Cell) {
+    commands.spawn((
+        art.sprite(cell),
+        Transform::from_translation(tile_translation(p, 0.5)),
+        // A bored tunnel (#132) can take the boulder's tile, or put its neighbours on a rim.
+        DecorSprite(p),
+        MapEntity,
+    ));
+}
+
 fn spawn_world(mut commands: Commands, art: Res<Art>, sim: Res<Sim>) {
     spawn_entities(&mut commands, &art, &sim);
 }
@@ -683,19 +700,15 @@ fn spawn_entities(commands: &mut Commands, art: &Art, sim: &Sim) {
         commands.spawn((
             art.sprite(floor_cell(sim, p, rule)),
             Transform::from_translation(tile_translation(p, 0.0)),
-            // Bending can reshape a tile's terrain later (Earth's Raise Earth, #68); this is
-            // what lets `bending::sync_terrain` redraw it when that happens.
+            // Bending can reshape a tile's terrain later (Earth's Raise Earth, #68, and Bore
+            // Tunnel, #132); this is what lets `bending::sync_terrain` redraw it when that happens.
             TerrainSprite(p, t.terrain),
             MapEntity,
         ));
         if let Some(parts) = resource_sprites(art, sim, p, t) {
             spawn_resource(commands, p, parts);
         } else if let Some(cell) = rule.decor_on(&sim.world.map, p) {
-            commands.spawn((
-                art.sprite(cell),
-                Transform::from_translation(tile_translation(p, 0.5)),
-                MapEntity,
-            ));
+            spawn_decor(commands, art, p, cell);
         }
     }
     for u in &sim.world.units {

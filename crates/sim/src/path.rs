@@ -30,10 +30,13 @@ pub(crate) const STRAIGHT: u32 = 10;
 /// Cost of one diagonal step onto a tile of cost 1 (10 * sqrt(2), rounded).
 pub(crate) const DIAGONAL: u32 = 14;
 
+/// The terrains `MoveRules::terrain_cost` holds: every one but `Tunnel`, whose cost is a field
+/// of its own so saves from before tunnels (#132), with seven entries here, still load.
 const TERRAINS: usize = 7;
 
-fn terrain_index(t: Terrain) -> usize {
-    match t {
+/// `t`'s entry in `MoveRules::terrain_cost`, or `None` for a tunnel.
+fn terrain_index(t: Terrain) -> Option<usize> {
+    Some(match t {
         Terrain::Water => 0,
         Terrain::Coast => 1,
         Terrain::Land => 2,
@@ -41,7 +44,17 @@ fn terrain_index(t: Terrain) -> usize {
         Terrain::River => 4,
         Terrain::Lake => 5,
         Terrain::Ford => 6,
-    }
+        Terrain::Tunnel => return None,
+    })
+}
+
+/// A tunnel is walked like open ground unless the rules say otherwise.
+fn walk() -> Option<u32> {
+    Some(1)
+}
+
+fn is_walk(cost: &Option<u32>) -> bool {
+    *cost == walk()
 }
 
 /// Where a unit may walk and how much each tile costs to enter.
@@ -51,6 +64,10 @@ fn terrain_index(t: Terrain) -> usize {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MoveRules {
     terrain_cost: [Option<u32>; TERRAINS],
+    /// What entering a tunnel costs (#132): 1, like `Terrain::is_walkable` ground, for every
+    /// rules value today. Left out of saves while it is 1, so they read as before tunnels.
+    #[serde(default = "walk", skip_serializing_if = "is_walk")]
+    tunnel_cost: Option<u32>,
     /// Whether tiles holding a resource (trees, rocks, ...) block movement.
     pub resources_block: bool,
     /// What a straight step from one rail tile onto the next one costs, in the units of
@@ -73,9 +90,10 @@ impl Default for MoveRules {
             Terrain::Lake,
             Terrain::Ford,
         ] {
-            terrain_cost[terrain_index(t)] = t.is_walkable().then_some(1);
+            terrain_cost[terrain_index(t).expect("not a tunnel")] = t.is_walkable().then_some(1);
         }
-        Self { terrain_cost, resources_block: true, rail_step: 0 }
+        let tunnel_cost = Terrain::Tunnel.is_walkable().then_some(1);
+        Self { terrain_cost, tunnel_cost, resources_block: true, rail_step: 0 }
     }
 }
 
@@ -83,7 +101,10 @@ impl MoveRules {
     /// Returns these rules with `terrain` costing `cost` (`None` = impassable).
     pub fn with_cost(mut self, terrain: Terrain, cost: Option<u32>) -> Self {
         assert!(cost != Some(0), "terrain costs must be >= 1");
-        self.terrain_cost[terrain_index(terrain)] = cost;
+        match terrain_index(terrain) {
+            Some(i) => self.terrain_cost[i] = cost,
+            None => self.tunnel_cost = cost,
+        }
         self
     }
 
@@ -101,7 +122,10 @@ impl MoveRules {
     }
 
     pub fn terrain_cost(&self, terrain: Terrain) -> Option<u32> {
-        self.terrain_cost[terrain_index(terrain)]
+        match terrain_index(terrain) {
+            Some(i) => self.terrain_cost[i],
+            None => self.tunnel_cost,
+        }
     }
 
     /// The cost multiplier for entering `tile`, or `None` if it can't be entered.
@@ -138,7 +162,8 @@ impl MoveRules {
     /// The cheapest a straight step can cost, in `STRAIGHT` units: the heuristic's scale, so it
     /// never overestimates. The cheapest passable terrain, or the rail if that is cheaper.
     fn min_step(&self) -> u32 {
-        let ground = self.terrain_cost.iter().flatten().copied().min().unwrap_or(1) * STRAIGHT;
+        let costs = self.terrain_cost.iter().chain([&self.tunnel_cost]).flatten();
+        let ground = costs.copied().min().unwrap_or(1) * STRAIGHT;
         if self.rail_step > 0 { ground.min(self.rail_step) } else { ground }
     }
 }

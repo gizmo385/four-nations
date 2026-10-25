@@ -49,7 +49,8 @@ impl ChiSettings {
 /// this enum is in `world/bending.rs` and nowhere else.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
-    /// Turn a tile of one terrain into another (Earth's "Raise Earth").
+    /// Turn a tile of one terrain into another: Earth's "Raise Earth" (water into a ford) and
+    /// "Bore Tunnel" (a mountain into a tunnel, #132).
     Reshape { from: Vec<Terrain>, to: Terrain },
     /// Wet a 3x3 patch near fresh water so wild food sprouts there (Water's "Water the Land").
     /// The magnitude (if any) scales `wet_minutes`.

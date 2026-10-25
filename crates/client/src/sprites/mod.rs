@@ -153,7 +153,7 @@ pub(crate) mod test_support {
         (u32_at(16), u32_at(20))
     }
 
-    pub const TERRAINS: [Terrain; 7] = [
+    pub const TERRAINS: [Terrain; 8] = [
         Terrain::Water,
         Terrain::Coast,
         Terrain::Land,
@@ -161,6 +161,7 @@ pub(crate) mod test_support {
         Terrain::River,
         Terrain::Lake,
         Terrain::Ford,
+        Terrain::Tunnel,
     ];
 
     /// A `w` by `h` map of one terrain, with `f` free to override single tiles.
