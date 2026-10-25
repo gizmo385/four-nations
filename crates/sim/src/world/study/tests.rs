@@ -45,7 +45,7 @@ const GRID: [&str; 5] = [".........", ".........", ".........", ".........", "..
 fn place_study_hall(w: &mut World, defs: &Defs, pos: Pos) {
     let hall = defs.building_id("study_hall").expect("study hall");
     let def = defs.building(hall);
-    w.map[pos].building = Some(Building { id: hall, passable: def.passable });
+    w.map[pos].building = Some(Building { id: hall, passable: def.passable, rail: false });
     w.open_study_seats(pos, def.seats);
 }
 

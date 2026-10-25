@@ -50,7 +50,7 @@
 
 use crate::flood::Flood;
 use crate::jobs::{HarvestDef, ItemId, JobKind};
-use crate::path::{DIAGONAL, NEIGHBORS, STRAIGHT};
+use crate::path::{DIAGONAL, MoveRules, NEIGHBORS, STRAIGHT};
 use crate::research::MILLIS_PER_POINT;
 
 use super::*;
@@ -128,7 +128,9 @@ impl Unit {
 }
 
 /// The movement progress a step from `from` onto the adjacent tile `to` takes: 6 ticks at speed
-/// 1.0 for a straight step on plain ground, more for a diagonal or a costly terrain.
+/// 1.0 for a straight step on plain ground, more for a diagonal or a costly terrain, fewer along
+/// a rail (#135). `rules` must be the ones the route was planned under (`World::rules_for`), so
+/// the walk takes as long as the path search thought it would.
 pub(super) fn step_needed(
     rules: &crate::path::MoveRules,
     map: &crate::mapgen::TileMap,
@@ -136,9 +138,9 @@ pub(super) fn step_needed(
     to: Pos,
 ) -> f32 {
     let diagonal = to.x != from.x && to.y != from.y;
-    let step = if diagonal { DIAGONAL } else { STRAIGHT };
-    let tile_cost = rules.tile_cost(&map[to]).unwrap_or(1);
-    BASE_TICKS_PER_STEP * (step * tile_cost) as f32 / STRAIGHT as f32
+    let plain = if diagonal { DIAGONAL } else { STRAIGHT };
+    let cost = rules.step_cost(&map[from], &map[to], diagonal).unwrap_or(plain);
+    BASE_TICKS_PER_STEP * cost as f32 / STRAIGHT as f32
 }
 
 /// The remaining steps of a path, next step last.
@@ -501,7 +503,15 @@ impl World {
     }
 
     pub(super) fn flood_from(&self, i: usize) -> Flood {
-        Flood::new(&self.map, self.units[i].pos, &self.rules)
+        Flood::new(&self.map, self.units[i].pos, self.rules_for(&self.units[i]))
+    }
+
+    /// How `u` moves right now. This is the one place rail is decided (#135): a unit hauling a
+    /// stack is pushing a cart, so it runs along rail; one on foot walks it like any ground.
+    /// Planning (`flood_from`), walking (`walk`) and the client's view of it (`stride`) all ask
+    /// here, so they cannot disagree. To let everyone use rail, return `cart_rules` always.
+    pub(super) fn rules_for(&self, u: &Unit) -> &MoveRules {
+        if u.carrying.is_some() { &self.cart_rules } else { &self.rules }
     }
 
     fn finish_need(&mut self, i: usize) {
@@ -531,6 +541,7 @@ impl World {
     /// route is empty to begin with); arriving costs the tick the last step landed on.
     pub(super) fn walk(&mut self, i: usize, _defs: &Defs) -> bool {
         let speed = self.modifiers().move_speed;
+        let rules = if self.units[i].carrying.is_some() { &self.cart_rules } else { &self.rules };
         let u = &mut self.units[i];
         let Some(route) = u.route.as_mut() else { return false };
         let Some(&next) = route.last() else {
@@ -538,7 +549,7 @@ impl World {
             return true;
         };
         u.move_progress += speed;
-        let needed = step_needed(&self.rules, &self.map, u.pos, next);
+        let needed = step_needed(rules, &self.map, u.pos, next);
         if u.move_progress >= needed {
             u.move_progress -= needed;
             u.pos = next;

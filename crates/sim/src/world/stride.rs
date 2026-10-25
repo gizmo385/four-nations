@@ -43,7 +43,7 @@ impl World {
         let mut needed = Vec::new();
         for &next in route.iter().rev().take(STRIDE_LOOKAHEAD) {
             let from = *tiles.last()?;
-            needed.push(step_needed(&self.rules, &self.map, from, next));
+            needed.push(step_needed(self.rules_for(u), &self.map, from, next));
             tiles.push(next);
         }
         if needed.is_empty() {
@@ -146,6 +146,36 @@ mod tests {
         w.map[Pos::new(6, 10)].terrain = Terrain::Coast;
         w.units[0].route = Some(vec![Pos::new(6, 10)]);
         assert_eq!(w.stride(UnitId(0)).unwrap().needed, [2.0 * BASE_TICKS_PER_STEP]);
+    }
+
+    #[test]
+    fn a_stride_over_rail_matches_the_walk_it_predicts() {
+        let defs = Defs::bundled();
+        let mut w = world(&defs);
+        let rail = defs.building_id("rail").unwrap();
+        for x in 5..=20 {
+            w.map[Pos::new(x, 10)].building =
+                Some(crate::building::Building { id: rail, passable: true, rail: true });
+        }
+        let wood = defs.item_id("wood").unwrap();
+        w.units[0].carrying = Some(crate::jobs::Stack { item: wood, count: 2 });
+        w.units[0].route = Some((6..=20).rev().map(|x| Pos::new(x, 10)).collect());
+        let first = w.stride(UnitId(0)).unwrap();
+        assert_eq!(first.needed[0], BASE_TICKS_PER_STEP / 2.0, "the cart runs the rail");
+        let mut landed = 0;
+        for _ in 0..40 {
+            let Some(before) = w.stride(UnitId(0)) else { break };
+            w.walk(0, &defs);
+            let at = w.units[0].pos;
+            if before.progress + before.speed >= before.needed[0] {
+                assert_eq!(at, before.tiles[1]);
+                landed += 1;
+            } else {
+                assert_eq!(at, before.tiles[0]);
+            }
+        }
+        // Three ticks a step instead of six: 40 ticks cover well over the 7 steps of plain ground.
+        assert!(landed >= 9, "{landed} steps in 40 ticks");
     }
 
     #[test]

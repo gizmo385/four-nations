@@ -212,6 +212,16 @@ existing 32x32 art fills exactly.
   footing. It fills its 16px tile exactly (the outline is the tile's edge), so neighbouring walls
   sit side by side with a two-pixel joint and never overlap. There is no autotile: a straight run
   or a corner reads as a battlement without one.
+- **Rail** (#135) is the one building that is flat and that autotiles: sixteen pieces of track
+  at the end of `art/buildings_earth.toml`, `rail` then `rail_2` .. `rail_16`, sprite `1 + mask`
+  where the mask has N=1, E=2, S=4, W=8 for each neighbouring rail tile (built or planned) the
+  piece joins. Each fills its 16px tile exactly with no outline (the exception to the "feet on row
+  30" rule: it fills row 31 too, so pieces meet with no seam): a 10px bed of packed earth, two
+  stone rails six pixels apart, wooden sleepers every fourth pixel (so the pattern runs on from
+  tile to tile), and an arm reaches the middle of the edge it joins. A piece with no neighbours
+  is a short capped stub, and a corner turns the two rails round it. The pieces are generated, not
+  hand-drawn (the generator is a throwaway script; edit the TOML). `buildings.rs` picks the
+  piece from the rail tiles around it, so a line is one track.
 - **The igloo** (`art/buildings_water.toml`, #178) is a bed, so it is bed-scale: a low smooth
   snow dome about half the Elders' Lodge's size, no flag, a short entrance tunnel facing down and
   right with a fur flap over the door, and snow banked at its sides. Don't give it the lodge's

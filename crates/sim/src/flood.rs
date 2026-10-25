@@ -11,7 +11,7 @@ use std::collections::BinaryHeap;
 
 use crate::geom::Pos;
 use crate::mapgen::TileMap;
-use crate::path::{DIAGONAL, DIAGONAL_SIDES, MoveRules, NEIGHBORS, STRAIGHT};
+use crate::path::{DIAGONAL_SIDES, MoveRules, NEIGHBORS};
 
 const UNSEEN: u32 = u32::MAX;
 
@@ -45,23 +45,21 @@ impl Flood {
             }
             closed[i] = true;
             let p = pos(i);
+            let here = &map[p];
             let costs = NEIGHBORS.map(|(dx, dy)| {
-                let n = Pos::new(p.x + dx, p.y + dy);
-                map.get(n).and_then(|t| rules.tile_cost(t))
+                let t = map.get(Pos::new(p.x + dx, p.y + dy))?;
+                rules.step_cost(here, t, dx != 0 && dy != 0)
             });
             for (k, (dx, dy)) in NEIGHBORS.into_iter().enumerate() {
-                let Some(tile_cost) = costs[k] else { continue };
-                let step = if k < 4 {
-                    STRAIGHT
-                } else {
+                let Some(step) = costs[k] else { continue };
+                if k >= 4 {
                     let (h, v) = DIAGONAL_SIDES[k - 4];
                     if costs[h].is_none() || costs[v].is_none() {
                         continue;
                     }
-                    DIAGONAL
-                };
+                }
                 let n = idx(Pos::new(p.x + dx, p.y + dy));
-                let nc = c + step * tile_cost;
+                let nc = c + step;
                 if !closed[n] && nc < cost[n] {
                     cost[n] = nc;
                     came_from[n] = i as u32;

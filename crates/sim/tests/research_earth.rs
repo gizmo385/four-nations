@@ -18,7 +18,6 @@ fn branch(defs: &Defs) -> Vec<TechId> {
 const WITHOUT_CONCRETE_UNLOCKS: &[(&str, &str)] = &[
     ("earth_shaping", "modifier-only: earthworks speeds up Raise Earth, which Earth starts with"),
     ("tunneling", "needs a tunnel mechanic (terrain or building kind) that doesn't exist"),
-    ("earth_rail", "modifier-only: a rail mechanic for hauling doesn't exist"),
     ("seismic_sense", "needs a reveal effect, and no ore is hidden on the map"),
     ("metalbending", "needs a metal item and a refining mechanic"),
 ];
@@ -53,6 +52,22 @@ fn earthen_walls_unlocks_the_earth_wall() {
     let wall = defs.building(defs.building_id("earth_wall").expect("earth_wall is defined"));
     assert_eq!(wall.unlocked_by, defs.tech_id("earthen_walls"));
     assert!(!wall.passable, "a wall blocks movement");
+}
+
+#[test]
+fn earth_rail_unlocks_the_rail_and_only_earth_can_research_it() {
+    let defs = Defs::bundled();
+    let id = defs.building_id("rail").expect("rail is defined");
+    let rail = defs.building(id);
+    assert_eq!(rail.unlocked_by, defs.tech_id("earth_rail"));
+    assert!(rail.passable && rail.rail.is_some());
+    // Nothing in the code asks which nation: the tech belongs to Earth's branch, so only Earth's
+    // tree reaches it.
+    let tech = defs.tech_id("earth_rail").unwrap();
+    for n in Nation::ALL {
+        let reachable = defs.techs_for(n).any(|(t, _)| t == tech);
+        assert_eq!(reachable, n == Nation::Earth, "{n:?}");
+    }
 }
 
 /// Scholars at a study hall `minute` minutes in: the design doc's pacing assumption of one by

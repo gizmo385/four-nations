@@ -247,12 +247,33 @@ fn designate_demo_sites(session: &mut Session, finished: bool) {
     // Four columns, 4 tiles apart so the 2x2 sprites don't overlap, to the right of the sites.
     for i in 0..session.defs.buildings.len() {
         let id = fn_sim::building::BuildingId(i as u16);
-        let passable = session.defs.building(id).passable;
+        let (passable, rail) = {
+            let def = session.defs.building(id);
+            (def.passable, def.rail.is_some())
+        };
         let pos = Pos::new(origin.x + 6 + 4 * (i as i32 % 4), origin.y - 6 + 4 * (i as i32 / 4));
-        if let Some(tile) = session.world.map.get_mut(pos) {
-            tile.building = Some(fn_sim::building::Building { id, passable });
+        // One tile of rail would only show a stub: lay a small yard instead, a loop with a spur,
+        // so the straight pieces, corners and a junction are all in the shot (#135).
+        let tiles = if rail { rail_yard(pos) } else { vec![pos] };
+        for pos in tiles {
+            if let Some(tile) = session.world.map.get_mut(pos) {
+                tile.building = Some(fn_sim::building::Building { id, passable, rail });
+            }
         }
     }
+}
+
+/// The tiles of the demo's rail yard with its top left at `at`: a loop four wide and three high
+/// with a spur below it.
+fn rail_yard(at: Pos) -> Vec<Pos> {
+    let mut tiles = Vec::new();
+    for x in 0..4 {
+        tiles.push(Pos::new(at.x + x, at.y));
+        tiles.push(Pos::new(at.x + x, at.y + 2));
+    }
+    tiles.extend([Pos::new(at.x, at.y + 1), Pos::new(at.x + 3, at.y + 1)]);
+    tiles.push(Pos::new(at.x + 1, at.y + 3));
+    tiles
 }
 
 /// `FN_BUILD_DEMO=buildings` only: turns the ground around `origin` into open land with nothing on
