@@ -5,6 +5,8 @@
 //!
 //! - A lit flame is a flickering flame sprite (`sprites::fx`, cycled on the world clock);
 //!   hovering it outlines its reach.
+//! - A unit carrying Inner Fire (#123) has a ring of light under its feet (`sprites::fx::aura_cell`,
+//!   on the world clock) for as long as the aura lasts; hovering the carrier outlines its reach.
 //! - A wet patch is a puddle overlay (damp marks and puddles, the floor showing through), gone
 //!   once it dries (and sprouts, drawn by `jobview` like any other resource).
 //! - A reshaped tile (today: Earth's river or lake turned into a ford) needs its floor sprite
@@ -19,9 +21,11 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use fn_sim::{Pos, Terrain};
 
+use fn_sim::world::UnitId;
+
 use super::{
-    Art, MapEntity, Sim, TILE, cursor_tile, floor_cell, ground_rule, row_depth, sprites,
-    tile_translation,
+    Art, MapEntity, Sim, TILE, UnitSprite, cursor_tile, floor_cell, ground_rule, row_depth,
+    sprites, tile_translation,
 };
 
 pub struct BendingPlugin;
@@ -31,12 +35,21 @@ impl Plugin for BendingPlugin {
         app.init_resource::<AlertLog>()
             .init_resource::<FlameSprites>()
             .init_resource::<WetSprites>()
+            .init_resource::<AuraSprites>()
             // `PreUpdate` so the side panel's `Update` systems see this frame's new alerts, with
             // no one-frame lag.
             .add_systems(PreUpdate, track_alerts)
             .add_systems(
                 Update,
-                (sync_terrain, sync_flames, animate_flames, sync_wet, flame_radius_hover).chain(),
+                (
+                    sync_terrain,
+                    sync_flames,
+                    animate_flames,
+                    sync_wet,
+                    sync_auras.after(super::sync_units),
+                    flame_radius_hover,
+                )
+                    .chain(),
             );
     }
 }
@@ -126,7 +139,8 @@ fn animate_flames(sim: Res<Sim>, art: Res<Art>, mut flames: Query<(&FlameGlow, &
     }
 }
 
-/// Outlines a lit flame's reach (Chebyshev radius) while the cursor is over its tile.
+/// Outlines a lit flame's reach (Chebyshev radius) while the cursor is over its tile, or over a
+/// unit carrying Inner Fire.
 fn flame_radius_hover(
     sim: Res<Sim>,
     window: Query<&Window, With<PrimaryWindow>>,
@@ -135,10 +149,76 @@ fn flame_radius_hover(
 ) {
     let (Ok(window), Ok((camera, camera_tf))) = (window.single(), camera.single()) else { return };
     let Some(hovered) = cursor_tile(window, camera, camera_tf) else { return };
-    let Some(flame) = sim.world.flames().into_iter().find(|f| f.pos == hovered) else { return };
-    let size = Vec2::splat((2 * flame.radius + 1) as f32 * TILE);
-    let center = tile_translation(flame.pos, 0.0).truncate();
+    let flame =
+        sim.world.flames().into_iter().find(|f| f.pos == hovered).map(|f| (f.pos, f.radius));
+    let carrier =
+        || sim.world.glows().into_iter().find(|g| g.pos == hovered).map(|g| (g.pos, g.radius));
+    let Some((pos, radius)) = flame.or_else(carrier) else { return };
+    let size = Vec2::splat((2 * radius + 1) as f32 * TILE);
+    let center = tile_translation(pos, 0.0).truncate();
     gizmos.rect_2d(Isometry2d::from_translation(center), size, FLAME_REACH_COLOR);
+}
+
+// -------------------------------------------------------------------------------------------
+// Inner Fire: a ring of light under the carrier
+
+/// Under the unit's own sprite, over the floor and any flame on its tile (a unit's z is
+/// `row_depth + 0.0005`, a flame's `row_depth - 0.0003`).
+const AURA_Z: f32 = -0.0004;
+
+/// A carrier's ring: a child of the unit's sprite, so it goes wherever the unit is drawn, however
+/// the walk animation moves it.
+#[derive(Component)]
+struct AuraRing(UnitId);
+
+/// The ring entities currently on the map, by carrier.
+#[derive(Resource, Default)]
+struct AuraSprites(BTreeMap<UnitId, Entity>);
+
+/// Keeps one ring under each unit carrying an aura (`World::glows`), and plays its pulse on the
+/// world clock (`sprites::fx::aura_cell`), so a paused game holds a still ring.
+fn sync_auras(
+    mut commands: Commands,
+    sim: Res<Sim>,
+    art: Res<Art>,
+    mut rings: ResMut<AuraSprites>,
+    alive: Query<(), With<AuraRing>>,
+    carriers: Query<(Entity, &UnitSprite)>,
+    mut shown: Query<(&AuraRing, &mut Sprite)>,
+) {
+    // Rings despawned with their unit or the old map are no longer there.
+    rings.0.retain(|_, e| alive.contains(*e));
+    let wanted: BTreeSet<UnitId> = sim.world.glows().iter().map(|g| g.unit).collect();
+    rings.0.retain(|id, e| {
+        let keep = wanted.contains(id);
+        if !keep {
+            commands.entity(*e).despawn();
+        }
+        keep
+    });
+    for id in wanted {
+        if rings.0.contains_key(&id) {
+            continue;
+        }
+        let Some((unit, _)) = carriers.iter().find(|(_, UnitSprite(u))| *u == id) else {
+            continue;
+        };
+        let ring = commands
+            .spawn((
+                art.sprite(sprites::fx::aura_cell(sim.world.tick, id.0)),
+                Transform::from_xyz(0.0, -1.0, AURA_Z),
+                AuraRing(id),
+                ChildOf(unit),
+            ))
+            .id();
+        rings.0.insert(id, ring);
+    }
+    for (AuraRing(id), mut sprite) in &mut shown {
+        let rect = art.sprite(sprites::fx::aura_cell(sim.world.tick, id.0)).rect;
+        if sprite.rect != rect {
+            sprite.rect = rect;
+        }
+    }
 }
 
 // -------------------------------------------------------------------------------------------

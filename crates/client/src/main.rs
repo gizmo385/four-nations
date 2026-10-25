@@ -32,7 +32,8 @@
 //! `FN_CAST_DEMO=T` stages the nation's ability on a levelled meadow and pauses the game `T`
 //! seconds from the moment the bend completes (negative: mid-channel, e.g. `-0.4`; positive: it
 //! has landed, e.g. `0.3`), so the shot catches the bender's pose and the cast effect (`cast_demo`,
-//! #166).
+//! #166). `FN_CAST_ABILITY=ID` picks another of the nation's abilities for it and for `FN_FX_DEMO`
+//! (Fire's `inner_fire`, #123), researching its tech first.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -311,10 +312,7 @@ fn fill_demo_stores(session: &mut Session) {
 /// effect it leaves is on the map.
 fn cast_demo_effects(session: &mut Session) {
     use fn_sim::world::Command;
-    let Some(ability) = fn_ui::tools::ability_for_nation(&session.defs, session.world.nation)
-    else {
-        return;
-    };
+    let Some(ability) = cast_demo::demo_ability(session) else { return };
     let Some(from) = session.world.units.first().map(|u| u.pos) else { return };
     // Clear ground, so no tree canopy hides the effect.
     let world = &session.world;

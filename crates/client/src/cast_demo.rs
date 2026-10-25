@@ -6,10 +6,16 @@
 //! Wind Carry first has a settler harvest something near a new stockpile, so there is a stack
 //! on the ground to blow.
 //!
+//! `FN_CAST_ABILITY=ID` stages another of the nation's abilities than its signature one (Fire's
+//! `inner_fire`, #123); one that needs research is researched first, the slow way, with the
+//! settlers kept fed (`demo_ability`).
+//!
 //! Everything else is the game as played: the sim runs to that moment through its own commands,
 //! and `cast` draws it from the world's state.
 
 use bevy::prelude::*;
+use fn_sim::bending::AbilityId;
+use fn_sim::needs::Needs;
 use fn_sim::world::{Command, TICKS_PER_SECOND};
 use fn_sim::{Pos, Terrain};
 use fn_ui::Session;
@@ -27,10 +33,33 @@ pub struct CastDemo {
     centre: Vec2,
 }
 
+/// The ability the demos cast: `FN_CAST_ABILITY` if set, else the nation's signature one. If it
+/// needs a tech the settlement doesn't know, the tech is researched first (the passive trickle,
+/// a few in-game hours) with the settlers topped up so they last that long.
+pub fn demo_ability(session: &mut Session) -> Option<AbilityId> {
+    let nation = session.world.nation;
+    let Some(id) = std::env::var("FN_CAST_ABILITY").ok() else {
+        return fn_ui::tools::ability_for_nation(&session.defs, nation);
+    };
+    let ability = session.defs.ability_id(&id)?;
+    let Some(tech) = session.defs.ability(ability).unlocked_by else { return Some(ability) };
+    session.apply(Command::SetResearch { tech }).ok()?;
+    for _ in 0..4 * 3600 {
+        if session.world.research().is_known(tech) {
+            break;
+        }
+        for unit in &mut session.world.units {
+            unit.needs = Needs::full(&session.defs.needs);
+        }
+        session.tick_n(TICKS_PER_SECOND);
+    }
+    session.world.research().is_known(tech).then_some(ability)
+}
+
 /// Sets the stage and runs the game to `t` seconds from the bend's completion. Returns `None` if
 /// the nation has no ability or the bend never happened.
 pub fn prepare(session: &mut Session, t: f32) -> Option<CastDemo> {
-    let ability = fn_ui::tools::ability_for_nation(&session.defs, session.world.nation)?;
+    let ability = demo_ability(session)?;
     let origin = session.world.units.first()?.pos;
     super::level_meadow(session, origin);
     let at = |dx: i32, dy: i32| Pos::new(origin.x + dx, origin.y + dy);
@@ -47,7 +76,8 @@ pub fn prepare(session: &mut Session, t: f32) -> Option<CastDemo> {
     let target = match session.defs.ability(ability).id.as_str() {
         "raise_earth" => at(9, 0),
         "wind_carry" => stage_a_stack(session, origin)?,
-        // Water the Land and Hearthflame: a tile by the river, so the patch is on the bank.
+        // Water the Land, Hearthflame and Inner Fire: a tile by the river, so the patch is on
+        // the bank (and the carrier stands on it).
         _ => at(7, 0),
     };
     session.apply(Command::Bend { ability, pos: target }).ok()?;

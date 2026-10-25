@@ -1,5 +1,6 @@
 //! One way to start a game and drive it: the world, the game data and the clock together.
 
+use fn_sim::bending::AbilityId;
 use fn_sim::world::{Command, CommandError};
 use fn_sim::{Defs, MapGenConfig, Nation, World};
 
@@ -13,6 +14,10 @@ pub struct Session {
     pub world: World,
     pub defs: Defs,
     pub clock: Clock,
+    /// The ability the Bend tool channels, when the nation can use more than one (Fire's Inner
+    /// Fire, #123): `B` again moves on to the next (`tools::cycle_ability`). `tools::bend_ability`
+    /// reads it, and falls back to the nation's first usable ability if it isn't usable (yet).
+    pub bend_choice: Option<AbilityId>,
 }
 
 impl Session {
@@ -21,7 +26,7 @@ impl Session {
         let defs = Defs::bundled();
         let cfg = MapGenConfig { seed, width, height, ..MapGenConfig::default() };
         let world = World::new(&cfg, nation, STARTING_UNITS, &defs);
-        Self { world, defs, clock: Clock::default() }
+        Self { world, defs, clock: Clock::default(), bend_choice: None }
     }
 
     /// `World::apply` with this session's data.
