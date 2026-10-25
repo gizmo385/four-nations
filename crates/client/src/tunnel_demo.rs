@@ -61,10 +61,34 @@ pub fn prepare(session: &mut Session) -> Option<CastDemo> {
     run_until(session, GIVE_UP_SECS, |s| {
         [inside, outside].iter().all(|&p| s.world.map.get(p).is_some_and(|t| t.resource.is_none()))
     })?;
+    if let Some(t) = std::env::var("FN_SEISMIC_DEMO").ok().and_then(|s| s.parse::<f32>().ok()) {
+        sense_seams(session, origin, t)?;
+    }
     session.clock.paused = true;
     let middle = Vec2::new((origin.x as f32 + 11.0) * TILE, -(origin.y as f32) * TILE);
     // The side panel covers the right edge of the view: nudge the middle right of centre.
     Some(CastDemo::looking_at(middle + Vec2::X * ZOOM * 128.0))
+}
+
+/// `FN_SEISMIC_DEMO=T` (#133): buries two gold seams in the rock beside the tunnel, researches
+/// `seismic_sense` and has a settler cast it from the tunnel's end, then runs `T` seconds past the
+/// moment it lands (0.3 catches the tremor's ring; 2 shows the seams it uncovered).
+fn sense_seams(session: &mut Session, origin: Pos, t: f32) -> Option<()> {
+    let ability = session.defs.ability_id("seismic_sense")?;
+    let tech = session.defs.ability(ability).unlocked_by?;
+    session.apply(Command::SetResearch { tech }).ok()?;
+    run_until(session, 4 * 3600, |s| s.world.research().is_known(tech))?;
+    let seam = session.defs.resource_id("gold_seam")?;
+    let at = |dx: i32, dy: i32| Pos::new(origin.x + dx, origin.y + dy);
+    for p in [at(15, 1), at(18, -2)] {
+        session.world.map.get_mut(p)?.resource = Some(seam);
+    }
+    session.world.bury(&session.defs);
+    let events = session.world.bend_events().len();
+    session.apply(Command::Bend { ability, pos: at(16, 0) }).ok()?;
+    run_until(session, GIVE_UP_SECS, |s| s.world.bend_events().len() > events)?;
+    session.tick_n((t * TICKS_PER_SECOND as f32).round() as u32);
+    Some(())
 }
 
 /// Ticks a second at a time, with the settlers kept fed and their chi full (the demo is about

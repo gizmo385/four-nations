@@ -105,6 +105,16 @@ work = 30.0
 modifier = "earthworks"
 tunnel_count = 2
 
+# A buried seam (#133) is found by Seismic Sense and is richer than a surface vein.
+[[harvest]]
+resource = "gold_seam"
+verb = "Mine"
+item = "gold_ore"
+count = 3
+work = 45.0
+modifier = "earthworks"
+tunnel_count = 5
+
 # Picking a scroll up is quick; the point is finding it. Not renewable: each is read once.
 [[harvest]]
 resource = "ancient_scroll"
