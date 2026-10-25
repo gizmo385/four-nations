@@ -4,7 +4,7 @@ use fn_sim::world::Command;
 use fn_sim::{Defs, MapGenConfig, Nation, Pos, SAVE_VERSION, SaveError, World};
 
 fn fresh(nation: Nation, defs: &Defs) -> World {
-    let cfg = MapGenConfig { seed: 11, ..Default::default() };
+    let cfg = MapGenConfig { seed: 12, ..Default::default() };
     World::new(&cfg, nation, 4, defs)
 }
 
@@ -171,7 +171,7 @@ fn inspect_reads_the_header_without_the_world() {
     let w = play(Nation::Air, 300, &defs);
     let info = fn_sim::save::inspect(&w.save(&defs).unwrap()).unwrap();
     assert_eq!(info.version, SAVE_VERSION);
-    assert_eq!((info.seed, info.nation, info.tick), (11, Nation::Air, 300));
+    assert_eq!((info.seed, info.nation, info.tick), (12, Nation::Air, 300));
 }
 
 #[test]

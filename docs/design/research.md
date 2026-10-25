@@ -36,6 +36,12 @@ There are no weapon or military techs.
 | Ancient scrolls | +40 each, one-off | Rare map resource, hauled to the study hall (rewards exploration) |
 | Neighbors (later) | Discounts, not points | See "Later" below |
 
+- **Scrolls (#24).** `ancient_scroll` is a rare map resource in tundra and desert (3 to 6 on a
+  192x128 map, `data/resources.toml`). Recovering one yields an `ancient_scroll` item whose
+  `knowledge` (40, `[[item]]` in `data/jobs.toml`) is the points it is worth. It is never
+  stockpiled: a hauler carries it to the nearest study hall, where it is used up and adds that
+  many points to the pool. With no hall yet, it stays where it lies. The data shape is open for a
+  later `reveals` field on the item.
 - **Who studies.** Any unit can take a Study job. It's low priority, so needs (#3) and urgent
   work pre-empt it. That trade-off is the core research decision. Research costs time and
   labor, not materials, which keeps it readable. Skills and "elder" traits can raise output

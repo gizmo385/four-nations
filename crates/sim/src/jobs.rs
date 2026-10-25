@@ -28,6 +28,9 @@ pub struct ItemDef {
     pub icon: String,
     /// Index into `Defs::foods` if this item can be eaten.
     pub food: Option<usize>,
+    /// Knowledge points reading this item adds to the research pool, if it can be read (issue
+    /// #24). A readable item is carried to a study hall and used up there, never stockpiled.
+    pub knowledge: Option<u32>,
 }
 
 /// A number of one kind of item.
@@ -87,6 +90,8 @@ struct RawItem {
     id: String,
     name: String,
     icon: String,
+    #[serde(default)]
+    knowledge: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -161,16 +166,26 @@ impl JobsFile {
                 return err(format!("duplicate item {id} (foods are items too)"));
             }
         }
+        if let Some(i) = self.item.iter().find(|i| i.knowledge == Some(0)) {
+            return err(format!("item {}: knowledge must be at least 1", i.id));
+        }
         let mut items: Vec<ItemDef> = self
             .item
             .into_iter()
-            .map(|i| ItemDef { id: i.id, name: i.name, icon: i.icon, food: None })
+            .map(|i| ItemDef {
+                id: i.id,
+                name: i.name,
+                icon: i.icon,
+                food: None,
+                knowledge: i.knowledge,
+            })
             .collect();
         items.extend(foods.iter().enumerate().map(|(n, f)| ItemDef {
             id: f.id.clone(),
             name: f.name.clone(),
             icon: f.icon.clone(),
             food: Some(n),
+            knowledge: None,
         }));
 
         let mut harvests: Vec<HarvestDef> = Vec::new();

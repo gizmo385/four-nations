@@ -25,7 +25,7 @@ const BRANCH: [(&str, &[&str]); 7] = [
 const MODIFIER_ONLY: [&str; 3] = ["meditation", "gliders", "air_scooter"];
 
 fn fresh(defs: &Defs) -> World {
-    let cfg = MapGenConfig { seed: 11, ..Default::default() };
+    let cfg = MapGenConfig { seed: 13, ..Default::default() };
     World::new(&cfg, Nation::Air, 4, defs)
 }
 

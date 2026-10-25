@@ -269,6 +269,25 @@ fn renewable_food_sources_appear_on_generated_maps() {
     }
 }
 
+/// Ancient scrolls (#24) are rare: about 3 to 6 on a default-size (192x128) map, so on average
+/// a handful, never none or a crowd. Averaged over seeds because each map is one roll of the dice.
+#[test]
+fn ancient_scrolls_are_rare_finds() {
+    let defs = Defs::bundled();
+    let scroll = defs.resource_id("ancient_scroll").unwrap();
+    let counts: Vec<usize> = (1..=12)
+        .map(|seed| {
+            let c = MapGenConfig { seed, width: 192, height: 128, ..Default::default() };
+            let map = mapgen::generate(&c, &defs);
+            map.iter().filter(|(_, t)| t.resource == Some(scroll)).count()
+        })
+        .collect();
+    let mean = counts.iter().sum::<usize>() as f64 / counts.len() as f64;
+    assert!((3.0..=6.0).contains(&mean), "mean {mean} scrolls per map: {counts:?}");
+    assert!(counts.iter().all(|&n| n <= 10), "{counts:?}");
+    assert!(counts.iter().filter(|&&n| n >= 1).count() >= 10, "{counts:?}");
+}
+
 #[test]
 fn spaced_resources_keep_their_distance() {
     let defs = Defs::bundled();

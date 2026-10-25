@@ -108,6 +108,11 @@ glyph = "•"
 ascii = "o"
 fg = [205, 205, 212]
 
+[resource.ancient_scroll]
+glyph = "§"
+ascii = "?"
+fg = [236, 220, 176]
+
 [resource.gold_vein]
 glyph = "$"
 ascii = "$"
@@ -132,6 +137,11 @@ fg = [175, 175, 182]
 glyph = "£"
 ascii = "$"
 fg = [255, 212, 60]
+
+[item.ancient_scroll]
+glyph = "§"
+ascii = "?"
+fg = [236, 220, 176]
 
 # Foods share the glyph and take the food's own colour.
 [item.fish]
