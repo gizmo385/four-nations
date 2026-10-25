@@ -49,6 +49,10 @@ pub enum Action {
     AskNewMap,
     /// `1`-`4`: switch nation, after a y/n prompt.
     AskNation(Nation),
+    /// `F5`: save the game to the quicksave slot.
+    QuickSave,
+    /// `F9`: replace the game with the quicksave, after a y/n prompt.
+    AskQuickLoad,
     TogglePause,
     Faster,
     Slower,
@@ -104,6 +108,7 @@ impl Key {
             KeyCode::Right => "Right".to_owned(),
             KeyCode::Home => "Home".to_owned(),
             KeyCode::End => "End".to_owned(),
+            KeyCode::F(n) => format!("F{n}"),
             other => format!("{other:?}"),
         };
         match (self.ctrl, self.keypad) {
@@ -156,7 +161,9 @@ pub fn bindings() -> &'static [Binding] {
 }
 
 fn build_table() -> Vec<Binding> {
-    use KeyCode::{BackTab, Down, End, Enter, Esc, Home, Left, PageDown, PageUp, Right, Tab, Up};
+    use KeyCode::{
+        BackTab, Down, End, Enter, Esc, F, Home, Left, PageDown, PageUp, Right, Tab, Up,
+    };
     let mut t = Vec::new();
     let mut add = |group, what: &str, key, action| {
         t.push(Binding { key, action, group, what: what.to_owned() });
@@ -243,6 +250,9 @@ fn build_table() -> Vec<Binding> {
         let digit = char::from(b'1' + i as u8);
         add(Group::Game, switch, Key::ch(digit), Action::AskNation(nation));
     }
+    // The Bevy client's quicksave keys, so a player of both doesn't learn two.
+    add(Group::Game, "Quicksave", Key::plain(F(5)), Action::QuickSave);
+    add(Group::Game, "Quickload (asks first)", Key::plain(F(9)), Action::AskQuickLoad);
     add(Group::Game, "Quit (asks first)", Key::ch('q'), Action::AskQuit);
     t
 }
@@ -412,7 +422,7 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('.'))), Some(Action::Step));
         assert_eq!(map_key(key(KeyCode::Char('q'))), Some(Action::AskQuit));
         assert_eq!(map_key(key(KeyCode::Char('Q'))), Some(Action::AskQuit));
-        assert_eq!(map_key(key(KeyCode::F(5))), None);
+        assert_eq!(map_key(key(KeyCode::F(1))), None);
     }
 
     #[test]
@@ -459,6 +469,8 @@ mod tests {
             assert_eq!(map_key(key(KeyCode::Char(digit))), Some(Action::AskNation(nation)));
         }
         assert_eq!(map_key(key(KeyCode::Char('5'))), None);
+        assert_eq!(map_key(key(KeyCode::F(5))), Some(Action::QuickSave));
+        assert_eq!(map_key(key(KeyCode::F(9))), Some(Action::AskQuickLoad));
     }
 
     #[test]
@@ -510,6 +522,10 @@ mod tests {
         assert_eq!(jump.keys, "Ctrl+Arrows PgUp PgDn");
         let nation = rows.iter().find(|r| r.what.starts_with("Switch nation")).unwrap();
         assert_eq!(nation.keys, "1 2 3 4");
+        let save = rows.iter().find(|r| r.what == "Quicksave").unwrap();
+        assert_eq!(save.keys, "F5");
+        let load = rows.iter().find(|r| r.what.starts_with("Quickload")).unwrap();
+        assert_eq!(load.keys, "F9");
         for group in Group::ALL {
             assert!(rows.iter().any(|r| r.group == group), "{group:?} has no rows");
         }

@@ -6,8 +6,9 @@
 //!
 //! What keeps it honest:
 //!
-//! * It depends on `fn_sim` only. No engine, no I/O, and no wall-clock reads: callers pass elapsed
-//!   time in (`Clock::advance`, `Alerts::update`).
+//! * It depends on `fn_sim` only. No engine and no wall-clock reads: callers pass elapsed time in
+//!   (`Clock::advance`, `Alerts::update`). No I/O either, except in `saves`, the save files both
+//!   frontends read and write (the sim itself stays free of I/O).
 //! * It changes the world only through `World::apply` and `World::tick`, and it never decides
 //!   something the sim decides. It doesn't pre-filter tiles a command would accept or reject; it
 //!   formats and maps.
@@ -22,6 +23,7 @@ pub mod build;
 pub mod clock;
 pub mod inspect;
 pub mod research;
+pub mod saves;
 pub mod session;
 pub mod text;
 pub mod theme;

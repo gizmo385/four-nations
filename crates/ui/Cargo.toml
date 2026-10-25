@@ -1,6 +1,6 @@
 [package]
 name = "fn_ui"
-description = "Frontend logic shared by the Bevy client and the terminal UI: tools, view text, alerts and the session clock. Depends on fn_sim only: no engine, no I/O, no wall-clock reads."
+description = "Frontend logic shared by the Bevy client and the terminal UI: tools, view text, alerts and the session clock. Depends on fn_sim only: no engine, no wall-clock reads, and no I/O outside the save files."
 edition.workspace = true
 version.workspace = true
 license.workspace = true

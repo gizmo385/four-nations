@@ -1,8 +1,11 @@
 //! The app: the game session plus what the player sees of it, and the one place keys change them.
 
+use std::path::PathBuf;
+
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
-use fn_sim::Nation;
+use fn_sim::{Nation, World};
 use fn_ui::research::screen_view;
+use fn_ui::saves;
 use fn_ui::tools::{apply_rect, cycle_ability, switch_tool};
 use fn_ui::{Session, Tool};
 
@@ -12,6 +15,9 @@ use crate::research;
 use crate::screens;
 use crate::state::{PINNED, Prompt, Screen, UiState};
 
+/// What `F5` and `F9` say when there is no save directory.
+const NO_SAVE_DIR: &str = "Save failed: this platform has no data directory (set FN_SAVE_DIR)";
+
 /// The game and what the player sees of it. All input goes through [`App::key`].
 pub struct App {
     pub session: Session,
@@ -20,13 +26,16 @@ pub struct App {
     pub dirty: bool,
     /// The terminal's size, for a new map's view.
     screen: (u16, u16),
+    /// Where `F5` and `F9` keep the quicksave (`fn_ui::saves`); `None` when there is nowhere,
+    /// and then both keys say so. The binary sets it from the environment; tests set their own.
+    pub saves: Option<PathBuf>,
 }
 
 impl App {
     pub fn new(session: Session, screen: (u16, u16)) -> Self {
         let mut ui = UiState::new(&session, screen);
         ui.alerts.update(&session, 0.0);
-        Self { session, ui, dirty: true, screen }
+        Self { session, ui, dirty: true, screen, saves: None }
     }
 
     pub fn resize(&mut self, width: u16, height: u16) {
@@ -42,6 +51,7 @@ impl App {
             return;
         }
         self.dirty = true;
+        self.ui.status.clear();
         if let Some(prompt) = self.ui.prompt.take() {
             // Only a plain y confirms; anything else (Esc, n, a stray key) stays.
             if matches!(key.code, KeyCode::Char('y' | 'Y')) {
@@ -80,6 +90,8 @@ impl App {
             Action::Faster => self.session.clock.faster(),
             Action::Slower => self.session.clock.slower(),
             Action::Step => self.step(),
+            Action::QuickSave => self.quicksave(),
+            Action::AskQuickLoad => self.ui.prompt = Some(Prompt::QuickLoad),
             Action::AskQuit => self.ui.prompt = Some(Prompt::Quit),
             Action::QuitNow => self.ui.quit = true,
         }
@@ -114,6 +126,8 @@ impl App {
             Action::Step => self.step(),
             Action::AskNewMap => self.ui.prompt = Some(Prompt::NewMap),
             Action::AskNation(nation) => self.ui.prompt = Some(Prompt::Nation(nation)),
+            Action::QuickSave => self.quicksave(),
+            Action::AskQuickLoad => self.ui.prompt = Some(Prompt::QuickLoad),
             Action::AskQuit => self.ui.prompt = Some(Prompt::Quit),
             Action::QuitNow => self.ui.quit = true,
             Action::PickTool(_)
@@ -184,7 +198,49 @@ impl App {
             // The client's own rule: R takes the next seed, a digit keeps the seed.
             Prompt::NewMap => self.restart(world.seed.wrapping_add(1), world.nation),
             Prompt::Nation(nation) => self.restart(world.seed, nation),
+            Prompt::QuickLoad => self.quickload(),
         }
+    }
+
+    /// `F5`: writes the game to the quicksave slot and says how that went in the status line.
+    fn quicksave(&mut self) {
+        self.ui.status = match self.saves.as_deref() {
+            None => NO_SAVE_DIR.to_owned(),
+            Some(dir) => match saves::quicksave(dir, &self.session) {
+                Ok(()) => format!("Quicksaved (tick {})", self.session.world.tick),
+                Err(why) => format!("Quicksave failed: {why}"),
+            },
+        };
+    }
+
+    /// `F9`, once confirmed: the quicksave becomes the game. A load that fails changes nothing
+    /// but the status line.
+    fn quickload(&mut self) {
+        let loaded = match self.saves.as_deref() {
+            None => Err(NO_SAVE_DIR.to_owned()),
+            Some(dir) => saves::quickload(dir, &self.session.defs)
+                .map_err(|why| format!("Quickload failed: {why}")),
+        };
+        match loaded {
+            Ok(world) => {
+                self.load(world);
+                self.ui.status = format!("Quickloaded (tick {})", self.session.world.tick);
+            }
+            Err(why) => self.ui.status = why,
+        }
+    }
+
+    /// Makes `world` the game. As in the Bevy client, only the world is in a save: the cursor,
+    /// the selection, the tool, the screens and the log start over, and the clock (speed and
+    /// pause) is the player's and stays.
+    pub fn load(&mut self, world: World) {
+        self.session.world = world;
+        self.session.bend_choice = None;
+        self.ui = UiState::new(&self.session, self.screen);
+        // The loaded game's past events are not news: they age out at once instead of showing
+        // as toasts.
+        self.ui.alerts.update(&self.session, f32::MAX);
+        self.dirty = true;
     }
 
     /// A new game on a map of the same size: the clock, the selection, the log and the screens

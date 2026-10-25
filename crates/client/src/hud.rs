@@ -194,7 +194,7 @@ const CONTROLS: [&str; 8] = [
     "1-4: nation",
     "R: new map",
     "T: research",
-    "F5/F9: quicksave/load",
+    "F6: saves (F5/F9: quick)",
     "Shift+H: repeating harvest",
 ];
 

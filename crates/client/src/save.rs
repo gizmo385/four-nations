@@ -1,13 +1,15 @@
-//! Quicksave and quickload (#112): `F5` writes the running game to a file, `F9` replaces the
-//! running game with it. The sim turns a `World` into text and back (`fn_sim::save`) and does no
-//! I/O; the files, the directory and the toasts are all here.
+//! Saving and loading (#112, #216): `F5` quicksaves, `F9` quickloads, and `F6` opens the save
+//! list, where any number of named slots can be saved to and loaded. The sim turns a `World` into
+//! text and back (`fn_sim::save`) and does no I/O; the files, the directory and the slot list are
+//! `fn_ui::saves`, shared with the terminal UI. This module is the keys, the screen and the toasts.
 //!
-//! - **Where**: `quicksave.ron` in the platform's data directory (`save_dir`): `$XDG_DATA_HOME` or
-//!   `~/.local/share` on Linux, `~/Library/Application Support` on macOS, `%APPDATA%` on Windows,
-//!   each followed by `four-nations/saves`. `FN_SAVE_DIR` names another directory (tests, and
-//!   anyone who wants their saves elsewhere). The directory is created on the first save.
-//! - **Atomic**: a save is written to a temporary file beside the real one, flushed to disk and
-//!   then renamed over it, so a crash or a full disk mid-save leaves the previous save as it was.
+//! - **The save list** (`F6`, `Esc` closes): every slot in the save directory, newest first, with
+//!   its nation, seed and play time read from the file's header only (`fn_ui::saves::list`). Each
+//!   row has a Save button (write the running game over that slot) and, if the slot can be loaded,
+//!   a Load button; a damaged file, one from another save format or one made with other game data
+//!   says why instead. "New save" writes a new slot named `save-1`, `save-2`, ... Map input is
+//!   suspended while the list is open, as for the research screen, and the two screens never show
+//!   at once.
 //! - **Errors are toasts**: a failed save or load puts one line in the side panel's notice (the
 //!   one designations use), for a few seconds. A load that fails changes nothing: the file is read
 //!   and checked into a new `World` first, and only a good one replaces the running game.
@@ -20,30 +22,31 @@
 //!   `unit_motion` has nothing to glide from: units don't slide across the map from where they
 //!   were.
 
-use std::ffi::OsString;
-use std::fs;
-use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use fn_sim::{Defs, World};
+use bevy::window::PrimaryWindow;
+use fn_sim::World;
+use fn_ui::saves::{self, QUICKSAVE, Slot};
 use fn_ui::{Session, Tool};
 
 use crate::bending::AlertLog;
 use crate::cast::Casts;
 use crate::designate::{ActiveTool, Notice};
+use crate::research::ScreenOpen;
+use crate::ui_style::{self, Frame, Skin, Theme, font, layout, space};
 use crate::{Art, MapEntity, Selection, Sim, spawn_entities};
 
-/// The quicksave and quickload keys.
+/// The quicksave and quickload keys, and the key that opens the save list.
 pub const SAVE_KEY: KeyCode = KeyCode::F5;
 pub const LOAD_KEY: KeyCode = KeyCode::F9;
-
-/// The file the quicksave key writes, in the save directory.
-pub const QUICKSAVE_FILE: &str = "quicksave.ron";
+pub const LIST_KEY: KeyCode = KeyCode::F6;
 
 /// How long a save or load result shows in the side panel, in seconds.
 const TOAST_SECONDS: f32 = 5.0;
+
+const PANEL_WIDTH: f32 = 560.0;
 
 pub struct SavePlugin;
 
@@ -51,9 +54,22 @@ impl Plugin for SavePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SaveFiles>()
             .init_resource::<SaveToast>()
-            // Before `controls`, so a load and a regenerate pressed on one frame don't both
-            // respawn the map.
-            .add_systems(Update, (quick_keys.before(crate::controls), expire_toast).chain());
+            .init_resource::<SavesOpen>()
+            .init_resource::<SaveList>()
+            .add_message::<SaveAction>()
+            .add_systems(
+                Update,
+                (
+                    // Before `controls`, so a load and a regenerate pressed on one frame don't
+                    // both respawn the map.
+                    (toggle_list, quick_keys, click_list, run_actions)
+                        .chain()
+                        .before(crate::controls),
+                    sync_list_screen,
+                    expire_toast,
+                )
+                    .chain(),
+            );
     }
 }
 
@@ -63,7 +79,22 @@ pub struct SaveFiles(pub Option<PathBuf>);
 
 impl Default for SaveFiles {
     fn default() -> Self {
-        SaveFiles(save_dir(|k| std::env::var_os(k), std::env::consts::OS))
+        SaveFiles(saves::default_save_dir())
+    }
+}
+
+/// Whether the save list is open. Map input is suspended while it is (`crate::screen_closed`).
+#[derive(Resource, Default)]
+pub struct SavesOpen(pub bool);
+
+/// The slots the list shows, read when it opens and after every save. `Err` is why the directory
+/// couldn't be listed.
+#[derive(Resource, PartialEq)]
+struct SaveList(Result<Vec<Slot>, String>);
+
+impl Default for SaveList {
+    fn default() -> Self {
+        SaveList(Ok(Vec::new()))
     }
 }
 
@@ -74,62 +105,59 @@ struct SaveToast {
     left: f32,
 }
 
-/// The directory saves live in, from `env` (a lookup of environment variables) on operating
-/// system `os` (`std::env::consts::OS`).
-pub fn save_dir(env: impl Fn(&str) -> Option<OsString>, os: &str) -> Option<PathBuf> {
-    let set = |k: &str| env(k).filter(|v| !v.is_empty()).map(PathBuf::from);
-    if let Some(dir) = set("FN_SAVE_DIR") {
-        return Some(dir);
-    }
-    let base = match os {
-        "windows" => set("APPDATA")?,
-        "macos" => set("HOME")?.join("Library").join("Application Support"),
-        _ => {
-            set("XDG_DATA_HOME").or_else(|| set("HOME").map(|h| h.join(".local").join("share")))?
-        }
-    };
-    Some(base.join("four-nations").join("saves"))
+/// Something the keys or the save list asked for.
+#[derive(Message, Clone, Debug, PartialEq, Eq)]
+pub enum SaveAction {
+    /// Write the running game to this slot, replacing what is there.
+    Save(String),
+    /// Make this slot the running game.
+    Load(String),
+    /// Write the running game to a slot with a new name.
+    New,
 }
 
-/// Writes `text` to `path` so that `path` is either what it was or all of `text`: into a
-/// temporary file in the same directory (a rename is only atomic within one filesystem), flushed
-/// to disk, then renamed over `path`. Creates the directory if it is missing. The temporary file
-/// is removed if anything fails.
-pub fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
-    let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    fs::create_dir_all(dir)?;
-    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
-    tmp_name.push(".tmp");
-    let tmp = dir.join(tmp_name);
-    let written = fs::File::create(&tmp).and_then(|mut f| {
-        f.write_all(text.as_bytes())?;
-        f.sync_all()
-    });
-    match written.and_then(|()| fs::rename(&tmp, path)) {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            let _ = fs::remove_file(&tmp);
-            Err(e)
+/// `F6` toggles the list; `Esc` only closes it. Opening it closes the research screen, and opening
+/// the research screen closes it. A list open from the start (`FN_SAVES_OPEN`) is read at once.
+fn toggle_list(
+    keys: Res<ButtonInput<KeyCode>>,
+    files: Res<SaveFiles>,
+    sim: Res<Sim>,
+    mut open: ResMut<SavesOpen>,
+    mut research: ResMut<ScreenOpen>,
+    mut list: ResMut<SaveList>,
+    mut started: Local<bool>,
+) {
+    if !std::mem::replace(&mut *started, true) && open.0 {
+        list.0 = read_list(&files, &sim);
+    }
+    if keys.just_pressed(LIST_KEY) {
+        open.0 = !open.0;
+        if open.0 {
+            research.0 = false;
+            list.0 = read_list(&files, &sim);
         }
+    } else if open.0 && (keys.just_pressed(KeyCode::Escape) || research.0) {
+        open.0 = false;
     }
 }
 
-/// Saves `session`'s world to the quicksave file in `dir`. The error is a line for the toast.
-pub fn quicksave(dir: &Path, session: &Session) -> Result<(), String> {
-    let text = session.world.save(&session.defs).map_err(|e| e.to_string())?;
-    write_atomic(&dir.join(QUICKSAVE_FILE), &text)
-        .map_err(|e| format!("could not write {}: {e}", dir.join(QUICKSAVE_FILE).display()))
+fn read_list(files: &SaveFiles, sim: &Session) -> Result<Vec<Slot>, String> {
+    match files.0.as_deref() {
+        None => Err(NO_SAVE_DIR.to_owned()),
+        Some(dir) => saves::list(dir, &sim.defs),
+    }
 }
 
-/// Reads the quicksave file in `dir` into a world checked against `defs`. The error is a line for
-/// the toast.
-pub fn quickload(dir: &Path, defs: &Defs) -> Result<World, String> {
-    let path = dir.join(QUICKSAVE_FILE);
-    let text = fs::read_to_string(&path).map_err(|e| match e.kind() {
-        io::ErrorKind::NotFound => format!("no quicksave yet ({})", path.display()),
-        _ => format!("could not read {}: {e}", path.display()),
-    })?;
-    World::load(&text, defs).map_err(|e| e.to_string())
+const NO_SAVE_DIR: &str = "this platform has no data directory (set FN_SAVE_DIR)";
+
+/// `F5` saves to the quicksave slot and `F9` loads it.
+fn quick_keys(keys: Res<ButtonInput<KeyCode>>, mut actions: MessageWriter<SaveAction>) {
+    if keys.just_pressed(SAVE_KEY) {
+        actions.write(SaveAction::Save(QUICKSAVE.to_owned()));
+    }
+    if keys.just_pressed(LOAD_KEY) {
+        actions.write(SaveAction::Load(QUICKSAVE.to_owned()));
+    }
 }
 
 #[derive(SystemParam)]
@@ -141,39 +169,58 @@ struct Reset<'w, 's> {
     existing: Query<'w, 's, Entity, With<MapEntity>>,
 }
 
-/// `F5` saves, `F9` loads, and either says how it went in the side panel.
-fn quick_keys(
+/// Does what was asked, says how it went in the side panel, and keeps the list up to date. A
+/// load closes the list.
+#[allow(clippy::too_many_arguments)]
+fn run_actions(
     mut commands: Commands,
-    keys: Res<ButtonInput<KeyCode>>,
+    mut actions: MessageReader<SaveAction>,
     files: Res<SaveFiles>,
     art: Res<Art>,
     mut sim: ResMut<Sim>,
     mut notice: ResMut<Notice>,
     mut toast: ResMut<SaveToast>,
+    mut open: ResMut<SavesOpen>,
+    mut list: ResMut<SaveList>,
     mut reset: Reset,
 ) {
-    let saving = keys.just_pressed(SAVE_KEY);
-    let loading = keys.just_pressed(LOAD_KEY);
-    if !saving && !loading {
-        return;
-    }
-    let text = match files.0.as_deref() {
-        None => "Save failed: this platform has no data directory (set FN_SAVE_DIR)".to_owned(),
-        Some(dir) if saving => match quicksave(dir, &sim) {
-            Ok(()) => format!("Quicksaved (tick {})", sim.world.tick),
-            Err(why) => format!("Quicksave failed: {why}"),
-        },
-        Some(dir) => match quickload(dir, &sim.defs) {
-            Ok(world) => {
-                let tick = load_into(&mut commands, &art, &mut sim, world, &mut reset);
-                format!("Quickloaded (tick {tick})")
+    for action in actions.read() {
+        let quick = matches!(action, SaveAction::Save(n) | SaveAction::Load(n) if n == QUICKSAVE);
+        let text = match (files.0.as_deref(), action) {
+            (None, _) => format!("Save failed: {NO_SAVE_DIR}"),
+            (Some(dir), SaveAction::Save(_) | SaveAction::New) => {
+                let name = match action {
+                    SaveAction::Save(name) => name.clone(),
+                    _ => saves::new_name(list.0.as_deref().unwrap_or_default()),
+                };
+                let tick = sim.world.tick;
+                let result = saves::save(dir, &name, &sim);
+                list.0 = read_list(&files, &sim);
+                match (result, quick) {
+                    (Ok(()), true) => format!("Quicksaved (tick {tick})"),
+                    (Ok(()), false) => format!("Saved {name} (tick {tick})"),
+                    (Err(why), true) => format!("Quicksave failed: {why}"),
+                    (Err(why), false) => format!("Save failed: {why}"),
+                }
             }
-            Err(why) => format!("Quickload failed: {why}"),
-        },
-    };
-    info!("{text}");
-    notice.0 = text.clone();
-    *toast = SaveToast { text, left: TOAST_SECONDS };
+            (Some(dir), SaveAction::Load(name)) => match saves::load(dir, name, &sim.defs) {
+                Ok(world) => {
+                    let tick = load_into(&mut commands, &art, &mut sim, world, &mut reset);
+                    open.0 = false;
+                    if quick {
+                        format!("Quickloaded (tick {tick})")
+                    } else {
+                        format!("Loaded {name} (tick {tick})")
+                    }
+                }
+                Err(why) if quick => format!("Quickload failed: {why}"),
+                Err(why) => format!("Load failed: {why}"),
+            },
+        };
+        info!("{text}");
+        notice.0 = text.clone();
+        *toast = SaveToast { text, left: TOAST_SECONDS };
+    }
 }
 
 /// Makes `world` the running game: replaces the sim's world and rebuilds everything drawn from
@@ -213,9 +260,200 @@ fn expire_toast(time: Res<Time>, mut toast: ResMut<SaveToast>, mut notice: ResMu
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// The save list screen
+
+/// Marks the screen's top-level entity, so it can be despawned on close or rebuilt.
+#[derive(Component)]
+struct ListRoot;
+
+/// A clickable button of the list; `click_list` hit-tests the cursor against these.
+#[derive(Component, Clone)]
+struct ListButton(SaveAction);
+
+/// A left click on a button of the open list asks for its action.
+fn click_list(
+    mouse: Res<ButtonInput<MouseButton>>,
+    open: Res<SavesOpen>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    buttons: Query<(&ListButton, &ComputedNode, &UiGlobalTransform)>,
+    mut actions: MessageWriter<SaveAction>,
+) {
+    if !open.0 || !mouse.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let Ok(window) = window.single() else { return };
+    let hit = ui_style::node_under_cursor(window, buttons.iter().map(|(b, n, t)| (&b.0, n, t)));
+    if let Some(action) = hit {
+        actions.write(action.clone());
+    }
+}
+
+/// Spawns the screen when it opens, despawns it when it closes, and rebuilds it when the list or
+/// the nation (its colours) changes.
+#[allow(clippy::too_many_arguments)]
+fn sync_list_screen(
+    mut commands: Commands,
+    open: Res<SavesOpen>,
+    list: Res<SaveList>,
+    sim: Res<Sim>,
+    theme: Res<Theme>,
+    skin: Res<Skin>,
+    roots: Query<Entity, With<ListRoot>>,
+    mut shown: Local<bool>,
+) {
+    let changed = list.is_changed() || theme.is_changed() || skin.is_changed();
+    if open.0 && *shown && !changed {
+        return;
+    }
+    if !open.0 && !*shown {
+        return;
+    }
+    for e in &roots {
+        commands.entity(e).despawn();
+    }
+    *shown = open.0;
+    if open.0 {
+        spawn_list_screen(&mut commands, &theme, &skin, &sim, &list.0);
+    }
+}
+
+fn spawn_list_screen(
+    commands: &mut Commands,
+    theme: &Theme,
+    skin: &Skin,
+    sim: &Session,
+    list: &Result<Vec<Slot>, String>,
+) {
+    // Covers everything left of the side panel, full height, and dims the map under it, as the
+    // research screen does.
+    let dim = Node {
+        position_type: PositionType::Absolute,
+        left: Val::Px(0.0),
+        top: Val::Px(0.0),
+        bottom: Val::Px(0.0),
+        right: Val::Px(layout::SIDE_PANEL_WIDTH + 2.0 * layout::SCREEN_MARGIN),
+        justify_content: JustifyContent::Center,
+        align_items: AlignItems::Center,
+        ..default()
+    };
+    commands.spawn((ListRoot, dim, BackgroundColor(Color::BLACK.with_alpha(0.55)))).with_children(
+        |root| {
+            let panel = Node {
+                width: Val::Px(PANEL_WIDTH),
+                max_height: Val::Percent(90.0),
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(space::M),
+                padding: UiRect::all(Val::Px(space::XL)),
+                ..default()
+            };
+            root.spawn(ui_style::panel(theme, Frame::Panel, panel)).with_children(|p| {
+                ui_style::frame(p, theme, skin, Frame::Panel);
+                p.spawn(Node {
+                    justify_content: JustifyContent::SpaceBetween,
+                    align_items: AlignItems::Center,
+                    ..default()
+                })
+                .with_children(|r| {
+                    r.spawn(ui_style::text("Saves", font::TITLE, theme.text));
+                    if list.is_ok() {
+                        button(r, theme, "New save", SaveAction::New, true);
+                    }
+                });
+                let rows = Node {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(space::S),
+                    overflow: Overflow::clip(),
+                    ..default()
+                };
+                p.spawn(rows).with_children(|rows| match list {
+                    Err(why) => {
+                        rows.spawn(ui_style::text(
+                            format!("Can't list the saves: {why}"),
+                            font::BODY,
+                            theme.bad,
+                        ));
+                    }
+                    Ok(slots) if slots.is_empty() => {
+                        rows.spawn(ui_style::text(
+                            "No saves yet. New save (or F5) makes one.",
+                            font::BODY,
+                            theme.dim,
+                        ));
+                    }
+                    Ok(slots) => {
+                        for slot in slots {
+                            slot_row(rows, theme, sim, slot);
+                        }
+                    }
+                });
+                p.spawn(ui_style::text(
+                    "Save writes the running game over that slot; Load replaces the running \
+                     game. F5 quicksave, F9 quickload. Esc: close",
+                    font::LABEL,
+                    theme.dim,
+                ));
+            });
+        },
+    );
+}
+
+fn slot_row(p: &mut ChildSpawnerCommands, theme: &Theme, sim: &Session, slot: &Slot) {
+    let node = Node {
+        justify_content: JustifyContent::SpaceBetween,
+        align_items: AlignItems::Center,
+        column_gap: Val::Px(space::M),
+        padding: UiRect::all(Val::Px(space::S)),
+        border: UiRect::all(Val::Px(1.0)),
+        ..default()
+    };
+    let border = if slot.loadable() { theme.accent_soft } else { theme.bad };
+    p.spawn((node, BackgroundColor(theme.inset), BorderColor::all(border))).with_children(|r| {
+        r.spawn(Node {
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(2.0),
+            flex_shrink: 1.0,
+            ..default()
+        })
+        .with_children(|c| {
+            c.spawn(ui_style::text(slot.name.clone(), font::BODY, theme.text));
+            let color = if slot.loadable() { theme.dim } else { theme.bad };
+            c.spawn(ui_style::text(slot.describe(&sim.defs), font::LABEL, color));
+        });
+        r.spawn(Node { column_gap: Val::Px(space::S), flex_shrink: 0.0, ..default() })
+            .with_children(|b| {
+                button(b, theme, "Save", SaveAction::Save(slot.name.clone()), false);
+                if slot.loadable() {
+                    button(b, theme, "Load", SaveAction::Load(slot.name.clone()), true);
+                }
+            });
+    });
+}
+
+fn button(
+    p: &mut ChildSpawnerCommands,
+    theme: &Theme,
+    label: &str,
+    action: SaveAction,
+    main: bool,
+) {
+    let (bg, fg) = if main { (theme.accent, theme.on_accent) } else { (theme.panel, theme.text) };
+    let node = Node {
+        padding: UiRect::axes(Val::Px(space::M), Val::Px(space::XS)),
+        border: UiRect::all(Val::Px(1.0)),
+        ..default()
+    };
+    p.spawn((ListButton(action), node, BackgroundColor(bg), BorderColor::all(theme.accent)))
+        .with_children(|b| {
+            b.spawn(ui_style::text(label, font::LABEL, fg));
+        });
+}
+
 #[cfg(test)]
 mod tests {
-    use fn_sim::Nation;
+    use std::fs;
+
+    use fn_sim::{Defs, Nation};
 
     use super::*;
 
@@ -244,79 +482,7 @@ mod tests {
         s
     }
 
-    #[test]
-    fn the_save_dir_is_the_override_else_the_platforms_data_dir() {
-        let env = |pairs: &'static [(&'static str, &'static str)]| {
-            move |k: &str| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| OsString::from(v))
-        };
-        let both = env(&[("FN_SAVE_DIR", "/x"), ("HOME", "/h")]);
-        assert_eq!(save_dir(both, "linux"), Some(PathBuf::from("/x")));
-        let xdg = env(&[("XDG_DATA_HOME", "/d"), ("HOME", "/h")]);
-        assert_eq!(save_dir(xdg, "linux"), Some(PathBuf::from("/d/four-nations/saves")));
-        let home = env(&[("HOME", "/h")]);
-        assert_eq!(
-            save_dir(home, "linux"),
-            Some(PathBuf::from("/h/.local/share/four-nations/saves"))
-        );
-        assert_eq!(
-            save_dir(env(&[("HOME", "/h")]), "macos"),
-            Some(PathBuf::from("/h/Library/Application Support/four-nations/saves"))
-        );
-        assert_eq!(
-            save_dir(env(&[("APPDATA", "C:/a")]), "windows"),
-            Some(PathBuf::from("C:/a/four-nations/saves"))
-        );
-        assert_eq!(save_dir(env(&[]), "linux"), None);
-        assert_eq!(save_dir(env(&[("FN_SAVE_DIR", "")]), "linux"), None, "empty is unset");
-    }
-
-    #[test]
-    fn a_quicksave_round_trips_and_creates_the_directory() {
-        let tmp = TempDir::new("roundtrip");
-        let dir = tmp.0.join("not").join("there").join("yet");
-        let s = session();
-        quicksave(&dir, &s).unwrap();
-        let loaded = quickload(&dir, &s.defs).unwrap();
-        assert_eq!(loaded.tick, s.world.tick);
-        assert_eq!(loaded.save(&s.defs), s.world.save(&s.defs));
-        let names: Vec<_> = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
-        assert_eq!(names, [OsString::from(QUICKSAVE_FILE)], "no temporary file left behind");
-    }
-
-    #[test]
-    fn a_failed_write_leaves_the_previous_save_untouched() {
-        let tmp = TempDir::new("atomic");
-        let path = tmp.0.join(QUICKSAVE_FILE);
-        write_atomic(&path, "first").unwrap();
-        // A directory where the temporary file should go makes the write fail.
-        fs::create_dir(tmp.0.join(format!("{QUICKSAVE_FILE}.tmp"))).unwrap();
-        assert!(write_atomic(&path, "second").is_err());
-        assert_eq!(fs::read_to_string(&path).unwrap(), "first");
-        // And a good write replaces it whole.
-        fs::remove_dir(tmp.0.join(format!("{QUICKSAVE_FILE}.tmp"))).unwrap();
-        write_atomic(&path, "second").unwrap();
-        assert_eq!(fs::read_to_string(&path).unwrap(), "second");
-    }
-
-    #[test]
-    fn loading_what_is_missing_or_damaged_is_an_error_line_not_a_panic() {
-        let tmp = TempDir::new("errors");
-        let defs = Defs::bundled();
-        let missing = quickload(&tmp.0, &defs).unwrap_err();
-        assert!(missing.contains("no quicksave yet"), "{missing}");
-
-        fs::write(tmp.0.join(QUICKSAVE_FILE), "this is not a save").unwrap();
-        let junk = quickload(&tmp.0, &defs).unwrap_err();
-        assert!(junk.contains("not a Four Nations save"), "{junk}");
-
-        let s = session();
-        let text = s.world.save(&defs).unwrap();
-        fs::write(tmp.0.join(QUICKSAVE_FILE), &text[..text.len() / 2]).unwrap();
-        let cut = quickload(&tmp.0, &defs).unwrap_err();
-        assert!(cut.contains("damaged save"), "{cut}");
-    }
-
-    // The Bevy half: the keys, the toast and the respawn.
+    // The keys, the list, the toast and the respawn.
 
     use crate::bending::AlertLog;
     use crate::unit_motion::UnitMotion;
@@ -333,9 +499,13 @@ mod tests {
             .init_resource::<AlertLog>()
             .init_resource::<Casts>()
             .init_resource::<SaveToast>()
+            .init_resource::<ScreenOpen>()
+            .init_resource::<SavesOpen>()
+            .init_resource::<SaveList>()
+            .add_message::<SaveAction>()
             .insert_resource(SaveFiles(dir))
             .insert_resource(Sim(session()))
-            .add_systems(Update, (quick_keys, expire_toast).chain());
+            .add_systems(Update, (toggle_list, quick_keys, run_actions, expire_toast).chain());
         app.update();
         spawn_for_test(&mut app);
         app
@@ -407,7 +577,7 @@ mod tests {
     #[test]
     fn a_failed_load_toasts_and_leaves_the_running_game_alone() {
         let tmp = TempDir::new("failed-load");
-        fs::write(tmp.0.join(QUICKSAVE_FILE), "garbage").unwrap();
+        fs::write(saves::slot_path(&tmp.0, QUICKSAVE), "garbage").unwrap();
         let mut app = app(Some(tmp.0.clone()));
         let before = app.world().resource::<Sim>().world.save(&Defs::bundled()).unwrap();
         let first = app.world().resource::<Sim>().world.units[0].id;
@@ -453,5 +623,82 @@ mod tests {
         app.update();
         app.update();
         assert_eq!(notice(&app), "Harvest: 3 tiles");
+    }
+
+    fn act(app: &mut App, action: SaveAction) {
+        app.world_mut().write_message(action);
+        app.update();
+    }
+
+    fn listed(app: &App) -> Vec<(String, bool)> {
+        let list = app.world().resource::<SaveList>();
+        let mut names: Vec<_> =
+            list.0.as_ref().unwrap().iter().map(|s| (s.name.clone(), s.loadable())).collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn f6_lists_the_slots_and_new_save_overwrite_and_load_go_through_them() {
+        let tmp = TempDir::new("slots");
+        fs::write(saves::slot_path(&tmp.0, "damaged"), "not a save").unwrap();
+        let mut app = app(Some(tmp.0.clone()));
+        press(&mut app, LIST_KEY);
+        assert!(app.world().resource::<SavesOpen>().0);
+        assert_eq!(
+            listed(&app),
+            [("damaged".into(), false)],
+            "a damaged file is listed, unloadable"
+        );
+
+        act(&mut app, SaveAction::New);
+        assert_eq!(notice(&app), "Saved save-1 (tick 40)");
+        let at_40 = app.world().resource::<Sim>().world.save(&Defs::bundled()).unwrap();
+        app.world_mut().resource_mut::<Sim>().tick_n(20);
+        act(&mut app, SaveAction::New);
+        assert_eq!(notice(&app), "Saved save-2 (tick 60)");
+        assert_eq!(
+            listed(&app),
+            [("damaged".into(), false), ("save-1".into(), true), ("save-2".into(), true)],
+            "the list is read again after each save"
+        );
+
+        // Overwrite save-2 at tick 80, play on, then load save-1 and save-2 in turn.
+        app.world_mut().resource_mut::<Sim>().tick_n(20);
+        act(&mut app, SaveAction::Save("save-2".into()));
+        assert_eq!(notice(&app), "Saved save-2 (tick 80)");
+        app.world_mut().resource_mut::<Sim>().tick_n(100);
+        act(&mut app, SaveAction::Load("save-1".into()));
+        assert_eq!(notice(&app), "Loaded save-1 (tick 40)");
+        assert!(!app.world().resource::<SavesOpen>().0, "a load closes the list");
+        let sim = app.world().resource::<Sim>();
+        assert_eq!(sim.world.save(&sim.defs).unwrap(), at_40);
+        act(&mut app, SaveAction::Load("save-2".into()));
+        assert_eq!(app.world().resource::<Sim>().world.tick, 80);
+
+        // The damaged one fails as a toast, and the game is kept.
+        act(&mut app, SaveAction::Load("damaged".into()));
+        assert!(
+            notice(&app).starts_with("Load failed: not a Four Nations save"),
+            "{}",
+            notice(&app)
+        );
+        assert_eq!(app.world().resource::<Sim>().world.tick, 80);
+    }
+
+    #[test]
+    fn the_list_and_the_research_screen_never_show_together() {
+        let tmp = TempDir::new("screens");
+        let mut app = app(Some(tmp.0.clone()));
+        app.world_mut().resource_mut::<ScreenOpen>().0 = true;
+        press(&mut app, LIST_KEY);
+        assert!(app.world().resource::<SavesOpen>().0);
+        assert!(!app.world().resource::<ScreenOpen>().0, "opening the list closes research");
+        app.world_mut().resource_mut::<ScreenOpen>().0 = true;
+        app.update();
+        assert!(!app.world().resource::<SavesOpen>().0, "opening research closes the list");
+        press(&mut app, LIST_KEY);
+        press(&mut app, KeyCode::Escape);
+        assert!(!app.world().resource::<SavesOpen>().0, "Esc closes it");
     }
 }
