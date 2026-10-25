@@ -32,11 +32,16 @@ fn bundled_abilities_load_one_signature_per_nation() {
     assert_eq!(defs.chi.regen_per_minute, 2.0);
     assert_eq!(defs.chi.sleep_regen_per_minute, 8.0);
     for n in Nation::ALL {
-        let mine: Vec<_> = defs.abilities.iter().filter(|a| a.nation == n).collect();
-        assert_eq!(mine.len(), 1, "{n:?}");
-        // A signature ability needs no research.
-        assert_eq!(mine[0].unlocked_by, None, "{n:?}");
+        // A signature ability needs no research, and each nation has exactly one. Others come
+        // from the branch techs (Fire's Inner Fire, from Dancing Dragon).
+        let signature: Vec<_> =
+            defs.abilities.iter().filter(|a| a.nation == n && a.unlocked_by.is_none()).collect();
+        assert_eq!(signature.len(), 1, "{n:?}");
     }
+    let inner = defs.ability(defs.ability_id("inner_fire").unwrap());
+    assert_eq!(inner.nation, Nation::Fire);
+    assert_eq!(inner.unlocked_by, defs.tech_id("dancing_dragon"));
+    assert_eq!(inner.magnitude_modifier.as_deref(), Some("heating"));
     let earth = defs.ability(defs.ability_id("raise_earth").unwrap());
     assert_eq!(earth.nation, Nation::Earth);
     assert_eq!((earth.chi, earth.work), (50.0, 15.0));
@@ -132,6 +137,10 @@ fn effect_ids_and_numbers_are_validated() {
     assert!(bad("range = 8 ", "range = 0 ").contains("range"));
     assert!(bad("sleep_bonus = 1.5", "sleep_bonus = 0.5").contains("sleep_bonus"));
     assert!(bad("sprouts = 2", "sprouts = 0").contains("sprouts"));
+    // Inner Fire's aura.
+    assert!(bad("radius = 2 ", "radius = 0 ").contains("heat_aura"));
+    assert!(bad("sleep_bonus = 1.25", "sleep_bonus = 0.5").contains("heat_aura"));
+    assert!(bad("duration_minutes = 4.0", "duration_minutes = 0.0").contains("heat_aura"));
 }
 
 #[test]

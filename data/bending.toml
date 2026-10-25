@@ -90,3 +90,21 @@ magnitude_modifier = "power_generation"   # scales range
 [ability.effect]
 kind = "wind_carry"
 range = 8                 # tiles, Chebyshev
+
+# Fire, from `dancing_dragon`: a warmth aura on the bender. The designated tile is only where the
+# bender stands to channel; the aura goes to whoever channels it and follows them. Meals eaten
+# near the carrier are cooked and sleep near them is warmer, but nobody walks to it.
+[[ability]]
+id = "inner_fire"
+nation = "fire"
+name = "Inner Fire"
+verb = "Kindle within"
+description = "Carry a warmth with you. Meals eaten near you are cooked, and sleep is warmer."
+chi = 40.0
+work = 6.0
+magnitude_modifier = "heating"   # scales duration_minutes
+[ability.effect]
+kind = "heat_aura"
+duration_minutes = 4.0
+radius = 2                # tiles, Chebyshev, around the carrier
+sleep_bonus = 1.25        # energy regained asleep nearby, times the base rate

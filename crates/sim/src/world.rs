@@ -34,7 +34,7 @@ pub use bending::{BendChannel, BendError, BendEvent, BendOutcome, Moved};
 pub use build::BuildError;
 use build::Site;
 pub use command::{Command, CommandError, Recorded};
-pub use heat::{Flame, HeatSource};
+pub use heat::{Aura, Flame, Glow, HeatSource};
 pub use stride::{STRIDE_LOOKAHEAD, Stride};
 pub use work::{DesignateError, FoodSource, Task};
 
@@ -170,6 +170,9 @@ pub struct World {
     fallow: BTreeMap<Pos, u64>,
     /// Lit heat sources by tile: Hearthflames today, campfires later (`heat.rs`).
     heat: BTreeMap<Pos, HeatSource>,
+    /// Warmth auras on units, by carrier (Inner Fire, #123; `heat.rs`).
+    #[serde(default)]
+    auras: BTreeMap<UnitId, Aura>,
     /// Picks which tiles of a dried patch sprout (`bending.sprout`).
     sprout_rng: SimRng,
     rng: SimRng,
@@ -210,6 +213,7 @@ impl World {
             patches: Vec::new(),
             fallow: BTreeMap::new(),
             heat: BTreeMap::new(),
+            auras: BTreeMap::new(),
             sprout_rng: rng::stream(seed, "bending.sprout"),
             rng: rng::stream(seed, "world.units"),
         };

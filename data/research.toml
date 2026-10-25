@@ -240,11 +240,8 @@ description = "The Sun Warriors' teaching: fire is life and energy, not rage."
 nation = "fire"
 cost = 250
 prereqs = ["smelting"]
-# Modifier-only for now: its ability, inner fire (a warmth aura that follows a unit), needs a new
-# bending effect that the four in data/bending.toml don't cover; tracked in issue #123 (the
-# design table in research.md still lists it).
-# Later: abilities = ["inner_fire"]
 [tech.unlocks]
+abilities = ["inner_fire"]
 modifiers = { heating = 1.25 }
 
 [[tech]]
