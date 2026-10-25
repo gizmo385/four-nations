@@ -5,8 +5,16 @@ use fn_sim::{Pos, Terrain, TileMap};
 
 use super::{Cell, GroundRule, one, tile_hash};
 
-/// The sheet the water art is on: three 4x4 shore sets (sand, snow, grass) stacked top to bottom,
-/// then the fish spot. The cells are named in `art/water.toml`; a test below keeps them honest.
+/// The sheet the water art is on: nine 4x4 shore sets stacked top to bottom, the sea's (sand,
+/// snow, grass), then the river's, then the lake's, and a row of extras (the fish spot) below
+/// them. The cells are named in `art/water.toml`; a test below keeps them honest.
+///
+/// ```text
+/// rows  0-11  sea     sand, snow, grass
+/// rows 12-23  river   sand, snow, grass
+/// rows 24-35  lake    sand, snow, grass
+/// row  36     extras  fish spot, then #171's pond piece
+/// ```
 pub const SHEET: &str = "original/water.png";
 
 /// A bitmask-autotiled water shore: 16 pieces of a water sheet (#8), one per combination of which
@@ -65,6 +73,29 @@ impl WaterSet {
         }
     }
 
+    /// Every cell of the set, for tests that compare sets.
+    #[cfg(test)]
+    fn cells(&self) -> [Cell; 16] {
+        [
+            self.interior,
+            self.interior_alt,
+            self.n,
+            self.s,
+            self.e,
+            self.w,
+            self.nw,
+            self.ne,
+            self.sw,
+            self.se,
+            self.v_top,
+            self.v_mid,
+            self.v_bot,
+            self.h_left,
+            self.h_mid,
+            self.h_right,
+        ]
+    }
+
     /// The piece for a water tile whose cardinal neighbors are land (`true`) or more water
     /// (`false`). A tile boxed in on all four sides has no single piece that reads right (and the
     /// sheet has no "isolated puddle" piece), so it falls back to the open-water interior.
@@ -108,48 +139,57 @@ pub fn water_tile(map: &TileMap, p: Pos, set: &WaterSet) -> Cell {
     let cell = water_cell(map, p, set);
     if cell == set.interior && tile_hash(p, 2) & 1 == 1 { set.interior_alt } else { cell }
 }
-/// The fish shadows and ripples (#56), drawn over a water tile on a transparent background.
-pub const FISH_SPOT: Cell = one(SHEET, 0, 12);
+/// The fish shadows and ripples (#56), drawn over a water tile on a transparent background. The
+/// first of the extras row (`EXTRAS_ROW`).
+pub const FISH_SPOT: Cell = one(SHEET, 0, EXTRAS_ROW);
+
+/// The row below the nine shore sets, where one-off pieces go, a cell each, left to right.
+const EXTRAS_ROW: u32 = 36;
 
 /// The shore sets, each bordered in the base tone of the floor it meets (`art/palette.toml`):
 /// sand for desert, snow for tundra and grass for the rest, swamps included. Each is a 4x4 block
-/// of 16px cells on `SHEET`; see `WaterSet` for the layout within a block. Water is blue in every
-/// set. Swamp lakes and rivers read as pink with purple bog water (#109), so a
-/// future bog terrain would get a set of its own.
+/// of 16px cells on `SHEET`; see `WaterSet` for the layout within a block. The sea is blue in
+/// every set. Rivers and lakes are fresh water (#31): the same shapes in a clearer teal, a river
+/// with long current streaks and a lake with calm ripples. Swamp water stays the blue grass-edged
+/// set, not the pack's pink-and-purple bog water (#109), so a future bog terrain would get a set
+/// of its own.
 const SAND_WATER: WaterSet = WaterSet::new(SHEET, 0, 0);
 const SNOW_WATER: WaterSet = WaterSet::new(SHEET, 0, 4);
 const GRASS_WATER: WaterSet = WaterSet::new(SHEET, 0, 8);
+const SAND_RIVER: WaterSet = WaterSet::new(SHEET, 0, 12);
+const SNOW_RIVER: WaterSet = WaterSet::new(SHEET, 0, 16);
+const GRASS_RIVER: WaterSet = WaterSet::new(SHEET, 0, 20);
+const SAND_LAKE: WaterSet = WaterSet::new(SHEET, 0, 24);
+const SNOW_LAKE: WaterSet = WaterSet::new(SHEET, 0, 28);
+const GRASS_LAKE: WaterSet = WaterSet::new(SHEET, 0, 32);
 
-const WATERS: &[Terrain] = &[Terrain::Water, Terrain::River, Terrain::Lake];
+/// One `GroundRule` row for `terrain` water in a biome (`None`: every other biome).
+const fn water_rule(
+    terrain: &'static [Terrain],
+    biome: Option<&'static str>,
+    set: &'static WaterSet,
+) -> GroundRule {
+    GroundRule {
+        terrains: terrain,
+        biome,
+        base: set.interior,
+        variants: &[],
+        decor: None,
+        water: Some(set),
+        cliff: None,
+    }
+}
 
 pub const GROUND: &[GroundRule] = &[
-    GroundRule {
-        terrains: WATERS,
-        biome: Some("tundra"),
-        base: SNOW_WATER.interior,
-        variants: &[],
-        decor: None,
-        water: Some(&SNOW_WATER),
-        cliff: None,
-    },
-    GroundRule {
-        terrains: WATERS,
-        biome: Some("desert"),
-        base: SAND_WATER.interior,
-        variants: &[],
-        decor: None,
-        water: Some(&SAND_WATER),
-        cliff: None,
-    },
-    GroundRule {
-        terrains: WATERS,
-        biome: None,
-        base: GRASS_WATER.interior,
-        variants: &[],
-        decor: None,
-        water: Some(&GRASS_WATER),
-        cliff: None,
-    },
+    water_rule(&[Terrain::Water], Some("tundra"), &SNOW_WATER),
+    water_rule(&[Terrain::Water], Some("desert"), &SAND_WATER),
+    water_rule(&[Terrain::Water], None, &GRASS_WATER),
+    water_rule(&[Terrain::River], Some("tundra"), &SNOW_RIVER),
+    water_rule(&[Terrain::River], Some("desert"), &SAND_RIVER),
+    water_rule(&[Terrain::River], None, &GRASS_RIVER),
+    water_rule(&[Terrain::Lake], Some("tundra"), &SNOW_LAKE),
+    water_rule(&[Terrain::Lake], Some("desert"), &SAND_LAKE),
+    water_rule(&[Terrain::Lake], None, &GRASS_LAKE),
 ];
 
 #[cfg(test)]
@@ -164,21 +204,57 @@ mod tests {
     fn every_biome_s_water_is_autotiled() {
         let defs = Defs::bundled();
         for biome in &defs.biomes {
-            let rule = ground_rule(Terrain::Water, &biome.id).unwrap();
-            assert!(rule.water.is_some(), "{} water isn't autotiled", biome.id);
+            for terrain in [Terrain::Water, Terrain::River, Terrain::Lake] {
+                let rule = ground_rule(terrain, &biome.id).unwrap();
+                assert!(rule.water.is_some(), "{} {terrain:?} isn't autotiled", biome.id);
+            }
         }
     }
 
     #[test]
-    fn swamp_water_is_blue_not_bog_purple() {
-        for terrain in WATERS {
-            let rule = ground_rule(*terrain, "swamp").unwrap();
+    fn swamp_water_is_blue_teal_not_bog_purple() {
+        let grass = [
+            (Terrain::Water, &GRASS_WATER),
+            (Terrain::River, &GRASS_RIVER),
+            (Terrain::Lake, &GRASS_LAKE),
+        ];
+        for (terrain, expected) in grass {
+            let rule = ground_rule(terrain, "swamp").unwrap();
             assert!(
-                rule.water.is_some_and(
-                    |set| set.interior == GRASS_WATER.interior && set.nw == GRASS_WATER.nw
-                ),
-                "{terrain:?} in a swamp should use the grass-edged blue water"
+                rule.water
+                    .is_some_and(|set| set.interior == expected.interior && set.nw == expected.nw),
+                "{terrain:?} in a swamp should use the grass-edged water set"
             );
+        }
+    }
+
+    /// Rivers and lakes (#31) draw their own sets, not the sea's, in every biome: no cell of one
+    /// is a cell of another, so fresh water can't read as sea.
+    #[test]
+    fn rivers_and_lakes_do_not_resolve_to_the_sea() {
+        let defs = Defs::bundled();
+        for biome in &defs.biomes {
+            let sets: Vec<&WaterSet> = [Terrain::Water, Terrain::River, Terrain::Lake]
+                .into_iter()
+                .map(|t| ground_rule(t, &biome.id).unwrap().water.unwrap())
+                .collect();
+            for (i, a) in sets.iter().enumerate() {
+                for b in &sets[i + 1..] {
+                    assert!(
+                        a.cells().iter().all(|c| !b.cells().contains(c)),
+                        "{}: two water terrains share a cell",
+                        biome.id
+                    );
+                }
+            }
+            let tile = |t| {
+                let rule = ground_rule(t, &biome.id).unwrap();
+                let map = terrain_map(3, 3, |_| t);
+                water_tile(&map, Pos::new(1, 1), rule.water.unwrap())
+            };
+            assert_ne!(tile(Terrain::River), tile(Terrain::Water), "{} river", biome.id);
+            assert_ne!(tile(Terrain::Lake), tile(Terrain::Water), "{} lake", biome.id);
+            assert_ne!(tile(Terrain::Lake), tile(Terrain::River), "{} lake/river", biome.id);
         }
     }
 
@@ -246,8 +322,18 @@ mod tests {
     #[test]
     fn every_piece_is_the_sprite_it_claims_to_be() {
         let names = sprite_names();
-        for (prefix, set) in [("sand", &SAND_WATER), ("snow", &SNOW_WATER), ("grass", &GRASS_WATER)]
-        {
+        let sets = [
+            ("sand", &SAND_WATER),
+            ("snow", &SNOW_WATER),
+            ("grass", &GRASS_WATER),
+            ("river_sand", &SAND_RIVER),
+            ("river_snow", &SNOW_RIVER),
+            ("river_grass", &GRASS_RIVER),
+            ("lake_sand", &SAND_LAKE),
+            ("lake_snow", &SNOW_LAKE),
+            ("lake_grass", &GRASS_LAKE),
+        ];
+        for (prefix, set) in sets {
             let pieces = [
                 ("nw", set.nw),
                 ("n", set.n),
@@ -270,6 +356,16 @@ mod tests {
                 assert_eq!(name_at(&names, cell), format!("{prefix}_{piece}"));
             }
         }
+    }
+
+    /// The sheet is the nine shore sets and then the extras row, so a new extra (#171) goes at the
+    /// end of the TOML and a stale `EXTRAS_ROW` is caught.
+    #[test]
+    fn the_extras_row_follows_the_nine_sets() {
+        let names = sprite_names();
+        assert_eq!(EXTRAS_ROW, 9 * 4);
+        assert!(names.len() > (EXTRAS_ROW * 4) as usize);
+        assert!(names[..(EXTRAS_ROW * 4) as usize].iter().all(|n| n != "fish_spot"));
     }
 
     /// The fish spot is a cell of the water sheet, not a separate file.

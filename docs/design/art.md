@@ -83,7 +83,8 @@ cells differ from the first audit, the shipped cell is shown:
 | Desert, coast, ford | `art/floors.toml` sand, 4 variants (#145); tundra coast and ford use snow |
 | Tundra | `art/floors.toml` snow, 4 variants (#145) |
 | Swamp | `art/floors.toml` mud, 4 variants (#145); water is the blue grass-edged set, not the purple bog block (#109) |
-| Water, river, lake | bitmask-autotiled (#8, below) against which cardinal neighbors are dry land; interior pieces on `original/water.png` (#146) |
+| Water (sea) | bitmask-autotiled (#8, below) against which cardinal neighbors are dry land; interior pieces on `original/water.png` (#146), blue |
+| River, lake | the same autotile layout in their own sets on `original/water.png` (#31): a clearer teal (`fresh` ramp), a river with long current streaks and a lake with calm ring ripples; swamps get the same |
 | Mountain | cliff-autotiled (#104, #147, below). Interior: the rock floor (#145, four variants), plus one of three grey boulders on about one in three tiles with no resource; tundra: the snow floor and three snow-capped boulders |
 | Oak / fir / tundra fir | `TilesetNature` 2x2 at (0,0) / (2,0) / (8,0), bottom-aligned to the tile |
 | Stone / gold vein | `TilesetNature` plain grey rock (6,14) / the same rock with orange ore (4,14) |
@@ -92,8 +93,9 @@ cells differ from the first audit, the shipped cell is shown:
 | Fish spot (#56) | `original/water.png` (#146): fish shadows and ripples on a transparent background, drawn over the water tile |
 
 **Water autotiling** (#8, implemented; art replaced by Claude-authored sheets in #146).
-`art/water.toml` makes `original/water.png`: three 4x4-cell blocks, one per land colour it blends
-into (sand, snow, grass), stacked top to bottom, each laid out the same way: a 3x3 of
+`art/water.toml` makes `original/water.png`: nine 4x4-cell blocks, the sea's, the river's and the
+lake's (#31) in that order, each one block per land colour it blends into (sand, snow, grass),
+stacked top to bottom, then a row of extras (the fish spot). Every block is laid out the same way: a 3x3 of
 corner/edge/interior pieces, a 1-wide strait (for rivers, which have no separate shore tile) in
 the 4th column, its closed ends in the 4th row, and the interior's second variant (another
 scatter of wave marks) in the last cell. The land side of a shore piece is the floor's base tone
@@ -102,7 +104,8 @@ block and `water_cell` picks a piece per tile by which of its four cardinal neig
 land (`Terrain::is_water`, so a shallow ford still reads as water to its neighbors); `water_tile`
 then picks between the two interior variants by tile hash; `GroundRule::water` matches a biome to
 its block: desert→sand, tundra→snow, everything else→grass, swamps included (swamp water is
-blue, not the pack's purple bog water, #109). A tile boxed in by land on all four sides (rare
+blue or teal, not the pack's purple bog water, #109); `Water`, `River` and `Lake` each pick from
+their own family of three blocks. A tile boxed in by land on all four sides (rare
 on the mapgen's rounded water bodies) falls back to the open-water interior rather than guess,
 since the sheet has no "isolated puddle" piece. Shore (`Coast`/`Ford`) tiles stay flat; only the
 water side of the boundary carries the transition art.
