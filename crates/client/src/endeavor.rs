@@ -84,7 +84,7 @@ fn make_grey_gate(skin: Res<Skin>, mut images: ResMut<Assets<Image>>, mut grey: 
 /// Turns RGBA8 pixels into a pale grey of their own brightness, leaving alpha alone: stone that
 /// isn't built yet.
 fn greyscale(rgba: &mut [u8]) {
-    for px in rgba.chunks_exact_mut(4) {
+    for px in rgba.as_chunks_mut::<4>().0 {
         let [r, g, b] = [px[0], px[1], px[2]].map(f32::from);
         let luma = 0.299 * r + 0.587 * g + 0.114 * b;
         // Lift it towards white so the unbuilt part reads as a pale sketch, not a shadow.
