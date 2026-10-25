@@ -203,6 +203,10 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     "rail",
     "cart_rules",
     "rail_step",
+    // Air orchards (#142): the orchards, and the stream that picks where fruit trees grow.
+    "orchards",
+    "saplings",
+    "orchard_rng",
 ];
 
 /// `value` without any struct field named in `names`, at any depth. Returns how many it removed.
@@ -243,17 +247,20 @@ fn saving_an_old_save_again_gives_the_same_text() {
     let removed = without_fields(&mut new, FIELDS_ADDED_SINCE_V1);
     assert!(removed > 0, "the re-saved text differs, but not in the fields listed");
     if old != new {
-        let at = text.bytes().zip(FIXTURE.bytes()).position(|(a, b)| a != b);
+        let (old, new) = (ron::to_string(&old).unwrap(), ron::to_string(&new).unwrap());
+        let at = new.bytes().zip(old.bytes()).position(|(a, b)| a != b);
         let around = |s: &str| {
             let from = at.unwrap_or(0).saturating_sub(60);
             s.get(from..(from + 160).min(s.len())).unwrap_or("").to_owned()
         };
         panic!(
             "re-saving the v1 fixture changed more than the fields added since v1 (first \
-             difference at byte {at:?}); a world of 1x1 buildings must serialize as v1 did\n\
-             fixture: {}\nresaved: {}",
-            around(FIXTURE),
-            around(&text)
+             difference at byte {at:?} of the data without them); a world of 1x1 buildings must \
+             serialize as v1 did. If this is a new always-written `serde(default)` field (a new \
+             `World` field, say), add its name to FIELDS_ADDED_SINCE_V1; a footprint field should \
+             be skipped when it is the 1x1 default instead.\nfixture: {}\nresaved: {}",
+            around(&old),
+            around(&new)
         );
     }
     assert_eq!(text.lines().next(), FIXTURE.lines().next(), "the header is part of the format too");
