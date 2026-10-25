@@ -1,7 +1,10 @@
 # Buildings: multi-tile footprints
 
-Status: **proposed** (#196). Follow-up work is listed at the end of this doc. The owner questions
-are at the end too, and the size table depends on them.
+Status: **proposed** (#196). Follow-up work is listed at the end of this doc. The owner decided the
+sizes and rotation on 2026-10-25. Two questions are still open: whether units go *inside*
+buildings, and whether the art grows. Each has its own section below
+([Units inside buildings](#units-inside-buildings-question-2) and
+[Larger art](#larger-art-question-4)), and the open questions are listed at the end.
 
 Every building is 1x1 in the rules today. `BuildingDef` has no size, the sim stores one
 `Building` per tile (`World::building_at`), and `passable` covers that one tile. The art is
@@ -28,7 +31,7 @@ site with its one-tile tint under the 2x2 ghost sprite:
    cursor tile into the anchor, so the sim never needs to know where the pointer was.
 3. **No rotation.** Every sprite faces the camera with its door at the bottom, so a rotated
    footprint would have no art to draw. Footprints are rectangles, so a 2x1 can be "rotated" by
-   defining a 1x2 building if one is ever needed. (Owner question 3.)
+   defining a 1x2 building if one is ever needed. (The owner agreed, 2026-10-25.)
 4. **Every footprint tile carries the building.** The `Building` already baked onto
    `Tile::building` gains `part` (its offset from the anchor) and `size`. `building_at`,
    `passable`, pathfinding, regions and the bending checks keep working tile by tile and need no
@@ -38,15 +41,17 @@ site with its one-tile tint under the 2x2 ghost sprite:
    around its footprint. A walkable one is used from inside its footprint. There is no door tile.
 6. **2x2 for everything drawn 2x2.** The existing 32x32 art already *is* a 2x2 footprint
    (16 px tiles). Sprites whose opaque base is about 28 px wide become 2x2, and the 16 px ones
-   stay 1x1. No art is redrawn, except possibly the igloo (owner question 4).
+   stay 1x1. The current art works on the new footprints as it is. Larger art is an option
+   (owner question 4, [Larger art](#larger-art-question-4)).
 7. **Saves need no version bump.** The new fields use `serde(default)` and are skipped when they
    are 1x1, so a v1 save loads with every building as the 1x1 it was built as, and a world of
    1x1 buildings writes the same text as before.
 
 ## Footprint sizes
 
-The table follows the art: the width of each sprite's opaque base, measured from the
-`assets/original/` PNGs. Then role and cost decide the cases the art leaves open.
+The owner agreed this table on 2026-10-25. It follows the art: the width of each sprite's opaque
+base, measured from the `assets/original/` PNGs. Then role and cost decide the cases the art
+leaves open.
 
 | Building | Art base (px) | Footprint | Walkable | Why |
 |---|---|---|---|---|
@@ -70,7 +75,9 @@ out of scope here (#124 and #142 give these buildings a purpose and will retune 
 **Halls become solid.** Today the study hall is `passable = true` so that scholars can stand on
 its tile. With a 2x2 body, walking through it is exactly the bug this design fixes, so halls
 become `passable = false` and their scholars stand on the ring (see below). The pavilion is
-open-sided, but it is still a raised platform. (Owner question 2.)
+open-sided, but it is still a raised platform. This is still open: the owner asked how hard it
+would be for units to go *inside* instead, which is covered in
+[Units inside buildings](#units-inside-buildings-question-2).
 
 ## Sim rules
 
@@ -245,6 +252,169 @@ or nothing changes.
 - **Docs.** When the sizes turn on, the "Buildings" section of `pixel-art.md` changes from "stands
   on its tile like a tree" to "fills its footprint, and may overhang upward".
 
+## Units inside buildings (question 2)
+
+The owner asked how hard it would be for units to go *inside* buildings, rather than the
+buildings being solid and used from outside. There are three ways to do it. They differ mostly
+in what "inside" means to the sim.
+
+![Inside options](../../mockups/196/inside-options.png)
+
+### (a) A walkable footprint
+
+The building is `passable = true`. Units walk onto its tiles, and "inside" just means standing on
+one.
+
+- **Sim: almost nothing.** The design already handles walkable buildings: a walkable building is
+  used from inside its footprint (`World::stand`), so for the halls this is a data change.
+  Pathing, regions, jobs, sleep, heat (distance 0 inside), study, saves and determinism don't
+  change. The catch is that a walkable building can be crossed from any side, so it becomes a
+  shortcut through its walls. A per-building move cost (`Building::cost`, baked like `passable`)
+  would make units prefer to go around. That is small, but it is one more field.
+- **Client: the hard part is how it looks.** The sprite is sorted by its front row (`row_depth`),
+  so a unit in the back row hides behind the roof and a unit in the front row draws *over* the
+  walls (first panel above). The #77 fade can make the whole building translucent while anyone
+  is inside (second panel). It reads, but in a busy settlement the buildings will flicker
+  between solid and ghost. A cleaner look splits every 2x2 sprite into a back layer (floor and
+  back wall) and a front layer (front wall and roof), with units drawn between the two and the
+  front layer faded while occupied. That doubles the art for those buildings. Smooth movement
+  (#194) needs no change, because units walk in like they walk anywhere else. The TUI already
+  draws a unit over a building, so units show up inside the glyph block.
+- **Risk:** low in the sim, medium for looks. **Size:** none in the sim (a data line in #214),
+  plus about one client PR for the occupied fade. Layered art would add about one art PR per
+  nation sheet (4).
+
+### (b) An entrance, with "inside" as a state
+
+The footprint stays solid, as designed. The building has an entrance: the ring tile below the
+middle of its bottom row (`anchor.x + (w - 1) / 2`, `anchor.y + h`), where the art's door is.
+A unit that reaches the entrance for a task that uses the building steps *in*. From then on it is
+off the map: it isn't drawn, and the building's panel lists it. It steps back out onto the
+entrance when the task ends or a need pre-empts it.
+
+- **Location model.** `Unit` gains `inside: Option<Pos>` (the building's anchor, `serde(default)`).
+  While a unit is inside, its `pos` stays the entrance tile, so everything that floods or paths
+  from a unit (`flood_from`, regions, `place_ground`) keeps working unchanged. Only the code that
+  asks "who is standing on the map here" has to skip units that are inside: idle wander, bending
+  targets, occupancy checks, and drawing.
+- **Pathing and regions:** unchanged. The footprint is solid and the entrance is an ordinary
+  tile. Placement gains one rule: no footprint may cover another building's entrance, and a
+  building's own entrance must be walkable when it is placed (a new `Blocker::Entrance`). If an
+  entrance is blocked anyway (terrain bending, say), units leave by the nearest walkable ring
+  tile. Ties break on `Pos`, so this stays deterministic.
+- **Jobs, sleep, heat and study:**
+  - Study seats become places inside, so `seats` is also the building's capacity.
+  - Builders still work from the ring, never inside.
+  - Beds are unaffected: they are 1x1 and walkable.
+  - A future house or bunkhouse fits naturally, as a building with N sleeping places inside.
+  - Heat already reaches the entrance tile, which is within any radius of the footprint, so
+    being inside a warm building counts as warm with no extra rule.
+  - A unit that dies inside is recorded at the entrance.
+- **Saves and determinism:** a single `serde(default)` field. Entering and leaving happen on the
+  tick the unit arrives or its task ends, in unit-id order like everything else in the tick.
+- **Client:**
+  - Entering, the sprite walks onto the entrance tile and fades out over about 0.3 s; leaving,
+    it fades back in there. Nothing teleports, because the unit's `pos` never jumps, so #194's
+    `is_teleport` is never triggered.
+  - A badge on the building shows how many are inside.
+  - Selecting the building opens a panel that lists the occupants. Clicking a name selects that
+    unit, and its selection ring moves to the building.
+  - No canopy fade is needed, because a solid 2x2 hides nothing.
+- **TUI:** the entrance tile is drawn like any tile. The front-middle footprint cell shows the
+  occupant count while anyone is inside, and the side panel lists the occupants.
+- **Risk: medium.** Every system that reads unit positions has to be checked for `inside`.
+  Hidden units also cut against "readable simulation" (vision pillar 4), which the badge, the
+  panel and the hover tooltip ("Mai: studying in the Academy") have to make up for.
+  **Size:** about 4 to 5 PRs on top of the current plan:
+  1. sim: entrance, `inside` state, enter and leave, the placement rule;
+  2. sim: study (and later sleep) using places inside;
+  3. client: hidden occupants, badge, building panel;
+  4. TUI: occupants;
+  5. possibly the placement ghost showing the entrance tile.
+
+### (c) A real interior
+
+Each building has an interior map (or a layer of the main map) that units walk into through a
+portal, shown either by switching the view or as a cutaway.
+
+- **Sim:**
+  - `Pos` gains a map or layer id. Every structure keyed by position needs it too: jobs, ground
+    and stored items, zones, sites, heat, regions, `Flood` and `path`.
+  - Pathing crosses portals, and regions need portal edges.
+  - Interiors need content (floors, seats, beds), which means a layout format in data.
+  - Saves need a `SAVE_VERSION` bump.
+- **Client and TUI:**
+  - a view mode or a cutaway renderer;
+  - interior art for every building;
+  - smooth movement and selection across views.
+- **Scale problem:** a 2x2 building has a 2x2 interior, which is four tiles. Interiors are only
+  worth having for much bigger buildings, or for rooms the player builds from walls as in
+  RimWorld. That is a different building model, not an extension of this one.
+- **Risk: high. Size:** 10 to 15 PRs or more, plus an art pass.
+
+### Recommendation
+
+**(b), staged after the current plan.** It is the only option where "inside" means something,
+with a capacity and a list of who is in a building, without changing the map model. It builds
+on the solid footprints rather than replacing them. The entrance is simply the ring tile the
+design already picks for the door side. Ship #206 to #214 as they are (halls solid, used from
+the ring), then add (b) as a follow-up epic. Until then, (a) stays available per building in
+data. The orchard is already walkable, and the Meditation Pavilion could be too if the owner
+likes units visible among its pillars.
+
+How #207 to #214 change:
+
+- **Under (a):** #208's stand rule is already right for walkable buildings, and #214 leaves the
+  halls `passable = true`. #210's fade grows to "faded while occupied". Layered art would be
+  four new art issues. No new sim issues.
+- **Under (b):** none of #206 to #214 change. Four or five new issues follow #208, #210 and
+  #212: the sim location state, places inside, the client occupants panel and badge, the TUI,
+  and the entrance shown in the #211 ghost. I'll file them once the owner picks (b).
+- **Under (c):** #206 to #214 still deliver the outside of the building. Interiors would need a
+  design issue of their own first.
+
+## Larger art (question 4)
+
+The owner asked to see larger art for the 2x2 buildings, compared with today's 32x32 sprites on
+the new footprints. The sprites below are authored as text grids in the `art/*.toml` format
+([mockups/196/art-larger.toml](../../mockups/196/art-larger.toml)). Each starts from the
+building's current grid and adds storeys, roofs, chimneys and pillars. They are rendered with a
+script that matches `cargo xtask art` pixel for pixel (checked against the current sheet). They
+are mockups only and are not in `art/` or the game.
+
+Each is 32 px wide, so it still fills its 2x2 footprint, and 35 to 42 px tall (including the outline) in a 32x48 cell.
+The roof rises up to one tile into the row behind, as tree canopies do. The 3x3 bison stable is
+a 48x48 sketch (two stalls) to show what the next size up looks like.
+
+![Larger art compared](../../mockups/196/large-art-compare.png)
+
+![In the world, next to units and trees](../../mockups/196/large-art-in-world.png)
+
+- **What it buys:** scale. A unit is 16 px tall, so today a hall is only twice the height of the
+  people using it. At 40 px, the halls read as the settlement's landmarks, and each nation's
+  silhouette is stronger: the Fire pagoda gains a storey and the Earth library a second floor.
+- **What it costs:**
+  - Roofs overhang the row behind, so building sprites need the #77 fade wherever they extend
+    past their footprint. #210 already includes this rule.
+  - Each larger sprite is a redraw. The rest of the Fire set (kiln, smelter, engine, lightning
+    station) and the orchard would follow the forge's treatment.
+- **Format and loader changes:**
+  - A sheet's `cell` is already per sheet in `xtask/src/art.rs`, so tall sprites go on sheets
+    with `cell = [32, 48]`: one per nation, or each nation's sheet moves to 32x48 cells. 1x1
+    buildings keep their 32x32 sheets.
+  - On the client, `sprites::Cell` already has `w` and `h` in 16 px units, so a `tall()` helper
+    (`w: 2, h: 3`) sits next to `big()`, and 3x3 is `w: 3, h: 3` on a `[48, 48]` sheet.
+  - The anchor doesn't change: the bottom-centre of the sprite sits at the bottom-middle of the
+    footprint, so taller art only extends upward.
+  - The client test that expects a 32x32 rect and the art-width test (#210) read the cell size
+    from the sheet instead.
+- **Recommendation:** adopt 32x48 for the four study halls first, because they are the
+  landmarks every nation builds. Then do the production buildings as #124 and #142 give them a
+  purpose. Keep the bison stable at 2x2 for now: the 3x3 sketch shows it works, but it would be
+  a footprint change as well as new art. #213 (the igloo) is unchanged either way.
+- **Follow-ups if adopted:** one art issue per nation sheet (tall halls first, then the rest),
+  each blocked by #210 for the loader's tall cells. I'll file them once the owner decides.
+
 ## Follow-up issues
 
 Each is sized for one PR. Blocked-by links are recorded on the issues.
@@ -263,16 +433,14 @@ Each is sized for one PR. Blocked-by links are recorded on the issues.
 
 ## Open questions for the owner
 
-1. **Which buildings grow?** I recommend the table above: the four study halls, the orchard,
-   windmill and bison stable, and all five Fire buildings become 2x2. The bed, campfire, earth
-   wall, wind turbine and igloo stay 1x1.
-2. **Do study halls become solid?** I recommend yes. Scholars study from the tiles around the
-   hall, and nobody walks through it. The alternative is a walkable hall (scholars stand inside)
-   that still blocks other buildings. That fits the open Meditation Pavilion, but units would
-   draw over its pillars.
-3. **Is rotation needed?** I recommend no. All the art faces the camera with its door at the
-   bottom. Rotation would need four views of every sprite for a small gain in layout.
-4. **Should any art be redrawn?** I recommend no redraw for 2x2, since the 32x32 art already
-   fills it, plus one small redraw: the igloo, which is 30 px wide on a 16 px tile, narrowed to
-   about 18 px so that igloos can stand side by side (#213). Leave 3x3 (a bigger bison stable or
-   lightning station with new 48x48 art) for later. The schema and the client already allow it.
+Decided on 2026-10-25: the size table (question 1, as recommended) and no rotation (question 3).
+Still open:
+
+- **Question 2, units inside buildings: solid halls, or which way in?** I recommend shipping solid halls
+   used from the ring now (#206 to #214 as filed), then adding (b), an entrance with "inside" as
+   a state, as a follow-up of about 4 to 5 PRs. (a), a walkable footprint, is nearly free in the
+   sim but looks messy. (c), real interiors, is a different building model and 10 to 15 PRs or
+   more. See [Units inside buildings](#units-inside-buildings-question-2).
+- **Question 4, larger art?** I recommend 32x48 art for the four study halls first, with the production
+   buildings following as they gain a purpose. Keep the bison stable at 2x2 for now, and narrow
+   the igloo (#213) either way. See [Larger art](#larger-art-question-4).
