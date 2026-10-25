@@ -1,4 +1,5 @@
-//! Buildings: constructible, 1x1 structures (`data/buildings.toml`, issue #64).
+//! Buildings: constructible structures (`data/buildings.toml`, issue #64), each covering a
+//! rectangle of tiles (`BuildingDef::footprint`, #207; docs/design/buildings.md).
 //!
 //! A `BuildingDef` just says what a building costs, how long it takes to build and whether units
 //! may walk onto it once it's finished; everything about *designating* one, hauling its cost to
@@ -28,6 +29,7 @@ use std::collections::HashMap;
 use serde::Deserialize;
 
 use crate::defs::{DefsError, ResourceDef, ResourceId};
+use crate::geom::{Footprint, Pos};
 use crate::jobs::{ItemDef, ItemId};
 use crate::nation::Nation;
 use crate::path::STRAIGHT;
@@ -49,6 +51,43 @@ pub struct Building {
     /// Saves from before rail existed have none.
     #[serde(default)]
     pub rail: bool,
+    /// This tile's offset from the building's anchor (its top-left tile, `[0, 0]`), `[x, y]`.
+    /// Every tile of a footprint carries its own copy of the building (#207).
+    #[serde(default, skip_serializing_if = "is_anchor")]
+    pub part: [u8; 2],
+    /// The footprint it was built with, `[w, h]`. Baked on like `passable`, never re-derived
+    /// from `BuildingDef::footprint`, so a building keeps its size if the data changes later.
+    /// Skipped when 1x1, so a world of 1x1 buildings saves as it did before footprints.
+    #[serde(default = "one_by_one", skip_serializing_if = "is_one_by_one")]
+    pub size: [u8; 2],
+}
+
+impl Building {
+    /// A 1x1 building.
+    pub fn new(id: BuildingId, passable: bool, rail: bool) -> Self {
+        Self { id, passable, rail, part: [0, 0], size: ONE_BY_ONE }
+    }
+
+    /// The footprint this tile belongs to, given the tile's own position.
+    pub fn footprint(&self, pos: Pos) -> Footprint {
+        let anchor = Pos::new(pos.x - i32::from(self.part[0]), pos.y - i32::from(self.part[1]));
+        Footprint::new(anchor, self.size[0], self.size[1])
+    }
+}
+
+/// The size of a building or site with no footprint in the data.
+pub const ONE_BY_ONE: [u8; 2] = [1, 1];
+
+pub(crate) fn one_by_one() -> [u8; 2] {
+    ONE_BY_ONE
+}
+
+pub(crate) fn is_one_by_one(size: &[u8; 2]) -> bool {
+    *size == ONE_BY_ONE
+}
+
+fn is_anchor(part: &[u8; 2]) -> bool {
+    *part == [0, 0]
 }
 
 /// A building units sleep in (`[building.bed]`).
@@ -141,6 +180,9 @@ pub struct BuildingDef {
     pub work: f32,
     /// Whether units may walk onto the tile once the building is finished.
     pub passable: bool,
+    /// The tiles it covers, `(w, h)`, each 1 to 4 (#207). `(1, 1)` unless the data says
+    /// otherwise.
+    pub footprint: (u8, u8),
     /// How many units may study here at once. 0 unless this is a study hall (issue #21); a
     /// nonzero value is what tells `world/build.rs` to open that many `JobKind::Study` jobs when
     /// construction finishes.
@@ -179,6 +221,9 @@ impl BuildingDef {
         self.names.get(&nation).map(String::as_str).unwrap_or(&self.name)
     }
 }
+
+/// The longest side a footprint may have, in tiles.
+const MAX_SIDE: u8 = 4;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -231,6 +276,8 @@ struct RawBuilding {
     cost: Vec<RawCost>,
     work: f32,
     passable: bool,
+    #[serde(default = "one_by_one")]
+    footprint: [u8; 2],
     #[serde(default)]
     seats: u32,
     bed: Option<RawBed>,
@@ -297,6 +344,19 @@ impl BuildingsFile {
                     ));
                 }
             }
+            let [w, h] = b.footprint;
+            if !(1..=MAX_SIDE).contains(&w) || !(1..=MAX_SIDE).contains(&h) {
+                return err(format!(
+                    "building {}: footprint sides must be 1 to {MAX_SIDE} tiles, not [{w}, {h}]",
+                    b.id
+                ));
+            }
+            if b.bed.is_some() && b.footprint != ONE_BY_ONE {
+                return err(format!(
+                    "building {}: a bed must be 1x1 (one sleeper lies on its one tile)",
+                    b.id
+                ));
+            }
             let bonus_ok = |x: f32| x.is_finite() && x >= 1.0;
             if let Some(bed) = &b.bed
                 && !(bonus_ok(bed.sleep_bonus) && bed.seek_tiles > 0)
@@ -353,6 +413,7 @@ impl BuildingsFile {
                 cost,
                 work: b.work,
                 passable: b.passable,
+                footprint: (w, h),
                 seats: b.seats,
                 bed: b.bed.map(|d| BedDef { sleep_bonus: d.sleep_bonus, seek_tiles: d.seek_tiles }),
                 heat: b.heat.map(|d| HeatDef {
@@ -508,6 +569,28 @@ mod tests {
         assert!(none.unwrap_err().0.contains("bed needs"));
         let tiny = resolve(&one("[building.heat]\nradius = 0\nsleep_bonus = 1.2\nseek_tiles = 5"));
         assert!(tiny.unwrap_err().0.contains("heat needs"));
+    }
+
+    #[test]
+    fn footprints_default_to_one_tile_and_are_validated() {
+        let defs = Defs::bundled();
+        assert!(defs.buildings.iter().all(|b| b.footprint == (1, 1)), "#214 turns sizes on");
+        let one = |extra: &str| {
+            format!(
+                "[[building]]\nid = \"hall\"\nname = \"Hall\"\nverb = \"Build\"\nwork = 1.0\n\
+                 passable = false\n{extra}\n"
+            )
+        };
+        assert_eq!(resolve(&one("footprint = [2, 3]")).unwrap()[0].footprint, (2, 3));
+        assert_eq!(resolve(&one("footprint = [4, 1]")).unwrap()[0].footprint, (4, 1));
+        for bad in ["[0, 1]", "[1, 0]", "[5, 2]", "[2, 5]"] {
+            let r = resolve(&one(&format!("footprint = {bad}")));
+            assert!(r.unwrap_err().0.contains("footprint sides"), "{bad}");
+        }
+        let bed = "[building.bed]\nsleep_bonus = 1.2\nseek_tiles = 5";
+        resolve(&one(&format!("footprint = [1, 1]\n{bed}"))).unwrap();
+        let big_bed = resolve(&one(&format!("footprint = [2, 1]\n{bed}")));
+        assert!(big_bed.unwrap_err().0.contains("bed must be 1x1"));
     }
 
     #[test]

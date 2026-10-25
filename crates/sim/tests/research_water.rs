@@ -55,8 +55,7 @@ fn ice_construction_unlocks_the_igloo_for_water_only() {
             for dx in -3..=3 {
                 let pos = Pos::new(near.x + dx, near.y + dy);
                 match w.apply(Command::DesignateBuild { pos, building: igloo }, &defs) {
-                    Err(CommandError::Build(BuildError::CannotBuild | BuildError::OutOfBounds)) => {
-                    }
+                    Err(CommandError::Build(BuildError::CannotBuild { .. })) => {}
                     other => {
                         last = Some(other);
                         break;

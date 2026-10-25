@@ -1,22 +1,26 @@
 //! Construction: designating a building, hauling its cost to the site, and the work that
 //! finishes it (`data/buildings.toml`, issue #64).
 //!
-//! A build is a job like a harvest (`JobKind::Build`). The player designates a free, buildable
-//! tile (`Command::DesignateBuild`); one unit claims it and sees the whole thing through: fetch
-//! each item the building costs, a trip at a time, from the nearest stockpile or ground stack it
-//! can reach, then work the site for `BuildingDef::work` seconds (scaled by the nation's
-//! `construction` modifier, data/nations.toml). Needs pre-empt it and progress (both materials
-//! delivered and work done) is kept, exactly as for harvests.
+//! A build is a job like a harvest (`JobKind::Build`). The player designates a building's
+//! anchor, the top-left tile of its footprint (`Command::DesignateBuild`, #207), and the whole
+//! footprint must be free, buildable land (`World::check_build`); one unit claims it and sees
+//! the whole thing through: fetch each item the building costs, a trip at a time, from the
+//! nearest stockpile or ground stack it can reach, then work the site for `BuildingDef::work`
+//! seconds (scaled by the nation's `construction` modifier, data/nations.toml). Needs pre-empt it
+//! and progress (both materials delivered and work done) is kept, exactly as for harvests.
 //!
-//! On completion the tile gets a `Building` (`World::building_at`): `BuildingDef::passable` is
-//! baked onto it, so pathfinding (`path.rs`, `flood.rs`) never has to consult the defs to know
-//! whether it blocks movement. What a finished building *does* is mostly elsewhere: beds are
+//! On completion every footprint tile gets a copy of the `Building` (`World::building_at`), with
+//! its own `part` and the footprint's `size`. `BuildingDef::passable` is baked onto it, so
+//! pathfinding (`path.rs`, `flood.rs`) never has to consult the defs to know whether it blocks
+//! movement. What a finished building *does* is mostly elsewhere: beds are
 //! slept in by `work.rs`, and a building that keeps a fire (`BuildingDef::heat`) lights it here,
 //! in `heat.rs`' terms, the moment it is finished (#58). A study hall's seats, which `study.rs`
 //! opens as jobs, are also opened right away.
 
-use crate::building::{Building, BuildingId};
+use crate::building::{Building, BuildingId, is_one_by_one, one_by_one};
+use crate::defs::Terrain;
 use crate::flood::Flood;
+use crate::geom::Footprint;
 use crate::jobs::{ItemId, JobKind, Stack};
 
 use super::work::route_from;
@@ -27,10 +31,9 @@ use super::*;
 pub enum BuildError {
     /// There is no building with this id.
     UnknownBuilding,
-    OutOfBounds,
-    /// The tile isn't free: it's impassable, or a building already stands (or is being built)
-    /// there.
-    CannotBuild,
+    /// A footprint tile can't take the building: `at` is the first such tile, row-major from the
+    /// anchor, and `why` says what is in the way, so a frontend can name it.
+    CannotBuild { at: Pos, why: Blocker },
     /// The building needs a tech the nation doesn't know yet. The client can look up its name
     /// for a reason like "Requires Fire Making" (issue #22).
     NotResearched(TechId),
@@ -42,8 +45,7 @@ impl std::fmt::Display for BuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnknownBuilding => f.write_str("no such building"),
-            Self::OutOfBounds => f.write_str("off the map"),
-            Self::CannotBuild => f.write_str("can't build here"),
+            Self::CannotBuild { why, .. } => write!(f, "{why}"),
             Self::NotResearched(_) => f.write_str("not researched yet"),
             Self::NotDesignated => f.write_str("not designated"),
         }
@@ -51,6 +53,36 @@ impl std::fmt::Display for BuildError {
 }
 
 impl std::error::Error for BuildError {}
+
+/// Why one tile can't be part of a new building's footprint (`World::build_blocker`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Blocker {
+    OffMap,
+    /// The ground isn't `Land` or `Coast`: water, mountains and fords (which mapgen placed to
+    /// keep landmasses connected, so nothing may close one) can't be built on.
+    Terrain,
+    /// A tree, rock or other resource stands there.
+    Resource,
+    /// A finished building stands there.
+    Building,
+    /// Another building is designated there.
+    Site,
+    /// It is a stockpile tile, which a building would bury.
+    Stockpile,
+}
+
+impl std::fmt::Display for Blocker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::OffMap => "off the map",
+            Self::Terrain => "can't build on this ground",
+            Self::Resource => "something is in the way",
+            Self::Building => "a building is in the way",
+            Self::Site => "already designated",
+            Self::Stockpile => "a stockpile is in the way",
+        })
+    }
+}
 
 /// Where a unit fetching a building's cost found it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,53 +98,122 @@ pub(super) struct Site {
     pub building: BuildingId,
     delivered: Vec<u32>,
     progress: f32,
+    /// The footprint it was designated with, `[w, h]`; the site is keyed by its anchor. Skipped
+    /// when 1x1, like `Building::size`.
+    #[serde(default = "one_by_one", skip_serializing_if = "is_one_by_one")]
+    size: [u8; 2],
+}
+
+impl Site {
+    fn footprint(&self, anchor: Pos) -> Footprint {
+        Footprint::new(anchor, self.size[0], self.size[1])
+    }
 }
 
 /// Queries, and the designations behind `Command::DesignateBuild` and `Command::CancelBuild`.
 impl World {
-    /// Build designations that aren't finished, with the building and work done so far, in tile
-    /// order.
-    pub fn build_sites(&self) -> impl Iterator<Item = (Pos, BuildingId, f32)> + '_ {
-        self.sites.iter().map(|(&p, s)| (p, s.building, s.progress))
+    /// Build designations that aren't finished, with the building and work done so far, in
+    /// anchor order.
+    pub fn build_sites(&self) -> impl Iterator<Item = (Footprint, BuildingId, f32)> + '_ {
+        self.sites.iter().map(|(&p, s)| (s.footprint(p), s.building, s.progress))
     }
 
-    /// The unfinished build designation on `pos`, if any: the building, how much of each cost
-    /// entry has been delivered (parallel to `BuildingDef::cost`) and the work done so far (out
-    /// of `BuildingDef::work`). For a client to show a site's progress.
+    /// The unfinished build designation covering `pos` (any tile of its footprint), if any: the
+    /// building, how much of each cost entry has been delivered (parallel to
+    /// `BuildingDef::cost`) and the work done so far (out of `BuildingDef::work`). For a client
+    /// to show a site's progress.
     pub fn build_site(&self, pos: Pos) -> Option<(BuildingId, &[u32], f32)> {
-        let s = self.sites.get(&pos)?;
+        let (_, s) = self.site_at(pos)?;
         Some((s.building, &s.delivered, s.progress))
     }
 
-    /// The building finished on `pos`, if any.
+    /// The building finished on `pos`, any tile of its footprint, if any.
     pub fn building_at(&self, pos: Pos) -> Option<BuildingId> {
         self.map.get(pos)?.building.map(|b| b.id)
     }
 
-    /// Designates a building on `pos`.
+    /// The footprint of the finished building or the build site covering `pos`, if any.
+    pub fn footprint_at(&self, pos: Pos) -> Option<Footprint> {
+        match self.map.get(pos)?.building {
+            Some(b) => Some(b.footprint(pos)),
+            None => self.site_at(pos).map(|(anchor, s)| s.footprint(anchor)),
+        }
+    }
+
+    /// Every finished building once, with its footprint, in anchor order (row-major).
+    pub fn buildings(&self) -> impl Iterator<Item = (Footprint, BuildingId)> + '_ {
+        self.map.iter().filter_map(|(p, t)| {
+            let b = t.building?;
+            (b.part == [0, 0]).then(|| (b.footprint(p), b.id))
+        })
+    }
+
+    /// The site whose footprint covers `pos`, with its anchor. Sites are few (tens), so this
+    /// scans them rather than keep a second index in sync.
+    pub(super) fn site_at(&self, pos: Pos) -> Option<(Pos, &Site)> {
+        self.sites.iter().find(|&(&a, s)| s.footprint(a).contains(pos)).map(|(&a, s)| (a, s))
+    }
+
+    /// Why `pos` can't be part of a new building's footprint, if anything. Units standing there
+    /// don't count: they step aside.
+    pub fn build_blocker(&self, pos: Pos) -> Option<Blocker> {
+        let Some(tile) = self.map.get(pos) else { return Some(Blocker::OffMap) };
+        if !matches!(tile.terrain, Terrain::Land | Terrain::Coast) {
+            Some(Blocker::Terrain)
+        } else if tile.resource.is_some() {
+            Some(Blocker::Resource)
+        } else if tile.building.is_some() {
+            Some(Blocker::Building)
+        } else if self.site_at(pos).is_some() {
+            Some(Blocker::Site)
+        } else if self.zones.contains(&pos) {
+            Some(Blocker::Stockpile)
+        } else {
+            None
+        }
+    }
+
+    /// Whether `building` may be designated with its anchor (top-left tile) on `anchor`: the
+    /// tech first, then every footprint tile, row-major. Changes nothing, so a frontend can call
+    /// it to preview a placement.
+    pub fn check_build(
+        &self,
+        anchor: Pos,
+        building: BuildingId,
+        defs: &Defs,
+    ) -> Result<(), BuildError> {
+        let def = defs.buildings.get(building.0 as usize).ok_or(BuildError::UnknownBuilding)?;
+        if let Some(t) = def.unlocked_by.filter(|&t| !self.research.is_known(t)) {
+            return Err(BuildError::NotResearched(t));
+        }
+        let (w, h) = def.footprint;
+        Footprint::new(anchor, w, h)
+            .tiles()
+            .find_map(|at| self.build_blocker(at).map(|why| BuildError::CannotBuild { at, why }))
+            .map_or(Ok(()), Err)
+    }
+
+    /// Designates a building with its anchor on `pos`: the whole footprint, or nothing.
     pub(super) fn designate_build(
         &mut self,
         pos: Pos,
         building: BuildingId,
         defs: &Defs,
     ) -> Result<JobId, BuildError> {
-        let def = defs.buildings.get(building.0 as usize).ok_or(BuildError::UnknownBuilding)?;
-        if let Some(t) = def.unlocked_by.filter(|&t| !self.research.is_known(t)) {
-            return Err(BuildError::NotResearched(t));
-        }
-        let tile = self.map.get(pos).ok_or(BuildError::OutOfBounds)?;
-        if !self.rules.passable(tile) || tile.building.is_some() || self.sites.contains_key(&pos) {
-            return Err(BuildError::CannotBuild);
-        }
-        self.sites
-            .insert(pos, Site { building, delivered: vec![0; def.cost.len()], progress: 0.0 });
+        self.check_build(pos, building, defs)?;
+        let def = defs.building(building);
+        let (w, h) = def.footprint;
+        let delivered = vec![0; def.cost.len()];
+        self.sites.insert(pos, Site { building, delivered, progress: 0.0, size: [w, h] });
         Ok(self.add_job(JobKind::Build { pos }))
     }
 
-    /// Withdraws the build designation on `pos`. Materials already delivered drop on the ground
-    /// for hauling; work done on the site is lost.
+    /// Withdraws the build designation covering `pos` (any tile of its footprint). Materials
+    /// already delivered drop on the ground near its anchor for hauling; work done on the site
+    /// is lost.
     pub(super) fn cancel_build(&mut self, pos: Pos, defs: &Defs) -> Result<(), BuildError> {
-        let Some(site) = self.sites.remove(&pos) else { return Err(BuildError::NotDesignated) };
+        let Some((pos, _)) = self.site_at(pos) else { return Err(BuildError::NotDesignated) };
+        let site = self.sites.remove(&pos).expect("just found");
         self.jobs.retain(|j| j.kind != JobKind::Build { pos });
         let def = defs.building(site.building);
         for (cost, &count) in def.cost.iter().zip(&site.delivered) {
@@ -261,17 +362,20 @@ impl World {
                     return;
                 }
                 let building = Building {
-                    id: site.building,
-                    passable: def.passable,
-                    rail: def.rail.is_some(),
+                    size: site.size,
+                    ..Building::new(site.building, def.passable, def.rail.is_some())
                 };
+                let footprint = site.footprint(pos);
                 let seats = def.seats;
                 if let Some(orchard) = &def.orchard {
                     self.open_orchard(pos, orchard);
                 }
                 self.sites.remove(&pos);
                 self.jobs.remove(idx);
-                self.map[pos].building = Some(building);
+                for p in footprint.tiles() {
+                    let part = [(p.x - pos.x) as u8, (p.y - pos.y) as u8];
+                    self.map[p].building = Some(Building { part, ..building });
+                }
                 self.map_changed();
                 self.open_study_seats(pos, seats);
                 self.light_building_fire(pos, def);

@@ -262,7 +262,7 @@ fn designate_demo_sites(session: &mut Session, finished: bool) {
         let tiles = if rail { rail_yard(pos) } else { vec![pos] };
         for pos in tiles {
             if let Some(tile) = session.world.map.get_mut(pos) {
-                tile.building = Some(fn_sim::building::Building { id, passable, rail });
+                tile.building = Some(fn_sim::building::Building::new(id, passable, rail));
             }
         }
     }
@@ -305,7 +305,7 @@ fn orchard_demo(session: &mut Session, ticks: u32) {
     let passable = session.defs.building(id).passable;
     let orchard = Pos::new(origin.x + 8, origin.y);
     if let Some(tile) = session.world.map.get_mut(orchard) {
-        tile.building = Some(fn_sim::building::Building { id, passable, rail: false });
+        tile.building = Some(fn_sim::building::Building::new(id, passable, false));
     }
     let wild = Pos::new(origin.x + 17, origin.y);
     if let Some(tile) = session.world.map.get_mut(wild) {

@@ -417,13 +417,11 @@ mod tests {
         let mut m = map(&["...", "...", "..."]);
         let r = MoveRules::default();
         for y in 0..3 {
-            m[Pos::new(1, y)].building =
-                Some(Building { id: BuildingId(0), passable: false, rail: false });
+            m[Pos::new(1, y)].building = Some(Building::new(BuildingId(0), false, false));
         }
         assert_eq!(find(&m, Pos::new(0, 1), Pos::new(2, 1), &r), None);
         for y in 0..3 {
-            m[Pos::new(1, y)].building =
-                Some(Building { id: BuildingId(0), passable: true, rail: false });
+            m[Pos::new(1, y)].building = Some(Building::new(BuildingId(0), true, false));
         }
         assert!(find(&m, Pos::new(0, 1), Pos::new(2, 1), &r).is_some());
     }
@@ -445,7 +443,7 @@ mod tests {
     fn lay_rail(m: &mut TileMap, tiles: impl IntoIterator<Item = Pos>) {
         use crate::building::{Building, BuildingId};
         for p in tiles {
-            m[p].building = Some(Building { id: BuildingId(0), passable: true, rail: true });
+            m[p].building = Some(Building::new(BuildingId(0), true, true));
         }
     }
 

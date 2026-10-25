@@ -589,7 +589,7 @@ fn designating_repeating_harvest_twice_does_not_duplicate_the_job() {
 fn lay_rail(w: &mut World, defs: &Defs, tiles: impl IntoIterator<Item = Pos>) {
     let id = defs.building_id("rail").expect("rail is defined");
     for p in tiles {
-        w.map[p].building = Some(crate::building::Building { id, passable: true, rail: true });
+        w.map[p].building = Some(crate::building::Building::new(id, true, true));
     }
     w.map_changed();
 }

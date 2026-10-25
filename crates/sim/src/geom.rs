@@ -20,6 +20,56 @@ impl Pos {
     }
 }
 
+/// The rectangle of tiles a building covers (docs/design/buildings.md, #207): `w` by `h` tiles
+/// with `anchor` as its top-left corner. Every walk over it (`tiles`, `ring`) is row-major, so
+/// anything that picks among them breaks ties the same way on every machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Footprint {
+    pub anchor: Pos,
+    pub w: u8,
+    pub h: u8,
+}
+
+impl Footprint {
+    pub const fn new(anchor: Pos, w: u8, h: u8) -> Self {
+        Self { anchor, w, h }
+    }
+
+    /// A 1x1 footprint on `pos`.
+    pub const fn single(pos: Pos) -> Self {
+        Self::new(pos, 1, 1)
+    }
+
+    /// The tiles it covers, row-major from the anchor.
+    pub fn tiles(self) -> impl Iterator<Item = Pos> {
+        let Pos { x, y } = self.anchor;
+        let (w, h) = (i32::from(self.w), i32::from(self.h));
+        (y..y + h).flat_map(move |ty| (x..x + w).map(move |tx| Pos::new(tx, ty)))
+    }
+
+    pub fn contains(self, p: Pos) -> bool {
+        let (dx, dy) = (p.x - self.anchor.x, p.y - self.anchor.y);
+        (0..i32::from(self.w)).contains(&dx) && (0..i32::from(self.h)).contains(&dy)
+    }
+
+    /// The tiles touching it from outside, corners included, row-major. For a 1x1 footprint
+    /// these are the same eight tiles as `path::NEIGHBORS`. Tiles off the map are included; the
+    /// caller filters them.
+    pub fn ring(self) -> impl Iterator<Item = Pos> {
+        let Pos { x, y } = self.anchor;
+        let (w, h) = (i32::from(self.w), i32::from(self.h));
+        (y - 1..=y + h)
+            .flat_map(move |ty| (x - 1..=x + w).map(move |tx| Pos::new(tx, ty)))
+            .filter(move |&p| !self.contains(p))
+    }
+
+    /// Chebyshev distance from `p` to the nearest tile it covers: 0 inside, 1 on the ring.
+    pub fn distance(self, p: Pos) -> i32 {
+        let gap = |v: i32, lo: i32, len: u8| (lo - v).max(v - (lo + i32::from(len) - 1)).max(0);
+        gap(p.x, self.anchor.x, self.w).max(gap(p.y, self.anchor.y, self.h))
+    }
+}
+
 const CARDINAL: [(i32, i32); 4] = [(0, 1), (0, -1), (1, 0), (-1, 0)];
 const DIAGONAL: [(i32, i32); 4] = [(1, 1), (1, -1), (-1, 1), (-1, -1)];
 
@@ -134,5 +184,66 @@ mod tests {
         let v: Vec<_> = g.iter().map(|(p, v)| (p, *v)).collect();
         assert!(v.iter().all(|(p, v)| p == v));
         assert_eq!(v[3].0, Pos::new(0, 1));
+    }
+
+    #[test]
+    fn footprint_tiles_are_row_major_from_the_anchor() {
+        let f = Footprint::new(Pos::new(2, 5), 3, 2);
+        let tiles: Vec<_> = f.tiles().collect();
+        let want: Vec<_> =
+            [(2, 5), (3, 5), (4, 5), (2, 6), (3, 6), (4, 6)].map(|(x, y)| Pos::new(x, y)).into();
+        assert_eq!(tiles, want);
+        assert!(tiles.iter().all(|&p| f.contains(p)));
+        for outside in [(1, 5), (5, 5), (2, 4), (2, 7), (5, 7)] {
+            assert!(!f.contains(Pos::new(outside.0, outside.1)), "{outside:?}");
+        }
+        assert_eq!(Footprint::single(Pos::new(0, 0)).tiles().count(), 1);
+    }
+
+    #[test]
+    fn footprint_ring_surrounds_it_row_major_with_corners() {
+        let f = Footprint::new(Pos::new(1, 1), 2, 2);
+        let ring: Vec<_> = f.ring().collect();
+        let want: Vec<_> = [
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (3, 0),
+            (0, 1),
+            (3, 1),
+            (0, 2),
+            (3, 2),
+            (0, 3),
+            (1, 3),
+            (2, 3),
+            (3, 3),
+        ]
+        .map(|(x, y)| Pos::new(x, y))
+        .into();
+        assert_eq!(ring, want);
+        assert!(ring.iter().all(|&p| f.distance(p) == 1));
+
+        // A 1x1 ring is the eight neighbours `path::NEIGHBORS` steps to.
+        let one = Footprint::single(Pos::new(5, 5));
+        let mut ring: Vec<_> = one.ring().collect();
+        let mut neighbours: Vec<_> =
+            crate::path::NEIGHBORS.map(|(dx, dy)| Pos::new(5 + dx, 5 + dy)).into();
+        assert!(ring.is_sorted_by_key(|p| (p.y, p.x)), "row-major");
+        ring.sort();
+        neighbours.sort();
+        assert_eq!(ring, neighbours);
+    }
+
+    #[test]
+    fn footprint_distance_is_chebyshev_to_the_rectangle() {
+        let f = Footprint::new(Pos::new(4, 4), 2, 3);
+        assert!(f.tiles().all(|p| f.distance(p) == 0));
+        assert_eq!(f.distance(Pos::new(3, 3)), 1);
+        assert_eq!(f.distance(Pos::new(7, 5)), 2);
+        assert_eq!(f.distance(Pos::new(5, 10)), 4);
+        assert_eq!(f.distance(Pos::new(0, 0)), 4);
+        // On a 1x1 footprint it is plain Chebyshev distance.
+        let p = Pos::new(9, 2);
+        assert_eq!(Footprint::single(p).distance(Pos::new(6, 7)), p.chebyshev(Pos::new(6, 7)));
     }
 }

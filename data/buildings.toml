@@ -11,6 +11,12 @@
 # - work:     in-game seconds of work once the cost is fully delivered, at a `construction`
 #             modifier of 1.0 (data/nations.toml).
 # - passable: whether units may walk onto the tile once the building is finished.
+# - footprint: [width, height] in tiles, each 1 to 4; default [1, 1] (issue #207,
+#             docs/design/buildings.md). The player places the top-left tile (the anchor) and
+#             the building covers the rectangle right and down from it, every tile of which
+#             must be free buildable land. A building with a bed must be 1x1. A building keeps
+#             the size it was built with, so changing this leaves buildings already standing in
+#             a save as they were.
 # - seats:    how many units may study here at once (0 unless this is a study hall).
 # - bed:      units sleep here. A tired unit walks to the nearest bed nobody else is using, if
 #             one is within `seek_tiles` path tiles, and sleeps there, regaining energy

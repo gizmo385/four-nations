@@ -317,7 +317,7 @@ mod tests {
             })
             .unwrap();
         session.world.map.get_mut(pos).unwrap().building =
-            Some(fn_sim::building::Building { id, passable: true, rail: false });
+            Some(fn_sim::building::Building::new(id, true, false));
         session.world.adopt_orchards(&session.defs);
         app.insert_resource(Sim(session))
             .init_resource::<ItemMarkers>()

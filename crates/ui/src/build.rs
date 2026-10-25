@@ -282,7 +282,10 @@ mod tests {
         let err = earth.apply(Command::DesignateBuild { pos, building: campfire }).unwrap_err();
         assert!(matches!(err, CommandError::Build(BuildError::NotResearched(_))));
         assert_eq!(describe_error(&earth, err), "requires Fire Making");
-        let off = CommandError::Build(BuildError::OutOfBounds);
+        let off = CommandError::Build(BuildError::CannotBuild {
+            at: Pos::new(-1, 0),
+            why: fn_sim::world::Blocker::OffMap,
+        });
         assert_eq!(describe_error(&earth, off), "off the map");
     }
 

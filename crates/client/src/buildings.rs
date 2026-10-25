@@ -77,7 +77,7 @@ fn sync_buildings(
     let mut wanted: BTreeMap<Pos, (BuildingId, Option<f32>)> = sim
         .world
         .build_sites()
-        .map(|(p, id, work)| (p, (id, Some(work / sim.defs.building(id).work))))
+        .map(|(f, id, work)| (f.anchor, (id, Some(work / sim.defs.building(id).work))))
         .collect();
     wanted
         .extend(sim.world.map.iter().filter_map(|(p, t)| Some((p, (t.building?.id, None::<f32>)))));
@@ -242,7 +242,7 @@ mod tests {
             let hall = app.world().resource::<Sim>().defs.building_id("study_hall").unwrap();
             let pos = free_tile(app.world().resource::<Sim>());
             app.world_mut().resource_mut::<Sim>().world.map.get_mut(pos).unwrap().building =
-                Some(fn_sim::building::Building { id: hall, passable: true, rail: false });
+                Some(fn_sim::building::Building::new(hall, true, false));
             app.update();
             let (_, sprite, building) = sprite_at(&app, pos).expect("a finished building");
             assert_eq!(sprite.color.alpha(), 1.0);
@@ -260,7 +260,7 @@ mod tests {
         let wall = app.world().resource::<Sim>().defs.building_id(waiting).unwrap();
         let pos = free_tile(app.world().resource::<Sim>());
         app.world_mut().resource_mut::<Sim>().world.map.get_mut(pos).unwrap().building =
-            Some(fn_sim::building::Building { id: wall, passable: false, rail: false });
+            Some(fn_sim::building::Building::new(wall, false, false));
         app.update();
         let (_, _, building) = sprite_at(&app, pos).expect("drawn anyway");
         assert_eq!(building.frames, &[sprites::buildings::UNFINISHED]);
@@ -282,7 +282,7 @@ mod tests {
             let mut sim = app.world_mut().resource_mut::<Sim>();
             sim.apply(Command::CancelBuild { pos }).unwrap();
             sim.world.map.get_mut(pos).unwrap().building =
-                Some(fn_sim::building::Building { id: bed, passable: true, rail: false });
+                Some(fn_sim::building::Building::new(bed, true, false));
         }
         app.update();
         let (done, sprite, _) = sprite_at(&app, pos).unwrap();
@@ -300,7 +300,7 @@ mod tests {
         let pos = Pos::new(free.x.clamp(2, 60), free.y.clamp(2, 60));
         let lay = |app: &mut App, at: Pos| {
             app.world_mut().resource_mut::<Sim>().world.map.get_mut(at).unwrap().building =
-                Some(fn_sim::building::Building { id: rail, passable: true, rail: true });
+                Some(fn_sim::building::Building::new(rail, true, true));
         };
         let piece = |app: &App, at: Pos| {
             let (_, sprite, building) = sprite_at(app, at).expect("rail is drawn");
@@ -335,7 +335,7 @@ mod tests {
         let bed = app.world().resource::<Sim>().defs.building_id("bed").unwrap();
         let west = Pos::new(pos.x - 1, pos.y);
         app.world_mut().resource_mut::<Sim>().world.map.get_mut(west).unwrap().building =
-            Some(fn_sim::building::Building { id: bed, passable: true, rail: false });
+            Some(fn_sim::building::Building::new(bed, true, false));
         app.update();
         assert_eq!(piece(&app, pos), want(LINK_N | LINK_E | LINK_S));
         // The rail is drawn the same whatever the time: pieces do not animate.

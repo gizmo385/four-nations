@@ -247,7 +247,7 @@ mod tests {
         let pos = spots.into_iter().max_by_key(|&p| open(p)).expect("an open meadow");
         assert!(open(pos) >= 40, "the open meadow has room to plant");
         s.world.map.get_mut(pos).unwrap().building =
-            Some(fn_sim::building::Building { id, passable, rail: false });
+            Some(fn_sim::building::Building::new(id, passable, false));
         s.world.adopt_orchards(&s.defs);
         let at = |s: &Session| tooltip_lines(s, Tool::Select, pos).unwrap();
         assert!(at(&s).contains(&Line::Detail(format!("Tends 0 of {} trees", o.max_trees))));
