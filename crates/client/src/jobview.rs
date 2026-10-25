@@ -19,7 +19,7 @@ pub struct JobViewPlugin;
 impl Plugin for JobViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ItemMarkers>()
-            .add_systems(Update, (sync_resources, sync_item_markers).chain());
+            .add_systems(Update, (sync_resources, sync_new_resources, sync_item_markers).chain());
     }
 }
 
@@ -27,21 +27,66 @@ impl Plugin for JobViewPlugin {
 #[derive(Component)]
 pub struct ResourceSprite(pub Pos);
 
+/// Marks the `ResourceSprite` of an orchard's sapling (#142): a one-cell stand-in for the fruit
+/// tree it will become. It isn't greyed like a tree that is growing back (it has never borne
+/// fruit), and `sync_new_resources` swaps it for the tree once it has grown.
+#[derive(Component)]
+pub struct SaplingSprite;
+
 /// Despawns resource sprites whose tile no longer has a resource (harvested), and greys out the
 /// renewable ones that are growing back until they ripen again.
 fn sync_resources(
     mut commands: Commands,
     sim: Res<Sim>,
-    mut sprites: Query<(Entity, &ResourceSprite, &mut Sprite)>,
+    mut sprites: Query<(Entity, &ResourceSprite, &mut Sprite, Has<SaplingSprite>)>,
 ) {
-    for (entity, ResourceSprite(pos), mut sprite) in &mut sprites {
+    for (entity, ResourceSprite(pos), mut sprite, is_sapling) in &mut sprites {
         if sim.world.map.get(*pos).is_none_or(|t| t.resource.is_none()) {
             commands.entity(entity).despawn();
             continue;
         }
-        let tint = if sim.world.is_resting(*pos) { RESTING_TINT } else { Color::WHITE };
+        let resting = sim.world.is_resting(*pos) && !is_sapling;
+        let tint = if resting { RESTING_TINT } else { Color::WHITE };
         if sprite.color != tint {
             sprite.color = tint;
+        }
+    }
+}
+
+/// How often (in ticks) `sync_new_resources` looks over the map: twice a second.
+const NEW_RESOURCE_TICKS: u64 = 5;
+
+/// Draws the resources that appeared after the map was drawn, which is what an orchard does
+/// (#142): a sapling where it plants, and the full fruit tree in its place once that has grown.
+/// Nothing else is looked at, and not at all unless the sim has moved on.
+fn sync_new_resources(
+    mut commands: Commands,
+    art: Res<Art>,
+    sim: Res<Sim>,
+    drawn: Query<(Entity, &ResourceSprite, Has<SaplingSprite>)>,
+    mut last: Local<u64>,
+) {
+    let step = sim.world.tick / NEW_RESOURCE_TICKS;
+    if step == *last {
+        return;
+    }
+    *last = step;
+    let mut have = std::collections::HashSet::new();
+    for (entity, &ResourceSprite(pos), is_sapling) in &drawn {
+        let standing = sim.world.map.get(pos).is_some_and(|t| t.resource.is_some());
+        if is_sapling && standing && !sim.world.is_sapling(pos) {
+            // Grown: despawn the sapling (children and all) and draw the tree below.
+            commands.entity(entity).despawn();
+        } else {
+            have.insert(pos);
+        }
+    }
+    for (pos, tile) in sim.world.map.iter() {
+        if tile.resource.is_some()
+            && !have.contains(&pos)
+            && let Some(parts) = crate::resource_sprites(&art, &sim, pos, tile)
+        {
+            crate::spawn_resource(&mut commands, pos, parts);
         }
     }
 }
@@ -240,6 +285,109 @@ mod tests {
         app.world_mut().resource_mut::<Sim>().world.map.get_mut(pos).unwrap().resource = None;
         app.update();
         assert!(app.world().get_entity(sprite).is_err(), "sprite should be gone");
+    }
+
+    /// A world with an orchard standing on a free tile near the first unit, and an app that draws
+    /// new resources. Returns the orchard's tile.
+    fn orchard_app() -> (App, Pos) {
+        let mut app = App::new();
+        crate::insert_test_art(&mut app);
+        let mut session = Session::new(3, Nation::Air, 48, 32);
+        let id = session.defs.building_id("orchard").unwrap();
+        let home = session.world.units[0].pos;
+        let pos = session
+            .world
+            .map
+            .iter()
+            .filter(|(p, t)| {
+                t.terrain.is_walkable()
+                    && t.resource.is_none()
+                    && (6..12).contains(&p.x.abs_diff(home.x).max(p.y.abs_diff(home.y)))
+            })
+            .map(|(p, _)| p)
+            // The one with the most open land around it, so there is room to plant.
+            .max_by_key(|&p| {
+                let near = |q: &Pos| p.x.abs_diff(q.x).max(p.y.abs_diff(q.y)) <= 4;
+                let map = &session.world.map;
+                map.iter()
+                    .filter(|(q, t)| {
+                        near(q) && t.terrain == fn_sim::Terrain::Land && t.resource.is_none()
+                    })
+                    .count()
+            })
+            .unwrap();
+        session.world.map.get_mut(pos).unwrap().building =
+            Some(fn_sim::building::Building { id, passable: true, rail: false });
+        session.world.adopt_orchards(&session.defs);
+        app.insert_resource(Sim(session))
+            .init_resource::<ItemMarkers>()
+            .add_systems(Update, (sync_resources, sync_new_resources).chain());
+        (app, pos)
+    }
+
+    fn tick(app: &mut App, ticks: u64) {
+        let mut sim = app.world_mut().resource_mut::<Sim>();
+        let Session { world, defs, .. } = &mut **sim;
+        for _ in 0..ticks {
+            world.tick(defs);
+        }
+    }
+
+    fn sprites_at(app: &mut App, pos: Pos) -> Vec<(bool, Option<Rect>)> {
+        let mut q = app.world_mut().query::<(&ResourceSprite, &Sprite, Has<SaplingSprite>)>();
+        q.iter(app.world()).filter(|(r, _, _)| r.0 == pos).map(|(_, s, y)| (y, s.rect)).collect()
+    }
+
+    #[test]
+    fn an_orchards_planting_is_drawn_as_a_sapling_then_as_the_fruit_tree() {
+        let (mut app, _) = orchard_app();
+        app.update();
+        let (planted_after, ripe_after) = {
+            let sim = app.world().resource::<Sim>();
+            let orchard =
+                sim.defs.building(sim.defs.building_id("orchard").unwrap()).orchard.unwrap();
+            (orchard.plant_seconds, orchard.grow_seconds / orchard.tend_boost)
+        };
+        tick(&mut app, (planted_after * 10.0) as u64 + 10);
+        app.update();
+        let tree = {
+            let sim = app.world().resource::<Sim>();
+            sim.world.map.iter().find(|(p, _)| sim.world.is_sapling(*p)).map(|(p, _)| p)
+        }
+        .expect("the orchard planted a sapling");
+        let want = app.world().resource::<Art>().sprite(sprites::resources::SAPLING).rect;
+        assert_eq!(sprites_at(&mut app, tree), vec![(true, want)], "one sapling sprite, no tree");
+
+        tick(&mut app, (ripe_after * 10.0) as u64 + 20);
+        app.update();
+        let at = sprites_at(&mut app, tree);
+        assert_eq!(at.len(), 1, "the sapling is replaced, not joined: {at:?}");
+        assert!(!at[0].0, "a full tree now");
+        let fruit = sprites::resource_rule("fruit_tree", "plains").unwrap().cell;
+        assert_ne!(at[0].1, want);
+        // The grown tree has its canopy child, so it fades like any other tree (#77).
+        let mut canopies = app.world_mut().query::<(&crate::canopy::CanopyFade, &ChildOf)>();
+        let parents: Vec<Entity> = canopies.iter(app.world()).map(|(_, c)| c.parent()).collect();
+        let mut trunks = app.world_mut().query::<(Entity, &ResourceSprite)>();
+        assert!(trunks.iter(app.world()).any(|(e, r)| r.0 == tree && parents.contains(&e)));
+        assert_eq!(at[0].1.map(|r| r.size()), Some(Vec2::splat(fruit.w as f32 * 16.0)));
+    }
+
+    #[test]
+    fn a_sapling_is_not_greyed_like_a_tree_that_is_growing_back() {
+        let (mut app, _) = orchard_app();
+        let planted_after = 90.0;
+        tick(&mut app, (planted_after * 10.0) as u64 + 10);
+        app.update();
+        let tree = {
+            let sim = app.world().resource::<Sim>();
+            sim.world.map.iter().find(|(p, _)| sim.world.is_sapling(*p)).map(|(p, _)| p).unwrap()
+        };
+        assert!(app.world().resource::<Sim>().world.is_resting(tree));
+        let mut q = app.world_mut().query::<(&ResourceSprite, &Sprite)>();
+        let colors: Vec<Color> =
+            q.iter(app.world()).filter(|(r, _)| r.0 == tree).map(|(_, s)| s.color).collect();
+        assert_eq!(colors, vec![Color::WHITE]);
     }
 
     #[test]

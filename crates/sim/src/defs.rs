@@ -238,8 +238,8 @@ impl Defs {
         let (needs, foods) = parse::<NeedsFile>("needs.toml", needs)?.resolve(&resource_ids)?;
         let (jobs, items, harvests) =
             parse::<JobsFile>("jobs.toml", jobs)?.resolve(&resources, &foods, &needs, &techs)?;
-        let buildings =
-            parse::<BuildingsFile>("buildings.toml", buildings)?.resolve(&items, &techs)?;
+        let buildings = parse::<BuildingsFile>("buildings.toml", buildings)?
+            .resolve(&items, &techs, &resources)?;
         let biomes = parse::<BiomeFile>("biomes.toml", biomes)?.biome;
         let (chi, abilities) = parse::<BendingFile>("bending.toml", bending)?
             .resolve(&biomes, &resources, &harvests, &techs)?;
@@ -307,6 +307,17 @@ impl Defs {
                 if self.biome_id(b).is_none() {
                     return Err(DefsError(format!("resource {}: unknown biome {b:?}", r.id)));
                 }
+            }
+        }
+        for b in &self.buildings {
+            if let Some(o) = &b.orchard
+                && self.harvest(o.plants).is_none_or(|h| h.regrow.is_none())
+            {
+                return Err(DefsError(format!(
+                    "building {}: orchard plants {}, which must be a renewable harvest",
+                    b.id,
+                    self.resource(o.plants).id
+                )));
             }
         }
         for n in Nation::ALL {
@@ -465,6 +476,16 @@ mod tests {
         &BENDING[..BENDING.find("\n[[ability]]").unwrap()]
     }
 
+    /// The bundled buildings without the orchard's `[building.orchard]`, for tests whose resources
+    /// don't include the fruit tree it plants.
+    fn bare_buildings() -> String {
+        let start = BUILDINGS.find("[building.orchard]").unwrap();
+        let end = start
+            + BUILDINGS[start..].find("auto_pick = true\n").unwrap()
+            + "auto_pick = true\n".len();
+        format!("{}{}", &BUILDINGS[..start], &BUILDINGS[end..])
+    }
+
     fn with_biomes(biomes: &str) -> Result<Defs, DefsError> {
         // No resources, so they can't reference biomes missing from the test table.
         Defs::from_toml(
@@ -475,7 +496,7 @@ mod tests {
             &unlinked_needs(),
             &bare_jobs(),
             bare_bending(),
-            BUILDINGS,
+            &bare_buildings(),
         )
     }
 
@@ -489,7 +510,7 @@ mod tests {
             &unlinked_needs(),
             &bare_jobs(),
             bare_bending(),
-            BUILDINGS,
+            &bare_buildings(),
         )
     }
 
@@ -602,6 +623,28 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.0.contains("character"), "{err}");
+    }
+
+    #[test]
+    fn an_orchard_must_plant_a_renewable_resource() {
+        let from = "plants = \"fruit_tree\"";
+        assert!(BUILDINGS.contains(from));
+        let with_plants = |what: &str| {
+            Defs::from_toml(
+                BIOMES,
+                include_str!("../../../data/resources.toml"),
+                NATIONS,
+                RESEARCH,
+                NEEDS,
+                JOBS,
+                BENDING,
+                &BUILDINGS.replacen(from, &format!("plants = \"{what}\""), 1),
+            )
+        };
+        // A tree that is chopped down for good can't be tended.
+        let err = with_plants("oak_tree").unwrap_err();
+        assert!(err.0.contains("renewable"), "{err}");
+        assert!(with_plants("fruit_tree").is_ok() && with_plants("cabbage").is_ok());
     }
 
     fn with_needs(needs: &str) -> Result<Defs, DefsError> {

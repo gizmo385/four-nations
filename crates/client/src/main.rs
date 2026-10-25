@@ -33,7 +33,9 @@
 //! seconds from the moment the bend completes (negative: mid-channel, e.g. `-0.4`; positive: it
 //! has landed, e.g. `0.3`), so the shot catches the bender's pose and the cast effect (`cast_demo`,
 //! #166). `FN_CAST_ABILITY=ID` picks another of the nation's abilities for it and for `FN_FX_DEMO`
-//! (Fire's `inner_fire`, #123), researching its tech first.
+//! (Fire's `inner_fire`, #123), researching its tech first. `FN_ORCHARD_DEMO=TICKS` levels a
+//! meadow, puts a finished orchard and a wild fruit tree on it and runs the game TICKS ticks, so a
+//! shot shows saplings and grown trees (#142; 4500 ticks is 7.5 minutes).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -58,7 +60,7 @@ use fn_sim::world::{TICKS_PER_SECOND, Unit, UnitId};
 use fn_sim::{MapGenConfig, Nation, Pos, Tile};
 use fn_ui::{Session, Tool};
 use hud::HudPlugin;
-use jobview::{JobViewPlugin, ResourceSprite};
+use jobview::{JobViewPlugin, ResourceSprite, SaplingSprite};
 use research::{ResearchPlugin, ScreenOpen};
 use save::SavePlugin;
 use unit_anim::{Facing, Pose, UnitAnimPlugin, UnitView, pick_frame};
@@ -136,6 +138,9 @@ fn main() {
     }
     if let Some(ticks) = std::env::var("FN_CANOPY_DEMO").ok().and_then(|s| s.parse().ok()) {
         canopy::place_demo_units(&mut sim, ticks);
+    }
+    if let Some(ticks) = std::env::var("FN_ORCHARD_DEMO").ok().and_then(|s| s.parse().ok()) {
+        orchard_demo(&mut sim, ticks);
     }
     if std::env::var_os("FN_FX_DEMO").is_some() {
         cast_demo_effects(&mut sim);
@@ -289,6 +294,25 @@ fn level_meadow(session: &mut Session, origin: Pos) {
             }
         }
     }
+}
+
+/// `FN_ORCHARD_DEMO`: levels a meadow beside the first unit, puts a finished orchard on it (and a
+/// wild fruit tree beyond its reach, to compare) and runs the game `ticks` ticks.
+fn orchard_demo(session: &mut Session, ticks: u32) {
+    let Some(origin) = session.world.units.first().map(|u| u.pos) else { return };
+    level_meadow(session, origin);
+    let Some(id) = session.defs.building_id("orchard") else { return };
+    let passable = session.defs.building(id).passable;
+    let orchard = Pos::new(origin.x + 8, origin.y);
+    if let Some(tile) = session.world.map.get_mut(orchard) {
+        tile.building = Some(fn_sim::building::Building { id, passable, rail: false });
+    }
+    let wild = Pos::new(origin.x + 17, origin.y);
+    if let Some(tile) = session.world.map.get_mut(wild) {
+        tile.resource = session.defs.resource_id("fruit_tree");
+    }
+    session.world.adopt_orchards(&session.defs);
+    session.tick_n(ticks);
 }
 
 /// `FN_STORES_DEMO`: designates every harvest near the first unit and a stockpile beside it, then
@@ -558,10 +582,20 @@ struct ResourceSprites {
     base: Sprite,
     /// A tree's canopy, a child of `base` that fades when it hides something (`canopy`).
     canopy: Option<Sprite>,
+    /// Whether this is an orchard's sapling (#142) standing where a fruit tree will: `jobview`
+    /// swaps it for the tree once it has grown.
+    sapling: bool,
 }
 
-fn resource_sprites(art: &Art, sim: &Sim, t: &Tile) -> Option<ResourceSprites> {
+fn resource_sprites(art: &Art, sim: &Sim, p: Pos, t: &Tile) -> Option<ResourceSprites> {
     let res = sim.defs.resource(t.resource?).id.as_str();
+    if sim.world.is_sapling(p) {
+        return Some(ResourceSprites {
+            base: art.sprite(sprites::resources::SAPLING),
+            canopy: None,
+            sapling: true,
+        });
+    }
     let biome = sim.defs.biome(t.biome).id.as_str();
     let rule = sprites::resource_rule(res, biome)
         .unwrap_or_else(|| panic!("no sprite for resource {res} in {biome}"));
@@ -569,10 +603,35 @@ fn resource_sprites(art: &Art, sim: &Sim, t: &Tile) -> Option<ResourceSprites> {
         ResourceSprites {
             base: art.trunk_sprite(rule.cell),
             canopy: Some(art.sprite(sprites::trees::canopy_of(rule.cell))),
+            sapling: false,
         }
     } else {
-        ResourceSprites { base: art.sprite(rule.cell), canopy: None }
+        ResourceSprites { base: art.sprite(rule.cell), canopy: None, sapling: false }
     })
+}
+
+/// Spawns a resource's sprites on tile `p`. Lower rows draw on top so tall sprites overlap
+/// correctly. The anchor is the bottom middle of the tile, so a sprite of any height stands on
+/// its tile.
+fn spawn_resource(commands: &mut Commands, p: Pos, parts: ResourceSprites) {
+    let mut tf = Transform::from_translation(tile_translation(p, row_depth(p.y)));
+    tf.translation.y -= TILE / 2.0;
+    let mut resource =
+        commands.spawn((parts.base, Anchor::BOTTOM_CENTER, tf, ResourceSprite(p), MapEntity));
+    if parts.sapling {
+        resource.insert(SaplingSprite);
+    }
+    if let Some(canopy) = parts.canopy {
+        resource.with_children(|tree| {
+            tree.spawn((
+                canopy,
+                Anchor::BOTTOM_CENTER,
+                // A hair above the trunk; their pixels never overlap.
+                Transform::from_xyz(0.0, 0.0, canopy::CANOPY_Z),
+                CanopyFade::new(p),
+            ));
+        });
+    }
 }
 
 fn spawn_world(mut commands: Commands, art: Res<Art>, sim: Res<Sim>) {
@@ -590,29 +649,8 @@ fn spawn_entities(commands: &mut Commands, art: &Art, sim: &Sim) {
             TerrainSprite(p, t.terrain),
             MapEntity,
         ));
-        if let Some(parts) = resource_sprites(art, sim, t) {
-            // Lower rows draw on top so tall sprites overlap correctly. The anchor is the bottom
-            // middle of the tile, so a sprite of any height stands on its tile.
-            let mut tf = Transform::from_translation(tile_translation(p, row_depth(p.y)));
-            tf.translation.y -= TILE / 2.0;
-            let mut resource = commands.spawn((
-                parts.base,
-                Anchor::BOTTOM_CENTER,
-                tf,
-                ResourceSprite(p),
-                MapEntity,
-            ));
-            if let Some(canopy) = parts.canopy {
-                resource.with_children(|tree| {
-                    tree.spawn((
-                        canopy,
-                        Anchor::BOTTOM_CENTER,
-                        // A hair above the trunk; their pixels never overlap.
-                        Transform::from_xyz(0.0, 0.0, canopy::CANOPY_Z),
-                        CanopyFade::new(p),
-                    ));
-                });
-            }
+        if let Some(parts) = resource_sprites(art, sim, p, t) {
+            spawn_resource(commands, p, parts);
         } else if let Some(cell) = rule.decor_on(&sim.world.map, p) {
             commands.spawn((
                 art.sprite(cell),

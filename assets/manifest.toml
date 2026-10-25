@@ -160,7 +160,7 @@ sha256 = "507f02ee66cef8dc9d12ebd503a72e2f4b0bc03008aef2a56688ef15e01461ab"
 path = "original/resources.png"
 source = "original"
 generated_from = "art/resources.toml"
-sha256 = "c6f57656de50722d67913e00f6ff388fd7f90b92b0d3f5390aadd0e5edf90835"
+sha256 = "f35b0407f37ef77855976129156e32f4c78b0415fe0ee05f88d0878e2f48413f"
 
 [[file]]
 path = "original/tools.png"

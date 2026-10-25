@@ -84,6 +84,12 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
     if let Some(name) = build::built_name(session, tile) {
         lines.push(Line::Title(name));
         lines.push(Line::Detail(format!("Built ({}, {})", tile.x, tile.y)));
+        // An orchard says how much of its grove is planted (#142).
+        let max =
+            world.building_at(tile).and_then(|b| defs.building(b).orchard).map(|o| o.max_trees);
+        if let (Some(trees), Some(max)) = (world.orchard_trees(tile), max) {
+            lines.push(Line::Detail(format!("Tends {trees} of {max} trees")));
+        }
         return Some(lines);
     }
     let biome = &defs.biome(t.biome).name;
@@ -105,7 +111,11 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
         // A standing order (#81) outlives the resting period it's shown through, so it's folded
         // into the existing lines rather than a line of its own (tooltips top out at 4 lines).
         let repeating = world.is_repeating_harvest(tile);
-        if world.is_resting(tile) {
+        if world.is_sapling(tile) {
+            // An orchard's young tree (#142): not just picked, it has never borne fruit.
+            let text = if repeating { "Sapling - repeating order" } else { "Sapling" };
+            lines.push(Line::Detail(text.into()));
+        } else if world.is_resting(tile) {
             let text = if repeating { "Growing back - repeating order" } else { "Growing back" };
             lines.push(Line::Detail(text.into()));
         } else {
@@ -211,6 +221,43 @@ mod tests {
         );
         let lines = tooltip_lines(&s, Tool::CancelHarvest, pos).unwrap();
         assert_eq!(lines.last(), Some(&Line::Hint(Hint::ApplyTool(Tool::CancelHarvest))));
+    }
+
+    #[test]
+    fn an_orchard_says_how_many_trees_it_tends_and_its_saplings_say_so() {
+        let mut s = Session::new(3, Nation::Air, 64, 64);
+        let id = s.defs.building_id("orchard").unwrap();
+        let o = s.defs.building(id).orchard.unwrap();
+        let passable = s.defs.building(id).passable;
+        let home = s.world.units[0].pos;
+        let mut spots: Vec<Pos> = s.world.map.iter().map(|(p, _)| p).collect();
+        spots.sort_by_key(|p| ((p.x - home.x).pow(2) + (p.y - home.y).pow(2), p.x, p.y));
+        let open = |p: Pos| {
+            let ring =
+                (-4..=4).flat_map(move |dy| (-4..=4).map(move |dx| Pos::new(p.x + dx, p.y + dy)));
+            ring.filter(|q| {
+                s.world
+                    .map
+                    .get(*q)
+                    .is_some_and(|t| t.terrain == fn_sim::Terrain::Land && t.resource.is_none())
+            })
+            .count()
+        };
+        spots.truncate(400);
+        let pos = spots.into_iter().max_by_key(|&p| open(p)).expect("an open meadow");
+        assert!(open(pos) >= 40, "the open meadow has room to plant");
+        s.world.map.get_mut(pos).unwrap().building =
+            Some(fn_sim::building::Building { id, passable, rail: false });
+        s.world.adopt_orchards(&s.defs);
+        let at = |s: &Session| tooltip_lines(s, Tool::Select, pos).unwrap();
+        assert!(at(&s).contains(&Line::Detail(format!("Tends 0 of {} trees", o.max_trees))));
+
+        s.tick_n(1200);
+        assert!(at(&s).contains(&Line::Detail(format!("Tends 1 of {} trees", o.max_trees))));
+        let sapling = s.world.map.iter().map(|(p, _)| p).find(|&p| s.world.is_sapling(p)).unwrap();
+        let lines = tooltip_lines(&s, Tool::Select, sapling).unwrap();
+        assert!(lines.contains(&Line::Detail("Sapling - repeating order".into())), "{lines:?}");
+        assert!((2..=4).contains(&lines.len()));
     }
 
     #[test]

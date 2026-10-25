@@ -376,15 +376,16 @@ impl World {
         (self.can_work(h) && !self.resting.contains_key(&pos)).then_some(h)
     }
 
-    /// Seconds of growth a resting resource on `pos` gains per second. 1.0 today.
+    /// Seconds of growth a resting resource on `pos` gains per second: 1.0, times the boost of
+    /// any orchard tending it (`tend_rate`, #142).
     ///
     /// This is the hook for faster growth: Water's "Water the Land" (docs/design/bending.md,
     /// #69) leaves tiles wet for a while, and plants on wet tiles (and later, farm plots) should
     /// ripen faster by a data-driven multiplier. Wet tiles now exist (`World::wet_tiles`, #69),
     /// but no multiplier is defined yet: Water the Land's payoff is sprouts, not faster
     /// regrowth. When one is, scale the result here; nothing else in the regrowth code changes.
-    fn growth_rate(&self, _pos: Pos, _defs: &Defs) -> f32 {
-        1.0
+    fn growth_rate(&self, pos: Pos, defs: &Defs) -> f32 {
+        self.tend_rate(pos, defs)
     }
 
     /// Advances every resting resource, ripening those that are done. A resource that was
@@ -393,6 +394,7 @@ impl World {
         if self.resting.is_empty() {
             return;
         }
+        // A sapling ripens (or is lost) when it stops resting, below.
         let step = 1.0 / TICKS_PER_SECOND as f32;
         let spots: Vec<Pos> = self.resting.keys().copied().collect();
         // Resources that ripened just now (as opposed to having been cleared some other way
@@ -412,6 +414,7 @@ impl World {
                 self.resting.remove(&pos);
             }
         }
+        self.saplings.retain(|p| self.resting.contains_key(p));
         for pos in ripened {
             if self.standing_harvest.contains(&pos)
                 && !self.jobs.iter().any(|j| j.kind == JobKind::Harvest { pos })

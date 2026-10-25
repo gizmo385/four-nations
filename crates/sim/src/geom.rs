@@ -13,6 +13,11 @@ impl Pos {
     pub const fn new(x: i32, y: i32) -> Self {
         Self { x, y }
     }
+
+    /// Chebyshev distance: the number of king's moves between two tiles.
+    pub fn chebyshev(self, other: Pos) -> i32 {
+        (self.x - other.x).abs().max((self.y - other.y).abs())
+    }
 }
 
 const CARDINAL: [(i32, i32); 4] = [(0, 1), (0, -1), (1, 0), (-1, 0)];

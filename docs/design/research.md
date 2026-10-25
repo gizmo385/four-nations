@@ -206,7 +206,7 @@ No bloodbending. It's a dark art that doesn't fit peaceful progress.
 
 | id | Cost | Prereqs | Unlocks |
 |---|---|---|---|
-| `orchards` | 25 | none | orchard (plant and tend fruit trees: renewable fruit, edible raw); fruit-picking job (open to all for now: #142). *Air starts with it* |
+| `orchards` | 25 | none | orchard (plants and tends fruit trees: renewable fruit, edible raw; see "The orchard" below). Wild fruit picking is open to every nation. *Air starts with it* |
 | `meditation` | 60 | none | chi regeneration; study ×1.2 |
 | `gliders` | 60 | carpentry | glider staffs; move_speed ×1.15; scouting reveals the map. *Modifier-only until the reveal exists: #143* |
 | `windmills` | 120 | gliders, farming | windmill (grinds grain for more food); power_generation ×1.2 |
@@ -215,8 +215,9 @@ No bloodbending. It's a dark art that doesn't fit peaceful progress.
 | `sky_bison` | 500 | meditation, air_scooter | bison stable; bison haul and fast travel; carry_capacity ×1.3 |
 
 The buildings (`orchard`, `windmill`, `wind_turbine`, `bison_stable`) exist in
-`data/buildings.toml` and are gated by their techs (#28), but are structures only: what they do
-needs planting, grain, power and bison systems (#142). Their costs are placeholders.
+`data/buildings.toml` and are gated by their techs (#28). The orchard works (#142, below). The
+other three are structures only: what they do needs grain (#203), power (#204) and bison (#205)
+systems, and their costs are placeholders.
 `meditation` is modifier-only by design. No branch cost or multiplier changed in #28; the
 playtest in `crates/sim/tests/research_air.rs` has an Air settlement with a Meditation Pavilion
 (two scholars) finish the whole Air tree, shared tier included, in about 94 minutes (meditation's
@@ -231,6 +232,87 @@ doesn't unlock a building.
 
 Speed check: Air's base `move_speed` is 1.6, and `gliders` (×1.15) and `air_scooter` (×1.2)
 bring it to about 2.2× baseline. Revisit in a balance pass.
+
+### The orchard (#142)
+
+The owner's rescope (2026-10-25): **wild fruit picking stays open to every nation**, and `orchards`
+unlocks only the *orchard building*, which plants and tends new `fruit_tree` resources. It is a
+renewable food source that only an Air settlement can create. Every number is in
+`[building.orchard]` in `data/buildings.toml` (`OrchardDef`), so the whole design below is
+retunable without touching code.
+
+**How it plants.** Planting is a process of the building, not a job. A finished orchard has a
+timer: while it tends fewer than `max_trees` (6) trees, every `plant_seconds` (90) it plants one
+more on a random free land tile within `radius` (4) of itself, drawn from the `orchard.plant`
+RNG stream (so it is deterministic per seed). The first one comes 90 s after the building is
+finished. A planted tree is the existing `fruit_tree` resource, so the map, mapgen, the picking
+job, the stockpile, the eating rules and save files all see nothing new; nothing was added to
+`data/resources.toml`, so mapgen's resource streams (#225) are untouched. A tile is eligible when:
+it is land (the terrains `fruit_tree` spawns on; the biome is deliberately *not* checked, so a
+grove can stand where the wild one wouldn't, which is what tending is for); nothing is built,
+designated, stockpiled, lying or bent there and no unit stands on it or is walking over it; and
+no other resource or building lies within `spacing` (2) tiles, which leaves a walkable lane
+between rows, keeps a tree from walling a unit in, and keeps a canopy off the orchard's own
+art. If there is no such tile the orchard waits another interval.
+
+*Why not a planting job.* A job would make units walk out and plant, which is nicer to watch, but
+it needs a new `JobKind` threaded through claiming, pre-emption, abandonment and every client
+job view, and a sapling item to haul. The orchard is a grove keeper standing in for the
+nomads' labour: it costs the player no worker time, which fits Air starting behind on labour
+(carry 0.8, earthworks 0.7). If the owner wants planting to cost labour, the clean change is a
+`JobKind::Plant` opened by the orchard each interval (the planting rules in `world/orchard.rs`
+stay as they are); it is a data-light follow-up, not a redesign.
+
+**Growth time.** A new tree is a *sapling*: a `fruit_tree` that is resting for `grow_seconds`
+(480) before its first fruit, drawn small (below) and not pickable until then. It is within the
+orchard's reach, so it grows at the tending rate (next paragraph): 480 / 1.5 = **320 s**, about 5
+minutes. So the first fruit is ready 90 + 320 = 410 s (under 7 minutes) after the orchard is
+finished, and a full grove of six is standing by 540 s and fully ripe by about 860 s (14 minutes).
+
+**How many it tends.** `max_trees` = 6. It counts the trees it planted that are still standing,
+and replants one (on the next interval) if a tree is lost. At six it stops, so it is a bounded
+food source, not a spreading forest, and a settlement wanting more builds another orchard.
+
+**Tending, and regrowth after picking.** A planted tree regrows after picking exactly like a wild
+one (`regrow` = 360 s in `data/jobs.toml`; nothing special is stored on it), but the orchard
+*tends* it: any resting tree of the planted kind within `radius` of an orchard, planted or wild,
+regrows `tend_boost` (1.5) times as fast (`World::growth_rate`, the hook #56 left for exactly
+this; the best boost among orchards in reach applies and they don't stack). So a tree that
+bears 2 fruit every 360 s in the wild bears them every 240 s in an orchard.
+
+**Compared with #81's standing harvest orders.** A standing order (#81) is the player's: "keep
+picking this tile". A planted tree starts with one (`auto_pick`, on), so a settlement with an
+orchard and a stockpile gets a steady flow of fruit with no designating: each tree queues a pick
+job when it ripens and units haul the fruit as for any harvest. It is an ordinary standing order
+otherwise: it shows as a designation tint, `CancelHarvest` withdraws it (the tree keeps growing
+and can be picked by hand or by a hungry unit foraging), and Shift+Harvest sets it again. The
+alternative, that the player has to order every tree, makes the orchard a chore, and the player
+can still opt out per tree. Set `auto_pick = false` to remove the default.
+
+**Balance.** A full orchard yields 6 trees x 2 fruit per 240 s = about 3 fruit a minute, nine times
+a wild tree (0.33). A settler eats about 0.13 fruit a minute (4 hunger a minute, 30 per fruit), so one
+orchard feeds a couple of dozen settlers' raw hunger, which is generous but is the point of
+Air's starting tech: it makes the nomads the nation that never has a food problem, to pay for the
+weak labour modifiers. Cost: placeholder 4 wood and 30 s of building became **8 wood and 45 s**
+(about twice a bed's 5 wood and 20 s, since a bed is the first building anyone raises), which a
+starting settlement can afford in the first minutes and which pays back by its first picked fruit.
+Revisit when farm plots (#198) give Earth a competing food source.
+
+**Only Air can build one.** `orchards` is an Air-branch tech, so the other nations can neither
+research it nor designate the building (`BuildError::NotResearched`), and the build picker doesn't
+list it for them (#137). There is no `if nation` in the orchard code: the gate is the tech. The
+orchard code itself is nation-blind, and a different nation's building could carry the same
+`[building.orchard]` section.
+
+**What the player sees.** A sapling is a one-cell sprite (`sapling` in `art/resources.toml`, 16px
+like the cabbage) drawn instead of the 2x2 tree until it first ripens, so a young grove reads at a
+glance, and the tree replaces it in place once grown (with its canopy fade, #77, intact). The
+terminal draws it `ψ` (`y`). The inspector says "Sapling" for it and "Tends 3 of 6 trees" for the
+orchard. Mockups: `mockups/142/`.
+
+**Saves.** New world state (`orchards`, `saplings`, `orchard_rng`) is `#[serde(default)]`, so
+older saves load unchanged; `World::adopt_orchards` registers an orchard that is already on a
+loaded map, so saves from before this issue start planting. The save version doesn't change.
 
 ## Data schema: `data/research.toml`
 
@@ -401,6 +483,10 @@ tree grows beyond one nation's identity.
 5. **Air's starting tech is `orchards`, not `meditation`** (owner's choice). Meditation alone gave
    only a research bonus, while every other nation's start helps it survive. Orchards give the
    nomads renewable food without fire, and meditation becomes a 60-cost Air tech.
+
+6. **Fruit picking is open to every nation; `orchards` unlocks planting only** (2026-10-25, #142).
+   Wild `fruit_tree` harvesting isn't gated. The orchard building plants and tends new fruit
+   trees: a renewable food source only Air settlements can create ("The orchard", above).
 
 ## Follow-up issues
 

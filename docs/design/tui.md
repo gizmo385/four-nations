@@ -132,7 +132,8 @@ Each cell has one glyph and one background, chosen independently, top to bottom:
   resource > terrain or biome.
 - **Background:** cursor > rectangle being dragged > designation tint (harvest, bend, build,
   stockpile) > wet patch > terrain or biome.
-- A renewable resource that's growing back is drawn in `dim` grey, as the client greys its
+- An orchard's young fruit tree (a sapling, #142) is drawn `ψ` (`y`) in light green instead of
+  the tree's glyph until it first ripens. A renewable resource that's growing back is drawn in `dim` grey, as the client greys its
   sprite. A build site is its building glyph, dimmed. A selected unit is drawn in reverse video.
   A unit on top of a stack hides it; the Cursor section lists everything on the tile.
 - While the cursor is on a flame, the tiles it warms get a warm background (the client outlines
@@ -161,6 +162,7 @@ goldens already use.
 | Food items | `%` | `%` | the food's colour |
 | Bed (buildings) | `Θ` | `B` | warm tan; dimmed while a site |
 | Lit flame | `☼` | `!` | orange |
+| Sapling (an orchard's young fruit tree) | `ψ` | `y` | light green |
 | Unit | `☺` | `@` | the nation's `color` lifted toward white, bold |
 | Cursor | the tile's glyph | | black on yellow, and the terminal's own cursor sits there too |
 
@@ -210,6 +212,7 @@ build = [150, 130, 200]
 wet = [64, 46, 20]
 cursor = [250, 220, 60]
 flame = { glyph = "☼", ascii = "!", fg = [255, 150, 40] }
+sapling = { glyph = "ψ", ascii = "y", fg = [150, 210, 110] }
 # bend: the nation's accent, as in the client
 ```
 
