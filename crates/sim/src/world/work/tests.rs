@@ -68,6 +68,9 @@ fn chop_a_tree_and_haul_the_wood_to_the_stockpile() {
     assert!(w.map[at(7, 2)].resource.is_none(), "the tree is gone");
     assert!(w.jobs().is_empty());
     assert_eq!(w.ground_items().count(), 0);
+    // The harvest tally (#233) counts the tree's whole yield, and nothing else.
+    assert_eq!(w.tallies().harvested(wood), 4);
+    assert_eq!(w.tallies().harvested_items().count(), 1);
     let stacks: Vec<_> = [at(1, 2), at(1, 3)].iter().filter_map(|&p| w.stored_at(p)).collect();
     assert_eq!(stacks, [Stack { item: wood, count: 4 }]);
     assert_eq!(w.units[0].carrying, None);

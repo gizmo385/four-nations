@@ -25,7 +25,7 @@
 │ - _                    Slower                                                        ││ ◇ CURSOR            (94, 64) │
 │ .                      One tick, while paused                                        ││ Tyro                         │
 │                                                                                      ││ Earth Kingdom - Idle         │
-│ SCREENS AND GAME                                                                     ││ Carrying: nothing            │
+│ SCREENS AND GAME                                                                     ││ Carrying: nothing - Bends: 0 │
 │ T                      Research: arrows W A S D choose a tech, Enter sets it as the  ││ Press Enter to select        │
 │                        target                                                        ││                              │
 │ L                      Message log                                                   ││                              │

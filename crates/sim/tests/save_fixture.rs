@@ -174,6 +174,20 @@ fn an_old_save_loads_with_its_buildings_site_and_fire_where_they_were() {
 }
 
 #[test]
+fn an_old_save_loads_with_zero_tallies_and_bends() {
+    // The fixture predates the end-game counts (#233). Its settlers chopped trees before it was
+    // saved, but the past isn't reconstructed: everything starts from zero.
+    let defs = Defs::bundled();
+    let w = World::load(FIXTURE, &defs).unwrap();
+    assert!(!FIXTURE.contains("tallies") && !FIXTURE.contains("bends"));
+    assert_eq!(w.tallies(), &fn_sim::world::Tallies::default());
+    assert_eq!(w.tallies().harvested(defs.item_id("wood").unwrap()), 0);
+    assert_eq!(w.tallies().scrolls_read(), 0);
+    assert_eq!(w.tallies().crops_harvested(), 0);
+    assert!(w.units.iter().all(|u| u.bends() == 0));
+}
+
+#[test]
 fn an_old_save_carries_on_without_panicking() {
     let defs = Defs::bundled();
     let mut w = World::load(FIXTURE, &defs).unwrap();
@@ -207,6 +221,9 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     "orchards",
     "saplings",
     "orchard_rng",
+    // End-game counts (#233): the world's lifetime tallies, and each unit's finished bends.
+    "tallies",
+    "bends",
 ];
 
 /// `value` without any struct field named in `names`, at any depth. Returns how many it removed.

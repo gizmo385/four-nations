@@ -353,6 +353,7 @@ impl World {
         let outcome = match self.validate_bend(def, pos, defs) {
             Ok(()) => {
                 moved = self.apply_bend(i, def, pos, defs);
+                self.units[i].bends += 1;
                 BendOutcome::Done
             }
             Err(why) => {
