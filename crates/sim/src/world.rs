@@ -25,6 +25,7 @@ mod bending;
 mod build;
 mod command;
 mod heat;
+mod orchard;
 mod stride;
 mod study;
 mod work;
@@ -173,6 +174,16 @@ pub struct World {
     /// Warmth auras on units, by carrier (Inner Fire, #123; `heat.rs`).
     #[serde(default)]
     auras: BTreeMap<UnitId, Aura>,
+    /// Finished orchards by tile, with what each has planted (`orchard.rs`, #142).
+    #[serde(default)]
+    orchards: BTreeMap<Pos, orchard::Orchard>,
+    /// Orchard-planted fruit trees that haven't ripened for the first time yet (a subset of
+    /// `resting`).
+    #[serde(default)]
+    saplings: BTreeSet<Pos>,
+    /// Picks which tile an orchard plants next (`orchard.plant`).
+    #[serde(default = "orchard::default_rng")]
+    orchard_rng: SimRng,
     /// Picks which tiles of a dried patch sprout (`bending.sprout`).
     sprout_rng: SimRng,
     rng: SimRng,
@@ -214,6 +225,9 @@ impl World {
             fallow: BTreeMap::new(),
             heat: BTreeMap::new(),
             auras: BTreeMap::new(),
+            orchards: BTreeMap::new(),
+            saplings: BTreeSet::new(),
+            orchard_rng: orchard::new_rng(seed),
             sprout_rng: rng::stream(seed, "bending.sprout"),
             rng: rng::stream(seed, "world.units"),
         };
@@ -345,6 +359,7 @@ impl World {
         }
         self.tick_needs(defs);
         self.tick_growth(defs);
+        self.tick_orchards(defs);
         self.tick_irrigation(defs);
         self.tick_heat();
         for i in 0..self.units.len() {

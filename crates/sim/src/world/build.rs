@@ -266,6 +266,9 @@ impl World {
                     rail: def.rail.is_some(),
                 };
                 let seats = def.seats;
+                if let Some(orchard) = &def.orchard {
+                    self.open_orchard(pos, orchard);
+                }
                 self.sites.remove(&pos);
                 self.jobs.remove(idx);
                 self.map[pos].building = Some(building);

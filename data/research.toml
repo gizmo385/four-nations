@@ -344,8 +344,9 @@ name = "Orchards"
 description = "Plant and tend fruit trees for food that needs no fire."
 nation = "air"
 cost = 25
-# Wild fruit trees stay pickable by every nation, so this unlocks only the orchard building; a
-# `pick_fruit` job would have no resource of its own. Later: planting and tending (issue #142).
+# Wild fruit trees stay pickable by every nation (owner decision, #142), so this unlocks only the
+# orchard building, which plants and tends new fruit trees (docs/design/research.md, "The
+# orchard").
 [tech.unlocks]
 buildings = ["orchard"]
 

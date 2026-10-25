@@ -758,6 +758,55 @@ fn a_resource_growing_back_is_dim_grey() {
     }
 }
 
+/// An orchard's young fruit tree (#142) is drawn as a sapling, not as the resting tree it also is.
+#[test]
+fn an_orchards_sapling_has_its_own_glyph() {
+    let mut s = Session::new(3, Nation::Air, 48, 32);
+    let home = s.world.units[0].pos;
+    let id = s.defs.building_id("orchard").unwrap();
+    let passable = s.defs.building(id).passable;
+    // The orchard on the open land nearest the settlers, which then plants beside itself.
+    let land = |p: Pos| {
+        (-4..=4)
+            .flat_map(move |dy| (-4..=4).map(move |dx| Pos::new(p.x + dx, p.y + dy)))
+            .filter(|q| {
+                s.world.map.get(*q).is_some_and(|t| {
+                    t.terrain == fn_sim::Terrain::Land
+                        && t.resource.is_none()
+                        && t.building.is_none()
+                })
+            })
+            .count()
+    };
+    let mut spots: Vec<Pos> = s.world.map.iter().map(|(p, _)| p).collect();
+    spots.sort_by_key(|p| ((p.x - home.x).pow(2) + (p.y - home.y).pow(2), p.x, p.y));
+    spots.truncate(400);
+    let orchard = spots.into_iter().max_by_key(|&p| land(p)).expect("an open meadow");
+    assert!(land(orchard) >= 40, "the open meadow has room to plant");
+    s.world.map.get_mut(orchard).unwrap().building =
+        Some(fn_sim::building::Building { id, passable, rail: false });
+    s.world.adopt_orchards(&s.defs);
+    s.tick_n(1200);
+    let sapling = s
+        .world
+        .map
+        .iter()
+        .map(|(p, _)| p)
+        .find(|&p| s.world.is_sapling(p) && !s.world.units.iter().any(|u| u.pos == p))
+        .expect("the orchard planted a sapling");
+
+    let mut app = App::new(s, SIZE);
+    app.ui.cursor = Pos::new(sapling.x, if sapling.y > 0 { sapling.y - 1 } else { 1 });
+    for ascii in [false, true] {
+        let p = palette(&app.session, ColorDepth::TrueColor, ascii);
+        let buf = frame(&mut app, ColorDepth::TrueColor, ascii, SIZE);
+        let look = &p.glyphs.overlay.sapling;
+        let cell = cell_at(&app, &buf, sapling);
+        assert_eq!(cell.symbol(), look.glyph(ascii).to_string());
+        assert_eq!(cell.fg, Color::Rgb(look.fg[0], look.fg[1], look.fg[2]));
+    }
+}
+
 /// A wet patch (Water the Land) is a dark mud background under whatever else is on the tile.
 #[test]
 fn a_wet_patch_is_a_mud_background() {

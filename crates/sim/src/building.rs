@@ -16,6 +16,9 @@
 //!   its radius are cooked, and sleep within it is better. It is the same `HeatSource` Fire's
 //!   Hearthflame lights for a while, so the cooking and warm-sleep code is shared.
 //!
+//! - `orchard` makes it a grove-keeper (issue #142): it plants and tends renewable trees around
+//!   itself (`world/orchard.rs`). Every number is on `OrchardDef`.
+//!
 //! Which tech must be known before a building may be designated is `Unlocks::buildings` in
 //! `data/research.toml`, resolved here into `BuildingDef::unlocked_by` (issue #22). A building no
 //! tech names is available from the start.
@@ -24,7 +27,7 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
-use crate::defs::DefsError;
+use crate::defs::{DefsError, ResourceDef, ResourceId};
 use crate::jobs::{ItemDef, ItemId};
 use crate::nation::Nation;
 use crate::path::STRAIGHT;
@@ -93,6 +96,32 @@ impl RailDef {
     }
 }
 
+/// A building that plants and tends trees around itself (`[building.orchard]`, issue #142). The
+/// rules are in `world/orchard.rs`; the design is in docs/design/research.md ("The orchard").
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OrchardDef {
+    /// The resource it plants. Must be renewable (its harvest has a `regrow`), so a planted tree
+    /// bears again after being picked.
+    pub plants: ResourceId,
+    /// How far from the building, Chebyshev, it plants and tends.
+    pub radius: u32,
+    /// How many trees it keeps going at once. It plants again only while it tends fewer.
+    pub max_trees: u32,
+    /// In-game seconds between plantings while it tends fewer than `max_trees`.
+    pub plant_seconds: f32,
+    /// In-game seconds from planting to the first fruit.
+    pub grow_seconds: f32,
+    /// How much faster than normal a resting tree of `plants` within `radius` regrows (at least
+    /// 1.0), whoever planted it.
+    pub tend_boost: f32,
+    /// How far apart a new tree stands from any other resource, in tiles (Chebyshev): at least 1
+    /// (touching is allowed) and at most `radius`. 2 leaves a walkable lane between trees.
+    pub spacing: u32,
+    /// Whether every tree it plants carries a standing harvest order (#81) from the start, so
+    /// the fruit is picked and hauled without the player designating it each time.
+    pub auto_pick: bool,
+}
+
 /// One item and the count of it a building costs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CostItem {
@@ -122,6 +151,8 @@ pub struct BuildingDef {
     pub heat: Option<HeatDef>,
     /// Set if this is a track: hauling units run faster along a line of them (issue #135).
     pub rail: Option<RailDef>,
+    /// Set if this plants and tends trees around itself (issue #142).
+    pub orchard: Option<OrchardDef>,
     /// What each nation calls this building, if it varies (e.g. the study hall: Meditation
     /// Pavilion for Air). Empty when every nation uses the plain `name`. If set at all, every
     /// nation has an entry (`display_name` is the one place that matters).
@@ -179,6 +210,19 @@ struct RawRail {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawOrchard {
+    plants: String,
+    radius: u32,
+    max_trees: u32,
+    plant_seconds: f32,
+    grow_seconds: f32,
+    tend_boost: f32,
+    spacing: u32,
+    auto_pick: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawBuilding {
     id: String,
     name: String,
@@ -192,6 +236,7 @@ struct RawBuilding {
     bed: Option<RawBed>,
     heat: Option<RawHeat>,
     rail: Option<RawRail>,
+    orchard: Option<RawOrchard>,
     #[serde(default)]
     names: HashMap<Nation, String>,
     #[serde(default)]
@@ -210,6 +255,7 @@ impl BuildingsFile {
         self,
         items: &[ItemDef],
         techs: &[TechDef],
+        resources: &[ResourceDef],
     ) -> Result<Vec<BuildingDef>, DefsError> {
         let err = |msg: String| Err(DefsError(format!("buildings.toml: {msg}")));
         let mut buildings: Vec<BuildingDef> = Vec::new();
@@ -287,6 +333,10 @@ impl BuildingsFile {
                     ));
                 }
             }
+            let orchard = match &b.orchard {
+                None => None,
+                Some(o) => Some(resolve_orchard(&b.id, o, resources)?),
+            };
             for (nation, name) in &b.names {
                 if name.trim().is_empty() {
                     return err(format!(
@@ -311,6 +361,7 @@ impl BuildingsFile {
                     seek_tiles: d.seek_tiles,
                 }),
                 rail: b.rail.map(|d| RailDef { speed: d.speed }),
+                orchard,
                 names: b.names,
                 art: b.art,
                 unlocked_by: None,
@@ -319,6 +370,42 @@ impl BuildingsFile {
         link_unlocks(&mut buildings, techs)?;
         Ok(buildings)
     }
+}
+
+/// Checks a `[building.orchard]` and links its resource. That the resource is renewable is
+/// checked once the harvests are known (`Defs::validate`).
+fn resolve_orchard(
+    building: &str,
+    o: &RawOrchard,
+    resources: &[ResourceDef],
+) -> Result<OrchardDef, DefsError> {
+    let err = |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: {msg}")));
+    let Some(plants) = resources.iter().position(|r| r.id == o.plants) else {
+        return err(&format!("orchard plants unknown resource {:?}", o.plants));
+    };
+    let seconds_ok = |x: f32| x.is_finite() && x > 0.0;
+    if o.radius == 0 || o.max_trees == 0 {
+        return err("orchard needs radius > 0 and max_trees > 0");
+    }
+    if !(seconds_ok(o.plant_seconds) && seconds_ok(o.grow_seconds)) {
+        return err("orchard plant_seconds and grow_seconds must be positive numbers");
+    }
+    if !(o.tend_boost.is_finite() && o.tend_boost >= 1.0) {
+        return err("orchard tend_boost must be at least 1.0");
+    }
+    if o.spacing == 0 || o.spacing > o.radius {
+        return err("orchard spacing must be between 1 and its radius");
+    }
+    Ok(OrchardDef {
+        plants: ResourceId(plants as u16),
+        radius: o.radius,
+        max_trees: o.max_trees,
+        plant_seconds: o.plant_seconds,
+        grow_seconds: o.grow_seconds,
+        tend_boost: o.tend_boost,
+        spacing: o.spacing,
+        auto_pick: o.auto_pick,
+    })
 }
 
 /// Resolves every tech's `unlocks.buildings` into `BuildingDef::unlocked_by`: the building must
@@ -456,6 +543,41 @@ mod tests {
         assert!(resolve(&two).unwrap_err().0.contains("only one building"));
     }
 
+    #[test]
+    fn the_orchard_is_data() {
+        let defs = Defs::bundled();
+        let def = defs.building(defs.building_id("orchard").unwrap());
+        let o = def.orchard.expect("an orchard plants");
+        assert_eq!(defs.resource(o.plants).id, "fruit_tree");
+        assert!(o.max_trees > 0 && o.radius > 0 && o.tend_boost >= 1.0);
+        assert!(o.plant_seconds > 0.0 && o.grow_seconds > 0.0);
+        assert!(def.passable, "units walk through an orchard");
+        // Only the orchard plants.
+        assert_eq!(defs.buildings.iter().filter(|b| b.orchard.is_some()).count(), 1);
+    }
+
+    #[test]
+    fn orchard_numbers_are_validated() {
+        let one = |extra: &str| {
+            format!(
+                "[[building]]\nid = \"grove\"\nname = \"Grove\"\nverb = \"Plant\"\nwork = 1.0\n\
+                 passable = true\n[building.orchard]\nplants = \"fruit_tree\"\nradius = 4\n\
+                 max_trees = 6\nplant_seconds = 90.0\ngrow_seconds = 480.0\ntend_boost = 1.5\n\
+                 spacing = 2\nauto_pick = true\n{extra}"
+            )
+        };
+        resolve(&one("")).unwrap();
+        let bad = |from: &str, to: &str| resolve(&one("").replacen(from, to, 1)).unwrap_err().0;
+        assert!(bad("radius = 4", "radius = 0").contains("radius > 0"));
+        assert!(bad("max_trees = 6", "max_trees = 0").contains("max_trees > 0"));
+        assert!(bad("plant_seconds = 90.0", "plant_seconds = 0.0").contains("positive"));
+        assert!(bad("grow_seconds = 480.0", "grow_seconds = -1.0").contains("positive"));
+        assert!(bad("tend_boost = 1.5", "tend_boost = 0.5").contains("tend_boost"));
+        assert!(bad("spacing = 2", "spacing = 0").contains("spacing"));
+        assert!(bad("spacing = 2", "spacing = 5").contains("spacing"));
+        assert!(bad("\"fruit_tree\"", "\"nothing\"").contains("unknown resource"));
+    }
+
     fn resolve(toml: &str) -> Result<Vec<BuildingDef>, DefsError> {
         let defs = Defs::bundled();
         // The bundled techs unlock the bundled buildings, which these small fixtures don't
@@ -464,7 +586,7 @@ mod tests {
         for t in &mut techs {
             t.unlocks.buildings.clear();
         }
-        toml::from_str::<BuildingsFile>(toml).unwrap().resolve(&defs.items, &techs)
+        toml::from_str::<BuildingsFile>(toml).unwrap().resolve(&defs.items, &techs, &defs.resources)
     }
 
     #[test]

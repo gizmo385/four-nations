@@ -1,0 +1,332 @@
+use super::*;
+use crate::building::Building;
+use crate::defs::{BiomeId, Terrain};
+use crate::geom::Grid;
+use crate::jobs::JobKind;
+use crate::mapgen::Tile;
+
+fn arena(size: i32) -> TileMap {
+    Grid::from_fn(size, size, |_| Tile {
+        elevation: 100,
+        temperature: 128,
+        moisture: 128,
+        terrain: Terrain::Land,
+        biome: BiomeId(0),
+        resource: None,
+        building: None,
+    })
+}
+
+fn at(x: i32, y: i32) -> Pos {
+    Pos::new(x, y)
+}
+
+const SIZE: i32 = 15;
+const MID: Pos = Pos::new(7, 7);
+
+fn setup(nation: Nation, seed: u64, units: &[Pos]) -> (World, Defs) {
+    let defs = Defs::bundled();
+    (World::with_map(seed, arena(SIZE), nation, units, &defs), defs)
+}
+
+fn orchard_def(defs: &Defs) -> OrchardDef {
+    defs.building(defs.building_id("orchard").unwrap()).orchard.expect("the orchard plants")
+}
+
+/// Puts a finished orchard on `pos`, as if built.
+fn raise_orchard(w: &mut World, defs: &Defs, pos: Pos) {
+    let id = defs.building_id("orchard").unwrap();
+    let def = defs.building(id);
+    w.map[pos].building = Some(Building { id, passable: def.passable, rail: false });
+    w.open_orchard(pos, def.orchard.as_ref().unwrap());
+}
+
+fn secs(s: f32) -> u64 {
+    (s * TICKS_PER_SECOND as f32).ceil() as u64
+}
+
+fn run(w: &mut World, defs: &Defs, ticks: u64) {
+    for _ in 0..ticks {
+        w.tick(defs);
+    }
+}
+
+fn run_until(w: &mut World, defs: &Defs, limit: u64, mut done: impl FnMut(&World) -> bool) -> u64 {
+    for n in 0..limit {
+        if done(w) {
+            return n;
+        }
+        w.tick(defs);
+    }
+    panic!("not done after {limit} ticks");
+}
+
+fn fruit_trees(w: &World, defs: &Defs) -> Vec<Pos> {
+    let tree = defs.resource_id("fruit_tree").unwrap();
+    w.map.iter().filter(|(_, t)| t.resource == Some(tree)).map(|(p, _)| p).collect()
+}
+
+#[test]
+fn a_finished_orchard_plants_a_sapling_every_interval_up_to_its_maximum() {
+    let (mut w, defs) = setup(Nation::Air, 1, &[at(0, 0)]);
+    let def = orchard_def(&defs);
+    raise_orchard(&mut w, &defs, MID);
+    assert!(fruit_trees(&w, &defs).is_empty());
+
+    // Nothing is planted before the first interval is up...
+    run(&mut w, &defs, secs(def.plant_seconds) - 2);
+    assert!(fruit_trees(&w, &defs).is_empty());
+    // ...then one sapling per interval, every one of them resting and marked as a sapling.
+    run(&mut w, &defs, 4);
+    let first = fruit_trees(&w, &defs);
+    assert_eq!(first.len(), 1);
+    assert!(w.is_sapling(first[0]) && w.is_resting(first[0]));
+    run(&mut w, &defs, secs(def.plant_seconds));
+    assert_eq!(fruit_trees(&w, &defs).len(), 2);
+
+    run(&mut w, &defs, secs(def.plant_seconds) * (def.max_trees as u64 + 2));
+    let trees = fruit_trees(&w, &defs);
+    assert_eq!(trees.len() as u32, def.max_trees, "it tends no more than its maximum");
+    assert_eq!(w.orchard_trees(MID), Some(def.max_trees as usize));
+}
+
+#[test]
+fn planted_trees_stand_in_reach_apart_and_off_the_things_in_the_way() {
+    let (mut w, defs) = setup(Nation::Air, 7, &[at(0, 0)]);
+    let def = orchard_def(&defs);
+    raise_orchard(&mut w, &defs, MID);
+    // A stockpile tile, a ground stack and a build site all within reach must be left alone.
+    w.designate_stockpile(at(6, 7)).unwrap();
+    w.place_ground(at(8, 7), Stack { item: defs.item_id("wood").unwrap(), count: 1 });
+    let bed = defs.building_id("bed").unwrap();
+    w.designate_build(at(7, 6), bed, &defs).unwrap();
+    run(&mut w, &defs, secs(def.plant_seconds) * (def.max_trees as u64 + 1));
+
+    let trees = fruit_trees(&w, &defs);
+    assert_eq!(trees.len() as u32, def.max_trees);
+    for (i, &t) in trees.iter().enumerate() {
+        assert!(t.chebyshev(MID) <= def.radius as i32, "{t:?} is out of reach");
+        assert!(t.chebyshev(MID) >= def.spacing as i32, "{t:?} crowds the orchard");
+        assert!(![at(6, 7), at(8, 7), at(7, 6)].contains(&t), "{t:?} is in use");
+        for &u in &trees[i + 1..] {
+            assert!(t.chebyshev(u) >= def.spacing as i32, "{t:?} and {u:?} are too close");
+        }
+    }
+}
+
+#[test]
+fn planting_is_deterministic_per_seed_and_varies_between_seeds() {
+    let grove = |seed: u64| {
+        let (mut w, defs) = setup(Nation::Air, seed, &[at(0, 0)]);
+        raise_orchard(&mut w, &defs, MID);
+        run(&mut w, &defs, secs(90.0 * 8.0));
+        fruit_trees(&w, &defs)
+    };
+    assert_eq!(grove(3), grove(3));
+    assert!((4..12).any(|s| grove(s) != grove(3)), "the seed should change where trees go");
+}
+
+#[test]
+fn a_planted_tree_is_a_sapling_until_it_first_ripens_then_a_plain_fruit_tree() {
+    let (mut w, defs) = setup(Nation::Air, 1, &[at(0, 0)]);
+    let def = orchard_def(&defs);
+    raise_orchard(&mut w, &defs, MID);
+    run(&mut w, &defs, secs(def.plant_seconds) + 2);
+    let tree = fruit_trees(&w, &defs)[0];
+    assert!(w.is_sapling(tree));
+
+    // Saplings grow at the tended rate, so ripening takes grow_seconds / tend_boost.
+    let grow = secs(def.grow_seconds / def.tend_boost);
+    run(&mut w, &defs, grow - 20);
+    assert!(w.is_sapling(tree) && w.is_resting(tree), "not ripe a little early");
+    run(&mut w, &defs, 40);
+    assert!(!w.is_sapling(tree) && !w.is_resting(tree), "ripe on schedule");
+    assert_eq!(w.map[tree].resource, defs.resource_id("fruit_tree"));
+}
+
+#[test]
+fn an_orchard_yields_harvestable_fruit_within_the_designed_time() {
+    let (mut w, defs) = setup(Nation::Air, 2, &[at(0, 0), at(1, 0)]);
+    let def = orchard_def(&defs);
+    let fruit = defs.item_id("fruit").unwrap();
+    raise_orchard(&mut w, &defs, MID);
+    w.designate_stockpile(at(0, 14)).unwrap();
+
+    // First fruit: one interval to plant it, then it grows at the tended rate, then someone picks
+    // it up and carries it off. The slack covers walking and the picking work.
+    let first_fruit = def.plant_seconds + def.grow_seconds / def.tend_boost;
+    run_until(&mut w, &defs, secs(first_fruit + 120.0), |w| w.stored_total(fruit) > 0);
+    assert!(w.stored_total(fruit) > 0, "units pick the orchard's fruit with no orders from us");
+}
+
+#[test]
+fn the_existing_picking_job_works_a_planted_tree_by_hand() {
+    // With `auto_pick` off, the tree is still an ordinary fruit tree: designating it works.
+    let (mut w, mut defs) = setup(Nation::Air, 2, &[at(1, 1)]);
+    let id = defs.building_id("orchard").unwrap();
+    defs.buildings[id.0 as usize].orchard.as_mut().unwrap().auto_pick = false;
+    let def = orchard_def(&defs);
+    raise_orchard(&mut w, &defs, MID);
+    run(&mut w, &defs, secs(def.plant_seconds) + 2);
+    let tree = fruit_trees(&w, &defs)[0];
+    assert!(!w.is_repeating_harvest(tree), "no standing order without auto_pick");
+    run(&mut w, &defs, secs(def.grow_seconds / def.tend_boost) + 20);
+    w.designate_harvest(tree, &defs).unwrap();
+    let fruit = defs.item_id("fruit").unwrap();
+    run_until(&mut w, &defs, 3000, |w| {
+        w.ground_items().any(|(_, s)| s.item == fruit)
+            || w.units.iter().any(|u| u.carrying.is_some())
+    });
+}
+
+#[test]
+fn a_planted_tree_regrows_after_picking_faster_than_a_wild_one() {
+    let (mut w, defs) = setup(Nation::Air, 2, &[at(0, 0)]);
+    let def = orchard_def(&defs);
+    let fruit_tree = defs.resource_id("fruit_tree").unwrap();
+    let regrow = defs.harvest(fruit_tree).unwrap().regrow.unwrap();
+    raise_orchard(&mut w, &defs, MID);
+    // A wild tree beyond the orchard's reach, picked at the same moment as a planted one.
+    let wild = at(0, 14);
+    w.map[wild].resource = Some(fruit_tree);
+    run(&mut w, &defs, secs(def.plant_seconds) + 2);
+    let planted = fruit_trees(&w, &defs).into_iter().find(|&p| p != wild).unwrap();
+    run(&mut w, &defs, secs(def.grow_seconds / def.tend_boost) + 20);
+    assert!(!w.is_resting(planted));
+
+    w.resting.insert(planted, regrow);
+    w.resting.insert(wild, regrow);
+    run(&mut w, &defs, secs(regrow / def.tend_boost) + 20);
+    assert!(!w.is_resting(planted), "tended: back in {} s", regrow / def.tend_boost);
+    assert!(w.is_resting(wild), "wild: still growing");
+    assert!(!w.is_sapling(planted), "a picked tree is not a sapling again");
+    run(&mut w, &defs, secs(regrow - regrow / def.tend_boost) + 20);
+    assert!(!w.is_resting(wild), "wild: back after the full {regrow} s");
+}
+
+#[test]
+fn a_standing_order_picks_each_crop_and_cancelling_it_stops_that() {
+    let (mut w, defs) = setup(Nation::Air, 2, &[at(0, 0)]);
+    let def = orchard_def(&defs);
+    raise_orchard(&mut w, &defs, MID);
+    run(&mut w, &defs, secs(def.plant_seconds) + 2);
+    let tree = fruit_trees(&w, &defs)[0];
+    assert!(w.is_repeating_harvest(tree), "planting leaves a standing order (#81)");
+    w.cancel_harvest(tree).unwrap();
+    assert!(!w.is_repeating_harvest(tree));
+    run(&mut w, &defs, secs(def.grow_seconds));
+    assert!(
+        !w.jobs().iter().any(|j| j.kind == JobKind::Harvest { pos: tree }),
+        "an order the player cancelled stays cancelled"
+    );
+    assert_eq!(w.map[tree].resource, defs.resource_id("fruit_tree"), "the tree itself stays");
+}
+
+#[test]
+fn the_orchard_replants_when_a_tree_is_lost_and_waits_when_there_is_no_room() {
+    let (mut w, defs) = setup(Nation::Air, 5, &[at(0, 0)]);
+    let def = orchard_def(&defs);
+    raise_orchard(&mut w, &defs, MID);
+    run(&mut w, &defs, secs(def.plant_seconds) * (def.max_trees as u64 + 1));
+    let lost = fruit_trees(&w, &defs)[0];
+    w.map[lost].resource = None;
+    assert_eq!(w.orchard_trees(MID), Some(def.max_trees as usize), "not noticed until it ticks");
+    run(&mut w, &defs, 2);
+    assert_eq!(w.orchard_trees(MID), Some(def.max_trees as usize - 1));
+    run(&mut w, &defs, secs(def.plant_seconds) + 2);
+    assert_eq!(w.orchard_trees(MID), Some(def.max_trees as usize));
+
+    // An orchard hemmed in by water has no tile to plant on, and just keeps waiting.
+    let (mut w, defs) = setup(Nation::Air, 5, &[at(0, 0)]);
+    for p in w.map.iter().map(|(p, _)| p).collect::<Vec<_>>() {
+        if p != MID && p.chebyshev(MID) <= def.radius as i32 {
+            w.map[p].terrain = Terrain::Water;
+        }
+    }
+    raise_orchard(&mut w, &defs, MID);
+    run(&mut w, &defs, secs(def.plant_seconds) * 3);
+    assert!(fruit_trees(&w, &defs).is_empty());
+}
+
+#[test]
+fn an_orchard_built_by_the_settlers_starts_planting_when_it_is_finished() {
+    let (mut w, defs) = setup(Nation::Air, 1, &[at(1, 1)]);
+    let wood = defs.item_id("wood").unwrap();
+    let id = defs.building_id("orchard").unwrap();
+    let cost = defs.building(id).cost[0].count;
+    w.designate_stockpile(at(0, 0)).unwrap();
+    w.stored.insert(at(0, 0), Stack { item: wood, count: cost });
+    let job = w.designate_build(MID, id, &defs).unwrap();
+    assert_eq!(w.orchard_trees(MID), None, "a site plants nothing");
+
+    run_until(&mut w, &defs, 6000, |w| w.job(job).is_none());
+    assert_eq!(w.orchard_trees(MID), Some(0));
+    let def = orchard_def(&defs);
+    run(&mut w, &defs, secs(def.plant_seconds) + 20);
+    assert_eq!(w.orchard_trees(MID), Some(1));
+}
+
+#[test]
+fn only_air_can_build_an_orchard() {
+    let defs = Defs::bundled();
+    let orchards = defs.tech_id("orchards").unwrap();
+    let id = defs.building_id("orchard").unwrap();
+    for nation in Nation::ALL {
+        let (mut w, _) = setup(nation, 1, &[at(1, 1)]);
+        let result = w.designate_build(MID, id, &defs);
+        if nation == Nation::Air {
+            assert!(result.is_ok(), "Air starts with orchards");
+        } else {
+            assert_eq!(result, Err(BuildError::NotResearched(orchards)), "{nation:?}");
+            assert!(
+                !defs.techs_for(nation).any(|(t, _)| t == orchards),
+                "{nation:?} can't research it either"
+            );
+        }
+    }
+}
+
+#[test]
+fn wild_fruit_picking_stays_open_to_every_nation_without_orchards() {
+    let defs = Defs::bundled();
+    let tree = defs.resource_id("fruit_tree").unwrap();
+    let fruit = defs.item_id("fruit").unwrap();
+    let orchards = defs.tech_id("orchards").unwrap();
+    for nation in Nation::ALL {
+        let (mut w, _) = setup(nation, 1, &[at(3, 3)]);
+        assert!(!w.research().is_known(orchards) || nation == Nation::Air);
+        w.map[at(5, 5)].resource = Some(tree);
+        w.designate_harvest(at(5, 5), &defs).unwrap_or_else(|e| panic!("{nation:?}: {e:?}"));
+        run_until(&mut w, &defs, 2000, |w| w.ground_items().any(|(_, s)| s.item == fruit));
+        assert!(w.is_resting(at(5, 5)), "{nation:?} picked it and it is regrowing");
+    }
+}
+
+#[test]
+fn orchards_survive_a_save_and_the_grove_keeps_growing_the_same() {
+    let (mut w, defs) = setup(Nation::Air, 9, &[at(0, 0)]);
+    let def = orchard_def(&defs);
+    raise_orchard(&mut w, &defs, MID);
+    run(&mut w, &defs, secs(def.plant_seconds) * 3 + 5);
+    let text = w.save(&defs).unwrap();
+    let mut loaded = World::load(&text, &defs).unwrap();
+    run(&mut w, &defs, secs(def.plant_seconds) * 4);
+    run(&mut loaded, &defs, secs(def.plant_seconds) * 4);
+    assert_eq!(fruit_trees(&w, &defs), fruit_trees(&loaded, &defs));
+    assert_eq!(w.save(&defs).unwrap(), loaded.save(&defs).unwrap());
+}
+
+#[test]
+fn a_save_from_before_orchards_planted_adopts_the_ones_it_already_has() {
+    let (mut w, defs) = setup(Nation::Air, 9, &[at(0, 0)]);
+    let id = defs.building_id("orchard").unwrap();
+    let b = defs.building(id);
+    // The building is on the map but nothing registered it, as in an old save.
+    w.map[MID].building = Some(Building { id, passable: b.passable, rail: false });
+    assert_eq!(w.orchard_trees(MID), None);
+    w.adopt_orchards(&defs);
+    assert_eq!(w.orchard_trees(MID), Some(0));
+    w.adopt_orchards(&defs);
+    run(&mut w, &defs, secs(orchard_def(&defs).plant_seconds) + 5);
+    assert_eq!(w.orchard_trees(MID), Some(1), "adopting twice doesn't reset it");
+}

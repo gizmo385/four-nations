@@ -119,7 +119,11 @@ pub fn tile_cell(
         (f.glyph(palette.ascii), f.fg)
     } else if let Some(r) = tile.resource {
         let look = &g.resource[&defs.resource(r).id];
-        if world.is_resting(pos) {
+        if world.is_sapling(pos) {
+            // Planted by an orchard and not yet grown: a sapling, not a resting tree.
+            let s = &g.overlay.sapling;
+            (s.glyph(palette.ascii), s.fg)
+        } else if world.is_resting(pos) {
             // Growing back: the client greys its sprite, so grey the glyph.
             if palette.mono() {
                 mods |= Modifier::DIM;

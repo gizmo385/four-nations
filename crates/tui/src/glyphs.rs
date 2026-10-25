@@ -46,13 +46,13 @@ impl UnitLook {
 
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct FlameLook {
+pub struct OverlayGlyph {
     pub glyph: char,
     pub ascii: char,
     pub fg: Rgb8,
 }
 
-impl FlameLook {
+impl OverlayGlyph {
     pub fn glyph(&self, ascii: bool) -> char {
         if ascii { self.ascii } else { self.glyph }
     }
@@ -68,7 +68,9 @@ pub struct Overlays {
     pub wet: Rgb8,
     pub cursor: Rgb8,
     pub warm: Rgb8,
-    pub flame: FlameLook,
+    pub flame: OverlayGlyph,
+    /// A fruit tree an orchard planted that hasn't borne fruit yet (#142).
+    pub sapling: OverlayGlyph,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -147,6 +149,7 @@ mod tests {
             .collect();
         out.push(("unit".into(), g.unit.glyph, g.unit.ascii));
         out.push(("overlay.flame".into(), g.overlay.flame.glyph, g.overlay.flame.ascii));
+        out.push(("overlay.sapling".into(), g.overlay.sapling.glyph, g.overlay.sapling.ascii));
         out
     }
 

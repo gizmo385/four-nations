@@ -255,3 +255,6 @@ cursor = [250, 220, 60]
 # The tiles a lit flame warms, while the cursor is on it.
 warm = [150, 70, 24]
 flame = { glyph = "☼", ascii = "!", fg = [255, 150, 40] }
+# A young fruit tree from an orchard (#142), drawn in place of the resource's glyph until it
+# first ripens.
+sapling = { glyph = "ψ", ascii = "y", fg = [150, 210, 110] }
