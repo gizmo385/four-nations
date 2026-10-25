@@ -228,6 +228,13 @@ existing 32x32 art fills exactly.
   art fits the tile (#213): 16 px of fill, 18 with the outline, bottom-aligned, and neighbouring
   igloos don't overlap. Don't give it the lodge's tall block-built silhouette or blue flag, or the
   two read as the same building.
+- **The Harmony Gate** (`art/buildings_endeavor.toml`, #246; [endgame.md](endgame.md)) is the
+  one 4x4 building: 64x80 cells, the bottom 64x64 filling the footprint exactly and the top 16
+  rows the roof. `foundation` and `pillars` are stages 1 and 2; `pillar_air`, `pillar_water`,
+  `pillar_earth` and `pillar_fire` each hold one pillar alone in a full cell, drawn over
+  `pillars`, so the pillars finish in any order. `complete_<nation>` (emblem unlit, stage 3) and
+  `complete_lit_<nation>` (the rite done) are one grid whose roof keys are swapped per nation:
+  gold, blue, green and red tiles. Previews: `mockups/246/`.
 - **Nation differences are shape and material**, not the accent: a gold-roofed open pavilion, an
   ice-block lodge, a green-tiled hall and a red two-tier pagoda.
 - **Seeing them.** `FN_BUILD_DEMO=buildings cargo xtask screenshot ...` levels a meadow beside
