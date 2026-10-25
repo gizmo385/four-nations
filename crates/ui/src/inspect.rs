@@ -88,7 +88,9 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
     }
     if let Some(name) = build::built_name(session, tile) {
         lines.push(Line::Title(name));
-        lines.push(Line::Detail(format!("Built ({}, {})", tile.x, tile.y)));
+        // Where it stands: its anchor, so every tile of its footprint says the same.
+        let at = world.footprint_at(tile).map_or(tile, |f| f.anchor);
+        lines.push(Line::Detail(format!("Built ({}, {})", at.x, at.y)));
         // An orchard says how much of its grove is planted (#142).
         let max =
             world.building_at(tile).and_then(|b| defs.building(b).orchard).map(|o| o.max_trees);

@@ -200,12 +200,12 @@ impl App {
     /// A tool key: the tool becomes active, and the corner and the last result are dropped
     /// (pressing the active tool's own key again does just that).
     fn pick_tool(&mut self, requested: Tool) {
-        // The shared switch also resolves the Build tool's building; the keys here never ask for
-        // Build, so there is no choice to keep.
-        // `B` again moves on to the next ability the settlement can use (#123).
+        // `B` again moves on to the next ability the settlement can use (#123), and `U` again to
+        // the next building.
         cycle_ability(&mut self.session, self.ui.tool, requested);
-        let (tool, _choice) = switch_tool(&self.session, self.ui.tool, None, requested);
+        let (tool, choice) = switch_tool(&self.session, self.ui.tool, self.ui.building, requested);
         self.ui.set_tool(tool);
+        self.ui.building = choice;
     }
 
     /// `Enter`. In Select mode it selects the unit under the cursor (again: the next one on that
@@ -219,15 +219,15 @@ impl App {
         match self.ui.anchor.take() {
             None => self.ui.anchor = Some(self.ui.cursor),
             Some(corner) => {
-                // The shared logic also takes the Shift state (a repeating harvest) and the
-                // Build tool's building; neither has a key here yet.
+                // The shared logic also takes the Shift state (a repeating harvest), which has
+                // no key here yet.
                 self.ui.notice = apply_rect(
                     &mut self.session,
                     self.ui.tool,
                     corner,
                     self.ui.cursor,
                     false,
-                    None,
+                    self.ui.building,
                 );
             }
         }

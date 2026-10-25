@@ -216,8 +216,8 @@ fn build_table() -> Vec<Binding> {
     add(Group::Units, "Follow the selected unit (Select mode)", Key::ch('f'), Action::Follow);
 
     for tool in Tool::ALL {
-        // Select is Esc. Build needs a building picker, which has no key yet.
-        let Some(letter) = tool.letter().filter(|_| tool != Tool::Build) else { continue };
+        // Select is Esc.
+        let Some(letter) = tool.letter() else { continue };
         let what = format!("{} tool: {}", tool.name(), tool.label());
         add(Group::Tools, &what, Key::ch(letter.to_ascii_lowercase()), Action::PickTool(tool));
     }
@@ -422,6 +422,7 @@ mod tests {
             ('x', Tool::CancelHarvest),
             ('p', Tool::Stockpile),
             ('b', Tool::Bend),
+            ('u', Tool::Build),
         ] {
             let want = Some(Action::PickTool(tool));
             assert_eq!(map_key(key(KeyCode::Char(c))), want);
@@ -432,8 +433,6 @@ mod tests {
             );
             assert_eq!(map_key(with(KeyCode::Char(c), KeyModifiers::CONTROL)), None);
         }
-        // The build tool needs a picker, which comes with its own issue.
-        assert_eq!(map_key(key(KeyCode::Char('u'))), None);
         assert_eq!(map_key(key(KeyCode::Enter)), Some(Action::Confirm));
         assert_eq!(map_key(key(KeyCode::Esc)), Some(Action::Cancel));
     }

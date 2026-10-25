@@ -284,9 +284,8 @@ like Shift+arrows. With Caps Lock on, they move 10 tiles too.
   which makes them risky in the shells and multiplexers the TUI runs in.
 - **Mouse** is later: crossterm reports clicks and drags, which can map onto the same
   cursor-and-corner actions.
-- **Build tool.** The sim has build designations (#64), but neither frontend has a tool yet.
-  When one lands, it goes into `fn_ui`'s tool table with one key and a building picker, so both
-  frontends get it together.
+- **Build tool.** `U`, through `fn_ui`'s tool table and `switch_tool`, as in the client: the
+  first building the nation can place, and `U` again the next (#212, "What #212 built" below).
 
 ## Time and the frame loop
 
@@ -365,7 +364,7 @@ reject; it formats and maps. Sprites, entities, the camera and interpolation sta
 | Side panel: stores, research line, modifiers, tool hint, alerts | Same, plus a message log (`L`) and key help (`?`) | #99 |
 | `R` and `1`-`4` regenerate | Same, with a prompt | #99 |
 | Research screen (`T`) | Tier columns, cursor, `Enter` sets the target | #100 |
-| Build tool (sim only so far, #64) | Through `fn_ui`'s tool table, in both frontends at once | Later |
+| Build tool and its placement ghost | `U` picks and cycles the building; the ghost is a block of its glyph | #212 |
 | Save and load (#7) | Once the sim has it | Later |
 | Mouse | Click moves the cursor; a drag is a rectangle | Later |
 | Portraits, sprite smoothing, canopy fade (#77) | Not applicable | none |
@@ -445,7 +444,7 @@ The designation tools and key scripts. Where it differs from the proposal above:
 
 - **Keys.** `H` `X` `P` `B` in either case pick `Tool::Harvest`, `CancelHarvest`, `Stockpile` and
   `Bend` through `fn_ui::tools::switch_tool`; `U` (build) is not bound until the build tool has a
-  picker. `Enter` and `Esc` are `Action::Confirm` and `Action::Cancel`; in Select mode both do
+  picker (#212 binds it). `Enter` and `Esc` are `Action::Confirm` and `Action::Cancel`; in Select mode both do
   nothing yet (#99 gives them selecting and closing the bar). Picking a tool, even the active one,
   drops the corner and the last result.
 - **Applying** is `fn_ui::tools::apply_rect` as the client calls it. The Shift state (a repeating
@@ -563,6 +562,34 @@ The research screen, the last of the chain. Where it differs from the proposal a
 - **Goldens.** New: `earth_seed7_research` (a target set), `earth_seed7_research_small` (80x24,
   scrolled to the deep end) and `fire_seed3_research_ascii`. Re-blessed: the status line of every
   Select-mode frame, and the help (it gained the `T` row).
+
+## What #212 built
+
+Multi-tile buildings in the TUI (docs/design/buildings.md, "TUI"). Every building in the data is
+still 1x1 until #214, so nothing changes in a frame of today's game but the status line.
+
+- **Footprints.** A finished building already answers `World::building_at` from every tile of its
+  footprint; a site now covers every tile too, so a 2x2 forge or its site is a 2x2 block of its
+  glyph (dimmed while a site). `--ascii` uses the `ascii` character the same way.
+- **The Build tool.** `U` picks it through `fn_ui::tools::switch_tool`, with the first building the
+  nation can place, and `U` again moves on to the next; another tool keeps the choice, so `U`
+  returns to it. `UiState` gains `building`, and `Enter` passes it to `apply_rect`, so a drag
+  stamps the same lattice as the client (`tools::build_stamps`).
+- **The ghost.** `fn_ui::build::ghosts` gives the footprint under the cursor, or one per stamp of
+  the rectangle being dragged. Each ghost tile draws the building's glyph over everything but a
+  unit, on the theme's `ok` green where the building fits and its `bad` red where something is in
+  the way; a ghost refused as a whole (a locked building) is red throughout. Over the ghost the
+  cursor keeps the tile's colour and draws its glyph in black. With no colour the ghost is reversed,
+  bold where it fits; a blocked tile is dim and keeps the glyph of what is in the way. On 16
+  colours the green and the red take two more of the distinct solid colours.
+- **Status line.** In the Build tool it says `build Bed  (U: next building)`, or, when a ghost
+  would be refused, why, as `fn_ui::build::ghost_refusal` words it (`Bed: can't build here: on a
+  stockpile`). The Select-mode keys now read `H X P B U tools`.
+- **Cursor section.** "Built (x, y)" names the building's anchor, so every tile of a footprint
+  reads the same.
+- **Goldens.** New: `earth_seed7_footprints` (a 2x2 building and a 2x2 site) and
+  `earth_seed7_ghost` (the Build tool's ghost), both with the bed made 2x2 in the test. Re-blessed:
+  the status line of every Select-mode frame, and the help (it gained the `U` row).
 
 ## Owner decisions (2026-10-24)
 

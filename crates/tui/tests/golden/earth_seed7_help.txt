@@ -18,23 +18,23 @@
 │ X                      Cancel tool: cancel harvest, build site or stockpile          ││ Move speed              x0.9 │
 │ P                      Stockpile tool: designate stockpile                           ││ Carry capacity          x1.3 │
 │ B                      Bend tool: channel the nation's ability                       ││ Earthworks              x2.5 │
-│                                                                                      ││ Water work              x0.9 │
-│ TIME                                                                                 ││ Power generation        x0.8 │
-│ Space                  Pause or run                                                  ││ Construction            x1.5 │
-│ + =                    Faster                                                        ││                              │
-│ - _                    Slower                                                        ││ ◇ CURSOR            (94, 64) │
-│ .                      One tick, while paused                                        ││ Tyro                         │
-│                                                                                      ││ Earth Kingdom - Idle         │
-│ SCREENS AND GAME                                                                     ││ Carrying: nothing - Bends: 0 │
-│ T                      Research: arrows W A S D choose a tech, Enter sets it as the  ││ Press Enter to select        │
+│ U                      Build tool: build: pick a building, then click a tile (U:     ││ Water work              x0.9 │
+│                        next building)                                                ││ Power generation        x0.8 │
+│                                                                                      ││ Construction            x1.5 │
+│ TIME                                                                                 ││                              │
+│ Space                  Pause or run                                                  ││ ◇ CURSOR            (94, 64) │
+│ + =                    Faster                                                        ││ Tyro                         │
+│ - _                    Slower                                                        ││ Earth Kingdom - Idle         │
+│ .                      One tick, while paused                                        ││ Carrying: nothing - Bends: 0 │
+│                                                                                      ││ Press Enter to select        │
+│ SCREENS AND GAME                                                                     ││                              │
+│ T                      Research: arrows W A S D choose a tech, Enter sets it as the  ││                              │
 │                        target                                                        ││                              │
 │ L                      Message log                                                   ││                              │
 │ ?                      Key help                                                      ││                              │
 │ R                      New map (asks first)                                          ││                              │
 │ 1 2 3 4                Switch nation: 1 Air, 2 Water, 3 Earth, 4 Fire (asks first)   ││                              │
 │ Q                      Quit (asks first)                                             ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
 │                                                                                      ││                              │
 ┗─ Arrows W S scroll  PgUp PgDn page  Esc close  L log ────────────────────────────────┛┗──────────────────────────────┛
  KEYS  arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause

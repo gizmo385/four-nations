@@ -239,7 +239,7 @@ fn cursor_rows(session: &Session, ui: &UiState) -> Vec<Row> {
 }
 
 fn gather(session: &Session, ui: &UiState, marks: &Marks, width: usize) -> Data {
-    let view = side_view(session, ui.tool, &ui.notice, None, &ui.alerts);
+    let view = side_view(session, ui.tool, &ui.notice, ui.building, &ui.alerts);
     let ellipsis = marks.ellipsis;
     let modifiers = view
         .modifiers

@@ -1,8 +1,10 @@
 //! What the player is looking at: the cursor, the part of the map in view and the modal state.
 //! Nothing here touches the terminal, so the render and input tests drive it directly.
 
+use fn_sim::building::BuildingId;
 use fn_sim::world::{Unit, UnitId};
 use fn_sim::{Nation, Pos};
+use fn_ui::build::{Placement, ghosts};
 use fn_ui::{Alerts, Session, Tool};
 
 use crate::layout;
@@ -45,8 +47,11 @@ pub struct UiState {
     viewport: (i32, i32),
     /// The map's width and height in tiles.
     bounds: (i32, i32),
-    /// The active tool: `Select` until a tool key (`H` `X` `P` `B`) picks another.
+    /// The active tool: `Select` until a tool key (`H` `X` `P` `B` `U`) picks another.
     pub tool: Tool,
+    /// The building the Build tool places (`fn_ui::tools::switch_tool`): `U` picks the first one
+    /// the nation can place, and again the next. Other tools keep it, so `U` returns to it.
+    pub building: Option<BuildingId>,
     /// The rectangle's first corner, set by the tool's first `Enter`. The rectangle runs from
     /// here to the cursor; only a tool has one, and switching tools drops it.
     pub anchor: Option<Pos>,
@@ -85,6 +90,7 @@ impl UiState {
             viewport: layout::viewport(screen.0, screen.1),
             bounds: (map.width(), map.height()),
             tool: Tool::Select,
+            building: None,
             anchor: None,
             notice: String::new(),
             prompt: None,
@@ -153,6 +159,15 @@ impl UiState {
     /// The rectangle being dragged as (width, height) in tiles.
     pub fn rect_size(&self) -> Option<(i32, i32)> {
         self.rect().map(|(a, b)| ((a.x - b.x).abs() + 1, (a.y - b.y).abs() + 1))
+    }
+
+    /// The Build tool's ghosts (`fn_ui::build::ghosts`): the footprint under the cursor, or one
+    /// per stamp of the rectangle being dragged. Empty in any other tool, or with no building.
+    pub fn ghosts(&self, session: &Session) -> Vec<Placement> {
+        match (self.tool, self.building) {
+            (Tool::Build, Some(b)) => ghosts(session, self.anchor, self.cursor, b),
+            _ => Vec::new(),
+        }
     }
 
     /// Whether `pos` is inside the rectangle being dragged.

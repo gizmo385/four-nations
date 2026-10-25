@@ -1,14 +1,19 @@
 //! The map: what each tile looks like. One glyph and one background per tile, chosen
 //! independently, top to bottom (docs/design/tui.md, "What draws on top"):
 //!
-//! * Glyph: unit > building or build site > item stack (ground or stored) > lit flame >
-//!   resource > terrain or biome.
-//! * Background: cursor > the rectangle being dragged (#98), in its tool's hue > designation tint
-//!   (harvest, bend, build, stockpile) > wet patch > the warmth of the flame under the cursor >
-//!   terrain or biome.
+//! * Glyph: unit > the Build tool's ghost > building or build site > item stack (ground or
+//!   stored) > lit flame > resource > terrain or biome.
+//! * Background: cursor > the Build tool's ghost (#212), green where the building fits and red
+//!   where something is in the way > the rectangle being dragged (#98), in its tool's hue >
+//!   designation tint (harvest, bend, build, stockpile) > wet patch > the warmth of the flame
+//!   under the cursor > terrain or biome.
+//!
+//! A building or site covers its whole footprint (#196, docs/design/buildings.md, "TUI"), so a
+//! 2x2 forge is a 2x2 block of its glyph, and so is its ghost.
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use fn_sim::building::BuildingId;
 use fn_sim::jobs::Stack;
 use fn_sim::{Pos, Terrain};
 use fn_ui::Session;
@@ -30,7 +35,10 @@ pub struct Overlays {
     zones: BTreeSet<Pos>,
     harvest: BTreeSet<Pos>,
     bend: BTreeSet<Pos>,
-    sites: BTreeMap<Pos, fn_sim::building::BuildingId>,
+    /// Every tile of every build site, with the building it will be.
+    sites: BTreeMap<Pos, BuildingId>,
+    /// Every tile of the Build tool's ghosts, with the building and whether it can go there.
+    ghost: BTreeMap<Pos, (BuildingId, bool)>,
     flames: BTreeSet<Pos>,
     wet: BTreeSet<Pos>,
     /// The tiles warmed by the flame under the cursor, if the cursor is on one.
@@ -49,7 +57,11 @@ impl Overlays {
             zones: world.stockpile_zones().collect(),
             harvest: world.harvest_designations().collect(),
             bend: world.bend_designations().map(|(_, p)| p).collect(),
-            sites: world.build_sites().map(|(f, b, _)| (f.anchor, b)).collect(),
+            sites: world
+                .build_sites()
+                .flat_map(|(f, b, _)| f.tiles().map(move |p| (p, b)))
+                .collect(),
+            ghost: ghost_tiles(session, ui),
             flames: flames.iter().map(|f| f.pos).collect(),
             wet: world.wet_tiles().into_iter().map(|(p, _)| p).collect(),
             warmed: flames.iter().find(|f| f.pos == cursor).map(|f| (f.pos, f.radius)),
@@ -60,6 +72,19 @@ impl Overlays {
         // The same square reach as the sim's `HeatSource::warms`.
         self.warmed.is_some_and(|(c, r)| p.x.abs_diff(c.x).max(p.y.abs_diff(c.y)) <= r)
     }
+}
+
+/// Every tile of the Build tool's ghosts: free unless something is on it, and every tile of a
+/// ghost refused as a whole (for its tech) is blocked, so a red tile always means the click will
+/// be refused.
+fn ghost_tiles(session: &Session, ui: &UiState) -> BTreeMap<Pos, (BuildingId, bool)> {
+    let Some(building) = ui.building else { return BTreeMap::new() };
+    let mut tiles = BTreeMap::new();
+    for g in ui.ghosts(session) {
+        let whole = g.refused.is_some() && g.tiles.iter().all(|(_, b)| b.is_none());
+        tiles.extend(g.tiles.iter().map(|&(p, b)| (p, (building, b.is_none() && !whole))));
+    }
+    tiles
 }
 
 /// How one tile draws: its glyph and style.
@@ -101,6 +126,11 @@ pub fn tile_cell(
             mods |= Modifier::REVERSED;
         }
         (g.unit.glyph(palette.ascii), palette.unit_rgb())
+    } else if let Some(&(b, _)) = over.ghost.get(&pos).filter(|&&(_, free)| free || !palette.mono())
+    {
+        // Without colour a blocked tile keeps the glyph of what is in the way instead.
+        let look = &g.building[&defs.building(b).id];
+        (look.glyph(palette.ascii), look.fg)
     } else if let Some(b) = world.building_at(pos) {
         let look = &g.building[&defs.building(b).id];
         (look.glyph(palette.ascii), look.fg)
@@ -158,7 +188,17 @@ pub fn tile_cell(
         // Without colour a dragged tile is reversed and dimmed; the cursor is reversed alone.
         mods |= Modifier::REVERSED | Modifier::DIM;
     }
-    let bg = if let Some(tint) = dragged {
+    let ghost = over.ghost.get(&pos).map(|&(_, free)| free);
+    if let Some(free) = ghost
+        && palette.mono()
+    {
+        // Without colour the ghost is reversed: bold where it fits, dim where it doesn't.
+        mods.remove(Modifier::DIM | Modifier::UNDERLINED);
+        mods |= Modifier::REVERSED | if free { Modifier::BOLD } else { Modifier::DIM };
+    }
+    let bg = if let Some(free) = ghost {
+        palette.ghost(base_bg, free)
+    } else if let Some(tint) = dragged {
         palette.dragged(base_bg, tint)
     } else if let Some(tint) = designation {
         palette.tinted(base_bg, tint)
@@ -172,8 +212,13 @@ pub fn tile_cell(
 
     let mut style = Style::new().fg(palette.color(fg)).bg(bg).add_modifier(mods);
     if pos == ui.cursor {
-        // The cursor takes the whole look but keeps the glyph (and bold/dim) it covers.
-        style = style.patch(palette.cursor_style());
+        if ghost.is_some() && !palette.mono() {
+            // Over the ghost the cursor keeps the tile's green or red, so a 1x1 ghost still shows.
+            style = style.fg(palette.color([0, 0, 0])).add_modifier(Modifier::BOLD);
+        } else {
+            // The cursor takes the whole look but keeps the glyph (and bold/dim) it covers.
+            style = style.patch(palette.cursor_style());
+        }
     }
     Some(TileCell { glyph, style })
 }
