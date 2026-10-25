@@ -100,9 +100,18 @@ fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, b
                 Prompt::Nation(n) => {
                     (" SWITCH? ", format!("start over as the {}", session.defs.nation(n).name))
                 }
+                Prompt::QuickLoad => {
+                    (" LOAD? ", "load the quicksave in place of this game".to_owned())
+                }
             };
             buf.set_string(area.x, area.y, text, badge(theme.on_accent, theme.warn));
             (text.len() as u16, format!("Press y to {question}, any other key to stay."))
+        }
+        None if !ui.status.is_empty() => {
+            let text = " SAVE ";
+            let bg = if ui.status.contains("failed") { theme.warn } else { theme.accent };
+            buf.set_string(area.x, area.y, text, badge(theme.on_accent, bg));
+            (text.len() as u16, ui.status.clone())
         }
         None if ui.screen.is_some() => {
             let (text, keys) = match ui.screen {

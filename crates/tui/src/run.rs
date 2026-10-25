@@ -10,6 +10,7 @@
 //! 4. redraws if anything changed, at most 30 times a second.
 
 use std::io::{self, Stdout, Write};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -81,11 +82,12 @@ fn setup() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
 
 /// Plays `session` in the terminal until the player quits. A new nation (`1`-`4`) needs new
 /// colours, so the palette is rebuilt for it at the same depth.
-pub fn run(session: Session, mut palette: Palette) -> io::Result<()> {
+pub fn run(session: Session, mut palette: Palette, saves: Option<PathBuf>) -> io::Result<()> {
     let _restore = Restore;
     let mut terminal = setup()?;
     let (w, h) = terminal::size()?;
     let mut app = App::new(session, (w, h));
+    app.saves = saves;
     let mut nation = app.session.world.nation;
 
     let mut last_tick = Instant::now();
