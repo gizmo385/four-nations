@@ -243,26 +243,62 @@ fn designate_demo_sites(session: &mut Session, finished: bool) {
         let building = fn_sim::building::BuildingId(i as u16);
         let pos = Pos::new(origin.x + 2, origin.y + dy);
         if session.apply(fn_sim::world::Command::DesignateBuild { pos, building }).is_ok() {
-            dy += 2;
+            dy += i32::from(session.defs.building(building).footprint.1) + 1;
         }
     }
     if !finished {
         return;
     }
-    // Four columns, 4 tiles apart so the 2x2 sprites don't overlap, to the right of the sites.
-    for i in 0..session.defs.buildings.len() {
-        let id = fn_sim::building::BuildingId(i as u16);
-        let (passable, rail) = {
+    // Four columns to the right of the sites. Each grid cell is the building's footprint (or its
+    // sprite, if that is bigger, so 1x1 buildings drawn 2x2 don't overlap) plus a one-tile gap;
+    // a column is as wide as its widest cell, a row as tall as its tallest.
+    let cell = |id: fn_sim::building::BuildingId| {
+        let def = session.defs.building(id);
+        let frame = sprites::buildings::frames(def.art_for(session.world.nation))[0];
+        if def.rail.is_some() {
+            return (5, 5); // The yard below is four tiles square.
+        }
+        let (w, h) = def.footprint;
+        (i32::from(w).max(frame.w as i32) + 1, i32::from(h).max(frame.h as i32) + 1)
+    };
+    let ids: Vec<_> =
+        (0..session.defs.buildings.len() as u16).map(fn_sim::building::BuildingId).collect();
+    let mut widths = [0; 4];
+    let mut heights = vec![0; ids.len().div_ceil(4)];
+    for (i, &id) in ids.iter().enumerate() {
+        let (w, h) = cell(id);
+        widths[i % 4] = widths[i % 4].max(w);
+        heights[i / 4] = heights[i / 4].max(h);
+    }
+    for (i, &id) in ids.iter().enumerate() {
+        let (passable, rail, (w, h)) = {
             let def = session.defs.building(id);
-            (def.passable, def.rail.is_some())
+            (def.passable, def.rail.is_some(), def.footprint)
         };
-        let pos = Pos::new(origin.x + 6 + 4 * (i as i32 % 4), origin.y - 6 + 4 * (i as i32 / 4));
+        let x = origin.x + 6 + widths[..i % 4].iter().sum::<i32>();
+        let y = origin.y - 6 + heights[..i / 4].iter().sum::<i32>();
+        let pos = Pos::new(x, y);
         // One tile of rail would only show a stub: lay a small yard instead, a loop with a spur,
         // so the straight pieces, corners and a junction are all in the shot (#135).
-        let tiles = if rail { rail_yard(pos) } else { vec![pos] };
-        for pos in tiles {
-            if let Some(tile) = session.world.map.get_mut(pos) {
-                tile.building = Some(fn_sim::building::Building::new(id, passable, rail));
+        if rail {
+            for pos in rail_yard(pos) {
+                if let Some(tile) = session.world.map.get_mut(pos) {
+                    tile.building = Some(fn_sim::building::Building::new(id, passable, rail));
+                }
+            }
+            continue;
+        }
+        // Every tile of the footprint carries the building, as the sim leaves it.
+        let one = fn_sim::building::Building {
+            size: [w, h],
+            ..fn_sim::building::Building::new(id, passable, false)
+        };
+        for p in fn_sim::geom::Footprint::new(pos, w, h).tiles() {
+            if let Some(tile) = session.world.map.get_mut(p) {
+                tile.building = Some(fn_sim::building::Building {
+                    part: [(p.x - x) as u8, (p.y - y) as u8],
+                    ..one
+                });
             }
         }
     }
