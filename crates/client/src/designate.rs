@@ -111,12 +111,14 @@ fn tool_pressed(keys: &ButtonInput<KeyCode>) -> Option<Tool> {
 
 fn choose_tool(
     keys: Res<ButtonInput<KeyCode>>,
-    sim: Res<Sim>,
+    mut sim: ResMut<Sim>,
     mut tool: ResMut<ActiveTool>,
     mut choice: ResMut<BuildChoice>,
     mut notice: ResMut<Notice>,
 ) {
     let Some(requested) = tool_pressed(&keys) else { return };
+    // `B` pressed again moves on to the next ability the settlement can use (#123).
+    tools::cycle_ability(&mut sim, tool.0, requested);
     // `U` picks the build tool; pressed again it moves on to the next building the nation can
     // place (`switch_tool`).
     let (next, building) = tools::switch_tool(&sim, tool.0, choice.0, requested);

@@ -239,6 +239,10 @@ forager or hauler eats cooked food in the field, which Hearthflame can't do.
 - **Client:** the cast effect is a warm glow that swells around the bender (`Look::Glow` in
   `cast.rs`). While it lasts, the carrier has a soft ring of light under their feet, drawn from
   `World::glows()` (position, radius and time left, as `flames()` does for flames).
+  Hovering the carrier outlines its reach, and its tooltip line gains "Warm 12m 03s".
+- **Picking it:** `B` selects the Bend tool, and `B` again cycles through the abilities the
+  settlement can use (`fn_ui::tools::cycle_ability`, `Session::bend_choice`), so Inner Fire
+  appears once Dancing Dragon is known. This is the "small picker" the Client section promised.
 - **Saves:** `auras` is part of world state with `#[serde(default)]`, so a save from before
   #123 loads with none.
 

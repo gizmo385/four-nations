@@ -3,7 +3,8 @@
 //! `Enter`s) into a rectangle; this turns the rectangle into `Command`s and a notice.
 //!
 //! Keys: `H` harvest (chop, quarry, gather, mine, whatever each tile's resource gives), `X` cancel
-//! harvest (also withdraws a build site or a stockpile tile), `P` stockpile, `B` the nation's bending ability, `U` the
+//! harvest (also withdraws a build site or a stockpile tile), `P` stockpile, `B` the nation's bending
+//! ability (pressed again it cycles through the abilities the settlement can use), `U` the
 //! build tool (pressed again it cycles through the buildings the nation can place) and `Esc` back
 //! to selecting.
 
@@ -24,7 +25,8 @@ pub enum Tool {
     Harvest,
     CancelHarvest,
     Stockpile,
-    /// Channel the nation's signature ability (docs/design/bending.md).
+    /// Channel one of the nation's abilities (docs/design/bending.md): its signature one, or
+    /// the next the settlement can use after `B` again (`Session::bend_choice`).
     Bend,
     /// Place the building picked in the picker (#111).
     Build,
@@ -33,7 +35,7 @@ pub enum Tool {
 /// What a tool needs besides the tile to decide on a command.
 #[derive(Clone, Copy, Default, Debug)]
 pub struct Pick {
-    /// The nation's bending ability, resolved once per drag (`ability_for_nation`); `Bend`
+    /// The ability the Bend tool channels, resolved once per drag (`bend_ability`); `Bend`
     /// issues nothing without one.
     pub ability: Option<AbilityId>,
     /// Held Shift (#81): a harvest designation becomes a standing order that re-queues itself
@@ -124,14 +126,16 @@ impl Tool {
         }
     }
 
-    /// `label`, except that `Bend` names the nation's one ability, since "channel the nation's
-    /// ability" alone doesn't say which (docs/design/bending.md).
+    /// `label`, except that `Bend` names the ability it channels, since "channel the nation's
+    /// ability" alone doesn't say which (docs/design/bending.md). With more than one usable it
+    /// says how to move on to the next.
     pub fn hint(self, session: &Session) -> String {
         if self == Self::Bend
-            && let Some(id) = ability_for_nation(&session.defs, session.world.nation)
+            && let Some(id) = bend_ability(session)
         {
             let def = session.defs.ability(id);
-            return format!("{}: {}", def.verb, def.description);
+            let more = if usable_abilities(session).len() > 1 { " (B: next ability)" } else { "" };
+            return format!("{}: {}{more}", def.verb, def.description);
         }
         self.label().to_owned()
     }
@@ -154,11 +158,42 @@ impl Tool {
     }
 }
 
-/// The nation's one bending ability right now (docs/design/bending.md: "There's one ability
-/// now; a small picker appears once research unlocks more"). `None` only if a nation has no
-/// ability defined at all, which the data tests guard against.
+/// The nation's signature ability: its first in the data, which needs no research. `None` only
+/// if a nation has no ability defined at all, which the data tests guard against.
 pub fn ability_for_nation(defs: &Defs, nation: Nation) -> Option<AbilityId> {
     defs.abilities.iter().position(|a| a.nation == nation).map(|i| AbilityId(i as u16))
+}
+
+/// Every ability this settlement can use now (its nation's, with their tech known), in data
+/// order: the signature one first, then what research has unlocked (#123).
+pub fn usable_abilities(session: &Session) -> Vec<AbilityId> {
+    (0..session.defs.abilities.len() as u16)
+        .map(AbilityId)
+        .filter(|&id| session.world.check_ability(id, &session.defs).is_ok())
+        .collect()
+}
+
+/// The ability the Bend tool channels: the one picked with `B` while it is still usable, else the
+/// first usable (the signature ability).
+pub fn bend_ability(session: &Session) -> Option<AbilityId> {
+    let usable = usable_abilities(session);
+    session
+        .bend_choice
+        .filter(|c| usable.contains(c))
+        .or_else(|| usable.first().copied())
+        .or_else(|| ability_for_nation(&session.defs, session.world.nation))
+}
+
+/// `B` pressed while the Bend tool is already active moves on to the next usable ability,
+/// wrapping round. Any other key leaves the choice alone, so coming back to `B` returns to it.
+pub fn cycle_ability(session: &mut Session, current: Tool, requested: Tool) {
+    if current != Tool::Bend || requested != Tool::Bend {
+        return;
+    }
+    let usable = usable_abilities(session);
+    let now = bend_ability(session);
+    let next = now.and_then(|n| usable.iter().position(|&a| a == n)).map_or(0, |i| i + 1);
+    session.bend_choice = usable.get(next % usable.len().max(1)).copied();
 }
 
 /// Every tile in the rectangle spanned by two corners, row by row.
@@ -209,11 +244,7 @@ pub fn apply_rect(
     }
     let rows = build::picker_rows(session);
     let building = build::valid_choice(&rows, choice);
-    let pick = Pick {
-        ability: ability_for_nation(&session.defs, session.world.nation),
-        repeating,
-        building,
-    };
+    let pick = Pick { ability: bend_ability(session), repeating, building };
     let what = match (tool, building) {
         (Tool::Build, Some(id)) => {
             let name = rows.iter().find(|r| r.id == id).map_or("", |r| r.name.as_str());
@@ -364,6 +395,53 @@ mod tests {
             let id = ability_for_nation(&defs, nation).unwrap_or_else(|| panic!("{nation:?}"));
             assert_eq!(defs.ability(id).nation, nation);
         }
+    }
+
+    #[test]
+    fn a_new_game_can_use_only_the_signature_ability_so_b_has_nothing_to_cycle() {
+        for nation in Nation::ALL {
+            let mut s = Session::new(1, nation, 48, 32);
+            let signature = ability_for_nation(&s.defs, nation).unwrap();
+            assert_eq!(usable_abilities(&s), [signature], "{nation:?}");
+            assert_eq!(bend_ability(&s), Some(signature));
+            cycle_ability(&mut s, Tool::Bend, Tool::Bend);
+            assert_eq!(bend_ability(&s), Some(signature), "{nation:?}");
+            assert!(!Tool::Bend.hint(&s).contains("next ability"));
+        }
+    }
+
+    #[test]
+    fn b_again_cycles_through_what_research_has_unlocked() {
+        // Fire's Inner Fire needs Dancing Dragon; research it the slow way, with the settlers
+        // kept fed so the passive trickle has time to pay for it.
+        let mut s = Session::new(3, Nation::Fire, 48, 32);
+        let dragon = s.defs.tech_id("dancing_dragon").unwrap();
+        let (hearth, inner) =
+            (s.defs.ability_id("hearthflame").unwrap(), s.defs.ability_id("inner_fire").unwrap());
+        assert_eq!(bend_ability(&s), Some(hearth));
+        s.apply(Command::SetResearch { tech: dragon }).unwrap();
+        for _ in 0..200_000 {
+            if s.world.research().is_known(dragon) {
+                break;
+            }
+            s.tick();
+        }
+        assert!(s.world.research().is_known(dragon), "researched");
+        assert_eq!(usable_abilities(&s), [hearth, inner]);
+        assert!(Tool::Bend.hint(&s).contains("B: next ability"));
+
+        // Picking the tool leaves the choice; B again moves on, wrapping round.
+        cycle_ability(&mut s, Tool::Select, Tool::Bend);
+        assert_eq!(bend_ability(&s), Some(hearth));
+        cycle_ability(&mut s, Tool::Bend, Tool::Bend);
+        assert_eq!(bend_ability(&s), Some(inner));
+        assert!(Tool::Bend.hint(&s).starts_with(&s.defs.ability(inner).verb));
+        // Another tool and back keeps it; the tool then issues that ability.
+        cycle_ability(&mut s, Tool::Bend, Tool::Harvest);
+        cycle_ability(&mut s, Tool::Harvest, Tool::Bend);
+        assert_eq!(bend_ability(&s), Some(inner));
+        cycle_ability(&mut s, Tool::Bend, Tool::Bend);
+        assert_eq!(bend_ability(&s), Some(hearth));
     }
 
     #[test]
