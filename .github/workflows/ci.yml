@@ -48,6 +48,11 @@ jobs:
   sim:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # Optimize our own crates (dependencies stay at opt-level 0 via profile.ci.package."*").
+      # The long simulation tests run about 7x faster, cutting this job from ~10 to ~4 minutes,
+      # for ~15s more build time. Lint results don't depend on opt-level.
+      CARGO_PROFILE_CI_OPT_LEVEL: 1
     steps:
       - uses: actions/checkout@v7
       # Keep in sync with the toolchain in the Nix profile (currently 1.98) so lints match.
