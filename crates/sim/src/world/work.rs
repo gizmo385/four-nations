@@ -87,6 +87,8 @@ pub enum Task {
     Build(JobId),
     /// Holding a study hall's seat (`world/study.rs`, #21).
     Study(JobId),
+    /// Doing one of the endeavor gate's tasks (`world/gate.rs`, #236).
+    Endeavor(JobId),
     /// Carrying a stack to a stockpile tile.
     Deliver,
     Eat(FoodSource),
@@ -168,7 +170,8 @@ impl World {
                 JobKind::Haul { .. }
                 | JobKind::Bend { .. }
                 | JobKind::Build { .. }
-                | JobKind::Study { .. } => None,
+                | JobKind::Study { .. }
+                | JobKind::EndeavorTask { .. } => None,
             })
             .chain(self.standing_harvest.iter().copied())
     }
@@ -504,6 +507,8 @@ impl World {
                     // No demolish command yet, so a seat opened for a study hall stays open for
                     // as long as the building does, which today is forever.
                     JobKind::Study { pos } => map[pos].building.is_some(),
+                    // The gate drops its own task jobs when it moves on (`gate.rs`).
+                    JobKind::EndeavorTask { .. } => true,
                 }
         });
         // A standing order (#81) outlives its job (which disappears between harvests while the
@@ -952,6 +957,10 @@ impl World {
                 JobKind::Build { pos } | JobKind::Study { pos } => {
                     self.stand_building(&flood, pos, defs)
                 }
+                JobKind::EndeavorTask { task } => self
+                    .gate_task(task, defs)
+                    .filter(|(def, _)| self.unit_can_raise(i, def))
+                    .and_then(|(_, anchor)| self.stand_building(&flood, anchor, defs)),
             };
             if let Some((cost, stand)) = found {
                 let key = (cost, job.id);
@@ -973,6 +982,7 @@ impl World {
             JobKind::Bend { .. } => Task::Bend(job.id),
             JobKind::Build { .. } => Task::Build(job.id),
             JobKind::Study { .. } => Task::Study(job.id),
+            JobKind::EndeavorTask { .. } => Task::Endeavor(job.id),
         };
         let u = &mut self.units[i];
         u.job_task = Some(task);
@@ -1014,6 +1024,11 @@ impl World {
                 self.unit_can_bend(i, defs.ability(ability)) && can_stand(pos)
             }
             JobKind::Build { pos } | JobKind::Study { pos } => can_stand_building(pos),
+            JobKind::EndeavorTask { task } => {
+                self.gate_task(task, defs).is_some_and(|(def, anchor)| {
+                    self.unit_can_raise(i, def) && can_stand_building(anchor)
+                })
+            }
         })
     }
 
@@ -1067,6 +1082,7 @@ impl World {
             Task::Bend(id) => self.run_bend(i, id, defs),
             Task::Build(id) => self.run_build(i, id, defs),
             Task::Study(id) => self.run_study(i, id, defs),
+            Task::Endeavor(id) => self.run_gate_task(i, id, defs),
             Task::Deliver => self.run_deliver(i, defs),
             // Need tasks never sit in the job slot.
             _ => self.finish_job(i),

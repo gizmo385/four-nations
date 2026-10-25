@@ -136,6 +136,9 @@ pub const NO_ART_YET: &[&str] = &[
     // Air Nomads
     // Fire Nation
     // Water Tribe
+    // The endeavor: the Harmony Gate's art is `buildings_endeavor.png`, drawn by stage, which
+    // the client issue after #236 wires up (#243).
+    "harmony_gate",
 ];
 
 /// Buildings whose art is drawn for a 2x2 footprint while the data still makes them 1x1, until

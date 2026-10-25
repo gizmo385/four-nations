@@ -40,6 +40,12 @@ pub enum Command {
     DesignateBuild { pos: Pos, building: BuildingId },
     /// Withdraw a build designation. Materials delivered drop on the ground; work done is lost.
     CancelBuild { pos: Pos },
+    /// Place the endeavor's gate with its anchor (top-left tile) on `anchor`, once the endeavor
+    /// is Ready, and start building it (`world/gate.rs`, #236).
+    BeginEndeavor { anchor: Pos },
+    /// Withdraw the gate's site before work on it starts. Materials delivered drop on the ground
+    /// and the endeavor is Ready again.
+    CancelEndeavor,
 }
 
 /// Why a command was refused. The world is unchanged when `apply` returns one of these.
@@ -49,6 +55,7 @@ pub enum CommandError {
     Research(ResearchError),
     Bend(BendError),
     Build(BuildError),
+    Endeavor(EndeavorError),
 }
 
 impl From<DesignateError> for CommandError {
@@ -75,6 +82,12 @@ impl From<BuildError> for CommandError {
     }
 }
 
+impl From<EndeavorError> for CommandError {
+    fn from(e: EndeavorError) -> Self {
+        Self::Endeavor(e)
+    }
+}
+
 impl std::fmt::Display for CommandError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -87,6 +100,7 @@ impl std::fmt::Display for CommandError {
             Self::Research(e) => e.fmt(f),
             Self::Bend(e) => e.fmt(f),
             Self::Build(e) => e.fmt(f),
+            Self::Endeavor(e) => e.fmt(f),
         }
     }
 }
@@ -120,6 +134,8 @@ impl World {
                 self.designate_build(pos, building, defs).map(drop)?
             }
             Command::CancelBuild { pos } => self.cancel_build(pos, defs)?,
+            Command::BeginEndeavor { anchor } => self.begin_endeavor(anchor, defs)?,
+            Command::CancelEndeavor => self.cancel_endeavor(defs)?,
         }
         self.command_log.push(Recorded { tick: self.tick, command });
         Ok(())

@@ -6,6 +6,8 @@
 # [endeavor]
 # - name:        what the UI calls the endeavor.
 # - description: optional; one line under the name on the Endeavor screen.
+# - building:    the building it raises (`endeavor = true` in buildings.toml). Needed exactly when
+#                there are stages.
 #
 # [[sign]], listed in the order the UI shows them:
 # - id:         unique; saves refer to signs by id, so renaming one forgets that it was met.
@@ -23,6 +25,18 @@
 #               the nations named; the rest use `target`.
 # - hint:       optional; what the UI suggests while the sign isn't met.
 #
+# [[stage]], built in the order listed once the player has placed the site (issue #236):
+# - id:   unique; saves refer to stages by id.
+# - name: what the UI calls it.
+# - cost: items a settler hauls to the site first, as `{ item, count }`; optional.
+# - work: in-game seconds of construct work once `cost` is in, at a `construction` modifier of 1.0;
+#         0 (the default) for a stage that is only tasks. A stage with a cost needs work.
+# [[stage.task]], bends that finish the stage. Each waits for the stage's work, then for its own
+# `cost` to be hauled to the site, then a unit of its `element` with `chi` to spare (in
+# (0, chi.max], data/bending.toml) channels it for `work` seconds and spends the chi. A stage is done when its work and every task are.
+# - id:      unique across every stage; saves refer to tasks by id.
+# - element: who may do it: a unit of this nation. The Avatar, who may do any, comes later.
+#
 # A sign whose system doesn't exist yet stays out of this file, and the loader rejects a kind the
 # sim can't count:
 # - "100 crops harvested from farm plots" (harvests) arrives with farm plots, #198.
@@ -30,6 +44,7 @@
 
 [endeavor]
 name = "The Harmony Gate"
+building = "harmony_gate"
 description = "A great work with the Avatar. When every sign is met, word of the settlement reaches Aang."
 
 [[sign]]
@@ -107,3 +122,56 @@ kind = "tally"
 tally = "scrolls_read"
 target = 3
 hint = "Bring scrolls to a study hall"
+
+# The stages (docs/design/endgame.md, "The project: four stages"). A pillar takes a full chi meter
+# (the design's 150 is more than `chi.max` in bending.toml allows). The Arch's beam lift and the
+# Harmony Rite need the Avatar, so they arrive with him. The Water pillar's "fresh water near the
+# plaza" waits too: today it costs stone like the others.
+
+[[stage]]
+id = "foundation"
+name = "Foundation"
+cost = [{ item = "stone", count = 80 }, { item = "wood", count = 40 }]
+work = 600.0
+
+[[stage]]
+id = "pillars"
+name = "The Four Pillars"
+
+[[stage.task]]
+id = "air_pillar"
+name = "Air pillar"
+element = "air"
+cost = [{ item = "stone", count = 20 }, { item = "wood", count = 10 }]
+chi = 100.0
+work = 60.0
+
+[[stage.task]]
+id = "water_pillar"
+name = "Water pillar"
+element = "water"
+cost = [{ item = "stone", count = 20 }]
+chi = 100.0
+work = 60.0
+
+[[stage.task]]
+id = "earth_pillar"
+name = "Earth pillar"
+element = "earth"
+cost = [{ item = "stone", count = 40 }]
+chi = 100.0
+work = 60.0
+
+[[stage.task]]
+id = "fire_pillar"
+name = "Fire pillar"
+element = "fire"
+cost = [{ item = "stone", count = 20 }, { item = "gold_ore", count = 12 }]
+chi = 100.0
+work = 60.0
+
+[[stage]]
+id = "arch"
+name = "The Arch"
+cost = [{ item = "wood", count = 60 }, { item = "gold_ore", count = 20 }]
+work = 600.0

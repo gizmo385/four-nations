@@ -16,6 +16,11 @@
 //! slept in by `work.rs`, and a building that keeps a fire (`BuildingDef::heat`) lights it here,
 //! in `heat.rs`' terms, the moment it is finished (#58). A study hall's seats, which `study.rs`
 //! opens as jobs, are also opened right away.
+//!
+//! The endeavor's gate (#236) is a site here too, so its footprint blocks other buildings and its
+//! construct work is a `Build` job, but its cost and work come from its stages: `run_build` hands
+//! it to `gate.rs`. The queries for ordinary sites (`build_sites`, `build_site`) leave it out, and
+//! `CancelBuild` refuses it.
 
 use crate::building::{Building, BuildingId, is_one_by_one, one_by_one};
 use crate::defs::Terrain;
@@ -39,6 +44,9 @@ pub enum BuildError {
     NotResearched(TechId),
     /// There is no build designation on that tile to cancel.
     NotDesignated,
+    /// The building is the endeavor's (`BuildingDef::endeavor`): the Endeavor screen places and
+    /// cancels it (`Command::BeginEndeavor`, `Command::CancelEndeavor`).
+    Endeavor,
 }
 
 impl std::fmt::Display for BuildError {
@@ -48,6 +56,7 @@ impl std::fmt::Display for BuildError {
             Self::CannotBuild { why, .. } => write!(f, "{why}"),
             Self::NotResearched(_) => f.write_str("not researched yet"),
             Self::NotDesignated => f.write_str("not designated"),
+            Self::Endeavor => f.write_str("placed from the Endeavor screen"),
         }
     }
 }
@@ -86,7 +95,7 @@ impl std::fmt::Display for Blocker {
 
 /// Where a unit fetching a building's cost found it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Source {
+pub(super) enum Source {
     Stockpile(Pos),
     Ground(Pos),
 }
@@ -105,6 +114,12 @@ pub(super) struct Site {
 }
 
 impl Site {
+    /// The endeavor's site (`gate.rs`): it only holds the footprint, since the gate's deliveries
+    /// and work are per stage and live in `EndeavorState::Building`.
+    pub(super) fn gate(building: BuildingId, size: [u8; 2]) -> Self {
+        Self { building, delivered: Vec::new(), progress: 0.0, size }
+    }
+
     fn footprint(&self, anchor: Pos) -> Footprint {
         Footprint::new(anchor, self.size[0], self.size[1])
     }
@@ -113,9 +128,12 @@ impl Site {
 /// Queries, and the designations behind `Command::DesignateBuild` and `Command::CancelBuild`.
 impl World {
     /// Build designations that aren't finished, with the building and work done so far, in
-    /// anchor order.
+    /// anchor order. The endeavor's site isn't one (`World::endeavor`).
     pub fn build_sites(&self) -> impl Iterator<Item = (Footprint, BuildingId, f32)> + '_ {
-        self.sites.iter().map(|(&p, s)| (s.footprint(p), s.building, s.progress))
+        self.sites
+            .iter()
+            .filter(|&(&p, _)| !self.is_gate(p))
+            .map(|(&p, s)| (s.footprint(p), s.building, s.progress))
     }
 
     /// The unfinished build designation covering `pos` (any tile of its footprint), if any: the
@@ -123,8 +141,8 @@ impl World {
     /// `BuildingDef::cost`) and the work done so far (out of `BuildingDef::work`). For a client
     /// to show a site's progress.
     pub fn build_site(&self, pos: Pos) -> Option<(BuildingId, &[u32], f32)> {
-        let (_, s) = self.site_at(pos)?;
-        Some((s.building, &s.delivered, s.progress))
+        let (anchor, s) = self.site_at(pos)?;
+        (!self.is_gate(anchor)).then_some((s.building, &s.delivered, s.progress))
     }
 
     /// The building finished on `pos`, any tile of its footprint, if any.
@@ -167,6 +185,23 @@ impl World {
             let walkable = self.map.get(pos).is_some_and(|t| self.rules.passable(t));
             (Footprint::single(pos), walkable)
         }
+    }
+
+    /// Puts the finished `building` on every tile of `foot`, each with its own `part`, and moves
+    /// whatever a solid one would bury.
+    pub(super) fn raise(&mut self, foot: Footprint, building: BuildingId, def: &BuildingDef) {
+        let b = Building {
+            size: [foot.w, foot.h],
+            ..Building::new(building, def.passable, def.rail.is_some())
+        };
+        for p in foot.tiles() {
+            let part = [(p.x - foot.anchor.x) as u8, (p.y - foot.anchor.y) as u8];
+            self.map[p].building = Some(Building { part, ..b });
+        }
+        if !def.passable {
+            self.clear_footprint(foot);
+        }
+        self.map_changed();
     }
 
     /// Moves what a solid building just finished on `foot` would bury: each unit on it steps to
@@ -232,14 +267,27 @@ impl World {
         defs: &Defs,
     ) -> Result<(), BuildError> {
         let def = defs.buildings.get(building.0 as usize).ok_or(BuildError::UnknownBuilding)?;
+        if def.endeavor {
+            return Err(BuildError::Endeavor);
+        }
         if let Some(t) = def.unlocked_by.filter(|&t| !self.research.is_known(t)) {
             return Err(BuildError::NotResearched(t));
         }
+        self.footprint_blocker(anchor, def)
+            .map_or(Ok(()), |(at, why)| Err(BuildError::CannotBuild { at, why }))
+    }
+
+    /// The first tile of `def`'s footprint, anchored on `anchor`, that can't take it (row-major),
+    /// and why.
+    pub(super) fn footprint_blocker(
+        &self,
+        anchor: Pos,
+        def: &BuildingDef,
+    ) -> Option<(Pos, Blocker)> {
         let (w, h) = def.footprint;
         Footprint::new(anchor, w, h)
             .tiles()
-            .find_map(|at| self.build_blocker(at).map(|why| BuildError::CannotBuild { at, why }))
-            .map_or(Ok(()), Err)
+            .find_map(|at| self.build_blocker(at).map(|why| (at, why)))
     }
 
     /// Designates a building with its anchor on `pos`: the whole footprint, or nothing.
@@ -262,6 +310,9 @@ impl World {
     /// is lost.
     pub(super) fn cancel_build(&mut self, pos: Pos, defs: &Defs) -> Result<(), BuildError> {
         let Some((pos, _)) = self.site_at(pos) else { return Err(BuildError::NotDesignated) };
+        if self.is_gate(pos) {
+            return Err(BuildError::Endeavor);
+        }
         let site = self.sites.remove(&pos).expect("just found");
         self.jobs.retain(|j| j.kind != JobKind::Build { pos });
         let def = defs.building(site.building);
@@ -289,7 +340,7 @@ impl World {
 
     /// The nearest stockpile tile or ground stack holding `item`, stockpiles preferred on a tie,
     /// with the tile a unit should stand on to reach it.
-    fn nearest_source(&self, flood: &Flood, item: ItemId) -> Option<(Source, Pos)> {
+    pub(super) fn nearest_source(&self, flood: &Flood, item: ItemId) -> Option<(Source, Pos)> {
         let mut best: Option<((u32, u8, Pos), Source, Pos)> = None;
         let mut consider = |rank: u8, pos: Pos, source: Source, stand: Option<(u32, Pos)>| {
             let Some((cost, stand)) = stand else { return };
@@ -312,7 +363,13 @@ impl World {
     }
 
     /// Takes up to `needed`, capped by carry capacity and what's actually there, from `source`.
-    fn take_for_build(&mut self, i: usize, source: Source, needed: u32, defs: &Defs) -> u32 {
+    pub(super) fn take_for_build(
+        &mut self,
+        i: usize,
+        source: Source,
+        needed: u32,
+        defs: &Defs,
+    ) -> u32 {
         let cap = self.carry_capacity(i, defs);
         let pos = match source {
             Source::Stockpile(p) | Source::Ground(p) => p,
@@ -347,6 +404,9 @@ impl World {
             // The site vanished (cancelled, which also drops the job): moot.
             self.jobs.remove(idx);
             return self.finish_job(i);
+        }
+        if self.is_gate(pos) {
+            return self.run_gate_build(i, id, pos, defs);
         }
 
         if let Some(stack) = self.units[i].carrying {
@@ -411,10 +471,7 @@ impl World {
                 if site.progress < def.work {
                     return;
                 }
-                let building = Building {
-                    size: site.size,
-                    ..Building::new(site.building, def.passable, def.rail.is_some())
-                };
+                let (building, size) = (site.building, site.size);
                 let footprint = site.footprint(pos);
                 let seats = def.seats;
                 if let Some(orchard) = &def.orchard {
@@ -422,16 +479,9 @@ impl World {
                 }
                 self.sites.remove(&pos);
                 self.jobs.remove(idx);
-                for p in footprint.tiles() {
-                    let part = [(p.x - pos.x) as u8, (p.y - pos.y) as u8];
-                    self.map[p].building = Some(Building { part, ..building });
-                }
-                if !def.passable {
-                    self.clear_footprint(footprint);
-                }
-                self.map_changed();
+                self.raise(footprint, building, def);
                 self.open_study_seats(pos, seats);
-                self.light_building_fire(pos, building.size, def);
+                self.light_building_fire(pos, size, def);
                 self.finish_job(i);
             }
         }

@@ -49,6 +49,10 @@
 # - art:      which sprite of art/buildings.toml each nation draws it with, if it varies (the study
 #             hall looks different per nation). Either all four nations or none; falls back to
 #             the building's `id`, so most buildings need no entry.
+# - endeavor: the end game's great work (issue #236, docs/design/endgame.md). It never shows in the
+#             build picker and can't be designated: once the endeavor is Ready the Endeavor screen
+#             places it, and data/endeavor.toml names it and holds its stages. So it has no cost
+#             or work of its own.
 
 [[building]]
 id = "bed"
@@ -297,3 +301,15 @@ seek_tiles = 30
 [[building.cost]]
 item = "wood"
 count = 4
+
+# --- The endeavor ---
+
+# The Harmony Gate (docs/design/endgame.md, "The project: four stages"): a 4x4 plaza units walk
+# across, built in the stages of data/endeavor.toml.
+[[building]]
+id = "harmony_gate"
+name = "Harmony Gate"
+verb = "Raise"
+passable = true
+footprint = [4, 4]
+endeavor = true

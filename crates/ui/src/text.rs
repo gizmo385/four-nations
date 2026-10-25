@@ -38,7 +38,8 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
                 JobKind::Harvest { .. }
                 | JobKind::Bend { .. }
                 | JobKind::Build { .. }
-                | JobKind::Study { .. } => None,
+                | JobKind::Study { .. }
+                | JobKind::EndeavorTask { .. } => None,
             });
             let stack = at.and_then(|p| world.ground_items().find(|(q, _)| *q == p));
             match (stack, at) {
@@ -69,6 +70,17 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
         Task::Study(id) => match world.job(id).map(|j| j.kind) {
             Some(JobKind::Study { pos }) => format!("Studying at ({}, {})", pos.x, pos.y),
             _ => "Studying".into(),
+        },
+        Task::Endeavor(id) => match world.job(id).map(|j| (j.kind, j.progress)) {
+            Some((JobKind::EndeavorTask { task }, progress)) => match world.gate_task(task, defs) {
+                Some((def, _)) => format!(
+                    "Raising the {}, {:.0}% done",
+                    def.name,
+                    (progress / def.work * 100.0).clamp(0.0, 100.0)
+                ),
+                None => "Raising the gate".into(),
+            },
+            _ => "Raising the gate".into(),
         },
         Task::Deliver => {
             format!("Delivering {} to a stockpile", describe_stack(defs, unit.carrying))

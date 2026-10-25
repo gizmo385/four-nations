@@ -20,6 +20,10 @@
 //! - `orchard` makes it a grove-keeper (issue #142): it plants and tends renewable trees around
 //!   itself (`world/orchard.rs`). Every number is on `OrchardDef`.
 //!
+//! - `endeavor` marks the end game's great work (the Harmony Gate, #236): it is never designated
+//!   from the build picker. The Endeavor screen places it (`Command::BeginEndeavor`) and its
+//!   stages in `data/endeavor.toml` carry its cost and work instead (`world/gate.rs`).
+//!
 //! Which tech must be known before a building may be designated is `Unlocks::buildings` in
 //! `data/research.toml`, resolved here into `BuildingDef::unlocked_by` (issue #22). A building no
 //! tech names is available from the start.
@@ -174,9 +178,11 @@ pub struct BuildingDef {
     pub name: String,
     /// What the designation is called in the UI ("Build").
     pub verb: String,
-    /// What a construct job hauls to the site before work can start.
+    /// What a construct job hauls to the site before work can start. Empty for an `endeavor`
+    /// building, whose stages carry the cost.
     pub cost: Vec<CostItem>,
-    /// In-game seconds of work at a `construction` modifier of 1.0.
+    /// In-game seconds of work at a `construction` modifier of 1.0. 0 for an `endeavor` building,
+    /// whose stages carry the work.
     pub work: f32,
     /// Whether units may walk onto the tile once the building is finished.
     pub passable: bool,
@@ -207,6 +213,9 @@ pub struct BuildingDef {
     /// The tech that must be known before this building may be designated (`data/research.toml`,
     /// `Unlocks::buildings`, issue #22). `None` means every nation can build it from the start.
     pub unlocked_by: Option<TechId>,
+    /// The end game's great work (#236): hidden from the build picker and refused by
+    /// `Command::DesignateBuild`. `data/endeavor.toml` names it and holds its stages.
+    pub endeavor: bool,
 }
 
 impl BuildingDef {
@@ -274,7 +283,8 @@ struct RawBuilding {
     verb: String,
     #[serde(default)]
     cost: Vec<RawCost>,
-    work: f32,
+    #[serde(default)]
+    work: Option<f32>,
     passable: bool,
     #[serde(default = "one_by_one")]
     footprint: [u8; 2],
@@ -288,6 +298,8 @@ struct RawBuilding {
     names: HashMap<Nation, String>,
     #[serde(default)]
     art: HashMap<Nation, String>,
+    #[serde(default)]
+    endeavor: bool,
 }
 
 #[derive(Deserialize)]
@@ -310,9 +322,20 @@ impl BuildingsFile {
             if buildings.iter().any(|d| d.id == b.id) {
                 return err(format!("duplicate building {}", b.id));
             }
-            if !(b.work.is_finite() && b.work > 0.0) {
-                return err(format!("building {}: work must be a positive number", b.id));
-            }
+            let work = match (b.endeavor, b.work) {
+                (false, Some(w)) if w.is_finite() && w > 0.0 => w,
+                (false, _) => {
+                    return err(format!("building {}: work must be a positive number", b.id));
+                }
+                (true, None) if b.cost.is_empty() => 0.0,
+                (true, _) => {
+                    return err(format!(
+                        "building {}: an endeavor building's cost and work are its stages', in \
+                         endeavor.toml",
+                        b.id
+                    ));
+                }
+            };
             let mut cost = Vec::new();
             for c in b.cost {
                 let Some(item) = items.iter().position(|i| i.id == c.item) else {
@@ -411,7 +434,7 @@ impl BuildingsFile {
                 name: b.name,
                 verb: b.verb,
                 cost,
-                work: b.work,
+                work,
                 passable: b.passable,
                 footprint: (w, h),
                 seats: b.seats,
@@ -426,6 +449,7 @@ impl BuildingsFile {
                 names: b.names,
                 art: b.art,
                 unlocked_by: None,
+                endeavor: b.endeavor,
             });
         }
         link_unlocks(&mut buildings, techs)?;
@@ -480,6 +504,9 @@ fn link_unlocks(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(), 
             let Some(b) = buildings.iter_mut().find(|b| b.id == *name) else {
                 return err(format!("unknown building {name:?}"));
             };
+            if b.endeavor {
+                return err(format!("{name:?} is the endeavor's; the signs open it, not a tech"));
+            }
             if let Some(other) = b.unlocked_by {
                 return if other == TechId(t as u16) {
                     err(format!("{name:?} listed twice"))
@@ -574,7 +601,11 @@ mod tests {
     #[test]
     fn footprints_default_to_one_tile_and_are_validated() {
         let defs = Defs::bundled();
-        assert!(defs.buildings.iter().all(|b| b.footprint == (1, 1)), "#214 turns sizes on");
+        let mut ordinary = defs.buildings.iter().filter(|b| !b.endeavor);
+        assert!(ordinary.all(|b| b.footprint == (1, 1)), "#214 turns sizes on");
+        // The endeavor's gate (#236) is the one building already full size.
+        let gate = defs.building(defs.building_id("harmony_gate").unwrap());
+        assert_eq!(gate.footprint, (4, 4));
         let one = |extra: &str| {
             format!(
                 "[[building]]\nid = \"hall\"\nname = \"Hall\"\nverb = \"Build\"\nwork = 1.0\n\
@@ -670,6 +701,29 @@ mod tests {
             t.unlocks.buildings.clear();
         }
         toml::from_str::<BuildingsFile>(toml).unwrap().resolve(&defs.items, &techs, &defs.resources)
+    }
+
+    #[test]
+    fn an_endeavor_building_has_no_cost_or_work_of_its_own() {
+        let gate = |extra: &str| {
+            format!(
+                "[[building]]\nid = \"gate\"\nname = \"Gate\"\nverb = \"Raise\"\n\
+                 passable = true\nendeavor = true\n{extra}\n"
+            )
+        };
+        let def = &resolve(&gate("")).unwrap()[0];
+        assert!(def.endeavor);
+        assert_eq!(def.work, 0.0);
+        assert!(resolve(&gate("work = 5.0")).unwrap_err().0.contains("stages"));
+        let costed = gate("[[building.cost]]\nitem = \"stone\"\ncount = 1");
+        assert!(resolve(&costed).unwrap_err().0.contains("stages"));
+        // An ordinary building still needs its work.
+        let plain = "[[building]]\nid = \"hut\"\nname = \"Hut\"\nverb = \"Build\"\n\
+                     passable = false\n";
+        assert!(resolve(plain).unwrap_err().0.contains("work must be a positive number"));
+        let bundled = Defs::bundled();
+        let gate = bundled.building(bundled.building_id("harmony_gate").unwrap());
+        assert!(gate.endeavor && gate.passable && gate.cost.is_empty());
     }
 
     #[test]
