@@ -105,6 +105,7 @@ fn a_saved_world_loads_back_identically() {
         assert_eq!(loaded.command_log(), w.command_log());
         assert_eq!(loaded.research(), w.research());
         assert_eq!(loaded.units, w.units);
+        assert_eq!(loaded.tallies(), w.tallies(), "{nation:?}");
     }
 }
 
@@ -117,6 +118,9 @@ fn the_saved_session_has_the_state_the_tests_need_to_cover() {
     assert!(w.stockpile_zones().count() > 0);
     assert!(!w.jobs().is_empty());
     assert!(!w.flames().is_empty(), "the Hearthflame should be burning");
+    // Lifetime counts (#233) that the round trip has to keep.
+    assert!(w.tallies().harvested_items().count() > 0, "something should have been harvested");
+    assert!(w.units.iter().any(|u| u.bends() > 0), "the Hearthflame counts as a finished bend");
     // Units mid-task (and carrying things) at some point along the way, so saves taken then
     // exercise routes and claimed jobs.
     let busy = |ticks| {

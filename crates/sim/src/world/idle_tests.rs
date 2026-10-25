@@ -83,7 +83,7 @@ fn old_saves_without_the_idle_fields_still_load() {
     let w = world(1, &defs);
     let text = ron::to_string(&w.units[0]).unwrap();
     assert!(text.contains("idle_until:0") && text.contains("wander_left:0"), "{text}");
-    let old = text.replace("idle_until:0,", "").replace("wander_left:0", "");
+    let old = text.replace("idle_until:0,", "").replace("wander_left:0,", "");
     let u: Unit = ron::from_str(&old).unwrap();
     assert_eq!((u.idle_until, u.wander_left), (0, 0));
 }

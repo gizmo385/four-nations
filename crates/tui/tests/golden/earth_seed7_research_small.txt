@@ -17,7 +17,7 @@
 │                                              ││ ◇ CURSOR            (94, 64) │
 │                                              ││ Tyro                         │
 │ ──────────────────────────────────────────── ││ Earth Kingdom - Idle         │
-│ Metalbending          Needs prereqs  500 pts ││ Carrying: nothing            │
+│ Metalbending          Needs prereqs  500 pts ││ Carrying: nothing - Bends: 0 │
 │ Bend the earth still left in metal.          ││ Press Enter to select        │
 │ Unlocks: -   Needs: Masonry, Seismic Sense   ││                              │
 ┗─ Arrows WASD choose  Enter target  Esc/T cl…─┛┗──────────────────────────────┛

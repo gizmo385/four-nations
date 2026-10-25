@@ -425,8 +425,9 @@ impl World {
     }
 
     /// The work on `pos` is done: a renewable resource goes back to growing, anything else is
-    /// used up and its tile cleared.
+    /// used up and its tile cleared. Its whole yield counts toward the harvest tally.
     fn work_done(&mut self, pos: Pos, h: &HarvestDef) {
+        self.tallies.count_harvest(h.item, h.count);
         match h.regrow {
             Some(seconds) => {
                 self.resting.insert(pos, seconds);
@@ -1124,6 +1125,7 @@ impl World {
             if self.at_study_hall(pos) {
                 let millis = u64::from(points) * u64::from(stack.count) * MILLIS_PER_POINT;
                 self.research.add_knowledge(millis);
+                self.tallies.count_scrolls(stack.count);
                 self.units[i].carrying = None;
                 self.finish_job(i);
             } else {

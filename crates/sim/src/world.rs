@@ -28,6 +28,7 @@ mod heat;
 mod orchard;
 mod stride;
 mod study;
+mod tally;
 mod work;
 
 use bending::Patch;
@@ -37,6 +38,7 @@ use build::Site;
 pub use command::{Command, CommandError, Recorded};
 pub use heat::{Aura, Flame, Glow, HeatSource};
 pub use stride::{STRIDE_LOOKAHEAD, Stride};
+pub use tally::Tallies;
 pub use work::{DesignateError, FoodSource, Task};
 
 /// Ticks per in-game second. Movement and needs are expressed per tick.
@@ -92,6 +94,17 @@ pub struct Unit {
     /// Steps left in the idle wander in progress; 0 when standing.
     #[serde(default)]
     wander_left: u8,
+    /// Bends this unit has finished (failed ones don't count), for the bending-master sign
+    /// (`docs/design/endgame.md`, #233). Read it through `bends()`.
+    #[serde(default)]
+    bends: u32,
+}
+
+impl Unit {
+    /// How many bends this unit has finished over its life. Failed bends don't count.
+    pub fn bends(&self) -> u32 {
+        self.bends
+    }
 }
 
 /// A unit that died, kept so the UI and tests can see what happened.
@@ -181,6 +194,9 @@ pub struct World {
     /// `resting`).
     #[serde(default)]
     saplings: BTreeSet<Pos>,
+    /// Lifetime counts for the end-game signs: items harvested, scrolls read (`tally.rs`, #233).
+    #[serde(default)]
+    tallies: Tallies,
     /// Picks which tile an orchard plants next (`orchard.plant`).
     #[serde(default = "orchard::default_rng")]
     orchard_rng: SimRng,
@@ -227,6 +243,7 @@ impl World {
             auras: BTreeMap::new(),
             orchards: BTreeMap::new(),
             saplings: BTreeSet::new(),
+            tallies: Tallies::default(),
             orchard_rng: orchard::new_rng(seed),
             sprout_rng: rng::stream(seed, "bending.sprout"),
             rng: rng::stream(seed, "world.units"),
@@ -271,6 +288,11 @@ impl World {
         self.modifiers =
             research::effective_modifiers(self.nation, self.research.known_techs(), defs);
         self.refresh_heat_radii(defs);
+    }
+
+    /// What the settlement has done over the whole game (`tally.rs`).
+    pub fn tallies(&self) -> &Tallies {
+        &self.tallies
     }
 
     pub fn research(&self) -> &Research {
@@ -320,6 +342,7 @@ impl World {
                 move_progress: 0.0,
                 idle_until: 0,
                 wander_left: 0,
+                bends: 0,
             });
         }
     }
