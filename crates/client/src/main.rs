@@ -7,6 +7,7 @@
 //! cancel harvest, stockpile, the nation's bending ability): drag a rectangle with the left
 //! button, middle/right still pan; Esc returns to selecting. `T` opens the research screen (Esc
 //! closes it); map input is suspended while it's open. See `designate`, `bending` and `research`.
+//! F5 quicksaves and F9 quickloads (`save`).
 //!
 //! `FN_SCREENSHOT=out.png` runs headless: no window is created at all (winit is disabled and the
 //! camera renders into an offscreen `Image`), and once the art has loaded it saves one frame as a
@@ -59,6 +60,7 @@ use fn_ui::{Session, Tool};
 use hud::HudPlugin;
 use jobview::{JobViewPlugin, ResourceSprite};
 use research::{ResearchPlugin, ScreenOpen};
+use save::SavePlugin;
 use unit_anim::{Facing, Pose, UnitAnimPlugin, UnitView, pick_frame};
 use unit_motion::{UnitMotion, UnitMotionPlugin, sync_units};
 
@@ -71,6 +73,7 @@ mod designate;
 mod hud;
 mod jobview;
 mod research;
+mod save;
 mod sprites;
 mod ui_style;
 mod unit_anim;
@@ -164,6 +167,7 @@ fn main() {
             CastPlugin,
             ResearchPlugin,
             CanopyPlugin,
+            SavePlugin,
         ))
         .add_systems(Startup, (load_art, setup_camera_and_ui, spawn_world).chain())
         .add_systems(FixedUpdate, tick_sim)

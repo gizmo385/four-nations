@@ -226,7 +226,7 @@ sha256 = "c3b6ccc876907b8b7ce69e3dec3d1a25d6278c77c8d7507896376eb2716b889d"
 path = "original/water.png"
 source = "original"
 generated_from = "art/water.toml"
-sha256 = "52bd3c3c4f0265135ebe675af925505a7b7f28bec641daf2f631d627564e38e3"
+sha256 = "ffb6ce20f020241f5306009223ee7d936262b1053d662c15857398150760e9ff"
 
 [[file]]
 path = "original/water_healer.png"
