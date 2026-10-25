@@ -21,16 +21,20 @@
 //!   (`warm_sleep_route`), because it moves. It ends with its time, or with its carrier.
 //!
 //! A source is lit while `tick < until`. Radius is Chebyshev (a square), like the rest of the
-//! bending ranges. Nothing here blocks movement.
+//! bending ranges, measured from every tile the source covers: a building's whole footprint
+//! (#208). Nothing here blocks movement.
 
 use super::*;
+use crate::building::{ONE_BY_ONE, is_one_by_one, one_by_one};
+use crate::geom::Footprint;
 use crate::path::STRAIGHT;
 
 /// A lit place of heat.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HeatSource {
+    /// Where it is: the tile of a flame, or the anchor of a building's fire.
     pub pos: Pos,
-    /// Tiles around `pos`, Chebyshev, that count as near it.
+    /// Tiles around it, Chebyshev from the nearest tile it covers, that count as near it.
     pub radius: u32,
     /// Energy regained asleep nearby, times the base rate (at least 1.0).
     pub sleep_bonus: f32,
@@ -38,6 +42,10 @@ pub struct HeatSource {
     pub seek_tiles: u32,
     /// The first tick it is out. It is lit while `tick < until`.
     pub until: u64,
+    /// The tiles it covers, `[w, h]` from `pos`: a building's footprint (#208). A flame or an
+    /// aura is 1x1, and 1x1 isn't written to a save.
+    #[serde(default = "one_by_one", skip_serializing_if = "is_one_by_one")]
+    pub size: [u8; 2],
 }
 
 impl HeatSource {
@@ -53,8 +61,12 @@ impl HeatSource {
         tick < self.until
     }
 
+    fn footprint(&self) -> Footprint {
+        Footprint::new(self.pos, self.size[0], self.size[1])
+    }
+
     fn warms(&self, p: Pos) -> bool {
-        p.x.abs_diff(self.pos.x).max(p.y.abs_diff(self.pos.y)) <= self.radius
+        self.footprint().distance(p) as u32 <= self.radius
     }
 }
 
@@ -137,6 +149,7 @@ impl World {
             sleep_bonus: a.sleep_bonus,
             seek_tiles: 0,
             until: a.until,
+            size: ONE_BY_ONE,
         });
         fixed.chain(carried)
     }
@@ -171,8 +184,9 @@ impl World {
         self.heat.insert(source.pos, source);
     }
 
-    /// A finished building keeps a fire if its def says so (`BuildingDef::heat`).
-    pub(super) fn light_building_fire(&mut self, pos: Pos, def: &BuildingDef) {
+    /// A finished building keeps a fire if its def says so (`BuildingDef::heat`). `pos` is its
+    /// anchor and `size` its footprint, as baked onto its tiles.
+    pub(super) fn light_building_fire(&mut self, pos: Pos, size: [u8; 2], def: &BuildingDef) {
         if let Some(heat) = def.heat {
             self.light_heat_source(HeatSource {
                 pos,
@@ -180,6 +194,7 @@ impl World {
                 sleep_bonus: heat.sleep_bonus,
                 seek_tiles: heat.seek_tiles,
                 until: HeatSource::FOREVER,
+                size,
             });
         }
     }
@@ -222,9 +237,11 @@ impl World {
         let mut best: Option<(u32, Pos)> = None;
         for s in self.fixed_sources() {
             let limit = s.seek_tiles * STRAIGHT;
+            // The footprint grown by the radius on every side.
             let r = s.radius as i32;
-            for dy in -r..=r {
-                for dx in -r..=r {
+            let (w, h) = (i32::from(s.size[0]), i32::from(s.size[1]));
+            for dy in -r..h + r {
+                for dx in -r..w + r {
                     let p = Pos::new(s.pos.x + dx, s.pos.y + dy);
                     let Some(cost) = flood.cost(p).filter(|&c| c <= limit) else { continue };
                     if best.is_none_or(|b| (cost, p) < b) {

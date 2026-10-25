@@ -333,7 +333,7 @@ impl World {
         if self.units[i].route.is_none() {
             // Resuming after a need, or the claim's route was lost: plan from here.
             let flood = self.flood_from(i);
-            match self.stand(&flood, pos).and_then(|(_, s)| flood.path_to(s)) {
+            match self.stand_tile(&flood, pos).and_then(|(_, s)| flood.path_to(s)) {
                 Some(path) => self.units[i].route = Some(route_from(path)),
                 None => return self.abandon_job(i, id, defs),
             }
@@ -537,6 +537,7 @@ impl World {
                     sleep_bonus: *sleep_bonus,
                     seek_tiles: *seek_tiles,
                     until: self.tick + minutes_to_ticks(duration_minutes * magnitude),
+                    size: crate::building::ONE_BY_ONE,
                 });
                 None
             }

@@ -49,8 +49,9 @@
 //! the only randomness is the idle wander and pause (`world.units` stream).
 
 use crate::flood::Flood;
+use crate::geom::Footprint;
 use crate::jobs::{HarvestDef, ItemId, JobKind};
-use crate::path::{DIAGONAL, MoveRules, NEIGHBORS, STRAIGHT};
+use crate::path::{DIAGONAL, MoveRules, STRAIGHT};
 use crate::research::MILLIS_PER_POINT;
 
 use super::*;
@@ -491,19 +492,39 @@ impl World {
             .retain(|&pos| map[pos].resource.is_some_and(|r| defs.harvest(r).is_some()));
     }
 
-    /// The cheapest tile to stand on to work `pos`: the tile itself if units can enter it, else
-    /// one of its neighbours (a tree can't be walked onto, but can be chopped from beside it).
-    pub(super) fn stand(&self, flood: &Flood, pos: Pos) -> Option<(u32, Pos)> {
-        if self.map.get(pos).is_some_and(|t| self.rules.passable(t)) {
-            return flood.cost(pos).map(|c| (c, pos));
+    /// The cheapest reachable tile to stand on to work something covering `foot`: one of its
+    /// own tiles if it is `walkable`, else one of the ring around it. Ties break on the tile.
+    pub(super) fn stand(
+        &self,
+        flood: &Flood,
+        foot: Footprint,
+        walkable: bool,
+    ) -> Option<(u32, Pos)> {
+        let cost = |q: Pos| flood.cost(q).map(|c| (c, q));
+        if walkable {
+            foot.tiles().filter_map(cost).min()
+        } else {
+            foot.ring().filter_map(cost).min()
         }
-        NEIGHBORS
-            .iter()
-            .filter_map(|&(dx, dy)| {
-                let q = Pos::new(pos.x + dx, pos.y + dy);
-                flood.cost(q).map(|c| (c, q))
-            })
-            .min()
+    }
+
+    /// `stand` for one tile: the tile itself if units can enter it, else one of its neighbours
+    /// (a tree can't be walked onto, but can be chopped from beside it).
+    pub(super) fn stand_tile(&self, flood: &Flood, pos: Pos) -> Option<(u32, Pos)> {
+        let walkable = self.map.get(pos).is_some_and(|t| self.rules.passable(t));
+        self.stand(flood, Footprint::single(pos), walkable)
+    }
+
+    /// `stand` for the building or site on `pos` (`World::work_area`): inside a walkable one,
+    /// beside a solid one.
+    pub(super) fn stand_building(
+        &self,
+        flood: &Flood,
+        pos: Pos,
+        defs: &Defs,
+    ) -> Option<(u32, Pos)> {
+        let (foot, walkable) = self.work_area(pos, defs);
+        self.stand(flood, foot, walkable)
     }
 
     pub(super) fn flood_from(&self, i: usize) -> Flood {
@@ -704,12 +725,12 @@ impl World {
         };
         for (&pos, s) in &self.stored {
             if defs.food_of(s.item).is_some() {
-                consider(0, pos, FoodSource::Stockpile(pos), self.stand(&flood, pos));
+                consider(0, pos, FoodSource::Stockpile(pos), self.stand_tile(&flood, pos));
             }
         }
         for (&pos, s) in &self.ground {
             if defs.food_of(s.item).is_some() {
-                consider(1, pos, FoodSource::Ground(pos), self.stand(&flood, pos));
+                consider(1, pos, FoodSource::Ground(pos), self.stand_tile(&flood, pos));
             }
         }
         for pos in self.map.positions() {
@@ -717,7 +738,7 @@ impl World {
             if defs.food_of(h.item).is_none() || self.forage_taken(pos, i) {
                 continue;
             }
-            consider(2, pos, FoodSource::Forage(pos), self.stand(&flood, pos));
+            consider(2, pos, FoodSource::Forage(pos), self.stand_tile(&flood, pos));
         }
         let (_, source, stand) = best?;
         Some((Task::Eat(source), route_from(flood.path_to(stand)?)))
@@ -887,7 +908,7 @@ impl World {
             }
             let found = match job.kind {
                 JobKind::Harvest { pos } => {
-                    self.ripe_harvest(pos, defs).and_then(|_| self.stand(&flood, pos))
+                    self.ripe_harvest(pos, defs).and_then(|_| self.stand_tile(&flood, pos))
                 }
                 JobKind::Haul { pos } => {
                     let item = self.ground[&pos].item;
@@ -903,12 +924,13 @@ impl World {
                 }
                 JobKind::Bend { ability, pos } => self
                     .unit_can_bend(i, defs.ability(ability))
-                    .then(|| self.stand(&flood, pos))
+                    .then(|| self.stand_tile(&flood, pos))
                     .flatten(),
                 // Reachable as soon as the site itself is, whether or not its materials are yet:
                 // a unit will wait on those, as a resting harvest does.
-                JobKind::Build { pos } => self.stand(&flood, pos),
-                JobKind::Study { pos } => self.stand(&flood, pos),
+                JobKind::Build { pos } | JobKind::Study { pos } => {
+                    self.stand_building(&flood, pos, defs)
+                }
             };
             if let Some((cost, stand)) = found {
                 let key = (cost, job.id);
@@ -947,21 +969,22 @@ impl World {
         let Some(regions) = self.regions.as_ref() else { return true };
         let Some(here) = regions.region(from) else { return true };
         let in_here = |p: Pos| regions.region(p) == Some(here);
-        // The tile itself if units can enter it, else any neighbour (see `stand`).
-        let can_stand = |pos: Pos| {
-            if self.map.get(pos).is_some_and(|t| self.rules.passable(t)) {
-                in_here(pos)
-            } else {
-                NEIGHBORS.iter().any(|&(dx, dy)| in_here(Pos::new(pos.x + dx, pos.y + dy)))
-            }
+        // Inside a walkable area, else beside it (see `stand`).
+        let can_stand_in = |(foot, walkable): (Footprint, bool)| {
+            if walkable { foot.tiles().any(in_here) } else { foot.ring().any(in_here) }
         };
+        let can_stand = |pos: Pos| {
+            let walkable = self.map.get(pos).is_some_and(|t| self.rules.passable(t));
+            can_stand_in((Footprint::single(pos), walkable))
+        };
+        let can_stand_building = |pos: Pos| can_stand_in(self.work_area(pos, defs));
         self.jobs.iter().filter(|j| j.claimed_by.is_none()).any(|job| match job.kind {
             JobKind::Harvest { pos } => self.ripe_harvest(pos, defs).is_some() && can_stand(pos),
             JobKind::Haul { pos } => {
                 let item = self.ground[&pos].item;
                 in_here(pos)
                     && if Self::is_readable(item, defs) {
-                        self.study_halls().any(can_stand)
+                        self.study_halls().any(can_stand_building)
                     } else {
                         self.zones.iter().any(|&z| in_here(z) && self.room_at(z, item, defs) > 0)
                     }
@@ -969,8 +992,7 @@ impl World {
             JobKind::Bend { ability, pos } => {
                 self.unit_can_bend(i, defs.ability(ability)) && can_stand(pos)
             }
-            JobKind::Build { pos } => can_stand(pos),
-            JobKind::Study { pos } => can_stand(pos),
+            JobKind::Build { pos } | JobKind::Study { pos } => can_stand_building(pos),
         })
     }
 
@@ -994,14 +1016,15 @@ impl World {
 
     /// Is `pos` on or beside a study hall? Where a unit that walked a scroll to the hall ends up.
     fn at_study_hall(&self, pos: Pos) -> bool {
-        self.study_halls().any(|h| (h.x - pos.x).abs() <= 1 && (h.y - pos.y).abs() <= 1)
+        self.study_halls()
+            .any(|h| self.footprint_at(h).unwrap_or(Footprint::single(h)).distance(pos) <= 1)
     }
 
     /// Where a unit with `item` in hand takes it: a study hall for a readable item (to stand
     /// beside it, with its cost), a stockpile tile with room for anything else.
     fn reachable_dest(&self, flood: &Flood, item: ItemId, defs: &Defs) -> Option<(u32, Pos)> {
         if Self::is_readable(item, defs) {
-            self.study_halls().filter_map(|h| self.stand(flood, h)).min()
+            self.study_halls().filter_map(|h| self.stand_building(flood, h, defs)).min()
         } else {
             self.reachable_room(flood, item, defs)
         }
@@ -1044,7 +1067,7 @@ impl World {
         if self.units[i].route.is_none() {
             // Resuming after a need, or the claim's route was lost: plan from here.
             let flood = self.flood_from(i);
-            match self.stand(&flood, pos).and_then(|(_, s)| flood.path_to(s)) {
+            match self.stand_tile(&flood, pos).and_then(|(_, s)| flood.path_to(s)) {
                 Some(path) => self.units[i].route = Some(route_from(path)),
                 None => return self.abandon_job(i, id, defs),
             }

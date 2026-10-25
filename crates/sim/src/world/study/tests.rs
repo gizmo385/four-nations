@@ -255,3 +255,37 @@ fn reading_scrolls_is_deterministic() {
     };
     assert_eq!(run(), run());
 }
+
+#[test]
+fn scholars_study_a_solid_two_by_two_hall_from_its_ring() {
+    let (mut w, mut defs) = setup(Nation::Earth, &GRID, &[at(0, 0), at(8, 4)]);
+    let hall = defs.building_id("study_hall").unwrap();
+    let def = &mut defs.buildings[hall.0 as usize];
+    def.footprint = (2, 2);
+    def.passable = false;
+    let seats = def.seats;
+    assert!(seats >= 2);
+    let foot = crate::geom::Footprint::new(at(4, 1), 2, 2);
+    for p in foot.tiles() {
+        let part = [(p.x - 4) as u8, (p.y - 1) as u8];
+        w.map[p].building =
+            Some(Building { part, size: [2, 2], ..Building::new(hall, false, false) });
+    }
+    w.map_changed();
+    w.open_study_seats(foot.anchor, seats);
+
+    let seated = |w: &World, i: usize| {
+        matches!(w.units[i].task(), Some(Task::Study(_)))
+            && w.units[i].route.as_ref().is_some_and(|r| r.is_empty())
+    };
+    run_until(&mut w, &defs, 2000, |w| seated(w, 0) && seated(w, 1));
+    for u in &w.units {
+        assert_eq!(foot.distance(u.pos), 1, "{} studies from {:?}", u.name, u.pos);
+    }
+    let before = w.research().pool_millis();
+    for _ in 0..100 {
+        w.tick(&defs);
+    }
+    let passive = defs.research.passive_millis_per_tick * 100;
+    assert!(w.research().pool_millis() - before > passive, "both scholars add knowledge");
+}

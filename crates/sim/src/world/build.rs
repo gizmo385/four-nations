@@ -154,6 +154,55 @@ impl World {
         self.sites.iter().find(|&(&a, s)| s.footprint(a).contains(pos)).map(|(&a, s)| (a, s))
     }
 
+    /// The area a unit works the building or site on `pos` (any tile of it) from, and whether
+    /// that is the footprint itself (a walkable building) rather than the ring around it (a
+    /// solid one, whose site is worked from outside too, so no builder is left standing inside
+    /// it). A tile with neither is its own 1x1 area, walkable if units can enter it.
+    pub(super) fn work_area(&self, pos: Pos, defs: &Defs) -> (Footprint, bool) {
+        if let Some(b) = self.map.get(pos).and_then(|t| t.building) {
+            (b.footprint(pos), b.passable)
+        } else if let Some((anchor, s)) = self.site_at(pos) {
+            (s.footprint(anchor), defs.building(s.building).passable)
+        } else {
+            let walkable = self.map.get(pos).is_some_and(|t| self.rules.passable(t));
+            (Footprint::single(pos), walkable)
+        }
+    }
+
+    /// Moves what a solid building just finished on `foot` would bury: each unit on it steps to
+    /// the nearest walkable tile outside it and replans, and each ground stack there is put down
+    /// again nearby. The building must already be on the map, so `place_ground` avoids it.
+    fn clear_footprint(&mut self, foot: Footprint) {
+        for i in 0..self.units.len() {
+            let at = self.units[i].pos;
+            if !foot.contains(at) {
+                continue;
+            }
+            if let Some(to) = self.nearest_outside(at, foot) {
+                self.units[i].pos = to;
+            }
+            self.units[i].route = None;
+            self.units[i].move_progress = 0.0;
+        }
+        let buried: Vec<Pos> = foot.tiles().filter(|p| self.ground.contains_key(p)).collect();
+        for p in buried {
+            let stack = self.ground.remove(&p).expect("just found");
+            self.place_ground(p, stack);
+        }
+    }
+
+    /// The nearest tile to `from` that units can enter and `foot` doesn't cover, searching
+    /// Chebyshev rings outward, each row-major, as `place_ground` does.
+    fn nearest_outside(&self, from: Pos, foot: Footprint) -> Option<Pos> {
+        let reach = i32::from(foot.w.max(foot.h)) + 8;
+        (1..=reach).find_map(|r| {
+            (-r..=r)
+                .flat_map(|dy| (-r..=r).map(move |dx| Pos::new(from.x + dx, from.y + dy)))
+                .filter(|p| p.chebyshev(from) == r && !foot.contains(*p))
+                .find(|&p| self.map.get(p).is_some_and(|t| self.rules.passable(t)))
+        })
+    }
+
     /// Why `pos` can't be part of a new building's footprint, if anything. Units standing there
     /// don't count: they step aside.
     pub fn build_blocker(&self, pos: Pos) -> Option<Blocker> {
@@ -251,12 +300,12 @@ impl World {
         };
         for (&pos, s) in &self.stored {
             if s.item == item {
-                consider(0, pos, Source::Stockpile(pos), self.stand(flood, pos));
+                consider(0, pos, Source::Stockpile(pos), self.stand_tile(flood, pos));
             }
         }
         for (&pos, s) in &self.ground {
             if s.item == item {
-                consider(1, pos, Source::Ground(pos), self.stand(flood, pos));
+                consider(1, pos, Source::Ground(pos), self.stand_tile(flood, pos));
             }
         }
         best.map(|(_, source, stand)| (source, stand))
@@ -304,7 +353,7 @@ impl World {
             // Carrying a trip's worth of materials to the site.
             if self.units[i].route.is_none() {
                 let flood = self.flood_from(i);
-                match self.stand(&flood, pos).and_then(|(_, s)| flood.path_to(s)) {
+                match self.stand_building(&flood, pos, defs).and_then(|(_, s)| flood.path_to(s)) {
                     Some(path) => self.units[i].route = Some(route_from(path)),
                     None => return self.abandon_job(i, id, defs),
                 }
@@ -346,7 +395,8 @@ impl World {
                 // Fully supplied: work the site.
                 if self.units[i].route.is_none() {
                     let flood = self.flood_from(i);
-                    match self.stand(&flood, pos).and_then(|(_, s)| flood.path_to(s)) {
+                    match self.stand_building(&flood, pos, defs).and_then(|(_, s)| flood.path_to(s))
+                    {
                         Some(path) => self.units[i].route = Some(route_from(path)),
                         None => return self.abandon_job(i, id, defs),
                     }
@@ -376,9 +426,12 @@ impl World {
                     let part = [(p.x - pos.x) as u8, (p.y - pos.y) as u8];
                     self.map[p].building = Some(Building { part, ..building });
                 }
+                if !def.passable {
+                    self.clear_footprint(footprint);
+                }
                 self.map_changed();
                 self.open_study_seats(pos, seats);
-                self.light_building_fire(pos, def);
+                self.light_building_fire(pos, building.size, def);
                 self.finish_job(i);
             }
         }

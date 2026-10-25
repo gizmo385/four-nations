@@ -42,7 +42,7 @@ fn place(w: &mut World, defs: &Defs, pos: Pos, building: &str) -> BuildingId {
     let id = defs.building_id(building).unwrap();
     let def = defs.building(id);
     w.map[pos].building = Some(Building::new(id, def.passable, def.rail.is_some()));
-    w.light_building_fire(pos, def);
+    w.light_building_fire(pos, [1, 1], def);
     w.map_changed();
     id
 }
@@ -270,4 +270,50 @@ fn a_sleeper_in_a_bed_by_a_campfire_survives_a_save_and_load() {
     }
     assert_eq!(loaded.save(&defs).unwrap(), w.save(&defs).unwrap());
     assert!(loaded.is_heated(at(9, 4)));
+}
+
+#[test]
+fn a_bigger_heat_building_warms_its_radius_out_from_every_side() {
+    let defs = Defs::bundled();
+    let mut w = world(Nation::Fire, &[at(1, 1)], &defs);
+    let id = defs.building_id("campfire").unwrap();
+    let def = defs.building(id);
+    let anchor = at(8, 3);
+    let size = [2, 2];
+    for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+        let part = [dx as u8, dy as u8];
+        w.map[at(anchor.x + dx, anchor.y + dy)].building =
+            Some(Building { part, size, ..Building::new(id, def.passable, false) });
+    }
+    w.light_building_fire(anchor, size, def);
+    let r = def.heat.unwrap().radius_for(w.modifiers.heating) as i32;
+    // Right of the footprint's right column, and below its bottom row: warm out to r.
+    for p in [at(anchor.x + 1 + r, anchor.y + 1), at(anchor.x + 1, anchor.y + 1 + r)] {
+        assert!(w.is_heated(p), "{p:?}");
+        assert!(w.sleep_factor_at(p) > 1.0, "{p:?}");
+    }
+    for p in [at(anchor.x + 2 + r, anchor.y + 1), at(anchor.x - 1 - r, anchor.y)] {
+        assert!(!w.is_heated(p), "{p:?}");
+        assert_eq!(w.sleep_factor_at(p), 1.0, "{p:?}");
+    }
+
+    // A tired unit walks only as far as the edge of the warmth, measured from the footprint.
+    tire(&mut w, &defs, 0);
+    let route = w.warm_sleep_route(0).expect("the fire is in reach");
+    let end = route.first().copied().unwrap_or(w.units[0].pos);
+    let foot = crate::geom::Footprint::new(anchor, 2, 2);
+    assert_eq!(foot.distance(end), r, "stopped at {end:?}");
+}
+
+#[test]
+fn a_heat_sources_size_is_saved_only_when_bigger_than_one_tile() {
+    let defs = Defs::bundled();
+    let mut w = world(Nation::Fire, &[at(1, 1)], &defs);
+    let def = defs.building(defs.building_id("campfire").unwrap());
+    w.light_building_fire(at(4, 4), [1, 1], def);
+    assert!(!w.save(&defs).unwrap().contains("size"));
+    w.light_building_fire(at(10, 4), [2, 2], def);
+    let loaded = World::load(&w.save(&defs).unwrap(), &defs).unwrap();
+    assert_eq!(loaded.heat[&at(10, 4)].size, [2, 2]);
+    assert_eq!(loaded.heat[&at(4, 4)].size, [1, 1]);
 }
