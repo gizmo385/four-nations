@@ -257,9 +257,9 @@ characters:
 - **Air** is light and sweeping: the body lifts a pixel on stretched legs, one arm raised overhead
   in the stance, both arms swept wide in the release.
 
-The right-facing cells mirror the left-facing ones, as in the walk. `scratchpad/166/gen_bend.py`
-drew them from each character's idle cells and wrote them into the TOML as plain grids; the TOML
-is the source of truth and can be edited by hand.
+The right-facing cells mirror the left-facing ones, as in the walk. A throwaway script drew them
+from each character's idle cells and wrote them into the TOML as plain grids; the TOML is the
+source of truth and can be edited by hand.
 
 ### Cast effects (#166)
 
