@@ -100,14 +100,13 @@ written as `field ×N`.
 | `earthen_walls` | 120 | earth_shaping, masonry | earth wall (built, #25); flood barrier and terraces (not yet: nothing for them to do); construction ×1.25 |
 | `tunneling` | 120 | earth_shaping | ability: Bore Tunnel, a walkable tunnel through mountain tiles; minerals beside a tunnel yield more ("Tunneling" below, #132) |
 | `earth_rail` | 250 | earthen_walls | rail building: Ba Sing Se–style track that carts run along (#135, "Rail" below); carry_capacity ×1.25 |
-| `seismic_sense` | 250 | tunneling | ability: reveal ore and gems in a radius |
+| `seismic_sense` | 250 | tunneling | ability: Seismic Sense, uncovers the gold seams buried in the rock within a radius ("Seismic sense" below, #133) |
 | `metalbending` | 500 | seismic_sense, masonry | metal from ore without a smelter; ability: metalbend |
 
 Earth content pass (#25): only `earthen_walls` unlocked a concrete thing then (the `earth_wall`
 building). `earth_shaping` is modifier-only for now (Raise Earth already
-scales with earthworks), and `seismic_sense` and
-`metalbending` unlock nothing until their mechanics exist: revealing hidden ore
-(#133), metal (#134). `tunneling` unlocks Bore Tunnel since #132 (below). Rail was added by #135 (below), and the flood barrier and terraces are #136.
+scales with earthworks), and `metalbending` unlocks nothing until metal exists (#134). `tunneling` unlocks Bore
+Tunnel since #132, and `seismic_sense` unlocks Seismic Sense since #133 (both below). Rail was added by #135 (below), and the flood barrier and terraces are #136.
 `crates/sim/tests/research_earth.rs` keeps that list honest. No costs or multipliers changed:
 with the pacing assumptions above (one scholar from minute 5, two from 15, three from 40, each
 two-thirds effective), an Earth settlement has about 1000 points at minute 60 and the whole tree
@@ -178,6 +177,51 @@ mined, the same vein mined with and without a tunnel, every nation mining withou
 Drawing: the client draws a tunnel as a packed-earth floor (`art/floors.toml`, `tunnel0` to
 `tunnel3`) with the mountain's own cliff rim facing it, since a tunnel counts as lower ground;
 the TUI shows `∩` (`_` in `--ascii`, the mapgen renderer's glyph).
+
+### Seismic sense (#133)
+
+`seismic_sense` promised "reveal ore and gems in a radius", but nothing on the map was hidden:
+every resource showed from tick 0. Fog of war for the whole map is out of scope (cartography's
+reveal is separate), so the hidden state is narrow: **buried resources**.
+
+**What is hidden.** A resource can be `buried = true` in `data/resources.toml`. Mapgen places it
+like any other (its own RNG stream, listed last so it never displaces another resource), and a
+world takes it off the map the moment it is made, into `World::buried`. Until it is uncovered it
+is not on its tile, so no frontend draws it, no tooltip names it and no designation can reach it;
+nothing else in the code has to ask whether a resource is hidden. The one buried resource today
+is the **gold seam**: a rich deposit in mountain rock, worth more than a surface vein. Gems were
+weighed too, but a new item with no use yet would only add art; gold already exists, and ore and
+metal from #134 can be buried the same way when they do.
+
+Other shapes considered: a per-tile "revealed" flag that every frontend checks (the leak-prone
+option: one forgotten check shows the gold), and true fog of war (out of scope, and a far bigger
+change).
+
+**How the reveal shows it.** Seismic Sense is a new `Effect::Reveal { radius }`:
+
+| | Value (proposed, `data/bending.toml`) |
+|---|---|
+| Chi | 30 |
+| Channel | 6 s ÷ `earthworks` (2.4 s for Earth) |
+| Target | A walkable tile with nothing on it (open ground or a tunnel): where the bender stands |
+| Result | Every buried resource within `radius = 8` tiles (Chebyshev) of the target is put back on its tile, to be mined or tunnelled to like any vein. Finding nothing still spends the chi |
+
+The seam simply appears in the rock (art: `gold_seam` in `art/resources.toml`, the vein's rock
+split open on a thick band of gold), and the cast draws a tremor: the ground cracks under the
+bender and a ring of dust runs out (`cast.rs`, `Look::Pulse`). A Bore Tunnel aimed at a tile
+that holds a buried seam strikes it instead of boring: the seam is uncovered and the rock stays,
+so a tunnel can find gold by luck, but the sense is the way to look.
+
+| Gold seam (proposed, `data/resources.toml`, `data/jobs.toml`) | Value |
+|---|---|
+| Chance | 0.04 per mountain tile nothing else took, `min_spacing = 5` |
+| Yield | 3 gold ore (5 mined from a tunnel), against a vein's 1 (2) |
+| Work | 45 s ÷ `earthworks` |
+
+Saves: `World::buried` is left out of a save while empty, so saves from before #133 load (with
+nothing buried) and re-save unchanged. Mapgen now places seams, so the large ASCII golden was
+re-blessed (only `!` marks were added; nothing else moved). Tests:
+`crates/sim/src/world/bending/seismic_tests.rs`.
 
 ### Rail (#135)
 

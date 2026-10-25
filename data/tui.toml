@@ -125,6 +125,12 @@ glyph = "$"
 ascii = "$"
 fg = [255, 212, 60]
 
+# A gold seam uncovered by Seismic Sense (#133): richer than a vein, so a brighter, bolder mark.
+[resource.gold_seam]
+glyph = "◆"
+ascii = "!"
+fg = [255, 236, 120]
+
 [resource.fish_spot]
 glyph = "ƒ"
 ascii = "f"
