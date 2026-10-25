@@ -1,6 +1,13 @@
-# Water and shore autotiles (docs/design/pixel-art.md; #146). Three 4x4 sets of 16px cells, one per
-# land colour, stacked in this order: sand (rows 0-3), snow (rows 4-7), grass (rows 8-11). The
-# client's `WaterSet` (sprites/water.rs) reads each set as
+# Water and shore autotiles (docs/design/pixel-art.md; #146, #31). A 4-cell-wide sheet of 4x4 sets of
+# 16px cells, stacked top to bottom (cell row = sprite index / 4):
+#
+#   rows  0-11  sea    sand (0-3), snow (4-7), grass (8-11)   blue ramp `water`   names `sand_nw`
+#   rows 12-23  river  sand, snow, grass                      teal ramp `fresh`   names `river_sand_nw`
+#   rows 24-35  lake   sand, snow, grass                      teal ramp `fresh`   names `lake_sand_nw`
+#   row  36     extras: the fish spot, then (#171) the pond piece
+#
+# Add a new water body as three more 4x4 sets before the extras row and a new extra at the end, so
+# no earlier cell moves. The client's `WaterSet` (sprites/water.rs) reads each set as
 #
 #   nw      n       ne       v_top    land N, E, W
 #   w       .       e        v_mid    land N, S
@@ -10,8 +17,19 @@
 #
 # A piece named for a side has land on that side. Land is drawn in the floor's base tone (`g`, the
 # `,` tone of the textured floors) for 2px, then a 1px bank (`G`), so a shore meets its floor
-# without a seam. Water is `2` with waves in `3`/`4`; `1` is the shadow under a bank. The fish
-# spot (last cell) is drawn over any water tile, on a transparent background.
+# without a seam. Water is `2` with marks in `3`/`4`; `1` is the shadow under a bank. Every set
+# draws the same shapes, only the ramp and the marks differ:
+#
+#   sea    `water` blue; short 3px dashes (white sparkle in the snow sets) scattered over the open
+#          water: choppy.
+#   river  `fresh` teal, bound per sprite; long thin current streaks, along the flow in the
+#          straits (`v_mid`/`h_left`/`h_right` run east-west, `h_mid`/`v_top`/`v_bot` north-south)
+#          and east-west in open water.
+#   lake   `fresh` teal; calm: a few 1px glints and small ring ripples, no dashes.
+#
+# The river and lake sets were generated from the sea's (the shapes are identical) and are edited
+# by hand like any other sprite. The fish spot is drawn over any water tile, on a transparent
+# background.
 cell = [16, 16]
 columns = 4
 
@@ -1077,6 +1095,2124 @@ grid = """
 2222222222222222
 2222222222222222
 """
+
+# --- river: rows 12-23 ---
+
+[[sprite]]
+name = "river_sand_nw"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGGG
+ggG1111111111111
+ggG1222222222222
+ggG1222222222222
+ggG1222222333322
+ggG1222222222222
+ggG1222233333222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+"""
+
+[[sprite]]
+name = "river_sand_n"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGGG
+1111111111111111
+2222222222222222
+2233333222222222
+2222222222222222
+2222222222222222
+2222222233333222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "river_sand_ne"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGgg
+1111111111111Ggg
+2222222222223Ggg
+2233333222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2223332222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+"""
+
+[[sprite]]
+name = "river_sand_v_top"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGgg
+ggG1111111111Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222232223Ggg
+ggG1222232223Ggg
+ggG1223232223Ggg
+ggG1223232223Ggg
+ggG1223232223Ggg
+ggG1223222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+"""
+
+[[sprite]]
+name = "river_sand_w"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222222222
+ggG1222222222222
+ggG1232222222222
+ggG1232222222222
+ggG1232222222222
+ggG1232222222222
+ggG1232222222222
+ggG1222222222222
+ggG1222232222222
+ggG1222232222222
+ggG1222232222222
+ggG1222232222222
+ggG1222232222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+"""
+
+[[sprite]]
+name = "river_sand_interior"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222222222
+2222222222222222
+2222222222222222
+2233333222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222223333322
+2222222222222222
+2222222222222222
+2222222222222222
+2223333322222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "river_sand_e"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222223Ggg
+2222222222223Ggg
+2222232222223Ggg
+2222232222223Ggg
+2222232222223Ggg
+2222232222223Ggg
+2222232222223Ggg
+2222222222223Ggg
+2222222232223Ggg
+2222222232223Ggg
+2222222232223Ggg
+2222222232223Ggg
+2222222232223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+"""
+
+[[sprite]]
+name = "river_sand_v_mid"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGGG
+1111111111111111
+2222222222222222
+2233333222222222
+2222222222222222
+2222222222222222
+2222222233333222
+2222222222222222
+2222222222222222
+2222222222222222
+3333333333333333
+GGGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_sand_sw"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222333322
+ggG1222222222222
+ggG1222233333222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1333333333333
+ggGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_sand_s"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2233333222222222
+2222222222222222
+2222222222222222
+2222222233333222
+2222222222222222
+2222222222222222
+2222222222222222
+3333333333333333
+GGGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_sand_se"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2233333222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2223332222223Ggg
+2222222222223Ggg
+3333333333333Ggg
+GGGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_sand_v_bot"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1232222223Ggg
+ggG1232222323Ggg
+ggG1232222323Ggg
+ggG1232222323Ggg
+ggG1232222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1333333333Ggg
+ggGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_sand_h_left"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGGG
+ggG1111111111111
+ggG1222222222222
+ggG1222222222222
+ggG1222222333322
+ggG1222222222222
+ggG1222233333222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1333333333333
+ggGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_sand_h_mid"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1232222223Ggg
+ggG1232222223Ggg
+ggG1232222223Ggg
+ggG1232222223Ggg
+ggG1232222223Ggg
+ggG1222222223Ggg
+ggG1222232223Ggg
+ggG1222232223Ggg
+ggG1222232223Ggg
+ggG1222232223Ggg
+ggG1222232223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+"""
+
+[[sprite]]
+name = "river_sand_h_right"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGgg
+1111111111111Ggg
+2222222222223Ggg
+2233333222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2223332222223Ggg
+2222222222223Ggg
+3333333333333Ggg
+GGGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_sand_interior_alt"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222222222
+2222222222222222
+2222222233333222
+2222222222222222
+2222222222222222
+2222222222222222
+2233332222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222233333222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "river_snow_nw"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGGG
+ggG1111111111111
+ggG1222222222222
+ggG1222222222222
+ggG1222222333322
+ggG1222222222222
+ggG1222233333222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+"""
+
+[[sprite]]
+name = "river_snow_n"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGGG
+1111111111111111
+2222222222222222
+2233333222222222
+2222222222222222
+2222222222222222
+2222222233333222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "river_snow_ne"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGgg
+1111111111111Ggg
+2222222222223Ggg
+2233333222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2223332222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+"""
+
+[[sprite]]
+name = "river_snow_v_top"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGgg
+ggG1111111111Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222232223Ggg
+ggG1222232223Ggg
+ggG1223232223Ggg
+ggG1223232223Ggg
+ggG1223232223Ggg
+ggG1223222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+"""
+
+[[sprite]]
+name = "river_snow_w"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222222222
+ggG1222222222222
+ggG1232222222222
+ggG1232222222222
+ggG1232222222222
+ggG1232222222222
+ggG1232222222222
+ggG1222222222222
+ggG1222232222222
+ggG1222232222222
+ggG1222232222222
+ggG1222232222222
+ggG1222232222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+"""
+
+[[sprite]]
+name = "river_snow_interior"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222222222
+2222222222222222
+2222222222222222
+2233333222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222223333322
+2222222222222222
+2222222222222222
+2222222222222222
+2223333322222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "river_snow_e"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222223Ggg
+2222222222223Ggg
+2222232222223Ggg
+2222232222223Ggg
+2222232222223Ggg
+2222232222223Ggg
+2222232222223Ggg
+2222222222223Ggg
+2222222232223Ggg
+2222222232223Ggg
+2222222232223Ggg
+2222222232223Ggg
+2222222232223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+"""
+
+[[sprite]]
+name = "river_snow_v_mid"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGGG
+1111111111111111
+2222222222222222
+2233333222222222
+2222222222222222
+2222222222222222
+2222222233333222
+2222222222222222
+2222222222222222
+2222222222222222
+3333333333333333
+GGGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_snow_sw"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222333322
+ggG1222222222222
+ggG1222233333222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1333333333333
+ggGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_snow_s"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2233333222222222
+2222222222222222
+2222222222222222
+2222222233333222
+2222222222222222
+2222222222222222
+2222222222222222
+3333333333333333
+GGGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_snow_se"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2233333222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2223332222223Ggg
+2222222222223Ggg
+3333333333333Ggg
+GGGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_snow_v_bot"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1232222223Ggg
+ggG1232222323Ggg
+ggG1232222323Ggg
+ggG1232222323Ggg
+ggG1232222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1333333333Ggg
+ggGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_snow_h_left"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGGG
+ggG1111111111111
+ggG1222222222222
+ggG1222222222222
+ggG1222222333322
+ggG1222222222222
+ggG1222233333222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1333333333333
+ggGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_snow_h_mid"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1232222223Ggg
+ggG1232222223Ggg
+ggG1232222223Ggg
+ggG1232222223Ggg
+ggG1232222223Ggg
+ggG1222222223Ggg
+ggG1222232223Ggg
+ggG1222232223Ggg
+ggG1222232223Ggg
+ggG1222232223Ggg
+ggG1222232223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+"""
+
+[[sprite]]
+name = "river_snow_h_right"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGgg
+1111111111111Ggg
+2222222222223Ggg
+2233333222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2223332222223Ggg
+2222222222223Ggg
+3333333333333Ggg
+GGGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_snow_interior_alt"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222222222
+2222222222222222
+2222222233333222
+2222222222222222
+2222222222222222
+2222222222222222
+2233332222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222233333222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "river_grass_nw"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGGG
+ggG1111111111111
+ggG1222222222222
+ggG1222222222222
+ggG1222222333322
+ggG1222222222222
+ggG1222233333222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+"""
+
+[[sprite]]
+name = "river_grass_n"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGGG
+1111111111111111
+2222222222222222
+2233333222222222
+2222222222222222
+2222222222222222
+2222222233333222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "river_grass_ne"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGgg
+1111111111111Ggg
+2222222222223Ggg
+2233333222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2223332222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+"""
+
+[[sprite]]
+name = "river_grass_v_top"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGgg
+ggG1111111111Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222232223Ggg
+ggG1222232223Ggg
+ggG1223232223Ggg
+ggG1223232223Ggg
+ggG1223232223Ggg
+ggG1223222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+"""
+
+[[sprite]]
+name = "river_grass_w"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222222222
+ggG1222222222222
+ggG1232222222222
+ggG1232222222222
+ggG1232222222222
+ggG1232222222222
+ggG1232222222222
+ggG1222222222222
+ggG1222232222222
+ggG1222232222222
+ggG1222232222222
+ggG1222232222222
+ggG1222232222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+"""
+
+[[sprite]]
+name = "river_grass_interior"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222222222
+2222222222222222
+2222222222222222
+2233333222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222223333322
+2222222222222222
+2222222222222222
+2222222222222222
+2223333322222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "river_grass_e"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222223Ggg
+2222222222223Ggg
+2222232222223Ggg
+2222232222223Ggg
+2222232222223Ggg
+2222232222223Ggg
+2222232222223Ggg
+2222222222223Ggg
+2222222232223Ggg
+2222222232223Ggg
+2222222232223Ggg
+2222222232223Ggg
+2222222232223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+"""
+
+[[sprite]]
+name = "river_grass_v_mid"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGGG
+1111111111111111
+2222222222222222
+2233333222222222
+2222222222222222
+2222222222222222
+2222222233333222
+2222222222222222
+2222222222222222
+2222222222222222
+3333333333333333
+GGGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_grass_sw"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222333322
+ggG1222222222222
+ggG1222233333222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1333333333333
+ggGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_grass_s"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2233333222222222
+2222222222222222
+2222222222222222
+2222222233333222
+2222222222222222
+2222222222222222
+2222222222222222
+3333333333333333
+GGGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_grass_se"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2233333222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2223332222223Ggg
+2222222222223Ggg
+3333333333333Ggg
+GGGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_grass_v_bot"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1232222223Ggg
+ggG1232222323Ggg
+ggG1232222323Ggg
+ggG1232222323Ggg
+ggG1232222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1333333333Ggg
+ggGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_grass_h_left"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGGG
+ggG1111111111111
+ggG1222222222222
+ggG1222222222222
+ggG1222222333322
+ggG1222222222222
+ggG1222233333222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1333333333333
+ggGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_grass_h_mid"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1232222223Ggg
+ggG1232222223Ggg
+ggG1232222223Ggg
+ggG1232222223Ggg
+ggG1232222223Ggg
+ggG1222222223Ggg
+ggG1222232223Ggg
+ggG1222232223Ggg
+ggG1222232223Ggg
+ggG1222232223Ggg
+ggG1222232223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+"""
+
+[[sprite]]
+name = "river_grass_h_right"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGgg
+1111111111111Ggg
+2222222222223Ggg
+2233333222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2223332222223Ggg
+2222222222223Ggg
+3333333333333Ggg
+GGGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "river_grass_interior_alt"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222222222
+2222222222222222
+2222222233333222
+2222222222222222
+2222222222222222
+2222222222222222
+2233332222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222233333222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+# --- lake: rows 24-35 ---
+
+[[sprite]]
+name = "lake_sand_nw"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGGG
+ggG1111111111111
+ggG1222222222222
+ggG1222222223222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222332222
+ggG1222223223222
+ggG1222222332222
+ggG1222222223222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+"""
+
+[[sprite]]
+name = "lake_sand_n"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGGG
+1111111111111111
+2222222222222222
+2222332222222222
+2223223222222222
+2232332222222222
+2222222222222222
+2222222222332222
+2222222223223222
+2222222222332222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "lake_sand_ne"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGgg
+1111111111111Ggg
+2222222222223Ggg
+2222332222223Ggg
+2223223222223Ggg
+2232332222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+"""
+
+[[sprite]]
+name = "lake_sand_v_top"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGgg
+ggG1111111111Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+"""
+
+[[sprite]]
+name = "lake_sand_w"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222223222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222332222
+ggG1222223223222
+ggG1222222332222
+ggG1222222223222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+"""
+
+[[sprite]]
+name = "lake_sand_interior"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222222222
+2222222222222222
+2222222222222222
+2222332222222222
+2223223222222222
+2222332222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222332222
+2222222223223222
+2222222222332222
+2222222222222222
+2223222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "lake_sand_e"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222332222223Ggg
+2223223222223Ggg
+2232332222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+"""
+
+[[sprite]]
+name = "lake_sand_v_mid"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGGG
+1111111111111111
+2222222222222222
+2222332222223222
+2223223222222222
+2232332222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+3333333333333333
+GGGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_sand_sw"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222223222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1333333333333
+ggGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_sand_s"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222332222223222
+2223223222222222
+2232332222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+3333333333333333
+GGGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_sand_se"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222332222223Ggg
+2223223222223Ggg
+2232332222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+3333333333333Ggg
+GGGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_sand_v_bot"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1333333333Ggg
+ggGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_sand_h_left"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGGG
+ggG1111111111111
+ggG1222222222222
+ggG1222222223222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1333333333333
+ggGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_sand_h_mid"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+"""
+
+[[sprite]]
+name = "lake_sand_h_right"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGgg
+1111111111111Ggg
+2222222222223Ggg
+2222332222223Ggg
+2223223222223Ggg
+2232332222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+3333333333333Ggg
+GGGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_sand_interior_alt"
+legend = { "g" = "sand1", "G" = "sand0", "h" = "sand2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222222222
+2222222222222222
+2222322222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222332222
+2222222223223222
+2222222222332222
+2222222222222222
+2222222222222222
+2223322222222222
+2232232222222222
+2223322222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "lake_snow_nw"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGGG
+ggG1111111111111
+ggG1222222222222
+ggG1222222223222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222332222
+ggG1222223223222
+ggG1222222332222
+ggG1222222223222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+"""
+
+[[sprite]]
+name = "lake_snow_n"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGGG
+1111111111111111
+2222222222222222
+2222332222222222
+2223223222222222
+2232332222222222
+2222222222222222
+2222222222332222
+2222222223223222
+2222222222332222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "lake_snow_ne"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGgg
+1111111111111Ggg
+2222222222223Ggg
+2222332222223Ggg
+2223223222223Ggg
+2232332222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+"""
+
+[[sprite]]
+name = "lake_snow_v_top"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGgg
+ggG1111111111Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+"""
+
+[[sprite]]
+name = "lake_snow_w"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222223222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222332222
+ggG1222223223222
+ggG1222222332222
+ggG1222222223222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+"""
+
+[[sprite]]
+name = "lake_snow_interior"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222222222
+2222222222222222
+2222222222222222
+2222332222222222
+2223223222222222
+2222332222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222332222
+2222222223223222
+2222222222332222
+2222222222222222
+2223222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "lake_snow_e"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222332222223Ggg
+2223223222223Ggg
+2232332222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+"""
+
+[[sprite]]
+name = "lake_snow_v_mid"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGGG
+1111111111111111
+2222222222222222
+2222332222223222
+2223223222222222
+2232332222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+3333333333333333
+GGGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_snow_sw"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222223222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1333333333333
+ggGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_snow_s"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222332222223222
+2223223222222222
+2232332222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+3333333333333333
+GGGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_snow_se"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222332222223Ggg
+2223223222223Ggg
+2232332222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+3333333333333Ggg
+GGGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_snow_v_bot"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1333333333Ggg
+ggGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_snow_h_left"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGGG
+ggG1111111111111
+ggG1222222222222
+ggG1222222223222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1333333333333
+ggGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_snow_h_mid"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+"""
+
+[[sprite]]
+name = "lake_snow_h_right"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGgg
+1111111111111Ggg
+2222222222223Ggg
+2222332222223Ggg
+2223223222223Ggg
+2232332222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+3333333333333Ggg
+GGGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_snow_interior_alt"
+legend = { "g" = "snow1", "G" = "snow0", "h" = "snow2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222222222
+2222222222222222
+2222322222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222332222
+2222222223223222
+2222222222332222
+2222222222222222
+2222222222222222
+2223322222222222
+2232232222222222
+2223322222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "lake_grass_nw"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGGG
+ggG1111111111111
+ggG1222222222222
+ggG1222222223222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222332222
+ggG1222223223222
+ggG1222222332222
+ggG1222222223222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+"""
+
+[[sprite]]
+name = "lake_grass_n"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGGG
+1111111111111111
+2222222222222222
+2222332222222222
+2223223222222222
+2232332222222222
+2222222222222222
+2222222222332222
+2222222223223222
+2222222222332222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "lake_grass_ne"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGgg
+1111111111111Ggg
+2222222222223Ggg
+2222332222223Ggg
+2223223222223Ggg
+2232332222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+"""
+
+[[sprite]]
+name = "lake_grass_v_top"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGgg
+ggG1111111111Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+"""
+
+[[sprite]]
+name = "lake_grass_w"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222223222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222332222
+ggG1222223223222
+ggG1222222332222
+ggG1222222223222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+"""
+
+[[sprite]]
+name = "lake_grass_interior"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222222222
+2222222222222222
+2222222222222222
+2222332222222222
+2223223222222222
+2222332222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222332222
+2222222223223222
+2222222222332222
+2222222222222222
+2223222222222222
+2222222222222222
+2222222222222222
+"""
+
+[[sprite]]
+name = "lake_grass_e"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222332222223Ggg
+2223223222223Ggg
+2232332222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+"""
+
+[[sprite]]
+name = "lake_grass_v_mid"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGGG
+1111111111111111
+2222222222222222
+2222332222223222
+2223223222222222
+2232332222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+3333333333333333
+GGGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_grass_sw"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222223222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1333333333333
+ggGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_grass_s"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222332222223222
+2223223222222222
+2232332222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222222222
+3333333333333333
+GGGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_grass_se"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222332222223Ggg
+2223223222223Ggg
+2232332222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+3333333333333Ggg
+GGGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_grass_v_bot"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1333333333Ggg
+ggGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_grass_h_left"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+ggGGGGGGGGGGGGGG
+ggG1111111111111
+ggG1222222222222
+ggG1222222223222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1222222222222
+ggG1333333333333
+ggGGGGGGGGGGGGGG
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_grass_h_mid"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+ggG1222222223Ggg
+"""
+
+[[sprite]]
+name = "lake_grass_h_right"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+gggggggggggggggg
+gggggggggggggggg
+GGGGGGGGGGGGGGgg
+1111111111111Ggg
+2222222222223Ggg
+2222332222223Ggg
+2223223222223Ggg
+2232332222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+2222222222223Ggg
+3333333333333Ggg
+GGGGGGGGGGGGGGgg
+gggggggggggggggg
+gggggggggggggggg
+"""
+
+[[sprite]]
+name = "lake_grass_interior_alt"
+legend = { "g" = "grass1", "G" = "grass0", "h" = "grass2", "1" = "fresh0", "2" = "fresh1", "3" = "fresh2", "4" = "fresh3" }
+grid = """
+2222222222222222
+2222222222222222
+2222322222222222
+2222222222222222
+2222222222222222
+2222222222222222
+2222222222332222
+2222222223223222
+2222222222332222
+2222222222222222
+2222222222222222
+2223322222222222
+2232232222222222
+2223322222222222
+2222222222222222
+2222222222222222
+"""
+
+# --- extras: row 36 ---
 
 [[sprite]]
 name = "fish_spot"

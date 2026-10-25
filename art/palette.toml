@@ -33,6 +33,12 @@ water1 = "#2f70c2"
 water2 = "#60b2e8"
 water3 = "#cbedfb"
 
+# Fresh water (#31): rivers and lakes, a clearer green-teal than the sea's blue ramp above.
+fresh0 = "#1c5c62"
+fresh1 = "#38a89a"
+fresh2 = "#82dcc0"
+fresh3 = "#d8f6e4"
+
 red0 = "#5a1a1e"
 red1 = "#b03a2e"
 red2 = "#e8703a"
