@@ -613,8 +613,8 @@ fn hauling_over_rail_beats_hauling_over_bare_ground() {
     let bare = haul_ticks(&[], 5);
     let railed = haul_ticks(&line, 5);
     assert!(railed < bare, "rail {railed} ticks, bare ground {bare}");
-    // The loaded leg is 29 steps of 6 ticks on bare ground and 29 of 3 on rail (the empty walk
-    // out is the same either way), so the trip loses about a third of its time.
+    // Both legs run along the rail now (29 steps of 6 ticks on bare ground, 3 on rail), so the
+    // trip loses well over a third of its time.
     assert!(railed * 4 < bare * 3, "rail {railed} ticks, bare ground {bare}: not much faster");
 }
 
@@ -630,19 +630,18 @@ fn a_gap_in_the_rail_costs_the_time_it_covers() {
 }
 
 #[test]
-fn a_unit_on_foot_gets_nothing_from_rail() {
+fn every_unit_runs_along_rail_loaded_or_not() {
     let rows = ["..........", "..........", ".........."];
     let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 1)]);
     lay_rail(&mut w, &defs, (1..=6).map(|x| at(x, 1)));
     let wood = defs.item_id("wood").unwrap();
     w.units[0].route = Some((2..=5).rev().map(|x| at(x, 1)).collect());
+    // Rail is a road for everyone: half the time on a speed-2 rail, on foot or hauling.
     let on_foot = w.stride(UnitId(0)).unwrap().needed;
-    assert_eq!(on_foot, vec![BASE_TICKS_PER_STEP; 4]);
-
-    // The same steps with a stack in hand are the cart's: half the time on a speed-2 rail.
+    assert_eq!(on_foot, vec![BASE_TICKS_PER_STEP / 2.0; 4]);
     w.units[0].carrying = Some(Stack { item: wood, count: 3 });
     let hauling = w.stride(UnitId(0)).unwrap().needed;
-    assert_eq!(hauling, vec![BASE_TICKS_PER_STEP / 2.0; 4]);
+    assert_eq!(hauling, on_foot);
 }
 
 #[test]
