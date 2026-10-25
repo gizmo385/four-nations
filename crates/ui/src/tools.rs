@@ -203,6 +203,30 @@ pub fn tiles_between(a: Pos, b: Pos) -> impl Iterator<Item = Pos> {
     (y0..=y1).flat_map(move |y| (x0..=x1).map(move |x| Pos::new(x, y)))
 }
 
+/// The anchors a Build drag from `from` to `to` stamps for a building of `footprint` size: a
+/// lattice from the drag's start, stepping by the footprint away from it, keeping only the stamps
+/// that fit inside the dragged rectangle, in row-major order. So a drag along a row lays
+/// buildings side by side, and a 1x1 drag stamps every tile, as for any other tool. A drag too
+/// small to fit one (a click) places one, anchored for the cursor (`build::anchor_for`).
+pub fn build_stamps(from: Pos, to: Pos, footprint: (u8, u8)) -> Vec<Pos> {
+    // The anchor's coordinate on one axis for each stamp that fits between `start` and `end`.
+    let axis = |start: i32, end: i32, size: u8| -> Vec<i32> {
+        let size = i32::from(size);
+        let fit = ((end - start).abs() + 1) / size;
+        (0..fit)
+            .map(|k| if end >= start { start + k * size } else { start - (k + 1) * size + 1 })
+            .collect()
+    };
+    let (xs, ys) = (axis(from.x, to.x, footprint.0), axis(from.y, to.y, footprint.1));
+    if xs.is_empty() || ys.is_empty() {
+        return vec![build::anchor_for(from, footprint)];
+    }
+    let mut stamps: Vec<Pos> =
+        ys.iter().flat_map(|&y| xs.iter().map(move |&x| Pos::new(x, y))).collect();
+    stamps.sort_by_key(|p| (p.y, p.x));
+    stamps
+}
+
 /// The tool and building choice after the player asks for `requested`. `Build` picks the first
 /// building the nation can place when none is chosen (or the chosen one is locked); asking for
 /// it again while it is active moves on to the next one. Every other tool leaves the choice
@@ -225,8 +249,8 @@ pub fn switch_tool(
     (Tool::Build, choice)
 }
 
-/// Applies `tool` to every tile in the rectangle `from`..=`to` through `Session::apply` and
-/// returns the notice to show, such as "designate harvest: 12 done, 3 skipped (nothing to
+/// Applies `tool` to every tile in the rectangle `from`..=`to` (for `Build`, to every footprint
+/// `build_stamps` fits in it) through `Session::apply` and returns the notice to show, such as "designate harvest: 12 done, 3 skipped (nothing to
 /// harvest)". `repeating` is the Shift state (#81); `choice` is the Build tool's building.
 ///
 /// The sim decides what each tile accepts; a refusal is counted and its reason (the last one's)
@@ -252,9 +276,13 @@ pub fn apply_rect(
         }
         _ => tool.label().to_owned(),
     };
+    let targets: Vec<Pos> = match (tool, building) {
+        (Tool::Build, Some(id)) => build_stamps(from, to, session.defs.building(id).footprint),
+        _ => tiles_between(from, to).collect(),
+    };
     let (mut done, mut refused) = (0, 0);
     let mut last_error = None;
-    for pos in tiles_between(from, to) {
+    for pos in targets {
         if let Some(command) = tool.command(pos, Here::at(session, pos), pick) {
             match session.apply(command) {
                 Ok(()) => done += 1,
@@ -575,5 +603,65 @@ mod tests {
         let notice = apply_rect(&mut s, Tool::Build, pos, pos, false, Some(campfire));
         assert!(notice.ends_with("1 done, 0 skipped"), "{notice}");
         assert_ne!(s.world.build_site(pos).map(|(b, _, _)| b), Some(campfire));
+    }
+
+    /// A session whose bed is a 2x2 building (no bundled building is bigger yet, #214), with a
+    /// clear 6x2 field of land from the returned top-left tile.
+    fn with_2x2_hall() -> (Session, BuildingId, Pos) {
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let bed = s.defs.building_id("bed").unwrap();
+        let def = &mut s.defs.buildings[bed.0 as usize];
+        def.footprint = (2, 2);
+        def.bed = None;
+        let corner = Pos::new(20, 20);
+        for p in tiles_between(corner, Pos::new(corner.x + 5, corner.y + 1)) {
+            let t = s.world.map.get_mut(p).unwrap();
+            t.terrain = fn_sim::Terrain::Land;
+            t.resource = None;
+        }
+        (s, bed, corner)
+    }
+
+    #[test]
+    fn a_build_drag_stamps_footprints_side_by_side_and_skips_the_blocked_ones() {
+        let (mut s, hall, c) = with_2x2_hall();
+        let oak = s.defs.resource_id("oak_tree").unwrap();
+        s.world.map.get_mut(Pos::new(c.x + 5, c.y + 1)).unwrap().resource = Some(oak);
+        let notice =
+            apply_rect(&mut s, Tool::Build, c, Pos::new(c.x + 5, c.y + 1), false, Some(hall));
+        assert_eq!(notice, "build Bed: 2 done, 1 skipped (an oak tree is in the way)");
+        let anchors: Vec<Pos> = s.world.build_sites().map(|(f, _, _)| f.anchor).collect();
+        assert_eq!(anchors, [c, Pos::new(c.x + 2, c.y)]);
+    }
+
+    #[test]
+    fn build_stamps_tile_a_drag_from_its_start_and_fit_inside_it() {
+        let p = |x, y| Pos::new(x, y);
+        assert_eq!(build_stamps(p(0, 0), p(5, 1), (2, 2)), [p(0, 0), p(2, 0), p(4, 0)]);
+        // A 5-wide drag fits two; the leftover column is not stamped.
+        assert_eq!(build_stamps(p(0, 0), p(4, 1), (2, 2)), [p(0, 0), p(2, 0)]);
+        // Dragged up and to the left, the lattice grows from the start that way.
+        assert_eq!(
+            build_stamps(p(5, 3), p(0, 0), (2, 2)),
+            [p(0, 0), p(2, 0), p(4, 0), p(0, 2), p(2, 2), p(4, 2)]
+        );
+        // A click, or a drag too small for one, places one at the cursor's anchor.
+        assert_eq!(build_stamps(p(7, 7), p(7, 7), (3, 3)), [p(6, 6)]);
+        assert_eq!(build_stamps(p(7, 7), p(8, 7), (2, 2)), [p(7, 7)]);
+        // 1x1 stamps every tile in the rectangle, in the same order as any other tool.
+        let one: Vec<Pos> = tiles_between(p(4, 2), p(1, 3)).collect();
+        assert_eq!(build_stamps(p(4, 2), p(1, 3), (1, 1)), one);
+    }
+
+    #[test]
+    fn a_2x2_site_is_cancelled_from_any_of_its_tiles() {
+        let (mut s, hall, c) = with_2x2_hall();
+        apply_rect(&mut s, Tool::Build, c, c, false, Some(hall));
+        let corner = Pos::new(c.x + 1, c.y + 1);
+        assert_eq!(Here::at(&s, corner), Here::at(&s, c));
+        assert!(Here::at(&s, corner).site);
+        let notice = apply_rect(&mut s, Tool::CancelHarvest, corner, corner, false, None);
+        assert!(notice.ends_with("1 done, 0 skipped"), "{notice}");
+        assert_eq!(s.world.build_sites().count(), 0);
     }
 }

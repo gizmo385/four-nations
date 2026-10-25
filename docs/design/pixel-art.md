@@ -235,6 +235,11 @@ existing 32x32 art fills exactly.
   `pillars`, so the pillars finish in any order. `complete_<nation>` (emblem unlit, stage 3) and
   `complete_lit_<nation>` (the rite done) are one grid whose roof keys are swapped per nation:
   gold, blue, green and red tiles. Previews: `mockups/246/`.
+- **Appa** (`art/appa.toml`, #247) rests beside the gate as a 3x2 prop: 48x32 cells,
+  bottom-aligned, lying down and facing left. The fur is the stone ramp up to `white`, with the
+  brown arrow, a cream horn, a wood saddle on a red and gold blanket, and the flat tail. Two
+  frames, `appa_rest_0` and `appa_rest_1`, are a slow breathing loop: the back rises 1px.
+  Previews: `mockups/247/`.
 - **Nation differences are shape and material**, not the accent: a gold-roofed open pavilion, an
   ice-block lodge, a green-tiled hall and a red two-tier pagoda.
 - **Seeing them.** `FN_BUILD_DEMO=buildings cargo xtask screenshot ...` levels a meadow beside

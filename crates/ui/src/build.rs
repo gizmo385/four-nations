@@ -5,10 +5,16 @@
 //!
 //! The Cancel tool withdraws a build designation too: on a tile with a site it issues
 //! `CancelBuild`, on a stockpile tile `CancelStockpile`, elsewhere `CancelHarvest`.
+//!
+//! A building can cover several tiles (its footprint, #196, docs/design/buildings.md,
+//! "Placing"): `anchor_for` turns the tile under the cursor into the footprint's top-left tile,
+//! which is what `DesignateBuild` names, and `placement` says which of its tiles are blocked,
+//! for both frontends to draw the same ghost.
 
-use fn_sim::Pos;
 use fn_sim::building::{BuildingDef, BuildingId};
-use fn_sim::world::{BuildError, CommandError, DesignateError};
+use fn_sim::geom::Footprint;
+use fn_sim::world::{Blocker, BuildError, CommandError, DesignateError};
+use fn_sim::{Pos, Terrain};
 
 use crate::session::Session;
 
@@ -32,17 +38,88 @@ impl PickerRow {
     }
 }
 
-/// What a building costs, as "5 Wood" (comma-separated for several items).
+/// What a building costs, as "5 Wood" (comma-separated for several items), followed by its
+/// size if it covers more than one tile ("10 Wood, 2x2").
 fn cost_text(session: &Session, def: &BuildingDef) -> String {
-    if def.cost.is_empty() {
-        return "free".into();
-    }
-    let parts: Vec<String> = def
+    let mut parts: Vec<String> = def
         .cost
         .iter()
         .map(|c| format!("{} {}", c.count, session.defs.item(c.item).name))
         .collect();
+    if parts.is_empty() {
+        parts.push("free".into());
+    }
+    let (w, h) = def.footprint;
+    if (w, h) != (1, 1) {
+        parts.push(format!("{w}x{h}"));
+    }
     parts.join(", ")
+}
+
+/// The anchor (top-left tile) of a `footprint`-sized building placed at the cursor: odd sizes
+/// centre on the cursor, even ones put it top-left of the middle, so a 2x2 grows down and to the
+/// right of the pointer instead of under it.
+pub fn anchor_for(cursor: Pos, footprint: (u8, u8)) -> Pos {
+    let (w, h) = (i32::from(footprint.0), i32::from(footprint.1));
+    Pos::new(cursor.x - (w - 1) / 2, cursor.y - (h - 1) / 2)
+}
+
+/// Where a building would go for the cursor, and what is in the way on each of its tiles.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Placement {
+    pub footprint: Footprint,
+    /// Every footprint tile, row-major, with what blocks it (`World::build_blocker`).
+    pub tiles: Vec<(Pos, Option<Blocker>)>,
+    /// Why designating it would be refused, if it would: the tech it still needs, else the
+    /// first blocked tile (`World::check_build`).
+    pub refused: Option<BuildError>,
+}
+
+impl Placement {
+    pub fn ok(&self) -> bool {
+        self.refused.is_none()
+    }
+}
+
+/// The placement of `building` with the cursor on `cursor`, for the frontends' ghost.
+pub fn placement(session: &Session, cursor: Pos, building: BuildingId) -> Placement {
+    let world = &session.world;
+    let (w, h) = session.defs.building(building).footprint;
+    let footprint = Footprint::new(anchor_for(cursor, (w, h)), w, h);
+    let tiles = footprint.tiles().map(|p| (p, world.build_blocker(p))).collect();
+    let refused = world.check_build(footprint.anchor, building, &session.defs).err();
+    Placement { footprint, tiles, refused }
+}
+
+/// Why a building can't go on `at`, as a reason for the notice: "an oak tree is in the way",
+/// "on a stockpile".
+fn describe_blocker(session: &Session, at: Pos, why: Blocker) -> String {
+    let world = &session.world;
+    let tile = world.map.get(at);
+    let a = |name: &str| {
+        let name = name.to_lowercase();
+        let article = if name.starts_with(['a', 'e', 'i', 'o', 'u']) { "an" } else { "a" };
+        format!("{article} {name} is in the way")
+    };
+    match why {
+        Blocker::Resource => match tile.and_then(|t| t.resource) {
+            Some(r) => a(&session.defs.resource(r).name),
+            None => why.to_string(),
+        },
+        Blocker::Building => match world.building_at(at) {
+            Some(b) => a(session.defs.building(b).display_name(world.nation)),
+            None => why.to_string(),
+        },
+        Blocker::Site => "a building is already planned there".into(),
+        Blocker::Stockpile => "on a stockpile".into(),
+        Blocker::Terrain => match tile.map(|t| t.terrain) {
+            Some(Terrain::Mountain) => "can't build on a mountain".into(),
+            Some(Terrain::Ford) => "can't build on a ford".into(),
+            Some(_) => "can't build on water".into(),
+            None => why.to_string(),
+        },
+        Blocker::OffMap => why.to_string(),
+    }
 }
 
 /// Whether the current nation could ever build `def`: not if the tech that unlocks it belongs
@@ -98,6 +175,9 @@ pub fn describe_error(session: &Session, e: CommandError) -> String {
         | CommandError::Designate(DesignateError::NotResearched(t)) => {
             format!("requires {}", session.defs.tech(t).name)
         }
+        CommandError::Build(BuildError::CannotBuild { at, why }) => {
+            describe_blocker(session, at, why)
+        }
         other => other.to_string(),
     }
 }
@@ -112,7 +192,7 @@ pub struct SiteReport {
     pub work: String,
 }
 
-/// The pending build on `pos`, if any, with its materials delivered / needed and work progress.
+/// The pending build on `pos` (any tile of its footprint), if any, with its materials delivered / needed and work progress.
 pub fn site_report(session: &Session, pos: Pos) -> Option<SiteReport> {
     let (id, delivered, progress) = session.world.build_site(pos)?;
     let def = session.defs.building(id);
@@ -134,7 +214,7 @@ pub fn site_report(session: &Session, pos: Pos) -> Option<SiteReport> {
     })
 }
 
-/// The name of the finished building on `pos`, if any.
+/// The name of the finished building on `pos` (any tile of its footprint), if any.
 pub fn built_name(session: &Session, pos: Pos) -> Option<String> {
     let id = session.world.building_at(pos)?;
     Some(session.defs.building(id).display_name(session.world.nation).to_owned())
@@ -301,5 +381,106 @@ mod tests {
         assert_eq!(report.materials, "Materials: 0/5 Wood");
         assert_eq!(report.work, "Work: 0/20s");
         assert_eq!(built_name(&earth, pos), None);
+    }
+
+    #[test]
+    fn the_cursor_anchors_odd_sizes_centred_and_even_ones_top_left_of_the_middle() {
+        let c = Pos::new(10, 10);
+        assert_eq!(anchor_for(c, (1, 1)), c);
+        assert_eq!(anchor_for(c, (2, 2)), c);
+        assert_eq!(anchor_for(c, (3, 3)), Pos::new(9, 9));
+        assert_eq!(anchor_for(c, (4, 3)), Pos::new(9, 9));
+    }
+
+    /// Earth with its bed made a 2x2 building, and a clear 3x3 patch of land at the returned
+    /// tile.
+    fn earth_with_2x2_hall() -> (Session, BuildingId, Pos) {
+        let mut s = session(Nation::Earth);
+        let bed = s.defs.building_id("bed").unwrap();
+        let def = &mut s.defs.buildings[bed.0 as usize];
+        def.footprint = (2, 2);
+        def.bed = None;
+        let at = Pos::new(30, 30);
+        for dy in 0..3 {
+            for dx in 0..3 {
+                let t = s.world.map.get_mut(Pos::new(at.x + dx, at.y + dy)).unwrap();
+                t.terrain = Terrain::Land;
+                t.resource = None;
+            }
+        }
+        (s, bed, at)
+    }
+
+    #[test]
+    fn a_placement_marks_each_footprint_tile_and_the_first_reason() {
+        let (mut s, hall, at) = earth_with_2x2_hall();
+        let free = placement(&s, at, hall);
+        assert_eq!(free.footprint, Footprint::new(at, 2, 2));
+        assert!(free.ok() && free.tiles.iter().all(|(_, b)| b.is_none()));
+        assert_eq!(free.tiles.len(), 4);
+
+        let corner = Pos::new(at.x + 1, at.y + 1);
+        s.apply(Command::DesignateStockpile { pos: corner }).unwrap();
+        let blocked = placement(&s, at, hall);
+        assert_eq!(blocked.tiles[3], (corner, Some(Blocker::Stockpile)));
+        assert!(blocked.tiles[..3].iter().all(|(_, b)| b.is_none()));
+        let err = CommandError::Build(blocked.refused.expect("refused"));
+        assert_eq!(describe_error(&s, err), "on a stockpile");
+
+        // A locked building is refused for its tech first, wherever it goes.
+        let campfire = s.defs.building_id("campfire").unwrap();
+        let locked = placement(&s, Pos::new(at.x + 5, at.y), campfire);
+        assert!(matches!(locked.refused, Some(BuildError::NotResearched(_))));
+    }
+
+    #[test]
+    fn a_refusal_names_what_is_in_the_way() {
+        let (mut s, hall, at) = earth_with_2x2_hall();
+        let oak = s.defs.resource_id("oak_tree").unwrap();
+        let tree = Pos::new(at.x + 1, at.y);
+        s.world.map.get_mut(tree).unwrap().resource = Some(oak);
+        let why = |s: &Session| {
+            let e = s.world.check_build(at, hall, &s.defs).unwrap_err();
+            describe_error(s, CommandError::Build(e))
+        };
+        assert_eq!(why(&s), "an oak tree is in the way");
+        s.world.map.get_mut(tree).unwrap().resource = None;
+        s.world.map.get_mut(tree).unwrap().terrain = Terrain::Ford;
+        assert_eq!(why(&s), "can't build on a ford");
+    }
+
+    #[test]
+    fn the_picker_shows_the_size_only_for_buildings_bigger_than_one_tile() {
+        let (s, hall, _) = earth_with_2x2_hall();
+        let rows = picker_rows(&s);
+        let row = |id| rows.iter().find(|r| r.id == id).unwrap().cost.clone();
+        assert_eq!(row(hall), "5 Wood, 2x2");
+        let fresh = session(Nation::Earth);
+        assert!(picker_rows(&fresh).iter().all(|r| !r.cost.contains('x')));
+    }
+
+    #[test]
+    fn every_tile_of_a_footprint_reports_the_same_site_and_building() {
+        let (mut s, hall, at) = earth_with_2x2_hall();
+        s.apply(Command::DesignateBuild { pos: at, building: hall }).unwrap();
+        let foot = Footprint::new(at, 2, 2);
+        for p in foot.tiles() {
+            assert_eq!(site_report(&s, p), site_report(&s, at), "{p:?}");
+        }
+        assert!(site_report(&s, at).is_some());
+        // Finished: baked onto every tile.
+        s.apply(Command::CancelBuild { pos: at }).unwrap();
+        for p in foot.tiles() {
+            let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
+            let b = fn_sim::building::Building {
+                part,
+                size: [2, 2],
+                ..fn_sim::building::Building::new(hall, false, false)
+            };
+            s.world.map.get_mut(p).unwrap().building = Some(b);
+        }
+        for p in foot.tiles() {
+            assert_eq!(built_name(&s, p).as_deref(), Some("Bed"), "{p:?}");
+        }
     }
 }
