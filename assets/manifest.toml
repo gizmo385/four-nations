@@ -64,7 +64,7 @@ sha256 = "9b748fd1a6636b66af0e029d33d189e90266a5663ced99cc0a3db1bf9367f565"
 path = "original/buildings_water.png"
 source = "original"
 generated_from = "art/buildings_water.toml"
-sha256 = "927d68d37d0b2b2a67a67d8f5378bf5ff82819ce4162ebfde38c05fd046edd3b"
+sha256 = "7c906f7f5aeb06ecc6c3b04c6ea895019d6b21af4cf4d8cde642be2c39276b1e"
 
 [[file]]
 path = "original/cliffs.png"
