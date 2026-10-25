@@ -509,12 +509,10 @@ impl World {
         Flood::new(&self.map, self.units[i].pos, self.rules_for(&self.units[i]))
     }
 
-    /// How `u` moves right now. This is the one place rail is decided (#135): a unit hauling a
-    /// stack is pushing a cart, so it runs along rail; one on foot walks it like any ground.
-    /// Planning (`flood_from`), walking (`walk`) and the client's view of it (`stride`) all ask
-    /// here, so they cannot disagree. To let everyone use rail, return `cart_rules` always.
+    /// How `u` moves right now. Planning (`flood_from`), walking (`walk`) and the client's view
+    /// of it (`stride`) all ask here, so they cannot disagree.
     pub(super) fn rules_for(&self, u: &Unit) -> &MoveRules {
-        if u.carrying.is_some() { &self.cart_rules } else { &self.rules }
+        rules_for(&self.rules, &self.cart_rules, u)
     }
 
     fn finish_need(&mut self, i: usize) {
@@ -544,7 +542,7 @@ impl World {
     /// route is empty to begin with); arriving costs the tick the last step landed on.
     pub(super) fn walk(&mut self, i: usize, _defs: &Defs) -> bool {
         let speed = self.modifiers().move_speed;
-        let rules = if self.units[i].carrying.is_some() { &self.cart_rules } else { &self.rules };
+        let rules = rules_for(&self.rules, &self.cart_rules, &self.units[i]);
         let u = &mut self.units[i];
         let Some(route) = u.route.as_mut() else { return false };
         let Some(&next) = route.last() else {
@@ -1155,6 +1153,13 @@ impl World {
             u.route = None;
         }
     }
+}
+
+/// The one place rail is decided (#135). Every unit runs along rail, loaded or not (owner,
+/// 2026-10-25: rail is a road, not only a freight line). To make it a freight line again, return
+/// `cart` only when `_u.carrying.is_some()` and `_on_foot` otherwise.
+fn rules_for<'a>(_on_foot: &'a MoveRules, cart: &'a MoveRules, _u: &Unit) -> &'a MoveRules {
+    cart
 }
 
 #[cfg(test)]

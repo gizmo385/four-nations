@@ -134,18 +134,16 @@ on the terrain it enters. The decisions:
    has to be laid as lines. `MoveRules::step_cost` is the one function that says what a step costs;
    `path::find`, `Flood`, `path_cost` and `step_needed` (the walk itself, and so the client's
    `Stride`, #194) all ask it, so a path, its cost and the time the walk takes cannot disagree.
-3. **Only a unit carrying a stack uses it.** Rail is for hauling: the unit pushing a stack of stone
-   is pushing a cart; a unit walking out to a tree is on foot and gets no faster. This keeps the
-   change where the issue asks for it (haul routes: the quarry-to-stockpile trips that repeat all
-   game), and stops rail from becoming a universal road that changes every job's reach and needs
-   balance. `World` holds two `MoveRules`: `rules` for walking and `cart_rules` (walking plus rail),
-   and `World::rules_for(unit)` picks by whether the unit carries something. Planning
-   (`flood_from`), walking (`walk`) and the stride view all go through it. Because the delivery
-   route is planned with the cart's rules, a loaded unit also prefers a stockpile that rail makes
-   nearer, which is what makes laying a line to a stockpile worth doing. Who is "carrying" covers
-   the haul-to-stockpile trips and the trips that bring a build site its materials.
-   *To make rail work for everyone, change `rules_for` to always return `cart_rules`: it is the
-   only place that decides.*
+3. **Every unit uses it, loaded or not.** (Owner, 2026-10-25. #135 first shipped rail for
+   carriers only; the owner chose a road for everyone and will revisit if it proves too strong.)
+   A hauler runs both legs of a trip along the line, and anyone walking to work, food or bed
+   gains too. `World` keeps two `MoveRules`, `rules` for walking and `cart_rules` (walking plus
+   rail), and the free function `rules_for` in `world/work.rs` is the only place that picks one;
+   planning (`flood_from`), walking (`walk`) and the stride view (#194) all go through it. Today it
+   always returns `cart_rules`. *To make rail a freight line again, return `cart_rules` only for a
+   unit that carries a stack.* Because routes are planned with these rules, a loaded unit prefers
+   a stockpile that rail makes nearer, which is what makes laying a line to a stockpile worth
+   doing.
 4. **Earth only, through data.** The `rail` building is unlocked by `earth_rail`, an Earth tech, so
    only Earth's tree reaches it; nothing in the code checks the nation. The tech's
    `carry_capacity` x1.25 stays: bigger carts, then rails for them. The other nations' units on a
@@ -154,8 +152,7 @@ on the terrain it enters. The decisions:
 5. **Numbers** (placeholders for a balance pass): speed 2.0 (half the time on the loaded leg),
    2 stone and 10 s of work a tile. A ten-tile line is 20 stone and under two minutes of one
    builder's time, and saves 30 ticks (3 seconds) on every loaded trip along it.
-6. **Not in this issue:** an empty unit riding back on rail (the owner may want carts to run both
-   ways; it is the `rules_for` line above), rail for non-Earth nations, trains, junction rules and
+6. **Not in this issue:** rail for non-Earth nations, trains, junction rules and
    stations. Bridges and tunnels are the rail's natural next step but need #132.
 
 The client draws a rail as flat track, not a building: sixteen pieces on the Earth sheet, one for
