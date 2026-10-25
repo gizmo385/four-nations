@@ -198,3 +198,22 @@ fn a_site_reports_its_building_delivery_and_progress() {
     w.cancel_build(at(2, 2), &defs).unwrap();
     assert_eq!(w.build_site(at(2, 2)), None);
 }
+
+#[test]
+fn rail_is_built_like_any_building_and_marks_its_tile() {
+    let (mut w, defs) = setup(&GRID, &[at(1, 1)]);
+    let rail = defs.building_id("rail").unwrap();
+    let stone = defs.item_id("stone").unwrap();
+    // Locked until Earth Rail is known.
+    assert!(matches!(w.designate_build(at(5, 2), rail, &defs), Err(BuildError::NotResearched(_))));
+    w.research.grant(defs.tech_id("earth_rail").unwrap());
+    w.designate_stockpile(at(0, 0)).unwrap();
+    w.stored.insert(at(0, 0), Stack { item: stone, count: defs.building(rail).cost[0].count });
+    let job = w.designate_build(at(5, 2), rail, &defs).unwrap();
+    run_until(&mut w, &defs, 4000, |w| w.job(job).is_none());
+    // A plain 1x1 passable building, with the flag baked onto its tile for pathing.
+    let built = w.map[at(5, 2)].building.expect("the rail is laid");
+    assert!(built.rail && built.passable && built.id == rail);
+    let bed = defs.building_id("bed").unwrap();
+    assert!(defs.building(bed).rail.is_none());
+}

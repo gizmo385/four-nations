@@ -180,6 +180,11 @@ glyph = "▓"
 ascii = "#"
 fg = [176, 160, 120]
 
+[building.rail]
+glyph = "╪"
+ascii = "="
+fg = [160, 164, 176]
+
 # --- Air Nomads ---
 [building.orchard]
 glyph = "♣"
