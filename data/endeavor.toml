@@ -1,0 +1,107 @@
+# The end-game endeavor (docs/design/endgame.md, issue #224): the Harmony Gate, built with the
+# Avatar. This file lists the signs a settlement must meet, all at once, before word reaches the
+# Avatar. The endeavor becomes Ready the first time every sign is met, and stays Ready if a sign
+# drops afterwards (stores eaten, say).
+#
+# [endeavor]
+# - name: what the UI calls the endeavor.
+#
+# [[sign]], listed in the order the UI shows them:
+# - id:         unique; saves refer to signs by id, so renaming one forgets that it was met.
+# - group:      people, buildings, knowledge, stores, harvests or bending.
+# - name:       the sign's label.
+# - kind:       what it counts, one of:
+#     population      living units;
+#     beds_for_all    beds against the population (no target: met when everyone has one);
+#     building_kinds  distinct kinds of finished building;
+#     branch_complete every tech of the settlement's own nation known (no target);
+#     stored          `items` in stockpiles, summed; `food = true` adds every edible item;
+#     tally           a lifetime count: `tally = "harvested"` with `items`, or "scrolls_read";
+#     masters         units with at least `bends` finished bends.
+# - target:     the number to reach (at least 1). `per_nation = { air = 150 }` overrides it for
+#               the nations named; the rest use `target`.
+# - hint:       optional; what the UI suggests while the sign isn't met.
+#
+# A sign whose system doesn't exist yet stays out of this file, and the loader rejects a kind the
+# sim can't count:
+# - "100 crops harvested from farm plots" (harvests) arrives with farm plots, #198.
+# - Ore mined counts gold only; metal ore joins it with #134.
+
+[endeavor]
+name = "The Harmony Gate"
+
+[[sign]]
+id = "population"
+group = "people"
+name = "Population"
+kind = "population"
+target = 16
+hint = "Spare beds and food draw newcomers"
+
+[[sign]]
+id = "beds"
+group = "people"
+name = "Everyone has a bed"
+kind = "beds_for_all"
+hint = "Build a bed for each person"
+
+[[sign]]
+id = "building_kinds"
+group = "buildings"
+name = "Kinds of building raised"
+kind = "building_kinds"
+target = 8
+hint = "Raise a building you don't have yet"
+
+[[sign]]
+id = "branch"
+group = "knowledge"
+name = "The nation's branch complete"
+kind = "branch_complete"
+hint = "Research every tech in your nation's branch"
+
+[[sign]]
+id = "food"
+group = "stores"
+name = "Food in stores"
+kind = "stored"
+food = true
+target = 150
+hint = "Stockpile food"
+
+[[sign]]
+id = "stone"
+group = "stores"
+name = "Stone in stores"
+kind = "stored"
+items = ["stone"]
+target = 200
+hint = "Quarry stone and stockpile it"
+
+[[sign]]
+id = "ore"
+group = "harvests"
+name = "Ore mined"
+kind = "tally"
+tally = "harvested"
+items = ["gold_ore"]
+target = 40
+hint = "Mine gold veins"
+
+[[sign]]
+id = "masters"
+group = "bending"
+name = "Bending masters"
+kind = "masters"
+bends = 25
+target = 3
+hint = "A bender with 25 finished bends is a master"
+
+[[sign]]
+id = "scrolls"
+group = "bending"
+name = "Ancient scrolls read"
+kind = "tally"
+tally = "scrolls_read"
+target = 3
+hint = "Recover ancient scrolls and carry them to a study hall"
