@@ -23,7 +23,7 @@
 |                                                                                      || o CURSOR            (97, 63) |
 |                                                                                      || Jee                          |
 |                                                                                      || Fire Nation - Idle           |
-|                                                                                      || Carrying: nothing            |
+|                                                                                      || Carrying: nothing - Bends: 0 |
 |                                                                                      || Press Enter to select        |
 |                                                                                      ||                              |
 |                                                                                      ||                              |

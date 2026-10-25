@@ -63,7 +63,12 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
             .find(|g| g.unit == unit.id)
             .map_or(String::new(), |g| format!(" - Warm {}", clock(g.seconds_left)));
         lines.push(Line::Detail(format!("{} - {task}{warm}", defs.nation(unit.nation).name)));
-        lines.push(Line::Detail(format!("Carrying: {}", describe_stack(defs, unit.carrying))));
+        // Finished bends (#233) share the carrying line, for the same four-line reason.
+        lines.push(Line::Detail(format!(
+            "Carrying: {} - Bends: {}",
+            describe_stack(defs, unit.carrying),
+            unit.bends()
+        )));
         if tool == Tool::Select {
             lines.push(Line::Hint(Hint::SelectUnit));
         }
@@ -173,6 +178,32 @@ mod tests {
         let lines = tooltip_lines(&s, Tool::Harvest, at).unwrap();
         assert_eq!(lines.len(), 3);
         assert!(!lines.contains(&Line::Hint(Hint::SelectUnit)));
+    }
+
+    #[test]
+    fn a_unit_s_tooltip_counts_its_finished_bends() {
+        use fn_sim::world::{BendOutcome, Command};
+        let mut s = Session::new(3, Nation::Fire, 64, 64);
+        let ability = s.defs.ability_id("hearthflame").expect("fire has a Hearthflame");
+        let home = s.world.units[0].pos;
+        let target = (1..8)
+            .flat_map(|d| [Pos::new(home.x + d, home.y), Pos::new(home.x - d, home.y)])
+            .find(|&pos| s.apply(Command::Bend { ability, pos }).is_ok())
+            .expect("somewhere to light a Hearthflame");
+        for _ in 0..50 {
+            if !s.world.bend_events().is_empty() {
+                break;
+            }
+            s.tick_n(20);
+        }
+        let event = s.world.bend_events()[0];
+        assert_eq!(event.outcome, BendOutcome::Done, "at {target:?}");
+        let caster = s.world.unit(event.unit).unwrap();
+        assert_eq!(caster.bends(), 1);
+        let lines = tooltip_lines(&s, Tool::Select, caster.pos).unwrap();
+        let carrying = format!("Carrying: {} - Bends: 1", describe_stack(&s.defs, caster.carrying));
+        assert_eq!(lines[2], Line::Detail(carrying), "{lines:?}");
+        assert_eq!(lines.len(), 4, "still four lines");
     }
 
     #[test]
