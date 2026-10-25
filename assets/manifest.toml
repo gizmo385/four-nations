@@ -37,6 +37,12 @@ generated_from = "art/air_monk.toml"
 sha256 = "011982068b63b03117703ac068c4187fcdf3a68fbe73e4011850a85ea2a33e5b"
 
 [[file]]
+path = "original/appa.png"
+source = "original"
+generated_from = "art/appa.toml"
+sha256 = "c9f655716ea7e4aaa9bdf5c5599470ff5bcab1da886f930a422f78033a44a717"
+
+[[file]]
 path = "original/avatar_aang.png"
 source = "original"
 generated_from = "art/avatar_aang.toml"
