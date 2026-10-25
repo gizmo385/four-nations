@@ -107,3 +107,15 @@ chance = 0.04
 terrains = ["mountain"]
 min_spacing = 5
 buried = true
+
+# Lost ruins (#197, docs/design/research.md, "Gliders"): old settlements the grass has grown over,
+# seen only from the air by Air's Glide. Listed last so a ruin only takes open ground nothing else
+# holds, and spaced far apart: roughly 8-12 on a 192x128 map. Searched for scrolls (data/jobs.toml).
+[[resource]]
+id = "lost_ruins"
+name = "Lost Ruins"
+glyph = "n"
+chance = 0.005
+terrains = ["land"]
+min_spacing = 20
+buried = true

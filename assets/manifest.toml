@@ -184,7 +184,7 @@ sha256 = "507f02ee66cef8dc9d12ebd503a72e2f4b0bc03008aef2a56688ef15e01461ab"
 path = "original/resources.png"
 source = "original"
 generated_from = "art/resources.toml"
-sha256 = "9fbde1c777d51d8c57a4ba5c010a6a4e7deae8bee155bf957919ffebacdb2f3f"
+sha256 = "a7a019debe672d4fbfa3107f9b16d49ac605e07e2db25fa2a28c935d87c88303"
 
 [[file]]
 path = "original/tools.png"

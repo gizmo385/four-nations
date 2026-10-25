@@ -14,6 +14,7 @@ const GOLD_VEIN: u32 = 2;
 const ANCIENT_SCROLL: u32 = 3;
 const SAPLING_COL: u32 = 4;
 const GOLD_SEAM: u32 = 5;
+const LOST_RUINS: u32 = 6;
 
 /// A fruit tree an orchard has just planted, drawn in place of the fruit tree until it first
 /// ripens (`World::is_sapling`, #142). A resource's own sprite is its rule; this belongs to a
@@ -29,6 +30,8 @@ pub const RESOURCES: &[ResourceRule] = &[
     ResourceRule { resource: "cabbage", biome: None, cell: one(SHEET, CABBAGE, 0) },
     // A rolled-up scroll lying where the ruins were (#24).
     ResourceRule { resource: "ancient_scroll", biome: None, cell: one(SHEET, ANCIENT_SCROLL, 0) },
+    // Broken columns in the grass: ruins Glide spotted from the air, holding scrolls (#197).
+    ResourceRule { resource: "lost_ruins", biome: None, cell: one(SHEET, LOST_RUINS, 0) },
     // Fish shadows and ripples, on a transparent background over the water tile (#146).
     ResourceRule { resource: "fish_spot", biome: None, cell: super::water::FISH_SPOT },
 ];
@@ -64,6 +67,7 @@ mod tests {
         assert_eq!(names[ANCIENT_SCROLL as usize], "ancient_scroll");
         assert_eq!(names[SAPLING_COL as usize], "sapling");
         assert_eq!(names[GOLD_SEAM as usize], "gold_seam");
+        assert_eq!(names[LOST_RUINS as usize], "lost_ruins");
     }
 
     /// Every land resource that isn't a tree has a sprite on our sheet, named like the resource.

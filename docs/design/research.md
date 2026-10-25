@@ -197,7 +197,8 @@ Other shapes considered: a per-tile "revealed" flag that every frontend checks (
 option: one forgotten check shows the gold), and true fog of war (out of scope, and a far bigger
 change).
 
-**How the reveal shows it.** Seismic Sense is a new `Effect::Reveal { radius }`:
+**How the reveal shows it.** Seismic Sense is a new `Effect::Reveal { radius, finds }` (`finds`
+lists the buried resources it can uncover: `gold_seam` here; Glide reuses it, below):
 
 | | Value (`data/bending.toml`, confirmed by the owner 2026-10-25) |
 |---|---|
@@ -222,6 +223,52 @@ Saves: `World::buried` is left out of a save while empty, so saves from before #
 nothing buried) and re-save unchanged. Mapgen now places seams, so the large ASCII golden was
 re-blessed (only `!` marks were added; nothing else moved). Tests:
 `crates/sim/src/world/bending/seismic_tests.rs`.
+
+### Gliders (#197)
+
+`gliders` promised "scouting reveals the map", and was modifier-only (move_speed ×1.15) until a
+reveal existed. #133 gave the sim one, buried resources, so gliding reuses it rather than adding
+fog of war: what the glider sees from the air is a second kind of buried thing, **lost ruins**.
+
+**What is hidden.** `lost_ruins` (`data/resources.toml`, `buried = true`) are old settlements the
+grass has grown over: open land in any biome, listed last so they only take tiles nothing else
+holds, and spaced far apart (`min_spacing = 20`): about 8-11 on a 192x128 map, 3-6 on 128x96.
+Searching a ruin (`data/jobs.toml`, verb "Search") turns up 2 ancient scrolls, the readable item
+from #24, so a ruin is worth a trip where a lone scroll in the wastes is worth one; the ruin is
+gone once searched. Ruins pay in knowledge, not goods, which fits the Air Nomads.
+
+Other things the glider could have revealed, considered: the gold seams too (but then Earth's
+sense is redundant for Air, and Air has no tunnels to mine them from), or anything buried (the
+same objection). Each sense now finds only its own: `Effect::Reveal` carries a `finds` list, and
+Seismic Sense's is `["gold_seam"]`, so the rock keeps its seams from a glider and the earth
+can't feel ruins.
+
+**The glide.** `glide`, unlocked by `gliders` alongside its speed modifier:
+
+| | Value (`data/bending.toml`, proposed, for the owner to confirm) |
+|---|---|
+| Chi | 40 |
+| Channel | 8 s (no speed modifier) |
+| Target | A walkable tile with nothing on it: where the bender takes off |
+| Result | Every lost ruin within `radius = 14` tiles (Chebyshev) of the target appears on its tile, to be searched. Finding nothing still spends the chi |
+
+The reach is wider than the sense's 8 because it is seen from the air and ruins are sparse. The
+cast draws the flight: wind whirls under the bender and a column of curls rises off them, then
+the curls circle wide and high overhead (`cast.rs`, `Look::Soar`). Art: `lost_ruins` in
+`art/resources.toml`, two broken columns in the grass; the TUI glyph is `‖` (`n` in ASCII).
+
+A ruin is only uncovered onto a free tile: if a unit stands on it, is walking through it, or
+something has been put there since (a stockpile, a site, a stack), it stays buried and a later
+glide finds it. The same rule now applies to seams.
+
+| Lost ruins (`data/resources.toml`, `data/jobs.toml`, proposed) | Value |
+|---|---|
+| Chance | 0.005 per land tile nothing else took, `min_spacing = 20` |
+| Yield | 2 ancient scrolls |
+| Work | 20 s |
+
+Mapgen now places ruins, so the ASCII goldens were re-blessed (only `n` marks were added). Tests:
+`crates/sim/src/world/bending/glide_tests.rs`.
 
 ### Rail (#135)
 
@@ -316,7 +363,7 @@ No bloodbending. It's a dark art that doesn't fit peaceful progress.
 |---|---|---|---|
 | `orchards` | 25 | none | orchard (plants and tends fruit trees: renewable fruit, edible raw; see "The orchard" below). Wild fruit picking is open to every nation. *Air starts with it* |
 | `meditation` | 60 | none | chi regeneration; study ×1.2 |
-| `gliders` | 60 | carpentry | glider staffs; move_speed ×1.15; scouting reveals the map. *Modifier-only until the reveal exists: #143* |
+| `gliders` | 60 | carpentry | glider staffs; move_speed ×1.15; ability: glide (spot lost ruins from the air, #197) |
 | `windmills` | 120 | gliders, farming | windmill (grinds grain for more food); power_generation ×1.2 |
 | `air_scooter` | 250 | gliders, meditation | ability: air scooter; move_speed ×1.2. *Modifier-only until the ability is designed: #143* |
 | `wind_turbines` | 250 | windmills | wind turbine powers workshops; power_generation ×1.25 |

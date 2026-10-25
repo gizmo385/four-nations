@@ -27,6 +27,7 @@
 //! | `Gust` | curls of wind run to the stack from -1.0, a whirl lifts it, and it flies to the stockpile |
 //! | `Bore` | cracks open in the rock from -0.9, then dust billows out of it and settles toward the bender |
 //! | `Pulse` | the ground cracks under the bender from -0.6, then a ring of dust runs out over the tiles around |
+//! | `Soar` | wind whirls under the bender from -0.8 and a column of curls rises off them, then curls circle wide and high overhead |
 //! | `Glow` | embers gather on a ring round the bender from -0.8, the ring blooms, then warm motes drift out over the tiles beside it and embers rise |
 //!
 //! Inner Fire's *lasting* aura (a ring of light under the carrier while it lasts) is `bending`'s.
@@ -60,6 +61,8 @@ pub enum Look {
     Bore,
     /// A tremor running out through the ground from the bender (Seismic Sense, #133).
     Pulse,
+    /// The bender takes off on the wind and circles high overhead (Glide, #197).
+    Soar,
 }
 
 /// The cast effect of each ability, by its id in `data/bending.toml`. The one table of the cast
@@ -72,6 +75,7 @@ pub const LOOKS: &[(&str, Look)] = &[
     ("inner_fire", Look::Glow),
     ("bore_tunnel", Look::Bore),
     ("seismic_sense", Look::Pulse),
+    ("glide", Look::Soar),
 ];
 
 /// The cast effect of ability `id`, if it has one.
@@ -120,6 +124,7 @@ impl Look {
             Look::Glow => (GLOW_LEAD, GLOW_TAIL),
             Look::Bore => (0.9, 0.51),
             Look::Pulse => (0.6, PULSE_TAIL),
+            Look::Soar => (0.8, SOAR_TAIL),
         }
     }
 }
@@ -195,6 +200,7 @@ pub fn parts(look: Look, t: f32, scene: &Scene) -> Vec<Part> {
         Look::Rise => rise(t, scene, &mut out),
         Look::Bore => bore(t, scene, &mut out),
         Look::Pulse => pulse(t, scene, &mut out),
+        Look::Soar => soar(t, scene, &mut out),
         Look::Stream => stream(t, scene, &mut out),
         Look::Flare => flare(t, scene, &mut out),
         Look::Gust => gust(t, scene, &mut out),
@@ -266,6 +272,41 @@ fn pulse(t: f32, s: &Scene, out: &mut Vec<Part>) {
         let frame = ((u * 3.0) as usize).min(2);
         for d in PULSE_DIRS {
             out.push(fx(s.stand + d * (0.6 + u * PULSE_REACH), 0.0, sprites::fx::DUST[frame]));
+        }
+    }
+}
+
+/// How long Glide's curls circle overhead after the bend, in seconds.
+const SOAR_TAIL: f32 = 1.2;
+/// How many curls rise off the bender, and then circle overhead.
+const SOAR_CURLS: usize = 6;
+/// The circle's radius in tiles, and its height in pixels: the wide loop the glider flies.
+const SOAR_RADIUS: f32 = 2.5;
+const SOAR_HEIGHT: f32 = 22.0;
+
+/// Glide: wind whirls under the bender and a column of curls rises off them; then the curls
+/// circle wide and high overhead, the loop the glider flies while it looks down, and fade out.
+fn soar(t: f32, s: &Scene, out: &mut Vec<Part>) {
+    let spin =
+        |k: usize| sprites::fx::GUST[((t * 10.0).floor() as i64 + k as i64).rem_euclid(3) as usize];
+    if (-0.8..0.0).contains(&t) {
+        let i = ((t * 10.0).floor() as i64).rem_euclid(3) as usize;
+        out.push(fx(s.stand, 0.0, sprites::fx::SWIRL[i]));
+        let rise = ((t + 0.8) / 0.8).clamp(0.0, 1.0);
+        for k in 0..SOAR_CURLS {
+            let u = ((t + 0.8) * 1.5 + k as f32 / SOAR_CURLS as f32).rem_euclid(1.0) * rise;
+            out.push(fx_over(s.stand, HAND_LIFT + u * SOAR_HEIGHT, spin(k)));
+        }
+    }
+    if (0.0..SOAR_TAIL).contains(&t) {
+        let u = t / SOAR_TAIL;
+        // Out to the loop over the first fifth, round it, and thinning out toward the end.
+        let r = SOAR_RADIUS * (u / 0.2).min(1.0);
+        let shown = SOAR_CURLS - ((u * SOAR_CURLS as f32 * 0.6) as usize).min(SOAR_CURLS - 1);
+        for k in 0..shown {
+            let a = std::f32::consts::TAU * (u * 0.75 + k as f32 / SOAR_CURLS as f32);
+            let at = s.stand + Vec2::new(a.cos(), a.sin() * 0.6) * r;
+            out.push(fx_over(at, SOAR_HEIGHT, spin(k)));
         }
     }
 }
@@ -741,8 +782,16 @@ mod tests {
     use super::*;
     use crate::unit_anim::Facing;
 
-    const ALL: [Look; 7] =
-        [Look::Rise, Look::Stream, Look::Flare, Look::Gust, Look::Glow, Look::Bore, Look::Pulse];
+    const ALL: [Look; 8] = [
+        Look::Rise,
+        Look::Stream,
+        Look::Flare,
+        Look::Gust,
+        Look::Glow,
+        Look::Bore,
+        Look::Pulse,
+        Look::Soar,
+    ];
 
     fn scene() -> Scene {
         Scene {

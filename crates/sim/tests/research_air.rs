@@ -9,8 +9,9 @@ use fn_sim::{Defs, MapGenConfig, MoveRules, Nation, Pos, World};
 
 const MINUTE: u64 = 600; // ticks
 
-/// The Air branch in tree order, with the buildings each tech must unlock. `meditation`,
-/// `gliders` and `air_scooter` are modifier-only for the reasons given in research.toml.
+/// The Air branch in tree order, with the buildings each tech must unlock. `meditation` and
+/// `air_scooter` are modifier-only for the reasons given in research.toml; `gliders` unlocks the
+/// Glide ability (#197).
 const BRANCH: [(&str, &[&str]); 7] = [
     ("orchards", &["orchard"]),
     ("meditation", &[]),
@@ -22,7 +23,7 @@ const BRANCH: [(&str, &[&str]); 7] = [
 ];
 
 /// Techs with no building, ability or job to unlock, each with a reason in research.toml.
-const MODIFIER_ONLY: [&str; 3] = ["meditation", "gliders", "air_scooter"];
+const MODIFIER_ONLY: [&str; 2] = ["meditation", "air_scooter"];
 
 fn fresh(defs: &Defs) -> World {
     let cfg = MapGenConfig { seed: 13, ..Default::default() };
@@ -78,10 +79,9 @@ fn every_air_branch_tech_unlocks_something_or_says_why_not() {
         let unlocked =
             def.unlocks.buildings.len() + def.unlocks.jobs.len() + def.unlocks.abilities.len();
         assert_eq!(def.unlocks.buildings, buildings, "{tech}");
-        if buildings.is_empty() {
+        if MODIFIER_ONLY.contains(&tech) {
             // The documented exceptions: modifier-only (see research.toml for why).
-            assert!(MODIFIER_ONLY.contains(&tech), "{tech}");
-            assert_eq!(unlocked, 0);
+            assert_eq!(unlocked, 0, "{tech}");
             let m = &def.unlocks.modifiers;
             assert!(
                 m.study.is_some() || m.move_speed.is_some(),

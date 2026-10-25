@@ -10,6 +10,9 @@
 //! `inner_fire`, #123); one that needs research is researched first, the slow way, with the
 //! settlers kept fed (`demo_ability`).
 //!
+//! Glide (#197) first buries two lost ruins on the meadow, so a shot after it lands shows them
+//! spotted.
+//!
 //! Everything else is the game as played: the sim runs to that moment through its own commands,
 //! and `cast` draws it from the world's state.
 
@@ -83,6 +86,10 @@ pub fn prepare(session: &mut Session, t: f32) -> Option<CastDemo> {
     let target = match session.defs.ability(ability).id.as_str() {
         "raise_earth" => at(9, 0),
         "wind_carry" => stage_a_stack(session, origin)?,
+        "glide" => {
+            bury_ruins(session, origin)?;
+            at(6, 0)
+        }
         // Water the Land, Hearthflame and Inner Fire: a tile by the river, so the patch is on
         // the bank (and the carrier stands on it).
         _ => at(7, 0),
@@ -120,6 +127,17 @@ fn stage_a_stack(session: &mut Session, origin: Pos) -> Option<Pos> {
         }
     }
     None
+}
+
+/// Glide needs something to spot: lost ruins on the meadow on both sides of the river, buried
+/// the way the world buries them at the start.
+fn bury_ruins(session: &mut Session, origin: Pos) -> Option<()> {
+    let ruins = session.defs.resource_id("lost_ruins")?;
+    for (dx, dy) in [(12, -2), (4, 3)] {
+        session.world.map.get_mut(Pos::new(origin.x + dx, origin.y + dy))?.resource = Some(ruins);
+    }
+    session.world.bury(&session.defs);
+    Some(())
 }
 
 /// Runs the game to `t` seconds from the completion of the first bend.
