@@ -3,8 +3,13 @@
 use fn_sim::world::Command;
 use fn_sim::{Defs, MapGenConfig, Nation, Pos, SAVE_VERSION, SaveError, World};
 
+/// A seed whose start area lets the Fire session in `play` keep a Hearthflame burning at tick
+/// 1500 (it is seed-dependent). Map generation changes (#24, #225) reshuffle the start, so if
+/// `the_saved_session_has_the_state_the_tests_need_to_cover` fails, try the next seed.
+const SEED: u64 = 14;
+
 fn fresh(nation: Nation, defs: &Defs) -> World {
-    let cfg = MapGenConfig { seed: 12, ..Default::default() };
+    let cfg = MapGenConfig { seed: SEED, ..Default::default() };
     World::new(&cfg, nation, 4, defs)
 }
 
@@ -171,7 +176,7 @@ fn inspect_reads_the_header_without_the_world() {
     let w = play(Nation::Air, 300, &defs);
     let info = fn_sim::save::inspect(&w.save(&defs).unwrap()).unwrap();
     assert_eq!(info.version, SAVE_VERSION);
-    assert_eq!((info.seed, info.nation, info.tick), (12, Nation::Air, 300));
+    assert_eq!((info.seed, info.nation, info.tick), (SEED, Nation::Air, 300));
 }
 
 #[test]

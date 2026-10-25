@@ -1,4 +1,6 @@
-# Map resources, rolled per tile in file order; the first one that passes wins.
+# Map resources. Each rolls from its own RNG stream keyed by its id (#225), so adding, removing or
+# reordering entries never moves the others. File order is only priority: where two resources
+# both pass on a tile, the earlier one wins it.
 # Omitting `terrains` or `biomes` means "any".
 #
 # - chance:          base probability per eligible tile, in [0, 1].

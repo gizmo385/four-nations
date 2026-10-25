@@ -45,8 +45,11 @@ fn ids(app: &App) -> Vec<fn_sim::world::UnitId> {
 }
 
 /// A Fire game where the first settler has bent a few times, so the log has lines.
+///
+/// Seed 3 because it has enough fuel around the start for a log long enough to scroll (seed 1
+/// did until #225 reshuffled the map; the log golden is named for the seed).
 fn bending_game() -> App {
-    let mut s = Session::new(1, Nation::Fire, 48, 32);
+    let mut s = Session::new(3, Nation::Fire, 48, 32);
     let ability = ability_for_nation(&s.defs, Nation::Fire).unwrap();
     let from = s.world.units[0].pos;
     let mut designated = 0;
@@ -549,22 +552,24 @@ fn deaths_are_logged() {
 #[test]
 fn the_log_scrolls_with_the_arrows_ws_and_the_page_keys_and_sticks_to_the_end() {
     let mut a = bending_game();
-    // Enough lines to need scrolling at the smallest size.
+    // Enough lines to need more than two pages at the smallest size (the paging steps below need
+    // that). Runs on until the settlers have bent and starved, so the count is the whole story.
     let mut guard = 0;
-    while a.ui.alerts.history().len() < 30 && guard < 400 {
+    while a.ui.alerts.history().len() < 60 && guard < 400 {
         run(&mut a, "<tick 100>");
         guard += 1;
     }
     a.resize(SMALL.0, SMALL.1);
     let n = a.ui.alerts.history().len();
+    assert!(n >= 40, "only {n} log lines: pick a seed with more fuel near the start");
     run(&mut a, "l");
     assert_eq!(a.ui.scroll, PINNED, "the log opens on its newest line");
     let newest = a.ui.alerts.history()[n - 1].text.clone();
     let frame = text(&mut a, SMALL);
     if n > 22 {
-        assert!(frame.contains(&newest[..newest.len().min(20)]), "{frame}");
+        assert!(frame.contains(&newest[..newest.len().min(40)]), "{frame}");
         let oldest = a.ui.alerts.history()[0].text.clone();
-        assert!(!frame.contains(&oldest[..oldest.len().min(20)]), "scrolled to the end:\n{frame}");
+        assert!(!frame.contains(&oldest[..oldest.len().min(40)]), "scrolled to the end:\n{frame}");
 
         run(&mut a, "<up>");
         let one_up = a.ui.scroll;
@@ -580,7 +585,7 @@ fn the_log_scrolls_with_the_arrows_ws_and_the_page_keys_and_sticks_to_the_end() 
         run(&mut a, "<pgup*40>");
         assert_eq!(a.ui.scroll, 0, "the top");
         let frame = text(&mut a, SMALL);
-        assert!(frame.contains(&oldest[..oldest.len().min(20)]), "{frame}");
+        assert!(frame.contains(&oldest[..oldest.len().min(40)]), "{frame}");
         run(&mut a, "<pgdn*40>");
         assert_eq!(a.ui.scroll, PINNED);
     }
@@ -595,7 +600,7 @@ fn the_log_scrolls_with_the_arrows_ws_and_the_page_keys_and_sticks_to_the_end() 
 fn golden_frame_of_the_message_log() {
     let mut a = bending_game();
     run(&mut a, "l");
-    golden("fire_seed1_log", &text(&mut a, SIZE));
+    golden("fire_seed3_log", &text(&mut a, SIZE));
 }
 
 #[test]
