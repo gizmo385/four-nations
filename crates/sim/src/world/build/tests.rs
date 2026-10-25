@@ -424,3 +424,89 @@ fn a_bigger_building_saves_its_footprint_and_loads_it_back() {
         [(Footprint::new(at(1, 3), 2, 1), campfire)]
     );
 }
+
+#[test]
+fn a_solid_site_is_built_from_beside_it_never_inside() {
+    let (mut w, mut defs) = setup(&GRID, &[at(1, 1)]);
+    let wood = defs.item_id("wood").unwrap();
+    let hall = hall_2x2(&mut defs);
+    w.designate_stockpile(at(0, 0)).unwrap();
+    w.stored.insert(at(0, 0), Stack { item: wood, count: defs.building(hall).cost[0].count });
+    let job = w.designate_build(at(5, 2), hall, &defs).unwrap();
+    let foot = Footprint::new(at(5, 2), 2, 2);
+    let mut worked_from = None;
+    run_until(&mut w, &defs, 4000, |w| {
+        let u = &w.units[0];
+        assert!(!foot.contains(u.pos), "the builder stood inside the site at {:?}", u.pos);
+        if w.build_site(at(5, 2)).is_some_and(|(_, _, work)| work > 0.0) {
+            worked_from = Some(u.pos);
+        }
+        w.job(job).is_none()
+    });
+    assert_eq!(w.building_at(at(6, 3)), Some(hall));
+    let from = worked_from.expect("the site was worked");
+    assert_eq!(foot.distance(from), 1, "worked from the ring, at {from:?}");
+}
+
+#[test]
+fn the_earth_walls_builder_works_from_beside_it() {
+    let (mut w, mut defs) = setup(&GRID, &[at(1, 1)]);
+    let stone = defs.item_id("stone").unwrap();
+    let wall = defs.building_id("earth_wall").unwrap();
+    defs.buildings[wall.0 as usize].unlocked_by = None;
+    w.designate_stockpile(at(0, 0)).unwrap();
+    w.stored.insert(at(0, 0), Stack { item: stone, count: defs.building(wall).cost[0].count });
+    let job = w.designate_build(at(5, 2), wall, &defs).unwrap();
+    run_until(&mut w, &defs, 4000, |w| {
+        assert_ne!(w.units[0].pos, at(5, 2), "the builder stood on its own wall");
+        w.job(job).is_none()
+    });
+    assert_eq!(w.building_at(at(5, 2)), Some(wall));
+    assert_eq!(w.units[0].pos.chebyshev(at(5, 2)), 1, "finished from beside it");
+}
+
+/// Supplies the site on `anchor` and leaves it a moment's work from done, so a test sees only
+/// the finish.
+fn nearly_done(w: &mut World, defs: &Defs, anchor: Pos) {
+    let site = w.sites.get_mut(&anchor).expect("designated");
+    let def = defs.building(site.building);
+    site.delivered = def.cost.iter().map(|c| c.count).collect();
+    site.progress = def.work - 0.01;
+}
+
+#[test]
+fn finishing_a_solid_building_moves_units_and_items_off_its_footprint() {
+    let (mut w, mut defs) = setup(&GRID, &[at(1, 1), at(6, 3)]);
+    let wood = defs.item_id("wood").unwrap();
+    let hall = hall_2x2(&mut defs);
+    w.designate_build(at(5, 2), hall, &defs).unwrap();
+    nearly_done(&mut w, &defs, at(5, 2));
+    // The second unit stands still on the footprint and takes no job.
+    w.units[1].claim_retry_at = u64::MAX;
+    w.units[1].idle_until = u64::MAX;
+    w.ground.insert(at(5, 2), Stack { item: wood, count: 2 });
+
+    run_until(&mut w, &defs, 2000, |w| w.building_at(at(5, 2)).is_some());
+    // The nearest walkable tile outside, the first of the ring around it in row-major order.
+    assert_eq!(w.units[1].pos, at(7, 2));
+    assert_eq!(w.units[1].route, None);
+    let ground: Vec<_> = w.ground_items().collect();
+    assert_eq!(ground, [(at(4, 1), Stack { item: wood, count: 2 })]);
+    assert!(Footprint::new(at(5, 2), 2, 2).tiles().all(|p| !w.ground.contains_key(&p)));
+}
+
+#[test]
+fn finishing_a_walkable_building_leaves_units_and_items_where_they_are() {
+    let (mut w, mut defs) = setup(&GRID, &[at(1, 1), at(6, 3)]);
+    let wood = defs.item_id("wood").unwrap();
+    let hall = hall_2x2(&mut defs);
+    defs.buildings[hall.0 as usize].passable = true;
+    w.designate_build(at(5, 2), hall, &defs).unwrap();
+    nearly_done(&mut w, &defs, at(5, 2));
+    w.units[1].claim_retry_at = u64::MAX;
+    w.units[1].idle_until = u64::MAX;
+    w.ground.insert(at(5, 2), Stack { item: wood, count: 2 });
+    run_until(&mut w, &defs, 2000, |w| w.building_at(at(5, 2)).is_some());
+    assert_eq!(w.units[1].pos, at(6, 3));
+    assert!(w.ground.contains_key(&at(5, 2)));
+}
