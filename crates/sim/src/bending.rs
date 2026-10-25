@@ -64,6 +64,11 @@ pub enum Effect {
     /// A timed flame that cooks meals and warms sleep (Fire's "Hearthflame"). The magnitude
     /// scales `duration_minutes`.
     HeatSource { duration_minutes: f32, radius: u32, sleep_bonus: f32, seek_tiles: u32 },
+    /// A warmth aura on the bender that follows them (Fire's "Inner Fire", #123): meals eaten
+    /// within `radius` tiles of the carrier are cooked and sleep there is better, for
+    /// `duration_minutes`. The magnitude scales `duration_minutes`. Unlike `HeatSource` it is
+    /// never sought out, since it moves.
+    HeatAura { duration_minutes: f32, radius: u32, sleep_bonus: f32 },
     /// Blow a ground stack into a stockpile (Air's "Wind Carry"). The magnitude scales `range`.
     WindCarry { range: u32 },
     /// Only tests can define one: a valid target is walkable ground, and completing does nothing
@@ -114,6 +119,11 @@ enum RawEffect {
         radius: u32,
         sleep_bonus: f32,
         seek_tiles: u32,
+    },
+    HeatAura {
+        duration_minutes: f32,
+        radius: u32,
+        sleep_bonus: f32,
     },
     WindCarry {
         range: u32,
@@ -282,6 +292,15 @@ fn resolve_effect(
                 return err("heat_source sleep_bonus must be at least 1.0");
             }
             Effect::HeatSource { duration_minutes, radius, sleep_bonus, seek_tiles }
+        }
+        RawEffect::HeatAura { duration_minutes, radius, sleep_bonus } => {
+            if !positive(duration_minutes) || radius == 0 {
+                return err("heat_aura duration_minutes and radius must be positive");
+            }
+            if !(sleep_bonus.is_finite() && sleep_bonus >= 1.0) {
+                return err("heat_aura sleep_bonus must be at least 1.0");
+            }
+            Effect::HeatAura { duration_minutes, radius, sleep_bonus }
         }
         RawEffect::WindCarry { range } => {
             if range == 0 {

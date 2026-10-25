@@ -10,7 +10,7 @@ use fn_sim::{Defs, MapGenConfig, MoveRules, Nation, Pos, World};
 const MINUTE: u64 = 600; // ticks
 
 /// The Fire branch in tree order, with the buildings each tech must unlock. `dancing_dragon`
-/// is modifier-only until its ability (Inner Fire) has a design; see research.toml.
+/// unlocks an ability (Inner Fire, #123) instead of a building.
 const BRANCH: [(&str, &[&str]); 6] = [
     ("forging", &["forge"]),
     ("brickmaking", &["brick_kiln"]),
@@ -75,9 +75,9 @@ fn every_fire_branch_tech_unlocks_something_or_says_why_not() {
             def.unlocks.buildings.len() + def.unlocks.jobs.len() + def.unlocks.abilities.len();
         assert_eq!(def.unlocks.buildings, buildings, "{tech}");
         if buildings.is_empty() {
-            // The one documented exception: modifier-only (ability pending, issue #123).
+            // The one tech with no building: it unlocks Inner Fire (#123).
             assert_eq!(tech, "dancing_dragon");
-            assert_eq!(unlocked, 0);
+            assert_eq!(def.unlocks.abilities, ["inner_fire"]);
             assert!(
                 def.unlocks.modifiers.heating.is_some(),
                 "{tech} must at least raise a modifier"

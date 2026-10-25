@@ -6,7 +6,7 @@
 |                                                                                      ||  Jee    Idle                 |
 |  o Shelter            - Carpentry          - Writing            - Dancing Dragon     ||  Kuzon  Idle                 |
 |   Available   25 pts   Locked      60 pts   Locked     120 pts   Locked     250 pts  ||  Noriko Idle                 |
-|   -                    Construction x1.1    Study x1.25          Heating x1.25       ||  Shyu   Idle                 |
+|   -                    Construction x1.1    Study x1.25          Heating x1.25, In~  ||  Shyu   Idle                 |
 |                                                                                      ||  Lu Ten Idle                 |
 |  o Fishing            - Herbalism          - Brickmaking        - Steam Engines      ||  Kiyi   Idle                 |
 |   Available   25 pts   Locked     120 pts   Locked     120 pts   Locked     250 pts  ||                              |

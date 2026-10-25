@@ -1,6 +1,7 @@
 # Bending: one signature ability per nation
 
-Status: **proposed** (#6). Follow-up work: #67 to #72 (see the end of this doc).
+Status: **proposed** (#6). Follow-up work: #67 to #72 (see the end of this doc). Fire's second
+ability, Inner Fire, was added in #123 (see "Branch abilities").
 
 Modifiers (`data/nations.toml`) make a nation *better* at things. A signature ability makes it
 play *differently*: each one opens a strategy the other three nations don't have. Each nation
@@ -159,7 +160,7 @@ flame burns without fuel for a while, and it doesn't block movement.
   radius semantics, so the cook and warm-sleep code is shared. It is lit for good once built
   (no fuel yet), and its radius scales with `heating`. Hearthflame is the timed heat source that
   needs no building. `dancing_dragon` (heating ×1.25) lengthens
-  the flame. Its "inner fire" ability stays a separate later design.
+  the flame, and also unlocks Inner Fire, the carried version (below).
 
 ### Air Nomads: Wind Carry
 
@@ -187,6 +188,74 @@ flies over rivers, mountains and trees.
   cancelled or fails, the haul job comes back.
 - **Research hooks:** `windmills` and `wind_turbines` raise `power_generation`, so the range
   grows (19, then 24 tiles). `air_scooter` and `sky_bison` stay separate.
+
+## Branch abilities
+
+The four abilities above are each nation's signature: available from the start. A branch tech
+can add a second ability through `unlocks.abilities`. Inner Fire (#123) is the first.
+
+### Fire Nation: Inner Fire (unlocked by `dancing_dragon`)
+
+*The Sun Warriors' teaching: fire is life and energy.* Where Hearthflame leaves a hearth in
+one place, Inner Fire makes the bender **the hearth**. For a while, a warmth aura follows the
+bender wherever they go: meals eaten near them are cooked and sleep near them is better, so a
+forager or hauler eats cooked food in the field, which Hearthflame can't do.
+
+| | Value |
+|---|---|
+| Chi | 40 |
+| Channel | 6 s (no speed modifier) |
+| Duration | 4 min × `heating` (15 min for Fire's 2.5 × smelting 1.2 × Dancing Dragon 1.25 = 3.75) |
+| Radius | 2 tiles (Chebyshev), around the carrier |
+| Cooked meals | A unit eating within the radius eats the food cooked, as at a flame |
+| Warm sleep | A unit sleeping within the radius regains energy at `sleep_bonus = 1.25` × the base rate. Never stacks with a flame's or campfire's: the best one applies |
+| Seeking | None. Nobody walks to an aura, because it moves |
+| Recast | Casting it again resets the timer (same chi) |
+
+- **Who gets it: the caster.** This is the one self-cast ability. The player designates a tile,
+  like every bend, and it means "channel here": open ground with no resource or building on it.
+  The bender who claims the job (nearest with enough chi, as always) walks there, channels, and
+  **it is that bender who carries the aura**, not the tile. This keeps the command shape of
+  `Command::Bend { ability, pos }` and indirect control (pillar 2). The cost is that the player
+  can't pick which unit becomes the hearth; see "Owner decision" below.
+- **Why it's a new effect and not `heat_source` with a bigger radius:** a flame is a place
+  (`BTreeMap<Pos, HeatSource>`) and the aura is a unit's property. Its numbers differ too (no
+  `seek_tiles`). The effect is `heat_aura` in `data/bending.toml`, and the sim keeps it as an
+  `Aura { unit, radius, sleep_bonus, until }` in `heat.rs`. Every heat question
+  (`is_heated`, `sleep_factor_at`) treats a lit aura as a source at its carrier's tile *this
+  tick*, so cooking and warm sleep needed no new code paths. Auras are stored by carrier, so one
+  unit has at most one, and one that outlives its carrier (death) is dropped.
+- **Scaling:** `magnitude_modifier = "heating"`, so research that raises `heating` lengthens
+  the aura, as it lengthens a flame. Nothing else scales: the radius and bonus are data.
+- **Why it's Fire's:** it extends Fire's identity (cooking and rest anywhere, no fuel) to
+  people on the move, and it is where the `dancing_dragon` branch pays off: heating ×1.25
+  lengthens it, and Dancing Dragon is the only way to get it.
+- **Counterplay:** 40 chi for 15 minutes is about 2.7 chi/min, more than the 2 chi/min a
+  waking bender regains, so one bender can't hold it up forever and also cast Hearthflame; a
+  camp that wants permanent warmth still builds a campfire. The radius is small (2 against a
+  flame's 3), and the sleep bonus is smaller (1.25 against 1.5), so it is a field tool, not a
+  home. It only helps while the carrier is close to whoever is eating or sleeping. It can't
+  harm anyone, and a carrier who dies takes it with them.
+- **Client:** the cast effect is a warm glow that swells around the bender (`Look::Glow` in
+  `cast.rs`). While it lasts, the carrier has a soft ring of light under their feet, drawn from
+  `World::glows()` (position, radius and time left, as `flames()` does for flames).
+- **Saves:** `auras` is part of world state with `#[serde(default)]`, so a save from before
+  #123 loads with none.
+
+#### Owner decision: who carries the aura?
+
+Recommended (built): **the caster only**, with the designated tile as the place to channel.
+Alternatives that fit the same framework, if the owner prefers:
+
+1. **Target a unit instead** (the aura goes to whoever stands on the tile when the channel ends,
+   so a bender can warm a friend). More control, but a moving target makes the command
+   unreliable, and it stops being "inner".
+2. **Aura on all units in a 3×3 area at completion**: not a following aura, so it fails the
+   issue's intent.
+
+Changing to option 1 touches only `validate_effect` and the `HeatAura` arm of `apply_effect`
+(`world/bending.rs`), because everything downstream reads `Aura::unit`. The numbers are all in
+`data/bending.toml`.
 
 ## Data schema: `data/bending.toml`
 
@@ -227,7 +296,8 @@ seek_tiles = 20
 ```
 
 `irrigate` (`source_range`, `wet_minutes`, `sprouts`, `sprout_resource`, `biomes`,
-`fallow_minutes`) and `wind_carry` (`range`, the magnitude) follow the same shape. Each effect
+`fallow_minutes`), `wind_carry` (`range`, the magnitude) and `heat_aura` (`duration_minutes`, the
+magnitude; `radius`; `sleep_bonus`) follow the same shape. Each effect
 kind documents which field its `magnitude_modifier` scales.
 
 **Validation at load** (`DefsError`, with a test for each): unique ids; the nation exists; chi is
@@ -237,7 +307,8 @@ resolve; `sprout_resource` has a harvest entry. Research's existing rules cover 
 `Unlocks.abilities` gets added (research.md "Staging"), an ability can only be unlocked by a
 tech of its own nation, and **an ability that no tech unlocks is a signature ability, available
 from the start**. That's research.md's locking rule unchanged, so no `starting` flag is needed.
-Once all four exist, loading also checks that every nation has exactly one signature ability.
+Once all four exist, loading also checks that every nation has exactly one signature ability
+(the abilities that no tech unlocks); a tech-unlocked one like Inner Fire doesn't count.
 
 ## Representation in `fn_sim`
 
@@ -289,8 +360,8 @@ impl World {
 ## Not in this design
 
 - The later abilities that research.md assigns to branch techs: seismic sense, metalbend,
-  healing water, air scooter and inner fire. They should use this framework, and #25–#28 wire
-  them up.
+  healing water and air scooter. They should use this framework, and #25–#28 wire them up.
+  Inner Fire is done (#123).
 - Non-benders, bending skill levels and per-unit chi max. Every unit bends for now (see
   question 1).
 - Auto-cast (see question 3).

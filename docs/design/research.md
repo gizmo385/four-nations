@@ -114,7 +114,7 @@ two-thirds effective), an Earth settlement has about 1000 points at minute 60 an
 | `forging` | 60 | fire_making | forge; smith job (tools, not yet built: #124) |
 | `brickmaking` | 120 | forging, pottery | brick kiln; construction ×1.15 |
 | `smelting` | 120 | forging | smelter (ore to metal); heating ×1.2 |
-| `dancing_dragon` | 250 | smelting | Sun Warrior teachings: heating ×1.25; ability: inner fire (warmth aura). *Modifier-only until the ability is designed: #123* |
+| `dancing_dragon` | 250 | smelting | Sun Warrior teachings: heating ×1.25; ability: Inner Fire, a warmth aura that follows the bender (bending.md, #123) |
 | `steam_engines` | 250 | smelting, brickmaking | steam engine powers mills and pumps; power_generation ×1.25 |
 | `lightning_generation` | 500 | dancing_dragon, steam_engines | lightning power station (Republic City style); power_generation ×1.5 |
 

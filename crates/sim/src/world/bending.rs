@@ -28,6 +28,11 @@
 //! a lit source does (cooked meals, faster and sought-out sleep) lives in `heat.rs`, which a
 //! campfire (#58) can reuse.
 //!
+//! **Inner Fire** (#123) is the one self-cast ability: the designated tile is where the bender
+//! stands to channel (open ground, like a flame), and the aura goes to *whoever channelled it*,
+//! not to the tile. It is an `Aura` (`heat.rs`) that follows its carrier for `duration_minutes` x
+//! the `heating` modifier; casting again resets the timer.
+//!
 //! **Wind Carry** (#71) sends the whole stack on the ground tile, ignoring carry capacity, to
 //! the nearest stockpile tile with room (holding that item, or empty) within `range` tiles of
 //! Chebyshev distance x the `power_generation` modifier, straight over rivers and mountains.
@@ -395,7 +400,8 @@ impl World {
         let u = &mut self.units[i];
         u.chi = (u.chi - def.chi).max(0.0);
         let magnitude = self.bend_magnitude(def);
-        self.apply_effect(&def.effect, pos, magnitude, defs)
+        let caster = self.units[i].id;
+        self.apply_effect(&def.effect, caster, pos, magnitude, defs)
     }
 
     // ---- the effects: the only matches on `Effect` ----
@@ -449,6 +455,18 @@ impl World {
                     Ok(())
                 }
             }
+            // Somewhere to stand and channel: open ground with nothing on it. The aura lands on
+            // the caster, so there is nothing else about the tile to check.
+            Effect::HeatAura { .. } => {
+                let tile = &self.map[pos];
+                if !tile.terrain.is_walkable() {
+                    Err("needs open ground to stand on")
+                } else if tile.resource.is_some() || tile.building.is_some() {
+                    Err("something is in the way")
+                } else {
+                    Ok(())
+                }
+            }
             // A ground stack with a stockpile tile in reach that could take at least some of it.
             Effect::WindCarry { range } => {
                 let Some(stack) = self.ground.get(&pos) else {
@@ -475,6 +493,7 @@ impl World {
     fn apply_effect(
         &mut self,
         effect: &Effect,
+        caster: UnitId,
         pos: Pos,
         magnitude: f32,
         defs: &Defs,
@@ -516,6 +535,17 @@ impl World {
                     radius: *radius,
                     sleep_bonus: *sleep_bonus,
                     seek_tiles: *seek_tiles,
+                    until: self.tick + minutes_to_ticks(duration_minutes * magnitude),
+                });
+                None
+            }
+            // The aura goes to the caster and follows them. The magnitude scales how long it
+            // lasts; casting it again resets the timer.
+            Effect::HeatAura { duration_minutes, radius, sleep_bonus } => {
+                self.light_aura(Aura {
+                    unit: caster,
+                    radius: *radius,
+                    sleep_bonus: *sleep_bonus,
                     until: self.tick + minutes_to_ticks(duration_minutes * magnitude),
                 });
                 None
