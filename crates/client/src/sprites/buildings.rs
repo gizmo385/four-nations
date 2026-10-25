@@ -138,6 +138,22 @@ pub const NO_ART_YET: &[&str] = &[
     // Water Tribe
 ];
 
+/// Buildings whose art is drawn for a 2x2 footprint while the data still makes them 1x1, until
+/// #214 turns the sizes on (docs/design/buildings.md, "Footprint sizes"). A test fails for a
+/// building listed here whose art fits its footprint, so #214 empties this list.
+#[cfg(test)]
+pub const AWAITING_FOOTPRINT: &[&str] = &[
+    "study_hall",
+    "orchard",
+    "windmill",
+    "bison_stable",
+    "forge",
+    "brick_kiln",
+    "smelter",
+    "steam_engine",
+    "lightning_station",
+];
+
 /// The frames of the sprite called `art`, if it has one.
 pub fn building_art(art: &str) -> Option<&'static BuildingArt> {
     ART.iter().find(|a| a.name == art)
@@ -241,6 +257,61 @@ mod tests {
                     if waiting { "in" } else { "not in" },
                 );
             }
+        }
+    }
+
+    /// The width in pixels of the opaque part of the sprite called `name` on `sheet`, from its
+    /// grid in `art/` (`.` is clear), counting the 1px outline the art tool adds round it.
+    fn opaque_width(sheet: &str, name: &str) -> u32 {
+        let doc = sheet_doc(sheet);
+        let sprite = doc["sprite"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["name"].as_str() == Some(name))
+            .unwrap_or_else(|| panic!("{sheet}: no sprite {name}"));
+        let outline = sprite
+            .get("outline")
+            .or_else(|| doc.get("outline"))
+            .and_then(|o| o.as_bool())
+            .unwrap_or(false);
+        let grid = sprite["grid"].as_str().unwrap();
+        let cols: Vec<usize> = grid
+            .lines()
+            .flat_map(|row| row.char_indices().filter(|&(_, c)| c != '.').map(|(x, _)| x))
+            .collect();
+        let (lo, hi) = (cols.iter().min().unwrap(), cols.iter().max().unwrap());
+        (hi - lo + 1) as u32 + if outline { 2 } else { 0 }
+    }
+
+    /// A footprint `w` tiles wide takes a sprite `w * 16` px wide, give or take 2 px
+    /// (docs/design/buildings.md, "Drawing"): no wider, or it overlaps its neighbours, and wider
+    /// than the next size down, or it needs a smaller footprint.
+    #[test]
+    fn each_buildings_art_is_as_wide_as_its_footprint() {
+        let defs = Defs::bundled();
+        for b in &defs.buildings {
+            let w = u32::from(b.footprint.0);
+            let fits = |px: u32| px <= w * 16 + 2 && (w == 1 || px > (w - 1) * 16 + 2);
+            let mut all_fit = true;
+            for n in Nation::ALL {
+                let Some(art) = building_art(b.art_for(n)) else { continue };
+                let px = opaque_width(art.frames[0].sheet, art.name);
+                all_fit &= fits(px);
+                if !AWAITING_FOOTPRINT.contains(&b.id.as_str()) {
+                    assert!(fits(px), "{} ({}): {px} px of art on {w} tiles", b.id, art.name);
+                }
+            }
+            if AWAITING_FOOTPRINT.contains(&b.id.as_str()) {
+                assert!(
+                    !all_fit,
+                    "{} fits its footprint now: take it off AWAITING_FOOTPRINT",
+                    b.id
+                );
+            }
+        }
+        for id in AWAITING_FOOTPRINT {
+            assert!(defs.building_id(id).is_some(), "AWAITING_FOOTPRINT names unknown {id}");
         }
     }
 

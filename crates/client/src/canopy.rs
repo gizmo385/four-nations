@@ -13,6 +13,10 @@
 //! What fades is decided by pure functions (`target_alpha`, `step_alpha`) on world-space
 //! rectangles; `fade_canopies` only gathers the cursor, the selection and the unit sprites, and
 //! applies the result over `FADE_SECONDS` of frame time.
+//!
+//! Buildings join in (#210) where they can hide something: a sprite bigger than its footprint, or
+//! a footprint units walk on (`buildings::fades`). Such a sprite carries a `BuildingFade`, and
+//! `fade_buildings` fades the whole sprite by the same rules.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
@@ -37,6 +41,30 @@ const _: () =
 const UNIT_HALF: Vec2 = Vec2::new(5.0, 7.0);
 /// The canopy sprite's z above its trunk's.
 pub const CANOPY_Z: f32 = 0.00001;
+
+/// The fading systems. Whatever sets a faded sprite's own tint (`buildings`) runs before them.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CanopySet;
+
+/// A building sprite that fades like a canopy (`buildings::fades`): how faded it is now, and
+/// where it is.
+#[derive(Component)]
+pub struct BuildingFade {
+    alpha: f32,
+    /// The sprite's whole cell, in world pixels.
+    bounds: Rect,
+    z: f32,
+}
+
+impl BuildingFade {
+    /// The fade of a sprite of `cell` standing with the middle of its bottom edge at `foot`
+    /// (whose z is its depth).
+    pub fn new(foot: Vec3, cell: sprites::Cell) -> Self {
+        let size = Vec2::new(cell.w as f32, cell.h as f32) * sprites::CELL;
+        let min = Vec2::new(foot.x - size.x / 2.0, foot.y);
+        BuildingFade { alpha: 1.0, bounds: Rect::from_corners(min, min + size), z: foot.z }
+    }
+}
 
 /// A tree's canopy sprite: how opaque it is now, and where it is, for `target_alpha`.
 #[derive(Component)]
@@ -189,7 +217,10 @@ impl Plugin for CanopyPlugin {
             let at = parse_demo_cursor(&text).unwrap_or_else(|| panic!("bad FN_CURSOR {text:?}"));
             app.insert_resource(DemoCursor(at));
         }
-        app.add_systems(Update, (build_trunks, fade_canopies).chain());
+        app.add_systems(
+            Update,
+            (build_trunks, fade_canopies, fade_buildings).chain().in_set(CanopySet),
+        );
     }
 }
 
@@ -233,6 +264,30 @@ fn cursor_world(
     camera.viewport_to_world_2d(camera_tf, cursor).ok()
 }
 
+/// What fades this frame: the cursor, the selected unit and every unit as drawn, or nothing with
+/// `FN_CANOPY_FADE=off`.
+fn gather_focus(
+    selection: &Selection,
+    demo: Option<&DemoCursor>,
+    fade_off: bool,
+    window: &Query<&Window, With<PrimaryWindow>>,
+    camera: &Query<(&Camera, &GlobalTransform), With<Camera2d>>,
+    units: &Query<(&UnitSprite, &Transform)>,
+) -> Focus {
+    if fade_off {
+        return Focus::default();
+    }
+    let mut focus = Focus { cursor: cursor_world(demo, window, camera), ..default() };
+    for (UnitSprite(id), tf) in units {
+        let body = Body { centre: tf.translation.truncate(), z: tf.translation.z };
+        if selection.0 == Some(*id) {
+            focus.selected = Some(body);
+        }
+        focus.units.push(body);
+    }
+    focus
+}
+
 /// Moves each canopy's opacity toward `target_alpha` and applies it, on top of the trunk's tint
 /// (a resting fruit tree is greyed by `jobview`; its canopy follows).
 fn fade_canopies(
@@ -246,17 +301,8 @@ fn fade_canopies(
     trunks: Query<&Sprite, Without<CanopyFade>>,
     mut canopies: Query<(&mut Sprite, &mut CanopyFade, &ChildOf)>,
 ) {
-    let mut focus = Focus { cursor: cursor_world(demo.as_deref(), &window, &camera), ..default() };
-    for (UnitSprite(id), tf) in &units {
-        let body = Body { centre: tf.translation.truncate(), z: tf.translation.z };
-        if selection.0 == Some(*id) {
-            focus.selected = Some(body);
-        }
-        focus.units.push(body);
-    }
-    if fade_off.is_some() {
-        focus = Focus::default();
-    }
+    let focus =
+        gather_focus(&selection, demo.as_deref(), fade_off.is_some(), &window, &camera, &units);
     let dt = time.delta_secs();
     for (mut sprite, mut fade, parent) in &mut canopies {
         let target = target_alpha(fade.bounds, fade.z, &focus);
@@ -264,6 +310,35 @@ fn fade_canopies(
         let tint = trunks.get(parent.parent()).map_or(Color::WHITE, |t| t.color);
         let color = tint.with_alpha(tint.alpha() * fade.alpha);
         if sprite.color != color {
+            sprite.color = color;
+        }
+    }
+}
+
+/// Fades the building sprites that may hide something, by the canopies' rules. `buildings` sets
+/// each sprite's own opacity (a site's progress) every frame before this runs, so the fade
+/// multiplies that.
+fn fade_buildings(
+    time: Res<Time>,
+    selection: Res<Selection>,
+    demo: Option<Res<DemoCursor>>,
+    fade_off: Option<Res<FadeOff>>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    camera: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
+    units: Query<(&UnitSprite, &Transform)>,
+    mut buildings: Query<(&mut Sprite, &mut BuildingFade)>,
+) {
+    if buildings.is_empty() {
+        return;
+    }
+    let focus =
+        gather_focus(&selection, demo.as_deref(), fade_off.is_some(), &window, &camera, &units);
+    let dt = time.delta_secs();
+    for (mut sprite, mut fade) in &mut buildings {
+        let target = target_alpha(fade.bounds, fade.z, &focus);
+        fade.alpha = step_alpha(fade.alpha, target, dt);
+        if fade.alpha < 1.0 {
+            let color = sprite.color.with_alpha(sprite.color.alpha() * fade.alpha);
             sprite.color = color;
         }
     }
