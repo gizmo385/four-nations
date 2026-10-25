@@ -130,3 +130,123 @@ fn the_study_modifier_scales_how_fast_a_scholar_adds_knowledge() {
     assert_ne!(boosted_study, base_study);
     assert_eq!(w.research().pool_millis() - before, passive + boosted_study);
 }
+
+// ---- ancient scrolls (#24) ----
+
+use crate::jobs::ItemId;
+use crate::research::MILLIS_PER_POINT;
+
+fn scroll_of(defs: &Defs) -> ItemId {
+    defs.item_id("ancient_scroll").expect("ancient_scroll item")
+}
+
+/// Ticks until knowledge arrives in a lump (one tick adds more than the passive trickle and a
+/// seated scholar can), and returns what that tick added beyond the passive trickle.
+fn lump_sum(w: &mut World, defs: &Defs, limit: u64) -> u64 {
+    let passive = defs.research.passive_millis_per_tick;
+    for _ in 0..limit {
+        let before = w.research().pool_millis();
+        w.tick(defs);
+        let gained = w.research().pool_millis() - before - passive;
+        if gained > defs.research.study_millis_per_tick * 2 {
+            return gained;
+        }
+    }
+    panic!("no lump of knowledge in {limit} ticks");
+}
+
+#[test]
+fn the_scroll_is_a_readable_item_worth_forty_points_in_data() {
+    let defs = Defs::bundled();
+    assert_eq!(defs.item(scroll_of(&defs)).knowledge, Some(40));
+    assert_eq!(defs.item(defs.item_id("wood").unwrap()).knowledge, None);
+    assert_eq!(defs.item(defs.item_id("fish").unwrap()).knowledge, None);
+    let res = defs.resource_id("ancient_scroll").expect("ancient_scroll resource");
+    let harvest = defs.harvest(res).expect("a scroll can be recovered");
+    assert_eq!(harvest.item, scroll_of(&defs));
+    assert_eq!(harvest.regrow, None, "a scroll is read once");
+}
+
+#[test]
+fn a_scroll_hauled_to_a_study_hall_is_consumed_for_its_knowledge() {
+    let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(0, 0)]);
+    place_study_hall(&mut w, &defs, at(7, 3));
+    let scroll = scroll_of(&defs);
+    w.place_ground(at(1, 1), Stack { item: scroll, count: 1 });
+    assert_eq!(w.ground_items().count(), 1);
+
+    assert_eq!(lump_sum(&mut w, &defs, 2000), 40 * MILLIS_PER_POINT);
+    // Used up: not on the ground, in a stockpile or in anyone's hands.
+    assert_eq!(w.ground_items().count(), 0);
+    assert_eq!(w.stored_total(scroll), 0);
+    assert!(w.units[0].carrying.is_none());
+}
+
+#[test]
+fn a_whole_stack_of_scrolls_is_read_in_one_delivery() {
+    let (mut w, defs) = setup(Nation::Fire, &GRID, &[at(0, 0)]);
+    place_study_hall(&mut w, &defs, at(7, 3));
+    w.place_ground(at(1, 1), Stack { item: scroll_of(&defs), count: 3 });
+    assert_eq!(lump_sum(&mut w, &defs, 2000), 3 * 40 * MILLIS_PER_POINT);
+}
+
+#[test]
+fn a_scrolls_knowledge_comes_from_data_not_code() {
+    let mut defs = Defs::bundled();
+    let scroll = scroll_of(&defs);
+    defs.items[scroll.0 as usize].knowledge = Some(75);
+    let mut w = World::with_map(1, arena(&GRID), Nation::Earth, &[at(0, 0)], &defs);
+    place_study_hall(&mut w, &defs, at(7, 3));
+    w.place_ground(at(1, 1), Stack { item: scroll, count: 1 });
+    assert_eq!(lump_sum(&mut w, &defs, 2000), 75 * MILLIS_PER_POINT);
+}
+
+#[test]
+fn a_scroll_is_never_stockpiled_and_waits_for_a_study_hall() {
+    let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(0, 0)]);
+    let scroll = scroll_of(&defs);
+    w.apply(Command::DesignateStockpile { pos: at(0, 4) }, &defs).unwrap();
+    w.place_ground(at(1, 1), Stack { item: scroll, count: 1 });
+
+    let before = w.research().pool_millis();
+    for _ in 0..600 {
+        w.tick(&defs);
+    }
+    assert_eq!(w.stored_total(scroll), 0, "scrolls are read, not stored");
+    assert_eq!(w.ground_items().count(), 1, "the scroll stays where it lies");
+    assert!(w.units[0].carrying.is_none());
+    assert_eq!(w.research().pool_millis() - before, 600 * defs.research.passive_millis_per_tick);
+
+    // Once a hall stands, the scroll is hauled over and read.
+    place_study_hall(&mut w, &defs, at(7, 3));
+    assert_eq!(lump_sum(&mut w, &defs, 2000), 40 * MILLIS_PER_POINT);
+    assert_eq!(w.ground_items().count(), 0);
+}
+
+#[test]
+fn a_scroll_on_the_map_is_recovered_hauled_and_read_end_to_end() {
+    let defs = Defs::bundled();
+    let mut map = arena(&GRID);
+    let scroll_tile = at(2, 1);
+    map[scroll_tile].resource = defs.resource_id("ancient_scroll");
+    let mut w = World::with_map(1, map, Nation::Water, &[at(0, 0)], &defs);
+    place_study_hall(&mut w, &defs, at(7, 3));
+
+    w.apply(Command::DesignateHarvest { pos: scroll_tile }, &defs).unwrap();
+    assert_eq!(lump_sum(&mut w, &defs, 3000), 40 * MILLIS_PER_POINT);
+    assert!(w.map[scroll_tile].resource.is_none(), "the scroll is taken off the map");
+}
+
+#[test]
+fn reading_scrolls_is_deterministic() {
+    let run = || {
+        let (mut w, defs) = setup(Nation::Air, &GRID, &[at(0, 0), at(8, 4)]);
+        place_study_hall(&mut w, &defs, at(7, 3));
+        w.place_ground(at(1, 1), Stack { item: scroll_of(&defs), count: 1 });
+        for _ in 0..1500 {
+            w.tick(&defs);
+        }
+        w.research().pool_millis()
+    };
+    assert_eq!(run(), run());
+}

@@ -653,6 +653,8 @@ mod tests {
         assert!(bad("base_carry = 5", "base_carry = 0").contains("base_carry"));
         assert!(bad("eat_seconds = 3.0", "eat_secs = 3.0").contains("eat_secs"));
         assert!(bad("regrow = 300.0", "regrow = 0.0").contains("regrow"));
+        assert!(bad("knowledge = 40", "knowledge = 0").contains("knowledge"));
+        assert!(bad("knowledge = 40", "knowledge = -1").contains("knowledge"));
         // Two entries for one resource.
         let twice = format!(
             "{JOBS}\n[[harvest]]\nresource = \"stone\"\nverb = \"X\"\nitem = \"stone\"\ncount = 1\nwork = 1.0\n"

@@ -179,7 +179,8 @@ const EMBLEMS: [&str; 4] = ["air", "water", "earth", "fire"];
 pub const ICONS_SHEET: &str = "original/icons.png";
 /// The cells of `icons.png` in order: the sprite names in art/icons.toml. An item's `icon` in
 /// data/jobs.toml and data/needs.toml is one of these.
-const ITEM_ICONS: [&str; 7] = ["wood", "stone", "gold", "cabbage", "water", "fish", "fruit"];
+const ITEM_ICONS: [&str; 8] =
+    ["wood", "stone", "gold", "cabbage", "water", "fish", "fruit", "scroll"];
 /// The cells of `tools.png` in order: the sprite names in art/tools.toml.
 const TOOL_SHEET: [&str; 6] = ["harvest", "build", "stockpile", "cancel", "select", "bend"];
 /// Which sprite of `tools.png` each tool's button shows.

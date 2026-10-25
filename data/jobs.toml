@@ -30,6 +30,9 @@ idle_wander_steps = 4
 
 # Items that aren't food. Foods (data/needs.toml) are items too, with the id they have there.
 # `icon` names the item's sprite in art/icons.toml (a client test checks that it exists).
+# `knowledge` (optional, points, at least 1) makes an item readable: it is never stockpiled. A
+# unit carries it to a study hall instead, where it is used up and adds that many points to the
+# research pool (issue #24). With no study hall to take it, it stays where it lies.
 [[item]]
 id = "wood"
 icon = "wood"
@@ -44,6 +47,12 @@ name = "Stone"
 id = "gold_ore"
 icon = "gold"
 name = "Gold Ore"
+
+[[item]]
+id = "ancient_scroll"
+icon = "scroll"
+name = "Ancient Scroll"
+knowledge = 40
 
 # What working a map resource yields. When the work finishes `count` of `item` drops beside the
 # resource, and the resource is cleared unless it regrows (see `regrow`).
@@ -89,6 +98,14 @@ item = "gold_ore"
 count = 1
 work = 30.0
 modifier = "earthworks"
+
+# Picking a scroll up is quick; the point is finding it. Not renewable: each is read once.
+[[harvest]]
+resource = "ancient_scroll"
+verb = "Recover"
+item = "ancient_scroll"
+count = 1
+work = 4.0
 
 [[harvest]]
 resource = "cabbage"
