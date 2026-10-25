@@ -24,14 +24,15 @@ impl World {
         }
     }
 
-    /// One tick of a unit holding a study seat: walk to the hall, then add knowledge every tick
+    /// One tick of a unit holding a study seat: walk to the hall (beside a solid one, inside a
+    /// walkable one; seats are keyed by its anchor), then add knowledge every tick
     /// it's there. The job never finishes on its own.
     pub(super) fn run_study(&mut self, i: usize, id: JobId, defs: &Defs) {
         let Some(idx) = self.job_index(id) else { return self.finish_job(i) };
         let JobKind::Study { pos } = self.jobs[idx].kind else { return self.finish_job(i) };
         if self.units[i].route.is_none() {
             let flood = self.flood_from(i);
-            match self.stand(&flood, pos).and_then(|(_, s)| flood.path_to(s)) {
+            match self.stand_building(&flood, pos, defs).and_then(|(_, s)| flood.path_to(s)) {
                 Some(path) => self.units[i].route = Some(route_from(path)),
                 None => return self.abandon_job(i, id, defs),
             }
