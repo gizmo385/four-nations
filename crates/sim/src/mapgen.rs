@@ -19,8 +19,10 @@
 //!    Chosen over bridges-as-a-build-job (the start of the game would be unplayable on a split
 //!    continent) and slow-river movement cost (rivers should stay a real obstacle).
 //! 5. **Biomes** from `data/biomes.toml`'s temperature x moisture table.
-//! 6. **Resources** (`mapgen.resources`): per-tile rolls whose chance follows a per-resource
-//!    noise field (clumped groves), moisture, and an optional minimum spacing.
+//! 6. **Resources** (`mapgen.resources.<id>`): per-tile rolls whose chance follows a per-resource
+//!    noise field (clumped groves), moisture, and an optional minimum spacing. Every resource has
+//!    its own streams keyed by its id, so content changes don't reshuffle other resources
+//!    (issue #225, see `add_resources`).
 //!
 //! All arithmetic is plain `f64` `+ - * /` and `floor` (no `powf`/`exp`/FMA), so maps are
 //! identical on every platform. See `noise` for why the noise is in-house.
@@ -33,7 +35,7 @@ use std::collections::VecDeque;
 use rand::RngExt;
 
 use crate::building::Building;
-use crate::defs::{BiomeId, Defs, ResourceId, Terrain};
+use crate::defs::{BiomeId, Defs, ResourceDef, ResourceId, Terrain};
 use crate::geom::{Grid, Pos};
 use crate::noise::{Fbm, lerp, smoothstep};
 use crate::rng;
@@ -317,64 +319,90 @@ fn add_coastline(terrain: &Grid<Terrain>) -> Grid<Terrain> {
     })
 }
 
-/// Rolls resources per tile in `data/resources.toml` order; the first that passes wins.
+/// Places resources. Each resource is decided on its own, then they are merged by priority.
 ///
-/// One roll per tile per resource, always drawn, so the stream stays position-stable when
-/// eligibility changes.
+/// **Per-resource streams (issue #225).** Resource `r` rolls from `mapgen.resources.<id>` and
+/// draws its cluster noise from `mapgen.resource_clusters.<id>`, keyed by the resource's *id*,
+/// never its position in `data/resources.toml`. It draws one roll per tile, always, so the stream
+/// stays position-stable when eligibility changes. Adding, removing or reordering a resource
+/// therefore leaves every other resource's candidate tiles exactly as they were (it can still
+/// win or lose an overlapping tile, see below). New content should follow the same rule: any
+/// new randomness for a resource goes in a stream named after its id.
+///
+/// Nothing draws from these streams afterwards: this is the last mapgen pass, and the world's
+/// unit placement and later play use their own named streams (`world.*`, `bending.*`).
+///
+/// **Priority.** Two resources can both want a tile (a fir and a scroll in the tundra). File
+/// order in `data/resources.toml` is priority: the first resource whose candidate set contains
+/// the tile gets it. Spacing is checked against a resource's own candidates, not against the
+/// tiles it finally holds, so a higher-priority resource taking a tile never frees a neighbour
+/// for a lower one.
 fn add_resources(map: &mut TileMap, cfg: &MapGenConfig, defs: &Defs) {
-    /// Grove/outcrop size: noise features per this many tiles, independent of map size.
-    const CLUSTER_TILES: f64 = 14.0;
-    let mut rng = rng::stream(cfg.seed, "mapgen.resources");
-    let mut cluster_rng = rng::stream(cfg.seed, "mapgen.resource_clusters");
-    let biome_filters: Vec<Option<Vec<BiomeId>>> = defs
-        .resources
-        .iter()
-        .map(|r| {
-            r.biomes
-                .as_ref()
-                .map(|bs| bs.iter().map(|b| defs.biome_id(b).expect("validated")).collect())
-        })
-        .collect();
-    let clusters: Vec<Fbm> = defs.resources.iter().map(|_| Fbm::new(&mut cluster_rng, 3)).collect();
-
-    for p in map.positions() {
-        let tile = map[p];
-        for (i, r) in defs.resources.iter().enumerate() {
-            let roll: f64 = rng.random();
-            let terrain_ok = r.terrains.as_ref().is_none_or(|ts| ts.contains(&tile.terrain));
-            let biome_ok = biome_filters[i].as_ref().is_none_or(|bs| bs.contains(&tile.biome));
-            let beside_ok = r
-                .beside
-                .as_ref()
-                .is_none_or(|ts| map.neighbors(p, true).any(|q| ts.contains(&map[q].terrain)));
-            if !(terrain_ok && biome_ok && beside_ok) {
-                continue;
-            }
-            let mut chance = r.chance;
-            if r.clustering > 0.0 {
-                let (u, v) = (f64::from(p.x) / CLUSTER_TILES, f64::from(p.y) / CLUSTER_TILES);
-                let patch = smoothstep(-0.15, 0.15, clusters[i].get(u, v));
-                chance *= lerp(1.0, 2.0 * patch, r.clustering);
-            }
-            if r.moisture_scaled {
-                chance *= 0.5 + crate::defs::climate_unit(tile.moisture);
-            }
-            let id = ResourceId(i as u16);
-            if roll < chance && r.min_spacing.is_none_or(|s| !resource_within(map, p, id, s)) {
+    for (i, r) in defs.resources.iter().enumerate() {
+        let id = ResourceId(i as u16);
+        for p in resource_candidates(map, cfg, defs, r) {
+            if map[p].resource.is_none() {
                 map[p].resource = Some(id);
-                break;
             }
         }
     }
 }
 
-/// Is there already a tile with `id` closer than `spacing` (Chebyshev) to `p`?
-fn resource_within(map: &TileMap, p: Pos, id: ResourceId, spacing: u32) -> bool {
+/// Every tile resource `r` would grow on if nothing else competed for it, in scan order.
+fn resource_candidates(
+    map: &TileMap,
+    cfg: &MapGenConfig,
+    defs: &Defs,
+    r: &ResourceDef,
+) -> Vec<Pos> {
+    /// Grove/outcrop size: noise features per this many tiles, independent of map size.
+    const CLUSTER_TILES: f64 = 14.0;
+    let mut rng = rng::stream(cfg.seed, &format!("mapgen.resources.{}", r.id));
+    let clusters = (r.clustering > 0.0).then(|| {
+        let mut cluster_rng = rng::stream(cfg.seed, &format!("mapgen.resource_clusters.{}", r.id));
+        Fbm::new(&mut cluster_rng, 3)
+    });
+    let biomes: Option<Vec<BiomeId>> = r
+        .biomes
+        .as_ref()
+        .map(|bs| bs.iter().map(|b| defs.biome_id(b).expect("validated")).collect());
+    let mut taken = Grid::from_fn(map.width(), map.height(), |_| false);
+    let mut found = Vec::new();
+
+    for p in map.positions() {
+        let tile = map[p];
+        let roll: f64 = rng.random();
+        let terrain_ok = r.terrains.as_ref().is_none_or(|ts| ts.contains(&tile.terrain));
+        let biome_ok = biomes.as_ref().is_none_or(|bs| bs.contains(&tile.biome));
+        let beside_ok = r
+            .beside
+            .as_ref()
+            .is_none_or(|ts| map.neighbors(p, true).any(|q| ts.contains(&map[q].terrain)));
+        if !(terrain_ok && biome_ok && beside_ok) {
+            continue;
+        }
+        let mut chance = r.chance;
+        if let Some(clusters) = &clusters {
+            let (u, v) = (f64::from(p.x) / CLUSTER_TILES, f64::from(p.y) / CLUSTER_TILES);
+            let patch = smoothstep(-0.15, 0.15, clusters.get(u, v));
+            chance *= lerp(1.0, 2.0 * patch, r.clustering);
+        }
+        if r.moisture_scaled {
+            chance *= 0.5 + crate::defs::climate_unit(tile.moisture);
+        }
+        if roll < chance && r.min_spacing.is_none_or(|s| !within(&taken, p, s)) {
+            taken[p] = true;
+            found.push(p);
+        }
+    }
+    found
+}
+
+/// Is there a marked tile closer than `spacing` (Chebyshev) to `p`?
+fn within(marked: &Grid<bool>, p: Pos, spacing: u32) -> bool {
     let r = spacing as i32 - 1;
-    (-r..=r).any(|dy| {
-        (-r..=r)
-            .any(|dx| map.get(Pos::new(p.x + dx, p.y + dy)).is_some_and(|t| t.resource == Some(id)))
-    })
+    (-r..=r)
+        .any(|dy| (-r..=r).any(|dx| marked.get(Pos::new(p.x + dx, p.y + dy)).is_some_and(|&m| m)))
 }
 
 /// Renders the map as text: one glyph per tile, rows separated by newlines.

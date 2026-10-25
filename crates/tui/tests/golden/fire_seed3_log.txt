@@ -1,0 +1,40 @@
+┏────────────────────────────────── ◆ MESSAGE LOG ◆ ───────────────────────────────────┓┏────── ◆ FIRE NATION ◆ ───────┓
+│ 00:04 Jee used Hearthflame at (25, 16)                                               ││ Seed 3                 00:10 │
+│ 00:04 Kuzon used Hearthflame at (25, 15)                                             ││ ▶ Running x1      Space  + - │
+│ 00:04 Noriko used Hearthflame at (25, 17)                                            ││                              │
+│ 00:04 Shyu used Hearthflame at (24, 18)                                              ││ ◇ PEOPLE                   6 │
+│ 00:04 Lu Ten used Hearthflame at (26, 16)                                            ││  Jee    Kindle               │
+│ 00:04 Kiyi used Hearthflame at (22, 17)                                              ││  Kuzon  Kindle               │
+│ 00:09 Noriko used Hearthflame at (25, 18)                                            ││  Noriko Kindle               │
+│ 00:09 Shyu used Hearthflame at (24, 19)                                              ││  Shyu   Kindle               │
+│ 00:09 Kiyi used Hearthflame at (21, 17)                                              ││  Lu Ten Kindle               │
+│ 00:09 Jee used Hearthflame at (26, 17)                                               ││  Kiyi   Kindle               │
+│ 00:09 Lu Ten used Hearthflame at (27, 17)                                            ││                              │
+│                                                                                      ││ ◇ RESEARCH                   │
+│                                                                                      ││ No target set        3.0/min │
+│                                                                                      ││ 0 pts banked                 │
+│                                                                                      ││                              │
+│                                                                                      ││ ◇ MODIFIERS                  │
+│                                                                                      ││ Heating                 x2.5 │
+│                                                                                      ││ Water work              x0.7 │
+│                                                                                      ││ Power generation        x1.3 │
+│                                                                                      ││ Construction            x1.1 │
+│                                                                                      ││                              │
+│                                                                                      ││ ◇ ALERTS                     │
+│                                                                                      ││ Shyu used Hearthflame at     │
+│                                                                                      ││ (24, 19)                     │
+│                                                                                      ││ Kiyi used Hearthflame at     │
+│                                                                                      ││ (21, 17)                     │
+│                                                                                      ││ Jee used Hearthflame at (26, │
+│                                                                                      ││ 17)                          │
+│                                                                                      ││ Lu Ten used Hearthflame at   │
+│                                                                                      ││ (27, 17)                     │
+│                                                                                      ││                              │
+│                                                                                      ││ ◇ CURSOR            (25, 16) │
+│                                                                                      ││ Land                         │
+│                                                                                      ││ Plains (25, 16)              │
+│                                                                                      ││ Elevation 193                │
+│                                                                                      ││ Lit: 19m 54s left            │
+│                                                                                      ││                              │
+┗─ Arrows W S scroll  PgUp PgDn page  Esc close  ? keys ───────────────────────────────┛┗──────────────────────────────┛
+ LOG  arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause

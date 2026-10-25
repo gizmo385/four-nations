@@ -5,6 +5,7 @@
 
 use std::collections::VecDeque;
 
+use fn_sim::defs::ResourceDef;
 use fn_sim::{Defs, Grid, MapGenConfig, Pos, Terrain, TileMap, mapgen};
 
 fn cfg(seed: u64) -> MapGenConfig {
@@ -363,4 +364,104 @@ fn golden_ascii_seed_1() {
 #[test]
 fn golden_ascii_seed_2_large() {
     golden("seed2_120x50.txt", &MapGenConfig { seed: 2, width: 120, height: 50, ..cfg(2) });
+}
+
+// ---- Per-resource RNG streams (#225) ----
+
+/// A test-only resource that grows on coast tiles, which no bundled resource uses, so it never
+/// competes for a tile with the originals: any change to them could only come from shared RNG.
+fn coast_weed() -> ResourceDef {
+    ResourceDef {
+        id: "coast_weed".into(),
+        name: "Coast Weed".into(),
+        glyph: 'w',
+        chance: 0.4,
+        terrains: Some(vec![Terrain::Coast]),
+        biomes: None,
+        clustering: 0.5,
+        moisture_scaled: false,
+        min_spacing: None,
+        beside: None,
+    }
+}
+
+/// Where each resource ended up, keyed by id and sorted so list order doesn't matter.
+fn placements(defs: &Defs, c: &MapGenConfig) -> Vec<(String, Vec<Pos>)> {
+    let map = mapgen::generate(c, defs);
+    let mut out: Vec<(String, Vec<Pos>)> =
+        defs.resources.iter().map(|r| (r.id.clone(), Vec::new())).collect();
+    for (p, t) in map.iter() {
+        if let Some(r) = t.resource {
+            out[r.0 as usize].1.push(p);
+        }
+    }
+    out.sort();
+    out
+}
+
+fn without(mut p: Vec<(String, Vec<Pos>)>, id: &str) -> Vec<(String, Vec<Pos>)> {
+    p.retain(|(i, _)| i != id);
+    p
+}
+
+fn position(defs: &Defs, id: &str) -> usize {
+    defs.resources.iter().position(|r| r.id == id).unwrap()
+}
+
+#[test]
+fn adding_a_resource_does_not_move_the_others() {
+    let base = Defs::bundled();
+    let mut appended = base.clone();
+    appended.resources.push(coast_weed());
+    let mut prepended = base.clone();
+    prepended.resources.insert(0, coast_weed());
+    for seed in [1, 2, 3, 7, 42] {
+        let c = big(seed);
+        let before = placements(&base, &c);
+        assert!(before.iter().filter(|(_, v)| !v.is_empty()).count() >= 5, "seed {seed}");
+        let after = placements(&appended, &c);
+        let weeds = after.iter().find(|(id, _)| id == "coast_weed").unwrap();
+        assert!(!weeds.1.is_empty(), "seed {seed}: the test resource must actually place");
+        assert_eq!(before, without(after, "coast_weed"), "seed {seed}: appended");
+        let front = without(placements(&prepended, &c), "coast_weed");
+        assert_eq!(before, front, "seed {seed}: inserted at the front");
+    }
+}
+
+#[test]
+fn removing_or_reordering_resources_does_not_move_the_others() {
+    let mut base = Defs::bundled();
+    base.resources.push(coast_weed());
+    // Oaks and firs grow in disjoint biomes, and fish spots in water, so swapping them or
+    // moving them to the front changes priority only where nothing overlaps.
+    let mut swapped = base.clone();
+    let (oak, fir) = (position(&base, "oak_tree"), position(&base, "fir_tree"));
+    swapped.resources.swap(oak, fir);
+    let mut fish_first = base.clone();
+    let fish = fish_first.resources.remove(position(&base, "fish_spot"));
+    fish_first.resources.insert(0, fish);
+    let mut no_fish = base.clone();
+    no_fish.resources.remove(position(&base, "fish_spot"));
+    for seed in [1, 2, 3, 7, 42] {
+        let c = big(seed);
+        let before = placements(&base, &c);
+        assert_eq!(before, placements(&swapped, &c), "seed {seed}: oak and fir swapped");
+        assert_eq!(before, placements(&fish_first, &c), "seed {seed}: fish first");
+        let rest = without(before, "fish_spot");
+        assert_eq!(rest, placements(&no_fish, &c), "seed {seed}: fish removed");
+    }
+}
+
+#[test]
+fn list_order_is_priority_where_resources_overlap() {
+    // Gold is listed before stone and both want mountains. Swapping them hands the contested
+    // tiles to stone, but gold never gains a tile it did not have before.
+    let base = Defs::bundled();
+    let mut flipped = base.clone();
+    flipped.resources.swap(position(&base, "gold_vein"), position(&base, "stone"));
+    let c = big(1);
+    let get = |d: &Defs| placements(d, &c).into_iter().find(|(i, _)| i == "gold_vein").unwrap().1;
+    let (before, after) = (get(&base), get(&flipped));
+    assert!(!before.is_empty() && after.len() < before.len(), "stone should win some tiles");
+    assert!(after.iter().all(|p| before.contains(p)), "no new gold tiles appear");
 }

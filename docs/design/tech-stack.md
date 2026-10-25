@@ -102,3 +102,18 @@ client decides where it lives.
 Adding state to `World` needs no save code: the derive makes a field either serialize or fail to
 compile. Change the serialized shape of existing state in a way old files can't be read as, and
 bump `SAVE_VERSION`.
+
+## RNG streams and content (#225)
+
+All randomness comes from `fn_sim::rng::stream(seed, name)`, one named stream per subsystem. For
+content that lives in `data/*.toml`, the stream is also keyed by the content's **id**, never by
+its index or its position in the file: map resources roll from `mapgen.resources.<id>` and draw
+cluster noise from `mapgen.resource_clusters.<id>`. Sharing one stream across a list makes every
+entry's draws depend on how many entries came before it, so adding a resource would move every
+tree and rock on every seed (and every map golden and seed-dependent test with them).
+
+With per-id streams, adding, removing or reordering a resource leaves every other resource's
+candidate tiles identical. The one thing list order still decides is priority where two resources
+want the same tile: the earlier one in `data/resources.toml` wins it. Spacing (`min_spacing`) is
+checked against a resource's own candidates, so a winner elsewhere never changes where the others
+may grow. New data-driven content with its own randomness should follow the same rule.
