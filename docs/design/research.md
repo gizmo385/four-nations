@@ -199,7 +199,7 @@ change).
 
 **How the reveal shows it.** Seismic Sense is a new `Effect::Reveal { radius }`:
 
-| | Value (proposed, `data/bending.toml`) |
+| | Value (`data/bending.toml`, confirmed by the owner 2026-10-25) |
 |---|---|
 | Chi | 30 |
 | Channel | 6 s ÷ `earthworks` (2.4 s for Earth) |
@@ -212,7 +212,7 @@ bender and a ring of dust runs out (`cast.rs`, `Look::Pulse`). A Bore Tunnel aim
 that holds a buried seam strikes it instead of boring: the seam is uncovered and the rock stays,
 so a tunnel can find gold by luck, but the sense is the way to look.
 
-| Gold seam (proposed, `data/resources.toml`, `data/jobs.toml`) | Value |
+| Gold seam (`data/resources.toml`, `data/jobs.toml`, confirmed by the owner 2026-10-25) | Value |
 |---|---|
 | Chance | 0.04 per mountain tile nothing else took, `min_spacing = 5` |
 | Yield | 3 gold ore (5 mined from a tunnel), against a vein's 1 (2) |
