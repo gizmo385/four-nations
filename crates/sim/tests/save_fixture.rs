@@ -224,6 +224,9 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     // End-game counts (#233): the world's lifetime tallies, and each unit's finished bends.
     "tallies",
     "bends",
+    // The endeavor (#234): its state, and the signs met and events so far.
+    "endeavor",
+    "endeavor_log",
 ];
 
 /// `value` without any struct field named in `names`, at any depth. Returns how many it removed.
