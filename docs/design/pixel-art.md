@@ -224,8 +224,10 @@ existing 32x32 art fills exactly.
   piece from the rail tiles around it, so a line is one track.
 - **The igloo** (`art/buildings_water.toml`, #178) is a bed, so it is bed-scale: a low smooth
   snow dome about half the Elders' Lodge's size, no flag, a short entrance tunnel facing down and
-  right with a fur flap over the door, and snow banked at its sides. Don't give it the lodge's
-  tall block-built silhouette or blue flag, or the two read as the same building.
+  right with a fur flap over the door, and snow banked at its sides. It is a 1x1 building, so its
+  art fits the tile (#213): 16 px of fill, 18 with the outline, bottom-aligned, and neighbouring
+  igloos don't overlap. Don't give it the lodge's tall block-built silhouette or blue flag, or the
+  two read as the same building.
 - **Nation differences are shape and material**, not the accent: a gold-roofed open pavilion, an
   ice-block lodge, a green-tiled hall and a red two-tier pagoda.
 - **Seeing them.** `FN_BUILD_DEMO=buildings cargo xtask screenshot ...` levels a meadow beside
