@@ -138,7 +138,7 @@ nation, so the tech must not gate a resource. It makes Earth *better* at mining 
 
 The tunnel itself:
 
-| | Value (proposed, `data/bending.toml`) |
+| | Value (`data/bending.toml`, confirmed by the owner 2026-10-25) |
 |---|---|
 | Chi | 40 (two bores per 28-minute chi cycle, see bending.md "Chi") |
 | Channel | 20 s ÷ `earthworks` (8 s for Earth's 2.5, 6.7 s with `earth_shaping`) |
@@ -166,7 +166,7 @@ a range, so it shortens hauls the way a ford does across water.
    (#124, #134) if it is ever wanted.
 
 So a tunnel both opens the inside of a mountain (2) and makes what is mined from it richer (3).
-Proposed yields: stone 3 → **5** per outcrop, gold 1 → **2** per vein. Work time doesn't change.
+Yields (confirmed by the owner 2026-10-25): stone 3 → **5** per outcrop, gold 1 → **2** per vein. Work time doesn't change.
 The rule is per harvest (`tunnel_count`), so ore and metal from #134 can carry their own.
 
 **Gold and stone stay open to everyone.** Neither harvest is gated by `tunneling`: gold needs no
