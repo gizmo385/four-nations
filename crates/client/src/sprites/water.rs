@@ -13,7 +13,8 @@ use super::{Cell, GroundRule, one, tile_hash};
 /// rows  0-11  sea     sand, snow, grass
 /// rows 12-23  river   sand, snow, grass
 /// rows 24-35  lake    sand, snow, grass
-/// row  36     extras  fish spot, then #171's pond piece
+/// row  36     extras  fish spot, then the nine pond pieces (#171) in set order, running on
+///                      across the sheet's 4 columns (cells 1-3 of row 36, 4 of row 37, 2 of row 38)
 /// ```
 pub const SHEET: &str = "original/water.png";
 
@@ -48,11 +49,13 @@ pub struct WaterSet {
     h_left: Cell,
     h_mid: Cell,
     h_right: Cell,
+    pond: Cell,
 }
 
 impl WaterSet {
-    /// `col`/`row` is the top-left (NW corner) cell of the 4x4 block.
-    const fn new(sheet: &'static str, col: u32, row: u32) -> Self {
+    /// `col`/`row` is the top-left (NW corner) cell of the 4x4 block, `pond` which of the nine
+    /// pond pieces (`POND_FIRST`, in set order) closes it off.
+    const fn new(sheet: &'static str, col: u32, row: u32, pond: u32) -> Self {
         WaterSet {
             nw: one(sheet, col, row),
             n: one(sheet, col + 1, row),
@@ -70,12 +73,13 @@ impl WaterSet {
             h_mid: one(sheet, col + 1, row + 3),
             h_right: one(sheet, col + 2, row + 3),
             interior_alt: one(sheet, col + 3, row + 3),
+            pond: pond_cell(sheet, pond),
         }
     }
 
     /// Every cell of the set, for tests that compare sets.
     #[cfg(test)]
-    fn cells(&self) -> [Cell; 16] {
+    fn cells(&self) -> [Cell; 17] {
         [
             self.interior,
             self.interior_alt,
@@ -93,12 +97,14 @@ impl WaterSet {
             self.h_left,
             self.h_mid,
             self.h_right,
+            self.pond,
         ]
     }
 
     /// The piece for a water tile whose cardinal neighbors are land (`true`) or more water
-    /// (`false`). A tile boxed in on all four sides has no single piece that reads right (and the
-    /// sheet has no "isolated puddle" piece), so it falls back to the open-water interior.
+    /// (`false`). A tile boxed in on all four sides is a pond: a small rounded pool with a bank
+    /// all round. It doesn't look at the diagonals, so the two tiles of a river's diagonal step
+    /// are two ponds touching at a corner (a stepping-stone chain), not one corner-linked piece.
     fn cell(&self, n: bool, s: bool, e: bool, w: bool) -> Cell {
         match (n, s, e, w) {
             (false, false, false, false) => self.interior,
@@ -116,7 +122,7 @@ impl WaterSet {
             (true, true, true, false) => self.h_right,
             (true, false, true, true) => self.v_top,
             (false, true, true, true) => self.v_bot,
-            (true, true, true, true) => self.interior,
+            (true, true, true, true) => self.pond,
         }
     }
 }
@@ -146,6 +152,16 @@ pub const FISH_SPOT: Cell = one(SHEET, 0, EXTRAS_ROW);
 /// The row below the nine shore sets, where one-off pieces go, a cell each, left to right.
 const EXTRAS_ROW: u32 = 36;
 
+/// The extras after the fish spot, counted in cells from the start of `EXTRAS_ROW`: the pond
+/// pieces (#171), one per shore set in set order, wrapping onto the rows below.
+const POND_FIRST: u32 = 1;
+
+/// The pond piece for the `set`th shore set (0 is the sea's sand set, 8 the lake's grass one).
+const fn pond_cell(sheet: &'static str, set: u32) -> Cell {
+    let i = POND_FIRST + set;
+    one(sheet, i % 4, EXTRAS_ROW + i / 4)
+}
+
 /// The shore sets, each bordered in the base tone of the floor it meets (`art/palette.toml`):
 /// sand for desert, snow for tundra and grass for the rest, swamps included. Each is a 4x4 block
 /// of 16px cells on `SHEET`; see `WaterSet` for the layout within a block. The sea is blue in
@@ -153,15 +169,15 @@ const EXTRAS_ROW: u32 = 36;
 /// with long current streaks and a lake with calm ripples. Swamp water stays the blue grass-edged
 /// set, not the pack's pink-and-purple bog water (#109), so a future bog terrain would get a set
 /// of its own.
-const SAND_WATER: WaterSet = WaterSet::new(SHEET, 0, 0);
-const SNOW_WATER: WaterSet = WaterSet::new(SHEET, 0, 4);
-const GRASS_WATER: WaterSet = WaterSet::new(SHEET, 0, 8);
-const SAND_RIVER: WaterSet = WaterSet::new(SHEET, 0, 12);
-const SNOW_RIVER: WaterSet = WaterSet::new(SHEET, 0, 16);
-const GRASS_RIVER: WaterSet = WaterSet::new(SHEET, 0, 20);
-const SAND_LAKE: WaterSet = WaterSet::new(SHEET, 0, 24);
-const SNOW_LAKE: WaterSet = WaterSet::new(SHEET, 0, 28);
-const GRASS_LAKE: WaterSet = WaterSet::new(SHEET, 0, 32);
+const SAND_WATER: WaterSet = WaterSet::new(SHEET, 0, 0, 0);
+const SNOW_WATER: WaterSet = WaterSet::new(SHEET, 0, 4, 1);
+const GRASS_WATER: WaterSet = WaterSet::new(SHEET, 0, 8, 2);
+const SAND_RIVER: WaterSet = WaterSet::new(SHEET, 0, 12, 3);
+const SNOW_RIVER: WaterSet = WaterSet::new(SHEET, 0, 16, 4);
+const GRASS_RIVER: WaterSet = WaterSet::new(SHEET, 0, 20, 5);
+const SAND_LAKE: WaterSet = WaterSet::new(SHEET, 0, 24, 6);
+const SNOW_LAKE: WaterSet = WaterSet::new(SHEET, 0, 28, 7);
+const GRASS_LAKE: WaterSet = WaterSet::new(SHEET, 0, 32, 8);
 
 /// One `GroundRule` row for `terrain` water in a biome (`None`: every other biome).
 const fn water_rule(
@@ -290,7 +306,7 @@ mod tests {
             ((true, true, true, false), set.h_right),
             ((true, false, true, true), set.v_top),
             ((false, true, true, true), set.v_bot),
-            ((true, true, true, true), set.interior),
+            ((true, true, true, true), set.pond),
         ];
         for ((n, s, e, w), expected) in cases {
             let map = water_neighbor_map(n, s, e, w);
@@ -351,6 +367,7 @@ mod tests {
                 ("h_mid", set.h_mid),
                 ("h_right", set.h_right),
                 ("interior_alt", set.interior_alt),
+                ("pond", set.pond),
             ];
             for (piece, cell) in pieces {
                 assert_eq!(name_at(&names, cell), format!("{prefix}_{piece}"));
@@ -393,6 +410,23 @@ mod tests {
 
         let shore = water_neighbor_map(true, false, false, false);
         assert_eq!(water_tile(&shore, Pos::new(1, 1), &SAND_WATER), SAND_WATER.n);
+    }
+
+    /// A tile boxed in by land is a pond in its own terrain's colours and its biome's bank, never
+    /// the bank-less interior, in every set; a river's diagonal step is two of them, one each.
+    #[test]
+    fn boxed_in_water_is_a_pond_and_a_diagonal_step_is_two() {
+        let defs = Defs::bundled();
+        for biome in &defs.biomes {
+            for terrain in [Terrain::Water, Terrain::River, Terrain::Lake] {
+                let set = ground_rule(terrain, &biome.id).unwrap().water.unwrap();
+                assert_ne!(set.pond, set.interior);
+                let map = terrain_map(5, 5, |p| if p.x == p.y { terrain } else { Terrain::Land });
+                for i in 1..4 {
+                    assert_eq!(water_tile(&map, Pos::new(i, i), set), set.pond, "{}", biome.id);
+                }
+            }
+        }
     }
 
     /// A ford is still water as far as the shore goes: it doesn't grow a false edge next to it.
