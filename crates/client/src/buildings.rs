@@ -8,8 +8,13 @@
 //!
 //! A multi-frame sprite (the campfire's flames) plays when finished, each tile out of step with
 //! its neighbours so two fires don't flicker in unison. A site shows its first frame.
+//!
+//! The rail is the one building whose picture depends on its neighbours (#135): its sixteen
+//! frames are pieces of track, and a rail tile (or rail site) draws the piece that joins the rail
+//! tiles beside it, so a line of rail reads as one track and a corner turns. The sim does not know
+//! about this; it only says which tiles are rail.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
@@ -42,6 +47,8 @@ struct BuildingSprite {
     phase: usize,
     /// The frame shown now, so the sprite is touched only when it changes.
     shown: usize,
+    /// Whether the frames are pieces of track chosen by neighbours, not an animation.
+    connects: bool,
 }
 
 /// The sprite entity of each tile that has a building or a site on it.
@@ -63,7 +70,7 @@ fn sync_buildings(
     sim: Res<Sim>,
     art: Res<Art>,
     mut drawn: ResMut<BuildingSprites>,
-    mut sprites: Query<(&mut Sprite, &BuildingSprite)>,
+    mut sprites: Query<(&mut Sprite, &mut BuildingSprite)>,
 ) {
     // Where something is drawn, and how opaque: a site by its progress, a finished building not
     // at all. A finished building wins over a site on the same tile (there can't be both).
@@ -74,6 +81,13 @@ fn sync_buildings(
         .collect();
     wanted
         .extend(sim.world.map.iter().filter_map(|(p, t)| Some((p, (t.building?.id, None::<f32>)))));
+
+    // Which tiles are rail, built or planned, for the pieces of track to join up.
+    let rails: BTreeSet<Pos> = wanted
+        .iter()
+        .filter(|(_, (id, _))| sim.defs.building(*id).rail.is_some())
+        .map(|(&p, _)| p)
+        .collect();
 
     // Entities despawned with the old map (regenerate) are no longer there, and a tile whose
     // building changed (a site finished into another one's tile, say) is drawn afresh.
@@ -88,16 +102,28 @@ fn sync_buildings(
 
     for (pos, (id, progress)) in wanted {
         let color = Color::srgba(1.0, 1.0, 1.0, alpha(progress));
+        let art_name = sim.defs.building(id).art_for(sim.world.nation);
+        let connects = sprites::buildings::connects(art_name);
+        let links = if connects { links(&rails, pos) } else { 0 };
         if let Some(&e) = drawn.0.get(&pos) {
-            if let Ok((mut sprite, _)) = sprites.get_mut(e)
-                && sprite.color != color
-            {
-                sprite.color = color;
+            if let Ok((mut sprite, mut building)) = sprites.get_mut(e) {
+                if sprite.color != color {
+                    sprite.color = color;
+                }
+                if connects && building.shown != usize::from(links) {
+                    // A neighbour was laid or cancelled: turn this piece to join it.
+                    building.shown = usize::from(links);
+                    let cell = sprites::buildings::link_frame(building.frames, links);
+                    let [x0, y0, x1, y1] = cell.pixel_rect();
+                    sprite.rect = Some(Rect::new(x0, y0, x1, y1));
+                }
             }
             continue;
         }
-        let frames = sprites::buildings::frames(sim.defs.building(id).art_for(sim.world.nation));
-        let mut sprite = art.sprite(frames[0]);
+        let frames = sprites::buildings::frames(art_name);
+        let first =
+            if connects { sprites::buildings::link_frame(frames, links) } else { frames[0] };
+        let mut sprite = art.sprite(first);
         sprite.color = color;
         // The anchor is the bottom middle of the tile, so a sprite of any height stands on it.
         let mut at = tile_translation(pos, row_depth(pos.y));
@@ -109,12 +135,21 @@ fn sync_buildings(
                 sprite,
                 Anchor::BOTTOM_CENTER,
                 Transform::from_translation(at),
-                BuildingSprite { building: id, frames, phase, shown: 0 },
+                BuildingSprite { building: id, frames, phase, shown: usize::from(links), connects },
                 MapEntity,
             ))
             .id();
         drawn.0.insert(pos, entity);
     }
+}
+
+/// Which of the four neighbours of `pos` are rail, as the `LINK_*` bits of a piece of track.
+fn links(rails: &BTreeSet<Pos>, pos: Pos) -> u8 {
+    use sprites::buildings::{LINK_E, LINK_N, LINK_S, LINK_W};
+    [((0, -1), LINK_N), ((1, 0), LINK_E), ((0, 1), LINK_S), ((-1, 0), LINK_W)]
+        .into_iter()
+        .filter(|((dx, dy), _)| rails.contains(&Pos::new(pos.x + dx, pos.y + dy)))
+        .fold(0, |mask, (_, bit)| mask | bit)
 }
 
 /// The frame of a `len`-frame sprite to show `elapsed` seconds in, for a tile with `phase`.
@@ -126,7 +161,7 @@ fn frame_index(elapsed: f32, phase: usize, len: usize) -> usize {
 /// first frame: nothing burns there yet.
 fn animate_buildings(time: Res<Time>, mut sprites: Query<(&mut Sprite, &mut BuildingSprite)>) {
     for (mut sprite, mut building) in &mut sprites {
-        if building.frames.len() < 2 || sprite.color.alpha() < 1.0 {
+        if building.connects || building.frames.len() < 2 || sprite.color.alpha() < 1.0 {
             continue;
         }
         let frame = frame_index(time.elapsed_secs(), building.phase, building.frames.len());
@@ -207,7 +242,7 @@ mod tests {
             let hall = app.world().resource::<Sim>().defs.building_id("study_hall").unwrap();
             let pos = free_tile(app.world().resource::<Sim>());
             app.world_mut().resource_mut::<Sim>().world.map.get_mut(pos).unwrap().building =
-                Some(fn_sim::building::Building { id: hall, passable: true });
+                Some(fn_sim::building::Building { id: hall, passable: true, rail: false });
             app.update();
             let (_, sprite, building) = sprite_at(&app, pos).expect("a finished building");
             assert_eq!(sprite.color.alpha(), 1.0);
@@ -225,7 +260,7 @@ mod tests {
         let wall = app.world().resource::<Sim>().defs.building_id(waiting).unwrap();
         let pos = free_tile(app.world().resource::<Sim>());
         app.world_mut().resource_mut::<Sim>().world.map.get_mut(pos).unwrap().building =
-            Some(fn_sim::building::Building { id: wall, passable: false });
+            Some(fn_sim::building::Building { id: wall, passable: false, rail: false });
         app.update();
         let (_, _, building) = sprite_at(&app, pos).expect("drawn anyway");
         assert_eq!(building.frames, &[sprites::buildings::UNFINISHED]);
@@ -247,12 +282,67 @@ mod tests {
             let mut sim = app.world_mut().resource_mut::<Sim>();
             sim.apply(Command::CancelBuild { pos }).unwrap();
             sim.world.map.get_mut(pos).unwrap().building =
-                Some(fn_sim::building::Building { id: bed, passable: true });
+                Some(fn_sim::building::Building { id: bed, passable: true, rail: false });
         }
         app.update();
         let (done, sprite, _) = sprite_at(&app, pos).unwrap();
         assert_eq!(sprite.color.alpha(), 1.0);
         assert_eq!(site, done, "the same building: the same sprite, now opaque");
+    }
+
+    #[test]
+    fn rail_draws_the_piece_that_joins_the_rail_beside_it() {
+        use sprites::buildings::{LINK_E, LINK_N, LINK_S, link_frame};
+        let mut app = app(Nation::Earth);
+        let rail = app.world().resource::<Sim>().defs.building_id("rail").unwrap();
+        // Terrain does not matter to the sprite; keep clear of the map's edge for the neighbours.
+        let free = free_tile(app.world().resource::<Sim>());
+        let pos = Pos::new(free.x.clamp(2, 60), free.y.clamp(2, 60));
+        let lay = |app: &mut App, at: Pos| {
+            app.world_mut().resource_mut::<Sim>().world.map.get_mut(at).unwrap().building =
+                Some(fn_sim::building::Building { id: rail, passable: true, rail: true });
+        };
+        let piece = |app: &App, at: Pos| {
+            let (_, sprite, building) = sprite_at(app, at).expect("rail is drawn");
+            assert!(building.connects);
+            sprite.rect
+        };
+        let frames = sprites::buildings::frames("rail");
+        let want = |links| {
+            let [x0, y0, x1, y1] = link_frame(frames, links).pixel_rect();
+            Some(Rect::new(x0, y0, x1, y1))
+        };
+
+        lay(&mut app, pos);
+        app.update();
+        assert_eq!(piece(&app, pos), want(0), "alone it is a stub");
+
+        // Rail beside it turns it to join: east, then also north, then south too.
+        let east = Pos::new(pos.x + 1, pos.y);
+        lay(&mut app, east);
+        app.update();
+        assert_eq!(piece(&app, pos), want(LINK_E));
+        assert_eq!(piece(&app, east), want(sprites::buildings::LINK_W), "and it joins back");
+        let north = Pos::new(pos.x, pos.y - 1);
+        lay(&mut app, north);
+        app.update();
+        assert_eq!(piece(&app, pos), want(LINK_N | LINK_E));
+        let south = Pos::new(pos.x, pos.y + 1);
+        lay(&mut app, south);
+        app.update();
+        assert_eq!(piece(&app, pos), want(LINK_N | LINK_E | LINK_S));
+        // Other buildings never join: a bed next to the rail doesn't turn it.
+        let bed = app.world().resource::<Sim>().defs.building_id("bed").unwrap();
+        let west = Pos::new(pos.x - 1, pos.y);
+        app.world_mut().resource_mut::<Sim>().world.map.get_mut(west).unwrap().building =
+            Some(fn_sim::building::Building { id: bed, passable: true, rail: false });
+        app.update();
+        assert_eq!(piece(&app, pos), want(LINK_N | LINK_E | LINK_S));
+        // The rail is drawn the same whatever the time: pieces do not animate.
+        for _ in 0..3 {
+            app.update();
+        }
+        assert_eq!(piece(&app, pos), want(LINK_N | LINK_E | LINK_S));
     }
 
     #[test]

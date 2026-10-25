@@ -153,6 +153,10 @@ pub struct World {
     /// How units walk. Every unit uses these for now; a nation that can cross water would get
     /// its own.
     rules: MoveRules,
+    /// How a unit hauling a stack moves: `rules` plus rail (#135). Built from the building defs
+    /// when the world is made, so a save from before rail existed has the plain `rules` here.
+    #[serde(default)]
+    cart_rules: MoveRules,
     /// Which tiles can reach which under `rules`, or `None` when the map has changed since it
     /// was computed. Recomputed on demand; see `regions.rs`.
     #[serde(skip)]
@@ -200,6 +204,7 @@ impl World {
             stored: BTreeMap::new(),
             sites: BTreeMap::new(),
             rules: MoveRules::default(),
+            cart_rules: defs.cart_rules(MoveRules::default()),
             regions: None,
             bend_events: Vec::new(),
             patches: Vec::new(),

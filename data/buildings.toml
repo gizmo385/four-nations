@@ -24,6 +24,10 @@
 #             (data/nations.toml): it is scaled by the nation's, rounded, and at least 1. It
 #             never needs fuel; a fuel economy is future work. Raw food still works with no
 #             fire at all.
+# - rail:     a track (issue #135, docs/design/research.md, "Rail"). A unit hauling a stack goes
+#             `speed` times as fast on a straight step from one rail tile onto the next beside it,
+#             and plans its route to use that. Foot traffic gains nothing. Must be passable, and
+#             only one building may be a rail. `speed` is above 1.0 and at most 10.
 # - names:    what each nation calls this building, if it varies. Either all four nations or
 #             none; falls back to `name` for a building that omits it.
 # - art:      which sprite of art/buildings.toml each nation draws it with, if it varies (the study
@@ -99,6 +103,22 @@ passable = false
 [[building.cost]]
 item = "stone"
 count = 3
+
+# One tile of track, unlocked by `earth_rail` (data/research.toml). Rail is for hauling: a unit
+# carrying a stack runs twice as fast between two tiles of it, so a line of rail from the quarry
+# to the stockpile halves the trips' walking. Cost and work are placeholders, per tile, pending a
+# balance pass: a line of ten is 20 stone and under two minutes of one builder's time.
+[[building]]
+id = "rail"
+name = "Rail"
+verb = "Lay"
+work = 10.0
+passable = true
+[building.rail]
+speed = 2.0
+[[building.cost]]
+item = "stone"
+count = 2
 
 # --- Air Nomads ---
 # The Air branch's buildings (issue #28), each unlocked by its tech in data/research.toml. They

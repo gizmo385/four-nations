@@ -168,9 +168,10 @@ description = "Stone carts pushed along rails by earthbenders, as in Ba Sing Se.
 nation = "earth"
 cost = 250
 prereqs = ["earthen_walls"]
-# Modifier-only for now: rails for haul routes need a rail mechanic that doesn't exist (hauling
-# is a unit carrying a stack), so the benefit is the carry_capacity multiplier alone (#135).
+# Unlocks the rail building (#135, docs/design/research.md): carts run along a line of it. Being
+# Earth's own tech is what makes rail Earth's: nothing else in the code asks which nation.
 [tech.unlocks]
+buildings = ["rail"]
 modifiers = { carry_capacity = 1.25 }
 
 [[tech]]

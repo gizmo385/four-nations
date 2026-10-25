@@ -41,7 +41,7 @@ fn run_until(w: &mut World, defs: &Defs, limit: u64, mut done: impl FnMut(&World
 fn place(w: &mut World, defs: &Defs, pos: Pos, building: &str) -> BuildingId {
     let id = defs.building_id(building).unwrap();
     let def = defs.building(id);
-    w.map[pos].building = Some(Building { id, passable: def.passable });
+    w.map[pos].building = Some(Building { id, passable: def.passable, rail: def.rail.is_some() });
     w.light_building_fire(pos, def);
     w.map_changed();
     id

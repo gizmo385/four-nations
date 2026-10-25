@@ -12,6 +12,7 @@ use crate::building::{BuildingDef, BuildingId, BuildingsFile};
 use crate::jobs::{HarvestDef, ItemDef, ItemId, JobSettings, JobsFile};
 use crate::nation::{Nation, NationDef};
 use crate::needs::{FoodDef, NeedsFile, NeedsSettings};
+use crate::path::MoveRules;
 use crate::research::{self, ResearchFile, ResearchSettings, TechDef, TechId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, serde::Serialize)]
@@ -388,6 +389,15 @@ impl Defs {
 
     pub fn building_id(&self, id: &str) -> Option<BuildingId> {
         self.buildings.iter().position(|b| b.id == id).map(|i| BuildingId(i as u16))
+    }
+
+    /// `walking` rules with rail switched on at the speed the rail building (if any) sets: how a
+    /// unit hauling a stack moves (#135). Unchanged if no building is a rail.
+    pub fn cart_rules(&self, walking: MoveRules) -> MoveRules {
+        match self.buildings.iter().find_map(|b| b.rail) {
+            Some(rail) => walking.with_rail(rail.step_cost()),
+            None => walking,
+        }
     }
 
     pub fn building(&self, id: BuildingId) -> &BuildingDef {
