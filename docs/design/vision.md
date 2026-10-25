@@ -50,6 +50,13 @@ Generate world → place settlement → designate (chop, mine, farm, build) → 
 resources flow to stockpiles → needs are met or units die → population grows.
 Win: reach N population (the 2013 goal was 10). Lose: everyone dies.
 
+## End game (proposed, #224)
+
+A long road of achievements (population, buildings, the nation's research branch, stores,
+bending mastery) leads to a great work built **with the Avatar**: the Harmony Gate. Finishing it
+opens the settlement to people of all four nations, each bending their own element. Design and
+open questions: [endgame.md](endgame.md).
+
 ## Open questions
 
 - **Scale**: one settlement on a 96×64 map, or a larger world map with travel?
