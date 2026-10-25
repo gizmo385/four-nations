@@ -418,9 +418,13 @@ impl World {
             Effect::Reshape { from, .. } => {
                 let tile = &self.map[pos];
                 if !from.contains(&tile.terrain) {
+                    // Raise Earth works water, Bore Tunnel (#132) works mountains.
+                    let rock = from.contains(&Terrain::Mountain);
                     return Err(match tile.terrain {
-                        Terrain::Water | Terrain::Coast => "the sea is out of reach",
                         Terrain::Ford => "already a ford",
+                        Terrain::Tunnel => "already a tunnel",
+                        _ if rock => "needs a mountain tile",
+                        Terrain::Water | Terrain::Coast => "the sea is out of reach",
                         _ => "needs a river or lake tile",
                     });
                 }
@@ -655,5 +659,7 @@ mod earth_tests;
 mod fire_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tunnel_tests;
 #[cfg(test)]
 mod water_tests;

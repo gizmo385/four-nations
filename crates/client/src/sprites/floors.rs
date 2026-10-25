@@ -32,9 +32,13 @@ const MUD: [Cell; VARIANTS] = floor(4);
 /// The flat interior of a mountain. The mountain rows are the cliffs family's (#147).
 #[allow(dead_code)]
 pub const ROCK: [Cell; VARIANTS] = floor(5);
+/// Packed earth inside the rock: a passage Earth's Bore Tunnel cut (#132). The mountain around it
+/// draws its cliff rim facing in, since a tunnel is lower ground (`cliffs::cliff_cell`).
+const TUNNEL: [Cell; VARIANTS] = floor(6);
 
 const SHORES: &[Terrain] = &[Terrain::Coast, Terrain::Ford];
 const LAND: &[Terrain] = &[Terrain::Land];
+const TUNNELS: &[Terrain] = &[Terrain::Tunnel];
 
 impl GroundRule {
     /// The floor variant for the tile at `p`: a weighted pick by `tile_hash(p, 1)`, so a tile
@@ -57,6 +61,16 @@ impl GroundRule {
 }
 
 pub const GROUND: &[GroundRule] = &[
+    // A tunnel looks the same in every biome: it is inside the rock, under any snow.
+    GroundRule {
+        terrains: TUNNELS,
+        biome: None,
+        base: TUNNEL[0],
+        variants: &TUNNEL,
+        decor: None,
+        water: None,
+        cliff: None,
+    },
     // Fords share the shore tile until autotiling can draw a crossing.
     GroundRule {
         terrains: SHORES,
@@ -153,7 +167,7 @@ mod tests {
     #[test]
     fn every_floor_cell_is_the_sprite_it_claims() {
         let names = sprite_names();
-        assert_eq!(names.len(), 6 * VARIANTS);
+        assert_eq!(names.len(), 7 * VARIANTS);
         let floors = [
             ("grass", GRASS),
             ("forest_floor", FOREST),
@@ -161,6 +175,7 @@ mod tests {
             ("snow", SNOW),
             ("mud", MUD),
             ("rock", ROCK),
+            ("tunnel", TUNNEL),
         ];
         for (prefix, cells) in floors {
             for (v, cell) in cells.iter().enumerate() {
@@ -174,8 +189,8 @@ mod tests {
     }
 
     #[test]
-    fn the_sheet_is_four_variants_by_six_floors() {
-        assert_eq!(super::super::test_support::png_size(SHEET), (4 * 16, 6 * 16));
+    fn the_sheet_is_four_variants_by_seven_floors() {
+        assert_eq!(super::super::test_support::png_size(SHEET), (4 * 16, 7 * 16));
     }
 
     #[test]

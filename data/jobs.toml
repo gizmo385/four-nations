@@ -64,6 +64,10 @@ knowledge = 40
 #             stays on the map, can't be worked again until it has regrown, and then ripens
 #             again. This is what keeps a settlement fed past the first few hours. Without it
 #             the resource is used up.
+# - tunnel_count: optional, more than `count`. What one harvest yields instead when a tunnel
+#             (Earth's Bore Tunnel, data/bending.toml) touches the resource's tile, any of its 8
+#             neighbours: the vein is mined from inside the mountain (issue #132,
+#             docs/design/research.md, "Tunneling"). Without it tunnels make no difference.
 # Which tech, if any, must be known before a resource's designation is available is
 # `[tech.unlocks] jobs` in data/research.toml (issue #22): until the nation knows it, the
 # resource can't be designated, and hungry units won't forage it either.
@@ -90,6 +94,7 @@ item = "stone"
 count = 3
 work = 12.0
 modifier = "earthworks"
+tunnel_count = 5
 
 [[harvest]]
 resource = "gold_vein"
@@ -98,6 +103,7 @@ item = "gold_ore"
 count = 1
 work = 30.0
 modifier = "earthworks"
+tunnel_count = 2
 
 # Picking a scroll up is quick; the point is finding it. Not renewable: each is read once.
 [[harvest]]

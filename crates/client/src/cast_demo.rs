@@ -23,7 +23,7 @@ use fn_ui::Session;
 use super::TILE;
 
 /// The camera's scale: close enough to see the pixels.
-const ZOOM: f32 = 0.28;
+pub const ZOOM: f32 = 0.28;
 /// Give up waiting for the bend after this many in-game seconds.
 const GIVE_UP_SECS: u32 = 400;
 
@@ -31,6 +31,13 @@ const GIVE_UP_SECS: u32 = 400;
 pub struct CastDemo {
     /// Where the camera looks.
     centre: Vec2,
+}
+
+impl CastDemo {
+    /// A close-up looking at `centre`, for other staged shots (`tunnel_demo`, #132).
+    pub fn looking_at(centre: Vec2) -> Self {
+        Self { centre }
+    }
 }
 
 /// The ability the demos cast: `FN_CAST_ABILITY` if set, else the nation's signature one. If it

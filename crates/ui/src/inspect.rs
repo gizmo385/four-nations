@@ -126,9 +126,12 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
         } else {
             let item = &defs.item(h.item).name;
             let suffix = if repeating { " (repeating)" } else { "" };
+            // A vein beside a tunnel (#132) is mined from inside the rock, for more.
+            let count = world.harvest_yield(tile, h);
+            let tunnel = if count > h.count { " from the tunnel" } else { "" };
             lines.push(Line::Detail(format!(
-                "{}: {} {item} - {:.0}s{suffix}",
-                h.verb, h.count, h.work
+                "{}: {count} {item}{tunnel} - {:.0}s{suffix}",
+                h.verb, h.work
             )));
             lines.push(Line::Hint(if tool == Tool::Harvest {
                 Hint::ApplyTool(Tool::Harvest)
@@ -222,6 +225,36 @@ mod tests {
         let hint = |tool| tooltip_lines(&s, tool, tree).unwrap().pop().unwrap();
         assert_eq!(hint(Tool::Select), Line::Hint(Hint::StartTool(Tool::Harvest)));
         assert_eq!(hint(Tool::Harvest), Line::Hint(Hint::ApplyTool(Tool::Harvest)));
+    }
+
+    #[test]
+    fn a_vein_beside_a_tunnel_shows_its_richer_yield() {
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let gold = s.defs.resource_id("gold_vein").unwrap();
+        let h = s.defs.harvest(gold).unwrap().clone();
+        let (vein, rock) = s
+            .world
+            .map
+            .iter()
+            .filter(|(_, t)| t.resource == Some(gold))
+            .find_map(|(p, _)| {
+                let rock = Pos::new(p.x + 1, p.y);
+                let bare = |t: &fn_sim::Tile| t.terrain == fn_sim::Terrain::Mountain;
+                s.world
+                    .map
+                    .get(rock)
+                    .is_some_and(|t| bare(t) && t.resource.is_none())
+                    .then_some((p, rock))
+            })
+            .expect("a gold vein with bare rock east of it");
+        let detail = |s: &Session| tooltip_lines(s, Tool::Select, vein).unwrap()[2].clone();
+        assert_eq!(detail(&s), Line::Detail(format!("Mine: {} Gold Ore - 30s", h.count)));
+        s.world.map[rock].terrain = fn_sim::Terrain::Tunnel;
+        let more = h.tunnel_count.unwrap();
+        assert_eq!(
+            detail(&s),
+            Line::Detail(format!("Mine: {more} Gold Ore from the tunnel - 30s"))
+        );
     }
 
     #[test]

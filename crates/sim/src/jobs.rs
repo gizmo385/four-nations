@@ -55,6 +55,10 @@ pub struct HarvestDef {
     /// In-game seconds a renewable resource takes to ripen again after being worked. `None`
     /// means the resource is used up. See `World::growth_rate` for what speeds this up.
     pub regrow: Option<f32>,
+    /// What one harvest yields instead of `count` when the resource is mined from inside a
+    /// mountain: when a tunnel (`Terrain::Tunnel`) touches its tile (issue #132,
+    /// `World::harvest_yield`). `None` means tunnels make no difference.
+    pub tunnel_count: Option<u32>,
     /// The tech that must be known before this can be designated or foraged
     /// (`data/research.toml`, `Unlocks::jobs`, issue #22). `None` means every nation can work it
     /// from the start.
@@ -104,6 +108,7 @@ struct RawHarvest {
     work: f32,
     modifier: Option<String>,
     regrow: Option<f32>,
+    tunnel_count: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -213,6 +218,9 @@ impl JobsFile {
             {
                 return err(format!("harvest {r}: regrow must be a positive number of seconds"));
             }
+            if h.tunnel_count.is_some_and(|t| t <= h.count) {
+                return err(format!("harvest {r}: tunnel_count must be more than count"));
+            }
             harvests.push(HarvestDef {
                 resource: ResourceId(resource as u16),
                 verb: h.verb,
@@ -221,6 +229,7 @@ impl JobsFile {
                 work: h.work,
                 modifier: h.modifier,
                 regrow: h.regrow,
+                tunnel_count: h.tunnel_count,
                 unlocked_by: None,
             });
         }

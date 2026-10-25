@@ -101,7 +101,9 @@ the player has to plan around and the ways the world pushes back.
   Water's `water_travel`). Fords are permanent, and there's no undo in v1, so a misplaced
   causeway stays.
 - **Research hooks:** `earth_shaping` (earthworks ×1.2) makes the channel faster. `tunneling`
-  stays a separate designation for mountain tiles.
+  unlocks **Bore Tunnel** (#132), the same `reshape` effect aimed at mountains: it turns a bare
+  mountain tile beside walkable ground into a walkable `Tunnel`, and minerals beside a tunnel
+  yield more (research.md, "Tunneling").
 
 ### Water Tribes: Water the Land
 

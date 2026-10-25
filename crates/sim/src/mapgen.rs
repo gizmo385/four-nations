@@ -417,6 +417,7 @@ pub fn to_ascii(map: &TileMap, defs: &Defs) -> String {
             (None, Terrain::Ford) => '+',
             (None, Terrain::Coast) => '.',
             (None, Terrain::Mountain) => '^',
+            (None, Terrain::Tunnel) => '_',
             (None, Terrain::Land) => defs.biome(t.biome).glyph,
         };
         out.push(glyph);

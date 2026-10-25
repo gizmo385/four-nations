@@ -31,6 +31,10 @@ pub enum Terrain {
     /// A shallow, walkable crossing where mapgen cut a river (issue #30). Replaces a single
     /// river tile so land on both banks stays connected.
     Ford,
+    /// A passage through a mountain, bored by Earth's Bore Tunnel bend (issue #132,
+    /// docs/design/research.md, "Tunneling"). Walkable, but not open ground: nothing is built or
+    /// stockpiled on it. Minerals beside one are mined from inside the rock, which yields more.
+    Tunnel,
 }
 
 impl Terrain {
@@ -45,7 +49,7 @@ impl Terrain {
     }
 
     pub fn is_walkable(self) -> bool {
-        matches!(self, Terrain::Coast | Terrain::Land | Terrain::Ford)
+        matches!(self, Terrain::Coast | Terrain::Land | Terrain::Ford | Terrain::Tunnel)
     }
 }
 
@@ -470,7 +474,7 @@ mod tests {
     }
 
     /// The bundled research tree without the job unlocks, for tests with their own resources
-    /// and ability unlocks (so `fish_spot`, `stone` and `inner_fire` don't dangle).
+    /// and ability unlocks (so `fish_spot`, `stone`, `inner_fire` and `bore_tunnel` don't dangle).
     fn bare_research() -> String {
         let mut src = RESEARCH.to_string();
         for job in ["fish_spot", "stone"] {
@@ -479,9 +483,11 @@ mod tests {
             src = src.replace(&unlock, "");
         }
         // The bare bending has no abilities, so a tech can't unlock one.
-        let ability = "abilities = [\"inner_fire\"]\n";
-        assert!(src.contains(ability), "inner_fire's unlock moved; update this helper");
-        src = src.replace(ability, "");
+        for id in ["inner_fire", "bore_tunnel"] {
+            let ability = format!("abilities = [\"{id}\"]\n");
+            assert!(src.contains(&ability), "{id}'s unlock moved; update this helper");
+            src = src.replace(&ability, "");
+        }
         src
     }
 

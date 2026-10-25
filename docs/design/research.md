@@ -98,20 +98,86 @@ written as `field ×N`.
 |---|---|---|---|
 | `earth_shaping` | 60 | stoneworking | level/raise-terrain designation; earthworks ×1.2 |
 | `earthen_walls` | 120 | earth_shaping, masonry | earth wall (built, #25); flood barrier and terraces (not yet: nothing for them to do); construction ×1.25 |
-| `tunneling` | 120 | earth_shaping | tunnel designation through mountain tiles; mining inside mountains |
+| `tunneling` | 120 | earth_shaping | ability: Bore Tunnel, a walkable tunnel through mountain tiles; minerals beside a tunnel yield more ("Tunneling" below, #132) |
 | `earth_rail` | 250 | earthen_walls | rail building: Ba Sing Se–style track that carts run along (#135, "Rail" below); carry_capacity ×1.25 |
 | `seismic_sense` | 250 | tunneling | ability: reveal ore and gems in a radius |
 | `metalbending` | 500 | seismic_sense, masonry | metal from ore without a smelter; ability: metalbend |
 
-Earth content pass (#25): only `earthen_walls` unlocks a concrete thing today (the `earth_wall`
+Earth content pass (#25): only `earthen_walls` unlocked a concrete thing then (the `earth_wall`
 building). `earth_shaping` is modifier-only for now (Raise Earth already
-scales with earthworks), and `tunneling`, `seismic_sense` and
-`metalbending` unlock nothing until their mechanics exist: tunnels (#132), revealing hidden ore
-(#133), metal (#134). Rail was added by #135 (below), and the flood barrier and terraces are #136.
+scales with earthworks), and `seismic_sense` and
+`metalbending` unlock nothing until their mechanics exist: revealing hidden ore
+(#133), metal (#134). `tunneling` unlocks Bore Tunnel since #132 (below). Rail was added by #135 (below), and the flood barrier and terraces are #136.
 `crates/sim/tests/research_earth.rs` keeps that list honest. No costs or multipliers changed:
 with the pacing assumptions above (one scholar from minute 5, two from 15, three from 40, each
 two-thirds effective), an Earth settlement has about 1000 points at minute 60 and the whole tree
 (shared tier plus branch, 2285 points) known at about minute 107, `metalbending` at about 71.
+
+### Tunneling (#132)
+
+`tunneling` promised "a tunnel designation through mountain tiles; mining inside mountains", but
+mountains were solid: impassable, mined only from their edge, and the gold veins and stone deep
+inside a range could never be reached. The owner decided (2026-10-25) that gold stays open to every
+nation, so the tech must not gate a resource. It makes Earth *better* at mining minerals instead.
+
+**What a tunnel is.** Three shapes were weighed:
+
+- *A building* (like rail): reuses the build designation, but a building stands on buildable land,
+  and every rule about footprints, rings and doors (#207 to #230) would need an exception for one
+  that is dug *into* a mountain. It would also cost materials, when boring a tunnel moves rock
+  rather than bringing any.
+- *A designation of its own* (a new job kind): a second "change this tile" job beside bending's,
+  with its own claim, walk, work and save code.
+- *A bend* (chosen). Earth already has the right tool: Raise Earth is a `reshape` effect that turns
+  one terrain into another, from a tile beside walkable ground, a tile at a time. **Bore Tunnel**
+  is the same effect with `from = ["mountain"]` and `to = "tunnel"`, a new `Terrain::Tunnel`. It
+  needed no new effect code, only data (`data/bending.toml`), and `unlocks.abilities` gates it
+  behind the tech, the way Inner Fire is gated behind `dancing_dragon`. Being a bend is also what
+  makes it Earth's: earthbenders open the rock, spending chi rather than materials, so there is
+  no `if nation == Earth` anywhere.
+
+The tunnel itself:
+
+| | Value (`data/bending.toml`, confirmed by the owner 2026-10-25) |
+|---|---|
+| Chi | 40 (two bores per 28-minute chi cycle, see bending.md "Chi") |
+| Channel | 20 s ÷ `earthworks` (8 s for Earth's 2.5, 6.7 s with `earth_shaping`) |
+| Target | A bare Mountain tile (no stone or vein on it: quarry it first), 4-adjacent to walkable ground, which includes another tunnel |
+| Result | Terrain becomes `Tunnel`: walkable at cost 1 by every unit, not buildable (`Blocker::Terrain`), permanent |
+
+Tunnels grow inward one tile at a time from the mountain's edge or from the last tunnel tile, so a
+long one is many bends; like a ford, there is no undo in v1. A tunnel also joins the two sides of
+a range, so it shortens hauls the way a ford does across water.
+
+**How tunneling raises mineral yields.** Four options were weighed:
+
+1. *A yield or speed modifier* (`mining x1.5` on the tech). The cheapest to build, but invisible:
+   it changes a number and nothing on the map, and gives the tunnel nothing to do.
+2. *Deep veins become reachable.* True of any walkable tunnel, for free: veins inside a range that
+   no unit could stand beside are now in reach. It adds minerals to the map but makes none richer.
+3. *Mining from inside a tunnel yields more* (chosen, together with 2). A vein or outcrop that a
+   tunnel tile touches (any of its 8 neighbours) is mined from inside the rock and yields its
+   harvest's `tunnel_count` instead of `count` (`data/jobs.toml`). It is visible (the tooltip
+   says "Mine: 2 Gold Ore from the tunnel"), it makes the player decide where to dig, and it
+   costs chi and channel time to set up, so it pays best on a cluster of outcrops a tunnel can
+   run between.
+4. *Mined-out veins regrow slowly.* Would make minerals renewable, which changes the whole
+   economy for every nation rather than Earth's mining; better left for the metal and power work
+   (#124, #134) if it is ever wanted.
+
+So a tunnel both opens the inside of a mountain (2) and makes what is mined from it richer (3).
+Yields (confirmed by the owner 2026-10-25): stone 3 → **5** per outcrop, gold 1 → **2** per vein. Work time doesn't change.
+The rule is per harvest (`tunnel_count`), so ore and metal from #134 can carry their own.
+
+**Gold and stone stay open to everyone.** Neither harvest is gated by `tunneling`: gold needs no
+tech, stone needs the shared `stoneworking`, and any nation's units mine an edge vein for the
+plain `count`. Nothing asks who dug the tunnel or who mines beside it; only Earth can bore one.
+
+Tests: `crates/sim/src/world/bending/tunnel_tests.rs` (locking, targets, a deep vein reached and
+mined, the same vein mined with and without a tunnel, every nation mining without the tech).
+Drawing: the client draws a tunnel as a packed-earth floor (`art/floors.toml`, `tunnel0` to
+`tunnel3`) with the mountain's own cliff rim facing it, since a tunnel counts as lower ground;
+the TUI shows `∩` (`_` in `--ascii`, the mapgen renderer's glyph).
 
 ### Rail (#135)
 
@@ -153,7 +219,8 @@ on the terrain it enters. The decisions:
    2 stone and 10 s of work a tile. A ten-tile line is 20 stone and under two minutes of one
    builder's time, and saves 30 ticks (3 seconds) on every loaded trip along it.
 6. **Not in this issue:** rail for non-Earth nations, trains, junction rules and
-   stations. Bridges and tunnels are the rail's natural next step but need #132.
+   stations. Bridges and tunnels are the rail's natural next step; tunnels exist since #132,
+   and rail can't be laid in one yet (a tunnel isn't buildable ground).
 
 The client draws a rail as flat track, not a building: sixteen pieces on the Earth sheet, one for
 every set of neighbours a tile joins, chosen from the rail tiles around it (`link_frame`), so a
