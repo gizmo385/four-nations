@@ -154,13 +154,13 @@ sha256 = "8363af86d94cad2f3edea29f5a0a335b19f6fc96596aabc23f94d1d946c90aa7"
 path = "original/icons.png"
 source = "original"
 generated_from = "art/icons.toml"
-sha256 = "4683601a24896be0401a872de7bed4427f78f916b55b04990a33769ca6b32b7d"
+sha256 = "507f02ee66cef8dc9d12ebd503a72e2f4b0bc03008aef2a56688ef15e01461ab"
 
 [[file]]
 path = "original/resources.png"
 source = "original"
 generated_from = "art/resources.toml"
-sha256 = "d6f771ef59894b2b55b2b164031a7ac65b75e8927b2b520dbdcdbdb385b6d95f"
+sha256 = "c6f57656de50722d67913e00f6ff388fd7f90b92b0d3f5390aadd0e5edf90835"
 
 [[file]]
 path = "original/tools.png"
