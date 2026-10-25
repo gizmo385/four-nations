@@ -190,13 +190,25 @@ fn an_old_save_carries_on_without_panicking() {
     assert_eq!(again.tick, w.tick);
 }
 
+/// World-level fields added since v1, with the text each writes for a world that doesn't use the
+/// feature. They are `serde(default)` fields, so old saves load without them, but a save always
+/// writes them. Footprint fields on `Building`, `Site` and `HeatSource` (#207) must NOT be added
+/// here: for a world of 1x1 buildings they are skipped when written (`skip_serializing_if`), so
+/// the output stays as v1 wrote it.
+const WORLD_FIELDS_ADDED_SINCE_V1: &[&str] = &[
+    // Inner Fire's warmth auras (#123).
+    "auras:{},",
+];
+
 #[test]
 fn saving_an_old_save_again_gives_the_same_text() {
-    // A world of 1x1 buildings must serialize exactly as v1 did: new footprint fields may not
-    // appear in the output for them.
     let defs = Defs::bundled();
     let w = World::load(FIXTURE, &defs).unwrap();
-    let text = w.save(&defs).unwrap();
+    let mut text = w.save(&defs).unwrap();
+    for field in WORLD_FIELDS_ADDED_SINCE_V1 {
+        assert_eq!(text.matches(field).count(), 1, "{field} should be written once");
+        text = text.replacen(field, "", 1);
+    }
     if text != FIXTURE {
         let at = text.bytes().zip(FIXTURE.bytes()).position(|(a, b)| a != b);
         let around = |s: &str| {
@@ -204,8 +216,8 @@ fn saving_an_old_save_again_gives_the_same_text() {
             s.get(from..(from + 160).min(s.len())).unwrap_or("").to_owned()
         };
         panic!(
-            "re-saving the v1 fixture changed it (first difference at byte {at:?})\nfixture: \
-             {}\nresaved: {}",
+            "re-saving the v1 fixture changed it (first difference at byte {at:?}); a world of \
+             1x1 buildings must serialize as v1 did\nfixture: {}\nresaved: {}",
             around(FIXTURE),
             around(&text)
         );
