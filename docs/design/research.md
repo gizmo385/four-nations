@@ -99,19 +99,68 @@ written as `field ×N`.
 | `earth_shaping` | 60 | stoneworking | level/raise-terrain designation; earthworks ×1.2 |
 | `earthen_walls` | 120 | earth_shaping, masonry | earth wall (built, #25); flood barrier and terraces (not yet: nothing for them to do); construction ×1.25 |
 | `tunneling` | 120 | earth_shaping | tunnel designation through mountain tiles; mining inside mountains |
-| `earth_rail` | 250 | earthen_walls | Ba Sing Se–style rail for haul routes; carry_capacity ×1.25 |
+| `earth_rail` | 250 | earthen_walls | rail building: Ba Sing Se–style track that carts run along (#135, "Rail" below); carry_capacity ×1.25 |
 | `seismic_sense` | 250 | tunneling | ability: reveal ore and gems in a radius |
 | `metalbending` | 500 | seismic_sense, masonry | metal from ore without a smelter; ability: metalbend |
 
 Earth content pass (#25): only `earthen_walls` unlocks a concrete thing today (the `earth_wall`
-building). `earth_shaping` and `earth_rail` are modifier-only for now (Raise Earth already
-scales with earthworks, and there is no rail mechanic), and `tunneling`, `seismic_sense` and
+building). `earth_shaping` is modifier-only for now (Raise Earth already
+scales with earthworks), and `tunneling`, `seismic_sense` and
 `metalbending` unlock nothing until their mechanics exist: tunnels (#132), revealing hidden ore
-(#133), metal (#134). Rail is #135, and the flood barrier and terraces are #136.
+(#133), metal (#134). Rail was added by #135 (below), and the flood barrier and terraces are #136.
 `crates/sim/tests/research_earth.rs` keeps that list honest. No costs or multipliers changed:
 with the pacing assumptions above (one scholar from minute 5, two from 15, three from 40, each
 two-thirds effective), an Earth settlement has about 1000 points at minute 60 and the whole tree
 (shared tier plus branch, 2285 points) known at about minute 107, `metalbending` at about 71.
+
+### Rail (#135)
+
+`earth_rail` promised "rail for haul routes", but hauling had no routes to speed up: a unit picks up
+a stack and walks it to a stockpile tile along the cheapest path, and a path's cost depended only
+on the terrain it enters. The decisions:
+
+1. **Rail is a building, not terrain or a designation.** A `rail` building (`data/buildings.toml`,
+   `[building.rail] speed = 2.0`) is 1x1, passable and laid one tile at a time with the ordinary
+   build designation, so it reuses everything buildings already do: cost hauled to the site, work,
+   tech gating (`Unlocks::buildings`, "Requires Earth Rail"), the picker, saves and the
+   `Tile::building` the pathfinder already reads. The alternatives were a new terrain (which
+   needs map editing and mapgen rules for something the player makes) or a "haul route"
+   designation (a second kind of build order, and a route object to keep in step with the map).
+   Tiles also let the player grow a line, branch it and break it, which is what makes a route.
+2. **A hauling unit goes `speed` times as fast from one rail tile onto the next beside it.** The
+   rule is on the *step*: a straight step from a rail tile onto a rail tile costs
+   `STRAIGHT / speed` (5 instead of 10 at speed 2.0) whatever the ground under it. A diagonal is
+   an ordinary diagonal (a track doesn't run that way), and a lone tile does nothing, so rail
+   has to be laid as lines. `MoveRules::step_cost` is the one function that says what a step costs;
+   `path::find`, `Flood`, `path_cost` and `step_needed` (the walk itself, and so the client's
+   `Stride`, #194) all ask it, so a path, its cost and the time the walk takes cannot disagree.
+3. **Only a unit carrying a stack uses it.** Rail is for hauling: the unit pushing a stack of stone
+   is pushing a cart; a unit walking out to a tree is on foot and gets no faster. This keeps the
+   change where the issue asks for it (haul routes: the quarry-to-stockpile trips that repeat all
+   game), and stops rail from becoming a universal road that changes every job's reach and needs
+   balance. `World` holds two `MoveRules`: `rules` for walking and `cart_rules` (walking plus rail),
+   and `World::rules_for(unit)` picks by whether the unit carries something. Planning
+   (`flood_from`), walking (`walk`) and the stride view all go through it. Because the delivery
+   route is planned with the cart's rules, a loaded unit also prefers a stockpile that rail makes
+   nearer, which is what makes laying a line to a stockpile worth doing. Who is "carrying" covers
+   the haul-to-stockpile trips and the trips that bring a build site its materials.
+   *To make rail work for everyone, change `rules_for` to always return `cart_rules`: it is the
+   only place that decides.*
+4. **Earth only, through data.** The `rail` building is unlocked by `earth_rail`, an Earth tech, so
+   only Earth's tree reaches it; nothing in the code checks the nation. The tech's
+   `carry_capacity` x1.25 stays: bigger carts, then rails for them. The other nations' units on a
+   map with rail (none yet) would behave the same, because the speed is a property of the tile
+   and the unit's load, not of who is pushing.
+5. **Numbers** (placeholders for a balance pass): speed 2.0 (half the time on the loaded leg),
+   2 stone and 10 s of work a tile. A ten-tile line is 20 stone and under two minutes of one
+   builder's time, and saves 30 ticks (3 seconds) on every loaded trip along it.
+6. **Not in this issue:** an empty unit riding back on rail (the owner may want carts to run both
+   ways; it is the `rules_for` line above), rail for non-Earth nations, trains, junction rules and
+   stations. Bridges and tunnels are the rail's natural next step but need #132.
+
+The client draws a rail as flat track, not a building: sixteen pieces on the Earth sheet, one for
+every set of neighbours a tile joins, chosen from the rail tiles around it (`link_frame`), so a
+line is one track and a corner turns. The TUI shows it as `╪`.
 
 ### Fire Nation: heat and industry
 

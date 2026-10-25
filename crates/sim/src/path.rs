@@ -8,6 +8,12 @@
 //! than from `Terrain::is_walkable` directly. That keeps the search itself nation-agnostic: a
 //! Water Tribe unit that can cross water just searches with different rules (AGENTS.md rule 7).
 //!
+//! **Rail** (#135): a straight step from one rail tile onto the next costs `MoveRules::rail_step`
+//! instead of the usual `STRAIGHT * tile cost`, when the rules have rail switched on. Which units
+//! get that is decided by which `MoveRules` the world hands them (`World::rules_for`), so this file
+//! never asks who is walking. Because the cost of a step now depends on the tile it leaves as well
+//! as the one it enters, searches ask `MoveRules::step_cost`, not `tile_cost`.
+//!
 //! Costs are integers, so results never depend on float rounding. Ties in the open set are
 //! broken by a total order (`f`, then `h`, then tile index), so the same query on the same map
 //! always returns the same path.
@@ -47,6 +53,11 @@ pub struct MoveRules {
     terrain_cost: [Option<u32>; TERRAINS],
     /// Whether tiles holding a resource (trees, rocks, ...) block movement.
     pub resources_block: bool,
+    /// What a straight step from one rail tile onto the next one costs, in the units of
+    /// `STRAIGHT` (so below `STRAIGHT` is a speed-up). 0 means these rules ignore rail. Saves
+    /// from before rail existed have 0.
+    #[serde(default)]
+    rail_step: u32,
 }
 
 impl Default for MoveRules {
@@ -64,7 +75,7 @@ impl Default for MoveRules {
         ] {
             terrain_cost[terrain_index(t)] = t.is_walkable().then_some(1);
         }
-        Self { terrain_cost, resources_block: true }
+        Self { terrain_cost, resources_block: true, rail_step: 0 }
     }
 }
 
@@ -74,6 +85,19 @@ impl MoveRules {
         assert!(cost != Some(0), "terrain costs must be >= 1");
         self.terrain_cost[terrain_index(terrain)] = cost;
         self
+    }
+
+    /// Returns these rules with rail switched on: a straight step between two rail tiles costs
+    /// `step` (at least 1, and `STRAIGHT` or less) whatever the ground under them.
+    pub fn with_rail(mut self, step: u32) -> Self {
+        assert!((1..=STRAIGHT).contains(&step), "a rail step costs 1..={STRAIGHT}, not {step}");
+        self.rail_step = step;
+        self
+    }
+
+    /// The cost of a rail step, or 0 if these rules ignore rail.
+    pub fn rail_step(&self) -> u32 {
+        self.rail_step
     }
 
     pub fn terrain_cost(&self, terrain: Terrain) -> Option<u32> {
@@ -95,9 +119,27 @@ impl MoveRules {
         self.tile_cost(tile).is_some()
     }
 
-    /// Cheapest cost of any passable terrain; scales the heuristic so it never overestimates.
-    fn min_cost(&self) -> u32 {
-        self.terrain_cost.iter().flatten().copied().min().unwrap_or(1)
+    /// The cost of one step from `from` onto the adjacent tile `to`, in the units `find` and
+    /// `Flood` minimise (`STRAIGHT` or `DIAGONAL` times the tile cost, or `rail_step` along a
+    /// track), or `None` if `to` can't be entered. Rail only speeds a straight step: a diagonal
+    /// between two rail tiles is an ordinary diagonal, because a track doesn't run that way.
+    pub fn step_cost(&self, from: &Tile, to: &Tile, diagonal: bool) -> Option<u32> {
+        let cost = self.tile_cost(to)?;
+        if diagonal {
+            return Some(DIAGONAL * cost);
+        }
+        let rail = |t: &Tile| t.building.is_some_and(|b| b.rail);
+        if self.rail_step > 0 && rail(from) && rail(to) {
+            return Some(self.rail_step.min(STRAIGHT * cost));
+        }
+        Some(STRAIGHT * cost)
+    }
+
+    /// The cheapest a straight step can cost, in `STRAIGHT` units: the heuristic's scale, so it
+    /// never overestimates. The cheapest passable terrain, or the rail if that is cheaper.
+    fn min_step(&self) -> u32 {
+        let ground = self.terrain_cost.iter().flatten().copied().min().unwrap_or(1) * STRAIGHT;
+        if self.rail_step > 0 { ground.min(self.rail_step) } else { ground }
     }
 }
 
@@ -134,8 +176,8 @@ pub fn find(map: &TileMap, from: Pos, to: Pos, rules: &MoveRules) -> Option<Vec<
     let len = (w * map.height()) as usize;
     let idx = |p: Pos| (p.y * w + p.x) as usize;
     let pos = |i: usize| Pos::new(i as i32 % w, i as i32 / w);
-    let min_cost = rules.min_cost();
-    let h = |p: Pos| octile(p, to) * min_cost;
+    let min_step = rules.min_step();
+    let h = |p: Pos| octile(p, to) * min_step / STRAIGHT;
 
     const UNSEEN: u32 = u32::MAX;
     let mut g = vec![UNSEEN; len];
@@ -168,25 +210,26 @@ pub fn find(map: &TileMap, from: Pos, to: Pos, rules: &MoveRules) -> Option<Vec<
         closed[i] = true;
         let p = pos(i);
         // Look each neighbor up once; the diagonal checks below reuse the cardinal results.
-        let costs = NEIGHBORS.map(|(dx, dy)| cost_at(Pos::new(p.x + dx, p.y + dy)));
+        let here = &map[p];
+        let costs = NEIGHBORS.map(|(dx, dy)| {
+            let t = map.get(Pos::new(p.x + dx, p.y + dy))?;
+            rules.step_cost(here, t, dx != 0 && dy != 0)
+        });
         for (k, (dx, dy)) in NEIGHBORS.into_iter().enumerate() {
-            let Some(c) = costs[k] else { continue };
-            let step = if k < 4 {
-                STRAIGHT
-            } else {
+            let Some(step) = costs[k] else { continue };
+            if k >= 4 {
                 // No corner cutting: both orthogonal tiles beside the diagonal must be passable.
                 let (horizontal, vertical) = DIAGONAL_SIDES[k - 4];
                 if costs[horizontal].is_none() || costs[vertical].is_none() {
                     continue;
                 }
-                DIAGONAL
-            };
+            }
             let n = Pos::new(p.x + dx, p.y + dy);
             let ni = idx(n);
             if closed[ni] {
                 continue;
             }
-            let ng = g[i] + step * c;
+            let ng = g[i] + step;
             if ng < g[ni] {
                 g[ni] = ng;
                 came_from[ni] = i as u32;
@@ -206,8 +249,9 @@ pub fn path_cost(map: &TileMap, path: &[Pos], rules: &MoveRules) -> u32 {
             let (a, b) = (w[0], w[1]);
             let (dx, dy) = (b.x - a.x, b.y - a.y);
             assert!(dx.abs() <= 1 && dy.abs() <= 1 && (dx, dy) != (0, 0), "bad step {a:?}->{b:?}");
-            let c = rules.tile_cost(&map[b]).expect("path enters an impassable tile");
-            if dx != 0 && dy != 0 { DIAGONAL * c } else { STRAIGHT * c }
+            rules
+                .step_cost(&map[a], &map[b], dx != 0 && dy != 0)
+                .expect("path enters an impassable tile")
         })
         .sum()
 }
@@ -373,11 +417,13 @@ mod tests {
         let mut m = map(&["...", "...", "..."]);
         let r = MoveRules::default();
         for y in 0..3 {
-            m[Pos::new(1, y)].building = Some(Building { id: BuildingId(0), passable: false });
+            m[Pos::new(1, y)].building =
+                Some(Building { id: BuildingId(0), passable: false, rail: false });
         }
         assert_eq!(find(&m, Pos::new(0, 1), Pos::new(2, 1), &r), None);
         for y in 0..3 {
-            m[Pos::new(1, y)].building = Some(Building { id: BuildingId(0), passable: true });
+            m[Pos::new(1, y)].building =
+                Some(Building { id: BuildingId(0), passable: true, rail: false });
         }
         assert!(find(&m, Pos::new(0, 1), Pos::new(2, 1), &r).is_some());
     }
@@ -393,5 +439,66 @@ mod tests {
         for _ in 0..10 {
             assert_eq!(find(&m, a, b, &r).as_ref(), Some(&p));
         }
+    }
+
+    /// Marks `tiles` of a map as rail.
+    fn lay_rail(m: &mut TileMap, tiles: impl IntoIterator<Item = Pos>) {
+        use crate::building::{Building, BuildingId};
+        for p in tiles {
+            m[p].building = Some(Building { id: BuildingId(0), passable: true, rail: true });
+        }
+    }
+
+    #[test]
+    fn rail_makes_a_longer_route_cheaper_and_only_for_rules_that_ask() {
+        // The rail runs up, along the top and back down; the direct line is 20 steps.
+        let mut m = map(&[
+            ".....................",
+            ".....................",
+            ".....................",
+            ".....................",
+        ]);
+        let rail: Vec<Pos> = (0..=3)
+            .map(|y| Pos::new(0, y))
+            .chain((1..=20).map(|x| Pos::new(x, 0)))
+            .chain((1..=3).map(|y| Pos::new(20, y)))
+            .collect();
+        lay_rail(&mut m, rail);
+        let (a, b) = (Pos::new(0, 3), Pos::new(20, 3));
+
+        let foot = MoveRules::default();
+        let direct = find(&m, a, b, &foot).unwrap();
+        assert_eq!(path_cost(&m, &direct, &foot), 20 * STRAIGHT, "rail means nothing on foot");
+        assert!(direct.iter().all(|p| p.y == 3));
+
+        let cart = MoveRules::default().with_rail(STRAIGHT / 2);
+        let railed = find(&m, a, b, &cart).unwrap();
+        assert!(railed.contains(&Pos::new(10, 0)), "the cart takes the rail: {railed:?}");
+        assert_eq!(path_cost(&m, &railed, &cart), (3 + 20 + 3) * STRAIGHT / 2);
+        assert!(path_cost(&m, &railed, &cart) < path_cost(&m, &direct, &cart));
+        assert_eq!(find(&m, a, b, &cart), find(&m, a, b, &cart), "deterministic");
+    }
+
+    #[test]
+    fn a_flood_agrees_with_a_search_when_rail_is_on() {
+        use crate::flood::Flood;
+        let mut m = map(&["........", ".~~~~~..", "...#....", ".#.#.~~.", "...#....", "........"]);
+        lay_rail(&mut m, (0..8).map(|x| Pos::new(x, 0)).chain((0..6).map(|y| Pos::new(7, y))));
+        let rules = MoveRules::default().with_cost(Terrain::Mountain, Some(3)).with_rail(4);
+        let flood = Flood::new(&m, Pos::new(0, 0), &rules);
+        for (p, _) in m.iter() {
+            let astar =
+                find(&m, Pos::new(0, 0), p, &rules).map(|path| path_cost(&m, &path, &rules));
+            assert_eq!(flood.cost(p), astar, "{p:?}");
+        }
+    }
+
+    #[test]
+    fn rail_ignores_the_ground_under_it() {
+        let mut m = map(&[",,,,,"]);
+        lay_rail(&mut m, (0..5).map(|x| Pos::new(x, 0)));
+        let rules = MoveRules::default().with_cost(Terrain::Coast, Some(3)).with_rail(5);
+        let p = find(&m, Pos::new(0, 0), Pos::new(4, 0), &rules).unwrap();
+        assert_eq!(path_cost(&m, &p, &rules), 4 * 5, "a rail bed is level");
     }
 }

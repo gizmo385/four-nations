@@ -9,6 +9,9 @@
 //!   opens that many `JobKind::Study` jobs on it (issue #21).
 //! - `bed` makes it somewhere to sleep: a tired unit walks to the nearest free one and regains
 //!   energy faster there (`world/work.rs`, issue #58).
+//! - `rail` makes it a track (issue #135): a unit hauling a stack (a cart) goes faster along a
+//!   line of them. The speed is data on the def; the tile carries a `Building::rail` flag so
+//!   pathfinding never has to consult the defs (see `path.rs`, `MoveRules::with_rail`).
 //! - `heat` makes it a permanent heat source (`world/heat.rs`, issue #58): meals eaten within
 //!   its radius are cooked, and sleep within it is better. It is the same `HeatSource` Fire's
 //!   Hearthflame lights for a while, so the cooking and warm-sleep code is shared.
@@ -24,6 +27,7 @@ use serde::Deserialize;
 use crate::defs::DefsError;
 use crate::jobs::{ItemDef, ItemId};
 use crate::nation::Nation;
+use crate::path::STRAIGHT;
 use crate::research::{TechDef, TechId};
 
 #[derive(
@@ -38,6 +42,10 @@ pub struct Building {
     pub id: BuildingId,
     /// Whether units may walk onto this tile now that the building stands on it.
     pub passable: bool,
+    /// Whether this is a rail tile (`BuildingDef::rail`, issue #135). Baked on like `passable`.
+    /// Saves from before rail existed have none.
+    #[serde(default)]
+    pub rail: bool,
 }
 
 /// A building units sleep in (`[building.bed]`).
@@ -69,6 +77,22 @@ impl HeatDef {
     }
 }
 
+/// A building that is a track (`[building.rail]`, issue #135).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RailDef {
+    /// How many times faster than bare ground a hauling unit goes from one rail tile to the next
+    /// one beside it (a straight step). More than 1.0.
+    pub speed: f32,
+}
+
+impl RailDef {
+    /// The cost of that straight step in the units of `path.rs` (a plain straight step is
+    /// `STRAIGHT`), rounded and never less than 1.
+    pub fn step_cost(&self) -> u32 {
+        ((STRAIGHT as f32 / self.speed).round() as u32).clamp(1, STRAIGHT)
+    }
+}
+
 /// One item and the count of it a building costs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CostItem {
@@ -96,6 +120,8 @@ pub struct BuildingDef {
     pub bed: Option<BedDef>,
     /// Set if this keeps a permanent fire: it cooks meals and warms sleep nearby (issue #58).
     pub heat: Option<HeatDef>,
+    /// Set if this is a track: hauling units run faster along a line of them (issue #135).
+    pub rail: Option<RailDef>,
     /// What each nation calls this building, if it varies (e.g. the study hall: Meditation
     /// Pavilion for Air). Empty when every nation uses the plain `name`. If set at all, every
     /// nation has an entry (`display_name` is the one place that matters).
@@ -147,6 +173,12 @@ struct RawHeat {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawRail {
+    speed: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawBuilding {
     id: String,
     name: String,
@@ -159,6 +191,7 @@ struct RawBuilding {
     seats: u32,
     bed: Option<RawBed>,
     heat: Option<RawHeat>,
+    rail: Option<RawRail>,
     #[serde(default)]
     names: HashMap<Nation, String>,
     #[serde(default)]
@@ -235,6 +268,25 @@ impl BuildingsFile {
                     b.id
                 ));
             }
+            if let Some(rail) = &b.rail {
+                // Faster than walking, and no faster than the cost grid can express.
+                if !(rail.speed.is_finite() && rail.speed > 1.0 && rail.speed <= STRAIGHT as f32) {
+                    return err(format!(
+                        "building {}: rail speed must be above 1.0 and at most {STRAIGHT}",
+                        b.id
+                    ));
+                }
+                if !b.passable {
+                    return err(format!("building {}: a rail must be passable", b.id));
+                }
+                if buildings.iter().any(|d| d.rail.is_some()) {
+                    return err(format!(
+                        "building {}: only one building may be a rail (the world has one \
+                         haul-speed rule)",
+                        b.id
+                    ));
+                }
+            }
             for (nation, name) in &b.names {
                 if name.trim().is_empty() {
                     return err(format!(
@@ -258,6 +310,7 @@ impl BuildingsFile {
                     sleep_bonus: d.sleep_bonus,
                     seek_tiles: d.seek_tiles,
                 }),
+                rail: b.rail.map(|d| RailDef { speed: d.speed }),
                 names: b.names,
                 art: b.art,
                 unlocked_by: None,
@@ -368,6 +421,39 @@ mod tests {
         assert!(none.unwrap_err().0.contains("bed needs"));
         let tiny = resolve(&one("[building.heat]\nradius = 0\nsleep_bonus = 1.2\nseek_tiles = 5"));
         assert!(tiny.unwrap_err().0.contains("heat needs"));
+    }
+
+    #[test]
+    fn rail_is_data_and_its_numbers_are_validated() {
+        let defs = Defs::bundled();
+        let rail = defs.building(defs.building_id("rail").expect("issue #135"));
+        let speed = rail.rail.expect("rail is a rail").speed;
+        assert!(speed > 1.0 && rail.passable, "a cart must be able to use it");
+        assert_eq!(rail.rail.unwrap().step_cost(), 5, "speed 2.0 halves a straight step");
+        assert_eq!(rail.unlocked_by, defs.tech_id("earth_rail"));
+        // Only the rail is a rail, and every other building leaves rail rules alone.
+        assert_eq!(defs.buildings.iter().filter(|b| b.rail.is_some()).count(), 1);
+        assert_eq!(defs.cart_rules(crate::MoveRules::default()).rail_step(), 5);
+
+        let one = |extra: &str, passable: bool| {
+            format!(
+                "[[building]]\nid = \"track\"\nname = \"Track\"\nverb = \"Lay\"\nwork = 1.0\n\
+                 passable = {passable}\n{extra}\n"
+            )
+        };
+        resolve(&one("[building.rail]\nspeed = 2.0", true)).unwrap();
+        for bad in ["0.5", "1.0", "11.0", "nan"] {
+            let r = resolve(&one(&format!("[building.rail]\nspeed = {bad}"), true));
+            assert!(r.unwrap_err().0.contains("rail speed"), "{bad}");
+        }
+        let wall = resolve(&one("[building.rail]\nspeed = 2.0", false));
+        assert!(wall.unwrap_err().0.contains("must be passable"));
+        let two = format!(
+            "{}{}",
+            one("[building.rail]\nspeed = 2.0", true),
+            one("[building.rail]\nspeed = 3.0", true).replace("track", "track2")
+        );
+        assert!(resolve(&two).unwrap_err().0.contains("only one building"));
     }
 
     fn resolve(toml: &str) -> Result<Vec<BuildingDef>, DefsError> {
