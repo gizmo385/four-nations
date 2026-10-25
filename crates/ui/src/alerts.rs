@@ -1,4 +1,5 @@
-//! The alert log: bend results (#72), tech completions (#23) and deaths as one stream of lines.
+//! The alert log: bend results (#72), tech completions (#23), deaths and the end-game endeavor's
+//! events (#235) as one stream of lines.
 //!
 //! Every line is kept in a bounded history (the terminal UI's message log). The newest ones also
 //! show as short-lived *toasts* in the side panel's Alerts section (ui.md: "a section with
@@ -8,6 +9,7 @@
 use fn_sim::needs::DeathCause;
 use fn_sim::world::{BendEvent, BendOutcome};
 
+use crate::endeavor;
 use crate::session::Session;
 
 /// How many lines of history to keep; the oldest drop first.
@@ -22,6 +24,8 @@ pub enum Kind {
     Tech,
     /// A unit that died.
     Death,
+    /// An endeavor sign met for the first time, or the endeavor Ready (#235).
+    Endeavor,
 }
 
 impl Kind {
@@ -32,6 +36,7 @@ impl Kind {
             Self::Bend => 6.0,
             Self::Tech => 8.0,
             Self::Death => 0.0,
+            Self::Endeavor => 10.0,
         }
     }
 
@@ -41,6 +46,7 @@ impl Kind {
             Self::Bend => 4,
             Self::Tech => 3,
             Self::Death => 0,
+            Self::Endeavor => 3,
         }
     }
 }
@@ -61,9 +67,9 @@ pub struct Entry {
 pub struct Alerts {
     /// Oldest first.
     log: Vec<Entry>,
-    /// How many of `World::bend_events`, `Research::completions` and `World::deaths` have
-    /// already become a line.
-    seen: (usize, usize, usize),
+    /// How many of `World::bend_events`, `Research::completions`, `World::deaths` and
+    /// `World::endeavor_events` have already become a line.
+    seen: (usize, usize, usize, usize),
     /// The tick of the last update, to notice a new world.
     last_tick: u64,
 }
@@ -76,11 +82,13 @@ impl Alerts {
         let events = world.bend_events();
         let completions = world.research().completions();
         let deaths = &world.deaths;
-        let counts = (events.len(), completions.len(), deaths.len());
+        let endeavor = world.endeavor_events();
+        let counts = (events.len(), completions.len(), deaths.len(), endeavor.len());
         if world.tick < self.last_tick
             || counts.0 < self.seen.0
             || counts.1 < self.seen.1
             || counts.2 < self.seen.2
+            || counts.3 < self.seen.3
         {
             // A new world (regenerate, nation switch, a loaded game): the old log is gone.
             *self = Self::default();
@@ -101,6 +109,9 @@ impl Alerts {
                 DeathCause::Exhaustion => "exhaustion",
             };
             fresh.push((d.tick, Kind::Death, format!("{} died of {how}", d.name)));
+        }
+        for ev in &endeavor[self.seen.3..] {
+            fresh.push((ev.tick, Kind::Endeavor, endeavor::describe_event(&session.defs, ev)));
         }
         self.seen = counts;
         fresh.sort_by_key(|(tick, ..)| *tick);
@@ -128,7 +139,7 @@ impl Alerts {
     pub fn toasts(&self) -> Vec<&Entry> {
         let live = |e: &&Entry| e.left > 0.0;
         let mut keep = vec![false; self.log.len()];
-        for kind in [Kind::Bend, Kind::Tech, Kind::Death] {
+        for kind in [Kind::Bend, Kind::Tech, Kind::Death, Kind::Endeavor] {
             let of_kind: Vec<usize> = (0..self.log.len())
                 .filter(|&i| self.log[i].kind == kind && live(&&self.log[i]))
                 .collect();
@@ -220,6 +231,22 @@ mod tests {
         alerts.update(&s, 0.0);
         assert_eq!(alerts.toast_lines(), ["Learned Shelter"]);
         assert_eq!(alerts.history()[0].kind, Kind::Tech);
+    }
+
+    #[test]
+    fn endeavor_events_become_toasts() {
+        let mut s = Session::new(7, Nation::Fire, 48, 32);
+        // One sign a new game meets at once, so the first check (tick 10) logs it and Ready.
+        let signs = "[endeavor]\nname = \"Gate\"\n[[sign]]\nid = \"p\"\ngroup = \"people\"\n\
+                     name = \"People\"\nkind = \"population\"\ntarget = 1\n";
+        s.defs = s.defs.clone().with_endeavor(signs).unwrap();
+        run_until(&mut s, |s| s.world.endeavor_events().len() == 2);
+        let mut alerts = Alerts::default();
+        alerts.update(&s, 0.0);
+        assert_eq!(alerts.toast_lines(), ["Sign met: People", crate::endeavor::READY_TEXT]);
+        assert!(alerts.history().iter().all(|e| e.kind == Kind::Endeavor));
+        alerts.update(&s, 0.0);
+        assert_eq!(alerts.history().len(), 2, "not repeated");
     }
 
     #[test]

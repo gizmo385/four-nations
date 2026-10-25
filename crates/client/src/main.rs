@@ -5,8 +5,9 @@
 //! Controls: click a unit to select it (Esc deselects, and the camera centres it), WASD/arrows or mouse drag pan, mouse wheel
 //! zoom, R new map, 1-4 switch nation, Space pause. H/X/P/B pick a designation tool (harvest,
 //! cancel harvest, stockpile, the nation's bending ability): drag a rectangle with the left
-//! button, middle/right still pan; Esc returns to selecting. `T` opens the research screen (Esc
-//! closes it); map input is suspended while it's open. See `designate`, `bending` and `research`.
+//! button, middle/right still pan; Esc returns to selecting. `T` opens the research screen and `G`
+//! the Endeavor screen (Esc closes either); map input is suspended while one is open. See
+//! `designate`, `bending`, `research` and `endeavor`.
 //! F5 quicksaves and F9 quickloads; F6 opens the save list (`save`).
 //!
 //! `FN_SCREENSHOT=out.png` runs headless: no window is created at all (winit is disabled and the
@@ -14,7 +15,8 @@
 //! PNG and exits. `FN_SCREENSHOT_SIZE=WIDTHxHEIGHT` sets the image size (default 1280x720),
 //! `FN_SELECT=N` starts with unit N selected so its panel shows in the shot, and
 //! `FN_RESEARCH_OPEN=1` starts with the research screen (`T`) open, `FN_SAVES_OPEN=1` with the save
-//! list (`F6`) open (on the saves in `FN_SAVE_DIR`), and `FN_BUILD_DEMO=1`
+//! list (`F6`) open (on the saves in `FN_SAVE_DIR`), `FN_ENDEAVOR_OPEN=1` with the Endeavor
+//! screen (`G`, #235) open, and `FN_BUILD_DEMO=1`
 //! starts with the build tool (`U`) active and a construction site designated beside the first
 //! unit for every building the nation can place, so the picker and the site sprites show in the
 //! shot. `FN_BUILD_DEMO=buildings` also levels a meadow and puts a finished building of every
@@ -61,6 +63,7 @@ use buildings::BuildingsPlugin;
 use canopy::{CanopyFade, CanopyPlugin};
 use cast::CastPlugin;
 use designate::{ActiveTool, DesignatePlugin};
+use endeavor::{EndeavorOpen, EndeavorPlugin};
 use fn_sim::world::{TICKS_PER_SECOND, Unit, UnitId};
 use fn_sim::{MapGenConfig, Nation, Pos, Tile};
 use fn_ui::{Session, Tool};
@@ -77,6 +80,7 @@ mod canopy;
 mod cast;
 mod cast_demo;
 mod designate;
+mod endeavor;
 mod hud;
 mod jobview;
 mod research;
@@ -170,6 +174,7 @@ fn main() {
         ))
         .insert_resource(ScreenOpen(std::env::var_os("FN_RESEARCH_OPEN").is_some()))
         .insert_resource(SavesOpen(std::env::var_os("FN_SAVES_OPEN").is_some()))
+        .insert_resource(EndeavorOpen(std::env::var_os("FN_ENDEAVOR_OPEN").is_some()))
         .add_message::<MapClicked>()
         .add_plugins((
             UnitMotionPlugin,
@@ -181,6 +186,7 @@ fn main() {
             BendingPlugin,
             CastPlugin,
             ResearchPlugin,
+            EndeavorPlugin,
             CanopyPlugin,
             SavePlugin,
         ))
@@ -229,11 +235,15 @@ fn parse_nation(s: &str) -> Option<Nation> {
     Nation::ALL.into_iter().find(|n| n.as_str() == s)
 }
 
-/// A run condition for map input systems: suspended while the research screen (`T`) or the save
-/// list (`F6`) covers the map, so a click or drag meant for a button never also moves the camera
-/// or selects a unit.
-fn screen_closed(open: Res<ScreenOpen>, saves: Res<SavesOpen>) -> bool {
-    !open.0 && !saves.0
+/// A run condition for map input systems: suspended while the research screen (`T`), the save
+/// list (`F6`) or the Endeavor screen (`G`) covers the map, so a click or drag meant for a screen
+/// never also moves the camera or selects a unit.
+fn screen_closed(
+    research: Res<ScreenOpen>,
+    saves: Res<SavesOpen>,
+    endeavor: Res<EndeavorOpen>,
+) -> bool {
+    !research.0 && !saves.0 && !endeavor.0
 }
 
 /// The game being played: `fn_ui`'s `Session` (world, data and clock) as a Bevy resource.

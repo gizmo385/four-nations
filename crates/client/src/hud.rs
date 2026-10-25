@@ -17,6 +17,7 @@ use fn_ui::view::{self, SideView, Status, StoreRow, UnitView};
 
 use crate::bending::AlertLog;
 use crate::designate::{ActiveTool, BuildChoice, Notice};
+use crate::endeavor::EndeavorOpen;
 use crate::research::ScreenOpen;
 use crate::ui_style::{self, Frame, Skin, Theme, UiArt, font, layout, space};
 use crate::{Art, CharacterArt, Selection, Sim, cursor_tile, unit_character};
@@ -193,7 +194,7 @@ const CONTROLS: [&str; 8] = [
     "Space: pause",
     "1-4: nation",
     "R: new map",
-    "T: research",
+    "T: research  G: endeavor",
     "F6: saves (F5/F9: quick)",
     "Shift+H: repeating harvest",
 ];
@@ -303,6 +304,24 @@ fn spawn_side(p: &mut ChildSpawnerCommands, theme: &Theme, skin: &Skin, v: &Side
             }
         },
     );
+
+    // The end game (#235): signs met, a bar, and the next few things missing. The full list is
+    // `G`'s screen (`endeavor.rs`). Hidden when the data has no endeavor.
+    if let Some(e) = &v.endeavor {
+        ui_style::section_title(p, theme, skin, "Endeavor");
+        p.spawn(Node { justify_content: JustifyContent::SpaceBetween, ..default() }).with_children(
+            |r| {
+                r.spawn(ui_style::text(e.name.clone(), font::BODY, theme.text));
+                r.spawn(ui_style::text(e.count.clone(), font::BODY, theme.accent_text));
+            },
+        );
+        p.spawn(Node::default()).with_children(|b| ui_style::bar(b, theme, e.frac, theme.ok, 8.0));
+        p.spawn(ui_style::text(e.line.clone(), font::LABEL, theme.dim));
+        if !e.next.is_empty() {
+            let next = format!("Next: {}", e.next.join(", "));
+            p.spawn(ui_style::text(next, font::LABEL, theme.text));
+        }
+    }
 
     // Recent bend events (#72) and tech completions (#23), newest last. Hidden while there's
     // nothing to show.
@@ -431,6 +450,7 @@ fn update_selection_bar(
     images: Res<Assets<Image>>,
     selection: Res<Selection>,
     screen_open: Res<ScreenOpen>,
+    endeavor_open: Res<EndeavorOpen>,
     theme: Res<Theme>,
     mut bar: Query<&mut Visibility, With<SelectionBar>>,
     content: Query<Entity, With<SelectionContent>>,
@@ -438,9 +458,9 @@ fn update_selection_bar(
     mut last: Local<Option<SelectionView>>,
 ) {
     let (Ok(mut visibility), Ok(content)) = (bar.single_mut(), content.single()) else { return };
-    // The research screen (#23) is a full `ui.md` "Screens" overlay: the selection bar hides
-    // while it's open so it never fights the tech cards for space or clicks.
-    if screen_open.0 {
+    // The research (#23) and Endeavor (#235) screens are full `ui.md` "Screens" overlays: the
+    // selection bar hides while one is open so it never fights the screen for space or clicks.
+    if screen_open.0 || endeavor_open.0 {
         *visibility = Visibility::Hidden;
         return;
     }

@@ -4,7 +4,8 @@
 # drops afterwards (stores eaten, say).
 #
 # [endeavor]
-# - name: what the UI calls the endeavor.
+# - name:        what the UI calls the endeavor.
+# - description: optional; one line under the name on the Endeavor screen.
 #
 # [[sign]], listed in the order the UI shows them:
 # - id:         unique; saves refer to signs by id, so renaming one forgets that it was met.
@@ -29,6 +30,7 @@
 
 [endeavor]
 name = "The Harmony Gate"
+description = "A great work with the Avatar. When every sign is met, word of the settlement reaches Aang."
 
 [[sign]]
 id = "population"
@@ -43,7 +45,7 @@ id = "beds"
 group = "people"
 name = "Everyone has a bed"
 kind = "beds_for_all"
-hint = "Build a bed for each person"
+hint = "Build beds"
 
 [[sign]]
 id = "building_kinds"
@@ -51,14 +53,14 @@ group = "buildings"
 name = "Kinds of building raised"
 kind = "building_kinds"
 target = 8
-hint = "Raise a building you don't have yet"
+hint = "Raise something new"
 
 [[sign]]
 id = "branch"
 group = "knowledge"
 name = "The nation's branch complete"
 kind = "branch_complete"
-hint = "Research every tech in your nation's branch"
+hint = "Research your branch"
 
 [[sign]]
 id = "food"
@@ -76,7 +78,7 @@ name = "Stone in stores"
 kind = "stored"
 items = ["stone"]
 target = 200
-hint = "Quarry stone and stockpile it"
+hint = "Quarry stone"
 
 [[sign]]
 id = "ore"
@@ -91,11 +93,11 @@ hint = "Mine gold veins"
 [[sign]]
 id = "masters"
 group = "bending"
-name = "Bending masters"
+name = "Bending masters (25 bends each)"
 kind = "masters"
 bends = 25
 target = 3
-hint = "A bender with 25 finished bends is a master"
+hint = "Bend often"
 
 [[sign]]
 id = "scrolls"
@@ -104,4 +106,4 @@ name = "Ancient scrolls read"
 kind = "tally"
 tally = "scrolls_read"
 target = 3
-hint = "Recover ancient scrolls and carry them to a study hall"
+hint = "Bring scrolls to a study hall"
