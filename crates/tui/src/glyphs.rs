@@ -96,17 +96,19 @@ pub fn terrain_key(terrain: Terrain) -> Option<&'static str> {
         Terrain::River => Some("river"),
         Terrain::Lake => Some("lake"),
         Terrain::Ford => Some("ford"),
+        Terrain::Tunnel => Some("tunnel"),
     }
 }
 
 /// Every terrain kind that has a `[terrain.*]` entry.
-pub const TERRAINS: [Terrain; 6] = [
+pub const TERRAINS: [Terrain; 7] = [
     Terrain::Water,
     Terrain::Coast,
     Terrain::Mountain,
     Terrain::River,
     Terrain::Lake,
     Terrain::Ford,
+    Terrain::Tunnel,
 ];
 
 impl Glyphs {
@@ -217,6 +219,7 @@ mod tests {
             Terrain::Ford => '+',
             Terrain::Coast => '.',
             Terrain::Mountain => '^',
+            Terrain::Tunnel => '_',
             Terrain::Land => unreachable!("land draws as its biome"),
         };
         for t in TERRAINS {

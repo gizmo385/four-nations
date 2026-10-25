@@ -46,6 +46,13 @@ ascii = "^"
 fg = [175, 175, 182]
 bg = [52, 52, 58]
 
+# A passage bored through a mountain (Earth's Bore Tunnel, #132): an arch on darker rock.
+[terrain.tunnel]
+glyph = "∩"
+ascii = "_"
+fg = [190, 160, 120]
+bg = [32, 28, 26]
+
 # Bare land, by biome.
 [biome.plains]
 glyph = ","

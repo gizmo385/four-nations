@@ -9,8 +9,9 @@
 //!   on the world clock) for as long as the aura lasts; hovering the carrier outlines its reach.
 //! - A wet patch is a puddle overlay (damp marks and puddles, the floor showing through), gone
 //!   once it dries (and sprouts, drawn by `jobview` like any other resource).
-//! - A reshaped tile (today: Earth's river or lake turned into a ford) needs its floor sprite
-//!   redrawn, since the client otherwise draws each tile's ground once, at spawn.
+//! - A reshaped tile (Earth's river or lake turned into a ford, or a mountain bored into a
+//!   tunnel, #132) needs its floor sprite redrawn, and its neighbours' too (a cliff rim faces a
+//!   new tunnel), since the client otherwise draws each tile's ground once, at spawn.
 //! - The moment of a bend (the pose and the cast effect) is `cast`'s, #166.
 //! - Each `BendEvent` becomes a line in the side panel's "Alerts" section (ui.md), shown for a
 //!   few seconds and then dropped (`fn_ui::alerts`).
@@ -25,7 +26,7 @@ use fn_sim::world::UnitId;
 
 use super::{
     Art, MapEntity, Sim, TILE, UnitSprite, cursor_tile, floor_cell, ground_rule, row_depth,
-    sprites, tile_translation,
+    spawn_decor, sprites, tile_translation,
 };
 
 pub struct BendingPlugin;
@@ -58,24 +59,63 @@ impl Plugin for BendingPlugin {
 // Terrain: a reshaped tile's floor sprite
 
 /// The terrain a floor sprite was last drawn for, so `sync_terrain` touches a tile only the frame
-/// its terrain actually changes (Raise Earth's river or lake turning into a ford, #68) instead of
-/// every tile, every frame.
+/// its terrain actually changes (Raise Earth's river or lake turning into a ford, #68, or Bore
+/// Tunnel's mountain into a tunnel, #132) instead of every tile, every frame.
 #[derive(Component)]
 pub struct TerrainSprite(pub Pos, pub Terrain);
 
+/// A ground decoration (a boulder) on a tile, so `sync_terrain` can take it away when a tunnel
+/// opens beside or under it: a boulder sits only on a mountain's flat interior, never on a rim.
+#[derive(Component)]
+pub struct DecorSprite(pub Pos);
+
+/// Redraws the floor of every tile whose terrain changed, and of its eight neighbours: a mountain
+/// beside a new tunnel gets a cliff rim facing it (`sprites::cliff_cell`), and a shore beside a
+/// new ford can change too. Their boulders are re-rolled the same way spawning rolls them.
 fn sync_terrain(
+    mut commands: Commands,
     mut sprites: Query<(&mut TerrainSprite, &mut Sprite)>,
+    decor: Query<(Entity, &DecorSprite)>,
     sim: Res<Sim>,
     art: Res<Art>,
 ) {
+    let map = &sim.world.map;
+    let changed: Vec<Pos> = sprites
+        .iter()
+        .filter(|(c, _)| map.get(c.0).is_some_and(|t| t.terrain != c.1))
+        .map(|(c, _)| c.0)
+        .collect();
+    if changed.is_empty() {
+        return;
+    }
+    let touched: BTreeSet<Pos> = changed
+        .iter()
+        .flat_map(|p| {
+            (-1..=1).flat_map(move |dy| (-1..=1).map(move |dx| Pos::new(p.x + dx, p.y + dy)))
+        })
+        .collect();
     for (mut cached, mut sprite) in &mut sprites {
-        let Some(tile) = sim.world.map.get(cached.0) else { continue };
-        if tile.terrain == cached.1 {
+        if !touched.contains(&cached.0) {
             continue;
         }
+        let Some(tile) = map.get(cached.0) else { continue };
         let rule = ground_rule(&sim, tile);
         *sprite = art.sprite(floor_cell(&sim, cached.0, rule));
         cached.1 = tile.terrain;
+    }
+    for (entity, d) in &decor {
+        if touched.contains(&d.0) {
+            commands.entity(entity).despawn();
+        }
+    }
+    for &p in &touched {
+        let Some(tile) = map.get(p) else { continue };
+        if tile.resource.is_some() {
+            continue;
+        }
+        if let Some(cell) = ground_rule(&sim, tile).decor_on(map, p) {
+            spawn_decor(&mut commands, &art, p, cell);
+        }
     }
 }
 

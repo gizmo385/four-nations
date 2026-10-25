@@ -10,7 +10,7 @@
 │                                                                                      ││  Song Idle                   │
 │  ◇ Fishing            · Herbalism          · Tunneling          · Seismic Sense      ││  Lin  Idle                   │
 │   Available   25 pts   Locked     120 pts   Locked     120 pts   Locked     250 pts  ││                              │
-│   -                    -                    -                    -                   ││ ◇ RESEARCH                   │
+│   -                    -                    Bore Tunnel          -                   ││ ◇ RESEARCH                   │
 │                                                                                      ││ Shelter +2           3.0/min │
 │  ✓ Stoneworking       ◇ Earth Shaping                                                ││ ░░░░░░░░░░   0% 0/25 pts     │
 │   Known       25 pts   Available   60 pts                                            ││                              │
