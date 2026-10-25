@@ -37,6 +37,12 @@ generated_from = "art/air_monk.toml"
 sha256 = "011982068b63b03117703ac068c4187fcdf3a68fbe73e4011850a85ea2a33e5b"
 
 [[file]]
+path = "original/avatar_aang.png"
+source = "original"
+generated_from = "art/avatar_aang.toml"
+sha256 = "e8f9024b8f6fd9c55b467879c8a954f21a96d440ac9edfc43f6cce1184c5857c"
+
+[[file]]
 path = "original/buildings.png"
 source = "original"
 generated_from = "art/buildings.toml"
@@ -53,6 +59,12 @@ path = "original/buildings_earth.png"
 source = "original"
 generated_from = "art/buildings_earth.toml"
 sha256 = "779db8bec68d5b0e7fb86cf809a882d77c8433babfc728396898e0302fdc59f6"
+
+[[file]]
+path = "original/buildings_endeavor.png"
+source = "original"
+generated_from = "art/buildings_endeavor.toml"
+sha256 = "ad834661590d99482fb79d3c838d8d41563e59790e370af4aeb631e02876380c"
 
 [[file]]
 path = "original/buildings_fire.png"
