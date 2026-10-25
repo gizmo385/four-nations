@@ -28,6 +28,16 @@
 #             `speed` times as fast on a straight step from one rail tile onto the next beside it,
 #             and plans its route to use that. Foot traffic gains nothing. Must be passable, and
 #             only one building may be a rail. `speed` is above 1.0 and at most 10.
+# - orchard:  plants and tends trees around itself (issue #142, docs/design/research.md, "The
+#             orchard"). Every `plant_seconds` it plants one `plants` (a renewable resource) on a
+#             free land tile within `radius` (a square) that has no other resource or building
+#             closer than `spacing` tiles (2 leaves a lane between trees, and keeps them off the
+#             orchard's own art), until it tends `max_trees` of them. A new tree is a sapling: it
+#             first bears fruit `grow_seconds` after planting. Resting trees of that resource
+#             within `radius`, planted or wild, regrow `tend_boost` times as fast. With
+#             `auto_pick` each planted tree carries a standing harvest order (#81), so its fruit
+#             is picked as it ripens. Which nations can build one is the unlocking tech's
+#             business (data/research.toml), not this section's.
 # - names:    what each nation calls this building, if it varies. Either all four nations or
 #             none; falls back to `name` for a building that omits it.
 # - art:      which sprite of art/buildings.toml each nation draws it with, if it varies (the study
@@ -122,20 +132,36 @@ count = 2
 
 # --- Air Nomads ---
 # The Air branch's buildings (issue #28), each unlocked by its tech in data/research.toml. They
-# are structures only so far: what they do (planting and tending fruit, grinding grain, turning
-# wind into power, housing bison) needs systems that don't exist yet (issue #142). Costs scale
-# with the tech's tier and use the items that exist today; they are starting values for a
-# balance pass, not a design target.
+# do what their section says. The orchard plants and tends fruit trees (issue #142); the rest are
+# structures only so far, because what they do (grinding grain, turning wind into power, housing
+# bison) needs systems that don't exist yet (issues #203, #204, #205). Costs scale with the
+# tech's tier and use the items that exist today; they are starting values for a balance pass,
+# not a design target.
 
+# The orchard's balance (#142): 8 wood and 45 s of building is about twice a bed's cost, paid back
+# by the first fruit it yields. A full orchard (6 trees) bears 2 fruit per tree every 240 s (360 s
+# regrow at 1.5x), about 3 fruit a minute against 0.33 from a wild tree, enough raw food for a
+# couple of dozen settlers: Air's starting tech, paying for its weak labour. Planting is slow on
+# purpose (one sapling every 90 s), so the grove fills in over nine minutes. See
+# docs/design/research.md, "The orchard".
 [[building]]
 id = "orchard"
 name = "Orchard"
 verb = "Plant"
-work = 30.0
+work = 45.0
 passable = true
+[building.orchard]
+plants = "fruit_tree"
+radius = 4
+max_trees = 6
+plant_seconds = 90.0
+grow_seconds = 480.0
+tend_boost = 1.5
+spacing = 2
+auto_pick = true
 [[building.cost]]
 item = "wood"
-count = 4
+count = 8
 
 [[building]]
 id = "windmill"

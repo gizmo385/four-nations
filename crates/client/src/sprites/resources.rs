@@ -12,6 +12,12 @@ const STONE: u32 = 0;
 const CABBAGE: u32 = 1;
 const GOLD_VEIN: u32 = 2;
 const ANCIENT_SCROLL: u32 = 3;
+const SAPLING_COL: u32 = 4;
+
+/// A fruit tree an orchard has just planted, drawn in place of the fruit tree until it first
+/// ripens (`World::is_sapling`, #142). A resource's own sprite is its rule; this belongs to a
+/// state of one.
+pub const SAPLING: super::Cell = one(SHEET, SAPLING_COL, 0);
 
 pub const RESOURCES: &[ResourceRule] = &[
     // Grey rock, and the same rock with gold in it: one silhouette.
@@ -53,6 +59,7 @@ mod tests {
         assert_eq!(names[GOLD_VEIN as usize], "gold_vein");
         assert_eq!(names[CABBAGE as usize], "cabbage");
         assert_eq!(names[ANCIENT_SCROLL as usize], "ancient_scroll");
+        assert_eq!(names[SAPLING_COL as usize], "sapling");
     }
 
     /// Every land resource that isn't a tree has a sprite on our sheet, named like the resource.

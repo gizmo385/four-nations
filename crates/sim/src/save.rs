@@ -162,9 +162,10 @@ impl World {
         if info.data_hash != defs.id_hash() {
             return Err(SaveError::DataMismatch);
         }
-        let world: World =
+        let mut world: World =
             ron::from_str(split(text).1).map_err(|e| SaveError::Corrupt(e.to_string()))?;
         world.validate(defs).map_err(SaveError::Corrupt)?;
+        world.adopt_orchards(defs);
         Ok(world)
     }
 }
