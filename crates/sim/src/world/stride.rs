@@ -156,7 +156,7 @@ mod tests {
         let rail = defs.building_id("rail").unwrap();
         for x in 5..=20 {
             w.map[Pos::new(x, 10)].building =
-                Some(crate::building::Building { id: rail, passable: true, rail: true });
+                Some(crate::building::Building::new(rail, true, true));
         }
         let wood = defs.item_id("wood").unwrap();
         w.units[0].carrying = Some(crate::jobs::Stack { item: wood, count: 2 });

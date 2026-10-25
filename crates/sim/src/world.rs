@@ -33,8 +33,8 @@ mod work;
 
 use bending::Patch;
 pub use bending::{BendChannel, BendError, BendEvent, BendOutcome, Moved};
-pub use build::BuildError;
 use build::Site;
+pub use build::{Blocker, BuildError};
 pub use command::{Command, CommandError, Recorded};
 pub use heat::{Aura, Flame, Glow, HeatSource};
 pub use stride::{STRIDE_LOOKAHEAD, Stride};

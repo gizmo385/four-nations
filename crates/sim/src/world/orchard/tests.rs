@@ -37,7 +37,7 @@ fn orchard_def(defs: &Defs) -> OrchardDef {
 fn raise_orchard(w: &mut World, defs: &Defs, pos: Pos) {
     let id = defs.building_id("orchard").unwrap();
     let def = defs.building(id);
-    w.map[pos].building = Some(Building { id, passable: def.passable, rail: false });
+    w.map[pos].building = Some(Building::new(id, def.passable, false));
     w.open_orchard(pos, def.orchard.as_ref().unwrap());
 }
 
@@ -322,7 +322,7 @@ fn a_save_from_before_orchards_planted_adopts_the_ones_it_already_has() {
     let id = defs.building_id("orchard").unwrap();
     let b = defs.building(id);
     // The building is on the map but nothing registered it, as in an old save.
-    w.map[MID].building = Some(Building { id, passable: b.passable, rail: false });
+    w.map[MID].building = Some(Building::new(id, b.passable, false));
     assert_eq!(w.orchard_trees(MID), None);
     w.adopt_orchards(&defs);
     assert_eq!(w.orchard_trees(MID), Some(0));

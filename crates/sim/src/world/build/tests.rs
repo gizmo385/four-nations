@@ -3,20 +3,26 @@ use crate::defs::{BiomeId, Terrain};
 use crate::geom::Grid;
 use crate::mapgen::Tile;
 
-/// A map from ASCII rows: `.` land, `~` water.
+/// A map from ASCII rows: `.` land, `~` water, `,` coast, `^` mountain, `=` ford, `T` land with
+/// a resource on it.
 fn arena(rows: &[&str]) -> TileMap {
     Grid::from_fn(rows[0].len() as i32, rows.len() as i32, |p| {
-        let terrain = match rows[p.y as usize].as_bytes()[p.x as usize] {
+        let c = rows[p.y as usize].as_bytes()[p.x as usize];
+        let terrain = match c {
             b'~' => Terrain::Water,
+            b',' => Terrain::Coast,
+            b'^' => Terrain::Mountain,
+            b'=' => Terrain::Ford,
             _ => Terrain::Land,
         };
+        let resource = (c == b'T').then_some(crate::defs::ResourceId(0));
         Tile {
             elevation: 100,
             temperature: 128,
             moisture: 128,
             terrain,
             biome: BiomeId(0),
-            resource: None,
+            resource,
             building: None,
         }
     })
@@ -52,13 +58,19 @@ const GRID: [&str; 5] = [".........", ".........", ".........", ".........", "..
 fn designating_is_checked() {
     let (mut w, defs) = setup(&GRID, &[at(1, 1)]);
     let bed = defs.building_id("bed").unwrap();
-    assert_eq!(w.designate_build(at(99, 0), bed, &defs), Err(BuildError::OutOfBounds));
+    assert_eq!(
+        w.designate_build(at(99, 0), bed, &defs),
+        Err(BuildError::CannotBuild { at: at(99, 0), why: Blocker::OffMap })
+    );
     assert_eq!(
         w.designate_build(at(2, 2), BuildingId(999), &defs),
         Err(BuildError::UnknownBuilding)
     );
     assert!(w.designate_build(at(2, 2), bed, &defs).is_ok());
-    assert_eq!(w.designate_build(at(2, 2), bed, &defs), Err(BuildError::CannotBuild));
+    assert_eq!(
+        w.designate_build(at(2, 2), bed, &defs),
+        Err(BuildError::CannotBuild { at: at(2, 2), why: Blocker::Site })
+    );
     assert_eq!(w.cancel_build(at(9, 9), &defs), Err(BuildError::NotDesignated));
 }
 
@@ -216,4 +228,199 @@ fn rail_is_built_like_any_building_and_marks_its_tile() {
     assert!(built.rail && built.passable && built.id == rail);
     let bed = defs.building_id("bed").unwrap();
     assert!(defs.building(bed).rail.is_none());
+}
+
+/// The bundled bed turned into a solid 2x2 building, for footprint tests (no bundled building is
+/// bigger than 1x1 yet, #214).
+fn hall_2x2(defs: &mut Defs) -> BuildingId {
+    let id = defs.building_id("bed").unwrap();
+    let def = &mut defs.buildings[id.0 as usize];
+    def.footprint = (2, 2);
+    def.bed = None;
+    def.passable = false;
+    id
+}
+
+/// Designating a 2x2 with its anchor on (2, 1) when (3, 2), the last of its four tiles, is what
+/// `rows` makes blocked: refused, naming that tile, and nothing changes.
+#[test]
+fn one_blocked_tile_of_four_refuses_the_whole_footprint() {
+    let free = [".........", ".........", ".........", "........."];
+    let blocked = |c: &str| {
+        let row = format!("...{c}.....");
+        [free[0].to_owned(), free[1].to_owned(), row, free[3].to_owned()]
+    };
+    for (c, why) in [
+        ("~", Blocker::Terrain),
+        ("^", Blocker::Terrain),
+        ("=", Blocker::Terrain),
+        ("T", Blocker::Resource),
+    ] {
+        let rows = blocked(c);
+        let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
+        let (mut w, mut defs) = setup(&rows, &[at(0, 0)]);
+        let hall = hall_2x2(&mut defs);
+        let jobs = w.jobs().len();
+        let refused = w.designate_build(at(2, 1), hall, &defs);
+        assert_eq!(refused, Err(BuildError::CannotBuild { at: at(3, 2), why }), "{c}");
+        assert_eq!(w.build_sites().count(), 0, "{c}");
+        assert_eq!(w.jobs().len(), jobs, "{c}");
+        // Moved one tile up, clear of it, the same building fits.
+        assert!(w.designate_build(at(2, 0), hall, &defs).is_ok(), "{c}");
+    }
+
+    let blocks = |why: Blocker, block: &dyn Fn(&mut World, &Defs)| {
+        let (mut w, mut defs) = setup(&free, &[at(0, 0)]);
+        let hall = hall_2x2(&mut defs);
+        block(&mut w, &defs);
+        let (sites, jobs) = (w.build_sites().count(), w.jobs().len());
+        assert_eq!(
+            w.check_build(at(2, 1), hall, &defs),
+            Err(BuildError::CannotBuild { at: at(3, 2), why })
+        );
+        assert_eq!(
+            w.designate_build(at(2, 1), hall, &defs),
+            Err(BuildError::CannotBuild { at: at(3, 2), why })
+        );
+        assert_eq!((w.build_sites().count(), w.jobs().len()), (sites, jobs), "{why:?}");
+    };
+    blocks(Blocker::Building, &|w, defs| {
+        let bed = defs.building_id("campfire").unwrap();
+        w.map[at(3, 2)].building = Some(Building::new(bed, true, false));
+    });
+    // Another 2x2 site anchored outside the footprint, overlapping it on one tile only.
+    blocks(Blocker::Site, &|w, defs| {
+        let hall = defs.building_id("bed").unwrap();
+        w.designate_build(at(3, 2), hall, defs).unwrap();
+    });
+    blocks(Blocker::Stockpile, &|w, _| w.designate_stockpile(at(3, 2)).unwrap());
+}
+
+#[test]
+fn placement_checks_report_the_first_blocked_tile_row_major() {
+    let rows = ["..........", "...~T.....", "...T~.....", ".........."];
+    let (w, mut defs) = setup(&rows, &[at(0, 0)]);
+    let hall = hall_2x2(&mut defs);
+    let refused = |anchor| w.check_build(anchor, hall, &defs);
+    assert_eq!(
+        refused(at(3, 1)),
+        Err(BuildError::CannotBuild { at: at(3, 1), why: Blocker::Terrain })
+    );
+    assert_eq!(
+        refused(at(4, 0)),
+        Err(BuildError::CannotBuild { at: at(4, 1), why: Blocker::Resource })
+    );
+    assert_eq!(
+        refused(at(9, 0)),
+        Err(BuildError::CannotBuild { at: at(10, 0), why: Blocker::OffMap })
+    );
+    assert_eq!(
+        refused(at(-1, 0)),
+        Err(BuildError::CannotBuild { at: at(-1, 0), why: Blocker::OffMap })
+    );
+    assert_eq!(refused(at(6, 1)), Ok(()));
+    // Coast is buildable; a unit standing in the footprint doesn't block it.
+    let coast = ["......", ".,,...", ".,,...", "......"];
+    let (mut w, mut defs) = setup(&coast, &[at(2, 2)]);
+    let hall = hall_2x2(&mut defs);
+    assert!(w.designate_build(at(1, 1), hall, &defs).is_ok());
+    // A 1x1 building on a ford is refused too, though fords are walkable.
+    let ford = ["...", ".=.", "..."];
+    let (mut w, defs) = setup(&ford, &[at(0, 0)]);
+    let bed = defs.building_id("bed").unwrap();
+    assert_eq!(
+        w.designate_build(at(1, 1), bed, &defs),
+        Err(BuildError::CannotBuild { at: at(1, 1), why: Blocker::Terrain })
+    );
+}
+
+#[test]
+fn a_site_covers_and_cancels_from_every_tile_of_its_footprint() {
+    let (mut w, mut defs) = setup(&GRID, &[at(0, 0)]);
+    let hall = hall_2x2(&mut defs);
+    let job = w.designate_build(at(4, 1), hall, &defs).unwrap();
+    let foot = Footprint::new(at(4, 1), 2, 2);
+    let sites: Vec<_> = w.build_sites().map(|(f, id, _)| (f, id)).collect();
+    assert_eq!(sites, [(foot, hall)]);
+    for p in foot.tiles() {
+        assert_eq!(w.footprint_at(p), Some(foot), "{p:?}");
+        assert_eq!(w.build_site(p).map(|(id, ..)| id), Some(hall), "{p:?}");
+        assert_eq!(w.build_blocker(p), Some(Blocker::Site), "{p:?}");
+    }
+    assert_eq!(w.footprint_at(at(6, 1)), None);
+    assert_eq!(w.cancel_build(at(6, 2), &defs), Err(BuildError::NotDesignated));
+    w.cancel_build(at(5, 2), &defs).unwrap();
+    assert!(w.job(job).is_none());
+    assert_eq!(w.build_sites().count(), 0);
+    assert!(foot.tiles().all(|p| w.build_blocker(p).is_none()));
+}
+
+#[test]
+fn finishing_a_site_bakes_the_building_onto_every_footprint_tile() {
+    let (mut w, mut defs) = setup(&GRID, &[at(1, 1)]);
+    let wood = defs.item_id("wood").unwrap();
+    let hall = hall_2x2(&mut defs);
+    w.designate_stockpile(at(0, 0)).unwrap();
+    w.stored.insert(at(0, 0), Stack { item: wood, count: defs.building(hall).cost[0].count });
+    let job = w.designate_build(at(5, 2), hall, &defs).unwrap();
+    run_until(&mut w, &defs, 4000, |w| w.job(job).is_none());
+
+    let foot = Footprint::new(at(5, 2), 2, 2);
+    for p in foot.tiles() {
+        let b = w.map[p].building.expect("built on every tile");
+        assert_eq!(b.id, hall);
+        assert_eq!(b.part, [(p.x - 5) as u8, (p.y - 2) as u8]);
+        assert_eq!(b.size, [2, 2]);
+        assert!(!b.passable);
+        assert_eq!(w.building_at(p), Some(hall));
+        assert_eq!(w.footprint_at(p), Some(foot));
+        assert_eq!(w.build_blocker(p), Some(Blocker::Building));
+    }
+    assert_eq!(w.building_at(at(7, 2)), None);
+    assert_eq!(w.buildings().collect::<Vec<_>>(), [(foot, hall)], "listed once");
+    assert_eq!(w.build_sites().count(), 0);
+}
+
+/// Sizes are baked onto the tiles and sites when they are placed, never re-derived from the
+/// data: a 1x1 saved before the data made it 2x2 loads as the 1x1 it was built as.
+#[test]
+fn a_saved_building_keeps_its_size_when_the_data_grows_it() {
+    let (mut w, defs) = setup(&GRID, &[at(0, 0)]);
+    let bed = defs.building_id("bed").unwrap();
+    let campfire = defs.building_id("campfire").unwrap();
+    w.map[at(2, 2)].building = Some(Building::new(campfire, true, false));
+    w.designate_build(at(5, 2), bed, &defs).unwrap();
+    let text = w.save(&defs).unwrap();
+    assert!(!text.contains("size") && !text.contains("part"), "1x1 writes no footprint fields");
+
+    let mut grown = defs.clone();
+    for id in [bed, campfire] {
+        let def = &mut grown.buildings[id.0 as usize];
+        def.footprint = (2, 2);
+        def.bed = None;
+    }
+    let loaded = World::load(&text, &grown).unwrap();
+    assert_eq!(loaded.footprint_at(at(2, 2)), Some(Footprint::single(at(2, 2))));
+    assert_eq!(loaded.footprint_at(at(5, 2)), Some(Footprint::single(at(5, 2))));
+    assert_eq!(loaded.footprint_at(at(3, 3)), None);
+    assert_eq!(loaded.footprint_at(at(6, 3)), None);
+    assert_eq!(loaded.save(&grown).unwrap(), text, "and re-saves unchanged");
+}
+
+#[test]
+fn a_bigger_building_saves_its_footprint_and_loads_it_back() {
+    let (mut w, mut defs) = setup(&GRID, &[at(0, 0)]);
+    let hall = hall_2x2(&mut defs);
+    w.designate_build(at(5, 2), hall, &defs).unwrap();
+    let campfire = defs.building_id("campfire").unwrap();
+    let built = Building { size: [2, 1], ..Building::new(campfire, true, false) };
+    w.map[at(1, 3)].building = Some(built);
+    w.map[at(2, 3)].building = Some(Building { part: [1, 0], ..built });
+    let loaded = World::load(&w.save(&defs).unwrap(), &defs).unwrap();
+    assert_eq!(loaded.footprint_at(at(6, 3)), Some(Footprint::new(at(5, 2), 2, 2)));
+    assert_eq!(loaded.footprint_at(at(2, 3)), Some(Footprint::new(at(1, 3), 2, 1)));
+    assert_eq!(
+        loaded.buildings().collect::<Vec<_>>(),
+        [(Footprint::new(at(1, 3), 2, 1), campfire)]
+    );
 }

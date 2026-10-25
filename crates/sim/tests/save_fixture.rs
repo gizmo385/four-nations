@@ -156,7 +156,7 @@ fn an_old_save_loads_with_its_buildings_site_and_fire_where_they_were() {
     // The unfinished site, with its work done so far.
     let sites: Vec<_> = w.build_sites().collect();
     assert_eq!(sites.len(), 1);
-    assert_eq!((sites[0].0, sites[0].1), (SITE, id(&defs, "study_hall")));
+    assert_eq!((sites[0].0.anchor, sites[0].1), (SITE, id(&defs, "study_hall")));
     assert!(sites[0].2 >= 5.0, "progress {}", sites[0].2);
     let (_, delivered, _) = w.build_site(SITE).unwrap();
     assert_eq!(delivered.iter().sum::<u32>(), 10, "the hall's wood is all delivered");

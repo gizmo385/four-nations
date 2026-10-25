@@ -180,7 +180,7 @@ impl World {
                 .terrains
                 .as_ref()
                 .is_none_or(|t| t.contains(&tile.terrain))
-            || self.sites.contains_key(&p)
+            || self.site_at(p).is_some()
             || self.zones.contains(&p)
             || self.ground.contains_key(&p)
             || self.bend_designations().any(|(_, q)| q == p)

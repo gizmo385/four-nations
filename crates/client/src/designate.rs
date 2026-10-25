@@ -271,7 +271,7 @@ fn sync_overlays(
         (p, layer)
     }));
     wanted.extend(sim.world.bend_designations().map(|(_, p)| (p, Layer::Bend)));
-    wanted.extend(sim.world.build_sites().map(|(p, _, _)| (p, Layer::Site)));
+    wanted.extend(sim.world.build_sites().map(|(f, _, _)| (f.anchor, Layer::Site)));
     overlays.0.retain(|key, e| {
         let keep = wanted.contains(key);
         if !keep {

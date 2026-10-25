@@ -49,7 +49,7 @@ impl Overlays {
             zones: world.stockpile_zones().collect(),
             harvest: world.harvest_designations().collect(),
             bend: world.bend_designations().map(|(_, p)| p).collect(),
-            sites: world.build_sites().map(|(p, b, _)| (p, b)).collect(),
+            sites: world.build_sites().map(|(f, b, _)| (f.anchor, b)).collect(),
             flames: flames.iter().map(|f| f.pos).collect(),
             wet: world.wet_tiles().into_iter().map(|(p, _)| p).collect(),
             warmed: flames.iter().find(|f| f.pos == cursor).map(|f| (f.pos, f.radius)),

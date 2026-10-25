@@ -784,7 +784,7 @@ fn an_orchards_sapling_has_its_own_glyph() {
     let orchard = spots.into_iter().max_by_key(|&p| land(p)).expect("an open meadow");
     assert!(land(orchard) >= 40, "the open meadow has room to plant");
     s.world.map.get_mut(orchard).unwrap().building =
-        Some(fn_sim::building::Building { id, passable, rail: false });
+        Some(fn_sim::building::Building::new(id, passable, false));
     s.world.adopt_orchards(&s.defs);
     s.tick_n(1200);
     let sapling = s
