@@ -11,6 +11,8 @@
 //!
 //! Signs are remembered by string id, never by index, so a reordered `data/endeavor.toml` still
 //! reads an old save correctly.
+//!
+//! After Ready, placing the site and building the gate in stages is `gate.rs` (#236).
 
 use std::collections::BTreeSet;
 
@@ -18,16 +20,21 @@ use crate::building::BuildingId;
 use crate::endeavor::{SignDef, SignKind, Tally};
 use crate::jobs::ItemId;
 
+use super::gate::GateSite;
 use super::*;
 
-/// Where the end game stands. Later stages (the site, building the gate) add variants.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+/// Where the end game stands. The Avatar and the rite add more later.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub enum EndeavorState {
     /// Not every sign has been met at once yet.
     #[default]
     Dormant,
     /// Every sign was met at once on `tick`; the player may choose a site.
     Ready { tick: u64 },
+    /// The site is placed and the gate is going up, a stage at a time (`gate.rs`).
+    Building(GateSite),
+    /// The last stage was done on `tick`: the gate stands, a finished building on its site.
+    Complete { tick: u64 },
 }
 
 /// A sign's progress: `value` of `target`, and whether it is met now.
@@ -52,6 +59,8 @@ pub enum EndeavorEventKind {
     SignMet(String),
     /// Every sign was met at once: the endeavor is Ready.
     Ready,
+    /// The stage with this id was finished (`gate.rs`).
+    StageDone(String),
 }
 
 /// What the world remembers of the endeavor between checks. Its own struct so a save carries it
@@ -65,8 +74,8 @@ pub(super) struct EndeavorLog {
 }
 
 impl World {
-    pub fn endeavor(&self) -> EndeavorState {
-        self.endeavor
+    pub fn endeavor(&self) -> &EndeavorState {
+        &self.endeavor
     }
 
     /// Every event so far, oldest first.
@@ -138,6 +147,11 @@ impl World {
             self.endeavor = EndeavorState::Ready { tick };
             self.endeavor_log.events.push(EndeavorEvent { tick, kind: EndeavorEventKind::Ready });
         }
+    }
+
+    /// Logs an endeavor event at the current tick.
+    pub(super) fn endeavor_event(&mut self, kind: EndeavorEventKind) {
+        self.endeavor_log.events.push(EndeavorEvent { tick: self.tick, kind });
     }
 }
 

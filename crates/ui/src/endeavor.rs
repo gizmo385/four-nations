@@ -158,10 +158,17 @@ fn sign_name(sign: &SignDef, world: &World, defs: &Defs) -> String {
 }
 
 /// Where the endeavor stands, for under the gate.
-fn stage(state: EndeavorState) -> String {
-    match state {
+fn stage(world: &World, defs: &Defs) -> String {
+    match world.endeavor() {
         EndeavorState::Dormant => "Stage: not begun".to_owned(),
         EndeavorState::Ready { .. } => "Ready: the Avatar has heard".to_owned(),
+        EndeavorState::Building(_) => match world.gate_stage(defs) {
+            Some((n, s)) => {
+                format!("Stage {} of {}: {}", n + 1, defs.endeavor.stages.len(), s.name)
+            }
+            None => "Building".to_owned(),
+        },
+        EndeavorState::Complete { .. } => format!("{} stands", defs.endeavor.name),
     }
 }
 
@@ -193,7 +200,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
         total,
         count: format!("{met} of {total} signs"),
         frac: share(met, total),
-        stage: stage(world.endeavor()),
+        stage: stage(world, defs),
         groups,
     }
 }
@@ -210,7 +217,8 @@ pub fn endeavor_status(session: &Session) -> Option<EndeavorStatus> {
         return None;
     }
     let met = signs.iter().filter(|(_, p)| p.met).count();
-    let ready = matches!(world.endeavor(), EndeavorState::Ready { .. });
+    // Every sign has been met once the endeavor is past Dormant, so nothing is missing.
+    let ready = *world.endeavor() != EndeavorState::Dormant;
     let next = if ready {
         Vec::new()
     } else {
@@ -225,12 +233,17 @@ pub fn endeavor_status(session: &Session) -> Option<EndeavorStatus> {
         name: defs.endeavor.name.clone(),
         count: format!("{met}/{}", signs.len()),
         frac: share(met, signs.len()),
-        line: if ready { READY_TEXT.to_owned() } else { "Signs met - G: open".to_owned() },
+        line: match world.endeavor() {
+            EndeavorState::Dormant => "Signs met - G: open".to_owned(),
+            EndeavorState::Ready { .. } => READY_TEXT.to_owned(),
+            EndeavorState::Building(_) | EndeavorState::Complete { .. } => stage(world, defs),
+        },
         next,
     })
 }
 
-/// The alert line for an endeavor event: "Sign met: Population", or the Ready message.
+/// The alert line for an endeavor event: "Sign met: Population", the Ready message, or "Stage
+/// done: Foundation".
 pub fn describe_event(defs: &Defs, ev: &EndeavorEvent) -> String {
     match &ev.kind {
         EndeavorEventKind::SignMet(id) => {
@@ -238,6 +251,10 @@ pub fn describe_event(defs: &Defs, ev: &EndeavorEvent) -> String {
             format!("Sign met: {name}")
         }
         EndeavorEventKind::Ready => READY_TEXT.to_owned(),
+        EndeavorEventKind::StageDone(id) => {
+            let name = defs.endeavor.stage(id).map_or(id.as_str(), |(_, s)| &s.name);
+            format!("Stage done: {name}")
+        }
     }
 }
 
@@ -334,5 +351,8 @@ mod tests {
         assert_eq!(describe_event(&defs, &met), "Sign met: Everyone has a bed");
         let ready = EndeavorEvent { tick: 10, kind: EndeavorEventKind::Ready };
         assert_eq!(describe_event(&defs, &ready), READY_TEXT);
+        let stage =
+            EndeavorEvent { tick: 10, kind: EndeavorEventKind::StageDone("pillars".into()) };
+        assert_eq!(describe_event(&defs, &stage), "Stage done: The Four Pillars");
     }
 }

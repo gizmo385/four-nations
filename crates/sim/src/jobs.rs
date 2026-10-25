@@ -293,6 +293,10 @@ pub enum JobKind {
     /// (`data/buildings.toml`, `data/research.toml`, #21). Opened in sets of `seats` when a study
     /// hall finishes construction (`world/study.rs`); never completes on its own.
     Study { pos: Pos },
+    /// Do one of the endeavor gate's tasks: a bend by a unit of the task's element, on the gate's
+    /// site (`world/gate.rs`, #236). `task` is its place in `GateSite::tasks`, which saves name
+    /// by id. Queued automatically once the task's materials are in.
+    EndeavorTask { task: u8 },
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

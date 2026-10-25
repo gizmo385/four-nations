@@ -122,17 +122,20 @@ fn describe_blocker(session: &Session, at: Pos, why: Blocker) -> String {
     }
 }
 
-/// Whether the current nation could ever build `def`: not if the tech that unlocks it belongs
-/// to another nation's branch (`TechDef::nation`), which the nation can never research.
+/// Whether the current nation could ever build `def` from the picker: not if the tech that unlocks
+/// it belongs to another nation's branch (`TechDef::nation`), which the nation can never research,
+/// nor the endeavor's gate, which the Endeavor screen places (#236).
 fn available_to_nation(session: &Session, def: &BuildingDef) -> bool {
-    def.unlocked_by
-        .and_then(|t| session.defs.tech(t).nation)
-        .is_none_or(|n| n == session.world.nation)
+    !def.endeavor
+        && def
+            .unlocked_by
+            .and_then(|t| session.defs.tech(t).nation)
+            .is_none_or(|n| n == session.world.nation)
 }
 
 /// Every building the current nation can build or may yet unlock, in file order, by its name for
 /// them, with cost and work, and the tech it still needs if it's locked. Buildings behind
-/// another nation's tech are left out (issue #137).
+/// another nation's tech are left out (issue #137), and so is the endeavor's gate (#236).
 pub fn picker_rows(session: &Session) -> Vec<PickerRow> {
     let nation = session.world.nation;
     session

@@ -138,7 +138,7 @@ pub struct Defs {
     pub chi: ChiSettings,
     /// Bending abilities, in file order; indexed by `AbilityId`.
     pub abilities: Vec<AbilityDef>,
-    /// The end-game endeavor's signs (data/endeavor.toml). Empty unless loaded with
+    /// The end-game endeavor's signs and stages (data/endeavor.toml). Empty unless loaded with
     /// `with_endeavor`, which `bundled` does.
     pub endeavor: EndeavorDef,
     /// `harvests` index by `ResourceId`, so the lookup is O(1).
@@ -232,7 +232,11 @@ impl Defs {
     /// endeavor they had. A separate step from `from_toml` because nothing else in the data
     /// depends on it, and data without one (most tests) simply has no signs.
     pub fn with_endeavor(mut self, endeavor: &str) -> Result<Self, DefsError> {
-        self.endeavor = parse::<EndeavorFile>("endeavor.toml", endeavor)?.resolve(&self.items)?;
+        self.endeavor = parse::<EndeavorFile>("endeavor.toml", endeavor)?.resolve(
+            &self.items,
+            &self.buildings,
+            self.chi.max,
+        )?;
         Ok(self)
     }
 

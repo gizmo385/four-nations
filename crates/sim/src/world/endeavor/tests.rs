@@ -238,7 +238,7 @@ fn every_sign_met_at_once_latches_ready_and_eating_stores_does_not_undo_it() {
     let defs = defs_with(STONE_SIGNS);
     let mut w = world(Nation::Earth, 1, &defs);
     run(&mut w, &defs, 30);
-    assert_eq!(w.endeavor(), EndeavorState::Dormant);
+    assert_eq!(*w.endeavor(), EndeavorState::Dormant);
     // The population sign was met at the first check, and only logged once.
     assert_eq!(
         w.endeavor_events(),
@@ -247,7 +247,7 @@ fn every_sign_met_at_once_latches_ready_and_eating_stores_does_not_undo_it() {
 
     store(&mut w, &defs, "stone", at(1, 5), 50);
     run(&mut w, &defs, 10);
-    assert_eq!(w.endeavor(), EndeavorState::Ready { tick: 40 });
+    assert_eq!(*w.endeavor(), EndeavorState::Ready { tick: 40 });
     let tail: Vec<_> = w.endeavor_events()[1..].iter().map(|e| (e.tick, e.kind.clone())).collect();
     assert_eq!(
         tail,
@@ -258,7 +258,7 @@ fn every_sign_met_at_once_latches_ready_and_eating_stores_does_not_undo_it() {
     w.stored.clear();
     run(&mut w, &defs, 100);
     assert!(!sign(&w, &defs, "stone").met);
-    assert_eq!(w.endeavor(), EndeavorState::Ready { tick: 40 });
+    assert_eq!(*w.endeavor(), EndeavorState::Ready { tick: 40 });
     assert_eq!(w.endeavor_events().len(), 3);
 }
 
@@ -270,14 +270,14 @@ fn signs_met_one_at_a_time_are_not_ready_and_each_is_logged_once() {
     w.units.clear();
     run(&mut w, &defs, 10);
     // Stone is met but nobody lives here: not every sign at once.
-    assert_eq!(w.endeavor(), EndeavorState::Dormant);
+    assert_eq!(*w.endeavor(), EndeavorState::Dormant);
     w.stored.clear();
     run(&mut w, &defs, 20);
     store(&mut w, &defs, "stone", at(1, 5), 60);
     run(&mut w, &defs, 20);
     let met: Vec<_> = w.endeavor_events().iter().map(|e| e.kind.clone()).collect();
     assert_eq!(met, [EndeavorEventKind::SignMet("stone".into())], "logged the first time only");
-    assert_eq!(w.endeavor(), EndeavorState::Dormant);
+    assert_eq!(*w.endeavor(), EndeavorState::Dormant);
 }
 
 #[test]
@@ -287,9 +287,9 @@ fn checks_run_once_a_second() {
     run(&mut w, &defs, 10);
     store(&mut w, &defs, "stone", at(1, 5), 50);
     run(&mut w, &defs, 9);
-    assert_eq!(w.endeavor(), EndeavorState::Dormant, "tick 19 is not a check");
+    assert_eq!(*w.endeavor(), EndeavorState::Dormant, "tick 19 is not a check");
     run(&mut w, &defs, 1);
-    assert_eq!(w.endeavor(), EndeavorState::Ready { tick: 20 });
+    assert_eq!(*w.endeavor(), EndeavorState::Ready { tick: 20 });
 }
 
 #[test]
@@ -298,7 +298,7 @@ fn data_without_signs_never_becomes_ready() {
     assert!(defs.endeavor.signs.is_empty());
     let mut w = world(Nation::Earth, 1, &defs);
     run(&mut w, &defs, 50);
-    assert_eq!(w.endeavor(), EndeavorState::Dormant);
+    assert_eq!(*w.endeavor(), EndeavorState::Dormant);
     assert!(w.endeavor_events().is_empty());
     assert!(w.endeavor_signs(&defs).is_empty());
 }
@@ -332,7 +332,7 @@ fn the_endeavor_is_deterministic() {
             w.apply(Command::DesignateHarvest { pos }, &defs).unwrap();
         }
         run(&mut w, &defs, 4000);
-        (w.endeavor(), w.endeavor_events().to_vec())
+        (w.endeavor().clone(), w.endeavor_events().to_vec())
     };
     let (a, b) = (play(), play());
     assert_eq!(a, b);

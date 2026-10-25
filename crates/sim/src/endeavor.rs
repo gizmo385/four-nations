@@ -1,5 +1,6 @@
-//! The end-game endeavor's signs: definitions from `data/endeavor.toml`, resolved and validated at
-//! load (`docs/design/endgame.md`, "The road: ten signs"; issue #234).
+//! The end-game endeavor's signs and stages: definitions from `data/endeavor.toml`, resolved and
+//! validated at load (`docs/design/endgame.md`, "The road: ten signs" and "The project: four
+//! stages"; issues #234 and #236).
 //!
 //! A sign is a condition on things the settlement does anyway: how many people it has, what it
 //! has built and stored, lifetime tallies. The endeavor becomes Ready the first time every sign is
@@ -9,9 +10,15 @@
 //!
 //! Signs are referenced by their string id in saves (`World::endeavor_signs` and the events), so
 //! reordering or retuning the list doesn't misread an old save.
+//!
+//! Once Ready, the settlement builds the gate (`EndeavorDef::building`) in stages, in file order.
+//! A stage has its own cost and work, done by a settler as a construct job, and tasks: each task
+//! needs its own materials hauled to the site, then one bend by a unit of its `element`, which
+//! spends chi like an ability. Stages and tasks are saved by string id too (`world/gate.rs`).
 
 use serde::Deserialize;
 
+use crate::building::{BuildingDef, BuildingId, CostItem};
 use crate::defs::DefsError;
 use crate::jobs::{ItemDef, ItemId};
 use crate::nation::Nation;
@@ -26,6 +33,48 @@ pub struct EndeavorDef {
     pub description: String,
     /// The signs, in file order: the order the UI lists them in.
     pub signs: Vec<SignDef>,
+    /// The building the endeavor raises (`endeavor = true` in `data/buildings.toml`). Set exactly
+    /// when there are stages.
+    pub building: Option<BuildingId>,
+    /// The stages of building it, in the order they are built. Empty when the data has none: then
+    /// a Ready endeavor has no site to place.
+    pub stages: Vec<StageDef>,
+}
+
+impl EndeavorDef {
+    /// The stage with this id, with its place in the list.
+    pub fn stage(&self, id: &str) -> Option<(usize, &StageDef)> {
+        self.stages.iter().enumerate().find(|(_, s)| s.id == id)
+    }
+}
+
+/// One stage of building the gate (`[[stage]]`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct StageDef {
+    pub id: String,
+    pub name: String,
+    /// What a settler hauls to the site before the stage's work can start.
+    pub cost: Vec<CostItem>,
+    /// In-game seconds of construct work at a `construction` modifier of 1.0, done once `cost` is
+    /// delivered. 0 when the stage is only tasks.
+    pub work: f32,
+    /// Bends that finish the stage, each once its own cost is delivered and the work is done.
+    pub tasks: Vec<TaskDef>,
+}
+
+/// A bend that is part of a stage (`[[stage.task]]`): a pillar raised by its element.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TaskDef {
+    pub id: String,
+    pub name: String,
+    /// Who may do it: a unit of this nation. (The Avatar, who may do any, comes later.)
+    pub element: Nation,
+    /// What a settler hauls to the site before the task can be taken.
+    pub cost: Vec<CostItem>,
+    /// Chi the bend needs to start, and spends when it finishes.
+    pub chi: f32,
+    /// In-game seconds of channelling.
+    pub work: f32,
 }
 
 /// Where a sign is listed. The UI groups signs under these, in this order.
@@ -99,6 +148,8 @@ pub(crate) struct EndeavorFile {
     endeavor: RawEndeavor,
     #[serde(default)]
     sign: Vec<RawSign>,
+    #[serde(default)]
+    stage: Vec<RawStage>,
 }
 
 #[derive(Deserialize)]
@@ -107,6 +158,40 @@ struct RawEndeavor {
     name: String,
     #[serde(default)]
     description: String,
+    #[serde(default)]
+    building: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawCost {
+    item: String,
+    count: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawStage {
+    id: String,
+    name: String,
+    #[serde(default)]
+    cost: Vec<RawCost>,
+    #[serde(default)]
+    work: f32,
+    #[serde(default)]
+    task: Vec<RawTask>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawTask {
+    id: String,
+    name: String,
+    element: Nation,
+    #[serde(default)]
+    cost: Vec<RawCost>,
+    chi: f32,
+    work: f32,
 }
 
 #[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -165,8 +250,14 @@ struct RawSign {
 }
 
 impl EndeavorFile {
-    /// Validates the file and resolves item ids. `items` is `Defs::items`.
-    pub(crate) fn resolve(self, items: &[ItemDef]) -> Result<EndeavorDef, DefsError> {
+    /// Validates the file and resolves item and building ids. `items` is `Defs::items` and
+    /// `buildings` `Defs::buildings`.
+    pub(crate) fn resolve(
+        self,
+        items: &[ItemDef],
+        buildings: &[BuildingDef],
+        chi_max: f32,
+    ) -> Result<EndeavorDef, DefsError> {
         if self.endeavor.name.trim().is_empty() {
             return Err(DefsError("endeavor: name must not be empty".into()));
         }
@@ -178,8 +269,124 @@ impl EndeavorFile {
             }
             signs.push(sign);
         }
-        let RawEndeavor { name, description } = self.endeavor;
-        Ok(EndeavorDef { name, description, signs })
+        let mut stages: Vec<StageDef> = Vec::with_capacity(self.stage.len());
+        for raw in self.stage {
+            let stage = raw.resolve(items, chi_max)?;
+            if stages.iter().any(|s| s.id == stage.id) {
+                return Err(DefsError(format!("stage {}: duplicate id", stage.id)));
+            }
+            let tasks = stages.iter().flat_map(|s| &s.tasks).chain(&stage.tasks);
+            let mut ids: Vec<&str> = tasks.map(|t| t.id.as_str()).collect();
+            ids.sort_unstable();
+            if let Some(w) = ids.windows(2).find(|w| w[0] == w[1]) {
+                return Err(DefsError(format!("task {}: duplicate id", w[0])));
+            }
+            stages.push(stage);
+        }
+        let RawEndeavor { name, description, building } = self.endeavor;
+        let building = match (building, stages.is_empty()) {
+            (None, true) => None,
+            (None, false) => {
+                return Err(DefsError("endeavor: stages need a building to raise".into()));
+            }
+            (Some(_), true) => {
+                return Err(DefsError("endeavor: a building needs at least one [[stage]]".into()));
+            }
+            (Some(b), false) => {
+                let Some(n) = buildings.iter().position(|d| d.id == b) else {
+                    return Err(DefsError(format!("endeavor: unknown building {b:?}")));
+                };
+                if !buildings[n].endeavor {
+                    return Err(DefsError(format!(
+                        "endeavor: building {b:?} needs endeavor = true in buildings.toml"
+                    )));
+                }
+                Some(BuildingId(n as u16))
+            }
+        };
+        Ok(EndeavorDef { name, description, signs, building, stages })
+    }
+}
+
+/// Links a cost list's item ids: each item known, counted at least once, and listed once.
+fn resolve_cost(
+    raw: Vec<RawCost>,
+    items: &[ItemDef],
+    err: &dyn Fn(&str) -> DefsError,
+) -> Result<Vec<CostItem>, DefsError> {
+    let mut cost: Vec<CostItem> = Vec::with_capacity(raw.len());
+    for c in raw {
+        let Some(n) = items.iter().position(|i| i.id == c.item) else {
+            return Err(err(&format!("unknown item {:?}", c.item)));
+        };
+        let item = ItemId(n as u16);
+        if c.count == 0 {
+            return Err(err("cost count must be positive"));
+        }
+        if cost.iter().any(|existing| existing.item == item) {
+            return Err(err(&format!("item {:?} costed twice", c.item)));
+        }
+        cost.push(CostItem { item, count: c.count });
+    }
+    Ok(cost)
+}
+
+impl RawStage {
+    fn resolve(self, items: &[ItemDef], chi_max: f32) -> Result<StageDef, DefsError> {
+        let id = self.id;
+        let err = |msg: &str| DefsError(format!("stage {id}: {msg}"));
+        if id.trim().is_empty() {
+            return Err(DefsError("stage: id must not be empty".into()));
+        }
+        if self.name.trim().is_empty() {
+            return Err(err("name must not be empty"));
+        }
+        if !(self.work.is_finite() && self.work >= 0.0) {
+            return Err(err("work must be a number of seconds, 0 or more"));
+        }
+        let cost = resolve_cost(self.cost, items, &err)?;
+        if !cost.is_empty() && self.work == 0.0 {
+            return Err(err("a stage with a cost needs work to spend it on"));
+        }
+        if self.work == 0.0 && self.task.is_empty() {
+            return Err(err("needs work or at least one task"));
+        }
+        // Jobs name a task by its place in the stage, in a byte.
+        if self.task.len() > usize::from(u8::MAX) {
+            return Err(err("too many tasks"));
+        }
+        let tasks =
+            self.task.into_iter().map(|t| t.resolve(items, chi_max)).collect::<Result<_, _>>()?;
+        Ok(StageDef { name: self.name, cost, work: self.work, tasks, id })
+    }
+}
+
+impl RawTask {
+    fn resolve(self, items: &[ItemDef], chi_max: f32) -> Result<TaskDef, DefsError> {
+        let id = self.id;
+        let err = |msg: &str| DefsError(format!("task {id}: {msg}"));
+        if id.trim().is_empty() {
+            return Err(DefsError("task: id must not be empty".into()));
+        }
+        if self.name.trim().is_empty() {
+            return Err(err("name must not be empty"));
+        }
+        // A unit's meter never holds more than `chi.max`, so a dearer task could never be taken.
+        if !(self.chi > 0.0 && self.chi <= chi_max) {
+            return Err(err(&format!("chi must be in (0, {chi_max}] (chi.max)")));
+        }
+        if !(self.work.is_finite() && self.work > 0.0) {
+            return Err(err("work must be a positive number of seconds"));
+        }
+        let cost = resolve_cost(self.cost, items, &err)?;
+        Ok(TaskDef {
+            name: self.name,
+            element: self.element,
+            cost,
+            chi: self.chi,
+            work: self.work,
+            id,
+        })
     }
 }
 
@@ -392,7 +599,7 @@ mod tests {
                 .contains("crops_harvested")
         );
         assert!(file_error("[endeavor]\nname = \"G\"\nextra = 1\n").contains("extra"));
-        assert!(file_error("[endeavor]\nname = \"G\"\n[[stage]]\nid = \"x\"\n").contains("stage"));
+        assert!(file_error("[endeavor]\nname = \"G\"\n[[step]]\nid = \"x\"\n").contains("step"));
         assert!(
             error("[[sign]]\nid = \"s\"\ngroup = \"war\"\nname = \"S\"\nkind = \"population\"\ntarget = 1\n")
                 .contains("war")
@@ -470,5 +677,104 @@ mod tests {
         assert!(error("[[sign]]\nid = \" \"\ngroup = \"people\"\nname = \"S\"\nkind = \"population\"\ntarget = 1\n").contains("id must not be empty"));
         assert!(error("[[sign]]\nid = \"s\"\ngroup = \"people\"\nname = \"\"\nkind = \"population\"\ntarget = 1\n").contains("name must not be empty"));
         assert!(file_error("[endeavor]\nname = \"\"\n").contains("name must not be empty"));
+    }
+
+    const GATE: &str = "[endeavor]\nname = \"G\"\nbuilding = \"harmony_gate\"\n";
+
+    /// The bundled data with the gate and these stages as the endeavor.
+    fn stages(src: &str) -> Result<EndeavorDef, DefsError> {
+        load_file(&format!("{GATE}{src}"))
+    }
+
+    fn stage_error(src: &str) -> String {
+        stages(src).expect_err("should be rejected").0
+    }
+
+    const PILLAR: &str = "[[stage.task]]\nid = \"t\"\nname = \"T\"\nelement = \"earth\"\n\
+                          chi = 50.0\nwork = 10.0\n";
+
+    #[test]
+    fn the_bundled_gate_has_its_stages_and_a_pillar_per_element() {
+        let defs = Defs::bundled();
+        let e = &defs.endeavor;
+        assert_eq!(e.building, defs.building_id("harmony_gate"));
+        let ids: Vec<&str> = e.stages.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["foundation", "pillars", "arch"]);
+        let foundation = &e.stages[0];
+        assert!(
+            foundation.work > 0.0 && !foundation.cost.is_empty() && foundation.tasks.is_empty()
+        );
+        let (n, pillars) = e.stage("pillars").unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(pillars.work, 0.0);
+        let elements: Vec<Nation> = pillars.tasks.iter().map(|t| t.element).collect();
+        assert_eq!(elements, Nation::ALL);
+        assert!(pillars.tasks.iter().all(|t| t.chi <= defs.chi.max && !t.cost.is_empty()));
+    }
+
+    #[test]
+    fn a_stage_resolves_its_cost_and_tasks() {
+        let e = stages(&format!(
+            "[[stage]]\nid = \"s\"\nname = \"S\"\ncost = [{{ item = \"stone\", count = 4 }}]\n\
+             work = 30.0\n{PILLAR}cost = [{{ item = \"wood\", count = 2 }}]\n"
+        ))
+        .unwrap();
+        let defs = Defs::bundled();
+        let s = &e.stages[0];
+        assert_eq!(s.cost, [CostItem { item: defs.item_id("stone").unwrap(), count: 4 }]);
+        assert_eq!(s.work, 30.0);
+        let t = &s.tasks[0];
+        assert_eq!((t.element, t.chi, t.work), (Nation::Earth, 50.0, 10.0));
+        assert_eq!(t.cost, [CostItem { item: defs.item_id("wood").unwrap(), count: 2 }]);
+    }
+
+    #[test]
+    fn the_gate_and_its_stages_come_together() {
+        let stage = "[[stage]]\nid = \"s\"\nname = \"S\"\nwork = 5.0\n";
+        let e = load_file(&format!("[endeavor]\nname = \"G\"\n{stage}")).unwrap_err();
+        assert!(e.0.contains("need a building"), "{e}");
+        assert!(stage_error("").contains("at least one [[stage]]"));
+        let e = load_file(&format!("[endeavor]\nname = \"G\"\nbuilding = \"bed\"\n{stage}"))
+            .unwrap_err();
+        assert!(e.0.contains("endeavor = true"), "{e}");
+        let e = load_file(&format!("[endeavor]\nname = \"G\"\nbuilding = \"ziggurat\"\n{stage}"))
+            .unwrap_err();
+        assert!(e.0.contains("unknown building"), "{e}");
+        // No gate and no stages is a world that never builds one.
+        let none = load("").unwrap();
+        assert!(none.building.is_none() && none.stages.is_empty());
+    }
+
+    #[test]
+    fn stages_and_tasks_are_checked() {
+        let s = |body: &str| format!("[[stage]]\nid = \"s\"\nname = \"S\"\n{body}\n");
+        assert!(stage_error(&s("")).contains("needs work or at least one task"));
+        assert!(stage_error(&s("work = -1.0")).contains("work must be"));
+        let e = stage_error(&s("cost = [{ item = \"stone\", count = 1 }]\n"));
+        assert!(e.contains("needs work"), "{e}");
+        assert!(
+            stage_error(&s("work = 1.0\ncost = [{ item = \"mithril\", count = 1 }]"))
+                .contains("unknown item")
+        );
+        assert!(
+            stage_error(&s("work = 1.0\ncost = [{ item = \"stone\", count = 0 }]"))
+                .contains("positive")
+        );
+        let twice =
+            "work = 1.0\ncost = [{ item = \"stone\", count = 1 }, { item = \"stone\", count = 2 }]";
+        assert!(stage_error(&s(twice)).contains("costed twice"));
+        assert!(stage_error(&s("work = 1.0\nhue = 3")).contains("hue"));
+        assert!(
+            stage_error(&format!("{}{}", s("work = 1.0"), s("work = 2.0")))
+                .contains("duplicate id")
+        );
+        let task = |body: &str| s(&format!("[[stage.task]]\nid = \"t\"\nname = \"T\"\n{body}"));
+        let e = stage_error(&task("element = \"earth\"\nchi = 500.0\nwork = 1.0"));
+        assert!(e.contains("chi.max"), "{e}");
+        assert!(stage_error(&task("element = \"earth\"\nchi = 0.0\nwork = 1.0")).contains("chi"));
+        assert!(stage_error(&task("element = \"earth\"\nchi = 5.0\nwork = 0.0")).contains("work"));
+        assert!(stage_error(&task("element = \"metal\"\nchi = 5.0\nwork = 1.0")).contains("metal"));
+        let two = format!("{}[[stage]]\nid = \"s2\"\nname = \"S2\"\n{PILLAR}", s(PILLAR));
+        assert!(stage_error(&two).contains("task t: duplicate id"));
     }
 }

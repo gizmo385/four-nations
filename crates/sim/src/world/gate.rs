@@ -1,0 +1,482 @@
+//! Building the endeavor's gate: placing its site and raising it a stage at a time (issue #236;
+//! docs/design/endgame.md, "The project: four stages").
+//!
+//! Once the endeavor is Ready the player places the gate (`Command::BeginEndeavor`) with the
+//! usual placement rules (#207). The site goes into the ordinary site table, so its footprint
+//! keeps other buildings off and a unit works it like any site, but its cost and work come from
+//! the current stage in `data/endeavor.toml`, kept in `EndeavorState::Building`.
+//!
+//! Each stage is done in this order:
+//!
+//! 1. One `JobKind::Build` job, as for any building: a settler hauls the stage's cost to the site,
+//!    then works it for the stage's `work` (scaled by `construction`). The same job then hauls
+//!    each task's own cost, in task order.
+//! 2. Each task becomes a `JobKind::EndeavorTask` the moment its materials are in. Only a unit of
+//!    the task's element with the chi may take it. It walks onto the plaza, channels for the
+//!    task's `work` and spends the chi as a bend does, and the bend counts toward mastery.
+//! 3. When the work and every task are done, the stage is logged (`EndeavorEventKind::StageDone`)
+//!    and the next one begins. After the last, the site becomes the finished building and the
+//!    endeavor is `Complete`.
+//!
+//! The site may be cancelled (`Command::CancelEndeavor`) until work on the first stage starts.
+//! Materials delivered drop beside it, as for `CancelBuild`, and the endeavor is Ready again.
+//!
+//! Stages and tasks are saved by string id, so a reordered data file doesn't misread a save. A
+//! task job names its task by its place in `GateSite::tasks`, which is saved state, not the data.
+//! A stage or task whose id the data no longer has simply stalls.
+
+use crate::building::{BuildingId, CostItem};
+use crate::endeavor::{StageDef, TaskDef};
+use crate::jobs::{ItemId, JobKind, Stack};
+
+use super::build::{Blocker, Site};
+use super::work::route_from;
+use super::*;
+
+/// Why an endeavor command was refused. The world is unchanged when `apply` returns one of these.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndeavorError {
+    /// The endeavor isn't Ready: its signs aren't all met yet, or the site is already placed.
+    NotReady,
+    /// The data has no gate to build (no stages in `data/endeavor.toml`).
+    NoGate,
+    /// A footprint tile can't take the gate, as `BuildError::CannotBuild` says.
+    CannotBuild { at: Pos, why: Blocker },
+    /// There is no site to cancel.
+    NotBuilding,
+    /// Work on the site has started, so it can no longer be cancelled.
+    Started,
+}
+
+impl std::fmt::Display for EndeavorError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotReady => f.write_str("the endeavor isn't ready for a site"),
+            Self::NoGate => f.write_str("there is nothing to build"),
+            Self::CannotBuild { why, .. } => write!(f, "{why}"),
+            Self::NotBuilding => f.write_str("no site to cancel"),
+            Self::Started => f.write_str("work has started"),
+        }
+    }
+}
+
+impl std::error::Error for EndeavorError {}
+
+/// The gate going up: where, which stage, and how far that stage has got.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GateSite {
+    /// The top-left tile of its footprint.
+    pub anchor: Pos,
+    /// When the endeavor became Ready, which cancelling the site goes back to.
+    pub ready_tick: u64,
+    /// The current stage's id.
+    pub stage: String,
+    /// How much of the stage's own cost has been delivered, by item.
+    pub delivered: Vec<Stack>,
+    /// Construct work done on the stage, in work-seconds (of `StageDef::work`).
+    pub progress: f32,
+    /// The stage's tasks, in data order as of when the stage began.
+    pub tasks: Vec<GateTask>,
+}
+
+/// One of the current stage's tasks.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GateTask {
+    pub id: String,
+    /// How much of the task's cost has been delivered, by item.
+    pub delivered: Vec<Stack>,
+    /// Whether the task's bend has been done.
+    pub done: bool,
+}
+
+impl GateSite {
+    fn new(anchor: Pos, ready_tick: u64, stage: &StageDef) -> Self {
+        let mut site = Self {
+            anchor,
+            ready_tick,
+            stage: String::new(),
+            delivered: Vec::new(),
+            progress: 0.0,
+            tasks: Vec::new(),
+        };
+        site.begin(stage);
+        site
+    }
+
+    /// Starts `stage` from nothing.
+    fn begin(&mut self, stage: &StageDef) {
+        self.stage = stage.id.clone();
+        self.delivered.clear();
+        self.progress = 0.0;
+        self.tasks = stage
+            .tasks
+            .iter()
+            .map(|t| GateTask { id: t.id.clone(), delivered: Vec::new(), done: false })
+            .collect();
+    }
+}
+
+/// What the gate's construct job does next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Next {
+    /// Fetch this many of this item.
+    Fetch(ItemId, u32),
+    /// Work the stage.
+    Work,
+    /// Nothing: the stage's work is done and every task has its materials.
+    Done,
+}
+
+/// How many of `item` are in `list`.
+fn count_of(list: &[Stack], item: ItemId) -> u32 {
+    list.iter().filter(|s| s.item == item).map(|s| s.count).sum()
+}
+
+/// The first cost entry not yet fully delivered, and how many are still short.
+fn shortfall(cost: &[CostItem], delivered: &[Stack]) -> Option<(ItemId, u32)> {
+    cost.iter().find_map(|c| {
+        let have = count_of(delivered, c.item);
+        (have < c.count).then_some((c.item, c.count - have))
+    })
+}
+
+/// Adds up to what `cost` still needs of `stack`'s item to `delivered`, and returns how many that
+/// was.
+fn take_into(cost: &[CostItem], delivered: &mut Vec<Stack>, item: ItemId, count: u32) -> u32 {
+    let Some(c) = cost.iter().find(|c| c.item == item) else { return 0 };
+    let n = c.count.saturating_sub(count_of(delivered, item)).min(count);
+    if n > 0 {
+        match delivered.iter_mut().find(|s| s.item == item) {
+            Some(s) => s.count += n,
+            None => delivered.push(Stack { item, count: n }),
+        }
+    }
+    n
+}
+
+/// The data for `task` in `stage`.
+fn task_def<'d>(stage: &'d StageDef, task: &GateTask) -> Option<&'d TaskDef> {
+    stage.tasks.iter().find(|t| t.id == task.id)
+}
+
+/// Queries, and the commands behind `Command::BeginEndeavor` and `Command::CancelEndeavor`.
+impl World {
+    /// Whether `anchor` is the anchor of the endeavor's site.
+    pub(super) fn is_gate(&self, anchor: Pos) -> bool {
+        matches!(&self.endeavor, EndeavorState::Building(g) if g.anchor == anchor)
+    }
+
+    fn gate(&self) -> Option<&GateSite> {
+        match &self.endeavor {
+            EndeavorState::Building(g) => Some(g),
+            _ => None,
+        }
+    }
+
+    fn gate_mut(&mut self) -> Option<&mut GateSite> {
+        match &mut self.endeavor {
+            EndeavorState::Building(g) => Some(g),
+            _ => None,
+        }
+    }
+
+    /// The stage the gate is on, with its place in the list, while it is being built.
+    pub fn gate_stage<'d>(&self, defs: &'d Defs) -> Option<(usize, &'d StageDef)> {
+        defs.endeavor.stage(&self.gate()?.stage)
+    }
+
+    /// Whether the gate may be placed with its anchor (top-left tile) on `anchor`: the endeavor
+    /// must be Ready, then every footprint tile free, row-major. Changes nothing, so a frontend
+    /// can call it to preview a placement.
+    pub fn check_endeavor_site(&self, anchor: Pos, defs: &Defs) -> Result<(), EndeavorError> {
+        if !matches!(self.endeavor, EndeavorState::Ready { .. }) {
+            return Err(EndeavorError::NotReady);
+        }
+        let Some(gate) = defs.endeavor.building else { return Err(EndeavorError::NoGate) };
+        self.footprint_blocker(anchor, defs.building(gate))
+            .map_or(Ok(()), |(at, why)| Err(EndeavorError::CannotBuild { at, why }))
+    }
+
+    /// Places the gate's site with its anchor on `anchor` and starts the first stage.
+    pub(super) fn begin_endeavor(&mut self, anchor: Pos, defs: &Defs) -> Result<(), EndeavorError> {
+        self.check_endeavor_site(anchor, defs)?;
+        let EndeavorState::Ready { tick } = self.endeavor else { unreachable!("checked") };
+        let gate: BuildingId = defs.endeavor.building.expect("checked");
+        let (w, h) = defs.building(gate).footprint;
+        // The loader allows a gate only with stages.
+        let first = &defs.endeavor.stages[0];
+        self.sites.insert(anchor, Site::gate(gate, [w, h]));
+        self.endeavor = EndeavorState::Building(GateSite::new(anchor, tick, first));
+        self.gate_progressed(defs);
+        Ok(())
+    }
+
+    /// Withdraws the site, if no work on it has started: materials delivered drop beside it and
+    /// the endeavor is Ready again.
+    pub(super) fn cancel_endeavor(&mut self, defs: &Defs) -> Result<(), EndeavorError> {
+        let Some(g) = self.gate() else { return Err(EndeavorError::NotBuilding) };
+        let first = defs.endeavor.stages.first().map(|s| s.id.as_str());
+        let channelled = self
+            .jobs
+            .iter()
+            .any(|j| matches!(j.kind, JobKind::EndeavorTask { .. }) && j.progress > 0.0);
+        if first != Some(g.stage.as_str())
+            || g.progress > 0.0
+            || g.tasks.iter().any(|t| t.done)
+            || channelled
+        {
+            return Err(EndeavorError::Started);
+        }
+        let tick = g.ready_tick;
+        let EndeavorState::Building(g) =
+            std::mem::replace(&mut self.endeavor, EndeavorState::Ready { tick })
+        else {
+            unreachable!("just matched")
+        };
+        self.sites.remove(&g.anchor);
+        self.drop_gate_jobs(g.anchor);
+        for &stack in g.delivered.iter().chain(g.tasks.iter().flat_map(|t| &t.delivered)) {
+            if stack.count > 0 {
+                self.place_ground(g.anchor, stack);
+            }
+        }
+        Ok(())
+    }
+
+    /// Drops the gate's construct job and every task job. A unit that held one finds it gone and
+    /// lets go.
+    fn drop_gate_jobs(&mut self, anchor: Pos) {
+        self.jobs.retain(|j| match j.kind {
+            JobKind::Build { pos } => pos != anchor,
+            JobKind::EndeavorTask { .. } => false,
+            _ => true,
+        });
+    }
+
+    /// The task at `task` in the current stage (`JobKind::EndeavorTask`), with its data and the
+    /// site's anchor, unless it is done.
+    pub fn gate_task<'d>(&self, task: u8, defs: &'d Defs) -> Option<(&'d TaskDef, Pos)> {
+        let g = self.gate()?;
+        let (_, stage) = defs.endeavor.stage(&g.stage)?;
+        let state = g.tasks.get(usize::from(task)).filter(|t| !t.done)?;
+        Some((task_def(stage, state)?, g.anchor))
+    }
+
+    /// Whether unit `i` may take `task`: it is of the task's element and its chi covers the cost.
+    pub(super) fn unit_can_raise(&self, i: usize, task: &TaskDef) -> bool {
+        let u = &self.units[i];
+        u.nation == task.element && u.chi >= task.chi
+    }
+}
+
+/// Doing it.
+impl World {
+    /// What the construct job does next: the stage's cost, then its work, then each task's cost.
+    fn gate_next(&self, defs: &Defs) -> Next {
+        let (Some(g), Some((_, stage))) = (self.gate(), self.gate_stage(defs)) else {
+            return Next::Done;
+        };
+        if let Some((item, n)) = shortfall(&stage.cost, &g.delivered) {
+            return Next::Fetch(item, n);
+        }
+        if g.progress < stage.work {
+            return Next::Work;
+        }
+        g.tasks
+            .iter()
+            .filter(|t| !t.done)
+            .filter_map(|t| shortfall(&task_def(stage, t)?.cost, &t.delivered))
+            .map(|(item, n)| Next::Fetch(item, n))
+            .next()
+            .unwrap_or(Next::Done)
+    }
+
+    /// Adds a delivered stack to the stage's cost, then to the tasks' in order. Anything left over
+    /// (the stage moved on mid-trip) drops beside the site.
+    fn deliver_to_gate(&mut self, stack: Stack, defs: &Defs) {
+        let Some((_, stage)) = self.gate_stage(defs) else { return };
+        let g = self.gate_mut().expect("has a stage");
+        let mut left = stack.count;
+        left -= take_into(&stage.cost, &mut g.delivered, stack.item, left);
+        for t in g.tasks.iter_mut().filter(|t| !t.done) {
+            if let Some(def) = stage.tasks.iter().find(|d| d.id == t.id) {
+                left -= take_into(&def.cost, &mut t.delivered, stack.item, left);
+            }
+        }
+        if left > 0 {
+            let anchor = g.anchor;
+            self.place_ground(anchor, Stack { item: stack.item, count: left });
+        }
+    }
+
+    /// After anything that moves the gate on: queues the tasks whose materials are in, makes sure
+    /// a construct job exists while there is hauling or work left, and starts the next stage, or
+    /// finishes the gate, once the current one is done.
+    fn gate_progressed(&mut self, defs: &Defs) {
+        loop {
+            let (Some(g), Some((n, stage))) = (self.gate(), self.gate_stage(defs)) else { return };
+            let anchor = g.anchor;
+            let built = g.progress >= stage.work && shortfall(&stage.cost, &g.delivered).is_none();
+            let ready: Vec<u8> = g
+                .tasks
+                .iter()
+                .enumerate()
+                .filter(|&(_, t)| {
+                    built
+                        && !t.done
+                        && task_def(stage, t)
+                            .is_some_and(|d| shortfall(&d.cost, &t.delivered).is_none())
+                })
+                .map(|(k, _)| k as u8)
+                .filter(|&k| !self.jobs.iter().any(|j| j.kind == JobKind::EndeavorTask { task: k }))
+                .collect();
+            let all_done = g.tasks.iter().all(|t| t.done);
+            for task in ready {
+                self.add_job(JobKind::EndeavorTask { task });
+            }
+            let next = self.gate_next(defs);
+            if next != Next::Done {
+                if !self.jobs.iter().any(|j| j.kind == JobKind::Build { pos: anchor }) {
+                    self.add_job(JobKind::Build { pos: anchor });
+                }
+                return;
+            }
+            if !all_done {
+                return;
+            }
+            self.endeavor_event(EndeavorEventKind::StageDone(stage.id.clone()));
+            self.drop_gate_jobs(anchor);
+            match defs.endeavor.stages.get(n + 1) {
+                Some(following) => self.gate_mut().expect("still building").begin(following),
+                None => return self.finish_gate(anchor, defs),
+            }
+        }
+    }
+
+    /// The last stage is done: the site becomes the finished gate, and the endeavor is Complete.
+    fn finish_gate(&mut self, anchor: Pos, defs: &Defs) {
+        let foot = self.footprint_at(anchor).expect("the gate's site");
+        let site = self.sites.remove(&anchor).expect("the gate's site");
+        self.raise(foot, site.building, defs.building(site.building));
+        self.endeavor = EndeavorState::Complete { tick: self.tick };
+    }
+
+    /// The gate's construct job (`run_build` hands it over): haul and work the current stage as
+    /// `gate_next` says.
+    pub(super) fn run_gate_build(&mut self, i: usize, id: JobId, anchor: Pos, defs: &Defs) {
+        let Some(idx) = self.job_index(id) else { return self.finish_job(i) };
+        if let Some(stack) = self.units[i].carrying {
+            // Carrying a trip's worth to the site.
+            if !self.route_to_gate(i, anchor, defs) {
+                return self.abandon_job(i, id, defs);
+            }
+            if !self.walk(i, defs) {
+                return;
+            }
+            self.units[i].carrying = None;
+            self.units[i].route = None;
+            self.deliver_to_gate(stack, defs);
+            return self.gate_progressed(defs);
+        }
+        match self.gate_next(defs) {
+            Next::Fetch(item, needed) => {
+                let flood = self.flood_from(i);
+                let Some((source, stand)) = self.nearest_source(&flood, item) else {
+                    return self.abandon_job(i, id, defs);
+                };
+                if self.units[i].route.is_none() {
+                    match flood.path_to(stand) {
+                        Some(path) => self.units[i].route = Some(route_from(path)),
+                        None => return self.abandon_job(i, id, defs),
+                    }
+                }
+                if !self.walk(i, defs) {
+                    return;
+                }
+                let take = self.take_for_build(i, source, needed, defs);
+                if take == 0 {
+                    // Someone else got there first: look again next tick.
+                    return self.abandon_job(i, id, defs);
+                }
+                self.units[i].carrying = Some(Stack { item, count: take });
+                self.units[i].route = None;
+            }
+            Next::Work => {
+                if !self.route_to_gate(i, anchor, defs) {
+                    return self.abandon_job(i, id, defs);
+                }
+                if !self.walk(i, defs) {
+                    return;
+                }
+                let rate = self.modifiers().construction;
+                let work = self.gate_stage(defs).map_or(0.0, |(_, s)| s.work);
+                let g = self.gate_mut().expect("building");
+                g.progress = (g.progress + rate / TICKS_PER_SECOND as f32).min(work);
+                if g.progress >= work {
+                    // On to the tasks' materials, or the next stage (which drops this job).
+                    self.units[i].route = None;
+                    self.gate_progressed(defs);
+                }
+            }
+            Next::Done => {
+                self.jobs.remove(idx);
+                self.finish_job(i);
+                self.gate_progressed(defs);
+            }
+        }
+    }
+
+    /// Plans unit `i`'s way onto the site, unless it already has a route. False if it can't get
+    /// there.
+    fn route_to_gate(&mut self, i: usize, anchor: Pos, defs: &Defs) -> bool {
+        if self.units[i].route.is_some() {
+            return true;
+        }
+        let flood = self.flood_from(i);
+        match self.stand_building(&flood, anchor, defs).and_then(|(_, s)| flood.path_to(s)) {
+            Some(path) => {
+                self.units[i].route = Some(route_from(path));
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// A task job: walk onto the site, channel for the task's work, spend the chi.
+    pub(super) fn run_gate_task(&mut self, i: usize, id: JobId, defs: &Defs) {
+        let Some(idx) = self.job_index(id) else { return self.finish_job(i) };
+        let JobKind::EndeavorTask { task } = self.jobs[idx].kind else {
+            return self.finish_job(i);
+        };
+        let Some((def, anchor)) = self.gate_task(task, defs) else {
+            // The stage moved on or the data lost the task: moot.
+            self.jobs.remove(idx);
+            return self.finish_job(i);
+        };
+        if !self.unit_can_raise(i, def) {
+            // Chi can only have gone up since the claim, so this is a safety net.
+            return self.abandon_job(i, id, defs);
+        }
+        if !self.route_to_gate(i, anchor, defs) {
+            return self.abandon_job(i, id, defs);
+        }
+        if !self.walk(i, defs) {
+            return;
+        }
+        let job = &mut self.jobs[idx];
+        job.progress += 1.0 / TICKS_PER_SECOND as f32;
+        if job.progress < def.work {
+            return;
+        }
+        self.jobs.remove(idx);
+        self.finish_job(i);
+        let u = &mut self.units[i];
+        u.chi = (u.chi - def.chi).max(0.0);
+        u.bends += 1;
+        self.gate_mut().expect("checked above").tasks[usize::from(task)].done = true;
+        self.gate_progressed(defs);
+    }
+}
+
+#[cfg(test)]
+mod tests;
