@@ -188,6 +188,7 @@ fn a_whole_stack_of_scrolls_is_read_in_one_delivery() {
     place_study_hall(&mut w, &defs, at(7, 3));
     w.place_ground(at(1, 1), Stack { item: scroll_of(&defs), count: 3 });
     assert_eq!(lump_sum(&mut w, &defs, 2000), 3 * 40 * MILLIS_PER_POINT);
+    assert_eq!(w.tallies().scrolls_read(), 3, "each scroll in the stack counts (#233)");
 }
 
 #[test]
@@ -216,6 +217,7 @@ fn a_scroll_is_never_stockpiled_and_waits_for_a_study_hall() {
     assert_eq!(w.ground_items().count(), 1, "the scroll stays where it lies");
     assert!(w.units[0].carrying.is_none());
     assert_eq!(w.research().pool_millis() - before, 600 * defs.research.passive_millis_per_tick);
+    assert_eq!(w.tallies().scrolls_read(), 0, "a scroll counts once it is read, not before");
 
     // Once a hall stands, the scroll is hauled over and read.
     place_study_hall(&mut w, &defs, at(7, 3));
@@ -235,6 +237,9 @@ fn a_scroll_on_the_map_is_recovered_hauled_and_read_end_to_end() {
     w.apply(Command::DesignateHarvest { pos: scroll_tile }, &defs).unwrap();
     assert_eq!(lump_sum(&mut w, &defs, 3000), 40 * MILLIS_PER_POINT);
     assert!(w.map[scroll_tile].resource.is_none(), "the scroll is taken off the map");
+    // Both tallies saw it: recovered off the map, then read (#233).
+    assert_eq!(w.tallies().harvested(scroll_of(&defs)), 1);
+    assert_eq!(w.tallies().scrolls_read(), 1);
 }
 
 #[test]

@@ -246,6 +246,24 @@ fn a_target_that_became_invalid_fails_without_spending_chi() {
     assert_eq!(w.units[0].chi, 100.0);
     assert!(w.jobs().is_empty());
     assert_eq!(w.units[0].task(), None);
+    // A failed bend isn't a step toward mastery (#233).
+    assert_eq!(w.units[0].bends(), 0);
+}
+
+#[test]
+fn each_finished_bend_counts_toward_the_casters_tally() {
+    let (mut w, defs) = setup(Nation::Earth, &[at(1, 2), at(7, 2)], 2.0, "");
+    let probe = id(&defs, "probe");
+    for x in [1, 2] {
+        w.apply(Command::Bend { ability: probe, pos: at(x, 2) }, &defs).unwrap();
+    }
+    run_until(&mut w, &defs, 600, |w| w.bend_events().len() == 2);
+    assert!(w.bend_events().iter().all(|e| e.outcome == BendOutcome::Done));
+    let tally = |w: &World, id: UnitId| w.unit(id).unwrap().bends();
+    let by = |id: UnitId| w.bend_events().iter().filter(|e| e.unit == id).count() as u32;
+    assert_eq!(tally(&w, UnitId(0)), by(UnitId(0)));
+    assert_eq!(tally(&w, UnitId(1)), by(UnitId(1)));
+    assert_eq!(tally(&w, UnitId(0)) + tally(&w, UnitId(1)), 2);
 }
 
 #[test]
