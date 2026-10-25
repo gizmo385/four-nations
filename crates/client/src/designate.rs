@@ -271,7 +271,9 @@ fn sync_overlays(
         (p, layer)
     }));
     wanted.extend(sim.world.bend_designations().map(|(_, p)| (p, Layer::Bend)));
-    wanted.extend(sim.world.build_sites().map(|(f, _, _)| (f.anchor, Layer::Site)));
+    // Every tile of a site's footprint, not just its anchor.
+    wanted
+        .extend(sim.world.build_sites().flat_map(|(f, _, _)| f.tiles()).map(|p| (p, Layer::Site)));
     overlays.0.retain(|key, e| {
         let keep = wanted.contains(key);
         if !keep {
@@ -388,5 +390,38 @@ mod tests {
         sim.apply(Command::CancelStockpile { pos }).unwrap();
         app.update();
         assert!(overlays(&mut app).is_empty());
+    }
+
+    #[test]
+    fn a_two_by_two_site_tints_every_tile_of_its_footprint() {
+        let mut sim = Session::new(7, Nation::Earth, 64, 64);
+        let bed = sim.defs.building_id("bed").unwrap();
+        let def = &mut sim.defs.buildings[bed.0 as usize];
+        def.footprint = (2, 2);
+        def.bed = None;
+        let at = Pos::new(30, 30);
+        for dy in 0..2 {
+            for dx in 0..2 {
+                let t = sim.world.map.get_mut(Pos::new(at.x + dx, at.y + dy)).unwrap();
+                t.terrain = fn_sim::Terrain::Land;
+                t.resource = None;
+            }
+        }
+        sim.apply(Command::DesignateBuild { pos: at, building: bed }).unwrap();
+        let theme = Theme::for_nation(sim.defs.nation(Nation::Earth).color);
+        let mut app = App::new();
+        app.insert_resource(Sim(sim))
+            .insert_resource(theme)
+            .init_resource::<Overlays>()
+            .add_systems(Update, sync_overlays);
+        app.update();
+        let tinted: Vec<Pos> =
+            app.world().resource::<Overlays>().0.keys().map(|&(p, _)| p).collect();
+        let want: Vec<Pos> = fn_sim::geom::Footprint::new(at, 2, 2).tiles().collect();
+        assert_eq!(tinted, {
+            let mut w = want.clone();
+            w.sort();
+            w
+        });
     }
 }

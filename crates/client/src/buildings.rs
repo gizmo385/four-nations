@@ -2,9 +2,12 @@
 //! faded by how far the work has got, over the site's footprint tint (`designate`).
 //!
 //! Which sprite a building uses is data (`BuildingDef::art_for`, `sprites::buildings`), and a
-//! building with no art yet draws the fallback signboard. Sprites are 2x2 cells, bottom-aligned to
-//! their tile and sorted by `row_depth`, like trees, so a unit standing behind a hall is hidden by
-//! its roof and one on a passable building (a bed, a campfire) stands in front of it.
+//! building with no art yet draws the fallback signboard. A building covers a footprint of tiles
+//! (#196, docs/design/buildings.md, "Drawing") and is drawn once, with its sprite's bottom-centre
+//! on the bottom-middle of the footprint and sorted by the `row_depth` of the footprint's front
+//! row, like a tree on its tile: a unit standing behind a hall is hidden by its roof, and one on
+//! a passable building (a bed, a campfire) stands in front of it. Hovering any tile of a building
+//! or a site outlines its whole footprint.
 //!
 //! A multi-frame sprite (the campfire's flames) plays when finished, each tile out of step with
 //! its neighbours so two fires don't flicker in unison. A site shows its first frame.
@@ -18,30 +21,40 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
+use bevy::window::PrimaryWindow;
 use fn_sim::Pos;
 use fn_sim::building::BuildingId;
+use fn_sim::geom::Footprint;
 
+use super::canopy::{BuildingFade, CanopySet};
 use super::sprites::{self, Cell};
-use super::{Art, MapEntity, Sim, TILE, row_depth, tile_translation};
+use super::{Art, MapEntity, Sim, TILE, cursor_tile, row_depth, tile_translation};
 
 pub struct BuildingsPlugin;
 
 impl Plugin for BuildingsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<BuildingSprites>()
-            .add_systems(Update, (sync_buildings, animate_buildings).chain());
+        app.init_resource::<BuildingSprites>().add_systems(
+            Update,
+            ((sync_buildings, animate_buildings).chain().before(CanopySet), outline_hovered),
+        );
     }
 }
+
+/// The colour of the outline round a hovered building or site.
+const HOVER_COLOR: Color = Color::srgba(1.0, 1.0, 1.0, 0.7);
 
 /// A site's sprite is this opaque before any work is done, and this opaque when it is nearly
 /// finished (a finished building is fully opaque).
 const SITE_ALPHA_MIN: f32 = 0.3;
 const SITE_ALPHA_MAX: f32 = 0.8;
 
-/// The sprite of the building on a tile: finished, or a site (`site`) with its progress.
+/// The sprite of a building: finished, or a site with its progress.
 #[derive(Component)]
-struct BuildingSprite {
+pub struct BuildingSprite {
     building: BuildingId,
+    /// The tiles it covers; a change (a grandfathered 1x1 replaced by a bigger one) redraws it.
+    footprint: Footprint,
     frames: &'static [Cell],
     /// Offsets the frame, so neighbouring fires are out of step.
     phase: usize,
@@ -51,9 +64,33 @@ struct BuildingSprite {
     connects: bool,
 }
 
-/// The sprite entity of each tile that has a building or a site on it.
+/// The sprite entity of each building and site, by its anchor.
 #[derive(Resource, Default)]
 pub struct BuildingSprites(BTreeMap<Pos, Entity>);
+
+/// Where a sprite stands on `footprint`: the middle of its bottom edge, in world pixels, at the
+/// depth of its front row. For a 1x1 that is the bottom middle of its tile.
+pub fn footprint_foot(footprint: Footprint) -> Vec3 {
+    let front = footprint.anchor.y + i32::from(footprint.h) - 1;
+    let mut at = tile_translation(Pos::new(footprint.anchor.x, front), row_depth(front));
+    at.x += (f32::from(footprint.w) - 1.0) * TILE / 2.0;
+    at.y -= TILE / 2.0;
+    at
+}
+
+/// The world rectangle `footprint` covers: its centre and size, for an outline.
+pub fn footprint_rect(footprint: Footprint) -> (Vec2, Vec2) {
+    let size = Vec2::new(f32::from(footprint.w), f32::from(footprint.h)) * TILE;
+    let foot = footprint_foot(footprint).truncate();
+    (foot + Vec2::Y * size.y / 2.0, size)
+}
+
+/// Whether a building on `footprint` drawn with `cell` should fade like a tree canopy (#77) when
+/// it may hide something: if its sprite is bigger than its footprint (it overhangs the tiles
+/// behind) or units walk on it. A solid building whose sprite fills its footprint hides nothing.
+pub fn fades(footprint: Footprint, cell: Cell, walkable: bool) -> bool {
+    walkable || cell.w > u32::from(footprint.w) || cell.h > u32::from(footprint.h)
+}
 
 /// How opaque a sprite is: a finished building (`None`) fully, a site by `progress`, the share of
 /// the work done (0 to 1).
@@ -72,35 +109,36 @@ fn sync_buildings(
     mut drawn: ResMut<BuildingSprites>,
     mut sprites: Query<(&mut Sprite, &mut BuildingSprite)>,
 ) {
-    // Where something is drawn, and how opaque: a site by its progress, a finished building not
-    // at all. A finished building wins over a site on the same tile (there can't be both).
-    let mut wanted: BTreeMap<Pos, (BuildingId, Option<f32>)> = sim
+    // What is drawn, by anchor, and how opaque: a site by its progress, a finished building not
+    // at all. A finished building wins over a site on the same anchor (there can't be both).
+    let mut wanted: BTreeMap<Pos, (BuildingId, Footprint, Option<f32>)> = sim
         .world
         .build_sites()
-        .map(|(f, id, work)| (f.anchor, (id, Some(work / sim.defs.building(id).work))))
+        .map(|(f, id, work)| (f.anchor, (id, f, Some(work / sim.defs.building(id).work))))
         .collect();
-    wanted
-        .extend(sim.world.map.iter().filter_map(|(p, t)| Some((p, (t.building?.id, None::<f32>)))));
+    wanted.extend(sim.world.buildings().map(|(f, id)| (f.anchor, (id, f, None::<f32>))));
 
     // Which tiles are rail, built or planned, for the pieces of track to join up.
     let rails: BTreeSet<Pos> = wanted
         .iter()
-        .filter(|(_, (id, _))| sim.defs.building(*id).rail.is_some())
+        .filter(|(_, (id, _, _))| sim.defs.building(*id).rail.is_some())
         .map(|(&p, _)| p)
         .collect();
 
-    // Entities despawned with the old map (regenerate) are no longer there, and a tile whose
-    // building changed (a site finished into another one's tile, say) is drawn afresh.
+    // Entities despawned with the old map (regenerate) are no longer there, and an anchor whose
+    // building changed (a site finished into another one's place, say) is drawn afresh.
     drawn.0.retain(|pos, e| {
         let Ok((_, sprite)) = sprites.get(*e) else { return false };
-        let keep = wanted.get(pos).is_some_and(|(id, _)| *id == sprite.building);
+        let keep = wanted
+            .get(pos)
+            .is_some_and(|(id, f, _)| *id == sprite.building && *f == sprite.footprint);
         if !keep {
             commands.entity(*e).despawn();
         }
         keep
     });
 
-    for (pos, (id, progress)) in wanted {
+    for (pos, (id, footprint, progress)) in wanted {
         let color = Color::srgba(1.0, 1.0, 1.0, alpha(progress));
         let art_name = sim.defs.building(id).art_for(sim.world.nation);
         let connects = sprites::buildings::connects(art_name);
@@ -125,22 +163,46 @@ fn sync_buildings(
             if connects { sprites::buildings::link_frame(frames, links) } else { frames[0] };
         let mut sprite = art.sprite(first);
         sprite.color = color;
-        // The anchor is the bottom middle of the tile, so a sprite of any height stands on it.
-        let mut at = tile_translation(pos, row_depth(pos.y));
-        at.y -= TILE / 2.0;
+        // Anchored at its bottom middle, so a sprite of any height stands on the footprint.
+        let at = footprint_foot(footprint);
         let phase =
             (pos.x as usize).wrapping_mul(7).wrapping_add((pos.y as usize).wrapping_mul(13));
-        let entity = commands
-            .spawn((
-                sprite,
-                Anchor::BOTTOM_CENTER,
-                Transform::from_translation(at),
-                BuildingSprite { building: id, frames, phase, shown: usize::from(links), connects },
-                MapEntity,
-            ))
-            .id();
-        drawn.0.insert(pos, entity);
+        let mut entity = commands.spawn((
+            sprite,
+            Anchor::BOTTOM_CENTER,
+            Transform::from_translation(at),
+            BuildingSprite {
+                building: id,
+                footprint,
+                frames,
+                phase,
+                shown: usize::from(links),
+                connects,
+            },
+            MapEntity,
+        ));
+        if fades(footprint, first, sim.defs.building(id).passable) {
+            entity.insert(BuildingFade::new(at, first));
+        }
+        drawn.0.insert(pos, entity.id());
     }
+}
+
+/// Outlines the whole footprint of the building or site under the cursor.
+fn outline_hovered(
+    sim: Res<Sim>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    camera: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
+    mut gizmos: Gizmos,
+) {
+    let (Ok(window), Ok((camera, camera_tf))) = (window.single(), camera.single()) else { return };
+    let Some(footprint) =
+        cursor_tile(window, camera, camera_tf).and_then(|p| sim.world.footprint_at(p))
+    else {
+        return;
+    };
+    let (centre, size) = footprint_rect(footprint);
+    gizmos.rect_2d(Isometry2d::from_translation(centre), size, HOVER_COLOR);
 }
 
 /// Which of the four neighbours of `pos` are rail, as the `LINK_*` bits of a piece of track.
@@ -361,5 +423,77 @@ mod tests {
         let seen: std::collections::BTreeSet<_> = (0..12).map(|i| at(i as f32 * 0.1, 0)).collect();
         assert_eq!(seen.len(), 3, "all three frames play");
         assert_ne!(at(0.0, 0), at(0.0, 1), "a neighbouring fire is a frame ahead");
+    }
+
+    #[test]
+    fn a_one_tile_building_stands_where_it_always_did() {
+        let p = Pos::new(5, 9);
+        let mut old = tile_translation(p, row_depth(p.y));
+        old.y -= TILE / 2.0;
+        assert_eq!(footprint_foot(Footprint::single(p)), old);
+        let (centre, size) = footprint_rect(Footprint::single(p));
+        assert_eq!(size, Vec2::splat(TILE));
+        assert_eq!(centre, tile_translation(p, 0.0).truncate());
+    }
+
+    #[test]
+    fn a_two_by_two_stands_on_the_middle_of_its_bottom_edge_at_its_front_row_depth() {
+        let foot = Footprint::new(Pos::new(4, 6), 2, 2);
+        let at = footprint_foot(foot);
+        let left = tile_translation(Pos::new(4, 7), 0.0);
+        assert_eq!(at.x, left.x + TILE / 2.0, "halfway across its two columns");
+        assert_eq!(at.y, left.y - TILE / 2.0, "on the bottom edge of its front row");
+        assert_eq!(at.z, row_depth(7), "sorted by its front row");
+        let (centre, size) = footprint_rect(foot);
+        assert_eq!(size, Vec2::splat(2.0 * TILE));
+        let mid = (tile_translation(Pos::new(4, 6), 0.0) + tile_translation(Pos::new(5, 7), 0.0))
+            .truncate()
+            / 2.0;
+        assert_eq!(centre, mid);
+    }
+
+    #[test]
+    fn only_a_sprite_that_overhangs_its_footprint_or_a_walkable_one_fades() {
+        let big = sprites::buildings::UNFINISHED;
+        assert_eq!((big.w, big.h), (2, 2));
+        let two = Footprint::new(Pos::new(0, 0), 2, 2);
+        let one = Footprint::single(Pos::new(0, 0));
+        assert!(!fades(two, big, false), "a solid 2x2 filling its footprint hides nothing");
+        assert!(fades(two, big, true), "units walk among an orchard's trees");
+        assert!(fades(one, big, false), "a 32px sprite on one tile overhangs the tiles behind");
+        let tall = Cell { h: 3, ..big };
+        assert!(fades(two, tall, false), "a tall hall's roof overhangs the row behind");
+    }
+
+    #[test]
+    fn a_two_by_two_building_is_drawn_once_across_its_footprint() {
+        let mut app = app(Nation::Earth);
+        let (hall, at) = {
+            let mut sim = app.world_mut().resource_mut::<Sim>();
+            let hall = sim.defs.building_id("study_hall").unwrap();
+            let def = &mut sim.defs.buildings[hall.0 as usize];
+            def.footprint = (2, 2);
+            def.passable = false;
+            (hall, Pos::new(20, 20))
+        };
+        let foot = Footprint::new(at, 2, 2);
+        {
+            let mut sim = app.world_mut().resource_mut::<Sim>();
+            for p in foot.tiles() {
+                let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
+                let b = fn_sim::building::Building {
+                    part,
+                    size: [2, 2],
+                    ..fn_sim::building::Building::new(hall, false, false)
+                };
+                sim.world.map.get_mut(p).unwrap().building = Some(b);
+            }
+        }
+        app.update();
+        assert_eq!(app.world().resource::<BuildingSprites>().0.len(), 1, "one sprite");
+        let (e, _, building) = sprite_at(&app, at).expect("drawn by its anchor");
+        assert_eq!(building.footprint, foot);
+        assert_eq!(app.world().get::<Transform>(e).unwrap().translation, footprint_foot(foot));
+        assert!(app.world().get::<BuildingFade>(e).is_none(), "a solid 2x2 never fades");
     }
 }
