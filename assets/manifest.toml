@@ -115,6 +115,12 @@ generated_from = "art/faces_air.toml"
 sha256 = "d742db083833a962dd5b5c38f452287532ce86d02aae4c588cdc1e406baa7e38"
 
 [[file]]
+path = "original/faces_avatar.png"
+source = "original"
+generated_from = "art/faces_avatar.toml"
+sha256 = "e5d192587b135668b298025854174d80e84bdf4f3c8874023cfda9c4960020e9"
+
+[[file]]
 path = "original/faces_earth.png"
 source = "original"
 generated_from = "art/faces_earth.toml"
