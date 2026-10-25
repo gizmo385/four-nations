@@ -148,7 +148,7 @@ sha256 = "399e94c90e96dada0339e67e791ec40f9c34e9e9abaae3d9b0da7e19c26c4bac"
 path = "original/fx.png"
 source = "original"
 generated_from = "art/fx.toml"
-sha256 = "8363af86d94cad2f3edea29f5a0a335b19f6fc96596aabc23f94d1d946c90aa7"
+sha256 = "44ab94f38515164796e7235d5b93efb8bc523db23f36f3c5459a5da9cac91eac"
 
 [[file]]
 path = "original/icons.png"

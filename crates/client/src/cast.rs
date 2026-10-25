@@ -14,7 +14,7 @@
 //! pure function of that time ([`parts`], [`bend_row`]), so a paused game holds a still frame and
 //! 2x, 3x and 5x play it that much faster, as the flames of `bending` do with `world.tick`.
 //!
-//! **One look per ability.** [`LOOKS`] maps each ability id of `data/bending.toml` to one of four
+//! **One look per ability.** [`LOOKS`] maps each ability id of `data/bending.toml` to one of five
 //! [`Look`]s (its own table, the one ability-specific place here); a test checks every ability
 //! has one. The look says which frames play where. Colours are the frames' own, so each nation's
 //! look comes from the art: brown stone for Earth, blue water, orange sparks, white wind.
@@ -25,6 +25,9 @@
 //! | `Stream` | a stream of droplets from the bender's hand to the target from -1.0; splashes over the 3x3 patch |
 //! | `Flare` | sparks gather from -0.5, a flare as the flame is kindled, embers rise after |
 //! | `Gust` | curls of wind run to the stack from -1.0, a whirl lifts it, and it flies to the stockpile |
+//! | `Glow` | embers gather on a ring round the bender from -0.8, the ring blooms, then warm motes drift out over the tiles beside it and embers rise |
+//!
+//! Inner Fire's *lasting* aura (a ring of light under the carrier while it lasts) is `bending`'s.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -49,6 +52,8 @@ pub enum Look {
     Flare,
     /// Wind from the bender, a whirl on the stack, and the stack flying off.
     Gust,
+    /// A warm glow gathering round the bender and pulsing out over the tiles beside it.
+    Glow,
 }
 
 /// The cast effect of each ability, by its id in `data/bending.toml`. The one table of the cast
@@ -58,6 +63,7 @@ pub const LOOKS: &[(&str, Look)] = &[
     ("water_the_land", Look::Stream),
     ("hearthflame", Look::Flare),
     ("wind_carry", Look::Gust),
+    ("inner_fire", Look::Glow),
 ];
 
 /// The cast effect of ability `id`, if it has one.
@@ -103,6 +109,7 @@ impl Look {
             Look::Stream => (1.0, 0.55),
             Look::Flare => (0.5, 0.6),
             Look::Gust => (1.0, 0.3_f32.max(flight)),
+            Look::Glow => (GLOW_LEAD, GLOW_TAIL),
         }
     }
 }
@@ -179,6 +186,7 @@ pub fn parts(look: Look, t: f32, scene: &Scene) -> Vec<Part> {
         Look::Stream => stream(t, scene, &mut out),
         Look::Flare => flare(t, scene, &mut out),
         Look::Gust => gust(t, scene, &mut out),
+        Look::Glow => glow(t, scene, &mut out),
     }
     out
 }
@@ -266,6 +274,45 @@ fn flare(t: f32, s: &Scene, out: &mut Vec<Part>) {
         return;
     };
     out.push(fx_over(s.target, lift, cell));
+}
+
+/// Inner Fire's glow starts this long before completion and lasts this long after it.
+const GLOW_LEAD: f32 = 0.8;
+const GLOW_TAIL: f32 = 0.6;
+/// How far the pulse spreads from the bender, in tiles (Chebyshev): the aura's own reach in
+/// `data/bending.toml` is 2.
+const GLOW_REACH: i32 = 2;
+
+/// Inner Fire: embers gather on a ring round the bender, the ring blooms as the aura takes hold,
+/// and warm motes drift out over the tiles beside it (the nearer ones first) while embers rise
+/// off the bender. The aura itself, a ring under the carrier's feet, is `bending`'s.
+fn glow(t: f32, s: &Scene, out: &mut Vec<Part>) {
+    if t < -GLOW_LEAD {
+        return;
+    }
+    // The glow is the bender's own: the tile it stands on, which is the target.
+    let centre = s.stand;
+    if t < -0.3 {
+        out.push(fx_over(centre, 0.0, sprites::fx::GLOW[0]));
+    } else if t < 0.0 {
+        out.push(fx_over(centre, 0.0, sprites::fx::GLOW[1]));
+    }
+    for dy in -GLOW_REACH..=GLOW_REACH {
+        for dx in -GLOW_REACH..=GLOW_REACH {
+            let ring = dx.abs().max(dy.abs());
+            let from = 0.1 * ring as f32;
+            // The motes show for a third of a second at each tile, a beat after the one nearer.
+            if (from..from + 0.35).contains(&t) {
+                let at = centre + Vec2::new(dx as f32, dy as f32);
+                // The bloom holds on the bender's own tile as the motes start.
+                let cell = if ring == 0 { sprites::fx::GLOW[1] } else { sprites::fx::GLOW[2] };
+                out.push(if ring == 0 { fx_over(at, 0.0, cell) } else { fx(at, 0.0, cell) });
+            }
+        }
+    }
+    if (0.0..GLOW_TAIL).contains(&t) {
+        out.push(fx_over(centre, HAND_LIFT + t * 12.0, sprites::fx::SPARK[2]));
+    }
 }
 
 /// Curls of wind in the gust and in the trail of the flying stack.
@@ -634,7 +681,7 @@ mod tests {
     use super::*;
     use crate::unit_anim::Facing;
 
-    const ALL: [Look; 4] = [Look::Rise, Look::Stream, Look::Flare, Look::Gust];
+    const ALL: [Look; 5] = [Look::Rise, Look::Stream, Look::Flare, Look::Gust, Look::Glow];
 
     fn scene() -> Scene {
         Scene {
@@ -754,6 +801,38 @@ mod tests {
         assert_eq!(cell(0.0).0, fx[1]);
         assert_eq!(cell(0.4).0, fx[2]);
         assert!(cell(0.5).1 > cell(0.2).1, "embers rise");
+    }
+
+    #[test]
+    fn inner_fire_gathers_blooms_and_pulses_out_from_the_bender() {
+        // Cast on the bender's own tile: the stage puts it at `stand`.
+        let s = Scene { target: Vec2::new(2.0, 5.0), ..scene() };
+        let cells = |t: f32| -> Vec<(Vec2, sprites::Cell)> {
+            parts(Look::Glow, t, &s)
+                .into_iter()
+                .filter_map(|p| match p.visual {
+                    Visual::Fx(c) if p.lift == 0.0 => Some((p.at, c)),
+                    _ => None,
+                })
+                .collect()
+        };
+        let fx = sprites::fx::GLOW;
+        assert_eq!(cells(-0.6), vec![(s.stand, fx[0])], "embers gather round the bender");
+        assert_eq!(cells(-0.1), vec![(s.stand, fx[1])], "the ring blooms");
+        // The pulse spreads outward: more tiles over time, the near ones first.
+        let near = cells(0.05).len();
+        let wide = cells(0.3).len();
+        assert!(wide > near && near >= 1, "{near} then {wide}");
+        assert!(cells(0.3).iter().all(|(at, _)| (at.x - s.stand.x).abs() <= 2.0), "within reach");
+        // And embers rise off the bender, higher as time goes on.
+        let lift = |t: f32| {
+            parts(Look::Glow, t, &s)
+                .into_iter()
+                .find(|p| p.over && p.lift > 0.0)
+                .map(|p| p.lift)
+                .unwrap()
+        };
+        assert!(lift(0.5) > lift(0.1));
     }
 
     #[test]
