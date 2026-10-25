@@ -22,6 +22,8 @@ use crate::nation::Nation;
 pub struct EndeavorDef {
     /// What the endeavor is called in the UI ("The Harmony Gate").
     pub name: String,
+    /// One line under the name on the Endeavor screen: what it is and what the signs are for.
+    pub description: String,
     /// The signs, in file order: the order the UI lists them in.
     pub signs: Vec<SignDef>,
 }
@@ -103,6 +105,8 @@ pub(crate) struct EndeavorFile {
 #[serde(deny_unknown_fields)]
 struct RawEndeavor {
     name: String,
+    #[serde(default)]
+    description: String,
 }
 
 #[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -174,7 +178,8 @@ impl EndeavorFile {
             }
             signs.push(sign);
         }
-        Ok(EndeavorDef { name: self.endeavor.name, signs })
+        let RawEndeavor { name, description } = self.endeavor;
+        Ok(EndeavorDef { name, description, signs })
     }
 }
 
@@ -306,6 +311,7 @@ mod tests {
     fn the_bundled_endeavor_loads_with_every_kind_it_can_count() {
         let e = Defs::bundled().endeavor;
         assert_eq!(e.name, "The Harmony Gate");
+        assert!(e.description.contains("Avatar"));
         assert!(!e.signs.is_empty());
         let has = |f: fn(&SignKind) -> bool| e.signs.iter().any(|s| f(&s.kind));
         assert!(has(|k| *k == SignKind::Population));

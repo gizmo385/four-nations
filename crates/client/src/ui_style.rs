@@ -124,6 +124,8 @@ pub struct Skin {
     pub icons: Handle<Image>,
     /// `tools.png`: the tool icons ([`tool_icon`]).
     pub tools: Handle<Image>,
+    /// `buildings_endeavor.png`: the Harmony Gate, for the Endeavor screen (`endeavor.rs`).
+    pub gate: Handle<Image>,
     /// The nation's data id, e.g. `earth`: names the emblem.
     nation: &'static str,
 }
@@ -144,7 +146,9 @@ impl UiArt {
 
     /// Every image the UI needs, for waiting until they are loaded.
     pub fn handles(&self) -> impl Iterator<Item = &Handle<Image>> {
-        self.0.iter().flat_map(|(_, s)| [&s.frame, &s.flair, &s.emblems, &s.icons, &s.tools])
+        self.0
+            .iter()
+            .flat_map(|(_, s)| [&s.frame, &s.flair, &s.emblems, &s.icons, &s.tools, &s.gate])
     }
 }
 
@@ -157,6 +161,7 @@ impl Skin {
             emblems: assets.load("original/emblems.png"),
             icons: assets.load(ICONS_SHEET),
             tools: assets.load("original/tools.png"),
+            gate: assets.load("original/buildings_endeavor.png"),
             nation: id,
         }
     }

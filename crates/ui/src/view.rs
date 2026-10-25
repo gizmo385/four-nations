@@ -10,6 +10,7 @@ use fn_sim::world::{TICKS_PER_SECOND, Unit, UnitId};
 
 use crate::alerts::Alerts;
 use crate::build::{self, PickerRow};
+use crate::endeavor::{EndeavorStatus, endeavor_status};
 use crate::research::{ResearchStatus, research_status};
 use crate::session::Session;
 use crate::text::{describe_stack, describe_task};
@@ -41,6 +42,8 @@ pub struct SideView {
     pub research: ResearchStatus,
     /// What the stockpiles hold, in the order of the item data (`store_rows`).
     pub stores: Vec<StoreRow>,
+    /// The end-game endeavor's progress (#235), or `None` when the data has none.
+    pub endeavor: Option<EndeavorStatus>,
     /// The alert toasts showing now, oldest first. Empty most of the time, which hides the
     /// section (ui.md: "a section with nothing to show hides itself").
     pub alerts: Vec<String>,
@@ -78,6 +81,7 @@ pub fn side_view(
         modifiers: modifier_rows(world.modifiers()),
         research: research_status(world.research(), defs),
         stores: store_rows(session),
+        endeavor: endeavor_status(session),
         alerts: alerts.toast_lines(),
     }
 }
