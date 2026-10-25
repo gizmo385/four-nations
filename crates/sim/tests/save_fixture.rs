@@ -190,36 +190,71 @@ fn an_old_save_carries_on_without_panicking() {
     assert_eq!(again.tick, w.tick);
 }
 
-/// World-level fields added since v1, with the text each writes for a world that doesn't use the
-/// feature. They are `serde(default)` fields, so old saves load without them, but a save always
-/// writes them. Footprint fields on `Building`, `Site` and `HeatSource` (#207) must NOT be added
-/// here: for a world of 1x1 buildings they are skipped when written (`skip_serializing_if`), so
-/// the output stays as v1 wrote it.
-const WORLD_FIELDS_ADDED_SINCE_V1: &[&str] = &[
-    // Inner Fire's warmth auras (#123).
-    "auras:{},",
+/// Names of fields added since v1 that a save always writes. They are `serde(default)` fields, so
+/// old saves load without them, but new saves write them, so the re-saved text has them and the
+/// fixture doesn't. Add a name here when a feature adds a field like that. Footprint fields on
+/// `Building`, `Site` and `HeatSource` (#207) should not need an entry: written only when they
+/// differ from a 1x1 default (`skip_serializing_if`), a world of 1x1 buildings serializes as v1
+/// did.
+const FIELDS_ADDED_SINCE_V1: &[&str] = &[
+    // Inner Fire's warmth auras, on `World` (#123).
+    "auras",
+    // Earth rail (#135): a flag on every `Building`, and the rules a hauling unit walks by.
+    "rail",
+    "cart_rules",
+    "rail_step",
 ];
+
+/// `value` without any struct field named in `names`, at any depth. Returns how many it removed.
+fn without_fields(value: &mut ron::Value, names: &[&str]) -> usize {
+    match value {
+        ron::Value::Map(map) => {
+            let mut removed = 0;
+            let mut kept = ron::Map::new();
+            for (mut k, mut v) in std::mem::take(map).into_iter() {
+                if matches!(&k, ron::Value::String(s) if names.contains(&s.as_str())) {
+                    removed += 1;
+                    continue;
+                }
+                removed += without_fields(&mut k, names) + without_fields(&mut v, names);
+                kept.insert(k, v);
+            }
+            *map = kept;
+            removed
+        }
+        ron::Value::Seq(items) => items.iter_mut().map(|v| without_fields(v, names)).sum(),
+        ron::Value::Option(Some(inner)) => without_fields(inner, names),
+        _ => 0,
+    }
+}
 
 #[test]
 fn saving_an_old_save_again_gives_the_same_text() {
     let defs = Defs::bundled();
     let w = World::load(FIXTURE, &defs).unwrap();
-    let mut text = w.save(&defs).unwrap();
-    for field in WORLD_FIELDS_ADDED_SINCE_V1 {
-        assert_eq!(text.matches(field).count(), 1, "{field} should be written once");
-        text = text.replacen(field, "", 1);
+    let text = w.save(&defs).unwrap();
+    if text == FIXTURE {
+        return;
     }
-    if text != FIXTURE {
+    // Not byte for byte: compare the two as data, setting aside the fields listed above.
+    let body = |t: &str| ron::from_str::<ron::Value>(t.split_once('\n').unwrap().1).unwrap();
+    let (mut old, mut new) = (body(FIXTURE), body(&text));
+    without_fields(&mut old, FIELDS_ADDED_SINCE_V1);
+    let removed = without_fields(&mut new, FIELDS_ADDED_SINCE_V1);
+    assert!(removed > 0, "the re-saved text differs, but not in the fields listed");
+    if old != new {
         let at = text.bytes().zip(FIXTURE.bytes()).position(|(a, b)| a != b);
         let around = |s: &str| {
             let from = at.unwrap_or(0).saturating_sub(60);
             s.get(from..(from + 160).min(s.len())).unwrap_or("").to_owned()
         };
         panic!(
-            "re-saving the v1 fixture changed it (first difference at byte {at:?}); a world of \
-             1x1 buildings must serialize as v1 did\nfixture: {}\nresaved: {}",
+            "re-saving the v1 fixture changed more than the fields added since v1 (first \
+             difference at byte {at:?}); a world of 1x1 buildings must serialize as v1 did\n\
+             fixture: {}\nresaved: {}",
             around(FIXTURE),
             around(&text)
         );
     }
+    assert_eq!(text.lines().next(), FIXTURE.lines().next(), "the header is part of the format too");
 }
