@@ -30,13 +30,15 @@ pub enum Line {
 
 pub type Lines = Vec<Line>;
 
+/// Seconds as "12m 03s".
+fn clock(secs: f32) -> String {
+    let secs = secs.max(0.0) as u64;
+    format!("{}m {:02}s", secs / 60, secs % 60)
+}
+
 /// "Lit: 12m 03s left" for a flame on `tile`, or "Wet: sprouts in 3m 20s" for a watered one.
 /// `None` for anything else.
 pub fn bending_status_line(world: &World, tile: Pos) -> Option<String> {
-    let clock = |secs: f32| {
-        let secs = secs.max(0.0) as u64;
-        format!("{}m {:02}s", secs / 60, secs % 60)
-    };
     if let Some(flame) = world.flames().into_iter().find(|f| f.pos == tile) {
         return Some(format!("Lit: {} left", clock(flame.seconds_left)));
     }
@@ -53,7 +55,14 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
     if let Some(unit) = world.units.iter().find(|u| u.pos == tile) {
         lines.push(Line::Title(unit.name.clone()));
         let task = describe_task(world, defs, unit);
-        lines.push(Line::Detail(format!("{} - {task}", defs.nation(unit.nation).name)));
+        // Inner Fire (#123) rides on the unit: its time left joins the line, since a tooltip
+        // tops out at four lines.
+        let warm = world
+            .glows()
+            .into_iter()
+            .find(|g| g.unit == unit.id)
+            .map_or(String::new(), |g| format!(" - Warm {}", clock(g.seconds_left)));
+        lines.push(Line::Detail(format!("{} - {task}{warm}", defs.nation(unit.nation).name)));
         lines.push(Line::Detail(format!("Carrying: {}", describe_stack(defs, unit.carrying))));
         if tool == Tool::Select {
             lines.push(Line::Hint(Hint::SelectUnit));

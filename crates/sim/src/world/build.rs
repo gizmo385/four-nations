@@ -260,7 +260,11 @@ impl World {
                 if site.progress < def.work {
                     return;
                 }
-                let building = Building { id: site.building, passable: def.passable };
+                let building = Building {
+                    id: site.building,
+                    passable: def.passable,
+                    rail: def.rail.is_some(),
+                };
                 let seats = def.seats;
                 self.sites.remove(&pos);
                 self.jobs.remove(idx);

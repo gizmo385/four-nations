@@ -39,57 +39,90 @@ pub struct BuildingArt {
     /// what `BuildingDef::art_for` returns.
     pub name: &'static str,
     pub frames: &'static [Cell],
+    /// Whether the frames are not an animation but 16 pieces of track, one for each set of
+    /// neighbours it joins (`link_frame`), as the rail's are (#135).
+    pub connects: bool,
 }
 
 /// The cells (column, row, in 16px cells) of the sprites in `art/buildings.toml`. A test checks
 /// each against the sprite name.
 pub const ART: &[BuildingArt] = &[
-    BuildingArt { name: "bed", frames: &[big(SHEET, 0, 0)] },
+    BuildingArt { name: "bed", frames: &[big(SHEET, 0, 0)], connects: false },
     BuildingArt {
         name: "campfire",
         frames: &[big(SHEET, 2, 0), big(SHEET, 4, 0), big(SHEET, 6, 0)],
+        connects: false,
     },
-    BuildingArt { name: "meditation_pavilion", frames: &[big(SHEET, 0, 2)] },
-    BuildingArt { name: "elders_lodge", frames: &[big(SHEET, 2, 2)] },
-    BuildingArt { name: "scroll_library", frames: &[big(SHEET, 4, 2)] },
-    BuildingArt { name: "academy", frames: &[big(SHEET, 6, 2)] },
+    BuildingArt { name: "meditation_pavilion", frames: &[big(SHEET, 0, 2)], connects: false },
+    BuildingArt { name: "elders_lodge", frames: &[big(SHEET, 2, 2)], connects: false },
+    BuildingArt { name: "scroll_library", frames: &[big(SHEET, 4, 2)], connects: false },
+    BuildingArt { name: "academy", frames: &[big(SHEET, 6, 2)], connects: false },
     // Air Nomads (`SHEET_AIR`)
-    BuildingArt { name: "orchard", frames: &[big(SHEET_AIR, 0, 0)] },
+    BuildingArt { name: "orchard", frames: &[big(SHEET_AIR, 0, 0)], connects: false },
     BuildingArt {
         name: "windmill",
         frames: &[big(SHEET_AIR, 2, 0), big(SHEET_AIR, 4, 0), big(SHEET_AIR, 6, 0)],
+        connects: false,
     },
     BuildingArt {
         name: "wind_turbine",
         frames: &[big(SHEET_AIR, 0, 2), big(SHEET_AIR, 2, 2), big(SHEET_AIR, 4, 2)],
+        connects: false,
     },
-    BuildingArt { name: "bison_stable", frames: &[big(SHEET_AIR, 6, 2)] },
+    BuildingArt { name: "bison_stable", frames: &[big(SHEET_AIR, 6, 2)], connects: false },
     // Earth Kingdom (`SHEET_EARTH`)
-    BuildingArt { name: "earth_wall", frames: &[big(SHEET_EARTH, 0, 0)] },
+    BuildingArt { name: "earth_wall", frames: &[big(SHEET_EARTH, 0, 0)], connects: false },
+    BuildingArt { name: "rail", frames: &RAIL_FRAMES, connects: true },
     // Fire Nation (`SHEET_FIRE`)
     BuildingArt {
         name: "forge",
         frames: &[big(SHEET_FIRE, 0, 0), big(SHEET_FIRE, 2, 0), big(SHEET_FIRE, 4, 0)],
+        connects: false,
     },
     BuildingArt {
         name: "brick_kiln",
         frames: &[big(SHEET_FIRE, 6, 0), big(SHEET_FIRE, 0, 2), big(SHEET_FIRE, 2, 2)],
+        connects: false,
     },
     BuildingArt {
         name: "smelter",
         frames: &[big(SHEET_FIRE, 4, 2), big(SHEET_FIRE, 6, 2), big(SHEET_FIRE, 0, 4)],
+        connects: false,
     },
     BuildingArt {
         name: "steam_engine",
         frames: &[big(SHEET_FIRE, 2, 4), big(SHEET_FIRE, 4, 4), big(SHEET_FIRE, 6, 4)],
+        connects: false,
     },
     BuildingArt {
         name: "lightning_station",
         frames: &[big(SHEET_FIRE, 0, 6), big(SHEET_FIRE, 2, 6)],
+        connects: false,
     },
     // Water Tribes (`SHEET_WATER`)
-    BuildingArt { name: "igloo", frames: &[big(SHEET_WATER, 0, 0)] },
+    BuildingArt { name: "igloo", frames: &[big(SHEET_WATER, 0, 0)], connects: false },
 ];
+
+/// The sixteen pieces of track (#135), on `SHEET_EARTH` after the wall: sprite `1 + mask`, where
+/// the mask has `LINK_N`, `LINK_E`, `LINK_S`, `LINK_W` for each neighbour the tile joins. The
+/// sheet is four wide, so piece `n` is at column `n % 4 * 2`, row `n / 4 * 2`. The names in the
+/// TOML are `rail`, `rail_2`, ... `rail_16`, which is what the `frames` naming test expects.
+const RAIL_FRAMES: [Cell; 16] = {
+    let mut frames = [big(SHEET_EARTH, 0, 0); 16];
+    let mut mask = 0;
+    while mask < 16 {
+        let n = mask as u32 + 1;
+        frames[mask] = big(SHEET_EARTH, n % 4 * 2, n / 4 * 2);
+        mask += 1;
+    }
+    frames
+};
+
+/// The bits of a link mask: which of a tile's four neighbours it is joined to.
+pub const LINK_N: u8 = 1;
+pub const LINK_E: u8 = 2;
+pub const LINK_S: u8 = 4;
+pub const LINK_W: u8 = 8;
 
 /// What a building with no art yet is drawn as.
 pub const UNFINISHED: Cell = big(SHEET, 0, 4);
@@ -116,6 +149,17 @@ pub fn frames(art: &str) -> &'static [Cell] {
         Some(a) => a.frames,
         None => &[UNFINISHED],
     }
+}
+
+/// Whether the sprite called `art` is a set of connecting pieces (the rail) rather than an
+/// animation; if so its frame is `link_frame`.
+pub fn connects(art: &str) -> bool {
+    building_art(art).is_some_and(|a| a.connects)
+}
+
+/// The piece of a connecting sprite that joins the neighbours in `links` (`LINK_N | LINK_E ...`).
+pub fn link_frame(frames: &'static [Cell], links: u8) -> Cell {
+    frames[usize::from(links & 0b1111) % frames.len()]
 }
 
 /// How fast a multi-frame sprite (the campfire, the windmill, the turbine, the furnaces) plays, in frames a second.
@@ -157,8 +201,8 @@ mod tests {
         assert_eq!(sprite_names(SHEET).len(), 9);
         assert_eq!(png_size(SHEET_AIR), (4 * 32, 2 * 32));
         assert_eq!(sprite_names(SHEET_AIR).len(), 8);
-        assert_eq!(png_size(SHEET_EARTH), (4 * 32, 32));
-        assert_eq!(sprite_names(SHEET_EARTH).len(), 1);
+        assert_eq!(png_size(SHEET_EARTH), (4 * 32, 5 * 32));
+        assert_eq!(sprite_names(SHEET_EARTH).len(), 17);
         assert_eq!(png_size(SHEET_FIRE), (4 * 32, 4 * 32));
         assert_eq!(sprite_names(SHEET_FIRE).len(), 14);
         assert_eq!(png_size(SHEET_WATER), (4 * 32, 32));
@@ -217,6 +261,40 @@ mod tests {
         assert_eq!(names.len(), ART.len(), "a sprite listed twice");
     }
 
+    /// Every piece of track draws the track its mask asks for: the cells are in mask order, a
+    /// straight piece runs the way it joins, and an arm reaches the tile edge it faces (so two
+    /// pieces side by side meet) while a side nothing joins stays shut.
+    #[test]
+    fn each_piece_of_track_reaches_exactly_the_edges_it_joins() {
+        let doc = sheet_doc(SHEET_EARTH);
+        let sprites = doc["sprite"].as_array().unwrap();
+        let rail = building_art("rail").unwrap();
+        assert!(rail.connects && rail.frames.len() == 16);
+        for mask in 0..16u8 {
+            let cell = link_frame(rail.frames, mask);
+            let grid: Vec<&str> =
+                sprites[(1 + mask) as usize]["grid"].as_str().unwrap().lines().collect();
+            assert_eq!(
+                name_at(cell),
+                if mask == 0 { "rail".into() } else { format!("rail_{}", mask + 1) }
+            );
+            // The tile is the bottom-centre 16x16: columns 8..24, rows 16..32. An edge is open
+            // where track reaches its middle two pixels.
+            let open = |row: usize, col: usize| grid[row].as_bytes()[col] != b'.';
+            let north = open(16, 15) && open(16, 16);
+            let south = open(31, 15) && open(31, 16);
+            let west = open(23, 8) && open(24, 8);
+            let east = open(23, 23) && open(24, 23);
+            let got = [north, east, south, west]
+                .iter()
+                .zip([LINK_N, LINK_E, LINK_S, LINK_W])
+                .filter(|(open, _)| **open)
+                .fold(0, |m, (_, bit)| m | bit);
+            assert_eq!(got, mask, "rail mask {mask:04b} reaches edges {got:04b}");
+        }
+        assert!(connects("rail") && !connects("bed") && !connects("no_such_building"));
+    }
+
     #[test]
     fn an_unknown_sprite_name_draws_the_fallback() {
         assert_eq!(frames("no_such_building"), &[UNFINISHED]);
@@ -242,13 +320,21 @@ mod tests {
             let name = s["name"].as_str().unwrap();
             let grid: Vec<&str> = s["grid"].as_str().unwrap().lines().collect();
             assert_eq!(grid.len(), 32, "{name}");
-            assert!(grid[30].bytes().any(|c| c != b'.'), "{name}: floats above its tile");
-            assert!(grid[31].bytes().all(|c| c == b'.'), "{name}: bottom row");
+            // A piece of track is flat ground with no outline: it may stop short of the tile's
+            // bottom row (it only reaches it where it joins the tile below), and fills the row
+            // when it does, so that two pieces one above the other meet with no seam (#135).
+            let flat = name == "rail" || name.starts_with("rail_");
+            if !flat {
+                assert!(grid[30].bytes().any(|c| c != b'.'), "{name}: floats above its tile");
+                assert!(grid[31].bytes().all(|c| c == b'.'), "{name}: bottom row");
+            }
             assert!(grid[0].bytes().all(|c| c == b'.'), "{name}: top row");
             assert!(grid.iter().all(|r| r.len() == 32), "{name}");
             assert!(grid.iter().all(|r| r.starts_with('.') && r.ends_with('.')), "{name}: sides");
             // The body stands on its own tile: some of its foot is in the bottom-centre 16px.
-            assert!(grid[30][8..24].bytes().any(|c| c != b'.'), "{name}: foot off its tile");
+            if !flat {
+                assert!(grid[30][8..24].bytes().any(|c| c != b'.'), "{name}: foot off its tile");
+            }
         }
     }
 }

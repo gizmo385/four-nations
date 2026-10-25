@@ -12,8 +12,10 @@
 //! | 6 | `spark_0` to `spark_2` | Hearthflame's cast: sparks, flare, embers |
 //! | 7 | `gust_0` to `gust_2` | Wind Carry's gust: a curl of wind, turning |
 //! | 8 | `swirl_0` to `swirl_2` | the whirl that lifts the stack |
+//! | 9 | `glow_0` to `glow_2` | Inner Fire's cast: embers gather, the ring blooms, motes drift out (#123) |
+//! | 10 | `aura_0` to `aura_2` | Inner Fire's lasting aura: a ring of light under the carrier, pulsing |
 //!
-//! The cast rows (2 to 8, #166) are played by `cast.rs`. A test reads `art/fx.toml` and checks
+//! The cast rows (2 to 9, #166 and #123) are played by `cast.rs`; the aura is `bending.rs`. A test reads `art/fx.toml` and checks
 //! each constant against the sprite name it claims.
 
 use fn_sim::Pos;
@@ -47,6 +49,11 @@ pub const GUST: [Cell; 3] = [one(SHEET, 0, 7), one(SHEET, 1, 7), one(SHEET, 2, 7
 /// The whirl that lifts the stack, three turns.
 pub const SWIRL: [Cell; 3] = [one(SHEET, 0, 8), one(SHEET, 1, 8), one(SHEET, 2, 8)];
 
+/// Inner Fire's cast: embers gather on a ring, the ring blooms, warm motes drift out.
+pub const GLOW: [Cell; 3] = [one(SHEET, 0, 9), one(SHEET, 1, 9), one(SHEET, 2, 9)];
+/// The ring of light under a unit carrying Inner Fire, three beats of a slow pulse.
+pub const AURA: [Cell; 3] = [one(SHEET, 0, 10), one(SHEET, 1, 10), one(SHEET, 2, 10)];
+
 /// World ticks (`TICKS_PER_SECOND` a second) each flame frame shows.
 pub const FLAME_FRAME_TICKS: u64 = 3;
 /// The order the flame frames play in: the flame rises and falls back, so the loop has no jump.
@@ -59,6 +66,19 @@ pub fn flame_cell(tick: u64, p: Pos) -> Cell {
     let phase = tile_hash(p, 0xF1A3) as u64;
     let step = (tick / FLAME_FRAME_TICKS + phase) as usize % FLAME_SEQUENCE.len();
     FLAME[FLAME_SEQUENCE[step]]
+}
+
+/// World ticks each beat of the aura's pulse lasts: slower than a flame, a glow rather than a
+/// flicker.
+pub const AURA_FRAME_TICKS: u64 = 6;
+/// The order the pulse plays in, so the loop has no jump.
+const AURA_SEQUENCE: [usize; 4] = [0, 1, 2, 1];
+
+/// The aura frame to show at world tick `tick`, on the world clock like the flames, so a paused
+/// game holds a still ring. `phase` (the carrier's id) keeps two carriers out of step.
+pub fn aura_cell(tick: u64, phase: u32) -> Cell {
+    let step = (tick / AURA_FRAME_TICKS + u64::from(phase)) as usize % AURA_SEQUENCE.len();
+    AURA[AURA_SEQUENCE[step]]
 }
 
 /// The puddle sprite of the wet tile at `p`: a stable pick, so neighbours differ and a tile never
@@ -99,20 +119,22 @@ mod tests {
             ("spark", SPARK),
             ("gust", GUST),
             ("swirl", SWIRL),
+            ("glow", GLOW),
+            ("aura", AURA),
         ];
         for (family, cells) in cast {
             for (i, c) in cells.iter().enumerate() {
                 assert_eq!(name_at(*c), format!("{family}_{i}"));
             }
         }
-        assert_eq!(names.len(), FLAME.len() + WET.len() + 7 * 3, "a sprite no constant points at");
+        assert_eq!(names.len(), FLAME.len() + WET.len() + 9 * 3, "a sprite no constant points at");
     }
 
     #[test]
-    fn the_sheet_is_as_wide_as_its_columns_and_has_nine_rows() {
+    fn the_sheet_is_as_wide_as_its_columns_and_has_eleven_rows() {
         let (w, h) = super::super::test_support::png_size(SHEET);
         assert_eq!(w, COLUMNS * super::super::CELL as u32);
-        assert_eq!(h, 9 * super::super::CELL as u32);
+        assert_eq!(h, 11 * super::super::CELL as u32);
     }
 
     #[test]
@@ -123,6 +145,15 @@ mod tests {
         // A frame lasts several ticks, and the same tick always gives the same frame.
         assert_eq!(flame_cell(0, p), flame_cell(FLAME_FRAME_TICKS - 1, p));
         assert_eq!(flame_cell(7, p), flame_cell(7, p));
+    }
+
+    #[test]
+    fn the_aura_pulses_on_the_world_clock_and_carriers_are_out_of_step() {
+        let shown: std::collections::BTreeSet<_> = (0..60).map(|t| aura_cell(t, 0).col).collect();
+        assert_eq!(shown.len(), AURA.len(), "{shown:?}");
+        assert_eq!(aura_cell(0, 3), aura_cell(AURA_FRAME_TICKS - 1, 3));
+        assert_ne!(aura_cell(0, 0), aura_cell(AURA_FRAME_TICKS, 0));
+        assert_ne!(aura_cell(0, 0), aura_cell(0, 1));
     }
 
     #[test]

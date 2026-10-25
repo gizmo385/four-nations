@@ -34,7 +34,7 @@ pub use bending::{BendChannel, BendError, BendEvent, BendOutcome, Moved};
 pub use build::BuildError;
 use build::Site;
 pub use command::{Command, CommandError, Recorded};
-pub use heat::{Flame, HeatSource};
+pub use heat::{Aura, Flame, Glow, HeatSource};
 pub use stride::{STRIDE_LOOKAHEAD, Stride};
 pub use work::{DesignateError, FoodSource, Task};
 
@@ -153,6 +153,10 @@ pub struct World {
     /// How units walk. Every unit uses these for now; a nation that can cross water would get
     /// its own.
     rules: MoveRules,
+    /// How a unit hauling a stack moves: `rules` plus rail (#135). Built from the building defs
+    /// when the world is made, so a save from before rail existed has the plain `rules` here.
+    #[serde(default)]
+    cart_rules: MoveRules,
     /// Which tiles can reach which under `rules`, or `None` when the map has changed since it
     /// was computed. Recomputed on demand; see `regions.rs`.
     #[serde(skip)]
@@ -166,6 +170,9 @@ pub struct World {
     fallow: BTreeMap<Pos, u64>,
     /// Lit heat sources by tile: Hearthflames today, campfires later (`heat.rs`).
     heat: BTreeMap<Pos, HeatSource>,
+    /// Warmth auras on units, by carrier (Inner Fire, #123; `heat.rs`).
+    #[serde(default)]
+    auras: BTreeMap<UnitId, Aura>,
     /// Picks which tiles of a dried patch sprout (`bending.sprout`).
     sprout_rng: SimRng,
     rng: SimRng,
@@ -200,11 +207,13 @@ impl World {
             stored: BTreeMap::new(),
             sites: BTreeMap::new(),
             rules: MoveRules::default(),
+            cart_rules: defs.cart_rules(MoveRules::default()),
             regions: None,
             bend_events: Vec::new(),
             patches: Vec::new(),
             fallow: BTreeMap::new(),
             heat: BTreeMap::new(),
+            auras: BTreeMap::new(),
             sprout_rng: rng::stream(seed, "bending.sprout"),
             rng: rng::stream(seed, "world.units"),
         };

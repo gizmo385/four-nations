@@ -12,6 +12,7 @@ use crate::building::{BuildingDef, BuildingId, BuildingsFile};
 use crate::jobs::{HarvestDef, ItemDef, ItemId, JobSettings, JobsFile};
 use crate::nation::{Nation, NationDef};
 use crate::needs::{FoodDef, NeedsFile, NeedsSettings};
+use crate::path::MoveRules;
 use crate::research::{self, ResearchFile, ResearchSettings, TechDef, TechId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, serde::Serialize)]
@@ -390,6 +391,15 @@ impl Defs {
         self.buildings.iter().position(|b| b.id == id).map(|i| BuildingId(i as u16))
     }
 
+    /// `walking` rules with rail switched on at the speed the rail building (if any) sets: how a
+    /// unit hauling a stack moves (#135). Unchanged if no building is a rail.
+    pub fn cart_rules(&self, walking: MoveRules) -> MoveRules {
+        match self.buildings.iter().find_map(|b| b.rail) {
+            Some(rail) => walking.with_rail(rail.step_cost()),
+            None => walking,
+        }
+    }
+
     pub fn building(&self, id: BuildingId) -> &BuildingDef {
         &self.buildings[id.0 as usize]
     }
@@ -435,7 +445,7 @@ mod tests {
     }
 
     /// The bundled research tree without the job unlocks, for tests with their own resources
-    /// (so `fish_spot` and `stone` don't dangle).
+    /// and ability unlocks (so `fish_spot`, `stone` and `inner_fire` don't dangle).
     fn bare_research() -> String {
         let mut src = RESEARCH.to_string();
         for job in ["fish_spot", "stone"] {
@@ -443,6 +453,10 @@ mod tests {
             assert!(src.contains(&unlock), "{job}'s unlocks.jobs moved; update this helper");
             src = src.replace(&unlock, "");
         }
+        // The bare bending has no abilities, so a tech can't unlock one.
+        let ability = "abilities = [\"inner_fire\"]\n";
+        assert!(src.contains(ability), "inner_fire's unlock moved; update this helper");
+        src = src.replace(ability, "");
         src
     }
 

@@ -3,7 +3,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use fn_sim::Nation;
 use fn_ui::research::screen_view;
-use fn_ui::tools::{apply_rect, switch_tool};
+use fn_ui::tools::{apply_rect, cycle_ability, switch_tool};
 use fn_ui::{Session, Tool};
 
 use crate::input::{Action, map_key};
@@ -202,6 +202,8 @@ impl App {
     fn pick_tool(&mut self, requested: Tool) {
         // The shared switch also resolves the Build tool's building; the keys here never ask for
         // Build, so there is no choice to keep.
+        // `B` again moves on to the next ability the settlement can use (#123).
+        cycle_ability(&mut self.session, self.ui.tool, requested);
         let (tool, _choice) = switch_tool(&self.session, self.ui.tool, None, requested);
         self.ui.set_tool(tool);
     }

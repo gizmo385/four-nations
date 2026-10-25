@@ -582,3 +582,103 @@ fn designating_repeating_harvest_twice_does_not_duplicate_the_job() {
     w.designate_repeating_harvest(pos, &defs).unwrap();
     assert_eq!(w.jobs().len(), 1);
 }
+
+// ---- rail (#135) ----
+
+/// Lays rail on `tiles`, as a finished rail building would.
+fn lay_rail(w: &mut World, defs: &Defs, tiles: impl IntoIterator<Item = Pos>) {
+    let id = defs.building_id("rail").expect("rail is defined");
+    for p in tiles {
+        w.map[p].building = Some(crate::building::Building { id, passable: true, rail: true });
+    }
+    w.map_changed();
+}
+
+/// Ticks for one unit to haul `count` wood from (3, 2) to a stockpile at (32, 2) along a flat
+/// row, with rail laid on `rail`.
+fn haul_ticks(rail: &[Pos], count: u32) -> u64 {
+    let rows = ["...................................."; 5];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(2, 2)]);
+    let wood = defs.item_id("wood").unwrap();
+    lay_rail(&mut w, &defs, rail.iter().copied());
+    w.designate_stockpile(at(32, 2)).unwrap();
+    w.ground.insert(at(3, 2), Stack { item: wood, count });
+    w.ensure_haul_job(at(3, 2));
+    run_until(&mut w, &defs, 4000, |w| w.stored_total(wood) == count)
+}
+
+#[test]
+fn hauling_over_rail_beats_hauling_over_bare_ground() {
+    let line: Vec<Pos> = (3..=32).map(|x| at(x, 2)).collect();
+    let bare = haul_ticks(&[], 5);
+    let railed = haul_ticks(&line, 5);
+    assert!(railed < bare, "rail {railed} ticks, bare ground {bare}");
+    // The loaded leg is 29 steps of 6 ticks on bare ground and 29 of 3 on rail (the empty walk
+    // out is the same either way), so the trip loses about a third of its time.
+    assert!(railed * 4 < bare * 3, "rail {railed} ticks, bare ground {bare}: not much faster");
+}
+
+#[test]
+fn a_gap_in_the_rail_costs_the_time_it_covers() {
+    let line = |gap: bool| -> Vec<Pos> {
+        (3..=32).filter(|&x| !(gap && (14..=21).contains(&x))).map(|x| at(x, 2)).collect()
+    };
+    let whole = haul_ticks(&line(false), 5);
+    let gapped = haul_ticks(&line(true), 5);
+    let bare = haul_ticks(&[], 5);
+    assert!(whole < gapped && gapped < bare, "{whole} < {gapped} < {bare}");
+}
+
+#[test]
+fn a_unit_on_foot_gets_nothing_from_rail() {
+    let rows = ["..........", "..........", ".........."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 1)]);
+    lay_rail(&mut w, &defs, (1..=6).map(|x| at(x, 1)));
+    let wood = defs.item_id("wood").unwrap();
+    w.units[0].route = Some((2..=5).rev().map(|x| at(x, 1)).collect());
+    let on_foot = w.stride(UnitId(0)).unwrap().needed;
+    assert_eq!(on_foot, vec![BASE_TICKS_PER_STEP; 4]);
+
+    // The same steps with a stack in hand are the cart's: half the time on a speed-2 rail.
+    w.units[0].carrying = Some(Stack { item: wood, count: 3 });
+    let hauling = w.stride(UnitId(0)).unwrap().needed;
+    assert_eq!(hauling, vec![BASE_TICKS_PER_STEP / 2.0; 4]);
+}
+
+#[test]
+fn rail_only_speeds_a_straight_step_between_two_rail_tiles() {
+    let rows = ["....", "....", "...."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 1)]);
+    lay_rail(&mut w, &defs, [at(1, 1), at(2, 1), at(3, 2), at(2, 2)]);
+    let wood = defs.item_id("wood").unwrap();
+    w.units[0].carrying = Some(Stack { item: wood, count: 1 });
+    let needed = |w: &mut World, from: Pos, to: Pos| {
+        w.units[0].pos = from;
+        w.units[0].route = Some(vec![to]);
+        w.stride(UnitId(0)).unwrap().needed[0]
+    };
+    // Rail to rail, straight: fast. Rail to bare ground, and bare ground to rail: no gain.
+    assert_eq!(needed(&mut w, at(1, 1), at(2, 1)), BASE_TICKS_PER_STEP / 2.0);
+    assert_eq!(needed(&mut w, at(1, 1), at(1, 0)), BASE_TICKS_PER_STEP);
+    assert_eq!(needed(&mut w, at(1, 0), at(1, 1)), BASE_TICKS_PER_STEP);
+    // A diagonal between two rail tiles is an ordinary diagonal.
+    let diagonal = needed(&mut w, at(2, 1), at(3, 2));
+    assert!(diagonal > BASE_TICKS_PER_STEP, "{diagonal}");
+}
+
+#[test]
+fn a_loaded_unit_delivers_to_the_stockpile_the_rail_makes_nearer() {
+    // Two stockpiles: one 144 cost away over bare ground, one at the end of a rail line that is
+    // 180 away on foot but 90 with a cart. A unit with a stack in hand takes the rail one.
+    let rows = ["...................."; 7];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 1)]);
+    let wood = defs.item_id("wood").unwrap();
+    w.designate_stockpile(at(13, 6)).unwrap();
+    w.designate_stockpile(at(19, 1)).unwrap();
+    lay_rail(&mut w, &defs, (1..=19).map(|x| at(x, 1)));
+    w.ground.insert(at(1, 1), Stack { item: wood, count: 4 });
+    w.ensure_haul_job(at(1, 1));
+    run_until(&mut w, &defs, 2000, |w| w.stored_total(wood) == 4);
+    assert_eq!(w.stored_at(at(19, 1)), Some(Stack { item: wood, count: 4 }));
+    assert_eq!(w.stored_at(at(13, 6)), None);
+}
