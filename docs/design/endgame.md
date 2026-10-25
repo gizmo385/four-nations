@@ -1,7 +1,7 @@
 # End game: the Harmony Gate, built with the Avatar
 
-Status: **proposed** (#224). The owner questions are at the end, and follow-up work is listed in
-"Follow-up issues".
+Status: **decided** (#224, owner, 2026-10-25). The owner's answers are under "Owner decisions",
+and follow-up work is listed in "Follow-up issues".
 
 The game has no long-term goal yet. A settlement researches its tree in about two hours, builds,
 and then just keeps going. The owner's idea (2026-10-25) is an end-game **great work that needs
@@ -39,7 +39,7 @@ Avatar, and finishing it changes what late-game play looks like.
 
 | Concept | Avatar | What changes after | Cost | Verdict |
 |---|---|---|---|---|
-| **A. The Harmony Gate (United City)** | Aang | Settlers of all four nations arrive with their own bending. Mixed abilities change daily play | Medium. Per-unit nation and population growth, both of which the game wants anyway | **Recommended** |
+| **A. The Harmony Gate (United City)** | Aang | Settlers of all four nations arrive with their own bending. Mixed abilities change daily play | Medium. Per-unit nation and population growth, both of which the game wants anyway | **Chosen** (owner, 2026-10-25) |
 | B. A Spirit Portal | Korra | Spirit vines (a new resource) spread from the portal, and spirits wander in. They bless a settlement in balance and blight one that isn't | High. Spirit AI, a balance or mood system, and possibly a second map for the spirit world | A strong sequel: a second endeavor later |
 | C. A per-nation wonder (restore an Air Temple, a Moon and Ocean shrine, an Earth great bridge, a Sun Warrior eternal flame) | Each nation's own Avatar | A different transformation per nation | 4x design, 4x art and 4x balance, and the four transformations are hard to keep equal | No. It is better used as flavour inside A (each nation builds "its" pillar) |
 | D. Calm a spirit storm | Any | Mostly removes a threat | Low, but a storm is a disaster system, and the payoff is a stat | No. It could become a trial during a later endeavor |
@@ -105,13 +105,13 @@ anyway, so the road rewards playing well rather than a separate grind.
 story (unity after the war), and an airbender's speed suits a visitor who works all over the
 site. Appa rests beside the site while Aang stays, as a 3x2 prop. Appa is decoration in v1 and
 does no hauling, so he doesn't pre-empt the sky bison work in #205. Companions (Katara, Sokka,
-Toph, Zuko) aren't in v1 (owner question 1).
+Toph, Zuko) aren't in v1 (owner decision 1).
 
 **Arrival.** Two in-game minutes after the foundation stage completes, Appa lands on the
 nearest free tiles west of the site (searched in row-major order, so it is deterministic), and
 Aang steps off. A toast and a camera ping announce it.
 
-**Control: a guest with his own AI** (owner question 3). The Avatar is a unit in `World::units`,
+**Control: a guest with his own AI** (owner decision 3). The Avatar is a unit in `World::units`,
 marked `guest = Some(Guest::Avatar)`. He uses the normal job loop with a different priority
 list:
 
@@ -307,24 +307,24 @@ Filed without `ready`, and each sized for one PR. Blocked-by links are on the is
 | #247 | Art: Appa resting (48x32) | none |
 | #248 | Client: a mixed-nation settlement (bend picker by caster, people by nation) | #240 |
 
-## Open questions for the owner
+## Owner decisions (2026-10-25)
 
-1. **Which Avatar, and do companions come?** I recommend **Aang with Appa, and no companions in
-   v1**. Aang fits the unity story and the series' title. Companions would each need a sheet, a
-   portrait and a role. The alternatives are Korra (better for the Spirit Portal, concept B) or
-   each nation's own Avatar (Aang, Korra, Kyoshi, Roku), which is four times the art for a
-   visitor who stays an hour.
-2. **The endeavor and its transformation: one shared Harmony Gate that opens the settlement to
-   all four nations?** I recommend **yes**: one endeavor, dressed per nation, with your own
-   pillar raised by your own benders. The alternatives are per-nation wonders (concept C) or the
-   Spirit Portal (B, a good sequel). This stretches vision.md's "one player nation" to "one
-   settlement, many peoples", which is why it's your call. The tree stays your nation's, and
-   techs aren't taught.
-3. **How much control over the Avatar?** I recommend **a guest with his own AI**: he claims
-   Avatar tasks and any bend you designate, but you never drag him around or give him chores.
-   Direct control would make him a super-worker and break indirect control. A fully scripted
-   helper would make him scenery.
-4. **How long should the road be?** I recommend **about 3.5 to 4 hours to Ready, plus about an
-   hour of project**, with the default targets in the table. Shorter (2.5 h: population 12, no
-   farm or ore signs) suits shorter sessions. Longer (6 h+) needs more mid-game content than
-   exists today.
+Recorded on #224 (https://github.com/gizmo385/four-nations/issues/224#issuecomment-6393164172).
+The owner accepted all four recommendations. The alternatives stay below as the rationale.
+
+1. **Avatar: Aang with Appa, and no companions in v1.** Aang fits the unity story and the
+   series' title. Companions would each need a sheet, a portrait and a role. *Considered:* Korra
+   (a better fit for the Spirit Portal, concept B), or each nation's own Avatar (Aang, Korra,
+   Kyoshi, Roku), which is four times the art for a visitor who stays an hour.
+2. **Endeavor: one shared Harmony Gate, styled per nation, whose payoff is the United City**,
+   with no tech teaching. Your own nation's pillar is raised by your own benders. This stretches
+   vision.md's "one player nation" to "one settlement, many peoples". The research tree stays
+   your nation's. *Considered:* per-nation wonders (concept C), and the Spirit Portal (B, kept
+   as a possible sequel).
+3. **Control: Aang is a guest with his own AI.** He claims Avatar tasks and any bend you
+   designate, but you never drag him around or give him chores. *Considered:* direct control,
+   which would make him a super-worker and break indirect control, and a fully scripted helper,
+   which would make him scenery.
+4. **Length: about 3.5 to 4 hours of play to qualify, plus about an hour for the project**, with
+   the default targets in the signs table. *Considered:* shorter (2.5 h: population 12, no farm
+   or ore signs), and longer (6 h or more), which needs more mid-game content than exists today.
