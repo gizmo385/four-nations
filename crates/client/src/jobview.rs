@@ -244,7 +244,7 @@ mod tests {
 
     #[test]
     fn a_resting_resource_is_greyed_out_until_it_ripens() {
-        let mut app = test_app(1);
+        let mut app = test_app(2);
         let (pos, ripe_after) = {
             let sim = app.world().resource::<Sim>();
             let cabbage = sim.defs.resource_id("cabbage").unwrap();

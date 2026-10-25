@@ -10,6 +10,19 @@
 # - beside:          the tile must touch (8 neighbours) one of these terrains. Fish spots use it
 #                    to stay within reach of the shore, since units fish from the bank.
 
+# Ancient scrolls (#24): a rare find in the barren wastes, the one way exploring pays in
+# knowledge. Hauled to a study hall, each is read for the `knowledge` its item carries
+# (data/jobs.toml). Listed first so a scroll isn't hidden by the firs that grow in the tundra, and
+# spaced far apart: about 3-6 on a 192x128 map.
+[[resource]]
+id = "ancient_scroll"
+name = "Ancient Scroll"
+glyph = "?"
+chance = 0.004
+terrains = ["land"]
+biomes = ["tundra", "desert"]
+min_spacing = 20
+
 # Gold is a find, not wallpaper: mountains only, roughly 20-25 veins on a 192x128 map
 # (a few per screen at default zoom). Listed first so it wins over stone on a mountain tile.
 [[resource]]

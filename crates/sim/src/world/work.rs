@@ -51,6 +51,7 @@
 use crate::flood::Flood;
 use crate::jobs::{HarvestDef, ItemId, JobKind};
 use crate::path::{DIAGONAL, NEIGHBORS, STRAIGHT};
+use crate::research::MILLIS_PER_POINT;
 
 use super::*;
 
@@ -880,7 +881,7 @@ impl World {
                     let room = match room_cache.iter().find(|(it, _)| *it == item) {
                         Some(&(_, r)) => r,
                         None => {
-                            let r = self.reachable_room(&flood, item, defs).is_some();
+                            let r = self.reachable_dest(&flood, item, defs).is_some();
                             room_cache.push((item, r));
                             r
                         }
@@ -946,7 +947,11 @@ impl World {
             JobKind::Haul { pos } => {
                 let item = self.ground[&pos].item;
                 in_here(pos)
-                    && self.zones.iter().any(|&z| in_here(z) && self.room_at(z, item, defs) > 0)
+                    && if Self::is_readable(item, defs) {
+                        self.study_halls().any(can_stand)
+                    } else {
+                        self.zones.iter().any(|&z| in_here(z) && self.room_at(z, item, defs) > 0)
+                    }
             }
             JobKind::Bend { ability, pos } => {
                 self.unit_can_bend(i, defs.ability(ability)) && can_stand(pos)
@@ -954,6 +959,39 @@ impl World {
             JobKind::Build { pos } => can_stand(pos),
             JobKind::Study { pos } => can_stand(pos),
         })
+    }
+
+    /// Is `item` one that is read at a study hall instead of stockpiled (issue #24)?
+    fn is_readable(item: ItemId, defs: &Defs) -> bool {
+        defs.item(item).knowledge.is_some()
+    }
+
+    /// Positions of the study halls that stand, one per hall. A hall's seats are `Study` jobs
+    /// that never complete (`study.rs`), so the queue is the list of halls.
+    fn study_halls(&self) -> impl Iterator<Item = Pos> + '_ {
+        let mut last = None;
+        self.jobs.iter().filter_map(move |j| match j.kind {
+            JobKind::Study { pos } if last != Some(pos) => {
+                last = Some(pos);
+                Some(pos)
+            }
+            _ => None,
+        })
+    }
+
+    /// Is `pos` on or beside a study hall? Where a unit that walked a scroll to the hall ends up.
+    fn at_study_hall(&self, pos: Pos) -> bool {
+        self.study_halls().any(|h| (h.x - pos.x).abs() <= 1 && (h.y - pos.y).abs() <= 1)
+    }
+
+    /// Where a unit with `item` in hand takes it: a study hall for a readable item (to stand
+    /// beside it, with its cost), a stockpile tile with room for anything else.
+    fn reachable_dest(&self, flood: &Flood, item: ItemId, defs: &Defs) -> Option<(u32, Pos)> {
+        if Self::is_readable(item, defs) {
+            self.study_halls().filter_map(|h| self.stand(flood, h)).min()
+        } else {
+            self.reachable_room(flood, item, defs)
+        }
     }
 
     /// The nearest stockpile tile with room for `item`, with its cost.
@@ -1050,7 +1088,7 @@ impl World {
         if self.units[i].route.is_none() {
             let flood = self.flood_from(i);
             let route = self
-                .reachable_room(&flood, stack.item, defs)
+                .reachable_dest(&flood, stack.item, defs)
                 .and_then(|(_, z)| flood.path_to(z))
                 .map(route_from);
             match route {
@@ -1068,6 +1106,19 @@ impl World {
             return;
         }
         let pos = self.units[i].pos;
+        if let Some(points) = defs.item(stack.item).knowledge {
+            // A readable item is used up at the hall, all of it, and never stockpiled. If the
+            // hall went away on the way, plan again (no hall left: it is put down).
+            if self.at_study_hall(pos) {
+                let millis = u64::from(points) * u64::from(stack.count) * MILLIS_PER_POINT;
+                self.research.add_knowledge(millis);
+                self.units[i].carrying = None;
+                self.finish_job(i);
+            } else {
+                self.units[i].route = None;
+            }
+            return;
+        }
         let put = if self.zones.contains(&pos) {
             stack.count.min(self.room_at(pos, stack.item, defs))
         } else {

@@ -21,7 +21,7 @@ const BRANCH: [(&str, &[&str]); 6] = [
 ];
 
 fn fresh(defs: &Defs) -> World {
-    let cfg = MapGenConfig { seed: 11, ..Default::default() };
+    let cfg = MapGenConfig { seed: 13, ..Default::default() };
     World::new(&cfg, Nation::Fire, 4, defs)
 }
 

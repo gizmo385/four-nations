@@ -11,12 +11,15 @@ pub const SHEET: &str = "original/resources.png";
 const STONE: u32 = 0;
 const CABBAGE: u32 = 1;
 const GOLD_VEIN: u32 = 2;
+const ANCIENT_SCROLL: u32 = 3;
 
 pub const RESOURCES: &[ResourceRule] = &[
     // Grey rock, and the same rock with gold in it: one silhouette.
     ResourceRule { resource: "stone", biome: None, cell: one(SHEET, STONE, 0) },
     ResourceRule { resource: "gold_vein", biome: None, cell: one(SHEET, GOLD_VEIN, 0) },
     ResourceRule { resource: "cabbage", biome: None, cell: one(SHEET, CABBAGE, 0) },
+    // A rolled-up scroll lying where the ruins were (#24).
+    ResourceRule { resource: "ancient_scroll", biome: None, cell: one(SHEET, ANCIENT_SCROLL, 0) },
     // Fish shadows and ripples, on a transparent background over the water tile (#146).
     ResourceRule { resource: "fish_spot", biome: None, cell: super::water::FISH_SPOT },
 ];
@@ -49,6 +52,7 @@ mod tests {
         assert_eq!(names[STONE as usize], "stone");
         assert_eq!(names[GOLD_VEIN as usize], "gold_vein");
         assert_eq!(names[CABBAGE as usize], "cabbage");
+        assert_eq!(names[ANCIENT_SCROLL as usize], "ancient_scroll");
     }
 
     /// Every land resource that isn't a tree has a sprite on our sheet, named like the resource.
