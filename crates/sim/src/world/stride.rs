@@ -143,6 +143,7 @@ mod tests {
 
         // A terrain that costs double takes double.
         w.rules = w.rules.clone().with_cost(Terrain::Coast, Some(2));
+        w.cart_rules = w.cart_rules.clone().with_cost(Terrain::Coast, Some(2));
         w.map[Pos::new(6, 10)].terrain = Terrain::Coast;
         w.units[0].route = Some(vec![Pos::new(6, 10)]);
         assert_eq!(w.stride(UnitId(0)).unwrap().needed, [2.0 * BASE_TICKS_PER_STEP]);
