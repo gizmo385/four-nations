@@ -366,7 +366,7 @@ reject; it formats and maps. Sprites, entities, the camera and interpolation sta
 | `R` and `1`-`4` regenerate | Same, with a prompt | #99 |
 | Research screen (`T`) | Tier columns, cursor, `Enter` sets the target | #100 |
 | Build tool (sim only so far, #64) | Through `fn_ui`'s tool table, in both frontends at once | Later |
-| Save and load (#7) | Once the sim has it | Later |
+| Save and load (#7): `F5`/`F9` quicksave, `F6` save list (#112, #216) | `F5` quicksave, `F9` quickload after a prompt, through `fn_ui::saves`; no slot list yet | #216 |
 | Mouse | Click moves the cursor; a drag is a rectangle | Later |
 | Portraits, sprite smoothing, canopy fade (#77) | Not applicable | none |
 

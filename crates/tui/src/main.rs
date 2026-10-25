@@ -44,7 +44,7 @@ fn main() -> ExitCode {
         );
         return ExitCode::from(2);
     }
-    match fn_tui::run::run(session, palette) {
+    match fn_tui::run::run(session, palette, fn_ui::saves::default_save_dir()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("fn_tui: {e}");
@@ -56,6 +56,7 @@ fn main() -> ExitCode {
 /// `--frame`: one frame on stdout, with no raw mode and no alternate screen.
 fn print_frame(session: fn_ui::Session, palette: &Palette, args: &Args) {
     let mut app = App::new(session, args.size);
+    app.saves = fn_ui::saves::default_save_dir();
     app.play(&args.keys);
     // A script may have switched nation: draw in that nation's colours.
     let switched;

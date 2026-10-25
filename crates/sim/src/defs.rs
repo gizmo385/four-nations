@@ -9,6 +9,7 @@ use serde::Deserialize;
 
 use crate::bending::{AbilityDef, AbilityId, BendingFile, ChiSettings};
 use crate::building::{BuildingDef, BuildingId, BuildingsFile};
+use crate::endeavor::{EndeavorDef, EndeavorFile};
 use crate::jobs::{HarvestDef, ItemDef, ItemId, JobSettings, JobsFile};
 use crate::nation::{Nation, NationDef};
 use crate::needs::{FoodDef, NeedsFile, NeedsSettings};
@@ -132,6 +133,9 @@ pub struct Defs {
     pub chi: ChiSettings,
     /// Bending abilities, in file order; indexed by `AbilityId`.
     pub abilities: Vec<AbilityDef>,
+    /// The end-game endeavor's signs (data/endeavor.toml). Empty unless loaded with
+    /// `with_endeavor`, which `bundled` does.
+    pub endeavor: EndeavorDef,
     /// `harvests` index by `ResourceId`, so the lookup is O(1).
     harvest_by_resource: Vec<Option<usize>>,
 }
@@ -215,7 +219,16 @@ impl Defs {
             include_str!("../../../data/bending.toml"),
             include_str!("../../../data/buildings.toml"),
         )
+        .and_then(|d| d.with_endeavor(include_str!("../../../data/endeavor.toml")))
         .expect("bundled data/*.toml must be valid; run `cargo test -p fn_sim`")
+    }
+
+    /// These definitions with the endeavor read from `endeavor` (data/endeavor.toml), replacing any
+    /// endeavor they had. A separate step from `from_toml` because nothing else in the data
+    /// depends on it, and data without one (most tests) simply has no signs.
+    pub fn with_endeavor(mut self, endeavor: &str) -> Result<Self, DefsError> {
+        self.endeavor = parse::<EndeavorFile>("endeavor.toml", endeavor)?.resolve(&self.items)?;
+        Ok(self)
     }
 
     // One `data/*.toml` file per argument keeps every call site self-explanatory; a struct of
@@ -265,6 +278,7 @@ impl Defs {
             buildings,
             chi,
             abilities,
+            endeavor: EndeavorDef::default(),
             harvest_by_resource,
         };
         defs.validate()?;

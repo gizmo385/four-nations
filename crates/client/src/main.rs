@@ -7,13 +7,14 @@
 //! cancel harvest, stockpile, the nation's bending ability): drag a rectangle with the left
 //! button, middle/right still pan; Esc returns to selecting. `T` opens the research screen (Esc
 //! closes it); map input is suspended while it's open. See `designate`, `bending` and `research`.
-//! F5 quicksaves and F9 quickloads (`save`).
+//! F5 quicksaves and F9 quickloads; F6 opens the save list (`save`).
 //!
 //! `FN_SCREENSHOT=out.png` runs headless: no window is created at all (winit is disabled and the
 //! camera renders into an offscreen `Image`), and once the art has loaded it saves one frame as a
 //! PNG and exits. `FN_SCREENSHOT_SIZE=WIDTHxHEIGHT` sets the image size (default 1280x720),
 //! `FN_SELECT=N` starts with unit N selected so its panel shows in the shot, and
-//! `FN_RESEARCH_OPEN=1` starts with the research screen (`T`) open, and `FN_BUILD_DEMO=1`
+//! `FN_RESEARCH_OPEN=1` starts with the research screen (`T`) open, `FN_SAVES_OPEN=1` with the save
+//! list (`F6`) open (on the saves in `FN_SAVE_DIR`), and `FN_BUILD_DEMO=1`
 //! starts with the build tool (`U`) active and a construction site designated beside the first
 //! unit for every building the nation can place, so the picker and the site sprites show in the
 //! shot. `FN_BUILD_DEMO=buildings` also levels a meadow and puts a finished building of every
@@ -64,7 +65,7 @@ use fn_ui::{Session, Tool};
 use hud::HudPlugin;
 use jobview::{JobViewPlugin, ResourceSprite, SaplingSprite};
 use research::{ResearchPlugin, ScreenOpen};
-use save::SavePlugin;
+use save::{SavePlugin, SavesOpen};
 use unit_anim::{Facing, Pose, UnitAnimPlugin, UnitView, pick_frame};
 use unit_motion::{UnitMotion, UnitMotionPlugin, sync_units};
 
@@ -166,6 +167,7 @@ fn main() {
             std::env::var("FN_SELECT").ok().and_then(|s| s.parse().ok()).map(UnitId),
         ))
         .insert_resource(ScreenOpen(std::env::var_os("FN_RESEARCH_OPEN").is_some()))
+        .insert_resource(SavesOpen(std::env::var_os("FN_SAVES_OPEN").is_some()))
         .add_message::<MapClicked>()
         .add_plugins((
             UnitMotionPlugin,
@@ -225,10 +227,11 @@ fn parse_nation(s: &str) -> Option<Nation> {
     Nation::ALL.into_iter().find(|n| n.as_str() == s)
 }
 
-/// A run condition for map input systems: suspended while the research screen (`T`) covers the
-/// map, so a click or drag meant for a tech card never also moves the camera or selects a unit.
-fn screen_closed(open: Res<ScreenOpen>) -> bool {
-    !open.0
+/// A run condition for map input systems: suspended while the research screen (`T`) or the save
+/// list (`F6`) covers the map, so a click or drag meant for a button never also moves the camera
+/// or selects a unit.
+fn screen_closed(open: Res<ScreenOpen>, saves: Res<SavesOpen>) -> bool {
+    !open.0 && !saves.0
 }
 
 /// The game being played: `fn_ui`'s `Session` (world, data and clock) as a Bevy resource.

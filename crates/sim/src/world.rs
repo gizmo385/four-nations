@@ -24,6 +24,7 @@ use crate::rng::{self, SimRng};
 mod bending;
 mod build;
 mod command;
+mod endeavor;
 mod heat;
 mod orchard;
 mod stride;
@@ -36,6 +37,8 @@ pub use bending::{BendChannel, BendError, BendEvent, BendOutcome, Moved};
 use build::Site;
 pub use build::{Blocker, BuildError};
 pub use command::{Command, CommandError, Recorded};
+use endeavor::EndeavorLog;
+pub use endeavor::{EndeavorEvent, EndeavorEventKind, EndeavorState, SignProgress};
 pub use heat::{Aura, Flame, Glow, HeatSource};
 pub use stride::{STRIDE_LOOKAHEAD, Stride};
 pub use tally::Tallies;
@@ -197,6 +200,12 @@ pub struct World {
     /// Lifetime counts for the end-game signs: items harvested, scrolls read (`tally.rs`, #233).
     #[serde(default)]
     tallies: Tallies,
+    /// Where the end game stands (`endeavor.rs`, #234): Dormant until every sign is met at once.
+    #[serde(default)]
+    endeavor: EndeavorState,
+    /// Which signs have been met so far, and the endeavor's events.
+    #[serde(default)]
+    endeavor_log: EndeavorLog,
     /// Picks which tile an orchard plants next (`orchard.plant`).
     #[serde(default = "orchard::default_rng")]
     orchard_rng: SimRng,
@@ -244,6 +253,8 @@ impl World {
             orchards: BTreeMap::new(),
             saplings: BTreeSet::new(),
             tallies: Tallies::default(),
+            endeavor: EndeavorState::Dormant,
+            endeavor_log: EndeavorLog::default(),
             orchard_rng: orchard::new_rng(seed),
             sprout_rng: rng::stream(seed, "bending.sprout"),
             rng: rng::stream(seed, "world.units"),
@@ -372,7 +383,8 @@ impl World {
     /// Advances the world by one tick: research, units' needs and chi, resource regrowth and
     /// drying patches and burning-out flames run (units whose health reaches 0 die and are removed, in id order), then
     /// each survivor acts, in id order: it meets a need if one is low, else carries on with its
-    /// job, else claims one, else wanders. See `work.rs`.
+    /// job, else claims one, else wanders. See `work.rs`. Last, once a second, the endeavor checks
+    /// its signs (`endeavor.rs`).
     pub fn tick(&mut self, defs: &Defs) {
         self.tick += 1;
         let completed = self.research.completions().len();
@@ -388,6 +400,7 @@ impl World {
         for i in 0..self.units.len() {
             self.act(i, defs);
         }
+        self.tick_endeavor(defs);
     }
 
     /// What a unit with nothing to do does (issue #110). It stands still for `idle_pause_seconds`;

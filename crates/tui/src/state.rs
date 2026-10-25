@@ -21,6 +21,8 @@ pub enum Prompt {
     NewMap,
     /// `1`-`4`: the same map, played as this nation.
     Nation(Nation),
+    /// `F9`: the quicksave replaces the game.
+    QuickLoad,
 }
 
 /// A screen over the map area (the side panel stays).
@@ -53,6 +55,9 @@ pub struct UiState {
     /// The last rectangle's result ("designate harvest: 12 done, 3 skipped"), shown in the Tool
     /// section until the tool changes.
     pub notice: String,
+    /// A save or load result ("Quicksaved (tick 40)"): it takes the status line's key hints
+    /// until the next key.
+    pub status: String,
     pub prompt: Option<Prompt>,
     pub quit: bool,
     /// The unit the selection bar is about, if the bar is open.
@@ -87,6 +92,7 @@ impl UiState {
             tool: Tool::Select,
             anchor: None,
             notice: String::new(),
+            status: String::new(),
             prompt: None,
             quit: false,
             selected: None,

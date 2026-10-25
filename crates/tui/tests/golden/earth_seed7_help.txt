@@ -32,9 +32,9 @@
 │ ?                      Key help                                                      ││                              │
 │ R                      New map (asks first)                                          ││                              │
 │ 1 2 3 4                Switch nation: 1 Air, 2 Water, 3 Earth, 4 Fire (asks first)   ││                              │
+│ F5                     Quicksave                                                     ││                              │
+│ F9                     Quickload (asks first)                                        ││                              │
 │ Q                      Quit (asks first)                                             ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
 │                                                                                      ││                              │
 ┗─ Arrows W S scroll  PgUp PgDn page  Esc close  L log ────────────────────────────────┛┗──────────────────────────────┛
  KEYS  arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause
