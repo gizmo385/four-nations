@@ -187,13 +187,14 @@ fn spawn_hud(commands: &mut Commands, theme: &Theme, skin: &Skin) {
 // Side panel
 
 /// The camera and game keys, shown at the foot of the side panel.
-const CONTROLS: [&str; 7] = [
+const CONTROLS: [&str; 8] = [
     "WASD or drag: pan",
     "Wheel: zoom",
     "Space: pause",
     "1-4: nation",
     "R: new map",
     "T: research",
+    "F5/F9: quicksave/load",
     "Shift+H: repeating harvest",
 ];
 

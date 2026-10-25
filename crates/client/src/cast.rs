@@ -449,6 +449,15 @@ pub struct Casts {
 }
 
 impl Casts {
+    /// Drops every cast and despawns their sprites, for a world that replaces the running one (a
+    /// new map, a loaded game).
+    pub fn forget(&mut self, commands: &mut Commands) {
+        for e in self.sprites.values().flatten() {
+            commands.entity(*e).try_despawn();
+        }
+        *self = Casts::default();
+    }
+
     /// The cast of `unit`, if it is casting.
     #[cfg(test)]
     pub fn of(&self, unit: UnitId) -> Option<&Cast> {
@@ -484,11 +493,7 @@ fn track_casts(mut commands: Commands, sim: Res<Sim>, mut casts: ResMut<Casts>) 
     let world = &sim.world;
     if world.tick < casts.last_tick {
         // A new world: the old casts and their sprites are gone.
-        let old: Vec<Entity> = casts.sprites.values().flatten().copied().collect();
-        for e in old {
-            commands.entity(e).try_despawn();
-        }
-        *casts = Casts::default();
+        casts.forget(&mut commands);
     }
     casts.last_tick = world.tick;
     let defs = &sim.defs;
