@@ -201,7 +201,7 @@ fn a_unit_without_the_chi_waits_until_it_has_enough() {
 fn a_unit_of_another_nation_does_not_take_the_job() {
     let (mut w, defs) = setup(Nation::Earth, &[at(3, 2)], 0.0, "");
     w.apply(Command::Bend { ability: id(&defs, "probe"), pos: at(5, 2) }, &defs).unwrap();
-    w.units[0].nation = Nation::Water;
+    w.units[0].nation = Some(Nation::Water);
     for _ in 0..200 {
         w.tick(&defs);
     }

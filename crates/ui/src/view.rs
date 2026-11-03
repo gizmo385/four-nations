@@ -214,7 +214,7 @@ pub fn unit_view(session: &Session, unit: &Unit) -> UnitView {
     UnitView {
         id: unit.id,
         name: unit.name.clone(),
-        nation: defs.nation(unit.nation).name.clone(),
+        nation: defs.nation(session.world.nation_of(unit)).name.clone(),
         tile: unit.pos,
         task: describe_task(&session.world, defs, unit),
         carrying: describe_stack(defs, unit.carrying),

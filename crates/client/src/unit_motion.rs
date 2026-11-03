@@ -116,7 +116,7 @@ pub fn sample_motion(sim: Res<Sim>, mut units: Query<(&UnitSprite, &Transform, &
     let ticks = sim.clock.per_fixed_step();
     for (UnitSprite(id), tf, mut m) in &mut units {
         let Some(unit) = sim.world.unit(*id) else { continue };
-        let stride = sim.world.stride(*id);
+        let stride = sim.world.stride(*id, &sim.defs);
         let (at, dest, heading) = match &stride {
             Some(s) => {
                 let p = place(s, 0.0);
@@ -355,7 +355,8 @@ mod tests {
     fn frame(app: &mut App, e: Entity, id: UnitId) -> (Vec2, bool, u32) {
         app.update();
         let tf = app.world().get::<Transform>(e).unwrap().translation.truncate();
-        let walking = app.world().resource::<Sim>().world.stride(id).is_some();
+        let sim = app.world().resource::<Sim>();
+        let walking = sim.world.stride(id, &sim.defs).is_some();
         let row = app.world().get::<Sprite>(e).unwrap().rect.map_or(0, |r| (r.min.y / CELL) as u32);
         (tf, walking, row)
     }

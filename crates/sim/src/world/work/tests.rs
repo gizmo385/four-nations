@@ -201,6 +201,21 @@ fn work_speed_uses_the_nation_modifier_the_harvest_names() {
 }
 
 #[test]
+fn an_earth_unit_quarries_at_earths_earthworks_even_in_a_water_settlement() {
+    // A unit's work speed follows its own nation's modifiers (#239), not the settlement's: an
+    // Earth settler quarries at Earth's earthworks (2.5) wherever it lives.
+    let (mut w, defs) = setup(Nation::Water, &["....", "..s.", "...."], &[at(1, 1)]);
+    // Quarrying needs stoneworking; grant it so the settlement can designate the stone at all
+    // (teaching across nations is out of scope, so this stays settlement-wide).
+    w.research.grant(defs.tech_id("stoneworking").unwrap());
+    w.units[0].nation = Some(Nation::Earth);
+    w.designate_harvest(at(2, 1), &defs).unwrap();
+    let ticks = run_until(&mut w, &defs, 5000, |w| w.map[at(2, 1)].resource.is_none());
+    let expect = (12.0 / 2.5 * 10.0) as i64;
+    assert!((ticks as i64 - expect).abs() <= 4, "{ticks}");
+}
+
+#[test]
 fn quarrying_stone_needs_stoneworking_but_earth_starts_with_it() {
     let rows = ["....", "..s.", "...."];
     let stoneworking = Defs::bundled().tech_id("stoneworking").unwrap();
@@ -640,10 +655,10 @@ fn every_unit_runs_along_rail_loaded_or_not() {
     let wood = defs.item_id("wood").unwrap();
     w.units[0].route = Some((2..=5).rev().map(|x| at(x, 1)).collect());
     // Rail is a road for everyone: half the time on a speed-2 rail, on foot or hauling.
-    let on_foot = w.stride(UnitId(0)).unwrap().needed;
+    let on_foot = w.stride(UnitId(0), &defs).unwrap().needed;
     assert_eq!(on_foot, vec![BASE_TICKS_PER_STEP / 2.0; 4]);
     w.units[0].carrying = Some(Stack { item: wood, count: 3 });
-    let hauling = w.stride(UnitId(0)).unwrap().needed;
+    let hauling = w.stride(UnitId(0), &defs).unwrap().needed;
     assert_eq!(hauling, on_foot);
 }
 
@@ -657,7 +672,7 @@ fn rail_only_speeds_a_straight_step_between_two_rail_tiles() {
     let needed = |w: &mut World, from: Pos, to: Pos| {
         w.units[0].pos = from;
         w.units[0].route = Some(vec![to]);
-        w.stride(UnitId(0)).unwrap().needed[0]
+        w.stride(UnitId(0), &defs).unwrap().needed[0]
     };
     // Rail to rail, straight: fast. Rail to bare ground, and bare ground to rail: no gain.
     assert_eq!(needed(&mut w, at(1, 1), at(2, 1)), BASE_TICKS_PER_STEP / 2.0);

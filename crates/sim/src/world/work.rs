@@ -11,8 +11,9 @@
 //! * **Needs pre-empt jobs.** When hunger, thirst or energy drops to its `low` level (see
 //!   `data/needs.toml`) the unit sets its job aside, deals with the need, and goes back. The job
 //!   stays claimed by that unit and keeps its progress, so "resume" is literal.
-//! * **Work speed** is `1.0 / TICKS_PER_SECOND` work-seconds per tick times the nation modifier
-//!   named by the harvest in `data/jobs.toml` (quarrying uses `earthworks`).
+//! * **Work speed** is `1.0 / TICKS_PER_SECOND` work-seconds per tick times the modifier named by
+//!   the harvest in `data/jobs.toml` (quarrying uses `earthworks`), read from the working unit's
+//!   own effective modifiers (`World::modifiers_for`, #239), not necessarily the settlement's.
 //!
 //! **Renewable food** (#56): a harvest with a `regrow` time in `data/jobs.toml` (cabbages, fruit
 //! trees, fishing spots) is not cleared when worked. The resource stays on the map, *resting*,
@@ -464,14 +465,15 @@ impl World {
         count
     }
 
-    pub(super) fn carry_capacity(&self, _i: usize, defs: &Defs) -> u32 {
-        let m = self.modifiers().carry_capacity;
+    pub(super) fn carry_capacity(&self, i: usize, defs: &Defs) -> u32 {
+        let m = self.modifiers_for(&self.units[i], defs).carry_capacity;
         ((defs.jobs.base_carry as f32 * m).round() as u32).max(1)
     }
 
-    /// Work-seconds per second for this unit on this harvest: the nation modifier it names.
-    fn work_rate(&self, _i: usize, h: &HarvestDef, _defs: &Defs) -> f32 {
-        let mods = self.modifiers();
+    /// Work-seconds per second for this unit on this harvest: the modifier it names, from the
+    /// unit's own effective modifiers (`modifiers_for`, #239), not necessarily the settlement's.
+    fn work_rate(&self, i: usize, h: &HarvestDef, defs: &Defs) -> f32 {
+        let mods = self.modifiers_for(&self.units[i], defs);
         h.modifier.as_deref().and_then(|m| mods.get(m)).unwrap_or(1.0)
     }
 
@@ -588,8 +590,8 @@ impl World {
 
     /// One tick of walking along the route. True once the unit is at the end of it (or the
     /// route is empty to begin with); arriving costs the tick the last step landed on.
-    pub(super) fn walk(&mut self, i: usize, _defs: &Defs) -> bool {
-        let speed = self.modifiers().move_speed;
+    pub(super) fn walk(&mut self, i: usize, defs: &Defs) -> bool {
+        let speed = self.modifiers_for(&self.units[i], defs).move_speed;
         let rules = rules_for(&self.rules, &self.cart_rules, &self.units[i]);
         let u = &mut self.units[i];
         let Some(route) = u.route.as_mut() else { return false };

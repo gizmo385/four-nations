@@ -265,7 +265,7 @@ impl World {
     /// Whether unit `i` may take `task`: it is of the task's element and its chi covers the cost.
     pub(super) fn unit_can_raise(&self, i: usize, task: &TaskDef) -> bool {
         let u = &self.units[i];
-        u.nation == task.element && u.chi >= task.chi
+        self.nation_of(u) == task.element && u.chi >= task.chi
     }
 }
 
