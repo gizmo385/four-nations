@@ -223,6 +223,48 @@ fn the_bar_names_the_unit_and_shows_its_task_cargo_tile_and_meters() {
     assert!(lines[36].contains('│') && lines[39].starts_with(" SELECT"), "{frame}");
 }
 
+/// A channelling bender's People line and bar say so and how long is left (#278), instead of the
+/// plain task every other frontend shows.
+#[test]
+fn a_channelling_unit_names_the_ability_and_the_time_left_in_the_bar_and_the_people_list() {
+    let mut s = Session::new(1, Nation::Fire, 48, 32);
+    let pos = s.world.units[0].pos;
+    let id = s.world.units[0].id;
+    let ability = ability_for_nation(&s.defs, Nation::Fire).unwrap();
+    s.apply(Command::Bend { ability, pos }).unwrap();
+    for _ in 0..2000 {
+        s.tick();
+        if s.world.bend_channels(&s.defs).iter().any(|c| c.unit == id) {
+            break;
+        }
+    }
+    assert!(s.world.bend_channels(&s.defs).iter().any(|c| c.unit == id), "should be channelling");
+
+    let mut a = App::new(s, SIZE);
+    a.ui.select(Some(id));
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("Channelling Hearthflame"), "{frame}");
+}
+
+/// A channel in progress, the bar open on the bender.
+#[test]
+fn golden_frame_of_a_channel_in_progress() {
+    let mut s = Session::new(1, Nation::Fire, 48, 32);
+    let pos = s.world.units[0].pos;
+    let id = s.world.units[0].id;
+    let ability = ability_for_nation(&s.defs, Nation::Fire).unwrap();
+    s.apply(Command::Bend { ability, pos }).unwrap();
+    for _ in 0..2000 {
+        s.tick();
+        if s.world.bend_channels(&s.defs).iter().any(|c| c.unit == id) {
+            break;
+        }
+    }
+    let mut a = App::new(s, SIZE);
+    a.ui.select(Some(id));
+    golden("fire_seed1_channelling", &text(&mut a, SIZE));
+}
+
 #[test]
 fn a_meter_that_is_not_ok_has_a_bang_and_the_others_do_not() {
     let mut a = app(7, Nation::Earth, SIZE);

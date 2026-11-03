@@ -10,8 +10,9 @@
 //! unit lines, the older alerts and all but one line of stores. The header, Research and Cursor
 //! always stay.
 
+use fn_sim::world::Unit;
 use fn_ui::inspect::{Hint, Line, tooltip_lines};
-use fn_ui::text::describe_stack;
+use fn_ui::text::{describe_stack, describe_task};
 use fn_ui::view::{SideView, side_view, stores};
 use fn_ui::{Session, Tool};
 use ratatui::buffer::Buffer;
@@ -134,6 +135,22 @@ fn header(view: &SideView, marks: &Marks) -> Vec<Row> {
     ]
 }
 
+/// A channelling unit's line in place of the plain task text ("Channelling Hearthflame 1.2s"):
+/// its ability and the time left, while it stands on the tile and bends (`World::bend_channels`,
+/// #278). `None` while it walks there or does anything else, which keeps [`describe_task`].
+pub fn channel_text(session: &Session, unit: &Unit) -> Option<String> {
+    let defs = &session.defs;
+    session.world.bend_channels(defs).into_iter().find(|c| c.unit == unit.id).map(|c| {
+        format!("Channelling {} {:.1}s", defs.ability(c.ability).name, c.remaining_secs.max(0.0))
+    })
+}
+
+/// What a unit's line says it is doing: [`channel_text`] while it channels, else the plain task.
+fn task_text(session: &Session, unit: &Unit) -> String {
+    channel_text(session, unit)
+        .unwrap_or_else(|| describe_task(&session.world, &session.defs, unit))
+}
+
 /// A line per unit: its name, then what it is doing. The selected unit is marked, so it can be
 /// told without colour.
 fn unit_rows(session: &Session, ui: &UiState, marks: &Marks) -> Vec<Row> {
@@ -144,7 +161,7 @@ fn unit_rows(session: &Session, ui: &UiState, marks: &Marks) -> Vec<Row> {
         .map(|u| {
             let selected = ui.selected == Some(u.id);
             let mark = if selected { if marks.h == '-' { ">" } else { "▸" } } else { " " };
-            let task = fn_ui::text::describe_task(&session.world, &session.defs, u);
+            let task = task_text(session, u);
             Row::spans(vec![
                 (
                     format!("{mark}{:<name_width$} ", u.name),
@@ -403,5 +420,35 @@ mod tests {
             hint_text(Hint::StartTool(Tool::Harvest)).as_deref(),
             Some("Press H for the Harvest tool")
         );
+    }
+
+    /// A unit standing on its tile and channelling (#278) names the ability and the time left;
+    /// one that is still walking there, or doing anything else, keeps the plain task.
+    #[test]
+    fn a_channelling_unit_names_its_ability_and_the_time_left() {
+        use fn_sim::Nation;
+        use fn_sim::world::Command;
+
+        let mut s = Session::new(1, Nation::Fire, 48, 32);
+        let pos = s.world.units[0].pos;
+        let id = s.world.units[0].id;
+        let ability = fn_ui::tools::ability_for_nation(&s.defs, Nation::Fire).unwrap();
+        s.apply(Command::Bend { ability, pos }).unwrap();
+
+        let idle = s.world.units.iter().find(|u| u.id != id).unwrap();
+        assert_eq!(channel_text(&s, idle), None, "not channelling at all");
+
+        for _ in 0..2000 {
+            s.tick();
+            if s.world.bend_channels(&s.defs).iter().any(|c| c.unit == id) {
+                break;
+            }
+        }
+        let unit = s.world.units.iter().find(|u| u.id == id).unwrap();
+        let text = channel_text(&s, unit).expect("the bender should be channelling by now");
+        assert!(text.starts_with("Channelling Hearthflame "), "{text}");
+        assert!(text.ends_with('s'), "{text}");
+        let left: f32 = text["Channelling Hearthflame ".len()..text.len() - 1].parse().unwrap();
+        assert!((0.0..=4.0).contains(&left), "{text}");
     }
 }

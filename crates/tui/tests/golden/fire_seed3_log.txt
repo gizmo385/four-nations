@@ -4,11 +4,11 @@
 │ 00:04 Noriko used Hearthflame at (25, 17)                                            ││                              │
 │ 00:04 Shyu used Hearthflame at (24, 18)                                              ││ ◇ PEOPLE                   6 │
 │ 00:04 Lu Ten used Hearthflame at (26, 16)                                            ││  Jee    Kindle               │
-│ 00:04 Kiyi used Hearthflame at (22, 17)                                              ││  Kuzon  Kindle               │
-│ 00:09 Noriko used Hearthflame at (25, 18)                                            ││  Noriko Kindle               │
-│ 00:09 Shyu used Hearthflame at (24, 19)                                              ││  Shyu   Kindle               │
-│ 00:09 Kiyi used Hearthflame at (21, 17)                                              ││  Lu Ten Kindle               │
-│ 00:09 Jee used Hearthflame at (26, 17)                                               ││  Kiyi   Kindle               │
+│ 00:04 Kiyi used Hearthflame at (22, 17)                                              ││  Kuzon  Channelling Hearthf… │
+│ 00:09 Noriko used Hearthflame at (25, 18)                                            ││  Noriko Channelling Hearthf… │
+│ 00:09 Shyu used Hearthflame at (24, 19)                                              ││  Shyu   Channelling Hearthf… │
+│ 00:09 Kiyi used Hearthflame at (21, 17)                                              ││  Lu Ten Channelling Hearthf… │
+│ 00:09 Jee used Hearthflame at (26, 17)                                               ││  Kiyi   Channelling Hearthf… │
 │ 00:09 Lu Ten used Hearthflame at (27, 17)                                            ││                              │
 │                                                                                      ││ ◇ RESEARCH                   │
 │                                                                                      ││ No target set        3.0/min │
