@@ -57,6 +57,8 @@ const KEYS_SELECTED: &str = "Enter next here  Tab/Shift+Tab units  F follow  Esc
 const KEYS_SCREEN: &str =
     "arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause";
 const KEYS_RESEARCH: &str = "arrows/WASD choose  Enter set target  Esc/T close  L log  ? keys";
+const KEYS_SAVES: &str =
+    "arrows/W S choose  Enter load  Shift+S save over  N new  Esc/F6 close  ? keys";
 
 /// The status line in a tool: what `Enter` and `Esc` do now, then what the tool does (for `B`,
 /// the nation's ability).
@@ -89,7 +91,7 @@ fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, b
         right = text.len() as u16;
         buf.set_string(area.right() - right, area.y, text, badge(theme.on_accent, theme.warn));
     }
-    let (badge_len, hints) = match ui.prompt {
+    let (badge_len, hints) = match &ui.prompt {
         Some(prompt) => {
             let (text, question) = match prompt {
                 Prompt::Quit => (" QUIT? ", "quit".to_owned()),
@@ -98,11 +100,13 @@ fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, b
                     format!("start a new map (seed {})", session.world.seed.wrapping_add(1)),
                 ),
                 Prompt::Nation(n) => {
-                    (" SWITCH? ", format!("start over as the {}", session.defs.nation(n).name))
+                    (" SWITCH? ", format!("start over as the {}", session.defs.nation(*n).name))
                 }
                 Prompt::QuickLoad => {
                     (" LOAD? ", "load the quicksave in place of this game".to_owned())
                 }
+                Prompt::LoadSave(name) => (" LOAD? ", format!("load {name} in place of this game")),
+                Prompt::SaveOver(name) => (" SAVE? ", format!("save over the {name} slot")),
             };
             buf.set_string(area.x, area.y, text, badge(theme.on_accent, theme.warn));
             (text.len() as u16, format!("Press y to {question}, any other key to stay."))
@@ -117,6 +121,7 @@ fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, b
             let (text, keys) = match ui.screen {
                 Some(Screen::Help) => (" KEYS ", KEYS_SCREEN),
                 Some(Screen::Research) => (" RESEARCH ", KEYS_RESEARCH),
+                Some(Screen::Saves) => (" SAVES ", KEYS_SAVES),
                 _ => (" LOG ", KEYS_SCREEN),
             };
             buf.set_string(area.x, area.y, text, badge(theme.on_accent, theme.accent));

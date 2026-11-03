@@ -11,6 +11,7 @@ use ratatui::layout::Rect;
 use crate::color::Palette;
 use crate::input::{Group, help_rows};
 use crate::research;
+use crate::saves;
 use crate::state::{Screen, UiState};
 use crate::widgets::{Painter, Row, TitleAt, Tone, draw_frame, wrap};
 
@@ -30,8 +31,9 @@ pub fn lines(screen: Screen, alerts: &Alerts, width: usize, ellipsis: char) -> V
             log_lines(&history, width, ellipsis)
         }
         Screen::Help => help_lines(width, ellipsis),
-        // A grid with a cursor, not rows that scroll: `research::draw` lays it out.
-        Screen::Research => Vec::new(),
+        // A grid or a list with a cursor, not rows that scroll: `research::draw` and
+        // `saves::draw` lay them out.
+        Screen::Research | Screen::Saves => Vec::new(),
     }
 }
 
@@ -122,12 +124,19 @@ pub fn draw_screen(
         Screen::Log => ("MESSAGE LOG", "Arrows W S scroll  PgUp PgDn page  Esc close  ? keys"),
         Screen::Help => ("KEY HELP", "Arrows W S scroll  PgUp PgDn page  Esc close  L log"),
         Screen::Research => ("RESEARCH", "Arrows WASD choose  Enter target  Esc/T close"),
+        Screen::Saves => {
+            ("SAVES", "Arrows W S choose  Enter load  Shift+S save over  N new  Esc/F6 close")
+        }
     };
     let title = format!(" {0} {title} {0} ", marks.seal);
     draw_frame(buf, area, palette, &title, TitleAt::Centre, footer);
     let inner = Rect::new(area.x + 2, area.y + 1, area.width - 4, area.height - 2);
     if screen == Screen::Research {
         research::draw(session, ui.tech, palette, inner, buf);
+        return;
+    }
+    if screen == Screen::Saves {
+        saves::draw(&ui.save_slots, ui.save_cursor, &session.defs, palette, inner, buf);
         return;
     }
     let rows = lines(screen, &ui.alerts, usize::from(inner.width), marks.ellipsis);

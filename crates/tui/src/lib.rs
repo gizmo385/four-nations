@@ -23,6 +23,7 @@ pub mod map;
 pub mod panel;
 pub mod research;
 pub mod run;
+pub mod saves;
 pub mod screens;
 pub mod state;
 pub mod widgets;

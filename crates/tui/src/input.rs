@@ -53,6 +53,8 @@ pub enum Action {
     QuickSave,
     /// `F9`: replace the game with the quicksave, after a y/n prompt.
     AskQuickLoad,
+    /// `F6`: the saves screen (named slots).
+    ShowSaves,
     TogglePause,
     Faster,
     Slower,
@@ -253,6 +255,13 @@ fn build_table() -> Vec<Binding> {
     // The Bevy client's quicksave keys, so a player of both doesn't learn two.
     add(Group::Game, "Quicksave", Key::plain(F(5)), Action::QuickSave);
     add(Group::Game, "Quickload (asks first)", Key::plain(F(9)), Action::AskQuickLoad);
+    add(
+        Group::Game,
+        "Saves: arrows/W S choose a slot, Enter loads it, Shift+S saves over it (both ask \
+         first), N a new one",
+        Key::plain(F(6)),
+        Action::ShowSaves,
+    );
     add(Group::Game, "Quit (asks first)", Key::ch('q'), Action::AskQuit);
     t
 }

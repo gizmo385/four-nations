@@ -631,14 +631,24 @@ fn the_help_lists_the_keys_from_the_tables() {
     let mut a = app(7, Nation::Earth, SIZE);
     run(&mut a, "?");
     assert_eq!(a.ui.screen, Some(Screen::Help));
-    let frame = text(&mut a, SIZE);
-    assert!(frame.contains("KEY HELP"), "{frame}");
+    // The table has grown past one 120x40 screen, so this pages to the end collecting every
+    // frame's text instead of assuming it all shows at once.
+    let mut seen = text(&mut a, SIZE);
+    loop {
+        let before = a.ui.scroll;
+        run(&mut a, "<pgdn>");
+        if a.ui.scroll == before {
+            break;
+        }
+        seen.push_str(&text(&mut a, SIZE));
+    }
+    assert!(seen.contains("KEY HELP"), "{seen}");
     for row in fn_tui::input::help_rows() {
         let what = &row.what[..row.what.len().min(18)];
-        assert!(frame.contains(what), "{what:?} in\n{frame}");
+        assert!(seen.contains(what), "{what:?} in\n{seen}");
     }
     for tool in [Tool::Harvest, Tool::CancelHarvest, Tool::Stockpile, Tool::Bend] {
-        assert!(frame.contains(&format!("{} tool", tool.name())), "{frame}");
+        assert!(seen.contains(&format!("{} tool", tool.name())), "{seen}");
     }
     // `?` closes it again, and L switches to the log.
     run(&mut a, "l");

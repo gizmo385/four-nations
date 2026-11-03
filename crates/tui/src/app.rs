@@ -12,10 +12,11 @@ use fn_ui::{Session, Tool};
 use crate::input::{Action, map_key};
 use crate::keys::Step;
 use crate::research;
+use crate::saves as saves_screen;
 use crate::screens;
 use crate::state::{PINNED, Prompt, Screen, UiState};
 
-/// What `F5` and `F9` say when there is no save directory.
+/// What `F5`, `F9` and `F6` say when there is no save directory.
 const NO_SAVE_DIR: &str = "Save failed: this platform has no data directory (set FN_SAVE_DIR)";
 
 /// The game and what the player sees of it. All input goes through [`App::key`].
@@ -59,6 +60,17 @@ impl App {
             }
             return;
         }
+        // The saves screen's own two keys: `n` (new) is free everywhere, but `s` already moves
+        // the highlight down, so only its shifted, upper-case spelling saves over it (a
+        // terminal sends Shift+s as `S`, with or without the Shift flag: `input::map_key`'s own
+        // comment on upper case).
+        if self.ui.screen == Some(Screen::Saves) {
+            match key.code {
+                KeyCode::Char('n' | 'N') => return self.new_save(),
+                KeyCode::Char('S') => return self.ask_save_over(),
+                _ => {}
+            }
+        }
         if let Some(action) = map_key(key) {
             self.act(action);
         }
@@ -84,6 +96,7 @@ impl App {
             Action::ShowResearch => self.open(Screen::Research),
             Action::ShowLog => self.open(Screen::Log),
             Action::ShowHelp => self.open(Screen::Help),
+            Action::ShowSaves => self.show_saves(),
             Action::AskNewMap => self.ui.prompt = Some(Prompt::NewMap),
             Action::AskNation(nation) => self.ui.prompt = Some(Prompt::Nation(nation)),
             Action::TogglePause => self.session.clock.toggle_pause(),
@@ -110,6 +123,15 @@ impl App {
                 _ => {}
             }
         }
+        if self.ui.screen == Some(Screen::Saves) {
+            // The list has a highlight, not a scroll: the arrows move it by one slot whatever
+            // their Shift state (there is no page to jump), and Enter asks to load.
+            match action {
+                Action::Move { dy, .. } => return self.move_save_cursor(dy),
+                Action::Confirm => return self.ask_load_save(),
+                _ => {}
+            }
+        }
         match action {
             Action::Move { dy, tiles, .. } => self.scroll_by(dy * tiles),
             Action::Jump { dy, .. } => {
@@ -120,6 +142,7 @@ impl App {
             Action::ShowResearch => self.open(Screen::Research),
             Action::ShowLog => self.open(Screen::Log),
             Action::ShowHelp => self.open(Screen::Help),
+            Action::ShowSaves => self.show_saves(),
             Action::TogglePause => self.session.clock.toggle_pause(),
             Action::Faster => self.session.clock.faster(),
             Action::Slower => self.session.clock.slower(),
@@ -157,6 +180,10 @@ impl App {
                 let view = screen_view(&self.session);
                 self.ui.tech = research::initial_cursor(&self.session, &view);
             }
+            if screen == Screen::Saves {
+                self.refresh_saves();
+                self.ui.save_cursor = 0;
+            }
         }
     }
 
@@ -180,7 +207,11 @@ impl App {
 
     /// Scrolls the open screen `lines` down (negative: up), within its text.
     fn scroll_by(&mut self, lines: i32) {
-        let Some(screen) = self.ui.screen.filter(|s| *s != Screen::Research) else { return };
+        let Some(screen) =
+            self.ui.screen.filter(|s| !matches!(s, Screen::Research | Screen::Saves))
+        else {
+            return;
+        };
         let (width, rows) = screens::text_size(self.ui.viewport());
         let total = screens::line_count(screen, &self.session, &self.ui.alerts, width);
         let max = total.saturating_sub(rows);
@@ -199,6 +230,8 @@ impl App {
             Prompt::NewMap => self.restart(world.seed.wrapping_add(1), world.nation),
             Prompt::Nation(nation) => self.restart(world.seed, nation),
             Prompt::QuickLoad => self.quickload(),
+            Prompt::LoadSave(name) => self.load_save(&name),
+            Prompt::SaveOver(name) => self.save_over(&name),
         }
     }
 
@@ -228,6 +261,97 @@ impl App {
             }
             Err(why) => self.ui.status = why,
         }
+    }
+
+    /// `F6`: opens the saves screen (or closes it, as `L` and `?` do their own), re-reading the
+    /// directory. Without one, it says so in the status line, as `F5` and `F9` do, and does not
+    /// open an empty screen.
+    fn show_saves(&mut self) {
+        if self.saves.is_none() {
+            self.ui.status = NO_SAVE_DIR.to_owned();
+            return;
+        }
+        self.open(Screen::Saves);
+    }
+
+    /// Re-reads the save directory into the saves screen's list, clamping the highlight to it.
+    /// Called when the screen opens and whenever a save in it changes the list.
+    fn refresh_saves(&mut self) {
+        self.ui.save_slots = match self.saves.as_deref() {
+            None => Vec::new(),
+            Some(dir) => match saves::list(dir, &self.session.defs) {
+                Ok(slots) => slots,
+                Err(why) => {
+                    self.ui.status = why;
+                    Vec::new()
+                }
+            },
+        };
+        let last = self.ui.save_slots.len().saturating_sub(1);
+        self.ui.save_cursor = self.ui.save_cursor.min(last);
+    }
+
+    /// The saves screen's arrows (and `W`/`S`): one slot up or down, whatever their Shift state.
+    fn move_save_cursor(&mut self, dy: i32) {
+        self.ui.save_cursor = saves_screen::step(&self.ui.save_slots, self.ui.save_cursor, dy);
+    }
+
+    /// `Enter` in the saves screen: asks to load the highlighted slot.
+    fn ask_load_save(&mut self) {
+        if let Some(slot) = self.ui.save_slots.get(self.ui.save_cursor) {
+            self.ui.prompt = Some(Prompt::LoadSave(slot.name.clone()));
+        }
+    }
+
+    /// `Shift+S` in the saves screen: asks to save over the highlighted slot.
+    fn ask_save_over(&mut self) {
+        if let Some(slot) = self.ui.save_slots.get(self.ui.save_cursor) {
+            self.ui.prompt = Some(Prompt::SaveOver(slot.name.clone()));
+        }
+    }
+
+    /// `Enter` in the saves screen, once confirmed: loads the named slot through [`Self::load`],
+    /// as `F9` does the quicksave. A load that fails changes nothing but the status line.
+    fn load_save(&mut self, name: &str) {
+        let loaded = match self.saves.as_deref() {
+            None => Err(NO_SAVE_DIR.to_owned()),
+            Some(dir) => saves::load(dir, name, &self.session.defs)
+                .map_err(|why| format!("Load failed: {why}")),
+        };
+        match loaded {
+            Ok(world) => {
+                self.load(world);
+                self.ui.status = format!("Loaded {name} (tick {})", self.session.world.tick);
+            }
+            Err(why) => self.ui.status = why,
+        }
+    }
+
+    /// `Shift+S` in the saves screen, once confirmed: writes the game over the named slot.
+    fn save_over(&mut self, name: &str) {
+        self.ui.status = match self.saves.as_deref() {
+            None => NO_SAVE_DIR.to_owned(),
+            Some(dir) => match saves::save(dir, name, &self.session) {
+                Ok(()) => format!("Saved {name} (tick {})", self.session.world.tick),
+                Err(why) => format!("Save failed: {why}"),
+            },
+        };
+        self.refresh_saves();
+    }
+
+    /// `N` in the saves screen: writes a new slot ([`fn_ui::saves::new_name`]), with no prompt
+    /// since nothing is overwritten.
+    fn new_save(&mut self) {
+        let Some(dir) = self.saves.clone() else {
+            self.ui.status = NO_SAVE_DIR.to_owned();
+            return;
+        };
+        let name = saves::new_name(&self.ui.save_slots);
+        self.ui.status = match saves::save(&dir, &name, &self.session) {
+            Ok(()) => format!("Saved {name} (tick {})", self.session.world.tick),
+            Err(why) => format!("Save failed: {why}"),
+        };
+        self.refresh_saves();
     }
 
     /// Makes `world` the game. As in the Bevy client, only the world is in a save: the cursor,

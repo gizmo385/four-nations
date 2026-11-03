@@ -1,0 +1,40 @@
+┏───────────────────────────────────── ◆ SAVES ◆ ──────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
+│ ▸ junk  can't load: not a Four Nations save (1:1-1:4: Expected struct `Probe` but f… ││ Seed 7                 00:04 │
+│   save-1  Earth Kingdom, seed 7, 00:04 (tick 40)                                     ││ ▶ Running x1      Space  + - │
+│                                                                                      ││                              │
+│                                                                                      ││ ◇ PEOPLE                   6 │
+│                                                                                      ││  Tyro Idle                   │
+│                                                                                      ││  Ping Idle                   │
+│                                                                                      ││  Ming Idle                   │
+│                                                                                      ││  Oma  Idle                   │
+│                                                                                      ││  Song Idle                   │
+│                                                                                      ││  Lin  Idle                   │
+│                                                                                      ││                              │
+│                                                                                      ││ ◇ RESEARCH                   │
+│                                                                                      ││ No target set        3.0/min │
+│                                                                                      ││ 0 pts banked                 │
+│                                                                                      ││                              │
+│                                                                                      ││ ◇ MODIFIERS                  │
+│                                                                                      ││ Move speed              x0.9 │
+│                                                                                      ││ Carry capacity          x1.3 │
+│                                                                                      ││ Earthworks              x2.5 │
+│                                                                                      ││ Water work              x0.9 │
+│                                                                                      ││ Power generation        x0.8 │
+│                                                                                      ││ Construction            x1.5 │
+│                                                                                      ││                              │
+│                                                                                      ││ ◇ CURSOR            (94, 64) │
+│                                                                                      ││ Coast                        │
+│                                                                                      ││ Plains (94, 64)              │
+│                                                                                      ││ Elevation 152                │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+┗─ Arrows W S choose  Enter load  Shift+S save over  N new  Esc/F6 close ──────────────┛┗──────────────────────────────┛
+ SAVES  arrows/W S choose  Enter load  Shift+S save over  N new  Esc/F6 close  ? keys

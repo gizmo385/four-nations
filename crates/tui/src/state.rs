@@ -3,6 +3,7 @@
 
 use fn_sim::world::{Unit, UnitId};
 use fn_sim::{Nation, Pos};
+use fn_ui::saves::Slot;
 use fn_ui::{Alerts, Session, Tool};
 
 use crate::layout;
@@ -14,7 +15,7 @@ pub const SCROLL_MARGIN: i32 = 3;
 pub const BAR_HEIGHT: i32 = 7;
 
 /// A y/n question that takes over the keys until it is answered.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Prompt {
     Quit,
     /// `R`: a new map (the next seed, the same nation).
@@ -23,6 +24,10 @@ pub enum Prompt {
     Nation(Nation),
     /// `F9`: the quicksave replaces the game.
     QuickLoad,
+    /// `Enter` in the saves screen: loads the named slot in place of the game.
+    LoadSave(String),
+    /// `S` in the saves screen: writes over the named slot.
+    SaveOver(String),
 }
 
 /// A screen over the map area (the side panel stays).
@@ -32,6 +37,9 @@ pub enum Screen {
     Help,
     /// `T`: the tech tree. It moves a card cursor ([`UiState::tech`]) and does not scroll.
     Research,
+    /// `F6`: the save slots. It moves a highlight ([`UiState::save_cursor`]) over
+    /// [`UiState::save_slots`] and does not scroll.
+    Saves,
 }
 
 /// The scroll of a screen that sticks to its end: the newest line of the log.
@@ -70,6 +78,11 @@ pub struct UiState {
     pub scroll: usize,
     /// The research screen's cursor: a column of the tech tree and a card in it.
     pub tech: (usize, usize),
+    /// The saves screen's slots (newest first), read from disk when the screen opens or a save
+    /// changes them ([`crate::app::App::refresh_saves`]), not on every frame.
+    pub save_slots: Vec<Slot>,
+    /// The saves screen's highlight: an index into [`Self::save_slots`].
+    pub save_cursor: usize,
     /// Bend results, tech completions and deaths: the Alerts section and the message log.
     pub alerts: Alerts,
 }
@@ -100,6 +113,8 @@ impl UiState {
             screen: None,
             scroll: 0,
             tech: (0, 0),
+            save_slots: Vec::new(),
+            save_cursor: 0,
             alerts: Alerts::default(),
         };
         ui.center_view();

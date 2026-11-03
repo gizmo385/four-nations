@@ -34,7 +34,7 @@
 │ 1 2 3 4                Switch nation: 1 Air, 2 Water, 3 Earth, 4 Fire (asks first)   ││                              │
 │ F5                     Quicksave                                                     ││                              │
 │ F9                     Quickload (asks first)                                        ││                              │
-│ Q                      Quit (asks first)                                             ││                              │
-│                                                                                      ││                              │
+│ F6                     Saves: arrows/W S choose a slot, Enter loads it, Shift+S      ││                              │
+│                        saves over it (both ask first), N a new one                   ││                              │
 ┗─ Arrows W S scroll  PgUp PgDn page  Esc close  L log ────────────────────────────────┛┗──────────────────────────────┛
  KEYS  arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause
