@@ -25,7 +25,9 @@ pub mod research;
 pub mod run;
 pub mod saves;
 pub mod screens;
+pub mod shell;
 pub mod state;
+pub mod title;
 pub mod widgets;
 
 use fn_sim::{MapGenConfig, Nation};

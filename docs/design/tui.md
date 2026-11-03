@@ -573,6 +573,36 @@ The research screen, the last of the chain. Where it differs from the proposal a
   scrolled to the deep end) and `fire_seed3_research_ascii`. Re-blessed: the status line of every
   Select-mode frame, and the help (it gained the `T` row).
 
+## What #280 built
+
+A title screen, so `fn_tui` with no `SEED` is a whole way to start instead of an error.
+
+- **`Shell` (`crate::shell`) is new, above `App`.** It holds either a `TitleScreen` or (boxed,
+  for `clippy::large_enum_variant`) an `App`, and is what `main`, `run` and `--frame` drive now:
+  `App` itself knows nothing about the title screen. `SEED` and `NATION` together on the command
+  line still build a `Shell` straight in the game, as every existing script and test does;
+  neither builds one at the title screen instead.
+- **`TitleScreen` (`crate::title`) is a small state machine of its own**, keyed the same way as
+  the in-game screens (pure state, no terminal): a `Page` (`Menu`, `Nation`, `Seed`, `Load`) and a
+  `key` method returning an `Outcome` (`None`, `Start { seed, nation }`, `Loaded(World)`, `Quit`)
+  for `Shell` to act on. The menu lists New game, Continue (hidden with nothing loadable), Load
+  and Quit; New game steps through a nation picker (arrows or `1`-`4`, the nation's own blurb from
+  `data/nations.toml`) and then a seed field (prefilled with a hint `Shell` passes in, typing
+  digits replaces it, `Backspace` edits); Load reuses the in-game saves screen's own row-drawing
+  (`crate::saves::draw`) over a list read the same way (`fn_ui::saves::list`/`load`).
+  `TitleScreen::display_nation` says which nation's colours the frame should wear while picking
+  or seeding one, so the box and the blurb are already themed before any game exists.
+- **Quitting a game no longer always stops the process.** `App`'s own `Q`-then-`y` is unchanged
+  (`ui.quit` still becomes `true`, and its own test is unchanged); `Shell` is what notices that
+  and, instead of exiting, opens its own tiny prompt over the frame (`title::draw_exit_prompt`):
+  `T` goes back to a fresh title screen, `Q` or `Enter` exits for good, anything else cancels and
+  the game resumes. Only `main` (a `SystemTime` hint for a fresh default seed) and `run` (the
+  terminal's size) touch anything `fn_sim`/`fn_ui`'s determinism forbids elsewhere in the crate;
+  `Shell` and `TitleScreen` take both as plain arguments, so they stay as testable as `App` is.
+- **Goldens.** New: `title_menu` (fresh, nothing to continue) and `title_nation_picker` (Air
+  Nomads, cursor on the first nation). The seed field isn't golden: its default comes from the
+  hint `main` reads from the wall clock, so only non-golden tests cover it.
+
 ## Owner decisions (2026-10-24)
 
 The four open questions on #93, as the owner answered them.

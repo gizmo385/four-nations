@@ -8,6 +8,7 @@ use ratatui::style::{Color, Modifier};
 use crate::app::App;
 use crate::color::Palette;
 use crate::draw::draw;
+use crate::shell::Shell;
 
 /// The frame for `app` on a `width` x `height` terminal.
 pub fn render(
@@ -25,6 +26,16 @@ pub fn render(
 pub fn render_app(app: &mut App, palette: &Palette, size: (u16, u16)) -> Buffer {
     app.ui.resize(size.0, size.1);
     render(&app.session, &app.ui, palette, size)
+}
+
+/// The frame for `shell` (the title screen or the game, #280), with the view sized for `size`
+/// first. `palette` must already be for [`Shell::nation`]: the caller rebuilds it when that
+/// changes, as `run` does for a game that switched nation.
+pub fn render_shell(shell: &mut Shell, palette: &Palette, size: (u16, u16)) -> Buffer {
+    shell.resize(size.0, size.1);
+    let mut buf = Buffer::empty(Rect::new(0, 0, size.0, size.1));
+    crate::shell::draw(shell, palette, &mut buf);
+    buf
 }
 
 /// The glyphs only: one row per line, trailing spaces trimmed. This is the golden-frame format.
