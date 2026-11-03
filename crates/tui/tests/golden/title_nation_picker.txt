@@ -1,0 +1,40 @@
+
+
+
+
+
+
+
+
+
+                            ┏────────────────────── ◆ FOUR NATIONS ◆ ──────────────────────┓
+                            │ Choose a nation (arrows or 1-4):                             │
+                            │                                                              │
+                            │ ▸ 1. Air Nomads                                              │
+                            │   2. Water Tribes                                            │
+                            │   3. Earth Kingdom                                           │
+                            │   4. Fire Nation                                             │
+                            │                                                              │
+                            │ Nomadic monks. Fast and light; can power turbines and mills  │
+                            │ with airbending.                                             │
+                            │                                                              │
+                            │                                                              │
+                            │                                                              │
+                            │                                                              │
+                            │                                                              │
+                            │                                                              │
+                            │                                                              │
+                            │                                                              │
+                            │                                                              │
+                            │                                                              │
+                            │                                                              │
+                            ┗─ Arrows/1-4 choose  Enter confirm  Esc back ─────────────────┛
+
+
+
+
+
+
+
+
+

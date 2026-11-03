@@ -23,13 +23,12 @@ use crossterm::terminal::{
     supports_keyboard_enhancement,
 };
 use crossterm::{execute, terminal};
-use fn_ui::Session;
+use fn_sim::Nation;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
-use crate::app::App;
-use crate::color::Palette;
-use crate::draw::{draw, terminal_cursor};
+use crate::color::{ColorDepth, Palette};
+use crate::shell::{self, Shell};
 
 /// The fastest the screen redraws.
 const FRAME: Duration = Duration::from_millis(33);
@@ -80,49 +79,62 @@ fn setup() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
     Terminal::new(CrosstermBackend::new(out))
 }
 
-/// Plays `session` in the terminal until the player quits. A new nation (`1`-`4`) needs new
-/// colours, so the palette is rebuilt for it at the same depth.
-pub fn run(session: Session, mut palette: Palette, saves: Option<PathBuf>) -> io::Result<()> {
+/// Plays the title screen and then a game in the terminal until the player quits for good
+/// (#280). `start` skips the title screen when both a seed and a nation are given (`SEED` on the
+/// command line); `seed_hint` seeds the title screen's own default seed, the one thing here that
+/// is not already decided before the terminal is touched. A new nation (`1`-`4`, or a new game
+/// chosen at the title screen) needs new colours, so the palette is rebuilt for it at the same
+/// depth.
+pub fn run(
+    start: Option<(u64, Nation)>,
+    depth: ColorDepth,
+    ascii: bool,
+    saves: Option<PathBuf>,
+    seed_hint: u64,
+) -> io::Result<()> {
     let _restore = Restore;
     let mut terminal = setup()?;
     let (w, h) = terminal::size()?;
-    let mut app = App::new(session, (w, h));
-    app.saves = saves;
-    let mut nation = app.session.world.nation;
+    let mut shell = match start {
+        Some((seed, nation)) => Shell::new_game(crate::new_session(seed, nation), (w, h), saves),
+        None => Shell::new_title((w, h), saves, seed_hint),
+    };
+    let mut nation = shell.nation();
+    let mut palette = Palette::new(shell.defs(), nation, depth, ascii);
 
     let mut last_tick = Instant::now();
     let mut last_draw: Option<Instant> = None;
-    while !app.ui.quit {
-        if app.dirty && last_draw.is_none_or(|t| t.elapsed() >= FRAME) {
-            if app.session.world.nation != nation {
-                nation = app.session.world.nation;
-                palette = Palette::new(&app.session.defs, nation, palette.depth, palette.ascii);
+    while !shell.quit {
+        if shell.dirty && last_draw.is_none_or(|t| t.elapsed() >= FRAME) {
+            if shell.nation() != nation {
+                nation = shell.nation();
+                palette = Palette::new(shell.defs(), nation, palette.depth, palette.ascii);
             }
             terminal.draw(|f| {
                 let area = f.area();
-                draw(&app.session, &app.ui, &palette, f.buffer_mut());
-                if let Some(at) = terminal_cursor(&app.ui, area) {
+                shell::draw(&mut shell, &palette, f.buffer_mut());
+                if let Some(at) = shell::terminal_cursor(&shell, area) {
                     f.set_cursor_position(at);
                 }
             })?;
-            app.dirty = false;
+            shell.dirty = false;
             last_draw = Some(Instant::now());
         }
 
         // Wake for the next frame; paused with nothing to draw, only input wakes us (and a toast
         // that is still ageing).
-        let wait = match (app.dirty, app.session.clock.paused && !app.has_toasts()) {
+        let wait = match (shell.dirty, shell.paused() && !shell.has_toasts()) {
             (true, _) => FRAME.saturating_sub(last_draw.map_or(FRAME, |t| t.elapsed())),
             (false, false) => FRAME,
             (false, true) => Duration::from_secs(3600),
         };
         let mut pending = event::poll(wait)?;
         // Time spent paused isn't owed to the sim once it runs again.
-        let was_paused = app.session.clock.paused;
+        let was_paused = shell.paused();
         while pending {
             match event::read()? {
-                Event::Key(key) => app.key(key),
-                Event::Resize(w, h) => app.resize(w, h),
+                Event::Key(key) => shell.key(key),
+                Event::Resize(w, h) => shell.resize(w, h),
                 _ => {}
             }
             pending = event::poll(Duration::ZERO)?;
@@ -132,9 +144,9 @@ pub fn run(session: Session, mut palette: Palette, saves: Option<PathBuf>) -> io
         let elapsed = now.duration_since(last_tick).as_secs_f64();
         last_tick = now;
         if was_paused {
-            app.age(elapsed);
+            shell.age(elapsed);
         } else {
-            app.advance(elapsed);
+            shell.advance(elapsed);
         }
     }
     Ok(())

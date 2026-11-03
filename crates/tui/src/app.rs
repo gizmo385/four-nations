@@ -463,14 +463,19 @@ impl App {
         for step in steps {
             match *step {
                 Step::Key(key) => self.key(key),
-                Step::Tick(n) => {
-                    self.session.tick_n(n);
-                    self.settle(0.0);
-                }
+                Step::Tick(n) => self.run_ticks(n),
             }
             if self.ui.quit {
                 return;
             }
         }
+    }
+
+    /// Runs `n` ticks whatever the clock says, as a key script's `<tick N>` does, and settles
+    /// what they logged. Public so [`crate::shell::Shell`] can run the same ticks from a script
+    /// that starts at the title screen (#280).
+    pub fn run_ticks(&mut self, n: u32) {
+        self.session.tick_n(n);
+        self.settle(0.0);
     }
 }
