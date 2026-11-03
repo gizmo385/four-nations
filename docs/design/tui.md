@@ -294,8 +294,18 @@ like Shift+arrows. With Caps Lock on, they move 10 tiles too.
   section says the hovered tile fits (`fn_ui::build::placement`) or names its first blocker
   (`fn_ui::build::describe_error`). `Enter` `Enter` designates it exactly as any other tool's
   rectangle does (`fn_ui::tools::apply_rect`); a refusal's reason lands in the Tool notice the
-  same way. Multi-tile footprints still draw no ghost (#212) and the TUI doesn't mark an
-  entrance (#230).
+  same way. The TUI doesn't mark an entrance (#230).
+- **Footprints and the placement ghost (#212, docs/design/buildings.md, "TUI").** A finished
+  building or a build site covers its whole footprint, so a 2x2 forge (or its site, dimmed) is a
+  2x2 block of its glyph; `--ascii` is the same with the `ascii` character. While the Build tool
+  has a building chosen, the cursor's tile shows the footprint as a ghost (`fn_ui::build::ghosts`,
+  the same `Placement` the Cursor section judges): the glyph over everything but a unit, on a
+  green background where the building fits and red where something is in the way (the theme's
+  `ok` and `bad`, two more of the distinct colours on 16). A drag shows one ghost per stamp
+  `tools::build_stamps` would place. The cursor itself keeps the tile's green or red (its glyph
+  turns black) rather than taking its own colour, so a 1x1 ghost still shows which it is. With no
+  colour the ghost is reversed, bold where it fits and dim (keeping the glyph of what's in the
+  way) where it doesn't.
 
 ## Time and the frame loop
 
@@ -375,6 +385,7 @@ reject; it formats and maps. Sprites, entities, the camera and interpolation sta
 | `R` and `1`-`4` regenerate | Same, with a prompt | #99 |
 | Research screen (`T`) | Tier columns, cursor, `Enter` sets the target | #100 |
 | Build tool `U`, picker, placement (#111) | Same, through `fn_ui`'s tool table: `U` picks and cycles, the Tool section lists the picker, the Cursor section says whether the hovered tile fits | #275 |
+| Footprints: multi-tile buildings and sites | A footprint is a block of its glyph; the Build tool's cursor shows a placement ghost, green or red per tile, and a drag shows every stamp | #212 |
 | Save and load (#7): `F5`/`F9` quicksave, `F6` save list (#112, #216) | `F5` quicksave, `F9` quickload after a prompt; `F6` opens the save list (newest first), Enter loads, Shift+`S` saves over, `N` writes a new slot, all through `fn_ui::saves` | #216, #276 |
 | Mouse | Click moves the cursor; a drag is a rectangle | Later |
 | Portraits, sprite smoothing, canopy fade (#77) | Not applicable | none |

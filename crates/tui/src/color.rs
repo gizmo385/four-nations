@@ -219,8 +219,9 @@ pub struct Palette {
     /// The nation colour lifted toward white: its units.
     unit: Rgb8,
     /// On 16 colours a tint can't be mixed into a background (every dark background is plain
-    /// black), so each designation gets a colour of its own, picked so that no two share one.
-    solid: [Color; 4],
+    /// black), so each designation gets a colour of its own, picked so that no two share one,
+    /// and so do the Build tool's ghost: free and blocked (the last two, #212).
+    solid: [Color; 6],
 }
 
 impl Palette {
@@ -240,8 +241,16 @@ impl Palette {
             ANSI[i].0
         };
         let _cursor = pick(o.cursor);
-        let solid = [pick(o.harvest), pick(o.stockpile), pick(accent), pick(o.build)];
-        Self { theme: Theme::for_nation(accent), glyphs, depth, ascii, accent, unit, solid }
+        let theme = Theme::for_nation(accent);
+        let solid = [
+            pick(o.harvest),
+            pick(o.stockpile),
+            pick(accent),
+            pick(o.build),
+            pick(to_u8(theme.ok)),
+            pick(to_u8(theme.bad)),
+        ];
+        Self { theme, glyphs, depth, ascii, accent, unit, solid }
     }
 
     pub fn color(&self, rgb: Rgb8) -> Color {
@@ -303,6 +312,23 @@ impl Palette {
         match self.depth {
             ColorDepth::Never => Color::Reset,
             ColorDepth::Ansi16 => self.tinted(base, tint),
+            ColorDepth::Indexed256 => {
+                Color::Indexed(nearest_256_apart(target, &[base, self.glyphs.overlay.cursor]))
+            }
+            ColorDepth::TrueColor => self.color(target),
+        }
+    }
+
+    /// The background of a tile of the Build tool's ghost (#212): the theme's `ok` green where
+    /// the building can go, its `bad` red where something is in the way. As strong as a drag, so
+    /// it reads over a designation; with no colour `Color::Reset` (the caller marks the cell
+    /// another way).
+    pub fn ghost(&self, base: Rgb8, free: bool) -> Color {
+        let rgb = to_u8(if free { self.theme.ok } else { self.theme.bad });
+        let target = mix(base, rgb, DRAG_STRENGTH);
+        match self.depth {
+            ColorDepth::Never => Color::Reset,
+            ColorDepth::Ansi16 => self.solid[if free { 4 } else { 5 }],
             ColorDepth::Indexed256 => {
                 Color::Indexed(nearest_256_apart(target, &[base, self.glyphs.overlay.cursor]))
             }
