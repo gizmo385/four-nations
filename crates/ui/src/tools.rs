@@ -122,7 +122,7 @@ impl Tool {
             Self::CancelHarvest => "cancel harvest, build site or stockpile",
             Self::Stockpile => "designate stockpile",
             Self::Bend => "channel the nation's ability",
-            Self::Build => "build: pick a building, then click a tile (U: next building)",
+            Self::Build => "place the chosen building (U: next building)",
         }
     }
 

@@ -284,9 +284,18 @@ like Shift+arrows. With Caps Lock on, they move 10 tiles too.
   which makes them risky in the shells and multiplexers the TUI runs in.
 - **Mouse** is later: crossterm reports clicks and drags, which can map onto the same
   cursor-and-corner actions.
-- **Build tool.** The sim has build designations (#64), but neither frontend has a tool yet.
-  When one lands, it goes into `fn_ui`'s tool table with one key and a building picker, so both
-  frontends get it together.
+- **Build tool (#275).** `U` picks the first building the nation can place
+  (`fn_ui::build::valid_choice`) and, pressed again while it's active, the next
+  (`fn_ui::tools::switch_tool`, the client's own logic); the choice outlives switching to
+  another tool and back, in `UiState::choice` (the client keeps its own `BuildChoice` resource
+  for the same reason: it belongs to the frontend, not the `Session`). The Tool section lists
+  the picker rows (`fn_ui::build::picker_rows`): the chosen one marked and its cost, a locked one
+  dimmed with the tech it still needs. The status line names the chosen building. The Cursor
+  section says the hovered tile fits (`fn_ui::build::placement`) or names its first blocker
+  (`fn_ui::build::describe_error`). `Enter` `Enter` designates it exactly as any other tool's
+  rectangle does (`fn_ui::tools::apply_rect`); a refusal's reason lands in the Tool notice the
+  same way. Multi-tile footprints still draw no ghost (#212) and the TUI doesn't mark an
+  entrance (#230).
 
 ## Time and the frame loop
 
@@ -365,7 +374,7 @@ reject; it formats and maps. Sprites, entities, the camera and interpolation sta
 | Side panel: stores, research line, modifiers, tool hint, alerts | Same, plus a message log (`L`) and key help (`?`) | #99 |
 | `R` and `1`-`4` regenerate | Same, with a prompt | #99 |
 | Research screen (`T`) | Tier columns, cursor, `Enter` sets the target | #100 |
-| Build tool (sim only so far, #64) | Through `fn_ui`'s tool table, in both frontends at once | Later |
+| Build tool `U`, picker, placement (#111) | Same, through `fn_ui`'s tool table: `U` picks and cycles, the Tool section lists the picker, the Cursor section says whether the hovered tile fits | #275 |
 | Save and load (#7): `F5`/`F9` quicksave, `F6` save list (#112, #216) | `F5` quicksave, `F9` quickload after a prompt, through `fn_ui::saves`; no slot list yet | #216 |
 | Mouse | Click moves the cursor; a drag is a rectangle | Later |
 | Portraits, sprite smoothing, canopy fade (#77) | Not applicable | none |

@@ -2,14 +2,18 @@
 //! name on the top edge, then sections in ui.md's order, each hidden while it has nothing to show:
 //! the header (seed, clock, speed), People (the count, then a line per unit while they fit),
 //! Stores, Research (target, bar, rate), the nation's modifiers, Tool (the active designation
-//! tool, its hint and the last rectangle's result), Alerts and Cursor (what is under the keyboard
-//! cursor, and what `Enter` does next).
+//! tool, its hint, the Build tool's picker and the last rectangle's result), Alerts and Cursor
+//! (what is under the keyboard cursor, and what `Enter` does next).
 //!
 //! The panel is a fixed height, so a terminal that is too short for every section gives up the
-//! least useful lines first: the tool's hint (the status line says it too), the modifiers, the
-//! unit lines, the older alerts and all but one line of stores. The header, Research and Cursor
-//! always stay.
+//! least useful lines first: the tool's hint and the Build picker (the status line names the
+//! chosen building too), the modifiers, the unit lines, the older alerts and all but one line of
+//! stores. The header, Research and Cursor always stay.
 
+use fn_sim::Pos;
+use fn_sim::building::BuildingId;
+use fn_sim::world::CommandError;
+use fn_ui::build;
 use fn_ui::inspect::{Hint, Line, tooltip_lines};
 use fn_ui::text::describe_stack;
 use fn_ui::view::{SideView, side_view, stores};
@@ -106,6 +110,8 @@ struct Data {
     research: Vec<Row>,
     modifiers: Vec<Row>,
     hint: Vec<Row>,
+    /// The Build tool's picker rows (#111), empty for every other tool.
+    picker: Vec<Row>,
     notice: Vec<Row>,
     alerts: Vec<Row>,
     cursor: Vec<Row>,
@@ -119,6 +125,7 @@ struct Knobs {
     modifiers: usize,
     alerts: usize,
     hint: usize,
+    picker: usize,
     stores: usize,
 }
 
@@ -200,15 +207,45 @@ fn research_rows(view: &SideView, marks: &Marks) -> Vec<Row> {
     ]
 }
 
-/// The tile under the cursor: what `Enter` does next in a tool, then the tooltip, then anything
-/// else lying on it.
-fn cursor_rows(session: &Session, ui: &UiState) -> Vec<Row> {
+/// One row of the Build tool's picker (#111): the current building marked, its cost on the
+/// right; a locked one dimmed, with the tech it still needs in place of the cost.
+fn picker_row(row: &build::PickerRow, chosen: Option<BuildingId>, marks: &Marks) -> Row {
+    let mark = if Some(row.id) == chosen { marks.pointer } else { " " };
+    let (name_tone, right, right_tone) = match &row.requires {
+        Some(requires) => (Tone::Dim, requires.clone(), Tone::Warn),
+        None if Some(row.id) == chosen => (Tone::Title, row.cost.clone(), Tone::Dim),
+        None => (Tone::Text, row.cost.clone(), Tone::Dim),
+    };
+    Row::pair(format!("{mark}{}", row.name), name_tone, right, right_tone)
+}
+
+/// Whether the building the Build tool would place fits the cursor's tile, or the reason it
+/// doesn't (`fn_ui::build::placement`). `None` off the Build tool, or with nothing placeable.
+fn placement_row(session: &Session, pos: Pos, choice: Option<BuildingId>) -> Option<Row> {
+    let placement = build::placement(session, pos, choice?);
+    Some(match placement.refused {
+        None => Row::text("Can build here", Tone::Ok),
+        Some(why) => {
+            let why = build::describe_error(session, CommandError::Build(why));
+            Row::text(format!("Can't build here: {why}"), Tone::Warn)
+        }
+    })
+}
+
+/// The tile under the cursor: what `Enter` does next in a tool, whether the Build tool's choice
+/// would fit there, then the tooltip, then anything else lying on it.
+fn cursor_rows(session: &Session, ui: &UiState, choice: Option<BuildingId>) -> Vec<Row> {
     let pos = ui.cursor;
     let mut rows = Vec::new();
     // What Enter does next in a tool comes first, so a small terminal cuts the tile's details
     // before it.
     if let Some(s) = rect_hint(ui) {
         rows.push(Row::text(s, Tone::Title));
+    }
+    if ui.tool == Tool::Build
+        && let Some(row) = placement_row(session, pos, choice)
+    {
+        rows.push(row);
     }
     let mut lines = tooltip_lines(session, ui.tool, pos).unwrap_or_default();
     // The tooltip names the top thing on the tile; the section lists what else is there.
@@ -239,7 +276,7 @@ fn cursor_rows(session: &Session, ui: &UiState) -> Vec<Row> {
 }
 
 fn gather(session: &Session, ui: &UiState, marks: &Marks, width: usize) -> Data {
-    let view = side_view(session, ui.tool, &ui.notice, None, &ui.alerts);
+    let view = side_view(session, ui.tool, &ui.notice, ui.choice, &ui.alerts);
     let ellipsis = marks.ellipsis;
     let modifiers = view
         .modifiers
@@ -250,6 +287,7 @@ fn gather(session: &Session, ui: &UiState, marks: &Marks, width: usize) -> Data 
         .into_iter()
         .map(|l| Row::text(l, Tone::Dim))
         .collect();
+    let picker = view.picker.iter().map(|row| picker_row(row, view.choice, marks)).collect();
     let notice = wrap(&view.notice, width, NOTICE_LINES, ellipsis)
         .into_iter()
         .map(|l| Row::text(l, Tone::Text))
@@ -269,9 +307,10 @@ fn gather(session: &Session, ui: &UiState, marks: &Marks, width: usize) -> Data 
         research: research_rows(&view, marks),
         modifiers,
         hint,
+        picker,
         notice,
         alerts,
-        cursor: cursor_rows(session, ui),
+        cursor: cursor_rows(session, ui, view.choice),
         cursor_pos: format!("({}, {})", ui.cursor.x, ui.cursor.y),
         view,
     }
@@ -294,6 +333,11 @@ fn sections(d: &Data, k: Knobs) -> Vec<Section> {
     // Select mode has no tool to talk about.
     let tool = (d.view.tool != Tool::Select).then(|| {
         let mut rows: Vec<Row> = d.hint.iter().take(k.hint).cloned().collect();
+        let shown = d.picker.len().min(k.picker);
+        rows.extend(d.picker.iter().take(shown).cloned());
+        if shown < d.picker.len() && shown > 0 {
+            rows.push(Row::text(format!("+{} more", d.picker.len() - shown), Tone::Dim));
+        }
         rows.extend(d.notice.iter().cloned());
         Section::new("TOOL", format!("{} [{}]", d.view.tool.name(), d.view.tool.key()), rows)
             .always()
@@ -332,11 +376,14 @@ pub fn draw_panel(
         modifiers: d.modifiers.len(),
         alerts: d.alerts.len(),
         hint: d.hint.len(),
+        picker: d.picker.len(),
         stores: d.stores.len(),
     };
     while height(head.len(), &sections(&d, k)) > usize::from(inner.height) {
         if k.hint > 0 {
             k.hint -= 1;
+        } else if k.picker > 0 {
+            k.picker -= 1;
         } else if k.modifiers > 0 {
             k.modifiers -= 1;
         } else if k.units > 0 {
@@ -403,5 +450,57 @@ mod tests {
             hint_text(Hint::StartTool(Tool::Harvest)).as_deref(),
             Some("Press H for the Harvest tool")
         );
+    }
+
+    /// The Build tool's picker row (#111, #275): the chosen building is marked and keeps its
+    /// cost; a locked one is dimmed, with the tech it still needs in place of the cost.
+    #[test]
+    fn a_picker_row_marks_the_chosen_building_and_dims_a_locked_one() {
+        use fn_sim::Nation;
+        let session = Session::new(7, Nation::Earth, 48, 32);
+        let rows = build::picker_rows(&session);
+        let marks = Marks::new(false);
+        let bed = rows.iter().find(|r| r.name == "Bed").unwrap();
+        let chosen = picker_row(bed, Some(bed.id), &marks);
+        assert_eq!(chosen.plain(), format!("{}Bed {}", marks.pointer, bed.cost));
+        assert_eq!(chosen.left[0].1, Tone::Title);
+
+        let unchosen = picker_row(bed, None, &marks);
+        assert!(unchosen.plain().starts_with(' '), "{}", unchosen.plain());
+
+        let locked = rows.iter().find(|r| r.locked()).expect("Earth has a locked building");
+        let row = picker_row(locked, None, &marks);
+        assert_eq!(row.left[0].1, Tone::Dim);
+        assert_eq!(row.right.as_ref().unwrap().0, *locked.requires.as_ref().unwrap());
+        assert_eq!(row.right.as_ref().unwrap().1, Tone::Warn);
+    }
+
+    /// The Cursor section's placement line (#275): `Can build here` where the chosen building
+    /// fits, and `fn_ui::build::describe_error`'s reason where it doesn't; `None` with nothing
+    /// chosen.
+    #[test]
+    fn the_placement_row_says_whether_the_chosen_building_fits() {
+        use fn_sim::Nation;
+        let session = Session::new(7, Nation::Earth, 48, 32);
+        let bed = session.defs.building_id("bed").unwrap();
+        assert_eq!(placement_row(&session, Pos::new(-1, -1), None), None);
+
+        let free = session
+            .world
+            .map
+            .iter()
+            .find(|(p, t)| {
+                t.terrain == fn_sim::Terrain::Land
+                    && t.resource.is_none()
+                    && !session.world.units.iter().any(|u| u.pos == *p)
+            })
+            .map(|(p, _)| p)
+            .unwrap();
+        let ok = placement_row(&session, free, Some(bed)).unwrap();
+        assert_eq!(ok.plain(), "Can build here");
+
+        let off_map = placement_row(&session, Pos::new(-1, -1), Some(bed)).unwrap();
+        assert!(off_map.plain().starts_with("Can't build here: "), "{}", off_map.plain());
+        assert!(off_map.plain().contains("off the map"), "{}", off_map.plain());
     }
 }
