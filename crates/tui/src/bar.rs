@@ -87,7 +87,12 @@ pub fn draw_bar(session: &Session, ui: &UiState, palette: &Palette, area: Rect, 
     if area.height < BAR_HEIGHT as u16 || area.width < METER_WIDTH + 12 {
         return;
     }
-    let view = unit_view(session, unit);
+    let mut view = unit_view(session, unit);
+    // While the unit channels a bend, the task line names the ability and the time left
+    // (#278), in place of the plain task `unit_view` gives every other frontend.
+    if let Some(text) = crate::panel::channel_text(session, unit) {
+        view.task = text;
+    }
     let marks = Marks::new(palette.ascii);
     let title = format!(" {} {} {} ", view.name, marks.dot, view.nation);
     draw_frame(buf, area, palette, &title, TitleAt::Left, "");

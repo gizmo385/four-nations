@@ -4,12 +4,21 @@
 //! * Glyph: unit > building or build site > item stack (ground or stored) > lit flame >
 //!   resource > terrain or biome.
 //! * Background: cursor > the rectangle being dragged (#98), in its tool's hue > designation tint
-//!   (harvest, bend, build, stockpile) > wet patch > the warmth of the flame under the cursor >
-//!   terrain or biome.
+//!   (harvest, bend, build, stockpile) and the cast highlight share that tint > wet patch > an
+//!   aura carrier's own warmth > the warmth of the flame or aura under the cursor > terrain or
+//!   biome.
+//!
+//! **The moment of a bend** (#278; the client's `cast.rs` plays a short animation of this same
+//! moment): while a unit channels, its People line and the selection bar say so and how long is
+//! left (`panel::channel_text`); for a short while after the bend lands, the tiles it changed
+//! flash the nation's accent ([`HIGHLIGHTS`], mirroring the client's `cast::LOOKS`); and a unit
+//! carrying Inner Fire's aura (`World::glows`) wears a warm background for as long as it lasts,
+//! with its reach tinted the way a lit flame's is while the cursor sits on it.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use fn_sim::jobs::Stack;
+use fn_sim::world::{BendOutcome, Moved, TICKS_PER_SECOND};
 use fn_sim::{Pos, Terrain};
 use fn_ui::Session;
 use ratatui::buffer::Buffer;
@@ -19,6 +28,71 @@ use ratatui::style::{Modifier, Style};
 use crate::color::{Palette, Tint, mix};
 use crate::glyphs::{Look, Rgb8};
 use crate::state::UiState;
+
+/// Which tiles light up after a bend lands, for an ability of `data/bending.toml`. Every
+/// ability's highlight wears the same look (the nation's accent, `Tint::Bend`); only the tiles
+/// it covers differ, so this says that and nothing else.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Shape {
+    /// Just the tile the bend landed on.
+    Target,
+    /// The 3x3 patch around it (Water the Land's wet patch).
+    Patch,
+    /// The tile, and the stockpile tile a stack moved to, if any (Wind Carry).
+    Moved,
+}
+
+/// The highlight shape of each ability, by its id in `data/bending.toml`. Mirrors the client's
+/// `cast::LOOKS`: one table that names every ability, checked by a test below.
+const HIGHLIGHTS: &[(&str, Shape)] = &[
+    ("raise_earth", Shape::Target),
+    ("water_the_land", Shape::Patch),
+    ("hearthflame", Shape::Target),
+    ("wind_carry", Shape::Moved),
+    ("inner_fire", Shape::Target),
+    ("bore_tunnel", Shape::Target),
+    ("seismic_sense", Shape::Target),
+];
+
+/// The highlight shape of ability `id`, if it has one.
+fn shape_of(id: &str) -> Option<Shape> {
+    HIGHLIGHTS.iter().find(|(a, _)| *a == id).map(|(_, s)| *s)
+}
+
+/// The tiles `shape` covers for a bend that landed on `pos`, having moved `moved` (Wind Carry).
+fn shape_tiles(shape: Shape, pos: Pos, moved: Option<Moved>) -> Vec<Pos> {
+    match shape {
+        Shape::Target => vec![pos],
+        Shape::Patch => (-1..=1)
+            .flat_map(|dy| (-1..=1).map(move |dx| Pos::new(pos.x + dx, pos.y + dy)))
+            .collect(),
+        Shape::Moved => std::iter::once(pos).chain(moved.map(|m| m.to)).collect(),
+    }
+}
+
+/// How long a bend's highlight lasts after it lands, in world ticks: long enough to read once at
+/// 1x play, and paced on the world clock (not wall time) so a paused game holds it still and
+/// `--frame` is deterministic.
+const HIGHLIGHT_TICKS: u64 = TICKS_PER_SECOND as u64 / 2;
+
+/// The tiles a bend changed, lit for [`HIGHLIGHT_TICKS`] after `World::bend_events` says it
+/// landed; the events themselves are the only state this needs, so nothing is carried frame to
+/// frame.
+fn cast_highlights(session: &Session) -> BTreeSet<Pos> {
+    let (world, defs) = (&session.world, &session.defs);
+    let now = world.tick;
+    world
+        .bend_events()
+        .iter()
+        .rev()
+        .take_while(|e| now.saturating_sub(e.tick) < HIGHLIGHT_TICKS)
+        .filter(|e| e.outcome == BendOutcome::Done)
+        .filter_map(|e| {
+            shape_of(&defs.ability(e.ability).id).map(|s| shape_tiles(s, e.pos, e.moved))
+        })
+        .flatten()
+        .collect()
+}
 
 /// Everything about the world's tiles that isn't in the tile map, gathered once per frame so
 /// drawing a tile is a handful of lookups.
@@ -33,7 +107,11 @@ pub struct Overlays {
     sites: BTreeMap<Pos, fn_sim::building::BuildingId>,
     flames: BTreeSet<Pos>,
     wet: BTreeSet<Pos>,
-    /// The tiles warmed by the flame under the cursor, if the cursor is on one.
+    /// Tiles a bend changed lately: flash the nation's accent (#278).
+    cast: BTreeSet<Pos>,
+    /// Tiles a unit carrying an aura (Inner Fire, #278) stands on: always a warm background.
+    aura: BTreeSet<Pos>,
+    /// The tiles warmed by the flame or aura under the cursor, if the cursor is on one.
     warmed: Option<(Pos, u32)>,
 }
 
@@ -42,6 +120,7 @@ impl Overlays {
         let cursor = ui.cursor;
         let world = &session.world;
         let flames = world.flames();
+        let glows = world.glows();
         Self {
             units: world.units.iter().map(|u| u.pos).collect(),
             selected: ui.selected_unit(session).map(|u| u.pos),
@@ -52,7 +131,13 @@ impl Overlays {
             sites: world.build_sites().map(|(f, b, _)| (f.anchor, b)).collect(),
             flames: flames.iter().map(|f| f.pos).collect(),
             wet: world.wet_tiles().into_iter().map(|(p, _)| p).collect(),
-            warmed: flames.iter().find(|f| f.pos == cursor).map(|f| (f.pos, f.radius)),
+            cast: cast_highlights(session),
+            aura: glows.iter().map(|g| g.pos).collect(),
+            warmed: flames
+                .iter()
+                .find(|f| f.pos == cursor)
+                .map(|f| (f.pos, f.radius))
+                .or_else(|| glows.iter().find(|g| g.pos == cursor).map(|g| (g.pos, g.radius))),
         }
     }
 
@@ -139,7 +224,9 @@ pub fn tile_cell(
     // The background, top to bottom.
     let designation = if over.harvest.contains(&pos) {
         Some(Tint::Harvest)
-    } else if over.bend.contains(&pos) {
+    } else if over.bend.contains(&pos) || over.cast.contains(&pos) {
+        // A bend being designated and one that just landed wear the same accent; their moments
+        // never overlap (a landed bend's designation is gone).
         Some(Tint::Bend)
     } else if over.sites.contains_key(&pos) {
         Some(Tint::Build)
@@ -164,6 +251,9 @@ pub fn tile_cell(
         palette.tinted(base_bg, tint)
     } else if over.wet.contains(&pos) {
         palette.tinted(base_bg, Tint::Wet)
+    } else if over.aura.contains(&pos) {
+        // An aura carrier wears its own warmth, cursor or not.
+        palette.tinted(base_bg, Tint::Warm)
     } else if over.is_warmed(pos) {
         palette.tinted(base_bg, Tint::Warm)
     } else {
@@ -189,5 +279,51 @@ pub fn draw_map(session: &Session, ui: &UiState, palette: &Palette, area: Rect, 
             out.set_char(cell.glyph);
             out.set_style(cell.style);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use fn_sim::Defs;
+    use fn_sim::jobs::ItemId;
+
+    use super::*;
+
+    #[test]
+    fn every_ability_has_a_highlight_and_the_table_names_only_abilities() {
+        let defs = Defs::bundled();
+        for ability in &defs.abilities {
+            assert!(shape_of(&ability.id).is_some(), "{} has no highlight shape", ability.id);
+        }
+        for (id, _) in HIGHLIGHTS {
+            assert!(defs.ability_id(id).is_some(), "{id} is not an ability in data/bending.toml");
+        }
+        assert_eq!(HIGHLIGHTS.len(), defs.abilities.len());
+    }
+
+    #[test]
+    fn a_target_shape_is_just_the_landed_tile() {
+        let pos = Pos::new(5, 5);
+        assert_eq!(shape_tiles(Shape::Target, pos, None), vec![pos]);
+    }
+
+    #[test]
+    fn a_patch_shape_is_the_3x3_block_around_it() {
+        let pos = Pos::new(5, 5);
+        let tiles = shape_tiles(Shape::Patch, pos, None);
+        assert_eq!(tiles.len(), 9);
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                assert!(tiles.contains(&Pos::new(pos.x + dx, pos.y + dy)), "{dx},{dy}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_moved_shape_is_the_landed_tile_and_where_the_stack_went() {
+        let pos = Pos::new(5, 5);
+        assert_eq!(shape_tiles(Shape::Moved, pos, None), vec![pos], "nothing to carry it to");
+        let moved = Moved { to: Pos::new(9, 5), item: ItemId(0), count: 3 };
+        assert_eq!(shape_tiles(Shape::Moved, pos, Some(moved)), vec![pos, moved.to]);
     }
 }

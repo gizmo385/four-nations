@@ -941,3 +941,139 @@ fn a_wet_patch_is_a_mud_background() {
     assert_eq!(cell.bg, p.tinted(ground_bg(&p, &app.session, pos), Tint::Wet));
     assert_ne!(cell.bg, p.color(ground_bg(&p, &app.session, pos)));
 }
+
+// ---------------------------------------------------------------------------------------------
+// The moment of a bend (#278): channels, the cast highlight and the Inner Fire aura
+// ---------------------------------------------------------------------------------------------
+
+/// Right after a bend lands, the tile it changed flashes the nation's accent, the same hue a
+/// designation of it wears; once the short window passes, the tile goes back to plain ground.
+#[test]
+fn a_bend_flashes_the_nations_accent_right_after_it_lands_then_fades() {
+    use fn_sim::world::BendOutcome;
+
+    let mut s = Session::new(1, Nation::Fire, 48, 32);
+    let pos = s.world.units[0].pos;
+    let ability = fn_ui::tools::ability_for_nation(&s.defs, Nation::Fire).unwrap();
+    s.apply(Command::Bend { ability, pos }).unwrap();
+    for _ in 0..20_000 {
+        s.tick();
+        if !s.world.bend_events().is_empty() {
+            break;
+        }
+    }
+    assert_eq!(s.world.bend_events().last().map(|e| e.outcome), Some(BendOutcome::Done));
+
+    let mut app = App::new(s, SIZE);
+    let p = palette(&app.session, ColorDepth::TrueColor, false);
+    // Elsewhere, so the cursor's own colour doesn't hide the highlight.
+    app.ui.cursor = Pos::new(pos.x, if pos.y > 0 { pos.y - 1 } else { 1 });
+    let buf = frame(&mut app, ColorDepth::TrueColor, false, SIZE);
+    let cell = cell_at(&app, &buf, pos);
+    assert_eq!(cell.bg, p.tinted(ground_bg(&p, &app.session, pos), Tint::Bend), "{cell:?}");
+
+    // Well past the short window: it has faded back to plain ground.
+    app.session.tick_n(50);
+    let buf = frame(&mut app, ColorDepth::TrueColor, false, SIZE);
+    let cell = cell_at(&app, &buf, pos);
+    assert_ne!(cell.bg, p.tinted(ground_bg(&p, &app.session, pos), Tint::Bend));
+}
+
+/// A channel in progress, then the highlight right after completion, then an aura carrier: three
+/// golden frames of the moment of a bend (#278).
+#[test]
+fn golden_frame_of_a_cast_highlight() {
+    let mut s = Session::new(1, Nation::Fire, 48, 32);
+    let pos = s.world.units[0].pos;
+    let ability = fn_ui::tools::ability_for_nation(&s.defs, Nation::Fire).unwrap();
+    s.apply(Command::Bend { ability, pos }).unwrap();
+    for _ in 0..20_000 {
+        s.tick();
+        if !s.world.bend_events().is_empty() {
+            break;
+        }
+    }
+    let mut app = App::new(s, SIZE);
+    app.ui.cursor = Pos::new(pos.x, if pos.y > 0 { pos.y - 1 } else { 1 });
+    golden(
+        "fire_seed1_cast_highlight",
+        &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)),
+    );
+}
+
+/// A unit carrying Inner Fire's aura wears a warm background wherever it stands, cursor or not;
+/// with the cursor on it, its reach is tinted too, the way a lit flame's is.
+#[test]
+fn an_aura_carrier_wears_a_warm_background_and_warms_its_reach_under_the_cursor() {
+    let mut s = Session::new(3, Nation::Fire, 48, 32);
+    let dragon = s.defs.tech_id("dancing_dragon").unwrap();
+    s.apply(Command::SetResearch { tech: dragon }).unwrap();
+    for _ in 0..200_000 {
+        if s.world.research().is_known(dragon) {
+            break;
+        }
+        s.tick();
+    }
+    assert!(s.world.research().is_known(dragon), "Dancing Dragon should be researched by now");
+
+    let inner = s.defs.ability_id("inner_fire").unwrap();
+    // Whoever claims the job carries the aura; it need not be `units[0]` (#278, World::glows).
+    let start = s.world.units[0].pos;
+    s.apply(Command::Bend { ability: inner, pos: start }).unwrap();
+    for _ in 0..20_000 {
+        s.tick();
+        if !s.world.glows().is_empty() {
+            break;
+        }
+    }
+    // Past the cast highlight's own short window (its landing is also a `BendEvent`), so only
+    // the aura's warmth is left to check.
+    s.tick_n(20);
+    let glow = s.world.glows().into_iter().next().expect("the aura should be lit");
+    let (carrier, radius) = (glow.pos, glow.radius as i32);
+
+    let mut app = App::new(s, SIZE);
+    let p = palette(&app.session, ColorDepth::TrueColor, false);
+    // Elsewhere: the carrier's own tile is still warm without the cursor's help.
+    app.ui.cursor = Pos::new(carrier.x, if carrier.y > 0 { carrier.y - 1 } else { 1 });
+    let buf = frame(&mut app, ColorDepth::TrueColor, false, SIZE);
+    let cell = cell_at(&app, &buf, carrier);
+    assert_eq!(cell.bg, p.tinted(ground_bg(&p, &app.session, carrier), Tint::Warm), "{cell:?}");
+
+    // The cursor on the carrier: the reach is tinted too, the way a flame's is.
+    app.ui.cursor = carrier;
+    let buf = frame(&mut app, ColorDepth::TrueColor, false, SIZE);
+    let warm = Pos::new(carrier.x + radius, carrier.y);
+    let cold = Pos::new(carrier.x + radius + 1, carrier.y);
+    let warm_cell = cell_at(&app, &buf, warm);
+    let cold_cell = cell_at(&app, &buf, cold);
+    assert_eq!(warm_cell.bg, p.tinted(ground_bg(&p, &app.session, warm), Tint::Warm));
+    assert_eq!(cold_cell.bg, p.color(ground_bg(&p, &app.session, cold)));
+}
+
+#[test]
+fn golden_frame_of_an_aura_carrier() {
+    let mut s = Session::new(3, Nation::Fire, 48, 32);
+    let dragon = s.defs.tech_id("dancing_dragon").unwrap();
+    s.apply(Command::SetResearch { tech: dragon }).unwrap();
+    for _ in 0..200_000 {
+        if s.world.research().is_known(dragon) {
+            break;
+        }
+        s.tick();
+    }
+    let inner = s.defs.ability_id("inner_fire").unwrap();
+    let start = s.world.units[0].pos;
+    s.apply(Command::Bend { ability: inner, pos: start }).unwrap();
+    for _ in 0..20_000 {
+        s.tick();
+        if !s.world.glows().is_empty() {
+            break;
+        }
+    }
+    s.tick_n(20);
+    let carrier = s.world.glows()[0].pos;
+    let mut app = App::new(s, SIZE);
+    app.ui.cursor = carrier;
+    golden("fire_seed3_aura", &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)));
+}
