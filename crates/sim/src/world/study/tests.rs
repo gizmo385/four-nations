@@ -49,12 +49,18 @@ fn place_study_hall(w: &mut World, defs: &Defs, pos: Pos) {
     w.open_study_seats(pos, def.seats);
 }
 
+/// Queues `id` so a seat is worth claiming (#284: nothing is claimed with an empty queue).
+fn start_research(w: &mut World, defs: &Defs, id: &str) {
+    w.apply(Command::SetResearch { tech: defs.tech_id(id).unwrap() }, defs).unwrap();
+}
+
 #[test]
 fn a_finished_study_hall_opens_one_job_per_seat() {
     let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(2, 2)]);
     let seats = defs.building(defs.building_id("study_hall").unwrap()).seats;
     place_study_hall(&mut w, &defs, at(2, 2));
     assert_eq!(w.jobs().len(), seats as usize);
+    start_research(&mut w, &defs, "earth_shaping");
 
     // The unit starts right on the hall's tile, so it claims a seat on its very first tick.
     w.tick(&defs);
@@ -62,17 +68,47 @@ fn a_finished_study_hall_opens_one_job_per_seat() {
 }
 
 #[test]
+fn no_seat_is_claimed_with_nothing_queued_to_research() {
+    let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(2, 2)]);
+    place_study_hall(&mut w, &defs, at(2, 2));
+    for _ in 0..200 {
+        w.tick(&defs);
+    }
+    assert!(w.research().queue().is_empty());
+    assert!(w.units[0].task().is_none(), "{:?}", w.units[0].task());
+}
+
+#[test]
+fn a_scholar_leaves_its_seat_once_the_queue_empties() {
+    let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(2, 2)]);
+    place_study_hall(&mut w, &defs, at(2, 2));
+    start_research(&mut w, &defs, "fire_making");
+    w.tick(&defs);
+    assert!(matches!(w.units[0].task(), Some(Task::Study(_))));
+
+    // 25 points at 3/min passive plus 9/min studying is well under a minute. `Research::tick`
+    // runs before units act, so the scholar notices the now-empty queue the very tick
+    // `fire_making` completes and leaves (Task::Study ends, not abandons: no retry delay).
+    run_until(&mut w, &defs, 2000, |w| w.research().is_known(defs.tech_id("fire_making").unwrap()));
+    assert!(w.units[0].task().is_none(), "{:?}", w.units[0].task());
+    assert_eq!(w.jobs().iter().filter(|j| matches!(j.kind, JobKind::Study { .. })).count(), 2);
+    assert!(w.jobs().iter().all(|j| j.claimed_by.is_none()), "the seat is open again");
+}
+
+#[test]
 fn a_scholar_studying_adds_the_expected_knowledge_each_tick() {
     let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(2, 2)]);
     place_study_hall(&mut w, &defs, at(2, 2));
+    // `earth_shaping` needs no further prereq (Earth starts with `stoneworking`), so the pool's
+    // cap while queued (#284) is its full 60 points, well above what this test banks.
+    start_research(&mut w, &defs, "earth_shaping");
     w.tick(&defs);
     assert!(matches!(w.units[0].task(), Some(Task::Study(_))));
     assert_eq!(w.modifiers().study, 1.0, "Earth has no study bonus yet");
 
     let passive = defs.research.passive_millis_per_tick;
     let study = defs.research.study_millis_per_tick;
-    let minutes = 10;
-    let ticks = u64::from(TICKS_PER_SECOND) * 60 * minutes;
+    let ticks = 1000; // comfortably under earth_shaping's 60,000-milli cap at this rate
     let before = w.research().pool_millis();
     for _ in 0..ticks {
         w.tick(&defs);
@@ -85,6 +121,7 @@ fn a_scholar_studying_adds_the_expected_knowledge_each_tick() {
 fn a_hungry_scholar_leaves_to_eat_and_stops_producing() {
     let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(2, 2)]);
     place_study_hall(&mut w, &defs, at(2, 2));
+    start_research(&mut w, &defs, "earth_shaping");
     w.tick(&defs);
     assert!(matches!(w.units[0].task(), Some(Task::Study(_))));
 
@@ -108,6 +145,9 @@ fn a_hungry_scholar_leaves_to_eat_and_stops_producing() {
 fn the_study_modifier_scales_how_fast_a_scholar_adds_knowledge() {
     let (mut w, defs) = setup(Nation::Air, &GRID, &[at(2, 2)]);
     place_study_hall(&mut w, &defs, at(2, 2));
+    // `meditation` has no prereqs and raises Air's `study` modifier to 1.2 (data/research.toml).
+    let meditation = defs.tech_id("meditation").unwrap();
+    start_research(&mut w, &defs, "meditation");
     w.tick(&defs);
     assert!(matches!(w.units[0].task(), Some(Task::Study(_))));
 
@@ -117,12 +157,15 @@ fn the_study_modifier_scales_how_fast_a_scholar_adds_knowledge() {
     w.tick(&defs);
     assert_eq!(w.research().pool_millis() - before, passive + base_study);
 
-    // `meditation` has no prereqs and raises Air's `study` modifier to 1.2 (data/research.toml).
     // The scholar's own output, plus the passive trickle, pays for it.
-    let meditation = defs.tech_id("meditation").unwrap();
-    w.apply(Command::SetResearch { tech: meditation }, &defs).unwrap();
     run_until(&mut w, &defs, 10_000, |w| w.research().is_known(meditation));
     assert_eq!(w.modifiers().study, 1.2);
+
+    // Something still queued (#284 would otherwise send the scholar back to idle): Air's next
+    // branch tech.
+    start_research(&mut w, &defs, "gliders");
+    w.tick(&defs);
+    assert!(matches!(w.units[0].task(), Some(Task::Study(_))));
 
     let before = w.research().pool_millis();
     w.tick(&defs);
@@ -273,6 +316,7 @@ fn scholars_study_a_solid_two_by_two_hall_from_its_ring() {
     }
     w.map_changed();
     w.open_study_seats(foot.anchor, seats);
+    start_research(&mut w, &defs, "earth_shaping");
 
     let seated = |w: &World, i: usize| {
         matches!(w.units[i].task(), Some(Task::Study(_)))

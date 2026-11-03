@@ -132,6 +132,33 @@ fn units_claim_the_nearest_reachable_job_not_the_oldest() {
 }
 
 #[test]
+fn a_study_seat_loses_to_a_farther_harvest_when_both_are_open() {
+    // A study hall right beside the unit, with an open seat and something queued to research
+    // (so claiming it is possible at all), plus a tree far across the map. Study is the lowest
+    // claim priority (#284), so the unit should walk all the way to the tree rather than take
+    // the seat at its elbow.
+    let rows = ["..........", "..........", "..........", "..........", "..........", "........T."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 1)]);
+    let hall = defs.building_id("study_hall").unwrap();
+    let def = defs.building(hall);
+    w.map[at(2, 1)].building = Some(crate::building::Building::new(hall, def.passable, false));
+    w.open_study_seats(at(2, 1), def.seats);
+    let earth_shaping = defs.tech_id("earth_shaping").unwrap();
+    w.apply(Command::SetResearch { tech: earth_shaping }, &defs).unwrap();
+
+    let tree = w.designate_harvest(at(8, 5), &defs).unwrap();
+    w.tick(&defs);
+    assert_eq!(w.job(tree).unwrap().claimed_by, Some(UnitId(0)), "the farther harvest wins");
+    assert!(
+        w.jobs()
+            .iter()
+            .filter(|j| matches!(j.kind, JobKind::Study { .. }))
+            .all(|j| j.claimed_by.is_none()),
+        "the near seat stays open"
+    );
+}
+
+#[test]
 fn nearest_means_walking_distance_so_a_wall_makes_a_tree_far() {
     // The unit at (2,2) is two tiles from the tree at (4,2) as the crow flies, but a wall
     // between them means a walk round the end of it (about 70). The tree at (2,7) is 40 away.

@@ -78,12 +78,19 @@ pub struct ResearchSettings {
     pub passive_knowledge_per_minute: f64,
     /// Per scholar at a study hall, before the `study` modifier.
     pub study_knowledge_per_minute: f64,
+    /// Knowledge points the pool may hold with no research target queued: just enough to
+    /// bootstrap a first pick without letting the passive trickle (or a seat left idle, #284)
+    /// quietly bank toward several techs at once. Below the cheapest tech's cost.
+    pub idle_knowledge_cap: f64,
     /// `passive_knowledge_per_minute` as integer millis per tick, filled in at load.
     #[serde(skip)]
     pub passive_millis_per_tick: u64,
     /// `study_knowledge_per_minute` as integer millis per tick, filled in at load.
     #[serde(skip)]
     pub study_millis_per_tick: u64,
+    /// `idle_knowledge_cap` in milli-points, filled in at load.
+    #[serde(skip)]
+    pub idle_knowledge_cap_millis: u64,
 }
 
 /// Knowledge is stored in milli-points so rates stay integers.
@@ -163,6 +170,7 @@ impl ResearchFile {
         for (what, v) in [
             ("passive_knowledge_per_minute", s.passive_knowledge_per_minute),
             ("study_knowledge_per_minute", s.study_knowledge_per_minute),
+            ("idle_knowledge_cap", s.idle_knowledge_cap),
         ] {
             if !(v.is_finite() && v >= 0.0) {
                 return Err(DefsError(format!(
@@ -172,6 +180,8 @@ impl ResearchFile {
         }
         s.passive_millis_per_tick = millis_per_tick(s.passive_knowledge_per_minute);
         s.study_millis_per_tick = millis_per_tick(s.study_knowledge_per_minute);
+        s.idle_knowledge_cap_millis =
+            (s.idle_knowledge_cap * MILLIS_PER_POINT as f64).round() as u64;
         if self.tech.len() > usize::from(u16::MAX) {
             return Err(DefsError(format!("too many techs: {}", self.tech.len())));
         }
@@ -383,11 +393,32 @@ impl Research {
     }
 
     /// Adds knowledge straight to the pool, outside the passive trickle `tick` adds on its own:
-    /// the Study job (`world/study.rs`, #21), scrolls later (#24). Techs it can now afford
-    /// complete on the next `tick`, not immediately, so knowledge earned partway through a tick
-    /// can't retroactively unlock something earlier in that same tick.
+    /// an ancient scroll, read and used up at a study hall (`world/work.rs`, #24). A one-off
+    /// reward, so unlike `add_toward_target` it isn't capped. Techs it can now afford complete
+    /// on the next `tick`, not immediately, so knowledge earned partway through a tick can't
+    /// retroactively unlock something earlier in that same tick.
     pub fn add_knowledge(&mut self, millis: u64) {
         self.pool_millis += millis;
+    }
+
+    /// The most the pool may hold right now: the cost of the tech at the front of the queue
+    /// (the one it is currently paying toward), or `idle_knowledge_cap_millis` with nothing
+    /// queued. Used by `add_toward_target` so a steady, no-effort source can't bank ahead of what
+    /// is actually being worked toward (#284).
+    fn cap_millis(&self, defs: &Defs) -> u64 {
+        match self.queue.first() {
+            Some(&front) => u64::from(defs.tech(front).cost) * MILLIS_PER_POINT,
+            None => defs.research.idle_knowledge_cap_millis,
+        }
+    }
+
+    /// Adds knowledge from a source that runs on its own with no cost to the player: the passive
+    /// "oral tradition" trickle (`tick`) and a seated scholar (`world/study.rs`, #21). Clamped at
+    /// `cap_millis` so hours of it can't quietly bank toward several techs at once, the bug
+    /// #284 fixed (an ancient scroll, `add_knowledge`, is a deliberate one-off reward and isn't
+    /// capped this way).
+    pub(crate) fn add_toward_target(&mut self, millis: u64, defs: &Defs) {
+        self.pool_millis = (self.pool_millis + millis).min(self.cap_millis(defs));
     }
 
     /// Marks `tech` known at once, skipping the queue and its cost. For tests that need a nation
@@ -397,10 +428,18 @@ impl Research {
         self.known[tech.0 as usize] = true;
     }
 
+    /// Adds knowledge straight to the pool with no cap, for tests that want to skip ahead of
+    /// what natural production could bank (`add_toward_target`'s cap is what #284 is about, not
+    /// these tests).
+    #[cfg(test)]
+    pub(crate) fn bank_for_test(&mut self, millis: u64) {
+        self.pool_millis += millis;
+    }
+
     /// Adds one tick of passive knowledge, then completes queued techs the pool can pay for.
     /// `tick` is the world tick being simulated, recorded on completions.
     pub fn tick(&mut self, tick: u64, defs: &Defs) {
-        self.pool_millis += defs.research.passive_millis_per_tick;
+        self.add_toward_target(defs.research.passive_millis_per_tick, defs);
         while let Some(&front) = self.queue.first() {
             let cost = u64::from(defs.tech(front).cost) * MILLIS_PER_POINT;
             if cost > self.pool_millis {
@@ -430,8 +469,8 @@ mod tests {
     const BENDING: &str = include_str!("../../../data/bending.toml");
     const BUILDINGS: &str = include_str!("../../../data/buildings.toml");
 
-    const SETTINGS: &str =
-        "[settings]\npassive_knowledge_per_minute = 3.0\nstudy_knowledge_per_minute = 9.0\n";
+    const SETTINGS: &str = "[settings]\npassive_knowledge_per_minute = 3.0\n\
+         study_knowledge_per_minute = 9.0\nidle_knowledge_cap = 10.0\n";
 
     /// The bundled starting techs, which every test tree below must define.
     const BASICS: &str = "
