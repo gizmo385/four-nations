@@ -61,9 +61,17 @@ pub struct UnitId(pub u32);
 pub struct Unit {
     pub id: UnitId,
     pub name: String,
-    pub nation: Nation,
+    /// This unit's own nation, if it differs from the settlement's (`World::nation`): after the
+    /// Harmony Gate, settlers of other nations live in one settlement
+    /// (`docs/design/endgame.md`, "The transformation"). `None` (the default for every unit
+    /// spawned today) means the world's nation; read it through `World::nation_of`, never this
+    /// field directly, so a save from before #239 (whose units were always home-nation) keeps
+    /// meaning the same thing. A bare nation id from such a save (no `Some`/`None` wrapper)
+    /// still deserializes, as `Some` of it.
+    #[serde(default, deserialize_with = "deserialize_unit_nation")]
+    pub nation: Option<Nation>,
     pub pos: Pos,
-    /// Which of the nation's sprite variants to draw. Purely cosmetic.
+    /// Which of the unit's own nation's sprite variants to draw. Purely cosmetic.
     pub variant: u8,
     /// Hunger, thirst, energy and health (data/needs.toml). At 0 health the unit dies.
     pub needs: Needs,
@@ -110,6 +118,22 @@ impl Unit {
     pub fn bends(&self) -> u32 {
         self.bends
     }
+}
+
+/// Reads `Unit::nation`, accepting a pre-#239 save's bare `Nation` (every unit's nation, with no
+/// `Option` wrapper) as well as the current `None`/`Some(..)` shapes. A one-variant untagged enum
+/// buffers the token first, which is what makes a self-describing format like RON treat a bare
+/// value as `Some` of it instead of demanding the `Some(..)` wrapper `Option`'s own `Deserialize`
+/// requires; see the test below.
+fn deserialize_unit_nation<'de, D: serde::Deserializer<'de>>(
+    de: D,
+) -> Result<Option<Nation>, D::Error> {
+    #[derive(serde::Deserialize)]
+    #[serde(untagged)]
+    enum Repr {
+        Nation(Option<Nation>),
+    }
+    <Repr as serde::Deserialize>::deserialize(de).map(|Repr::Nation(n)| n)
 }
 
 /// A unit that died, kept so the UI and tests can see what happened.
@@ -311,17 +335,40 @@ impl World {
         Ok(())
     }
 
-    /// The modifiers systems must read: the nation's base times every completed tech's
-    /// multipliers. Never read `NationDef::modifiers` directly, or techs do nothing.
+    /// The settlement's modifiers systems must read when there is no particular unit to ask: the
+    /// world's nation base times every completed tech's multipliers. A unit's own effective
+    /// modifiers (which may differ, #239) are `modifiers_for`. Never read `NationDef::modifiers`
+    /// directly, or techs do nothing.
     pub fn modifiers(&self) -> &Modifiers {
         &self.modifiers
     }
 
-    /// How the effective value of the modifier `name` is built up, for tooltips: the nation's
-    /// base, then each known tech that multiplies it, as `(source name, factor)`. Empty for an
-    /// unknown name.
-    pub fn modifier_breakdown<'d>(&self, name: &str, defs: &'d Defs) -> Vec<(&'d str, f32)> {
-        research::modifier_breakdown(name, self.nation, self.research.known_techs(), defs)
+    /// `unit`'s own nation: `Unit::nation` if it has one, else the settlement's (`self.nation`).
+    /// Every system that cares which nation a unit belongs to reads this, never `Unit::nation`
+    /// directly.
+    pub fn nation_of(&self, unit: &Unit) -> Nation {
+        unit.nation.unwrap_or(self.nation)
+    }
+
+    /// `unit`'s effective modifiers: its own nation's base times every tech the settlement knows
+    /// (teaching across nations is deferred, so a unit of another nation doesn't benefit from
+    /// techs its own nation hasn't researched, but does ride on the settlement's; #239). Same
+    /// `TechId` order as `modifiers()`, so a world where every unit is the settlement's own
+    /// nation gets bit-for-bit the same values either way.
+    pub fn modifiers_for(&self, unit: &Unit, defs: &Defs) -> Modifiers {
+        research::effective_modifiers(self.nation_of(unit), self.research.known_techs(), defs)
+    }
+
+    /// How the effective value of the modifier `name` is built up for `unit`, for tooltips: its
+    /// own nation's base, then each known tech that multiplies it, as `(source name, factor)`.
+    /// Empty for an unknown name.
+    pub fn modifier_breakdown<'d>(
+        &self,
+        unit: &Unit,
+        name: &str,
+        defs: &'d Defs,
+    ) -> Vec<(&'d str, f32)> {
+        research::modifier_breakdown(name, self.nation_of(unit), self.research.known_techs(), defs)
     }
 
     fn refresh_modifiers(&mut self, defs: &Defs) {
@@ -366,7 +413,7 @@ impl World {
             self.units.push(Unit {
                 id: UnitId(i as u32),
                 name,
-                nation: self.nation,
+                nation: None,
                 pos,
                 variant,
                 needs: Needs::full(&defs.needs),
@@ -449,7 +496,7 @@ impl World {
             self.units[i].wander_left = self.rng.random_range(1..=s.idle_wander_steps);
             self.units[i].move_progress = 0.0;
         }
-        let speed = self.modifiers.move_speed;
+        let speed = self.modifiers_for(&self.units[i], defs).move_speed;
         self.units[i].move_progress += speed;
         if self.units[i].move_progress < BASE_TICKS_PER_STEP {
             return;
@@ -713,6 +760,40 @@ mod tests {
     }
 
     #[test]
+    fn nation_of_falls_back_to_the_settlements_nation_but_a_units_own_wins() {
+        let (mut w, _) = world(Nation::Earth);
+        assert_eq!(w.units[0].nation, None);
+        assert_eq!(w.nation_of(&w.units[0]), Nation::Earth);
+        w.units[0].nation = Some(Nation::Water);
+        assert_eq!(w.nation_of(&w.units[0]), Nation::Water);
+    }
+
+    #[test]
+    fn modifiers_for_reads_the_units_own_nation_not_the_settlements() {
+        let (mut w, defs) = world(Nation::Water);
+        assert_eq!(w.modifiers_for(&w.units[0], &defs), *w.modifiers());
+        w.units[0].nation = Some(Nation::Earth);
+        assert_eq!(w.modifiers_for(&w.units[0], &defs), defs.nation(Nation::Earth).modifiers);
+        assert_ne!(w.modifiers_for(&w.units[0], &defs), *w.modifiers());
+    }
+
+    /// `Unit::nation` deserializes a pre-#239 save's bare `Nation` (no `Option` wrapper) as
+    /// `Some` of it, alongside today's `None`/`Some(..)` shapes and a missing field (`default`).
+    #[test]
+    fn unit_nation_reads_a_pre_239_saves_bare_value_as_well_as_todays_shapes() {
+        #[derive(serde::Deserialize)]
+        struct Holder {
+            #[serde(default, deserialize_with = "deserialize_unit_nation")]
+            nation: Option<Nation>,
+        }
+        let read = |s: &str| ron::from_str::<Holder>(s).unwrap().nation;
+        assert_eq!(read("(nation:fire)"), Some(Nation::Fire));
+        assert_eq!(read("(nation:None)"), None);
+        assert_eq!(read("(nation:Some(fire))"), Some(Nation::Fire));
+        assert_eq!(read("()"), None, "missing is the settlement's nation");
+    }
+
+    #[test]
     fn completing_a_tech_changes_the_relevant_modifier() {
         let (mut w, defs) = world(Nation::Earth);
         let base = defs.nation(Nation::Earth).modifiers;
@@ -726,13 +807,17 @@ mod tests {
         assert!(w.research().is_known(tech(&defs, "carpentry")));
         assert_eq!(w.modifiers().construction, base.construction * 1.1);
         assert_eq!(w.modifiers(), &Modifiers { construction: base.construction * 1.1, ..base });
+        let unit = &w.units[0];
         assert_eq!(
-            w.modifier_breakdown("construction", &defs),
+            w.modifier_breakdown(unit, "construction", &defs),
             [("Earth Kingdom", base.construction), ("Carpentry", 1.1)]
         );
         // A modifier no known tech touches has just the nation's entry.
-        assert_eq!(w.modifier_breakdown("move_speed", &defs), [("Earth Kingdom", base.move_speed)]);
-        assert!(w.modifier_breakdown("nonsense", &defs).is_empty());
+        assert_eq!(
+            w.modifier_breakdown(unit, "move_speed", &defs),
+            [("Earth Kingdom", base.move_speed)]
+        );
+        assert!(w.modifier_breakdown(unit, "nonsense", &defs).is_empty());
     }
 
     #[test]

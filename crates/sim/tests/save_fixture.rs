@@ -229,6 +229,31 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     "endeavor_log",
 ];
 
+/// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239
+/// turned it from `Nation` into `Option<Nation>`, so where the v1 fixture has `fire` (every
+/// unit's nation, always the settlement's own: pre-#239 units couldn't be any other), loading and
+/// resaving it now writes `Some(fire)` (`World::deserialize_unit_nation` reads a legacy bare
+/// value as `Some`, never `None`; `None` is only what a freshly spawned unit of today writes for
+/// itself). Touches only `units`, not `World::nation` itself, which stayed a plain `Nation`.
+fn wrap_legacy_unit_nations(value: &mut ron::Value) {
+    let ron::Value::Map(map) = value else { return };
+    let Some(units) = map
+        .iter_mut()
+        .find_map(|(k, v)| matches!(k, ron::Value::String(s) if s == "units").then_some(v))
+    else {
+        return;
+    };
+    let ron::Value::Seq(units) = units else { return };
+    for unit in units {
+        let ron::Value::Map(fields) = unit else { continue };
+        for (k, v) in fields.iter_mut() {
+            if matches!(k, ron::Value::String(s) if s == "nation") {
+                *v = ron::Value::Option(Some(Box::new(v.clone())));
+            }
+        }
+    }
+}
+
 /// `value` without any struct field named in `names`, at any depth. Returns how many it removed.
 fn without_fields(value: &mut ron::Value, names: &[&str]) -> usize {
     match value {
@@ -263,6 +288,7 @@ fn saving_an_old_save_again_gives_the_same_text() {
     // Not byte for byte: compare the two as data, setting aside the fields listed above.
     let body = |t: &str| ron::from_str::<ron::Value>(t.split_once('\n').unwrap().1).unwrap();
     let (mut old, mut new) = (body(FIXTURE), body(&text));
+    wrap_legacy_unit_nations(&mut old);
     without_fields(&mut old, FIELDS_ADDED_SINCE_V1);
     let removed = without_fields(&mut new, FIELDS_ADDED_SINCE_V1);
     assert!(removed > 0, "the re-saved text differs, but not in the fields listed");

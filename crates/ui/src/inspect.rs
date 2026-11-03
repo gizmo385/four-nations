@@ -62,7 +62,10 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
             .into_iter()
             .find(|g| g.unit == unit.id)
             .map_or(String::new(), |g| format!(" - Warm {}", clock(g.seconds_left)));
-        lines.push(Line::Detail(format!("{} - {task}{warm}", defs.nation(unit.nation).name)));
+        lines.push(Line::Detail(format!(
+            "{} - {task}{warm}",
+            defs.nation(world.nation_of(unit)).name
+        )));
         // Finished bends (#233) share the carrying line, for the same four-line reason.
         lines.push(Line::Detail(format!(
             "Carrying: {} - Bends: {}",

@@ -119,7 +119,7 @@ mod tests {
         session.clock.paused = false;
         session.tick_n(2);
         for u in &session.world.units {
-            assert!(session.world.stride(u.id).is_some(), "{:?} is walking", u.id);
+            assert!(session.world.stride(u.id, &session.defs).is_some(), "{:?} is walking", u.id);
         }
     }
 }
