@@ -635,31 +635,36 @@ mod tests {
     }
 
     #[test]
-    fn knowledge_banks_while_idle_and_carries_over() {
+    fn idle_knowledge_caps_without_a_target_and_carries_over() {
         let (mut w, defs) = world(Nation::Earth);
+        let cap = defs.research.idle_knowledge_cap_millis;
+        assert!(cap > 0 && cap < 25_000, "the buffer should be a small amount, below any tech");
+        // Passive trickle alone stalls at the idle cap (#284): no target means no reason to bank
+        // further than a small buffer.
         for _ in 0..6000 {
             w.tick(&defs);
         }
-        assert_eq!(w.research().pool_millis(), 30_000);
+        assert_eq!(w.research().pool_millis(), cap);
         w.set_research(tech(&defs, "shelter"), &defs).unwrap();
         w.tick(&defs);
-        // 30_005 in the pool, minus shelter's 25_000.
-        assert_eq!(w.research().pool_millis(), 5_005);
-        assert_eq!(w.research().completions().len(), 1);
+        // What was banked carries over; the idle buffer alone can't pay for even the cheapest
+        // tech, so nothing completes yet.
+        assert_eq!(w.research().pool_millis(), cap + defs.research.passive_millis_per_tick);
+        assert!(w.research().completions().is_empty());
     }
 
     #[test]
-    fn several_techs_can_complete_in_one_tick() {
+    fn the_pool_cap_stops_several_techs_completing_in_one_tick() {
         let (mut w, defs) = world(Nation::Earth);
-        // 100 points banked pays for shelter (25) and carpentry (60) together.
-        for _ in 0..20_000 {
-            w.tick(&defs);
-        }
+        // Before #284, banking far ahead of any target let shelter (25) and carpentry (60)
+        // complete together the moment both became affordable. The cap now trims the pool to
+        // the queue's front cost before it is ever spent, so only shelter completes here.
+        w.research.bank_for_test(100_000);
         w.set_research(tech(&defs, "carpentry"), &defs).unwrap();
         w.tick(&defs);
-        let ticks: Vec<_> = w.research().completions().iter().map(|c| c.tick).collect();
-        assert_eq!(ticks, [20_001, 20_001]);
-        assert!(w.research().is_known(tech(&defs, "carpentry")));
+        let completed: Vec<_> = w.research().completions().iter().map(|c| c.tech).collect();
+        assert_eq!(completed, [tech(&defs, "shelter")]);
+        assert!(!w.research().is_known(tech(&defs, "carpentry")));
     }
 
     #[test]
@@ -711,13 +716,14 @@ mod tests {
     fn completing_a_tech_changes_the_relevant_modifier() {
         let (mut w, defs) = world(Nation::Earth);
         let base = defs.nation(Nation::Earth).modifiers;
-        // 100 points banked pays for shelter (25) and carpentry (60) in one tick.
-        for _ in 0..20_000 {
-            w.tick(&defs);
-        }
         assert_eq!(w.modifiers(), &base);
         w.set_research(tech(&defs, "carpentry"), &defs).unwrap();
-        w.tick(&defs);
+        // Passive only, so capped (#284) at shelter's cost (25) first, 5000 ticks, then
+        // carpentry's (60), another 12000: 17000 total, both landing exactly on the tick math.
+        for _ in 0..17_000 {
+            w.tick(&defs);
+        }
+        assert!(w.research().is_known(tech(&defs, "carpentry")));
         assert_eq!(w.modifiers().construction, base.construction * 1.1);
         assert_eq!(w.modifiers(), &Modifiers { construction: base.construction * 1.1, ..base });
         assert_eq!(
@@ -731,22 +737,24 @@ mod tests {
 
     #[test]
     fn research_order_does_not_change_the_modifiers() {
-        let (mut w, defs) = world(Nation::Earth);
-        // Enough banked for shelter, carpentry, masonry and earth_shaping (265 points).
-        for _ in 0..54_000 {
-            w.tick(&defs);
-        }
-        let reach = |first: &str, then: &str| {
+        let (w, defs) = world(Nation::Earth);
+        let reach = |order: [&str; 2]| {
             let mut w = w.clone();
-            for t in [first, then] {
+            for t in order {
                 w.set_research(tech(&defs, t), &defs).unwrap();
-                w.tick(&defs);
+                // Drive the whole chain to completion, one tech a tick: the production cap
+                // (#284) is about pacing, not this test, which only checks that completion
+                // order doesn't change the final modifiers.
+                while !w.research().queue().is_empty() {
+                    w.research.bank_for_test(300_000);
+                    w.tick(&defs);
+                }
             }
             let order: Vec<_> = w.research().completions().iter().map(|c| c.tech).collect();
             (order, w)
         };
-        let (order_a, a) = reach("masonry", "earth_shaping");
-        let (order_b, b) = reach("earth_shaping", "masonry");
+        let (order_a, a) = reach(["masonry", "earth_shaping"]);
+        let (order_b, b) = reach(["earth_shaping", "masonry"]);
         assert_ne!(order_a, order_b, "the two runs should complete techs in different orders");
         assert!(a.research().known_techs().eq(b.research().known_techs()));
         assert_eq!(bits(a.modifiers()), bits(b.modifiers()));

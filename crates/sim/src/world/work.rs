@@ -910,7 +910,8 @@ impl World {
         }
     }
 
-    /// Takes the nearest reachable open job, if any. Returns whether it did.
+    /// Takes the nearest reachable open job, if any, preferring a lower-priority tier only when
+    /// nothing in a higher one is reachable (`job_priority`, issue #284). Returns whether it did.
     fn claim_job(&mut self, i: usize, defs: &Defs) -> bool {
         if self.tick < self.units[i].claim_retry_at {
             return false;
@@ -927,7 +928,7 @@ impl World {
         let flood = self.flood_from(i);
         // Whether a stockpile tile with room for each item can be reached, asked once per item.
         let mut room_cache: Vec<(ItemId, bool)> = Vec::new();
-        let mut best: Option<((u32, JobId), usize, Pos)> = None;
+        let mut best: Option<((u8, u32, JobId), usize, Pos)> = None;
         for (idx, job) in self.jobs.iter().enumerate() {
             if job.claimed_by.is_some() {
                 continue;
@@ -954,16 +955,20 @@ impl World {
                     .flatten(),
                 // Reachable as soon as the site itself is, whether or not its materials are yet:
                 // a unit will wait on those, as a resting harvest does.
-                JobKind::Build { pos } | JobKind::Study { pos } => {
-                    self.stand_building(&flood, pos, defs)
-                }
+                JobKind::Build { pos } => self.stand_building(&flood, pos, defs),
+                // Not reachable at all with nothing queued to study toward: nobody should claim
+                // a seat that would only idle there (#284). `run_study` leaves a seat it already
+                // holds the same way, once the queue empties.
+                JobKind::Study { pos } => (!self.research.queue().is_empty())
+                    .then(|| self.stand_building(&flood, pos, defs))
+                    .flatten(),
                 JobKind::EndeavorTask { task } => self
                     .gate_task(task, defs)
                     .filter(|(def, _)| self.unit_can_raise(i, def))
                     .and_then(|(_, anchor)| self.stand_building(&flood, anchor, defs)),
             };
             if let Some((cost, stand)) = found {
-                let key = (cost, job.id);
+                let key = (job_priority(job.kind), cost, job.id);
                 if best.is_none_or(|b| key < b.0) {
                     best = Some((key, idx, stand));
                 }
@@ -1023,7 +1028,8 @@ impl World {
             JobKind::Bend { ability, pos } => {
                 self.unit_can_bend(i, defs.ability(ability)) && can_stand(pos)
             }
-            JobKind::Build { pos } | JobKind::Study { pos } => can_stand_building(pos),
+            JobKind::Build { pos } => can_stand_building(pos),
+            JobKind::Study { pos } => !self.research.queue().is_empty() && can_stand_building(pos),
             JobKind::EndeavorTask { task } => {
                 self.gate_task(task, defs).is_some_and(|(def, anchor)| {
                     self.unit_can_raise(i, def) && can_stand_building(anchor)
@@ -1222,6 +1228,20 @@ impl World {
 /// `cart` only when `_u.carrying.is_some()` and `_on_foot` otherwise.
 fn rules_for<'a>(_on_foot: &'a MoveRules, cart: &'a MoveRules, _u: &Unit) -> &'a MoveRules {
     cart
+}
+
+/// `claim_job`'s tiers, lowest first: a study seat (#284) is filler for hands with nothing more
+/// pressing to do, so it only wins a tie-free pick when no harvest, haul, bend, build or
+/// endeavor task is reachable at all. Lower is picked first.
+fn job_priority(kind: JobKind) -> u8 {
+    match kind {
+        JobKind::Study { .. } => 1,
+        JobKind::Harvest { .. }
+        | JobKind::Haul { .. }
+        | JobKind::Bend { .. }
+        | JobKind::Build { .. }
+        | JobKind::EndeavorTask { .. } => 0,
+    }
 }
 
 #[cfg(test)]

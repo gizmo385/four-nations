@@ -2,13 +2,18 @@
 //! `data/research.toml`, issue #21).
 //!
 //! A study hall's `seats` becomes that many `JobKind::Study` jobs the moment it finishes
-//! construction (`world/build.rs`), one per seat. An idle unit claims a free seat exactly like
-//! any other job, walks to the hall and, every tick it's there, adds
+//! construction (`world/build.rs`), one per seat. It's the lowest-priority job there is
+//! (`work::job_priority`, #284): a unit claims a free seat only once no harvest, haul, bend,
+//! build or endeavor task is reachable, and only while something is queued to research
+//! (`Research::queue`); with nothing queued, no seat is claimed at all. A unit that already holds
+//! a seat walks to the hall and, every tick it's there, adds
 //! `study_knowledge_per_minute × the nation's effective `study` modifier` to the research pool
-//! (`Research::add_knowledge`). Needs pre-empt a seat exactly like any other job: a hungry
-//! scholar leaves to eat and production stops until it comes back. Unlike a harvest or a build,
-//! the job itself never completes; there's nothing to demolish yet, so a seat that's opened stays
-//! open for the rest of the game.
+//! (`Research::add_toward_target`), which caps the pool at the cost of what's being researched
+//! so the trickle can't bank toward several techs at once (`Research::cap_millis`). Needs pre-empt a
+//! seat exactly like any other job: a hungry scholar leaves to eat and production stops until it
+//! comes back. The job itself never completes; there's nothing to demolish yet, so a seat that's
+//! opened stays open for the rest of the game, and a scholar who empties the queue simply leaves
+//! it open rather than finishing it.
 
 use crate::jobs::JobKind;
 
@@ -24,12 +29,17 @@ impl World {
         }
     }
 
-    /// One tick of a unit holding a study seat: walk to the hall (beside a solid one, inside a
-    /// walkable one; seats are keyed by its anchor), then add knowledge every tick
-    /// it's there. The job never finishes on its own.
+    /// One tick of a unit holding a study seat: leave it if the research queue has emptied since
+    /// it was claimed (#284), else walk to the hall (beside a solid one, inside a walkable one;
+    /// seats are keyed by its anchor) and add knowledge every tick it's there. The job never
+    /// finishes on its own; leaving just frees the seat for later.
     pub(super) fn run_study(&mut self, i: usize, id: JobId, defs: &Defs) {
         let Some(idx) = self.job_index(id) else { return self.finish_job(i) };
         let JobKind::Study { pos } = self.jobs[idx].kind else { return self.finish_job(i) };
+        if self.research.queue().is_empty() {
+            self.jobs[idx].claimed_by = None;
+            return self.finish_job(i);
+        }
         if self.units[i].route.is_none() {
             let flood = self.flood_from(i);
             match self.stand_building(&flood, pos, defs).and_then(|(_, s)| flood.path_to(s)) {
@@ -41,7 +51,7 @@ impl World {
             return;
         }
         let rate = defs.research.study_millis_per_tick as f32 * self.modifiers().study;
-        self.research.add_knowledge(rate.round() as u64);
+        self.research.add_toward_target(rate.round() as u64, defs);
     }
 }
 
