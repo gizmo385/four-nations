@@ -4,6 +4,7 @@
 use fn_sim::building::BuildingId;
 use fn_sim::world::{Unit, UnitId};
 use fn_sim::{Nation, Pos};
+use fn_ui::build::Placement;
 use fn_ui::saves::Slot;
 use fn_ui::{Alerts, Session, Tool};
 
@@ -187,6 +188,25 @@ impl UiState {
         {
             Some(row) => format!("build {}: Enter to place (U: next building)", row.name),
             None => self.tool.hint(session),
+        }
+    }
+
+    /// The building the Build tool's ghosts would place (`fn_ui::build::valid_choice`): `None`
+    /// outside the Build tool, or with nothing placeable yet.
+    pub fn ghost_building(&self, session: &Session) -> Option<BuildingId> {
+        if self.tool != Tool::Build {
+            return None;
+        }
+        fn_ui::build::valid_choice(&fn_ui::build::picker_rows(session), self.choice)
+    }
+
+    /// The Build tool's ghosts (`fn_ui::build::ghosts`, #212): the footprint under the cursor
+    /// with no corner set, or one per stamp of the rectangle being dragged. Empty outside the
+    /// Build tool, or with nothing chosen yet.
+    pub fn ghosts(&self, session: &Session) -> Vec<Placement> {
+        match self.ghost_building(session) {
+            Some(b) => fn_ui::build::ghosts(session, self.anchor, self.cursor, b),
+            None => Vec::new(),
         }
     }
 
