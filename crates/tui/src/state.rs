@@ -1,6 +1,7 @@
 //! What the player is looking at: the cursor, the part of the map in view and the modal state.
 //! Nothing here touches the terminal, so the render and input tests drive it directly.
 
+use fn_sim::building::BuildingId;
 use fn_sim::world::{Unit, UnitId};
 use fn_sim::{Nation, Pos};
 use fn_ui::saves::Slot;
@@ -55,8 +56,12 @@ pub struct UiState {
     viewport: (i32, i32),
     /// The map's width and height in tiles.
     bounds: (i32, i32),
-    /// The active tool: `Select` until a tool key (`H` `X` `P` `B`) picks another.
+    /// The active tool: `Select` until a tool key (`H` `X` `P` `B` `U`) picks another.
     pub tool: Tool,
+    /// The building the Build tool places, kept across tool changes so `U` returns to it
+    /// (`fn_ui::tools::switch_tool`; the client keeps the same choice in its own `BuildChoice`
+    /// resource, since it belongs to the frontend, not the `Session`).
+    pub choice: Option<BuildingId>,
     /// The rectangle's first corner, set by the tool's first `Enter`. The rectangle runs from
     /// here to the cursor; only a tool has one, and switching tools drops it.
     pub anchor: Option<Pos>,
@@ -103,6 +108,7 @@ impl UiState {
             viewport: layout::viewport(screen.0, screen.1),
             bounds: (map.width(), map.height()),
             tool: Tool::Select,
+            choice: None,
             anchor: None,
             notice: String::new(),
             status: String::new(),
@@ -158,11 +164,30 @@ impl UiState {
         self.follow();
     }
 
-    /// Switches to `tool`, dropping the corner and the last result.
+    /// Switches to `tool`, dropping the corner and the last result. The building choice is not
+    /// a tool's own state (`fn_ui::tools::switch_tool` resolves it): it outlives the switch, so
+    /// coming back to Build returns to it.
     pub fn set_tool(&mut self, tool: Tool) {
         self.tool = tool;
         self.anchor = None;
         self.notice.clear();
+    }
+
+    /// What the active tool's hint says: generic for most tools, as `fn_ui`'s own
+    /// `Tool::hint` has it (it already names the ability for `Bend`, from the session's own
+    /// choice). `Build`'s choice belongs to the frontend, not the `Session`, so it's named here:
+    /// the building it would place, or the tool's plain label with none placeable.
+    pub fn tool_hint(&self, session: &Session) -> String {
+        if self.tool != Tool::Build {
+            return self.tool.hint(session);
+        }
+        let rows = fn_ui::build::picker_rows(session);
+        match fn_ui::build::valid_choice(&rows, self.choice)
+            .and_then(|id| rows.iter().find(|r| r.id == id))
+        {
+            Some(row) => format!("build {}: Enter to place (U: next building)", row.name),
+            None => self.tool.hint(session),
+        }
     }
 
     /// The corners of the rectangle being dragged: the anchor and the cursor, if a tool has an
@@ -425,5 +450,22 @@ mod tests {
         let (cx, cy) = ui.cursor_cell().expect("still in view");
         assert!((SCROLL_MARGIN..w - SCROLL_MARGIN).contains(&cx));
         assert!((SCROLL_MARGIN..h - SCROLL_MARGIN).contains(&cy));
+    }
+
+    /// Every other tool's hint is `fn_ui`'s own; the Build tool's names the chosen building,
+    /// since the choice belongs to `UiState`, not the `Session` (#275).
+    #[test]
+    fn the_build_tool_s_hint_names_the_chosen_building() {
+        let session = Session::new(7, Nation::Earth, 48, 32);
+        let mut ui = UiState::new(&session, (120, 40));
+        ui.set_tool(Tool::Harvest);
+        assert_eq!(ui.tool_hint(&session), Tool::Harvest.hint(&session));
+
+        // With no choice yet it falls back to the first building the nation can place (Bed).
+        ui.set_tool(Tool::Build);
+        assert_eq!(ui.tool_hint(&session), "build Bed: Enter to place (U: next building)");
+        let bed = session.defs.building_id("bed").unwrap();
+        ui.choice = Some(bed);
+        assert_eq!(ui.tool_hint(&session), "build Bed: Enter to place (U: next building)");
     }
 }

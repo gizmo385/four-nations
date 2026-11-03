@@ -50,10 +50,10 @@ pub fn terminal_cursor(ui: &UiState, area: Rect) -> Option<Position> {
 
 /// The keys the status line teaches in Select mode, and (after `Esc` closes it) with a unit
 /// selected, and in a screen. The key help (`?`) has the whole table.
-const KEYS: &str = "arrows/wasd move  Enter select  Tab units  H X P B tools  Space pause  \
+const KEYS: &str = "arrows/wasd move  Enter select  Tab units  H X P B U tools  Space pause  \
                     T research  L log  ? keys  q quit";
 const KEYS_SELECTED: &str = "Enter next here  Tab/Shift+Tab units  F follow  Esc close  \
-                             H X P B tools  Space pause  L log  ? keys";
+                             H X P B U tools  Space pause  L log  ? keys";
 const KEYS_SCREEN: &str =
     "arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause";
 const KEYS_RESEARCH: &str = "arrows/WASD choose  Enter set target  Esc/T close  L log  ? keys";
@@ -61,13 +61,13 @@ const KEYS_SAVES: &str =
     "arrows/W S choose  Enter load  Shift+S save over  N new  Esc/F6 close  ? keys";
 
 /// The status line in a tool: what `Enter` and `Esc` do now, then what the tool does (for `B`,
-/// the nation's ability).
+/// the nation's ability; for `U`, the building it would place).
 fn tool_status(session: &Session, ui: &UiState) -> String {
     let keys = match ui.rect_size() {
         None => "Enter set corner  Esc leave".to_owned(),
         Some((w, h)) => format!("Enter apply {w}x{h}  Esc drop corner"),
     };
-    format!("{keys}  |  {}", ui.tool.hint(session))
+    format!("{keys}  |  {}", ui.tool_hint(session))
 }
 
 fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, buf: &mut Buffer) {

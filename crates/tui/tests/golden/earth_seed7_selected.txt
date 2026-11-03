@@ -37,4 +37,4 @@
 │                                                              Energy █░░░░░░░░░  15%! ││                              │
 │ [Esc] close  [Tab] next  [F] follow                          Chi    ██████████ 100%  ││                              │
 ┗──────────────────────────────────────────────────────────────────────────────────────┛┗──────────────────────────────┛
- SELECT  Enter next here  Tab/Shift+Tab units  F follow  Esc close  H X P B tools  Space pause  L log  ? keys
+ SELECT  Enter next here  Tab/Shift+Tab units  F follow  Esc close  H X P B U tools  Space pause  L log  ? keys

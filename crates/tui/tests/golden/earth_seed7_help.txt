@@ -18,15 +18,16 @@
 │ X                      Cancel tool: cancel harvest, build site or stockpile          ││ Move speed              x0.9 │
 │ P                      Stockpile tool: designate stockpile                           ││ Carry capacity          x1.3 │
 │ B                      Bend tool: channel the nation's ability                       ││ Earthworks              x2.5 │
-│                                                                                      ││ Water work              x0.9 │
-│ TIME                                                                                 ││ Power generation        x0.8 │
-│ Space                  Pause or run                                                  ││ Construction            x1.5 │
-│ + =                    Faster                                                        ││                              │
-│ - _                    Slower                                                        ││ ◇ CURSOR            (94, 64) │
-│ .                      One tick, while paused                                        ││ Tyro                         │
-│                                                                                      ││ Earth Kingdom - Idle         │
-│ SCREENS AND GAME                                                                     ││ Carrying: nothing - Bends: 0 │
-│ T                      Research: arrows W A S D choose a tech, Enter sets it as the  ││ Press Enter to select        │
+│ U                      Build tool: place the chosen building (U: next building)      ││ Water work              x0.9 │
+│                                                                                      ││ Power generation        x0.8 │
+│ TIME                                                                                 ││ Construction            x1.5 │
+│ Space                  Pause or run                                                  ││                              │
+│ + =                    Faster                                                        ││ ◇ CURSOR            (94, 64) │
+│ - _                    Slower                                                        ││ Tyro                         │
+│ .                      One tick, while paused                                        ││ Earth Kingdom - Idle         │
+│                                                                                      ││ Carrying: nothing - Bends: 0 │
+│ SCREENS AND GAME                                                                     ││ Press Enter to select        │
+│ T                      Research: arrows W A S D choose a tech, Enter sets it as the  ││                              │
 │                        target                                                        ││                              │
 │ L                      Message log                                                   ││                              │
 │ ?                      Key help                                                      ││                              │
@@ -35,6 +36,5 @@
 │ F5                     Quicksave                                                     ││                              │
 │ F9                     Quickload (asks first)                                        ││                              │
 │ F6                     Saves: arrows/W S choose a slot, Enter loads it, Shift+S      ││                              │
-│                        saves over it (both ask first), N a new one                   ││                              │
 ┗─ Arrows W S scroll  PgUp PgDn page  Esc close  L log ────────────────────────────────┛┗──────────────────────────────┛
  KEYS  arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause

@@ -329,6 +329,46 @@ fn a_tool_key_switches_tools_and_drops_the_corner_and_the_result() {
     assert_eq!((app.ui.tool, app.ui.anchor), (Tool::CancelHarvest, None), "the same key again");
 }
 
+/// `U` picks the first building the nation can place; `U` again moves on to the next
+/// (`fn_ui::tools::switch_tool`), and switching to another tool and back keeps the choice.
+#[test]
+fn u_picks_a_building_and_again_cycles_keeping_the_choice_across_tools() {
+    let mut app = App::new(new_session(7, Nation::Earth), SIZE);
+    let rows = fn_ui::build::picker_rows(&app.session);
+    let open: Vec<_> = rows.iter().filter(|r| !r.locked()).map(|r| r.id).collect();
+    assert!(open.len() >= 2, "the scenario needs two placeable buildings");
+
+    app.play(&keys::parse("u").unwrap());
+    assert_eq!((app.ui.tool, app.ui.choice), (Tool::Build, Some(open[0])));
+    app.play(&keys::parse("u").unwrap());
+    assert_eq!((app.ui.tool, app.ui.choice), (Tool::Build, Some(open[1])));
+
+    app.play(&keys::parse("h").unwrap());
+    assert_eq!(app.ui.choice, Some(open[1]), "the choice outlives the switch");
+    app.play(&keys::parse("u").unwrap());
+    assert_eq!((app.ui.tool, app.ui.choice), (Tool::Build, Some(open[1])), "U returns to it");
+}
+
+/// A placement the sim refuses (a resource in the way) puts `fn_ui::build::describe_error`'s
+/// reason in the Tool notice, as any other tool's refusal does.
+#[test]
+fn a_refused_build_names_its_blocker_in_the_notice() {
+    let mut app = App::new(new_session(7, Nation::Earth), SIZE);
+    let tree = app
+        .session
+        .world
+        .map
+        .iter()
+        .find(|(_, t)| t.terrain == fn_sim::Terrain::Land && t.resource.is_some())
+        .map(|(p, _)| p)
+        .expect("a resource on land");
+    app.ui.cursor = tree;
+    app.play(&keys::parse("u <enter> <enter>").unwrap());
+    assert!(app.ui.notice.starts_with("build "), "{}", app.ui.notice);
+    assert!(app.ui.notice.contains("is in the way"), "{}", app.ui.notice);
+    assert!(app.session.world.build_site(tree).is_none(), "the refused build left no site");
+}
+
 #[test]
 fn designating_changes_nothing_in_select_mode() {
     let app = play("<enter> <right> <enter> <esc>");
@@ -425,6 +465,68 @@ fn golden_frame_after_the_rectangle_is_applied() {
         "earth_seed7_designated",
         &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)),
     );
+}
+
+/// Harvests up to `n` of the workable resources nearest the first settler, so there is wood
+/// coming in for a build to spend.
+fn harvest_resources_near_the_settlers(s: &mut Session, n: usize) -> Vec<Pos> {
+    let from = s.world.units[0].pos;
+    let near = |p: &Pos| (p.x - from.x).pow(2) + (p.y - from.y).pow(2);
+    let mut tiles: Vec<Pos> =
+        s.world.map.iter().filter(|(_, t)| t.resource.is_some()).map(|(p, _)| p).collect();
+    tiles.sort_by_key(near);
+    let mut done = Vec::new();
+    for pos in tiles {
+        if s.apply(Command::DesignateHarvest { pos }).is_ok() {
+            done.push(pos);
+            if done.len() >= n {
+                break;
+            }
+        }
+    }
+    done
+}
+
+/// A walkable, resource-free tile near `near` that isn't in `avoid` and has no unit on it, for a
+/// build designation.
+fn free_tile_near(s: &Session, near: Pos, avoid: &[Pos]) -> Pos {
+    s.world
+        .map
+        .iter()
+        .filter(|(p, t)| {
+            t.terrain.is_walkable()
+                && t.resource.is_none()
+                && (p.x - near.x).abs().max((p.y - near.y).abs()) <= 10
+                && !s.world.units.iter().any(|u| u.pos == *p)
+        })
+        .map(|(p, _)| p)
+        .find(|p| !avoid.contains(p))
+        .expect("a free tile near home")
+}
+
+/// `U` picks the first building the nation can place (Bed, for every nation; `fn_ui::build`'s
+/// `valid_choice` with no choice yet); two more `Enter`s designate it under the cursor. With wood
+/// coming in from a harvest designated the ordinary way, ticking finishes it.
+#[test]
+fn golden_frame_of_a_build_site_then_the_finished_building() {
+    let mut app = App::new(new_session(7, Nation::Earth), SIZE);
+    let trees = harvest_resources_near_the_settlers(&mut app.session, 3);
+    let bed = app.session.defs.building_id("bed").unwrap();
+    let home = app.session.world.units[0].pos;
+    let site = free_tile_near(&app.session, home, &trees);
+    app.ui.cursor = site;
+
+    app.play(&keys::parse("u <enter> <enter>").unwrap());
+    assert_eq!((app.ui.tool, app.ui.choice), (Tool::Build, Some(bed)));
+    assert!(app.session.world.build_site(site).is_some(), "a site should be designated");
+    golden(
+        "earth_seed7_build_site",
+        &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)),
+    );
+
+    app.play(&keys::parse("<tick 9000>").unwrap());
+    assert!(app.session.world.building_at(site).is_some(), "the bed should finish building");
+    golden("earth_seed7_built", &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)));
 }
 
 /// The rectangle's tiles take the tool's hue (stronger than a designation's), the cursor keeps
