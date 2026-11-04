@@ -17,6 +17,7 @@ use crate::nation::{Nation, NationDef};
 use crate::needs::{FoodDef, NeedsFile, NeedsSettings};
 use crate::path::MoveRules;
 use crate::research::{self, ResearchFile, ResearchSettings, TechDef, TechId};
+use crate::seasons::SeasonsDef;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -150,6 +151,10 @@ pub struct Defs {
     /// down (data/difficulty.toml, #294). Has no presets unless loaded with `with_difficulty`,
     /// which `bundled` does; `DifficultyDef::identity` still resolves either way.
     pub difficulty: DifficultyDef,
+    /// Seasons, climate bands, frost and cold (data/seasons.toml, #295). Safe to read even
+    /// unloaded (`SeasonsDef::default`); nothing acts on it unless a difficulty preset's
+    /// `seasons` flag is on, and `bundled` always loads this alongside `difficulty`.
+    pub seasons: SeasonsDef,
     /// `harvests` index by `ResourceId`, so the lookup is O(1).
     harvest_by_resource: Vec<Option<usize>>,
 }
@@ -236,6 +241,7 @@ impl Defs {
         .and_then(|d| d.with_endeavor(include_str!("../../../data/endeavor.toml")))
         .and_then(|d| d.with_embark(include_str!("../../../data/embark.toml")))
         .and_then(|d| d.with_difficulty(include_str!("../../../data/difficulty.toml")))
+        .and_then(|d| d.with_seasons(include_str!("../../../data/seasons.toml")))
         .expect("bundled data/*.toml must be valid; run `cargo test -p fn_sim`")
     }
 
@@ -302,6 +308,7 @@ impl Defs {
             endeavor: EndeavorDef::default(),
             embark: EmbarkDef::default(),
             difficulty: DifficultyDef::default(),
+            seasons: SeasonsDef::default(),
             harvest_by_resource,
         };
         defs.validate()?;

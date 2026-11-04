@@ -63,6 +63,11 @@ pub struct HarvestDef {
     /// (`data/research.toml`, `Unlocks::jobs`, issue #22). `None` means every nation can work it
     /// from the start.
     pub unlocked_by: Option<TechId>,
+    /// Skips the first frost of winter and grows at a flat `hardy_winter_growth` in every
+    /// climate band instead of the season or climate factor (`docs/design/difficulty.md`,
+    /// "Seasons", #295). Only the fish harvest has this today: ice fishing keeps working through
+    /// winter everywhere.
+    pub frost_hardy: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -109,6 +114,8 @@ struct RawHarvest {
     modifier: Option<String>,
     regrow: Option<f32>,
     tunnel_count: Option<u32>,
+    #[serde(default)]
+    frost_hardy: bool,
 }
 
 #[derive(Deserialize)]
@@ -221,6 +228,9 @@ impl JobsFile {
             if h.tunnel_count.is_some_and(|t| t <= h.count) {
                 return err(format!("harvest {r}: tunnel_count must be more than count"));
             }
+            if h.frost_hardy && h.regrow.is_none() {
+                return err(format!("harvest {r}: frost_hardy needs a regrow time"));
+            }
             harvests.push(HarvestDef {
                 resource: ResourceId(resource as u16),
                 verb: h.verb,
@@ -231,6 +241,7 @@ impl JobsFile {
                 regrow: h.regrow,
                 tunnel_count: h.tunnel_count,
                 unlocked_by: None,
+                frost_hardy: h.frost_hardy,
             });
         }
         link_unlocks(&mut harvests, resources, techs)?;

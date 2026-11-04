@@ -1,0 +1,97 @@
+# Seasons, climate bands, frost and cold (docs/design/difficulty.md, "Seasons", issue #295).
+# Read by `Defs::with_seasons`, the way `difficulty.toml` is. None of this does anything unless
+# the chosen difficulty preset's `seasons` flag is on (data/difficulty.toml); with it off, or no
+# preset at all, the world plays exactly as it did before this file existed.
+#
+# [calendar]:
+# - season_minutes:          in-game minutes in one season; a year is four of them.
+# - winter_warning_minutes:  how long before winter the "winter is coming" alert fires.
+# - hardy_winter_growth:     growth factor a `frost_hardy` harvest (data/jobs.toml; fishing)
+#                            uses in winter, in every climate band, instead of the season or
+#                            climate factor below.
+#
+# [[season]], in calendar order (four, exactly one `winter = true`):
+# - id, name:   identifies the season and what the TUI calls it.
+# - growth:     multiplies `World::growth_rate`'s season factor. Required for every season
+#               except winter, whose growth instead comes from the tile's climate band.
+# - winter:     marks the one season frost strikes in and cold applies through.
+#
+# [[climate]], ascending `max_temperature` to 1.0 (`World::climate_at` picks the first band, in
+# file order, whose `max_temperature` reaches a tile's quantized mapgen temperature):
+# - id, name:        identifies the band and what the TUI/embark report call it.
+# - max_temperature: the top of this band's temperature range, in (0, 1].
+# - winter_growth:   growth factor in winter, before `winter_severity` scales it toward 1.0 as
+#                    `1 - (1 - winter_growth) * winter_severity`.
+# - frost:           does the first frost of winter strike a ripe, non-`frost_hardy` wild plant
+#                    here (sends it back to resting for its full regrow time)?
+# - cold:            does a unit standing here in winter, with no heat source in reach, feel the
+#                    cold ([cold] below, scaled the same way as winter_growth)?
+#
+# [cold]: how much faster a cold unit's needs move, before `winter_severity` scales each toward
+# 1.0 the same way winter_growth is. Cold never touches health directly.
+# - energy_decay, hunger_decay:  multiply decay while awake.
+# - sleep:                       how much slower (below 1.0) energy is regained asleep, unless
+#                                heated or in a bed whose own `sleep_bonus` is above 1.0 (the
+#                                igloo).
+
+[calendar]
+season_minutes = 15.0
+winter_warning_minutes = 3.0
+hardy_winter_growth = 0.5
+
+[[season]]
+id = "spring"
+name = "Spring"
+growth = 1.25
+
+[[season]]
+id = "summer"
+name = "Summer"
+growth = 1.0
+
+[[season]]
+id = "autumn"
+name = "Autumn"
+growth = 0.75
+
+[[season]]
+id = "winter"
+name = "Winter"
+winter = true
+
+[[climate]]
+id = "polar"
+name = "Polar"
+max_temperature = 0.28
+winter_growth = 0.0
+frost = true
+cold = true
+
+[[climate]]
+id = "cool"
+name = "Cool"
+max_temperature = 0.45
+winter_growth = 0.1
+frost = true
+cold = true
+
+[[climate]]
+id = "temperate"
+name = "Temperate"
+max_temperature = 0.70
+winter_growth = 0.3
+frost = true
+cold = false
+
+[[climate]]
+id = "warm"
+name = "Warm"
+max_temperature = 1.0
+winter_growth = 0.6
+frost = false
+cold = false
+
+[cold]
+energy_decay = 1.5
+hunger_decay = 1.25
+sleep = 0.5

@@ -22,6 +22,7 @@ pub mod regions;
 pub mod research;
 pub mod rng;
 pub mod save;
+pub mod seasons;
 pub mod world;
 
 pub use defs::{Defs, Terrain};

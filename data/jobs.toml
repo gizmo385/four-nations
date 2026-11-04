@@ -89,6 +89,10 @@ name = "Tool"
 #             (Earth's Bore Tunnel, data/bending.toml) touches the resource's tile, any of its 8
 #             neighbours: the vein is mined from inside the mountain (issue #132,
 #             docs/design/research.md, "Tunneling"). Without it tunnels make no difference.
+# - frost_hardy: optional, needs `regrow`. Skips the first frost of winter and grows at a flat
+#             `hardy_winter_growth` (data/seasons.toml) in every climate band instead of the
+#             season or climate factor (docs/design/difficulty.md, "Seasons", #295). Only
+#             fishing has this: ice fishing keeps working through winter everywhere.
 # Which tech, if any, must be known before a resource's designation is available is
 # `[tech.unlocks] jobs` in data/research.toml (issue #22): until the nation knows it, the
 # resource can't be designated, and hungry units won't forage it either.
@@ -169,6 +173,7 @@ count = 2
 work = 8.0
 modifier = "water_work"
 regrow = 300.0
+frost_hardy = true
 
 # --- #197 (Air: gliders) -----------------------------------------------------------------------
 
