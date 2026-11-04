@@ -37,11 +37,13 @@ fn run_until(w: &mut World, defs: &Defs, limit: u64, mut done: impl FnMut(&World
     panic!("not done after {limit} ticks");
 }
 
-/// Stands a finished building on `pos` the way `run_build` leaves it.
+/// Stands a finished building on `pos` the way `run_build` leaves it: `raise` also updates
+/// `building_index` (#292), so this does too, or `tick_endeavor`'s signs would never see it.
 fn place(w: &mut World, defs: &Defs, pos: Pos, building: &str) -> BuildingId {
     let id = defs.building_id(building).unwrap();
     let def = defs.building(id);
     w.map[pos].building = Some(Building::new(id, def.passable, def.rail.is_some()));
+    w.building_index.insert((pos.y, pos.x), pos);
     w.light_building_fire(pos, [1, 1], def);
     w.map_changed();
     id
@@ -90,6 +92,7 @@ fn place_big(w: &mut World, id: BuildingId, anchor: Pos, size: (u8, u8)) -> crat
         w.map[p].building =
             Some(Building { part, size: [size.0, size.1], ..Building::new(id, false, false) });
     }
+    w.building_index.insert((anchor.y, anchor.x), anchor);
     w.map_changed();
     foot
 }

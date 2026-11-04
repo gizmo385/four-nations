@@ -37,6 +37,7 @@ fn world(nation: Nation, units: i32, defs: &Defs) -> World {
 fn put(w: &mut World, defs: &Defs, building: &str, pos: Pos) {
     let id = defs.building_id(building).expect("building exists");
     w.map[pos].building = Some(Building::new(id, defs.building(id).passable, false));
+    w.building_index.insert((pos.y, pos.x), pos);
     w.map_changed();
 }
 
@@ -112,6 +113,7 @@ fn a_building_over_several_tiles_counts_once() {
         let b = Building { part, size: [2, 1], ..Building::new(bed, true, false) };
         w.map[at(x, 3)].building = Some(b);
     }
+    w.building_index.insert((3, 3), at(3, 3));
     assert_eq!(progress(&w, &defs, "beds"), (1, 2, false));
     assert_eq!(progress(&w, &defs, "building_kinds").0, 1);
 }

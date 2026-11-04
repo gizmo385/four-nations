@@ -164,12 +164,28 @@ impl World {
         }
     }
 
-    /// Every finished building once, with its footprint, in anchor order (row-major).
+    /// Every finished building once, with its footprint, in anchor order (row-major). Scans the
+    /// whole map: `World::map` is public, so a caller (or a frontend's test) may have put a
+    /// building straight onto it without going through `raise`, and this has to see it too.
+    /// `building_index` (#292) isn't a substitute for that; it only speeds up the one caller
+    /// that is guaranteed to see only buildings `raise` put there (`finished_buildings` below).
     pub fn buildings(&self) -> impl Iterator<Item = (Footprint, BuildingId)> + '_ {
         self.map.iter().filter_map(|(p, t)| {
             let b = t.building?;
             (b.part == [0, 0]).then(|| (b.footprint(p), b.id))
         })
+    }
+
+    /// Rebuilds `building_index` from a full map scan: used once after loading a save, since the
+    /// index isn't saved (`#[serde(skip)]` on `World::building_index`).
+    pub(crate) fn rebuild_building_index(&mut self) {
+        self.building_index = self
+            .map
+            .iter()
+            .filter_map(|(p, t)| {
+                t.building.is_some_and(|b| b.part == [0, 0]).then_some(((p.y, p.x), p))
+            })
+            .collect();
     }
 
     /// The site whose footprint covers `pos`, with its anchor. Sites are few (tens), so this
@@ -204,6 +220,7 @@ impl World {
             let part = [(p.x - foot.anchor.x) as u8, (p.y - foot.anchor.y) as u8];
             self.map[p].building = Some(Building { part, ..b });
         }
+        self.building_index.insert((foot.anchor.y, foot.anchor.x), foot.anchor);
         if !def.passable {
             self.clear_footprint(foot);
         }
