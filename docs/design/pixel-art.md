@@ -186,10 +186,13 @@ ramp around it break it up. Each floor has its own mark vocabulary:
 
 `art/buildings.toml` is one 4-wide sheet of 32x32 sprites (#149): the bed, three campfire frames,
 the four study halls (Air Meditation Pavilion, Water Elders' Lodge, Earth Scroll Library, Fire
-Academy) and a signboard with a "?" for a building with no art yet. A building stands on its tile
-like a tree: bottom-aligned, drawn by `row_depth`, free to overhang the tiles around it. Under the
-design in [buildings.md](buildings.md) (#196), most of these become 2x2 footprints that the
-existing 32x32 art fills exactly.
+Academy) and a signboard with a "?" for a building with no art yet. A building is bottom-aligned,
+drawn by `row_depth`, and **fills its footprint**: the sprite's cell is `width * 16` by
+`height * 16` px, and it may overhang the tiles around it only *upward* (masts, sails, roofs),
+never to the sides or below, the same rule trees use for their canopy. Under the design in
+[buildings.md](buildings.md) (#196, sizes turned on in data by #214), most of these are 2x2
+footprints that the existing 32x32 art fills exactly; the study halls are taller still
+([Larger art](buildings.md#larger-art)).
 
 - **Which sprite is data.** `data/buildings.toml` gives a building an optional `art` table
   beside `names` (all four nations or none); the sprite is `art[nation]`, else the building's

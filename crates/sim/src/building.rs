@@ -601,8 +601,26 @@ mod tests {
     #[test]
     fn footprints_default_to_one_tile_and_are_validated() {
         let defs = Defs::bundled();
-        let mut ordinary = defs.buildings.iter().filter(|b| !b.endeavor);
-        assert!(ordinary.all(|b| b.footprint == (1, 1)), "#214 turns sizes on");
+        // #214 turns sizes on for these; the rest stay 1x1.
+        let big = [
+            "study_hall",
+            "orchard",
+            "windmill",
+            "bison_stable",
+            "forge",
+            "brick_kiln",
+            "smelter",
+            "steam_engine",
+            "lightning_station",
+        ];
+        for id in big {
+            let def = defs.building(defs.building_id(id).unwrap());
+            assert_eq!(def.footprint, (2, 2), "{id}");
+        }
+        for id in ["bed", "campfire", "earth_wall", "rail", "wind_turbine", "igloo"] {
+            let def = defs.building(defs.building_id(id).unwrap());
+            assert_eq!(def.footprint, (1, 1), "{id}");
+        }
         // The endeavor's gate (#236) is the one building already full size.
         let gate = defs.building(defs.building_id("harmony_gate").unwrap());
         assert_eq!(gate.footprint, (4, 4));

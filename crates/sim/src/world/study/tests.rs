@@ -40,13 +40,24 @@ fn run_until(w: &mut World, defs: &Defs, limit: u64, mut done: impl FnMut(&World
 
 const GRID: [&str; 5] = [".........", ".........", ".........", ".........", "........."];
 
-/// Puts a finished study hall at `pos` (skipping the construction job itself, which `build.rs`
-/// already covers) and opens its seats, the way `run_build` does the moment one completes.
-fn place_study_hall(w: &mut World, defs: &Defs, pos: Pos) {
+/// Puts a finished study hall at `anchor` (skipping the construction job itself, which
+/// `build.rs` already covers), covering its real footprint (#214: a solid 2x2), and opens its
+/// seats, the way `run_build` does the moment one completes.
+fn place_study_hall(w: &mut World, defs: &Defs, anchor: Pos) {
     let hall = defs.building_id("study_hall").expect("study hall");
     let def = defs.building(hall);
-    w.map[pos].building = Some(Building::new(hall, def.passable, false));
-    w.open_study_seats(pos, def.seats);
+    let (width, height) = def.footprint;
+    let foot = crate::geom::Footprint::new(anchor, width, height);
+    for p in foot.tiles() {
+        let part = [(p.x - anchor.x) as u8, (p.y - anchor.y) as u8];
+        w.map[p].building = Some(Building {
+            part,
+            size: [width, height],
+            ..Building::new(hall, def.passable, false)
+        });
+    }
+    w.map_changed();
+    w.open_study_seats(anchor, def.seats);
 }
 
 /// Queues `id` so a seat is worth claiming (#284: nothing is claimed with an empty queue).
@@ -56,20 +67,21 @@ fn start_research(w: &mut World, defs: &Defs, id: &str) {
 
 #[test]
 fn a_finished_study_hall_opens_one_job_per_seat() {
-    let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(2, 2)]);
+    let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(1, 2)]);
     let seats = defs.building(defs.building_id("study_hall").unwrap()).seats;
     place_study_hall(&mut w, &defs, at(2, 2));
     assert_eq!(w.jobs().len(), seats as usize);
     start_research(&mut w, &defs, "earth_shaping");
 
-    // The unit starts right on the hall's tile, so it claims a seat on its very first tick.
+    // The unit starts right beside the hall's solid 2x2 footprint, so it claims a seat on its
+    // very first tick with no travel.
     w.tick(&defs);
     assert!(matches!(w.units[0].task(), Some(Task::Study(_))), "{:?}", w.units[0].task());
 }
 
 #[test]
 fn no_seat_is_claimed_with_nothing_queued_to_research() {
-    let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(2, 2)]);
+    let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(1, 2)]);
     place_study_hall(&mut w, &defs, at(2, 2));
     for _ in 0..200 {
         w.tick(&defs);
@@ -80,7 +92,7 @@ fn no_seat_is_claimed_with_nothing_queued_to_research() {
 
 #[test]
 fn a_scholar_leaves_its_seat_once_the_queue_empties() {
-    let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(2, 2)]);
+    let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(1, 2)]);
     place_study_hall(&mut w, &defs, at(2, 2));
     start_research(&mut w, &defs, "fire_making");
     w.tick(&defs);
@@ -97,7 +109,7 @@ fn a_scholar_leaves_its_seat_once_the_queue_empties() {
 
 #[test]
 fn a_scholar_studying_adds_the_expected_knowledge_each_tick() {
-    let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(2, 2)]);
+    let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(1, 2)]);
     place_study_hall(&mut w, &defs, at(2, 2));
     // `earth_shaping` needs no further prereq (Earth starts with `stoneworking`), so the pool's
     // cap while queued (#284) is its full 60 points, well above what this test banks.
@@ -119,7 +131,7 @@ fn a_scholar_studying_adds_the_expected_knowledge_each_tick() {
 
 #[test]
 fn a_hungry_scholar_leaves_to_eat_and_stops_producing() {
-    let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(2, 2)]);
+    let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(1, 2)]);
     place_study_hall(&mut w, &defs, at(2, 2));
     start_research(&mut w, &defs, "earth_shaping");
     w.tick(&defs);
@@ -143,7 +155,7 @@ fn a_hungry_scholar_leaves_to_eat_and_stops_producing() {
 
 #[test]
 fn the_study_modifier_scales_how_fast_a_scholar_adds_knowledge() {
-    let (mut w, defs) = setup(Nation::Air, &GRID, &[at(2, 2)]);
+    let (mut w, defs) = setup(Nation::Air, &GRID, &[at(1, 2)]);
     place_study_hall(&mut w, &defs, at(2, 2));
     // `meditation` has no prereqs and raises Air's `study` modifier to 1.2 (data/research.toml).
     let meditation = defs.tech_id("meditation").unwrap();

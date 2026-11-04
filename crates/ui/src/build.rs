@@ -507,8 +507,13 @@ mod tests {
         let rows = picker_rows(&s);
         let row = |id| rows.iter().find(|r| r.id == id).unwrap().cost.clone();
         assert_eq!(row(hall), "5 Wood, 2x2");
+        // #214 turns real footprints on, so a fresh nation sees the size suffix on every
+        // bigger-than-1x1 building (the study hall from the start) and on no 1x1 one.
         let fresh = session(Nation::Earth);
-        assert!(picker_rows(&fresh).iter().all(|r| !r.cost.contains('x')));
+        for r in picker_rows(&fresh) {
+            let big = fresh.defs.building(r.id).footprint != (1, 1);
+            assert_eq!(r.cost.contains('x'), big, "{}", fresh.defs.building(r.id).id);
+        }
     }
 
     #[test]
