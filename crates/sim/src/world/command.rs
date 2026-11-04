@@ -150,6 +150,13 @@ impl World {
     /// is applied when the world's tick equals its recorded tick, in log order. Run it on a world
     /// built from the same seed, nation and map config as the one that made the log (and still at
     /// tick 0) to reproduce that session. Commands recorded after `until` are left unapplied.
+    ///
+    /// Rebuild that initial world from (seed, size, nation, `start`) first: `World::new(cfg,
+    /// nation, units, defs)` when `start` is `None` (a save or log from before #289, or `new`'s
+    /// own path), or otherwise `World::found(Survey::new(cfg, defs), nation, start, units,
+    /// defs).expect(..)`, with `cfg` built from the saved map's size. The founded site was valid
+    /// when it was recorded, so `found` refusing it again would mean the data or the map changed
+    /// underneath the log.
     pub fn replay(&mut self, log: &[Recorded], until: u64, defs: &Defs) {
         let mut next = 0;
         loop {
