@@ -71,6 +71,23 @@ pub struct StageDef {
     pub work: f32,
     /// Bends that finish the stage, each once its own cost is delivered and the work is done.
     pub tasks: Vec<TaskDef>,
+    /// The Harmony Rite's own numbers (`[stage.rite]`), set only on the stage that *is* the rite
+    /// (`docs/design/endgame.md`, "The project: four stages"; issue #238). `None` for every other
+    /// stage, including a data file that never defines one: then the gate finishes at the Arch.
+    /// A rite stage has no `cost`, `work` or `tasks` of its own; its own module (`world/gate.rs`)
+    /// tracks its progress differently, by attendance rather than hauling and channelling.
+    pub rite: Option<RiteDef>,
+}
+
+/// The Harmony Rite's own numbers (`[stage.rite]`; issue #238): how long it takes and how much
+/// of the settlement must attend for it to move at all.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RiteDef {
+    /// Minutes of attendance needed to finish (the design's "10 minutes").
+    pub minutes: f32,
+    /// The share of the living population (the Avatar never counts) that must be on the plaza
+    /// for progress to accrue, in `(0, 1]` (the design's "half the settlers").
+    pub attendance_share: f32,
 }
 
 /// A bend that is part of a stage (`[[stage.task]]`): a pillar raised by its element, or an
@@ -126,6 +143,9 @@ pub struct AvatarDef {
     pub return_minutes: f32,
     /// How long after the foundation stage is done before he arrives.
     pub arrive_after_minutes: f32,
+    /// How long he stays for the celebration once the Harmony Rite completes, before he flies
+    /// off for good (`docs/design/endgame.md`, "How long he stays": "one in-game day"; #238).
+    pub farewell_minutes: f32,
 }
 
 /// Where a sign is listed. The UI groups signs under these, in this order.
@@ -233,6 +253,32 @@ struct RawStage {
     work: f32,
     #[serde(default)]
     task: Vec<RawTask>,
+    /// Set only on the stage that is the Harmony Rite (`[stage.rite]`, #238).
+    #[serde(default)]
+    rite: Option<RawRite>,
+}
+
+/// `[stage.rite]`: the Harmony Rite's own numbers.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawRite {
+    minutes: f32,
+    attendance_share: f32,
+}
+
+impl RawRite {
+    fn resolve(self, err: &dyn Fn(&str) -> DefsError) -> Result<RiteDef, DefsError> {
+        if !(self.minutes.is_finite() && self.minutes > 0.0) {
+            return Err(err("rite.minutes must be a positive number"));
+        }
+        if !(self.attendance_share.is_finite()
+            && self.attendance_share > 0.0
+            && self.attendance_share <= 1.0)
+        {
+            return Err(err("rite.attendance_share must be in (0, 1]"));
+        }
+        Ok(RiteDef { minutes: self.minutes, attendance_share: self.attendance_share })
+    }
 }
 
 /// `[[stage.task]]`'s `element`: a nation, or `"avatar"` for a task only he can claim.
@@ -360,6 +406,13 @@ impl EndeavorFile {
             }
             stages.push(stage);
         }
+        let rite_stages = stages.iter().filter(|s| s.rite.is_some()).count();
+        if rite_stages > 1 {
+            return Err(DefsError("endeavor: only one stage may be the Harmony Rite".into()));
+        }
+        if rite_stages == 1 && !stages.last().is_some_and(|s| s.rite.is_some()) {
+            return Err(DefsError("endeavor: the Harmony Rite must be the last stage".into()));
+        }
         let RawEndeavor { name, description, building } = self.endeavor;
         let building = match (building, stages.is_empty()) {
             (None, true) => None,
@@ -382,11 +435,12 @@ impl EndeavorFile {
             }
         };
         let avatar = self.avatar.map(|a| a.resolve(items, abilities)).transpose()?;
-        let needs_avatar =
-            stages.iter().flat_map(|s| &s.tasks).any(|t| matches!(t.element, TaskWho::Avatar));
+        let needs_avatar = rite_stages > 0
+            || stages.iter().flat_map(|s| &s.tasks).any(|t| matches!(t.element, TaskWho::Avatar));
         if needs_avatar && avatar.is_none() {
             return Err(DefsError(
-                "endeavor: a task for the Avatar needs an [avatar] section".into(),
+                "endeavor: a task for the Avatar, or the Harmony Rite, needs an [avatar] section"
+                    .into(),
             ));
         }
         Ok(EndeavorDef { name, description, signs, building, stages, avatar })
@@ -430,11 +484,20 @@ impl RawStage {
             return Err(err("work must be a number of seconds, 0 or more"));
         }
         let cost = resolve_cost(self.cost, items, &err)?;
-        if !cost.is_empty() && self.work == 0.0 {
-            return Err(err("a stage with a cost needs work to spend it on"));
-        }
-        if self.work == 0.0 && self.task.is_empty() {
-            return Err(err("needs work or at least one task"));
+        let rite = self.rite.map(|r| r.resolve(&err)).transpose()?;
+        if rite.is_some() {
+            // The rite's own progress is attendance, not hauling or channelling (`world/gate.rs`,
+            // #238): its stage carries none of the usual cost, work or tasks.
+            if !cost.is_empty() || self.work != 0.0 || !self.task.is_empty() {
+                return Err(err("the Harmony Rite has no cost, work or task of its own"));
+            }
+        } else {
+            if !cost.is_empty() && self.work == 0.0 {
+                return Err(err("a stage with a cost needs work to spend it on"));
+            }
+            if self.work == 0.0 && self.task.is_empty() {
+                return Err(err("needs work or at least one task"));
+            }
         }
         // Jobs name a task by its place in the stage, in a byte.
         if self.task.len() > usize::from(u8::MAX) {
@@ -442,7 +505,7 @@ impl RawStage {
         }
         let tasks =
             self.task.into_iter().map(|t| t.resolve(items, chi_max)).collect::<Result<_, _>>()?;
-        Ok(StageDef { name: self.name, cost, work: self.work, tasks, id })
+        Ok(StageDef { name: self.name, cost, work: self.work, tasks, rite, id })
     }
 }
 
@@ -491,6 +554,7 @@ struct RawAvatar {
     patience_minutes: f32,
     return_minutes: f32,
     arrive_after_minutes: f32,
+    farewell_minutes: f32,
 }
 
 impl RawAvatar {
@@ -512,6 +576,7 @@ impl RawAvatar {
             ("patience_minutes", self.patience_minutes),
             ("return_minutes", self.return_minutes),
             ("arrive_after_minutes", self.arrive_after_minutes),
+            ("farewell_minutes", self.farewell_minutes),
         ] {
             if !(v.is_finite() && v > 0.0) {
                 return Err(err(&format!("{what} must be a positive number")));
@@ -556,6 +621,7 @@ impl RawAvatar {
             patience_minutes: self.patience_minutes,
             return_minutes: self.return_minutes,
             arrive_after_minutes: self.arrive_after_minutes,
+            farewell_minutes: self.farewell_minutes,
         })
     }
 }
@@ -869,7 +935,7 @@ mod tests {
         let e = &defs.endeavor;
         assert_eq!(e.building, defs.building_id("harmony_gate"));
         let ids: Vec<&str> = e.stages.iter().map(|s| s.id.as_str()).collect();
-        assert_eq!(ids, ["foundation", "pillars", "arch"]);
+        assert_eq!(ids, ["foundation", "pillars", "arch", "rite"]);
         let foundation = &e.stages[0];
         assert!(
             foundation.work > 0.0 && !foundation.cost.is_empty() && foundation.tasks.is_empty()
@@ -890,6 +956,12 @@ mod tests {
         // The Arch's beam lift needs the Avatar (docs/design/endgame.md, "The project").
         let (_, arch) = e.stage("arch").unwrap();
         assert!(arch.tasks.iter().any(|t| t.element == TaskWho::Avatar));
+        // The Harmony Rite is the last stage, and has none of the usual cost, work or tasks.
+        let (last, rite) = e.stage("rite").unwrap();
+        assert_eq!(last, e.stages.len() - 1);
+        assert!(rite.cost.is_empty() && rite.work == 0.0 && rite.tasks.is_empty());
+        let r = rite.rite.expect("the rite stage carries [stage.rite]");
+        assert!(r.minutes > 0.0 && r.attendance_share > 0.0 && r.attendance_share <= 1.0);
         assert!(e.avatar.is_some());
     }
 
@@ -967,6 +1039,63 @@ mod tests {
         assert!(e.contains("needs an [avatar] section"), "{e}");
     }
 
+    const RITE: &str = "[[stage]]\nid = \"rite\"\nname = \"R\"\n[stage.rite]\nminutes = 10.0\nattendance_share = 0.5\n";
+
+    /// A valid `[avatar]` section on its own (no `[endeavor]` header), to compose with `stages()`.
+    const AVATAR_SECTION: &str = "[avatar]\nid = \"a\"\nname = \"A\"\ncharacter = \"c\"\n\
+        chi_max = 200.0\npatience_minutes = 1.0\nreturn_minutes = 1.0\n\
+        arrive_after_minutes = 1.0\nfarewell_minutes = 1.0\nabilities = [\"raise_earth\"]\n\
+        [avatar.modifiers]\nmove_speed = 1.0\ncarry_capacity = 1.0\nearthworks = 1.0\n\
+        heating = 1.0\nwater_work = 1.0\npower_generation = 1.0\nconstruction = 1.0\n\
+        study = 1.0\nchi_regen = 1.0\n";
+
+    #[test]
+    fn a_rite_stage_needs_an_avatar_section_and_carries_no_other_fields() {
+        let e = stage_error(RITE);
+        assert!(e.contains("needs an [avatar] section"), "{e}");
+        let with_cost = "[[stage]]\nid = \"rite\"\nname = \"R\"\n\
+             cost = [{ item = \"stone\", count = 1 }]\n[stage.rite]\nminutes = 10.0\n\
+             attendance_share = 0.5\n";
+        assert!(stage_error(with_cost).contains("no cost, work or task"));
+        let with_work = "[[stage]]\nid = \"rite\"\nname = \"R\"\nwork = 1.0\n\
+             [stage.rite]\nminutes = 10.0\nattendance_share = 0.5\n";
+        assert!(stage_error(with_work).contains("no cost, work or task"));
+        let with_task = format!(
+            "[[stage]]\nid = \"rite\"\nname = \"R\"\n{PILLAR}\
+             [stage.rite]\nminutes = 10.0\nattendance_share = 0.5\n"
+        );
+        assert!(stage_error(&with_task).contains("no cost, work or task"));
+    }
+
+    #[test]
+    fn a_rite_stages_own_numbers_are_checked() {
+        let rite = |minutes: &str, share: &str| {
+            format!(
+                "[[stage]]\nid = \"rite\"\nname = \"R\"\n[stage.rite]\nminutes = {minutes}\n\
+                 attendance_share = {share}\n"
+            )
+        };
+        assert!(stage_error(&rite("0.0", "0.5")).contains("minutes must be"));
+        assert!(stage_error(&rite("-1.0", "0.5")).contains("minutes must be"));
+        assert!(stage_error(&rite("10.0", "0.0")).contains("attendance_share"));
+        assert!(stage_error(&rite("10.0", "1.5")).contains("attendance_share"));
+        // Exactly 1.0 (everyone) is allowed.
+        let e = format!("{}{}", rite("10.0", "1.0"), AVATAR_SECTION);
+        assert!(stages(&e).is_ok());
+    }
+
+    #[test]
+    fn only_one_stage_may_be_the_rite_and_it_must_be_last() {
+        let second_rite = "[[stage]]\nid = \"rite2\"\nname = \"R2\"\n\
+             [stage.rite]\nminutes = 10.0\nattendance_share = 0.5\n";
+        let two = format!("{RITE}{second_rite}");
+        let e = stage_error(&two);
+        assert!(e.contains("only one stage"), "{e}");
+        let after = format!("{RITE}[[stage]]\nid = \"after\"\nname = \"After\"\nwork = 1.0\n");
+        let e = stage_error(&after);
+        assert!(e.contains("must be the last stage"), "{e}");
+    }
+
     #[test]
     fn the_bundled_avatar_has_his_abilities_refuses_and_modifiers() {
         let defs = Defs::bundled();
@@ -982,6 +1111,7 @@ mod tests {
         assert_eq!(a.abilities.len(), signature.len());
         assert_eq!(a.refuses, [defs.item_id("fish").unwrap()]);
         assert!(a.patience_minutes > 0.0 && a.return_minutes > 0.0 && a.arrive_after_minutes > 0.0);
+        assert!(a.farewell_minutes > 0.0);
     }
 
     /// A valid `[avatar]` section, with `chi_max`, `patience_minutes`, `abilities` and `refuses`
@@ -990,7 +1120,8 @@ mod tests {
         format!(
             "[endeavor]\nname = \"G\"\n[avatar]\nid = \"a\"\nname = \"A\"\ncharacter = \"c\"\n\
              chi_max = {chi_max}\npatience_minutes = {patience}\nreturn_minutes = 1.0\n\
-             arrive_after_minutes = 1.0\nabilities = {abilities}\nrefuses = {refuses}\n\
+             arrive_after_minutes = 1.0\nfarewell_minutes = 1.0\n\
+             abilities = {abilities}\nrefuses = {refuses}\n\
              [avatar.modifiers]\nmove_speed = 1.0\ncarry_capacity = 1.0\nearthworks = 1.0\n\
              heating = 1.0\nwater_work = 1.0\npower_generation = 1.0\nconstruction = 1.0\n\
              study = 1.0\nchi_regen = 1.0\n"
@@ -1028,7 +1159,7 @@ mod tests {
     fn the_avatars_id_name_and_character_must_not_be_empty() {
         let base = "[endeavor]\nname = \"G\"\n[avatar]\nid = \"{id}\"\nname = \"{name}\"\n\
                      character = \"{character}\"\nchi_max = 200.0\npatience_minutes = 1.0\n\
-                     return_minutes = 1.0\narrive_after_minutes = 1.0\n\
+                     return_minutes = 1.0\narrive_after_minutes = 1.0\nfarewell_minutes = 1.0\n\
                      abilities = [\"raise_earth\"]\n[avatar.modifiers]\nmove_speed = 1.0\n\
                      carry_capacity = 1.0\nearthworks = 1.0\nheating = 1.0\nwater_work = 1.0\n\
                      power_generation = 1.0\nconstruction = 1.0\nstudy = 1.0\nchi_regen = 1.0\n";

@@ -67,6 +67,18 @@ pub enum EndeavorEventKind {
     AvatarLeft(AvatarLeaveReason),
     /// The Avatar came back.
     AvatarReturned,
+    /// The Harmony Rite's progress paused: attendance fell short of its share (`world/gate.rs`,
+    /// #238).
+    RitePaused,
+    /// A settler's death broke the Harmony Rite: its progress reset to nothing (`world/gate.rs`,
+    /// #238).
+    RiteBroken,
+    /// The last stage finished: the gate stands and the endeavor is `Complete` (`world/gate.rs`,
+    /// #236, #238).
+    Complete,
+    /// The Avatar's farewell: he leaves the settlement for good, `AvatarDef::farewell_minutes`
+    /// after the Harmony Rite completed (`world/avatar.rs`, #238).
+    AvatarFarewell,
 }
 
 /// Why the Avatar left (`world/avatar.rs`, #237): named for the client's toast ("Aang has gone

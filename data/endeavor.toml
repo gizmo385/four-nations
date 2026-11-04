@@ -39,6 +39,14 @@
 # - element: who may do it: a unit of this nation, or "avatar" for a task only the Avatar may
 #            claim (the Arch's beam lift). The Avatar may also do any nation's pillar task.
 #
+# [stage.rite] (issue #238, docs/design/endgame.md "The project": "The Harmony Rite"): marks the
+# one stage that *is* the rite, instead of the usual cost/work/tasks (which must all be empty on
+# it). The Avatar meditates on the plaza while settlers Attend; `world/gate.rs` tracks the
+# minutes of attendance itself, pausing and resetting it rather than hauling and channelling.
+# - minutes:           in-game minutes of attendance needed to finish.
+# - attendance_share:  the share, in (0, 1], of the living population (the Avatar never counts)
+#                       that must be on the plaza for progress to accrue; below it, it pauses.
+#
 # [avatar] (issue #237, docs/design/endgame.md "The Avatar"): Aang, who appears once the
 # foundation stage is done and leaves only if neglected.
 # - id, name, character: his own ids; `character` is an art id the sim never interprets.
@@ -48,9 +56,12 @@
 # - abilities:            the signature abilities he may cast (ids from data/bending.toml).
 # - refuses:              foods (item ids) he won't eat raw or cooked.
 # - patience_minutes:     how long his hunger or energy may stay at or below `low` before he
-#                         leaves (an event names the reason).
+#                         leaves (an event names the reason); suspended once the Harmony Rite
+#                         has begun (#238).
 # - return_minutes:       how long he stays away once he has left.
 # - arrive_after_minutes: how long after the foundation stage is done before he arrives.
+# - farewell_minutes:     how long he stays for the celebration once the rite completes, before
+#                         he flies off for good (#238; he doesn't come back in v1).
 #
 # A sign whose system doesn't exist yet stays out of this file, and the loader rejects a kind the
 # sim can't count:
@@ -198,6 +209,17 @@ element = "avatar"
 chi = 50.0
 work = 90.0
 
+# The Harmony Rite (docs/design/endgame.md, "The Harmony Rite", #238): the last stage, with none
+# of the usual cost, work or tasks. The Avatar meditates on the plaza while settlers Attend; ten
+# minutes of that, with at least half the settlement attending, finishes the gate.
+[[stage]]
+id = "rite"
+name = "The Harmony Rite"
+
+[stage.rite]
+minutes = 10.0
+attendance_share = 0.5
+
 # The Avatar (docs/design/endgame.md, "The Avatar"). Chi max and the regen multiplier
 # (modifiers.chi_regen) are his own; the other work modifiers are the best of the four nations'.
 [avatar]
@@ -208,6 +230,7 @@ chi_max = 200.0
 patience_minutes = 20.0
 return_minutes = 30.0
 arrive_after_minutes = 2.0
+farewell_minutes = 20.0
 abilities = ["raise_earth", "water_the_land", "hearthflame", "wind_carry"]
 refuses = ["fish"]
 

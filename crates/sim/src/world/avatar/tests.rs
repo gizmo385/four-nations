@@ -26,7 +26,7 @@ const ANCHOR: Pos = Pos::new(12, 4);
 /// (many-minute) defaults.
 const AVATAR: &str = "\n[avatar]\nid = \"aang\"\nname = \"Aang\"\ncharacter = \"aang\"\n\
                        chi_max = 200.0\npatience_minutes = 1.0\nreturn_minutes = 1.0\n\
-                       arrive_after_minutes = 1.0\n\
+                       arrive_after_minutes = 1.0\nfarewell_minutes = 1.0\n\
                        abilities = [\"raise_earth\", \"water_the_land\", \"hearthflame\", \
                        \"wind_carry\"]\nrefuses = [\"fish\"]\n\
                        [avatar.modifiers]\nmove_speed = 1.6\ncarry_capacity = 1.0\n\

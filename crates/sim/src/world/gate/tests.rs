@@ -282,3 +282,111 @@ fn replaying_the_log_rebuilds_the_same_gate() {
     assert_eq!(again.endeavor(), w.endeavor());
     assert_eq!(again.endeavor_events(), w.endeavor_events());
 }
+
+// The Harmony Rite (issue #238; docs/design/endgame.md, "The Harmony Rite").
+
+/// A short `[avatar]` section, so rite tests don't wait out the real arrival or farewell
+/// minutes.
+const RITE_AVATAR: &str = "[avatar]\nid = \"aang\"\nname = \"Aang\"\ncharacter = \"aang\"\n\
+    chi_max = 200.0\npatience_minutes = 1.0\nreturn_minutes = 1.0\n\
+    arrive_after_minutes = 0.01\nfarewell_minutes = 0.05\n\
+    abilities = [\"raise_earth\", \"water_the_land\", \"hearthflame\", \"wind_carry\"]\n\
+    refuses = [\"fish\"]\n\
+    [avatar.modifiers]\nmove_speed = 1.6\ncarry_capacity = 1.0\nearthworks = 2.5\n\
+    heating = 2.5\nwater_work = 2.0\npower_generation = 2.0\nconstruction = 1.5\n\
+    study = 1.0\nchi_regen = 2.0\n";
+
+/// The bundled data with a quick, costless foundation, then the Harmony Rite with `minutes` and
+/// `attendance_share`, and the Avatar.
+fn defs_with_rite(minutes: f32, share: f32) -> Defs {
+    Defs::bundled()
+        .with_endeavor(&format!(
+            "[endeavor]\nname = \"Gate\"\nbuilding = \"harmony_gate\"\n\
+             [[stage]]\nid = \"base\"\nname = \"Base\"\nwork = 0.01\n\
+             [[stage]]\nid = \"rite\"\nname = \"R\"\n\
+             [stage.rite]\nminutes = {minutes}\nattendance_share = {share}\n{RITE_AVATAR}"
+        ))
+        .expect("test stages are valid")
+}
+
+fn rite_events(w: &World) -> Vec<&EndeavorEventKind> {
+    w.endeavor_events()
+        .iter()
+        .map(|e| &e.kind)
+        .filter(|k| {
+            matches!(
+                k,
+                EndeavorEventKind::RitePaused
+                    | EndeavorEventKind::RiteBroken
+                    | EndeavorEventKind::Complete
+                    | EndeavorEventKind::AvatarFarewell
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn the_rite_completes_with_enough_attendance_and_the_avatar_eventually_departs() {
+    let defs = defs_with_rite(0.05, 0.5); // 3 seconds of attendance, out of 2 settlers.
+    let mut w = world(Nation::Earth, 2, &defs);
+    begin(&mut w, &defs);
+    run_until(&mut w, &defs, 6_000, |w| matches!(w.endeavor(), EndeavorState::Complete { .. }));
+    assert_eq!(stages_done(&w), ["base", "rite"]);
+    // A brief pause while the Avatar walks over and the first settlers claim an Attend job is
+    // normal; what matters is that it completes.
+    assert_eq!(rite_events(&w).last(), Some(&&EndeavorEventKind::Complete));
+    assert!(matches!(w.avatar(), AvatarState::Farewell { .. }), "{:?}", w.avatar());
+    // He stays for the celebration, still a unit, then leaves for good.
+    assert!(w.units.iter().any(Unit::is_avatar));
+    run_until(&mut w, &defs, 2_000, |w| matches!(w.avatar(), AvatarState::Departed));
+    assert!(!w.units.iter().any(Unit::is_avatar));
+    assert_eq!(rite_events(&w).last(), Some(&&EndeavorEventKind::AvatarFarewell));
+}
+
+#[test]
+fn the_rite_pauses_while_attendance_is_short_of_the_share() {
+    // 20 settlers, needing 18 to attend, but the plaza (4x4) can only ever hold 16: it never has
+    // enough, however long it waits.
+    let defs = defs_with_rite(0.05, 0.9);
+    let spawns: Vec<Pos> = (0..20).map(|x| at(x, 0)).collect();
+    let mut w = World::with_map(1, field(24, 10), Nation::Earth, &spawns, &defs);
+    w.endeavor = EndeavorState::Ready { tick: 0 };
+    w.apply(Command::BeginEndeavor { anchor: at(18, 3) }, &defs).expect("site is free");
+    run_until(&mut w, &defs, 3_000, |w| stage_id(w) == Some("rite"));
+    for _ in 0..2_000 {
+        w.tick(&defs);
+    }
+    assert!(matches!(w.endeavor(), EndeavorState::Building(_)), "{:?}", w.endeavor());
+    assert_eq!(w.gate().unwrap().rite_progress, 0.0);
+    assert_eq!(rite_events(&w), [&EndeavorEventKind::RitePaused]);
+}
+
+#[test]
+fn a_death_during_the_rite_resets_its_progress() {
+    let defs = defs_with_rite(0.2, 0.5); // 12 seconds of attendance, out of 3 settlers.
+    let mut w = world(Nation::Earth, 3, &defs);
+    begin(&mut w, &defs);
+    run_until(&mut w, &defs, 3_000, |w| stage_id(w) == Some("rite"));
+    run_until(&mut w, &defs, 2_000, |w| w.gate().is_some_and(|g| g.rite_progress > 0.0));
+    assert!(w.gate().unwrap().rite_progress > 0.0);
+    // Fully depleted, not just low, so health takes damage this very tick instead of regenerating
+    // (`Needs::tick_scaled`): it dies for certain, deterministically, on the next tick.
+    w.units[0].needs.hunger = 0.0;
+    w.units[0].needs.health = 0.0;
+    w.tick(&defs);
+    assert_eq!(w.deaths.len(), 1);
+    assert_eq!(w.gate().unwrap().rite_progress, 0.0);
+    assert_eq!(rite_events(&w).last(), Some(&&EndeavorEventKind::RiteBroken));
+}
+
+#[test]
+fn the_whole_ready_to_complete_run_is_deterministic() {
+    let defs = defs_with_rite(0.05, 0.5);
+    let play = || {
+        let mut w = world(Nation::Earth, 3, &defs);
+        begin(&mut w, &defs);
+        run_until(&mut w, &defs, 6_000, |w| matches!(w.endeavor(), EndeavorState::Complete { .. }));
+        (w.tick, w.endeavor_events().to_vec())
+    };
+    assert_eq!(play(), play());
+}

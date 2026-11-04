@@ -35,6 +35,11 @@
 //! **Study** (`study.rs`, #21) also rides on the same queue, but a seat never completes: it
 //! produces knowledge for as long as someone holds it, and pre-emption just pauses that.
 //!
+//! **Attend** (`gate.rs`, #238), the Harmony Rite's own low-priority job, works the same way as a
+//! seat: a unit claims one only with nothing more urgent reachable, and it never completes on its
+//! own. The Avatar's own place in the rite (`Task::Rite`) is never a `Job` at all: `run_idle`
+//! assigns it to him directly, and `consider_needs` never lets a need pre-empt it.
+//!
 //! Hungry units eat from the closest of: food they carry, food in a stockpile, food lying on the
 //! ground, or a wild food resource they work for themselves. Raw food always works (owner rule,
 //! #3): nobody starves because their nation lacks fire. A meal eaten within reach of a lit heat
@@ -91,6 +96,12 @@ pub enum Task {
     Study(JobId),
     /// Doing one of the endeavor gate's tasks (`world/gate.rs`, #236).
     Endeavor(JobId),
+    /// Holding a tile of the plaza during the Harmony Rite (`world/gate.rs`, #238).
+    Attend(JobId),
+    /// The Avatar's own place in the Harmony Rite: meditating on the plaza
+    /// (`world/gate.rs`, #238). Never backed by a `Job`, so needs never pre-empt it once he
+    /// holds it (`consider_needs`); only he is ever assigned it.
+    Rite,
     /// Carrying a stack to a stockpile tile.
     Deliver,
     Eat(FoodSource),
@@ -173,7 +184,8 @@ impl World {
                 | JobKind::Bend { .. }
                 | JobKind::Build { .. }
                 | JobKind::Study { .. }
-                | JobKind::EndeavorTask { .. } => None,
+                | JobKind::EndeavorTask { .. }
+                | JobKind::Attend { .. } => None,
             })
             .chain(self.standing_harvest.iter().copied())
     }
@@ -510,8 +522,8 @@ impl World {
                     // No demolish command yet, so a seat opened for a study hall stays open for
                     // as long as the building does, which today is forever.
                     JobKind::Study { pos } => map[pos].building.is_some(),
-                    // The gate drops its own task jobs when it moves on (`gate.rs`).
-                    JobKind::EndeavorTask { .. } => true,
+                    // The gate drops its own task and Attend jobs when it moves on (`gate.rs`).
+                    JobKind::EndeavorTask { .. } | JobKind::Attend { .. } => true,
                 }
         });
         // A standing order (#81) outlives its job (which disappears between harvests while the
@@ -637,6 +649,11 @@ impl World {
     fn consider_needs(&mut self, i: usize, defs: &Defs) {
         let u = &self.units[i];
         if u.need_task.is_some() {
+            return;
+        }
+        if u.job_task == Some(Task::Rite) {
+            // His needs never pre-empt the Harmony Rite once he has begun it
+            // (`docs/design/endgame.md`, "What can go wrong"; #238).
             return;
         }
         let n = &defs.needs;
@@ -960,6 +977,11 @@ impl World {
             let u = &mut self.units[i];
             u.job_task = Some(Task::Deliver);
             u.route = None;
+        } else if self.units[i].is_avatar() && self.gate_on_rite_stage(defs) {
+            // The Harmony Rite outranks everything else of his (`docs/design/endgame.md`, "The
+            // Avatar"'s priority list puts Avatar tasks first): never a queued `Job`, so there's
+            // nothing to claim, just his own place to take (`world/gate.rs`, #238).
+            self.units[i].job_task = Some(Task::Rite);
         } else if self.claim_job(i, defs) {
             self.units[i].wander_left = 0;
         } else {
@@ -983,8 +1005,9 @@ impl World {
             return false;
         }
         let flood = self.flood_from(i);
-        // The Avatar never hauls, builds, studies or harvests (`docs/design/endgame.md`, "The
-        // Avatar", #237): only needs, Avatar tasks, pillar tasks and bend jobs are his to claim.
+        // The Avatar never hauls, builds, studies, harvests or Attends (`docs/design/endgame.md`,
+        // "The Avatar", #237, #238): only needs, Avatar tasks, pillar tasks and bend jobs are his
+        // to claim; the rite itself is assigned directly (`run_idle`), never through this queue.
         let is_avatar = self.units[i].is_avatar();
         // Whether a stockpile tile with room for each item can be reached, asked once per item.
         let mut room_cache: Vec<(ItemId, bool)> = Vec::new();
@@ -1000,6 +1023,7 @@ impl World {
                         | JobKind::Haul { .. }
                         | JobKind::Build { .. }
                         | JobKind::Study { .. }
+                        | JobKind::Attend { .. }
                 )
             {
                 continue;
@@ -1038,6 +1062,7 @@ impl World {
                     .gate_task(task, defs)
                     .filter(|(def, _)| self.unit_can_raise(i, def))
                     .and_then(|(_, anchor)| self.stand_building(&flood, anchor, defs)),
+                JobKind::Attend { pos } => self.stand_tile(&flood, pos),
             };
             if let Some((cost, stand)) = found {
                 let priority = if is_avatar {
@@ -1065,6 +1090,7 @@ impl World {
             JobKind::Build { .. } => Task::Build(job.id),
             JobKind::Study { .. } => Task::Study(job.id),
             JobKind::EndeavorTask { .. } => Task::Endeavor(job.id),
+            JobKind::Attend { .. } => Task::Attend(job.id),
         };
         let u = &mut self.units[i];
         u.job_task = Some(task);
@@ -1093,11 +1119,12 @@ impl World {
         let can_stand_building = |pos: Pos| can_stand_in(self.work_area(pos, defs));
         let is_avatar = self.units[i].is_avatar();
         self.jobs.iter().filter(|j| j.claimed_by.is_none()).any(|job| match job.kind {
-            // The Avatar never hauls, builds, studies or harvests (#237).
+            // The Avatar never hauls, builds, studies, harvests or Attends (#237, #238).
             JobKind::Harvest { .. }
             | JobKind::Haul { .. }
             | JobKind::Build { .. }
             | JobKind::Study { .. }
+            | JobKind::Attend { .. }
                 if is_avatar =>
             {
                 false
@@ -1122,6 +1149,7 @@ impl World {
                     self.unit_can_raise(i, def) && can_stand_building(anchor)
                 })
             }
+            JobKind::Attend { pos } => in_here(pos),
         })
     }
 
@@ -1176,6 +1204,8 @@ impl World {
             Task::Build(id) => self.run_build(i, id, defs),
             Task::Study(id) => self.run_study(i, id, defs),
             Task::Endeavor(id) => self.run_gate_task(i, id, defs),
+            Task::Attend(id) => self.run_attend(i, id, defs),
+            Task::Rite => self.run_rite(i, defs),
             Task::Deliver => self.run_deliver(i, defs),
             // Need tasks never sit in the job slot.
             _ => self.finish_job(i),
@@ -1333,10 +1363,13 @@ fn rules_for<'a>(_on_foot: &'a MoveRules, cart: &'a MoveRules, _u: &Unit) -> &'a
 
 /// `claim_job`'s tiers, lowest first: a study seat (#284) is filler for hands with nothing more
 /// pressing to do, so it only wins a tie-free pick when no harvest, haul, bend, build or
-/// endeavor task is reachable at all. Lower is picked first.
+/// endeavor task is reachable at all. Attending the Harmony Rite (#238) is lower still: "nothing
+/// more urgent" (`docs/design/endgame.md`), so it loses to a study seat too. Lower is picked
+/// first.
 fn job_priority(kind: JobKind) -> u8 {
     match kind {
         JobKind::Study { .. } => 1,
+        JobKind::Attend { .. } => 2,
         JobKind::Harvest { .. }
         | JobKind::Haul { .. }
         | JobKind::Bend { .. }

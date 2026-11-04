@@ -12,7 +12,12 @@
 //! energy: if either has stayed at or below `low` with no gap for `AvatarDef::patience_minutes`,
 //! he leaves (an event names the reason) and comes back `AvatarDef::return_minutes` later, by
 //! the same arrival search. He never dies (`World::tick_needs`); thirst isn't a leaving reason,
-//! by design.
+//! by design. This is suspended for as long as he holds the Harmony Rite (`Task::Rite`,
+//! `world/gate.rs`, #238): his needs never pre-empt it once it has begun.
+//!
+//! **The farewell** (#238): once the rite completes, `gate.rs` calls `begin_avatar_farewell`,
+//! which moves him to `Farewell`. `AvatarDef::farewell_minutes` later he departs for good
+//! (`Departed`): v1 has no later visit.
 //!
 //! **One guest, one id.** The Avatar is never more than one unit at a time, so he keeps a single
 //! reserved id (`AVATAR_UNIT_ID`, the top of the `u32` range, never used by an ordinary settler)
@@ -42,6 +47,11 @@ pub enum AvatarState {
     Present,
     /// He left; he is due back on or after this tick, as soon as a tile is free.
     Away { returns_at: u64 },
+    /// The Harmony Rite is complete: he stays for the celebration until this tick, then departs
+    /// for good (#238). He is still `Unit::is_avatar` in `World::units` throughout.
+    Farewell { at: u64 },
+    /// He has flown off for good once his farewell ended. V1 has no later visit.
+    Departed,
 }
 
 impl World {
@@ -120,10 +130,15 @@ impl World {
     }
 
     /// While the Avatar is here: tracks how long his hunger or energy has stayed at or below
-    /// `low` with no gap, and sends him home once that reaches `patience_minutes`.
+    /// `low` with no gap, and sends him home once that reaches `patience_minutes`. Suspended for
+    /// as long as he holds the Harmony Rite (`docs/design/endgame.md`, "What can go wrong";
+    /// #238): his needs never pre-empt it once it has begun.
     fn check_avatar_patience(&mut self, defs: &Defs) {
         let Some(avatar) = &defs.endeavor.avatar else { return };
         let Some(i) = self.units.iter().position(Unit::is_avatar) else { return };
+        if self.units[i].job_task == Some(Task::Rite) {
+            return;
+        }
         let (hunger, energy) = (self.units[i].needs.hunger, self.units[i].needs.energy);
         let hungry = hunger <= defs.needs.hunger.low;
         let tired = energy <= defs.needs.energy.low;
@@ -169,7 +184,28 @@ impl World {
                 }
             }
             AvatarState::Away { .. } => {}
+            AvatarState::Farewell { at } if self.tick >= at => self.avatar_departs(),
+            AvatarState::Farewell { .. } => {}
+            AvatarState::Departed => {}
         }
+    }
+
+    /// The Harmony Rite just completed (`gate.rs`, #238): he stays for the celebration until
+    /// `AvatarDef::farewell_minutes` from now, then departs for good.
+    pub(super) fn begin_avatar_farewell(&mut self, defs: &Defs) {
+        let Some(avatar) = &defs.endeavor.avatar else { return };
+        let at = self.tick + minutes_to_ticks(avatar.farewell_minutes);
+        self.avatar = AvatarState::Farewell { at };
+    }
+
+    /// His farewell is over: he leaves the settlement for good.
+    fn avatar_departs(&mut self) {
+        if let Some(i) = self.units.iter().position(Unit::is_avatar) {
+            let u = self.units.remove(i);
+            self.release(&u);
+        }
+        self.avatar = AvatarState::Departed;
+        self.endeavor_event(EndeavorEventKind::AvatarFarewell);
     }
 }
 
