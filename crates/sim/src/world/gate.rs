@@ -193,7 +193,7 @@ impl World {
             return Err(EndeavorError::NotReady);
         }
         let Some(gate) = defs.endeavor.building else { return Err(EndeavorError::NoGate) };
-        self.footprint_blocker(anchor, defs.building(gate))
+        self.footprint_blocker(anchor, defs.building(gate), defs)
             .map_or(Ok(()), |(at, why)| Err(EndeavorError::CannotBuild { at, why }))
     }
 

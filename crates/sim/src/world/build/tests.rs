@@ -230,14 +230,15 @@ fn rail_is_built_like_any_building_and_marks_its_tile() {
     assert!(defs.building(bed).rail.is_none());
 }
 
-/// The bundled bed turned into a solid 2x2 building, for footprint tests (no bundled building is
-/// bigger than 1x1 yet, #214).
+/// The bundled bed turned into a solid 2x2 building with room inside (so it has a door, #226),
+/// for footprint tests that shouldn't depend on the bundled study hall's data.
 fn hall_2x2(defs: &mut Defs) -> BuildingId {
     let id = defs.building_id("bed").unwrap();
     let def = &mut defs.buildings[id.0 as usize];
     def.footprint = (2, 2);
     def.bed = None;
     def.passable = false;
+    def.capacity = 2;
     id
 }
 
@@ -355,6 +356,22 @@ fn a_footprint_may_not_cover_another_doorway() {
     assert_eq!(w.build_sites().count(), 1, "the refused one changed nothing");
     // Moved clear of the door, the same building fits.
     assert!(w.designate_build(at(3, 2), hall, &defs).is_ok());
+}
+
+/// Only buildings that can be entered have doors: solid 1x1 buildings with no capacity stack in a
+/// column (a north-south wall) and sit with water right below them.
+#[test]
+fn a_building_nobody_enters_has_no_door_to_keep_clear() {
+    let rows = ["......", "......", "......", "~~....", "......"];
+    let (mut w, mut defs) = setup(&rows, &[at(5, 4)]);
+    let id = defs.building_id("bed").unwrap();
+    let wall = &mut defs.buildings[id.0 as usize];
+    wall.bed = None;
+    wall.passable = false;
+    wall.capacity = 0;
+    for y in 0..3 {
+        assert_eq!(w.designate_build(at(1, y), id, &defs).map(|_| ()), Ok(()), "wall at y={y}");
+    }
 }
 
 #[test]

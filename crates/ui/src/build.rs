@@ -290,6 +290,10 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
         let seats = def.seats;
         effects.push(format!("Study hall: {seats} seat{}", if seats == 1 { "" } else { "s" }));
     }
+    // Capacity defaults to seats (#226), so a hall's seat line already says it.
+    if def.capacity > 0 && def.capacity != def.seats {
+        effects.push(format!("Room for {} inside, through the door", def.capacity));
+    }
     if let Some(bed) = &def.bed {
         effects.push(format!(
             "Bed: sleeps {:.1}x faster, sought within {} tiles",
@@ -538,6 +542,18 @@ mod tests {
         assert_eq!(
             building_detail(&earth, wall).effects,
             vec!["Nothing beyond shelter".to_owned()]
+        );
+
+        // A capacity beyond the seats (#226) gets its own line; a hall's equal one doesn't.
+        assert!(!hall_detail.effects.iter().any(|e| e.starts_with("Room for")), "{hall_detail:?}");
+        let mut roomy = session(Nation::Earth);
+        roomy.defs.buildings[wall.0 as usize].capacity = 3;
+        assert!(
+            building_detail(&roomy, wall)
+                .effects
+                .contains(&"Room for 3 inside, through the door".to_owned()),
+            "{:?}",
+            building_detail(&roomy, wall)
         );
 
         // The endeavor's gate has no cost of its own (#236): its stages do.

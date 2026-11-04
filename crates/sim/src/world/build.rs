@@ -279,7 +279,7 @@ impl World {
         if let Some(t) = def.unlocked_by.filter(|&t| !self.research.is_known(t)) {
             return Err(BuildError::NotResearched(t));
         }
-        self.footprint_blocker(anchor, def)
+        self.footprint_blocker(anchor, def, defs)
             .map_or(Ok(()), |(at, why)| Err(BuildError::CannotBuild { at, why }))
     }
 
@@ -289,26 +289,35 @@ impl World {
         &self,
         anchor: Pos,
         def: &BuildingDef,
+        defs: &Defs,
     ) -> Option<(Pos, Blocker)> {
         let (w, h) = def.footprint;
         let foot = Footprint::new(anchor, w, h);
         foot.tiles()
             .find_map(|at| self.build_blocker(at).map(|why| (at, why)))
-            .or_else(|| self.entrance_blocker(foot))
+            .or_else(|| self.entrance_blocker(foot, def.capacity > 0, defs))
     }
 
-    /// Why `foot`'s door can't be placed, if anything (#226): it isn't walkable itself, or the
-    /// footprint would cover a door another finished building or site already has. A unit
-    /// standing on the door doesn't block it, like anywhere else in the footprint.
-    fn entrance_blocker(&self, foot: Footprint) -> Option<(Pos, Blocker)> {
+    /// Why `foot`'s door can't be placed, if anything (#226): it has a door (`has_door`, a
+    /// capacity above 0) that isn't walkable, or the footprint would cover a door another finished
+    /// building or site already has. Only buildings that can be entered have doors, so walls,
+    /// beds and campfires pack freely, a vertical wall included. A unit standing on the door
+    /// doesn't block it, like anywhere else in the footprint.
+    fn entrance_blocker(
+        &self,
+        foot: Footprint,
+        has_door: bool,
+        defs: &Defs,
+    ) -> Option<(Pos, Blocker)> {
         let entrance = foot.entrance();
-        let walkable = self.map.get(entrance).is_some_and(|t| self.rules.passable(t));
-        if !walkable {
+        if has_door && !self.map.get(entrance).is_some_and(|t| self.rules.passable(t)) {
             return Some((entrance, Blocker::Entrance));
         }
+        let door =
+            |f: Footprint, b: BuildingId| (defs.building(b).capacity > 0).then(|| f.entrance());
         let taken = |p: Pos| {
-            self.buildings().any(|(f, _)| f.entrance() == p)
-                || self.build_sites().any(|(f, ..)| f.entrance() == p)
+            self.buildings().any(|(f, b)| door(f, b) == Some(p))
+                || self.build_sites().any(|(f, b, _)| door(f, b) == Some(p))
         };
         foot.tiles().find(|&p| taken(p)).map(|p| (p, Blocker::Entrance))
     }
