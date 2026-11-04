@@ -1,16 +1,18 @@
 //! Bending at work: designating an ability, a unit channeling it, and what it does.
 //!
 //! A bend is a job like a harvest (`JobKind::Bend`). The player designates a tile
-//! (`Command::Bend`), which the settlement's own nation must be able to use (`check_ability`); a
-//! unit whose chi covers the cost and whose own nation can use the ability claims it
-//! (`unit_can_bend`, #239: a signature ability needs only that its nation matches the unit's own,
-//! home settler or not; a branch ability also needs the settlement's research, so only a
-//! home-nation unit can take it), walks to the tile and channels for `AbilityDef::work` seconds
-//! (divided by the `speed_modifier` named in `data/bending.toml`). Needs pre-empt it and its
-//! progress is kept, exactly as for harvests. **Chi is spent only when the bend completes**;
-//! since a unit holds one job at a time it can't be spent twice. If the target is no longer
-//! valid when the channel finishes, the job is dropped, no chi is spent and the event log says
-//! why.
+//! (`Command::Bend`), which the settlement's own nation must be able to use, or failing that
+//! someone living here must (`check_ability`: a foreign-nation unit, or the Avatar, #237); a unit
+//! whose chi covers the cost and who is allowed to use the ability claims it (`unit_can_bend`,
+//! #239: a signature ability needs only that its nation matches the unit's own, home settler or
+//! not; a branch ability also needs the settlement's research, so only a home-nation unit can
+//! take it; #237: the Avatar may claim any of the four signature abilities, whatever his own
+//! "nation" -- he has none -- and whatever the settlement's), walks to the tile and channels for
+//! `AbilityDef::work` seconds (divided by the `speed_modifier` named in `data/bending.toml`).
+//! Needs pre-empt it and its progress is kept, exactly as for harvests. **Chi is spent only when
+//! the bend completes**; since a unit holds one job at a time it can't be spent twice. If the
+//! target is no longer valid when the channel finishes, the job is dropped, no chi is spent and
+//! the event log says why.
 //!
 //! **This file holds every `match` on `Effect`** (AGENTS.md rule 7): `validate_effect` says
 //! whether a target is acceptable and `apply_effect` changes the world. The four real effects
@@ -61,7 +63,8 @@ pub enum BendError {
     UnknownAbility,
     /// The ability needs a tech the settlement hasn't learned.
     Locked { tech: TechId },
-    /// The ability belongs to another nation.
+    /// The ability belongs to another nation, and nobody living here (the settlement's own
+    /// nation, a guest, or #240's newcomers) can cast it.
     WrongNation,
     /// The tile can't take this ability, and why ("needs fresh water within 4 tiles").
     InvalidTarget(&'static str),
@@ -76,7 +79,7 @@ impl std::fmt::Display for BendError {
         match self {
             Self::UnknownAbility => f.write_str("no such ability"),
             Self::Locked { .. } => f.write_str("not researched yet"),
-            Self::WrongNation => f.write_str("that ability belongs to another nation"),
+            Self::WrongNation => f.write_str("nobody here can cast this"),
             Self::InvalidTarget(why) => f.write_str(why),
             Self::AlreadyDesignated => f.write_str("already designated"),
             Self::NotDesignated => f.write_str("not designated"),
@@ -189,7 +192,8 @@ impl World {
             let Some(job) = self.job(id) else { continue };
             let JobKind::Bend { ability, pos } = job.kind else { continue };
             let def = defs.ability(ability);
-            let remaining_secs = (def.work - job.progress).max(0.0) / self.bend_rate(def).max(1e-3);
+            let rate = self.bend_rate(u, def, defs);
+            let remaining_secs = (def.work - job.progress).max(0.0) / rate.max(1e-3);
             out.push(BendChannel { unit: u.id, ability, pos, remaining_secs });
         }
         out
@@ -236,11 +240,19 @@ impl World {
             .collect()
     }
 
-    /// Can this settlement use `ability` right now: it is the nation's and its tech (if any) is
-    /// known. For the client to decide which abilities to offer.
+    /// Can `ability` be designated right now: the settlement's own nation can use it, or failing
+    /// that, someone living here can (a foreign-nation unit, or the Avatar, #237 -- "nobody here
+    /// can cast this" otherwise), and its tech (if any) is known. For the client to decide which
+    /// abilities to offer.
     pub fn check_ability(&self, ability: AbilityId, defs: &Defs) -> Result<(), BendError> {
         let def = defs.abilities.get(ability.0 as usize).ok_or(BendError::UnknownAbility)?;
-        if def.nation != self.nation {
+        let avatar_knows = defs.endeavor.avatar.as_ref().is_some_and(|a| {
+            a.abilities.contains(&ability) && self.units.iter().any(Unit::is_avatar)
+        });
+        if def.nation != self.nation
+            && !avatar_knows
+            && !self.units.iter().any(|u| self.nation_of(u) == def.nation)
+        {
             return Err(BendError::WrongNation);
         }
         match def.unlocked_by {
@@ -312,17 +324,23 @@ impl World {
 
 /// Doing it.
 impl World {
-    /// Whether unit `i` may take a bend job for `def`: its chi covers the cost and the ability is
-    /// one its own nation can use right now (#239). A signature ability (no tech unlocks it)
-    /// needs only that the unit's own nation matches: any unit of that nation can use it, home
-    /// settler or not, since it needs no research to begin with. A branch ability needs the
-    /// settlement's research too, so only a home-nation unit (one with no nation of its own, or
-    /// explicitly the settlement's) can take it: a unit of another nation doesn't benefit from
-    /// techs its own nation hasn't researched (teaching across nations is deferred).
-    pub(super) fn unit_can_bend(&self, i: usize, def: &AbilityDef) -> bool {
+    /// Whether unit `i` may take a bend job for `ability`: its chi covers the cost and it is
+    /// allowed to use it right now. The Avatar (#237) may claim any ability his own `[avatar]`
+    /// list names, whatever his "nation" (he has none) and whatever the settlement's. Otherwise
+    /// (#239): a signature ability (no tech unlocks it) needs only that the unit's own nation
+    /// matches: any unit of that nation can use it, home settler or not, since it needs no
+    /// research to begin with. A branch ability needs the settlement's research too, so only a
+    /// home-nation unit (one with no nation of its own, or explicitly the settlement's) can take
+    /// it: a unit of another nation doesn't benefit from techs its own nation hasn't researched
+    /// (teaching across nations is deferred).
+    pub(super) fn unit_can_bend(&self, i: usize, ability: AbilityId, defs: &Defs) -> bool {
+        let def = defs.ability(ability);
         let u = &self.units[i];
         if u.chi < def.chi {
             return false;
+        }
+        if u.is_avatar() {
+            return defs.endeavor.avatar.as_ref().is_some_and(|a| a.abilities.contains(&ability));
         }
         let unit_nation = self.nation_of(u);
         if unit_nation != def.nation {
@@ -334,9 +352,13 @@ impl World {
         }
     }
 
-    /// Channel seconds per second: the nation modifier the ability names, or 1.0.
-    fn bend_rate(&self, def: &AbilityDef) -> f32 {
-        def.speed_modifier.as_deref().and_then(|m| self.modifiers().get(m)).unwrap_or(1.0)
+    /// Channel seconds per second: the caster's own effective modifiers (`modifiers_for`, #239;
+    /// the Avatar's are his own, #237) read by the nation modifier the ability names, or 1.0.
+    fn bend_rate(&self, u: &Unit, def: &AbilityDef, defs: &Defs) -> f32 {
+        def.speed_modifier
+            .as_deref()
+            .and_then(|m| self.modifiers_for(u, defs).get(m))
+            .unwrap_or(1.0)
     }
 
     pub(super) fn run_bend(&mut self, i: usize, id: JobId, defs: &Defs) {
@@ -345,7 +367,7 @@ impl World {
             return self.finish_job(i);
         };
         let def = defs.ability(ability);
-        if !self.unit_can_bend(i, def) {
+        if !self.unit_can_bend(i, ability, defs) {
             // Chi can only have gone up since the claim, so this is a safety net.
             return self.abandon_job(i, id, defs);
         }
@@ -360,7 +382,7 @@ impl World {
         if !self.walk(i, defs) {
             return;
         }
-        let rate = self.bend_rate(def);
+        let rate = self.bend_rate(&self.units[i], def, defs);
         let job = &mut self.jobs[idx];
         job.progress += rate / TICKS_PER_SECOND as f32;
         if job.progress < def.work {

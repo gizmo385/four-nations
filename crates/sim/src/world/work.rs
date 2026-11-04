@@ -50,6 +50,7 @@
 //! the only randomness is the idle wander and pause (`world.units` stream).
 
 use crate::defs::Terrain;
+use crate::endeavor::TaskWho;
 use crate::flood::Flood;
 use crate::geom::Footprint;
 use crate::jobs::{HarvestDef, ItemId, JobKind};
@@ -767,11 +768,20 @@ impl World {
         Some((Task::Drink, route_from(flood.path_to(stand)?)))
     }
 
-    /// The closest food: carried (free), then stockpile, ground and wild resources by walking
-    /// cost, preferring them in that order on a tie.
+    /// Whether unit `i` won't eat `item` (the Avatar's `[avatar].refuses`, #237; "a canon touch
+    /// and a real constraint for a fish-fed Water settlement"). Always false for anyone else.
+    fn refuses_food(&self, i: usize, item: ItemId, defs: &Defs) -> bool {
+        self.units[i].is_avatar()
+            && defs.endeavor.avatar.as_ref().is_some_and(|a| a.refuses.contains(&item))
+    }
+
+    /// The closest food this unit will eat: carried (free), then stockpile, ground and wild
+    /// resources by walking cost, preferring them in that order on a tie.
     fn plan_food(&self, i: usize, defs: &Defs) -> Option<(Task, Vec<Pos>)> {
         let u = &self.units[i];
-        if u.carrying.is_some_and(|s| defs.food_of(s.item).is_some()) {
+        if u.carrying
+            .is_some_and(|s| defs.food_of(s.item).is_some() && !self.refuses_food(i, s.item, defs))
+        {
             return Some((Task::Eat(FoodSource::Carried), Vec::new()));
         }
         let flood = self.flood_from(i);
@@ -784,18 +794,21 @@ impl World {
             }
         };
         for (&pos, s) in &self.stored {
-            if defs.food_of(s.item).is_some() {
+            if defs.food_of(s.item).is_some() && !self.refuses_food(i, s.item, defs) {
                 consider(0, pos, FoodSource::Stockpile(pos), self.stand_tile(&flood, pos));
             }
         }
         for (&pos, s) in &self.ground {
-            if defs.food_of(s.item).is_some() {
+            if defs.food_of(s.item).is_some() && !self.refuses_food(i, s.item, defs) {
                 consider(1, pos, FoodSource::Ground(pos), self.stand_tile(&flood, pos));
             }
         }
         for pos in self.map.positions() {
             let Some(h) = self.ripe_harvest(pos, defs) else { continue };
-            if defs.food_of(h.item).is_none() || self.forage_taken(pos, i) {
+            if defs.food_of(h.item).is_none()
+                || self.forage_taken(pos, i)
+                || self.refuses_food(i, h.item, defs)
+            {
                 continue;
             }
             consider(2, pos, FoodSource::Forage(pos), self.stand_tile(&flood, pos));
@@ -970,11 +983,25 @@ impl World {
             return false;
         }
         let flood = self.flood_from(i);
+        // The Avatar never hauls, builds, studies or harvests (`docs/design/endgame.md`, "The
+        // Avatar", #237): only needs, Avatar tasks, pillar tasks and bend jobs are his to claim.
+        let is_avatar = self.units[i].is_avatar();
         // Whether a stockpile tile with room for each item can be reached, asked once per item.
         let mut room_cache: Vec<(ItemId, bool)> = Vec::new();
         let mut best: Option<((u8, u32, JobId), usize, Pos)> = None;
         for (idx, job) in self.jobs.iter().enumerate() {
             if job.claimed_by.is_some() {
+                continue;
+            }
+            if is_avatar
+                && matches!(
+                    job.kind,
+                    JobKind::Harvest { .. }
+                        | JobKind::Haul { .. }
+                        | JobKind::Build { .. }
+                        | JobKind::Study { .. }
+                )
+            {
                 continue;
             }
             let found = match job.kind {
@@ -994,7 +1021,7 @@ impl World {
                     room.then(|| flood.cost(pos).map(|c| (c, pos))).flatten()
                 }
                 JobKind::Bend { ability, pos } => self
-                    .unit_can_bend(i, defs.ability(ability))
+                    .unit_can_bend(i, ability, defs)
                     .then(|| self.stand_tile(&flood, pos))
                     .flatten(),
                 // Reachable as soon as the site itself is, whether or not its materials are yet:
@@ -1013,7 +1040,12 @@ impl World {
                     .and_then(|(_, anchor)| self.stand_building(&flood, anchor, defs)),
             };
             if let Some((cost, stand)) = found {
-                let key = (job_priority(job.kind), cost, job.id);
+                let priority = if is_avatar {
+                    self.avatar_job_priority(job.kind, defs)
+                } else {
+                    job_priority(job.kind)
+                };
+                let key = (priority, cost, job.id);
                 if best.is_none_or(|b| key < b.0) {
                     best = Some((key, idx, stand));
                 }
@@ -1059,7 +1091,17 @@ impl World {
             can_stand_in((Footprint::single(pos), walkable))
         };
         let can_stand_building = |pos: Pos| can_stand_in(self.work_area(pos, defs));
+        let is_avatar = self.units[i].is_avatar();
         self.jobs.iter().filter(|j| j.claimed_by.is_none()).any(|job| match job.kind {
+            // The Avatar never hauls, builds, studies or harvests (#237).
+            JobKind::Harvest { .. }
+            | JobKind::Haul { .. }
+            | JobKind::Build { .. }
+            | JobKind::Study { .. }
+                if is_avatar =>
+            {
+                false
+            }
             JobKind::Harvest { pos } => self.ripe_harvest(pos, defs).is_some() && can_stand(pos),
             JobKind::Haul { pos } => {
                 let item = self.ground[&pos].item;
@@ -1071,7 +1113,7 @@ impl World {
                     }
             }
             JobKind::Bend { ability, pos } => {
-                self.unit_can_bend(i, defs.ability(ability)) && can_stand(pos)
+                self.unit_can_bend(i, ability, defs) && can_stand(pos)
             }
             JobKind::Build { pos } => can_stand_building(pos),
             JobKind::Study { pos } => !self.research.queue().is_empty() && can_stand_building(pos),
@@ -1264,6 +1306,20 @@ impl World {
             // That tile filled up on the way (or this isn't a stockpile tile any more).
             u.carrying = Some(Stack { count: rest, ..stack });
             u.route = None;
+        }
+    }
+
+    /// `job_priority` for the Avatar (`claim_job` only calls this once `kind` is already known to
+    /// be a `Bend` or an `EndeavorTask`, the only two he ever claims, #237): his own priority list
+    /// is Avatar tasks first, then any nation's pillar task, then bend jobs of any ability.
+    fn avatar_job_priority(&self, kind: JobKind, defs: &Defs) -> u8 {
+        match kind {
+            JobKind::EndeavorTask { task } => match self.gate_task(task, defs) {
+                Some((def, _)) if def.element == TaskWho::Avatar => 0,
+                _ => 1,
+            },
+            JobKind::Bend { .. } => 2,
+            _ => unreachable!("claim_job excludes every other kind for the Avatar"),
         }
     }
 }

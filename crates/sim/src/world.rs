@@ -21,6 +21,7 @@ use crate::regions::Regions;
 use crate::research::{self, Research, ResearchError, TechId};
 use crate::rng::{self, SimRng};
 
+mod avatar;
 mod bending;
 mod build;
 mod command;
@@ -36,13 +37,16 @@ mod study;
 mod tally;
 mod work;
 
+pub use avatar::AvatarState;
 use bending::Patch;
 pub use bending::{BendChannel, BendError, BendEvent, BendOutcome, Moved};
 use build::Site;
 pub use build::{Blocker, BuildError};
 pub use command::{Command, CommandError, Recorded};
 use endeavor::EndeavorLog;
-pub use endeavor::{EndeavorEvent, EndeavorEventKind, EndeavorState, SignProgress};
+pub use endeavor::{
+    AvatarLeaveReason, EndeavorEvent, EndeavorEventKind, EndeavorState, SignProgress,
+};
 pub use gate::{EndeavorError, GateSite, GateTask};
 pub use heat::{Aura, Flame, Glow, HeatSource};
 pub use population::Arrival;
@@ -122,6 +126,16 @@ pub struct Unit {
     /// `World::enter_building`/`leave_building`.
     #[serde(default)]
     inside: Option<Pos>,
+    /// A visitor who is never drafted and follows their own priorities instead of the
+    /// settlement's job queue (the Avatar; `docs/design/endgame.md`, "The Avatar", #237). `None`
+    /// for every ordinary settler.
+    #[serde(default)]
+    pub guest: Option<Guest>,
+    /// The tick since which this unit's hunger or energy has stayed at or below `low`, with no
+    /// gap, or `None` while neither is. Only the Avatar acts on it (`world/avatar.rs`): after
+    /// `AvatarDef::patience_minutes` of this he leaves. Harmless, if unused, for anyone else.
+    #[serde(default)]
+    unhappy_since: Option<u64>,
 }
 
 impl Unit {
@@ -134,6 +148,18 @@ impl Unit {
     pub fn inside(&self) -> Option<Pos> {
         self.inside
     }
+
+    /// Is this the Avatar (#237)?
+    pub fn is_avatar(&self) -> bool {
+        self.guest == Some(Guest::Avatar)
+    }
+}
+
+/// A visitor who lives in the settlement without being one of its own: never drafted into the
+/// job queue, with their own priorities (`Unit::guest`). Only the Avatar exists today.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Guest {
+    Avatar,
 }
 
 /// Reads `Unit::nation`, accepting a pre-#239 save's bare `Nation` (every unit's nation, with no
@@ -254,6 +280,12 @@ pub struct World {
     /// Which signs have been met so far, and the endeavor's events.
     #[serde(default)]
     endeavor_log: EndeavorLog,
+    /// Where the Avatar stands: not yet arrived, due, present, or away and due back
+    /// (`world/avatar.rs`, #237). `#[serde(default)]` so a save from before #237 reads as
+    /// `NotYetArrived`, which is correct: an older save's foundation stage, if done, simply
+    /// schedules his arrival the next tick.
+    #[serde(default)]
+    avatar: AvatarState,
     /// Resources still underground (`ResourceDef::buried`, #133), by tile: off the map until a
     /// Seismic Sense or a Bore Tunnel uncovers them (`bending.rs`). Saves from before #133 have
     /// none.
@@ -328,6 +360,7 @@ impl World {
             tallies: Tallies::default(),
             endeavor: EndeavorState::Dormant,
             endeavor_log: EndeavorLog::default(),
+            avatar: AvatarState::default(),
             buried: BTreeMap::new(),
             start: None,
             next_unit: 0,
@@ -401,8 +434,15 @@ impl World {
     /// (teaching across nations is deferred, so a unit of another nation doesn't benefit from
     /// techs its own nation hasn't researched, but does ride on the settlement's; #239). Same
     /// `TechId` order as `modifiers()`, so a world where every unit is the settlement's own
-    /// nation gets bit-for-bit the same values either way.
+    /// nation gets bit-for-bit the same values either way. The Avatar (#237) has no nation and no
+    /// techs: his own fixed `[avatar].modifiers` apply everywhere this is read (movement, chi
+    /// regen, bend speed and magnitude), unscaled by research.
     pub fn modifiers_for(&self, unit: &Unit, defs: &Defs) -> Modifiers {
+        if unit.is_avatar()
+            && let Some(avatar) = &defs.endeavor.avatar
+        {
+            return avatar.modifiers;
+        }
         research::effective_modifiers(self.nation_of(unit), self.research.known_techs(), defs)
     }
 
@@ -478,6 +518,8 @@ impl World {
                 wander_left: 0,
                 bends: 0,
                 inside: None,
+                guest: None,
+                unhappy_since: None,
             });
         }
     }
@@ -526,6 +568,7 @@ impl World {
             self.act(i, defs);
         }
         self.tick_endeavor(defs);
+        self.tick_avatar(defs);
     }
 
     /// What a unit with nothing to do does (issue #110). It stands still for `idle_pause_seconds`;
@@ -579,13 +622,29 @@ impl World {
     fn tick_needs(&mut self, defs: &Defs) {
         let tick = self.tick;
         let mut dead = Vec::new();
-        let chi_regen = self.modifiers.chi_regen;
         for mut u in std::mem::take(&mut self.units) {
             let rest = if u.is_sleeping() { self.sleep_factor_for(&u, defs) } else { 1.0 };
             u.needs.tick_scaled(&defs.needs, u.is_sleeping(), rest);
-            u.chi = defs.chi.regen(u.chi, u.is_sleeping(), chi_regen);
+            // The Avatar's regen multiplier is his own (`[avatar].modifiers.chi_regen`, #237),
+            // never the settlement's; everyone else still reads the settlement's cached value,
+            // as before #237.
+            let chi_regen = if u.is_avatar() {
+                self.modifiers_for(&u, defs).chi_regen
+            } else {
+                self.modifiers.chi_regen
+            };
+            let chi_max = self.chi_max_for(&u, defs);
+            u.chi = defs.chi.regen(u.chi, u.is_sleeping(), chi_regen, chi_max);
             if u.needs.is_dead() {
-                dead.push(u);
+                if u.is_avatar() {
+                    // The Avatar never dies (docs/design/endgame.md, "Needs and leaving"); his
+                    // patience (`tick_avatar`) sends him home long before this could happen, but
+                    // this is the hard guarantee.
+                    u.needs.health = defs.needs.health.max.min(1.0);
+                    self.units.push(u);
+                } else {
+                    dead.push(u);
+                }
             } else {
                 self.units.push(u);
             }

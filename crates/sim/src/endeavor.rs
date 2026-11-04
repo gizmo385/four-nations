@@ -13,15 +13,23 @@
 //!
 //! Once Ready, the settlement builds the gate (`EndeavorDef::building`) in stages, in file order.
 //! A stage has its own cost and work, done by a settler as a construct job, and tasks: each task
-//! needs its own materials hauled to the site, then one bend by a unit of its `element`, which
-//! spends chi like an ability. Stages and tasks are saved by string id too (`world/gate.rs`).
+//! needs its own materials hauled to the site, then one bend by a unit allowed to do it
+//! (`TaskWho`: a nation's own benders, or the Avatar, who may do any of them), which spends chi
+//! like an ability. Stages and tasks are saved by string id too (`world/gate.rs`).
+//!
+//! `[avatar]` (`docs/design/endgame.md`, "The Avatar"; issue #237) describes Aang: his own chi
+//! and work modifiers (the best of the four nations'), the four signature abilities he may cast,
+//! the foods he refuses, and the timings of his arrival, patience and return. The sim never
+//! special-cases him by name; `world/avatar.rs` reads this data the same way `world/gate.rs` reads
+//! a `[[stage]]`.
 
 use serde::Deserialize;
 
+use crate::bending::{AbilityDef, AbilityId};
 use crate::building::{BuildingDef, BuildingId, CostItem};
 use crate::defs::DefsError;
 use crate::jobs::{ItemDef, ItemId};
-use crate::nation::Nation;
+use crate::nation::{Modifiers, Nation};
 
 /// The endeavor and its signs. Empty (no signs) when the data has no endeavor, as in
 /// `Defs::from_toml` without `Defs::with_endeavor`: then the endeavor never becomes Ready.
@@ -39,6 +47,9 @@ pub struct EndeavorDef {
     /// The stages of building it, in the order they are built. Empty when the data has none: then
     /// a Ready endeavor has no site to place.
     pub stages: Vec<StageDef>,
+    /// Aang, the guest who appears once the foundation stage is done (`[avatar]`). `None` for
+    /// data with no `[avatar]` section (most tests): then he never arrives.
+    pub avatar: Option<AvatarDef>,
 }
 
 impl EndeavorDef {
@@ -62,19 +73,59 @@ pub struct StageDef {
     pub tasks: Vec<TaskDef>,
 }
 
+/// A bend that is part of a stage (`[[stage.task]]`): a pillar raised by its element, or an
+/// "Avatar task" only he can claim (the Arch's beam lift; the rite, #238).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskWho {
+    /// A unit of this nation (home settler or not, #239) may do it. The Avatar may do it too.
+    Nation(Nation),
+    /// Only the Avatar may do it.
+    Avatar,
+}
+
 /// A bend that is part of a stage (`[[stage.task]]`): a pillar raised by its element.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TaskDef {
     pub id: String,
     pub name: String,
-    /// Who may do it: a unit of this nation. (The Avatar, who may do any, comes later.)
-    pub element: Nation,
+    /// Who may do it.
+    pub element: TaskWho,
     /// What a settler hauls to the site before the task can be taken.
     pub cost: Vec<CostItem>,
     /// Chi the bend needs to start, and spends when it finishes.
     pub chi: f32,
     /// In-game seconds of channelling.
     pub work: f32,
+}
+
+/// Aang, the guest who appears once the foundation stage is done (`[avatar]`;
+/// `docs/design/endgame.md`, "The Avatar"). The sim never special-cases him by name: everything
+/// that treats him differently from a settler (`World::tick_avatar` and friends, `world/avatar.rs`)
+/// reads this data.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AvatarDef {
+    /// A character id, for the client to pick his art (`NationDef::characters` is the pattern);
+    /// the sim never interprets it.
+    pub id: String,
+    pub name: String,
+    pub character: String,
+    /// A full chi meter, which may be more than `ChiSettings::max` (every nation's own cap).
+    pub chi_max: f32,
+    /// His own work modifiers: the best of the four nations' (`docs/design/endgame.md`,
+    /// "Numbers"). `modifiers.chi_regen` is his regen multiplier.
+    pub modifiers: Modifiers,
+    /// The signature abilities he may cast: any living unit's own nation would also let them
+    /// cast one of these, but he is never restricted to one nation (`World::unit_can_bend`).
+    pub abilities: Vec<AbilityId>,
+    /// Foods he won't eat raw or cooked ("a canon touch and a real constraint for a fish-fed
+    /// Water settlement").
+    pub refuses: Vec<ItemId>,
+    /// How long his hunger or energy may stay at or below `low` before he leaves.
+    pub patience_minutes: f32,
+    /// How long he stays away once he has left.
+    pub return_minutes: f32,
+    /// How long after the foundation stage is done before he arrives.
+    pub arrive_after_minutes: f32,
 }
 
 /// Where a sign is listed. The UI groups signs under these, in this order.
@@ -150,6 +201,8 @@ pub(crate) struct EndeavorFile {
     sign: Vec<RawSign>,
     #[serde(default)]
     stage: Vec<RawStage>,
+    #[serde(default)]
+    avatar: Option<RawAvatar>,
 }
 
 #[derive(Deserialize)]
@@ -182,12 +235,35 @@ struct RawStage {
     task: Vec<RawTask>,
 }
 
+/// `[[stage.task]]`'s `element`: a nation, or `"avatar"` for a task only he can claim.
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum RawElement {
+    Air,
+    Water,
+    Earth,
+    Fire,
+    Avatar,
+}
+
+impl From<RawElement> for TaskWho {
+    fn from(e: RawElement) -> Self {
+        match e {
+            RawElement::Air => TaskWho::Nation(Nation::Air),
+            RawElement::Water => TaskWho::Nation(Nation::Water),
+            RawElement::Earth => TaskWho::Nation(Nation::Earth),
+            RawElement::Fire => TaskWho::Nation(Nation::Fire),
+            RawElement::Avatar => TaskWho::Avatar,
+        }
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawTask {
     id: String,
     name: String,
-    element: Nation,
+    element: RawElement,
     #[serde(default)]
     cost: Vec<RawCost>,
     chi: f32,
@@ -250,12 +326,13 @@ struct RawSign {
 }
 
 impl EndeavorFile {
-    /// Validates the file and resolves item and building ids. `items` is `Defs::items` and
-    /// `buildings` `Defs::buildings`.
+    /// Validates the file and resolves item, building and ability ids. `items` is `Defs::items`,
+    /// `buildings` `Defs::buildings` and `abilities` `Defs::abilities`.
     pub(crate) fn resolve(
         self,
         items: &[ItemDef],
         buildings: &[BuildingDef],
+        abilities: &[AbilityDef],
         chi_max: f32,
     ) -> Result<EndeavorDef, DefsError> {
         if self.endeavor.name.trim().is_empty() {
@@ -304,7 +381,15 @@ impl EndeavorFile {
                 Some(BuildingId(n as u16))
             }
         };
-        Ok(EndeavorDef { name, description, signs, building, stages })
+        let avatar = self.avatar.map(|a| a.resolve(items, abilities)).transpose()?;
+        let needs_avatar =
+            stages.iter().flat_map(|s| &s.tasks).any(|t| matches!(t.element, TaskWho::Avatar));
+        if needs_avatar && avatar.is_none() {
+            return Err(DefsError(
+                "endeavor: a task for the Avatar needs an [avatar] section".into(),
+            ));
+        }
+        Ok(EndeavorDef { name, description, signs, building, stages, avatar })
     }
 }
 
@@ -371,7 +456,9 @@ impl RawTask {
         if self.name.trim().is_empty() {
             return Err(err("name must not be empty"));
         }
-        // A unit's meter never holds more than `chi.max`, so a dearer task could never be taken.
+        // A nation's own meter never holds more than `chi.max`, so a dearer task could never be
+        // taken by its own benders (the Avatar's own meter is bigger, but this bound still holds
+        // for him too, just more loosely).
         if !(self.chi > 0.0 && self.chi <= chi_max) {
             return Err(err(&format!("chi must be in (0, {chi_max}] (chi.max)")));
         }
@@ -381,11 +468,94 @@ impl RawTask {
         let cost = resolve_cost(self.cost, items, &err)?;
         Ok(TaskDef {
             name: self.name,
-            element: self.element,
+            element: self.element.into(),
             cost,
             chi: self.chi,
             work: self.work,
             id,
+        })
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawAvatar {
+    id: String,
+    name: String,
+    character: String,
+    chi_max: f32,
+    modifiers: Modifiers,
+    abilities: Vec<String>,
+    #[serde(default)]
+    refuses: Vec<String>,
+    patience_minutes: f32,
+    return_minutes: f32,
+    arrive_after_minutes: f32,
+}
+
+impl RawAvatar {
+    fn resolve(self, items: &[ItemDef], abilities: &[AbilityDef]) -> Result<AvatarDef, DefsError> {
+        let err = |msg: &str| DefsError(format!("avatar: {msg}"));
+        if self.id.trim().is_empty() {
+            return Err(err("id must not be empty"));
+        }
+        if self.name.trim().is_empty() {
+            return Err(err("name must not be empty"));
+        }
+        if self.character.trim().is_empty() {
+            return Err(err("character must not be empty"));
+        }
+        if !(self.chi_max.is_finite() && self.chi_max > 0.0) {
+            return Err(err("chi_max must be a positive number"));
+        }
+        for (what, v) in [
+            ("patience_minutes", self.patience_minutes),
+            ("return_minutes", self.return_minutes),
+            ("arrive_after_minutes", self.arrive_after_minutes),
+        ] {
+            if !(v.is_finite() && v > 0.0) {
+                return Err(err(&format!("{what} must be a positive number")));
+            }
+        }
+        if self.abilities.is_empty() {
+            return Err(err("needs at least one ability"));
+        }
+        let mut resolved_abilities = Vec::with_capacity(self.abilities.len());
+        for a in &self.abilities {
+            let Some(n) = abilities.iter().position(|d| d.id == *a) else {
+                return Err(err(&format!("unknown ability {a:?}")));
+            };
+            let id = AbilityId(n as u16);
+            if resolved_abilities.contains(&id) {
+                return Err(err(&format!("ability {a:?} listed twice")));
+            }
+            resolved_abilities.push(id);
+        }
+        let mut refuses = Vec::with_capacity(self.refuses.len());
+        for r in &self.refuses {
+            let Some(n) = items.iter().position(|i| i.id == *r) else {
+                return Err(err(&format!("unknown item {r:?}")));
+            };
+            if items[n].food.is_none() {
+                return Err(err(&format!("{r:?} isn't a food")));
+            }
+            let id = ItemId(n as u16);
+            if refuses.contains(&id) {
+                return Err(err(&format!("{r:?} listed twice")));
+            }
+            refuses.push(id);
+        }
+        Ok(AvatarDef {
+            id: self.id,
+            name: self.name,
+            character: self.character,
+            chi_max: self.chi_max,
+            modifiers: self.modifiers,
+            abilities: resolved_abilities,
+            refuses,
+            patience_minutes: self.patience_minutes,
+            return_minutes: self.return_minutes,
+            arrive_after_minutes: self.arrive_after_minutes,
         })
     }
 }
@@ -707,9 +877,20 @@ mod tests {
         let (n, pillars) = e.stage("pillars").unwrap();
         assert_eq!(n, 1);
         assert_eq!(pillars.work, 0.0);
-        let elements: Vec<Nation> = pillars.tasks.iter().map(|t| t.element).collect();
+        let elements: Vec<Nation> = pillars
+            .tasks
+            .iter()
+            .map(|t| match t.element {
+                TaskWho::Nation(n) => n,
+                TaskWho::Avatar => panic!("a pillar task is for a nation, not the Avatar"),
+            })
+            .collect();
         assert_eq!(elements, Nation::ALL);
         assert!(pillars.tasks.iter().all(|t| t.chi <= defs.chi.max && !t.cost.is_empty()));
+        // The Arch's beam lift needs the Avatar (docs/design/endgame.md, "The project").
+        let (_, arch) = e.stage("arch").unwrap();
+        assert!(arch.tasks.iter().any(|t| t.element == TaskWho::Avatar));
+        assert!(e.avatar.is_some());
     }
 
     #[test]
@@ -724,7 +905,7 @@ mod tests {
         assert_eq!(s.cost, [CostItem { item: defs.item_id("stone").unwrap(), count: 4 }]);
         assert_eq!(s.work, 30.0);
         let t = &s.tasks[0];
-        assert_eq!((t.element, t.chi, t.work), (Nation::Earth, 50.0, 10.0));
+        assert_eq!((t.element, t.chi, t.work), (TaskWho::Nation(Nation::Earth), 50.0, 10.0));
         assert_eq!(t.cost, [CostItem { item: defs.item_id("wood").unwrap(), count: 2 }]);
     }
 
@@ -776,5 +957,89 @@ mod tests {
         assert!(stage_error(&task("element = \"metal\"\nchi = 5.0\nwork = 1.0")).contains("metal"));
         let two = format!("{}[[stage]]\nid = \"s2\"\nname = \"S2\"\n{PILLAR}", s(PILLAR));
         assert!(stage_error(&two).contains("task t: duplicate id"));
+    }
+
+    #[test]
+    fn a_task_for_the_avatar_needs_an_avatar_section() {
+        let task = "[[stage.task]]\nid = \"t\"\nname = \"T\"\nelement = \"avatar\"\n\
+                     chi = 50.0\nwork = 1.0\n";
+        let e = stage_error(&format!("[[stage]]\nid = \"s\"\nname = \"S\"\n{task}"));
+        assert!(e.contains("needs an [avatar] section"), "{e}");
+    }
+
+    #[test]
+    fn the_bundled_avatar_has_his_abilities_refuses_and_modifiers() {
+        let defs = Defs::bundled();
+        let a = defs.endeavor.avatar.as_ref().expect("bundled data has an avatar");
+        assert_eq!(a.name, "Aang");
+        assert_eq!(a.chi_max, 200.0);
+        assert_eq!(a.modifiers.chi_regen, 2.0);
+        assert_eq!(a.modifiers.move_speed, 1.6);
+        let signature = ["raise_earth", "water_the_land", "hearthflame", "wind_carry"];
+        for id in signature {
+            assert!(a.abilities.contains(&defs.ability_id(id).unwrap()), "{id}");
+        }
+        assert_eq!(a.abilities.len(), signature.len());
+        assert_eq!(a.refuses, [defs.item_id("fish").unwrap()]);
+        assert!(a.patience_minutes > 0.0 && a.return_minutes > 0.0 && a.arrive_after_minutes > 0.0);
+    }
+
+    /// A valid `[avatar]` section, with `chi_max`, `patience_minutes`, `abilities` and `refuses`
+    /// as given, so each test only names the field it is checking.
+    fn avatar_src(chi_max: &str, patience: &str, abilities: &str, refuses: &str) -> String {
+        format!(
+            "[endeavor]\nname = \"G\"\n[avatar]\nid = \"a\"\nname = \"A\"\ncharacter = \"c\"\n\
+             chi_max = {chi_max}\npatience_minutes = {patience}\nreturn_minutes = 1.0\n\
+             arrive_after_minutes = 1.0\nabilities = {abilities}\nrefuses = {refuses}\n\
+             [avatar.modifiers]\nmove_speed = 1.0\ncarry_capacity = 1.0\nearthworks = 1.0\n\
+             heating = 1.0\nwater_work = 1.0\npower_generation = 1.0\nconstruction = 1.0\n\
+             study = 1.0\nchi_regen = 1.0\n"
+        )
+    }
+
+    fn avatar_ok() -> String {
+        avatar_src("200.0", "20.0", "[\"raise_earth\"]", "[\"fish\"]")
+    }
+
+    #[test]
+    fn a_minimal_avatar_section_loads() {
+        let e = load_file(&avatar_ok()).unwrap();
+        assert!(e.avatar.is_some());
+    }
+
+    #[test]
+    fn the_avatar_sections_numbers_and_ids_are_checked() {
+        let e = |src: String| load_file(&src).expect_err("should be rejected").0;
+        assert!(e(avatar_src("-1.0", "20.0", "[\"raise_earth\"]", "[]")).contains("chi_max"));
+        assert!(e(avatar_src("200.0", "0.0", "[\"raise_earth\"]", "[]")).contains("patience"));
+        assert!(e(avatar_src("200.0", "20.0", "[]", "[]")).contains("at least one ability"));
+        assert!(e(avatar_src("200.0", "20.0", "[\"nonsense\"]", "[]")).contains("unknown ability"));
+        let twice = e(avatar_src("200.0", "20.0", "[\"raise_earth\", \"raise_earth\"]", "[]"));
+        assert!(twice.contains("listed twice"), "{twice}");
+        assert!(
+            e(avatar_src("200.0", "20.0", "[\"raise_earth\"]", "[\"nonsense\"]"))
+                .contains("unknown item")
+        );
+        let not_food = e(avatar_src("200.0", "20.0", "[\"raise_earth\"]", "[\"stone\"]"));
+        assert!(not_food.contains("isn't a food"), "{not_food}");
+    }
+
+    #[test]
+    fn the_avatars_id_name_and_character_must_not_be_empty() {
+        let base = "[endeavor]\nname = \"G\"\n[avatar]\nid = \"{id}\"\nname = \"{name}\"\n\
+                     character = \"{character}\"\nchi_max = 200.0\npatience_minutes = 1.0\n\
+                     return_minutes = 1.0\narrive_after_minutes = 1.0\n\
+                     abilities = [\"raise_earth\"]\n[avatar.modifiers]\nmove_speed = 1.0\n\
+                     carry_capacity = 1.0\nearthworks = 1.0\nheating = 1.0\nwater_work = 1.0\n\
+                     power_generation = 1.0\nconstruction = 1.0\nstudy = 1.0\nchi_regen = 1.0\n";
+        let src = |id: &str, name: &str, character: &str| {
+            base.replace("{id}", id).replace("{name}", name).replace("{character}", character)
+        };
+        assert!(load_file(&src(" ", "A", "c")).expect_err("should be rejected").0.contains("id"));
+        assert!(load_file(&src("a", " ", "c")).expect_err("should be rejected").0.contains("name"));
+        assert!(
+            load_file(&src("a", "A", " ")).expect_err("should be rejected").0.contains("character")
+        );
+        assert!(load_file(&src("a", "A", "c")).is_ok());
     }
 }
