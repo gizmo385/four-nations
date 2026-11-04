@@ -43,6 +43,17 @@ pub enum Screen {
     Saves,
 }
 
+/// A modal dialog over the map (`crate::modal`, #285). Unlike a [`Screen`] it draws as a centred
+/// box, not a full page, and it captures every key: no tool key, screen key or clock action
+/// reaches `App::act` while one is open (`App::modal_key`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Modal {
+    /// `U`: every building the nation can place or may yet unlock, highlighted one at a time
+    /// ([`UiState::build_cursor`], `crate::build`). `Enter` on an unlocked one picks it and
+    /// leaves the Build tool active with it; `Esc` leaves the tool and the choice as they were.
+    Build,
+}
+
 /// The scroll of a screen that sticks to its end: the newest line of the log.
 pub const PINNED: usize = usize::MAX;
 
@@ -81,6 +92,10 @@ pub struct UiState {
     pub screen: Option<Screen>,
     /// The first line of the open screen that shows ([`PINNED`] for the end of the log).
     pub scroll: usize,
+    /// The modal dialog over the map, if one is open (#285).
+    pub modal: Option<Modal>,
+    /// The Build modal's highlight: an index into `fn_ui::build::picker_rows`.
+    pub build_cursor: usize,
     /// The research screen's cursor: a column of the tech tree and a card in it.
     pub tech: (usize, usize),
     /// The saves screen's slots (newest first), read from disk when the screen opens or a save
@@ -118,6 +133,8 @@ impl UiState {
             following: false,
             screen: None,
             scroll: 0,
+            modal: None,
+            build_cursor: 0,
             tech: (0, 0),
             save_slots: Vec::new(),
             save_cursor: 0,
@@ -185,7 +202,7 @@ impl UiState {
         match fn_ui::build::valid_choice(&rows, self.choice)
             .and_then(|id| rows.iter().find(|r| r.id == id))
         {
-            Some(row) => format!("build {}: Enter to place (U: next building)", row.name),
+            Some(row) => format!("build {}: Enter to place (U: pick a building)", row.name),
             None => self.tool.hint(session),
         }
     }
@@ -463,9 +480,9 @@ mod tests {
 
         // With no choice yet it falls back to the first building the nation can place (Bed).
         ui.set_tool(Tool::Build);
-        assert_eq!(ui.tool_hint(&session), "build Bed: Enter to place (U: next building)");
+        assert_eq!(ui.tool_hint(&session), "build Bed: Enter to place (U: pick a building)");
         let bed = session.defs.building_id("bed").unwrap();
         ui.choice = Some(bed);
-        assert_eq!(ui.tool_hint(&session), "build Bed: Enter to place (U: next building)");
+        assert_eq!(ui.tool_hint(&session), "build Bed: Enter to place (U: pick a building)");
     }
 }

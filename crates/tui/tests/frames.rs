@@ -12,6 +12,7 @@ use fn_sim::{Nation, Pos};
 use fn_tui::app::App;
 use fn_tui::color::{ColorDepth, Palette, Tint};
 use fn_tui::frame::{render, render_app, to_ansi, to_text};
+use fn_tui::state::Modal;
 use fn_tui::{keys, layout, new_session};
 use fn_ui::tools::tiles_between;
 use fn_ui::{Session, Tool};
@@ -329,24 +330,56 @@ fn a_tool_key_switches_tools_and_drops_the_corner_and_the_result() {
     assert_eq!((app.ui.tool, app.ui.anchor), (Tool::CancelHarvest, None), "the same key again");
 }
 
-/// `U` picks the first building the nation can place; `U` again moves on to the next
-/// (`fn_ui::tools::switch_tool`), and switching to another tool and back keeps the choice.
+/// `U` opens the Build modal instead of switching tools (#285); the tool and the choice stay as
+/// they were until `Enter` there picks the highlighted building, which closes the modal and
+/// leaves the Build tool active with it. `U` again reopens the modal on the current choice
+/// (no more cycling), and switching to another tool and back keeps the choice.
 #[test]
-fn u_picks_a_building_and_again_cycles_keeping_the_choice_across_tools() {
+fn u_opens_the_build_modal_and_enter_picks_the_highlighted_building() {
     let mut app = App::new(new_session(7, Nation::Earth), SIZE);
     let rows = fn_ui::build::picker_rows(&app.session);
     let open: Vec<_> = rows.iter().filter(|r| !r.locked()).map(|r| r.id).collect();
     assert!(open.len() >= 2, "the scenario needs two placeable buildings");
+    let idx = |id| rows.iter().position(|r| r.id == id).unwrap();
+    let (i0, i1) = (idx(open[0]), idx(open[1]));
 
     app.play(&keys::parse("u").unwrap());
+    assert_eq!(app.ui.modal, Some(Modal::Build));
+    assert_eq!(app.ui.build_cursor, i0, "starts on the first placeable building");
+    assert_eq!((app.ui.tool, app.ui.choice), (Tool::Select, None), "nothing changes until Enter");
+
+    app.play(&keys::parse("<enter>").unwrap());
+    assert_eq!(app.ui.modal, None);
     assert_eq!((app.ui.tool, app.ui.choice), (Tool::Build, Some(open[0])));
+
+    // U reopens the modal on the choice, rather than cycling to the next building.
     app.play(&keys::parse("u").unwrap());
+    assert_eq!(app.ui.modal, Some(Modal::Build));
+    assert_eq!(app.ui.build_cursor, i0);
+    app.play(&keys::parse(&format!("<down*{}> <enter>", i1 - i0)).unwrap());
     assert_eq!((app.ui.tool, app.ui.choice), (Tool::Build, Some(open[1])));
 
-    app.play(&keys::parse("h").unwrap());
-    assert_eq!(app.ui.choice, Some(open[1]), "the choice outlives the switch");
-    app.play(&keys::parse("u").unwrap());
-    assert_eq!((app.ui.tool, app.ui.choice), (Tool::Build, Some(open[1])), "U returns to it");
+    // Another tool and back keeps the choice, and reopening the modal starts on it.
+    app.play(&keys::parse("h u").unwrap());
+    assert_eq!(app.ui.build_cursor, i1, "reopening starts on the current choice");
+    app.play(&keys::parse("<esc>").unwrap());
+    assert_eq!((app.ui.tool, app.ui.choice), (Tool::Harvest, Some(open[1])), "Esc leaves both be");
+}
+
+/// While the modal is open it captures every key: no tool key, movement or clock action reaches
+/// the map until `Esc` closes it.
+#[test]
+fn the_build_modal_captures_input_until_it_closes() {
+    let mut app = App::new(new_session(7, Nation::Earth), SIZE);
+    let cursor = app.ui.cursor;
+    app.play(&keys::parse("u h <right> <space>").unwrap());
+    assert_eq!(app.ui.modal, Some(Modal::Build));
+    assert_eq!(app.ui.cursor, cursor, "cursor keys don't reach the map while it's open");
+    assert_eq!(app.ui.tool, Tool::Select, "h doesn't switch tools either");
+    assert!(!app.session.clock.paused, "space doesn't pause");
+    app.play(&keys::parse("<esc>").unwrap());
+    assert_eq!(app.ui.modal, None);
+    assert_eq!((app.ui.tool, app.ui.choice), (Tool::Select, None));
 }
 
 /// A placement the sim refuses (a resource in the way) puts `fn_ui::build::describe_error`'s
@@ -363,7 +396,8 @@ fn a_refused_build_names_its_blocker_in_the_notice() {
         .map(|(p, _)| p)
         .expect("a resource on land");
     app.ui.cursor = tree;
-    app.play(&keys::parse("u <enter> <enter>").unwrap());
+    // u, Enter picks the highlighted building, then Enter sets the corner and Enter applies it.
+    app.play(&keys::parse("u <enter> <enter> <enter>").unwrap());
     assert!(app.ui.notice.starts_with("build "), "{}", app.ui.notice);
     assert!(app.ui.notice.contains("is in the way"), "{}", app.ui.notice);
     assert!(app.session.world.build_site(tree).is_none(), "the refused build left no site");
@@ -504,9 +538,10 @@ fn free_tile_near(s: &Session, near: Pos, avoid: &[Pos]) -> Pos {
         .expect("a free tile near home")
 }
 
-/// `U` picks the first building the nation can place (Bed, for every nation; `fn_ui::build`'s
-/// `valid_choice` with no choice yet); two more `Enter`s designate it under the cursor. With wood
-/// coming in from a harvest designated the ordinary way, ticking finishes it.
+/// `U` opens the Build modal; `Enter` there picks the first building the nation can place (Bed,
+/// for every nation; `fn_ui::build`'s `valid_choice` with no choice yet). Two more `Enter`s
+/// designate it under the cursor. With wood coming in from a harvest designated the ordinary
+/// way, ticking finishes it.
 #[test]
 fn golden_frame_of_a_build_site_then_the_finished_building() {
     let mut app = App::new(new_session(7, Nation::Earth), SIZE);
@@ -516,7 +551,7 @@ fn golden_frame_of_a_build_site_then_the_finished_building() {
     let site = free_tile_near(&app.session, home, &trees);
     app.ui.cursor = site;
 
-    app.play(&keys::parse("u <enter> <enter>").unwrap());
+    app.play(&keys::parse("u <enter> <enter> <enter>").unwrap());
     assert_eq!((app.ui.tool, app.ui.choice), (Tool::Build, Some(bed)));
     assert!(app.session.world.build_site(site).is_some(), "a site should be designated");
     golden(
@@ -527,6 +562,26 @@ fn golden_frame_of_a_build_site_then_the_finished_building() {
     app.play(&keys::parse("<tick 9000>").unwrap());
     assert!(app.session.world.building_at(site).is_some(), "the bed should finish building");
     golden("earth_seed7_built", &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)));
+}
+
+/// Golden frames of the Build modal itself (#285): a placeable building highlighted, then a
+/// locked one, so the reviewer can see both the list and the detail pane (the tech it still
+/// needs) at a glance.
+#[test]
+fn golden_frame_of_the_build_modal() {
+    let mut app = play("u");
+    golden(
+        "earth_seed7_build_modal",
+        &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)),
+    );
+
+    let rows = fn_ui::build::picker_rows(&app.session);
+    let locked = rows.iter().position(|r| r.locked()).expect("Earth has a locked building");
+    app.play(&keys::parse(&format!("<down*{locked}>")).unwrap());
+    golden(
+        "earth_seed7_build_modal_locked",
+        &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)),
+    );
 }
 
 /// The rectangle's tiles take the tool's hue (stronger than a designation's), the cursor keeps

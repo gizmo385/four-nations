@@ -11,6 +11,7 @@
 
 pub mod app;
 pub mod bar;
+pub mod build;
 pub mod cli;
 pub mod color;
 pub mod draw;
@@ -20,6 +21,7 @@ pub mod input;
 pub mod keys;
 pub mod layout;
 pub mod map;
+pub mod modal;
 pub mod panel;
 pub mod research;
 pub mod run;

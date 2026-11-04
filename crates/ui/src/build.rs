@@ -223,6 +223,81 @@ pub fn built_name(session: &Session, pos: Pos) -> Option<String> {
     Some(session.defs.building(id).display_name(session.world.nation).to_owned())
 }
 
+/// What the Build modal's detail pane says about one building (#285): its name for the nation,
+/// its cost against what the stockpiles hold now, its footprint, what it does once built, and
+/// the tech it still needs if it's locked. Pure text: the frontend draws it (and looks up its
+/// glyph, which lives in the frontend's own glyph table, not here).
+#[derive(Clone, PartialEq, Debug)]
+pub struct BuildingDetail {
+    pub name: String,
+    /// "5 Wood (12 in stores)" per item costed, or "free" for a building with none.
+    pub cost: Vec<String>,
+    /// "1x1" or "2x2" (`BuildingDef::footprint`).
+    pub footprint: String,
+    /// What it does once finished: a line per fact the data carries (study seats, a bed, a kept
+    /// fire, a rail, an orchard). Capacity (#226) isn't here yet; add it once `BuildingDef`
+    /// carries it. "Nothing beyond shelter" for a building with none of those.
+    pub effects: Vec<String>,
+    /// "Requires Fire Making" when the nation hasn't unlocked it; `None` when it can be placed.
+    pub requires: Option<String>,
+}
+
+/// [`BuildingDetail`] for `id`, for the Build modal's detail pane.
+pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
+    let def = session.defs.building(id);
+    let cost = if def.cost.is_empty() {
+        vec!["free".to_owned()]
+    } else {
+        def.cost
+            .iter()
+            .map(|c| {
+                let item = session.defs.item(c.item);
+                let have = session.world.stored_total(c.item);
+                format!("{} {} ({have} in stores)", c.count, item.name)
+            })
+            .collect()
+    };
+    let (w, h) = def.footprint;
+    let mut effects = Vec::new();
+    if def.seats > 0 {
+        let seats = def.seats;
+        effects.push(format!("Study hall: {seats} seat{}", if seats == 1 { "" } else { "s" }));
+    }
+    if let Some(bed) = &def.bed {
+        effects.push(format!(
+            "Bed: sleeps {:.1}x faster, sought within {} tiles",
+            bed.sleep_bonus, bed.seek_tiles
+        ));
+    }
+    if let Some(heat) = &def.heat {
+        effects.push(format!(
+            "Keeps a fire: warms {} tiles, sleeps {:.1}x faster nearby",
+            heat.radius, heat.sleep_bonus
+        ));
+    }
+    if let Some(rail) = &def.rail {
+        effects.push(format!("Rail: hauling runs {:.1}x faster along it", rail.speed));
+    }
+    if let Some(orchard) = &def.orchard {
+        let plants = &session.defs.resource(orchard.plants).name;
+        effects.push(format!("Tends up to {} {plants} trees nearby", orchard.max_trees));
+    }
+    if effects.is_empty() {
+        effects.push("Nothing beyond shelter".to_owned());
+    }
+    let requires = def
+        .unlocked_by
+        .filter(|&t| !session.world.is_unlocked(Some(t)))
+        .map(|t| format!("Requires {}", session.defs.tech(t).name));
+    BuildingDetail {
+        name: def.display_name(session.world.nation).to_owned(),
+        cost,
+        footprint: format!("{w}x{h}"),
+        effects,
+        requires,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -384,6 +459,60 @@ mod tests {
         assert_eq!(report.materials, "Materials: 0/5 Wood");
         assert_eq!(report.work, "Work: 0/20s");
         assert_eq!(built_name(&earth, pos), None);
+    }
+
+    /// The Build modal's detail (#285): the nation's name, the cost against stores, the
+    /// footprint, what the building does, and the tech it still needs when locked.
+    #[test]
+    fn the_detail_shows_cost_against_stores_footprint_effects_and_the_tech_it_needs() {
+        let earth = session(Nation::Earth);
+        let bed = earth.defs.building_id("bed").unwrap();
+        let detail = building_detail(&earth, bed);
+        assert_eq!(detail.name, "Bed");
+        assert_eq!(detail.cost, vec!["5 Wood (0 in stores)".to_owned()]);
+        assert_eq!(detail.footprint, "1x1");
+        assert!(detail.effects.iter().any(|e| e.starts_with("Bed:")), "{:?}", detail.effects);
+        assert_eq!(detail.requires, None);
+
+        let campfire = earth.defs.building_id("campfire").unwrap();
+        let locked = building_detail(&earth, campfire);
+        assert_eq!(locked.requires.as_deref(), Some("Requires Fire Making"));
+        assert!(
+            locked.effects.iter().any(|e| e.starts_with("Keeps a fire:")),
+            "{:?}",
+            locked.effects
+        );
+
+        let rail = earth.defs.building_id("rail").unwrap();
+        let rail_detail = building_detail(&earth, rail);
+        assert!(rail_detail.effects.iter().any(|e| e.starts_with("Rail:")), "{:?}", rail_detail);
+
+        let hall = earth.defs.building_id("study_hall").unwrap();
+        let hall_detail = building_detail(&earth, hall);
+        assert!(
+            hall_detail.effects.iter().any(|e| e.starts_with("Study hall:")),
+            "{:?}",
+            hall_detail
+        );
+
+        let air = session(Nation::Air);
+        let orchard = air.defs.building_id("orchard").unwrap();
+        let orchard_detail = building_detail(&air, orchard);
+        assert!(
+            orchard_detail.effects.iter().any(|e| e.starts_with("Tends up to")),
+            "{:?}",
+            orchard_detail
+        );
+
+        let wall = earth.defs.building_id("earth_wall").unwrap();
+        assert_eq!(
+            building_detail(&earth, wall).effects,
+            vec!["Nothing beyond shelter".to_owned()]
+        );
+
+        // The endeavor's gate has no cost of its own (#236): its stages do.
+        let gate = earth.defs.building_id("harmony_gate").unwrap();
+        assert_eq!(building_detail(&earth, gate).cost, vec!["free".to_owned()]);
     }
 
     #[test]

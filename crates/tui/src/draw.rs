@@ -12,7 +12,7 @@ use crate::layout::{self, MIN_HEIGHT, MIN_WIDTH};
 use crate::map::draw_map;
 use crate::panel::draw_panel;
 use crate::screens::draw_screen;
-use crate::state::{Prompt, Screen, UiState};
+use crate::state::{Modal, Prompt, Screen, UiState};
 use crate::widgets::fit;
 
 /// What the frame says below the minimum size, and nothing else.
@@ -28,9 +28,12 @@ pub fn draw(session: &Session, ui: &UiState, palette: &Palette, buf: &mut Buffer
         return;
     };
     draw_map(session, ui, palette, regions.map, buf);
-    // A screen covers the map and the selection bar hides behind it (docs/design/ui.md).
+    // A screen or a modal covers the map, and the selection bar hides behind either
+    // (docs/design/ui.md).
     if let Some(screen) = ui.screen {
         draw_screen(session, ui, screen, palette, regions.map, buf);
+    } else if let Some(modal) = ui.modal {
+        draw_modal(session, ui, modal, palette, regions.map, buf);
     } else if ui.selected_unit(session).is_some() {
         draw_bar(session, ui, palette, bar_area(regions.map), buf);
     }
@@ -38,9 +41,27 @@ pub fn draw(session: &Session, ui: &UiState, palette: &Palette, buf: &mut Buffer
     draw_status(session, ui, palette, regions.status, buf);
 }
 
+/// Draws the modal that's open (just the Build picker so far, #285, `crate::build`) into `area`,
+/// the map region.
+fn draw_modal(
+    session: &Session,
+    ui: &UiState,
+    modal: Modal,
+    palette: &Palette,
+    area: Rect,
+    buf: &mut Buffer,
+) {
+    match modal {
+        Modal::Build => {
+            let rows = fn_ui::build::picker_rows(session);
+            crate::build::draw(session, &rows, ui.build_cursor, palette, area, buf);
+        }
+    }
+}
+
 /// Where the terminal's own cursor goes: on the cursor tile, if it's in view.
 pub fn terminal_cursor(ui: &UiState, area: Rect) -> Option<Position> {
-    if ui.screen.is_some() {
+    if ui.screen.is_some() || ui.modal.is_some() {
         return None;
     }
     let regions = layout::regions(area)?;
@@ -59,6 +80,7 @@ const KEYS_SCREEN: &str =
 const KEYS_RESEARCH: &str = "arrows/WASD choose  Enter set target  Esc/T close  L log  ? keys";
 const KEYS_SAVES: &str =
     "arrows/W S choose  Enter load  Shift+S save over  N new  Esc/F6 close  ? keys";
+const KEYS_BUILD_MODAL: &str = "Arrows/W S choose  Enter build  Esc close";
 
 /// The status line in a tool: what `Enter` and `Esc` do now, then what the tool does (for `B`,
 /// the nation's ability; for `U`, the building it would place).
@@ -126,6 +148,11 @@ fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, b
             };
             buf.set_string(area.x, area.y, text, badge(theme.on_accent, theme.accent));
             (text.len() as u16, keys.to_owned())
+        }
+        None if ui.modal.is_some() => {
+            let text = " BUILD ";
+            buf.set_string(area.x, area.y, text, badge(theme.on_accent, theme.accent));
+            (text.len() as u16, KEYS_BUILD_MODAL.to_owned())
         }
         None if ui.tool == Tool::Select => {
             let text = " SELECT ";

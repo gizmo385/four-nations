@@ -109,6 +109,7 @@ backgrounds, the stockpile is blue, the cursor is yellow and the selected unit i
 | **Selection bar** | Bottom of the map area, left of the side panel | 7 rows | Name and nation in the top edge; task, carrying, tile; meters as 10-cell bars in `ok`/`warn`/`bad`, with a `!` for anything not ok (readable without colour); chi in `accent`; key hints. No portrait. Present only while a unit is selected |
 | **Hover tooltip** | The **Cursor** section | up to 4 lines + title | The client's tooltip lines for the tile under the cursor, same order (name, context, yield or reason, hint). Fixed, so it never covers map glyphs |
 | **Screens** | Over the map area; the side panel stays | map area | Research (`T`), the message log (`L`), key help (`?`) |
+| *(new)* **Modals** (#285) | Centred box over the map area | up to 66x18, shrinking to fit | A smaller, centred Seal box that captures every key until it closes: a title, a list on the left, a detail pane on the right (`crate::modal`). The Build picker (`U`) is its first user (`crate::build`) |
 | *(new)* **Status line** | Last row | 1 row | Current mode or tool, its keys, and a "Paused" badge. Vim and Dwarf Fortress both teach this: in a modal keyboard UI the mode must always be visible |
 
 - **Sizes.** Designed for 120×40, which shows 88×32 tiles; it works down to 80×24. Below that,
@@ -284,18 +285,23 @@ like Shift+arrows. With Caps Lock on, they move 10 tiles too.
   which makes them risky in the shells and multiplexers the TUI runs in.
 - **Mouse** is later: crossterm reports clicks and drags, which can map onto the same
   cursor-and-corner actions.
-- **Build tool (#275).** `U` picks the first building the nation can place
-  (`fn_ui::build::valid_choice`) and, pressed again while it's active, the next
-  (`fn_ui::tools::switch_tool`, the client's own logic); the choice outlives switching to
-  another tool and back, in `UiState::choice` (the client keeps its own `BuildChoice` resource
-  for the same reason: it belongs to the frontend, not the `Session`). The Tool section lists
-  the picker rows (`fn_ui::build::picker_rows`): the chosen one marked and its cost, a locked one
-  dimmed with the tech it still needs. The status line names the chosen building. The Cursor
-  section says the hovered tile fits (`fn_ui::build::placement`) or names its first blocker
-  (`fn_ui::build::describe_error`). `Enter` `Enter` designates it exactly as any other tool's
-  rectangle does (`fn_ui::tools::apply_rect`); a refusal's reason lands in the Tool notice the
-  same way. Multi-tile footprints still draw no ghost (#212) and the TUI doesn't mark an
-  entrance (#230).
+- **Build tool and modal (#111, #275, #285).** `U` opens the Build modal: every building the
+  nation can place or may yet unlock, in a list (`fn_ui::build::picker_rows`), locked ones
+  dimmed; arrows or `W`/`S` move the highlight (locked included, so its detail can be read), a
+  letter jumps to the next name that starts with it. The detail pane
+  (`fn_ui::build::building_detail`) names the highlighted building, its cost against what's in
+  stores, its footprint, what it does and the tech it still needs. `Enter` on an unlocked one
+  picks it, closes the modal and leaves the Build tool active with it, in `UiState::choice` (the
+  client keeps its own `BuildChoice` resource for the same reason: it belongs to the frontend,
+  not the `Session`); `Esc` leaves the tool and the choice as they were. `U` again reopens the
+  modal rather than cycling, which is what the Bevy client's own `U` still does
+  (`fn_ui::tools::switch_tool`; `fn_ui::Tool::label`'s wording is still the client's). The Tool
+  section names just the chosen building (its full list moved to the modal); the status line
+  does too. The Cursor section says the hovered tile fits (`fn_ui::build::placement`) or names
+  its first blocker (`fn_ui::build::describe_error`). `Enter` `Enter` designates it exactly as
+  any other tool's rectangle does (`fn_ui::tools::apply_rect`); a refusal's reason lands in the
+  Tool notice the same way. Multi-tile footprints still draw no ghost (#212) and the TUI doesn't
+  mark an entrance (#230).
 
 ## Time and the frame loop
 
@@ -374,7 +380,7 @@ reject; it formats and maps. Sprites, entities, the camera and interpolation sta
 | Side panel: stores, research line, modifiers, tool hint, alerts | Same, plus a message log (`L`) and key help (`?`) | #99 |
 | `R` and `1`-`4` regenerate | Same, with a prompt | #99 |
 | Research screen (`T`) | Tier columns, cursor, `Enter` sets the target | #100 |
-| Build tool `U`, picker, placement (#111) | Same, through `fn_ui`'s tool table: `U` picks and cycles, the Tool section lists the picker, the Cursor section says whether the hovered tile fits | #275 |
+| Build tool `U`, picker, placement (#111) | `U` opens a modal picker (list and detail, #285) instead of cycling; `Enter` there picks and leaves the Build tool active, the Tool section names the choice, the Cursor section says whether the hovered tile fits | #275, #285 |
 | Save and load (#7): `F5`/`F9` quicksave, `F6` save list (#112, #216) | `F5` quicksave, `F9` quickload after a prompt; `F6` opens the save list (newest first), Enter loads, Shift+`S` saves over, `N` writes a new slot, all through `fn_ui::saves` | #216, #276 |
 | Mouse | Click moves the cursor; a drag is a rectangle | Later |
 | Portraits, sprite smoothing, canopy fade (#77) | Not applicable | none |

@@ -227,7 +227,13 @@ fn build_table() -> Vec<Binding> {
     for tool in Tool::ALL {
         // Select is Esc; every other tool has a letter.
         let Some(letter) = tool.letter() else { continue };
-        let what = format!("{} tool: {}", tool.name(), tool.label());
+        // `Tool::label`'s own wording for Build is the Bevy client's ("U: next building", #111);
+        // the TUI's own `U` opens the Build modal instead (#285), so it gets its own words here.
+        let what = if tool == Tool::Build {
+            format!("{} tool: place the chosen building (U: pick one)", tool.name())
+        } else {
+            format!("{} tool: {}", tool.name(), tool.label())
+        };
         add(Group::Tools, &what, Key::ch(letter.to_ascii_lowercase()), Action::PickTool(tool));
     }
 

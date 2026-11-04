@@ -2,13 +2,14 @@
 //! name on the top edge, then sections in ui.md's order, each hidden while it has nothing to show:
 //! the header (seed, clock, speed), People (the count, then a line per unit while they fit),
 //! Stores, Research (target, bar, rate), the nation's modifiers, Tool (the active designation
-//! tool, its hint, the Build tool's picker and the last rectangle's result), Alerts and Cursor
-//! (what is under the keyboard cursor, and what `Enter` does next).
+//! tool, its hint, the Build tool's chosen building and the last rectangle's result), Alerts and
+//! Cursor (what is under the keyboard cursor, and what `Enter` does next). The Build tool's full
+//! picker moved to its own modal (`U`, `crate::build`, #285); the panel names only the choice.
 //!
 //! The panel is a fixed height, so a terminal that is too short for every section gives up the
-//! least useful lines first: the tool's hint and the Build picker (the status line names the
-//! chosen building too), the modifiers, the unit lines, the older alerts and all but one line of
-//! stores. The header, Research and Cursor always stay.
+//! least useful lines first: the tool's hint and the Build tool's chosen-building line (the
+//! status line names it too), the modifiers, the unit lines, the older alerts and all but one
+//! line of stores. The header, Research and Cursor always stay.
 
 use fn_sim::Pos;
 use fn_sim::building::BuildingId;
@@ -111,7 +112,8 @@ struct Data {
     research: Vec<Row>,
     modifiers: Vec<Row>,
     hint: Vec<Row>,
-    /// The Build tool's picker rows (#111), empty for every other tool.
+    /// The Tool section's one row for the Build tool's chosen building (#111; its full picker
+    /// moved to the Build modal, #285); empty for every other tool, or with nothing placeable.
     picker: Vec<Row>,
     notice: Vec<Row>,
     alerts: Vec<Row>,
@@ -224,8 +226,9 @@ fn research_rows(view: &SideView, marks: &Marks) -> Vec<Row> {
     ]
 }
 
-/// One row of the Build tool's picker (#111): the current building marked, its cost on the
-/// right; a locked one dimmed, with the tech it still needs in place of the cost.
+/// The Tool section's one row for the Build tool's current choice (#111, #285): its name marked
+/// and its cost on the right; dimmed with the tech it still needs in place of the cost if it's
+/// somehow locked (the Build modal only ever lets the player choose an unlocked one).
 fn picker_row(row: &build::PickerRow, chosen: Option<BuildingId>, marks: &Marks) -> Row {
     let mark = if Some(row.id) == chosen { marks.pointer } else { " " };
     let (name_tone, right, right_tone) = match &row.requires {
@@ -300,11 +303,20 @@ fn gather(session: &Session, ui: &UiState, marks: &Marks, width: usize) -> Data 
         .iter()
         .map(|(label, value)| Row::pair(label.clone(), Tone::Dim, value.clone(), Tone::Text))
         .collect();
-    let hint = wrap(&view.tool_hint, width, HINT_LINES, ellipsis)
+    // `UiState::tool_hint`, not `view.tool_hint`: every other tool's is `fn_ui`'s own (the same
+    // text either way), but the Build tool's names the TUI's own choice and `U` key (#285),
+    // which the shared text can't (the choice belongs to the frontend, not the `Session`).
+    let hint = wrap(&ui.tool_hint(session), width, HINT_LINES, ellipsis)
         .into_iter()
         .map(|l| Row::text(l, Tone::Dim))
         .collect();
-    let picker = view.picker.iter().map(|row| picker_row(row, view.choice, marks)).collect();
+    // Just the chosen building (#285 moved the rest of the picker to the Build modal).
+    let picker: Vec<Row> = view
+        .picker
+        .iter()
+        .find(|row| Some(row.id) == view.choice)
+        .map(|row| vec![picker_row(row, view.choice, marks)])
+        .unwrap_or_default();
     let notice = wrap(&view.notice, width, NOTICE_LINES, ellipsis)
         .into_iter()
         .map(|l| Row::text(l, Tone::Text))
@@ -350,11 +362,7 @@ fn sections(d: &Data, k: Knobs) -> Vec<Section> {
     // Select mode has no tool to talk about.
     let tool = (d.view.tool != Tool::Select).then(|| {
         let mut rows: Vec<Row> = d.hint.iter().take(k.hint).cloned().collect();
-        let shown = d.picker.len().min(k.picker);
-        rows.extend(d.picker.iter().take(shown).cloned());
-        if shown < d.picker.len() && shown > 0 {
-            rows.push(Row::text(format!("+{} more", d.picker.len() - shown), Tone::Dim));
-        }
+        rows.extend(d.picker.iter().take(k.picker).cloned());
         rows.extend(d.notice.iter().cloned());
         Section::new("TOOL", format!("{} [{}]", d.view.tool.name(), d.view.tool.key()), rows)
             .always()
