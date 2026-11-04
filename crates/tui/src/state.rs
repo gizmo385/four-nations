@@ -70,6 +70,12 @@ pub struct UiState {
     bounds: (i32, i32),
     /// The active tool: `Select` until a tool key (`H` `X` `P` `B` `U`) picks another.
     pub tool: Tool,
+    /// `O` while the Harvest tool is active (#81, #277): the next rectangle applied is a
+    /// standing order, re-queued every time its resource ripens again, instead of a one-off
+    /// designation. The client has no equivalent key; it reads held Shift instead
+    /// (`fn_ui::tools::Pick::repeating`). Resets whenever the tool changes (`set_tool`), and has
+    /// no effect outside the Harvest tool.
+    pub repeating: bool,
     /// The building the Build tool places, kept across tool changes so `U` returns to it
     /// (`fn_ui::tools::switch_tool`; the client keeps the same choice in its own `BuildChoice`
     /// resource, since it belongs to the frontend, not the `Session`).
@@ -124,6 +130,7 @@ impl UiState {
             viewport: layout::viewport(screen.0, screen.1),
             bounds: (map.width(), map.height()),
             tool: Tool::Select,
+            repeating: false,
             choice: None,
             anchor: None,
             notice: String::new(),
@@ -182,20 +189,39 @@ impl UiState {
         self.follow();
     }
 
-    /// Switches to `tool`, dropping the corner and the last result. The building choice is not
-    /// a tool's own state (`fn_ui::tools::switch_tool` resolves it): it outlives the switch, so
-    /// coming back to Build returns to it.
+    /// Switches to `tool`, dropping the corner, the last result and the standing-order toggle
+    /// (`O`, #277; it has no key of its own while leaving the tool, so leaving Harvest is the
+    /// only way back to a one-off harvest). The building choice is not a tool's own state
+    /// (`fn_ui::tools::switch_tool` resolves it): it outlives the switch, so coming back to
+    /// Build returns to it.
     pub fn set_tool(&mut self, tool: Tool) {
         self.tool = tool;
         self.anchor = None;
         self.notice.clear();
+        self.repeating = false;
+    }
+
+    /// "Harvest · repeating" while the standing-order toggle (`O`, #277) is on; `None` the rest
+    /// of the time, including outside the Harvest tool, where `O` does nothing. Shown in the
+    /// status line (`crate::draw::tool_status`) and the Tool section's heading
+    /// (`crate::panel::sections`), so the player can tell a standing order is coming without
+    /// looking at the map.
+    pub fn repeating_label(&self) -> Option<String> {
+        (self.tool == Tool::Harvest && self.repeating)
+            .then(|| format!("{} · repeating", self.tool.name()))
     }
 
     /// What the active tool's hint says: generic for most tools, as `fn_ui`'s own
     /// `Tool::hint` has it (it already names the ability for `Bend`, from the session's own
-    /// choice). `Build`'s choice belongs to the frontend, not the `Session`, so it's named here:
-    /// the building it would place, or the tool's plain label with none placeable.
+    /// choice). The Harvest tool's own wording replaces `fn_ui`'s "hold Shift to repeat"
+    /// (#277: a terminal can't reliably report Shift+Enter, so `O` toggles it instead, and the
+    /// Tool section's heading says when it's on). `Build`'s choice belongs to the frontend, not
+    /// the `Session`, so it's named here too: the building it would place, or the tool's plain
+    /// label with none placeable.
     pub fn tool_hint(&self, session: &Session) -> String {
+        if self.tool == Tool::Harvest {
+            return "designate harvest (chop, mine, gather); O: standing order".to_owned();
+        }
         if self.tool != Tool::Build {
             return self.tool.hint(session);
         }
@@ -498,14 +524,21 @@ mod tests {
         assert!((SCROLL_MARGIN..h - SCROLL_MARGIN).contains(&cy));
     }
 
-    /// Every other tool's hint is `fn_ui`'s own; the Build tool's names the chosen building,
-    /// since the choice belongs to `UiState`, not the `Session` (#275).
+    /// Most other tools' hints are `fn_ui`'s own; the Build tool's names the chosen building,
+    /// since the choice belongs to `UiState`, not the `Session` (#275), and the Harvest tool's
+    /// own wording names `O` instead of `fn_ui`'s "hold Shift to repeat", which a terminal can't
+    /// reliably send (#277).
     #[test]
     fn the_build_tool_s_hint_names_the_chosen_building() {
         let session = Session::new(7, Nation::Earth, 48, 32);
         let mut ui = UiState::new(&session, (120, 40));
+        ui.set_tool(Tool::Stockpile);
+        assert_eq!(ui.tool_hint(&session), Tool::Stockpile.hint(&session));
         ui.set_tool(Tool::Harvest);
-        assert_eq!(ui.tool_hint(&session), Tool::Harvest.hint(&session));
+        assert_eq!(
+            ui.tool_hint(&session),
+            "designate harvest (chop, mine, gather); O: standing order"
+        );
 
         // With no choice yet it falls back to the first building the nation can place (Bed).
         ui.set_tool(Tool::Build);

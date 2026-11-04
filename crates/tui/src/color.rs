@@ -175,6 +175,10 @@ pub fn mix(a: Rgb8, b: Rgb8, t: f32) -> Rgb8 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tint {
     Harvest,
+    /// A harvest tile with a standing order on it (#81, #277): the same hue as `Harvest`, pushed
+    /// toward green so it reads as "standing" rather than "one-shot" (mirrors the client's
+    /// `designate::Layer::RepeatingHarvest`).
+    RepeatingHarvest,
     Stockpile,
     /// The nation's accent.
     Bend,
@@ -221,8 +225,9 @@ pub struct Palette {
     /// On 16 colours a tint can't be mixed into a background (every dark background is plain
     /// black), so each designation gets a colour of its own, picked so that no two share one,
     /// and so do the Build tool's ghost: free and blocked (#212), and its door tile when it's
-    /// free (#230; a blocked door reuses the ghost's own blocked colour, the last one here).
-    solid: [Color; 7],
+    /// free (#230; a blocked door reuses the ghost's own blocked colour, index 6), and a
+    /// harvest's standing order (#277, the last one here).
+    solid: [Color; 8],
 }
 
 impl Palette {
@@ -251,6 +256,7 @@ impl Palette {
             pick(to_u8(theme.ok)),
             pick(to_u8(theme.bad)),
             pick(to_u8(theme.warn)),
+            pick(o.repeating),
         ];
         Self { theme, glyphs, depth, ascii, accent, unit, solid }
     }
@@ -284,6 +290,7 @@ impl Palette {
         let o = &self.glyphs.overlay;
         match tint {
             Tint::Harvest => o.harvest,
+            Tint::RepeatingHarvest => o.repeating,
             Tint::Stockpile => o.stockpile,
             Tint::Bend => self.accent,
             Tint::Build => o.build,
@@ -300,6 +307,7 @@ impl Palette {
             (ColorDepth::Ansi16, Tint::Stockpile) => self.solid[1],
             (ColorDepth::Ansi16, Tint::Bend) => self.solid[2],
             (ColorDepth::Ansi16, Tint::Build) => self.solid[3],
+            (ColorDepth::Ansi16, Tint::RepeatingHarvest) => self.solid[7],
             (_, Tint::Wet) => self.color(mix(base, self.tint_rgb(tint), 0.75)),
             (ColorDepth::Indexed256, _) => Color::Indexed(self.designation_256(base, tint)),
             (_, _) => self.color(mix(base, self.tint_rgb(tint), TINT_STRENGTH)),
@@ -364,7 +372,7 @@ impl Palette {
     /// before it.
     fn designation_256(&self, base: Rgb8, tint: Tint) -> u8 {
         let mut avoid = vec![base, self.glyphs.overlay.cursor];
-        for t in [Tint::Harvest, Tint::Stockpile, Tint::Bend, Tint::Build] {
+        for t in [Tint::Harvest, Tint::RepeatingHarvest, Tint::Stockpile, Tint::Bend, Tint::Build] {
             let target = mix(base, self.tint_rgb(t), TINT_STRENGTH);
             let pick = nearest_256_apart(target, &avoid);
             if t == tint {
@@ -496,9 +504,9 @@ mod tests {
         }
     }
 
-    /// A harvest, stockpile, bend (and build) designation each look different from the others
-    /// and from the cursor, on every ground, once quantised to 256 or 16 colours, for every
-    /// nation.
+    /// A harvest, a standing-order harvest (#277), stockpile, bend (and build) designation each
+    /// look different from the others and from the cursor, on every ground, once quantised to
+    /// 256 or 16 colours, for every nation.
     #[test]
     fn designation_tints_stay_distinct_after_quantising() {
         let defs = Defs::bundled();
@@ -508,6 +516,7 @@ mod tests {
                 for (what, base) in bases(&p.glyphs) {
                     let shown = [
                         ("harvest", p.tinted(base, Tint::Harvest)),
+                        ("repeating", p.tinted(base, Tint::RepeatingHarvest)),
                         ("stockpile", p.tinted(base, Tint::Stockpile)),
                         ("bend", p.tinted(base, Tint::Bend)),
                         ("build", p.tinted(base, Tint::Build)),

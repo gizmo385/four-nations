@@ -29,6 +29,10 @@ pub enum Action {
     },
     /// `H` `X` `P` or `B`: switch to a designation tool (dropping the corner).
     PickTool(Tool),
+    /// `O`: in the Harvest tool, toggles the next rectangle between a one-off designation and a
+    /// standing order (#81, #277, stands in for the client's held Shift, which a terminal can't
+    /// reliably report). No effect in any other tool.
+    ToggleRepeat,
     /// `Enter`: in Select mode, select the unit under the cursor (again: the next one there); in
     /// a tool, set a corner or apply the rectangle.
     Confirm,
@@ -236,6 +240,12 @@ fn build_table() -> Vec<Binding> {
         };
         add(Group::Tools, &what, Key::ch(letter.to_ascii_lowercase()), Action::PickTool(tool));
     }
+    add(
+        Group::Tools,
+        "Harvest tool: toggle a standing order (re-designates when the resource ripens again)",
+        Key::ch('o'),
+        Action::ToggleRepeat,
+    );
 
     add(Group::Time, "Pause or run", Key::ch(' '), Action::TogglePause);
     add(Group::Time, "Faster", Key::ch('+'), Action::Faster);

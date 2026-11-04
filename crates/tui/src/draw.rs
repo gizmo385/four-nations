@@ -82,14 +82,19 @@ const KEYS_SAVES: &str =
     "arrows/W S choose  Enter load  Shift+S save over  N new  Esc/F6 close  ? keys";
 const KEYS_BUILD_MODAL: &str = "Arrows/W S choose  Enter build  Esc close";
 
-/// The status line in a tool: what `Enter` and `Esc` do now, then what the tool does (for `B`,
-/// the nation's ability; for `U`, the building it would place).
+/// The status line in a tool: what `Enter` and `Esc` do now, "Harvest · repeating" while the
+/// standing-order toggle is on (#277), then what the tool does (for `B`, the nation's ability;
+/// for `U`, the building it would place).
 fn tool_status(session: &Session, ui: &UiState) -> String {
     let keys = match ui.rect_size() {
         None => "Enter set corner  Esc leave".to_owned(),
         Some((w, h)) => format!("Enter apply {w}x{h}  Esc drop corner"),
     };
-    format!("{keys}  |  {}", ui.tool_hint(session))
+    let hint = ui.tool_hint(session);
+    match ui.repeating_label() {
+        Some(label) => format!("{keys}  |  {label}  |  {hint}"),
+        None => format!("{keys}  |  {hint}"),
+    }
 }
 
 fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, buf: &mut Buffer) {

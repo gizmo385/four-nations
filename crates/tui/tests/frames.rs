@@ -7,6 +7,7 @@
 use std::collections::BTreeSet;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use fn_sim::jobs::JobKind;
 use fn_sim::world::Command;
 use fn_sim::{Nation, Pos};
 use fn_tui::app::App;
@@ -273,6 +274,163 @@ fn the_panel_and_the_status_line_show_the_tool_its_hint_and_the_result() {
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
     assert!(text.contains("done"), "the result is in the Tool section:\n{text}");
     assert!(text.contains("Enter: set a corner"));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Standing harvest orders (#81, #277)
+// ---------------------------------------------------------------------------------------------
+
+/// The nearest `n` tiles (to the first settler) the Harvest tool can designate, found on
+/// throwaway clones of `s` so `s` itself stays untouched.
+fn nearest_harvestable(s: &Session, n: usize) -> Vec<Pos> {
+    let from = s.world.units[0].pos;
+    let mut tiles: Vec<Pos> =
+        s.world.map.iter().filter(|(_, t)| t.resource.is_some()).map(|(p, _)| p).collect();
+    tiles.sort_by_key(|p| (p.x - from.x).pow(2) + (p.y - from.y).pow(2));
+    tiles
+        .into_iter()
+        .filter(|&pos| s.clone().apply(Command::DesignateHarvest { pos }).is_ok())
+        .take(n)
+        .collect()
+}
+
+/// Like `nearest_harvestable`, but only a renewable resource (`regrow.is_some()`), for
+/// `a_standing_order_re_designates_the_resource_once_it_regrows`.
+fn nearest_renewable_harvestable(s: &Session, n: usize) -> Vec<Pos> {
+    let from = s.world.units[0].pos;
+    let mut tiles: Vec<Pos> = s
+        .world
+        .map
+        .iter()
+        .filter(|(_, t)| {
+            t.resource.and_then(|r| s.defs.harvest(r)).is_some_and(|h| h.regrow.is_some())
+        })
+        .map(|(p, _)| p)
+        .collect();
+    tiles.sort_by_key(|p| (p.x - from.x).pow(2) + (p.y - from.y).pow(2));
+    tiles
+        .into_iter()
+        .filter(|&pos| s.clone().apply(Command::DesignateHarvest { pos }).is_ok())
+        .take(n)
+        .collect()
+}
+
+/// `O` has no effect outside the Harvest tool, toggles with it inside it, and resets when the
+/// tool is left; the Tool section's heading and the status line both say "Harvest · repeating"
+/// while it's on, and the Cursor section says a tile under it has a standing order.
+#[test]
+fn o_toggles_a_standing_order_in_the_harvest_tool_only() {
+    let mut app = App::new(new_session(7, Nation::Earth), SIZE);
+    let target = nearest_harvestable(&app.session, 1)[0];
+    app.ui.cursor = target;
+
+    // `O` outside the Harvest tool does nothing.
+    app.play(&keys::parse("o").unwrap());
+    assert!(!app.ui.repeating);
+
+    app.play(&keys::parse("h").unwrap());
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
+    assert!(text.contains("Harvest [H]"), "{text}");
+    assert!(!text.contains("repeating"), "{text}");
+
+    app.play(&keys::parse("o").unwrap());
+    assert!(app.ui.repeating);
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
+    assert!(text.contains("Harvest · repeating [H]"), "{text}");
+    let status = text.lines().last().unwrap();
+    assert!(status.contains("Harvest · repeating"), "{status}");
+
+    // Designating with it on makes a standing order, and the Cursor section says so.
+    app.play(&keys::parse("<enter> <enter>").unwrap());
+    assert!(app.session.world.is_repeating_harvest(target));
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
+    assert!(text.contains("repeating"), "the Cursor section should name it:\n{text}");
+
+    // Leaving the tool drops the toggle; coming back starts fresh.
+    app.play(&keys::parse("<esc> h").unwrap());
+    assert!(!app.ui.repeating);
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
+    assert!(!text.contains("· repeating"), "{text}");
+}
+
+/// A tile with a standing order tints apart from a one-off harvest, in every colour depth,
+/// including `--color 16`, and `--color never` marks it bold as well as underlined.
+#[test]
+fn a_standing_order_tints_apart_from_a_one_off_harvest() {
+    let mut app = App::new(new_session(7, Nation::Earth), SIZE);
+    let tiles = nearest_harvestable(&app.session, 2);
+    let (one_off, standing) = (tiles[0], tiles[1]);
+
+    app.ui.cursor = one_off;
+    app.play(&keys::parse("h <enter> <enter>").unwrap());
+    app.ui.cursor = standing;
+    // The trailing move steps the cursor off `standing`, so its own colour doesn't hide the
+    // tint being checked below.
+    app.play(&keys::parse("o <enter> <enter> <left>").unwrap());
+    assert!(!app.session.world.is_repeating_harvest(one_off));
+    assert!(app.session.world.is_repeating_harvest(standing));
+    assert_ne!(app.ui.cursor, one_off);
+    assert_ne!(app.ui.cursor, standing);
+
+    for depth in [ColorDepth::TrueColor, ColorDepth::Indexed256, ColorDepth::Ansi16] {
+        let p = palette(&app.session, depth, false);
+        let buf = frame(&mut app, depth, false, SIZE);
+        let got_one_off = cell_at(&app, &buf, one_off).bg;
+        let got_standing = cell_at(&app, &buf, standing).bg;
+        assert_eq!(got_one_off, p.tinted(ground_bg(&p, &app.session, one_off), Tint::Harvest));
+        assert_eq!(
+            got_standing,
+            p.tinted(ground_bg(&p, &app.session, standing), Tint::RepeatingHarvest)
+        );
+        assert_ne!(got_one_off, got_standing, "{depth:?}: the two should look different");
+    }
+
+    // Without colour, a standing order is bold as well as underlined.
+    let buf = frame(&mut app, ColorDepth::Never, false, SIZE);
+    let one_off_cell = cell_at(&app, &buf, one_off);
+    let standing_cell = cell_at(&app, &buf, standing);
+    assert!(one_off_cell.modifier.contains(Modifier::UNDERLINED));
+    assert!(!one_off_cell.modifier.contains(Modifier::BOLD), "{one_off_cell:?}");
+    assert!(standing_cell.modifier.contains(Modifier::UNDERLINED | Modifier::BOLD));
+}
+
+/// `h o <enter> <enter> <tick N>`: once the standing order's resource is worked and ripens
+/// again, a fresh job appears without the player doing anything (#81's sim rule, reached through
+/// the TUI's own key, #277).
+#[test]
+fn a_standing_order_re_designates_the_resource_once_it_regrows() {
+    let s = new_session(7, Nation::Earth);
+    let target = nearest_renewable_harvestable(&s, 1)[0];
+
+    let mut app = App::new(s, SIZE);
+    app.ui.cursor = target;
+    app.play(&keys::parse("h o <enter> <enter>").unwrap());
+    assert!(app.session.world.is_repeating_harvest(target));
+
+    let has_job = |app: &App| {
+        app.session.world.jobs().iter().any(|j| j.kind == JobKind::Harvest { pos: target })
+    };
+
+    // Worked once, same as a one-shot harvest: the job is gone and the resource rests.
+    for _ in 0..200 {
+        app.play(&keys::parse("<tick 100>").unwrap());
+        if app.session.world.is_resting(target) {
+            break;
+        }
+    }
+    assert!(app.session.world.is_resting(target), "the resource should have been worked once");
+    assert!(!has_job(&app), "no job sits around while it rests");
+    assert!(app.session.world.is_repeating_harvest(target), "the standing order still shows");
+
+    // Once it ripens, a fresh job appears on its own.
+    for _ in 0..200 {
+        app.play(&keys::parse("<tick 500>").unwrap());
+        if !app.session.world.is_resting(target) {
+            break;
+        }
+    }
+    assert!(!app.session.world.is_resting(target), "the resource should have ripened again");
+    assert!(has_job(&app), "the standing order should have re-designated it");
 }
 
 #[test]
