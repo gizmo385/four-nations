@@ -623,6 +623,39 @@ mod tests {
     }
 
     #[test]
+    fn a_bend_drag_designates_the_whole_chain_across_a_lake_at_once() {
+        // #304: a Raise Earth drag spanning a lake used to be refused past its first tile; the
+        // sim now chains a pending designation off its already-pending neighbour, so the whole
+        // line the player dragged over designates in one go, with nothing skipped.
+        use fn_sim::defs::BiomeId;
+        use fn_sim::{Grid, Terrain, Tile, TileMap, World};
+
+        use crate::clock::Clock;
+
+        let defs = Defs::bundled();
+        let plains = BiomeId(defs.biomes.iter().position(|b| b.id == "plains").unwrap() as u8);
+        let map: TileMap = Grid::from_fn(10, 3, |p| Tile {
+            elevation: 100,
+            temperature: 128,
+            moisture: 128,
+            terrain: if (3..=6).contains(&p.x) { Terrain::Lake } else { Terrain::Land },
+            biome: plains,
+            resource: None,
+            building: None,
+        });
+        let world = World::with_map(1, map, Nation::Earth, &[Pos::new(1, 1)], &defs);
+        let mut s = Session { world, defs, clock: Clock::default(), bend_choice: None };
+        s.bend_choice = Some(s.defs.ability_id("raise_earth").unwrap());
+
+        let notice = apply_rect(&mut s, Tool::Bend, Pos::new(3, 1), Pos::new(6, 1), false, None);
+        assert_eq!(notice, "channel the nation's ability: 4 done, 0 skipped", "{notice}");
+        for x in 3..=6 {
+            let pos = Pos::new(x, 1);
+            assert!(s.world.bend_designations().any(|(_, p)| p == pos), "x={x}");
+        }
+    }
+
+    #[test]
     fn the_build_tool_names_the_building_and_cancel_withdraws_the_site() {
         let mut s = Session::new(7, Nation::Earth, 64, 64);
         let bed = s.defs.building_id("bed").unwrap();

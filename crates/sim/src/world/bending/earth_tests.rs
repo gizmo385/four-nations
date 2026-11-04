@@ -205,6 +205,89 @@ fn a_wide_lake_is_crossed_one_tile_at_a_time() {
     run_until(&mut w, &defs, 8000, |w| w.stored_total(item) == 1);
 }
 
+/// Keeps a unit's needs full and its chi topped up while the test drives many bends in a row,
+/// neither of which is under test here.
+fn keep_bending(w: &mut World, defs: &Defs) {
+    w.units[0].needs = crate::needs::Needs::full(&defs.needs);
+    w.units[0].chi = defs.chi.max;
+}
+
+#[test]
+fn a_four_wide_lake_is_raised_in_one_line_designated_at_once() {
+    // #304: the whole line can be designated before any of it is a ford -- the two middle tiles
+    // chain off their pending neighbour, since neither touches dry ground -- but it is still
+    // worked bank outward, one real ford at a time.
+    let defs = Defs::bundled();
+    let mut w = world(Nation::Earth, Terrain::Lake, 8, &defs);
+    let ability = raise(&defs);
+    for x in 5..=8 {
+        assert_eq!(
+            w.apply(Command::Bend { ability, pos: at(x, 3) }, &defs),
+            Ok(()),
+            "x={x} chains off the tile before it"
+        );
+    }
+    assert_eq!(w.jobs().len(), 4, "the whole line is designated at once");
+
+    for _ in 0..20_000 {
+        keep_bending(&mut w, &defs);
+        w.tick(&defs);
+        if (5..=8).all(|x| w.map[at(x, 3)].terrain == Terrain::Ford) {
+            break;
+        }
+    }
+    for x in 5..=8 {
+        assert_eq!(w.map[at(x, 3)].terrain, Terrain::Ford, "x={x}");
+    }
+    let order: Vec<i32> = w
+        .bend_events()
+        .iter()
+        .filter(|e| e.outcome == BendOutcome::Done)
+        .map(|e| e.pos.x)
+        .collect();
+    assert_eq!(order, vec![5, 6, 7, 8], "raised bank outward, in order");
+
+    // A chain of fords joins the banks, so the cabbage can be fetched.
+    let item = cabbage_item(&defs);
+    w.apply(Command::DesignateStockpile { pos: at(2, 3) }, &defs).unwrap();
+    w.apply(Command::DesignateHarvest { pos: at(10, 3) }, &defs).unwrap();
+    run_until(&mut w, &defs, 8000, |w| w.stored_total(item) == 1);
+}
+
+#[test]
+fn a_tile_that_chains_to_nothing_is_still_refused() {
+    let defs = Defs::bundled();
+    let mut w = world(Nation::Earth, Terrain::Lake, 8, &defs);
+    let ability = raise(&defs);
+    let refused = Err(CommandError::Bend(BendError::InvalidTarget("needs dry ground beside it")));
+    // Designate the west end, then skip a tile: the far one has no bank and no designated (nor
+    // real) neighbour to chain off.
+    assert_eq!(w.apply(Command::Bend { ability, pos: at(5, 3) }, &defs), Ok(()));
+    assert_eq!(w.apply(Command::Bend { ability, pos: at(7, 3) }, &defs), refused);
+}
+
+#[test]
+fn designating_a_chained_line_at_once_is_deterministic() {
+    let defs = Defs::bundled();
+    let run = || {
+        let mut w = world(Nation::Earth, Terrain::Lake, 8, &defs);
+        let ability = raise(&defs);
+        for x in 5..=8 {
+            w.apply(Command::Bend { ability, pos: at(x, 3) }, &defs).unwrap();
+        }
+        for _ in 0..20_000 {
+            keep_bending(&mut w, &defs);
+            w.tick(&defs);
+            if (5..=8).all(|x| w.map[at(x, 3)].terrain == Terrain::Ford) {
+                break;
+            }
+        }
+        w
+    };
+    let (a, b) = (run(), run());
+    assert_eq!(snapshot(&a, &defs), snapshot(&b, &defs));
+}
+
 /// Everything observable about the world's terrain, through its public API.
 fn snapshot(w: &World, defs: &Defs) -> String {
     let units: Vec<_> = w.units.iter().map(|u| (u.id, u.pos, u.chi.to_bits(), u.task())).collect();

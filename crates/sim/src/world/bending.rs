@@ -21,7 +21,22 @@
 //!
 //! **Raise Earth** (#68) turns a river or lake tile with dry ground on one of its four sides
 //! into a `Ford`. Fords are permanent. The regions cache is invalidated and idle units woken,
-//! since jobs across the water may have become reachable.
+//! since jobs across the water may have become reachable. **Bore Tunnel** (#132, below) shares
+//! this same `Reshape` effect on mountains instead of water, and so shares everything below about
+//! chained designation and claim order.
+//!
+//! A `Reshape` tile with no dry ground beside it may still be designated, chained off an
+//! orthogonal neighbour's own pending `Reshape` designation of the same effect (#304): since a
+//! pending designation only ever exists because it validated too, by the bank or a chain of its
+//! own, a whole dragged line or rectangle can be designated at once, out from dry ground, without
+//! waiting on each tile in turn. A tile that chains to nothing -- no bank, no designated neighbour
+//! -- is still refused ("needs dry ground beside it"). The chain can't be *worked* out of that
+//! order, though: `bend_ready` keeps a job unclaimable until its tile actually has walkable
+//! ground beside it, which for an inner tile means the neighbour it chained off has actually
+//! been reshaped, so the chain is bored or raised bank outward, one real tile at a time, however
+//! many units are free to work it. Cancelling a designation mid-chain only withdraws that one
+//! tile: whatever is designated beyond it stays designated, simply unclaimable, until some other
+//! bank reaches it (or the player cancels those too).
 //!
 //! **Water the Land** (#69) leaves a `Patch` behind: a 3x3 area that stays wet for a while. When
 //! `tick_irrigation` finds a patch dry (patches dry in `(tick, centre)` order) up to `sprouts` of
@@ -174,6 +189,17 @@ fn chebyshev(a: Pos, b: Pos) -> u32 {
     (a.x - b.x).unsigned_abs().max((a.y - b.y).unsigned_abs())
 }
 
+/// `pos`'s four orthogonal neighbours (Raise Earth's and Bore Tunnel's bank, #304: a diagonal
+/// doesn't count, as `targets_are_river_or_lake_tiles_beside_dry_ground` pins down).
+fn orthogonal(pos: Pos) -> [Pos; 4] {
+    [
+        Pos::new(pos.x, pos.y - 1),
+        Pos::new(pos.x + 1, pos.y),
+        Pos::new(pos.x, pos.y + 1),
+        Pos::new(pos.x - 1, pos.y),
+    ]
+}
+
 /// `range` scaled by the ability's magnitude (Wind Carry's `power_generation`), rounded to the
 /// nearest tile.
 fn scaled_range(range: u32, magnitude: f32) -> u32 {
@@ -316,6 +342,28 @@ impl World {
             self.ensure_haul_job(pos);
         }
         Ok(())
+    }
+
+    /// Whether `pos` has real, walkable ground on one of its four orthogonal sides right now:
+    /// the bank Raise Earth and Bore Tunnel need, with no regard to what's merely designated
+    /// (#304). `validate_effect`'s `Reshape` arm also accepts a tile chained to one of these
+    /// through pending designations; this is the stricter, unchained check a job's claim needs,
+    /// so a chain is worked bank outward, one real tile at a time.
+    fn has_bank(&self, pos: Pos) -> bool {
+        orthogonal(pos).into_iter().any(|p| self.walkable(p))
+    }
+
+    /// Is a `Bend` job on `pos` for `ability` reachable right now, beyond `unit_can_bend`'s chi
+    /// and nation check (#304)? Only `Reshape` cares: a tile designated by chaining off a
+    /// still-pending neighbour (`validate_effect`) can't be worked until that neighbour has
+    /// actually become walkable ground, so a chained line or rectangle is worked in order, bank
+    /// outward, whoever claims it. Every other effect's target is ready as soon as it validates,
+    /// which claiming re-checks itself by trying to stand on it.
+    pub(super) fn bend_ready(&self, ability: AbilityId, pos: Pos, defs: &Defs) -> bool {
+        match &defs.ability(ability).effect {
+            Effect::Reshape { .. } => self.has_bank(pos),
+            _ => true,
+        }
     }
 
     /// Removes the haul job on `pos`, if any, releasing a unit that claimed it but hasn't
@@ -527,10 +575,22 @@ impl World {
                 if tile.resource.is_some() {
                     return Err("something is in the way");
                 }
-                let bank = [(0, -1), (1, 0), (0, 1), (-1, 0)]
-                    .iter()
-                    .any(|&(dx, dy)| self.walkable(Pos::new(pos.x + dx, pos.y + dy)));
-                if bank { Ok(()) } else { Err("needs dry ground beside it") }
+                if self.has_bank(pos) {
+                    return Ok(());
+                }
+                // Chained off a neighbour's pending designation of this same effect (#304): it
+                // was itself only ever added here once it validated, by the bank or a chain of
+                // its own, so a dragged line or rectangle can be designated all at once, out
+                // from dry ground, each tile accepted before any of it is actually bored or
+                // raised. A tile that chains to nothing -- no bank, no designated neighbour -- is
+                // still refused. The chain can't be *worked* out of this order: `bend_ready`.
+                let chained = orthogonal(pos).into_iter().any(|q| {
+                    self.jobs.iter().any(|j| {
+                        matches!(j.kind, JobKind::Bend { ability, pos: p } if p == q
+                            && defs.ability(ability).effect == *effect)
+                    })
+                });
+                if chained { Ok(()) } else { Err("needs dry ground beside it") }
             }
             Effect::Irrigate { source_range, .. } => {
                 let range = *source_range as i32;
