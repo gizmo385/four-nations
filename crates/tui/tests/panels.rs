@@ -745,16 +745,13 @@ fn r_starts_a_new_map_only_after_a_y() {
 
     run(&mut a, "r <esc>");
     assert_eq!(a.session.world.seed, 7, "Esc stays");
+    // Confirming `R` no longer restarts in place (#290): it flags that `Shell` should reopen
+    // embark on the next seed instead, and leaves this game exactly as it was until that
+    // happens (`crate::shell::Shell::key`, tested at that level in `tests/title.rs`).
     run(&mut a, "R y");
-    let w = &a.session.world;
-    assert_eq!((w.seed, w.tick, w.nation), (8, 0, Nation::Earth));
-    assert_eq!(a.ui.selected, None, "the selection starts over");
+    assert!(a.reopen_embark);
+    assert_eq!(a.session.world.seed, 7, "App itself doesn't restart; Shell does");
     assert!(a.ui.prompt.is_none());
-    assert_eq!(
-        (w.map.width(), w.map.height()),
-        (a.session.world.map.width(), a.session.world.map.height())
-    );
-    assert!(text(&mut a, SIZE).contains("Seed 8"));
 }
 
 #[test]
@@ -778,13 +775,49 @@ fn the_number_row_switches_nation_on_the_same_seed_after_a_y() {
     }
 }
 
+/// `App::restart` (here, through the `1`-`4` nation switch, the one prompt it still answers
+/// in place since `R` leaves restarting to `Shell`, #290) keeps the screen size and shows the
+/// cursor on the new world's first settler.
 #[test]
-fn a_new_game_keeps_the_screen_size_and_shows_the_cursor_on_its_first_settler() {
+fn restarting_in_place_keeps_the_screen_size_and_shows_the_cursor_on_its_first_settler() {
     let mut a = app(7, Nation::Earth, SMALL);
-    run(&mut a, "r y");
+    run(&mut a, "2 y");
+    assert_eq!(a.session.world.nation, Nation::Water);
     assert_eq!(a.ui.viewport(), (48, 23));
     assert!(a.ui.cursor_cell().is_some());
     assert_eq!(a.ui.cursor, a.session.world.units[0].pos);
+}
+
+/// The `1`-`4` nation switch (#290): with no `start` (a world made by `App::new`'s plain
+/// `Session::new`), it keeps the centre-spiral spawn; founded at a chosen site, it rebuilds
+/// there instead of snapping back to the centre.
+#[test]
+fn the_nation_switch_rebuilds_at_the_world_s_start_when_it_has_one() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    assert_eq!(a.session.world.start(), None);
+    run(&mut a, "2 y");
+    assert_eq!(a.session.world.start(), None, "no start to keep");
+
+    let defs = fn_sim::Defs::bundled();
+    let size = defs.embark.map_size("small").unwrap();
+    let cfg = fn_sim::embark::Survey::config(7, size);
+    let survey = fn_sim::embark::Survey::new(&cfg, &defs);
+    let start = survey.default_site(&defs);
+    let session = Session::found(survey, Nation::Earth, start).unwrap();
+    let mut a = App::new(session, SIZE);
+    assert_eq!(a.session.world.start(), Some(start));
+
+    run(&mut a, "2 y");
+    assert_eq!(a.session.world.nation, Nation::Water);
+    assert_eq!(a.session.world.start(), Some(start), "rebuilt at the same start");
+    let radius = defs.embark.spawn_radius as u32;
+    for u in &a.session.world.units {
+        assert!(
+            u.pos.x.abs_diff(start.x) <= radius && u.pos.y.abs_diff(start.y) <= radius,
+            "{:?} is far from the kept start {start:?}",
+            u.pos
+        );
+    }
 }
 
 #[test]

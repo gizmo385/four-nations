@@ -30,13 +30,17 @@ pub struct App {
     /// Where `F5` and `F9` keep the quicksave (`fn_ui::saves`); `None` when there is nowhere,
     /// and then both keys say so. The binary sets it from the environment; tests set their own.
     pub saves: Option<PathBuf>,
+    /// `R`, confirmed: `Shell` reopens embark on the next seed instead of restarting in place
+    /// (#290, docs/design/embark.md, "In the game, `R`"), since only it can leave the game
+    /// behind for a pre-game screen.
+    pub reopen_embark: bool,
 }
 
 impl App {
     pub fn new(session: Session, screen: (u16, u16)) -> Self {
         let mut ui = UiState::new(&session, screen);
         ui.alerts.update(&session, 0.0);
-        Self { session, ui, dirty: true, screen, saves: None }
+        Self { session, ui, dirty: true, screen, saves: None, reopen_embark: false }
     }
 
     pub fn resize(&mut self, width: u16, height: u16) {
@@ -230,12 +234,15 @@ impl App {
 
     /// The answer to a prompt was yes.
     fn confirm_prompt(&mut self, prompt: Prompt) {
-        let world = &self.session.world;
         match prompt {
             Prompt::Quit => self.ui.quit = true,
-            // The client's own rule: R takes the next seed, a digit keeps the seed.
-            Prompt::NewMap => self.restart(world.seed.wrapping_add(1), world.nation),
-            Prompt::Nation(nation) => self.restart(world.seed, nation),
+            // `Shell` reads this on the way out: it leaves the game behind for embark, rather
+            // than restarting in place (#290).
+            Prompt::NewMap => self.reopen_embark = true,
+            Prompt::Nation(nation) => {
+                let seed = self.session.world.seed;
+                self.restart(seed, nation);
+            }
             Prompt::QuickLoad => self.quickload(),
             Prompt::LoadSave(name) => self.load_save(&name),
             Prompt::SaveOver(name) => self.save_over(&name),
@@ -375,10 +382,33 @@ impl App {
     }
 
     /// A new game on a map of the same size: the clock, the selection, the log and the screens
-    /// all start over.
+    /// all start over. If this world was founded at a chosen site (`World::start`, #289), the
+    /// new one is founded there too, instead of snapping back to the map centre (#290, the `1`-
+    /// `4` nation switch); `Session::new`'s plain centre spiral otherwise.
     pub fn restart(&mut self, seed: u64, nation: Nation) {
-        let map = &self.session.world.map;
-        self.session = Session::new(seed, nation, map.width(), map.height());
+        let (width, height) = (self.session.world.map.width(), self.session.world.map.height());
+        self.session = match self.session.world.start() {
+            Some(start) => {
+                // The preset matching this map's size, so a bigger map's own
+                // `continent_frequency` override survives the switch (docs/design/embark.md,
+                // "Map size is a choice"); the plain defaults otherwise.
+                let cfg = match self
+                    .session
+                    .defs
+                    .embark
+                    .map_sizes
+                    .iter()
+                    .find(|s| s.width == width && s.height == height)
+                {
+                    Some(size) => fn_sim::embark::Survey::config(seed, size),
+                    None => fn_sim::MapGenConfig { seed, width, height, ..Default::default() },
+                };
+                let survey = fn_sim::embark::Survey::new(&cfg, &self.session.defs);
+                Session::found(survey, nation, start)
+                    .unwrap_or_else(|_| Session::new(seed, nation, width, height))
+            }
+            None => Session::new(seed, nation, width, height),
+        };
         self.ui = UiState::new(&self.session, self.screen);
         self.ui.alerts.update(&self.session, 0.0);
         self.dirty = true;

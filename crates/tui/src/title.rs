@@ -9,6 +9,7 @@
 use std::path::Path;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use fn_sim::embark::SurveyMode;
 use fn_sim::{Defs, Nation, World};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -58,24 +59,46 @@ pub enum Page {
     Nation {
         cursor: usize,
     },
-    /// The chosen nation, typing a seed.
+    /// The chosen nation, with the seed, map size and survey rows (#290): `Enter` opens embark
+    /// for them instead of starting the game straight away.
     Seed {
         nation: Nation,
         digits: String,
         edited: bool,
+        /// Which row is highlighted: moved with up/down, changed with left/right (digits are
+        /// typed only on [`SeedRow::Digits`]).
+        row: SeedRow,
+        /// An index into `Defs::embark`'s `map_sizes`.
+        size_idx: usize,
+        survey: SurveyMode,
     },
     /// Every save, as the in-game saves screen (`F6`) shows them.
     Load,
+}
+
+/// A row of the seed step (#290, docs/design/embark.md).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SeedRow {
+    Digits,
+    Size,
+    Survey,
+}
+
+impl SeedRow {
+    const ALL: [SeedRow; 3] = [SeedRow::Digits, SeedRow::Size, SeedRow::Survey];
 }
 
 /// What a key did, for [`crate::shell::Shell`] to act on.
 #[derive(Debug)]
 pub enum Outcome {
     None,
-    /// Start a new game.
-    Start {
+    /// `Enter` on the seed step: open embark for this seed, nation, size and survey mode
+    /// instead of starting the game straight away (#290).
+    Embark {
         seed: u64,
         nation: Nation,
+        size: fn_sim::embark::MapSizeDef,
+        mode: SurveyMode,
     },
     /// Continue or Load: a world ready to become the game.
     Loaded(Box<World>),
@@ -150,7 +173,9 @@ impl TitleScreen {
                 self.key_nation(key, cursor);
                 Outcome::None
             }
-            Page::Seed { nation, digits, edited } => self.key_seed(key, nation, digits, edited),
+            Page::Seed { nation, digits, edited, row, size_idx, survey } => {
+                self.key_seed(key, defs, nation, digits, edited, row, size_idx, survey)
+            }
             Page::Load => self.key_load(key, defs, saves),
         }
     }
@@ -220,8 +245,14 @@ impl TitleScreen {
             KeyCode::Char(c @ '1'..='4') => cursor = i32::from(c as u8 - b'1'),
             KeyCode::Enter => {
                 let nation = Nation::ALL[cursor as usize];
-                self.page =
-                    Page::Seed { nation, digits: self.seed_hint.to_string(), edited: false };
+                self.page = Page::Seed {
+                    nation,
+                    digits: self.seed_hint.to_string(),
+                    edited: false,
+                    row: SeedRow::Digits,
+                    size_idx: 0,
+                    survey: SurveyMode::Exact,
+                };
                 return;
             }
             KeyCode::Esc => {
@@ -233,15 +264,23 @@ impl TitleScreen {
         self.page = Page::Nation { cursor: cursor as usize };
     }
 
+    /// Three rows (#290): the seed's own digits, then Size and Survey, moved between with
+    /// up/down and changed with left/right. `Enter` opens embark from any of them.
+    #[allow(clippy::too_many_arguments)]
     fn key_seed(
         &mut self,
         key: KeyEvent,
+        defs: &Defs,
         nation: Nation,
         mut digits: String,
         mut edited: bool,
+        mut row: SeedRow,
+        mut size_idx: usize,
+        mut survey: SurveyMode,
     ) -> Outcome {
+        let sizes = defs.embark.map_sizes.len().max(1);
         match key.code {
-            KeyCode::Char(c) if c.is_ascii_digit() => {
+            KeyCode::Char(c) if c.is_ascii_digit() && row == SeedRow::Digits => {
                 if !edited {
                     digits.clear();
                     edited = true;
@@ -250,14 +289,40 @@ impl TitleScreen {
                     digits.push(c);
                 }
             }
-            KeyCode::Backspace => {
+            KeyCode::Backspace if row == SeedRow::Digits => {
                 edited = true;
                 digits.pop();
+            }
+            KeyCode::Up | KeyCode::Char('w' | 'W') => row = step_row(row, -1),
+            KeyCode::Down | KeyCode::Char('s' | 'S') => row = step_row(row, 1),
+            KeyCode::Left | KeyCode::Char('a' | 'A') if row == SeedRow::Size => {
+                size_idx = (size_idx + sizes - 1) % sizes;
+            }
+            KeyCode::Right | KeyCode::Char('d' | 'D') if row == SeedRow::Size => {
+                size_idx = (size_idx + 1) % sizes;
+            }
+            KeyCode::Left | KeyCode::Right | KeyCode::Char('a' | 'A' | 'd' | 'D')
+                if row == SeedRow::Survey =>
+            {
+                survey = toggle_survey(survey);
             }
             KeyCode::Enter => {
                 let seed =
                     if digits.is_empty() { self.seed_hint } else { digits.parse().unwrap_or(0) };
-                return Outcome::Start { seed, nation };
+                let size = defs
+                    .embark
+                    .map_sizes
+                    .get(size_idx)
+                    .cloned()
+                    .or_else(|| defs.embark.map_sizes.first().cloned())
+                    .unwrap_or(fn_sim::embark::MapSizeDef {
+                        id: "small".into(),
+                        name: "Small".into(),
+                        width: 192,
+                        height: 128,
+                        continent_frequency: None,
+                    });
+                return Outcome::Embark { seed, nation, size, mode: survey };
             }
             KeyCode::Esc => {
                 let cursor = Nation::ALL.iter().position(|&n| n == nation).unwrap_or(0);
@@ -266,7 +331,7 @@ impl TitleScreen {
             }
             _ => {}
         }
-        self.page = Page::Seed { nation, digits, edited };
+        self.page = Page::Seed { nation, digits, edited, row, size_idx, survey };
         Outcome::None
     }
 
@@ -310,6 +375,37 @@ fn step(len: usize, at: usize, dy: i32) -> usize {
     (at as i64 + i64::from(dy.signum())).clamp(0, last as i64) as usize
 }
 
+/// The seed step's next row after a step of `dy` (its sign only), stopping at the edges (#290).
+fn step_row(row: SeedRow, dy: i32) -> SeedRow {
+    let at = SeedRow::ALL.iter().position(|&r| r == row).unwrap_or(0);
+    let last = SeedRow::ALL.len() - 1;
+    SeedRow::ALL[(at as i64 + i64::from(dy.signum())).clamp(0, last as i64) as usize]
+}
+
+fn toggle_survey(mode: SurveyMode) -> SurveyMode {
+    match mode {
+        SurveyMode::Exact => SurveyMode::Rough,
+        SurveyMode::Rough => SurveyMode::Exact,
+    }
+}
+
+/// The seed step's hint for whichever row is highlighted (#290).
+fn seed_row_hint(row: SeedRow, defs: &Defs, size_idx: usize, survey: SurveyMode) -> String {
+    match row {
+        SeedRow::Digits => "Type digits, Backspace to edit.".to_owned(),
+        SeedRow::Size => match defs.embark.map_sizes.get(size_idx) {
+            Some(s) => format!("{}: {}x{} tiles.", s.name, s.width, s.height),
+            None => String::new(),
+        },
+        SeedRow::Survey => match survey {
+            SurveyMode::Exact => "Exact: you'll see exactly what's at every site.".to_owned(),
+            SurveyMode::Rough => {
+                "Rough: you won't know exactly what's there until you arrive.".to_owned()
+            }
+        },
+    }
+}
+
 // -------------------------------------------------------------------------------------------
 // Drawing
 // -------------------------------------------------------------------------------------------
@@ -319,7 +415,7 @@ fn footer(page: &Page) -> &'static str {
     match page {
         Page::Menu => "Arrows/W S choose  Enter select",
         Page::Nation { .. } => "Arrows/1-4 choose  Enter confirm  Esc back",
-        Page::Seed { .. } => "Digits edit  Backspace delete  Enter start  Esc back",
+        Page::Seed { .. } => "Up/Down row  Left/Right change  Enter embark  Esc back",
         Page::Load => "Arrows/W S choose  Enter load  Esc back",
     }
 }
@@ -357,7 +453,9 @@ pub fn draw_title(
     match &screen.page {
         Page::Menu => draw_menu(screen, &mut p),
         Page::Nation { cursor } => draw_nation(defs, *cursor, &mut p),
-        Page::Seed { nation, digits, .. } => draw_seed(defs, *nation, digits, &mut p),
+        Page::Seed { nation, digits, row, size_idx, survey, .. } => {
+            draw_seed(defs, *nation, digits, *row, *size_idx, *survey, &mut p)
+        }
         Page::Load => unreachable!("handled above"),
     }
 }
@@ -393,18 +491,38 @@ fn draw_nation(defs: &Defs, cursor: usize, p: &mut Painter) {
     }
 }
 
-fn draw_seed(defs: &Defs, nation: Nation, digits: &str, p: &mut Painter) {
+/// The seed step (#290): the seed, then Size and Survey, each moved to with up/down and changed
+/// with left/right, with the highlighted row's hint below.
+fn draw_seed(
+    defs: &Defs,
+    nation: Nation,
+    digits: &str,
+    row: SeedRow,
+    size_idx: usize,
+    survey: SurveyMode,
+    p: &mut Painter,
+) {
     let def = defs.nation(nation);
-    p.row(&Row::text(format!("{} — pick a seed:", def.name), Tone::Title));
+    p.row(&Row::text(format!("{} — new game:", def.name), Tone::Title));
     p.blank();
-    let width = usize::from(p.inner.width);
-    for line in wrap(&def.description, width, 3, p.marks.ellipsis) {
-        p.row(&Row::text(line, Tone::Dim));
-    }
+    let pointer = p.marks.pointer;
+    let mark = |r: SeedRow| if r == row { pointer } else { " " };
+    let tone = |r: SeedRow| if r == row { Tone::Title } else { Tone::Text };
+    p.row(&Row::text(format!("{} Seed: {digits}", mark(SeedRow::Digits)), tone(SeedRow::Digits)));
+    let size_name = defs.embark.map_sizes.get(size_idx).map_or("Small", |s| s.name.as_str());
+    p.row(&Row::text(format!("{} Size: {size_name}", mark(SeedRow::Size)), tone(SeedRow::Size)));
+    let survey_name = match survey {
+        SurveyMode::Exact => "Exact",
+        SurveyMode::Rough => "Rough",
+    };
+    p.row(&Row::text(
+        format!("{} Survey: {survey_name}", mark(SeedRow::Survey)),
+        tone(SeedRow::Survey),
+    ));
     p.blank();
-    p.row(&Row::text(format!("Seed: {digits}"), Tone::Accent));
+    p.row(&Row::text(seed_row_hint(row, defs, size_idx, survey), Tone::Dim));
     p.blank();
-    p.row(&Row::text("Type digits, Backspace to edit, Enter to start.", Tone::Dim));
+    p.row(&Row::text("Digits edit  Up/Down row  Left/Right change  Enter: embark.", Tone::Dim));
 }
 
 fn draw_load(screen: &TitleScreen, defs: &Defs, palette: &Palette, inner: Rect, buf: &mut Buffer) {
@@ -511,14 +629,21 @@ mod tests {
             assert_eq!(digits, "42");
         }
         let outcome = press(&mut screen, KeyCode::Enter);
-        assert!(matches!(outcome, Outcome::Start { seed: 42, nation: Nation::Fire }));
+        assert!(matches!(outcome, Outcome::Embark { seed: 42, nation: Nation::Fire, .. }));
     }
 
     #[test]
     fn typing_digits_replaces_the_default_seed_and_backspace_edits_it() {
         let defs = Defs::bundled();
         let mut screen = TitleScreen::new(&defs, None, 999);
-        screen.page = Page::Seed { nation: Nation::Water, digits: "999".into(), edited: false };
+        screen.page = Page::Seed {
+            nation: Nation::Water,
+            digits: "999".into(),
+            edited: false,
+            row: SeedRow::Digits,
+            size_idx: 0,
+            survey: SurveyMode::Exact,
+        };
         press(&mut screen, KeyCode::Char('7'));
         if let Page::Seed { digits, edited, .. } = &screen.page {
             assert_eq!(digits, "7", "the first digit clears the default");
@@ -530,7 +655,44 @@ mod tests {
         press(&mut screen, KeyCode::Backspace);
         press(&mut screen, KeyCode::Char('5'));
         let outcome = press(&mut screen, KeyCode::Enter);
-        assert!(matches!(outcome, Outcome::Start { seed: 75, nation: Nation::Water }));
+        assert!(matches!(outcome, Outcome::Embark { seed: 75, nation: Nation::Water, .. }));
+    }
+
+    /// The Size and Survey rows (#290): up/down moves between the three rows, left/right
+    /// changes the highlighted one, and `Enter` carries the choice into the embark outcome.
+    #[test]
+    fn size_and_survey_rows_move_with_up_down_and_change_with_left_right() {
+        let defs = Defs::bundled();
+        let mut screen = TitleScreen::new(&defs, None, 7);
+        press(&mut screen, KeyCode::Enter); // New game
+        press(&mut screen, KeyCode::Enter); // Air, to the seed page
+        press(&mut screen, KeyCode::Down); // Size row
+        press(&mut screen, KeyCode::Down); // Survey row
+        if let Page::Seed { row, .. } = &screen.page {
+            assert_eq!(*row, SeedRow::Survey);
+        } else {
+            panic!("not on the seed page");
+        }
+        press(&mut screen, KeyCode::Left);
+        if let Page::Seed { survey, .. } = &screen.page {
+            assert_eq!(*survey, SurveyMode::Rough);
+        } else {
+            panic!("not on the seed page");
+        }
+        press(&mut screen, KeyCode::Up); // back to Size
+        press(&mut screen, KeyCode::Right);
+        if let Page::Seed { size_idx, .. } = &screen.page {
+            assert_eq!(*size_idx, 1);
+        } else {
+            panic!("not on the seed page");
+        }
+        let outcome = press(&mut screen, KeyCode::Enter);
+        match outcome {
+            Outcome::Embark { seed: 7, nation: Nation::Air, size, mode: SurveyMode::Rough } => {
+                assert_eq!(size.id, defs.embark.map_sizes[1].id);
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]
@@ -552,7 +714,7 @@ mod tests {
         press(&mut screen, KeyCode::Enter); // New game
         press(&mut screen, KeyCode::Enter); // Air, to the seed page
         let outcome = press(&mut screen, KeyCode::Enter); // Enter alone: the hint
-        assert!(matches!(outcome, Outcome::Start { seed: 7, nation: Nation::Air }));
+        assert!(matches!(outcome, Outcome::Embark { seed: 7, nation: Nation::Air, .. }));
     }
 
     #[test]

@@ -6,6 +6,7 @@
 use std::path::PathBuf;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use fn_sim::embark::Survey;
 use fn_sim::{Defs, Nation};
 use fn_ui::Session;
 use ratatui::buffer::Buffer;
@@ -13,14 +14,30 @@ use ratatui::layout::{Position, Rect};
 
 use crate::app::App;
 use crate::color::Palette;
+use crate::embark::{self, EmbarkScreen};
 use crate::keys::Step;
-use crate::title::{self, Outcome, TitleScreen};
+use crate::title::{self, Outcome, Page, TitleScreen};
 
-/// What the shell is showing right now. `App` is boxed: it carries a whole `World`, far bigger
-/// than a `TitleScreen`, and `clippy::large_enum_variant` would otherwise flag the difference.
+/// What the shell is showing right now. `App` and `EmbarkScreen` are boxed: both carry a whole
+/// generated map, far bigger than a `TitleScreen`, and `clippy::large_enum_variant` would
+/// otherwise flag the difference.
 pub enum Mode {
     Title(TitleScreen),
+    /// Between the seed step and the game (#290): choosing where to settle.
+    Embark(Box<EmbarkScreen>),
     Game(Box<App>),
+}
+
+impl std::fmt::Debug for Mode {
+    /// Just the variant's name: `App` doesn't derive `Debug` (it's large and mostly internal),
+    /// so this is only for test failure messages, not full state dumps.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Mode::Title(_) => "Title",
+            Mode::Embark(_) => "Embark",
+            Mode::Game(_) => "Game",
+        })
+    }
 }
 
 pub struct Shell {
@@ -77,6 +94,71 @@ impl Shell {
         }
     }
 
+    /// Starts straight in embark, skipping the menu: `--embark` (#290).
+    pub fn new_embark(
+        seed: u64,
+        nation: Nation,
+        size: fn_sim::embark::MapSizeDef,
+        mode: fn_sim::embark::SurveyMode,
+        screen: (u16, u16),
+        saves: Option<PathBuf>,
+    ) -> Self {
+        let defs = Defs::bundled();
+        let embark_screen = EmbarkScreen::new(seed, nation, size, mode, screen, &defs);
+        Self {
+            mode: Mode::Embark(Box::new(embark_screen)),
+            exit_prompt: false,
+            dirty: true,
+            quit: false,
+            screen,
+            saves,
+            defs,
+            seed_hint: 0,
+        }
+    }
+
+    /// Builds the shell `args` describes (`--embark`, `--start X,Y`, plain `SEED NATION`, or
+    /// neither for the title screen): the one place `--frame` and the interactive `run` share
+    /// this resolution, since each knows `screen` (the terminal's size) differently.
+    pub fn for_args(
+        args: &crate::cli::Args,
+        screen: (u16, u16),
+        saves: Option<PathBuf>,
+        seed_hint: u64,
+    ) -> Result<Self, String> {
+        let (Some(seed), Some(nation)) = (args.seed, args.nation) else {
+            return Ok(Self::new_title(screen, saves, seed_hint));
+        };
+        if args.start.is_none() && !args.embark {
+            // Plain `SEED NATION`: unchanged, today's centre-spiral path.
+            return Ok(Self::new_game(crate::new_session(seed, nation), screen, saves));
+        }
+        let defs = Defs::bundled();
+        let size_id = args.map_size.as_deref().unwrap_or("small");
+        let size = defs
+            .embark
+            .map_size(size_id)
+            .cloned()
+            .ok_or_else(|| format!("unknown map size {size_id:?}"))?;
+        let mode = if args.rough {
+            fn_sim::embark::SurveyMode::Rough
+        } else {
+            fn_sim::embark::SurveyMode::Exact
+        };
+        if let Some((x, y)) = args.start {
+            let cfg = Survey::config(seed, &size);
+            let survey = Survey::new(&cfg, &defs);
+            let pos = fn_sim::Pos::new(x, y);
+            let terrain = survey.map().get(pos).map_or(fn_sim::Terrain::Water, |t| t.terrain);
+            let session = Session::found(survey, nation, pos).map_err(|p| {
+                format!("can't start at ({x}, {y}): {}", embark::problem_text(p, terrain))
+            })?;
+            Ok(Self::new_game(session, screen, saves))
+        } else {
+            Ok(Self::new_embark(seed, nation, size, mode, screen, saves))
+        }
+    }
+
     /// The bundled game data: a game loads its own copy, but the title screen (which has no
     /// game yet) reads this one to list nations and saves.
     pub fn defs(&self) -> &Defs {
@@ -85,27 +167,30 @@ impl Shell {
 
     pub fn resize(&mut self, width: u16, height: u16) {
         self.screen = (width, height);
-        if let Mode::Game(app) = &mut self.mode {
-            app.resize(width, height);
+        match &mut self.mode {
+            Mode::Game(app) => app.resize(width, height),
+            Mode::Embark(screen) => screen.resize(width, height),
+            Mode::Title(_) => {}
         }
         self.dirty = true;
     }
 
     /// The nation whose colours the frame should wear right now: the game's, or at the title
-    /// screen, whichever nation is being picked or seeded.
+    /// screen (or embark), whichever nation is being picked or seeded.
     pub fn nation(&self) -> Nation {
         match &self.mode {
             Mode::Game(app) => app.session.world.nation,
+            Mode::Embark(screen) => screen.nation,
             Mode::Title(title) => title.display_nation(),
         }
     }
 
-    /// Whether the sim should stay still: always at the title screen (there is nothing to run),
-    /// or the game's own pause.
+    /// Whether the sim should stay still: always at the title screen or embark (there is nothing
+    /// to run), or the game's own pause.
     pub fn paused(&self) -> bool {
         match &self.mode {
             Mode::Game(app) => app.session.clock.paused,
-            Mode::Title(_) => true,
+            Mode::Title(_) | Mode::Embark(_) => true,
         }
     }
 
@@ -123,10 +208,24 @@ impl Shell {
             self.key_exit_prompt(key);
             return;
         }
+        // `R`, confirmed in a game: reopen embark on the next seed instead of restarting in
+        // place (docs/design/embark.md, "In the game, `R`"). Collected here, outside the match,
+        // so it can call `Self::open_embark` once the match's borrow of `self.mode` is done.
+        let mut reopen: Option<(u64, Nation, fn_sim::embark::MapSizeDef)> = None;
         match &mut self.mode {
             Mode::Title(title) => {
                 let outcome = title.key(key, &self.defs, self.saves.as_deref());
                 self.apply(outcome);
+            }
+            Mode::Embark(screen) => {
+                let outcome = screen.key(key, &self.defs);
+                if screen.quit {
+                    // `Q` in embark asks the same back-to-title question a game's `Q` does
+                    // (docs/design/embark.md, "Flow and keys").
+                    screen.quit = false;
+                    self.exit_prompt = true;
+                }
+                self.apply_embark(outcome);
             }
             Mode::Game(app) => {
                 app.key(key);
@@ -135,8 +234,29 @@ impl Shell {
                     // question instead of stopping the process outright (#280).
                     app.ui.quit = false;
                     self.exit_prompt = true;
+                } else if app.reopen_embark {
+                    app.reopen_embark = false;
+                    let world = &app.session.world;
+                    let seed = world.seed.wrapping_add(1);
+                    let nation = world.nation;
+                    let size = self
+                        .defs
+                        .embark
+                        .map_sizes
+                        .iter()
+                        .find(|s| s.width == world.map.width() && s.height == world.map.height())
+                        .cloned();
+                    match size {
+                        Some(size) => reopen = Some((seed, nation, size)),
+                        // No preset matches this map's size (shouldn't happen in practice):
+                        // fall back to the old in-place restart rather than losing the key.
+                        None => app.restart(seed, nation),
+                    }
                 }
             }
+        }
+        if let Some((seed, nation, size)) = reopen {
+            self.open_embark(seed, nation, size, fn_sim::embark::SurveyMode::Exact);
         }
     }
 
@@ -160,9 +280,8 @@ impl Shell {
         match outcome {
             Outcome::None => {}
             Outcome::Quit => self.quit = true,
-            Outcome::Start { seed, nation } => {
-                let session = crate::new_session(seed, nation);
-                self.start(session);
+            Outcome::Embark { seed, nation, size, mode } => {
+                self.open_embark(seed, nation, size, mode)
             }
             Outcome::Loaded(world) => {
                 let session = Session {
@@ -172,6 +291,57 @@ impl Shell {
                     bend_choice: None,
                 };
                 self.start(session);
+            }
+        }
+    }
+
+    /// Opens embark for `seed`, `nation` and `size` (#290): the title screen's seed step, a game
+    /// over `R`, or the direct `--embark` path all come through here.
+    fn open_embark(
+        &mut self,
+        seed: u64,
+        nation: Nation,
+        size: fn_sim::embark::MapSizeDef,
+        mode: fn_sim::embark::SurveyMode,
+    ) {
+        let screen = EmbarkScreen::new(seed, nation, size, mode, self.screen, &self.defs);
+        self.mode = Mode::Embark(Box::new(screen));
+    }
+
+    /// What an embark key did: back to the seed step (the seed, size and survey kept), or a
+    /// settled site becoming the game.
+    fn apply_embark(&mut self, outcome: embark::Outcome) {
+        match outcome {
+            embark::Outcome::None => {}
+            embark::Outcome::Back => {
+                let Mode::Embark(screen) = &self.mode else { return };
+                let mut title = TitleScreen::new(&self.defs, self.saves.as_deref(), self.seed_hint);
+                let size_idx = self
+                    .defs
+                    .embark
+                    .map_sizes
+                    .iter()
+                    .position(|s| s.id == screen.size().id)
+                    .unwrap_or(0);
+                title.page = Page::Seed {
+                    nation: screen.nation,
+                    digits: screen.seed().to_string(),
+                    edited: true,
+                    row: crate::title::SeedRow::Digits,
+                    size_idx,
+                    survey: screen.mode(),
+                };
+                self.mode = Mode::Title(title);
+            }
+            embark::Outcome::Settle(pos) => {
+                let Mode::Embark(screen) = &self.mode else { return };
+                let survey: Survey = screen.survey().clone();
+                let nation = screen.nation;
+                // The prompt only shows once the report has already said `pos` isn't refused
+                // (`EmbarkScreen::ask_or_refuse`), so this can't fail.
+                if let Ok(session) = Session::found(survey, nation, pos) {
+                    self.start(session);
+                }
             }
         }
     }
@@ -219,11 +389,13 @@ impl Shell {
     }
 }
 
-/// Draws the shell's frame: the title screen or the game, with the exit prompt over either.
+/// Draws the shell's frame: the title screen, embark or the game, with the exit prompt over any
+/// of them.
 pub fn draw(shell: &mut Shell, palette: &Palette, buf: &mut Buffer) {
     let area = buf.area;
     match &shell.mode {
         Mode::Title(title) => title::draw_title(title, &shell.defs, palette, area, buf),
+        Mode::Embark(screen) => embark::draw_embark(screen, &shell.defs, palette, area, buf),
         Mode::Game(app) => crate::draw::draw(&app.session, &app.ui, palette, buf),
     }
     if shell.exit_prompt {

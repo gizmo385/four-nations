@@ -36,6 +36,12 @@ pub struct Marks {
     pub down: &'static str,
     pub left: &'static str,
     pub right: &'static str,
+    /// The embark screen's site box corners (#290): light, unlike the frame's own heavy
+    /// corners, so the box reads as something drawn over the map, not another frame.
+    pub box_tl: char,
+    pub box_tr: char,
+    pub box_bl: char,
+    pub box_br: char,
 }
 
 impl Marks {
@@ -63,6 +69,10 @@ impl Marks {
                 down: "v",
                 left: "<",
                 right: ">",
+                box_tl: '+',
+                box_tr: '+',
+                box_bl: '+',
+                box_br: '+',
             }
         } else {
             Self {
@@ -87,6 +97,10 @@ impl Marks {
                 down: "▼",
                 left: "◂",
                 right: "▸",
+                box_tl: '┌',
+                box_tr: '┐',
+                box_bl: '└',
+                box_br: '┘',
             }
         }
     }

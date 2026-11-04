@@ -120,6 +120,35 @@ fn with_no_seed_frame_renders_the_title_screen_and_both_together_still_skip_it()
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `--embark` opens embark instead of the game (#290), `--size` picks the map preset, and
+/// `--rough` reaches it too; `--start X,Y` founds a game straight away, and a refused site
+/// fails with a message instead of silently falling back to anything.
+#[test]
+fn embark_and_start_from_the_command_line() {
+    let out = fn_tui()
+        .args(["7", "earth", "--embark", "--frame", "--size", "medium", "--rough", "--keys"])
+        .arg("<enter>") // zoom in once, past the overview, so the outlook section shows
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("CHOOSE A SITE") && text.contains("(rough guess)"), "{text}");
+    // Medium is wider than Small; the overview's default site sits further along x.
+    assert!(!text.contains("(94, 64)"), "{text}");
+
+    // The map's forced-sea border is always refused.
+    let out = fn_tui().args(["7", "earth", "--start", "0,0", "--frame"]).output().unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("can't start at (0, 0)") && err.contains("open water"), "{err}");
+
+    // Small's own default site for this seed, valid by construction.
+    let out = fn_tui().args(["7", "earth", "--start", "94,64", "--frame"]).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("EARTH KINGDOM"), "a founded game, straight away:\n{text}");
+}
+
 #[test]
 fn bad_arguments_fail_with_usage() {
     let out = fn_tui().args(["7", "mars"]).output().unwrap();
