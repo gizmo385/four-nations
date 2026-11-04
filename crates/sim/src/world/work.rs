@@ -11,8 +11,9 @@
 //! * **Needs pre-empt jobs.** When hunger, thirst or energy drops to its `low` level (see
 //!   `data/needs.toml`) the unit sets its job aside, deals with the need, and goes back. The job
 //!   stays claimed by that unit and keeps its progress, so "resume" is literal.
-//! * **Work speed** is `1.0 / TICKS_PER_SECOND` work-seconds per tick times the nation modifier
-//!   named by the harvest in `data/jobs.toml` (quarrying uses `earthworks`).
+//! * **Work speed** is `1.0 / TICKS_PER_SECOND` work-seconds per tick times the modifier named by
+//!   the harvest in `data/jobs.toml` (quarrying uses `earthworks`), read from the working unit's
+//!   own effective modifiers (`World::modifiers_for`, #239), not necessarily the settlement's.
 //!
 //! **Renewable food** (#56): a harvest with a `regrow` time in `data/jobs.toml` (cabbages, fruit
 //! trees, fishing spots) is not cleared when worked. The resource stays on the map, *resting*,
@@ -464,14 +465,15 @@ impl World {
         count
     }
 
-    pub(super) fn carry_capacity(&self, _i: usize, defs: &Defs) -> u32 {
-        let m = self.modifiers().carry_capacity;
+    pub(super) fn carry_capacity(&self, i: usize, defs: &Defs) -> u32 {
+        let m = self.modifiers_for(&self.units[i], defs).carry_capacity;
         ((defs.jobs.base_carry as f32 * m).round() as u32).max(1)
     }
 
-    /// Work-seconds per second for this unit on this harvest: the nation modifier it names.
-    fn work_rate(&self, _i: usize, h: &HarvestDef, _defs: &Defs) -> f32 {
-        let mods = self.modifiers();
+    /// Work-seconds per second for this unit on this harvest: the modifier it names, from the
+    /// unit's own effective modifiers (`modifiers_for`, #239), not necessarily the settlement's.
+    fn work_rate(&self, i: usize, h: &HarvestDef, defs: &Defs) -> f32 {
+        let mods = self.modifiers_for(&self.units[i], defs);
         h.modifier.as_deref().and_then(|m| mods.get(m)).unwrap_or(1.0)
     }
 
@@ -588,8 +590,8 @@ impl World {
 
     /// One tick of walking along the route. True once the unit is at the end of it (or the
     /// route is empty to begin with); arriving costs the tick the last step landed on.
-    pub(super) fn walk(&mut self, i: usize, _defs: &Defs) -> bool {
-        let speed = self.modifiers().move_speed;
+    pub(super) fn walk(&mut self, i: usize, defs: &Defs) -> bool {
+        let speed = self.modifiers_for(&self.units[i], defs).move_speed;
         let rules = rules_for(&self.rules, &self.cart_rules, &self.units[i]);
         let u = &mut self.units[i];
         let Some(route) = u.route.as_mut() else { return false };
@@ -910,7 +912,8 @@ impl World {
         }
     }
 
-    /// Takes the nearest reachable open job, if any. Returns whether it did.
+    /// Takes the nearest reachable open job, if any, preferring a lower-priority tier only when
+    /// nothing in a higher one is reachable (`job_priority`, issue #284). Returns whether it did.
     fn claim_job(&mut self, i: usize, defs: &Defs) -> bool {
         if self.tick < self.units[i].claim_retry_at {
             return false;
@@ -927,7 +930,7 @@ impl World {
         let flood = self.flood_from(i);
         // Whether a stockpile tile with room for each item can be reached, asked once per item.
         let mut room_cache: Vec<(ItemId, bool)> = Vec::new();
-        let mut best: Option<((u32, JobId), usize, Pos)> = None;
+        let mut best: Option<((u8, u32, JobId), usize, Pos)> = None;
         for (idx, job) in self.jobs.iter().enumerate() {
             if job.claimed_by.is_some() {
                 continue;
@@ -954,16 +957,20 @@ impl World {
                     .flatten(),
                 // Reachable as soon as the site itself is, whether or not its materials are yet:
                 // a unit will wait on those, as a resting harvest does.
-                JobKind::Build { pos } | JobKind::Study { pos } => {
-                    self.stand_building(&flood, pos, defs)
-                }
+                JobKind::Build { pos } => self.stand_building(&flood, pos, defs),
+                // Not reachable at all with nothing queued to study toward: nobody should claim
+                // a seat that would only idle there (#284). `run_study` leaves a seat it already
+                // holds the same way, once the queue empties.
+                JobKind::Study { pos } => (!self.research.queue().is_empty())
+                    .then(|| self.stand_building(&flood, pos, defs))
+                    .flatten(),
                 JobKind::EndeavorTask { task } => self
                     .gate_task(task, defs)
                     .filter(|(def, _)| self.unit_can_raise(i, def))
                     .and_then(|(_, anchor)| self.stand_building(&flood, anchor, defs)),
             };
             if let Some((cost, stand)) = found {
-                let key = (cost, job.id);
+                let key = (job_priority(job.kind), cost, job.id);
                 if best.is_none_or(|b| key < b.0) {
                     best = Some((key, idx, stand));
                 }
@@ -1023,7 +1030,8 @@ impl World {
             JobKind::Bend { ability, pos } => {
                 self.unit_can_bend(i, defs.ability(ability)) && can_stand(pos)
             }
-            JobKind::Build { pos } | JobKind::Study { pos } => can_stand_building(pos),
+            JobKind::Build { pos } => can_stand_building(pos),
+            JobKind::Study { pos } => !self.research.queue().is_empty() && can_stand_building(pos),
             JobKind::EndeavorTask { task } => {
                 self.gate_task(task, defs).is_some_and(|(def, anchor)| {
                     self.unit_can_raise(i, def) && can_stand_building(anchor)
@@ -1222,6 +1230,20 @@ impl World {
 /// `cart` only when `_u.carrying.is_some()` and `_on_foot` otherwise.
 fn rules_for<'a>(_on_foot: &'a MoveRules, cart: &'a MoveRules, _u: &Unit) -> &'a MoveRules {
     cart
+}
+
+/// `claim_job`'s tiers, lowest first: a study seat (#284) is filler for hands with nothing more
+/// pressing to do, so it only wins a tie-free pick when no harvest, haul, bend, build or
+/// endeavor task is reachable at all. Lower is picked first.
+fn job_priority(kind: JobKind) -> u8 {
+    match kind {
+        JobKind::Study { .. } => 1,
+        JobKind::Harvest { .. }
+        | JobKind::Haul { .. }
+        | JobKind::Bend { .. }
+        | JobKind::Build { .. }
+        | JobKind::EndeavorTask { .. } => 0,
+    }
 }
 
 #[cfg(test)]

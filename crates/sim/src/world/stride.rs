@@ -36,7 +36,7 @@ pub struct Stride {
 impl World {
     /// The walk unit `id` is on, if it is following a route. `None` for a unit that stands, works,
     /// sleeps or wanders.
-    pub fn stride(&self, id: UnitId) -> Option<Stride> {
+    pub fn stride(&self, id: UnitId, defs: &Defs) -> Option<Stride> {
         let u = self.unit(id)?;
         let route = u.route.as_ref()?;
         let mut tiles = vec![u.pos];
@@ -49,7 +49,8 @@ impl World {
         if needed.is_empty() {
             return None;
         }
-        Some(Stride { tiles, needed, progress: u.move_progress, speed: self.modifiers.move_speed })
+        let speed = self.modifiers_for(u, defs).move_speed;
+        Some(Stride { tiles, needed, progress: u.move_progress, speed })
     }
 
     /// Straight steps a unit takes per tick over plain ground (the `move_speed` modifier over the
@@ -86,8 +87,8 @@ mod tests {
     fn a_unit_that_is_not_walking_has_no_stride() {
         let defs = Defs::bundled();
         let w = world(&defs);
-        assert!(w.stride(UnitId(0)).is_none());
-        assert!(w.stride(UnitId(99)).is_none(), "no such unit");
+        assert!(w.stride(UnitId(0), &defs).is_none());
+        assert!(w.stride(UnitId(99), &defs).is_none(), "no such unit");
     }
 
     #[test]
@@ -106,7 +107,7 @@ mod tests {
         // once it isn't.
         let mut landed = 0;
         for _ in 0..80 {
-            let Some(before) = w.stride(id) else { break };
+            let Some(before) = w.stride(id, &defs) else { break };
             assert_eq!(before.tiles[0], w.units[0].pos);
             assert_eq!(before.speed, w.modifiers().move_speed);
             w.tick(&defs);
@@ -126,7 +127,7 @@ mod tests {
         let defs = Defs::bundled();
         let mut w = world(&defs);
         w.units[0].route = Some((6..=20).rev().map(|x| Pos::new(x, 10)).collect());
-        let s = w.stride(UnitId(0)).unwrap();
+        let s = w.stride(UnitId(0), &defs).unwrap();
         assert_eq!(s.tiles.len(), STRIDE_LOOKAHEAD + 1);
         assert_eq!(s.needed, vec![BASE_TICKS_PER_STEP; STRIDE_LOOKAHEAD]);
         assert_eq!(&s.tiles[..3], &[Pos::new(5, 10), Pos::new(6, 10), Pos::new(7, 10)]);
@@ -137,7 +138,7 @@ mod tests {
         let defs = Defs::bundled();
         let mut w = world(&defs);
         w.units[0].route = Some(vec![Pos::new(7, 11), Pos::new(6, 10)]);
-        let s = w.stride(UnitId(0)).unwrap();
+        let s = w.stride(UnitId(0), &defs).unwrap();
         assert_eq!(s.needed[0], BASE_TICKS_PER_STEP);
         assert!(s.needed[1] > BASE_TICKS_PER_STEP, "a diagonal takes longer: {:?}", s.needed);
 
@@ -146,7 +147,7 @@ mod tests {
         w.cart_rules = w.cart_rules.clone().with_cost(Terrain::Coast, Some(2));
         w.map[Pos::new(6, 10)].terrain = Terrain::Coast;
         w.units[0].route = Some(vec![Pos::new(6, 10)]);
-        assert_eq!(w.stride(UnitId(0)).unwrap().needed, [2.0 * BASE_TICKS_PER_STEP]);
+        assert_eq!(w.stride(UnitId(0), &defs).unwrap().needed, [2.0 * BASE_TICKS_PER_STEP]);
     }
 
     #[test]
@@ -161,11 +162,11 @@ mod tests {
         let wood = defs.item_id("wood").unwrap();
         w.units[0].carrying = Some(crate::jobs::Stack { item: wood, count: 2 });
         w.units[0].route = Some((6..=20).rev().map(|x| Pos::new(x, 10)).collect());
-        let first = w.stride(UnitId(0)).unwrap();
+        let first = w.stride(UnitId(0), &defs).unwrap();
         assert_eq!(first.needed[0], BASE_TICKS_PER_STEP / 2.0, "the cart runs the rail");
         let mut landed = 0;
         for _ in 0..40 {
-            let Some(before) = w.stride(UnitId(0)) else { break };
+            let Some(before) = w.stride(UnitId(0), &defs) else { break };
             w.walk(0, &defs);
             let at = w.units[0].pos;
             if before.progress + before.speed >= before.needed[0] {

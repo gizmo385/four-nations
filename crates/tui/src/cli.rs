@@ -1,9 +1,13 @@
 //! The command line:
 //!
 //! ```text
-//! fn_tui SEED NATION [--frame [--size WxH] [--ticks N] [--keys SCRIPT] [--ansi]] [--ascii]
+//! fn_tui [SEED NATION] [--frame [--size WxH] [--ticks N] [--keys SCRIPT] [--ansi]] [--ascii]
 //!        [--color MODE]
 //! ```
+//!
+//! With no `SEED`/`NATION`, the game opens on the title screen (#280): New game, Continue, Load
+//! and Quit. Giving both still skips straight to a game, as scripts, `--frame` and the tests
+//! rely on.
 
 use fn_sim::Nation;
 
@@ -11,9 +15,12 @@ use crate::color::ColorDepth;
 use crate::keys::{self, Step};
 
 pub const USAGE: &str = "\
-usage: fn_tui SEED NATION [options]
-  SEED     the map seed (an integer)
+usage: fn_tui [SEED NATION] [options]
+  SEED     the map seed (an integer); with NATION, skips the title screen
   NATION   air, water, earth or fire
+
+With neither, fn_tui opens on the title screen: New game (pick a nation and a seed), Continue
+(the newest save), Load (any save) and Quit.
 
 options:
   --frame        print one frame to stdout and exit (no terminal needed)
@@ -41,8 +48,9 @@ pub const DEFAULT_SIZE: (u16, u16) = (120, 40);
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Args {
-    pub seed: u64,
-    pub nation: Nation,
+    /// `None` with neither `SEED` nor `NATION`: the title screen decides both.
+    pub seed: Option<u64>,
+    pub nation: Option<Nation>,
     pub frame: bool,
     pub size: (u16, u16),
     pub ticks: u32,
@@ -69,8 +77,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let (mut seed, mut nation) = (None, None);
     let mut keys_given = false;
     let mut out = Args {
-        seed: 0,
-        nation: Nation::Earth,
+        seed: None,
+        nation: None,
         frame: false,
         size: DEFAULT_SIZE,
         ticks: 0,
@@ -131,8 +139,16 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             extra => return Err(format!("unexpected argument {extra:?}")),
         }
     }
-    out.seed = seed.ok_or("missing SEED")?;
-    out.nation = nation.ok_or("missing NATION")?;
+    match (seed, nation) {
+        // Neither given: the title screen decides both.
+        (None, None) => {}
+        (Some(s), Some(n)) => {
+            out.seed = Some(s);
+            out.nation = Some(n);
+        }
+        (Some(_), None) => return Err("missing NATION".to_owned()),
+        (None, Some(_)) => return Err("missing SEED".to_owned()),
+    }
     for (flag, given) in [
         ("--size", out.size != DEFAULT_SIZE),
         ("--ticks", out.ticks > 0),
@@ -158,8 +174,8 @@ mod tests {
     fn a_frame_with_every_option() {
         let a = parse_str("7 earth --frame --size 100x30 --ticks 600 --ascii --ansi --color 256")
             .unwrap();
-        assert_eq!(a.seed, 7);
-        assert_eq!(a.nation, Nation::Earth);
+        assert_eq!(a.seed, Some(7));
+        assert_eq!(a.nation, Some(Nation::Earth));
         assert!(a.frame && a.ascii && a.ansi);
         assert_eq!((a.size, a.ticks), ((100, 30), 600));
         assert_eq!(a.color, Some(ColorDepth::Indexed256));
@@ -168,10 +184,20 @@ mod tests {
     #[test]
     fn the_equals_form_and_the_defaults() {
         let a = parse_str("--frame 3 Fire --size=80x24").unwrap();
-        assert_eq!((a.seed, a.nation, a.size), (3, Nation::Fire, (80, 24)));
+        assert_eq!((a.seed, a.nation, a.size), (Some(3), Some(Nation::Fire), (80, 24)));
         let a = parse_str("3 air").unwrap();
         assert!(!a.frame && !a.ascii);
         assert_eq!((a.size, a.ticks, a.color), (DEFAULT_SIZE, 0, None));
+    }
+
+    #[test]
+    fn neither_seed_nor_nation_is_the_title_screen() {
+        let a = parse_str("").unwrap();
+        assert_eq!((a.seed, a.nation), (None, None));
+        assert!(!a.frame);
+        // Still valid with --frame: the title screen renders too (#280).
+        let a = parse_str("--frame --size 100x30").unwrap();
+        assert_eq!((a.seed, a.nation, a.size), (None, None, (100, 30)));
     }
 
     #[test]
@@ -191,7 +217,6 @@ mod tests {
     #[test]
     fn mistakes_say_what_is_wrong() {
         for (args, want) in [
-            ("", "missing SEED"),
             ("7", "missing NATION"),
             ("x earth", "SEED"),
             ("7 mars", "NATION"),

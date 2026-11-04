@@ -5,7 +5,7 @@
 //!                                      manifest entries (cargo xtask assets fails if they're stale)
 //!     cargo xtask ci [sim|client] [--fast]
 //!                                      fmt + clippy + tests + assets (default: everything);
-//!                                      --fast uses the `ci` profile, as CI does
+//!                                      --fast uses the `ci` profile, as CI's sim job does
 //!     cargo xtask screenshot SEED NATION OUT.png [WIDTH HEIGHT]
 //!                                      render the client headless (no window) to a PNG
 
@@ -178,9 +178,14 @@ fn assets(release: bool) -> Result {
 // ---------------------------------------------------------------------------------------------
 
 fn cargo(args: &[&str]) -> Result {
+    cargo_env(args, &[])
+}
+
+fn cargo_env(args: &[&str], env: &[(&str, &str)]) -> Result {
     println!("$ cargo {}", args.join(" "));
     let status = Command::new(env!("CARGO"))
         .args(args)
+        .envs(env.iter().copied())
         .current_dir(root())
         .status()
         .map_err(|e| e.to_string())?;
@@ -210,13 +215,21 @@ fn ci(scope: Scope, fast: bool) -> Result {
     // tests don't need Bevy to run fast. Agents use --fast so parallel worktree builds fit in RAM.
     let profile: &[&str] =
         if fast || std::env::var_os("CI").is_some() { &["--profile", "ci"] } else { &[] };
+    // With --fast, optimize our own crates as CI's sim job does (dependencies stay at opt-level
+    // 0): the long simulation tests run about 6x faster for ~30s more build time. An explicit
+    // CARGO_PROFILE_CI_OPT_LEVEL in the environment wins.
+    let env: &[(&str, &str)] = if fast && std::env::var_os("CARGO_PROFILE_CI_OPT_LEVEL").is_none() {
+        &[("CARGO_PROFILE_CI_OPT_LEVEL", "1")]
+    } else {
+        &[]
+    };
 
     if scope != Scope::Client {
         cargo(&["fmt", "--all", "--check"])?;
     }
     let clippy = [&["clippy", "--all-targets"][..], packages, profile, &["--", "-D", "warnings"]];
-    cargo(&clippy.concat())?;
-    cargo(&[&["test"][..], packages, profile].concat())?;
+    cargo_env(&clippy.concat(), env)?;
+    cargo_env(&[&["test"][..], packages, profile].concat(), env)?;
     if scope != Scope::Client {
         assets(false)?;
     }

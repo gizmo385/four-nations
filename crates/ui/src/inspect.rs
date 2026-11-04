@@ -62,7 +62,10 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
             .into_iter()
             .find(|g| g.unit == unit.id)
             .map_or(String::new(), |g| format!(" - Warm {}", clock(g.seconds_left)));
-        lines.push(Line::Detail(format!("{} - {task}{warm}", defs.nation(unit.nation).name)));
+        lines.push(Line::Detail(format!(
+            "{} - {task}{warm}",
+            defs.nation(world.nation_of(unit)).name
+        )));
         // Finished bends (#233) share the carrying line, for the same four-line reason.
         lines.push(Line::Detail(format!(
             "Carrying: {} - Bends: {}",
@@ -88,7 +91,9 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
     }
     if let Some(name) = build::built_name(session, tile) {
         lines.push(Line::Title(name));
-        lines.push(Line::Detail(format!("Built ({}, {})", tile.x, tile.y)));
+        // Its anchor, not the hovered tile (#212): every tile of its footprint says the same.
+        let at = world.footprint_at(tile).map_or(tile, |f| f.anchor);
+        lines.push(Line::Detail(format!("Built ({}, {})", at.x, at.y)));
         // An orchard says how much of its grove is planted (#142).
         let max =
             world.building_at(tile).and_then(|b| defs.building(b).orchard).map(|o| o.max_trees);
@@ -285,6 +290,30 @@ mod tests {
         );
         let lines = tooltip_lines(&s, Tool::CancelHarvest, pos).unwrap();
         assert_eq!(lines.last(), Some(&Line::Hint(Hint::ApplyTool(Tool::CancelHarvest))));
+    }
+
+    #[test]
+    fn a_finished_building_s_tooltip_names_its_anchor_from_every_tile_of_its_footprint() {
+        use fn_sim::building::Building;
+        use fn_sim::geom::Footprint;
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let bed = s.defs.building_id("bed").unwrap();
+        let at = Pos::new(30, 30);
+        let foot = Footprint::new(at, 2, 2);
+        s.world.units.retain(|u| !foot.contains(u.pos));
+        for p in foot.tiles() {
+            let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
+            let b = Building { part, size: [2, 2], ..Building::new(bed, true, false) };
+            s.world.map.get_mut(p).unwrap().building = Some(b);
+        }
+        for p in foot.tiles() {
+            let lines = tooltip_lines(&s, Tool::Select, p).unwrap();
+            assert_eq!(
+                lines[1],
+                Line::Detail(format!("Built ({}, {})", at.x, at.y)),
+                "{p:?} should name the anchor"
+            );
+        }
     }
 
     #[test]

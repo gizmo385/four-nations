@@ -97,6 +97,29 @@ fn interactive_mode_refuses_without_a_tty_and_points_to_frame() {
     assert!(out.stdout.is_empty(), "nothing on stdout, no escape codes for a pipe to choke on");
 }
 
+/// With neither `SEED` nor `NATION`, `--frame` renders the title screen (#280) instead of
+/// erroring, and a seed and nation together still skip it. `FN_SAVE_DIR` points at an empty
+/// directory so a real save on the machine running the test can't add a `Continue` row.
+#[test]
+fn with_no_seed_frame_renders_the_title_screen_and_both_together_still_skip_it() {
+    let dir = std::env::temp_dir().join(format!("fn-tui-title-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let out = fn_tui().args(["--frame"]).env("FN_SAVE_DIR", &dir).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("FOUR NATIONS") && text.contains("New game"), "{text}");
+    assert!(!text.contains("Continue"), "nothing to continue in an empty save directory");
+
+    let out = fn_tui().args(["7", "earth", "--frame"]).env("FN_SAVE_DIR", &dir).output().unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("EARTH KINGDOM"), "a seed and a nation together skip the menu:\n{text}");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn bad_arguments_fail_with_usage() {
     let out = fn_tui().args(["7", "mars"]).output().unwrap();

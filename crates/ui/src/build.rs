@@ -83,12 +83,36 @@ impl Placement {
 
 /// The placement of `building` with the cursor on `cursor`, for the frontends' ghost.
 pub fn placement(session: &Session, cursor: Pos, building: BuildingId) -> Placement {
+    let footprint = session.defs.building(building).footprint;
+    placement_at(session, anchor_for(cursor, footprint), building)
+}
+
+/// The placement of `building` with its anchor (top-left tile) on `anchor`.
+pub fn placement_at(session: &Session, anchor: Pos, building: BuildingId) -> Placement {
     let world = &session.world;
     let (w, h) = session.defs.building(building).footprint;
-    let footprint = Footprint::new(anchor_for(cursor, (w, h)), w, h);
+    let footprint = Footprint::new(anchor, w, h);
     let tiles = footprint.tiles().map(|p| (p, world.build_blocker(p))).collect();
-    let refused = world.check_build(footprint.anchor, building, &session.defs).err();
+    let refused = world.check_build(anchor, building, &session.defs).err();
     Placement { footprint, tiles, refused }
+}
+
+/// The ghosts the Build tool shows (#212): with no corner set, the one placement under the
+/// cursor; while dragging from `corner`, one per stamp `tools::build_stamps` would place. Each
+/// is judged against the world as it is, not against the stamps before it, so a chain of sites
+/// that would collide if placed one after another all draw as they'd fare right now.
+pub fn ghosts(
+    session: &Session,
+    corner: Option<Pos>,
+    cursor: Pos,
+    building: BuildingId,
+) -> Vec<Placement> {
+    let Some(corner) = corner else { return vec![placement(session, cursor, building)] };
+    let footprint = session.defs.building(building).footprint;
+    crate::tools::build_stamps(corner, cursor, footprint)
+        .into_iter()
+        .map(|anchor| placement_at(session, anchor, building))
+        .collect()
 }
 
 /// Why a building can't go on `at`, as a reason for the notice: "an oak tree is in the way",
@@ -566,6 +590,31 @@ mod tests {
     }
 
     #[test]
+    fn ghosts_follow_the_cursor_or_the_drag_and_judge_each_stamp_on_its_own() {
+        let (mut s, hall, at) = earth_with_2x2_hall();
+        let hover = ghosts(&s, None, at, hall);
+        assert_eq!(hover, vec![placement(&s, at, hall)]);
+
+        // A drag shows one ghost per stamp the drag would place, at the same anchors
+        // `tools::build_stamps` would (one row to the right, inside the cleared patch).
+        let to = Pos::new(at.x + 2, at.y + 1);
+        let drag = ghosts(&s, Some(at), to, hall);
+        let anchors: Vec<Pos> = drag.iter().map(|g| g.footprint.anchor).collect();
+        assert_eq!(anchors, crate::tools::build_stamps(at, to, (2, 2)));
+        assert_eq!(anchors, vec![at]);
+
+        // A blocker on one stamp doesn't change another's: each is judged against the world as
+        // it stands, not against the other stamps in the drag.
+        let corner = Pos::new(at.x + 1, at.y + 1);
+        s.apply(Command::DesignateStockpile { pos: corner }).unwrap();
+        let hover = ghosts(&s, None, at, hall);
+        assert_eq!(
+            hover[0].refused,
+            Some(BuildError::CannotBuild { at: corner, why: Blocker::Stockpile })
+        );
+    }
+
+    #[test]
     fn a_refusal_names_what_is_in_the_way() {
         let (mut s, hall, at) = earth_with_2x2_hall();
         let oak = s.defs.resource_id("oak_tree").unwrap();
@@ -587,8 +636,13 @@ mod tests {
         let rows = picker_rows(&s);
         let row = |id| rows.iter().find(|r| r.id == id).unwrap().cost.clone();
         assert_eq!(row(hall), "5 Wood, 2x2");
+        // #214 turns real footprints on, so a fresh nation sees the size suffix on every
+        // bigger-than-1x1 building (the study hall from the start) and on no 1x1 one.
         let fresh = session(Nation::Earth);
-        assert!(picker_rows(&fresh).iter().all(|r| !r.cost.contains('x')));
+        for r in picker_rows(&fresh) {
+            let big = fresh.defs.building(r.id).footprint != (1, 1);
+            assert_eq!(r.cost.contains('x'), big, "{}", fresh.defs.building(r.id).id);
+        }
     }
 
     #[test]

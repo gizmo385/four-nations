@@ -132,6 +132,33 @@ fn units_claim_the_nearest_reachable_job_not_the_oldest() {
 }
 
 #[test]
+fn a_study_seat_loses_to_a_farther_harvest_when_both_are_open() {
+    // A study hall right beside the unit, with an open seat and something queued to research
+    // (so claiming it is possible at all), plus a tree far across the map. Study is the lowest
+    // claim priority (#284), so the unit should walk all the way to the tree rather than take
+    // the seat at its elbow.
+    let rows = ["..........", "..........", "..........", "..........", "..........", "........T."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 1)]);
+    let hall = defs.building_id("study_hall").unwrap();
+    let def = defs.building(hall);
+    w.map[at(2, 1)].building = Some(crate::building::Building::new(hall, def.passable, false));
+    w.open_study_seats(at(2, 1), def.seats);
+    let earth_shaping = defs.tech_id("earth_shaping").unwrap();
+    w.apply(Command::SetResearch { tech: earth_shaping }, &defs).unwrap();
+
+    let tree = w.designate_harvest(at(8, 5), &defs).unwrap();
+    w.tick(&defs);
+    assert_eq!(w.job(tree).unwrap().claimed_by, Some(UnitId(0)), "the farther harvest wins");
+    assert!(
+        w.jobs()
+            .iter()
+            .filter(|j| matches!(j.kind, JobKind::Study { .. }))
+            .all(|j| j.claimed_by.is_none()),
+        "the near seat stays open"
+    );
+}
+
+#[test]
 fn nearest_means_walking_distance_so_a_wall_makes_a_tree_far() {
     // The unit at (2,2) is two tiles from the tree at (4,2) as the crow flies, but a wall
     // between them means a walk round the end of it (about 70). The tree at (2,7) is 40 away.
@@ -198,6 +225,21 @@ fn work_speed_uses_the_nation_modifier_the_harvest_names() {
     let chop = ["....", "..T.", "...."];
     let times: Vec<u64> = Nation::ALL.iter().map(|&n| ticks_to_clear(n, &chop, at(2, 1))).collect();
     assert!(times.iter().all(|&t| (t as i64 - 80).abs() <= 4), "{times:?}");
+}
+
+#[test]
+fn an_earth_unit_quarries_at_earths_earthworks_even_in_a_water_settlement() {
+    // A unit's work speed follows its own nation's modifiers (#239), not the settlement's: an
+    // Earth settler quarries at Earth's earthworks (2.5) wherever it lives.
+    let (mut w, defs) = setup(Nation::Water, &["....", "..s.", "...."], &[at(1, 1)]);
+    // Quarrying needs stoneworking; grant it so the settlement can designate the stone at all
+    // (teaching across nations is out of scope, so this stays settlement-wide).
+    w.research.grant(defs.tech_id("stoneworking").unwrap());
+    w.units[0].nation = Some(Nation::Earth);
+    w.designate_harvest(at(2, 1), &defs).unwrap();
+    let ticks = run_until(&mut w, &defs, 5000, |w| w.map[at(2, 1)].resource.is_none());
+    let expect = (12.0 / 2.5 * 10.0) as i64;
+    assert!((ticks as i64 - expect).abs() <= 4, "{ticks}");
 }
 
 #[test]
@@ -640,10 +682,10 @@ fn every_unit_runs_along_rail_loaded_or_not() {
     let wood = defs.item_id("wood").unwrap();
     w.units[0].route = Some((2..=5).rev().map(|x| at(x, 1)).collect());
     // Rail is a road for everyone: half the time on a speed-2 rail, on foot or hauling.
-    let on_foot = w.stride(UnitId(0)).unwrap().needed;
+    let on_foot = w.stride(UnitId(0), &defs).unwrap().needed;
     assert_eq!(on_foot, vec![BASE_TICKS_PER_STEP / 2.0; 4]);
     w.units[0].carrying = Some(Stack { item: wood, count: 3 });
-    let hauling = w.stride(UnitId(0)).unwrap().needed;
+    let hauling = w.stride(UnitId(0), &defs).unwrap().needed;
     assert_eq!(hauling, on_foot);
 }
 
@@ -657,7 +699,7 @@ fn rail_only_speeds_a_straight_step_between_two_rail_tiles() {
     let needed = |w: &mut World, from: Pos, to: Pos| {
         w.units[0].pos = from;
         w.units[0].route = Some(vec![to]);
-        w.stride(UnitId(0)).unwrap().needed[0]
+        w.stride(UnitId(0), &defs).unwrap().needed[0]
     };
     // Rail to rail, straight: fast. Rail to bare ground, and bare ground to rail: no gain.
     assert_eq!(needed(&mut w, at(1, 1), at(2, 1)), BASE_TICKS_PER_STEP / 2.0);

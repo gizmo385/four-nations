@@ -608,9 +608,10 @@ fn unit_translation(p: Pos) -> Vec3 {
     tile_translation(p, row_depth(p.y) + UNIT_BIAS)
 }
 
-/// The art id of the character a unit is drawn as; the nation's `characters` list is data.
+/// The art id of the character a unit is drawn as: its own nation's `characters` list, by its
+/// `variant` (#239).
 fn unit_character<'a>(sim: &'a Sim, unit: &Unit) -> &'a str {
-    sim.defs.nation(unit.nation).character(unit.variant)
+    sim.defs.nation(sim.world.nation_of(unit)).character(unit.variant)
 }
 
 /// The ground rule for a tile; `sprites::GROUND` has a row for every terrain and biome.

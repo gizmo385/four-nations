@@ -88,7 +88,8 @@ id = "study_hall"
 name = "Study Hall"
 verb = "Build"
 work = 40.0
-passable = true
+passable = false
+footprint = [2, 2]
 seats = 2
 [[building.cost]]
 item = "wood"
@@ -160,6 +161,7 @@ name = "Orchard"
 verb = "Plant"
 work = 45.0
 passable = true
+footprint = [2, 2]
 [building.orchard]
 plants = "fruit_tree"
 radius = 4
@@ -179,6 +181,7 @@ name = "Windmill"
 verb = "Build"
 work = 70.0
 passable = false
+footprint = [2, 2]
 [[building.cost]]
 item = "wood"
 count = 10
@@ -205,6 +208,7 @@ name = "Bison Stable"
 verb = "Build"
 work = 160.0
 passable = false
+footprint = [2, 2]
 [[building.cost]]
 item = "wood"
 count = 20
@@ -225,6 +229,7 @@ name = "Forge"
 verb = "Build"
 work = 60.0
 passable = false
+footprint = [2, 2]
 [[building.cost]]
 item = "stone"
 count = 8
@@ -238,6 +243,7 @@ name = "Brick Kiln"
 verb = "Build"
 work = 60.0
 passable = false
+footprint = [2, 2]
 [[building.cost]]
 item = "stone"
 count = 10
@@ -251,6 +257,7 @@ name = "Smelter"
 verb = "Build"
 work = 80.0
 passable = false
+footprint = [2, 2]
 [[building.cost]]
 item = "stone"
 count = 12
@@ -264,6 +271,7 @@ name = "Steam Engine"
 verb = "Build"
 work = 120.0
 passable = false
+footprint = [2, 2]
 [[building.cost]]
 item = "stone"
 count = 15
@@ -277,6 +285,7 @@ name = "Lightning Station"
 verb = "Build"
 work = 200.0
 passable = false
+footprint = [2, 2]
 [[building.cost]]
 item = "stone"
 count = 25

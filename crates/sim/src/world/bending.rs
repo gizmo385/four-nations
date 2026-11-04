@@ -1,12 +1,16 @@
 //! Bending at work: designating an ability, a unit channeling it, and what it does.
 //!
 //! A bend is a job like a harvest (`JobKind::Bend`). The player designates a tile
-//! (`Command::Bend`); a unit whose nation can use the ability and whose chi covers the cost
-//! claims it, walks to the tile and channels for `AbilityDef::work` seconds (divided by the
-//! `speed_modifier` named in `data/bending.toml`). Needs pre-empt it and its progress is kept,
-//! exactly as for harvests. **Chi is spent only when the bend completes**; since a unit holds
-//! one job at a time it can't be spent twice. If the target is no longer valid when the channel
-//! finishes, the job is dropped, no chi is spent and the event log says why.
+//! (`Command::Bend`), which the settlement's own nation must be able to use (`check_ability`); a
+//! unit whose chi covers the cost and whose own nation can use the ability claims it
+//! (`unit_can_bend`, #239: a signature ability needs only that its nation matches the unit's own,
+//! home settler or not; a branch ability also needs the settlement's research, so only a
+//! home-nation unit can take it), walks to the tile and channels for `AbilityDef::work` seconds
+//! (divided by the `speed_modifier` named in `data/bending.toml`). Needs pre-empt it and its
+//! progress is kept, exactly as for harvests. **Chi is spent only when the bend completes**;
+//! since a unit holds one job at a time it can't be spent twice. If the target is no longer
+//! valid when the channel finishes, the job is dropped, no chi is spent and the event log says
+//! why.
 //!
 //! **This file holds every `match` on `Effect`** (AGENTS.md rule 7): `validate_effect` says
 //! whether a target is acceptable and `apply_effect` changes the world. The four real effects
@@ -308,11 +312,26 @@ impl World {
 
 /// Doing it.
 impl World {
-    /// Whether unit `i` may take a bend job for `def`: it is a nation that can use it and its
-    /// chi covers the cost. (Research gating is settlement-wide and checked on designation.)
+    /// Whether unit `i` may take a bend job for `def`: its chi covers the cost and the ability is
+    /// one its own nation can use right now (#239). A signature ability (no tech unlocks it)
+    /// needs only that the unit's own nation matches: any unit of that nation can use it, home
+    /// settler or not, since it needs no research to begin with. A branch ability needs the
+    /// settlement's research too, so only a home-nation unit (one with no nation of its own, or
+    /// explicitly the settlement's) can take it: a unit of another nation doesn't benefit from
+    /// techs its own nation hasn't researched (teaching across nations is deferred).
     pub(super) fn unit_can_bend(&self, i: usize, def: &AbilityDef) -> bool {
         let u = &self.units[i];
-        u.nation == def.nation && u.chi >= def.chi
+        if u.chi < def.chi {
+            return false;
+        }
+        let unit_nation = self.nation_of(u);
+        if unit_nation != def.nation {
+            return false;
+        }
+        match def.unlocked_by {
+            None => true,
+            Some(tech) => unit_nation == self.nation && self.research.is_known(tech),
+        }
     }
 
     /// Channel seconds per second: the nation modifier the ability names, or 1.0.

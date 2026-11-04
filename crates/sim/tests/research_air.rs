@@ -29,22 +29,27 @@ fn fresh(defs: &Defs) -> World {
     World::new(&cfg, Nation::Air, 4, defs)
 }
 
-/// A reachable, empty tile 3 to 6 tiles from `near` (outside the stockpile around it) that isn't
-/// in `avoid`.
+/// A reachable tile 3 to 6 tiles from `near` (outside the stockpile around it) whose 2x2
+/// footprint (the biggest the Air branch builds, #214) is clear of resources and `avoid`, so it
+/// fits any branch building.
 fn free_tile_near(w: &World, near: Pos, avoid: &[Pos]) -> Pos {
     let flood = Flood::new(&w.map, near, &MoveRules::default());
+    let clear = |p: Pos| {
+        [(0, 0), (1, 0), (0, 1), (1, 1)].iter().all(|&(dx, dy)| {
+            let q = Pos::new(p.x + dx, p.y + dy);
+            w.map.get(q).is_some_and(|t| t.terrain.is_walkable() && t.resource.is_none())
+                && !avoid.contains(&q)
+        })
+    };
     w.map
         .iter()
-        .filter(|(p, t)| {
+        .filter(|(p, _)| {
             let d = (p.x - near.x).abs().max((p.y - near.y).abs());
-            t.terrain.is_walkable()
-                && t.resource.is_none()
-                && (3..=6).contains(&d)
-                && flood.cost(*p).is_some()
+            (3..=6).contains(&d) && flood.cost(*p).is_some() && clear(*p)
         })
         .map(|(p, _)| p)
-        .find(|p| !avoid.contains(p))
-        .expect("a free tile near home")
+        .next()
+        .expect("a free 2x2 spot near home")
 }
 
 /// Every Air branch building is refused with the right tech until that tech is known.

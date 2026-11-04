@@ -132,6 +132,30 @@ fn other_nations_cannot_designate_it() {
 }
 
 #[test]
+fn an_earth_settler_can_claim_raise_earth_in_a_water_settlement_but_a_water_settler_cannot() {
+    // Raise Earth needs no research (it's Earth's signature ability), so a visiting Earth unit
+    // can use it anywhere, even in a settlement that could never designate it itself (#239). The
+    // job is added directly: how such a unit would end up in another nation's settlement, and how
+    // the ability would be queued there, are both out of scope (United City, docs/design/research.md).
+    let defs = Defs::bundled();
+    let mut w = world(Nation::Water, Terrain::River, 5, &defs);
+    w.units.push(Unit { id: UnitId(1), ..w.units[0].clone() });
+    w.units[0].nation = Some(Nation::Earth);
+    let pos = at(5, 3);
+    let job = w.add_job(JobKind::Bend { ability: raise(&defs), pos });
+    run_until(&mut w, &defs, 500, |w| w.job(job).is_none_or(|j| j.claimed_by.is_some()));
+    assert_eq!(w.job(job).and_then(|j| j.claimed_by), Some(UnitId(0)), "only the Earth unit can");
+
+    // Left to the Water unit alone, the job is never claimed at all.
+    let mut solo = world(Nation::Water, Terrain::River, 5, &defs);
+    let job = solo.add_job(JobKind::Bend { ability: raise(&defs), pos });
+    for _ in 0..500 {
+        solo.tick(&defs);
+    }
+    assert_eq!(solo.job(job).unwrap().claimed_by, None);
+}
+
+#[test]
 fn a_raised_ford_makes_the_far_bank_reachable() {
     let defs = Defs::bundled();
     let item = cabbage_item(&defs);

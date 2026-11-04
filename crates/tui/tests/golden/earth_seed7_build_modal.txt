@@ -11,7 +11,7 @@
 ▲""♠♠"♠"♠♠♠┏────────────────────────── ◆ BUILD ◆ ───────────────────────────┓♠"""♠√√~√√♣│  Lin  Idle                   │
 ♠♠♠♠"♠♠♠♠♠"│ ▸ Bed             5 Wood  Bed                                  │""¥""♣√~√√√│                              │
 """♠♠♠♠♠""♠│   Campfire        Locked  Footprint: 1x1                       │"""♠♠√♣√~√√│ ◇ RESEARCH                   │
-"♠♠♠♠♠♠♠♠♠♠│   Scroll Library 10 Wood                                       │♠""♠"√√√√~√│ No target set        3.0/min │
+"♠♠♠♠♠♠♠♠♠♠│   Scroll L… 10 Wood, 2x2                                       │♠""♠"√√√√~√│ No target set        3.0/min │
 "♠"♠♠♠♠♠♠♠♠│   Earth Wall      Locked  5 Wood (0 in stores)                 │"""""♠♣√~√√│ 0 pts banked                 │
 "♠♠""♠♠♠...│   Rail            Locked                                       │.♠""♠√√~√√♠│                              │
 "♠√♠♠♠♠..≈≈│                           Bed: sleeps 1.4x faster, sought      │."♠♠♠τ~√√♠♠│ ◇ MODIFIERS                  │

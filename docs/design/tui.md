@@ -300,8 +300,18 @@ like Shift+arrows. With Caps Lock on, they move 10 tiles too.
   does too. The Cursor section says the hovered tile fits (`fn_ui::build::placement`) or names
   its first blocker (`fn_ui::build::describe_error`). `Enter` `Enter` designates it exactly as
   any other tool's rectangle does (`fn_ui::tools::apply_rect`); a refusal's reason lands in the
-  Tool notice the same way. Multi-tile footprints still draw no ghost (#212) and the TUI doesn't
-  mark an entrance (#230).
+  Tool notice the same way. The TUI doesn't mark an entrance (#230).
+- **Footprints and the placement ghost (#212, docs/design/buildings.md, "TUI").** A finished
+  building or a build site covers its whole footprint, so a 2x2 forge (or its site, dimmed) is a
+  2x2 block of its glyph; `--ascii` is the same with the `ascii` character. While the Build tool
+  has a building chosen, the cursor's tile shows the footprint as a ghost (`fn_ui::build::ghosts`,
+  the same `Placement` the Cursor section judges): the glyph over everything but a unit, on a
+  green background where the building fits and red where something is in the way (the theme's
+  `ok` and `bad`, two more of the distinct colours on 16). A drag shows one ghost per stamp
+  `tools::build_stamps` would place. The cursor itself keeps the tile's green or red (its glyph
+  turns black) rather than taking its own colour, so a 1x1 ghost still shows which it is. With no
+  colour the ghost is reversed, bold where it fits and dim (keeping the glyph of what's in the
+  way) where it doesn't.
 
 ## Time and the frame loop
 
@@ -381,6 +391,7 @@ reject; it formats and maps. Sprites, entities, the camera and interpolation sta
 | `R` and `1`-`4` regenerate | Same, with a prompt | #99 |
 | Research screen (`T`) | Tier columns, cursor, `Enter` sets the target | #100 |
 | Build tool `U`, picker, placement (#111) | `U` opens a modal picker (list and detail, #285) instead of cycling; `Enter` there picks and leaves the Build tool active, the Tool section names the choice, the Cursor section says whether the hovered tile fits | #275, #285 |
+| Footprints: multi-tile buildings and sites | A footprint is a block of its glyph; the Build tool's cursor shows a placement ghost, green or red per tile, and a drag shows every stamp | #212 |
 | Save and load (#7): `F5`/`F9` quicksave, `F6` save list (#112, #216) | `F5` quicksave, `F9` quickload after a prompt; `F6` opens the save list (newest first), Enter loads, Shift+`S` saves over, `N` writes a new slot, all through `fn_ui::saves` | #216, #276 |
 | Mouse | Click moves the cursor; a drag is a rectangle | Later |
 | Portraits, sprite smoothing, canopy fade (#77) | Not applicable | none |
@@ -578,6 +589,36 @@ The research screen, the last of the chain. Where it differs from the proposal a
 - **Goldens.** New: `earth_seed7_research` (a target set), `earth_seed7_research_small` (80x24,
   scrolled to the deep end) and `fire_seed3_research_ascii`. Re-blessed: the status line of every
   Select-mode frame, and the help (it gained the `T` row).
+
+## What #280 built
+
+A title screen, so `fn_tui` with no `SEED` is a whole way to start instead of an error.
+
+- **`Shell` (`crate::shell`) is new, above `App`.** It holds either a `TitleScreen` or (boxed,
+  for `clippy::large_enum_variant`) an `App`, and is what `main`, `run` and `--frame` drive now:
+  `App` itself knows nothing about the title screen. `SEED` and `NATION` together on the command
+  line still build a `Shell` straight in the game, as every existing script and test does;
+  neither builds one at the title screen instead.
+- **`TitleScreen` (`crate::title`) is a small state machine of its own**, keyed the same way as
+  the in-game screens (pure state, no terminal): a `Page` (`Menu`, `Nation`, `Seed`, `Load`) and a
+  `key` method returning an `Outcome` (`None`, `Start { seed, nation }`, `Loaded(World)`, `Quit`)
+  for `Shell` to act on. The menu lists New game, Continue (hidden with nothing loadable), Load
+  and Quit; New game steps through a nation picker (arrows or `1`-`4`, the nation's own blurb from
+  `data/nations.toml`) and then a seed field (prefilled with a hint `Shell` passes in, typing
+  digits replaces it, `Backspace` edits); Load reuses the in-game saves screen's own row-drawing
+  (`crate::saves::draw`) over a list read the same way (`fn_ui::saves::list`/`load`).
+  `TitleScreen::display_nation` says which nation's colours the frame should wear while picking
+  or seeding one, so the box and the blurb are already themed before any game exists.
+- **Quitting a game no longer always stops the process.** `App`'s own `Q`-then-`y` is unchanged
+  (`ui.quit` still becomes `true`, and its own test is unchanged); `Shell` is what notices that
+  and, instead of exiting, opens its own tiny prompt over the frame (`title::draw_exit_prompt`):
+  `T` goes back to a fresh title screen, `Q` or `Enter` exits for good, anything else cancels and
+  the game resumes. Only `main` (a `SystemTime` hint for a fresh default seed) and `run` (the
+  terminal's size) touch anything `fn_sim`/`fn_ui`'s determinism forbids elsewhere in the crate;
+  `Shell` and `TitleScreen` take both as plain arguments, so they stay as testable as `App` is.
+- **Goldens.** New: `title_menu` (fresh, nothing to continue) and `title_nation_picker` (Air
+  Nomads, cursor on the first nation). The seed field isn't golden: its default comes from the
+  hint `main` reads from the wall clock, so only non-golden tests cover it.
 
 ## Owner decisions (2026-10-24)
 
