@@ -22,6 +22,11 @@
 //! flash the nation's accent ([`HIGHLIGHTS`], mirroring the client's `cast::LOOKS`); and a unit
 //! carrying Inner Fire's aura (`World::glows`) wears a warm background for as long as it lasts,
 //! with its reach tinted the way a lit flame's is while the cursor sits on it.
+//!
+//! **Rail** (#279, mirrors the client's `buildings::links`, #135): a rail tile or site with a
+//! rail neighbour (built or still a site) draws the box-drawing piece that joins the neighbours
+//! it has, so a line of rail reads as one track and a corner turns; a lone tile keeps the rail
+//! building's own glyph.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -37,7 +42,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 
 use crate::color::{Palette, Tint, mix};
-use crate::glyphs::{Look, Rgb8};
+use crate::glyphs::{Glyphs, Look, Rgb8, link_glyph, rail_mask};
 use crate::state::UiState;
 
 /// Which tiles light up after a bend lands, for an ability of `data/bending.toml`. Every
@@ -221,6 +226,39 @@ fn door_tiles(ghosts: &[Placement]) -> BTreeMap<Pos, bool> {
     ghosts.iter().filter_map(|g| g.entrance).collect()
 }
 
+/// Whether `id` -- a finished building or a build site's building -- is a rail (#279).
+fn is_rail(defs: &fn_sim::Defs, id: BuildingId) -> bool {
+    defs.building(id).rail.is_some()
+}
+
+/// Whether `pos` is rail, finished or still a site (#279): the set of tiles a piece of track
+/// joins.
+fn rail_at(world: &fn_sim::World, defs: &fn_sim::Defs, over: &Overlays, pos: Pos) -> bool {
+    world
+        .building_at(pos)
+        .or_else(|| over.sites.get(&pos).copied())
+        .is_some_and(|b| is_rail(defs, b))
+}
+
+/// The piece of track `pos` (a rail tile or site) draws, by which of its four neighbours are
+/// rail (#279): `None` for a lone tile, which keeps the rail building's own glyph instead.
+fn rail_glyph(
+    session: &Session,
+    g: &Glyphs,
+    over: &Overlays,
+    pos: Pos,
+    ascii: bool,
+) -> Option<char> {
+    let (world, defs) = (&session.world, &session.defs);
+    let mask = rail_mask(
+        rail_at(world, defs, over, Pos::new(pos.x, pos.y - 1)),
+        rail_at(world, defs, over, Pos::new(pos.x + 1, pos.y)),
+        rail_at(world, defs, over, Pos::new(pos.x, pos.y + 1)),
+        rail_at(world, defs, over, Pos::new(pos.x - 1, pos.y)),
+    );
+    link_glyph(&g.rail_track, mask, ascii)
+}
+
 /// How one tile draws: its glyph and style.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TileCell {
@@ -273,15 +311,27 @@ pub fn tile_cell(
             // many as a digit (`+` above 9), in the building's own colour, in place of its
             // glyph; `--ascii` draws the same digit, already plain ASCII.
             Some(&n) if n > 0 => ((if n > 9 { '+' } else { char::from(b'0' + n as u8) }), look.fg),
+            _ if is_rail(defs, b) => {
+                let glyph = rail_glyph(session, g, over, pos, palette.ascii)
+                    .unwrap_or_else(|| look.glyph(palette.ascii));
+                (glyph, look.fg)
+            }
             _ => (look.glyph(palette.ascii), look.fg),
         }
     } else if let Some(&b) = over.sites.get(&pos) {
-        // A site is its building, dimmed until it's built.
+        // A site is its building, dimmed until it's built, and a rail site joins the rail
+        // beside it (built or still a site) the same as a finished tile does.
         let look = &g.building[&defs.building(b).id];
         if palette.mono() {
             mods |= Modifier::DIM;
         }
-        (look.glyph(palette.ascii), mix(look.fg, base_bg, 0.5))
+        let glyph = if is_rail(defs, b) {
+            rail_glyph(session, g, over, pos, palette.ascii)
+                .unwrap_or_else(|| look.glyph(palette.ascii))
+        } else {
+            look.glyph(palette.ascii)
+        };
+        (glyph, mix(look.fg, base_bg, 0.5))
     } else if let Some(stack) = over.ground.get(&pos).copied().or_else(|| world.stored_at(pos)) {
         let look = &g.item[&defs.item(stack.item).id];
         (look.glyph(palette.ascii), look.fg)
