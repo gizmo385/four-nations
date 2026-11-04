@@ -28,8 +28,9 @@ opinionated design doc plus implementable follow-up issues.
   sim stays deterministic.
 - Separate **owner decisions** (taste, tone, scope) into an "Open questions for the owner"
   section, at most 4 and each with your recommended answer. Don't decide them silently.
-- For visual design, produce mockups with `cargo xtask screenshot SEED NATION target/x.png` if
-  useful. **Never open the game window.**
+- For visual design, produce mockups as `--frame`/`--ascii` text from
+  `cargo run -p fn_tui -- SEED NATION --frame [--keys SCRIPT] [--ascii]`, pasted into the doc.
+  **Never launch `fn_tui` interactively.**
 
 ## Workflow
 
@@ -37,15 +38,15 @@ opinionated design doc plus implementable follow-up issues.
    `gh issue edit N --add-label in-progress`, then comment
    "Claimed by designer agent. Flow: PR from issue/N-slug".
 2. `git fetch origin && git switch -c issue/N-slug origin/main`, then `scripts/warm-target.sh`
-   before any build (it clones the main checkout's `target/` so Bevy doesn't recompile). Write
-   `docs/design/<topic>.md`.
+   before any build (it clones the main checkout's `target/` so you don't recompile from
+   scratch). Write `docs/design/<topic>.md`.
 3. File follow-up issues with
    `gh issue create --template work-item.md --title ... --label area:X,feat:Y,pN --body ...`,
    each with Why / Acceptance criteria / Out of scope. Use `--blocked-by` for dependencies.
    Don't add `ready`; triage decides. List the issue numbers in the doc.
 4. Commits: subject `#N: ...`, ending with
    `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>`.
-   `cargo xtask ci sim --fast` must pass.
+   `cargo xtask ci --fast` must pass.
 5. Push and open a PR (`Closes #N`) whose body lists the key decisions and the open questions,
    ending with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 6. If there are open questions for the owner, **don't enable auto-merge**. Add `needs-owner` to

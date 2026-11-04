@@ -1,16 +1,21 @@
 # UI visual direction
 
-Status: **decided** (#39, owner, 2026-10-22): the **Seal** style, with the side panel on the
-right and no other changes to the mockup. The shared code lives in
-`crates/client/src/ui_style.rs`. Follow-ups: #80 restyles the existing panels, and #23 (the
-research screen) must build from the module.
+Status: **historical** (#39, owner, 2026-10-22; superseded 2026-11-03, #281). This decided the
+Bevy client's panel look and layout (`crates/client/src/ui_style.rs`). The client is gone now,
+retired in favour of the terminal UI, but the **layout zones, colour tokens and the Seal shape**
+it chose carried over: `fn_ui::theme` is the same token maths as a plain `[f32; 3]`, and
+docs/design/tui.md's screen layout, panel sections and box-drawing frame are this doc's zones
+and Seal brackets, drawn in cells instead of pixels. Read this doc for *why* the panels are
+shaped the way they are; read tui.md for how they look today.
 
 Today the UI is three debug text boxes. Research (#23), jobs and commands (#5) and bending (#6)
 will all add widgets. This doc fixes one look and one layout before they land.
 
 ## Decision
 
-![Seal with Ninja Adventure art, Water Tribes](https://github.com/gizmo385/four-nations/blob/92ea0705fc25b2dc46ec2b8c1fdfd848d95ef781/mockups/1/ninja-seal-ui.png?raw=true)
+A render of this layout over the Bevy client's map art is in git history (the mockup directory
+this doc linked to was removed with the client in #281); `fn_tui --frame` over the same seed and
+nation is the live equivalent today.
 
 - **Feel:** clean, flat panels with Avatar-themed flair only around the edges, and a light
   nation accent. Seal does it with cool, opaque slate panels, a 1px frame tinted with the
@@ -22,8 +27,9 @@ will all add widgets. This doc fixes one look and one layout before they land.
   opens a **bottom bar** with its actions.
 - **Nation colouring:** the accent is the nation's `color` from `data/nations.toml`, so it stays
   data-driven with no new schema.
-- **Art:** the map uses Ninja Adventure (`docs/design/art.md`). The render above shows the
-  combination; see "Fitting Seal to Ninja Adventure" below.
+- **Art:** the map used the Ninja Adventure pack, later replaced by original art, both since
+  removed with the client (#281). See "Fitting Seal to Ninja Adventure" below for how the two
+  were made to fit.
 
 ## Layout zones (1280×720 reference)
 
@@ -77,11 +83,11 @@ Spacing steps in `ui_style::space`: 4, 6, 8, 12, 16 px. Layout constants are in
 
 - `panel(theme, Frame::Panel | Frame::Tooltip, node)`: the body, with square corners and a soft
   shadow. A tooltip keeps a 1px `accent_soft` border; a panel's edge is the frame art's line.
-- `frame(p, theme, skin, kind)`: the flair, added inside the panel's children. A panel gets the
-  9-slice frame and the seal from `assets/original/ui_frame.<nation>.png` and
-  `ui_flair.<nation>.png` (#129, `docs/design/pixel-art.md`), a tooltip small code-drawn
-  brackets. It's absolutely positioned, so it never affects layout. Because the frame draws 8px
-  outside the panel, a panel must not clip its own children: put `overflow` on an inner node.
+- `frame(p, theme, skin, kind)`: the flair, added inside the panel's children. A panel got the
+  9-slice frame and the seal from `ui_frame.<nation>.png` and `ui_flair.<nation>.png` (#129, our
+  own pixel art, since removed with the client), a tooltip small code-drawn brackets. It's
+  absolutely positioned, so it never affects layout. Because the frame draws 8px outside the
+  panel, a panel must not clip its own children: put `overflow` on an inner node.
 - `emblem(skin)`: the nation's medallion from `emblems.png`, for the side-panel header.
 - `section_title(p, theme, skin, title)`, `bar` and `text`.
 - `item_well(p, theme, skin, icon)`: an item icon (`ItemDef::icon`, a sprite of `icons.png`) at 2x in an
@@ -112,28 +118,21 @@ styling inline.
 ## Considered (not chosen)
 
 All three variants shared the layout above and differed only in edge flair. The mockups were
-rendered headless (`FN_UI_MOCKUP=<variant> cargo xtask screenshot 7 <nation>`). The code is on
-the unmerged reference branch `issue/39-mockups`, and won't ship.
+rendered headless with the client's now-removed screenshot tool; the renders lived in `mockups/`
+(removed with the client, #281) and are only in git history now.
 
-- **A. Scroll** ([Earth](https://github.com/gizmo385/four-nations/blob/c4c5ed64ffed0cb603192728dec9fb02b11e1e3a/mockups/39/scroll-earth.png?raw=true),
-  [Fire](https://github.com/gizmo385/four-nations/blob/c4c5ed64ffed0cb603192728dec9fb02b11e1e3a/mockups/39/scroll-fire.png?raw=true)):
-  warm ink panels capped by wooden scroll rods with accent end caps. It was my recommendation;
-  the owner preferred Seal's cleaner look.
-- **B. Seal** ([Earth](https://github.com/gizmo385/four-nations/blob/c4c5ed64ffed0cb603192728dec9fb02b11e1e3a/mockups/39/seal-earth.png?raw=true),
-  [Water](https://github.com/gizmo385/four-nations/blob/c4c5ed64ffed0cb603192728dec9fb02b11e1e3a/mockups/39/seal-water.png?raw=true)):
-  **chosen**.
-- **C. Parchment** ([Earth](https://github.com/gizmo385/four-nations/blob/c4c5ed64ffed0cb603192728dec9fb02b11e1e3a/mockups/39/parchment-earth.png?raw=true),
-  [Air](https://github.com/gizmo385/four-nations/blob/c4c5ed64ffed0cb603192728dec9fb02b11e1e3a/mockups/39/parchment-air.png?raw=true)):
-  light parchment panels with a scalloped accent band. It competed with the bright map, and
-  Air's yellow lost contrast on cream.
+- **A. Scroll**: warm ink panels capped by wooden scroll rods with accent end caps. It was my
+  recommendation; the owner preferred Seal's cleaner look.
+- **B. Seal**: **chosen**.
+- **C. Parchment**: light parchment panels with a scalloped accent band. It competed with the
+  bright map, and Air's yellow lost contrast on cream.
 
-For comparison, [the UI before #39](https://github.com/gizmo385/four-nations/blob/c4c5ed64ffed0cb603192728dec9fb02b11e1e3a/mockups/39/baseline-earth.png?raw=true).
+## Follow-ups (historical; the client is gone)
 
-## Follow-ups
-
-- **#80 (done):** the HUD, the selection and hover info, and the job and designation lines are
-  now the side panel, selection bar and tooltip in `crates/client/src/hud.rs`; `panel_style` is
-  gone. The selection bar leaves room under its needs bars for the chi bar (#72).
-- **#23:** the research screen and HUD progress must use `ui_style` and this doc (commented on
-  the issue, which is now blocked by #80).
-- Portraits arrive with #76 (Ninja Adventure facesets).
+- **#80 (done):** the HUD, the selection and hover info, and the job and designation lines
+  became the side panel, selection bar and tooltip in the client's `hud.rs`; `panel_style` is
+  gone. The selection bar left room under its needs bars for the chi bar (#72).
+- **#23 (done):** the research screen and HUD progress used `ui_style` and this doc.
+- Portraits arrived with #76 (Ninja Adventure facesets).
+- All of the above shipped in the Bevy client and were removed with it in #281. The terminal
+  frontend's equivalent layout and sections are docs/design/tui.md's, not this doc's.

@@ -1,6 +1,10 @@
 # Tech stack options
 
-Status: **decided** 2026-10-21: Rust + Bevy, merged to `main`.
+Status: **decided** 2026-10-21: Rust + Bevy, merged to `main`. **Superseded** 2026-11-03
+(#93, #280, #281): the owner retired the Bevy client, its art pipeline and its CI cost
+entirely, once a terminal frontend (`fn_tui`, docs/design/tui.md) reached parity with it. The
+sim/frontend split this doc argues for is why that swap cost one crate, not a rewrite; the rest
+of this doc is the record of the original choice and stays accurate for `fn_sim`.
 
 ## History
 
@@ -48,6 +52,10 @@ data/                     TOML game data loaded by the sim
 assets/                   art/audio with a provenance manifest
 ```
 
+(As planned at the time; `crates/client` and `assets/` are gone now. `crates/client`'s place in
+the diagram was taken by `crates/tui` (`fn_tui`) plus `crates/ui` (`fn_ui`, the frontend logic
+the two UIs shared before the first was retired); see "Superseded" above and tui.md.)
+
 Why:
 
 - **Splitting the sim from the frontend is the important decision**, more than the engine
@@ -80,13 +88,13 @@ code-first workflows. Because of the crate split above, that switch would replac
   alsa, udev, or wayland dev headers on this machine (Nix toolchain on Ubuntu/WSL2). Audio and
   gamepad support will need those system libraries later.
 
-## Dev environment (2026-10-22)
+## Dev environment (2026-10-22, trimmed 2026-11-03 in #281)
 
 `flake.nix` provides a devShell with Rust (pinned via rust-overlay, kept in sync with CI's
-version), pkg-config, and Bevy's native libraries, including alsa, udev, and wayland, so enabling
-those Bevy features later only needs a Cargo.toml change. It points the Vulkan loader at nixpkgs
-Mesa's drivers, because Ubuntu's drivers can't load into Nix-built binaries. CI doesn't use the
-flake.
+version) and pkg-config. It used to add Bevy's native libraries too (alsa, udev, wayland, and
+pointing the Vulkan loader at nixpkgs Mesa's drivers, because Ubuntu's drivers can't load into
+Nix-built binaries); those left with the client in #281, since `fn_tui` needs no graphics stack.
+CI doesn't use the flake.
 
 ## Saves (#7)
 
@@ -97,7 +105,7 @@ loads in about a tenth of a second and survives retuning. The command log is sav
 snapshot, so replay still works for tests and debugging. A save carries a format version
 (`SAVE_VERSION`) and a hash of the data tables' ids (`Defs::id_hash`); `load` refuses either
 mismatch with a clear error. The sim does no I/O: it produces and consumes the text, and the
-client decides where it lives.
+frontend decides where it lives (`fn_ui::saves`, `FN_SAVE_DIR` or the platform's data directory).
 
 Adding state to `World` needs no save code: the derive makes a field either serialize or fail to
 compile. Change the serialized shape of existing state in a way old files can't be read as, and

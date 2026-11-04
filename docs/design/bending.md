@@ -238,10 +238,11 @@ forager or hauler eats cooked food in the field, which Hearthflame can't do.
   flame's 3), and the sleep bonus is smaller (1.25 against 1.5), so it is a field tool, not a
   home. It only helps while the carrier is close to whoever is eating or sleeping. It can't
   harm anyone, and a carrier who dies takes it with them.
-- **Client:** the cast effect is a warm glow that swells around the bender (`Look::Glow` in
-  `cast.rs`). While it lasts, the carrier has a soft ring of light under their feet, drawn from
-  `World::glows()` (position, radius and time left, as `flames()` does for flames).
-  Hovering the carrier outlines its reach, and its tooltip line gains "Warm 12m 03s".
+- **Client (historical, removed with it in #281):** the cast effect was a warm glow that swelled
+  around the bender (`Look::Glow` in `cast.rs`). While it lasted, the carrier had a soft ring of
+  light under their feet, drawn from `World::glows()` (position, radius and time left, as
+  `flames()` does for flames). Hovering the carrier outlined its reach, and its tooltip line
+  gained "Warm 12m 03s".
 - **Picking it:** `B` selects the Bend tool, and `B` again cycles through the abilities the
   settlement can use (`fn_ui::tools::cycle_ability`, `Session::bend_choice`), so Inner Fire
   appears once Dancing Dragon is known. This is the "small picker" the Client section promised.
@@ -354,7 +355,7 @@ impl World {
   "Hearthflame: 12 min left", and for a unit "Chi 62/100".
 - **Saves (#7):** chi, flames, wet and fallow maps and `bend_rng` are part of world state.
 
-## Client (minimum)
+## Client (minimum; historical, shipped in #72 and removed with the Bevy client in #281)
 
 - `B` opens the nation's ability tool, and drag-designation works like #62's tools. There's
   one ability now; a small picker appears once research unlocks more.
@@ -362,6 +363,9 @@ impl World {
   clock) marks a lit flame with its radius on hover, and puddle marks over the floor show wet
   tiles. Fords reuse #53's sprite.
 - The selected unit's panel shows a chi bar, and bend events become toasts.
+- The terminal frontend's equivalent is docs/design/tui.md's glyph table (lit flame, wet
+  background, bend designation tints) and its selection bar's chi meter; that's the live
+  reference now, not this section.
 
 ## Not in this design
 

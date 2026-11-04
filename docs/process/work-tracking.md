@@ -7,7 +7,7 @@ repo with one human owner). Agents use the `gh` CLI.
 
 | Group | Labels | Rule |
 |---|---|---|
-| Area | `area:sim` `area:client` `area:data` `area:art` `area:tooling` `area:design` | One or more per issue |
+| Area | `area:sim` `area:client` `area:data` `area:tooling` `area:design` | One or more per issue |
 | Feature group | `feat:mapgen` `feat:units` `feat:jobs` `feat:bending` `feat:persistence` `feat:rendering` `feat:dev-tools` | Exactly one. Add a new `feat:*` label when a new feature area starts |
 | Priority | `p0` (blocking) `p1` (next) `p2` (soon) `p3` (someday) | Exactly one |
 | Workflow | `ready` `needs-owner` `in-progress` `large` | See below |
@@ -99,7 +99,7 @@ Unclaim if you stop without finishing: remove `in-progress` and leave a handoff 
 
 `main` is protected: the `ci` GitHub Actions check must pass before a PR can merge. Direct
 pushes by the owner's account aren't blocked, which is what makes the direct flow possible. So
-running `cargo xtask ci` locally before pushing is mandatory.
+running `cargo xtask ci --fast` locally before pushing is mandatory.
 
 ### Direct to `main` (default for small and medium changes)
 
@@ -107,30 +107,31 @@ Use this when **all** of these hold:
 - one agent (or the owner) is working on this area right now;
 - the change is not labelled `large`;
 - it touches roughly < 400 changed lines, adds no new dependency, and does not change a public
-  `fn_sim` API used by the client in a breaking way.
+  `fn_sim` or `fn_ui` API in a breaking way.
 
 Steps:
 
 1. `git pull --rebase origin main`
 2. Make focused commits. The subject starts with the issue number, e.g. `#2: Add A* pathfinding`.
    The last commit's body has `Fixes #2`.
-3. `cargo xtask ci` must pass.
-4. `git pull --rebase origin main && cargo xtask ci && git push origin main`. Never force-push.
+3. `cargo xtask ci --fast` must pass.
+4. `git pull --rebase origin main && cargo xtask ci --fast && git push origin main`. Never
+   force-push.
 5. GitHub closes the issue from `Fixes #N`. Add a closing comment with anything notable.
 
 ### Branch + PR (multiple agents in parallel, or large changes)
 
 Use this when **any** of these hold:
 - more than one agent is working at the same time (each agent uses its own branch, or worktree);
-- the issue is labelled `large`, or turns out to be (> ~400 lines, new dependencies, Bevy
-  upgrades, golden or save-format changes, cross-crate API changes);
+- the issue is labelled `large`, or turns out to be (> ~400 lines, new dependencies, golden or
+  save-format changes, cross-crate API changes);
 - you're unsure. When in doubt, use a PR.
 
 The PR flow exists to **prevent conflicts**, not to gate on human review. The agent that
 opens a PR **owns it until it merges**:
 
 1. Branch `issue/N-short-slug` from `origin/main`.
-2. Commit as above, run `cargo xtask ci`, and push the branch.
+2. Commit as above, run `cargo xtask ci --fast`, and push the branch.
 3. `gh pr create --fill`, with `Closes #N` in the body. Fill in what changed, how it was
    verified, and anything the owner should look at.
 4. Turn on auto-merge right away: `gh pr merge --auto --squash`. GitHub merges once the required
@@ -141,8 +142,8 @@ opens a PR **owns it until it merges**:
    - **Out of date with `main`**: `gh pr update-branch --rebase`, or rebase locally and push
      with `--force-with-lease` (allowed only on your own PR branch).
    - **Conflicts**: rebase onto `origin/main` and resolve them. Keep both sides' intent, rerun
-     `cargo xtask ci`, and push. If the resolution needs a design decision, comment on the PR,
-     turn off auto-merge (`gh pr merge --disable-auto`) and tell the owner.
+     `cargo xtask ci --fast`, and push. If the resolution needs a design decision, comment on the
+     PR, turn off auto-merge (`gh pr merge --disable-auto`) and tell the owner.
 6. Once merged, check that the issue closed, and leave a short closing comment if anything is
    notable.
 

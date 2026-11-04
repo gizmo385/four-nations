@@ -35,14 +35,14 @@ to trade, exchange culture and knowledge with, or help, but **nations never figh
 Avatar is about balance and unity. Pressure comes from survival, the environment and growth,
 not conquest. Design features (research #17, bending #6) around peaceful progress.
 
-## Art direction (decided 2026-10-22, revised 2026-10-24)
+## Frontend (decided 2026-10-21, revised 2026-11-03)
 
-**16px top-down pixel art, all of it original** (#122, owner, 2026-10-24). Claude writes the art
-as palette-indexed text sheets in `art/*.toml` and `cargo xtask art` renders them to
-`assets/original/`. The Avatar world's look (outlined sprites, stylised East Asian setting, units
-dressed per nation; canon characters may come later as special sprites in the same style) is our
-own. Process, palette and scope are in [pixel-art.md](pixel-art.md). The third-party pack we
-prototyped with, Ninja Adventure, is fully gone; [art.md](art.md) keeps the record of that choice.
+**The terminal is the only frontend** (#93, #280, #281, owner, 2026-11-03). The game was built
+first as a Bevy client with 16px original pixel art (#122; the design docs that recorded that
+choice, `art.md` and `pixel-art.md`, have since been removed), then given a terminal UI
+(`fn_tui`, docs/design/tui.md) that reached parity with it. The owner then chose to retire the
+Bevy client, its art pipeline and its CI cost entirely: the terminal, with Unicode glyphs and an
+`--ascii` fallback, is the whole visual language now. `cargo run` opens it on the title screen.
 
 ## Core loop (first playable)
 

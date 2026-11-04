@@ -14,11 +14,8 @@ So a study hall or a forge looks 2x2 but uses only 1x1:
 - two buildings on neighbouring tiles overlap;
 - the build-site tint marks one tile under a 2x2 sprite.
 
-![Today vs proposed](../../mockups/196/before-after-hall.png)
-
-The bottom-left of this real headless shot (`FN_BUILD_DEMO=buildings`, Fire) shows a hall's build
-site with its one-tile tint under the 2x2 ghost sprite:
-[mockups/196/before-demo-fire.png](../../mockups/196/before-demo-fire.png).
+(A before/after render lived at `mockups/196/`, removed with the client in #281 and only in git
+history now: it showed a hall's build site with its one-tile tint under the 2x2 ghost sprite.)
 
 ## Decisions in brief
 
@@ -68,8 +65,6 @@ leaves open.
 | bison_stable | 30 | **2x2** | no | 3x3 would suit a sky bison, but stays 2x2 for now (owner, 2026-10-25) |
 | forge, brick_kiln, smelter, steam_engine | 26 to 28 | **2x2** | no | The art's footprint |
 | lightning_station | 26 | **2x2** | no | Same plinth as the others |
-
-![Every building at its proposed footprint](../../mockups/196/footprints-all.png)
 
 Costs and work times don't change. A 2x2 hall at 10 wood is cheap for its area, but balance is
 out of scope here (#124 and #142 give these buildings a purpose and will retune them).
@@ -180,9 +175,7 @@ or nothing changes.
   so they don't change. Replaying a command log recorded before footprints, against footprint
   data, gives a different game, but replay already requires identical data (save.rs).
 
-## Client and UI
-
-![Placement preview](../../mockups/196/placement-preview.png)
+## Frontends
 
 ### Placing (shared in `fn_ui`)
 
@@ -203,7 +196,10 @@ or nothing changes.
 - **Picker.** Each row shows the size after the cost ("10 Wood, 2x2"), but only for buildings
   bigger than 1x1.
 
-### Drawing (`crates/client/src/buildings.rs`)
+### Drawing (historical: `crates/client/src/buildings.rs`, removed with the Bevy client in #281)
+
+This is the record of how the Bevy client drew footprints; the TUI's own drawing is in the next
+section, "TUI", below.
 
 - **One sprite per building**, from `World::buildings()` and `build_sites()`, not one per tile.
 - **Anchor.** The sprite's bottom-centre sits at the bottom-middle of the footprint: halfway
@@ -222,8 +218,7 @@ or nothing changes.
   where the sprite extends beyond its footprint or the footprint is walkable: the orchard, the
   turbine's blades, and grandfathered 1x1 halls. A 2x2 solid building that fills its footprint
   hides nothing, so it never fades.
-- **Site overlay.** `designate.rs` tints every tile of a site's footprint, not just the anchor
-  (see "Placed: the build site" in the mockup).
+- **Site overlay.** `designate.rs` tints every tile of a site's footprint, not just the anchor.
 - **Hover and selection.** Hovering any footprint tile outlines the whole footprint, and the
   tooltip (`fn_ui::build::site_report`, `built_name`) is the same from every tile.
   `Command::CancelBuild` accepts any tile, so the Cancel tool works anywhere on the site.
@@ -250,8 +245,10 @@ or nothing changes.
 - **Saves.** Old saves load as they are (above). Their halls stay 1x1, passable and overhanging
   until a future deconstruct command lets the player rebuild them. This is a personal project
   with few saves, so no automatic upgrade is worth its complexity.
-- **Docs.** When the sizes turn on, the "Buildings" section of `pixel-art.md` changes from "stands
-  on its tile like a tree" to "fills its footprint, and may overhang upward".
+- **Docs.** When the sizes turn on, buildings go from "stands on its tile like a tree" to "fills
+  its footprint, and may overhang upward" (recorded, historically, in the now-removed
+  `pixel-art.md`; the current rule is "Footprints and the placement ghost" in
+  docs/design/tui.md).
 
 ## Units inside buildings
 
@@ -260,7 +257,8 @@ solid footprints (#206 to #214 unchanged) and tracked in #226 to #230. The owner
 it would be for units to go *inside* buildings. The three options below are kept as the
 rationale. They differ mostly in what "inside" means to the sim.
 
-![Inside options](../../mockups/196/inside-options.png)
+(A render comparing the three options lived at `mockups/196/`, removed with the client in #281
+and only in git history now.)
 
 ### (a) A walkable footprint
 
@@ -393,26 +391,18 @@ building model.
 
 ## Larger art
 
-**Decision (owner, 2026-10-25):** the four study halls go to 32x48 first (#231). Production
-buildings get taller art later, once they do something (#124, #142). The bison stable stays
-2x2, and the igloo is narrowed to its tile (#213).
+**Historical (#231, done; removed with the client in #281).** The owner asked to see larger art
+for the 2x2 buildings, compared with the Bevy client's 32x32 sprites on the new footprints. It
+shipped for the four study halls and was later removed along with every other sprite, so this
+section is the record of that decision, not a live design. The mockup sheets lived at
+`mockups/196/`, only in git history now.
 
-The owner asked to see larger art for the 2x2 buildings, compared with today's 32x32 sprites on
-the new footprints. The sprites below are authored as text grids in the `art/*.toml` format
-([mockups/196/art-larger.toml](../../mockups/196/art-larger.toml)). Each starts from the
-building's current grid and adds storeys, roofs, chimneys and pillars. They are rendered with a
-script that matches `cargo xtask art` pixel for pixel (checked against the current sheet). They
-are mockups only and are not in `art/` or the game.
+Each sprite was 32 px wide, so it still filled its 2x2 footprint, and 35 to 42 px tall (including
+the outline) in a 32x48 cell. The roof rose up to one tile into the row behind, as tree canopies
+did. A 3x3 sketch for the bison stable showed what the next size up would look like, but that
+building stayed 2x2.
 
-Each is 32 px wide, so it still fills its 2x2 footprint, and 35 to 42 px tall (including the outline) in a 32x48 cell.
-The roof rises up to one tile into the row behind, as tree canopies do. The 3x3 bison stable is
-a 48x48 sketch (two stalls) to show what the next size up looks like.
-
-![Larger art compared](../../mockups/196/large-art-compare.png)
-
-![In the world, next to units and trees](../../mockups/196/large-art-in-world.png)
-
-- **What it buys:** scale. A unit is 16 px tall, so today a hall is only twice the height of the
+- **What it bought:** scale. A unit is 16 px tall, so a hall was only twice the height of the
   people using it. At 40 px, the halls read as the settlement's landmarks, and each nation's
   silhouette is stronger: the Fire pagoda gains a storey and the Earth library a second floor.
 - **What it costs:**
@@ -430,11 +420,9 @@ a 48x48 sketch (two stalls) to show what the next size up looks like.
     footprint, so taller art only extends upward.
   - The client test that expects a 32x32 rect and the art-width test (#210) read the cell size
     from the sheet instead.
-- **Why the halls first:** they are the landmarks every nation builds. The production buildings
-  follow when #124 and #142 give them a purpose. The 3x3 sketch shows a bigger bison stable
-  works, but it would be a footprint change as well as new art, so it waits.
-- **Follow-up:** #231 moves the four halls to a `cell = [32, 48]` sheet with the client's
-  `tall()` helper, starting from the mockup grids. It is blocked by #210.
+- **Why the halls first:** they were the landmarks every nation builds. Production buildings
+  were meant to follow once #124 and #142 gave them a purpose; neither got the treatment before
+  the client (and the whole art pipeline) was removed in #281.
 
 ## Follow-up issues
 
