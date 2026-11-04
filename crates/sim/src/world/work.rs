@@ -49,6 +49,8 @@
 //! Everything is deterministic: units act in id order, searches break ties by position or id, and
 //! the only randomness is the idle wander and pause (`world.units` stream).
 
+use std::collections::HashMap;
+
 use crate::defs::Terrain;
 use crate::endeavor::TaskWho;
 use crate::flood::Flood;
@@ -715,8 +717,12 @@ impl World {
         if !defs.buildings.iter().any(|b| b.bed.is_some()) {
             return None;
         }
-        let flood = self.flood_from(i);
-        let mut best: Option<(u32, Pos, Pos)> = None;
+        // Every bed's stand tile and the most it can cost to reach (#293: a flood only needs to
+        // grow far enough to confirm the nearest one of these, not the whole reachable region).
+        // A stand tile shared by more than one bed (vanishingly rare -- two footprints would
+        // have to touch at exactly that tile) keeps all of them, in `self.buildings()`'s anchor
+        // order, same as a plain scan would see them in.
+        let mut targets: HashMap<Pos, Vec<(u32, Pos, u32)>> = HashMap::new();
         for (foot, id) in self.buildings() {
             let Some(bed) = defs.building(id).bed else { continue };
             let big = foot.w > 1 || foot.h > 1;
@@ -725,16 +731,18 @@ impl World {
             if limit == 0 {
                 continue;
             }
-            let Some(cost) = flood.cost(stand).filter(|&c| c <= bed.seek_tiles * STRAIGHT) else {
-                continue;
-            };
-            if best.is_none_or(|(bc, bp, _)| (cost, stand) < (bc, bp))
-                && self.bed_has_room(foot.anchor, i, limit)
-            {
-                best = Some((cost, stand, foot.anchor));
-            }
+            targets.entry(stand).or_default().push((bed.seek_tiles * STRAIGHT, foot.anchor, limit));
         }
-        let (_, stand, key) = best?;
+        let rules = self.rules_for(&self.units[i]);
+        let (flood, found) =
+            Flood::nearest(&self.map, self.units[i].pos, rules, &targets, |_, c, beds| {
+                beds.iter()
+                    .find(|&&(max_cost, anchor, limit)| {
+                        c <= max_cost && self.bed_has_room(anchor, i, limit)
+                    })
+                    .map(|&(_, anchor, _)| ((), anchor))
+            });
+        let (stand, key) = found?;
         Some((route_from(flood.path_to(stand)?), key))
     }
 
@@ -751,20 +759,18 @@ impl World {
         self.sleep_factor_at(u.pos) * bed
     }
 
-    /// The nearest tile beside water.
+    /// The nearest tile beside water: `Flood::seek` (#293) checks the handful of tiles it
+    /// actually visits on the way, nearest-cost-first, instead of a second pass over the whole
+    /// map once a full flood is in hand -- every tile that pass would skip fails this check too.
     fn plan_drink(&self, i: usize) -> Option<(Task, Vec<Pos>)> {
-        let flood = self.flood_from(i);
-        let mut best: Option<(u32, Pos)> = None;
-        for (p, tile) in self.map.iter() {
-            let Some(c) = flood.cost(p) else { continue };
-            if !self.rules.passable(tile) || best.is_some_and(|b| (c, p) >= b) {
-                continue;
+        let rules = self.rules_for(&self.units[i]);
+        let (flood, found) = Flood::seek(&self.map, self.units[i].pos, rules, |p, _| {
+            if !self.rules.passable(&self.map[p]) {
+                return None;
             }
-            if self.map.neighbors(p, true).any(|q| self.map[q].terrain.is_water()) {
-                best = Some((c, p));
-            }
-        }
-        let (_, stand) = best?;
+            self.map.neighbors(p, true).any(|q| self.map[q].terrain.is_water()).then_some(((), ()))
+        });
+        let (stand, ()) = found?;
         Some((Task::Drink, route_from(flood.path_to(stand)?)))
     }
 
@@ -775,8 +781,28 @@ impl World {
             && defs.endeavor.avatar.as_ref().is_some_and(|a| a.refuses.contains(&item))
     }
 
+    /// The rank (lowest first: stockpile, ground, forage) of the best unclaimed food source on
+    /// `pos` that unit `me` will eat, if any. Matches `plan_food`'s old per-category checks, just
+    /// asked of one tile at a time instead of every entry of `self.stored`/`self.ground`/the map
+    /// up front.
+    fn food_rank_at(&self, pos: Pos, defs: &Defs, me: usize) -> Option<u8> {
+        let eats =
+            |item: ItemId| defs.food_of(item).is_some() && !self.refuses_food(me, item, defs);
+        if self.stored.get(&pos).is_some_and(|s| eats(s.item)) {
+            return Some(0);
+        }
+        if self.ground.get(&pos).is_some_and(|s| eats(s.item)) {
+            return Some(1);
+        }
+        let h = self.ripe_harvest(pos, defs)?;
+        (eats(h.item) && !self.forage_taken(pos, me)).then_some(2)
+    }
+
     /// The closest food this unit will eat: carried (free), then stockpile, ground and wild
-    /// resources by walking cost, preferring them in that order on a tie.
+    /// resources by walking cost, preferring them in that order on a tie. `Flood::seek` (#293)
+    /// checks `food_rank_at` only on tiles it actually visits (a stand tile itself, or a neighbour
+    /// standing beside an unwalkable source, exactly as `stand_tile` would resolve one),
+    /// nearest-cost-first, instead of a second pass over the whole map.
     fn plan_food(&self, i: usize, defs: &Defs) -> Option<(Task, Vec<Pos>)> {
         let u = &self.units[i];
         if u.carrying
@@ -784,36 +810,38 @@ impl World {
         {
             return Some((Task::Eat(FoodSource::Carried), Vec::new()));
         }
-        let flood = self.flood_from(i);
-        let mut best: Option<((u32, u8, Pos), FoodSource, Pos)> = None;
-        let mut consider = |rank: u8, pos: Pos, source: FoodSource, stand: Option<(u32, Pos)>| {
-            let Some((cost, stand)) = stand else { return };
-            let key = (cost, rank, pos);
-            if best.as_ref().is_none_or(|b| key < b.0) {
-                best = Some((key, source, stand));
-            }
-        };
-        for (&pos, s) in &self.stored {
-            if defs.food_of(s.item).is_some() && !self.refuses_food(i, s.item, defs) {
-                consider(0, pos, FoodSource::Stockpile(pos), self.stand_tile(&flood, pos));
-            }
-        }
-        for (&pos, s) in &self.ground {
-            if defs.food_of(s.item).is_some() && !self.refuses_food(i, s.item, defs) {
-                consider(1, pos, FoodSource::Ground(pos), self.stand_tile(&flood, pos));
-            }
-        }
-        for pos in self.map.positions() {
-            let Some(h) = self.ripe_harvest(pos, defs) else { continue };
-            if defs.food_of(h.item).is_none()
-                || self.forage_taken(pos, i)
-                || self.refuses_food(i, h.item, defs)
+        let rules = self.rules_for(&self.units[i]);
+        let (flood, found) = Flood::seek(&self.map, self.units[i].pos, rules, |q, _| {
+            let mut best: Option<(u8, Pos)> = None;
+            let mut consider = |rank: u8, source: Pos| {
+                let key = (rank, source);
+                if best.is_none_or(|b| key < b) {
+                    best = Some(key);
+                }
+            };
+            // q itself, if a unit could actually stand there to work it.
+            if self.rules.passable(&self.map[q])
+                && let Some(rank) = self.food_rank_at(q, defs, i)
             {
-                continue;
+                consider(rank, q);
             }
-            consider(2, pos, FoodSource::Forage(pos), self.stand_tile(&flood, pos));
-        }
-        let (_, source, stand) = best?;
+            // An unwalkable source (ordinarily a wild resource) worked from beside it: one of
+            // q's neighbours, the same ring `stand_tile` would search.
+            for h in self.map.neighbors(q, true) {
+                if !self.rules.passable(&self.map[h])
+                    && let Some(rank) = self.food_rank_at(h, defs, i)
+                {
+                    consider(rank, h);
+                }
+            }
+            best.map(|key| (key, key))
+        });
+        let (stand, (rank, source)) = found?;
+        let source = match rank {
+            0 => FoodSource::Stockpile(source),
+            1 => FoodSource::Ground(source),
+            _ => FoodSource::Forage(source),
+        };
         Some((Task::Eat(source), route_from(flood.path_to(stand)?)))
     }
 
