@@ -124,6 +124,20 @@ fn arrival_tick_and_tile_are_deterministic() {
     assert_eq!(events, [EndeavorEventKind::AvatarArrived]);
 }
 
+/// A save made while he's here loads, and newcomers (#232) still get fresh ids: his fixed id
+/// (u32::MAX) mustn't feed the id counter's fix-up on load.
+#[test]
+fn a_save_with_him_present_loads_and_keeps_counting_settler_ids() {
+    let defs = defs_with_avatar();
+    let mut w = world(Nation::Earth, 2, &defs);
+    begin(&mut w, &defs);
+    run_until(&mut w, &defs, 5_000, |w| avatar_unit(w).is_some());
+    let text = w.save(&defs).expect("saves");
+    let loaded = World::load(&text, &defs).expect("loads");
+    assert!(avatar_unit(&loaded).is_some());
+    assert_eq!(loaded.next_unit, 2, "the two settlers' ids are 0 and 1");
+}
+
 fn avatar_events(w: &World) -> Vec<EndeavorEventKind> {
     w.endeavor_events()
         .iter()

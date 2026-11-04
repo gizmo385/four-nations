@@ -58,8 +58,9 @@ impl World {
     /// before it existed deserializes the field as 0, which this fixes from the units and
     /// deaths already on file. Called once after `World::load`.
     pub(crate) fn fixup_next_unit(&mut self) {
-        let used =
-            self.units.iter().map(|u| u.id.0).chain(self.deaths.iter().map(|d| d.id.0)).max();
+        // The Avatar (#237) has a fixed id at u32::MAX, outside the counter's range.
+        let settlers = self.units.iter().filter(|u| !u.is_avatar());
+        let used = settlers.map(|u| u.id.0).chain(self.deaths.iter().map(|d| d.id.0)).max();
         if let Some(m) = used {
             self.next_unit = self.next_unit.max(m + 1);
         }
@@ -108,9 +109,13 @@ impl World {
         if let Some(start) = self.start {
             return start;
         }
-        let (n, sx, sy) = self.units.iter().fold((0i64, 0i64, 0i64), |(n, sx, sy), u| {
-            (n + 1, sx + i64::from(u.pos.x), sy + i64::from(u.pos.y))
-        });
+        let (n, sx, sy) = self
+            .units
+            .iter()
+            .filter(|u| !u.is_avatar())
+            .fold((0i64, 0i64, 0i64), |(n, sx, sy), u| {
+                (n + 1, sx + i64::from(u.pos.x), sy + i64::from(u.pos.y))
+            });
         if n == 0 {
             return Pos::new(self.map.width() / 2, self.map.height() / 2);
         }
@@ -122,7 +127,8 @@ impl World {
     /// `start`, or from the first living unit when there is none. This runs once per arrival
     /// check (every `arrival_minutes`), so one flood and one map pass are cheap enough.
     fn nearest_edge_tile(&self, anchor: Pos) -> Option<Pos> {
-        let origin = self.start.or_else(|| self.units.first().map(|u| u.pos))?;
+        let first = self.units.iter().find(|u| !u.is_avatar());
+        let origin = self.start.or_else(|| first.map(|u| u.pos))?;
         let flood = Flood::new(&self.map, origin, &self.rules);
         let (w, h) = (self.map.width(), self.map.height());
         self.map
@@ -167,6 +173,8 @@ impl World {
             wander_left: 0,
             bends: 0,
             inside: None,
+            guest: None,
+            unhappy_since: None,
         });
         self.arrivals.push(Arrival { tick: self.tick, unit: id, name });
     }
