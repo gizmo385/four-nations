@@ -26,6 +26,8 @@ pub const RESOURCES: &[ResourceRule] = &[
     ResourceRule { resource: "gold_vein", biome: None, cell: one(SHEET, GOLD_VEIN, 0) },
     // The same rock split open on a thick band of gold: a seam Seismic Sense uncovered (#133).
     ResourceRule { resource: "gold_seam", biome: None, cell: one(SHEET, GOLD_SEAM, 0) },
+    // Lost ruins (#197) borrow the rock: the client is being removed (#283), so no new art.
+    ResourceRule { resource: "lost_ruins", biome: None, cell: one(SHEET, STONE, 0) },
     ResourceRule { resource: "cabbage", biome: None, cell: one(SHEET, CABBAGE, 0) },
     // A rolled-up scroll lying where the ruins were (#24).
     ResourceRule { resource: "ancient_scroll", biome: None, cell: one(SHEET, ANCIENT_SCROLL, 0) },
@@ -73,7 +75,8 @@ mod tests {
         let on_water = |t: &Terrain| matches!(t, Terrain::Water | Terrain::Lake | Terrain::River);
         for res in &Defs::bundled().resources {
             let wet = res.terrains.as_ref().is_some_and(|ts| ts.iter().any(on_water));
-            if res.id.ends_with("_tree") || wet {
+            // Borrows another resource's sprite until the client is removed (#283).
+            if res.id.ends_with("_tree") || wet || res.id == "lost_ruins" {
                 continue;
             }
             let rule = RESOURCES

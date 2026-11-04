@@ -72,6 +72,8 @@ pub const LOOKS: &[(&str, Look)] = &[
     ("inner_fire", Look::Glow),
     ("bore_tunnel", Look::Bore),
     ("seismic_sense", Look::Pulse),
+    // Glide (#197) reuses the gust: the client is being removed (#283), so no new look.
+    ("glide", Look::Gust),
 ];
 
 /// The cast effect of ability `id`, if it has one.
@@ -762,9 +764,11 @@ mod tests {
             assert!(defs.ability_id(id).is_some(), "{id} is not an ability in data/bending.toml");
         }
         assert_eq!(LOOKS.len(), defs.abilities.len());
-        // And the abilities look different from one another.
-        let looks: BTreeSet<String> = LOOKS.iter().map(|(_, l)| format!("{l:?}")).collect();
-        assert_eq!(looks.len(), LOOKS.len());
+        // And the abilities look different from one another, except glide, which borrows the
+        // gust until the client is removed (#283).
+        let distinct = LOOKS.iter().filter(|(id, _)| *id != "glide");
+        let looks: BTreeSet<String> = distinct.clone().map(|(_, l)| format!("{l:?}")).collect();
+        assert_eq!(looks.len(), distinct.count());
     }
 
     #[test]
