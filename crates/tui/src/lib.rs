@@ -22,6 +22,7 @@ pub mod input;
 pub mod keys;
 pub mod layout;
 pub mod map;
+pub mod menu;
 pub mod modal;
 pub mod panel;
 pub mod research;

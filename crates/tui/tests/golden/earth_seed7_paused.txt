@@ -37,4 +37,4 @@
 ≈...♠.≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈.....,,....≈≈≈≈.♣,,♣,,,,,,,,♣,,♣,,,♣,""~"""",,♣♣♠♠♠♠♠♠""""│                              │
 .."♠τ...≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈ƒ≈..♣,♣,♣,,......,,,,,♣,,,,,,,,♣,,,,,,,♠¥~""",♣,,♠.......""│                              │
 """♠♠♠♠..≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈.,,,,,♣♣,,♣♣,,,♣,,τ,,▲▲,♣,♣♣♣,,,♣,♣""~"♠♠♠,♣♣,♠.≈ƒ≈.≈.""┗──────────────────────────────┛
- SELECT  arrows/wasd move  Enter select  Tab units  H X P B U tools  Space pause  T research  L log  ? keys  q…  PAUSED
+ SELECT  arrows/wasd move  Enter select  Esc menu  Tab units  H X P B U tools  Space pause  T research  L log …  PAUSED

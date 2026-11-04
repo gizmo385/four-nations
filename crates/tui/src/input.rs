@@ -217,7 +217,8 @@ fn build_table() -> Vec<Binding> {
     );
     add(
         Group::Units,
-        "Close the screen or the bar. In a tool: drop the corner, then leave the tool",
+        "Close the screen, a modal or the bar. In a tool: drop the corner, then leave the tool. \
+         With nothing to close: the game menu (Resume, Save, Load, Key help, Quit, #306)",
         Key::plain(Esc),
         Action::Cancel,
     );

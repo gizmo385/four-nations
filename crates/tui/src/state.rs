@@ -56,6 +56,10 @@ pub enum Modal {
     /// ([`UiState::build_cursor`], `crate::build`). `Enter` on an unlocked one picks it and
     /// leaves the Build tool active with it; `Esc` leaves the tool and the choice as they were.
     Build,
+    /// `Esc` with nothing else to close (#306, `crate::menu`): Resume, Save, Load, Key help and
+    /// Quit ([`UiState::menu_cursor`]). Pauses the clock while it's open; `Resume` or `Esc`
+    /// (`App::close_menu`) restores whatever it was.
+    Menu,
 }
 
 /// The scroll of a screen that sticks to its end: the newest line of the log.
@@ -106,6 +110,8 @@ pub struct UiState {
     pub modal: Option<Modal>,
     /// The Build modal's highlight: an index into `fn_ui::build::picker_rows`.
     pub build_cursor: usize,
+    /// The game menu's highlight: an index into `crate::menu::MenuRow::ALL` (#306).
+    pub menu_cursor: usize,
     /// The research screen's cursor: a column of the tech tree and a card in it.
     pub tech: (usize, usize),
     /// The saves screen's slots (newest first), read from disk when the screen opens or a save
@@ -146,6 +152,7 @@ impl UiState {
             scroll: 0,
             modal: None,
             build_cursor: 0,
+            menu_cursor: 0,
             tech: (0, 0),
             save_slots: Vec::new(),
             save_cursor: 0,
