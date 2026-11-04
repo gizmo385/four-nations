@@ -217,6 +217,20 @@ fn a_tired_unit_walks_to_the_nearest_bed_and_sleeps_faster_there() {
     assert!((on_ground - base).abs() < 0.01, "{on_ground}");
 }
 
+/// Two beds equally far (#293: `bed_route` now finds the nearest through an early-exit flood
+/// instead of a full one, so this pins that it still breaks a tied walking cost the way the old
+/// full-flood scan did: by position, not by `self.buildings()`'s scan order.
+#[test]
+fn a_tired_unit_breaks_a_tied_bed_distance_by_position() {
+    let defs = Defs::bundled();
+    let mut w = world(Nation::Earth, &[at(10, 4)], &defs);
+    place(&mut w, &defs, at(14, 4), "bed");
+    place(&mut w, &defs, at(6, 4), "bed");
+    tire(&mut w, &defs, 0);
+    run_until(&mut w, &defs, 400, |w| w.units[0].is_sleeping());
+    assert_eq!(w.units[0].pos, at(6, 4), "both beds are 4 tiles off; the lesser position wins");
+}
+
 #[test]
 fn nobody_shares_a_bed_and_the_odd_one_out_sleeps_on_the_ground() {
     let defs = Defs::bundled();

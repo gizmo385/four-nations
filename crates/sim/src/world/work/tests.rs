@@ -336,6 +336,59 @@ fn a_need_steps_a_unit_out_of_a_building_the_tick_it_becomes_urgent() {
     assert!(w.occupants(anchor).next().is_none());
 }
 
+/// #293: `plan_drink` now finds the nearest tile beside water through `Flood::seek`, checking
+/// only the tiles it actually visits instead of scanning the whole map for one. This pins that a
+/// tied walking cost still breaks the same way as a full scan would: by position.
+#[test]
+fn thirsty_units_break_a_tied_distance_to_water_by_position() {
+    let rows = ["~~~~~~~", "~......", "~......", "~......", "~......", "~......", "~......"];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(3, 3)]);
+    w.units[0].needs.thirst = defs.needs.thirst.low;
+    w.tick(&defs);
+    assert_eq!(w.units[0].task(), Some(Task::Drink));
+    assert_eq!(
+        w.units[0].route.as_ref().and_then(|r| r.first()),
+        Some(&at(1, 3)),
+        "(1,3) and (3,1) are both 2 tiles from water at the same cost; the lesser wins"
+    );
+}
+
+/// #293: `plan_food` now checks `food_rank_at` only on the tiles `Flood::seek` actually visits,
+/// instead of scanning `self.stored`/`self.ground`/the whole map up front and picking the best
+/// by hand. This pins that an exact tie in walking cost still ranks a stockpile over a forage
+/// (and, separately, breaks a tie within the same rank by position), same as before.
+#[test]
+fn hungry_units_prefer_a_stockpile_over_a_tied_distance_forage() {
+    let rows = ["........", "........", "........", "......c.", "........", "........"];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(3, 3)]);
+    let fish = defs.item_id("fish").unwrap();
+    w.designate_stockpile(at(1, 3)).unwrap();
+    w.stored.insert(at(1, 3), Stack { item: fish, count: 2 });
+    w.units[0].needs.hunger = 20.0;
+    w.tick(&defs);
+    // The stockpile (rank 0) at (1,3) and the cabbage's nearest stand, (5,3), are both 2 tiles
+    // off at the same cost; the stockpile outranks foraging regardless.
+    assert_eq!(w.units[0].task(), Some(Task::Eat(FoodSource::Stockpile(at(1, 3)))));
+}
+
+#[test]
+fn hungry_units_break_a_tied_stockpile_distance_by_position() {
+    let rows = ["........", "........", "........", "........", "........", "........"];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(3, 3)]);
+    let fish = defs.item_id("fish").unwrap();
+    for pos in [at(1, 3), at(5, 3)] {
+        w.designate_stockpile(pos).unwrap();
+        w.stored.insert(pos, Stack { item: fish, count: 2 });
+    }
+    w.units[0].needs.hunger = 20.0;
+    w.tick(&defs);
+    assert_eq!(
+        w.units[0].task(),
+        Some(Task::Eat(FoodSource::Stockpile(at(1, 3)))),
+        "both stockpiles are 2 tiles off at the same cost; the lesser position wins"
+    );
+}
+
 #[test]
 fn the_most_urgent_need_goes_first_and_a_hungry_unit_forages_without_fire() {
     let rows = ["~~~~~~~~~", ".........", "......c..", ".........", "........."];
