@@ -73,11 +73,13 @@ pub enum Effect {
     HeatAura { duration_minutes: f32, radius: u32, sleep_bonus: f32 },
     /// Blow a ground stack into a stockpile (Air's "Wind Carry"). The magnitude scales `range`.
     WindCarry { range: u32 },
-    /// Feel through the ground for what is buried within `radius` tiles (Chebyshev) of the target
-    /// and uncover it (Earth's "Seismic Sense", #133): every buried resource there
-    /// (`ResourceDef::buried`) comes onto the map, to be mined like any other. The magnitude
-    /// scales `radius`.
-    Reveal { radius: u32 },
+    /// Uncover what is buried within `radius` tiles (Chebyshev) of the target: every buried
+    /// resource (`ResourceDef::buried`) of a kind named in `finds` comes onto the map, to be
+    /// worked like any other. Earth's "Seismic Sense" (#133) feels gold seams in the rock; Air's
+    /// "Glide" (#197) spots lost ruins from above. Each sense's `finds` names only its own, so
+    /// one nation's buried find stays hidden from the other's reveal. The magnitude scales
+    /// `radius`.
+    Reveal { radius: u32, finds: Vec<ResourceId> },
     /// Only tests can define one: a valid target is walkable ground, and completing does nothing
     /// but spend the chi.
     #[cfg(test)]
@@ -137,6 +139,7 @@ enum RawEffect {
     },
     Reveal {
         radius: u32,
+        finds: Vec<String>,
     },
     #[cfg(test)]
     Probe,
@@ -318,11 +321,21 @@ fn resolve_effect(
             }
             Effect::WindCarry { range }
         }
-        RawEffect::Reveal { radius } => {
-            if radius == 0 {
-                return err("reveal radius must be at least 1");
+        RawEffect::Reveal { radius, finds: names } => {
+            if radius == 0 || names.is_empty() {
+                return err("reveal needs a radius of at least 1 and something to find");
             }
-            Effect::Reveal { radius }
+            let mut finds = Vec::with_capacity(names.len());
+            for n in &names {
+                let Some(i) = resources.iter().position(|r| r.id == *n) else {
+                    return err(&format!("reveal finds unknown resource {n:?}"));
+                };
+                if !resources[i].buried {
+                    return err(&format!("reveal finds {n:?}, which is never buried"));
+                }
+                finds.push(ResourceId(i as u16));
+            }
+            Effect::Reveal { radius, finds }
         }
         #[cfg(test)]
         RawEffect::Probe => Effect::Probe,

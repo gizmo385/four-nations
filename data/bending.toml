@@ -144,3 +144,23 @@ speed_modifier = "earthworks"
 [ability.effect]
 kind = "reveal"
 radius = 8                # tiles, Chebyshev
+finds = ["gold_seam"]     # what it can feel: buried resources only
+
+# --- #197 (Air: gliders) -----------------------------------------------------------------------
+
+# Air, from `gliders` (#197, docs/design/research.md, "Gliders"): the bender takes off from open
+# ground and circles on the wind. Every lost ruin within `radius` tiles (Chebyshev) of that tile
+# is spotted from above and appears on the map, to be searched for scrolls. Seen from the air, it
+# reaches much further than Earth's sense, but only ruins: the rock keeps its seams.
+[[ability]]
+id = "glide"
+nation = "air"
+name = "Glide"
+verb = "Glide"
+description = "Soar on a glider staff and spot the ruins hidden in the land below."
+chi = 40.0
+work = 8.0
+[ability.effect]
+kind = "reveal"
+radius = 14               # tiles, Chebyshev
+finds = ["lost_ruins"]

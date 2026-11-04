@@ -426,13 +426,34 @@ impl World {
         def.magnitude_modifier.as_deref().and_then(|m| self.modifiers().get(m)).unwrap_or(1.0)
     }
 
-    /// Brings the resource buried on `pos`, if any, onto the map (#133). Returns whether there was
-    /// one.
+    /// Brings the resource buried on `pos`, if any, onto the map (#133). Returns whether it did.
+    /// A buried resource under open land (#197's lost ruins; gold seams in the rock, far more
+    /// rarely) can have been built or walked over since the map was made: one under a building,
+    /// a building site, a stockpile zone, a ground stack or a bend designation stays buried, and
+    /// so does one a unit is standing on or routed through, since a resource there would clash
+    /// with whatever is already using the tile. A later reveal finds it once the tile clears.
     fn uncover(&mut self, pos: Pos) -> bool {
-        let Some(r) = self.buried.remove(&pos) else { return false };
+        if !self.buried.contains_key(&pos) || !self.free_to_uncover(pos) {
+            return false;
+        }
+        let r = self.buried.remove(&pos).expect("just checked it's there");
         self.map[pos].resource = Some(r);
         self.map_changed();
         true
+    }
+
+    fn free_to_uncover(&self, p: Pos) -> bool {
+        let tile = &self.map[p];
+        tile.resource.is_none()
+            && tile.building.is_none()
+            && self.site_at(p).is_none()
+            && !self.zones.contains(&p)
+            && !self.ground.contains_key(&p)
+            && !self.bend_designations().any(|(_, q)| q == p)
+            && !self
+                .units
+                .iter()
+                .any(|u| u.pos == p || u.route.as_ref().is_some_and(|r| r.contains(&p)))
     }
 
     /// The nearest stockpile tile within `reach` tiles of `pos` (Chebyshev) that has room for
@@ -624,15 +645,20 @@ impl World {
                 });
                 None
             }
-            // Everything buried within the (scaled) radius comes onto the map.
-            Effect::Reveal { radius } => {
+            // What it finds within the (scaled) radius comes onto the map.
+            Effect::Reveal { radius, finds } => {
                 let reach = scaled_range(*radius, magnitude);
-                let near: Vec<Pos> =
-                    self.buried.keys().copied().filter(|&b| chebyshev(pos, b) <= reach).collect();
-                for b in &near {
-                    self.uncover(*b);
+                let near: Vec<Pos> = self
+                    .buried
+                    .iter()
+                    .filter(|&(&b, r)| chebyshev(pos, b) <= reach && finds.contains(r))
+                    .map(|(&b, _)| b)
+                    .collect();
+                let mut found = false;
+                for b in near {
+                    found |= self.uncover(b);
                 }
-                if !near.is_empty() {
+                if found {
                     self.wake_idle();
                 }
                 None
@@ -737,6 +763,8 @@ mod air_tests;
 mod earth_tests;
 #[cfg(test)]
 mod fire_tests;
+#[cfg(test)]
+mod glide_tests;
 #[cfg(test)]
 mod seismic_tests;
 #[cfg(test)]

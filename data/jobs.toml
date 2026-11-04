@@ -148,3 +148,14 @@ count = 2
 work = 8.0
 modifier = "water_work"
 regrow = 300.0
+
+# --- #197 (Air: gliders) -----------------------------------------------------------------------
+
+# Lost ruins (#197) are spotted by gliding and hold a few scrolls: a better find than one in the
+# wastes, for the trip. Not renewable.
+[[harvest]]
+resource = "lost_ruins"
+verb = "Search"
+item = "ancient_scroll"
+count = 2
+work = 20.0
