@@ -42,6 +42,7 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
                 | JobKind::EndeavorTask { .. }
                 | JobKind::Attend { .. } => None,
                 JobKind::Craft { .. } => None,
+                JobKind::Sow { .. } | JobKind::Reap { .. } => None,
             });
             let stack = at.and_then(|p| world.ground_items().find(|(q, _)| *q == p));
             match (stack, at) {
@@ -96,6 +97,14 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
             _ => "Attending the Harmony Rite".into(),
         },
         Task::Rite => "Meditating in the Avatar State".into(),
+        Task::Sow(id) => match world.job(id).map(|j| j.kind) {
+            Some(JobKind::Sow { pos }) => format!("Sowing at ({}, {})", pos.x, pos.y),
+            _ => "Sowing".into(),
+        },
+        Task::Reap(id) => match world.job(id).map(|j| j.kind) {
+            Some(JobKind::Reap { pos }) => format!("Reaping at ({}, {})", pos.x, pos.y),
+            _ => "Reaping".into(),
+        },
         Task::Deliver => {
             format!("Delivering {} to a stockpile", describe_stack(defs, unit.carrying))
         }

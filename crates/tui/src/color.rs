@@ -194,7 +194,8 @@ impl Tint {
     pub fn for_tool(tool: fn_ui::Tool) -> Option<Self> {
         use fn_ui::Tool;
         match tool {
-            Tool::Harvest | Tool::CancelHarvest => Some(Self::Harvest),
+            // Sowing wears the harvest hue too: both are "designate a unit's work here" (#198).
+            Tool::Harvest | Tool::CancelHarvest | Tool::Sow => Some(Self::Harvest),
             Tool::Stockpile => Some(Self::Stockpile),
             Tool::Bend => Some(Self::Bend),
             Tool::Build => Some(Self::Build),

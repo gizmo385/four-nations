@@ -14,7 +14,7 @@
 "♠♠♠♠♠♠♠♠♠♠│   Scroll L… 10 Wood, 2x2                                       │♠""♠"√√√√~√│ No target set        3.0/min │
 "♠"♠♠♠♠♠♠♠♠│   Earth Wall      Locked  3 Wood (0 in stores)                 │"""""♠♣√~√√│ 0 pts banked                 │
 "♠♠""♠♠♠...│   Rail            Locked                                       │.♠""♠√√~√√♠│                              │
-"♠√♠♠♠♠..≈≈│                           Keeps a fire: warms 2 tiles, sleeps  │."♠♠♠τ~√√♠♠│ ◇ MODIFIERS                  │
+"♠√♠♠♠♠..≈≈│   Farm Plot       Locked  Keeps a fire: warms 2 tiles, sleeps  │."♠♠♠τ~√√♠♠│ ◇ MODIFIERS                  │
 "♣♣~"♠♠.≈≈≈│                           1.5x faster nearby                   │.♠♠♠♠~♠♠♠"♠│ Move speed              x0.9 │
 ..~."...≈≈≈│                                                                │~~"~~""""♠♠│ Carry capacity          x1.3 │
 .≈≈...≈≈ƒ≈≈│                           Requires Fire Making                 │♠"~""♠¥"♠♠♠│ Earthworks              x2.5 │

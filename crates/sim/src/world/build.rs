@@ -540,6 +540,9 @@ impl World {
                 if let Some(orchard) = &def.orchard {
                     self.open_orchard(pos, orchard);
                 }
+                if def.farm.is_some() {
+                    self.open_farm_plot(pos);
+                }
                 self.sites.remove(&pos);
                 self.jobs.remove(idx);
                 self.raise(footprint, building, def);

@@ -66,7 +66,10 @@ id = "farming"
 name = "Farming"
 description = "Sow seed in tilled plots and harvest what grows."
 cost = 60
-# Later: buildings = ["farm_plot"], jobs = ["sow", "harvest"]
+# Unlocks the farm plot (issue #198, docs/design/research.md, "Farm plots"): sowing and
+# reaping are their own job kinds, not resource harvests, so they aren't `unlocks.jobs`.
+[tech.unlocks]
+buildings = ["farm_plot"]
 
 [[tech]]
 id = "pottery"

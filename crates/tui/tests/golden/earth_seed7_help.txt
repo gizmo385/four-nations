@@ -15,18 +15,19 @@
 │ DESIGNATING                                                                          ││ 0 pts banked                 │
 │ H                      Harvest tool: designate harvest (chop, mine, gather); hold    ││                              │
 │                        Shift to repeat                                               ││ ◇ MODIFIERS                  │
-│ X                      Cancel tool: cancel harvest, build site or stockpile          ││ Move speed              x0.9 │
+│ X                      Cancel tool: cancel harvest, build site, stockpile or sowing  ││ Move speed              x0.9 │
 │ P                      Stockpile tool: designate stockpile                           ││ Carry capacity          x1.3 │
 │ B                      Bend tool: channel the nation's ability                       ││ Earthworks              x2.5 │
 │ U                      Build tool: place the chosen building (U: pick one)           ││ Water work              x0.9 │
-│ O                      Harvest tool: toggle a standing order (re-designates when the ││ Power generation        x0.8 │
-│                        resource ripens again)                                        ││ Construction            x1.5 │
-│                                                                                      ││                              │
-│ TIME                                                                                 ││ ◇ CURSOR            (94, 64) │
-│ Space                  Pause or run                                                  ││ Tyro                         │
-│ + =                    Faster                                                        ││ Earth Kingdom - Idle         │
-│ - _                    Slower                                                        ││ Carrying: nothing - Bends: 0 │
-│ .                      One tick, while paused                                        ││ Press Enter to select        │
+│ G                      Sow tool: sow an empty farm plot                              ││ Power generation        x0.8 │
+│ O                      Harvest tool: toggle a standing order (re-designates when the ││ Construction            x1.5 │
+│                        resource ripens again)                                        ││                              │
+│                                                                                      ││ ◇ CURSOR            (94, 64) │
+│ TIME                                                                                 ││ Tyro                         │
+│ Space                  Pause or run                                                  ││ Earth Kingdom - Idle         │
+│ + =                    Faster                                                        ││ Carrying: nothing - Bends: 0 │
+│ - _                    Slower                                                        ││ Press Enter to select        │
+│ .                      One tick, while paused                                        ││                              │
 │                                                                                      ││                              │
 │ SCREENS AND GAME                                                                     ││                              │
 │ T                      Research: arrows W A S D choose a tech, Enter sets it as the  ││                              │
@@ -35,6 +36,5 @@
 │ ?                      Key help                                                      ││                              │
 │ R                      New map (asks first)                                          ││                              │
 │ 1 2 3 4                Switch nation: 1 Air, 2 Water, 3 Earth, 4 Fire (asks first)   ││                              │
-│ F5                     Quicksave                                                     ││                              │
 ┗─ Arrows W S scroll  PgUp PgDn page  Esc close  L log ────────────────────────────────┛┗──────────────────────────────┛
  KEYS  arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause

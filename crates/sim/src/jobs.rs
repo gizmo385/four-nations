@@ -308,6 +308,12 @@ pub enum JobKind {
     /// finishes construction (`world/forge.rs`), mirroring a study hall's seats; never completes
     /// on its own, it just starts its next batch.
     Craft { pos: Pos },
+    /// Plant an empty farm plot (`data/buildings.toml`, `[building.farm]`, issue #198), opened
+    /// by `Command::Sow`.
+    Sow { pos: Pos },
+    /// Gather a farm plot's ripe crop (issue #198), queued automatically once it ripens
+    /// (`world/farm.rs`).
+    Reap { pos: Pos },
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

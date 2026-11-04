@@ -34,7 +34,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use fn_sim::building::BuildingId;
 use fn_sim::geom::Footprint;
 use fn_sim::jobs::Stack;
-use fn_sim::world::{BendOutcome, Moved, TICKS_PER_SECOND};
+use fn_sim::world::{BendOutcome, Moved, PlotStage, TICKS_PER_SECOND};
 use fn_sim::{Pos, Terrain};
 use fn_ui::build::Placement;
 use fn_ui::{Session, Tool};
@@ -125,6 +125,8 @@ pub struct Overlays {
     /// one-off harvest, even while the resource rests and has no active job
     /// (`World::harvest_designations`'s own doc).
     standing: BTreeSet<Pos>,
+    /// Farm plots with a Sow job designated on them (#198): tinted the same as `harvest`.
+    sowing: BTreeSet<Pos>,
     bend: BTreeSet<Pos>,
     /// Every tile of every build site, with the building it will be (#212).
     sites: BTreeMap<Pos, BuildingId>,
@@ -166,6 +168,7 @@ impl Overlays {
                 .harvest_designations()
                 .filter(|&p| world.is_repeating_harvest(p))
                 .collect(),
+            sowing: world.sow_designations().collect(),
             bend: world.bend_designations().map(|(_, p)| p).collect(),
             sites: world
                 .build_sites()
@@ -316,11 +319,22 @@ pub fn tile_cell(
         (look.glyph(palette.ascii), look.fg)
     } else if let Some(b) = world.building_at(pos) {
         let look = &g.building[&defs.building(b).id];
-        match over.occupants.get(&pos) {
+        match (over.occupants.get(&pos), world.plot_stage(pos)) {
             // The front-middle cell of a building with anyone inside (#226, #229) shows how
             // many as a digit (`+` above 9), in the building's own colour, in place of its
             // glyph; `--ascii` draws the same digit, already plain ASCII.
-            Some(&n) if n > 0 => ((if n > 9 { '+' } else { char::from(b'0' + n as u8) }), look.fg),
+            (Some(&n), _) if n > 0 => {
+                ((if n > 9 { '+' } else { char::from(b'0' + n as u8) }), look.fg)
+            }
+            // A farm plot's own glyph is tilled soil; growing or ripe override it (#198).
+            (_, Some(PlotStage::Growing)) => {
+                let o = &g.overlay.plot_growing;
+                (o.glyph(palette.ascii), o.fg)
+            }
+            (_, Some(PlotStage::Ripe)) => {
+                let o = &g.overlay.plot_ripe;
+                (o.glyph(palette.ascii), o.fg)
+            }
             _ if is_rail(defs, b) => {
                 let glyph = rail_glyph(session, g, over, pos, palette.ascii)
                     .unwrap_or_else(|| look.glyph(palette.ascii));
@@ -371,7 +385,7 @@ pub fn tile_cell(
     let designation = if over.standing.contains(&pos) {
         // A standing order (#277) is a harvest too, but tinted apart from a one-off one.
         Some(Tint::RepeatingHarvest)
-    } else if over.harvest.contains(&pos) {
+    } else if over.harvest.contains(&pos) || over.sowing.contains(&pos) {
         Some(Tint::Harvest)
     } else if over.bend.contains(&pos) || over.cast.contains(&pos) {
         // A bend being designated and one that just landed wear the same accent; their moments

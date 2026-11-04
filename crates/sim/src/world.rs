@@ -26,6 +26,7 @@ mod bending;
 mod build;
 mod command;
 mod endeavor;
+mod farm;
 mod forge;
 mod found;
 mod gate;
@@ -48,6 +49,7 @@ use endeavor::EndeavorLog;
 pub use endeavor::{
     AvatarLeaveReason, EndeavorEvent, EndeavorEventKind, EndeavorState, SignProgress,
 };
+pub use farm::PlotStage;
 use forge::CraftState;
 pub use gate::{EndeavorError, GateSite, GateTask};
 pub use heat::{Aura, Flame, Glow, HeatSource};
@@ -278,6 +280,9 @@ pub struct World {
     /// `resting`).
     #[serde(default)]
     saplings: BTreeSet<Pos>,
+    /// Finished farm plots by tile, with what stage each is in (`farm.rs`, #198).
+    #[serde(default)]
+    farm_plots: BTreeMap<Pos, farm::FarmPlot>,
     /// Lifetime counts for the end-game signs: items harvested, scrolls read (`tally.rs`, #233).
     #[serde(default)]
     tallies: Tallies,
@@ -372,6 +377,7 @@ impl World {
             auras: BTreeMap::new(),
             orchards: BTreeMap::new(),
             saplings: BTreeSet::new(),
+            farm_plots: BTreeMap::new(),
             tallies: Tallies::default(),
             endeavor: EndeavorState::Dormant,
             endeavor_log: EndeavorLog::default(),
@@ -579,6 +585,7 @@ impl World {
         self.tick_growth(defs);
         self.tick_population(defs);
         self.tick_orchards(defs);
+        self.tick_farms(defs);
         self.tick_irrigation(defs);
         self.tick_heat();
         for i in 0..self.units.len() {

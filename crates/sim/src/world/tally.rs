@@ -20,8 +20,8 @@ pub struct Tallies {
     harvested: BTreeMap<ItemId, u32>,
     /// Readable items used up at a study hall (ancient scrolls, #24), one per item.
     scrolls_read: u32,
-    /// Crops harvested from farm plots. Farm plots (#198) don't exist yet; they call
-    /// `count_crops` when they do.
+    /// Crops harvested from farm plots (`world/farm.rs`, #198): `harvest_count` each time a Reap
+    /// job finishes.
     crops_harvested: u32,
 }
 
@@ -53,8 +53,7 @@ impl Tallies {
         self.scrolls_read = self.scrolls_read.saturating_add(count);
     }
 
-    /// The hook farm plots (#198) will call for each crop they yield.
-    #[allow(dead_code, reason = "farm plots (#198) will call this")]
+    /// Called for each crop a farm plot yields (#198).
     pub(super) fn count_crops(&mut self, count: u32) {
         self.crops_harvested = self.crops_harvested.saturating_add(count);
     }

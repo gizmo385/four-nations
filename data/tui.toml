@@ -279,6 +279,14 @@ glyph = "⛩"
 ascii = "G"
 fg = [240, 214, 120]
 
+# --- Farming (shared tier, #198) ---
+# Tilled soil; what stage the crop is in overrides this glyph (`overlay.plot_growing`,
+# `overlay.plot_ripe`, map.rs).
+[building.farm_plot]
+glyph = "≡"
+ascii = "~"
+fg = [180, 150, 70]
+
 # The box-drawing pieces a rail tile or site (`building.rail` above) picks between, by which of
 # its four neighbours are rail (#279, mirrors the client's sixteen track pieces, #135). A lone
 # tile (no rail neighbour) keeps `building.rail`'s own glyph instead, so there's no entry for
@@ -311,6 +319,9 @@ flame = { glyph = "☼", ascii = "!", fg = [255, 150, 40] }
 # A young fruit tree from an orchard (#142), drawn in place of the resource's glyph until it
 # first ripens.
 sapling = { glyph = "ψ", ascii = "y", fg = [150, 210, 110] }
+# A farm plot (#198), drawn in place of its building glyph while growing or ripe.
+plot_growing = { glyph = "·", ascii = ",", fg = [120, 200, 90] }
+plot_ripe = { glyph = "✶", ascii = "*", fg = [230, 200, 50] }
 
 # The embark screen's overview (#290, docs/design/embark.md, "What a cell shows"): presentation
 # thresholds for the zoomed-out block classifier, not game rules, so they live here rather than

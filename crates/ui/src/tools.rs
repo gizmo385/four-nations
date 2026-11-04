@@ -3,10 +3,11 @@
 //! `Enter`s) into a rectangle; this turns the rectangle into `Command`s and a notice.
 //!
 //! Keys: `H` harvest (chop, quarry, gather, mine, whatever each tile's resource gives), `X` cancel
-//! harvest (also withdraws a build site or a stockpile tile), `P` stockpile, `B` the nation's bending
-//! ability (pressed again it cycles through the abilities the settlement can use), `U` the
-//! build tool (pressed again it cycles through the buildings the nation can place) and `Esc` back
-//! to selecting.
+//! harvest (also withdraws a build site, a stockpile tile or a Sow designation), `P` stockpile,
+//! `B` the nation's bending ability (pressed again it cycles through the abilities the settlement
+//! can use), `U` the build tool (pressed again it cycles through the buildings the nation can
+//! place), `G` sow an empty farm plot (issue #198; a ripe one is reaped on its own, with no tool)
+//! and `Esc` back to selecting.
 
 use fn_sim::bending::AbilityId;
 use fn_sim::building::BuildingId;
@@ -30,6 +31,9 @@ pub enum Tool {
     Bend,
     /// Place the building picked in the picker (#111).
     Build,
+    /// Sow an empty farm plot (issue #198). A ripe one is reaped on its own; there's no tool
+    /// for that.
+    Sow,
 }
 
 /// What a tool needs besides the tile to decide on a command.
@@ -52,6 +56,8 @@ pub struct Here {
     pub site: bool,
     /// The tile is designated as stockpile.
     pub zone: bool,
+    /// The tile has a Sow designation on it (#198).
+    pub sowing: bool,
 }
 
 impl Here {
@@ -61,19 +67,21 @@ impl Here {
         Self {
             site: world.build_site(pos).is_some(),
             zone: world.stockpile_zones().any(|z| z == pos),
+            sowing: world.sow_designations().any(|z| z == pos),
         }
     }
 }
 
 impl Tool {
     /// Every tool, in the order the side panel lists them.
-    pub const ALL: [Tool; 6] = [
+    pub const ALL: [Tool; 7] = [
         Self::Select,
         Self::Harvest,
         Self::CancelHarvest,
         Self::Stockpile,
         Self::Bend,
         Self::Build,
+        Self::Sow,
     ];
 
     /// The short name for a button.
@@ -85,6 +93,7 @@ impl Tool {
             Self::Stockpile => "Stockpile",
             Self::Bend => "Bend",
             Self::Build => "Build",
+            Self::Sow => "Sow",
         }
     }
 
@@ -97,6 +106,7 @@ impl Tool {
             Self::Stockpile => "P",
             Self::Bend => "B",
             Self::Build => "U",
+            Self::Sow => "G",
         }
     }
 
@@ -119,10 +129,11 @@ impl Tool {
         match self {
             Self::Select => "select units",
             Self::Harvest => "designate harvest (chop, mine, gather); hold Shift to repeat",
-            Self::CancelHarvest => "cancel harvest, build site or stockpile",
+            Self::CancelHarvest => "cancel harvest, build site, stockpile or sowing",
             Self::Stockpile => "designate stockpile",
             Self::Bend => "channel the nation's ability",
             Self::Build => "place the chosen building (U: next building)",
+            Self::Sow => "sow an empty farm plot",
         }
     }
 
@@ -150,10 +161,12 @@ impl Tool {
             Self::Harvest => Some(Command::DesignateHarvest { pos }),
             Self::CancelHarvest if here.site => Some(Command::CancelBuild { pos }),
             Self::CancelHarvest if here.zone => Some(Command::CancelStockpile { pos }),
+            Self::CancelHarvest if here.sowing => Some(Command::CancelSow { pos }),
             Self::CancelHarvest => Some(Command::CancelHarvest { pos }),
             Self::Stockpile => Some(Command::DesignateStockpile { pos }),
             Self::Bend => Some(Command::Bend { ability: pick.ability?, pos }),
             Self::Build => Some(Command::DesignateBuild { pos, building: pick.building? }),
+            Self::Sow => Some(Command::Sow { pos }),
         }
     }
 }
@@ -354,6 +367,24 @@ mod tests {
             Tool::Build.command(pos, Here::default(), build),
             Some(Command::DesignateBuild { pos, building })
         );
+        assert_eq!(Tool::Sow.command(pos, Here::default(), none), Some(Command::Sow { pos }));
+    }
+
+    #[test]
+    fn cancel_withdraws_a_sow_designation_where_there_is_one() {
+        let pos = Pos::new(4, 4);
+        let none = Pick::default();
+        let sowing = Here { sowing: true, ..Here::default() };
+        assert_eq!(
+            Tool::CancelHarvest.command(pos, sowing, none),
+            Some(Command::CancelSow { pos })
+        );
+        // A build site or stockpile tile comes first, as for a plain harvest.
+        let site = Here { site: true, sowing: true, ..Here::default() };
+        assert_eq!(
+            Tool::CancelHarvest.command(pos, site, none),
+            Some(Command::CancelBuild { pos })
+        );
     }
 
     #[test]
@@ -365,7 +396,7 @@ mod tests {
     fn cancel_withdraws_a_build_site_where_there_is_one() {
         let pos = Pos::new(4, 4);
         let none = Pick::default();
-        let site = Here { site: true, zone: false };
+        let site = Here { site: true, zone: false, sowing: false };
         assert_eq!(
             Tool::CancelHarvest.command(pos, site, none),
             Some(Command::CancelBuild { pos })
@@ -378,7 +409,7 @@ mod tests {
     fn cancel_withdraws_a_stockpile_tile_where_there_is_one() {
         let pos = Pos::new(4, 4);
         let none = Pick::default();
-        let zone = Here { site: false, zone: true };
+        let zone = Here { site: false, zone: true, sowing: false };
         assert_eq!(
             Tool::CancelHarvest.command(pos, zone, none),
             Some(Command::CancelStockpile { pos })
@@ -388,7 +419,7 @@ mod tests {
             Some(Command::DesignateStockpile { pos })
         );
         // A build site comes first.
-        let both = Here { site: true, zone: true };
+        let both = Here { site: true, zone: true, sowing: false };
         assert_eq!(
             Tool::CancelHarvest.command(pos, both, none),
             Some(Command::CancelBuild { pos })
@@ -477,7 +508,7 @@ mod tests {
         assert_eq!(Tool::Select.key(), "Esc");
         assert_eq!(Tool::Select.letter(), None);
         let letters: Vec<char> = Tool::ALL.iter().filter_map(|t| t.letter()).collect();
-        assert_eq!(letters, ['H', 'X', 'P', 'B', 'U']);
+        assert_eq!(letters, ['H', 'X', 'P', 'B', 'U', 'G']);
         for tool in Tool::ALL {
             if let Some(c) = tool.letter() {
                 assert_eq!(Tool::from_letter(c), Some(tool));

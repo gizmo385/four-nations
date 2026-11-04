@@ -1,6 +1,7 @@
 //! What is under the cursor: the lines of the hover tooltip (the Bevy client) or the Cursor
 //! section (the terminal UI).
 
+use fn_sim::world::PlotStage;
 use fn_sim::{Pos, World};
 
 use crate::build;
@@ -101,6 +102,17 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
             world.building_at(tile).and_then(|b| defs.building(b).orchard).map(|o| o.max_trees);
         if let (Some(trees), Some(max)) = (world.orchard_trees(tile), max) {
             lines.push(Line::Detail(format!("Tends {trees} of {max} trees")));
+        }
+        // A farm plot says what stage it's in (#198).
+        if let Some(stage) = world.plot_stage(tile) {
+            lines.push(Line::Detail(match stage {
+                PlotStage::Empty => "Empty".to_owned(),
+                PlotStage::Growing => {
+                    let left = world.plot_growth_left(tile).unwrap_or(0.0);
+                    format!("Growing, ripe in {}", clock(left))
+                }
+                PlotStage::Ripe => "Ripe".to_owned(),
+            }));
         }
         return Some(lines);
     }

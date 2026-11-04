@@ -57,7 +57,7 @@ pub fn rect_hint(ui: &UiState) -> Option<String> {
 /// The verb for applying a tool to a rectangle.
 fn apply_verb(tool: Tool) -> &'static str {
     match tool {
-        Tool::Harvest | Tool::Stockpile => "designate",
+        Tool::Harvest | Tool::Stockpile | Tool::Sow => "designate",
         Tool::CancelHarvest => "cancel",
         Tool::Bend => "bend",
         Tool::Build => "build",
