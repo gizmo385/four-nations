@@ -35,45 +35,65 @@ fn designate_food(w: &mut World, defs: &Defs, home: Pos, radius: i32) {
 }
 
 /// A non-Fire settlement that designates food work and keeps a stockpile eats for hours. (Fire is
-/// left out on purpose: wild food alone has to carry the nations without cooking.)
+/// left out on purpose: wild food alone has to carry the nations without cooking.) One test per
+/// nation so the harness runs these long soaks in parallel.
 #[test]
-fn designated_food_work_feeds_a_settlement_for_hours() {
-    for nation in [Nation::Earth, Nation::Water, Nation::Air] {
-        let (mut w, defs) = world(nation, 7);
-        let home = w.units[0].pos;
-        for dy in -2..=2 {
-            for dx in -2..=2 {
-                let pos = Pos::new(home.x + dx, home.y + dy);
-                let _ = w.apply(Command::DesignateStockpile { pos }, &defs);
-            }
+fn designated_food_work_feeds_earth_for_hours() {
+    designated_food_work_feeds_a_settlement_for_hours(Nation::Earth);
+}
+
+#[test]
+fn designated_food_work_feeds_water_for_hours() {
+    designated_food_work_feeds_a_settlement_for_hours(Nation::Water);
+}
+
+#[test]
+fn designated_food_work_feeds_air_for_hours() {
+    designated_food_work_feeds_a_settlement_for_hours(Nation::Air);
+}
+
+fn designated_food_work_feeds_a_settlement_for_hours(nation: Nation) {
+    let (mut w, defs) = world(nation, 7);
+    let home = w.units[0].pos;
+    for dy in -2..=2 {
+        for dx in -2..=2 {
+            let pos = Pos::new(home.x + dx, home.y + dy);
+            let _ = w.apply(Command::DesignateStockpile { pos }, &defs);
         }
-        let food: Vec<_> = defs.foods.iter().map(|f| defs.item_id(&f.id).unwrap()).collect();
-        let mut stocked = 0;
-        for minute in 0..3 * 60 {
-            designate_food(&mut w, &defs, home, 40);
-            for _ in 0..MINUTE {
-                w.tick(&defs);
-            }
-            stocked = stocked.max(food.iter().map(|&f| w.stored_total(f)).sum::<u32>());
-            assert!(w.deaths.is_empty(), "{nation:?} lost {:?} at minute {minute}", w.deaths);
+    }
+    let food: Vec<_> = defs.foods.iter().map(|f| defs.item_id(&f.id).unwrap()).collect();
+    let mut stocked = 0;
+    for minute in 0..3 * 60 {
+        designate_food(&mut w, &defs, home, 40);
+        for _ in 0..MINUTE {
+            w.tick(&defs);
         }
-        assert_eq!(w.units.len(), 4);
-        assert!(stocked > 0, "{nation:?} never stockpiled any food");
-        for u in &w.units {
-            assert!(u.needs.health >= 50.0, "{nation:?} {}: {:?}", u.name, u.needs);
-        }
+        stocked = stocked.max(food.iter().map(|&f| w.stored_total(f)).sum::<u32>());
+        assert!(w.deaths.is_empty(), "{nation:?} lost {:?} at minute {minute}", w.deaths);
+    }
+    assert_eq!(w.units.len(), 4);
+    assert!(stocked > 0, "{nation:?} never stockpiled any food");
+    for u in &w.units {
+        assert!(u.needs.health >= 50.0, "{nation:?} {}: {:?}", u.name, u.needs);
     }
 }
 
 /// With no designations at all, hungry units forage plants that have regrown, so they live far
 /// longer than the two hours wild food used to last.
 #[test]
-fn foraging_alone_outlasts_the_old_two_hour_limit() {
-    for nation in [Nation::Earth, Nation::Water] {
-        let (mut w, defs) = world(nation, 7);
-        for _ in 0..3 * HOUR {
-            w.tick(&defs);
-        }
-        assert!(w.deaths.is_empty(), "{nation:?}: {:?}", w.deaths);
+fn foraging_alone_outlasts_the_old_two_hour_limit_earth() {
+    foraging_alone_outlasts_the_old_two_hour_limit(Nation::Earth);
+}
+
+#[test]
+fn foraging_alone_outlasts_the_old_two_hour_limit_water() {
+    foraging_alone_outlasts_the_old_two_hour_limit(Nation::Water);
+}
+
+fn foraging_alone_outlasts_the_old_two_hour_limit(nation: Nation) {
+    let (mut w, defs) = world(nation, 7);
+    for _ in 0..3 * HOUR {
+        w.tick(&defs);
     }
+    assert!(w.deaths.is_empty(), "{nation:?}: {:?}", w.deaths);
 }
