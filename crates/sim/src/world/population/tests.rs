@@ -70,6 +70,64 @@ fn a_newcomer_joins_with_a_free_bed_and_enough_food() {
     assert!(!arrival.name.is_empty());
 }
 
+/// #303: as long as the nation's pool still has an unused name, every newcomer up to its size
+/// gets a distinct one; nobody shares a name with the starting settler either. Calls
+/// `spawn_newcomer` directly (as the difficulty preset test below does), since it doesn't check
+/// beds or stores itself.
+#[test]
+fn newcomers_up_to_the_pool_size_have_distinct_names() {
+    let defs = Defs::bundled();
+    let mut w = world(1, &defs);
+    let pool_size = defs.nation(Nation::Earth).names.len();
+    for _ in 0..pool_size {
+        assert!(w.spawn_newcomer(&defs), "the field always has room for a newcomer");
+    }
+    let names: BTreeSet<&str> = w.units.iter().map(|u| u.name.as_str()).collect();
+    assert_eq!(
+        names.len(),
+        w.units.len(),
+        "every unit, the starting settler included, should have a distinct name"
+    );
+}
+
+/// #303: once every name in the pool already belongs to a living unit, a newcomer past the pool
+/// size still gets a name nobody else has, by a numeral suffix (mirrors `spawn_units`' own
+/// overflow rule for a starting roster bigger than its pool).
+#[test]
+fn once_the_pool_is_exhausted_a_newcomer_gets_a_numeral_suffix() {
+    let defs = Defs::bundled();
+    let mut w = world(1, &defs);
+    let pool_size = defs.nation(Nation::Earth).names.len();
+    for _ in 0..pool_size {
+        assert!(w.spawn_newcomer(&defs));
+    }
+    assert!(w.spawn_newcomer(&defs), "the field still has room past the pool size");
+    let names: Vec<&str> = w.units.iter().map(|u| u.name.as_str()).collect();
+    let unique: BTreeSet<&str> = names.iter().copied().collect();
+    assert_eq!(unique.len(), names.len(), "the overflow newcomer should still be unique");
+    let last = names.last().expect("at least one unit was spawned");
+    assert!(
+        last.chars().last().is_some_and(|c| c.is_ascii_digit()),
+        "an overflow newcomer's name should carry a numeral suffix, got {last:?}"
+    );
+}
+
+/// #303: the draw is still deterministic once the pool is exhausted, the same as the simple
+/// draw `two_runs_from_one_seed_give_the_same_arrivals` already checks.
+#[test]
+fn the_overflow_suffix_is_deterministic_for_a_seed() {
+    let defs = Defs::bundled();
+    let names_for = |seed| {
+        let mut w = world(seed, &defs);
+        let pool_size = defs.nation(Nation::Earth).names.len();
+        for _ in 0..pool_size + 3 {
+            assert!(w.spawn_newcomer(&defs));
+        }
+        w.units.iter().map(|u| u.name.clone()).collect::<Vec<_>>()
+    };
+    assert_eq!(names_for(11), names_for(11));
+}
+
 #[test]
 fn a_newcomer_under_a_difficulty_preset_also_eats_newcomer_food() {
     // The difficulty preset's `newcomer_food` knob (#294): on top of #232's
