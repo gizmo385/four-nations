@@ -238,6 +238,9 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     "avatar",
     "guest",
     "unhappy_since",
+    // The United City (#240): the stream a newcomer's nation is drawn from once the Harmony
+    // Gate is complete.
+    "newcomer_rng",
 ];
 
 /// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239

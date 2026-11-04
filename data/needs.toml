@@ -49,6 +49,12 @@ regen_per_minute = 2.0
 [growth]
 arrival_minutes = 15.0
 food_per_newcomer = 30
+# Once the Harmony Gate is complete, each newcomer's nation is drawn weighted: own_weight for
+# the settlement's own nation, other_weight for each of the other three (docs/design/endgame.md,
+# "The transformation: the United City"). Before completion every newcomer is the settlement's
+# own nation, whatever these say.
+own_weight = 0.4
+other_weight = 0.2
 
 # Foods. `hunger` is what one raw item restores. `cooked_hunger` (optional) is what it restores
 # once cooked, and must be higher. `resource` (optional) links to a map resource in

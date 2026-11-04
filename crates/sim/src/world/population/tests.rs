@@ -181,6 +181,111 @@ fn two_runs_from_one_seed_give_the_same_arrivals() {
     assert_eq!(a.save(&defs).unwrap(), b.save(&defs).unwrap());
 }
 
+/// Before the Harmony Gate is complete, `newcomer_nation` never consults `newcomer_rng`: it is
+/// always the settlement's own nation, whatever the weights say (#240).
+#[test]
+fn newcomer_nation_is_always_the_settlements_own_before_completion() {
+    let defs = Defs::bundled();
+    let mut w = world(1, &defs);
+    for _ in 0..20 {
+        assert_eq!(w.newcomer_nation(&defs), Nation::Earth);
+    }
+}
+
+/// Once the gate is `Complete`, `newcomer_nation` draws from the weighted mix
+/// (`docs/design/endgame.md`, "The transformation: the United City"): the same seed gives the
+/// same sequence of nations, and over enough draws it includes both the settlement's own nation
+/// and at least one other.
+#[test]
+fn the_newcomers_nation_mix_is_deterministic_for_a_seed() {
+    let defs = Defs::bundled();
+    let draws = |seed| {
+        let mut w = world(seed, &defs);
+        w.endeavor = EndeavorState::Complete { tick: 0 };
+        (0..50).map(|_| w.newcomer_nation(&defs)).collect::<Vec<_>>()
+    };
+    let a = draws(7);
+    let b = draws(7);
+    assert_eq!(a, b, "the same seed must draw the same sequence of nations");
+    assert!(a.contains(&Nation::Earth), "the settlement's own nation should still be drawn");
+    assert!(a.iter().any(|&n| n != Nation::Earth), "another nation should be drawn too");
+}
+
+/// A newcomer joining through `spawn_newcomer` is the settlement's own nation while the gate is
+/// Dormant, and may be another nation once it is `Complete` (#240).
+#[test]
+fn a_newcomer_is_of_another_nation_only_once_the_gate_is_complete() {
+    let defs = Defs::bundled();
+    // Unlike `field()`, a strip of water along one edge, so a long run doesn't dehydrate the
+    // whole settlement (`tick_one_check`'s doc): this test runs many checks to give the weighted
+    // draw a real chance, not just one.
+    let map = Grid::from_fn(21, 9, |p: Pos| Tile {
+        elevation: 100,
+        temperature: 128,
+        moisture: 128,
+        terrain: if p.y == 8 { Terrain::River } else { Terrain::Land },
+        biome: BiomeId(0),
+        resource: None,
+        building: None,
+    });
+    let mut w = World::with_map(1, map, Nation::Earth, &[at(10, 4)], &defs);
+    // Several beds, well spread out, so a sleeper claiming one never blocks the next check.
+    for x in (2..20).step_by(3) {
+        place(&mut w, &defs, at(x, 2), "bed");
+    }
+    stock_food(&mut w, &defs, defs.needs.growth.food_per_newcomer);
+    tick_one_check(&mut w, &defs);
+    assert_eq!(w.units.len(), 2, "a newcomer should have joined while dormant");
+    assert!(w.units.iter().all(|u| w.nation_of(u) == Nation::Earth));
+
+    w.endeavor = EndeavorState::Complete { tick: w.tick };
+    let mut saw_another_nation = false;
+    for _ in 0..60 {
+        let before = w.units.len();
+        // Keep the larder well above the threshold, since eating between checks draws it down;
+        // `has_free_bed`/`stored_food` are all the check looks at.
+        stock_food(&mut w, &defs, defs.needs.growth.food_per_newcomer * 10);
+        tick_one_check(&mut w, &defs);
+        if w.units.len() > before && w.nation_of(w.units.last().unwrap()) != Nation::Earth {
+            saw_another_nation = true;
+            break;
+        }
+    }
+    assert!(saw_another_nation, "a newcomer of another nation should have arrived by now");
+}
+
+/// `World::modifiers_for` and `unit_can_bend` already read `Unit::nation` per unit (#239); this
+/// checks the United City actually uses that: an Earth newcomer living in a Water settlement can
+/// still raise a ford, which no Water bender could do.
+#[test]
+fn a_water_settlement_with_an_earth_newcomer_can_ford_a_river() {
+    let defs = Defs::bundled();
+    let plains = BiomeId(defs.biomes.iter().position(|b| b.id == "plains").unwrap() as u8);
+    let map = Grid::from_fn(13, 7, |p: Pos| Tile {
+        elevation: 100,
+        temperature: 128,
+        moisture: 128,
+        terrain: if (5..=7).contains(&p.x) { Terrain::River } else { Terrain::Land },
+        biome: plains,
+        resource: None,
+        building: None,
+    });
+    let mut w = World::with_map(1, map, Nation::Water, &[at(3, 3)], &defs);
+    // An Earth newcomer who joined after the Harmony Gate: `Unit::nation` is all #240 needs to
+    // set, since per-unit modifiers and bend eligibility (#239) already read it.
+    w.units[0].nation = Some(Nation::Earth);
+    w.units[0].chi = defs.chi.max;
+    let ability = defs.ability_id("raise_earth").unwrap();
+    w.apply(Command::Bend { ability, pos: at(5, 3) }, &defs).unwrap();
+    for _ in 0..500 {
+        if w.map[at(5, 3)].terrain == Terrain::Ford {
+            break;
+        }
+        w.tick(&defs);
+    }
+    assert_eq!(w.map[at(5, 3)].terrain, Terrain::Ford, "the Earth newcomer should raise a ford");
+}
+
 #[test]
 fn old_saves_without_the_growth_fields_still_load() {
     let defs = Defs::bundled();

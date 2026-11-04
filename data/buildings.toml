@@ -314,7 +314,9 @@ count = 4
 # --- The endeavor ---
 
 # The Harmony Gate (docs/design/endgame.md, "The project: four stages"): a 4x4 plaza units walk
-# across, built in the stages of data/endeavor.toml.
+# across, built in the stages of data/endeavor.toml. Once complete it is a permanent heat source
+# too (docs/design/endgame.md, "The transformation: the United City", #240), so meals eaten on
+# or near the plaza count as cooked and sleep there is a little better: a natural gathering point.
 [[building]]
 id = "harmony_gate"
 name = "Harmony Gate"
@@ -322,3 +324,7 @@ verb = "Raise"
 passable = true
 footprint = [4, 4]
 endeavor = true
+[building.heat]
+radius = 3
+sleep_bonus = 1.3
+seek_tiles = 20

@@ -55,6 +55,14 @@ pub struct GrowthDef {
     pub arrival_minutes: f32,
     /// Food items that must be in stores right now for one newcomer to arrive.
     pub food_per_newcomer: u32,
+    /// Weight of the settlement's own nation when a newcomer's nation is drawn, once the Harmony
+    /// Gate is complete (`docs/design/endgame.md`, "The transformation: the United City"; issue
+    /// #240). Before completion every newcomer is the settlement's own nation regardless of this
+    /// value: there is nobody else to draw from yet.
+    pub own_weight: f32,
+    /// Weight of each of the other three nations, same once-complete rule. The chance of each is
+    /// its own weight over the sum of all four (`own_weight` once, this three times).
+    pub other_weight: f32,
 }
 
 /// `[settings]`, `[hunger]`, `[thirst]`, `[energy]`, `[health]` and `[growth]` of
@@ -151,6 +159,12 @@ impl NeedsFile {
         }
         if s.growth.food_per_newcomer == 0 {
             return err("growth.food_per_newcomer must be at least 1".into());
+        }
+        if !(s.growth.own_weight.is_finite() && s.growth.own_weight > 0.0) {
+            return err("growth.own_weight must be a positive number".into());
+        }
+        if !(s.growth.other_weight.is_finite() && s.growth.other_weight > 0.0) {
+            return err("growth.other_weight must be a positive number".into());
         }
         for (what, n) in [("hunger", s.hunger), ("thirst", s.thirst), ("energy", s.energy)] {
             if !(n.decay_per_minute.is_finite() && n.decay_per_minute > 0.0) {
