@@ -220,8 +220,9 @@ pub struct Palette {
     unit: Rgb8,
     /// On 16 colours a tint can't be mixed into a background (every dark background is plain
     /// black), so each designation gets a colour of its own, picked so that no two share one,
-    /// and so do the Build tool's ghost: free and blocked (the last two, #212).
-    solid: [Color; 6],
+    /// and so do the Build tool's ghost: free and blocked (#212), and its door tile when it's
+    /// free (#230; a blocked door reuses the ghost's own blocked colour, the last one here).
+    solid: [Color; 7],
 }
 
 impl Palette {
@@ -249,6 +250,7 @@ impl Palette {
             pick(o.build),
             pick(to_u8(theme.ok)),
             pick(to_u8(theme.bad)),
+            pick(to_u8(theme.warn)),
         ];
         Self { theme, glyphs, depth, ascii, accent, unit, solid }
     }
@@ -329,6 +331,26 @@ impl Palette {
         match self.depth {
             ColorDepth::Never => Color::Reset,
             ColorDepth::Ansi16 => self.solid[if free { 4 } else { 5 }],
+            ColorDepth::Indexed256 => {
+                Color::Indexed(nearest_256_apart(target, &[base, self.glyphs.overlay.cursor]))
+            }
+            ColorDepth::TrueColor => self.color(target),
+        }
+    }
+
+    /// The background of the entrance tile the Build tool's ghost marks (#230): the theme's
+    /// `warn` amber where the door would be free to use, else the ghost's own blocked colour
+    /// (`ghost`'s red), so a door reads differently from the green of a plain tile that fits
+    /// but the same red everywhere a placement is refused. With no colour `Color::Reset` (the
+    /// caller marks the cell another way).
+    pub fn door(&self, base: Rgb8, free: bool) -> Color {
+        if !free {
+            return self.ghost(base, false);
+        }
+        let target = mix(base, to_u8(self.theme.warn), DRAG_STRENGTH);
+        match self.depth {
+            ColorDepth::Never => Color::Reset,
+            ColorDepth::Ansi16 => self.solid[6],
             ColorDepth::Indexed256 => {
                 Color::Indexed(nearest_256_apart(target, &[base, self.glyphs.overlay.cursor]))
             }
@@ -543,6 +565,28 @@ mod tests {
         assert_eq!(p.tinted([10, 20, 30], Tint::Harvest), Color::Reset);
         assert_eq!(p.color([10, 20, 30]), Color::Reset);
         assert!(p.cursor_style().add_modifier.contains(Modifier::REVERSED));
+        assert_eq!(p.door([10, 20, 30], true), Color::Reset);
+        assert_eq!(p.door([10, 20, 30], false), Color::Reset);
+    }
+
+    /// #230: a free door reads differently from a blocked one, from a plain ghost tile that
+    /// fits, and from bare ground, in every colour depth that has colour; a blocked door looks
+    /// exactly like the ghost's own blocked tile, since both mean "refused".
+    #[test]
+    fn a_free_door_stands_out_from_a_blocked_one_the_ghost_and_the_ground() {
+        let defs = Defs::bundled();
+        for n in Nation::ALL {
+            for depth in [ColorDepth::TrueColor, ColorDepth::Indexed256, ColorDepth::Ansi16] {
+                let p = Palette::new(&defs, n, depth, false);
+                for (what, base) in bases(&p.glyphs) {
+                    let who = format!("{n:?} {depth:?} on {what}");
+                    assert_eq!(p.door(base, false), p.ghost(base, false), "{who}");
+                    assert_ne!(p.door(base, true), p.door(base, false), "{who}");
+                    assert_ne!(p.door(base, true), p.ghost(base, true), "{who}: fits");
+                    assert_ne!(p.door(base, true), p.color(base), "{who}: ground");
+                }
+            }
+        }
     }
 
     #[test]
