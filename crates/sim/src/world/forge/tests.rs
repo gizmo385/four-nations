@@ -66,24 +66,43 @@ fn a_finished_production_building_opens_one_craft_job_per_capacity() {
     assert!(w.jobs().iter().all(|j| j.kind == crate::jobs::JobKind::Craft { pos: at(4, 4) }));
 }
 
-#[test]
-fn the_smelter_turns_ore_into_metal() {
+/// Places a finished `building`, stocks three batches' worth of its recipe's (single) input
+/// right beside it, and checks the output appears and the input was spent: the shared check
+/// behind the smelter (ore to metal), the brick kiln (stone to bricks) and the forge's smith job
+/// (metal to tools).
+fn runs_one_batch(building: &str) {
     let (mut w, defs) = setup(&grid(), &[at(1, 1)]);
-    let smelter = defs.building_id("smelter").unwrap();
-    let recipe = defs.building(smelter).recipe.clone().expect("smelter has a recipe");
+    let id = defs.building_id(building).unwrap();
+    let recipe =
+        defs.building(id).recipe.clone().unwrap_or_else(|| panic!("{building} has a recipe"));
+    assert_eq!(recipe.inputs.len(), 1, "every Fire production recipe today has one input");
     let anchor = at(4, 4);
-    place_building(&mut w, &defs, smelter, anchor);
+    place_building(&mut w, &defs, id, anchor);
 
-    // Plenty of ore, right on the stockpile, for more than one batch.
+    // Plenty of input, right on the stockpile, for more than one batch.
     w.designate_stockpile(at(0, 0)).unwrap();
-    w.stored
-        .insert(at(0, 0), Stack { item: recipe.inputs[0].item, count: recipe.inputs[0].count * 3 });
-
     let before = recipe.inputs[0].count * 3;
+    w.stored.insert(at(0, 0), Stack { item: recipe.inputs[0].item, count: before });
+
     run_until(&mut w, &defs, 6000, |w| w.ground_items().any(|(_, s)| s.item == recipe.output.item));
     let (_, out) = w.ground_items().find(|(_, s)| s.item == recipe.output.item).unwrap();
-    assert_eq!(out.count, recipe.output.count, "one batch's worth");
-    assert!(w.stored_total(recipe.inputs[0].item) < before, "ore was spent making it");
+    assert_eq!(out.count, recipe.output.count, "{building}: one batch's worth");
+    assert!(w.stored_total(recipe.inputs[0].item) < before, "{building}: the input was spent");
+}
+
+#[test]
+fn the_smelter_turns_ore_into_metal() {
+    runs_one_batch("smelter");
+}
+
+#[test]
+fn the_brick_kiln_turns_stone_into_bricks() {
+    runs_one_batch("brick_kiln");
+}
+
+#[test]
+fn the_forges_smith_job_turns_metal_into_tools() {
+    runs_one_batch("forge");
 }
 
 #[test]
