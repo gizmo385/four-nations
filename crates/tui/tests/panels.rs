@@ -803,7 +803,7 @@ fn the_nation_switch_rebuilds_at_the_world_s_start_when_it_has_one() {
     let cfg = fn_sim::embark::Survey::config(7, size);
     let survey = fn_sim::embark::Survey::new(&cfg, &defs);
     let start = survey.default_site(&defs);
-    let session = Session::found(survey, Nation::Earth, start).unwrap();
+    let session = Session::found(survey, Nation::Earth, start, None).unwrap();
     let mut a = App::new(session, SIZE);
     assert_eq!(a.session.world.start(), Some(start));
 

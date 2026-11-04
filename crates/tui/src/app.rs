@@ -411,7 +411,7 @@ impl App {
                     None => fn_sim::MapGenConfig { seed, width, height, ..Default::default() },
                 };
                 let survey = fn_sim::embark::Survey::new(&cfg, &self.session.defs);
-                Session::found(survey, nation, start)
+                Session::found(survey, nation, start, None)
                     .unwrap_or_else(|_| Session::new(seed, nation, width, height))
             }
             None => Session::new(seed, nation, width, height),

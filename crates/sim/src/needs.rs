@@ -265,16 +265,31 @@ impl Needs {
         sleeping: bool,
         sleep_scale: f32,
     ) {
+        self.tick_at_full(s, ticks_per_second, sleeping, sleep_scale, 1.0);
+    }
+
+    /// `tick_at_scaled` with `decay_scale` also multiplying hunger, thirst and energy decay (not
+    /// sleep's energy gain, nor health): the difficulty preset's `need_decay` knob
+    /// (`docs/design/difficulty.md`, #294). 1.0 is `tick_at_scaled` exactly.
+    pub fn tick_at_full(
+        &mut self,
+        s: &NeedsSettings,
+        ticks_per_second: u32,
+        sleeping: bool,
+        sleep_scale: f32,
+        decay_scale: f32,
+    ) {
         let per_tick =
             |per_minute: f32| per_minute / (SECONDS_PER_MINUTE * ticks_per_second as f32);
         let max = s.max();
-        self.hunger = (self.hunger - per_tick(s.hunger.decay_per_minute)).max(0.0);
-        self.thirst = (self.thirst - per_tick(s.thirst.decay_per_minute)).max(0.0);
+        self.hunger = (self.hunger - per_tick(s.hunger.decay_per_minute) * decay_scale).max(0.0);
+        self.thirst = (self.thirst - per_tick(s.thirst.decay_per_minute) * decay_scale).max(0.0);
         if sleeping {
             let gain = per_tick(s.general.sleep_energy_per_minute) * sleep_scale;
             self.energy = (self.energy + gain).min(max);
         } else {
-            self.energy = (self.energy - per_tick(s.energy.decay_per_minute)).max(0.0);
+            self.energy =
+                (self.energy - per_tick(s.energy.decay_per_minute) * decay_scale).max(0.0);
         }
         let depleted =
             [self.hunger, self.thirst, self.energy].iter().filter(|&&v| v <= 0.0).count();
@@ -338,6 +353,33 @@ mod tests {
             assert!((s.max() - n.energy - s.energy.decay_per_minute).abs() < 0.05, "tps {tps}");
             assert_eq!(n.health, s.health.max);
         }
+    }
+
+    #[test]
+    fn decay_scale_speeds_up_hunger_thirst_and_energy_but_not_sleep_or_health() {
+        // The difficulty preset's `need_decay` knob (#294): a run at 1.1 (Hard's default) loses
+        // hunger, thirst and awake energy faster than identity (1.0), but sleep's energy gain
+        // and health are untouched either way.
+        let defs = Defs::bundled();
+        let s = &defs.needs;
+        let mut identity = Needs::full(s);
+        let mut scaled = Needs::full(s);
+        for _ in 0..minute_ticks() {
+            identity.tick_at_full(s, TICKS_PER_SECOND, false, 1.0, 1.0);
+            scaled.tick_at_full(s, TICKS_PER_SECOND, false, 1.0, 1.1);
+        }
+        assert!(scaled.hunger < identity.hunger);
+        assert!(scaled.thirst < identity.thirst);
+        assert!(scaled.energy < identity.energy);
+
+        let mut identity = Needs { hunger: 50.0, thirst: 50.0, energy: 10.0, health: 100.0 };
+        let mut scaled = identity;
+        for _ in 0..minute_ticks() {
+            identity.tick_at_full(s, TICKS_PER_SECOND, true, 1.0, 1.0);
+            scaled.tick_at_full(s, TICKS_PER_SECOND, true, 1.0, 1.1);
+        }
+        assert_eq!(identity.energy, scaled.energy, "sleep's gain isn't scaled");
+        assert_eq!(identity.health, scaled.health, "health isn't scaled directly");
     }
 
     #[test]

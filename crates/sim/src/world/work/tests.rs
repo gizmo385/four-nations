@@ -549,6 +549,23 @@ fn a_renewable_resource_stays_after_harvest_and_ripens_on_schedule() {
 }
 
 #[test]
+fn the_difficulty_presets_regrow_knob_scales_the_resting_time() {
+    // The difficulty preset's `regrow` knob (#294): Hard's resting time is `regrow` times
+    // identity's.
+    let rows = ["~~~~~~~~~", ".........", "....Y....", ".........", "........."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 3)]);
+    w.difficulty = Some("hard".into());
+    let regrow = w.knobs(&defs).regrow;
+    assert!(regrow > 1.0, "test assumes hard's regrow knob is above identity");
+    let job = w.designate_harvest(at(4, 2), &defs).unwrap();
+    run_until(&mut w, &defs, 2000, |w| w.job(job).is_none());
+    assert!(w.is_resting(at(4, 2)));
+    let ticks = run_until(&mut w, &defs, 10_000, |w| !w.is_resting(at(4, 2)));
+    let total = (regrow_of(&defs, "fruit_tree") * regrow * 10.0) as i64;
+    assert!((ticks as i64 - total).abs() <= 5, "{ticks} ticks vs {total} expected");
+}
+
+#[test]
 fn hungry_units_forage_a_plant_again_once_it_has_regrown() {
     let rows = ["~~~~~~~~~", ".........", "......c..", ".........", "........."];
     let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 3)]);

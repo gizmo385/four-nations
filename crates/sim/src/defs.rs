@@ -9,6 +9,7 @@ use serde::Deserialize;
 
 use crate::bending::{AbilityDef, AbilityId, BendingFile, ChiSettings};
 use crate::building::{BuildingDef, BuildingId, BuildingsFile};
+use crate::difficulty::DifficultyDef;
 use crate::embark::EmbarkDef;
 use crate::endeavor::{EndeavorDef, EndeavorFile};
 use crate::jobs::{HarvestDef, ItemDef, ItemId, JobSettings, JobsFile};
@@ -145,6 +146,10 @@ pub struct Defs {
     /// Embark's site box, map size presets and rough survey (data/embark.toml, #288). Empty
     /// unless loaded with `with_embark`, which `bundled` does.
     pub embark: EmbarkDef,
+    /// Difficulty presets: the knobs that scale pressure and the stores `World::found` lays
+    /// down (data/difficulty.toml, #294). Has no presets unless loaded with `with_difficulty`,
+    /// which `bundled` does; `DifficultyDef::identity` still resolves either way.
+    pub difficulty: DifficultyDef,
     /// `harvests` index by `ResourceId`, so the lookup is O(1).
     harvest_by_resource: Vec<Option<usize>>,
 }
@@ -230,6 +235,7 @@ impl Defs {
         )
         .and_then(|d| d.with_endeavor(include_str!("../../../data/endeavor.toml")))
         .and_then(|d| d.with_embark(include_str!("../../../data/embark.toml")))
+        .and_then(|d| d.with_difficulty(include_str!("../../../data/difficulty.toml")))
         .expect("bundled data/*.toml must be valid; run `cargo test -p fn_sim`")
     }
 
@@ -295,6 +301,7 @@ impl Defs {
             abilities,
             endeavor: EndeavorDef::default(),
             embark: EmbarkDef::default(),
+            difficulty: DifficultyDef::default(),
             harvest_by_resource,
         };
         defs.validate()?;
