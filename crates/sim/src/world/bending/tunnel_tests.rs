@@ -218,3 +218,98 @@ fn mining_stays_open_to_every_nation_without_tunneling() {
         assert_eq!(mined, 1, "{nation:?}");
     }
 }
+
+/// Keeps a unit's needs full and its chi topped up while the test drives many bends in a row,
+/// neither of which is under test here.
+fn keep_bending(w: &mut World, defs: &Defs) {
+    w.units[0].needs = crate::needs::Needs::full(&defs.needs);
+    w.units[0].chi = defs.chi.max;
+}
+
+#[test]
+fn a_five_tile_line_designated_at_once_is_bored_in_order_from_the_bank() {
+    // #304: designating the whole line no longer needs each tile bored before the next can be
+    // designated -- it chains off its neighbour's still-pending designation -- but the chain is
+    // still *worked* one real tile at a time, bank outward, since a tile deeper in can't be
+    // stood beside until the one before it has actually become a tunnel.
+    let defs = Defs::bundled();
+    let mut w = world(Nation::Earth, true, &defs);
+    w.units[0].pos = at(3, 2);
+    let ability = bore(&defs);
+    for x in 4..=8 {
+        assert_eq!(
+            w.apply(Command::Bend { ability, pos: at(x, 2) }, &defs),
+            Ok(()),
+            "x={x} chains off the tile before it"
+        );
+    }
+    assert_eq!(w.jobs().len(), 5, "the whole line is designated at once");
+
+    for _ in 0..30_000 {
+        keep_bending(&mut w, &defs);
+        w.tick(&defs);
+        if (4..=8).all(|x| w.map[at(x, 2)].terrain == Terrain::Tunnel) {
+            break;
+        }
+    }
+    for x in 4..=8 {
+        assert_eq!(w.map[at(x, 2)].terrain, Terrain::Tunnel, "x={x}");
+    }
+    let order: Vec<i32> = w
+        .bend_events()
+        .iter()
+        .filter(|e| e.outcome == BendOutcome::Done)
+        .map(|e| e.pos.x)
+        .collect();
+    assert_eq!(order, vec![4, 5, 6, 7, 8], "bored bank outward, in order");
+}
+
+#[test]
+fn a_tile_that_chains_to_nothing_is_still_refused() {
+    let defs = Defs::bundled();
+    let mut w = world(Nation::Earth, true, &defs);
+    let ability = bore(&defs);
+    let refused = Err(CommandError::Bend(BendError::InvalidTarget("needs dry ground beside it")));
+    // Designate the near end of a line, then skip a tile: the far one has no bank and no
+    // designated (nor real) neighbour to chain off.
+    assert_eq!(w.apply(Command::Bend { ability, pos: at(4, 2) }, &defs), Ok(()));
+    assert_eq!(w.apply(Command::Bend { ability, pos: at(6, 2) }, &defs), refused);
+}
+
+#[test]
+fn a_chained_line_mid_bore_round_trips_through_a_save() {
+    let defs = Defs::bundled();
+    let mut w = world(Nation::Earth, true, &defs);
+    w.units[0].pos = at(3, 2);
+    let ability = bore(&defs);
+    for x in 4..=6 {
+        w.apply(Command::Bend { ability, pos: at(x, 2) }, &defs).unwrap();
+    }
+    // Let the near tile finish so the chain is left mid-way: one tunnel, two still pending and
+    // unclaimable until the save and load restores the state exactly.
+    for _ in 0..3000 {
+        keep_bending(&mut w, &defs);
+        w.tick(&defs);
+        if w.map[at(4, 2)].terrain == Terrain::Tunnel {
+            break;
+        }
+    }
+    assert_eq!(w.map[at(4, 2)].terrain, Terrain::Tunnel);
+    assert_eq!(w.jobs().len(), 2, "the rest of the chain is still only designated");
+
+    let text = w.save(&defs).unwrap();
+    let mut loaded = World::load(&text, &defs).unwrap();
+    assert_eq!(loaded.save(&defs).unwrap(), text, "round-trips byte for byte");
+
+    // The rest of the chain keeps working in order after the reload.
+    for _ in 0..6000 {
+        keep_bending(&mut loaded, &defs);
+        loaded.tick(&defs);
+        if (5..=6).all(|x| loaded.map[at(x, 2)].terrain == Terrain::Tunnel) {
+            break;
+        }
+    }
+    for x in 4..=6 {
+        assert_eq!(loaded.map[at(x, 2)].terrain, Terrain::Tunnel, "x={x}");
+    }
+}

@@ -1105,10 +1105,12 @@ impl World {
                     };
                     room.then(|| flood.cost(pos).map(|c| (c, pos))).flatten()
                 }
-                JobKind::Bend { ability, pos } => self
-                    .unit_can_bend(i, ability, defs)
-                    .then(|| self.stand_tile(&flood, pos))
-                    .flatten(),
+                // A tile chained off a still-pending neighbour (#304) can't be claimed until
+                // that neighbour has actually been reshaped: `bend_ready`.
+                JobKind::Bend { ability, pos } => (self.unit_can_bend(i, ability, defs)
+                    && self.bend_ready(ability, pos, defs))
+                .then(|| self.stand_tile(&flood, pos))
+                .flatten(),
                 // Reachable as soon as the site itself is, whether or not its materials are yet:
                 // a unit will wait on those, as a resting harvest does.
                 JobKind::Build { pos } => self.stand_building(&flood, pos, defs),
@@ -1212,7 +1214,9 @@ impl World {
                     }
             }
             JobKind::Bend { ability, pos } => {
-                self.unit_can_bend(i, ability, defs) && can_stand(pos)
+                self.unit_can_bend(i, ability, defs)
+                    && self.bend_ready(ability, pos, defs)
+                    && can_stand(pos)
             }
             JobKind::Build { pos } => can_stand_building(pos),
             JobKind::Study { pos } => !self.research.queue().is_empty() && can_stand_building(pos),
