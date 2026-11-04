@@ -257,6 +257,15 @@ glyph = "⛩"
 ascii = "G"
 fg = [240, 214, 120]
 
+# The box-drawing pieces a rail tile or site (`building.rail` above) picks between, by which of
+# its four neighbours are rail (#279, mirrors the client's sixteen track pieces, #135). A lone
+# tile (no rail neighbour) keeps `building.rail`'s own glyph instead, so there's no entry for
+# that case: index `mask - 1` is a bitmask of which neighbours are rail, bit 0 north, bit 1 east,
+# bit 2 south, bit 3 west.
+[rail_track]
+glyph = ["│", "─", "└", "│", "│", "┌", "├", "─", "┘", "─", "┴", "┐", "┤", "┬", "┼"]
+ascii = ["|", "-", "+", "|", "|", "+", "+", "-", "+", "-", "+", "+", "+", "+", "+"]
+
 # Units draw in their nation's `color` (data/nations.toml), mixed toward white by `lift`.
 [unit]
 glyph = "☺"

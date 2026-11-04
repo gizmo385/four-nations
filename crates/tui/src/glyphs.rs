@@ -58,6 +58,37 @@ impl OverlayGlyph {
     }
 }
 
+/// Which of a rail tile's four neighbours are rail (#279): bit 0 north, bit 1 east, bit 2 south,
+/// bit 3 west, the same shape as the client's `sprites::buildings::LINK_*` bits (#135), though
+/// the two frontends pick their own glyph for it.
+pub const RAIL_N: u8 = 1;
+pub const RAIL_E: u8 = 2;
+pub const RAIL_S: u8 = 4;
+pub const RAIL_W: u8 = 8;
+
+/// Which neighbours of a rail tile are rail, as a [`RAIL_N`]-[`RAIL_W`] mask for [`link_glyph`].
+pub fn rail_mask(n: bool, e: bool, s: bool, w: bool) -> u8 {
+    u8::from(n) * RAIL_N + u8::from(e) * RAIL_E + u8::from(s) * RAIL_S + u8::from(w) * RAIL_W
+}
+
+/// The fifteen box-drawing pieces a rail tile or site with at least one rail neighbour picks
+/// between (`[rail_track]`, #279), indexed `mask - 1` by the mask [`rail_mask`] builds.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RailLinks {
+    pub glyph: Vec<char>,
+    pub ascii: Vec<char>,
+}
+
+/// The piece of track a rail tile with these neighbours draws (#279): `None` for a lone tile
+/// (`mask == 0`), which keeps the rail building's own glyph instead. Pure: a table lookup, with
+/// no sim or terminal state.
+pub fn link_glyph(links: &RailLinks, mask: u8, ascii: bool) -> Option<char> {
+    let table = if ascii { &links.ascii } else { &links.glyph };
+    let index = usize::from(mask.checked_sub(1)?);
+    table.get(index).copied()
+}
+
 /// The embark screen's overview thresholds (`[embark]`, #290, docs/design/embark.md).
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -91,6 +122,7 @@ pub struct Glyphs {
     pub resource: BTreeMap<String, Look>,
     pub item: BTreeMap<String, Look>,
     pub building: BTreeMap<String, Look>,
+    pub rail_track: RailLinks,
     pub unit: UnitLook,
     pub overlay: Overlays,
     pub embark: EmbarkGlyphDef,
@@ -163,6 +195,13 @@ mod tests {
         out.push(("unit".into(), g.unit.glyph, g.unit.ascii));
         out.push(("overlay.flame".into(), g.overlay.flame.glyph, g.overlay.flame.ascii));
         out.push(("overlay.sapling".into(), g.overlay.sapling.glyph, g.overlay.sapling.ascii));
+        for mask in 1..=15u8 {
+            out.push((
+                format!("rail_track[{mask}]"),
+                link_glyph(&g.rail_track, mask, false).unwrap(),
+                link_glyph(&g.rail_track, mask, true).unwrap(),
+            ));
+        }
         out
     }
 
@@ -242,5 +281,62 @@ mod tests {
     fn unknown_keys_are_rejected() {
         let src = include_str!("../../../data/tui.toml").replace("lift = 0.4", "lyft = 0.4");
         assert!(Glyphs::from_toml(&src).is_err());
+    }
+
+    /// `rail_track` has exactly one piece for every mask from 1 to 15 (#279): a lone tile
+    /// (`mask == 0`) has none, since it keeps `building.rail`'s own glyph instead.
+    #[test]
+    fn rail_track_has_a_piece_for_every_nonzero_mask() {
+        let g = Glyphs::bundled();
+        assert_eq!(g.rail_track.glyph.len(), 15);
+        assert_eq!(g.rail_track.ascii.len(), 15);
+    }
+
+    /// Every mask (bit 0 north, 1 east, 2 south, 3 west) picks the box-drawing piece that joins
+    /// exactly those neighbours (#279): straight through a tile with one or two opposite
+    /// neighbours, a corner with two adjacent ones, a T with three, a cross with all four. A
+    /// lone tile (mask 0) has no piece: it keeps the rail building's own glyph.
+    #[test]
+    fn every_mask_picks_the_piece_that_joins_those_neighbours() {
+        let g = Glyphs::bundled();
+        let cases: [(u8, char, char); 16] = [
+            (0, '\0', '\0'), // lone: no piece (see below)
+            (RAIL_N, '│', '|'),
+            (RAIL_E, '─', '-'),
+            (RAIL_N | RAIL_E, '└', '+'),
+            (RAIL_S, '│', '|'),
+            (RAIL_N | RAIL_S, '│', '|'),
+            (RAIL_E | RAIL_S, '┌', '+'),
+            (RAIL_N | RAIL_E | RAIL_S, '├', '+'),
+            (RAIL_W, '─', '-'),
+            (RAIL_N | RAIL_W, '┘', '+'),
+            (RAIL_E | RAIL_W, '─', '-'),
+            (RAIL_N | RAIL_E | RAIL_W, '┴', '+'),
+            (RAIL_S | RAIL_W, '┐', '+'),
+            (RAIL_N | RAIL_S | RAIL_W, '┤', '+'),
+            (RAIL_E | RAIL_S | RAIL_W, '┬', '+'),
+            (RAIL_N | RAIL_E | RAIL_S | RAIL_W, '┼', '+'),
+        ];
+        assert_eq!(cases.len(), 16, "every mask from 0 to 15");
+        for (mask, glyph, ascii) in cases {
+            if mask == 0 {
+                assert_eq!(link_glyph(&g.rail_track, mask, false), None, "mask {mask:04b}");
+                assert_eq!(link_glyph(&g.rail_track, mask, true), None, "mask {mask:04b}");
+            } else {
+                assert_eq!(link_glyph(&g.rail_track, mask, false), Some(glyph), "mask {mask:04b}");
+                assert_eq!(link_glyph(&g.rail_track, mask, true), Some(ascii), "mask {mask:04b}");
+            }
+        }
+    }
+
+    /// [`rail_mask`] builds the same bitmask the table above indexes by.
+    #[test]
+    fn rail_mask_builds_the_bit_for_each_neighbour() {
+        assert_eq!(rail_mask(false, false, false, false), 0);
+        assert_eq!(rail_mask(true, false, false, false), RAIL_N);
+        assert_eq!(rail_mask(false, true, false, false), RAIL_E);
+        assert_eq!(rail_mask(false, false, true, false), RAIL_S);
+        assert_eq!(rail_mask(false, false, false, true), RAIL_W);
+        assert_eq!(rail_mask(true, true, true, true), RAIL_N | RAIL_E | RAIL_S | RAIL_W);
     }
 }
