@@ -297,6 +297,11 @@ pub enum JobKind {
     /// site (`world/gate.rs`, #236). `task` is its place in `GateSite::tasks`, which saves name
     /// by id. Queued automatically once the task's materials are in.
     EndeavorTask { task: u8 },
+    /// Stand on this tile of the gate's plaza during the Harmony Rite (`world/gate.rs`, #238): a
+    /// low-priority job for a settler with nothing more urgent, so `tick_rite` can count how
+    /// many are attending. Opened on every tile of the plaza the moment the rite stage begins,
+    /// and closed with it; never completes on its own, like `Study`.
+    Attend { pos: Pos },
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

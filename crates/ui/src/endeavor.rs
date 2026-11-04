@@ -274,6 +274,17 @@ pub fn describe_event(defs: &Defs, ev: &EndeavorEvent) -> String {
             let name = defs.endeavor.avatar.as_ref().map_or("The Avatar", |a| a.name.as_str());
             format!("{name} is back.")
         }
+        // The Harmony Rite, completion and the Avatar's farewell (#238); the rite stage and the
+        // Avatar's own glyphs on screen are #242's.
+        EndeavorEventKind::RitePaused => "The rite pauses: not enough of the settlement is \
+            attending."
+            .to_owned(),
+        EndeavorEventKind::RiteBroken => "The rite is broken by grief.".to_owned(),
+        EndeavorEventKind::Complete => format!("{} is complete.", defs.endeavor.name),
+        EndeavorEventKind::AvatarFarewell => {
+            let name = defs.endeavor.avatar.as_ref().map_or("The Avatar", |a| a.name.as_str());
+            format!("{name} gives his farewell and flies off on Appa.")
+        }
     }
 }
 
@@ -373,5 +384,16 @@ mod tests {
         let stage =
             EndeavorEvent { tick: 10, kind: EndeavorEventKind::StageDone("pillars".into()) };
         assert_eq!(describe_event(&defs, &stage), "Stage done: The Four Pillars");
+        let paused = EndeavorEvent { tick: 10, kind: EndeavorEventKind::RitePaused };
+        assert!(describe_event(&defs, &paused).contains("pause"));
+        let broken = EndeavorEvent { tick: 10, kind: EndeavorEventKind::RiteBroken };
+        assert_eq!(describe_event(&defs, &broken), "The rite is broken by grief.");
+        let complete = EndeavorEvent { tick: 10, kind: EndeavorEventKind::Complete };
+        assert_eq!(describe_event(&defs, &complete), "The Harmony Gate is complete.");
+        let farewell = EndeavorEvent { tick: 10, kind: EndeavorEventKind::AvatarFarewell };
+        assert_eq!(
+            describe_event(&defs, &farewell),
+            "Aang gives his farewell and flies off on Appa."
+        );
     }
 }

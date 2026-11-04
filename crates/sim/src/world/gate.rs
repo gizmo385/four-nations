@@ -24,6 +24,24 @@
 //! Stages and tasks are saved by string id, so a reordered data file doesn't misread a save. A
 //! task job names its task by its place in `GateSite::tasks`, which is saved state, not the data.
 //! A stage or task whose id the data no longer has simply stalls.
+//!
+//! **The Harmony Rite** (`StageDef::rite`, issue #238) is the one stage that doesn't follow the
+//! steps above: it has no cost, work or tasks, so the loop above (`gate_progressed`) hands it
+//! straight to its own handling the moment it begins. Instead of hauling and channelling:
+//!
+//! 1. Every tile of the plaza opens a low-priority `JobKind::Attend` job (`work.rs`), and the
+//!    Avatar takes his own place directly (`Task::Rite`, assigned by `run_idle`, never a `Job`:
+//!    needs never pre-empt it, `consider_needs`).
+//! 2. Once a second (`tick_rite`), `GateSite::rite_progress` gains a second while the Avatar
+//!    holds his place and enough of the living population (never counting him) holds an Attend
+//!    job; short of that, it pauses (`EndeavorEventKind::RitePaused`) without losing what it has.
+//! 3. A settler's death resets it to nothing (`World::tick_needs`, `break_rite`), logging
+//!    `RiteBroken`: "That makes the last ten minutes a test of everything the player built"
+//!    (`docs/design/endgame.md`).
+//! 4. Once `RiteDef::minutes` of progress is in, `finish_rite` logs the stage done, drops the
+//!    Attend and task jobs, finishes the gate (`EndeavorEventKind::Complete`) and schedules the
+//!    Avatar's farewell (`world/avatar.rs`): he stays `AvatarDef::farewell_minutes` longer, then
+//!    leaves for good.
 
 use crate::building::{BuildingId, CostItem};
 use crate::endeavor::{StageDef, TaskDef, TaskWho};
@@ -77,6 +95,15 @@ pub struct GateSite {
     pub progress: f32,
     /// The stage's tasks, in data order as of when the stage began.
     pub tasks: Vec<GateTask>,
+    /// The Harmony Rite's own progress, in seconds of attendance (`StageDef::rite`, #238). Zero
+    /// outside that stage. `#[serde(default)]`: a save from before #238 reads as not yet begun.
+    #[serde(default)]
+    pub rite_progress: f32,
+    /// Whether the rite's progress is currently paused (attendance short of the share): kept so
+    /// a pause, and its end, is logged only once each (`tick_rite`). Only meaningful on the rite
+    /// stage. `#[serde(default)]`, like `rite_progress`.
+    #[serde(default)]
+    pub rite_paused: bool,
 }
 
 /// One of the current stage's tasks.
@@ -98,6 +125,8 @@ impl GateSite {
             delivered: Vec::new(),
             progress: 0.0,
             tasks: Vec::new(),
+            rite_progress: 0.0,
+            rite_paused: false,
         };
         site.begin(stage);
         site
@@ -108,6 +137,8 @@ impl GateSite {
         self.stage = stage.id.clone();
         self.delivered.clear();
         self.progress = 0.0;
+        self.rite_progress = 0.0;
+        self.rite_paused = false;
         self.tasks = stage
             .tasks
             .iter()
@@ -260,12 +291,12 @@ impl World {
         Ok(())
     }
 
-    /// Drops the gate's construct job and every task job. A unit that held one finds it gone and
-    /// lets go.
+    /// Drops the gate's construct job, every task job and the rite's Attend jobs. A unit that
+    /// held one finds it gone and lets go.
     fn drop_gate_jobs(&mut self, anchor: Pos) {
         self.jobs.retain(|j| match j.kind {
             JobKind::Build { pos } => pos != anchor,
-            JobKind::EndeavorTask { .. } => false,
+            JobKind::EndeavorTask { .. } | JobKind::Attend { .. } => false,
             _ => true,
         });
     }
@@ -340,6 +371,11 @@ impl World {
         loop {
             let (Some(g), Some((n, stage))) = (self.gate(), self.gate_stage(defs)) else { return };
             let anchor = g.anchor;
+            if stage.rite.is_some() {
+                // The rite's own progress is attendance, not hauling or channelling: open its
+                // Attend jobs (if they aren't already) and leave it to `tick_rite` (#238).
+                return self.open_rite(anchor);
+            }
             let built = g.progress >= stage.work && shortfall(&stage.cost, &g.delivered).is_none();
             let ready: Vec<u8> = g
                 .tasks
@@ -383,6 +419,7 @@ impl World {
         let site = self.sites.remove(&anchor).expect("the gate's site");
         self.raise(foot, site.building, defs.building(site.building));
         self.endeavor = EndeavorState::Complete { tick: self.tick };
+        self.endeavor_event(EndeavorEventKind::Complete);
     }
 
     /// The gate's construct job (`run_build` hands it over): haul and work the current stage as
@@ -499,6 +536,130 @@ impl World {
         u.bends += 1;
         self.gate_mut().expect("checked above").tasks[usize::from(task)].done = true;
         self.gate_progressed(defs);
+    }
+}
+
+/// The Harmony Rite (issue #238; `docs/design/endgame.md`, "The Harmony Rite").
+impl World {
+    /// Is the gate on the stage that is the Harmony Rite right now? `run_idle` reads this to
+    /// give the Avatar his own place in it, directly, instead of a `Job`.
+    pub(super) fn gate_on_rite_stage(&self, defs: &Defs) -> bool {
+        self.gate_stage(defs).is_some_and(|(_, s)| s.rite.is_some())
+    }
+
+    /// Opens an `Attend` job on every tile of the plaza, the moment the rite stage begins. A
+    /// no-op once they're open (`gate_progressed` calls this every time it re-enters the rite
+    /// stage, which today is only the once).
+    fn open_rite(&mut self, anchor: Pos) {
+        if self.jobs.iter().any(|j| matches!(j.kind, JobKind::Attend { .. })) {
+            return;
+        }
+        let Some(foot) = self.footprint_at(anchor) else { return };
+        for pos in foot.tiles() {
+            self.add_job(JobKind::Attend { pos });
+        }
+    }
+
+    /// How many settlers hold an Attend job right now: the rite's own attendance
+    /// (`docs/design/endgame.md`, "What can go wrong": "Attendance only counts settlers standing
+    /// on the plaza").
+    fn attendance(&self) -> usize {
+        self.jobs
+            .iter()
+            .filter(|j| matches!(j.kind, JobKind::Attend { .. }) && j.claimed_by.is_some())
+            .count()
+    }
+
+    /// Once a second, while the gate is on the rite stage: accrues `GateSite::rite_progress`
+    /// while the Avatar holds his own place in it and enough of the living population (never
+    /// counting him) is attending, pausing (and logging it, once) otherwise, and finishing the
+    /// rite once its minutes are in.
+    pub(super) fn tick_rite(&mut self, defs: &Defs) {
+        if !self.tick.is_multiple_of(u64::from(TICKS_PER_SECOND)) {
+            return;
+        }
+        let Some((_, stage)) = self.gate_stage(defs) else { return };
+        let Some(rite) = stage.rite else { return };
+        let meditating = self.units.iter().any(|u| u.is_avatar() && u.job_task == Some(Task::Rite));
+        let population = self.units.iter().filter(|u| !u.is_avatar()).count() as f32;
+        let enough = meditating
+            && population > 0.0
+            && self.attendance() as f32 >= population * rite.attendance_share;
+        let paused = self.gate().expect("checked above").rite_paused;
+        if enough {
+            if paused {
+                self.gate_mut().expect("checked above").rite_paused = false;
+            }
+            let g = self.gate_mut().expect("checked above");
+            g.rite_progress += 1.0;
+            if g.rite_progress >= rite.minutes * 60.0 {
+                self.finish_rite(defs);
+            }
+        } else if !paused {
+            self.gate_mut().expect("checked above").rite_paused = true;
+            self.endeavor_event(EndeavorEventKind::RitePaused);
+        }
+    }
+
+    /// A settler's death during the rite breaks it: its progress resets to nothing
+    /// (`docs/design/endgame.md`: "A death breaks the rite... That makes the last ten minutes a
+    /// test of everything the player built"). Called from `World::tick_needs`; a no-op off the
+    /// rite stage.
+    pub(super) fn break_rite(&mut self, defs: &Defs) {
+        if !self.gate_on_rite_stage(defs) {
+            return;
+        }
+        self.gate_mut().expect("checked above").rite_progress = 0.0;
+        self.endeavor_event(EndeavorEventKind::RiteBroken);
+    }
+
+    /// The rite's minutes are in: logs the stage done, drops the Attend and task jobs, finishes
+    /// the gate (the last stage, by the data's own rule that the rite must be last) and starts
+    /// the Avatar's farewell countdown.
+    fn finish_rite(&mut self, defs: &Defs) {
+        let g = self.gate().expect("checked by caller");
+        let anchor = g.anchor;
+        let stage_id = g.stage.clone();
+        self.endeavor_event(EndeavorEventKind::StageDone(stage_id));
+        self.drop_gate_jobs(anchor);
+        if let Some(i) = self.units.iter().position(Unit::is_avatar) {
+            self.units[i].job_task = None;
+            self.units[i].route = None;
+        }
+        self.finish_gate(anchor, defs);
+        self.begin_avatar_farewell(defs);
+    }
+
+    /// Holding an Attend job: walk onto the tile and stay. Never completes on its own; it ends
+    /// when the rite does (`drop_gate_jobs`).
+    pub(super) fn run_attend(&mut self, i: usize, id: JobId, defs: &Defs) {
+        let Some(idx) = self.job_index(id) else { return self.finish_job(i) };
+        let JobKind::Attend { pos } = self.jobs[idx].kind else { return self.finish_job(i) };
+        if self.units[i].route.is_none() {
+            let flood = self.flood_from(i);
+            match flood.path_to(pos) {
+                Some(path) => self.units[i].route = Some(route_from(path)),
+                None => return self.abandon_job(i, id, defs),
+            }
+        }
+        self.walk(i, defs);
+    }
+
+    /// The Avatar's own place in the rite: walk onto the plaza and stay there, meditating, until
+    /// `tick_rite` finishes it (`Task::Rite`, never a `Job`: `consider_needs` never pre-empts
+    /// this).
+    pub(super) fn run_rite(&mut self, i: usize, defs: &Defs) {
+        let Some(anchor) = self.gate_anchor() else {
+            // The gate finished (or its site is gone) out from under him: nothing to hold.
+            self.units[i].job_task = None;
+            self.units[i].route = None;
+            return;
+        };
+        if !self.route_to_gate(i, anchor, defs) {
+            // Can't reach it this tick (blocked some other way): try again next tick.
+            return;
+        }
+        self.walk(i, defs);
     }
 }
 

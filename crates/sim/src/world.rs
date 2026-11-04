@@ -550,7 +550,8 @@ impl World {
     /// drying patches and burning-out flames run (units whose health reaches 0 die and are removed, in id order),
     /// a newcomer may join (`population.rs`, #232), then each survivor acts, in id order: it
     /// meets a need if one is low, else carries on with its job, else claims one, else wanders.
-    /// See `work.rs`. Last, once a second, the endeavor checks its signs (`endeavor.rs`).
+    /// See `work.rs`. Last, once a second, the endeavor checks its signs (`endeavor.rs`) and the
+    /// Harmony Rite its own attendance (`gate.rs`, #238).
     pub fn tick(&mut self, defs: &Defs) {
         self.tick += 1;
         let completed = self.research.completions().len();
@@ -569,6 +570,7 @@ impl World {
         }
         self.tick_endeavor(defs);
         self.tick_avatar(defs);
+        self.tick_rite(defs);
     }
 
     /// What a unit with nothing to do does (issue #110). It stands still for `idle_pause_seconds`;
@@ -649,10 +651,15 @@ impl World {
                 self.units.push(u);
             }
         }
+        let any_died = !dead.is_empty();
         for u in dead {
             let cause = u.needs.depleted().unwrap_or(DeathCause::Starvation);
             self.deaths.push(Death { id: u.id, name: u.name.clone(), tick, cause });
             self.release(&u);
+        }
+        if any_died {
+            // A settler's death breaks the Harmony Rite, if it's under way (`gate.rs`, #238).
+            self.break_rite(defs);
         }
     }
 }
