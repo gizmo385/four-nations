@@ -65,6 +65,12 @@ fn start_research(w: &mut World, defs: &Defs, id: &str) {
     w.apply(Command::SetResearch { tech: defs.tech_id(id).unwrap() }, defs).unwrap();
 }
 
+/// Unit `i` holds a seat and has walked in through the door (#227): studying, rather than still
+/// on its way there.
+fn seated(w: &World, i: usize) -> bool {
+    matches!(w.units[i].task(), Some(Task::Study(_))) && w.units[i].inside().is_some()
+}
+
 #[test]
 fn a_finished_study_hall_opens_one_job_per_seat() {
     let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(1, 2)]);
@@ -114,8 +120,8 @@ fn a_scholar_studying_adds_the_expected_knowledge_each_tick() {
     // `earth_shaping` needs no further prereq (Earth starts with `stoneworking`), so the pool's
     // cap while queued (#284) is its full 60 points, well above what this test banks.
     start_research(&mut w, &defs, "earth_shaping");
-    w.tick(&defs);
-    assert!(matches!(w.units[0].task(), Some(Task::Study(_))));
+    // Walks to the hall's door and steps inside (#227) before it can add anything.
+    run_until(&mut w, &defs, 200, |w| seated(w, 0));
     assert_eq!(w.modifiers().study, 1.0, "Earth has no study bonus yet");
 
     let passive = defs.research.passive_millis_per_tick;
@@ -130,12 +136,12 @@ fn a_scholar_studying_adds_the_expected_knowledge_each_tick() {
 }
 
 #[test]
-fn a_hungry_scholar_leaves_to_eat_and_stops_producing() {
+fn a_hungry_scholar_leaves_to_eat_and_re_enters_once_fed() {
     let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(1, 2)]);
     place_study_hall(&mut w, &defs, at(2, 2));
     start_research(&mut w, &defs, "earth_shaping");
-    w.tick(&defs);
-    assert!(matches!(w.units[0].task(), Some(Task::Study(_))));
+    run_until(&mut w, &defs, 200, |w| seated(w, 0));
+    let anchor = w.units[0].inside().expect("seated");
 
     // Food within reach, so the unit can actually act on its hunger.
     let fish = defs.item_id("fish").unwrap();
@@ -145,12 +151,16 @@ fn a_hungry_scholar_leaves_to_eat_and_stops_producing() {
     let before = w.research().pool_millis();
     w.tick(&defs);
     assert!(matches!(w.units[0].task(), Some(Task::Eat(_))), "{:?}", w.units[0].task());
+    // The need pre-empts the seat (#226): it steps out before anything else, in case the door
+    // is blocked by the time it's ready to come back.
+    assert!(w.units[0].inside().is_none(), "stepped outside to eat");
     // Needs pre-empt the seat before it can add anything this tick: only the passive trickle
     // moves the pool.
     assert_eq!(w.research().pool_millis() - before, defs.research.passive_millis_per_tick);
 
-    // It goes back to its seat once fed.
-    run_until(&mut w, &defs, 2000, |w| matches!(w.units[0].task(), Some(Task::Study(_))));
+    // It goes back to its seat, walking in through the door again, once fed.
+    run_until(&mut w, &defs, 2000, |w| seated(w, 0));
+    assert_eq!(w.units[0].inside(), Some(anchor), "re-entered the same hall");
 }
 
 #[test]
@@ -160,8 +170,8 @@ fn the_study_modifier_scales_how_fast_a_scholar_adds_knowledge() {
     // `meditation` has no prereqs and raises Air's `study` modifier to 1.2 (data/research.toml).
     let meditation = defs.tech_id("meditation").unwrap();
     start_research(&mut w, &defs, "meditation");
-    w.tick(&defs);
-    assert!(matches!(w.units[0].task(), Some(Task::Study(_))));
+    // Walks to the hall's door and steps inside (#227) before it can add anything.
+    run_until(&mut w, &defs, 200, |w| seated(w, 0));
 
     let passive = defs.research.passive_millis_per_tick;
     let base_study = defs.research.study_millis_per_tick;
@@ -174,10 +184,11 @@ fn the_study_modifier_scales_how_fast_a_scholar_adds_knowledge() {
     assert_eq!(w.modifiers().study, 1.2);
 
     // Something still queued (#284 would otherwise send the scholar back to idle): Air's next
-    // branch tech.
+    // branch tech. Meditation's completion left the queue briefly empty, so the scholar already
+    // stepped out (#226) by the time `is_known` above turned true; it walks back in once there's
+    // something to study toward again.
     start_research(&mut w, &defs, "gliders");
-    w.tick(&defs);
-    assert!(matches!(w.units[0].task(), Some(Task::Study(_))));
+    run_until(&mut w, &defs, 200, |w| seated(w, 0));
 
     let before = w.research().pool_millis();
     w.tick(&defs);
@@ -235,6 +246,8 @@ fn a_scroll_hauled_to_a_study_hall_is_consumed_for_its_knowledge() {
     assert_eq!(w.ground_items().count(), 0);
     assert_eq!(w.stored_total(scroll), 0);
     assert!(w.units[0].carrying.is_none());
+    // Delivered at the hall, from beside it: hauling never enters (#227).
+    assert!(w.units[0].inside().is_none());
 }
 
 #[test]
@@ -312,14 +325,14 @@ fn reading_scrolls_is_deterministic() {
 }
 
 #[test]
-fn scholars_study_a_solid_two_by_two_hall_from_its_ring() {
-    let (mut w, mut defs) = setup(Nation::Earth, &GRID, &[at(0, 0), at(8, 4)]);
+fn two_scholars_fill_a_solid_two_by_two_hall_while_a_third_waits() {
+    let (mut w, mut defs) = setup(Nation::Earth, &GRID, &[at(0, 0), at(8, 4), at(1, 4)]);
     let hall = defs.building_id("study_hall").unwrap();
     let def = &mut defs.buildings[hall.0 as usize];
     def.footprint = (2, 2);
     def.passable = false;
     let seats = def.seats;
-    assert!(seats >= 2);
+    assert_eq!(seats, 2, "exactly two seats to fill, with one scholar left over");
     let foot = crate::geom::Footprint::new(at(4, 1), 2, 2);
     for p in foot.tiles() {
         let part = [(p.x - 4) as u8, (p.y - 1) as u8];
@@ -330,14 +343,20 @@ fn scholars_study_a_solid_two_by_two_hall_from_its_ring() {
     w.open_study_seats(foot.anchor, seats);
     start_research(&mut w, &defs, "earth_shaping");
 
-    let seated = |w: &World, i: usize| {
-        matches!(w.units[i].task(), Some(Task::Study(_)))
-            && w.units[i].route.as_ref().is_some_and(|r| r.is_empty())
-    };
     run_until(&mut w, &defs, 2000, |w| seated(w, 0) && seated(w, 1));
-    for u in &w.units {
-        assert_eq!(foot.distance(u.pos), 1, "{} studies from {:?}", u.name, u.pos);
+    assert_eq!(
+        w.occupants(foot.anchor).collect::<Vec<_>>(),
+        [w.units[0].id, w.units[1].id],
+        "both scholars are inside, in id order"
+    );
+    for u in &w.units[..2] {
+        assert_eq!(foot.distance(u.pos), 1, "{} studies from the door, {:?}", u.name, u.pos);
+        assert!(w.units_at(u.pos).next().is_none(), "hidden from the map while inside");
     }
+    // No third seat, and nothing else for the third scholar to do either.
+    assert!(w.units[2].task().is_none(), "{:?}", w.units[2].task());
+    assert!(w.units[2].inside().is_none());
+
     let before = w.research().pool_millis();
     for _ in 0..100 {
         w.tick(&defs);

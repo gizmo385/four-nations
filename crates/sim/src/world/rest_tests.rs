@@ -68,6 +68,131 @@ fn cabbage(defs: &Defs) -> crate::jobs::ItemId {
     defs.item_id("cabbage").unwrap()
 }
 
+// ---- beds bigger than 1x1 (#227) ----
+
+/// Defs where the starter "bed" is a solid 2x2 building with `capacity` sleeping places inside
+/// it (#227), reached through its door, rather than 1x1 with one sleeper lying on its tile.
+fn big_bed_defs(capacity: u32) -> Defs {
+    let mut defs = Defs::bundled();
+    let bed = defs.building_id("bed").unwrap();
+    let def = &mut defs.buildings[bed.0 as usize];
+    def.footprint = (2, 2);
+    def.passable = false;
+    def.capacity = capacity;
+    defs
+}
+
+/// Places a finished building of `size` anchored at `anchor`, the way `World::raise` would.
+fn place_big(w: &mut World, id: BuildingId, anchor: Pos, size: (u8, u8)) -> crate::geom::Footprint {
+    let foot = crate::geom::Footprint::new(anchor, size.0, size.1);
+    for p in foot.tiles() {
+        let part = [(p.x - anchor.x) as u8, (p.y - anchor.y) as u8];
+        w.map[p].building =
+            Some(Building { part, size: [size.0, size.1], ..Building::new(id, false, false) });
+    }
+    w.map_changed();
+    foot
+}
+
+#[test]
+fn a_tired_unit_walks_through_the_door_of_a_bigger_bed_and_sleeps_inside() {
+    let defs = big_bed_defs(1);
+    let base = defs.needs.general.sleep_energy_per_minute;
+    let bonus = defs.building(defs.building_id("bed").unwrap()).bed.unwrap().sleep_bonus;
+    let mut w = world(Nation::Earth, &[at(2, 4)], &defs);
+    let bed = defs.building_id("bed").unwrap();
+    let foot = place_big(&mut w, bed, at(10, 4), (2, 2));
+    tire(&mut w, &defs, 0);
+    run_until(&mut w, &defs, 400, |w| w.units[0].is_sleeping());
+
+    assert_eq!(w.units[0].inside(), Some(foot.anchor), "stepped inside, through the door");
+    assert_eq!(w.units[0].pos, foot.entrance(), "pos stays on the door while inside");
+    assert!(w.units_at(w.units[0].pos).next().is_none(), "hidden from the map while inside");
+    assert_eq!(w.units[0].bed, Some(foot.anchor));
+
+    let before = w.units[0].needs.energy;
+    for _ in 0..600 {
+        w.tick(&defs);
+    }
+    let gained = w.units[0].needs.energy - before;
+    assert!((gained - base * bonus).abs() < 0.01, "{gained}");
+}
+
+#[test]
+fn a_bigger_beds_capacity_caps_how_many_sleep_inside_at_once() {
+    let defs = big_bed_defs(2);
+    let bed = defs.building_id("bed").unwrap();
+    let mut w = world(Nation::Earth, &[at(2, 3), at(2, 4), at(2, 5)], &defs);
+    let foot = place_big(&mut w, bed, at(10, 4), (2, 2));
+    for i in 0..3 {
+        tire(&mut w, &defs, i);
+    }
+    run_until(&mut w, &defs, 1000, |w| w.units.iter().filter(|u| u.is_sleeping()).count() == 3);
+
+    let inside: Vec<_> = w.units.iter().filter(|u| u.inside() == Some(foot.anchor)).collect();
+    assert_eq!(inside.len(), 2, "only two places inside");
+    let outside: Vec<_> = w.units.iter().filter(|u| u.inside().is_none()).collect();
+    assert_eq!(outside.len(), 1, "the third sleeps where it is, on the ground");
+    assert_eq!(
+        w.occupants(foot.anchor).collect::<Vec<_>>(),
+        inside.iter().map(|u| u.id).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn a_sleeper_in_a_bigger_bed_steps_out_when_hungry_and_back_in_once_fed() {
+    let defs = big_bed_defs(1);
+    let bed = defs.building_id("bed").unwrap();
+    let mut w = world(Nation::Earth, &[at(2, 4)], &defs);
+    let foot = place_big(&mut w, bed, at(10, 4), (2, 2));
+    tire(&mut w, &defs, 0);
+    run_until(&mut w, &defs, 400, |w| w.units[0].is_sleeping());
+    assert_eq!(w.units[0].inside(), Some(foot.anchor));
+
+    // Food within reach, and hungry enough to cut sleep short (`sleep_interrupt_below`,
+    // data/jobs.toml): `low` on its own would let it sleep through a little hunger.
+    let fish = defs.item_id("fish").unwrap();
+    w.ground.insert(at(0, 0), Stack { item: fish, count: 5 });
+    w.units[0].needs.hunger = defs.jobs.sleep_interrupt_below - 1.0;
+    run_until(&mut w, &defs, 400, |w| matches!(w.units[0].task(), Some(Task::Eat(_))));
+    assert!(w.units[0].inside().is_none(), "stepped out before eating (#226)");
+
+    // Tired again once fed: it walks back in and re-claims a place inside.
+    run_until(&mut w, &defs, 2000, |w| w.units[0].is_sleeping());
+    assert_eq!(w.units[0].inside(), Some(foot.anchor), "back inside the same bed");
+}
+
+#[test]
+fn a_sleeper_in_a_building_that_keeps_its_own_fire_is_warmed_through_the_door() {
+    let mut defs = big_bed_defs(1);
+    let bed = defs.building_id("bed").unwrap();
+    {
+        let def = &mut defs.buildings[bed.0 as usize];
+        def.heat = Some(crate::building::HeatDef { radius: 2, sleep_bonus: 1.5, seek_tiles: 20 });
+    }
+    let base = defs.needs.general.sleep_energy_per_minute;
+    let bed_bonus = defs.building(bed).bed.unwrap().sleep_bonus;
+    let heat_bonus = defs.building(bed).heat.unwrap().sleep_bonus;
+    let mut w = world(Nation::Earth, &[at(2, 4)], &defs);
+    let foot = place_big(&mut w, bed, at(10, 4), (2, 2));
+    w.light_building_fire(foot.anchor, [2, 2], defs.building(bed));
+    tire(&mut w, &defs, 0);
+    run_until(&mut w, &defs, 400, |w| w.units[0].is_sleeping());
+    assert_eq!(w.units[0].inside(), Some(foot.anchor));
+
+    // The door, where `pos` stays while inside, is on the fire's own footprint ring: it is
+    // warmed the same way it already would be from outside (#227).
+    assert!(w.is_heated(w.units[0].pos));
+    assert!((w.sleep_factor_for(&w.units[0], &defs) - bed_bonus * heat_bonus).abs() < 0.001);
+
+    let before = w.units[0].needs.energy;
+    for _ in 0..600 {
+        w.tick(&defs);
+    }
+    let gained = w.units[0].needs.energy - before;
+    assert!((gained - base * bed_bonus * heat_bonus).abs() < 0.01, "{gained}");
+}
+
 #[test]
 fn a_tired_unit_walks_to_the_nearest_bed_and_sleeps_faster_there() {
     let defs = Defs::bundled();

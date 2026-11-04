@@ -307,8 +307,10 @@ entrance when the task ends or a need pre-empts it.
 - **Jobs, sleep, heat and study:**
   - Study seats become places inside, so `seats` is also the building's capacity.
   - Builders still work from the ring, never inside.
-  - Beds are unaffected: they are 1x1 and walkable.
-  - A future house or bunkhouse fits naturally, as a building with N sleeping places inside.
+  - A 1x1 bed is unaffected: walkable, one sleeper lying right on its tile. A bed bigger than
+    1x1 needs a capacity too (#227), the same way a study hall's seats do: that many sleeping
+    places inside it, reached through the door. A future house or bunkhouse fits naturally this
+    way, as a building with N sleeping places inside; no such building ships yet.
   - Heat already reaches the entrance tile, which is within any radius of the footprint, so
     being inside a warm building counts as warm with no extra rule.
   - A unit that dies inside is recorded at the entrance.

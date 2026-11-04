@@ -566,6 +566,11 @@ impl World {
     }
 
     fn finish_need(&mut self, i: usize) {
+        // Whatever bed held the entrance for it (#227, a bed bigger than 1x1) is done with, so a
+        // unit left inside steps back out: waking normally, or a hungrier need cutting sleep
+        // short (`run_need`'s `Task::Sleep` calls this directly, without going through
+        // `consider_needs`'s own leave-on-pre-empt).
+        self.leave_building(i);
         let u = &mut self.units[i];
         u.need_task = None;
         u.route = None;
@@ -691,36 +696,54 @@ impl World {
         (Task::Sleep, self.warm_sleep_route(i).unwrap_or_default(), None)
     }
 
-    /// Is the bed on `pos` free for unit `me`: no other unit is sleeping in it or on its way?
-    fn bed_is_free(&self, pos: Pos, me: usize) -> bool {
-        !self.units.iter().enumerate().any(|(k, u)| k != me && u.bed == Some(pos))
+    /// Whether fewer than `limit` other units have already claimed the bed keyed by `key`
+    /// (`Unit::bed`: a 1x1 bed's own tile, or a bigger one's anchor), counting from the moment
+    /// they set off, not just once they're lying in it.
+    fn bed_has_room(&self, key: Pos, me: usize, limit: u32) -> bool {
+        let claimed =
+            self.units.iter().enumerate().filter(|&(k, u)| k != me && u.bed == Some(key)).count();
+        (claimed as u32) < limit
     }
 
     /// The route to the nearest free bed unit `i` can reach within the bed's `seek_tiles` (by
-    /// walking cost, ties by position), and where it is. Empty if the unit is already on it.
+    /// walking cost, ties by position), and the key it reserves (`Unit::bed`). A 1x1 bed is
+    /// walked onto directly and holds one sleeper, keyed by its own tile, unchanged since #58.
+    /// One bigger than 1x1 needs a `capacity` (#227): that many places inside it, reached (and
+    /// reserved) through its door like a study seat, keyed by its anchor.
     fn bed_route(&self, i: usize, defs: &Defs) -> Option<(Vec<Pos>, Pos)> {
         if !defs.buildings.iter().any(|b| b.bed.is_some()) {
             return None;
         }
         let flood = self.flood_from(i);
-        let mut best: Option<(u32, Pos)> = None;
-        for (p, tile) in self.map.iter() {
-            let Some(bed) = tile.building.and_then(|b| defs.building(b.id).bed) else { continue };
-            let Some(cost) = flood.cost(p).filter(|&c| c <= bed.seek_tiles * STRAIGHT) else {
+        let mut best: Option<(u32, Pos, Pos)> = None;
+        for (foot, id) in self.buildings() {
+            let Some(bed) = defs.building(id).bed else { continue };
+            let big = foot.w > 1 || foot.h > 1;
+            let (stand, limit) =
+                if big { (foot.entrance(), defs.building(id).capacity) } else { (foot.anchor, 1) };
+            if limit == 0 {
+                continue;
+            }
+            let Some(cost) = flood.cost(stand).filter(|&c| c <= bed.seek_tiles * STRAIGHT) else {
                 continue;
             };
-            if best.is_none_or(|b| (cost, p) < b) && self.bed_is_free(p, i) {
-                best = Some((cost, p));
+            if best.is_none_or(|(bc, bp, _)| (cost, stand) < (bc, bp))
+                && self.bed_has_room(foot.anchor, i, limit)
+            {
+                best = Some((cost, stand, foot.anchor));
             }
         }
-        let (_, bed) = best?;
-        Some((route_from(flood.path_to(bed)?), bed))
+        let (_, stand, key) = best?;
+        Some((route_from(flood.path_to(stand)?), key))
     }
 
     /// How much faster than the base rate sleeping unit `u` regains energy: the warmth of the
-    /// heat source it is near (`sleep_factor_at`) times the bed it is lying in, if any.
+    /// heat source it is near (`sleep_factor_at`) times the bed it is lying in, if any. A
+    /// sleeper inside a bed bigger than 1x1 (#227) lies on the entrance tile, not the building
+    /// itself, so this looks the bed up through `inside`, the same as a study seat does.
     pub(super) fn sleep_factor_for(&self, u: &Unit, defs: &Defs) -> f32 {
-        let bed = self.map[u.pos]
+        let bed_tile = u.inside.unwrap_or(u.pos);
+        let bed = self.map[bed_tile]
             .building
             .and_then(|b| defs.building(b.id).bed)
             .map_or(1.0, |b| b.sleep_bonus);
@@ -803,9 +826,19 @@ impl World {
                     || ready(Need::Hunger, u.needs.hunger)
                     || ready(Need::Thirst, u.needs.thirst)
                 {
-                    self.finish_need(i);
-                } else if u.route.as_ref().is_some_and(|r| !r.is_empty()) {
+                    return self.finish_need(i);
+                }
+                if self.units[i].route.as_ref().is_some_and(|r| !r.is_empty()) {
                     self.walk(i, defs);
+                }
+                // At the door of a bed bigger than 1x1 (#227), the tick it arrives or any tick
+                // after while it waits for room: step inside. A no-op once already inside, or
+                // for a 1x1 bed, whose own tile -- where the unit already stands -- isn't its
+                // door.
+                if let Some(anchor) = self.units[i].bed
+                    && self.units[i].inside.is_none()
+                {
+                    self.enter_building(i, anchor, defs);
                 }
             }
             Task::Drink | Task::Eat(_) => {
@@ -969,9 +1002,10 @@ impl World {
                 JobKind::Build { pos } => self.stand_building(&flood, pos, defs),
                 // Not reachable at all with nothing queued to study toward: nobody should claim
                 // a seat that would only idle there (#284). `run_study` leaves a seat it already
-                // holds the same way, once the queue empties.
+                // holds the same way, once the queue empties. A seat is a place inside (#227), so
+                // this is the door, not the ring `stand_building` would pick.
                 JobKind::Study { pos } => (!self.research.queue().is_empty())
-                    .then(|| self.stand_building(&flood, pos, defs))
+                    .then(|| self.stand_entrance(&flood, pos))
                     .flatten(),
                 JobKind::EndeavorTask { task } => self
                     .gate_task(task, defs)

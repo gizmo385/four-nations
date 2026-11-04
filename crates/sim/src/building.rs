@@ -9,7 +9,9 @@
 //! - `seats > 0` makes it a study hall: the moment one finishes construction `world/study.rs`
 //!   opens that many `JobKind::Study` jobs on it (issue #21).
 //! - `bed` makes it somewhere to sleep: a tired unit walks to the nearest free one and regains
-//!   energy faster there (`world/work.rs`, issue #58).
+//!   energy faster there (`world/work.rs`, issue #58). 1x1 only unless it also has a `capacity`
+//!   (#227), in which case that many units sleep inside it at once, through the door, the same
+//!   way a study hall's seats work.
 //! - `rail` makes it a track (issue #135): a unit hauling a stack (a cart) goes faster along a
 //!   line of them. The speed is data on the def; the tile carries a `Building::rail` flag so
 //!   pathfinding never has to consult the defs (see `path.rs`, `MoveRules::with_rail`).
@@ -195,9 +197,13 @@ pub struct BuildingDef {
     pub seats: u32,
     /// How many units may be inside at once (`docs/design/buildings.md`, "Units inside
     /// buildings", #226): defaults to `seats` (so a study hall needs no data of its own), else 0.
-    /// Only a building with a capacity above 0 may be entered (`World::enter_building`).
+    /// Only a building with a capacity above 0 may be entered (`World::enter_building`). A `bed`
+    /// bigger than 1x1 needs a capacity too: that many sleeping places inside it, rather than one
+    /// sleeper lying on its single tile (#227).
     pub capacity: u32,
-    /// Set if units sleep here (issue #58).
+    /// Set if units sleep here (issue #58). On a 1x1 building the sleeper lies right on its
+    /// tile; on a bigger one with a `capacity` (#227), each of that many places is a sleeper
+    /// inside, the same as a study hall's seats.
     pub bed: Option<BedDef>,
     /// Set if this keeps a permanent fire: it cooks meals and warms sleep nearby (issue #58).
     pub heat: Option<HeatDef>,
@@ -382,9 +388,11 @@ impl BuildingsFile {
                     b.id
                 ));
             }
-            if b.bed.is_some() && b.footprint != ONE_BY_ONE {
+            let capacity = b.capacity.unwrap_or(b.seats);
+            if b.bed.is_some() && b.footprint != ONE_BY_ONE && capacity == 0 {
                 return err(format!(
-                    "building {}: a bed must be 1x1 (one sleeper lies on its one tile)",
+                    "building {}: a bed bigger than 1x1 needs a capacity, the number of places \
+                     inside it (one sleeper otherwise lies on its own 1x1 tile)",
                     b.id
                 ));
             }
@@ -446,7 +454,7 @@ impl BuildingsFile {
                 passable: b.passable,
                 footprint: (w, h),
                 seats: b.seats,
-                capacity: b.capacity.unwrap_or(b.seats),
+                capacity,
                 bed: b.bed.map(|d| BedDef { sleep_bonus: d.sleep_bonus, seek_tiles: d.seek_tiles }),
                 heat: b.heat.map(|d| HeatDef {
                     radius: d.radius,
@@ -666,8 +674,13 @@ mod tests {
         }
         let bed = "[building.bed]\nsleep_bonus = 1.2\nseek_tiles = 5";
         resolve(&one(&format!("footprint = [1, 1]\n{bed}"))).unwrap();
+        // Bigger than 1x1 needs a capacity (#227): the number of sleeping places inside it.
         let big_bed = resolve(&one(&format!("footprint = [2, 1]\n{bed}")));
-        assert!(big_bed.unwrap_err().0.contains("bed must be 1x1"));
+        assert!(big_bed.unwrap_err().0.contains("needs a capacity"));
+        let big_bed_with_capacity =
+            resolve(&one(&format!("footprint = [2, 1]\ncapacity = 2\n{bed}"))).unwrap();
+        assert_eq!(big_bed_with_capacity[0].capacity, 2);
+        assert_eq!(big_bed_with_capacity[0].footprint, (2, 1));
     }
 
     #[test]
