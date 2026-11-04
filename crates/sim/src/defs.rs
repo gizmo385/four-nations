@@ -280,7 +280,7 @@ impl Defs {
             .resolve(&items, &techs, &resources)?;
         let biomes = parse::<BiomeFile>("biomes.toml", biomes)?.biome;
         let (chi, abilities) = parse::<BendingFile>("bending.toml", bending)?
-            .resolve(&biomes, &resources, &harvests, &techs)?;
+            .resolve(&biomes, &resources, &harvests, &items, &techs)?;
         let mut harvest_by_resource = vec![None; resources.len()];
         for (i, h) in harvests.iter().enumerate() {
             harvest_by_resource[h.resource.0 as usize] = Some(i);
@@ -506,7 +506,7 @@ mod tests {
             src = src.replace(&unlock, "");
         }
         // The bare bending has no abilities, so a tech can't unlock one.
-        for id in ["inner_fire", "bore_tunnel", "seismic_sense", "glide"] {
+        for id in ["inner_fire", "bore_tunnel", "seismic_sense", "glide", "metalbend"] {
             let ability = format!("abilities = [\"{id}\"]\n");
             assert!(src.contains(&ability), "{id}'s unlock moved; update this helper");
             src = src.replace(&ability, "");

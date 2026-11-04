@@ -16,8 +16,8 @@
 //!
 //! **This file holds every `match` on `Effect`** (AGENTS.md rule 7): `validate_effect` says
 //! whether a target is acceptable and `apply_effect` changes the world. The four real effects
-//! are #68 Raise Earth, #69 Water the Land, #70 Hearthflame and #71 Wind Carry. Everything else
-//! here is effect-agnostic.
+//! are #68 Raise Earth, #69 Water the Land, #70 Hearthflame and #71 Wind Carry (Metalbend, #134,
+//! joined them later). Everything else here is effect-agnostic.
 //!
 //! **Raise Earth** (#68) turns a river or lake tile with dry ground on one of its four sides
 //! into a `Ford`. Fords are permanent. The regions cache is invalidated and idle units woken,
@@ -46,6 +46,14 @@
 //! stack takes over the tile's existing haul job: a hauler who claimed it but hasn't walked
 //! there yet is released back to idle, and the haul job comes back if the bend is cancelled or
 //! the target is no longer valid when the channel finishes.
+//!
+//! **Metalbend** (#134, from `metalbending`) turns a ground stack of ore into metal, in place:
+//! the same conversion the Fire Nation's smelter does (`data/buildings.toml`'s `smelter`), but
+//! on the spot, with no building, no haul to one and no steady batches, at the cost of chi and a
+//! channel instead. Any ore left over once the stack divides by the recipe's `ratio` stays
+//! behind, as ore. It shares Wind Carry's tile-ownership rule: designating it over a ground stack
+//! takes over the tile's haul job, given back if the bend is cancelled or the stack is gone or
+//! too small when the channel finishes.
 
 use rand::seq::SliceRandom;
 
@@ -172,6 +180,13 @@ fn scaled_range(range: u32, magnitude: f32) -> u32 {
     ((range as f32) * magnitude).max(0.0).round() as u32
 }
 
+/// Whether `effect` works a ground stack at its target tile the way Wind Carry does (#71) and
+/// Metalbend does (#134): designating it takes over the tile's existing haul job, and the job
+/// comes back if the bend is cancelled or fails.
+fn owns_ground_stack(effect: &Effect) -> bool {
+    matches!(effect, Effect::WindCarry { .. } | Effect::Smelt { .. })
+}
+
 /// Queries and the designations behind `Command::Bend` and `Command::CancelBend`.
 impl World {
     /// Every bend that has finished or failed, oldest first.
@@ -275,15 +290,16 @@ impl World {
         let def = defs.ability(ability);
         self.validate_bend(def, pos, defs).map_err(BendError::InvalidTarget)?;
         let id = self.add_job(JobKind::Bend { ability, pos });
-        // Wind Carry takes over the tile's haul job (validation just confirmed a stack is there).
-        if matches!(def.effect, Effect::WindCarry { .. }) {
+        // Wind Carry and Metalbend take over the tile's haul job (validation just confirmed a
+        // stack is there).
+        if owns_ground_stack(&def.effect) {
             self.take_haul_job(pos);
         }
         Ok(id)
     }
 
-    /// Withdraws the bend designation on `pos`. Channeling done on it is lost. A Wind Carry
-    /// designation gives the tile's haul job back, if the stack is still there.
+    /// Withdraws the bend designation on `pos`. Channeling done on it is lost. A Wind Carry or
+    /// Metalbend designation gives the tile's haul job back, if the stack is still there.
     pub(super) fn cancel_bend(&mut self, pos: Pos, defs: &Defs) -> Result<(), BendError> {
         let Some(idx) = self
             .jobs
@@ -296,9 +312,7 @@ impl World {
             unreachable!("just matched above")
         };
         self.jobs.remove(idx);
-        if matches!(defs.ability(ability).effect, Effect::WindCarry { .. })
-            && self.ground.contains_key(&pos)
-        {
+        if owns_ground_stack(&defs.ability(ability).effect) && self.ground.contains_key(&pos) {
             self.ensure_haul_job(pos);
         }
         Ok(())
@@ -409,10 +423,9 @@ impl World {
                 BendOutcome::Done
             }
             Err(why) => {
-                // Wind Carry's target was a ground stack that had taken over the haul job: give
-                // it back, if the stack is still there to haul.
-                if matches!(def.effect, Effect::WindCarry { .. }) && self.ground.contains_key(&pos)
-                {
+                // Wind Carry's and Metalbend's target was a ground stack that had taken over the
+                // haul job: give it back, if the stack is still there to haul.
+                if owns_ground_stack(&def.effect) && self.ground.contains_key(&pos) {
                     self.ensure_haul_job(pos);
                 }
                 BendOutcome::Failed(why)
@@ -578,6 +591,19 @@ impl World {
                     Err("no stockpile with room in reach")
                 }
             }
+            // A ground stack of the right ore, with enough of it for at least one batch.
+            Effect::Smelt { ore, ratio, .. } => {
+                let Some(stack) = self.ground.get(&pos) else {
+                    return Err("needs ore to bend");
+                };
+                if stack.item != *ore {
+                    Err("that isn't ore")
+                } else if stack.count < *ratio {
+                    Err("not enough ore for a batch")
+                } else {
+                    Ok(())
+                }
+            }
             #[cfg(test)]
             Effect::Probe => {
                 if self.map[pos].terrain.is_walkable() {
@@ -697,6 +723,24 @@ impl World {
                 self.patches.insert(at, patch);
                 None
             }
+            // The stack converts batch by batch, right where it sits; what doesn't divide evenly
+            // by `ratio` stays behind as ore, with a fresh haul job if any is left.
+            Effect::Smelt { ore, metal, ratio } => {
+                let stack = self.ground.get(&pos).copied()?;
+                if stack.item != *ore {
+                    return None;
+                }
+                let batches = stack.count / ratio;
+                let leftover = stack.count - batches * ratio;
+                if leftover > 0 {
+                    self.ground.insert(pos, Stack { item: *ore, count: leftover });
+                    self.ensure_haul_job(pos);
+                } else {
+                    self.ground.remove(&pos);
+                }
+                self.place_ground(pos, Stack { item: *metal, count: batches });
+                None
+            }
             #[cfg(test)]
             Effect::Probe => None,
         }
@@ -776,6 +820,8 @@ mod earth_tests;
 mod fire_tests;
 #[cfg(test)]
 mod glide_tests;
+#[cfg(test)]
+mod metalbend_tests;
 #[cfg(test)]
 mod seismic_tests;
 #[cfg(test)]

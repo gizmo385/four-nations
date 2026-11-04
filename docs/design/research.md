@@ -101,12 +101,13 @@ written as `field ×N`.
 | `tunneling` | 120 | earth_shaping | ability: Bore Tunnel, a walkable tunnel through mountain tiles; minerals beside a tunnel yield more ("Tunneling" below, #132) |
 | `earth_rail` | 250 | earthen_walls | rail building: Ba Sing Se–style track that carts run along (#135, "Rail" below); carry_capacity ×1.25 |
 | `seismic_sense` | 250 | tunneling | ability: Seismic Sense, uncovers the gold seams buried in the rock within a radius ("Seismic sense" below, #133) |
-| `metalbending` | 500 | seismic_sense, masonry | metal from ore without a smelter; ability: metalbend |
+| `metalbending` | 500 | seismic_sense, masonry | ability: Metalbend, ore straight into metal, no smelter trip needed ("Metalbending" below, #134) |
 
 Earth content pass (#25): only `earthen_walls` unlocked a concrete thing then (the `earth_wall`
 building). `earth_shaping` is modifier-only for now (Raise Earth already
-scales with earthworks), and `metalbending` unlocks nothing until metal exists (#134). `tunneling` unlocks Bore
-Tunnel since #132, and `seismic_sense` unlocks Seismic Sense since #133 (both below). Rail was added by #135 (below), and the flood barrier and terraces are #136.
+scales with earthworks). `tunneling` unlocks Bore
+Tunnel since #132, `seismic_sense` unlocks Seismic Sense since #133 (both below), and
+`metalbending` unlocks Metalbend since #134 (below). Rail was added by #135 (below), and the flood barrier and terraces are #136.
 `crates/sim/tests/research_earth.rs` keeps that list honest. No costs or multipliers changed:
 with the pacing assumptions above (one scholar from minute 5, two from 15, three from 40, each
 two-thirds effective), an Earth settlement has about 1000 points at minute 60 and the whole tree
@@ -274,6 +275,36 @@ rarely built on.
 
 Mapgen now places ruins, so the ASCII goldens were re-blessed (only `n` marks were added; nothing
 else moved). Tests: `crates/sim/src/world/bending/glide_tests.rs`.
+
+### Metalbending (#134)
+
+`metalbending` promised "metal from ore without a smelter", which needed two things #124 (Fire
+production) left as hooks: the `metal` item (already in `data/jobs.toml`, since the smelter makes
+it too) and a way to turn ore into it outside a building.
+
+**The ability, not a building.** The smelter (`data/buildings.toml`) is Fire's path to metal: haul
+ore to the building, work there in batches, forever, through a `Craft` job (`world/forge.rs`,
+#124). Metalbend is Earth's: a bend like any other (`Effect::Smelt`, `world/bending.rs`), it works
+a ground stack of ore right where it sits, no building or trip needed, converting it on the spot
+at the cost of chi and a channel. The two co-exist rather than one replacing the other: Fire's path
+produces steadily and unattended once the ore keeps coming; Earth's is instant (one cast) but
+spends chi and needs a bender free to walk there, which fits bending's own rhythm of designate,
+walk, channel, spend.
+
+| | Value (`data/bending.toml`) |
+|---|---|
+| Chi | 35 |
+| Channel | 12 s ÷ `earthworks` |
+| Target | A ground stack of `gold_ore` (the only ore today) |
+| Result | The stack converts to `metal` at the smelter's own ratio, 2 ore for 1 metal. A remainder that doesn't divide evenly (an odd ore count) stays behind as ore |
+
+Like Wind Carry, designating it over a ground stack takes over the tile's haul job, so a hauler
+doesn't carry the ore off mid-channel; the job comes back if the bend is cancelled, or the stack
+turns out gone or too small (less than 2 ore) when the channel completes. The cast's look borrows
+Raise Earth's (`cast.rs`, `Look::Rise`): the client is being removed (#283), so no new art. The TUI
+highlight is the plain target tile, same as Raise Earth and Bore Tunnel.
+
+Tests: `crates/sim/src/world/bending/metalbend_tests.rs`.
 
 ### Rail (#135)
 

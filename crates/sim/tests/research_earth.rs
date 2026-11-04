@@ -15,10 +15,10 @@ fn branch(defs: &Defs) -> Vec<TechId> {
 /// Earth techs that unlock no building, job or ability yet, and why. A tech not listed here must
 /// unlock at least one concrete thing; an entry here must really unlock none, so the list can't
 /// go stale. The reasons repeat the comments in data/research.toml.
-const WITHOUT_CONCRETE_UNLOCKS: &[(&str, &str)] = &[
-    ("earth_shaping", "modifier-only: earthworks speeds up Raise Earth, which Earth starts with"),
-    ("metalbending", "needs a metal item and a refining mechanic"),
-];
+const WITHOUT_CONCRETE_UNLOCKS: &[(&str, &str)] = &[(
+    "earth_shaping",
+    "modifier-only: earthworks speeds up Raise Earth, which Earth starts with",
+)];
 
 #[test]
 fn every_earth_tech_unlocks_something_or_has_a_documented_reason_not_to() {
@@ -50,6 +50,14 @@ fn earthen_walls_unlocks_the_earth_wall() {
     let wall = defs.building(defs.building_id("earth_wall").expect("earth_wall is defined"));
     assert_eq!(wall.unlocked_by, defs.tech_id("earthen_walls"));
     assert!(!wall.passable, "a wall blocks movement");
+}
+
+#[test]
+fn metalbending_unlocks_metalbend() {
+    let defs = Defs::bundled();
+    let ability = defs.ability(defs.ability_id("metalbend").expect("metalbend is defined"));
+    assert_eq!(ability.nation, Nation::Earth);
+    assert_eq!(ability.unlocked_by, defs.tech_id("metalbending"));
 }
 
 #[test]
