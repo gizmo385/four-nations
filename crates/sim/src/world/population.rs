@@ -37,6 +37,7 @@
 
 use super::*;
 use crate::flood::Flood;
+use crate::nation::NationDef;
 
 /// The stream newcomers' names are drawn from. A saved world that predates population growth
 /// loads with this seeded by 0 instead of the world seed, as `orchard_rng` does for #142; still
@@ -192,15 +193,39 @@ impl World {
         *Nation::ALL.last().expect("Nation::ALL is never empty")
     }
 
+    /// A name for a newcomer of `nation`: one no living unit (of any nation; #239 lets several
+    /// share a settlement) already has, while the pool still has one unused, drawn from
+    /// `growth_rng` so it stays deterministic per seed (issue #303 — population growth used to
+    /// draw with replacement and hand out duplicates once a pool of ~20 names outran the
+    /// starting roster). Once every name in the pool belongs to somebody already, draws a base
+    /// name the same way and appends the lowest numeral that makes it unique, as `spawn_units`
+    /// already does for a starting roster bigger than its pool.
+    fn draw_newcomer_name(&mut self, nation: &NationDef) -> String {
+        let taken: BTreeSet<&str> =
+            self.units.iter().filter(|u| !u.is_avatar()).map(|u| u.name.as_str()).collect();
+        let available: Vec<&String> =
+            nation.names.iter().filter(|n| !taken.contains(n.as_str())).collect();
+        if !available.is_empty() {
+            let idx = self.growth_rng.random_range(0..available.len());
+            return available[idx].clone();
+        }
+        let base = &nation.names[self.growth_rng.random_range(0..nation.names.len())];
+        (2..)
+            .map(|n| format!("{base} {n}"))
+            .find(|c| !taken.contains(c.as_str()))
+            .expect("an unbounded sequence of numeral suffixes always finds one no living unit has")
+    }
+
     /// Adds one newcomer on the settlement's outskirts (`nearest_edge_tile`), of a nation drawn
-    /// by `newcomer_nation` and named from that nation's pool. Does nothing, and returns `false`,
-    /// if the settlement has no walkable tile at all; `true` otherwise, so `tick_population` only
-    /// spends `newcomer_food` (#294) when someone actually joined.
+    /// by `newcomer_nation` and named from that nation's pool (`draw_newcomer_name`). Does
+    /// nothing, and returns `false`, if the settlement has no walkable tile at all; `true`
+    /// otherwise, so `tick_population` only spends `newcomer_food` (#294) when someone actually
+    /// joined.
     fn spawn_newcomer(&mut self, defs: &Defs) -> bool {
         let Some(pos) = self.nearest_edge_tile(self.settlement_anchor()) else { return false };
         let drawn = self.newcomer_nation(defs);
         let nation = defs.nation(drawn);
-        let name = nation.names[self.growth_rng.random_range(0..nation.names.len())].clone();
+        let name = self.draw_newcomer_name(nation);
         let variant = self.rng.random_range(0..nation.characters.len() as u8);
         let id = UnitId(self.next_unit);
         self.next_unit += 1;
