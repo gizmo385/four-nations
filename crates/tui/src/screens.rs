@@ -49,6 +49,7 @@ fn kind_tone(kind: Kind) -> Tone {
         Kind::Tech => Tone::Ok,
         Kind::Death => Tone::Bad,
         Kind::Endeavor => Tone::Ok,
+        Kind::Arrival => Tone::Ok,
     }
 }
 

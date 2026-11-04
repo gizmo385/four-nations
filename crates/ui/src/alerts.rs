@@ -1,5 +1,5 @@
-//! The alert log: bend results (#72), tech completions (#23), deaths and the end-game endeavor's
-//! events (#235) as one stream of lines.
+//! The alert log: bend results (#72), tech completions (#23), deaths, the end-game endeavor's
+//! events (#235) and newcomers joining the settlement (#232) as one stream of lines.
 //!
 //! Every line is kept in a bounded history (the terminal UI's message log). The newest ones also
 //! show as short-lived *toasts* in the side panel's Alerts section (ui.md: "a section with
@@ -7,7 +7,7 @@
 //! [`Alerts::update`], in real seconds, so this crate never reads a clock.
 
 use fn_sim::needs::DeathCause;
-use fn_sim::world::{BendEvent, BendOutcome};
+use fn_sim::world::{Arrival, BendEvent, BendOutcome};
 
 use crate::endeavor;
 use crate::session::Session;
@@ -26,6 +26,8 @@ pub enum Kind {
     Death,
     /// An endeavor sign met for the first time, or the endeavor Ready (#235).
     Endeavor,
+    /// A newcomer joined the settlement (#232).
+    Arrival,
 }
 
 impl Kind {
@@ -37,6 +39,7 @@ impl Kind {
             Self::Tech => 8.0,
             Self::Death => 0.0,
             Self::Endeavor => 10.0,
+            Self::Arrival => 8.0,
         }
     }
 
@@ -47,6 +50,7 @@ impl Kind {
             Self::Tech => 3,
             Self::Death => 0,
             Self::Endeavor => 3,
+            Self::Arrival => 3,
         }
     }
 }
@@ -67,9 +71,9 @@ pub struct Entry {
 pub struct Alerts {
     /// Oldest first.
     log: Vec<Entry>,
-    /// How many of `World::bend_events`, `Research::completions`, `World::deaths` and
-    /// `World::endeavor_events` have already become a line.
-    seen: (usize, usize, usize, usize),
+    /// How many of `World::bend_events`, `Research::completions`, `World::deaths`,
+    /// `World::endeavor_events` and `World::arrivals` have already become a line.
+    seen: (usize, usize, usize, usize, usize),
     /// The tick of the last update, to notice a new world.
     last_tick: u64,
 }
@@ -83,12 +87,15 @@ impl Alerts {
         let completions = world.research().completions();
         let deaths = &world.deaths;
         let endeavor = world.endeavor_events();
-        let counts = (events.len(), completions.len(), deaths.len(), endeavor.len());
+        let arrivals = world.arrivals();
+        let counts =
+            (events.len(), completions.len(), deaths.len(), endeavor.len(), arrivals.len());
         if world.tick < self.last_tick
             || counts.0 < self.seen.0
             || counts.1 < self.seen.1
             || counts.2 < self.seen.2
             || counts.3 < self.seen.3
+            || counts.4 < self.seen.4
         {
             // A new world (regenerate, nation switch, a loaded game): the old log is gone.
             *self = Self::default();
@@ -112,6 +119,9 @@ impl Alerts {
         }
         for ev in &endeavor[self.seen.3..] {
             fresh.push((ev.tick, Kind::Endeavor, endeavor::describe_event(&session.defs, ev)));
+        }
+        for a in &arrivals[self.seen.4..] {
+            fresh.push((a.tick, Kind::Arrival, describe_arrival(a)));
         }
         self.seen = counts;
         fresh.sort_by_key(|(tick, ..)| *tick);
@@ -139,7 +149,7 @@ impl Alerts {
     pub fn toasts(&self) -> Vec<&Entry> {
         let live = |e: &&Entry| e.left > 0.0;
         let mut keep = vec![false; self.log.len()];
-        for kind in [Kind::Bend, Kind::Tech, Kind::Death, Kind::Endeavor] {
+        for kind in [Kind::Bend, Kind::Tech, Kind::Death, Kind::Endeavor, Kind::Arrival] {
             let of_kind: Vec<usize> = (0..self.log.len())
                 .filter(|&i| self.log[i].kind == kind && live(&&self.log[i]))
                 .collect();
@@ -155,6 +165,11 @@ impl Alerts {
     pub fn toast_lines(&self) -> Vec<String> {
         self.toasts().into_iter().map(|e| e.text.clone()).collect()
     }
+}
+
+/// "Pema has joined the settlement" (#232).
+pub fn describe_arrival(a: &Arrival) -> String {
+    format!("{} has joined the settlement", a.name)
 }
 
 /// "Haru used Raise Earth at (5, 3)" or "Haru's Raise Earth failed: needs dry ground beside it".
@@ -184,6 +199,33 @@ mod tests {
             s.tick();
         }
         panic!("never happened");
+    }
+
+    #[test]
+    fn describes_an_arrival() {
+        let a = Arrival { tick: 0, unit: fn_sim::world::UnitId(6), name: "Pema".into() };
+        assert_eq!(describe_arrival(&a), "Pema has joined the settlement");
+    }
+
+    #[test]
+    fn an_arrival_becomes_a_toast() {
+        let s = Session::new(7, Nation::Fire, 48, 32);
+        let mut alerts = Alerts::default();
+        alerts.log.push(Entry {
+            tick: 0,
+            kind: Kind::Arrival,
+            text: describe_arrival(&Arrival {
+                tick: 0,
+                unit: fn_sim::world::UnitId(6),
+                name: "Pema".into(),
+            }),
+            left: Kind::Arrival.toast_seconds(),
+        });
+        alerts.update(&s, 0.0);
+        assert_eq!(alerts.toast_lines(), ["Pema has joined the settlement"]);
+        alerts.update(&s, Kind::Arrival.toast_seconds() + 1.0);
+        assert!(alerts.toasts().is_empty(), "the toast should have aged out");
+        assert_eq!(alerts.history().len(), 1, "but the history keeps it");
     }
 
     #[test]

@@ -169,6 +169,9 @@ impl World {
         // building_index isn't saved (#292); rebuild it once here rather than on every
         // once-a-second endeavor check.
         world.rebuild_building_index();
+        // next_unit (#232) defaults to 0 for a save from before it existed; restore its
+        // invariant (past every unit id ever handed out) from the units and deaths on file.
+        world.fixup_next_unit();
         Ok(world)
     }
 }
