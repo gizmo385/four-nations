@@ -23,8 +23,8 @@ pub struct ItemId(pub u16);
 pub struct ItemDef {
     pub id: String,
     pub name: String,
-    /// The icon's name in the client's icon sheet (`art/icons.toml`). The sim never reads it; it
-    /// is data so which picture an item uses isn't a match in client code.
+    /// An icon identifier for a future graphical frontend. The sim never reads it; it is data so
+    /// which picture an item uses isn't a match in frontend code.
     pub icon: String,
     /// Index into `Defs::foods` if this item can be eaten.
     pub food: Option<usize>,

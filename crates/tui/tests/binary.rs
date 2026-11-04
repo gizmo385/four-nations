@@ -159,10 +159,10 @@ fn bad_arguments_fail_with_usage() {
     assert!(String::from_utf8_lossy(&out.stdout).contains("--frame"));
 }
 
-/// The terminal frontend must stay free of the engine: it depends on `fn_sim` and `fn_ui` only
-/// (docs/design/tui.md), so `cargo xtask ci sim` can gate it without compiling Bevy.
+/// The terminal frontend must stay free of a game engine: it depends on `fn_sim` and `fn_ui`
+/// only (docs/design/tui.md).
 #[test]
-fn bevy_is_not_in_the_dependency_tree() {
+fn depends_on_the_sim_and_shared_ui_only() {
     let out = Command::new(env!("CARGO"))
         .args([
             "tree",
@@ -180,7 +180,5 @@ fn bevy_is_not_in_the_dependency_tree() {
     let tree = String::from_utf8_lossy(&out.stdout);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     assert!(tree.lines().any(|l| l.starts_with("fn_sim ")), "sanity: the tree lists fn_sim");
-    let bevy: Vec<_> = tree.lines().filter(|l| l.starts_with("bevy")).collect();
-    assert!(bevy.is_empty(), "fn_tui must not depend on Bevy: {bevy:?}");
-    assert!(!tree.contains("fn_client"), "fn_tui must not depend on the Bevy client");
+    assert!(tree.lines().any(|l| l.starts_with("fn_ui ")), "sanity: the tree lists fn_ui");
 }

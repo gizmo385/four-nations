@@ -121,7 +121,7 @@ pub struct TaskDef {
 /// reads this data.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AvatarDef {
-    /// A character id, for the client to pick his art (`NationDef::characters` is the pattern);
+    /// A character id, for a frontend to pick his art (`NationDef::characters` is the pattern);
     /// the sim never interprets it.
     pub id: String,
     pub name: String,

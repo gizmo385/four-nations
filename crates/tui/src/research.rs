@@ -1,9 +1,8 @@
 //! The research screen (`T`, docs/design/research.md): the tech tree as columns by depth, one card
-//! per tech. What it shows is `fn_ui::research::screen_view`, which the Bevy client draws too (the
-//! visibility rule, which techs a nation sees, is the sim's `Defs::techs_for`). A card has the
-//! name, the state, the cost and a summary of what it unlocks. `Enter` issues
-//! `Command::SetResearch`; `fn_sim` queues the whole prereq chain of a locked tech, and a queued
-//! prereq is drawn the same as the target, as in the client.
+//! per tech. What it shows is `fn_ui::research::screen_view` (the visibility rule, which techs a
+//! nation sees, is the sim's `Defs::techs_for`). A card has the name, the state, the cost and a
+//! summary of what it unlocks. `Enter` issues `Command::SetResearch`; `fn_sim` queues the whole
+//! prereq chain of a locked tech, and a queued prereq is drawn the same as the target.
 //!
 //! The cursor is a (column, row) pair in the view. The window onto the grid (which columns and
 //! which cards show) follows from the cursor and the size alone, so a frame is a pure function of

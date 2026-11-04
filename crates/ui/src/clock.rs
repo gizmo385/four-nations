@@ -74,9 +74,9 @@ impl Clock {
         u32::from(self.paused)
     }
 
-    /// For a frontend whose own scheduler already fires once per tick period (Bevy's
-    /// `FixedUpdate` at `TICKS_PER_SECOND`): the ticks to run for that one firing. 0 while paused,
-    /// else the speed, so at the default speed it is one tick a firing.
+    /// For a frontend whose own scheduler already fires once per tick period: the ticks to run
+    /// for that one firing. 0 while paused, else the speed, so at the default speed it is one
+    /// tick a firing.
     pub fn per_fixed_step(&self) -> u32 {
         if self.paused { 0 } else { self.speed() }
     }

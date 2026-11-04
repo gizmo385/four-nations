@@ -94,7 +94,7 @@ pub fn side_view(
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct StoreRow {
     pub name: String,
-    /// The item's icon name (`ItemDef::icon`), a sprite in `art/icons.toml`.
+    /// The item's icon name (`ItemDef::icon`); no current frontend draws it.
     pub icon: String,
     pub count: u32,
 }

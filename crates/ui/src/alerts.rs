@@ -31,8 +31,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    /// How long the toast stays, in real seconds. A kind with no toast is history only: the
-    /// Bevy client shows no death alerts yet.
+    /// How long the toast stays, in real seconds. A kind with no toast is history only.
     pub fn toast_seconds(self) -> f32 {
         match self {
             Self::Bend => 6.0,

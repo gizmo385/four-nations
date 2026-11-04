@@ -266,10 +266,10 @@ pub struct BuildingDef {
     /// Pavilion for Air). Empty when every nation uses the plain `name`. If set at all, every
     /// nation has an entry (`display_name` is the one place that matters).
     pub names: HashMap<Nation, String>,
-    /// Which sprite of `art/buildings.toml` each nation draws this building with, if it varies
-    /// (the study hall looks different in each nation). Empty when every nation uses the sprite
-    /// named for the building's `id`. If set at all, every nation has an entry. The sim never
-    /// reads it; the client does (`BuildingDef::art_for`).
+    /// Which sprite a graphical frontend would draw this building with for each nation, if it
+    /// varies (the study hall looks different in each nation). Empty when every nation uses the
+    /// sprite named for the building's `id`. If set at all, every nation has an entry. The sim
+    /// never reads it (`BuildingDef::art_for`).
     pub art: HashMap<Nation, String>,
     /// The tech that must be known before this building may be designated (`data/research.toml`,
     /// `Unlocks::buildings`, issue #22). `None` means every nation can build it from the start.

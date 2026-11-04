@@ -1,7 +1,6 @@
 //! The colour tokens of the shared UI look (docs/design/ui.md, the "Seal" style), as plain sRGB
-//! triples in `[0, 1]`. The Bevy client turns them into `Color`s; the terminal UI maps them onto
-//! its own palette. The maths (the accent's soft and text tones) and the contrast guarantees live
-//! here so both frontends get them.
+//! triples in `[0, 1]`. The terminal UI maps them onto its own palette. The maths (the accent's
+//! soft and text tones) and the contrast guarantees live here so the frontend gets them.
 //!
 //! The accent is the player nation's `color` from data/nations.toml; everything else is fixed so
 //! status colours (ok/warn/bad) never change meaning between nations.

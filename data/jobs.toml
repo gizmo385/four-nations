@@ -29,7 +29,7 @@ idle_wander_chance = 0.5
 idle_wander_steps = 4
 
 # Items that aren't food. Foods (data/needs.toml) are items too, with the id they have there.
-# `icon` names the item's sprite in art/icons.toml (a client test checks that it exists).
+# `icon` names the item's sprite for a future graphical frontend; no current frontend reads it.
 # `knowledge` (optional, points, at least 1) makes an item readable: it is never stockpiled. A
 # unit carries it to a study hall instead, where it is used up and adds that many points to the
 # research pool (issue #24). With no study hall to take it, it stays where it lies.

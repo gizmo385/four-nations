@@ -5,8 +5,7 @@
 # `names` is the pool new units are named from (shuffled per seed).
 #
 # `characters` are the character ids a nation's units are drawn as; a unit's `variant` indexes this
-# list. The sim only counts them; crates/client/src/sprites/characters.rs maps each id to its sheet
-# (original art is art/<id>.toml, docs/design/pixel-art.md) and portrait.
+# list. The sim only counts them; a frontend maps each id to how it draws.
 #
 # `starting_techs` are known from tick 0 (ids from data/research.toml). Each must be shared or
 # this nation's own, and every prereq of a starting tech must also be a starting tech.

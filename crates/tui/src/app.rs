@@ -377,9 +377,9 @@ impl App {
         self.refresh_saves();
     }
 
-    /// Makes `world` the game. As in the Bevy client, only the world is in a save: the cursor,
-    /// the selection, the tool, the screens and the log start over, and the clock (speed and
-    /// pause) is the player's and stays.
+    /// Makes `world` the game. Only the world is in a save: the cursor, the selection, the tool,
+    /// the screens and the log start over, and the clock (speed and pause) is the player's and
+    /// stays.
     pub fn load(&mut self, world: World) {
         self.session.world = world;
         self.session.bend_choice = None;

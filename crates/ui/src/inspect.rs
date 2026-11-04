@@ -1,5 +1,4 @@
-//! What is under the cursor: the lines of the hover tooltip (the Bevy client) or the Cursor
-//! section (the terminal UI).
+//! What is under the cursor: the lines of the Cursor section (the terminal UI).
 
 use fn_sim::world::PlotStage;
 use fn_sim::{Pos, World};

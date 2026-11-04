@@ -1,7 +1,7 @@
 //! Save files on disk (#112, #216): where they live, how one is written so a crash can't eat it,
-//! and the list of named slots both frontends show. The sim turns a `World` into text and back
+//! and the list of named slots the frontend shows. The sim turns a `World` into text and back
 //! (`fn_sim::save`) and does no I/O; this module is the one place in `fn_ui` that touches the
-//! filesystem, so the Bevy client and the terminal UI read and write saves the same way.
+//! filesystem, so saves are read and written the same way everywhere.
 //!
 //! - **Where**: one `NAME.ron` file per slot in the platform's data directory (`save_dir`):
 //!   `$XDG_DATA_HOME` or `~/.local/share` on Linux, `~/Library/Application Support` on macOS,
