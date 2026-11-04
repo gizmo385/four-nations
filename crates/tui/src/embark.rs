@@ -49,6 +49,9 @@ pub struct EmbarkScreen {
     pub nation: Nation,
     size: MapSizeDef,
     mode: SurveyMode,
+    /// The difficulty preset's id chosen on the seed step (#298), carried into
+    /// `Session::found` on settling. `None` only when the data has no presets at all.
+    difficulty: Option<String>,
     survey: Survey,
     /// The scale at each zoom level: `[fit, 4, 2, 1]`, dropping fixed levels at or above `fit`
     /// and, in a rough survey, dropping `1` too. Index 0 is the overview.
@@ -78,6 +81,7 @@ impl EmbarkScreen {
         nation: Nation,
         size: MapSizeDef,
         mode: SurveyMode,
+        difficulty: Option<String>,
         screen: (u16, u16),
         defs: &Defs,
     ) -> Self {
@@ -90,6 +94,7 @@ impl EmbarkScreen {
             nation,
             size,
             mode,
+            difficulty,
             survey,
             ladder: vec![1],
             zoom: 0,
@@ -117,6 +122,10 @@ impl EmbarkScreen {
 
     pub fn mode(&self) -> SurveyMode {
         self.mode
+    }
+
+    pub fn difficulty(&self) -> Option<&str> {
+        self.difficulty.as_deref()
     }
 
     pub fn survey(&self) -> &Survey {
@@ -728,6 +737,22 @@ fn draw_panel(
         defs.nation(screen.nation).name.clone(),
         Tone::Text,
     ));
+    // A line under the seed (#298, docs/design/difficulty.md "Embark"): the chosen preset, and
+    // the size/survey mode already shown on the seed step.
+    let preset_name = screen
+        .difficulty()
+        .and_then(|id| defs.difficulty.preset(id))
+        .map_or("Normal", |p| p.name.as_str());
+    let survey_name = match screen.mode() {
+        SurveyMode::Exact => "Exact",
+        SurveyMode::Rough => "Rough",
+    };
+    p.row(&Row::pair(
+        preset_name.to_owned(),
+        Tone::Dim,
+        format!("{} · {survey_name}", screen.size().name),
+        Tone::Text,
+    ));
     let zoom_label = if screen.is_overview() {
         "overview"
     } else if screen.scale() == 1 {
@@ -841,17 +866,39 @@ mod tests {
     #[test]
     fn the_ladder_drops_fixed_levels_at_or_above_fit_and_one_in_a_rough_survey() {
         let defs = defs();
-        let s = EmbarkScreen::new(7, Nation::Earth, small(), SurveyMode::Exact, (120, 40), &defs);
+        let s = EmbarkScreen::new(
+            7,
+            Nation::Earth,
+            small(),
+            SurveyMode::Exact,
+            Some("normal".into()),
+            (120, 40),
+            &defs,
+        );
         assert_eq!(s.ladder, vec![6, 4, 2, 1]);
-        let rough =
-            EmbarkScreen::new(7, Nation::Earth, small(), SurveyMode::Rough, (120, 40), &defs);
+        let rough = EmbarkScreen::new(
+            7,
+            Nation::Earth,
+            small(),
+            SurveyMode::Rough,
+            Some("normal".into()),
+            (120, 40),
+            &defs,
+        );
         assert_eq!(rough.ladder, vec![6, 4, 2]);
         // A terminal too small to fit the Large map at the floor forces a coarser overview
         // (docs/design/embark.md's own table: Large is 1:12 at 80x24, 1:7 at 120x40), dropping
         // fewer fixed levels than Small's always-6.
         assert_eq!(s.ladder[0], 6);
-        let mut big =
-            EmbarkScreen::new(7, Nation::Earth, large(), SurveyMode::Exact, (120, 40), &defs);
+        let mut big = EmbarkScreen::new(
+            7,
+            Nation::Earth,
+            large(),
+            SurveyMode::Exact,
+            Some("normal".into()),
+            (120, 40),
+            &defs,
+        );
         assert_eq!(big.ladder, vec![7, 4, 2, 1]);
         big.resize(80, 24);
         assert_eq!(big.ladder, vec![12, 4, 2, 1]);
@@ -860,8 +907,15 @@ mod tests {
     #[test]
     fn zooming_in_and_out_walks_the_ladder_and_esc_at_the_overview_goes_back() {
         let defs = defs();
-        let mut s =
-            EmbarkScreen::new(7, Nation::Earth, small(), SurveyMode::Exact, (120, 40), &defs);
+        let mut s = EmbarkScreen::new(
+            7,
+            Nation::Earth,
+            small(),
+            SurveyMode::Exact,
+            Some("normal".into()),
+            (120, 40),
+            &defs,
+        );
         assert!(s.is_overview());
         let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
         assert!(matches!(s.key(key(KeyCode::Esc), &defs), Outcome::Back));
@@ -874,8 +928,15 @@ mod tests {
     #[test]
     fn enter_at_the_closest_zoom_asks_and_y_settles() {
         let defs = defs();
-        let mut s =
-            EmbarkScreen::new(7, Nation::Earth, small(), SurveyMode::Exact, (120, 40), &defs);
+        let mut s = EmbarkScreen::new(
+            7,
+            Nation::Earth,
+            small(),
+            SurveyMode::Exact,
+            Some("normal".into()),
+            (120, 40),
+            &defs,
+        );
         for _ in 0..3 {
             s.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &defs);
         }
@@ -892,8 +953,15 @@ mod tests {
     #[test]
     fn settling_on_a_refused_site_gives_a_status_message_instead_of_a_prompt() {
         let defs = defs();
-        let mut s =
-            EmbarkScreen::new(7, Nation::Earth, small(), SurveyMode::Exact, (120, 40), &defs);
+        let mut s = EmbarkScreen::new(
+            7,
+            Nation::Earth,
+            small(),
+            SurveyMode::Exact,
+            Some("normal".into()),
+            (120, 40),
+            &defs,
+        );
         // The map's forced-sea border is always refused.
         s.cursor = Pos::new(0, 0);
         s.key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE), &defs);
@@ -904,8 +972,15 @@ mod tests {
     #[test]
     fn r_takes_the_next_seed_and_resets_to_the_overview_at_its_default_site() {
         let defs = defs();
-        let mut s =
-            EmbarkScreen::new(7, Nation::Earth, small(), SurveyMode::Exact, (120, 40), &defs);
+        let mut s = EmbarkScreen::new(
+            7,
+            Nation::Earth,
+            small(),
+            SurveyMode::Exact,
+            Some("normal".into()),
+            (120, 40),
+            &defs,
+        );
         s.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &defs);
         s.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE), &defs);
         assert_eq!(s.seed, 8);
@@ -916,8 +991,15 @@ mod tests {
     #[test]
     fn shift_moves_ten_cells_and_a_plain_move_is_one() {
         let defs = defs();
-        let mut s =
-            EmbarkScreen::new(7, Nation::Earth, small(), SurveyMode::Exact, (120, 40), &defs);
+        let mut s = EmbarkScreen::new(
+            7,
+            Nation::Earth,
+            small(),
+            SurveyMode::Exact,
+            Some("normal".into()),
+            (120, 40),
+            &defs,
+        );
         let n = s.scale();
         let at = s.cursor;
         s.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE), &defs);

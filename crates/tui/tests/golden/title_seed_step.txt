@@ -13,11 +13,11 @@
                             │   Seed: 7                                                    │
                             │   Size: Small                                                │
                             │ ▸ Survey: Exact                                              │
+                            │   Difficulty: Normal                                         │
                             │                                                              │
                             │ Exact: you'll see exactly what's at every site.              │
                             │                                                              │
                             │ Digits edit  Up/Down row  Left/Right change  Enter: embark.  │
-                            │                                                              │
                             │                                                              │
                             │                                                              │
                             │                                                              │
