@@ -229,6 +229,10 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     "endeavor_log",
     // Units inside buildings (#226): each unit's location state.
     "inside",
+    // The Avatar as a guest (#237): where he stands, each unit's guest tag and patience timer.
+    "avatar",
+    "guest",
+    "unhappy_since",
 ];
 
 /// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239

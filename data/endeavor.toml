@@ -32,10 +32,25 @@
 # - work: in-game seconds of construct work once `cost` is in, at a `construction` modifier of 1.0;
 #         0 (the default) for a stage that is only tasks. A stage with a cost needs work.
 # [[stage.task]], bends that finish the stage. Each waits for the stage's work, then for its own
-# `cost` to be hauled to the site, then a unit of its `element` with `chi` to spare (in
-# (0, chi.max], data/bending.toml) channels it for `work` seconds and spends the chi. A stage is done when its work and every task are.
+# `cost` to be hauled to the site, then an eligible unit with `chi` to spare (in (0, chi.max],
+# data/bending.toml) channels it for `work` seconds and spends the chi. A stage is done when its
+# work and every task are.
 # - id:      unique across every stage; saves refer to tasks by id.
-# - element: who may do it: a unit of this nation. The Avatar, who may do any, comes later.
+# - element: who may do it: a unit of this nation, or "avatar" for a task only the Avatar may
+#            claim (the Arch's beam lift). The Avatar may also do any nation's pillar task.
+#
+# [avatar] (issue #237, docs/design/endgame.md "The Avatar"): Aang, who appears once the
+# foundation stage is done and leaves only if neglected.
+# - id, name, character: his own ids; `character` is an art id the sim never interprets.
+# - chi_max:              his own full chi meter (may be more than data/bending.toml's chi.max).
+# - [avatar.modifiers]:   his own work modifiers (data/nations.toml's `Modifiers` shape, every
+#                         field required); `chi_regen` is his regen multiplier.
+# - abilities:            the signature abilities he may cast (ids from data/bending.toml).
+# - refuses:              foods (item ids) he won't eat raw or cooked.
+# - patience_minutes:     how long his hunger or energy may stay at or below `low` before he
+#                         leaves (an event names the reason).
+# - return_minutes:       how long he stays away once he has left.
+# - arrive_after_minutes: how long after the foundation stage is done before he arrives.
 #
 # A sign whose system doesn't exist yet stays out of this file, and the loader rejects a kind the
 # sim can't count:
@@ -175,3 +190,34 @@ id = "arch"
 name = "The Arch"
 cost = [{ item = "wood", count = 60 }, { item = "gold_ore", count = 20 }]
 work = 600.0
+
+[[stage.task]]
+id = "beam_lift"
+name = "Lift the beam"
+element = "avatar"
+chi = 50.0
+work = 90.0
+
+# The Avatar (docs/design/endgame.md, "The Avatar"). Chi max and the regen multiplier
+# (modifiers.chi_regen) are his own; the other work modifiers are the best of the four nations'.
+[avatar]
+id = "aang"
+name = "Aang"
+character = "aang"
+chi_max = 200.0
+patience_minutes = 20.0
+return_minutes = 30.0
+arrive_after_minutes = 2.0
+abilities = ["raise_earth", "water_the_land", "hearthflame", "wind_carry"]
+refuses = ["fish"]
+
+[avatar.modifiers]
+move_speed = 1.6
+carry_capacity = 1.0
+earthworks = 2.5
+heating = 2.5
+water_work = 2.0
+power_generation = 2.0
+construction = 1.5
+study = 1.0
+chi_regen = 2.0

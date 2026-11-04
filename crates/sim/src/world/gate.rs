@@ -26,7 +26,7 @@
 //! A stage or task whose id the data no longer has simply stalls.
 
 use crate::building::{BuildingId, CostItem};
-use crate::endeavor::{StageDef, TaskDef};
+use crate::endeavor::{StageDef, TaskDef, TaskWho};
 use crate::jobs::{ItemId, JobKind, Stack};
 
 use super::build::{Blocker, Site};
@@ -185,6 +185,23 @@ impl World {
         defs.endeavor.stage(&self.gate()?.stage)
     }
 
+    /// The gate site's anchor, while it is being built: where the Avatar's arrival (#237) is
+    /// searched from.
+    pub(super) fn gate_anchor(&self) -> Option<Pos> {
+        self.gate().map(|g| g.anchor)
+    }
+
+    /// Whether the gate is past its first stage (the foundation): the Avatar arrives two minutes
+    /// after it is done (`world/avatar.rs`, #237). Also true once the gate is finished outright,
+    /// for the edge case of a single-stage gate.
+    pub(super) fn gate_past_first_stage(&self, defs: &Defs) -> bool {
+        match &self.endeavor {
+            EndeavorState::Building(g) => defs.endeavor.stage(&g.stage).is_some_and(|(n, _)| n > 0),
+            EndeavorState::Complete { .. } => true,
+            _ => false,
+        }
+    }
+
     /// Whether the gate may be placed with its anchor (top-left tile) on `anchor`: the endeavor
     /// must be Ready, then every footprint tile free, row-major. Changes nothing, so a frontend
     /// can call it to preview a placement.
@@ -262,10 +279,17 @@ impl World {
         Some((task_def(stage, state)?, g.anchor))
     }
 
-    /// Whether unit `i` may take `task`: it is of the task's element and its chi covers the cost.
+    /// Whether unit `i` may take `task`: it is allowed to (its own nation, or the Avatar for any
+    /// task) and its chi covers the cost.
     pub(super) fn unit_can_raise(&self, i: usize, task: &TaskDef) -> bool {
         let u = &self.units[i];
-        self.nation_of(u) == task.element && u.chi >= task.chi
+        if u.chi < task.chi {
+            return false;
+        }
+        match task.element {
+            TaskWho::Nation(n) => self.nation_of(u) == n || u.is_avatar(),
+            TaskWho::Avatar => u.is_avatar(),
+        }
     }
 }
 

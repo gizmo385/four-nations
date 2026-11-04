@@ -4,7 +4,9 @@
 //! there are, and when the endeavor is Ready, are the sim's.
 
 use fn_sim::endeavor::{SignDef, SignGroup, SignKind, Tally};
-use fn_sim::world::{EndeavorEvent, EndeavorEventKind, EndeavorState, SignProgress};
+use fn_sim::world::{
+    AvatarLeaveReason, EndeavorEvent, EndeavorEventKind, EndeavorState, SignProgress,
+};
 use fn_sim::{Defs, World};
 
 use crate::session::Session;
@@ -254,6 +256,23 @@ pub fn describe_event(defs: &Defs, ev: &EndeavorEvent) -> String {
         EndeavorEventKind::StageDone(id) => {
             let name = defs.endeavor.stage(id).map_or(id.as_str(), |(_, s)| &s.name);
             format!("Stage done: {name}")
+        }
+        // The Avatar as a guest (#237); his own screen and side-panel glyphs are #242's.
+        EndeavorEventKind::AvatarArrived => {
+            let name = defs.endeavor.avatar.as_ref().map_or("The Avatar", |a| a.name.as_str());
+            format!("{name} has arrived on Appa.")
+        }
+        EndeavorEventKind::AvatarLeft(reason) => {
+            let name = defs.endeavor.avatar.as_ref().map_or("The Avatar", |a| a.name.as_str());
+            let why = match reason {
+                AvatarLeaveReason::Hungry => "to find food",
+                AvatarLeaveReason::Tired => "to rest",
+            };
+            format!("{name} has gone {why}. He'll be back.")
+        }
+        EndeavorEventKind::AvatarReturned => {
+            let name = defs.endeavor.avatar.as_ref().map_or("The Avatar", |a| a.name.as_str());
+            format!("{name} is back.")
         }
     }
 }

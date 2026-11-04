@@ -61,6 +61,20 @@ pub enum EndeavorEventKind {
     Ready,
     /// The stage with this id was finished (`gate.rs`).
     StageDone(String),
+    /// The Avatar landed on Appa (`world/avatar.rs`, #237).
+    AvatarArrived,
+    /// The Avatar left, unfed or exhausted, for the reason given.
+    AvatarLeft(AvatarLeaveReason),
+    /// The Avatar came back.
+    AvatarReturned,
+}
+
+/// Why the Avatar left (`world/avatar.rs`, #237): named for the client's toast ("Aang has gone
+/// to find food. He'll be back.").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum AvatarLeaveReason {
+    Hungry,
+    Tired,
 }
 
 /// What the world remembers of the endeavor between checks. Its own struct so a save carries it

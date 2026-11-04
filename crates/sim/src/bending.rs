@@ -36,12 +36,13 @@ pub struct ChiSettings {
 }
 
 impl ChiSettings {
-    /// `chi` after one tick of regeneration, clamped to `max`. `multiplier` is the nation's
-    /// effective `chi_regen` modifier.
-    pub fn regen(&self, chi: f32, sleeping: bool, multiplier: f32) -> f32 {
+    /// `chi` after one tick of regeneration, clamped to `max`. `multiplier` is the unit's
+    /// effective `chi_regen` modifier; `max` is usually `self.max`, but the Avatar's own meter
+    /// (#237, `World::chi_max_for`) can hold more.
+    pub fn regen(&self, chi: f32, sleeping: bool, multiplier: f32, max: f32) -> f32 {
         let per_minute = if sleeping { self.sleep_regen_per_minute } else { self.regen_per_minute };
         let per_tick = per_minute * multiplier / (60.0 * TICKS_PER_SECOND as f32);
-        (chi + per_tick).min(self.max)
+        (chi + per_tick).min(max)
     }
 }
 
