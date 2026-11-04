@@ -30,6 +30,7 @@ mod gate;
 mod heat;
 mod inside;
 mod orchard;
+mod population;
 mod stride;
 mod study;
 mod tally;
@@ -44,6 +45,7 @@ use endeavor::EndeavorLog;
 pub use endeavor::{EndeavorEvent, EndeavorEventKind, EndeavorState, SignProgress};
 pub use gate::{EndeavorError, GateSite, GateTask};
 pub use heat::{Aura, Flame, Glow, HeatSource};
+pub use population::Arrival;
 pub use stride::{STRIDE_LOOKAHEAD, Stride};
 pub use tally::Tallies;
 pub use work::{DesignateError, FoodSource, Task};
@@ -262,11 +264,25 @@ pub struct World {
     /// every save from before #289, so neither changes a byte. Read it through `start()`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     start: Option<Pos>,
+    /// The id the next unit gets, whether it is a newcomer (`population.rs`, #232) or some
+    /// future runtime spawn: always past every id a unit (living or dead) has ever had, so none
+    /// is reused. A save from before this counter existed deserializes it as 0; `World::load`
+    /// fixes it up to the same invariant from the units and deaths already on file.
+    #[serde(default)]
+    next_unit: u32,
+    /// Newcomers who have joined since the world began (`population.rs`, #232), oldest first.
+    /// Read it through `arrivals()`.
+    #[serde(default)]
+    arrivals: Vec<Arrival>,
     /// Picks which tile an orchard plants next (`orchard.plant`).
     #[serde(default = "orchard::default_rng")]
     orchard_rng: SimRng,
     /// Picks which tiles of a dried patch sprout (`bending.sprout`).
     sprout_rng: SimRng,
+    /// Names a newcomer (`population.names`). A save from before #232 loads this seeded by 0
+    /// instead of the world seed (as `orchard_rng` does for #142); still deterministic.
+    #[serde(default = "population::default_rng")]
+    growth_rng: SimRng,
     rng: SimRng,
 }
 
@@ -314,13 +330,17 @@ impl World {
             endeavor_log: EndeavorLog::default(),
             buried: BTreeMap::new(),
             start: None,
+            next_unit: 0,
+            arrivals: Vec::new(),
             orchard_rng: orchard::new_rng(seed),
             sprout_rng: rng::stream(seed, "bending.sprout"),
+            growth_rng: population::new_rng(seed),
             rng: rng::stream(seed, "world.units"),
         };
         world.bury(defs);
         world.refresh_modifiers(defs);
         world.spawn_units(spawns, defs);
+        world.next_unit = spawns.len() as u32;
         world
     }
 
@@ -485,10 +505,10 @@ impl World {
     }
 
     /// Advances the world by one tick: research, units' needs and chi, resource regrowth and
-    /// drying patches and burning-out flames run (units whose health reaches 0 die and are removed, in id order), then
-    /// each survivor acts, in id order: it meets a need if one is low, else carries on with its
-    /// job, else claims one, else wanders. See `work.rs`. Last, once a second, the endeavor checks
-    /// its signs (`endeavor.rs`).
+    /// drying patches and burning-out flames run (units whose health reaches 0 die and are removed, in id order),
+    /// a newcomer may join (`population.rs`, #232), then each survivor acts, in id order: it
+    /// meets a need if one is low, else carries on with its job, else claims one, else wanders.
+    /// See `work.rs`. Last, once a second, the endeavor checks its signs (`endeavor.rs`).
     pub fn tick(&mut self, defs: &Defs) {
         self.tick += 1;
         let completed = self.research.completions().len();
@@ -498,6 +518,7 @@ impl World {
         }
         self.tick_needs(defs);
         self.tick_growth(defs);
+        self.tick_population(defs);
         self.tick_orchards(defs);
         self.tick_irrigation(defs);
         self.tick_heat();

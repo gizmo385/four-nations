@@ -46,7 +46,19 @@ pub struct GeneralSettings {
     pub sleep_energy_per_minute: f32,
 }
 
-/// `[settings]`, `[hunger]`, `[thirst]`, `[energy]` and `[health]` of `data/needs.toml`.
+/// `[growth]` of `data/needs.toml` (issue #232, docs/design/endgame.md "Population growth"):
+/// how often the settlement draws a newcomer, and what it costs in stores.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GrowthDef {
+    /// In-game minutes between arrival checks.
+    pub arrival_minutes: f32,
+    /// Food items that must be in stores right now for one newcomer to arrive.
+    pub food_per_newcomer: u32,
+}
+
+/// `[settings]`, `[hunger]`, `[thirst]`, `[energy]`, `[health]` and `[growth]` of
+/// `data/needs.toml`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NeedsSettings {
     pub general: GeneralSettings,
@@ -54,6 +66,7 @@ pub struct NeedsSettings {
     pub thirst: NeedDef,
     pub energy: NeedDef,
     pub health: HealthDef,
+    pub growth: GrowthDef,
 }
 
 impl NeedsSettings {
@@ -96,6 +109,7 @@ pub(crate) struct NeedsFile {
     thirst: NeedDef,
     energy: NeedDef,
     health: HealthDef,
+    growth: GrowthDef,
     food: Vec<FoodDef>,
 }
 
@@ -113,6 +127,7 @@ impl NeedsFile {
             thirst: self.thirst,
             energy: self.energy,
             health: self.health,
+            growth: self.growth,
         };
         let g = s.general;
         for (what, v) in [
@@ -130,6 +145,12 @@ impl NeedsFile {
         }
         if g.drink_thirst > g.max {
             return err("settings.drink_thirst can't exceed settings.max".into());
+        }
+        if !(s.growth.arrival_minutes.is_finite() && s.growth.arrival_minutes > 0.0) {
+            return err("growth.arrival_minutes must be a positive number".into());
+        }
+        if s.growth.food_per_newcomer == 0 {
+            return err("growth.food_per_newcomer must be at least 1".into());
         }
         for (what, n) in [("hunger", s.hunger), ("thirst", s.thirst), ("energy", s.energy)] {
             if !(n.decay_per_minute.is_finite() && n.decay_per_minute > 0.0) {

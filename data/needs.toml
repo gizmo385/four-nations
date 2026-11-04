@@ -43,6 +43,13 @@ max = 100.0
 depleted_damage_per_minute = 10.0   # per depleted need
 regen_per_minute = 2.0
 
+# Population growth (#232, docs/design/endgame.md "Population growth"): every arrival_minutes,
+# if a bed nobody owns is free and food_per_newcomer food items are in stores, one newcomer
+# walks in from the nearest map edge.
+[growth]
+arrival_minutes = 15.0
+food_per_newcomer = 30
+
 # Foods. `hunger` is what one raw item restores. `cooked_hunger` (optional) is what it restores
 # once cooked, and must be higher. `resource` (optional) links to a map resource in
 # data/resources.toml that yields this food (what the harvest yields is in data/jobs.toml).

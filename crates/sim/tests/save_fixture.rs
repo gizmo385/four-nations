@@ -229,6 +229,11 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     "endeavor_log",
     // Units inside buildings (#226): each unit's location state.
     "inside",
+    // Population growth (#232): the id counter newcomers draw from, who has joined so far, and
+    // the stream their names are drawn from.
+    "next_unit",
+    "arrivals",
+    "growth_rng",
 ];
 
 /// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239
