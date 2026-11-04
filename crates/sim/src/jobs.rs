@@ -297,6 +297,12 @@ pub enum JobKind {
     /// site (`world/gate.rs`, #236). `task` is its place in `GateSite::tasks`, which saves name
     /// by id. Queued automatically once the task's materials are in.
     EndeavorTask { task: u8 },
+    /// Work a production building's seat (the forge's smith job, a brick kiln, a smelter;
+    /// `data/buildings.toml`, `BuildingDef::recipe`, #124): fetch the recipe's inputs, then work
+    /// inside to turn them into its output. Opened in sets of `capacity` when such a building
+    /// finishes construction (`world/forge.rs`), mirroring a study hall's seats; never completes
+    /// on its own, it just starts its next batch.
+    Craft { pos: Pos },
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

@@ -211,8 +211,10 @@ description = "Work hot metal into tools at the forge."
 nation = "fire"
 cost = 60
 prereqs = ["fire_making"]
-# No `smith` job yet: jobs unlock harvest designations (resources), and smithing isn't one.
-# Later: jobs = ["smith"] once the work-order jobs (tools) exist.
+# The smith job (#124) isn't a `jobs` unlock: that list names harvestable resources, and
+# smithing isn't one. It's gated behind this tech structurally instead: the forge is, and the
+# forge is where the job lives (`world/forge.rs` opens its craft job the moment one is built, the
+# way a study hall's seats open).
 [tech.unlocks]
 buildings = ["forge"]
 
@@ -234,7 +236,6 @@ description = "Draw metal out of ore with steady firebending heat."
 nation = "fire"
 cost = 120
 prereqs = ["forging"]
-# Later: the smelter's ore-to-metal recipe (no metal item exists yet).
 [tech.unlocks]
 buildings = ["smelter"]
 modifiers = { heating = 1.2 }

@@ -274,22 +274,58 @@ line is one track and a corner turns. The TUI shows it as `╪`.
 
 | id | Cost | Prereqs | Unlocks |
 |---|---|---|---|
-| `forging` | 60 | fire_making | forge; smith job (tools, not yet built: #124) |
-| `brickmaking` | 120 | forging, pottery | brick kiln; construction ×1.15 |
-| `smelting` | 120 | forging | smelter (ore to metal); heating ×1.2 |
+| `forging` | 60 | fire_making | forge; smith job (metal into tools, #124) |
+| `brickmaking` | 120 | forging, pottery | brick kiln (stone into bricks, #124); construction ×1.15 |
+| `smelting` | 120 | forging | smelter (ore into metal, #124); heating ×1.2 |
 | `dancing_dragon` | 250 | smelting | Sun Warrior teachings: heating ×1.25; ability: Inner Fire, a warmth aura that follows the bender (bending.md, #123) |
 | `steam_engines` | 250 | smelting, brickmaking | steam engine powers mills and pumps; power_generation ×1.25 |
 | `lightning_generation` | 500 | dancing_dragon, steam_engines | lightning power station (Republic City style); power_generation ×1.5 |
 
 The buildings (`forge`, `brick_kiln`, `smelter`, `steam_engine`, `lightning_station`) exist in
-`data/buildings.toml` and are gated by their techs (#26), but are structures only: what they
-produce needs the production and power systems (#124). Their costs are placeholders. No branch
-cost or multiplier changed in #26; the playtest in `crates/sim/tests/research_fire.rs` has a
-Fire settlement with an Academy (two scholars) finish the whole Fire tree, shared tier included,
-in about 107 minutes, inside the 90 to 187 minute window (the 2 to 2.5 h target, plus or minus
-25%).
+`data/buildings.toml` and are gated by their techs (#26). `forge`, `brick_kiln` and `smelter`
+produce now (#124, "Fire production" below); `steam_engine` and `lightning_station` stay
+structures only until the power system lands (#255). No branch cost or multiplier changed in
+#26 or #124; the playtest in `crates/sim/tests/research_fire.rs` has a Fire settlement with an
+Academy (two scholars) finish the whole Fire tree, shared tier included, in about 107 minutes,
+inside the 90 to 187 minute window (the 2 to 2.5 h target, plus or minus 25%).
 
 Lightning is a *power source*, not an attack. Redirection can stay flavor text.
+
+### Fire production (#124)
+
+`forging`, `brickmaking` and `smelting` promised a forge, a brick kiln and a smelter that *do*
+something, and a smith job gated behind `forging`; #26 had only raised the buildings as 2x2
+structures (#214). Three decisions:
+
+1. **One recipe per building, on its def** (`BuildingDef::recipe`, `[building.recipe]` in
+   `data/buildings.toml`), not a separate recipe file or a player-authored work order: each of
+   these three buildings only ever does the one thing its tech promised, so there's nothing for
+   the player to choose. `inputs` (one or more `{ item, count }`) is what one batch consumes,
+   `output`/`output_count` what it yields, `work` the in-game seconds once the inputs are in
+   (scaled by a nation modifier if the recipe names one -- all three use `heating`, the modifier
+   `smelting` already raises and Fire already leads in).
+2. **A recipe building is a study hall with a different seat.** Its `capacity` (here, 1) opens
+   that many `JobKind::Craft` jobs the moment it finishes construction (`world/forge.rs`,
+   mirroring `world/study.rs`'s seats), and a unit holding one works *inside*, through the door
+   (#227) -- the owner's cue that units-in-buildings was meant for exactly this. Fetching a
+   batch's inputs reuses the same nearest-stockpile-or-ground-stack search a `Build` job fetches
+   its cost from; the only new code is what happens once they're in: work, drop the output
+   nearby for hauling, clear the batch, start the next one. Unlike a build site, a craft job
+   never finishes.
+3. **Items, minimally.** `metal`, `brick` and `tool` are new (`data/jobs.toml`); the smelter's
+   ore is the `gold_ore` that mining already yields (#132, #133) -- there's no separate generic
+   "ore" item, since gold is the only mineral any nation mines yet. `metal` is also the hook
+   #134 (metalbending) needs: that tech is meant to produce it directly, without a smelter.
+   `tool` has no use yet (nothing asks for one to work faster or build cheaper); that's later
+   content, not a gap in this issue.
+
+Costs for the three buildings got a first balance pass (placeholders from #26): `brick_kiln`
+and `smelter`'s work rose a little (70 s, 90 s) to sit above `forge`'s (60 s), since both are
+120-knowledge techs against `forging`'s 60, and `smelter`'s wood cost rose to 6 to match
+`brick_kiln`'s. Recipe numbers (2 ore -> 1 metal in 20 s; 3 stone -> 4 bricks in 15 s; 1 metal ->
+1 tool in 25 s) are starting values, not a design target.
+
+Power (the steam engine, lightning station, a grid) is out of scope: #255.
 
 ### Water Tribes: flow and healing
 

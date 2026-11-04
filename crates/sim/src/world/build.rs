@@ -544,6 +544,7 @@ impl World {
                 self.jobs.remove(idx);
                 self.raise(footprint, building, def);
                 self.open_study_seats(pos, seats);
+                self.open_craft_jobs(pos, def);
                 self.light_building_fire(pos, size, def);
                 self.finish_job(i);
             }

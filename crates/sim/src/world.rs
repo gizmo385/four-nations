@@ -26,6 +26,7 @@ mod bending;
 mod build;
 mod command;
 mod endeavor;
+mod forge;
 mod found;
 mod gate;
 mod heat;
@@ -47,6 +48,7 @@ use endeavor::EndeavorLog;
 pub use endeavor::{
     AvatarLeaveReason, EndeavorEvent, EndeavorEventKind, EndeavorState, SignProgress,
 };
+use forge::CraftState;
 pub use gate::{EndeavorError, GateSite, GateTask};
 pub use heat::{Aura, Flame, Glow, HeatSource};
 pub use population::Arrival;
@@ -235,6 +237,11 @@ pub struct World {
     stored: BTreeMap<Pos, Stack>,
     /// Build designations that aren't finished, by tile (`Command::DesignateBuild`, #64).
     sites: BTreeMap<Pos, Site>,
+    /// A production building's progress toward its next batch, by anchor (`world/forge.rs`,
+    /// issue #124): absent is the same as a fresh, empty batch, so a save from before recipes
+    /// existed loads with none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    crafts: BTreeMap<Pos, CraftState>,
     /// Finished buildings' anchors, keyed `(y, x)` so iterating matches `buildings()`'s old
     /// row-major scan of the map. Maintained wherever a building finishes (`raise`, #292); not
     /// saved (`#[serde(skip)]`), so it's rebuilt by a map scan once after loading
@@ -346,6 +353,7 @@ impl World {
             zones: BTreeSet::new(),
             stored: BTreeMap::new(),
             sites: BTreeMap::new(),
+            crafts: BTreeMap::new(),
             building_index: BTreeMap::new(),
             rules: MoveRules::default(),
             cart_rules: defs.cart_rules(MoveRules::default()),

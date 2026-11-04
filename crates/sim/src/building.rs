@@ -37,7 +37,7 @@ use serde::Deserialize;
 use crate::defs::{DefsError, ResourceDef, ResourceId};
 use crate::geom::{Footprint, Pos};
 use crate::jobs::{ItemDef, ItemId};
-use crate::nation::Nation;
+use crate::nation::{Modifiers, Nation};
 use crate::path::STRAIGHT;
 use crate::research::{TechDef, TechId};
 
@@ -174,6 +174,26 @@ pub struct CostItem {
     pub count: u32,
 }
 
+/// What a production building turns raw items into (`[building.recipe]`, issue #124): the
+/// forge's smith job, a brick kiln, a smelter. `world/forge.rs` runs it: a unit holding the
+/// building's craft job fetches `inputs` for one batch, a trip at a time, then works inside for
+/// `work` seconds (scaled by `modifier`, if named) and the batch yields `output`, dropped near
+/// the building for hauling, before the cycle starts again. Unlike a building's own `cost`, a
+/// recipe never finishes: the building keeps making batches for as long as its inputs keep
+/// coming.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecipeDef {
+    /// What one batch consumes. At least one entry, no item named twice.
+    pub inputs: Vec<CostItem>,
+    /// What one batch yields.
+    pub output: CostItem,
+    /// In-game seconds of work once a batch's inputs are all in, at `modifier` 1.0.
+    pub work: f32,
+    /// Nation modifier (`Modifiers::get`) that scales the work speed, if any (the Fire production
+    /// buildings all use `heating`).
+    pub modifier: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct BuildingDef {
     pub id: String,
@@ -211,6 +231,10 @@ pub struct BuildingDef {
     pub rail: Option<RailDef>,
     /// Set if this plants and tends trees around itself (issue #142).
     pub orchard: Option<OrchardDef>,
+    /// Set if this is a production building: the forge, a brick kiln, a smelter (issue #124).
+    /// Needs a `capacity` above 0, the number of crafters it seats, each through its door like a
+    /// study hall's seats.
+    pub recipe: Option<RecipeDef>,
     /// What each nation calls this building, if it varies (e.g. the study hall: Meditation
     /// Pavilion for Air). Empty when every nation uses the plain `name`. If set at all, every
     /// nation has an entry (`display_name` is the one place that matters).
@@ -287,6 +311,23 @@ struct RawOrchard {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawRecipeInput {
+    item: String,
+    count: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawRecipe {
+    input: Vec<RawRecipeInput>,
+    output: String,
+    output_count: u32,
+    work: f32,
+    modifier: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawBuilding {
     id: String,
     name: String,
@@ -308,6 +349,7 @@ struct RawBuilding {
     heat: Option<RawHeat>,
     rail: Option<RawRail>,
     orchard: Option<RawOrchard>,
+    recipe: Option<RawRecipe>,
     #[serde(default)]
     names: HashMap<Nation, String>,
     #[serde(default)]
@@ -396,6 +438,12 @@ impl BuildingsFile {
                     b.id
                 ));
             }
+            if b.recipe.is_some() && capacity == 0 {
+                return err(format!(
+                    "building {}: a recipe needs a capacity, the door a crafter works through",
+                    b.id
+                ));
+            }
             let bonus_ok = |x: f32| x.is_finite() && x >= 1.0;
             if let Some(bed) = &b.bed
                 && !(bonus_ok(bed.sleep_bonus) && bed.seek_tiles > 0)
@@ -436,6 +484,10 @@ impl BuildingsFile {
                 None => None,
                 Some(o) => Some(resolve_orchard(&b.id, o, resources)?),
             };
+            let recipe = match &b.recipe {
+                None => None,
+                Some(r) => Some(resolve_recipe(&b.id, r, items)?),
+            };
             for (nation, name) in &b.names {
                 if name.trim().is_empty() {
                     return err(format!(
@@ -463,6 +515,7 @@ impl BuildingsFile {
                 }),
                 rail: b.rail.map(|d| RailDef { speed: d.speed }),
                 orchard,
+                recipe,
                 names: b.names,
                 art: b.art,
                 unlocked_by: None,
@@ -507,6 +560,52 @@ fn resolve_orchard(
         tend_boost: o.tend_boost,
         spacing: o.spacing,
         auto_pick: o.auto_pick,
+    })
+}
+
+/// Checks a `[building.recipe]` and links its items (issue #124).
+fn resolve_recipe(
+    building: &str,
+    r: &RawRecipe,
+    items: &[ItemDef],
+) -> Result<RecipeDef, DefsError> {
+    let err =
+        |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: recipe {msg}")));
+    if r.input.is_empty() {
+        return err("needs at least one input");
+    }
+    let mut inputs = Vec::new();
+    for i in &r.input {
+        let Some(item) = items.iter().position(|d| d.id == i.item) else {
+            return err(&format!("unknown input item {:?}", i.item));
+        };
+        if i.count == 0 {
+            return err("input count must be positive");
+        }
+        if inputs.iter().any(|existing: &CostItem| existing.item.0 as usize == item) {
+            return err(&format!("input item {:?} listed twice", i.item));
+        }
+        inputs.push(CostItem { item: ItemId(item as u16), count: i.count });
+    }
+    let Some(output) = items.iter().position(|d| d.id == r.output) else {
+        return err(&format!("unknown output item {:?}", r.output));
+    };
+    if r.output_count == 0 {
+        return err("output_count must be positive");
+    }
+    if !(r.work.is_finite() && r.work > 0.0) {
+        return err("work must be a positive number");
+    }
+    if let Some(m) = &r.modifier
+        && !Modifiers::NAMES.contains(&m.as_str())
+    {
+        return err(&format!("unknown modifier {m:?}"));
+    }
+    Ok(RecipeDef {
+        inputs,
+        output: CostItem { item: ItemId(output as u16), count: r.output_count },
+        work: r.work,
+        modifier: r.modifier.clone(),
     })
 }
 
