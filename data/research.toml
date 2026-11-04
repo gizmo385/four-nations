@@ -374,9 +374,9 @@ description = "Glider staffs carry airbenders over the land."
 nation = "air"
 cost = 60
 prereqs = ["carpentry"]
-# Modifier-only for now: glider staffs reveal the map when scouting, and the sim has no
-# map-reveal mechanic to unlock; tracked in issue #143.
+# Glider staffs: airbenders move faster, and can Glide to spot lost ruins from above (#197).
 [tech.unlocks]
+abilities = ["glide"]
 modifiers = { move_speed = 1.15 }
 
 [[tech]]

@@ -197,7 +197,9 @@ Other shapes considered: a per-tile "revealed" flag that every frontend checks (
 option: one forgotten check shows the gold), and true fog of war (out of scope, and a far bigger
 change).
 
-**How the reveal shows it.** Seismic Sense is a new `Effect::Reveal { radius }`:
+**How the reveal shows it.** Seismic Sense is a new `Effect::Reveal { radius, finds }` (`finds`
+lists which buried resources the sense can uncover, so a later sense can be narrower than "every
+buried thing"; Seismic Sense's is `["gold_seam"]`, below):
 
 | | Value (`data/bending.toml`, confirmed by the owner 2026-10-25) |
 |---|---|
@@ -222,6 +224,56 @@ Saves: `World::buried` is left out of a save while empty, so saves from before #
 nothing buried) and re-save unchanged. Mapgen now places seams, so the large ASCII golden was
 re-blessed (only `!` marks were added; nothing else moved). Tests:
 `crates/sim/src/world/bending/seismic_tests.rs`.
+
+### Gliders (#197)
+
+`gliders` promised "scouting reveals the map", and was modifier-only (move_speed ×1.15) until a
+reveal existed. #133 gave the sim one, buried resources, so gliding reuses it rather than adding
+fog of war: what the glider sees from the air is a second kind of buried thing, **lost ruins**.
+
+**What is hidden.** `lost_ruins` (`data/resources.toml`, `buried = true`) are old settlements the
+grass has grown over: open land in any biome, listed last so they only take tiles nothing else
+holds, and spaced far apart (`min_spacing = 20`): about 8-12 on a 192x128 map. Searching a ruin
+(`data/jobs.toml`, verb "Search") turns up 2 ancient scrolls, the readable item from #24, so a
+ruin is worth a trip where a lone scroll in the wastes is worth one; the ruin is gone once
+searched. Ruins pay in knowledge, not goods, which fits the Air Nomads.
+
+Other things the glider could have revealed, considered: gold seams too (but then Earth's own
+sense is redundant for Air, and Air has no tunnels to mine them from), or anything buried (the
+same objection). Each sense now finds only its own kind: `Effect::Reveal` carries the `finds`
+list described above, and Seismic Sense's stays `["gold_seam"]`, so the rock keeps its seams
+from a glider and the earth can't feel ruins.
+
+**The glide.** `glide`, unlocked by `gliders` alongside its speed modifier:
+
+| | Value (`data/bending.toml`) |
+|---|---|
+| Chi | 40 |
+| Channel | 8 s (no speed modifier) |
+| Target | A walkable tile with nothing on it: where the bender takes off |
+| Result | Every lost ruin within `radius = 14` tiles (Chebyshev) of the target appears on its tile, to be searched. Finding nothing still spends the chi |
+
+The reach is wider than the sense's 8 because it is seen from the air and ruins are sparse. Art
+and the cast's look are frontend work for a later issue (#283 moves the client to the TUI); the
+TUI glyph is `‖` (`n` in `--ascii`).
+
+**Uncovering needs a free tile.** A buried resource can have been built or walked over since the
+map was made: a ruin under open land is far more likely to have a house or a field on it by the
+time someone glides over it than a gold seam is to have anything on its mountain tile. So
+`World::uncover` (used by both Reveal and a Bore Tunnel striking a seam) now checks the tile is
+still free -- no building, building site, stockpile zone, ground stack or bend designation on it,
+and no unit standing on or routed through it -- and leaves a resource buried if it isn't: a later
+reveal finds it once the tile clears. This applies to gold seams too, though a mountain tile is
+rarely built on.
+
+| Lost ruins (`data/resources.toml`, `data/jobs.toml`) | Value |
+|---|---|
+| Chance | 0.005 per land tile nothing else took, `min_spacing = 20` |
+| Yield | 2 ancient scrolls |
+| Work | 20 s |
+
+Mapgen now places ruins, so the ASCII goldens were re-blessed (only `n` marks were added; nothing
+else moved). Tests: `crates/sim/src/world/bending/glide_tests.rs`.
 
 ### Rail (#135)
 
@@ -316,7 +368,7 @@ No bloodbending. It's a dark art that doesn't fit peaceful progress.
 |---|---|---|---|
 | `orchards` | 25 | none | orchard (plants and tends fruit trees: renewable fruit, edible raw; see "The orchard" below). Wild fruit picking is open to every nation. *Air starts with it* |
 | `meditation` | 60 | none | chi regeneration; study ×1.2 |
-| `gliders` | 60 | carpentry | glider staffs; move_speed ×1.15; scouting reveals the map. *Modifier-only until the reveal exists: #143* |
+| `gliders` | 60 | carpentry | glider staffs; move_speed ×1.15; ability: glide (spot lost ruins from the air, #197) |
 | `windmills` | 120 | gliders, farming | windmill (grinds grain for more food); power_generation ×1.2 |
 | `air_scooter` | 250 | gliders, meditation | ability: air scooter; move_speed ×1.2. *Modifier-only until the ability is designed: #143* |
 | `wind_turbines` | 250 | windmills | wind turbine powers workshops; power_generation ×1.25 |

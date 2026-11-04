@@ -136,6 +136,12 @@ glyph = "ƒ"
 ascii = "f"
 fg = [240, 246, 255]
 
+# Lost ruins spotted by Glide (#197): broken grey stone, two columns still standing.
+[resource.lost_ruins]
+glyph = "‖"
+ascii = "n"
+fg = [200, 196, 176]
+
 [item.wood]
 glyph = "≡"
 ascii = "/"
