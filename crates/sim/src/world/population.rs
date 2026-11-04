@@ -4,8 +4,11 @@
 //!
 //! Every `[growth].arrival_minutes` (`data/needs.toml`), if a bed nobody owns is free and at
 //! least `food_per_newcomer` food items sit in stores, one newcomer joins: an ordinary unit
-//! (`Unit`, no `guest`) added to `World::units`, on the passable map-edge tile nearest the
-//! settlement (ties by `Pos`). It is named from the nation's pool, drawn from its own RNG
+//! (`Unit`, no `guest`) added to `World::units`, on the outskirts: the walkable tile in the
+//! settlement's own region nearest the map edge (owner decision, 2026-11-03). Mapgen rings every
+//! map with sea (`MapGenConfig::water_border`), so the literal map edge is never walkable; the
+//! settlement's coast farthest out is the nearest thing to "walking in from off the map", and
+//! staying in the settlement's region means a newcomer never lands on another island. It is named from the nation's pool, drawn from its own RNG
 //! stream (`rng::stream(seed, "population.names")`, kept separate from the starting settlers'
 //! `world.names` shuffle, since growth draws one name at a time for as long as the game runs);
 //! its character variant is picked the same way `World::spawn_units` picks the starting
@@ -23,6 +26,7 @@
 //! before this counter existed).
 
 use super::*;
+use crate::flood::Flood;
 
 /// The stream newcomers' names are drawn from. A saved world that predates population growth
 /// loads with this seeded by 0 instead of the world seed, as `orchard_rng` does for #142; still
@@ -113,25 +117,28 @@ impl World {
         Pos::new((sx / n) as i32, (sy / n) as i32)
     }
 
-    /// The passable tile on the map's rectangular edge nearest `anchor` (squared distance, ties
-    /// by `Pos`), if there is one.
+    /// The walkable tile reachable from the settlement that is nearest the map's rectangular
+    /// edge, ties by squared distance to `anchor` and then by `Pos`. The region is flooded from
+    /// `start`, or from the first living unit when there is none. This runs once per arrival
+    /// check (every `arrival_minutes`), so one flood and one map pass are cheap enough.
     fn nearest_edge_tile(&self, anchor: Pos) -> Option<Pos> {
+        let origin = self.start.or_else(|| self.units.first().map(|u| u.pos))?;
+        let flood = Flood::new(&self.map, origin, &self.rules);
         let (w, h) = (self.map.width(), self.map.height());
-        let perimeter = (0..w)
-            .flat_map(move |x| [Pos::new(x, 0), Pos::new(x, h - 1)])
-            .chain((0..h).flat_map(move |y| [Pos::new(0, y), Pos::new(w - 1, y)]));
-        perimeter.filter(|&p| self.map.get(p).is_some_and(|t| self.rules.passable(t))).min_by_key(
-            |&p| {
+        self.map
+            .positions()
+            .filter(|&p| {
+                flood.cost(p).is_some() && self.map.get(p).is_some_and(|t| self.rules.passable(t))
+            })
+            .min_by_key(|&p| {
+                let edge = p.x.min(p.y).min(w - 1 - p.x).min(h - 1 - p.y);
                 let d2 = (p.x - anchor.x).pow(2) + (p.y - anchor.y).pow(2);
-                (d2, p)
-            },
-        )
+                (edge, d2, p)
+            })
     }
 
-    /// Adds one newcomer on the passable map-edge tile nearest the settlement, named from the
-    /// nation's pool. Does nothing if there is no such tile (every real map's forced sea border,
-    /// `MapGenConfig::water_border`, can make that so; it isn't this check's business to pick
-    /// a different rule).
+    /// Adds one newcomer on the settlement's outskirts (`nearest_edge_tile`), named from the
+    /// nation's pool. Does nothing if the settlement has no walkable tile at all.
     fn spawn_newcomer(&mut self, defs: &Defs) {
         let Some(pos) = self.nearest_edge_tile(self.settlement_anchor()) else { return };
         let nation = defs.nation(self.nation);

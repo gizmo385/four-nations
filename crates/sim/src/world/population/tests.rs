@@ -128,6 +128,39 @@ fn the_newcomer_lands_on_the_edge_tile_nearest_the_settlement() {
     assert_eq!(newcomer.pos, at(10, 0));
 }
 
+/// A real map's edge is sea (`MapGenConfig::water_border`), and a second island sits nearer the
+/// edge than the settlement's own coast: the newcomer still arrives, on the settlement's own land
+/// nearest the edge, never on the other island.
+#[test]
+fn on_a_sea_ringed_map_the_newcomer_arrives_on_its_own_coast_farthest_out() {
+    let defs = Defs::bundled();
+    // Land is x 4..=16, y 3..=7 on a 21x11 sea; a one-tile islet sits at (1, 1).
+    let map = Grid::from_fn(21, 11, |p: Pos| {
+        let land = ((4..=16).contains(&p.x) && (3..=7).contains(&p.y)) || p == at(1, 1);
+        Tile {
+            elevation: 100,
+            temperature: 128,
+            moisture: 128,
+            terrain: if land { Terrain::Land } else { Terrain::Water },
+            biome: BiomeId(0),
+            resource: None,
+            building: None,
+        }
+    });
+    let mut w = World::with_map(1, map, Nation::Earth, &[at(10, 5)], &defs);
+    w.units[0].idle_until = u64::MAX;
+    place(&mut w, &defs, at(10, 4), "bed");
+    stock_food(&mut w, &defs, defs.needs.growth.food_per_newcomer);
+    // Stores sit at (0, 4) in `stock_food`, off this map's land; move them onto it.
+    let stack = w.stored.remove(&at(0, 4)).unwrap();
+    w.stored.insert(at(12, 6), stack);
+    tick_one_check(&mut w, &defs);
+    assert_eq!(w.units.len(), 2, "a newcomer arrived despite the sea border");
+    // The land's rows 3 and 7 are 3 tiles from the edge; of those, (10, 3) and (10, 7) are
+    // nearest the anchor (10, 5), and (10, 3) wins the `Pos` tie.
+    assert_eq!(w.units[1].pos, at(10, 3));
+}
+
 #[test]
 fn two_runs_from_one_seed_give_the_same_arrivals() {
     let defs = Defs::bundled();
