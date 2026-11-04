@@ -162,6 +162,22 @@ glyph = "§"
 ascii = "?"
 fg = [236, 220, 176]
 
+# --- Fire production (#124) ---
+[item.metal]
+glyph = "▬"
+ascii = "="
+fg = [196, 201, 209]
+
+[item.brick]
+glyph = "▤"
+ascii = "#"
+fg = [190, 96, 58]
+
+[item.tool]
+glyph = "⚒"
+ascii = "t"
+fg = [170, 150, 130]
+
 # Foods share the glyph and take the food's own colour.
 [item.fish]
 glyph = "%"

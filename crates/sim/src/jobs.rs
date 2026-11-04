@@ -302,6 +302,12 @@ pub enum JobKind {
     /// many are attending. Opened on every tile of the plaza the moment the rite stage begins,
     /// and closed with it; never completes on its own, like `Study`.
     Attend { pos: Pos },
+    /// Work a production building's seat (the forge's smith job, a brick kiln, a smelter;
+    /// `data/buildings.toml`, `BuildingDef::recipe`, #124): fetch the recipe's inputs, then work
+    /// inside to turn them into its output. Opened in sets of `capacity` when such a building
+    /// finishes construction (`world/forge.rs`), mirroring a study hall's seats; never completes
+    /// on its own, it just starts its next batch.
+    Craft { pos: Pos },
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

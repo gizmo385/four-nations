@@ -41,6 +41,7 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
                 | JobKind::Study { .. }
                 | JobKind::EndeavorTask { .. }
                 | JobKind::Attend { .. } => None,
+                JobKind::Craft { .. } => None,
             });
             let stack = at.and_then(|p| world.ground_items().find(|(q, _)| *q == p));
             match (stack, at) {
@@ -71,6 +72,11 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
         Task::Study(id) => match world.job(id).map(|j| j.kind) {
             Some(JobKind::Study { pos }) => format!("Studying at ({}, {})", pos.x, pos.y),
             _ => "Studying".into(),
+        },
+        // Minimal text; a recipe display is client work for a later issue.
+        Task::Craft(id) => match world.job(id).map(|j| j.kind) {
+            Some(JobKind::Craft { pos }) => format!("Crafting at ({}, {})", pos.x, pos.y),
+            _ => "Crafting".into(),
         },
         Task::Endeavor(id) => match world.job(id).map(|j| (j.kind, j.progress)) {
             Some((JobKind::EndeavorTask { task }, progress)) => match world.gate_task(task, defs) {

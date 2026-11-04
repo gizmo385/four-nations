@@ -44,6 +44,13 @@
 #             `auto_pick` each planted tree carries a standing harvest order (#81), so its fruit
 #             is picked as it ripens. Which nations can build one is the unlocking tech's
 #             business (data/research.toml), not this section's.
+# - recipe:   a production building (issue #124): the forge's smith job, a brick kiln, a
+#             smelter. `input` (one or more `{ item, count }`) is what one batch consumes;
+#             `output`/`output_count` is what it yields. `work` is in-game seconds once a batch's
+#             inputs are in, at `modifier` 1.0 (optional, a nation modifier that scales it, like
+#             `heating`). A unit holding the building's craft job fetches the inputs, works
+#             inside (so a recipe needs a `capacity`, the door it works through), and the cycle
+#             repeats for as long as inputs keep coming; it never finishes on its own.
 # - names:    what each nation calls this building, if it varies. Either all four nations or
 #             none; falls back to `name` for a building that omits it.
 # - art:      which sprite of art/buildings.toml each nation draws it with, if it varies (the study
@@ -217,11 +224,13 @@ item = "stone"
 count = 6
 
 # --- Fire Nation ---
-# The Fire branch's buildings (issue #26), each unlocked by its tech in data/research.toml. They
-# are structures only so far: what they produce (smithing, bricks, metal, power) needs the
-# production and power systems, which don't exist yet (issue #124). Costs scale with the tech's
-# tier and use the items that exist today; they are starting values for a balance pass, not a
-# design target.
+# The Fire branch's buildings (issue #26), each unlocked by its tech in data/research.toml.
+# `forge`, `brick_kiln` and `smelter` produce now (issue #124: smithing and bricks and metal
+# through their `recipe`, below); `steam_engine` and `lightning_station` stay structures only
+# until the power system lands (#255). A production building's `capacity` of 1 is its one craft
+# job: each works alone, the way a 2-seat study hall took two. Costs are a first balance pass
+# over #26's placeholders, heavier than the shared-tier buildings above since these are 60- and
+# 120-knowledge techs; the power buildings' costs are still placeholders for #255 to revisit.
 
 [[building]]
 id = "forge"
@@ -230,40 +239,65 @@ verb = "Build"
 work = 60.0
 passable = false
 footprint = [2, 2]
+capacity = 1
 [[building.cost]]
 item = "stone"
 count = 8
 [[building.cost]]
 item = "wood"
 count = 4
+# The smith job (#124): hot metal worked into tools.
+[building.recipe]
+output = "tool"
+output_count = 1
+work = 25.0
+modifier = "heating"
+input = [{ item = "metal", count = 1 }]
 
 [[building]]
 id = "brick_kiln"
 name = "Brick Kiln"
 verb = "Build"
-work = 60.0
+work = 70.0
 passable = false
 footprint = [2, 2]
-[[building.cost]]
-item = "stone"
-count = 10
-[[building.cost]]
-item = "wood"
-count = 6
-
-[[building]]
-id = "smelter"
-name = "Smelter"
-verb = "Build"
-work = 80.0
-passable = false
-footprint = [2, 2]
+capacity = 1
 [[building.cost]]
 item = "stone"
 count = 12
 [[building.cost]]
 item = "wood"
-count = 4
+count = 6
+# Fires stone into bricks by the thousand (#124; `brickmaking`'s description, data/research.toml).
+[building.recipe]
+output = "brick"
+output_count = 4
+work = 15.0
+modifier = "heating"
+input = [{ item = "stone", count = 3 }]
+
+[[building]]
+id = "smelter"
+name = "Smelter"
+verb = "Build"
+work = 90.0
+passable = false
+footprint = [2, 2]
+capacity = 1
+[[building.cost]]
+item = "stone"
+count = 12
+[[building.cost]]
+item = "wood"
+count = 6
+# Draws metal out of ore with steady heat (#124; `smelting`'s description, data/research.toml).
+# `gold_ore` is the only ore today (#132, #133): there's no separate generic "ore" item yet.
+[building.recipe]
+output = "metal"
+output_count = 1
+work = 20.0
+modifier = "heating"
+input = [{ item = "gold_ore", count = 2 }]
 
 [[building]]
 id = "steam_engine"

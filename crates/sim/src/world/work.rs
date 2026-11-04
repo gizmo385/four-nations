@@ -104,6 +104,8 @@ pub enum Task {
     /// (`world/gate.rs`, #238). Never backed by a `Job`, so needs never pre-empt it once he
     /// holds it (`consider_needs`); only he is ever assigned it.
     Rite,
+    /// Holding a production building's craft job (`world/forge.rs`, #124).
+    Craft(JobId),
     /// Carrying a stack to a stockpile tile.
     Deliver,
     Eat(FoodSource),
@@ -188,6 +190,7 @@ impl World {
                 | JobKind::Study { .. }
                 | JobKind::EndeavorTask { .. }
                 | JobKind::Attend { .. } => None,
+                JobKind::Craft { .. } => None,
             })
             .chain(self.standing_harvest.iter().copied())
     }
@@ -524,6 +527,9 @@ impl World {
                     // No demolish command yet, so a seat opened for a study hall stays open for
                     // as long as the building does, which today is forever.
                     JobKind::Study { pos } => map[pos].building.is_some(),
+                    // Same as a study seat: a production building's craft job stays open for as
+                    // long as the building does (#124).
+                    JobKind::Craft { pos } => map[pos].building.is_some(),
                     // The gate drops its own task and Attend jobs when it moves on (`gate.rs`).
                     JobKind::EndeavorTask { .. } | JobKind::Attend { .. } => true,
                 }
@@ -1052,6 +1058,7 @@ impl World {
                         | JobKind::Build { .. }
                         | JobKind::Study { .. }
                         | JobKind::Attend { .. }
+                        | JobKind::Craft { .. }
                 )
             {
                 continue;
@@ -1091,6 +1098,10 @@ impl World {
                     .filter(|(def, _)| self.unit_can_raise(i, def))
                     .and_then(|(_, anchor)| self.stand_building(&flood, anchor, defs)),
                 JobKind::Attend { pos } => self.stand_tile(&flood, pos),
+                // A craft job is a seat inside, like a study hall's (#227): this is the door, not
+                // the ring `stand_building` would pick. Always reachable once the building
+                // stands; a crafter waits on its inputs the way a resting harvest is waited on.
+                JobKind::Craft { pos } => self.stand_entrance(&flood, pos),
             };
             if let Some((cost, stand)) = found {
                 let priority = if is_avatar {
@@ -1119,6 +1130,7 @@ impl World {
             JobKind::Study { .. } => Task::Study(job.id),
             JobKind::EndeavorTask { .. } => Task::Endeavor(job.id),
             JobKind::Attend { .. } => Task::Attend(job.id),
+            JobKind::Craft { .. } => Task::Craft(job.id),
         };
         let u = &mut self.units[i];
         u.job_task = Some(task);
@@ -1147,12 +1159,13 @@ impl World {
         let can_stand_building = |pos: Pos| can_stand_in(self.work_area(pos, defs));
         let is_avatar = self.units[i].is_avatar();
         self.jobs.iter().filter(|j| j.claimed_by.is_none()).any(|job| match job.kind {
-            // The Avatar never hauls, builds, studies, harvests or Attends (#237, #238).
+            // The Avatar never hauls, builds, studies, crafts, harvests or Attends (#237, #238).
             JobKind::Harvest { .. }
             | JobKind::Haul { .. }
             | JobKind::Build { .. }
             | JobKind::Study { .. }
             | JobKind::Attend { .. }
+            | JobKind::Craft { .. }
                 if is_avatar =>
             {
                 false
@@ -1172,6 +1185,7 @@ impl World {
             }
             JobKind::Build { pos } => can_stand_building(pos),
             JobKind::Study { pos } => !self.research.queue().is_empty() && can_stand_building(pos),
+            JobKind::Craft { pos } => can_stand_building(pos),
             JobKind::EndeavorTask { task } => {
                 self.gate_task(task, defs).is_some_and(|(def, anchor)| {
                     self.unit_can_raise(i, def) && can_stand_building(anchor)
@@ -1234,6 +1248,7 @@ impl World {
             Task::Endeavor(id) => self.run_gate_task(i, id, defs),
             Task::Attend(id) => self.run_attend(i, id, defs),
             Task::Rite => self.run_rite(i, defs),
+            Task::Craft(id) => self.run_craft(i, id, defs),
             Task::Deliver => self.run_deliver(i, defs),
             // Need tasks never sit in the job slot.
             _ => self.finish_job(i),
@@ -1402,6 +1417,7 @@ fn job_priority(kind: JobKind) -> u8 {
         | JobKind::Haul { .. }
         | JobKind::Bend { .. }
         | JobKind::Build { .. }
+        | JobKind::Craft { .. }
         | JobKind::EndeavorTask { .. } => 0,
     }
 }
