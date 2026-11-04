@@ -31,6 +31,10 @@ colony sim in Rust. You are in your own git worktree. You own one issue from cla
 
 ## Rules
 
+- **No polling loops.** Run the gate in the foreground (it takes a minute or two), or with
+  `run_in_background` and wait for its completion notice. Never `until pgrep ...; do sleep` or
+  `until [ -s file ]` loops: they match other agents' builds and outlive you. Before you report,
+  make sure nothing you started in the background is still running.
 - **Never open the game window** (it steals the owner's focus). Use tests, ASCII output or
   `cargo xtask screenshot` (save under `target/`, view the PNG with Read).
 - Nation differences go through data (`Modifiers`, `data/nations.toml`), not `if nation == X`.
