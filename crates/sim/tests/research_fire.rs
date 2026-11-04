@@ -26,12 +26,13 @@ fn fresh(defs: &Defs) -> World {
 }
 
 /// A reachable tile 3 to 6 tiles from `near` (outside the stockpile around it) whose 2x2
-/// footprint (the biggest the Fire branch builds, #214) is clear of resources and `avoid`, so it
-/// fits any branch building.
-fn free_tile_near(w: &World, near: Pos, avoid: &[Pos]) -> Pos {
+/// footprint (the biggest the Fire branch builds, #214) and the door tile below it (#226) are
+/// clear of resources and `avoid`, so it fits any branch building.
+fn free_tile_near(w: &World, defs: &Defs, near: Pos, avoid: &[Pos]) -> Pos {
     let flood = Flood::new(&w.map, near, &MoveRules::default());
+    let bed = defs.building_id("bed").unwrap();
     let clear = |p: Pos| {
-        [(0, 0), (1, 0), (0, 1), (1, 1)].iter().all(|&(dx, dy)| {
+        [(0, 0), (1, 0), (0, 1), (1, 1), (0, 2)].iter().all(|&(dx, dy)| {
             let q = Pos::new(p.x + dx, p.y + dy);
             w.map.get(q).is_some_and(|t| t.terrain.is_walkable() && t.resource.is_none())
                 && !avoid.contains(&q)
@@ -41,7 +42,10 @@ fn free_tile_near(w: &World, near: Pos, avoid: &[Pos]) -> Pos {
         .iter()
         .filter(|(p, _)| {
             let d = (p.x - near.x).abs().max((p.y - near.y).abs());
-            (3..=6).contains(&d) && flood.cost(*p).is_some() && clear(*p)
+            (3..=6).contains(&d)
+                && flood.cost(*p).is_some()
+                && clear(*p)
+                && w.check_build(*p, bed, defs).is_ok()
         })
         .map(|(p, _)| p)
         .next()
@@ -128,12 +132,12 @@ fn a_fire_settlement_finishes_its_tree_within_the_pacing_targets() {
             );
         }
     }
-    let spot = free_tile_near(&w, home, &trees);
+    let spot = free_tile_near(&w, &defs, home, &trees);
     let hall = defs.building_id("study_hall").unwrap();
     w.apply(Command::DesignateBuild { pos: spot, building: hall }, &defs).unwrap();
 
     // Nothing in the branch is open yet.
-    let gate = free_tile_near(&w, home, &[trees.as_slice(), &[spot]].concat());
+    let gate = free_tile_near(&w, &defs, home, &[trees.as_slice(), &[spot]].concat());
     assert_unlock_gates(&mut w, &defs, gate, &|_| false);
 
     // Study whatever is cheapest-first by file order until the tree is done.

@@ -143,6 +143,9 @@ fn describe_blocker(session: &Session, at: Pos, why: Blocker) -> String {
             None => why.to_string(),
         },
         Blocker::OffMap => why.to_string(),
+        // "blocks a door": another building's entrance (#226), or this footprint's own door
+        // isn't walkable. Either way `Blocker::Display` already says enough for a notice.
+        Blocker::Entrance => why.to_string(),
     }
 }
 
@@ -332,8 +335,10 @@ mod tests {
         Session::new(7, nation, 64, 64)
     }
 
-    /// Some tile a building can go on.
+    /// Some tile a 1x1 building can go on: unoccupied and, since #226, with room on the ground
+    /// below it for its door.
     fn free_tile(session: &Session) -> Pos {
+        let bed = session.defs.building_id("bed").unwrap();
         session
             .world
             .map
@@ -342,6 +347,7 @@ mod tests {
                 t.terrain == Terrain::Land
                     && t.resource.is_none()
                     && !session.world.units.iter().any(|u| u.pos == *p)
+                    && session.world.check_build(*p, bed, &session.defs).is_ok()
             })
             .map(|(p, _)| p)
             .expect("a land tile")

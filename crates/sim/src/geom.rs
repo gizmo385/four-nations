@@ -68,6 +68,12 @@ impl Footprint {
         let gap = |v: i32, lo: i32, len: u8| (lo - v).max(v - (lo + i32::from(len) - 1)).max(0);
         gap(p.x, self.anchor.x, self.w).max(gap(p.y, self.anchor.y, self.h))
     }
+
+    /// The door: the ring tile below the middle of the bottom row (docs/design/buildings.md,
+    /// "Units inside buildings", #226). Every door faces down, since there is no rotation (#207).
+    pub fn entrance(self) -> Pos {
+        Pos::new(self.anchor.x + (i32::from(self.w) - 1) / 2, self.anchor.y + i32::from(self.h))
+    }
 }
 
 const CARDINAL: [(i32, i32); 4] = [(0, 1), (0, -1), (1, 0), (-1, 0)];
@@ -245,5 +251,21 @@ mod tests {
         // On a 1x1 footprint it is plain Chebyshev distance.
         let p = Pos::new(9, 2);
         assert_eq!(Footprint::single(p).distance(Pos::new(6, 7)), p.chebyshev(Pos::new(6, 7)));
+    }
+
+    #[test]
+    fn entrance_is_the_ring_tile_below_the_middle_of_the_bottom_row() {
+        // Even width: the middle rounds down, as `(w - 1) / 2` says.
+        let two = Footprint::new(Pos::new(10, 10), 2, 2);
+        assert_eq!(two.entrance(), Pos::new(10, 12));
+        assert_eq!(two.distance(two.entrance()), 1, "it is on the ring");
+        // Odd width: the middle column exactly.
+        let three = Footprint::new(Pos::new(10, 10), 3, 4);
+        assert_eq!(three.entrance(), Pos::new(11, 14));
+        // 1x1: its one tile's south neighbour.
+        assert_eq!(Footprint::single(Pos::new(5, 5)).entrance(), Pos::new(5, 6));
+        // A wide, short footprint still centres on its own width.
+        let wide = Footprint::new(Pos::new(0, 0), 4, 1);
+        assert_eq!(wide.entrance(), Pos::new(1, 1));
     }
 }

@@ -686,7 +686,8 @@ impl World {
 
     /// Can `p` take a sprout of this patch's resource: empty, fertile, not fallow, and not in
     /// use (a stockpile, a stack on the ground, a bend target, or where a unit is or is headed,
-    /// since resources block movement).
+    /// since resources block movement). A unit that is inside a building (#226) doesn't hold its
+    /// entrance tile this way: it isn't standing there as far as the map is concerned.
     fn can_sprout(&self, p: Pos, patch: &Patch, defs: &Defs) -> bool {
         let Some(tile) = self.map.get(p) else { return false };
         // The terrain must be one the resource grows on in mapgen too (cabbages: land only).
@@ -703,10 +704,8 @@ impl World {
             && !self.zones.contains(&p)
             && !self.ground.contains_key(&p)
             && !self.bend_designations().any(|(_, q)| q == p)
-            && !self
-                .units
-                .iter()
-                .any(|u| u.pos == p || u.route.as_ref().is_some_and(|r| r.contains(&p)))
+            && self.units_at(p).next().is_none()
+            && !self.units.iter().any(|u| u.route.as_ref().is_some_and(|r| r.contains(&p)))
     }
 }
 

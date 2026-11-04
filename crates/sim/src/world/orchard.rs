@@ -169,7 +169,8 @@ impl World {
     /// deliberately not checked, since tending is what lets a grove stand where the wild one
     /// wouldn't), with nothing built, designated, stored,
     /// lying or bent there, no unit on it or walking over it (a resource blocks movement), and no
-    /// other resource or building closer than `spacing` tiles.
+    /// other resource or building closer than `spacing` tiles. A unit inside a building (#226)
+    /// doesn't hold its entrance tile this way.
     fn can_plant(&self, p: Pos, def: &OrchardDef, defs: &Defs) -> bool {
         let Some(tile) = self.map.get(p) else { return false };
         if tile.resource.is_some()
@@ -184,10 +185,8 @@ impl World {
             || self.zones.contains(&p)
             || self.ground.contains_key(&p)
             || self.bend_designations().any(|(_, q)| q == p)
-            || self
-                .units
-                .iter()
-                .any(|u| u.pos == p || u.route.as_ref().is_some_and(|r| r.contains(&p)))
+            || self.units_at(p).next().is_some()
+            || self.units.iter().any(|u| u.route.as_ref().is_some_and(|r| r.contains(&p)))
         {
             return false;
         }

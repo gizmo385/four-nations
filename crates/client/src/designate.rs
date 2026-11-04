@@ -341,6 +341,7 @@ mod tests {
                 t.terrain == fn_sim::Terrain::Land
                     && t.resource.is_none()
                     && !sim.world.units.iter().any(|u| u.pos == *p)
+                    && sim.world.check_build(*p, bed, &sim.defs).is_ok()
             })
             .map(|(p, _)| p)
             .unwrap();
@@ -400,7 +401,8 @@ mod tests {
         def.footprint = (2, 2);
         def.bed = None;
         let at = Pos::new(30, 30);
-        for dy in 0..2 {
+        // The footprint's own two rows, plus the row below for its door (#226).
+        for dy in 0..3 {
             for dx in 0..2 {
                 let t = sim.world.map.get_mut(Pos::new(at.x + dx, at.y + dy)).unwrap();
                 t.terrain = fn_sim::Terrain::Land;

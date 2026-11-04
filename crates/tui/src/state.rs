@@ -311,10 +311,11 @@ impl UiState {
     }
 
     /// `Enter` in Select mode: selects the unit under the cursor; with several there, the next
-    /// one after the selected. Nothing happens on a tile with no unit.
+    /// one after the selected. Nothing happens on a tile with no unit, which includes one that
+    /// is only there because it's inside a building on its door (#226): `units_at` skips it,
+    /// since it isn't drawn there either.
     pub fn select_here(&mut self, session: &Session) {
-        let here: Vec<UnitId> =
-            session.world.units.iter().filter(|u| u.pos == self.cursor).map(|u| u.id).collect();
+        let here: Vec<UnitId> = session.world.units_at(self.cursor).map(|u| u.id).collect();
         let next = match here.iter().position(|&id| Some(id) == self.selected) {
             Some(i) => here[(i + 1) % here.len()],
             None => match here.first() {

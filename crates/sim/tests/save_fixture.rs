@@ -227,6 +227,8 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     // The endeavor (#234): its state, and the signs met and events so far.
     "endeavor",
     "endeavor_log",
+    // Units inside buildings (#226): each unit's location state.
+    "inside",
 ];
 
 /// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239

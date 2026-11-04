@@ -78,6 +78,11 @@ pub enum Blocker {
     Site,
     /// It is a stockpile tile, which a building would bury.
     Stockpile,
+    /// The footprint's own door (`Footprint::entrance`) isn't walkable, or it would cover
+    /// another building's or site's door (#226, docs/design/buildings.md, "Units inside
+    /// buildings"): a building's door never moves once it's placed, so a unit that walked in
+    /// could never be found again.
+    Entrance,
 }
 
 impl std::fmt::Display for Blocker {
@@ -89,6 +94,7 @@ impl std::fmt::Display for Blocker {
             Self::Building => "a building is in the way",
             Self::Site => "already designated",
             Self::Stockpile => "a stockpile is in the way",
+            Self::Entrance => "blocks a door",
         })
     }
 }
@@ -278,16 +284,33 @@ impl World {
     }
 
     /// The first tile of `def`'s footprint, anchored on `anchor`, that can't take it (row-major),
-    /// and why.
+    /// and why: every footprint tile first, then its door (#226).
     pub(super) fn footprint_blocker(
         &self,
         anchor: Pos,
         def: &BuildingDef,
     ) -> Option<(Pos, Blocker)> {
         let (w, h) = def.footprint;
-        Footprint::new(anchor, w, h)
-            .tiles()
+        let foot = Footprint::new(anchor, w, h);
+        foot.tiles()
             .find_map(|at| self.build_blocker(at).map(|why| (at, why)))
+            .or_else(|| self.entrance_blocker(foot))
+    }
+
+    /// Why `foot`'s door can't be placed, if anything (#226): it isn't walkable itself, or the
+    /// footprint would cover a door another finished building or site already has. A unit
+    /// standing on the door doesn't block it, like anywhere else in the footprint.
+    fn entrance_blocker(&self, foot: Footprint) -> Option<(Pos, Blocker)> {
+        let entrance = foot.entrance();
+        let walkable = self.map.get(entrance).is_some_and(|t| self.rules.passable(t));
+        if !walkable {
+            return Some((entrance, Blocker::Entrance));
+        }
+        let taken = |p: Pos| {
+            self.buildings().any(|(f, _)| f.entrance() == p)
+                || self.build_sites().any(|(f, ..)| f.entrance() == p)
+        };
+        foot.tiles().find(|&p| taken(p)).map(|p| (p, Blocker::Entrance))
     }
 
     /// Designates a building with its anchor on `pos`: the whole footprint, or nothing.

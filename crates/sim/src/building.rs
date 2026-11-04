@@ -193,6 +193,10 @@ pub struct BuildingDef {
     /// nonzero value is what tells `world/build.rs` to open that many `JobKind::Study` jobs when
     /// construction finishes.
     pub seats: u32,
+    /// How many units may be inside at once (`docs/design/buildings.md`, "Units inside
+    /// buildings", #226): defaults to `seats` (so a study hall needs no data of its own), else 0.
+    /// Only a building with a capacity above 0 may be entered (`World::enter_building`).
+    pub capacity: u32,
     /// Set if units sleep here (issue #58).
     pub bed: Option<BedDef>,
     /// Set if this keeps a permanent fire: it cooks meals and warms sleep nearby (issue #58).
@@ -290,6 +294,10 @@ struct RawBuilding {
     footprint: [u8; 2],
     #[serde(default)]
     seats: u32,
+    /// Defaults to `seats` when absent (#226): most buildings with a capacity are study halls,
+    /// where capacity and seats are the same number.
+    #[serde(default)]
+    capacity: Option<u32>,
     bed: Option<RawBed>,
     heat: Option<RawHeat>,
     rail: Option<RawRail>,
@@ -438,6 +446,7 @@ impl BuildingsFile {
                 passable: b.passable,
                 footprint: (w, h),
                 seats: b.seats,
+                capacity: b.capacity.unwrap_or(b.seats),
                 bed: b.bed.map(|d| BedDef { sleep_bonus: d.sleep_bonus, seek_tiles: d.seek_tiles }),
                 heat: b.heat.map(|d| HeatDef {
                     radius: d.radius,
@@ -546,9 +555,28 @@ mod tests {
         let hall = defs.building_id("study_hall").expect("study hall");
         let def = defs.building(hall);
         assert!(def.seats > 0);
+        // Capacity defaults to seats (#226): places inside are the hall's seats.
+        assert_eq!(def.capacity, def.seats);
         for n in Nation::ALL {
             assert_ne!(def.display_name(n), def.name, "{n:?} should have its own name");
         }
+    }
+
+    #[test]
+    fn capacity_defaults_to_seats_but_may_be_set_on_its_own() {
+        let one = |extra: &str| {
+            format!(
+                "[[building]]\nid = \"hall\"\nname = \"Hall\"\nverb = \"Build\"\nwork = 1.0\n\
+                 passable = false\nseats = 2\n{extra}\n"
+            )
+        };
+        assert_eq!(resolve(&one("")).unwrap()[0].capacity, 2, "defaults to seats");
+        assert_eq!(resolve(&one("capacity = 5")).unwrap()[0].capacity, 5, "an explicit value wins");
+        assert_eq!(resolve(&one("capacity = 0")).unwrap()[0].capacity, 0);
+        // A building with no seats at all has no capacity either, by default.
+        let defs = Defs::bundled();
+        let bed = defs.building(defs.building_id("bed").unwrap());
+        assert_eq!(bed.capacity, 0);
     }
 
     #[test]

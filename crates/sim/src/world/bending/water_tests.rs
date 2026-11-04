@@ -225,6 +225,45 @@ fn only_empty_fertile_unused_tiles_sprout() {
     assert!(dry.fallow_tiles().is_empty());
 }
 
+/// #226: a unit standing on a tile only because it is hidden inside a building there (its door)
+/// doesn't hold the tile the way a unit that is actually standing on the map does.
+#[test]
+fn a_unit_inside_a_building_does_not_block_its_door_from_sprouting() {
+    let mut defs = Defs::bundled();
+    let hall = defs.building_id("bed").unwrap();
+    {
+        let def = &mut defs.buildings[hall.0 as usize];
+        def.footprint = (2, 2);
+        def.bed = None;
+        def.passable = false;
+        def.capacity = 1;
+    }
+    let mut w = world(3, &defs);
+    // Anchored on (3, 1): its footprint (rows 1-2) sits clear of the 3x3 patch centred on
+    // (3, 4) (rows 3-5), but its door, the ring tile below it, lands inside that patch.
+    let anchor = at(3, 1);
+    let foot = crate::geom::Footprint::new(anchor, 2, 2);
+    w.raise(foot, hall, defs.building(hall));
+    let door = foot.entrance();
+    assert_eq!(door, at(3, 3));
+    w.units[0].pos = door;
+    assert!(w.enter_building(0, anchor, &defs));
+
+    let patch = Patch {
+        centre: at(3, 4),
+        dries_at: 0,
+        sprouts: 2,
+        resource: defs.resource_id("cabbage").unwrap(),
+        biomes: vec![biome(&defs, "plains")],
+        fallow_ticks: 1,
+    };
+    assert!(w.can_sprout(door, &patch, &defs), "the hidden unit doesn't hold its door");
+
+    // The same tile, visibly occupied instead, does block it, as it always has.
+    w.leave_building(0);
+    assert!(!w.can_sprout(door, &patch, &defs));
+}
+
 #[test]
 fn a_patch_at_the_edge_and_shore_is_clipped() {
     let defs = Defs::bundled();
