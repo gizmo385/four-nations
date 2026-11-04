@@ -343,22 +343,21 @@ fn the_rite_completes_with_enough_attendance_and_the_avatar_eventually_departs()
     assert_eq!(rite_events(&w).last(), Some(&&EndeavorEventKind::AvatarFarewell));
 }
 
+/// The rite pauses while too few attend, but a full plaza is always enough: 20 settlers at a 0.9
+/// share would need 18, more than the 4x4 plaza's 16 places, and population growth (#232) can
+/// outgrow the plaza the same way. Without the cap the rite would pause for good.
 #[test]
-fn the_rite_pauses_while_attendance_is_short_of_the_share() {
-    // 20 settlers, needing 18 to attend, but the plaza (4x4) can only ever hold 16: it never has
-    // enough, however long it waits.
+fn a_full_plaza_is_enough_even_when_the_share_asks_for_more() {
     let defs = defs_with_rite(0.05, 0.9);
     let spawns: Vec<Pos> = (0..20).map(|x| at(x, 0)).collect();
     let mut w = World::with_map(1, field(24, 10), Nation::Earth, &spawns, &defs);
     w.endeavor = EndeavorState::Ready { tick: 0 };
     w.apply(Command::BeginEndeavor { anchor: at(18, 3) }, &defs).expect("site is free");
     run_until(&mut w, &defs, 3_000, |w| stage_id(w) == Some("rite"));
-    for _ in 0..2_000 {
-        w.tick(&defs);
-    }
-    assert!(matches!(w.endeavor(), EndeavorState::Building(_)), "{:?}", w.endeavor());
-    assert_eq!(w.gate().unwrap().rite_progress, 0.0);
-    assert_eq!(rite_events(&w), [&EndeavorEventKind::RitePaused]);
+    run_until(&mut w, &defs, 6_000, |w| matches!(w.endeavor(), EndeavorState::Complete { .. }));
+    let events = rite_events(&w);
+    assert_eq!(events.first(), Some(&&EndeavorEventKind::RitePaused), "paused while gathering");
+    assert_eq!(events.last(), Some(&&EndeavorEventKind::Complete));
 }
 
 #[test]

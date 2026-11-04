@@ -582,9 +582,11 @@ impl World {
         let Some(rite) = stage.rite else { return };
         let meditating = self.units.iter().any(|u| u.is_avatar() && u.job_task == Some(Task::Rite));
         let population = self.units.iter().filter(|u| !u.is_avatar()).count() as f32;
-        let enough = meditating
-            && population > 0.0
-            && self.attendance() as f32 >= population * rite.attendance_share;
+        // A full plaza is always enough: population growth (#232) can outgrow the plaza's places,
+        // and the share alone would then pause the rite for good.
+        let places = self.jobs.iter().filter(|j| matches!(j.kind, JobKind::Attend { .. })).count();
+        let needed = (population * rite.attendance_share).min(places as f32);
+        let enough = meditating && population > 0.0 && self.attendance() as f32 >= needed;
         let paused = self.gate().expect("checked above").rite_paused;
         if enough {
             if paused {
