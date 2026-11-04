@@ -119,6 +119,9 @@ struct Data {
     alerts: Vec<Row>,
     cursor: Vec<Row>,
     cursor_pos: String,
+    /// "Harvest · repeating" while the standing-order toggle is on (`UiState::repeating_label`,
+    /// #277); `None` the rest of the time.
+    repeating_label: Option<String>,
 }
 
 /// How much of each trimmable block to show.
@@ -346,6 +349,7 @@ fn gather(session: &Session, ui: &UiState, marks: &Marks, width: usize) -> Data 
         alerts,
         cursor: cursor_rows(session, ui, view.choice),
         cursor_pos: format!("({}, {})", ui.cursor.x, ui.cursor.y),
+        repeating_label: ui.repeating_label(),
         view,
     }
 }
@@ -369,8 +373,10 @@ fn sections(d: &Data, k: Knobs) -> Vec<Section> {
         let mut rows: Vec<Row> = d.hint.iter().take(k.hint).cloned().collect();
         rows.extend(d.picker.iter().take(k.picker).cloned());
         rows.extend(d.notice.iter().cloned());
-        Section::new("TOOL", format!("{} [{}]", d.view.tool.name(), d.view.tool.key()), rows)
-            .always()
+        // "Harvest · repeating" while the standing-order toggle is on (#277), else just the
+        // tool's name.
+        let name = d.repeating_label.clone().unwrap_or_else(|| d.view.tool.name().to_owned());
+        Section::new("TOOL", format!("{name} [{}]", d.view.tool.key()), rows).always()
     });
     // The newest alerts are the last rows; a short panel keeps those.
     let skip = d.alerts.len().saturating_sub(k.alerts);

@@ -5,9 +5,10 @@
 //!   or stored) > lit flame > resource > terrain or biome.
 //! * Background: cursor > a ghost's own door tile (#230), amber free or red blocked > the Build
 //!   tool's ghost (#212), green where the building fits and red where something is in the way >
-//!   the rectangle being dragged (#98), in its tool's hue > designation tint (harvest, bend,
-//!   build, stockpile) and the cast highlight share that tint > wet patch > an aura carrier's own
-//!   warmth > the warmth of the flame or aura under the cursor > terrain or biome.
+//!   the rectangle being dragged (#98), in its tool's hue > designation tint (harvest, a
+//!   harvest's standing order a shade greener, #277, bend, build, stockpile) and the cast
+//!   highlight share that tint > wet patch > an aura carrier's own warmth > the warmth of the
+//!   flame or aura under the cursor > terrain or biome.
 //!
 //! A building or a site covers its whole footprint (#196, docs/design/buildings.md, "TUI"), so a
 //! 2x2 forge is a 2x2 block of its glyph, and so is its ghost.
@@ -30,8 +31,8 @@ use fn_sim::geom::Footprint;
 use fn_sim::jobs::Stack;
 use fn_sim::world::{BendOutcome, Moved, TICKS_PER_SECOND};
 use fn_sim::{Pos, Terrain};
-use fn_ui::Session;
 use fn_ui::build::Placement;
+use fn_ui::{Session, Tool};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
@@ -114,6 +115,10 @@ pub struct Overlays {
     ground: BTreeMap<Pos, Stack>,
     zones: BTreeSet<Pos>,
     harvest: BTreeSet<Pos>,
+    /// The subset of `harvest` with a standing order on it (#81, #277): tinted apart from a
+    /// one-off harvest, even while the resource rests and has no active job
+    /// (`World::harvest_designations`'s own doc).
+    standing: BTreeSet<Pos>,
     bend: BTreeSet<Pos>,
     /// Every tile of every build site, with the building it will be (#212).
     sites: BTreeMap<Pos, BuildingId>,
@@ -151,6 +156,10 @@ impl Overlays {
             ground: world.ground_items().collect(),
             zones: world.stockpile_zones().collect(),
             harvest: world.harvest_designations().collect(),
+            standing: world
+                .harvest_designations()
+                .filter(|&p| world.is_repeating_harvest(p))
+                .collect(),
             bend: world.bend_designations().map(|(_, p)| p).collect(),
             sites: world
                 .build_sites()
@@ -308,7 +317,10 @@ pub fn tile_cell(
     };
 
     // The background, top to bottom.
-    let designation = if over.harvest.contains(&pos) {
+    let designation = if over.standing.contains(&pos) {
+        // A standing order (#277) is a harvest too, but tinted apart from a one-off one.
+        Some(Tint::RepeatingHarvest)
+    } else if over.harvest.contains(&pos) {
         Some(Tint::Harvest)
     } else if over.bend.contains(&pos) || over.cast.contains(&pos) {
         // A bend being designated and one that just landed wear the same accent; their moments
@@ -322,11 +334,22 @@ pub fn tile_cell(
         None
     };
     if designation.is_some() && palette.mono() {
-        // Without colour a designated tile is underlined.
+        // Without colour a designated tile is underlined; a standing order is bold too, so it
+        // still reads apart from a one-off harvest (#277).
         mods |= Modifier::UNDERLINED;
+        if designation == Some(Tint::RepeatingHarvest) {
+            mods |= Modifier::BOLD;
+        }
     }
-    // The rectangle being dragged shows the tool's hue, stronger than a designation's.
-    let dragged = if ui.in_rect(pos) { Tint::for_tool(ui.tool) } else { None };
+    // The rectangle being dragged shows the tool's hue, stronger than a designation's; the
+    // Harvest tool's standing-order toggle (`O`, #277) shows in the drag too.
+    let dragged = if !ui.in_rect(pos) {
+        None
+    } else if ui.tool == Tool::Harvest && ui.repeating {
+        Some(Tint::RepeatingHarvest)
+    } else {
+        Tint::for_tool(ui.tool)
+    };
     if dragged.is_some() && palette.mono() && pos != ui.cursor {
         // Without colour a dragged tile is reversed and dimmed; the cursor is reversed alone.
         mods |= Modifier::REVERSED | Modifier::DIM;

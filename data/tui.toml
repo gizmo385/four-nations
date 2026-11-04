@@ -267,6 +267,9 @@ lift = 0.4
 # tint is the nation's accent, as in the client, so it isn't listed.
 [overlay]
 harvest = [255, 166, 26]
+# A harvest with a standing order on it (#277): the client's `RepeatingHarvest` hue, the same
+# harvest colour pushed toward green so it reads as "standing" rather than "one-shot".
+repeating = [166, 217, 26]
 stockpile = [51, 140, 255]
 build = [150, 130, 200]
 wet = [64, 46, 20]

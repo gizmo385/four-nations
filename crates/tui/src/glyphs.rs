@@ -73,6 +73,8 @@ pub struct EmbarkGlyphDef {
 #[serde(deny_unknown_fields)]
 pub struct Overlays {
     pub harvest: Rgb8,
+    /// A harvest tile with a standing order on it (#81, #277): the client's `RepeatingHarvest`.
+    pub repeating: Rgb8,
     pub stockpile: Rgb8,
     pub build: Rgb8,
     pub wet: Rgb8,

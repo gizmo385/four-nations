@@ -95,6 +95,12 @@ impl App {
             // still goes straight to `pick_tool`.
             Action::PickTool(Tool::Build) => self.open_build_modal(),
             Action::PickTool(tool) => self.pick_tool(tool),
+            // Standing orders (#277) are Harvest's own toggle; `O` does nothing in any other
+            // tool, including Select.
+            Action::ToggleRepeat if self.ui.tool == Tool::Harvest => {
+                self.ui.repeating = !self.ui.repeating;
+            }
+            Action::ToggleRepeat => {}
             Action::Confirm => self.confirm(),
             Action::Cancel => self.cancel(),
             Action::NextUnit if self.ui.tool == Tool::Select => self.ui.cycle(&self.session, 1),
@@ -165,6 +171,7 @@ impl App {
             Action::AskQuit => self.ui.prompt = Some(Prompt::Quit),
             Action::QuitNow => self.ui.quit = true,
             Action::PickTool(_)
+            | Action::ToggleRepeat
             | Action::Confirm
             | Action::NextUnit
             | Action::PrevUnit
@@ -492,14 +499,15 @@ impl App {
         match self.ui.anchor.take() {
             None => self.ui.anchor = Some(self.ui.cursor),
             Some(corner) => {
-                // The shared logic also takes the Shift state (a repeating harvest), which has
-                // no key here yet.
+                // The shared logic also takes the Shift state (a repeating harvest): `O`
+                // (`Action::ToggleRepeat`) stands in for it here, since a terminal can't
+                // reliably report Shift+Enter (#277).
                 self.ui.notice = apply_rect(
                     &mut self.session,
                     self.ui.tool,
                     corner,
                     self.ui.cursor,
-                    false,
+                    self.ui.repeating,
                     self.ui.choice,
                 );
             }
