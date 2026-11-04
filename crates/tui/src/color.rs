@@ -285,6 +285,14 @@ impl Palette {
         self.color(self.unit)
     }
 
+    /// A unit's own colour, in sRGB, whatever its nation (#248, the United City's newcomers,
+    /// #240): `nation`'s own accent lifted toward white the same amount as the settlement's own
+    /// (`unit_rgb`), so a foreign-nation unit reads clearly without standing out more than the
+    /// settlement's own do.
+    pub fn unit_rgb_for(&self, defs: &Defs, nation: Nation) -> Rgb8 {
+        mix(defs.nation(nation).color, [255; 3], self.glyphs.unit.lift)
+    }
+
     /// The tint's sRGB colour.
     pub fn tint_rgb(&self, tint: Tint) -> Rgb8 {
         let o = &self.glyphs.overlay;
@@ -499,6 +507,22 @@ mod tests {
             let p = Palette::new(&defs, n, ColorDepth::TrueColor, false);
             for (what, bg) in bases(&p.glyphs) {
                 let ratio = theme::contrast(to_f32(p.unit_rgb()), to_f32(bg));
+                assert!(ratio >= 3.0, "{n:?} unit on {what}: contrast {ratio:.2} < 3");
+            }
+        }
+    }
+
+    /// #248: a newcomer of any nation reads clearly on every background too, whatever the
+    /// settlement's own nation (unlike `unit_rgb`, `unit_rgb_for` doesn't depend on which nation
+    /// founded the settlement, so one `Palette` covers every caster's colour).
+    #[test]
+    fn every_nations_own_unit_colour_contrasts_with_every_background() {
+        let defs = Defs::bundled();
+        let p = Palette::new(&defs, Nation::Fire, ColorDepth::TrueColor, false);
+        assert_eq!(p.unit_rgb_for(&defs, Nation::Fire), p.unit_rgb(), "agrees with the settlement");
+        for n in Nation::ALL {
+            for (what, bg) in bases(&p.glyphs) {
+                let ratio = theme::contrast(to_f32(p.unit_rgb_for(&defs, n)), to_f32(bg));
                 assert!(ratio >= 3.0, "{n:?} unit on {what}: contrast {ratio:.2} < 3");
             }
         }

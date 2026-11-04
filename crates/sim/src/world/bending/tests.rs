@@ -210,6 +210,21 @@ fn a_unit_of_another_nation_does_not_take_the_job() {
     assert!(w.bend_events().is_empty());
 }
 
+/// `caster_count` (#248, the bend picker's "Raise Earth: 14 benders"): counts whoever could
+/// cast the ability, whatever their chi, including a foreign-nation unit of a mixed settlement.
+#[test]
+fn caster_count_counts_every_unit_eligible_whatever_its_chi() {
+    let defs = Defs::bundled();
+    let mut w =
+        World::with_map(1, arena(9, 5), Nation::Fire, &[at(1, 1), at(2, 1), at(3, 1)], &defs);
+    let hearth = defs.ability_id("hearthflame").unwrap();
+    let raise_earth = defs.ability_id("raise_earth").unwrap();
+    w.units[1].nation = Some(Nation::Earth);
+    w.units[0].chi = 0.0;
+    assert_eq!(w.caster_count(hearth, &defs), 2, "both Fire units, whatever their chi");
+    assert_eq!(w.caster_count(raise_earth, &defs), 1, "the Earth newcomer only");
+}
+
 #[test]
 fn a_need_pre_empts_a_bend_and_its_progress_is_kept() {
     let (mut w, defs) = setup(Nation::Earth, &[at(3, 2)], 10.0, "");

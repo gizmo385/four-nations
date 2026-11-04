@@ -7,6 +7,7 @@ use fn_sim::building::BuildingId;
 use fn_sim::nation::Modifiers;
 use fn_sim::needs::NeedDef;
 use fn_sim::world::{TICKS_PER_SECOND, Unit, UnitId};
+use fn_sim::{Defs, Nation, World};
 
 use crate::alerts::Alerts;
 use crate::build::{self, PickerRow};
@@ -22,6 +23,8 @@ pub struct SideView {
     pub nation: String,
     pub seed: u64,
     pub people: usize,
+    /// The population by nation (#248), `population_by_nation`'s own doc.
+    pub population: Vec<(String, usize)>,
     /// In-game time, `MM:SS` (`format_clock`).
     pub clock: String,
     pub paused: bool,
@@ -70,6 +73,7 @@ pub fn side_view(
         nation: defs.nation(world.nation).name.clone(),
         seed: world.seed,
         people: world.units.len(),
+        population: population_by_nation(world, defs),
         clock: format_clock(world.tick),
         paused: session.clock.paused,
         speed: session.clock.speed(),
@@ -117,6 +121,21 @@ pub fn store_rows(session: &Session) -> Vec<StoreRow> {
 /// that show text only.
 pub fn stores(session: &Session) -> Vec<(String, u32)> {
     store_rows(session).into_iter().map(|r| (r.name, r.count)).collect()
+}
+
+/// The population by nation (#248, the United City's mixed settlement, #240): each nation with
+/// at least one living unit, in `Nation::ALL`'s order, as (name, count). The Avatar (#237) has
+/// no nation of his own and isn't tallied.
+pub fn population_by_nation(world: &World, defs: &Defs) -> Vec<(String, usize)> {
+    Nation::ALL
+        .into_iter()
+        .map(|n| {
+            let count =
+                world.units.iter().filter(|u| !u.is_avatar() && world.nation_of(u) == n).count();
+            (defs.nation(n).name.clone(), count)
+        })
+        .filter(|&(_, count)| count > 0)
+        .collect()
 }
 
 /// In-game time since the start as `MM:SS`. There is no calendar yet.
@@ -368,6 +387,32 @@ mod tests {
         s.clock.faster();
         let v = side_view(&s, Tool::Select, "", None, &alerts);
         assert_eq!((v.paused, v.speed), (true, 2));
+    }
+
+    /// `population_by_nation` (#248): a fresh game is entirely the settlement's own nation; a
+    /// newcomer of another nation (#240) shows up as its own entry, in `Nation::ALL`'s order,
+    /// and the Avatar (no nation of his own) isn't tallied at all.
+    #[test]
+    fn population_by_nation_tallies_each_nation_present_and_skips_the_avatar() {
+        let mut s = Session::new(7, Nation::Fire, 64, 64);
+        assert_eq!(
+            population_by_nation(&s.world, &s.defs),
+            [("Fire Nation".to_owned(), s.world.units.len())]
+        );
+
+        s.world.units[0].nation = Some(Nation::Earth);
+        let by_nation = population_by_nation(&s.world, &s.defs);
+        let earth_name = s.defs.nation(Nation::Earth).name.clone();
+        let fire_name = s.defs.nation(Nation::Fire).name.clone();
+        assert_eq!(
+            by_nation,
+            [(earth_name, 1), (fire_name, s.world.units.len() - 1)],
+            "{by_nation:?}"
+        );
+
+        s.world.units[1].guest = Some(fn_sim::world::Guest::Avatar);
+        let total: usize = population_by_nation(&s.world, &s.defs).iter().map(|&(_, c)| c).sum();
+        assert_eq!(total, s.world.units.len() - 1, "the Avatar isn't tallied");
     }
 
     #[test]

@@ -472,6 +472,27 @@ mod tests {
         assert_eq!(bend_ability(&s), Some(hearth));
     }
 
+    /// #248: in a mixed-nation settlement (#240) `B` also cycles onto a newcomer's signature
+    /// ability, not just the settlement's own nation's.
+    #[test]
+    fn b_also_cycles_onto_a_newcomers_nation() {
+        let mut s = Session::new(1, Nation::Fire, 48, 32);
+        let hearth = ability_for_nation(&s.defs, Nation::Fire).unwrap();
+        let raise_earth = ability_for_nation(&s.defs, Nation::Earth).unwrap();
+        assert_eq!(usable_abilities(&s), [hearth], "no Earth newcomer yet");
+
+        s.world.units[1].nation = Some(Nation::Earth);
+        let usable = usable_abilities(&s);
+        assert_eq!(usable, [raise_earth, hearth], "data order, not which nation founded it");
+        assert!(Tool::Bend.hint(&s).contains("B: next ability"));
+
+        assert_eq!(bend_ability(&s), Some(raise_earth), "the first usable, with no choice yet");
+        cycle_ability(&mut s, Tool::Bend, Tool::Bend);
+        assert_eq!(bend_ability(&s), Some(hearth));
+        cycle_ability(&mut s, Tool::Bend, Tool::Bend);
+        assert_eq!(bend_ability(&s), Some(raise_earth), "wraps round");
+    }
+
     #[test]
     fn every_tool_has_a_key_and_the_letters_are_distinct() {
         assert_eq!(Tool::Select.key(), "Esc");

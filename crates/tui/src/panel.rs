@@ -18,6 +18,7 @@ use fn_sim::world::Unit;
 use fn_ui::build;
 use fn_ui::inspect::{Hint, Line, tooltip_lines};
 use fn_ui::text::{describe_stack, describe_task};
+use fn_ui::tools::{bend_ability, usable_abilities};
 use fn_ui::view::{SideView, side_view, stores};
 use fn_ui::{Session, Tool};
 use ratatui::buffer::Buffer;
@@ -113,7 +114,8 @@ struct Data {
     modifiers: Vec<Row>,
     hint: Vec<Row>,
     /// The Tool section's one row for the Build tool's chosen building (#111; its full picker
-    /// moved to the Build modal, #285); empty for every other tool, or with nothing placeable.
+    /// moved to the Build modal, #285), or every usable ability for the Bend tool (#248,
+    /// `bend_ability_rows`); empty for every other tool, or with nothing placeable or castable.
     picker: Vec<Row>,
     notice: Vec<Row>,
     alerts: Vec<Row>,
@@ -133,6 +135,17 @@ struct Knobs {
     hint: usize,
     picker: usize,
     stores: usize,
+}
+
+/// The People section's header count (#248, docs/design/endgame.md "The transformation"): the
+/// plain total while the settlement is one nation, else the total with the breakdown by nation
+/// ("12 (Water 7, Earth 3, Fire 2)"), in `Nation::ALL`'s order (`view::population_by_nation`).
+fn population_label(view: &SideView) -> String {
+    if view.population.len() <= 1 {
+        return view.people.to_string();
+    }
+    let by_nation: Vec<String> = view.population.iter().map(|(n, c)| format!("{n} {c}")).collect();
+    format!("{} ({})", view.people, by_nation.join(", "))
 }
 
 fn header(view: &SideView, marks: &Marks) -> Vec<Row> {
@@ -242,6 +255,31 @@ fn picker_row(row: &build::PickerRow, chosen: Option<BuildingId>, marks: &Marks)
     Row::pair(format!("{mark}{}", row.name), name_tone, right, right_tone)
 }
 
+/// The Tool section's rows while the Bend tool is active (#248, docs/design/endgame.md "The
+/// transformation"): every ability someone in the settlement can cast, the one `B` would channel
+/// next marked, with how many could cast it ("Raise Earth: 14 benders", `World::caster_count`).
+/// Empty off the Bend tool, which keeps the Build tool's single-row `picker_row` in its slot.
+fn bend_ability_rows(session: &Session, marks: &Marks) -> Vec<Row> {
+    let defs = &session.defs;
+    let current = bend_ability(session);
+    usable_abilities(session)
+        .into_iter()
+        .map(|id| {
+            let def = defs.ability(id);
+            let mark = if Some(id) == current { marks.pointer } else { " " };
+            let casters = session.world.caster_count(id, defs);
+            let word = if casters == 1 { "bender" } else { "benders" };
+            let name_tone = if Some(id) == current { Tone::Title } else { Tone::Text };
+            Row::pair(
+                format!("{mark}{}", def.name),
+                name_tone,
+                format!("{casters} {word}"),
+                Tone::Dim,
+            )
+        })
+        .collect()
+}
+
 /// Whether the building the Build tool would place fits the cursor's tile, or the reason it
 /// doesn't (`fn_ui::build::placement`). `None` off the Build tool, or with nothing placeable.
 fn placement_row(session: &Session, pos: Pos, choice: Option<BuildingId>) -> Option<Row> {
@@ -318,13 +356,17 @@ fn gather(session: &Session, ui: &UiState, marks: &Marks, width: usize) -> Data 
         .into_iter()
         .map(|l| Row::text(l, Tone::Dim))
         .collect();
-    // Just the chosen building (#285 moved the rest of the picker to the Build modal).
-    let picker: Vec<Row> = view
-        .picker
-        .iter()
-        .find(|row| Some(row.id) == view.choice)
-        .map(|row| vec![picker_row(row, view.choice, marks)])
-        .unwrap_or_default();
+    // Just the chosen building (#285 moved the rest of the picker to the Build modal); the Bend
+    // tool uses the same slot for every usable ability instead (#248).
+    let picker: Vec<Row> = if ui.tool == Tool::Bend {
+        bend_ability_rows(session, marks)
+    } else {
+        view.picker
+            .iter()
+            .find(|row| Some(row.id) == view.choice)
+            .map(|row| vec![picker_row(row, view.choice, marks)])
+            .unwrap_or_default()
+    };
     let notice = wrap(&view.notice, width, NOTICE_LINES, ellipsis)
         .into_iter()
         .map(|l| Row::text(l, Tone::Text))
@@ -362,7 +404,7 @@ fn sections(d: &Data, k: Knobs) -> Vec<Section> {
         if k.units < n && k.units > 0 {
             rows.push(Row::pair(format!("+{} more", n - k.units), Tone::Dim, "[Tab]", Tone::Dim));
         }
-        Section::new("PEOPLE", d.view.people.to_string(), rows).always()
+        Section::new("PEOPLE", population_label(&d.view), rows).always()
     };
     let stores = Section::new("STORES", "", d.stores.iter().take(k.stores).cloned().collect());
     let research = Section::new("RESEARCH", "", d.research.clone());

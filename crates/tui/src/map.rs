@@ -35,7 +35,7 @@ use fn_sim::building::BuildingId;
 use fn_sim::geom::Footprint;
 use fn_sim::jobs::Stack;
 use fn_sim::world::{BendOutcome, Moved, TICKS_PER_SECOND};
-use fn_sim::{Pos, Terrain};
+use fn_sim::{Nation, Pos, Terrain};
 use fn_ui::build::Placement;
 use fn_ui::{Session, Tool};
 use ratatui::buffer::Buffer;
@@ -115,7 +115,10 @@ fn cast_highlights(session: &Session) -> BTreeSet<Pos> {
 /// Everything about the world's tiles that isn't in the tile map, gathered once per frame so
 /// drawing a tile is a handful of lookups.
 pub struct Overlays {
-    units: BTreeSet<Pos>,
+    /// Every tile with a unit standing on it (not inside a building), with whichever nation
+    /// draws there (#248): where more than one unit shares a tile, the selected one wins if
+    /// it's among them, else whichever `World::units` lists last.
+    units: BTreeMap<Pos, Nation>,
     /// Where the selected unit stands: it draws in reverse video.
     selected: Option<Pos>,
     ground: BTreeMap<Pos, Stack>,
@@ -156,8 +159,21 @@ impl Overlays {
         let ghosts = ui.ghosts(session);
         Self {
             // A unit that is inside a building (#226) isn't drawn on the map: its `pos` still
-            // names the door it went in by, but `occupants` (below) covers it instead.
-            units: world.units.iter().filter(|u| u.inside().is_none()).map(|u| u.pos).collect(),
+            // names the door it went in by, but `occupants` (below) covers it instead. The
+            // selected unit's own nation wins where it shares a tile with others (#248), so
+            // selecting a newcomer always shows its own colour there.
+            units: {
+                let mut units: BTreeMap<Pos, Nation> = world
+                    .units
+                    .iter()
+                    .filter(|u| u.inside().is_none())
+                    .map(|u| (u.pos, world.nation_of(u)))
+                    .collect();
+                if let Some(sel) = ui.selected_unit(session).filter(|u| u.inside().is_none()) {
+                    units.insert(sel.pos, world.nation_of(sel));
+                }
+                units
+            },
             selected: ui.selected_unit(session).map(|u| u.pos),
             ground: world.ground_items().collect(),
             zones: world.stockpile_zones().collect(),
@@ -301,13 +317,15 @@ pub fn tile_cell(
 
     // The glyph and its colour, top to bottom.
     let mut mods = Modifier::empty();
-    let (glyph, fg): (char, Rgb8) = if over.units.contains(&pos) {
+    let (glyph, fg): (char, Rgb8) = if let Some(&nation) = over.units.get(&pos) {
         mods |= Modifier::BOLD;
         if over.selected == Some(pos) {
             // The selected unit stands out from the others, whatever the colour depth.
             mods |= Modifier::REVERSED;
         }
-        (g.unit.glyph(palette.ascii), palette.unit_rgb())
+        // A newcomer draws in its own nation's colour (#248), not necessarily the
+        // settlement's own.
+        (g.unit.glyph(palette.ascii), palette.unit_rgb_for(defs, nation))
     } else if let Some(&(b, _)) = over.ghost.get(&pos).filter(|&&(_, free)| free || !palette.mono())
     {
         // Without colour a blocked ghost tile keeps the glyph of what is in the way instead
@@ -492,6 +510,36 @@ mod tests {
     fn a_target_shape_is_just_the_landed_tile() {
         let pos = Pos::new(5, 5);
         assert_eq!(shape_tiles(Shape::Target, pos, None), vec![pos]);
+    }
+
+    /// A newcomer of another nation (#240) draws in its own nation's colour, not the
+    /// settlement's own (#248): `tile_cell`'s fg matches `Palette::unit_rgb_for` for each.
+    #[test]
+    fn a_newcomer_draws_in_its_own_nations_colour() {
+        use fn_sim::Nation;
+        let mut s = crate::new_session(7, Nation::Fire);
+        s.world.units[1].nation = Some(Nation::Earth);
+        let home_pos = s.world.units[0].pos;
+        let newcomer_pos = s.world.units[1].pos;
+        assert_ne!(home_pos, newcomer_pos, "distinct spawns");
+
+        let mut ui = UiState::new(&s, (120, 40));
+        // Away from both units, so the cursor's own look doesn't override the glyph's colour.
+        ui.cursor = Pos::new(home_pos.x - 5, home_pos.y - 5);
+        let palette = Palette::new(&s.defs, Nation::Fire, ColorDepth::TrueColor, false);
+        let over = Overlays::gather(&s, &ui);
+
+        let home_cell = tile_cell(&s, &ui, &palette, &over, home_pos).unwrap();
+        let newcomer_cell = tile_cell(&s, &ui, &palette, &over, newcomer_pos).unwrap();
+        assert_eq!(
+            home_cell.style.fg,
+            Some(palette.color(palette.unit_rgb_for(&s.defs, Nation::Fire)))
+        );
+        assert_eq!(
+            newcomer_cell.style.fg,
+            Some(palette.color(palette.unit_rgb_for(&s.defs, Nation::Earth)))
+        );
+        assert_ne!(home_cell.style.fg, newcomer_cell.style.fg);
     }
 
     #[test]
