@@ -617,14 +617,22 @@ fn draw_status(screen: &EmbarkScreen, palette: &Palette, area: Rect, buf: &mut B
             .bg(palette.token(theme.accent))
             .add_modifier(Modifier::BOLD)
     };
-    let text = " EMBARK ";
+    // The settle prompt takes over the line the way the game's own y/n prompts do (draw.rs),
+    // with the warning tone; without it the prompt is invisible and any other key cancels it.
+    let (text, hints, badge) = if screen.prompt {
+        let warn = if palette.mono() { badge } else { badge.bg(palette.token(theme.warn)) };
+        let (x, y) = (screen.cursor.x, screen.cursor.y);
+        (" SETTLE? ", format!("Press y to settle at ({x}, {y}), any other key to stay."), warn)
+    } else {
+        (" EMBARK ", status_hints(screen), badge)
+    };
     buf.set_string(area.x, area.y, text, badge);
     let ellipsis = if palette.ascii { '~' } else { '…' };
     let room = usize::from(area.width.saturating_sub(text.chars().count() as u16 + 2));
     buf.set_string(
         area.x + text.chars().count() as u16 + 1,
         area.y,
-        fit(&status_hints(screen), room, ellipsis),
+        fit(&hints, room, ellipsis),
         panel,
     );
 }

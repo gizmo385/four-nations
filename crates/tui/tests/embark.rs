@@ -68,6 +68,22 @@ fn golden_embark_site() {
     golden("earth_seed7_embark_site", &frame(&mut shell, (120, 40)));
 }
 
+/// `Enter` at the closest zoom asks before settling, and the question is on screen: the
+/// status line names the key and the site (a playtest found it invisible), and `y` starts the
+/// game.
+#[test]
+fn the_settle_prompt_is_drawn_and_y_starts_the_game() {
+    let mut shell = embark(7, Nation::Earth, size("small"), SurveyMode::Exact, (120, 40));
+    for _ in 0..4 {
+        press(&mut shell, KeyCode::Enter); // 6 -> 4 -> 2 -> 1, then the prompt
+    }
+    let text = frame(&mut shell, (120, 40));
+    let status = text.lines().last().unwrap();
+    assert!(status.contains("SETTLE?") && status.contains("Press y to settle at"), "{status}");
+    press(&mut shell, KeyCode::Char('y'));
+    assert!(!matches!(shell.mode, Mode::Embark(_)), "y settles and leaves embark");
+}
+
 /// The cursor on the map's forced-sea border: refused ("open water"), tinted in the `bad` tone.
 #[test]
 fn golden_embark_refused() {
