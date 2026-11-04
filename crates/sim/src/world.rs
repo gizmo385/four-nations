@@ -315,6 +315,13 @@ pub struct World {
     /// instead of the world seed (as `orchard_rng` does for #142); still deterministic.
     #[serde(default = "population::default_rng")]
     growth_rng: SimRng,
+    /// Draws a newcomer's nation once the Harmony Gate is complete (`population.rs`,
+    /// `rng::stream(seed, "endeavor.newcomers")`, issue #240). Kept apart from `growth_rng`
+    /// (which only ever picks a name) so retuning the nation weights doesn't reshuffle names. A
+    /// save from before #240 loads this seeded by 0 instead of the world seed, as `growth_rng`
+    /// does for #232.
+    #[serde(default = "population::default_newcomer_rng")]
+    newcomer_rng: SimRng,
     rng: SimRng,
 }
 
@@ -368,6 +375,7 @@ impl World {
             orchard_rng: orchard::new_rng(seed),
             sprout_rng: rng::stream(seed, "bending.sprout"),
             growth_rng: population::new_rng(seed),
+            newcomer_rng: population::new_newcomer_rng(seed),
             rng: rng::stream(seed, "world.units"),
         };
         world.bury(defs);

@@ -16,6 +16,16 @@
 //! normal need and idle-wander code (`World::wander`) is what actually walks it inward, and
 //! nobody assigns it a bed or a job.
 //!
+//! **The United City** (`docs/design/endgame.md`, "The transformation"; issue #240). Before the
+//! Harmony Gate is complete, every newcomer is the settlement's own nation, exactly as #232
+//! always worked. Once it stands, each newcomer's nation is instead drawn from `[growth]`'s
+//! `own_weight` (this settlement's own nation) against `other_weight` (each of the other three),
+//! from its own RNG stream (`rng::stream(seed, "endeavor.newcomers")`, kept apart from the name
+//! draw above so retuning the weights doesn't reshuffle names). A newcomer of another nation
+//! gets `Unit::nation` set, works with that nation's own modifiers (`World::modifiers_for`) and
+//! can bend that nation's signature ability (`World::unit_can_bend`), both already per-unit from
+//! #239; this module only has to decide which nation to draw and hand it to `Unit::nation`.
+//!
 //! **"Nearest the settlement"** is `World::start()` (where the player chose to embark, #289)
 //! when the world has one; a world made by `World::new` or a save from before #289 has none, so
 //! this falls back to the mean position of its living units instead (there is always at least
@@ -37,6 +47,17 @@ pub(super) fn default_rng() -> SimRng {
 
 pub(super) fn new_rng(seed: u64) -> SimRng {
     rng::stream(seed, "population.names")
+}
+
+/// The stream a newcomer's nation is drawn from, once the Harmony Gate is complete (#240). A
+/// saved world that predates it loads with this seeded by 0 instead of the world seed, as
+/// `default_rng` does for #232; still deterministic.
+pub(super) fn default_newcomer_rng() -> SimRng {
+    rng::stream(0, "endeavor.newcomers")
+}
+
+pub(super) fn new_newcomer_rng(seed: u64) -> SimRng {
+    rng::stream(seed, "endeavor.newcomers")
 }
 
 /// A newcomer who joined the settlement (`World::tick_population`).
@@ -143,11 +164,36 @@ impl World {
             })
     }
 
-    /// Adds one newcomer on the settlement's outskirts (`nearest_edge_tile`), named from the
-    /// nation's pool. Does nothing if the settlement has no walkable tile at all.
+    /// Which nation a newcomer joining right now is. Before the Harmony Gate is complete, always
+    /// the settlement's own (there is nobody else to draw from yet); after, a weighted draw
+    /// between the settlement's own nation (`[growth].own_weight`) and each of the other three
+    /// (`other_weight`), from `newcomer_rng` (see the module doc, #240).
+    fn newcomer_nation(&mut self, defs: &Defs) -> Nation {
+        if !matches!(self.endeavor, EndeavorState::Complete { .. }) {
+            return self.nation;
+        }
+        let growth = defs.needs.growth;
+        let total = growth.own_weight + 3.0 * growth.other_weight;
+        let draw = self.newcomer_rng.random_range(0.0..total);
+        let mut reached = 0.0;
+        for n in Nation::ALL {
+            reached += if n == self.nation { growth.own_weight } else { growth.other_weight };
+            if draw < reached {
+                return n;
+            }
+        }
+        // Floating-point rounding could in principle leave `draw` just past the last edge; the
+        // last nation in `Nation::ALL` is the only share left to give it to.
+        *Nation::ALL.last().expect("Nation::ALL is never empty")
+    }
+
+    /// Adds one newcomer on the settlement's outskirts (`nearest_edge_tile`), of a nation drawn
+    /// by `newcomer_nation` and named from that nation's pool. Does nothing if the settlement has
+    /// no walkable tile at all.
     fn spawn_newcomer(&mut self, defs: &Defs) {
         let Some(pos) = self.nearest_edge_tile(self.settlement_anchor()) else { return };
-        let nation = defs.nation(self.nation);
+        let drawn = self.newcomer_nation(defs);
+        let nation = defs.nation(drawn);
         let name = nation.names[self.growth_rng.random_range(0..nation.names.len())].clone();
         let variant = self.rng.random_range(0..nation.characters.len() as u8);
         let id = UnitId(self.next_unit);
@@ -155,7 +201,9 @@ impl World {
         self.units.push(Unit {
             id,
             name: name.clone(),
-            nation: None,
+            // `None` means the settlement's own nation (`World::nation_of`); only a unit of
+            // another nation needs the field set.
+            nation: (drawn != self.nation).then_some(drawn),
             pos,
             variant,
             needs: Needs::full(&defs.needs),

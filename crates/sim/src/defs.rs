@@ -712,6 +712,8 @@ mod tests {
         assert!(
             bad("food_per_newcomer = 30", "food_per_newcomer = 0").contains("food_per_newcomer")
         );
+        assert!(bad("own_weight = 0.4", "own_weight = 0.0").contains("own_weight"));
+        assert!(bad("other_weight = 0.2", "other_weight = -1.0").contains("other_weight"));
     }
 
     #[test]

@@ -224,6 +224,23 @@ fn stages_advance_in_order_and_the_gate_stands_at_the_end() {
     assert_eq!((left("stone"), left("wood")), (34, 37));
 }
 
+/// The finished gate is a permanent heat source, like any building with `[building.heat]`
+/// (docs/design/endgame.md, "The transformation: the United City", #240), so meals cooked and
+/// sleep taken near it benefit the moment it stands.
+#[test]
+fn the_finished_gate_is_a_heat_source_once_complete() {
+    let defs = earth_only();
+    let mut w = world(Nation::Earth, 3, &defs);
+    assert!(!w.is_heated(ANCHOR), "no fire before the gate is even begun");
+    begin(&mut w, &defs);
+    run_until(&mut w, &defs, 6_000, |w| matches!(w.endeavor(), EndeavorState::Complete { .. }));
+    // Every tile of the 4x4 plaza is warmed, and `data/buildings.toml`'s radius of 3 (at Earth's
+    // heating modifier of 1.0) reaches outward from it too.
+    assert!(Footprint::new(ANCHOR, 4, 4).tiles().all(|p| w.is_heated(p)));
+    assert!(w.is_heated(at(ANCHOR.x - 3, ANCHOR.y)), "3 tiles out is still within radius 3");
+    assert!(!w.is_heated(at(ANCHOR.x - 4, ANCHOR.y)), "4 tiles out is past it");
+}
+
 #[test]
 fn cancelling_before_work_starts_refunds_what_was_delivered() {
     let defs = defs_with(
