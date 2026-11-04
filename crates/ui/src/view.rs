@@ -6,7 +6,7 @@ use fn_sim::Pos;
 use fn_sim::building::BuildingId;
 use fn_sim::nation::Modifiers;
 use fn_sim::needs::NeedDef;
-use fn_sim::world::{TICKS_PER_SECOND, Unit, UnitId};
+use fn_sim::world::{TICKS_PER_SECOND, Task, Unit, UnitId};
 use fn_sim::{Defs, Nation, World};
 
 use crate::alerts::Alerts;
@@ -39,8 +39,6 @@ pub struct SideView {
     pub picker: Vec<PickerRow>,
     /// The building the Build tool would place, if it can place any.
     pub choice: Option<BuildingId>,
-    /// The nation's modifiers that differ from 1.0, as (label, value).
-    pub modifiers: Vec<(String, String)>,
     /// The tech the knowledge pool is currently paying for, its progress and rate (#23).
     pub research: ResearchStatus,
     /// What the stockpiles hold, in the order of the item data (`store_rows`).
@@ -82,7 +80,6 @@ pub fn side_view(
         notice: notice.to_owned(),
         picker,
         choice,
-        modifiers: modifier_rows(world.modifiers()),
         research: research_status(world.research(), defs),
         stores: store_rows(session),
         endeavor: endeavor_status(session),
@@ -136,6 +133,127 @@ pub fn population_by_nation(world: &World, defs: &Defs) -> Vec<(String, usize)> 
         })
         .filter(|&(_, count)| count > 0)
         .collect()
+}
+
+/// Settlers grouped by what they're doing (docs/design/side-panel.md "People: counts, not
+/// names"), in a **fixed order** so a group's place never jitters tick to tick (sorting by count
+/// would).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum Activity {
+    Idle,
+    Haul,
+    Harvest,
+    Farm,
+    Build,
+    Bend,
+    Craft,
+    Study,
+    Gate,
+    Eat,
+    Sleep,
+}
+
+impl Activity {
+    pub const ALL: [Activity; 11] = [
+        Self::Idle,
+        Self::Haul,
+        Self::Harvest,
+        Self::Farm,
+        Self::Build,
+        Self::Bend,
+        Self::Craft,
+        Self::Study,
+        Self::Gate,
+        Self::Eat,
+        Self::Sleep,
+    ];
+
+    /// The short verb the panel's own line and the Nation screen's heading show ("Idle 9"):
+    /// short because `Harvesting 3` doesn't fit beside two other groups in the panel's own width.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Idle => "Idle",
+            Self::Haul => "Haul",
+            Self::Harvest => "Harvest",
+            Self::Farm => "Farm",
+            Self::Build => "Build",
+            Self::Bend => "Bend",
+            Self::Craft => "Craft",
+            Self::Study => "Study",
+            Self::Gate => "Gate",
+            Self::Eat => "Eat",
+            Self::Sleep => "Sleep",
+        }
+    }
+
+    /// Which group a unit's task falls into (docs/design/side-panel.md's own table), or `Idle`
+    /// with none.
+    pub fn of(task: Option<Task>) -> Self {
+        match task {
+            None => Self::Idle,
+            Some(Task::Haul(_) | Task::Deliver) => Self::Haul,
+            Some(Task::Harvest(_)) => Self::Harvest,
+            Some(Task::Sow(_) | Task::Reap(_)) => Self::Farm,
+            Some(Task::Build(_)) => Self::Build,
+            Some(Task::Bend(_)) => Self::Bend,
+            Some(Task::Craft(_)) => Self::Craft,
+            Some(Task::Study(_)) => Self::Study,
+            Some(Task::Endeavor(_) | Task::Attend(_) | Task::Rite) => Self::Gate,
+            Some(Task::Eat(_) | Task::Drink) => Self::Eat,
+            Some(Task::Sleep) => Self::Sleep,
+        }
+    }
+}
+
+/// Settlers grouped by task, in [`Activity::ALL`]'s fixed order; zero counts are left out, so the
+/// groups that show pack into a few rows (docs/design/side-panel.md "People: counts, not names").
+pub fn activity_counts(session: &Session) -> Vec<(Activity, usize)> {
+    let mut counts = [0usize; Activity::ALL.len()];
+    for unit in &session.world.units {
+        let activity = Activity::of(unit.task());
+        let i =
+            Activity::ALL.iter().position(|&a| a == activity).expect("every activity is listed");
+        counts[i] += 1;
+    }
+    Activity::ALL.into_iter().zip(counts).filter(|&(_, n)| n > 0).collect()
+}
+
+/// The word a need's trouble wears, in the doc's own pairs (docs/design/side-panel.md "People:
+/// counts, not names"): `Status::Warn` and `Status::Bad` each have their own; `Status::Ok` has
+/// none. `label` is a [`NeedView::label`] ("Hunger", "Thirst", "Energy" or "Health").
+pub fn need_word(label: &str, status: Status) -> Option<&'static str> {
+    let (warn, bad) = match label {
+        "Hunger" => ("Hungry", "Starving"),
+        "Thirst" => ("Thirsty", "Parched"),
+        "Energy" => ("Tired", "Exhausted"),
+        "Health" => ("Hurt", "Dying"),
+        _ => return None,
+    };
+    match status {
+        Status::Ok => None,
+        Status::Warn => Some(warn),
+        Status::Bad => Some(bad),
+    }
+}
+
+/// Counts of units in trouble, by [`need_word`]'s word, in the doc's fixed order (Hunger, Thirst,
+/// Energy, Health; warn before bad within one): hidden words (count 0) are left out, so the row
+/// shows only when it matters (docs/design/side-panel.md "People: counts, not names"). The
+/// thresholds are `need_status`'s own (data/needs.toml), the same ones [`unit_view`]'s meters use.
+pub fn need_flags(session: &Session) -> Vec<(String, usize)> {
+    const WORDS: [&str; 8] =
+        ["Hungry", "Starving", "Thirsty", "Parched", "Tired", "Exhausted", "Hurt", "Dying"];
+    let mut counts = [0usize; WORDS.len()];
+    for unit in &session.world.units {
+        for n in &unit_view(session, unit).needs {
+            if let Some(word) = need_word(n.label, n.status)
+                && let Some(i) = WORDS.iter().position(|&w| w == word)
+            {
+                counts[i] += 1;
+            }
+        }
+    }
+    WORDS.into_iter().zip(counts).filter(|&(_, n)| n > 0).map(|(w, n)| (w.to_owned(), n)).collect()
 }
 
 /// In-game time since the start as `MM:SS`. There is no calendar yet.
@@ -261,6 +379,46 @@ pub fn unit_view(session: &Session, unit: &Unit) -> UnitView {
             meter("Energy", unit.needs.energy, s.max(), low(s.energy)),
         ],
         chi_frac: (unit.chi / defs.chi.max).clamp(0.0, 1.0),
+    }
+}
+
+/// Everything the Nation screen (`N`, docs/design/side-panel.md "The Nation screen") shows: every
+/// settler grouped by [`Activity`], in `World::units`' own order within a group; every store, not
+/// just the panel's own two rows' worth; and the nation's traits (today's panel's own Modifiers,
+/// moved here, since they only change when research does).
+#[derive(Clone, PartialEq, Debug)]
+pub struct NationView {
+    pub nation: String,
+    pub seed: u64,
+    pub population: usize,
+    /// In-game time, `MM:SS` (`format_clock`).
+    pub clock: String,
+    /// Groups with nobody in them are left out, in [`Activity::ALL`]'s fixed order.
+    pub groups: Vec<(Activity, Vec<UnitView>)>,
+    pub stores: Vec<StoreRow>,
+    /// The nation's modifiers that differ from 1.0, as (label, value) (`modifier_rows`).
+    pub traits: Vec<(String, String)>,
+}
+
+pub fn nation_view(session: &Session) -> NationView {
+    let (world, defs) = (&session.world, &session.defs);
+    let mut groups: Vec<(Activity, Vec<UnitView>)> =
+        Activity::ALL.into_iter().map(|a| (a, Vec::new())).collect();
+    for unit in &world.units {
+        let activity = Activity::of(unit.task());
+        let i =
+            Activity::ALL.iter().position(|&a| a == activity).expect("every activity is listed");
+        groups[i].1.push(unit_view(session, unit));
+    }
+    groups.retain(|(_, units)| !units.is_empty());
+    NationView {
+        nation: defs.nation(world.nation).name.clone(),
+        seed: world.seed,
+        population: world.units.len(),
+        clock: format_clock(world.tick),
+        groups,
+        stores: store_rows(session),
+        traits: modifier_rows(world.modifiers()),
     }
 }
 
@@ -489,5 +647,82 @@ mod tests {
         let settler = unit_view(&s, &s.world.units[1]);
         assert_eq!(settler.name, s.world.units[1].name);
         assert_eq!(settler.nation, "Water Tribes");
+    }
+
+    /// Every `Task` variant falls into the activity table's group (docs/design/side-panel.md
+    /// "People: counts, not names"), and `None` is Idle.
+    #[test]
+    fn every_task_variant_falls_into_its_doc_table_group() {
+        use fn_sim::jobs::JobId;
+        use fn_sim::world::FoodSource;
+        let id = JobId(0);
+        let cases = [
+            (None, Activity::Idle),
+            (Some(Task::Haul(id)), Activity::Haul),
+            (Some(Task::Deliver), Activity::Haul),
+            (Some(Task::Harvest(id)), Activity::Harvest),
+            (Some(Task::Sow(id)), Activity::Farm),
+            (Some(Task::Reap(id)), Activity::Farm),
+            (Some(Task::Build(id)), Activity::Build),
+            (Some(Task::Bend(id)), Activity::Bend),
+            (Some(Task::Craft(id)), Activity::Craft),
+            (Some(Task::Study(id)), Activity::Study),
+            (Some(Task::Endeavor(id)), Activity::Gate),
+            (Some(Task::Attend(id)), Activity::Gate),
+            (Some(Task::Rite), Activity::Gate),
+            (Some(Task::Eat(FoodSource::Carried)), Activity::Eat),
+            (Some(Task::Drink), Activity::Eat),
+            (Some(Task::Sleep), Activity::Sleep),
+        ];
+        for (task, want) in cases {
+            assert_eq!(Activity::of(task), want, "{task:?}");
+        }
+    }
+
+    /// A fresh settlement is every settler Idle, in `Activity::ALL`'s order, with zero counts
+    /// left out.
+    #[test]
+    fn activity_counts_tallies_a_fresh_settlement_as_idle() {
+        let s = Session::new(7, Nation::Earth, 48, 32);
+        let counts = activity_counts(&s);
+        assert_eq!(counts, [(Activity::Idle, s.world.units.len())]);
+    }
+
+    /// `need_word` pairs a need's label with the doc's own words, and says nothing for `Ok`.
+    #[test]
+    fn need_word_follows_the_doc_s_pairs() {
+        assert_eq!(need_word("Hunger", Status::Warn), Some("Hungry"));
+        assert_eq!(need_word("Hunger", Status::Bad), Some("Starving"));
+        assert_eq!(need_word("Thirst", Status::Warn), Some("Thirsty"));
+        assert_eq!(need_word("Energy", Status::Bad), Some("Exhausted"));
+        assert_eq!(need_word("Health", Status::Warn), Some("Hurt"));
+        assert_eq!(need_word("Hunger", Status::Ok), None);
+        assert_eq!(need_word("Chi", Status::Bad), None);
+    }
+
+    /// A settlement with nobody in trouble has no flags; one unit starving and another
+    /// exhausted shows both, in the doc's fixed order.
+    #[test]
+    fn need_flags_counts_units_in_trouble_and_hides_the_rest() {
+        let mut s = Session::new(7, Nation::Earth, 48, 32);
+        assert!(need_flags(&s).is_empty(), "a fresh settlement has nobody in trouble");
+        s.world.units[0].needs.hunger = 0.0;
+        s.world.units[1].needs.energy = 0.0;
+        assert_eq!(need_flags(&s), [("Starving".to_owned(), 1), ("Exhausted".to_owned(), 1)]);
+    }
+
+    /// `nation_view` groups every settler the same way `activity_counts` does, lists every
+    /// store (not just two rows' worth) and carries the panel's own modifier rows as traits.
+    #[test]
+    fn nation_view_groups_settlers_lists_every_store_and_carries_the_traits() {
+        let s = Session::new(7, Nation::Fire, 48, 32);
+        let view = nation_view(&s);
+        assert_eq!(view.nation, s.defs.nation(Nation::Fire).name);
+        assert_eq!(view.seed, 7);
+        assert_eq!(view.population, s.world.units.len());
+        assert_eq!(view.groups, [(Activity::Idle, view.groups[0].1.clone())]);
+        assert_eq!(view.groups[0].1.len(), s.world.units.len());
+        assert_eq!(view.traits, modifier_rows(s.world.modifiers()));
+        assert_eq!(view.stores, store_rows(&s));
     }
 }

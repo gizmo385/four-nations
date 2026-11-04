@@ -114,6 +114,7 @@ impl App {
             Action::ShowLog => self.open(Screen::Log),
             Action::ShowHelp => self.open(Screen::Help),
             Action::ShowEndeavor => self.open(Screen::Endeavor),
+            Action::ShowNation => self.open(Screen::Nation),
             Action::ShowSaves => self.show_saves(),
             Action::AskNewMap => self.ui.prompt = Some(Prompt::NewMap),
             Action::AskNation(nation) => self.ui.prompt = Some(Prompt::Nation(nation)),
@@ -150,6 +151,16 @@ impl App {
                 _ => {}
             }
         }
+        if self.ui.screen == Some(Screen::Nation) {
+            // The roster has a pointer, not a scroll (#308): the arrows move it by one settler
+            // (a Shift step is still one), PgUp/PgDn by a page, and Enter selects.
+            match action {
+                Action::Move { dy, .. } => return self.move_nation_cursor(dy),
+                Action::Jump { dy, .. } => return self.move_nation_cursor(dy * self.nation_page()),
+                Action::Confirm => return self.confirm_nation(),
+                _ => {}
+            }
+        }
         match action {
             Action::Move { dy, tiles, .. } => self.scroll_by(dy * tiles),
             Action::Jump { dy, .. } => {
@@ -161,6 +172,7 @@ impl App {
             Action::ShowLog => self.open(Screen::Log),
             Action::ShowHelp => self.open(Screen::Help),
             Action::ShowEndeavor => self.open(Screen::Endeavor),
+            Action::ShowNation => self.open(Screen::Nation),
             Action::ShowSaves => self.show_saves(),
             Action::TogglePause => self.session.clock.toggle_pause(),
             Action::Faster => self.session.clock.faster(),
@@ -204,6 +216,9 @@ impl App {
                 self.refresh_saves();
                 self.ui.save_cursor = 0;
             }
+            if screen == Screen::Nation {
+                self.ui.nation_cursor = 0;
+            }
         }
     }
 
@@ -218,6 +233,28 @@ impl App {
         let view = screen_view(&self.session);
         let (width, rows) = screens::text_size(self.ui.viewport());
         research::Grid::new((width, rows), view.columns.len()).cards as i32
+    }
+
+    /// Moves the Nation screen's pointer (#308) `dy` settlers, stopping at the roster's edges.
+    fn move_nation_cursor(&mut self, dy: i32) {
+        let view = fn_ui::view::nation_view(&self.session);
+        self.ui.nation_cursor = crate::nation::step(&view, self.ui.nation_cursor, dy);
+    }
+
+    /// How many settlers PgUp and PgDn move in the Nation screen: a page of rows (headings
+    /// included, which undercounts slightly, close enough for a page jump).
+    fn nation_page(&self) -> i32 {
+        screens::text_size(self.ui.viewport()).1 as i32
+    }
+
+    /// `Enter` in the Nation screen: selects the settler under the pointer, puts the cursor on
+    /// them and closes the screen (#308, docs/design/side-panel.md "The Nation screen").
+    fn confirm_nation(&mut self) {
+        let view = fn_ui::view::nation_view(&self.session);
+        if let Some(&id) = crate::nation::roster(&view).get(self.ui.nation_cursor) {
+            self.ui.select_unit(&self.session, id);
+            self.ui.screen = None;
+        }
     }
 
     /// How many rows of text the open screen shows at once.

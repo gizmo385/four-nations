@@ -20,19 +20,19 @@
 │ B                      Bend tool: channel the nation's ability                       ││ Signs met - G: open          │
 │ U                      Build tool: place the chosen building (U: pick one)           ││ Next: 10 more people, 6 mor… │
 │ C                      Sow tool: sow an empty farm plot                              ││                              │
-│ O                      Harvest tool: toggle a standing order (re-designates when the ││ ◇ MODIFIERS                  │
-│                        resource ripens again)                                        ││ Move speed              x0.9 │
-│                                                                                      ││ Carry capacity          x1.3 │
-│ TIME                                                                                 ││ Earthworks              x2.5 │
-│ Space                  Pause or run                                                  ││ Water work              x0.9 │
-│ + =                    Faster                                                        ││ Power generation        x0.8 │
-│ - _                    Slower                                                        ││ Construction            x1.5 │
+│ O                      Harvest tool: toggle a standing order (re-designates when the ││ ◇ CURSOR            (94, 64) │
+│                        resource ripens again)                                        ││ Tyro                         │
+│                                                                                      ││ Earth Kingdom - Idle         │
+│ TIME                                                                                 ││ Carrying: nothing - Bends: 0 │
+│ Space                  Pause or run                                                  ││ Press Enter to select        │
+│ + =                    Faster                                                        ││                              │
+│ - _                    Slower                                                        ││                              │
 │ .                      One tick, while paused                                        ││                              │
-│                                                                                      ││ ◇ CURSOR            (94, 64) │
-│ SCREENS AND GAME                                                                     ││ Tyro                         │
-│ T                      Research: arrows W A S D choose a tech, Enter sets it as the  ││ Earth Kingdom - Idle         │
-│                        target                                                        ││ Carrying: nothing - Bends: 0 │
-│ L                      Message log                                                   ││ Press Enter to select        │
+│                                                                                      ││                              │
+│ SCREENS AND GAME                                                                     ││                              │
+│ T                      Research: arrows W A S D choose a tech, Enter sets it as the  ││                              │
+│                        target                                                        ││                              │
+│ L                      Message log                                                   ││                              │
 │ ?                      Key help                                                      ││                              │
 │ G                      Endeavor: the Harmony Gate's progress and, once building, its ││                              │
 │                        stage                                                         ││                              │

@@ -51,6 +51,9 @@ pub enum Action {
     ShowHelp,
     /// `G`: the Endeavor screen (#242).
     ShowEndeavor,
+    /// `N`: the Nation screen (#308): every settler grouped by activity, every store and the
+    /// nation's traits.
+    ShowNation,
     /// `R`: a new map, after a y/n prompt.
     AskNewMap,
     /// `1`-`4`: switch nation, after a y/n prompt.
@@ -269,6 +272,12 @@ fn build_table() -> Vec<Binding> {
         "Endeavor: the Harmony Gate's progress and, once building, its stage",
         Key::ch('g'),
         Action::ShowEndeavor,
+    );
+    add(
+        Group::Game,
+        "Nation: every settler, every store and the nation's traits",
+        Key::ch('n'),
+        Action::ShowNation,
     );
     add(Group::Game, "New map (asks first)", Key::ch('r'), Action::AskNewMap);
     let switch = "Switch nation: 1 Air, 2 Water, 3 Earth, 4 Fire (asks first)";

@@ -20,19 +20,19 @@
 │   Research your branch                                                               ││ Signs met - G: open          │
 │                                                                                      ││ Next: 10 more people, 6 mor… │
 │ STORES AND HARVESTS                                                                  ││                              │
-│   Food in stores                  ░░░░░░░░░░     0/150                               ││ ◇ MODIFIERS                  │
-│   Stockpile food                                                                     ││ Move speed              x0.9 │
-│   Stone in stores                 ░░░░░░░░░░     0/200                               ││ Carry capacity          x1.3 │
-│   Quarry stone                                                                       ││ Earthworks              x2.5 │
-│   Ore mined                       ░░░░░░░░░░      0/40                               ││ Water work              x0.9 │
-│   Mine gold veins                                                                    ││ Power generation        x0.8 │
-│                                                                                      ││ Construction            x1.5 │
+│   Food in stores                  ░░░░░░░░░░     0/150                               ││ ◇ CURSOR            (94, 64) │
+│   Stockpile food                                                                     ││ Tyro                         │
+│   Stone in stores                 ░░░░░░░░░░     0/200                               ││ Earth Kingdom - Idle         │
+│   Quarry stone                                                                       ││ Carrying: nothing - Bends: 0 │
+│   Ore mined                       ░░░░░░░░░░      0/40                               ││ Press Enter to select        │
+│   Mine gold veins                                                                    ││                              │
+│                                                                                      ││                              │
 │ BENDING                                                                              ││                              │
-│   Bending masters (25 bends each) ░░░░░░░░░░       0/3                               ││ ◇ CURSOR            (94, 64) │
-│   Bend often                                                                         ││ Tyro                         │
-│   Ancient scrolls read            ░░░░░░░░░░       0/3                               ││ Earth Kingdom - Idle         │
-│   Bring scrolls to a study hall                                                      ││ Carrying: nothing - Bends: 0 │
-│                                                                                      ││ Press Enter to select        │
+│   Bending masters (25 bends each) ░░░░░░░░░░       0/3                               ││                              │
+│   Bend often                                                                         ││                              │
+│   Ancient scrolls read            ░░░░░░░░░░       0/3                               ││                              │
+│   Bring scrolls to a study hall                                                      ││                              │
+│                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
