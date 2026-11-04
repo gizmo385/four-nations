@@ -141,21 +141,11 @@ pub const NO_ART_YET: &[&str] = &[
     "harmony_gate",
 ];
 
-/// Buildings whose art is drawn for a 2x2 footprint while the data still makes them 1x1, until
-/// #214 turns the sizes on (docs/design/buildings.md, "Footprint sizes"). A test fails for a
-/// building listed here whose art fits its footprint, so #214 empties this list.
+/// Buildings whose art is drawn for a bigger footprint than the data gives them. A test fails for
+/// a building listed here whose art fits its footprint. #214 turned the 2x2 sizes on and emptied
+/// it (docs/design/buildings.md, "Footprint sizes").
 #[cfg(test)]
-pub const AWAITING_FOOTPRINT: &[&str] = &[
-    "study_hall",
-    "orchard",
-    "windmill",
-    "bison_stable",
-    "forge",
-    "brick_kiln",
-    "smelter",
-    "steam_engine",
-    "lightning_station",
-];
+pub const AWAITING_FOOTPRINT: &[&str] = &[];
 
 /// The frames of the sprite called `art`, if it has one.
 pub fn building_art(art: &str) -> Option<&'static BuildingArt> {
