@@ -1,7 +1,7 @@
 # Difficulty and pressure: seasons, tiring land and presets
 
-Status: **proposed** (#287). The owner's decisions are pending; see "Open questions for the
-owner" at the end. Follow-up work: #294 to #301.
+Status: **accepted** (#287, owner answers 2026-11-03, recorded at the end). Follow-up work: #294
+to #301.
 
 The owner's 2026-11-03 playtest found the game "pretty light": "I never had to venture outside of
 where I started and never felt pressure for food or resources." This doc proposes the pressure
@@ -418,21 +418,14 @@ Absolute targets stay out of CI, because they shift with every retune.
 | #300 | Tooling: `balance` harness, standard opening and CI soak test | #294, #295, #296 |
 | #301 | Data: tune the presets, seasons and strain to the targets | #300 |
 
-## Open questions for the owner
+## Owner decisions (2026-11-03)
 
-1. **Hostile threats: none?** *Recommended: none in this design.* The vision puts pressure on
-   survival, the environment and growth, and there's no combat system to build on. If the game
-   later wants a non-combat antagonist, an angry spirit that blights land the settlement has
-   over-picked would fit both Avatar and strain, with nothing to fight. *Alternative:* wildlife
-   or spirits that harm people, which needs a combat or flee design of its own.
-2. **Should the default get harder than today?** *Recommended: yes.* Normal, the default, has
-   seasons (a 60-minute year with winter from minute 45) and tiring land. Today's feel lives on as
-   Sandbox, with starting stores added. *Alternative:* default to Sandbox and make the pressure
-   opt-in, which leaves the playtest's complaint as the first-run experience.
-3. **Can over-picked wild plants die?** *Recommended: on Hard only.* On Normal, strain only slows
-   regrowth, so a mistake costs time, not the land. *Alternative:* on Normal too, which makes the
-   map visibly scarred by careless picking.
-4. **Preset names and the rough survey.** *Recommended:* three presets with plain names (Sandbox,
-   Normal, Hard), with Avatar flavour in the hints. The rough survey stays a separate toggle that
-   no preset forces. *Alternatives:* themed names (for example "Spirit Oasis, Village, Northern
-   Water Tribe"), a fourth "Harsh" tier that forces the rough survey, or Hard forcing it.
+All four as recommended:
+
+1. **No hostile threats.** Pressure comes from seasons, scarcity and tiring land. A non-combat
+   "angry spirit" that blights over-picked land stays a possible later idea, not filed.
+2. **The default gets harder.** Normal, the default, has seasons and tiring land. Today's feel
+   lives on as Sandbox, with starting stores added.
+3. **Over-picked wild plants die on Hard only.** On Normal, strain only slows regrowth.
+4. **Plain names, no forcing.** Sandbox, Normal and Hard, with Avatar flavour in the hints. The
+   rough survey stays a separate toggle that no preset forces.
