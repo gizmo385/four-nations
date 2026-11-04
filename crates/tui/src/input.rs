@@ -49,6 +49,8 @@ pub enum Action {
     /// `L` and `?`: the message log and the key help.
     ShowLog,
     ShowHelp,
+    /// `G`: the Endeavor screen (#242).
+    ShowEndeavor,
     /// `R`: a new map, after a y/n prompt.
     AskNewMap,
     /// `1`-`4`: switch nation, after a y/n prompt.
@@ -262,6 +264,12 @@ fn build_table() -> Vec<Binding> {
     );
     add(Group::Game, "Message log", Key::ch('l'), Action::ShowLog);
     add(Group::Game, "Key help", Key::ch('?'), Action::ShowHelp);
+    add(
+        Group::Game,
+        "Endeavor: the Harmony Gate's progress and, once building, its stage",
+        Key::ch('g'),
+        Action::ShowEndeavor,
+    );
     add(Group::Game, "New map (asks first)", Key::ch('r'), Action::AskNewMap);
     let switch = "Switch nation: 1 Air, 2 Water, 3 Earth, 4 Fire (asks first)";
     for (i, nation) in Nation::ALL.into_iter().enumerate() {

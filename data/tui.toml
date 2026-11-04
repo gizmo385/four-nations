@@ -273,7 +273,7 @@ glyph = "⌂"
 ascii = "n"
 fg = [200, 228, 245]
 
-# --- The endeavor (#236) ---
+# --- The endeavor (#236, #242) ---
 [building.harmony_gate]
 glyph = "⛩"
 ascii = "G"
@@ -286,6 +286,29 @@ fg = [240, 214, 120]
 glyph = "≡"
 ascii = "~"
 fg = [180, 150, 70]
+
+# The gate's site, while it is building, draws as this 4x4 glyph block instead of the generic
+# dimmed site (#212, #242): one entry per `data/endeavor.toml` stage id, so the player can tell
+# the stage apart at a glance. A stage the data doesn't name here falls back to the generic site.
+[gate_stage.foundation]
+glyph = "▦"
+ascii = ":"
+fg = [150, 140, 120]
+
+[gate_stage.pillars]
+glyph = "╫"
+ascii = "I"
+fg = [195, 190, 170]
+
+[gate_stage.arch]
+glyph = "Π"
+ascii = "A"
+fg = [215, 190, 140]
+
+[gate_stage.rite]
+glyph = "✦"
+ascii = "*"
+fg = [255, 230, 150]
 
 # The box-drawing pieces a rail tile or site (`building.rail` above) picks between, by which of
 # its four neighbours are rail (#279, mirrors the client's sixteen track pieces, #135). A lone
@@ -301,6 +324,13 @@ ascii = ["|", "-", "+", "|", "|", "+", "+", "-", "+", "-", "+", "+", "+", "+", "
 glyph = "☺"
 ascii = "@"
 lift = 0.4
+
+# The Avatar (#237, #242): always `@` in white, on the nation's accent instead of the tile's own
+# background, so he reads as a guest apart from every nation's own units.
+[avatar]
+glyph = "@"
+ascii = "@"
+fg = [255, 255, 255]
 
 # Background tints, mixed into the tile's bg (docs/design/tui.md, "What draws on top"). The bend
 # tint is the nation's accent, as in the client, so it isn't listed.

@@ -130,6 +130,13 @@ pub struct Glyphs {
     pub building: BTreeMap<String, Look>,
     pub rail_track: RailLinks,
     pub unit: UnitLook,
+    /// The Avatar's own look (#237, #242): always `@`, white, drawn on the nation's accent
+    /// instead of his tile's own background (`map::tile_cell`).
+    pub avatar: OverlayGlyph,
+    /// The Harmony Gate's site, by the current stage's id in `data/endeavor.toml` (#242): a 4x4
+    /// glyph block that tells the stage apart, in place of the generic dimmed site
+    /// (`map::gate_stage_look`). A stage missing here falls back to the generic site.
+    pub gate_stage: BTreeMap<String, OverlayGlyph>,
     pub overlay: Overlays,
     pub embark: EmbarkGlyphDef,
 }
@@ -199,6 +206,7 @@ mod tests {
             })
             .collect();
         out.push(("unit".into(), g.unit.glyph, g.unit.ascii));
+        out.push(("avatar".into(), g.avatar.glyph, g.avatar.ascii));
         out.push(("overlay.flame".into(), g.overlay.flame.glyph, g.overlay.flame.ascii));
         out.push(("overlay.sapling".into(), g.overlay.sapling.glyph, g.overlay.sapling.ascii));
         out.push((
@@ -211,6 +219,9 @@ mod tests {
             g.overlay.plot_ripe.glyph,
             g.overlay.plot_ripe.ascii,
         ));
+        for (id, look) in &g.gate_stage {
+            out.push((format!("gate_stage.{id}"), look.glyph, look.ascii));
+        }
         for mask in 1..=15u8 {
             out.push((
                 format!("rail_track[{mask}]"),
@@ -240,6 +251,16 @@ mod tests {
         assert_eq!(keys(&g.resource), want(defs.resources.iter().map(|r| r.id.as_str()).collect()));
         assert_eq!(keys(&g.item), want(defs.items.iter().map(|i| i.id.as_str()).collect()));
         assert_eq!(keys(&g.building), want(defs.buildings.iter().map(|b| b.id.as_str()).collect()));
+    }
+
+    /// Every stage of the endeavor (#242, `data/endeavor.toml`) has its own `[gate_stage.*]`
+    /// look, so the gate's site is never left to the generic fallback.
+    #[test]
+    fn every_endeavor_stage_has_a_gate_stage_look() {
+        let (g, defs) = (Glyphs::bundled(), Defs::bundled());
+        for stage in &defs.endeavor.stages {
+            assert!(g.gate_stage.contains_key(&stage.id), "stage {} has no look", stage.id);
+        }
     }
 
     #[test]

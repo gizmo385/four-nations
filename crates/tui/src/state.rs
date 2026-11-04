@@ -37,6 +37,9 @@ pub enum Prompt {
 pub enum Screen {
     Log,
     Help,
+    /// `G`: the end game's progress (#242, `docs/design/endgame.md`, "Showing progress"), a
+    /// page of rows that scroll like the log and the help (`endeavor.rs`).
+    Endeavor,
     /// `T`: the tech tree. It moves a card cursor ([`UiState::tech`]) and does not scroll.
     Research,
     /// `F6`: the save slots. It moves a highlight ([`UiState::save_cursor`]) over

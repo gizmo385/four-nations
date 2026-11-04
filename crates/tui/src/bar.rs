@@ -71,12 +71,14 @@ fn key_hints(following: bool, width: usize) -> Row {
 }
 
 /// What the left column says: the task (up to two lines), what the unit carries, and its tile --
-/// or, while it's inside a building (#226, #229), which one ("In the Academy").
-pub fn detail_rows(view: &UnitView, width: usize, ellipsis: char) -> Vec<Row> {
-    let mut rows: Vec<Row> = wrap(&view.task, width, 2, ellipsis)
-        .into_iter()
-        .map(|l| Row::text(l, Tone::Text))
-        .collect();
+/// or, while it's inside a building (#226, #229), which one ("In the Academy"). `avatar_rite`
+/// marks the moment the Avatar holds the Harmony Rite (#242): the task line wears its own look,
+/// bold on the nation's accent, so the Avatar State reads apart from anything else he could be
+/// doing.
+pub fn detail_rows(view: &UnitView, width: usize, ellipsis: char, avatar_rite: bool) -> Vec<Row> {
+    let task_tone = if avatar_rite { Tone::Avatar } else { Tone::Text };
+    let mut rows: Vec<Row> =
+        wrap(&view.task, width, 2, ellipsis).into_iter().map(|l| Row::text(l, task_tone)).collect();
     rows.push(Row::text(format!("Carrying: {}", view.carrying), Tone::Text));
     let where_ = match &view.inside {
         Some(building) => format!("In the {building}"),
@@ -98,6 +100,9 @@ pub fn draw_bar(session: &Session, ui: &UiState, palette: &Palette, area: Rect, 
     if let Some(text) = crate::panel::channel_text(session, unit) {
         view.task = text;
     }
+    // The Avatar State (#238, #242): the moment he holds the Harmony Rite, marked apart on the
+    // task line.
+    let avatar_rite = unit.is_avatar() && unit.task() == Some(fn_sim::world::Task::Rite);
     let marks = Marks::new(palette.ascii);
     let title = format!(" {} {} {} ", view.name, marks.dot, view.nation);
     draw_frame(buf, area, palette, &title, TitleAt::Left, "");
@@ -108,8 +113,9 @@ pub fn draw_bar(session: &Session, ui: &UiState, palette: &Palette, area: Rect, 
     let right = Rect::new(inner.right() - METER_WIDTH, inner.y, METER_WIDTH, ROWS);
 
     let mut p = Painter::new(buf, left, palette);
-    for row in
-        detail_rows(&view, usize::from(left_width), marks.ellipsis).iter().take(ROWS as usize - 1)
+    for row in detail_rows(&view, usize::from(left_width), marks.ellipsis, avatar_rite)
+        .iter()
+        .take(ROWS as usize - 1)
     {
         p.row(row);
     }
@@ -169,11 +175,26 @@ mod tests {
     fn the_details_say_the_task_what_is_carried_and_the_tile() {
         let s = Session::new(7, Nation::Earth, 48, 32);
         let view = unit_view(&s, &s.world.units[0]);
-        let rows = detail_rows(&view, 40, '…');
+        let rows = detail_rows(&view, 40, '…', false);
         let text: Vec<String> = rows.iter().map(Row::plain).collect();
         assert_eq!(text[0], view.task);
         assert_eq!(text[1], "Carrying: nothing");
         assert_eq!(text[2], format!("At ({}, {})", view.tile.x, view.tile.y));
+    }
+
+    /// The Harmony Rite's Avatar State (#238, #242) marks the task line apart: bold, on the
+    /// nation's accent, not the panel; anything else he (or anyone else) is doing keeps the
+    /// plain look.
+    #[test]
+    fn the_avatar_state_marks_the_task_line_apart() {
+        let s = Session::new(7, Nation::Fire, 48, 32);
+        let view = unit_view(&s, &s.world.units[0]);
+        let plain = detail_rows(&view, 40, '…', false);
+        assert_eq!(plain[0].left[0].1, Tone::Text);
+        let rite = detail_rows(&view, 40, '…', true);
+        assert_eq!(rite[0].left[0].1, Tone::Avatar);
+        // Only the task line wears it, not what the unit carries or where it stands.
+        assert_eq!(rite[1].left[0].1, Tone::Text);
     }
 
     /// A unit inside a building (#226, #229) reads "In the Academy" in place of its tile.
@@ -201,7 +222,7 @@ mod tests {
         s.world.units[0].pos = foot.entrance();
         assert!(s.world.enter_building(0, at, &s.defs));
         let view = unit_view(&s, &s.world.units[0]);
-        let rows = detail_rows(&view, 40, '…');
+        let rows = detail_rows(&view, 40, '…', false);
         assert_eq!(rows[2].plain(), "In the Academy");
     }
 

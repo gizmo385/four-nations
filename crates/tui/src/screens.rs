@@ -1,6 +1,7 @@
-//! The screens that open over the map area (the side panel stays): the message log (`L`) and the
-//! key help (`?`) are framed pages of rows that scroll; the research screen (`T`) is a framed grid
-//! of tech cards with a cursor (`research.rs`).
+//! The screens that open over the map area (the side panel stays): the message log (`L`), the
+//! key help (`?`) and the Endeavor screen (`G`, `endeavor.rs`) are framed pages of rows that
+//! scroll; the research screen (`T`) is a framed grid of tech cards with a cursor
+//! (`research.rs`).
 
 use fn_ui::Session;
 use fn_ui::alerts::{Alerts, Kind};
@@ -13,7 +14,7 @@ use crate::input::{Group, help_rows};
 use crate::research;
 use crate::saves;
 use crate::state::{Screen, UiState};
-use crate::widgets::{Painter, Row, TitleAt, Tone, draw_frame, wrap};
+use crate::widgets::{Marks, Painter, Row, TitleAt, Tone, draw_frame, wrap};
 
 /// The text area of a screen drawn over a `(width, height)` map region: inside the frame and one
 /// column of padding, as (columns, rows).
@@ -22,24 +23,34 @@ pub fn text_size(region: (i32, i32)) -> (usize, usize) {
     ((w - 4).max(0) as usize, (h - 2).max(0) as usize)
 }
 
-/// The screen's text as rows, `width` columns wide.
-pub fn lines(screen: Screen, alerts: &Alerts, width: usize, ellipsis: char) -> Vec<Row> {
+/// The screen's text as rows, `width` columns wide. `ascii` picks the glyph set the Endeavor
+/// screen's marks and bars wear (the message log and the key help don't need it).
+pub fn lines(
+    session: &Session,
+    screen: Screen,
+    alerts: &Alerts,
+    width: usize,
+    ascii: bool,
+) -> Vec<Row> {
+    let marks = Marks::new(ascii);
     match screen {
         Screen::Log => {
             let history: Vec<_> =
                 alerts.history().iter().map(|e| (e.tick, e.kind, e.text.as_str())).collect();
-            log_lines(&history, width, ellipsis)
+            log_lines(&history, width, marks.ellipsis)
         }
-        Screen::Help => help_lines(width, ellipsis),
+        Screen::Help => help_lines(width, marks.ellipsis),
+        Screen::Endeavor => crate::endeavor::lines(session, width, &marks),
         // A grid or a list with a cursor, not rows that scroll: `research::draw` and
         // `saves::draw` lay them out.
         Screen::Research | Screen::Saves => Vec::new(),
     }
 }
 
-/// How many rows the screen's text has at `width`.
-pub fn line_count(screen: Screen, _session: &Session, alerts: &Alerts, width: usize) -> usize {
-    lines(screen, alerts, width, '…').len()
+/// How many rows the screen's text has at `width`. `ascii` never changes a row count (only which
+/// glyph a mark or a bar's cells wear), so this always measures the Unicode set.
+pub fn line_count(screen: Screen, session: &Session, alerts: &Alerts, width: usize) -> usize {
+    lines(session, screen, alerts, width, false).len()
 }
 
 /// The tone a log line wears: deaths stand out, discoveries read as good news.
@@ -124,6 +135,7 @@ pub fn draw_screen(
     let (title, footer) = match screen {
         Screen::Log => ("MESSAGE LOG", "Arrows W S scroll  PgUp PgDn page  Esc close  ? keys"),
         Screen::Help => ("KEY HELP", "Arrows W S scroll  PgUp PgDn page  Esc close  L log"),
+        Screen::Endeavor => ("ENDEAVOR", "Arrows W S scroll  PgUp PgDn page  Esc/G close"),
         Screen::Research => ("RESEARCH", "Arrows WASD choose  Enter target  Esc/T close"),
         Screen::Saves => {
             ("SAVES", "Arrows W S choose  Enter load  Shift+S save over  N new  Esc/F6 close")
@@ -140,7 +152,7 @@ pub fn draw_screen(
         saves::draw(&ui.save_slots, ui.save_cursor, &session.defs, palette, inner, buf);
         return;
     }
-    let rows = lines(screen, &ui.alerts, usize::from(inner.width), marks.ellipsis);
+    let rows = lines(session, screen, &ui.alerts, usize::from(inner.width), palette.ascii);
     let max = rows.len().saturating_sub(usize::from(inner.height));
     let start = ui.scroll.min(max);
     let mut p = Painter::new(buf, inner, palette);

@@ -1,15 +1,16 @@
 //! The Seal side panel (docs/design/ui.md, docs/design/tui.md): a framed column with the nation's
 //! name on the top edge, then sections in ui.md's order, each hidden while it has nothing to show:
 //! the header (seed, clock, speed), People (the count, then a line per unit while they fit),
-//! Stores, Research (target, bar, rate), the nation's modifiers, Tool (the active designation
-//! tool, its hint, the Build tool's chosen building and the last rectangle's result), Alerts and
-//! Cursor (what is under the keyboard cursor, and what `Enter` does next). The Build tool's full
-//! picker moved to its own modal (`U`, `crate::build`, #285); the panel names only the choice.
+//! Stores, Research (target, bar, rate), Endeavor (the end game's progress, #235, #242; hidden
+//! with no endeavor in the data), the nation's modifiers, Tool (the active designation tool, its
+//! hint, the Build tool's chosen building and the last rectangle's result), Alerts and Cursor
+//! (what is under the keyboard cursor, and what `Enter` does next). The Build tool's full picker
+//! moved to its own modal (`U`, `crate::build`, #285); the panel names only the choice.
 //!
 //! The panel is a fixed height, so a terminal that is too short for every section gives up the
 //! least useful lines first: the tool's hint and the Build tool's chosen-building line (the
-//! status line names it too), the modifiers, the unit lines, the older alerts and all but one
-//! line of stores. The header, Research and Cursor always stay.
+//! status line names it too), the modifiers, the whole Endeavor section, the unit lines, the
+//! older alerts and all but one line of stores. The header, Research and Cursor always stay.
 
 use fn_sim::Pos;
 use fn_sim::building::BuildingId;
@@ -110,6 +111,8 @@ struct Data {
     units: Vec<Row>,
     stores: Vec<Row>,
     research: Vec<Row>,
+    /// The Endeavor section's rows (#235, #242); empty with no endeavor in the data.
+    endeavor: Vec<Row>,
     modifiers: Vec<Row>,
     hint: Vec<Row>,
     /// The Tool section's one row for the Build tool's chosen building (#111; its full picker
@@ -133,6 +136,9 @@ struct Knobs {
     hint: usize,
     picker: usize,
     stores: usize,
+    /// Whether the Endeavor section shows at all: unlike Research and Cursor it gives way
+    /// whole, before the unit lines, on a terminal too short for everything (#242).
+    endeavor: bool,
 }
 
 fn header(view: &SideView, marks: &Marks) -> Vec<Row> {
@@ -227,6 +233,23 @@ fn research_rows(view: &SideView, marks: &Marks) -> Vec<Row> {
             (r.pool.clone(), Tone::Dim),
         ]),
     ]
+}
+
+/// The side panel's Endeavor section (#235, #242), under Research: `met/total`, a bar, the line
+/// under it (what `G` is for, or that the endeavor is Ready), and up to three missing things.
+/// Empty with no endeavor in the data, which hides the whole section.
+fn endeavor_rows(view: &SideView, marks: &Marks) -> Vec<Row> {
+    let Some(e) = &view.endeavor else { return Vec::new() };
+    let (full, empty) = meter(e.frac, BAR_CELLS, marks);
+    let mut rows = vec![
+        Row::pair(e.name.clone(), Tone::Strong, e.count.clone(), Tone::Dim),
+        Row::spans(vec![(full, Tone::Accent), (empty, Tone::Dim)]),
+        Row::text(e.line.clone(), Tone::Dim),
+    ];
+    if !e.next.is_empty() {
+        rows.push(Row::text(format!("Next: {}", e.next.join(", ")), Tone::Warn));
+    }
+    rows
 }
 
 /// The Tool section's one row for the Build tool's current choice (#111, #285): its name marked
@@ -342,6 +365,7 @@ fn gather(session: &Session, ui: &UiState, marks: &Marks, width: usize) -> Data 
         units: unit_rows(session, ui, marks),
         stores: store_rows(session, width),
         research: research_rows(&view, marks),
+        endeavor: endeavor_rows(&view, marks),
         modifiers,
         hint,
         picker,
@@ -366,6 +390,9 @@ fn sections(d: &Data, k: Knobs) -> Vec<Section> {
     };
     let stores = Section::new("STORES", "", d.stores.iter().take(k.stores).cloned().collect());
     let research = Section::new("RESEARCH", "", d.research.clone());
+    // Under Research (docs/design/endgame.md, "Showing progress"); hides itself with no
+    // endeavor in the data (`d.endeavor` is then empty) or when `k.endeavor` gives it up whole.
+    let endeavor = k.endeavor.then(|| Section::new("ENDEAVOR", "", d.endeavor.clone()));
     let modifiers =
         Section::new("MODIFIERS", "", d.modifiers.iter().take(k.modifiers).cloned().collect());
     // Select mode has no tool to talk about.
@@ -382,7 +409,8 @@ fn sections(d: &Data, k: Knobs) -> Vec<Section> {
     let skip = d.alerts.len().saturating_sub(k.alerts);
     let alerts = Section::new("ALERTS", "", d.alerts.iter().skip(skip).cloned().collect());
     let cursor = Section::new("CURSOR", d.cursor_pos.clone(), d.cursor.clone()).always();
-    let all = [Some(people), Some(stores), Some(research), Some(modifiers), tool, Some(alerts)];
+    let all =
+        [Some(people), Some(stores), Some(research), endeavor, Some(modifiers), tool, Some(alerts)];
     all.into_iter().flatten().chain([cursor]).filter(Section::visible).collect()
 }
 
@@ -414,6 +442,7 @@ pub fn draw_panel(
         hint: d.hint.len(),
         picker: d.picker.len(),
         stores: d.stores.len(),
+        endeavor: true,
     };
     while height(head.len(), &sections(&d, k)) > usize::from(inner.height) {
         if k.hint > 0 {
@@ -422,6 +451,8 @@ pub fn draw_panel(
             k.picker -= 1;
         } else if k.modifiers > 0 {
             k.modifiers -= 1;
+        } else if k.endeavor {
+            k.endeavor = false;
         } else if k.units > 0 {
             k.units -= 1;
         } else if k.alerts > 0 {

@@ -1,0 +1,40 @@
+┏──────────────────────────────────── ◆ ENDEAVOR ◆ ────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
+│ The Harmony Gate                                                        0 of 9 signs ││ Seed 7                 00:00 │
+│ A great work with the Avatar. When every sign is met, word of the settlement reaches ││ ▶ Running x1      Space  + - │
+│ Aang.                                                                                ││                              │
+│                                                                                      ││ ◇ PEOPLE                   6 │
+│ Stage: not begun                                                                     ││  Tyro Idle                   │
+│                                                                                      ││  Ping Idle                   │
+│ PEOPLE                                                                               ││  Ming Idle                   │
+│   Population                      ████░░░░░░      6/16                               ││  Oma  Idle                   │
+│   Spare beds and food draw newcomers                                                 ││  Song Idle                   │
+│   Everyone has a bed              ░░░░░░░░░░       0/6                               ││  Lin  Idle                   │
+│   Build beds                                                                         ││                              │
+│                                                                                      ││ ◇ RESEARCH                   │
+│ BUILDINGS                                                                            ││ No target set        3.0/min │
+│   Kinds of building raised        ░░░░░░░░░░       0/8                               ││ 0 pts banked                 │
+│   Raise something new                                                                ││                              │
+│                                                                                      ││ ◇ ENDEAVOR                   │
+│ KNOWLEDGE                                                                            ││ The Harmony Gate         0/9 │
+│   Earth Kingdom branch            ░░░░░░░░░░       0/6                               ││ ░░░░░░░░░░                   │
+│   Research your branch                                                               ││ Signs met - G: open          │
+│                                                                                      ││ Next: 10 more people, 6 mor… │
+│ STORES AND HARVESTS                                                                  ││                              │
+│   Food in stores                  ░░░░░░░░░░     0/150                               ││ ◇ MODIFIERS                  │
+│   Stockpile food                                                                     ││ Move speed              x0.9 │
+│   Stone in stores                 ░░░░░░░░░░     0/200                               ││ Carry capacity          x1.3 │
+│   Quarry stone                                                                       ││ Earthworks              x2.5 │
+│   Ore mined                       ░░░░░░░░░░      0/40                               ││ Water work              x0.9 │
+│   Mine gold veins                                                                    ││ Power generation        x0.8 │
+│                                                                                      ││ Construction            x1.5 │
+│ BENDING                                                                              ││                              │
+│   Bending masters (25 bends each) ░░░░░░░░░░       0/3                               ││ ◇ CURSOR            (94, 64) │
+│   Bend often                                                                         ││ Tyro                         │
+│   Ancient scrolls read            ░░░░░░░░░░       0/3                               ││ Earth Kingdom - Idle         │
+│   Bring scrolls to a study hall                                                      ││ Carrying: nothing - Bends: 0 │
+│                                                                                      ││ Press Enter to select        │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+┗─ Arrows W S scroll  PgUp PgDn page  Esc/G close ─────────────────────────────────────┛┗──────────────────────────────┛
+ ENDEAVOR  arrows/W S scroll  PgUp/PgDn page  Esc/G close  L log  ? keys  Space pause

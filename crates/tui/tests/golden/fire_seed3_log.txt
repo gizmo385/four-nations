@@ -14,11 +14,11 @@
 │                                                                                      ││ No target set        3.0/min │
 │                                                                                      ││ 0 pts banked                 │
 │                                                                                      ││                              │
-│                                                                                      ││ ◇ MODIFIERS                  │
-│                                                                                      ││ Heating                 x2.5 │
-│                                                                                      ││ Water work              x0.7 │
-│                                                                                      ││ Power generation        x1.3 │
-│                                                                                      ││ Construction            x1.1 │
+│                                                                                      ││ ◇ ENDEAVOR                   │
+│                                                                                      ││ The Harmony Gate         0/9 │
+│                                                                                      ││ ░░░░░░░░░░                   │
+│                                                                                      ││ Signs met - G: open          │
+│                                                                                      ││ Next: 10 more people, 6 mor… │
 │                                                                                      ││                              │
 │                                                                                      ││ ◇ ALERTS                     │
 │                                                                                      ││ Shyu used Hearthflame at     │
