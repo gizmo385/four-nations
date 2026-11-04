@@ -133,7 +133,7 @@ fn effect_ids_and_numbers_are_validated() {
     // resolve against an empty list).
     let defs = Defs::bundled();
     let file: BendingFile = toml::from_str(BENDING).unwrap();
-    let no_harvests = file.resolve(&defs.biomes, &defs.resources, &[], &defs.techs);
+    let no_harvests = file.resolve(&defs.biomes, &defs.resources, &[], &defs.items, &defs.techs);
     assert!(no_harvests.unwrap_err().0.contains("no harvest entry"));
     assert!(bad("\"swamp\"]", "\"mangrove\"]").contains("mangrove"));
     assert!(bad("to = \"ford\"", "to = \"bridge\"").contains("bridge"));
@@ -146,6 +146,11 @@ fn effect_ids_and_numbers_are_validated() {
     assert!(bad("radius = 2 ", "radius = 0 ").contains("heat_aura"));
     assert!(bad("sleep_bonus = 1.25", "sleep_bonus = 0.5").contains("heat_aura"));
     assert!(bad("duration_minutes = 4.0", "duration_minutes = 0.0").contains("heat_aura"));
+    // Metalbend.
+    assert!(bad("ore = \"gold_ore\"", "ore = \"coal\"").contains("coal"));
+    assert!(bad("metal = \"metal\"", "metal = \"steel\"").contains("steel"));
+    assert!(bad("ratio = 2", "ratio = 0").contains("ratio"));
+    assert!(bad("metal = \"metal\"", "metal = \"gold_ore\"").contains("must be different"));
 }
 
 #[test]

@@ -164,3 +164,25 @@ work = 8.0
 kind = "reveal"
 radius = 14               # tiles, Chebyshev
 finds = ["lost_ruins"]
+
+# --- #134 (Earth: metalbending) -----------------------------------------------------------------
+
+# Earth, from `metalbending` (docs/design/research.md, "Metalbending"): the bender reaches into a
+# pile of ore and draws the metal straight out of it, in place -- the same conversion the Fire
+# Nation's smelter does (data/buildings.toml's `smelter`), but with no building, no haul to one
+# and no steady batches, at the cost of chi and a channel instead. `ratio` matches the smelter's:
+# 2 ore for 1 metal. Any ore left over once the pile divides by `ratio` stays behind, as ore.
+[[ability]]
+id = "metalbend"
+nation = "earth"
+name = "Metalbend"
+verb = "Bend"
+description = "Draw the metal straight out of a pile of ore, no forge needed."
+chi = 35.0
+work = 12.0
+speed_modifier = "earthworks"
+[ability.effect]
+kind = "smelt"
+ore = "gold_ore"
+metal = "metal"
+ratio = 2

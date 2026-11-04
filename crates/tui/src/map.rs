@@ -70,6 +70,7 @@ const HIGHLIGHTS: &[(&str, Shape)] = &[
     ("bore_tunnel", Shape::Target),
     ("seismic_sense", Shape::Target),
     ("glide", Shape::Target),
+    ("metalbend", Shape::Target),
 ];
 
 /// The highlight shape of ability `id`, if it has one.

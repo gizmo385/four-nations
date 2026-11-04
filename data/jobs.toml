@@ -58,8 +58,8 @@ knowledge = 40
 # Metal, bricks and tools: what the forge, the brick kiln and the smelter turn raw items into
 # (each building's `[building.recipe]`, data/buildings.toml). `gold_ore` above doubles as the
 # smelter's ore; there's no separate generic "ore" item yet, since gold is the only mineral a
-# nation mines today (#132, #133). `metal` is also #134's hook: metalbending is meant to produce
-# it directly, without a smelter.
+# nation mines today (#132, #133). `metal` is also what Earth's Metalbend (#134, `Effect::Smelt`,
+# data/bending.toml) produces directly from a pile of ore, without a smelter.
 [[item]]
 id = "metal"
 icon = "metal"

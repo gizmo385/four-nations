@@ -6,7 +6,7 @@
 │                                              ││  Tyro Idle                   │
 │  · Earthen Walls      ▸· Metalbending        ││  Ping Idle                   │
 │   Locked      120 pts   Locked      500 pts  ││  Ming Idle                   │
-│   Construction x1.25    -                    ││  Oma  Idle                   │
+│   Construction x1.25    Metalbend            ││  Oma  Idle                   │
 │                                              ││  Song Idle                   │
 │  · Seismic Sense                             ││  Lin  Idle                   │
 │   Locked      250 pts                        ││                              │
@@ -19,6 +19,6 @@
 │ ──────────────────────────────────────────── ││ Earth Kingdom - Idle         │
 │ Metalbending          Needs prereqs  500 pts ││ Carrying: nothing - Bends: 0 │
 │ Bend the earth still left in metal.          ││ Press Enter to select        │
-│ Unlocks: -   Needs: Masonry, Seismic Sense   ││                              │
+│ Unlocks: Metalbend   Needs: Masonry, Seismi… ││                              │
 ┗─ Arrows WASD choose  Enter target  Esc/T cl…─┛┗──────────────────────────────┛
  RESEARCH  arrows/WASD choose  Enter set target  Esc/T close  L log  ? keys

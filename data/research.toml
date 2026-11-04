@@ -197,8 +197,10 @@ description = "Bend the earth still left in metal."
 nation = "earth"
 cost = 500
 prereqs = ["seismic_sense", "masonry"]
-# Unlocks nothing yet: metal doesn't exist as an item, and "metalbend" (metal from ore without a
-# smelter) needs one plus a refining mechanic (#134).
+# Unlocks Metalbend (#134, docs/design/research.md, "Metalbending"): ore straight into metal, in
+# place, no smelter trip needed.
+[tech.unlocks]
+abilities = ["metalbend"]
 
 # ---------------------------------------------------------------------------------------------
 # Fire Nation: heat and industry

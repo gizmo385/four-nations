@@ -13,7 +13,7 @@
 use serde::Deserialize;
 
 use crate::defs::{BiomeDef, BiomeId, DefsError, ResourceDef, ResourceId, Terrain};
-use crate::jobs::HarvestDef;
+use crate::jobs::{HarvestDef, ItemDef, ItemId};
 use crate::nation::{Modifiers, Nation};
 use crate::research::{TechDef, TechId};
 use crate::world::TICKS_PER_SECOND;
@@ -80,6 +80,11 @@ pub enum Effect {
     /// one nation's buried find stays hidden from the other's reveal. The magnitude scales
     /// `radius`.
     Reveal { radius: u32, finds: Vec<ResourceId> },
+    /// Turns a ground stack of `ore` into `metal`, in place (Earth's "Metalbend", #134): metal
+    /// from ore with no smelter, trip or building, at the cost of chi and a channel instead.
+    /// `ratio` is how many `ore` one unit of `metal` costs. The whole stack converts in one bend;
+    /// any remainder that doesn't divide evenly by `ratio` stays behind as ore.
+    Smelt { ore: ItemId, metal: ItemId, ratio: u32 },
     /// Only tests can define one: a valid target is walkable ground, and completing does nothing
     /// but spend the chi.
     #[cfg(test)]
@@ -141,6 +146,11 @@ enum RawEffect {
         radius: u32,
         finds: Vec<String>,
     },
+    Smelt {
+        ore: String,
+        metal: String,
+        ratio: u32,
+    },
     #[cfg(test)]
     Probe,
 }
@@ -180,6 +190,7 @@ impl BendingFile {
         biomes: &[BiomeDef],
         resources: &[ResourceDef],
         harvests: &[HarvestDef],
+        items: &[ItemDef],
         techs: &[TechDef],
     ) -> Result<(ChiSettings, Vec<AbilityDef>), DefsError> {
         let err = |msg: String| DefsError(format!("bending.toml: {msg}"));
@@ -219,7 +230,7 @@ impl BendingFile {
             }
             modifier(a, "speed_modifier", &raw.speed_modifier)?;
             modifier(a, "magnitude_modifier", &raw.magnitude_modifier)?;
-            let effect = resolve_effect(a, raw.effect, biomes, resources, harvests)?;
+            let effect = resolve_effect(a, raw.effect, biomes, resources, harvests, items)?;
             abilities.push(AbilityDef {
                 id: raw.id,
                 nation: raw.nation,
@@ -245,6 +256,7 @@ fn resolve_effect(
     biomes: &[BiomeDef],
     resources: &[ResourceDef],
     harvests: &[HarvestDef],
+    items: &[ItemDef],
 ) -> Result<Effect, DefsError> {
     let err = |msg: &str| Err(DefsError(format!("bending.toml: ability {ability}: {msg}")));
     Ok(match raw {
@@ -336,6 +348,21 @@ fn resolve_effect(
                 finds.push(ResourceId(i as u16));
             }
             Effect::Reveal { radius, finds }
+        }
+        RawEffect::Smelt { ore, metal, ratio } => {
+            if ratio == 0 {
+                return err("smelt ratio must be at least 1");
+            }
+            if ore == metal {
+                return err("smelt ore and metal must be different items");
+            }
+            let Some(ore_idx) = items.iter().position(|i| i.id == ore) else {
+                return err(&format!("unknown ore item {ore:?}"));
+            };
+            let Some(metal_idx) = items.iter().position(|i| i.id == metal) else {
+                return err(&format!("unknown metal item {metal:?}"));
+            };
+            Effect::Smelt { ore: ItemId(ore_idx as u16), metal: ItemId(metal_idx as u16), ratio }
         }
         #[cfg(test)]
         RawEffect::Probe => Effect::Probe,
