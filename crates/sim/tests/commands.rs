@@ -92,7 +92,7 @@ fn designate_repeating_harvest_is_logged_and_cleared_by_cancel() {
 fn cancel_stockpile_is_logged_and_rejected_where_there_is_no_zone() {
     let defs = Defs::bundled();
     let mut w = fresh(&defs);
-    let pos = free_tile_near(&w, Pos::new(w.map.width() / 2, w.map.height() / 2), &[]);
+    let pos = free_tile_near(&w, &defs, Pos::new(w.map.width() / 2, w.map.height() / 2), &[]);
     let cancel = Command::CancelStockpile { pos };
     assert_eq!(w.apply(cancel, &defs), Err(CommandError::Designate(DesignateError::NotDesignated)));
     w.apply(Command::DesignateStockpile { pos }, &defs).unwrap();
@@ -150,14 +150,17 @@ fn rejected_commands_change_nothing_and_are_not_logged() {
     assert_eq!(w.command_log().len(), 1);
 }
 
-/// A walkable, resource-free tile near `near` that isn't in `avoid`, for a build designation.
-fn free_tile_near(w: &World, near: Pos, avoid: &[Pos]) -> Pos {
+/// A walkable, resource-free tile near `near` that isn't in `avoid`, for a build designation:
+/// since #226 that also means its door, the tile below it, is clear.
+fn free_tile_near(w: &World, defs: &Defs, near: Pos, avoid: &[Pos]) -> Pos {
+    let bed = defs.building_id("bed").unwrap();
     w.map
         .iter()
         .filter(|(p, t)| {
             t.terrain.is_walkable()
                 && t.resource.is_none()
                 && (p.x - near.x).abs().max((p.y - near.y).abs()) <= 8
+                && w.check_build(*p, bed, defs).is_ok()
         })
         .map(|(p, _)| p)
         .find(|p| !avoid.contains(p))
@@ -173,7 +176,7 @@ fn play_session(defs: &Defs) -> World {
     assert!(targets.len() >= 6, "seed has too little to harvest near the start");
     let home = w.units[0].pos;
     let bed = defs.building_id("bed").expect("starter building");
-    let build_pos = free_tile_near(&w, home, &targets);
+    let build_pos = free_tile_near(&w, defs, home, &targets);
     for t in 0..9000u64 {
         match t {
             0 => {

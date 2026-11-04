@@ -497,8 +497,10 @@ mod tests {
         assert_eq!(Tool::Harvest.hint(&s), Tool::Harvest.label());
     }
 
-    /// A free land tile near the first unit, away from every unit.
+    /// A free land tile near the first unit, away from every unit, with room for a 1x1
+    /// building's door (#226).
     fn free_tile(s: &Session) -> Pos {
+        let bed = s.defs.building_id("bed").unwrap();
         s.world
             .map
             .iter()
@@ -506,6 +508,7 @@ mod tests {
                 t.terrain == fn_sim::Terrain::Land
                     && t.resource.is_none()
                     && !s.world.units.iter().any(|u| u.pos == *p)
+                    && s.world.check_build(*p, bed, &s.defs).is_ok()
             })
             .map(|(p, _)| p)
             .expect("a land tile")
@@ -606,7 +609,8 @@ mod tests {
     }
 
     /// A session whose bed is a 2x2 building (no bundled building is bigger yet, #214), with a
-    /// clear 6x2 field of land from the returned top-left tile.
+    /// clear 6x3 field of land from the returned top-left tile: the footprint's own two rows,
+    /// plus the row below for every anchor's door (#226).
     fn with_2x2_hall() -> (Session, BuildingId, Pos) {
         let mut s = Session::new(7, Nation::Earth, 64, 64);
         let bed = s.defs.building_id("bed").unwrap();
@@ -614,7 +618,7 @@ mod tests {
         def.footprint = (2, 2);
         def.bed = None;
         let corner = Pos::new(20, 20);
-        for p in tiles_between(corner, Pos::new(corner.x + 5, corner.y + 1)) {
+        for p in tiles_between(corner, Pos::new(corner.x + 5, corner.y + 2)) {
             let t = s.world.map.get_mut(p).unwrap();
             t.terrain = fn_sim::Terrain::Land;
             t.resource = None;

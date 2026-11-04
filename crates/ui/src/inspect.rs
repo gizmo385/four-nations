@@ -52,7 +52,9 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
     let (world, defs) = (&session.world, &session.defs);
     let t = world.map.get(tile)?;
     let mut lines = Lines::new();
-    if let Some(unit) = world.units.iter().find(|u| u.pos == tile) {
+    // `units_at` skips a unit that is inside a building (#226): it isn't standing there as far
+    // as the map is concerned, so hovering its door falls through to the building below instead.
+    if let Some(unit) = world.units_at(tile).next() {
         lines.push(Line::Title(unit.name.clone()));
         let task = describe_task(world, defs, unit);
         // Inner Fire (#123) rides on the unit: its time left joins the line, since a tooltip
@@ -269,6 +271,7 @@ mod tests {
                 t.terrain == fn_sim::Terrain::Land
                     && t.resource.is_none()
                     && !s.world.units.iter().any(|u| u.pos == *p)
+                    && s.world.check_build(*p, bed, &s.defs).is_ok()
             })
             .map(|(p, _)| p)
             .unwrap();

@@ -1,6 +1,6 @@
 use super::*;
 use crate::defs::{BiomeId, Terrain};
-use crate::geom::Grid;
+use crate::geom::{Footprint, Grid};
 use crate::mapgen::Tile;
 
 /// A map from ASCII rows: `.` land, `~` water, `^` mountain, `T` oak tree, `s` stone, `c` cabbage,
@@ -264,6 +264,34 @@ fn a_low_need_pauses_the_job_and_it_resumes_where_it_left_off() {
     run_until(&mut w, &defs, 2000, |w| w.job(job).is_none());
     assert!(w.map[at(4, 2)].resource.is_none());
     assert_eq!(w.ground_items().next().map(|(_, s)| s.count), Some(4));
+}
+
+/// #226: a unit inside a building isn't drawn out gradually like a walk; the tick a need turns
+/// urgent, `consider_needs` steps it out before planning where the need takes it, so the route
+/// it plans starts from the door it actually stands on.
+#[test]
+fn a_need_steps_a_unit_out_of_a_building_the_tick_it_becomes_urgent() {
+    let rows = ["~~~~~~~~~", ".........", ".........", ".........", "........."];
+    let anchor = at(3, 1);
+    let foot = Footprint::new(anchor, 2, 2);
+    let door = foot.entrance();
+    let (mut w, mut defs) = setup(Nation::Earth, &rows, &[door]);
+    let hall = defs.building_id("bed").unwrap();
+    {
+        let d = &mut defs.buildings[hall.0 as usize];
+        d.footprint = (2, 2);
+        d.bed = None;
+        d.passable = false;
+        d.capacity = 1;
+    }
+    w.raise(foot, hall, defs.building(hall));
+    assert!(w.enter_building(0, anchor, &defs));
+
+    w.units[0].needs.thirst = defs.needs.thirst.low;
+    w.tick(&defs);
+    assert!(w.units[0].inside().is_none(), "the thirst need stepped it out");
+    assert_eq!(w.units[0].task(), Some(Task::Drink));
+    assert!(w.occupants(anchor).next().is_none());
 }
 
 #[test]

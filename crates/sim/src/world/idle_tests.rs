@@ -77,6 +77,21 @@ fn a_standing_unit_still_acts_on_a_low_need() {
     assert_eq!(w.units[0].task(), Some(Task::Sleep));
 }
 
+/// #226: a unit hidden inside a building never wanders off its door on its own, even though
+/// `wander` doesn't otherwise know why it's standing still.
+#[test]
+fn a_unit_inside_a_building_never_wanders() {
+    let defs = Defs::bundled();
+    let mut w = world(1, &defs);
+    let door = w.units[0].pos;
+    w.units[0].inside = Some(Pos::new(3, 3));
+    for _ in 0..600 {
+        w.tick(&defs);
+    }
+    assert_eq!(w.units[0].pos, door, "a hidden unit's pos never moves on its own");
+    assert_eq!(w.units[0].inside, Some(Pos::new(3, 3)));
+}
+
 #[test]
 fn old_saves_without_the_idle_fields_still_load() {
     let defs = Defs::bundled();

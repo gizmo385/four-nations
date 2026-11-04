@@ -26,9 +26,10 @@ fn fresh(defs: &Defs) -> World {
 }
 
 /// A reachable, empty tile 3 to 6 tiles from `near` (outside the stockpile around it) that isn't
-/// in `avoid`.
-fn free_tile_near(w: &World, near: Pos, avoid: &[Pos]) -> Pos {
+/// in `avoid`, with room below it for a 1x1 building's door (#226).
+fn free_tile_near(w: &World, defs: &Defs, near: Pos, avoid: &[Pos]) -> Pos {
     let flood = Flood::new(&w.map, near, &MoveRules::default());
+    let bed = defs.building_id("bed").unwrap();
     w.map
         .iter()
         .filter(|(p, t)| {
@@ -37,6 +38,7 @@ fn free_tile_near(w: &World, near: Pos, avoid: &[Pos]) -> Pos {
                 && t.resource.is_none()
                 && (3..=6).contains(&d)
                 && flood.cost(*p).is_some()
+                && w.check_build(*p, bed, defs).is_ok()
         })
         .map(|(p, _)| p)
         .find(|p| !avoid.contains(p))
@@ -123,12 +125,12 @@ fn a_fire_settlement_finishes_its_tree_within_the_pacing_targets() {
             );
         }
     }
-    let spot = free_tile_near(&w, home, &trees);
+    let spot = free_tile_near(&w, &defs, home, &trees);
     let hall = defs.building_id("study_hall").unwrap();
     w.apply(Command::DesignateBuild { pos: spot, building: hall }, &defs).unwrap();
 
     // Nothing in the branch is open yet.
-    let gate = free_tile_near(&w, home, &[trees.as_slice(), &[spot]].concat());
+    let gate = free_tile_near(&w, &defs, home, &[trees.as_slice(), &[spot]].concat());
     assert_unlock_gates(&mut w, &defs, gate, &|_| false);
 
     // Study whatever is cheapest-first by file order until the tree is done.

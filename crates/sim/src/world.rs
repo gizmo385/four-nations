@@ -27,6 +27,7 @@ mod command;
 mod endeavor;
 mod gate;
 mod heat;
+mod inside;
 mod orchard;
 mod stride;
 mod study;
@@ -103,12 +104,24 @@ pub struct Unit {
     /// (`docs/design/endgame.md`, #233). Read it through `bends()`.
     #[serde(default)]
     bends: u32,
+    /// The building this unit stepped inside, if any: its anchor (docs/design/buildings.md,
+    /// "Units inside buildings", #226). While set, `pos` stays on the entrance tile, so floods,
+    /// regions and paths need no change; everything that asks "who is standing on the map here"
+    /// skips a unit that is inside (`World::units_at`). Set and cleared by
+    /// `World::enter_building`/`leave_building`.
+    #[serde(default)]
+    inside: Option<Pos>,
 }
 
 impl Unit {
     /// How many bends this unit has finished over its life. Failed bends don't count.
     pub fn bends(&self) -> u32 {
         self.bends
+    }
+
+    /// The building this unit is inside, if any (#226).
+    pub fn inside(&self) -> Option<Pos> {
+        self.inside
     }
 }
 
@@ -383,6 +396,7 @@ impl World {
                 idle_until: 0,
                 wander_left: 0,
                 bends: 0,
+                inside: None,
             });
         }
     }
@@ -435,9 +449,11 @@ impl World {
     /// What a unit with nothing to do does (issue #110). It stands still for `idle_pause_seconds`;
     /// then, with chance `idle_wander_chance`, it wanders 1 to `idle_wander_steps` random steps
     /// (at a speed set by the `move_speed` modifier) before standing again. All draws come from
-    /// the `world.units` stream.
+    /// the `world.units` stream. A unit inside a building (#226) never reaches here in practice
+    /// (whatever put it inside holds its `job_task`), but this guards against moving a hidden
+    /// unit's `pos` off its entrance if it ever did.
     fn wander(&mut self, i: usize, defs: &Defs) {
-        if self.tick < self.units[i].idle_until {
+        if self.units[i].inside.is_some() || self.tick < self.units[i].idle_until {
             return;
         }
         let s = defs.jobs;

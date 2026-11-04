@@ -245,7 +245,9 @@ fn hall_2x2(defs: &mut Defs) -> BuildingId {
 /// `rows` makes blocked: refused, naming that tile, and nothing changes.
 #[test]
 fn one_blocked_tile_of_four_refuses_the_whole_footprint() {
-    let free = [".........", ".........", ".........", "........."];
+    // A fifth row so the auxiliary site `blocks` designates below has somewhere on the map for
+    // its own door (#226); `blocked` below only ever reads the first four.
+    let free = [".........", ".........", ".........", ".........", "........."];
     let blocked = |c: &str| {
         let row = format!("...{c}.....");
         [free[0].to_owned(), free[1].to_owned(), row, free[3].to_owned()]
@@ -332,6 +334,41 @@ fn placement_checks_report_the_first_blocked_tile_row_major() {
         w.designate_build(at(1, 1), bed, &defs),
         Err(BuildError::CannotBuild { at: at(1, 1), why: Blocker::Terrain })
     );
+}
+
+/// #226: a footprint whose own tiles would cover another building's or site's door is refused,
+/// and so is one whose own door would land on unwalkable ground, even though neither tile is
+/// otherwise in the way.
+#[test]
+fn a_footprint_may_not_cover_another_doorway() {
+    let (mut w, mut defs) = setup(&GRID, &[at(0, 0)]);
+    let hall = hall_2x2(&mut defs);
+    // Anchored on (2, 0): footprint (2..4, 0..2), door at (2, 2).
+    w.designate_build(at(2, 0), hall, &defs).unwrap();
+    assert_eq!(w.footprint_at(at(2, 0)).unwrap().entrance(), at(2, 2));
+    // A second hall whose footprint would cover that door, even though every ordinary tile is
+    // free, is refused.
+    assert_eq!(
+        w.designate_build(at(2, 2), hall, &defs),
+        Err(BuildError::CannotBuild { at: at(2, 2), why: Blocker::Entrance })
+    );
+    assert_eq!(w.build_sites().count(), 1, "the refused one changed nothing");
+    // Moved clear of the door, the same building fits.
+    assert!(w.designate_build(at(3, 2), hall, &defs).is_ok());
+}
+
+#[test]
+fn an_unwalkable_doorway_is_refused_even_though_the_footprint_itself_fits() {
+    let rows = ["......", "......", "......", "~~....", "......"];
+    let (w, mut defs) = setup(&rows, &[at(0, 0)]);
+    let hall = hall_2x2(&mut defs);
+    // Anchored on (0, 1): footprint (0..2, 1..3) is all land, but its door at (0, 3) is water.
+    assert_eq!(
+        w.check_build(at(0, 1), hall, &defs),
+        Err(BuildError::CannotBuild { at: at(0, 3), why: Blocker::Entrance })
+    );
+    // Two tiles over, the door at (2, 3) lands on land instead.
+    assert!(w.check_build(at(2, 1), hall, &defs).is_ok());
 }
 
 #[test]

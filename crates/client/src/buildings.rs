@@ -257,8 +257,10 @@ mod tests {
         app
     }
 
-    /// A free land tile with no unit on it.
+    /// A free land tile with no unit on it, with room for a 1x1 building's door (#226): some of
+    /// these tests designate a build on it, which now checks that too.
     fn free_tile(sim: &Sim) -> Pos {
+        let bed = sim.defs.building_id("bed").unwrap();
         sim.world
             .map
             .iter()
@@ -266,6 +268,7 @@ mod tests {
                 t.terrain == Terrain::Land
                     && t.resource.is_none()
                     && !sim.world.units.iter().any(|u| u.pos == *p)
+                    && sim.world.check_build(*p, bed, &sim.defs).is_ok()
             })
             .map(|(p, _)| p)
             .unwrap()

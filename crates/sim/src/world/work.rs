@@ -572,6 +572,9 @@ impl World {
     }
 
     pub(super) fn finish_job(&mut self, i: usize) {
+        // Whatever job held the entrance for it (#226; #227 is the first to claim one) is over,
+        // so a unit left inside steps back out.
+        self.leave_building(i);
         let u = &mut self.units[i];
         u.job_task = None;
         u.route = None;
@@ -639,6 +642,12 @@ impl World {
         .map(|(need, level, low)| (level / low.max(f32::EPSILON), need))
         .collect();
         urgent.sort_by(|a, b| a.0.total_cmp(&b.0));
+        if !urgent.is_empty() && self.units[i].inside.is_some() {
+            // An urgent need pre-empts whatever job held the entrance for it (#226): it has to
+            // be met from outside, so the unit steps out before any route below is planned, in
+            // case the door is blocked and it comes out somewhere else.
+            self.leave_building(i);
+        }
         for (_, need) in urgent {
             match self.plan_need(i, need, defs) {
                 Some((task, route, bed)) => {

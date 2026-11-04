@@ -1,7 +1,7 @@
 use super::*;
 use crate::building::Building;
 use crate::defs::{BiomeId, Terrain};
-use crate::geom::Grid;
+use crate::geom::{Footprint, Grid};
 use crate::jobs::JobKind;
 use crate::mapgen::Tile;
 
@@ -112,6 +112,45 @@ fn planted_trees_stand_in_reach_apart_and_off_the_things_in_the_way() {
             assert!(t.chebyshev(u) >= def.spacing as i32, "{t:?} and {u:?} are too close");
         }
     }
+}
+
+/// #226: a unit standing on a tile only because it is hidden inside a building there (its door)
+/// doesn't hold the tile against planting the way a unit actually standing on the map does.
+#[test]
+fn a_unit_inside_a_building_does_not_block_its_door_from_planting() {
+    let (mut w, mut defs) = setup(Nation::Air, 7, &[at(0, 0)]);
+    let hall = defs.building_id("bed").unwrap();
+    {
+        let d = &mut defs.buildings[hall.0 as usize];
+        d.footprint = (2, 2);
+        d.bed = None;
+        d.passable = false;
+        d.capacity = 1;
+    }
+    let anchor = at(4, 4);
+    let foot = Footprint::new(anchor, 2, 2);
+    w.raise(foot, hall, defs.building(hall));
+    let door = foot.entrance();
+    w.units[0].pos = door;
+    assert!(w.enter_building(0, anchor, &defs));
+
+    // Its own `spacing` (1) only rules out the tile itself, so the door, merely beside the
+    // hall, is otherwise free to plant.
+    let def = OrchardDef {
+        plants: defs.resource_id("fruit_tree").unwrap(),
+        radius: 10,
+        max_trees: 1,
+        plant_seconds: 1.0,
+        grow_seconds: 1.0,
+        tend_boost: 1.0,
+        spacing: 1,
+        auto_pick: false,
+    };
+    assert!(w.can_plant(door, &def, &defs), "the hidden unit doesn't hold its door");
+
+    // The same tile, visibly occupied instead, blocks it, as it always has.
+    w.leave_building(0);
+    assert!(!w.can_plant(door, &def, &defs));
 }
 
 #[test]
