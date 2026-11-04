@@ -7,6 +7,7 @@
 pub mod bending;
 pub mod building;
 pub mod defs;
+pub mod embark;
 pub mod endeavor;
 pub mod flood;
 pub mod geom;

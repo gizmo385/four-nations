@@ -9,6 +9,7 @@ use serde::Deserialize;
 
 use crate::bending::{AbilityDef, AbilityId, BendingFile, ChiSettings};
 use crate::building::{BuildingDef, BuildingId, BuildingsFile};
+use crate::embark::EmbarkDef;
 use crate::endeavor::{EndeavorDef, EndeavorFile};
 use crate::jobs::{HarvestDef, ItemDef, ItemId, JobSettings, JobsFile};
 use crate::nation::{Nation, NationDef};
@@ -141,6 +142,9 @@ pub struct Defs {
     /// The end-game endeavor's signs and stages (data/endeavor.toml). Empty unless loaded with
     /// `with_endeavor`, which `bundled` does.
     pub endeavor: EndeavorDef,
+    /// Embark's site box, map size presets and rough survey (data/embark.toml, #288). Empty
+    /// unless loaded with `with_embark`, which `bundled` does.
+    pub embark: EmbarkDef,
     /// `harvests` index by `ResourceId`, so the lookup is O(1).
     harvest_by_resource: Vec<Option<usize>>,
 }
@@ -225,6 +229,7 @@ impl Defs {
             include_str!("../../../data/buildings.toml"),
         )
         .and_then(|d| d.with_endeavor(include_str!("../../../data/endeavor.toml")))
+        .and_then(|d| d.with_embark(include_str!("../../../data/embark.toml")))
         .expect("bundled data/*.toml must be valid; run `cargo test -p fn_sim`")
     }
 
@@ -288,6 +293,7 @@ impl Defs {
             chi,
             abilities,
             endeavor: EndeavorDef::default(),
+            embark: EmbarkDef::default(),
             harvest_by_resource,
         };
         defs.validate()?;
