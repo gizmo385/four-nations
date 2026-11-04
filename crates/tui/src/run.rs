@@ -23,10 +23,10 @@ use crossterm::terminal::{
     supports_keyboard_enhancement,
 };
 use crossterm::{execute, terminal};
-use fn_sim::Nation;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
+use crate::cli::Args;
 use crate::color::{ColorDepth, Palette};
 use crate::shell::{self, Shell};
 
@@ -80,27 +80,24 @@ fn setup() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
 }
 
 /// Plays the title screen and then a game in the terminal until the player quits for good
-/// (#280). `start` skips the title screen when both a seed and a nation are given (`SEED` on the
-/// command line); `seed_hint` seeds the title screen's own default seed, the one thing here that
-/// is not already decided before the terminal is touched. A new nation (`1`-`4`, or a new game
-/// chosen at the title screen) needs new colours, so the palette is rebuilt for it at the same
-/// depth.
+/// (#280). `args` resolves (`Shell::for_args`) to the title screen, a game or embark (`--embark`,
+/// `--start`, #290), skipping the title screen when `SEED NATION` is given; `seed_hint` seeds the
+/// title screen's own default seed, the one thing here that is not already decided before the
+/// terminal is touched. A new nation (`1`-`4`, or a new game chosen at the title screen) needs
+/// new colours, so the palette is rebuilt for it at the same depth.
 pub fn run(
-    start: Option<(u64, Nation)>,
+    args: &Args,
     depth: ColorDepth,
-    ascii: bool,
     saves: Option<PathBuf>,
     seed_hint: u64,
 ) -> io::Result<()> {
     let _restore = Restore;
     let mut terminal = setup()?;
     let (w, h) = terminal::size()?;
-    let mut shell = match start {
-        Some((seed, nation)) => Shell::new_game(crate::new_session(seed, nation), (w, h), saves),
-        None => Shell::new_title((w, h), saves, seed_hint),
-    };
+    let mut shell = Shell::for_args(args, (w, h), saves, seed_hint)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
     let mut nation = shell.nation();
-    let mut palette = Palette::new(shell.defs(), nation, depth, ascii);
+    let mut palette = Palette::new(shell.defs(), nation, depth, args.ascii);
 
     let mut last_tick = Instant::now();
     let mut last_draw: Option<Instant> = None;

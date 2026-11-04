@@ -13,6 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use fn_tui::cli::{self, Args};
 use fn_tui::color::{ColorDepth, Palette};
 use fn_tui::frame;
+use fn_tui::keys::Step;
 use fn_tui::shell::Shell;
 
 fn main() -> ExitCode {
@@ -31,8 +32,13 @@ fn main() -> ExitCode {
     let saves = fn_ui::saves::default_save_dir();
 
     if args.frame {
-        print_frame(&args, depth, saves);
-        return ExitCode::SUCCESS;
+        return match print_frame(&args, depth, saves) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("fn_tui: {e}");
+                ExitCode::from(2)
+            }
+        };
     }
     if !(std::io::stdout().is_terminal() && std::io::stdin().is_terminal()) {
         eprintln!(
@@ -41,7 +47,7 @@ fn main() -> ExitCode {
         );
         return ExitCode::from(2);
     }
-    match fn_tui::run::run(args.seed.zip(args.nation), depth, args.ascii, saves, seed_hint()) {
+    match fn_tui::run::run(&args, depth, saves, seed_hint()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("fn_tui: {e}");
@@ -58,19 +64,24 @@ fn seed_hint() -> u64 {
 }
 
 /// `--frame`: one frame on stdout, with no raw mode and no alternate screen. With no `SEED`, the
-/// frame is the title screen (#280); `--ticks` only means anything with one.
-fn print_frame(args: &Args, depth: ColorDepth, saves: Option<std::path::PathBuf>) {
-    let mut shell = match (args.seed, args.nation) {
-        (Some(seed), Some(nation)) => {
-            let mut session = fn_tui::new_session(seed, nation);
-            session.tick_n(args.ticks);
-            Shell::new_game(session, args.size, saves)
-        }
-        _ => Shell::new_title(args.size, saves, seed_hint()),
-    };
-    shell.play(&args.keys);
+/// frame is the title screen (#280); `--embark` and `--start` (#290) pick embark or a founded
+/// game instead of the plain centre-spiral one; `--ticks` runs before the frame, and only means
+/// anything for a game (there's nothing to tick at the title screen or in embark).
+fn print_frame(
+    args: &Args,
+    depth: ColorDepth,
+    saves: Option<std::path::PathBuf>,
+) -> Result<(), String> {
+    let mut shell = Shell::for_args(args, args.size, saves, seed_hint())?;
+    let mut steps = Vec::new();
+    if args.ticks > 0 {
+        steps.push(Step::Tick(args.ticks));
+    }
+    steps.extend(args.keys.iter().copied());
+    shell.play(&steps);
     let palette = Palette::new(shell.defs(), shell.nation(), depth, args.ascii);
     let buf = frame::render_shell(&mut shell, &palette, args.size);
     let text = if args.ansi { frame::to_ansi(&buf) } else { frame::to_text(&buf) };
     print!("{text}");
+    Ok(())
 }

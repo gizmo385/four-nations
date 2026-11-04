@@ -277,3 +277,17 @@ flame = { glyph = "☼", ascii = "!", fg = [255, 150, 40] }
 # A young fruit tree from an orchard (#142), drawn in place of the resource's glyph until it
 # first ripens.
 sapling = { glyph = "ψ", ascii = "y", fg = [150, 210, 110] }
+
+# The embark screen's overview (#290, docs/design/embark.md, "What a cell shows"): presentation
+# thresholds for the zoomed-out block classifier, not game rules, so they live here rather than
+# data/embark.toml.
+[embark]
+# The overview's scale is never finer than this many tiles per cell, however big the terminal.
+min_overview_scale = 6
+# Sea is at least this share of a block's tiles.
+sea_share = 0.5
+# Mountain is at least this share of a block's tiles.
+mountain_share = 0.3333333333333333
+# Fresh water (river, lake or ford) is at least this share of N, the block's edge in tiles (so
+# the threshold is `max(1, N * river_lake_share)`), at 1:4 and 1:2 only.
+river_lake_share = 0.5

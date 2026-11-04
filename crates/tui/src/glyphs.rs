@@ -58,6 +58,16 @@ impl OverlayGlyph {
     }
 }
 
+/// The embark screen's overview thresholds (`[embark]`, #290, docs/design/embark.md).
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EmbarkGlyphDef {
+    pub min_overview_scale: i32,
+    pub sea_share: f64,
+    pub mountain_share: f64,
+    pub river_lake_share: f64,
+}
+
 /// The background tints (`[overlay]`).
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -83,6 +93,7 @@ pub struct Glyphs {
     pub building: BTreeMap<String, Look>,
     pub unit: UnitLook,
     pub overlay: Overlays,
+    pub embark: EmbarkGlyphDef,
 }
 
 /// The key of a terrain in `[terrain.*]`. `Land` has none: bare land draws as its biome. The

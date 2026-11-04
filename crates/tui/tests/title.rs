@@ -47,25 +47,81 @@ fn golden_nation_picker() {
     golden("title_nation_picker", &frame(&mut shell));
 }
 
+/// The seed step's Size and Survey rows (#290), with the highlighted row's hint below the
+/// three, on the Survey row.
+#[test]
+fn golden_seed_step() {
+    let mut shell = Shell::new_title(SIZE, None, 7);
+    let to_seed = fn_tui::keys::parse("<enter> <enter> <down> <down>").unwrap();
+    shell.play(&to_seed);
+    golden("title_seed_step", &frame(&mut shell));
+}
+
 // ---------------------------------------------------------------------------------------------
 // The shell's own switching
 // ---------------------------------------------------------------------------------------------
 
+/// New game, through the nation picker, to the seed step, where `Enter` now opens embark
+/// (#290) instead of the game straight away; `e` `y` settles at its default site from there.
 #[test]
 fn a_full_script_starts_a_game_from_the_title_screen_and_plays_it() {
     let mut shell = Shell::new_title(SIZE, None, 7);
-    let script = fn_tui::keys::parse("<enter> <right> <right> <enter> <enter> <tick 600>").unwrap();
+    let script =
+        fn_tui::keys::parse("<enter> <right> <right> <enter> <enter> e y <tick 600>").unwrap();
     shell.play(&script);
     let text = frame(&mut shell);
     assert_eq!(shell.nation(), Nation::Earth);
+    assert!(matches!(shell.mode, fn_tui::shell::Mode::Game(_)));
     assert!(text.contains("EARTH KINGDOM"), "{text}");
     assert!(text.contains("01:00"), "<tick 600> is a minute:\n{text}");
+}
+
+/// `Enter` on the seed step opens embark instead of starting the game (#290); `Esc` at its
+/// overview goes back to the seed step with the seed kept.
+#[test]
+fn enter_on_the_seed_step_opens_embark_and_esc_at_the_overview_goes_back() {
+    let mut shell = Shell::new_title(SIZE, None, 7);
+    let to_seed = fn_tui::keys::parse("<enter> <enter>").unwrap(); // New game, Air
+    shell.play(&to_seed);
+    press(&mut shell, KeyCode::Enter); // the seed step: opens embark
+    assert!(matches!(shell.mode, fn_tui::shell::Mode::Embark(_)));
+    let text = frame(&mut shell);
+    assert!(text.contains("CHOOSE A SITE"), "{text}");
+
+    press(&mut shell, KeyCode::Esc);
+    match &shell.mode {
+        fn_tui::shell::Mode::Title(title) => {
+            assert!(
+                matches!(title.page, fn_tui::title::Page::Seed { nation: Nation::Air, .. }),
+                "{:?}",
+                title.page
+            );
+        }
+        other => panic!("expected the seed step, got {other:?}"),
+    }
+}
+
+/// `R`, confirmed in a game, reopens embark on the next seed instead of restarting in place
+/// (#290); the `1`-`4` nation switch, with no chosen start, still restarts in place as before.
+#[test]
+fn r_in_a_game_reopens_embark_on_the_next_seed() {
+    let mut shell = Shell::new_game(fn_tui::new_session(7, Nation::Earth), SIZE, None);
+    press(&mut shell, KeyCode::Char('r'));
+    press(&mut shell, KeyCode::Char('y'));
+    match &shell.mode {
+        fn_tui::shell::Mode::Embark(screen) => {
+            assert_eq!(screen.seed(), 8);
+            assert_eq!(screen.nation, Nation::Earth);
+        }
+        other => panic!("expected embark, got {other:?}"),
+    }
 }
 
 #[test]
 fn quitting_a_game_asks_whether_to_go_to_the_title_screen_or_exit() {
     let mut shell = Shell::new_title(SIZE, None, 1);
-    let start = fn_tui::keys::parse("<enter> <enter> <enter>").unwrap();
+    // New game, Air, the seed step's embark (#290), then settle at its default site.
+    let start = fn_tui::keys::parse("<enter> <enter> <enter> e y").unwrap();
     shell.play(&start);
     assert!(matches!(shell.mode, fn_tui::shell::Mode::Game(_)));
 
@@ -96,7 +152,7 @@ fn quitting_a_game_asks_whether_to_go_to_the_title_screen_or_exit() {
 #[test]
 fn q_then_enter_exits_the_process_instead_of_the_title_screen() {
     let mut shell = Shell::new_title(SIZE, None, 1);
-    let start = fn_tui::keys::parse("<enter> <enter> <enter>").unwrap();
+    let start = fn_tui::keys::parse("<enter> <enter> <enter> e y").unwrap();
     shell.play(&start);
     press(&mut shell, KeyCode::Char('q'));
     press(&mut shell, KeyCode::Char('y'));
