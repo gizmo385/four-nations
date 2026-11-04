@@ -324,25 +324,22 @@ impl World {
 
 /// Doing it.
 impl World {
-    /// Whether unit `i` may take a bend job for `ability`: its chi covers the cost and it is
-    /// allowed to use it right now. The Avatar (#237) may claim any ability his own `[avatar]`
-    /// list names, whatever his "nation" (he has none) and whatever the settlement's. Otherwise
-    /// (#239): a signature ability (no tech unlocks it) needs only that the unit's own nation
-    /// matches: any unit of that nation can use it, home settler or not, since it needs no
-    /// research to begin with. A branch ability needs the settlement's research too, so only a
-    /// home-nation unit (one with no nation of its own, or explicitly the settlement's) can take
-    /// it: a unit of another nation doesn't benefit from techs its own nation hasn't researched
-    /// (teaching across nations is deferred).
-    pub(super) fn unit_can_bend(&self, i: usize, ability: AbilityId, defs: &Defs) -> bool {
+    /// Whether `unit` is allowed to use `ability` at all, whatever its chi (`unit_can_bend` adds
+    /// that check). The Avatar (#237) may claim any ability his own `[avatar]` list names,
+    /// whatever his "nation" (he has none) and whatever the settlement's. Otherwise (#239): a
+    /// signature ability (no tech unlocks it) needs only that the unit's own nation matches: any
+    /// unit of that nation can use it, home settler or not, since it needs no research to begin
+    /// with. A branch ability needs the settlement's research too, so only a home-nation unit
+    /// (one with no nation of its own, or explicitly the settlement's) can take it: a unit of
+    /// another nation doesn't benefit from techs its own nation hasn't researched (teaching
+    /// across nations is deferred). Public so a frontend can count who could cast an ability
+    /// (`caster_count`, #248: the bend picker's "Raise Earth: 14 benders").
+    pub fn can_cast(&self, unit: &Unit, ability: AbilityId, defs: &Defs) -> bool {
         let def = defs.ability(ability);
-        let u = &self.units[i];
-        if u.chi < def.chi {
-            return false;
-        }
-        if u.is_avatar() {
+        if unit.is_avatar() {
             return defs.endeavor.avatar.as_ref().is_some_and(|a| a.abilities.contains(&ability));
         }
-        let unit_nation = self.nation_of(u);
+        let unit_nation = self.nation_of(unit);
         if unit_nation != def.nation {
             return false;
         }
@@ -350,6 +347,20 @@ impl World {
             None => true,
             Some(tech) => unit_nation == self.nation && self.research.is_known(tech),
         }
+    }
+
+    /// Whether unit `i` may take a bend job for `ability` right now: its chi covers the cost and
+    /// `can_cast` allows it.
+    pub(super) fn unit_can_bend(&self, i: usize, ability: AbilityId, defs: &Defs) -> bool {
+        let def = defs.ability(ability);
+        let u = &self.units[i];
+        u.chi >= def.chi && self.can_cast(u, ability, defs)
+    }
+
+    /// How many living units could cast `ability` at all, `can_cast`'s chi-free eligibility
+    /// (#248): for the bend picker's count of casters, which shouldn't flicker as chi regens.
+    pub fn caster_count(&self, ability: AbilityId, defs: &Defs) -> usize {
+        self.units.iter().filter(|u| self.can_cast(u, ability, defs)).count()
     }
 
     /// Channel seconds per second: the caster's own effective modifiers (`modifiers_for`, #239;
