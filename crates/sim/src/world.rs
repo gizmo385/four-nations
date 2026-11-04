@@ -207,6 +207,12 @@ pub struct World {
     stored: BTreeMap<Pos, Stack>,
     /// Build designations that aren't finished, by tile (`Command::DesignateBuild`, #64).
     sites: BTreeMap<Pos, Site>,
+    /// Finished buildings' anchors, keyed `(y, x)` so iterating matches `buildings()`'s old
+    /// row-major scan of the map. Maintained wherever a building finishes (`raise`, #292); not
+    /// saved (`#[serde(skip)]`), so it's rebuilt by a map scan once after loading
+    /// (`World::load`) rather than on every once-a-second endeavor check.
+    #[serde(skip)]
+    building_index: BTreeMap<(i32, i32), Pos>,
     /// How units walk. Every unit uses these for now; a nation that can cross water would get
     /// its own.
     rules: MoveRules,
@@ -292,6 +298,7 @@ impl World {
             zones: BTreeSet::new(),
             stored: BTreeMap::new(),
             sites: BTreeMap::new(),
+            building_index: BTreeMap::new(),
             rules: MoveRules::default(),
             cart_rules: defs.cart_rules(MoveRules::default()),
             regions: None,
