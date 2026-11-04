@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
-members = ["crates/sim", "crates/ui", "crates/tui", "crates/client", "xtask"]
+members = ["crates/sim", "crates/ui", "crates/tui", "xtask"]
+# `fn_tui` is the game's only frontend: `cargo run` with no `-p` builds and runs it directly.
+default-members = ["crates/tui"]
 
 [workspace.package]
 edition = "2024"
@@ -14,15 +16,11 @@ rand = "0.10"
 rand_chacha = { version = "0.10", features = ["serde"] }
 ron = { version = "0.12", features = ["integer128"] }
 
-# Bevy is slow in debug builds; optimize dependencies but keep our own crates fast to compile.
-[profile.dev.package."*"]
-opt-level = 3
-
 [profile.dev]
 opt-level = 1
 
-# Used by `cargo xtask ci` on CI ($CI set). Tests don't need Bevy to run fast, so skip optimizing
-# dependencies and drop debug info: the cold build is several times faster on small runners.
+# Used by `cargo xtask ci` on CI ($CI set) and by agents with `--fast`: unoptimized dependencies
+# and no debug info compile faster and use less memory.
 [profile.ci]
 inherits = "dev"
 opt-level = 0

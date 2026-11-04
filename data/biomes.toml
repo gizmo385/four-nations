@@ -8,8 +8,7 @@
 # Each tile gets the FIRST biome below whose inclusive `temperature` and `moisture` ranges
 # (`[min, max]`, within [0, 1]) contain its climate, so order matters: put narrow, specific
 # biomes first and keep a catch-all last. Loading fails if any climate is left uncovered.
-# `glyph` is used by the ASCII renderer and golden tests. The client must render every biome
-# (crates/client sprites::GROUND); a new biome may reuse an existing sprite.
+# `glyph` is used by the ASCII renderer and golden tests.
 
 [[biome]]
 id = "tundra"

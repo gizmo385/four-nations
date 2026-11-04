@@ -1,6 +1,6 @@
 [package]
 name = "fn_tui"
-description = "The terminal frontend: a glyph map, a cursor and the session clock, on ratatui and crossterm. Depends on fn_sim and fn_ui only: no Bevy."
+description = "The terminal frontend: a glyph map, a cursor and the session clock, on ratatui and crossterm. Depends on fn_sim and fn_ui only."
 edition.workspace = true
 version.workspace = true
 license.workspace = true

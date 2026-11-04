@@ -233,8 +233,8 @@ fn build_table() -> Vec<Binding> {
     for tool in Tool::ALL {
         // Select is Esc; every other tool has a letter.
         let Some(letter) = tool.letter() else { continue };
-        // `Tool::label`'s own wording for Build is the Bevy client's ("U: next building", #111);
-        // the TUI's own `U` opens the Build modal instead (#285), so it gets its own words here.
+        // `Tool::label`'s own wording for Build is generic ("U: next building", #111); the TUI's
+        // own `U` opens the Build modal instead (#285), so it gets its own words here.
         let what = if tool == Tool::Build {
             format!("{} tool: place the chosen building (U: pick one)", tool.name())
         } else {
@@ -276,7 +276,7 @@ fn build_table() -> Vec<Binding> {
         let digit = char::from(b'1' + i as u8);
         add(Group::Game, switch, Key::ch(digit), Action::AskNation(nation));
     }
-    // The Bevy client's quicksave keys, so a player of both doesn't learn two.
+    // F5/F9, the usual quicksave/quickload keys.
     add(Group::Game, "Quicksave", Key::plain(F(5)), Action::QuickSave);
     add(Group::Game, "Quickload (asks first)", Key::plain(F(9)), Action::AskQuickLoad);
     add(

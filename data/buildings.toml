@@ -58,9 +58,9 @@
 #             again.
 # - names:    what each nation calls this building, if it varies. Either all four nations or
 #             none; falls back to `name` for a building that omits it.
-# - art:      which sprite of art/buildings.toml each nation draws it with, if it varies (the study
-#             hall looks different per nation). Either all four nations or none; falls back to
-#             the building's `id`, so most buildings need no entry.
+# - art:      which sprite a graphical frontend draws it with for each nation, if it varies (the
+#             study hall looks different per nation). Either all four nations or none; falls back
+#             to the building's `id`, so most buildings need no entry.
 # - endeavor: the end game's great work (issue #236, docs/design/endgame.md). It never shows in the
 #             build picker and can't be designated: once the endeavor is Ready the Endeavor screen
 #             places it, and data/endeavor.toml names it and holds its stages. So it has no cost

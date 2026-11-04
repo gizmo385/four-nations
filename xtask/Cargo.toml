@@ -1,14 +1,7 @@
 [package]
 name = "xtask"
-description = "Repo maintenance commands: `cargo xtask <assets|art|ci|screenshot>`."
+description = "Repo maintenance commands: `cargo xtask ci`."
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 publish = false
-
-[dependencies]
-serde.workspace = true
-toml.workspace = true
-sha2 = "0.11"
-png = "0.18"
-fn_ui = { path = "../crates/ui" }

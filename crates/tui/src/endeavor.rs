@@ -3,8 +3,8 @@
 //! many signs are met, its description, the stage tracker (what the gate's site is building, or
 //! that the endeavor hasn't begun), then every sign grouped under its heading, each with a mark
 //! once it is met, a hint while it isn't, its count and a 10-cell bar, like the selection bar's
-//! meters. What it shows is `fn_ui::endeavor::screen_view`, which the Bevy client's own Endeavor
-//! screen draws too; this module only lays it out as rows that scroll (`screens::draw_screen`).
+//! meters. What it shows is `fn_ui::endeavor::screen_view`; this module only lays it out as rows
+//! that scroll (`screens::draw_screen`).
 
 use fn_ui::Session;
 use fn_ui::endeavor::{GroupView, SignRow, screen_view};
