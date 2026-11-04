@@ -292,6 +292,11 @@ fn cursor_rows(session: &Session, ui: &UiState, choice: Option<BuildingId>) -> V
             }
         }
     }
+    // A building with anyone inside lists them last ("Mai, studying", #226, #229): `Enter`
+    // cycles onto one the same way it cycles several units sharing a tile (`UiState::select_here`).
+    for occupant in build::occupant_rows(session, pos) {
+        rows.push(Row::text(occupant.text(), Tone::Text));
+    }
     rows
 }
 
@@ -557,5 +562,47 @@ mod tests {
         assert!(text.ends_with('s'), "{text}");
         let left: f32 = text["Channelling Hearthflame ".len()..text.len() - 1].parse().unwrap();
         assert!((0.0..=4.0).contains(&left), "{text}");
+    }
+
+    /// The Cursor section lists a building's occupants last (#226, #229), "Mai, idle" until
+    /// #227 gives them something to do; none off a building or on one with nobody inside.
+    #[test]
+    fn the_cursor_section_lists_a_building_s_occupants_last() {
+        use fn_sim::Nation;
+        use fn_sim::building::Building;
+        use fn_sim::geom::Footprint;
+        let mut s = Session::new(7, Nation::Fire, 64, 64);
+        let hall = s.defs.building_id("study_hall").unwrap();
+        let passable = s.defs.building(hall).passable;
+        let at = Pos::new(30, 30);
+        for dy in 0..3 {
+            for dx in 0..3 {
+                let t = s.world.map.get_mut(Pos::new(at.x + dx, at.y + dy)).unwrap();
+                t.terrain = fn_sim::Terrain::Land;
+                t.resource = None;
+            }
+        }
+        let foot = Footprint::new(at, 2, 2);
+        let ui = UiState::new(&s, (120, 40));
+        assert!(cursor_rows(&s, &ui, None).iter().all(|r| !r.plain().contains(", idle")));
+
+        for p in foot.tiles() {
+            let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
+            let b = Building { part, size: [2, 2], ..Building::new(hall, passable, false) };
+            s.world.map.get_mut(p).unwrap().building = Some(b);
+        }
+        let door = foot.entrance();
+        s.world.units[0].pos = door;
+        let name = s.world.units[0].name.clone();
+        let mut ui = UiState::new(&s, (120, 40));
+        ui.cursor = at;
+        assert!(
+            cursor_rows(&s, &ui, None).iter().all(|r| !r.plain().contains(", idle")),
+            "nobody inside yet"
+        );
+
+        assert!(s.world.enter_building(0, at, &s.defs));
+        let rows = cursor_rows(&s, &ui, None);
+        assert_eq!(rows.last().map(Row::plain), Some(format!("{name}, idle")));
     }
 }

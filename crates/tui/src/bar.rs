@@ -70,14 +70,19 @@ fn key_hints(following: bool, width: usize) -> Row {
     Row::spans(spans)
 }
 
-/// What the left column says: the task (up to two lines), what the unit carries and its tile.
+/// What the left column says: the task (up to two lines), what the unit carries, and its tile --
+/// or, while it's inside a building (#226, #229), which one ("In the Academy").
 pub fn detail_rows(view: &UnitView, width: usize, ellipsis: char) -> Vec<Row> {
     let mut rows: Vec<Row> = wrap(&view.task, width, 2, ellipsis)
         .into_iter()
         .map(|l| Row::text(l, Tone::Text))
         .collect();
     rows.push(Row::text(format!("Carrying: {}", view.carrying), Tone::Text));
-    rows.push(Row::text(format!("At ({}, {})", view.tile.x, view.tile.y), Tone::Dim));
+    let where_ = match &view.inside {
+        Some(building) => format!("In the {building}"),
+        None => format!("At ({}, {})", view.tile.x, view.tile.y),
+    };
+    rows.push(Row::text(where_, Tone::Dim));
     rows
 }
 
@@ -169,6 +174,35 @@ mod tests {
         assert_eq!(text[0], view.task);
         assert_eq!(text[1], "Carrying: nothing");
         assert_eq!(text[2], format!("At ({}, {})", view.tile.x, view.tile.y));
+    }
+
+    /// A unit inside a building (#226, #229) reads "In the Academy" in place of its tile.
+    #[test]
+    fn the_details_name_the_building_a_unit_is_inside() {
+        use fn_sim::building::Building;
+        use fn_sim::geom::Footprint;
+        let mut s = Session::new(7, Nation::Fire, 64, 64);
+        let hall = s.defs.building_id("study_hall").unwrap();
+        let passable = s.defs.building(hall).passable;
+        let at = fn_sim::Pos::new(30, 30);
+        for dy in 0..3 {
+            for dx in 0..3 {
+                let t = s.world.map.get_mut(fn_sim::Pos::new(at.x + dx, at.y + dy)).unwrap();
+                t.terrain = fn_sim::Terrain::Land;
+                t.resource = None;
+            }
+        }
+        let foot = Footprint::new(at, 2, 2);
+        for p in foot.tiles() {
+            let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
+            let b = Building { part, size: [2, 2], ..Building::new(hall, passable, false) };
+            s.world.map.get_mut(p).unwrap().building = Some(b);
+        }
+        s.world.units[0].pos = foot.entrance();
+        assert!(s.world.enter_building(0, at, &s.defs));
+        let view = unit_view(&s, &s.world.units[0]);
+        let rows = detail_rows(&view, 40, '…');
+        assert_eq!(rows[2].plain(), "In the Academy");
     }
 
     #[test]

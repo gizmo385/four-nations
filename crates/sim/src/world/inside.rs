@@ -40,9 +40,10 @@ impl World {
     /// Steps unit `i` inside the building anchored on `anchor`: it must be standing on the door
     /// (`Footprint::entrance`) and not already inside, and the building must have room. True if
     /// it went in; false (and nothing changed) otherwise, so a caller can keep waiting outside.
-    /// No job calls this yet (#227 is the first), so only tests do for now.
-    #[allow(dead_code, reason = "used by #227's jobs; tests exercise it meanwhile")]
-    pub(super) fn enter_building(&mut self, i: usize, anchor: Pos, defs: &Defs) -> bool {
+    /// No job calls this yet (#227 is the first job to), but it is `pub` so other crates' tests
+    /// (`fn_ui`, `fn_tui`, #229) can put a unit inside without waiting for a real job to walk it
+    /// there.
+    pub fn enter_building(&mut self, i: usize, anchor: Pos, defs: &Defs) -> bool {
         if self.units[i].inside.is_some() {
             return false;
         }

@@ -195,6 +195,10 @@ pub struct UnitView {
     pub name: String,
     pub nation: String,
     pub tile: Pos,
+    /// The building's display name while the unit is inside it (#226, #229), for the selection
+    /// bar to read "In the Academy" instead of its tile: `tile` still names the door it went in
+    /// by (`Unit::inside`), which is less useful to the player than what it's inside.
+    pub inside: Option<String>,
     pub task: String,
     pub carrying: String,
     pub needs: Vec<NeedView>,
@@ -216,6 +220,10 @@ pub fn unit_view(session: &Session, unit: &Unit) -> UnitView {
         name: unit.name.clone(),
         nation: defs.nation(session.world.nation_of(unit)).name.clone(),
         tile: unit.pos,
+        inside: unit
+            .inside()
+            .and_then(|anchor| session.world.building_at(anchor))
+            .map(|b| defs.building(b).display_name(session.world.nation).to_owned()),
         task: describe_task(&session.world, defs, unit),
         carrying: describe_stack(defs, unit.carrying),
         needs: vec![
@@ -372,6 +380,36 @@ mod tests {
         assert!(v.needs.iter().all(|n| n.frac == 1.0 && n.status == Status::Ok), "{v:?}");
         assert_eq!(v.needs[0].percent(), "100%");
         assert_eq!(v.chi_frac, 1.0, "a fresh unit's chi starts full too");
+        assert_eq!(v.inside, None, "standing outside names no building");
+    }
+
+    /// A unit that stepped inside a building (#226, #229) names it in `inside`, in place of its
+    /// tile; one standing anywhere else has `None` (the case above).
+    #[test]
+    fn unit_view_names_the_building_a_unit_is_inside() {
+        use fn_sim::building::Building;
+        use fn_sim::geom::Footprint;
+        let mut s = Session::new(7, Nation::Fire, 64, 64);
+        let hall = s.defs.building_id("study_hall").unwrap();
+        let passable = s.defs.building(hall).passable;
+        let at = Pos::new(30, 30);
+        for dy in 0..3 {
+            for dx in 0..3 {
+                let t = s.world.map.get_mut(Pos::new(at.x + dx, at.y + dy)).unwrap();
+                t.terrain = fn_sim::Terrain::Land;
+                t.resource = None;
+            }
+        }
+        let foot = Footprint::new(at, 2, 2);
+        for p in foot.tiles() {
+            let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
+            let b = Building { part, size: [2, 2], ..Building::new(hall, passable, false) };
+            s.world.map.get_mut(p).unwrap().building = Some(b);
+        }
+        s.world.units[0].pos = foot.entrance();
+        assert!(s.world.enter_building(0, at, &s.defs));
+        let v = unit_view(&s, &s.world.units[0]);
+        assert_eq!(v.inside.as_deref(), Some("Academy"), "Fire's name for the study hall");
     }
 
     #[test]
