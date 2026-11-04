@@ -14,11 +14,17 @@
 │                                                                                      ││ Shelter +2           3.0/min │
 │  ✓ Stoneworking       ◇ Earth Shaping                                                ││ ░░░░░░░░░░   0% 0/25 pts     │
 │   Known       25 pts   Available   60 pts                                            ││                              │
-│   -                    Earthworks x1.2                                               ││ ◇ MODIFIERS                  │
+│   -                    Earthworks x1.2                                               ││ ◇ ENDEAVOR                   │
+│                                                                                      ││ The Harmony Gate         0/9 │
+│  ◇ Farming                                                                           ││ ░░░░░░░░░░                   │
+│   Available   60 pts                                                                 ││ Signs met - G: open          │
+│   -                                                                                  ││ Next: 10 more people, 6 mor… │
+│                                                                                      ││                              │
+│                                                                                      ││ ◇ MODIFIERS                  │
 │                                                                                      ││ Move speed              x0.9 │
-│  ◇ Farming                                                                           ││ Carry capacity          x1.3 │
-│   Available   60 pts                                                                 ││ Earthworks              x2.5 │
-│   -                                                                                  ││ Water work              x0.9 │
+│                                                                                      ││ Carry capacity          x1.3 │
+│                                                                                      ││ Earthworks              x2.5 │
+│                                                                                      ││ Water work              x0.9 │
 │                                                                                      ││ Power generation        x0.8 │
 │                                                                                      ││ Construction            x1.5 │
 │                                                                                      ││                              │
@@ -26,13 +32,7 @@
 │                                                                                      ││ Tyro                         │
 │                                                                                      ││ Earth Kingdom - Idle         │
 │                                                                                      ││ Carrying: nothing - Bends: 0 │
-│                                                                                      ││ Press Enter to select        │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│ ──────────────────────────────────────────────────────────────────────────────────── ││                              │
+│ ──────────────────────────────────────────────────────────────────────────────────── ││ Press Enter to select        │
 │ Masonry                                                              Queued  120 pts ││                              │
 │ Dress stone and mortar it into lasting walls.                                        ││                              │
 │ Unlocks: Construction x1.15   Needs: Carpentry                                       ││                              │

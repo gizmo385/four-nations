@@ -28,6 +28,13 @@
 //! rail neighbour (built or still a site) draws the box-drawing piece that joins the neighbours
 //! it has, so a line of rail reads as one track and a corner turns; a lone tile keeps the rail
 //! building's own glyph.
+//!
+//! **The Avatar and the Harmony Gate** (#237, #242, `docs/design/endgame.md`): the Avatar draws
+//! as `@` in white, on the nation's accent instead of his tile's own background, wherever he
+//! stands, outranking the usual unit look. The gate's site draws its own 4x4 glyph block by
+//! stage ([`gate_stage_look`], `[gate_stage.*]` in `data/tui.toml`), in place of the generic
+//! dimmed site every other building's gets; once it is finished it is an ordinary building with
+//! its own glyph (`[building.harmony_gate]`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -43,7 +50,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 
 use crate::color::{Palette, Tint, mix};
-use crate::glyphs::{Glyphs, Look, Rgb8, link_glyph, rail_mask};
+use crate::glyphs::{Glyphs, Look, OverlayGlyph, Rgb8, link_glyph, rail_mask};
 use crate::state::UiState;
 
 /// Which tiles light up after a bend lands, for an ability of `data/bending.toml`. Every
@@ -117,6 +124,9 @@ pub struct Overlays {
     units: BTreeSet<Pos>,
     /// Where the selected unit stands: it draws in reverse video.
     selected: Option<Pos>,
+    /// Where the Avatar stands, if he is here (#237, #242): he draws as `@` in white on the
+    /// nation's accent, in place of a unit's usual look (`Unit::is_avatar`).
+    avatar: Option<Pos>,
     ground: BTreeMap<Pos, Stack>,
     zones: BTreeSet<Pos>,
     harvest: BTreeSet<Pos>,
@@ -158,6 +168,11 @@ impl Overlays {
             // names the door it went in by, but `occupants` (below) covers it instead.
             units: world.units.iter().filter(|u| u.inside().is_none()).map(|u| u.pos).collect(),
             selected: ui.selected_unit(session).map(|u| u.pos),
+            avatar: world
+                .units
+                .iter()
+                .find(|u| u.is_avatar() && u.inside().is_none())
+                .map(|u| u.pos),
             ground: world.ground_items().collect(),
             zones: world.stockpile_zones().collect(),
             harvest: world.harvest_designations().collect(),
@@ -240,6 +255,22 @@ fn is_rail(defs: &fn_sim::Defs, id: BuildingId) -> bool {
     defs.building(id).rail.is_some()
 }
 
+/// The 4x4 glyph block for the Harmony Gate's site at its current stage (#242, `[gate_stage.*]`
+/// in `data/tui.toml`): `None` for any other building's site, or while the data names no look
+/// for the stage, which keeps the generic dimmed site instead.
+fn gate_stage_look<'g>(
+    g: &'g Glyphs,
+    world: &fn_sim::World,
+    defs: &fn_sim::Defs,
+    site: BuildingId,
+) -> Option<&'g OverlayGlyph> {
+    if !defs.building(site).endeavor {
+        return None;
+    }
+    let (_, stage) = world.gate_stage(defs)?;
+    g.gate_stage.get(&stage.id)
+}
+
 /// Whether `pos` is rail, finished or still a site (#279): the set of tiles a piece of track
 /// joins.
 fn rail_at(world: &fn_sim::World, defs: &fn_sim::Defs, over: &Overlays, pos: Pos) -> bool {
@@ -300,7 +331,18 @@ pub fn tile_cell(
 
     // The glyph and its colour, top to bottom.
     let mut mods = Modifier::empty();
-    let (glyph, fg): (char, Rgb8) = if over.units.contains(&pos) {
+    let (glyph, fg): (char, Rgb8) = if over.avatar == Some(pos) {
+        // The Avatar (#237, #242): always `@` in white, never the nation's own unit look, so he
+        // reads as a guest apart from every unit (his own background follows below).
+        mods |= Modifier::BOLD;
+        if palette.mono() {
+            // No colour to set him apart with, so reverse video does, whether selected or not.
+            mods |= Modifier::REVERSED;
+        } else if over.selected == Some(pos) {
+            mods |= Modifier::REVERSED;
+        }
+        (g.avatar.glyph(palette.ascii), g.avatar.fg)
+    } else if over.units.contains(&pos) {
         mods |= Modifier::BOLD;
         if over.selected == Some(pos) {
             // The selected unit stands out from the others, whatever the colour depth.
@@ -328,19 +370,25 @@ pub fn tile_cell(
             _ => (look.glyph(palette.ascii), look.fg),
         }
     } else if let Some(&b) = over.sites.get(&pos) {
-        // A site is its building, dimmed until it's built, and a rail site joins the rail
-        // beside it (built or still a site) the same as a finished tile does.
-        let look = &g.building[&defs.building(b).id];
-        if palette.mono() {
-            mods |= Modifier::DIM;
+        // The Harmony Gate's site draws its own 4x4 glyph block by stage (#242); every other
+        // site is its building, dimmed until it's built, and a rail site joins the rail beside
+        // it (built or still a site) the same as a finished tile does.
+        match gate_stage_look(g, world, defs, b) {
+            Some(look) => (look.glyph(palette.ascii), look.fg),
+            None => {
+                let look = &g.building[&defs.building(b).id];
+                if palette.mono() {
+                    mods |= Modifier::DIM;
+                }
+                let glyph = if is_rail(defs, b) {
+                    rail_glyph(session, g, over, pos, palette.ascii)
+                        .unwrap_or_else(|| look.glyph(palette.ascii))
+                } else {
+                    look.glyph(palette.ascii)
+                };
+                (glyph, mix(look.fg, base_bg, 0.5))
+            }
         }
-        let glyph = if is_rail(defs, b) {
-            rail_glyph(session, g, over, pos, palette.ascii)
-                .unwrap_or_else(|| look.glyph(palette.ascii))
-        } else {
-            look.glyph(palette.ascii)
-        };
-        (glyph, mix(look.fg, base_bg, 0.5))
     } else if let Some(stack) = over.ground.get(&pos).copied().or_else(|| world.stored_at(pos)) {
         let look = &g.item[&defs.item(stack.item).id];
         (look.glyph(palette.ascii), look.fg)
@@ -433,6 +481,10 @@ pub fn tile_cell(
         palette.tinted(base_bg, Tint::Warm)
     } else if over.is_warmed(pos) {
         palette.tinted(base_bg, Tint::Warm)
+    } else if over.avatar == Some(pos) {
+        // The Avatar's own background (#237, #242): the nation's accent, not his tile's own, so
+        // he reads as a guest wherever he stands.
+        palette.color(palette.tint_rgb(Tint::Bend))
     } else {
         palette.color(base_bg)
     };
@@ -568,5 +620,74 @@ mod tests {
         draw_map(&s, &ui, &ascii, area, &mut ascii_buf);
         let ascii_out = &ascii_buf[(area.x + col as u16, area.y + row as u16)];
         assert_eq!(ascii_out.symbol(), "2");
+    }
+
+    /// The Avatar (#237, #242) draws as `@` in white on the nation's accent, never the plain
+    /// unit look, whether or not he is selected.
+    #[test]
+    fn the_avatar_draws_as_white_on_the_accent_not_the_nation_s_unit_look() {
+        use fn_sim::Nation;
+        use fn_sim::world::Guest;
+        let mut s = crate::new_session(7, Nation::Fire);
+        s.world.units[0].guest = Some(Guest::Avatar);
+        let avatar = s.world.units[0].pos;
+        let mut ui = UiState::new(&s, (120, 40));
+        // Away from the cursor, which `UiState::new` puts on the first settler (now the
+        // Avatar): the cursor's own look would otherwise cover his.
+        ui.cursor = Pos::new(avatar.x + 3, avatar.y);
+        let palette = Palette::new(&s.defs, Nation::Fire, ColorDepth::TrueColor, false);
+        let area = Rect::new(0, 0, ui.viewport().0 as u16, ui.viewport().1 as u16);
+        let mut buf = Buffer::empty(area);
+        draw_map(&s, &ui, &palette, area, &mut buf);
+        let (col, row) = (avatar.x - ui.view.x, avatar.y - ui.view.y);
+        let out = &buf[(area.x + col as u16, area.y + row as u16)];
+        assert_eq!(out.symbol(), palette.glyphs.avatar.glyph.to_string());
+        assert_ne!(out.symbol(), palette.glyphs.unit.glyph.to_string(), "not the plain unit look");
+        assert_eq!(out.fg, palette.color(palette.glyphs.avatar.fg));
+        assert_eq!(out.bg, palette.color(palette.tint_rgb(Tint::Bend)), "the accent, not the tile");
+        assert!(out.modifier.contains(Modifier::BOLD));
+
+        // `--ascii` keeps the same `@` and still sets him apart with reverse video (#242's
+        // mono-safe treatment also applies when colour would otherwise do it).
+        let ascii = Palette::new(&s.defs, Nation::Fire, ColorDepth::Never, true);
+        let mut ascii_buf = Buffer::empty(area);
+        draw_map(&s, &ui, &ascii, area, &mut ascii_buf);
+        let ascii_out = &ascii_buf[(area.x + col as u16, area.y + row as u16)];
+        assert_eq!(ascii_out.symbol(), "@");
+        assert!(ascii_out.modifier.contains(Modifier::REVERSED), "mono sets him apart");
+    }
+
+    /// A world with the endeavor's gate placed and on `stage_id` (no public command reaches
+    /// `Building` short of playing a whole settlement up to Ready, so this round-trips a save
+    /// with the gate's state spliced in: `World` derives `Serialize`/`Deserialize` over all of
+    /// its fields for exactly this reason, saves).
+    fn world_with_gate_stage(stage_id: &str) -> (fn_sim::World, fn_sim::Defs) {
+        let defs = fn_sim::Defs::bundled();
+        let s = crate::new_session(7, fn_sim::Nation::Earth);
+        let text = s.world.save(&defs).unwrap();
+        let gate_ron = format!(
+            "Building((anchor:(x:10,y:10),ready_tick:0,stage:\"{stage_id}\",delivered:[],\
+             progress:0.0,tasks:[],rite_progress:0.0,rite_paused:false))"
+        );
+        let text = text.replacen("Dormant", &gate_ron, 1);
+        (fn_sim::World::load(&text, &defs).expect("round trip"), defs)
+    }
+
+    /// The Harmony Gate's site draws its stage's own glyph block (#242), not the generic dimmed
+    /// site every other building's gets, and falls back to the generic look for a stage the
+    /// data names no look for.
+    #[test]
+    fn the_gate_site_draws_its_stage_s_own_look() {
+        let g = Glyphs::bundled();
+        let (world, defs) = world_with_gate_stage("pillars");
+        let gate = defs.building_id("harmony_gate").unwrap();
+        let other = defs.building_id("bed").unwrap();
+        let look = gate_stage_look(&g, &world, &defs, gate).expect("pillars has a look");
+        assert_eq!(look.glyph, g.gate_stage["pillars"].glyph);
+        // No gate site at all: no look, so the generic fallback applies.
+        let dormant = crate::new_session(7, fn_sim::Nation::Earth);
+        assert!(gate_stage_look(&g, &dormant.world, &defs, gate).is_none());
+        // Any other building's site never looks here up, whatever the gate's own stage.
+        assert!(gate_stage_look(&g, &world, &defs, other).is_none());
     }
 }

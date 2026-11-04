@@ -14,6 +14,12 @@
 │                                                                                      ││ No target set        3.0/min │
 │                                                                                      ││ 0 pts banked                 │
 │                                                                                      ││                              │
+│                                                                                      ││ ◇ ENDEAVOR                   │
+│                                                                                      ││ The Harmony Gate         0/9 │
+│                                                                                      ││ ░░░░░░░░░░                   │
+│                                                                                      ││ Signs met - G: open          │
+│                                                                                      ││ Next: 10 more people, 6 mor… │
+│                                                                                      ││                              │
 │                                                                                      ││ ◇ MODIFIERS                  │
 │                                                                                      ││ Move speed              x0.9 │
 │                                                                                      ││ Carry capacity          x1.3 │
@@ -26,12 +32,6 @@
 │                                                                                      ││ Coast                        │
 │                                                                                      ││ Plains (94, 64)              │
 │                                                                                      ││ Elevation 152                │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │

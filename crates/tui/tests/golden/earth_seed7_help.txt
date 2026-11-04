@@ -14,27 +14,27 @@
 │                                                                                      ││ No target set        3.0/min │
 │ DESIGNATING                                                                          ││ 0 pts banked                 │
 │ H                      Harvest tool: designate harvest (chop, mine, gather); hold    ││                              │
-│                        Shift to repeat                                               ││ ◇ MODIFIERS                  │
-│ X                      Cancel tool: cancel harvest, build site or stockpile          ││ Move speed              x0.9 │
-│ P                      Stockpile tool: designate stockpile                           ││ Carry capacity          x1.3 │
-│ B                      Bend tool: channel the nation's ability                       ││ Earthworks              x2.5 │
-│ U                      Build tool: place the chosen building (U: pick one)           ││ Water work              x0.9 │
-│ O                      Harvest tool: toggle a standing order (re-designates when the ││ Power generation        x0.8 │
-│                        resource ripens again)                                        ││ Construction            x1.5 │
+│                        Shift to repeat                                               ││ ◇ ENDEAVOR                   │
+│ X                      Cancel tool: cancel harvest, build site or stockpile          ││ The Harmony Gate         0/9 │
+│ P                      Stockpile tool: designate stockpile                           ││ ░░░░░░░░░░                   │
+│ B                      Bend tool: channel the nation's ability                       ││ Signs met - G: open          │
+│ U                      Build tool: place the chosen building (U: pick one)           ││ Next: 10 more people, 6 mor… │
+│ O                      Harvest tool: toggle a standing order (re-designates when the ││                              │
+│                        resource ripens again)                                        ││ ◇ MODIFIERS                  │
+│                                                                                      ││ Move speed              x0.9 │
+│ TIME                                                                                 ││ Carry capacity          x1.3 │
+│ Space                  Pause or run                                                  ││ Earthworks              x2.5 │
+│ + =                    Faster                                                        ││ Water work              x0.9 │
+│ - _                    Slower                                                        ││ Power generation        x0.8 │
+│ .                      One tick, while paused                                        ││ Construction            x1.5 │
 │                                                                                      ││                              │
-│ TIME                                                                                 ││ ◇ CURSOR            (94, 64) │
-│ Space                  Pause or run                                                  ││ Tyro                         │
-│ + =                    Faster                                                        ││ Earth Kingdom - Idle         │
-│ - _                    Slower                                                        ││ Carrying: nothing - Bends: 0 │
-│ .                      One tick, while paused                                        ││ Press Enter to select        │
-│                                                                                      ││                              │
-│ SCREENS AND GAME                                                                     ││                              │
-│ T                      Research: arrows W A S D choose a tech, Enter sets it as the  ││                              │
-│                        target                                                        ││                              │
-│ L                      Message log                                                   ││                              │
-│ ?                      Key help                                                      ││                              │
+│ SCREENS AND GAME                                                                     ││ ◇ CURSOR            (94, 64) │
+│ T                      Research: arrows W A S D choose a tech, Enter sets it as the  ││ Tyro                         │
+│                        target                                                        ││ Earth Kingdom - Idle         │
+│ L                      Message log                                                   ││ Carrying: nothing - Bends: 0 │
+│ ?                      Key help                                                      ││ Press Enter to select        │
+│ G                      Endeavor: the Harmony Gate's progress and, once building, its ││                              │
+│                        stage                                                         ││                              │
 │ R                      New map (asks first)                                          ││                              │
-│ 1 2 3 4                Switch nation: 1 Air, 2 Water, 3 Earth, 4 Fire (asks first)   ││                              │
-│ F5                     Quicksave                                                     ││                              │
 ┗─ Arrows W S scroll  PgUp PgDn page  Esc close  L log ────────────────────────────────┛┗──────────────────────────────┛
  KEYS  arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause

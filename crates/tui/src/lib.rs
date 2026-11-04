@@ -16,6 +16,7 @@ pub mod cli;
 pub mod color;
 pub mod draw;
 pub mod embark;
+pub mod endeavor;
 pub mod frame;
 pub mod glyphs;
 pub mod input;

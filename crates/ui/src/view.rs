@@ -215,10 +215,19 @@ pub fn unit_view(session: &Session, unit: &Unit) -> UnitView {
         NeedView { label, frac, status: need_status(frac, low) }
     };
     let low = |n: NeedDef| n.low / s.max();
+    // The Avatar (#237) reads "The Avatar - guest of <nation>", not his own name and nation
+    // (#242, the closed client issue #243's own wording): he belongs to no nation of his own,
+    // and `nation_of` already falls back to the settlement's for exactly this case.
+    let host = defs.nation(session.world.nation_of(unit)).name.clone();
+    let (name, nation) = if unit.is_avatar() {
+        ("The Avatar".to_owned(), format!("guest of {host}"))
+    } else {
+        (unit.name.clone(), host)
+    };
     UnitView {
         id: unit.id,
-        name: unit.name.clone(),
-        nation: defs.nation(session.world.nation_of(unit)).name.clone(),
+        name,
+        nation,
         tile: unit.pos,
         inside: unit
             .inside()
@@ -419,5 +428,21 @@ mod tests {
         let v = unit_view(&s, &s.world.units[0]);
         assert_eq!(v.needs[1].status, Status::Bad);
         assert_eq!(v.needs[0].status, Status::Ok);
+    }
+
+    /// The Avatar (#237, #242) reads "The Avatar - guest of <nation>" in place of his own name
+    /// and nation, whatever nation hosts him; an ordinary settler keeps its own.
+    #[test]
+    fn the_avatar_reads_as_a_guest_of_the_settlement_s_nation() {
+        use fn_sim::world::Guest;
+        let mut s = Session::new(7, Nation::Water, 64, 64);
+        s.world.units[0].guest = Some(Guest::Avatar);
+        let v = unit_view(&s, &s.world.units[0]);
+        assert_eq!(v.name, "The Avatar");
+        assert_eq!(v.nation, "guest of Water Tribes");
+
+        let settler = unit_view(&s, &s.world.units[1]);
+        assert_eq!(settler.name, s.world.units[1].name);
+        assert_eq!(settler.nation, "Water Tribes");
     }
 }

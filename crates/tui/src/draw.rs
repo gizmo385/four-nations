@@ -77,6 +77,8 @@ const KEYS_SELECTED: &str = "Enter next here  Tab/Shift+Tab units  F follow  Esc
                              H X P B U tools  Space pause  L log  ? keys";
 const KEYS_SCREEN: &str =
     "arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause";
+const KEYS_ENDEAVOR: &str =
+    "arrows/W S scroll  PgUp/PgDn page  Esc/G close  L log  ? keys  Space pause";
 const KEYS_RESEARCH: &str = "arrows/WASD choose  Enter set target  Esc/T close  L log  ? keys";
 const KEYS_SAVES: &str =
     "arrows/W S choose  Enter load  Shift+S save over  N new  Esc/F6 close  ? keys";
@@ -147,6 +149,7 @@ fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, b
         None if ui.screen.is_some() => {
             let (text, keys) = match ui.screen {
                 Some(Screen::Help) => (" KEYS ", KEYS_SCREEN),
+                Some(Screen::Endeavor) => (" ENDEAVOR ", KEYS_ENDEAVOR),
                 Some(Screen::Research) => (" RESEARCH ", KEYS_RESEARCH),
                 Some(Screen::Saves) => (" SAVES ", KEYS_SAVES),
                 _ => (" LOG ", KEYS_SCREEN),

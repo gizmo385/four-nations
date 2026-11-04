@@ -123,6 +123,10 @@ pub enum Tone {
     /// `Ok` and `Warn`, bold: the clock's running or paused badge.
     Running,
     Paused,
+    /// The Avatar in the Avatar State (#242, `docs/design/endgame.md`, "The Harmony Rite"):
+    /// bold, on the nation's accent instead of the panel, so the selection bar marks the
+    /// moment he holds the Harmony Rite apart from anything else he could be doing.
+    Avatar,
 }
 
 impl Tone {
@@ -137,6 +141,14 @@ impl Tone {
 
     pub fn style(self, palette: &Palette) -> Style {
         let t = &palette.theme;
+        if self == Self::Avatar {
+            // Its own background (the accent), not the panel's: every other tone sits on the
+            // panel, so this is the one place a row's background is anything else.
+            return Style::new()
+                .fg(palette.token(t.text))
+                .bg(palette.token(t.accent))
+                .add_modifier(Modifier::BOLD);
+        }
         let (rgb, bold) = match self {
             Self::Text => (t.text, false),
             Self::Dim => (t.dim, false),
@@ -148,6 +160,7 @@ impl Tone {
             Self::Bad => (t.bad, false),
             Self::Running => (t.ok, true),
             Self::Paused => (t.warn, true),
+            Self::Avatar => unreachable!("handled above"),
         };
         let style = Style::new().fg(palette.token(rgb)).bg(palette.token(t.panel));
         if bold { style.add_modifier(Modifier::BOLD) } else { style }
