@@ -1,0 +1,106 @@
+# Embark (docs/design/embark.md, issue #288): the site box, map size presets and the rough
+# survey. Read by `Defs::with_embark`, the way `endeavor.toml` is.
+#
+# - report_radius:     the site box is (2*report_radius+1)^2 tiles.
+# - min_edge_distance: tiles a site must keep from the map edge (`SiteProblem::NearEdge`).
+# - min_room:          open tiles reachable from the start, under the default `MoveRules`, for the
+#                      landmass to count as big enough to live on (`SiteProblem::TooSmall`).
+# - spawn_radius:      settlers must fit within this many tiles of the start (`SiteProblem::NoRoom`).
+#
+# [[map_size]], in the order the New game flow offers them (small first and default):
+# - id, name:             the preset's id and label.
+# - width, height:        the generated map's size.
+# - continent_frequency:  optional; overrides `MapGenConfig::continent_frequency` so a bigger map
+#                         grows more landmasses instead of scaling the same ones up (#288 tunes
+#                         this per size; left out means mapgen's own default).
+#
+# [rough]
+# - error_chance: chance, in [0, 1], that a rough survey's estimated level for a group is moved
+#                 one step from the true one (clamped at none and plenty).
+#
+# [[group]], the resource groups the report counts, each a count in the box turned into a level:
+# - id, name:        the group's id (keys its rough-survey RNG stream) and label.
+# - resources:       resource ids (data/resources.toml) counted together.
+# - levels:          `[scarce_from, some_from, plenty_from]`, ascending. Below `scarce_from` is
+#                    `none`.
+# - outlook_weight:  how much an empty or scarce box of this group counts against the outlook (0
+#                    means it never does).
+# - rough_hidden:    optional (default false); true reads "?" instead of a level in a rough survey.
+#
+# [outlook]
+# - water_far:    walking steps beyond which the water in a report counts against the outlook.
+# - water_weight: outlook points added when water is farther than `water_far`; doubled when none
+#                 is within the walk's 40-step cap.
+# - fair_from:    outlook points at or above which a site rates Fair instead of Easy.
+# - hard_from:    outlook points at or above which a site rates Hard.
+
+report_radius = 10
+min_edge_distance = 8
+min_room = 300
+spawn_radius = 4
+
+[[map_size]]
+id = "small"
+name = "Small"
+width = 192
+height = 128
+
+[[map_size]]
+id = "medium"
+name = "Medium"
+width = 288
+height = 192
+continent_frequency = 8.0
+
+[[map_size]]
+id = "large"
+name = "Large"
+width = 384
+height = 256
+continent_frequency = 10.0
+
+[rough]
+error_chance = 0.35
+
+[[group]]
+id = "wood"
+name = "Wood"
+resources = ["oak_tree", "fir_tree"]
+levels = [1, 10, 30]
+outlook_weight = 1
+
+[[group]]
+id = "stone"
+name = "Stone"
+resources = ["stone"]
+levels = [1, 4, 12]
+outlook_weight = 1
+
+[[group]]
+id = "food"
+name = "Food"
+resources = ["cabbage", "fruit_tree", "fish_spot"]
+levels = [1, 6, 15]
+outlook_weight = 2
+
+[[group]]
+id = "gold"
+name = "Gold"
+resources = ["gold_vein"]
+levels = [1, 1, 4]
+outlook_weight = 0
+rough_hidden = true
+
+[[group]]
+id = "scrolls"
+name = "Scrolls"
+resources = ["ancient_scroll"]
+levels = [1, 1, 3]
+outlook_weight = 0
+rough_hidden = true
+
+[outlook]
+water_far = 15
+water_weight = 2
+fair_from = 1
+hard_from = 4
