@@ -15,11 +15,11 @@ gets in your way, stop and say so in the work item's Notes instead of working ar
 | Path | What | Rules |
 |---|---|---|
 | `crates/sim` (`fn_sim`) | All game rules and state | Headless and deterministic (see below) |
-| `crates/client` (`fn_client`) | Bevy rendering, input, UI | No game rules. Reads `World`, changes it only via sim APIs |
+| `crates/ui` (`fn_ui`) | Frontend logic shared by every UI (tools, text, view models, theme, clock) | Depends on `fn_sim` only. No I/O, no wall-clock reads |
+| `crates/tui` (`fn_tui`) | The terminal frontend (ratatui + crossterm); `cargo run` plays it | Reads `World`, changes it only via sim APIs. Headless by construction: see below |
 | `data/*.toml` | Nations, biomes, resources, ... | Balance numbers go here, not in code |
-| `assets/` | Art and audio | Every file in `assets/manifest.toml` |
-| `xtask/` | Repo tooling | `cargo xtask ci` is the gate |
-| `scripts/` | Dev helpers (e.g. `run-client.sh` for Nix + WSL) | |
+| `xtask/` | Repo tooling | `cargo xtask ci --fast` is the gate |
+| `scripts/` | Dev helpers | |
 
 ## Hard rules
 
@@ -29,8 +29,8 @@ gets in your way, stop and say so in the work item's Notes instead of working ar
 2. **Choose the landing flow** from docs/process/work-tracking.md. Small or medium work, with
    you as the only active agent: commit straight to `main` with `Fixes #N`. Parallel agents or
    `large` work: branch `issue/N-slug` and a PR with `Closes #N`.
-3. **`cargo xtask ci` must pass** before every push: fmt, clippy with `-D warnings`, tests and
-   assets.
+3. **`cargo xtask ci --fast` must pass** before every push: fmt, clippy with `-D warnings` and
+   tests for every crate.
 4. **The sim stays pure.** `fn_sim` must not depend on Bevy or any engine. It does no file or
    network I/O (data is embedded or passed in), reads no wall-clock time, and uses no
    thread or OS RNG. All randomness comes from `fn_sim::rng::stream(seed, "subsystem.name")`
@@ -38,18 +38,16 @@ gets in your way, stop and say so in the work item's Notes instead of working ar
 5. **Determinism is tested.** New sim behavior needs a test. If you change map generation on
    purpose, re-bless the golden files (`FN_BLESS=1 cargo test -p fn_sim`) and say so in the
    commit message.
-6. **No unrecorded assets.** Don't add, download or modify files in `assets/` without updating
-   `assets/manifest.toml` and following `docs/process/assets.md`.
-7. **Nations differ through data first.** Read `Modifiers` and nation definitions; don't
+6. **Nations differ through data first.** Read `Modifiers` and nation definitions; don't
    write `if nation == Fire` in systems unless the feature truly is unique to one nation
    (bending abilities), and then keep it in one obvious place.
-8. **Git safety and PR ownership.** Never force-push `main`, rewrite published history, or
+7. **Git safety and PR ownership.** Never force-push `main`, rewrite published history, or
    delete branches you didn't create. You own the PRs you open: turn on auto-merge
    (`gh pr merge --auto --squash`), fix CI failures, keep the branch rebased (`--force-with-lease`
    only on your own PR branch), and resolve conflicts until it merges. Don't auto-merge changes to
    AGENTS.md, docs/process/, or CI/workflows; leave those for the owner. Pushing to `main` is allowed
-   only through the direct-to-main flow, after `git pull --rebase` and a passing `cargo xtask ci`.
-9. **Stay in scope.** Found something else that needs doing? File an issue
+   only through the direct-to-main flow, after `git pull --rebase` and a passing `cargo xtask ci --fast`.
+8. **Stay in scope.** Found something else that needs doing? File an issue
    (`gh issue create --template work-item.md`, without `ready`) and keep going.
 
 ## Conventions
@@ -59,12 +57,12 @@ gets in your way, stop and say so in the work item's Notes instead of working ar
 - Tests: unit tests next to code, cross-module behavior in `crates/sim/tests/`.
 - Commit messages: imperative subject that starts with the issue number, e.g.
   `#2: Add A* pathfinding`; `Fixes #N` / `Closes #N` in the body or PR.
-- **Don't open the GUI unless a human asks.** It pops a window and steals focus. Verify with
-  tests and the ASCII renderer first. If you need pixels, use
-  `cargo xtask screenshot SEED NATION OUT.png [WIDTH HEIGHT]`: it renders headless (no window at
-  all) to a PNG and exits. Write the PNG under `target/`, not into the repo tree.
-- Visual changes: the sim has an ASCII renderer (`cargo run -p fn_sim --bin mapgen -- SEED W H`).
-  Paste relevant output into the issue or PR when it helps the reviewer.
+- **Don't launch `fn_tui` interactively unless a human asks.** It takes over the terminal.
+  Verify with tests and `cargo run -p fn_tui -- SEED NATION --frame [--keys SCRIPT]`: it renders
+  one frame to stdout and exits, no TTY needed. `--keys` plays a key script first (see
+  `fn_tui --help`), so an agent can "play" a scripted session and check the resulting frame.
+- Visual changes: paste `--frame` output (or the sim's ASCII renderer,
+  `cargo run -p fn_sim --bin mapgen -- SEED W H`) into the issue or PR when it helps the reviewer.
 
 ## Handoff
 

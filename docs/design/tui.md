@@ -1,23 +1,27 @@
 # Terminal UI (Dwarf Fortress-style)
 
-Status: **proposed** (#93), with the owner's answers recorded under "Owner decisions
-(2026-10-24)". Follow-up work: #96 to #100 (see the end of this doc).
+Status: **shipped** (#93, proposed; #96-#100 and #280 built it; see "What #97 built" onward).
+**The TUI is now the game's only frontend** (owner, 2026-11-03, #281): the Bevy client it
+reached parity with has been removed. `cargo run` launches `fn_tui` straight to the title
+screen.
 
-The owner wants to play the whole game from a terminal: a glyph map, keyboard menus, no window.
-`fn_sim` is already headless and the Bevy client changes the world only through
-`World::apply` and `World::tick`, so a second frontend needs no new game rules. It also gives
-agents a way to play and check the game without opening the GUI.
+The owner wanted to play the whole game from a terminal: a glyph map, keyboard menus, no window.
+`fn_sim` is headless and the sim changes only through `World::apply` and `World::tick`, so the
+terminal frontend needed no new game rules. It also gives agents a way to play and check the
+game without a GUI at all (there is no longer one to avoid).
 
 ## Decisions in brief
 
-1. **Two new crates, no Bevy.** `crates/ui` (`fn_ui`) holds the frontend logic that both
-   frontends need today: tools and their commands, the text that describes units and tiles, view
-   models, theme tokens and the session clock. `crates/tui` (`fn_tui`) is the terminal binary,
-   on **ratatui** with the **crossterm** backend. Both depend on `fn_sim`, and neither on Bevy.
-2. **Same screen as the Bevy client, in cells.** The map fills the left side, the Seal side
-   panel sits on the right, the selection bar runs along the bottom, and a status line sits below
-   everything. The hover tooltip becomes a fixed **Cursor** section in the side panel, because the
-   keyboard cursor *is* the hover.
+1. **Two new crates, no Bevy.** `crates/ui` (`fn_ui`) holds the frontend logic every UI needs:
+   tools and their commands, the text that describes units and tiles, view models, theme tokens
+   and the session clock. `crates/tui` (`fn_tui`) is the terminal binary, on **ratatui** with the
+   **crossterm** backend. Both depend on `fn_sim`, and neither on Bevy. (At the time, `fn_ui` was
+   also shared with the Bevy client; that client is gone now, #281, and `fn_ui` serves `fn_tui`
+   alone.)
+2. **The same screen the Bevy client had, in cells** (docs/design/ui.md). The map fills the left
+   side, the Seal side panel sits on the right, the selection bar runs along the bottom, and a
+   status line sits below everything. The hover tooltip becomes a fixed **Cursor** section in the
+   side panel, because the keyboard cursor *is* the hover.
 3. **One cell per tile, glyphs and colours from data.** A new `data/tui.toml` gives every
    terrain, biome, resource, item, building and overlay a Unicode glyph, an ASCII fallback and
    sRGB colours. Units take their nation's `color`. Colour is quantised automatically for
@@ -39,8 +43,11 @@ agents a way to play and check the game without opening the GUI.
 crates/sim   fn_sim   game rules (unchanged)
 crates/ui    fn_ui    frontend logic shared by every UI; depends on fn_sim only
 crates/tui   fn_tui   terminal binary: ratatui + crossterm; depends on fn_sim and fn_ui
-crates/client fn_client  Bevy; depends on fn_sim and fn_ui
 ```
+
+(`crates/client`, `fn_client`, the Bevy frontend, sat alongside `fn_tui` here until the owner
+retired it in #281; `fn_ui` was written to be shared by both from the start, which is why
+dropping one crate cost nothing in the other.)
 
 **ratatui 0.30 + crossterm 0.29**, pinned in the PR that adds the crate.
 
@@ -54,16 +61,18 @@ crates/client fn_client  Bevy; depends on fn_sim and fn_ui
   **termion** (Unix only); **bracket-lib** (opens its own window, which defeats the point);
   raw crossterm (we would rebuild layout and diffing).
 
-**CI.** `fn_ui` and `fn_tui` join the `sim` scope in `xtask` (`-p fn_sim -p fn_ui -p fn_tui -p
-xtask`). Neither pulls in Bevy, so `cargo xtask ci sim --fast` gates the TUI in seconds. A test
-in `fn_tui` checks `cargo metadata` and fails if `bevy` ever enters its dependency tree.
+**CI.** `fn_ui` and `fn_tui` are part of the one `cargo xtask ci --fast` gate (`-p fn_sim -p
+fn_ui -p fn_tui -p xtask`), which was already the fast path while the Bevy client existed
+alongside them (a test in `fn_tui` checked `cargo metadata` and failed if `bevy` ever entered
+its dependency tree); since #281 there is no Bevy anywhere in the workspace, and `--fast` gates
+all of it in seconds.
 
 ## Screen layout
 
-Colour mockups: [Unicode glyphs](https://github.com/gizmo385/four-nations/blob/8372ae68fd21126bfb343ba0af50c7a4cd99c418/mockups/93/tui-unicode.svg)
-and [ASCII fallback](https://github.com/gizmo385/four-nations/blob/8372ae68fd21126bfb343ba0af50c7a4cd99c418/mockups/93/tui-ascii.svg),
-hand-built over seed 7's real map (`mockups/93/mock.py` on the reference branch). As text, at
-100×32:
+The hand-built colour and ASCII mockups that proposed this layout lived at `mockups/93/`,
+removed with the client's mockup tree in #281 and only in git history now; `cargo run -p fn_tui
+-- SEED NATION --frame [--ansi] [--ascii]` is the live equivalent, over any real seed. As text,
+at 100×32:
 
 ```
 ♠"",♣,♣,,,♣,,,,,,,•▲▲,,,,τ,,,,,..≈≈≈≈≈≈≈..,,,,,,.≈..≈≈≈.",♠♠♠♠♠♠"♠♠♠┏───── ◆ EARTH KINGDOM ◆ ──────┓
@@ -292,10 +301,11 @@ like Shift+arrows. With Caps Lock on, they move 10 tiles too.
   (`fn_ui::build::building_detail`) names the highlighted building, its cost against what's in
   stores, its footprint, what it does and the tech it still needs. `Enter` on an unlocked one
   picks it, closes the modal and leaves the Build tool active with it, in `UiState::choice` (the
-  client keeps its own `BuildChoice` resource for the same reason: it belongs to the frontend,
+  client kept its own `BuildChoice` resource for the same reason: it belongs to the frontend,
   not the `Session`); `Esc` leaves the tool and the choice as they were. `U` again reopens the
-  modal rather than cycling, which is what the Bevy client's own `U` still does
-  (`fn_ui::tools::switch_tool`; `fn_ui::Tool::label`'s wording is still the client's). The Tool
+  modal rather than cycling, which is what the Bevy client's own `U` did before it was removed
+  (`fn_ui::tools::switch_tool`; `fn_ui::Tool::label`'s wording was the client's originally). The
+  Tool
   section names just the chosen building (its full list moved to the modal); the status line
   does too. The Cursor section says the hovered tile fits (`fn_ui::build::placement`) or names
   its first blocker (`fn_ui::build::describe_error`). `Enter` `Enter` designates it exactly as
@@ -628,7 +638,8 @@ The four open questions on #93, as the owner answered them.
    mapgen ASCII glyphs. As recommended.
 2. **Parity: the TUI trails the Bevy client.** Bevy stays the main frontend. When triage files
    an issue that adds player-facing client UI, it also files a sibling `feat:tui` issue, and
-   `fn_ui` keeps that sibling small. As recommended.
+   `fn_ui` keeps that sibling small. As recommended. (Superseded 2026-11-03, #281: once parity
+   was reached, the owner retired the Bevy client instead of keeping it as the main frontend.)
 3. **Priority: #96 and #97 are p2**, because `fn_ui` tidies the client too and `--frame` lets
    agents play-test later features without the GUI. #98 to #100 stay p3. As recommended.
 4. **Movement: arrows and `W` `A` `S` `D`.** Not the recommendation (arrows and numpad only).

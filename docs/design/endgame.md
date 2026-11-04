@@ -51,8 +51,6 @@ without trade or diplomacy screens, and with no war.
 
 ## The road: ten signs
 
-![The endeavor screen](../../mockups/224/progress-screen.png)
-
 The signs are a list in `data/endeavor.toml`. Every sign counts things the settlement does
 anyway, so the road rewards playing well rather than a separate grind.
 
@@ -84,22 +82,18 @@ anyway, so the road rewards playing well rather than a separate grind.
 
 **Showing progress.**
 
-- **Client:** `G` opens the Endeavor screen, a centred Seal screen like Research (`T`), shown
-  above. It has the gate drawn in grey and coloured in up to the share of signs met, then the
-  signs grouped with bars, a check for each sign met, and a warn-coloured hint on any sign that
-  isn't met ("Spare beds and food draw newcomers"). After Ready it shows the stages instead (see
-  the stage tracker in the next mockup). The side panel gets an **Endeavor** section under
-  Research: name, `7/10`, a bar, and the next three missing things. A toast fires when a sign is
-  first met.
-- **TUI:** the same screen on `G`, as text with 10-cell bars like the selection bar's meters,
-  and the same side-panel section. The texts come from one shared function in `fn_ui`, as
-  research does.
+- **The Endeavor screen (`G`):** a centred Seal screen like Research (`T`): the gate in grey,
+  coloured in up to the share of signs met, then the signs grouped with 10-cell text bars like
+  the selection bar's meters, a check for each sign met, and a warn-coloured hint on any sign
+  that isn't met ("Spare beds and food draw newcomers"). After Ready it shows the stages
+  instead. The side panel gets an **Endeavor** section under Research: name, `7/10`, a bar, and
+  the next three missing things. A toast fires when a sign is first met. The texts come from one
+  shared function in `fn_ui`, as research does (shipped first for the Bevy client and the TUI
+  together, #235; TUI-only since the client was removed, #281).
 - **Readable simulation:** hovering a sign says what feeds it ("Ore mined: 34 of 40. Mine gold
   veins; tunnels yield more").
 
 ## The Avatar
-
-![The Avatar on the map](../../mockups/224/avatar-on-map.png)
 
 **Which Avatar: Aang, with Appa.** The game is *The Last Airbender*, the Harmony Gate is Aang's
 story (unity after the war), and an airbender's speed suits a visitor who works all over the
@@ -179,8 +173,6 @@ four legends). The stage names are shared.
 - **No failure state.** Nothing is lost for good. A stalled project waits.
 
 ## The transformation: the United City
-
-![The finished endeavor](../../mockups/224/finished-endeavor.png)
 
 When the rite completes, the gate's emblem lights up and the toast reads "The Harmony Gate is
 complete. People of all four nations will come to settle here."
@@ -273,16 +265,14 @@ Births, families and a migration screen are later, if ever.
   is picked by stage instead of faded by progress.
 - **Research:** unchanged. Signs read known techs. No tech unlocks the endeavor, because the
   branch sign already needs the whole branch.
-- **Client and TUI:** the `G` screen and side-panel section, the gate's stage sprites, the
-  Avatar's sheet with the Avatar State glow (the arrow and eyes swapped to white, plus an aura
-  effect), Appa as a prop, and a bend picker with several nations' abilities. The TUI draws the
-  Avatar as `@` in white on the accent, and the gate as #212's 4x4 glyph block (`data/tui.toml`).
-- **Art:** in the pixel-art.md style. Aang is a 64x96 sheet (walk rows 0-3, Air bend rows 4-5,
-  the glider staff in hand) with a 32x32 portrait. The gate is a 64x80 cell per stage (the 4x4
-  footprint plus one tile of roof), with four roof legends. Appa is 48x32. The mockup sources
-  are `mockups/224/art-*.toml`. They are not in `art/` or the game.
-
-![Mockup art at 3x to 5x](../../mockups/224/art-sheet.png)
+- **Frontend (TUI; the Bevy client had its own version of this until #281 removed it):** the
+  `G` screen and side-panel section, and a bend picker with several nations' abilities. The TUI
+  draws the Avatar as `@` in white on the accent (an Avatar State variant marks the rite), and
+  the gate as #212's 4x4 glyph block, staged like a build site (`data/tui.toml`).
+- **Art:** the Bevy client's sprites for Aang (a 64x96 sheet), Appa (48x32) and the gate's
+  stages (a 64x80 cell per stage, four roof legends) were hand-authored pixel art; both the art
+  pipeline and the sprites themselves were removed with the client in #281. The TUI needs no
+  art, only the glyph and colour entries in `data/tui.toml` above.
 
 ## Follow-up issues
 
