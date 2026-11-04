@@ -29,7 +29,7 @@ fn embark(
     mode: SurveyMode,
     screen: (u16, u16),
 ) -> Shell {
-    Shell::new_embark(seed, nation, size, mode, screen, None)
+    Shell::new_embark(seed, nation, size, mode, Some("normal".into()), screen, None)
 }
 
 fn press(shell: &mut Shell, code: KeyCode) {

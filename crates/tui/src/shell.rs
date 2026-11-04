@@ -18,11 +18,11 @@ use crate::embark::{self, EmbarkScreen};
 use crate::keys::Step;
 use crate::title::{self, Outcome, Page, TitleScreen};
 
-/// What the shell is showing right now. `App` and `EmbarkScreen` are boxed: both carry a whole
-/// generated map, far bigger than a `TitleScreen`, and `clippy::large_enum_variant` would
-/// otherwise flag the difference.
+/// What the shell is showing right now. All three are boxed: `App` and `EmbarkScreen` each
+/// carry a whole generated map, and `TitleScreen` grew past `clippy::large_enum_variant`'s
+/// threshold once the seed step gained a Difficulty row (#298).
 pub enum Mode {
-    Title(TitleScreen),
+    Title(Box<TitleScreen>),
     /// Between the seed step and the game (#290): choosing where to settle.
     Embark(Box<EmbarkScreen>),
     Game(Box<App>),
@@ -66,7 +66,7 @@ impl Shell {
         let defs = Defs::bundled();
         let title = TitleScreen::new(&defs, saves.as_deref(), seed_hint);
         Self {
-            mode: Mode::Title(title),
+            mode: Mode::Title(Box::new(title)),
             exit_prompt: false,
             dirty: true,
             quit: false,
@@ -94,17 +94,20 @@ impl Shell {
         }
     }
 
-    /// Starts straight in embark, skipping the menu: `--embark` (#290).
+    /// Starts straight in embark, skipping the menu: `--embark` (#290), with `--difficulty`'s
+    /// preset id, if any (#298).
+    #[allow(clippy::too_many_arguments)]
     pub fn new_embark(
         seed: u64,
         nation: Nation,
         size: fn_sim::embark::MapSizeDef,
         mode: fn_sim::embark::SurveyMode,
+        difficulty: Option<String>,
         screen: (u16, u16),
         saves: Option<PathBuf>,
     ) -> Self {
         let defs = Defs::bundled();
-        let embark_screen = EmbarkScreen::new(seed, nation, size, mode, screen, &defs);
+        let embark_screen = EmbarkScreen::new(seed, nation, size, mode, difficulty, screen, &defs);
         Self {
             mode: Mode::Embark(Box::new(embark_screen)),
             exit_prompt: false,
@@ -129,11 +132,26 @@ impl Shell {
         let (Some(seed), Some(nation)) = (args.seed, args.nation) else {
             return Ok(Self::new_title(screen, saves, seed_hint));
         };
-        if args.start.is_none() && !args.embark {
-            // Plain `SEED NATION`: unchanged, today's centre-spiral path.
-            return Ok(Self::new_game(crate::new_session(seed, nation), screen, saves));
-        }
         let defs = Defs::bundled();
+        // `--difficulty ID` (#298): checked here, against the bundled data, for every path
+        // that reaches this point, so an unknown id is a clear usage error rather than a panic
+        // or a silent fallback deeper in.
+        let difficulty = match &args.difficulty {
+            Some(id) if defs.difficulty.preset(id).is_none() => {
+                return Err(format!("unknown difficulty preset {id:?}"));
+            }
+            Some(id) => Some(id.clone()),
+            None => None,
+        };
+        if args.start.is_none() && !args.embark {
+            // Plain `SEED NATION`: unchanged, today's centre-spiral path, except `--difficulty`
+            // now swaps `None` for the chosen preset.
+            let mut session = crate::new_session(seed, nation);
+            if let Some(id) = difficulty {
+                session.world.set_difficulty(Some(id));
+            }
+            return Ok(Self::new_game(session, screen, saves));
+        }
         let size_id = args.map_size.as_deref().unwrap_or("small");
         let size = defs
             .embark
@@ -150,12 +168,12 @@ impl Shell {
             let survey = Survey::new(&cfg, &defs);
             let pos = fn_sim::Pos::new(x, y);
             let terrain = survey.map().get(pos).map_or(fn_sim::Terrain::Water, |t| t.terrain);
-            let session = Session::found(survey, nation, pos, None).map_err(|p| {
+            let session = Session::found(survey, nation, pos, difficulty).map_err(|p| {
                 format!("can't start at ({x}, {y}): {}", embark::problem_text(p, terrain))
             })?;
             Ok(Self::new_game(session, screen, saves))
         } else {
-            Ok(Self::new_embark(seed, nation, size, mode, screen, saves))
+            Ok(Self::new_embark(seed, nation, size, mode, difficulty, screen, saves))
         }
     }
 
@@ -211,7 +229,7 @@ impl Shell {
         // `R`, confirmed in a game: reopen embark on the next seed instead of restarting in
         // place (docs/design/embark.md, "In the game, `R`"). Collected here, outside the match,
         // so it can call `Self::open_embark` once the match's borrow of `self.mode` is done.
-        let mut reopen: Option<(u64, Nation, fn_sim::embark::MapSizeDef)> = None;
+        let mut reopen: Option<(u64, Nation, fn_sim::embark::MapSizeDef, Option<String>)> = None;
         match &mut self.mode {
             Mode::Title(title) => {
                 let outcome = title.key(key, &self.defs, self.saves.as_deref());
@@ -239,6 +257,7 @@ impl Shell {
                     let world = &app.session.world;
                     let seed = world.seed.wrapping_add(1);
                     let nation = world.nation;
+                    let difficulty = world.difficulty().map(str::to_owned);
                     let size = self
                         .defs
                         .embark
@@ -247,7 +266,7 @@ impl Shell {
                         .find(|s| s.width == world.map.width() && s.height == world.map.height())
                         .cloned();
                     match size {
-                        Some(size) => reopen = Some((seed, nation, size)),
+                        Some(size) => reopen = Some((seed, nation, size, difficulty)),
                         // No preset matches this map's size (shouldn't happen in practice):
                         // fall back to the old in-place restart rather than losing the key.
                         None => app.restart(seed, nation),
@@ -255,8 +274,8 @@ impl Shell {
                 }
             }
         }
-        if let Some((seed, nation, size)) = reopen {
-            self.open_embark(seed, nation, size, fn_sim::embark::SurveyMode::Exact);
+        if let Some((seed, nation, size, difficulty)) = reopen {
+            self.open_embark(seed, nation, size, fn_sim::embark::SurveyMode::Exact, difficulty);
         }
     }
 
@@ -264,11 +283,11 @@ impl Shell {
         match key.code {
             KeyCode::Char('t' | 'T') => {
                 self.seed_hint = self.seed_hint.wrapping_add(1);
-                self.mode = Mode::Title(TitleScreen::new(
+                self.mode = Mode::Title(Box::new(TitleScreen::new(
                     &self.defs,
                     self.saves.as_deref(),
                     self.seed_hint,
-                ));
+                )));
                 self.exit_prompt = false;
             }
             KeyCode::Char('q' | 'Q') | KeyCode::Enter => self.quit = true,
@@ -280,8 +299,8 @@ impl Shell {
         match outcome {
             Outcome::None => {}
             Outcome::Quit => self.quit = true,
-            Outcome::Embark { seed, nation, size, mode } => {
-                self.open_embark(seed, nation, size, mode)
+            Outcome::Embark { seed, nation, size, mode, difficulty } => {
+                self.open_embark(seed, nation, size, mode, difficulty)
             }
             Outcome::Loaded(world) => {
                 let session = Session {
@@ -295,21 +314,24 @@ impl Shell {
         }
     }
 
-    /// Opens embark for `seed`, `nation` and `size` (#290): the title screen's seed step, a game
-    /// over `R`, or the direct `--embark` path all come through here.
+    /// Opens embark for `seed`, `nation`, `size` and `difficulty` (#290, #298): the title
+    /// screen's seed step, a game over `R`, or the direct `--embark` path all come through
+    /// here.
     fn open_embark(
         &mut self,
         seed: u64,
         nation: Nation,
         size: fn_sim::embark::MapSizeDef,
         mode: fn_sim::embark::SurveyMode,
+        difficulty: Option<String>,
     ) {
-        let screen = EmbarkScreen::new(seed, nation, size, mode, self.screen, &self.defs);
+        let screen =
+            EmbarkScreen::new(seed, nation, size, mode, difficulty, self.screen, &self.defs);
         self.mode = Mode::Embark(Box::new(screen));
     }
 
-    /// What an embark key did: back to the seed step (the seed, size and survey kept), or a
-    /// settled site becoming the game.
+    /// What an embark key did: back to the seed step (the seed, size, survey and difficulty
+    /// kept), or a settled site becoming the game.
     fn apply_embark(&mut self, outcome: embark::Outcome) {
         match outcome {
             embark::Outcome::None => {}
@@ -323,6 +345,10 @@ impl Shell {
                     .iter()
                     .position(|s| s.id == screen.size().id)
                     .unwrap_or(0);
+                let difficulty_idx = screen
+                    .difficulty()
+                    .and_then(|id| self.defs.difficulty.presets.iter().position(|p| p.id == id))
+                    .unwrap_or_else(|| crate::title::default_difficulty_idx(&self.defs));
                 title.page = Page::Seed {
                     nation: screen.nation,
                     digits: screen.seed().to_string(),
@@ -330,16 +356,18 @@ impl Shell {
                     row: crate::title::SeedRow::Digits,
                     size_idx,
                     survey: screen.mode(),
+                    difficulty_idx,
                 };
-                self.mode = Mode::Title(title);
+                self.mode = Mode::Title(Box::new(title));
             }
             embark::Outcome::Settle(pos) => {
                 let Mode::Embark(screen) = &self.mode else { return };
                 let survey: Survey = screen.survey().clone();
                 let nation = screen.nation;
+                let difficulty = screen.difficulty().map(str::to_owned);
                 // The prompt only shows once the report has already said `pos` isn't refused
                 // (`EmbarkScreen::ask_or_refuse`), so this can't fail.
-                if let Ok(session) = Session::found(survey, nation, pos, None) {
+                if let Ok(session) = Session::found(survey, nation, pos, difficulty) {
                     self.start(session);
                 }
             }

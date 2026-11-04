@@ -71,34 +71,42 @@ pub enum Page {
         /// An index into `Defs::embark`'s `map_sizes`.
         size_idx: usize,
         survey: SurveyMode,
+        /// An index into `Defs::difficulty`'s `presets` (#298): the New game picker's choice of
+        /// preset, in file order. Defaults to `Defs::difficulty`'s own `default`.
+        difficulty_idx: usize,
     },
     /// Every save, as the in-game saves screen (`F6`) shows them.
     Load,
 }
 
-/// A row of the seed step (#290, docs/design/embark.md).
+/// A row of the seed step (#290, docs/design/embark.md; Difficulty added by #298).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SeedRow {
     Digits,
     Size,
     Survey,
+    Difficulty,
 }
 
 impl SeedRow {
-    const ALL: [SeedRow; 3] = [SeedRow::Digits, SeedRow::Size, SeedRow::Survey];
+    const ALL: [SeedRow; 4] =
+        [SeedRow::Digits, SeedRow::Size, SeedRow::Survey, SeedRow::Difficulty];
 }
 
 /// What a key did, for [`crate::shell::Shell`] to act on.
 #[derive(Debug)]
 pub enum Outcome {
     None,
-    /// `Enter` on the seed step: open embark for this seed, nation, size and survey mode
-    /// instead of starting the game straight away (#290).
+    /// `Enter` on the seed step: open embark for this seed, nation, size, survey mode and
+    /// difficulty preset instead of starting the game straight away (#290, #298).
     Embark {
         seed: u64,
         nation: Nation,
         size: fn_sim::embark::MapSizeDef,
         mode: SurveyMode,
+        /// The chosen preset's id (`data/difficulty.toml`), or `None` if the data has no
+        /// presets at all.
+        difficulty: Option<String>,
     },
     /// Continue or Load: a world ready to become the game.
     Loaded(Box<World>),
@@ -170,12 +178,11 @@ impl TitleScreen {
         match self.page.clone() {
             Page::Menu => self.key_menu(key, defs, saves),
             Page::Nation { cursor } => {
-                self.key_nation(key, cursor);
+                self.key_nation(key, defs, cursor);
                 Outcome::None
             }
-            Page::Seed { nation, digits, edited, row, size_idx, survey } => {
-                self.key_seed(key, defs, nation, digits, edited, row, size_idx, survey)
-            }
+            Page::Seed { nation, digits, edited, row, size_idx, survey, difficulty_idx } => self
+                .key_seed(key, defs, nation, digits, edited, row, size_idx, survey, difficulty_idx),
             Page::Load => self.key_load(key, defs, saves),
         }
     }
@@ -232,7 +239,7 @@ impl TitleScreen {
         }
     }
 
-    fn key_nation(&mut self, key: KeyEvent, cursor: usize) {
+    fn key_nation(&mut self, key: KeyEvent, defs: &Defs, cursor: usize) {
         let n = Nation::ALL.len() as i32;
         let mut cursor = cursor as i32;
         match key.code {
@@ -252,6 +259,7 @@ impl TitleScreen {
                     row: SeedRow::Digits,
                     size_idx: 0,
                     survey: SurveyMode::Exact,
+                    difficulty_idx: default_difficulty_idx(defs),
                 };
                 return;
             }
@@ -264,8 +272,8 @@ impl TitleScreen {
         self.page = Page::Nation { cursor: cursor as usize };
     }
 
-    /// Three rows (#290): the seed's own digits, then Size and Survey, moved between with
-    /// up/down and changed with left/right. `Enter` opens embark from any of them.
+    /// Four rows (#290, #298): the seed's own digits, then Size, Survey and Difficulty, moved
+    /// between with up/down and changed with left/right. `Enter` opens embark from any of them.
     #[allow(clippy::too_many_arguments)]
     fn key_seed(
         &mut self,
@@ -277,8 +285,10 @@ impl TitleScreen {
         mut row: SeedRow,
         mut size_idx: usize,
         mut survey: SurveyMode,
+        mut difficulty_idx: usize,
     ) -> Outcome {
         let sizes = defs.embark.map_sizes.len().max(1);
+        let presets = defs.difficulty.presets.len().max(1);
         match key.code {
             KeyCode::Char(c) if c.is_ascii_digit() && row == SeedRow::Digits => {
                 if !edited {
@@ -306,6 +316,12 @@ impl TitleScreen {
             {
                 survey = toggle_survey(survey);
             }
+            KeyCode::Left | KeyCode::Char('a' | 'A') if row == SeedRow::Difficulty => {
+                difficulty_idx = (difficulty_idx + presets - 1) % presets;
+            }
+            KeyCode::Right | KeyCode::Char('d' | 'D') if row == SeedRow::Difficulty => {
+                difficulty_idx = (difficulty_idx + 1) % presets;
+            }
             KeyCode::Enter => {
                 let seed =
                     if digits.is_empty() { self.seed_hint } else { digits.parse().unwrap_or(0) };
@@ -322,7 +338,8 @@ impl TitleScreen {
                         height: 128,
                         continent_frequency: None,
                     });
-                return Outcome::Embark { seed, nation, size, mode: survey };
+                let difficulty = defs.difficulty.presets.get(difficulty_idx).map(|p| p.id.clone());
+                return Outcome::Embark { seed, nation, size, mode: survey, difficulty };
             }
             KeyCode::Esc => {
                 let cursor = Nation::ALL.iter().position(|&n| n == nation).unwrap_or(0);
@@ -331,7 +348,7 @@ impl TitleScreen {
             }
             _ => {}
         }
-        self.page = Page::Seed { nation, digits, edited, row, size_idx, survey };
+        self.page = Page::Seed { nation, digits, edited, row, size_idx, survey, difficulty_idx };
         Outcome::None
     }
 
@@ -389,8 +406,14 @@ fn toggle_survey(mode: SurveyMode) -> SurveyMode {
     }
 }
 
-/// The seed step's hint for whichever row is highlighted (#290).
-fn seed_row_hint(row: SeedRow, defs: &Defs, size_idx: usize, survey: SurveyMode) -> String {
+/// The seed step's hint for whichever row is highlighted (#290, #298).
+fn seed_row_hint(
+    row: SeedRow,
+    defs: &Defs,
+    size_idx: usize,
+    survey: SurveyMode,
+    difficulty_idx: usize,
+) -> String {
     match row {
         SeedRow::Digits => "Type digits, Backspace to edit.".to_owned(),
         SeedRow::Size => match defs.embark.map_sizes.get(size_idx) {
@@ -403,7 +426,18 @@ fn seed_row_hint(row: SeedRow, defs: &Defs, size_idx: usize, survey: SurveyMode)
                 "Rough: you won't know exactly what's there until you arrive.".to_owned()
             }
         },
+        SeedRow::Difficulty => match defs.difficulty.presets.get(difficulty_idx) {
+            Some(p) => p.hint.clone(),
+            None => String::new(),
+        },
     }
+}
+
+/// The preset `Page::Seed` offers until the player changes it: `Defs::difficulty`'s own
+/// `default`, or the first preset if `default` somehow names none, or 0 with no presets at all
+/// (data without `Defs::with_difficulty`, in tests).
+pub(crate) fn default_difficulty_idx(defs: &Defs) -> usize {
+    defs.difficulty.presets.iter().position(|p| p.id == defs.difficulty.default).unwrap_or(0)
 }
 
 // -------------------------------------------------------------------------------------------
@@ -453,8 +487,8 @@ pub fn draw_title(
     match &screen.page {
         Page::Menu => draw_menu(screen, &mut p),
         Page::Nation { cursor } => draw_nation(defs, *cursor, &mut p),
-        Page::Seed { nation, digits, row, size_idx, survey, .. } => {
-            draw_seed(defs, *nation, digits, *row, *size_idx, *survey, &mut p)
+        Page::Seed { nation, digits, row, size_idx, survey, difficulty_idx, .. } => {
+            draw_seed(defs, *nation, digits, *row, *size_idx, *survey, *difficulty_idx, &mut p)
         }
         Page::Load => unreachable!("handled above"),
     }
@@ -491,8 +525,9 @@ fn draw_nation(defs: &Defs, cursor: usize, p: &mut Painter) {
     }
 }
 
-/// The seed step (#290): the seed, then Size and Survey, each moved to with up/down and changed
-/// with left/right, with the highlighted row's hint below.
+/// The seed step (#290, #298): the seed, then Size, Survey and Difficulty, each moved to with
+/// up/down and changed with left/right, with the highlighted row's hint below.
+#[allow(clippy::too_many_arguments)]
 fn draw_seed(
     defs: &Defs,
     nation: Nation,
@@ -500,6 +535,7 @@ fn draw_seed(
     row: SeedRow,
     size_idx: usize,
     survey: SurveyMode,
+    difficulty_idx: usize,
     p: &mut Painter,
 ) {
     let def = defs.nation(nation);
@@ -519,8 +555,14 @@ fn draw_seed(
         format!("{} Survey: {survey_name}", mark(SeedRow::Survey)),
         tone(SeedRow::Survey),
     ));
+    let difficulty_name =
+        defs.difficulty.presets.get(difficulty_idx).map_or("Normal", |p| p.name.as_str());
+    p.row(&Row::text(
+        format!("{} Difficulty: {difficulty_name}", mark(SeedRow::Difficulty)),
+        tone(SeedRow::Difficulty),
+    ));
     p.blank();
-    p.row(&Row::text(seed_row_hint(row, defs, size_idx, survey), Tone::Dim));
+    p.row(&Row::text(seed_row_hint(row, defs, size_idx, survey, difficulty_idx), Tone::Dim));
     p.blank();
     p.row(&Row::text("Digits edit  Up/Down row  Left/Right change  Enter: embark.", Tone::Dim));
 }
@@ -643,6 +685,7 @@ mod tests {
             row: SeedRow::Digits,
             size_idx: 0,
             survey: SurveyMode::Exact,
+            difficulty_idx: 0,
         };
         press(&mut screen, KeyCode::Char('7'));
         if let Page::Seed { digits, edited, .. } = &screen.page {
@@ -688,8 +731,53 @@ mod tests {
         }
         let outcome = press(&mut screen, KeyCode::Enter);
         match outcome {
-            Outcome::Embark { seed: 7, nation: Nation::Air, size, mode: SurveyMode::Rough } => {
+            Outcome::Embark {
+                seed: 7, nation: Nation::Air, size, mode: SurveyMode::Rough, ..
+            } => {
                 assert_eq!(size.id, defs.embark.map_sizes[1].id);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// The Difficulty row (#298): it defaults to `data/difficulty.toml`'s own `default`, cycles
+    /// in file order with left/right and wraps, and `Enter` carries its id into the outcome.
+    #[test]
+    fn difficulty_row_defaults_cycles_in_file_order_and_wraps_into_the_outcome() {
+        let defs = Defs::bundled();
+        let mut screen = TitleScreen::new(&defs, None, 7);
+        press(&mut screen, KeyCode::Enter); // New game
+        press(&mut screen, KeyCode::Enter); // Air, to the seed page
+        if let Page::Seed { difficulty_idx, .. } = &screen.page {
+            let default = defs.difficulty.presets[*difficulty_idx].id.as_str();
+            assert_eq!(default, defs.difficulty.default, "starts on the data's own default");
+        } else {
+            panic!("not on the seed page");
+        }
+        for _ in 0..3 {
+            press(&mut screen, KeyCode::Down); // Size, Survey, Difficulty
+        }
+        if let Page::Seed { row, .. } = &screen.page {
+            assert_eq!(*row, SeedRow::Difficulty);
+        } else {
+            panic!("not on the seed page");
+        }
+        press(&mut screen, KeyCode::Left); // normal (idx 1) -> sandbox (idx 0)
+        if let Page::Seed { difficulty_idx, .. } = &screen.page {
+            assert_eq!(*difficulty_idx, 0);
+        } else {
+            panic!("not on the seed page");
+        }
+        press(&mut screen, KeyCode::Left); // wraps to the last preset
+        if let Page::Seed { difficulty_idx, .. } = &screen.page {
+            assert_eq!(*difficulty_idx, defs.difficulty.presets.len() - 1);
+        } else {
+            panic!("not on the seed page");
+        }
+        let outcome = press(&mut screen, KeyCode::Enter);
+        match outcome {
+            Outcome::Embark { difficulty: Some(id), .. } => {
+                assert_eq!(id, defs.difficulty.presets.last().unwrap().id);
             }
             other => panic!("{other:?}"),
         }

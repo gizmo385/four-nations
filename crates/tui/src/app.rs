@@ -393,9 +393,12 @@ impl App {
     /// A new game on a map of the same size: the clock, the selection, the log and the screens
     /// all start over. If this world was founded at a chosen site (`World::start`, #289), the
     /// new one is founded there too, instead of snapping back to the map centre (#290, the `1`-
-    /// `4` nation switch); `Session::new`'s plain centre spiral otherwise.
+    /// `4` nation switch); `Session::new`'s plain centre spiral otherwise. Either way, the
+    /// current world's difficulty preset carries over (#298): this is a new game, not a change
+    /// of preset mid-game.
     pub fn restart(&mut self, seed: u64, nation: Nation) {
         let (width, height) = (self.session.world.map.width(), self.session.world.map.height());
+        let difficulty = self.session.world.difficulty().map(str::to_owned);
         self.session = match self.session.world.start() {
             Some(start) => {
                 // The preset matching this map's size, so a bigger map's own
@@ -413,10 +416,17 @@ impl App {
                     None => fn_sim::MapGenConfig { seed, width, height, ..Default::default() },
                 };
                 let survey = fn_sim::embark::Survey::new(&cfg, &self.session.defs);
-                Session::found(survey, nation, start, None)
-                    .unwrap_or_else(|_| Session::new(seed, nation, width, height))
+                Session::found(survey, nation, start, difficulty.clone()).unwrap_or_else(|_| {
+                    let mut session = Session::new(seed, nation, width, height);
+                    session.world.set_difficulty(difficulty.clone());
+                    session
+                })
             }
-            None => Session::new(seed, nation, width, height),
+            None => {
+                let mut session = Session::new(seed, nation, width, height);
+                session.world.set_difficulty(difficulty);
+                session
+            }
         };
         self.ui = UiState::new(&self.session, self.screen);
         self.ui.alerts.update(&self.session, 0.0);

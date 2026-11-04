@@ -857,6 +857,27 @@ fn the_nation_switch_rebuilds_at_the_world_s_start_when_it_has_one() {
     }
 }
 
+/// `App::restart` (here, through the `1`-`4` nation switch) carries the current world's
+/// difficulty preset over (#298): it is a new game, not a change of preset mid-game, on both
+/// the plain and the founded path.
+#[test]
+fn restart_carries_the_current_difficulty_preset_over() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    a.session.world.set_difficulty(Some("hard".into()));
+    run(&mut a, "2 y");
+    assert_eq!(a.session.world.difficulty(), Some("hard"), "the plain path keeps it too");
+
+    let defs = fn_sim::Defs::bundled();
+    let size = defs.embark.map_size("small").unwrap();
+    let cfg = fn_sim::embark::Survey::config(7, size);
+    let survey = fn_sim::embark::Survey::new(&cfg, &defs);
+    let start = survey.default_site(&defs);
+    let session = Session::found(survey, Nation::Earth, start, Some("hard".into())).unwrap();
+    let mut a = App::new(session, SIZE);
+    run(&mut a, "2 y");
+    assert_eq!(a.session.world.difficulty(), Some("hard"), "found keeps it across the switch");
+}
+
 #[test]
 fn no_key_mix_breaks_a_frame_on_any_size_or_nation() {
     let script = "<tab> f <tab> <s-tab> l <pgdn> <esc> ? <down*3> <esc> h <enter> <right*4> <enter> \

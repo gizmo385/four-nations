@@ -464,6 +464,15 @@ impl World {
         self.difficulty.as_deref()
     }
 
+    /// Sets this world's difficulty preset directly, swapping `None` for `id`: `new`'s own path
+    /// has no way to take one, unlike `found` (#294), and the TUI's `--difficulty` on the plain
+    /// `SEED NATION` path needs one (#298). Unlike `found`, lays down no starting stores and
+    /// takes no newcomer food from stores, since nothing is arriving; the caller is expected to
+    /// have already checked `id` against `Defs::difficulty`.
+    pub fn set_difficulty(&mut self, id: Option<String>) {
+        self.difficulty = id;
+    }
+
     /// The knobs this world plays by: its difficulty preset's, or `Knobs::identity()` for
     /// `None` (today's rules exactly). Every system that reads a difficulty-scaled number goes
     /// through this, never `defs.difficulty` directly, so `None` always means "unchanged".
@@ -905,6 +914,20 @@ mod tests {
         }
         assert!(identity.research().is_known(tech(&defs, "shelter")), "identity should finish");
         assert!(!hard.research().is_known(tech(&defs, "shelter")), "hard should still be short");
+    }
+
+    #[test]
+    fn set_difficulty_swaps_none_for_a_preset_and_back() {
+        // The TUI's `--difficulty` on the plain `SEED NATION` path (#298): `new`'s own
+        // `None` can still be swapped for a preset directly, without founding.
+        let (mut w, defs) = world(Nation::Earth);
+        assert_eq!(w.difficulty(), None);
+        w.set_difficulty(Some("hard".into()));
+        assert_eq!(w.difficulty(), Some("hard"));
+        assert_eq!(w.knobs(&defs), defs.difficulty.preset("hard").unwrap());
+        w.set_difficulty(None);
+        assert_eq!(w.difficulty(), None);
+        assert_eq!(w.knobs(&defs), &defs.difficulty.identity);
     }
 
     #[test]
