@@ -31,11 +31,17 @@ impl Session {
     }
 
     /// A new game founded at `start` on `survey`'s map (`docs/design/embark.md`, #289), with the
-    /// bundled data and the same starting unit count as `new`. Refuses whatever
+    /// bundled data and the same starting unit count as `new`. `difficulty` is the chosen
+    /// preset's id, or `None` for identity (`docs/design/difficulty.md`, #294). Refuses whatever
     /// `World::found` refuses.
-    pub fn found(survey: Survey, nation: Nation, start: Pos) -> Result<Self, SiteProblem> {
+    pub fn found(
+        survey: Survey,
+        nation: Nation,
+        start: Pos,
+        difficulty: Option<String>,
+    ) -> Result<Self, SiteProblem> {
         let defs = Defs::bundled();
-        let world = World::found(survey, nation, start, STARTING_UNITS, &defs)?;
+        let world = World::found(survey, nation, start, STARTING_UNITS, difficulty, &defs)?;
         Ok(Self { world, defs, clock: Clock::default(), bend_choice: None })
     }
 
@@ -113,7 +119,7 @@ mod tests {
         let cfg = Survey::config(7, size);
         let survey = Survey::new(&cfg, &defs);
         let start = survey.default_site(&defs);
-        let s = Session::found(survey, Nation::Earth, start).unwrap();
+        let s = Session::found(survey, Nation::Earth, start, None).unwrap();
         assert_eq!(s.world.units.len(), STARTING_UNITS as usize);
         assert_eq!(s.world.nation, Nation::Earth);
         assert_eq!(s.world.start(), Some(start));
@@ -126,7 +132,7 @@ mod tests {
         let cfg = Survey::config(7, size);
         let survey = Survey::new(&cfg, &defs);
         // The map's forced-sea border: always water, always refused.
-        let err = Session::found(survey, Nation::Earth, Pos::new(0, 0)).unwrap_err();
+        let err = Session::found(survey, Nation::Earth, Pos::new(0, 0), None).unwrap_err();
         assert_eq!(err, SiteProblem::NotLand);
     }
 }

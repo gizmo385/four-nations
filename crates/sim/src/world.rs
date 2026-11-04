@@ -11,6 +11,7 @@ use rand::seq::SliceRandom;
 use crate::bending::AbilityId;
 use crate::building::BuildingDef;
 use crate::defs::{Defs, ResourceId};
+use crate::difficulty::Knobs;
 use crate::geom::Pos;
 use crate::jobs::{Job, JobId, Stack};
 use crate::mapgen::{self, MapGenConfig, TileMap};
@@ -308,6 +309,13 @@ pub struct World {
     /// every save from before #289, so neither changes a byte. Read it through `start()`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     start: Option<Pos>,
+    /// The difficulty preset's id (`data/difficulty.toml`, #294), or `None` for the identity
+    /// knobs: today's rules exactly. `None` for `World::new` and every save from before this
+    /// existed, so neither changes a byte. A retuned preset reaches old saves (`save.rs`), the
+    /// way any other retuned number does. Read it through `knobs()`; `World::validate` refuses a
+    /// save whose id the loaded data no longer has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    difficulty: Option<String>,
     /// The id the next unit gets, whether it is a newcomer (`population.rs`, #232) or some
     /// future runtime spawn: always past every id a unit (living or dead) has ever had, so none
     /// is reused. A save from before this counter existed deserializes it as 0; `World::load`
@@ -384,6 +392,7 @@ impl World {
             avatar: AvatarState::default(),
             buried: BTreeMap::new(),
             start: None,
+            difficulty: None,
             next_unit: 0,
             arrivals: Vec::new(),
             orchard_rng: orchard::new_rng(seed),
@@ -428,6 +437,11 @@ impl World {
         if !self.research.fits(defs) {
             return Err("the research state doesn't match the tech tree".into());
         }
+        if let Some(id) = &self.difficulty
+            && defs.difficulty.preset(id).is_none()
+        {
+            return Err(format!("unknown difficulty preset {id:?}"));
+        }
         if !self.units.windows(2).all(|w| w[0].id < w[1].id) {
             return Err("units are out of order".into());
         }
@@ -443,6 +457,21 @@ impl World {
     /// directly, or techs do nothing.
     pub fn modifiers(&self) -> &Modifiers {
         &self.modifiers
+    }
+
+    /// This world's difficulty preset id, if it was founded with one (`found`, #294).
+    pub fn difficulty(&self) -> Option<&str> {
+        self.difficulty.as_deref()
+    }
+
+    /// The knobs this world plays by: its difficulty preset's, or `Knobs::identity()` for
+    /// `None` (today's rules exactly). Every system that reads a difficulty-scaled number goes
+    /// through this, never `defs.difficulty` directly, so `None` always means "unchanged".
+    pub fn knobs<'d>(&self, defs: &'d Defs) -> &'d Knobs {
+        match &self.difficulty {
+            Some(id) => defs.difficulty.preset(id).unwrap_or(&defs.difficulty.identity),
+            None => &defs.difficulty.identity,
+        }
     }
 
     /// `unit`'s own nation: `Unit::nation` if it has one, else the settlement's (`self.nation`).
@@ -577,7 +606,8 @@ impl World {
     pub fn tick(&mut self, defs: &Defs) {
         self.tick += 1;
         let completed = self.research.completions().len();
-        self.research.tick(self.tick, defs);
+        let research_cost = self.knobs(defs).research_cost;
+        self.research.tick(self.tick, defs, research_cost);
         if self.research.completions().len() != completed {
             self.refresh_modifiers(defs);
         }
@@ -646,10 +676,11 @@ impl World {
 impl World {
     fn tick_needs(&mut self, defs: &Defs) {
         let tick = self.tick;
+        let need_decay = self.knobs(defs).need_decay;
         let mut dead = Vec::new();
         for mut u in std::mem::take(&mut self.units) {
             let rest = if u.is_sleeping() { self.sleep_factor_for(&u, defs) } else { 1.0 };
-            u.needs.tick_scaled(&defs.needs, u.is_sleeping(), rest);
+            u.needs.tick_at_full(&defs.needs, TICKS_PER_SECOND, u.is_sleeping(), rest, need_decay);
             // The Avatar's regen multiplier is his own (`[avatar].modifiers.chi_regen`, #237),
             // never the settlement's; everyone else still reads the settlement's cached value,
             // as before #237.
@@ -852,6 +883,28 @@ mod tests {
         let completed: Vec<_> = w.research().completions().iter().map(|c| c.tech).collect();
         assert_eq!(completed, [tech(&defs, "shelter")]);
         assert!(!w.research().is_known(tech(&defs, "carpentry")));
+    }
+
+    #[test]
+    fn the_difficulty_presets_research_cost_knob_scales_every_tech_s_cost() {
+        // The difficulty preset's `research_cost` knob (#294): at the same passive trickle,
+        // Hard takes longer to bank enough to finish the same tech than identity does.
+        let (mut identity, defs) = world(Nation::Earth);
+        let (mut hard, _) = world(Nation::Earth);
+        hard.difficulty = Some("hard".into());
+        let research_cost = hard.knobs(&defs).research_cost;
+        assert!(research_cost > 1.0, "test assumes hard's research_cost knob is above identity");
+        identity.set_research(tech(&defs, "shelter"), &defs).unwrap();
+        hard.set_research(tech(&defs, "shelter"), &defs).unwrap();
+        for _ in 0..6000 {
+            identity.tick(&defs);
+            hard.tick(&defs);
+            if identity.research().is_known(tech(&defs, "shelter")) {
+                break;
+            }
+        }
+        assert!(identity.research().is_known(tech(&defs, "shelter")), "identity should finish");
+        assert!(!hard.research().is_known(tech(&defs, "shelter")), "hard should still be short");
     }
 
     #[test]

@@ -71,6 +71,26 @@ fn a_newcomer_joins_with_a_free_bed_and_enough_food() {
 }
 
 #[test]
+fn a_newcomer_under_a_difficulty_preset_also_eats_newcomer_food() {
+    // The difficulty preset's `newcomer_food` knob (#294): on top of #232's
+    // `food_per_newcomer` threshold, the arrival itself takes `newcomer_food` more from stores,
+    // the nearest stack first. Identity (`None`) takes none, so this only shows once a preset is
+    // set. Calls `spawn_newcomer`/`take_newcomer_food` directly (as `tick_population` does) so
+    // the lone settler's own needs can't incidentally eat into the stockpile and confuse it.
+    let defs = Defs::bundled();
+    let mut w = world(1, &defs);
+    w.difficulty = Some("hard".into());
+    let newcomer_food = w.knobs(&defs).newcomer_food;
+    assert!(newcomer_food > 0, "test assumes hard's newcomer_food knob is above identity");
+    let stocked = newcomer_food + 5;
+    stock_food(&mut w, &defs, stocked);
+    assert!(w.spawn_newcomer(&defs), "the field has room for a newcomer");
+    w.take_newcomer_food(newcomer_food, &defs);
+    let left: u32 = w.stored.values().map(|s| s.count).sum();
+    assert_eq!(left, stocked - newcomer_food);
+}
+
+#[test]
 fn no_newcomer_without_a_free_bed() {
     let defs = Defs::bundled();
     let mut w = world(1, &defs);

@@ -1,0 +1,78 @@
+# Difficulty presets (docs/design/difficulty.md, issue #294): the knobs that scale the pressure
+# seasons, tiring land and growth put on a settlement, and the stores `World::found` lays down.
+# Read by `Defs::with_difficulty`, the way `embark.toml` is. The player picks one on the New game
+# seed step (#298); the world stores the preset id (`World::difficulty`), so a retuned preset
+# reaches old saves the way any other retuned number does.
+#
+# default:          the preset id the seed step starts on.
+#
+# [[preset]], in the order the picker offers them:
+# - id, name, hint:     the preset's id, label and one-line description on the seed step.
+# - seasons:            on or off; #295 reads this (the calendar, frost, cold, winter growth).
+# - winter_severity:    scales winter growth loss and cold's extra need drain; in [0, 4]. Unused
+#                       while `seasons` is off.
+# - strain:             scales the strain a wild harvest adds to its tile per pick; in [0, 4]. 0
+#                       means plants never tire (#296).
+# - strain_kills:       whether a plant worked to exhaustion dies, instead of just slowing down
+#                       (#296, Hard only).
+# - need_decay:         multiplies hunger, thirst and energy decay; in (0, 4].
+# - regrow:             multiplies every renewable harvest's regrow time; in (0, 4].
+# - research_cost:      multiplies every tech's cost, including the knowledge pool's cap on what
+#                       is currently being researched (#284); in (0, 4].
+# - newcomer_food:      food items a newcomer's arrival takes from stores, on top of #232's
+#                       `food_per_newcomer` threshold.
+# - starting_stores:    what `World::found` stockpiles near the start: a list of
+#                       `{ item = "<item id>", count = <n> }`, one kind of item per tile, filled
+#                       up to `[settings].stockpile_stack` (data/jobs.toml) per tile. Empty means
+#                       no head start.
+
+default = "normal"
+
+[[preset]]
+id = "sandbox"
+name = "Sandbox"
+hint = "No winters, no tiring land. Settle anywhere and build at your own pace."
+seasons = false
+winter_severity = 1.0
+strain = 0.0
+strain_kills = false
+need_decay = 1.0
+regrow = 1.0
+research_cost = 1.0
+newcomer_food = 0
+starting_stores = [
+    { item = "fruit", count = 30 },
+    { item = "wood", count = 20 },
+    { item = "stone", count = 10 },
+]
+
+[[preset]]
+id = "normal"
+name = "Normal"
+hint = "Winters to store food for, and land that tires when it's over-picked."
+seasons = true
+winter_severity = 1.0
+strain = 1.0
+strain_kills = false
+need_decay = 1.0
+regrow = 1.0
+research_cost = 1.0
+newcomer_food = 10
+starting_stores = [
+    { item = "fruit", count = 15 },
+    { item = "wood", count = 10 },
+]
+
+[[preset]]
+id = "hard"
+name = "Hard"
+hint = "Harsh winters and land that gives out if you don't let it rest."
+seasons = true
+winter_severity = 1.3
+strain = 1.5
+strain_kills = true
+need_decay = 1.1
+regrow = 1.25
+research_cost = 1.25
+newcomer_food = 20
+starting_stores = []

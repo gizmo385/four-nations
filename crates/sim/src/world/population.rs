@@ -89,7 +89,9 @@ impl World {
 
     /// Checks population growth once every `arrival_minutes` and joins one newcomer if a bed
     /// and enough food are both there for it. Named `tick_population` (not `tick_growth`,
-    /// already resource regrowth's name in `work.rs`).
+    /// already resource regrowth's name in `work.rs`). A newcomer who actually joins also takes
+    /// the difficulty preset's `newcomer_food` from stores (`take_newcomer_food`, #294), on top
+    /// of this threshold; identity's `newcomer_food` is 0, so nothing is taken by default.
     pub(super) fn tick_population(&mut self, defs: &Defs) {
         let growth = defs.needs.growth;
         let interval = (growth.arrival_minutes * 60.0 * TICKS_PER_SECOND as f32).round() as u64;
@@ -99,7 +101,10 @@ impl World {
         if !self.has_free_bed(defs) || self.stored_food(defs) < growth.food_per_newcomer {
             return;
         }
-        self.spawn_newcomer(defs);
+        if self.spawn_newcomer(defs) {
+            let newcomer_food = self.knobs(defs).newcomer_food;
+            self.take_newcomer_food(newcomer_food, defs);
+        }
     }
 
     /// Whether some bed somewhere has room for one more sleeper nobody has claimed yet. Mirrors
@@ -188,10 +193,11 @@ impl World {
     }
 
     /// Adds one newcomer on the settlement's outskirts (`nearest_edge_tile`), of a nation drawn
-    /// by `newcomer_nation` and named from that nation's pool. Does nothing if the settlement has
-    /// no walkable tile at all.
-    fn spawn_newcomer(&mut self, defs: &Defs) {
-        let Some(pos) = self.nearest_edge_tile(self.settlement_anchor()) else { return };
+    /// by `newcomer_nation` and named from that nation's pool. Does nothing, and returns `false`,
+    /// if the settlement has no walkable tile at all; `true` otherwise, so `tick_population` only
+    /// spends `newcomer_food` (#294) when someone actually joined.
+    fn spawn_newcomer(&mut self, defs: &Defs) -> bool {
+        let Some(pos) = self.nearest_edge_tile(self.settlement_anchor()) else { return false };
         let drawn = self.newcomer_nation(defs);
         let nation = defs.nation(drawn);
         let name = nation.names[self.growth_rng.random_range(0..nation.names.len())].clone();
@@ -225,6 +231,38 @@ impl World {
             unhappy_since: None,
         });
         self.arrivals.push(Arrival { tick: self.tick, unit: id, name });
+        true
+    }
+
+    /// Takes up to `amount` food items from stores for a newcomer who just joined (the
+    /// difficulty preset's `newcomer_food` knob, #294): the nearest stack to the settlement
+    /// first, then by position, the same rule `found` uses for starting stores. Takes whatever
+    /// is there if stores hold less than `amount`; a no-op for 0 (identity's default).
+    fn take_newcomer_food(&mut self, amount: u32, defs: &Defs) {
+        if amount == 0 {
+            return;
+        }
+        let anchor = self.settlement_anchor();
+        let mut positions: Vec<Pos> = self
+            .stored
+            .iter()
+            .filter(|(_, s)| defs.food_of(s.item).is_some())
+            .map(|(&p, _)| p)
+            .collect();
+        positions.sort_by_key(|p| ((p.x - anchor.x).pow(2) + (p.y - anchor.y).pow(2), *p));
+        let mut remaining = amount;
+        for pos in positions {
+            if remaining == 0 {
+                break;
+            }
+            let Some(mut stack) = self.stored.remove(&pos) else { continue };
+            let take = remaining.min(stack.count);
+            stack.count -= take;
+            remaining -= take;
+            if stack.count > 0 {
+                self.stored.insert(pos, stack);
+            }
+        }
     }
 }
 

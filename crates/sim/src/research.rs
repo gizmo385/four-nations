@@ -401,13 +401,15 @@ impl Research {
         self.pool_millis += millis;
     }
 
-    /// The most the pool may hold right now: the cost of the tech at the front of the queue
-    /// (the one it is currently paying toward), or `idle_knowledge_cap_millis` with nothing
-    /// queued. Used by `add_toward_target` so a steady, no-effort source can't bank ahead of what
-    /// is actually being worked toward (#284).
-    fn cap_millis(&self, defs: &Defs) -> u64 {
+    /// The most the pool may hold right now: `research_cost` times the cost of the tech at the
+    /// front of the queue (the one it is currently paying toward), or the unscaled
+    /// `idle_knowledge_cap_millis` with nothing queued (a flat buffer, not a cost, so the
+    /// difficulty preset's `research_cost` knob doesn't touch it). Used by `add_toward_target` so
+    /// a steady, no-effort source can't bank ahead of what is actually being worked toward
+    /// (#284).
+    fn cap_millis(&self, defs: &Defs, research_cost: f32) -> u64 {
         match self.queue.first() {
-            Some(&front) => u64::from(defs.tech(front).cost) * MILLIS_PER_POINT,
+            Some(&front) => scaled_cost_millis(defs.tech(front).cost, research_cost),
             None => defs.research.idle_knowledge_cap_millis,
         }
     }
@@ -416,9 +418,9 @@ impl Research {
     /// "oral tradition" trickle (`tick`) and a seated scholar (`world/study.rs`, #21). Clamped at
     /// `cap_millis` so hours of it can't quietly bank toward several techs at once, the bug
     /// #284 fixed (an ancient scroll, `add_knowledge`, is a deliberate one-off reward and isn't
-    /// capped this way).
-    pub(crate) fn add_toward_target(&mut self, millis: u64, defs: &Defs) {
-        self.pool_millis = (self.pool_millis + millis).min(self.cap_millis(defs));
+    /// capped this way). `research_cost` is the difficulty preset's knob (1.0 is identity, #294).
+    pub(crate) fn add_toward_target(&mut self, millis: u64, defs: &Defs, research_cost: f32) {
+        self.pool_millis = (self.pool_millis + millis).min(self.cap_millis(defs, research_cost));
     }
 
     /// Marks `tech` known at once, skipping the queue and its cost. For tests that need a nation
@@ -437,11 +439,12 @@ impl Research {
     }
 
     /// Adds one tick of passive knowledge, then completes queued techs the pool can pay for.
-    /// `tick` is the world tick being simulated, recorded on completions.
-    pub fn tick(&mut self, tick: u64, defs: &Defs) {
-        self.add_toward_target(defs.research.passive_millis_per_tick, defs);
+    /// `tick` is the world tick being simulated, recorded on completions. `research_cost` is the
+    /// difficulty preset's knob, multiplying every tech's cost (1.0 is identity, #294).
+    pub fn tick(&mut self, tick: u64, defs: &Defs, research_cost: f32) {
+        self.add_toward_target(defs.research.passive_millis_per_tick, defs, research_cost);
         while let Some(&front) = self.queue.first() {
-            let cost = u64::from(defs.tech(front).cost) * MILLIS_PER_POINT;
+            let cost = scaled_cost_millis(defs.tech(front).cost, research_cost);
             if cost > self.pool_millis {
                 break;
             }
@@ -451,6 +454,14 @@ impl Research {
             self.log.push(TechCompleted { tech: front, tick });
         }
     }
+}
+
+/// `cost` points in milli-points, times the difficulty preset's `research_cost` knob (1.0 is
+/// identity). `f64` only to multiply by a non-integer factor; exact for the small integer costs
+/// `data/research.toml` validates, so `research_cost == 1.0` reproduces the unscaled value
+/// bit-for-bit.
+fn scaled_cost_millis(cost: u32, research_cost: f32) -> u64 {
+    (f64::from(cost) * f64::from(research_cost) * MILLIS_PER_POINT as f64).round() as u64
 }
 
 #[cfg(test)]

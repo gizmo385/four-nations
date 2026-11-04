@@ -92,7 +92,7 @@ fn step(r: &mut Research, tick: u64, defs: &Defs) {
     let study = effective_modifiers(NATION, r.known_techs(), defs).study;
     let per_scholar = defs.research.study_millis_per_tick as f32 * study * 2.0 / 3.0;
     r.add_knowledge(per_scholar as u64 * scholars(tick / TICKS_PER_MINUTE));
-    r.tick(tick, defs);
+    r.tick(tick, defs, 1.0);
 }
 
 const LIMIT: u64 = 4 * 60 * TICKS_PER_MINUTE;

@@ -313,7 +313,14 @@ mod tests {
             .collect();
         assert_eq!(
             keys,
-            [KeyCode::KeyH, KeyCode::KeyX, KeyCode::KeyP, KeyCode::KeyB, KeyCode::KeyU]
+            [
+                KeyCode::KeyH,
+                KeyCode::KeyX,
+                KeyCode::KeyP,
+                KeyCode::KeyB,
+                KeyCode::KeyU,
+                KeyCode::KeyC
+            ]
         );
         assert_eq!(letter_key('h'), None, "letters are upper case");
     }

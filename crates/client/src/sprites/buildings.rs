@@ -139,6 +139,8 @@ pub const NO_ART_YET: &[&str] = &[
     // The endeavor: the Harmony Gate's art is `buildings_endeavor.png`, drawn by stage, which
     // the client issue after #236 wires up (#243).
     "harmony_gate",
+    // Farm plots (#198): no client art, since the client is being removed (#283).
+    "farm_plot",
 ];
 
 /// Buildings whose art is drawn for a bigger footprint than the data gives them. A test fails for

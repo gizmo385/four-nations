@@ -191,13 +191,15 @@ const ITEM_ICONS: [&str; 11] = [
 /// The cells of `tools.png` in order: the sprite names in art/tools.toml.
 const TOOL_SHEET: [&str; 6] = ["harvest", "build", "stockpile", "cancel", "select", "bend"];
 /// Which sprite of `tools.png` each tool's button shows.
-const TOOL_ICONS: [(Tool, &str); 6] = [
+const TOOL_ICONS: [(Tool, &str); 7] = [
     (Tool::Select, "select"),
     (Tool::Harvest, "harvest"),
     (Tool::CancelHarvest, "cancel"),
     (Tool::Stockpile, "stockpile"),
     (Tool::Bend, "bend"),
     (Tool::Build, "build"),
+    // Sow (#198) borrows the harvest button: the client is being removed (#283), so no new art.
+    (Tool::Sow, "harvest"),
 ];
 
 /// The pixel rect of cell `column` in a one-row sheet of 16px cells.

@@ -6,7 +6,7 @@
 //! harvest (also withdraws a build site, a stockpile tile or a Sow designation), `P` stockpile,
 //! `B` the nation's bending ability (pressed again it cycles through the abilities the settlement
 //! can use), `U` the build tool (pressed again it cycles through the buildings the nation can
-//! place), `G` sow an empty farm plot (issue #198; a ripe one is reaped on its own, with no tool)
+//! place), `C` sow an empty farm plot (issue #198; a ripe one is reaped on its own, with no tool)
 //! and `Esc` back to selecting.
 
 use fn_sim::bending::AbilityId;
@@ -106,7 +106,7 @@ impl Tool {
             Self::Stockpile => "P",
             Self::Bend => "B",
             Self::Build => "U",
-            Self::Sow => "G",
+            Self::Sow => "C",
         }
     }
 
@@ -529,7 +529,7 @@ mod tests {
         assert_eq!(Tool::Select.key(), "Esc");
         assert_eq!(Tool::Select.letter(), None);
         let letters: Vec<char> = Tool::ALL.iter().filter_map(|t| t.letter()).collect();
-        assert_eq!(letters, ['H', 'X', 'P', 'B', 'U', 'G']);
+        assert_eq!(letters, ['H', 'X', 'P', 'B', 'U', 'C']);
         for tool in Tool::ALL {
             if let Some(c) = tool.letter() {
                 assert_eq!(Tool::from_letter(c), Some(tool));

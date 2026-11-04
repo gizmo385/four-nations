@@ -150,7 +150,7 @@ impl Shell {
             let survey = Survey::new(&cfg, &defs);
             let pos = fn_sim::Pos::new(x, y);
             let terrain = survey.map().get(pos).map_or(fn_sim::Terrain::Water, |t| t.terrain);
-            let session = Session::found(survey, nation, pos).map_err(|p| {
+            let session = Session::found(survey, nation, pos, None).map_err(|p| {
                 format!("can't start at ({x}, {y}): {}", embark::problem_text(p, terrain))
             })?;
             Ok(Self::new_game(session, screen, saves))
@@ -339,7 +339,7 @@ impl Shell {
                 let nation = screen.nation;
                 // The prompt only shows once the report has already said `pos` isn't refused
                 // (`EmbarkScreen::ask_or_refuse`), so this can't fail.
-                if let Ok(session) = Session::found(survey, nation, pos) {
+                if let Ok(session) = Session::found(survey, nation, pos, None) {
                     self.start(session);
                 }
             }

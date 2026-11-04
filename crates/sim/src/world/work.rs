@@ -476,13 +476,14 @@ impl World {
 
     /// The work on `pos` is done: a renewable resource goes back to growing, anything else is
     /// used up and its tile cleared. Returns its yield (`harvest_yield`), which counts in full
-    /// toward the harvest tally.
-    fn work_done(&mut self, pos: Pos, h: &HarvestDef) -> u32 {
+    /// toward the harvest tally. The resting time is multiplied by the difficulty preset's
+    /// `regrow` knob (1.0 is identity, #294).
+    fn work_done(&mut self, pos: Pos, h: &HarvestDef, defs: &Defs) -> u32 {
         let count = self.harvest_yield(pos, h);
         self.tallies.count_harvest(h.item, count);
         match h.regrow {
             Some(seconds) => {
-                self.resting.insert(pos, seconds);
+                self.resting.insert(pos, seconds * self.knobs(defs).regrow);
             }
             None => {
                 self.map[pos].resource = None;
@@ -1012,7 +1013,7 @@ impl World {
             }
             FoodSource::Forage(p) => {
                 let h = defs.harvest(self.map[p].resource.expect("checked")).expect("checked");
-                let count = self.work_done(p, h);
+                let count = self.work_done(p, h, defs);
                 if count > 1 {
                     self.place_ground(p, Stack { item, count: count - 1 });
                 }
@@ -1323,7 +1324,7 @@ impl World {
             return;
         }
         self.jobs.remove(idx);
-        let count = self.work_done(pos, h);
+        let count = self.work_done(pos, h, defs);
         self.place_ground(pos, Stack { item: h.item, count });
         self.finish_job(i);
     }

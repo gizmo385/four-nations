@@ -150,7 +150,7 @@ impl<'a> Playtest<'a> {
             self.research.add_knowledge(whole as u64);
             self.earned_millis += whole as u64 + self.defs.research.passive_millis_per_tick;
             self.tick += 1;
-            self.research.tick(self.tick, self.defs);
+            self.research.tick(self.tick, self.defs, 1.0);
         }
     }
 }

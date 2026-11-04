@@ -68,7 +68,8 @@ impl World {
             }
         }
         let rate = defs.research.study_millis_per_tick as f32 * self.modifiers().study;
-        self.research.add_toward_target(rate.round() as u64, defs);
+        let research_cost = self.knobs(defs).research_cost;
+        self.research.add_toward_target(rate.round() as u64, defs, research_cost);
     }
 }
 
