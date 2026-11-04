@@ -25,6 +25,7 @@ mod bending;
 mod build;
 mod command;
 mod endeavor;
+mod found;
 mod gate;
 mod heat;
 mod orchard;
@@ -237,6 +238,11 @@ pub struct World {
     /// none.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     buried: BTreeMap<Pos, ResourceId>,
+    /// Where this world's settlers began, if it was founded at a chosen site (`found`,
+    /// `world/found.rs`, #289) rather than `new`'s map-centre spiral. `None` for `new` and for
+    /// every save from before #289, so neither changes a byte. Read it through `start()`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    start: Option<Pos>,
     /// Picks which tile an orchard plants next (`orchard.plant`).
     #[serde(default = "orchard::default_rng")]
     orchard_rng: SimRng,
@@ -287,6 +293,7 @@ impl World {
             endeavor: EndeavorState::Dormant,
             endeavor_log: EndeavorLog::default(),
             buried: BTreeMap::new(),
+            start: None,
             orchard_rng: orchard::new_rng(seed),
             sprout_rng: rng::stream(seed, "bending.sprout"),
             rng: rng::stream(seed, "world.units"),

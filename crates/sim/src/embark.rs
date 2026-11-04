@@ -6,7 +6,8 @@
 //! before a world exists. `Survey::report` is pure and cheap (at most `(2*report_radius+1)^2`
 //! tiles plus a walk capped at 40 steps), so it can run on every cursor move.
 //!
-//! Founding a world from a chosen site (`World::found`) is #289; the TUI screen is #290.
+//! Founding a world from a chosen site is `World::found` (`world/found.rs`, #289), which consumes
+//! a `Survey` via `into_parts` instead of re-generating; the TUI screen is #290.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -20,9 +21,11 @@ use crate::regions::{RegionId, Regions};
 use crate::rng;
 
 /// Settlers a found world gets today (`fn_ui::STARTING_UNITS`). The report doesn't know the
-/// count the player will found with (that is chosen later, #289), so it checks room for this
-/// many while surveying. Only `SiteProblem::NoRoom` reads it.
-const SETTLERS: u32 = 6;
+/// count the player will found with, so it checks room for this many while surveying; only
+/// `SiteProblem::NoRoom` reads it. `World::found` (`world/found.rs`) takes its own `units`
+/// argument and debug-asserts it against this constant rather than being redesigned to share it,
+/// since the two are expected to match in practice (#289).
+pub(crate) const SETTLERS: u32 = 6;
 
 /// How far a walk to water is searched before giving up (`SiteReport::water`).
 const WATER_SEARCH_CAP: u32 = 40;
@@ -345,7 +348,6 @@ impl SiteReport {
 pub struct Survey {
     cfg: MapGenConfig,
     surface: TileMap,
-    #[allow(dead_code)] // kept for parity with `World::buried`; not read yet (founding is #289)
     buried: BTreeMap<Pos, ResourceId>,
     regions: Regions,
 }
@@ -393,6 +395,15 @@ impl Survey {
     /// The map a frontend draws: buried resources are already off it.
     pub fn map(&self) -> &TileMap {
         &self.surface
+    }
+
+    /// Consumes the survey for `World::found` (`world/found.rs`, #289): the map config, the
+    /// surveyed map, the buried resources already hidden from it, and the region labelling
+    /// `report` used to judge the site. Founding builds straight from these instead of a second
+    /// `mapgen::generate` pass, so a map stays a function of its seed and size alone, and the
+    /// regions a report approved are exactly the ones founding spawns into.
+    pub(crate) fn into_parts(self) -> (MapGenConfig, TileMap, BTreeMap<Pos, ResourceId>, Regions) {
+        (self.cfg, self.surface, self.buried, self.regions)
     }
 
     /// The valid site nearest the map centre.

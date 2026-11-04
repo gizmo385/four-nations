@@ -1,8 +1,9 @@
 //! One way to start a game and drive it: the world, the game data and the clock together.
 
 use fn_sim::bending::AbilityId;
+use fn_sim::embark::{SiteProblem, Survey};
 use fn_sim::world::{Command, CommandError};
-use fn_sim::{Defs, MapGenConfig, Nation, World};
+use fn_sim::{Defs, MapGenConfig, Nation, Pos, World};
 
 use crate::clock::Clock;
 
@@ -27,6 +28,15 @@ impl Session {
         let cfg = MapGenConfig { seed, width, height, ..MapGenConfig::default() };
         let world = World::new(&cfg, nation, STARTING_UNITS, &defs);
         Self { world, defs, clock: Clock::default(), bend_choice: None }
+    }
+
+    /// A new game founded at `start` on `survey`'s map (`docs/design/embark.md`, #289), with the
+    /// bundled data and the same starting unit count as `new`. Refuses whatever
+    /// `World::found` refuses.
+    pub fn found(survey: Survey, nation: Nation, start: Pos) -> Result<Self, SiteProblem> {
+        let defs = Defs::bundled();
+        let world = World::found(survey, nation, start, STARTING_UNITS, &defs)?;
+        Ok(Self { world, defs, clock: Clock::default(), bend_choice: None })
     }
 
     /// `World::apply` with this session's data.
@@ -64,8 +74,6 @@ impl Session {
 
 #[cfg(test)]
 mod tests {
-    use fn_sim::Pos;
-
     use super::*;
 
     #[test]
@@ -96,5 +104,29 @@ mod tests {
     fn apply_goes_through_the_world_and_reports_its_refusals() {
         let mut s = Session::new(7, Nation::Earth, 48, 32);
         assert!(s.apply(Command::DesignateHarvest { pos: Pos::new(-1, -1) }).is_err());
+    }
+
+    #[test]
+    fn found_starts_a_session_at_the_chosen_site() {
+        let defs = Defs::bundled();
+        let size = defs.embark.map_size("small").unwrap();
+        let cfg = Survey::config(7, size);
+        let survey = Survey::new(&cfg, &defs);
+        let start = survey.default_site(&defs);
+        let s = Session::found(survey, Nation::Earth, start).unwrap();
+        assert_eq!(s.world.units.len(), STARTING_UNITS as usize);
+        assert_eq!(s.world.nation, Nation::Earth);
+        assert_eq!(s.world.start(), Some(start));
+    }
+
+    #[test]
+    fn found_refuses_a_site_the_world_would_refuse() {
+        let defs = Defs::bundled();
+        let size = defs.embark.map_size("small").unwrap();
+        let cfg = Survey::config(7, size);
+        let survey = Survey::new(&cfg, &defs);
+        // The map's forced-sea border: always water, always refused.
+        let err = Session::found(survey, Nation::Earth, Pos::new(0, 0)).unwrap_err();
+        assert_eq!(err, SiteProblem::NotLand);
     }
 }
