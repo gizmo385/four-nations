@@ -19,7 +19,8 @@
 //! trees, fishing spots) is not cleared when worked. The resource stays on the map, *resting*,
 //! and `tick_growth` counts down the seconds it needs to ripen; until then it can't be worked,
 //! foraged, or claimed. The rate is `World::growth_rate`, the one place something like wet
-//! soil (docs/design/bending.md, "Water the Land") plugs in to make plants grow faster.
+//! soil (docs/design/bending.md, "Water the Land") plugs in to make plants grow faster, and
+//! where the difficulty preset's seasons slow or stop it in winter (`world/season.rs`, #295).
 //!
 //! **Standing harvest orders** (#81): `Command::DesignateRepeatingHarvest` marks a tile so that
 //! every time its (renewable) resource ripens again, `tick_growth` queues a fresh `Harvest` job
@@ -409,16 +410,25 @@ impl World {
         (self.can_work(h) && !self.resting.contains_key(&pos)).then_some(h)
     }
 
-    /// Seconds of growth a resting resource on `pos` gains per second: 1.0, times the boost of
-    /// any orchard tending it (`tend_rate`, #142).
+    /// Seconds of growth a resting resource on `pos` gains per second: the boost of any orchard
+    /// tending it (`tend_rate`, #142), times the difficulty preset's season factor
+    /// (`World::season_growth_factor`, `world/season.rs`, #295): identity (1.0) with `seasons`
+    /// off, so this is exactly `tend_rate` for every save from before #295.
     ///
-    /// This is the hook for faster growth: Water's "Water the Land" (docs/design/bending.md,
-    /// #69) leaves tiles wet for a while, and plants on wet tiles (and later, farm plots) should
-    /// ripen faster by a data-driven multiplier. Wet tiles now exist (`World::wet_tiles`, #69),
-    /// but no multiplier is defined yet: Water the Land's payoff is sprouts, not faster
-    /// regrowth. When one is, scale the result here; nothing else in the regrowth code changes.
+    /// This is also the hook for faster growth from other sources: Water's "Water the Land"
+    /// (docs/design/bending.md, #69) leaves tiles wet for a while, and plants on wet tiles (and
+    /// later, farm plots) should ripen faster by a data-driven multiplier. Wet tiles now exist
+    /// (`World::wet_tiles`, #69), but no multiplier is defined yet: Water the Land's payoff is
+    /// sprouts, not faster regrowth. When one is, scale the result here too; nothing else in the
+    /// regrowth code changes.
     fn growth_rate(&self, pos: Pos, defs: &Defs) -> f32 {
-        self.tend_rate(pos, defs)
+        let frost_hardy = self
+            .map
+            .get(pos)
+            .and_then(|t| t.resource)
+            .and_then(|r| defs.harvest(r))
+            .is_some_and(|h| h.frost_hardy);
+        self.tend_rate(pos, defs) * self.season_growth_factor(pos, defs, frost_hardy)
     }
 
     /// Advances every resting resource, ripening those that are done. A resource that was

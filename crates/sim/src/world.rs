@@ -35,6 +35,7 @@ mod heat;
 mod inside;
 mod orchard;
 mod population;
+mod season;
 mod stride;
 mod study;
 mod tally;
@@ -55,6 +56,7 @@ use forge::CraftState;
 pub use gate::{EndeavorError, GateSite, GateTask};
 pub use heat::{Aura, Flame, Glow, HeatSource};
 pub use population::Arrival;
+pub use season::{SeasonEvent, SeasonEventKind};
 pub use stride::{STRIDE_LOOKAHEAD, Stride};
 pub use tally::Tallies;
 pub use work::{DesignateError, FoodSource, Task};
@@ -316,6 +318,11 @@ pub struct World {
     /// save whose id the loaded data no longer has.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     difficulty: Option<String>,
+    /// Season changes, the winter warning and frost, oldest first, for the TUI's alerts
+    /// (`world/season.rs`, #295). Empty unless a difficulty preset's `seasons` flag is on, and
+    /// empty (so unwritten) for every save from before this existed, so neither changes a byte.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    season_events: Vec<SeasonEvent>,
     /// The id the next unit gets, whether it is a newcomer (`population.rs`, #232) or some
     /// future runtime spawn: always past every id a unit (living or dead) has ever had, so none
     /// is reused. A save from before this counter existed deserializes it as 0; `World::load`
@@ -393,6 +400,7 @@ impl World {
             buried: BTreeMap::new(),
             start: None,
             difficulty: None,
+            season_events: Vec::new(),
             next_unit: 0,
             arrivals: Vec::new(),
             orchard_rng: orchard::new_rng(seed),
@@ -606,12 +614,14 @@ impl World {
         self.map.get(p).is_some_and(|t| t.terrain.is_walkable() && t.resource.is_none())
     }
 
-    /// Advances the world by one tick: research, units' needs and chi, resource regrowth and
-    /// drying patches and burning-out flames run (units whose health reaches 0 die and are removed, in id order),
-    /// a newcomer may join (`population.rs`, #232), then each survivor acts, in id order: it
-    /// meets a need if one is low, else carries on with its job, else claims one, else wanders.
-    /// See `work.rs`. Last, once a second, the endeavor checks its signs (`endeavor.rs`) and the
-    /// Harmony Rite its own attendance (`gate.rs`, #238).
+    /// Advances the world by one tick: research, units' needs and chi (cold, in winter on a cold
+    /// band, tires a unit away from a heat source; `world/season.rs`, #295) run, the season may
+    /// change (with the winter warning and the first frost, same module), then resource regrowth
+    /// and drying patches and burning-out flames (units whose health reaches 0 die and are
+    /// removed, in id order), a newcomer may join (`population.rs`, #232), then each survivor
+    /// acts, in id order: it meets a need if one is low, else carries on with its job, else
+    /// claims one, else wanders. See `work.rs`. Last, once a second, the endeavor checks its
+    /// signs (`endeavor.rs`) and the Harmony Rite its own attendance (`gate.rs`, #238).
     pub fn tick(&mut self, defs: &Defs) {
         self.tick += 1;
         let completed = self.research.completions().len();
@@ -621,6 +631,7 @@ impl World {
             self.refresh_modifiers(defs);
         }
         self.tick_needs(defs);
+        self.tick_season(defs);
         self.tick_growth(defs);
         self.tick_population(defs);
         self.tick_orchards(defs);
@@ -685,11 +696,40 @@ impl World {
 impl World {
     fn tick_needs(&mut self, defs: &Defs) {
         let tick = self.tick;
-        let need_decay = self.knobs(defs).need_decay;
+        let knobs = self.knobs(defs);
+        let need_decay = knobs.need_decay;
+        let winter_severity = knobs.winter_severity;
+        let in_winter = knobs.seasons && self.season(defs).winter;
         let mut dead = Vec::new();
         for mut u in std::mem::take(&mut self.units) {
-            let rest = if u.is_sleeping() { self.sleep_factor_for(&u, defs) } else { 1.0 };
-            u.needs.tick_at_full(&defs.needs, TICKS_PER_SECOND, u.is_sleeping(), rest, need_decay);
+            let cold = in_winter
+                && self.climate_at(u.pos, defs).is_some_and(|c| c.cold)
+                && !self.is_heated(u.pos);
+            let (cold_hunger, cold_energy, cold_sleep) = if cold {
+                let c = &defs.seasons.cold;
+                let scale = |m: f32| 1.0 + (m - 1.0) * winter_severity;
+                (scale(c.hunger_decay), scale(c.energy_decay), scale(c.sleep))
+            } else {
+                (1.0, 1.0, 1.0)
+            };
+            let rest = if u.is_sleeping() {
+                let bed_rest = self.sleep_factor_for(&u, defs);
+                // Cold's own sleep penalty only applies with no better warmth in play: being
+                // heated already rules `cold` out above, so this is a bed whose own `sleep_bonus`
+                // (the igloo) is what's left to beat it.
+                if cold && bed_rest <= 1.0 { bed_rest * cold_sleep } else { bed_rest }
+            } else {
+                1.0
+            };
+            u.needs.tick_at_cold(
+                &defs.needs,
+                TICKS_PER_SECOND,
+                u.is_sleeping(),
+                rest,
+                need_decay,
+                cold_hunger,
+                cold_energy,
+            );
             // The Avatar's regen multiplier is his own (`[avatar].modifiers.chi_regen`, #237),
             // never the settlement's; everyone else still reads the settlement's cached value,
             // as before #237.

@@ -293,17 +293,40 @@ impl Needs {
         sleep_scale: f32,
         decay_scale: f32,
     ) {
+        self.tick_at_cold(s, ticks_per_second, sleeping, sleep_scale, decay_scale, 1.0, 1.0);
+    }
+
+    /// `tick_at_full` with cold's own extra drain on top of `decay_scale`
+    /// (`docs/design/difficulty.md`, "Seasons", #295): `cold_hunger` and `cold_energy` multiply
+    /// hunger and (awake) energy decay respectively. Thirst is never scaled by cold, and neither
+    /// is sleep's energy gain here: a cold sleeper's slower gain is folded into `sleep_scale`
+    /// instead, by whoever computes it (`World::tick_needs`), since it depends on whether a bed
+    /// or heat source beats the cold penalty. 1.0 for both is `tick_at_full` exactly.
+    #[allow(clippy::too_many_arguments)]
+    pub fn tick_at_cold(
+        &mut self,
+        s: &NeedsSettings,
+        ticks_per_second: u32,
+        sleeping: bool,
+        sleep_scale: f32,
+        decay_scale: f32,
+        cold_hunger: f32,
+        cold_energy: f32,
+    ) {
         let per_tick =
             |per_minute: f32| per_minute / (SECONDS_PER_MINUTE * ticks_per_second as f32);
         let max = s.max();
-        self.hunger = (self.hunger - per_tick(s.hunger.decay_per_minute) * decay_scale).max(0.0);
+        self.hunger = (self.hunger
+            - per_tick(s.hunger.decay_per_minute) * decay_scale * cold_hunger)
+            .max(0.0);
         self.thirst = (self.thirst - per_tick(s.thirst.decay_per_minute) * decay_scale).max(0.0);
         if sleeping {
             let gain = per_tick(s.general.sleep_energy_per_minute) * sleep_scale;
             self.energy = (self.energy + gain).min(max);
         } else {
-            self.energy =
-                (self.energy - per_tick(s.energy.decay_per_minute) * decay_scale).max(0.0);
+            self.energy = (self.energy
+                - per_tick(s.energy.decay_per_minute) * decay_scale * cold_energy)
+                .max(0.0);
         }
         let depleted =
             [self.hunger, self.thirst, self.energy].iter().filter(|&&v| v <= 0.0).count();
@@ -394,6 +417,33 @@ mod tests {
         }
         assert_eq!(identity.energy, scaled.energy, "sleep's gain isn't scaled");
         assert_eq!(identity.health, scaled.health, "health isn't scaled directly");
+    }
+
+    #[test]
+    fn cold_scales_hunger_and_awake_energy_but_never_thirst_or_sleep_gain() {
+        // Cold's own extra drain (#295), on top of (not instead of) the difficulty's
+        // `need_decay` knob: `tick_at_cold`'s `cold_hunger`/`cold_energy` speed up hunger and
+        // awake energy decay, but thirst is untouched, and so is a sleeper's energy gain (that's
+        // `sleep_scale`'s business, computed by the caller).
+        let defs = Defs::bundled();
+        let s = &defs.needs;
+        let mut identity = Needs::full(s);
+        let mut cold = Needs::full(s);
+        for _ in 0..minute_ticks() {
+            identity.tick_at_cold(s, TICKS_PER_SECOND, false, 1.0, 1.0, 1.0, 1.0);
+            cold.tick_at_cold(s, TICKS_PER_SECOND, false, 1.0, 1.0, 1.25, 1.5);
+        }
+        assert!(cold.hunger < identity.hunger);
+        assert_eq!(cold.thirst, identity.thirst);
+        assert!(cold.energy < identity.energy);
+
+        let mut identity = Needs { hunger: 50.0, thirst: 50.0, energy: 10.0, health: 100.0 };
+        let mut cold = identity;
+        for _ in 0..minute_ticks() {
+            identity.tick_at_cold(s, TICKS_PER_SECOND, true, 1.0, 1.0, 1.0, 1.0);
+            cold.tick_at_cold(s, TICKS_PER_SECOND, true, 0.5, 1.0, 1.25, 1.5);
+        }
+        assert!(cold.energy < identity.energy, "a cold sleeper's slower gain is sleep_scale's");
     }
 
     #[test]

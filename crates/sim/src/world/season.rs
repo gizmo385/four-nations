@@ -1,0 +1,167 @@
+//! Seasons, climate bands, frost and cold on a running `World` (`crate::seasons`,
+//! `docs/design/difficulty.md`, "Seasons", issue #295).
+//!
+//! `season`, `year`, `season_left` and `climate_at` are pure functions of the tick and the map:
+//! nothing here is stored on `World` itself (the four seasons cycle forever, so there's nothing
+//! to save beyond the tick already kept). They're always computable, whether or not a difficulty
+//! preset turns `seasons` on; it's the systems that read them (`World::growth_rate` in
+//! `work.rs`, `World::tick_needs` in `world.rs`, and `tick_season` below) that check
+//! `knobs(defs).seasons` first, so with it off (or no preset at all) nothing changes.
+//!
+//! `tick_season`, called once a tick from `World::tick`, fires the events the TUI turns into
+//! alerts: a `Changed` event at every season boundary, a `WinterWarning`
+//! `calendar.winter_warning_minutes` before winter, and on winter's first tick, the first frost
+//! (`Frost`), which sends every ripe, non-`frost_hardy` wild plant on a frost-band tile back to
+//! resting for its full regrow time.
+
+use crate::seasons::{ClimateDef, SeasonDef};
+
+use super::*;
+
+/// A season change, the winter warning, or the first frost, oldest first
+/// (`World::season_events`), for the TUI's alerts.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SeasonEvent {
+    pub tick: u64,
+    pub kind: SeasonEventKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum SeasonEventKind {
+    /// A new season began: its index into `defs.seasons.seasons`.
+    Changed { season: usize },
+    /// Winter is `[calendar].winter_warning_minutes` away.
+    WinterWarning,
+    /// The first frost of winter struck this many ripe wild plants.
+    Frost { count: u32 },
+}
+
+impl World {
+    /// Ticks in one season (`[calendar].season_minutes`), at least 1 so the division below never
+    /// panics even on data that validation would otherwise reject.
+    fn season_ticks(&self, defs: &Defs) -> u64 {
+        let minutes = f64::from(defs.seasons.calendar.season_minutes);
+        ((minutes * 60.0 * f64::from(TICKS_PER_SECOND)).round() as u64).max(1)
+    }
+
+    /// The index into `defs.seasons.seasons` of the season running at this tick: a pure function
+    /// of the tick. A fresh world (tick 0) is at index 0, spring in the bundled data.
+    pub fn season_index(&self, defs: &Defs) -> usize {
+        let per = self.season_ticks(defs);
+        let n = defs.seasons.seasons.len() as u64;
+        ((self.tick / per) % n.max(1)) as usize
+    }
+
+    /// The season running at this tick.
+    pub fn season<'d>(&self, defs: &'d Defs) -> &'d SeasonDef {
+        &defs.seasons.seasons[self.season_index(defs)]
+    }
+
+    /// The year this tick falls in, starting at 1.
+    pub fn year(&self, defs: &Defs) -> u64 {
+        let per = self.season_ticks(defs);
+        let n = (defs.seasons.seasons.len() as u64).max(1);
+        self.tick / (per * n) + 1
+    }
+
+    /// In-game seconds left in the season running at this tick.
+    pub fn season_left(&self, defs: &Defs) -> f32 {
+        let per = self.season_ticks(defs);
+        (per - self.tick % per) as f32 / TICKS_PER_SECOND as f32
+    }
+
+    /// The climate band of the tile at `pos`, by its mapgen temperature (`defs.seasons`). `None`
+    /// off the map.
+    pub fn climate_at<'d>(&self, pos: Pos, defs: &'d Defs) -> Option<&'d ClimateDef> {
+        let tile = self.map.get(pos)?;
+        Some(defs.seasons.climate_for(tile.temperature))
+    }
+
+    /// Season changes, the winter warning and frost, oldest first.
+    pub fn season_events(&self) -> &[SeasonEvent] {
+        &self.season_events
+    }
+
+    /// The growth-rate multiplier `World::growth_rate` (`work.rs`) applies for the seasons:
+    /// identity (1.0) unless the difficulty preset's `seasons` flag is on. Outside winter it's
+    /// the running season's `growth`. In winter, a `frost_hardy` harvest (fishing) uses a flat
+    /// `hardy_winter_growth` in every band instead; everything else uses the tile's climate
+    /// band's `winter_growth`, scaled toward 1.0 by `winter_severity`
+    /// (`1 - (1 - winter_growth) * winter_severity`, floored at 0).
+    pub(super) fn season_growth_factor(&self, pos: Pos, defs: &Defs, frost_hardy: bool) -> f32 {
+        let knobs = self.knobs(defs);
+        if !knobs.seasons {
+            return 1.0;
+        }
+        let season = self.season(defs);
+        if !season.winter {
+            return season.growth;
+        }
+        if frost_hardy {
+            return defs.seasons.calendar.hardy_winter_growth;
+        }
+        let g = self.climate_at(pos, defs).map_or(1.0, |c| c.winter_growth);
+        (1.0 - (1.0 - g) * knobs.winter_severity).max(0.0)
+    }
+
+    /// Fires season events and the first frost. A no-op with `seasons` off.
+    pub(super) fn tick_season(&mut self, defs: &Defs) {
+        let knobs = self.knobs(defs);
+        if !knobs.seasons {
+            return;
+        }
+        let severity = knobs.winter_severity;
+        let per = self.season_ticks(defs);
+        let n = defs.seasons.seasons.len() as u64;
+        let into_year = self.tick % (per * n);
+        if into_year.is_multiple_of(per) {
+            let idx = (into_year / per) as usize;
+            self.season_events.push(SeasonEvent {
+                tick: self.tick,
+                kind: SeasonEventKind::Changed { season: idx },
+            });
+            if defs.seasons.seasons[idx].winter && severity > 0.0 {
+                let count = self.apply_frost(defs);
+                self.season_events
+                    .push(SeasonEvent { tick: self.tick, kind: SeasonEventKind::Frost { count } });
+            }
+        }
+        let warn = {
+            let minutes = f64::from(defs.seasons.calendar.winter_warning_minutes);
+            (minutes * 60.0 * f64::from(TICKS_PER_SECOND)).round() as u64
+        };
+        let winter_start = defs.seasons.winter_index() as u64 * per;
+        if warn <= winter_start && into_year == winter_start - warn {
+            self.season_events
+                .push(SeasonEvent { tick: self.tick, kind: SeasonEventKind::WinterWarning });
+        }
+    }
+
+    /// The first frost of winter: every ripe (not resting), non-`frost_hardy` renewable wild
+    /// plant on a frost-band tile goes back to resting for its full regrow time (times the
+    /// difficulty preset's `regrow` knob, as a normal harvest does). Returns how many it struck.
+    fn apply_frost(&mut self, defs: &Defs) -> u32 {
+        let regrow_knob = self.knobs(defs).regrow;
+        let mut hit: Vec<(Pos, f32)> = Vec::new();
+        for (pos, tile) in self.map.iter() {
+            let Some(resource) = tile.resource else { continue };
+            if self.resting.contains_key(&pos) {
+                continue;
+            }
+            let Some(h) = defs.harvest(resource) else { continue };
+            let Some(seconds) = h.regrow else { continue };
+            if h.frost_hardy || !defs.seasons.climate_for(tile.temperature).frost {
+                continue;
+            }
+            hit.push((pos, seconds * regrow_knob));
+        }
+        let count = hit.len() as u32;
+        for (pos, seconds) in hit {
+            self.resting.insert(pos, seconds);
+        }
+        count
+    }
+}
+
+#[cfg(test)]
+mod tests;
