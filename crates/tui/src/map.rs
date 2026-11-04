@@ -12,6 +12,10 @@
 //! A building or a site covers its whole footprint (#196, docs/design/buildings.md, "TUI"), so a
 //! 2x2 forge is a 2x2 block of its glyph, and so is its ghost.
 //!
+//! **Units inside a building** (#226, #229) aren't drawn on the map at all, including on the
+//! door tile their `pos` still names: a building with anyone inside shows how many as a digit on
+//! its front-middle footprint cell, in its own colour, in place of its glyph there.
+//!
 //! **The moment of a bend** (#278; the client's `cast.rs` plays a short animation of this same
 //! moment): while a unit channels, its People line and the selection bar say so and how long is
 //! left (`panel::channel_text`); for a short while after the bend lands, the tiles it changed
@@ -22,6 +26,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use fn_sim::building::BuildingId;
+use fn_sim::geom::Footprint;
 use fn_sim::jobs::Stack;
 use fn_sim::world::{BendOutcome, Moved, TICKS_PER_SECOND};
 use fn_sim::{Pos, Terrain};
@@ -126,6 +131,9 @@ pub struct Overlays {
     aura: BTreeSet<Pos>,
     /// The tiles warmed by the flame or aura under the cursor, if the cursor is on one.
     warmed: Option<(Pos, u32)>,
+    /// The front-middle footprint cell of every building with anyone inside (#226, #229),
+    /// with how many: drawn as a digit (`+` above 9) in place of the building's own glyph there.
+    occupants: BTreeMap<Pos, u32>,
 }
 
 impl Overlays {
@@ -136,7 +144,9 @@ impl Overlays {
         let glows = world.glows();
         let ghosts = ui.ghosts(session);
         Self {
-            units: world.units.iter().map(|u| u.pos).collect(),
+            // A unit that is inside a building (#226) isn't drawn on the map: its `pos` still
+            // names the door it went in by, but `occupants` (below) covers it instead.
+            units: world.units.iter().filter(|u| u.inside().is_none()).map(|u| u.pos).collect(),
             selected: ui.selected_unit(session).map(|u| u.pos),
             ground: world.ground_items().collect(),
             zones: world.stockpile_zones().collect(),
@@ -157,6 +167,7 @@ impl Overlays {
                 .find(|f| f.pos == cursor)
                 .map(|f| (f.pos, f.radius))
                 .or_else(|| glows.iter().find(|g| g.pos == cursor).map(|g| (g.pos, g.radius))),
+            occupants: occupant_counts(world),
         }
     }
 
@@ -164,6 +175,27 @@ impl Overlays {
         // The same square reach as the sim's `HeatSource::warms`.
         self.warmed.is_some_and(|(c, r)| p.x.abs_diff(c.x).max(p.y.abs_diff(c.y)) <= r)
     }
+}
+
+/// The ring tile below the middle of the bottom row, same side as `Footprint::entrance` but one
+/// row up, inside the footprint itself (docs/design/buildings.md, "TUI"): where the occupant
+/// count draws, since the door tile is outside the building and may have units waiting on it.
+fn front_middle(foot: Footprint) -> Pos {
+    Pos::new(foot.entrance().x, foot.anchor.y + i32::from(foot.h) - 1)
+}
+
+/// Every building with anyone inside, by its front-middle cell, with how many (#226, #229).
+fn occupant_counts(world: &fn_sim::World) -> BTreeMap<Pos, u32> {
+    let mut by_anchor: BTreeMap<Pos, u32> = BTreeMap::new();
+    for unit in &world.units {
+        if let Some(anchor) = unit.inside() {
+            *by_anchor.entry(anchor).or_insert(0) += 1;
+        }
+    }
+    by_anchor
+        .into_iter()
+        .filter_map(|(anchor, n)| world.footprint_at(anchor).map(|foot| (front_middle(foot), n)))
+        .collect()
 }
 
 /// Every tile of the Build tool's ghosts (#212): free unless something is on it, and every tile
@@ -236,7 +268,13 @@ pub fn tile_cell(
         (look.glyph(palette.ascii), look.fg)
     } else if let Some(b) = world.building_at(pos) {
         let look = &g.building[&defs.building(b).id];
-        (look.glyph(palette.ascii), look.fg)
+        match over.occupants.get(&pos) {
+            // The front-middle cell of a building with anyone inside (#226, #229) shows how
+            // many as a digit (`+` above 9), in the building's own colour, in place of its
+            // glyph; `--ascii` draws the same digit, already plain ASCII.
+            Some(&n) if n > 0 => ((if n > 9 { '+' } else { char::from(b'0' + n as u8) }), look.fg),
+            _ => (look.glyph(palette.ascii), look.fg),
+        }
     } else if let Some(&b) = over.sites.get(&pos) {
         // A site is its building, dimmed until it's built.
         let look = &g.building[&defs.building(b).id];
@@ -358,9 +396,11 @@ pub fn draw_map(session: &Session, ui: &UiState, palette: &Palette, area: Rect, 
 #[cfg(test)]
 mod tests {
     use fn_sim::Defs;
+    use fn_sim::building::Building;
     use fn_sim::jobs::ItemId;
 
     use super::*;
+    use crate::color::ColorDepth;
 
     #[test]
     fn every_ability_has_a_highlight_and_the_table_names_only_abilities() {
@@ -398,5 +438,62 @@ mod tests {
         assert_eq!(shape_tiles(Shape::Moved, pos, None), vec![pos], "nothing to carry it to");
         let moved = Moved { to: Pos::new(9, 5), item: ItemId(0), count: 3 };
         assert_eq!(shape_tiles(Shape::Moved, pos, Some(moved)), vec![pos, moved.to]);
+    }
+
+    /// A 2x2 study hall (#226) with both its seats filled draws the digit `2`, in the hall's own
+    /// colour, on its front-middle footprint cell -- not on the door, where neither scholar is
+    /// drawn any more (#229). `--frame` would print the same digit there.
+    #[test]
+    fn a_full_study_hall_shows_its_occupant_count_on_the_front_middle_cell() {
+        use fn_sim::Nation;
+        let mut s = crate::new_session(7, Nation::Earth);
+        let hall = s.defs.building_id("study_hall").unwrap();
+        let passable = s.defs.building(hall).passable;
+        let at = Pos::new(30, 30);
+        for dy in 0..3 {
+            for dx in 0..3 {
+                let t = s.world.map.get_mut(Pos::new(at.x + dx, at.y + dy)).unwrap();
+                t.terrain = Terrain::Land;
+                t.resource = None;
+            }
+        }
+        let foot = Footprint::new(at, 2, 2);
+        for p in foot.tiles() {
+            let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
+            let b = Building { part, size: [2, 2], ..Building::new(hall, passable, false) };
+            s.world.map.get_mut(p).unwrap().building = Some(b);
+        }
+        let door = foot.entrance();
+        s.world.units[0].pos = door;
+        s.world.units[1].pos = door;
+        assert!(s.world.enter_building(0, at, &s.defs));
+        assert!(s.world.enter_building(1, at, &s.defs));
+
+        let mut ui = UiState::new(&s, (120, 40));
+        ui.view = Pos::new(at.x - 2, at.y - 2);
+        let palette = Palette::new(&s.defs, Nation::Earth, ColorDepth::TrueColor, false);
+        let area = Rect::new(0, 0, 10, 10);
+        let mut buf = Buffer::empty(area);
+        draw_map(&s, &ui, &palette, area, &mut buf);
+
+        let count_cell = front_middle(foot);
+        let (col, row) = (count_cell.x - ui.view.x, count_cell.y - ui.view.y);
+        let out = &buf[(area.x + col as u16, area.y + row as u16)];
+        assert_eq!(out.symbol(), "2");
+        let look = &palette.glyphs.building[&s.defs.building(hall).id];
+        assert_eq!(out.fg, palette.color(look.fg));
+        assert_ne!(out.symbol(), &look.glyph(false).to_string(), "not the hall's own glyph there");
+
+        // The door, where the two scholars `pos` still names, shows no one standing on it.
+        let (dc, dr) = (door.x - ui.view.x, door.y - ui.view.y);
+        let door_out = &buf[(area.x + dc as u16, area.y + dr as u16)];
+        assert_ne!(door_out.symbol(), &palette.glyphs.unit.glyph(false).to_string());
+
+        // `--ascii` draws the same digit: it is already plain ASCII.
+        let ascii = Palette::new(&s.defs, Nation::Earth, ColorDepth::TrueColor, true);
+        let mut ascii_buf = Buffer::empty(area);
+        draw_map(&s, &ui, &ascii, area, &mut ascii_buf);
+        let ascii_out = &ascii_buf[(area.x + col as u16, area.y + row as u16)];
+        assert_eq!(ascii_out.symbol(), "2");
     }
 }

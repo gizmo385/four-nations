@@ -311,11 +311,19 @@ impl UiState {
     }
 
     /// `Enter` in Select mode: selects the unit under the cursor; with several there, the next
-    /// one after the selected. Nothing happens on a tile with no unit, which includes one that
-    /// is only there because it's inside a building on its door (#226): `units_at` skips it,
-    /// since it isn't drawn there either.
+    /// one after the selected. On a building's own tile (any of its footprint, not its door)
+    /// with nobody visibly standing there, it cycles the occupants instead (#226, #229), the
+    /// same way, so `Enter` still reaches a scholar sitting inside; the Cursor section lists
+    /// them in the same order (`fn_ui::build::occupant_rows`). Nothing happens with neither.
     pub fn select_here(&mut self, session: &Session) {
-        let here: Vec<UnitId> = session.world.units_at(self.cursor).map(|u| u.id).collect();
+        let world = &session.world;
+        let mut here: Vec<UnitId> = world.units_at(self.cursor).map(|u| u.id).collect();
+        if here.is_empty()
+            && world.building_at(self.cursor).is_some()
+            && let Some(anchor) = world.footprint_at(self.cursor).map(|f| f.anchor)
+        {
+            here = world.occupants(anchor).collect();
+        }
         let next = match here.iter().position(|&id| Some(id) == self.selected) {
             Some(i) => here[(i + 1) % here.len()],
             None => match here.first() {
@@ -505,5 +513,55 @@ mod tests {
         let bed = session.defs.building_id("bed").unwrap();
         ui.choice = Some(bed);
         assert_eq!(ui.tool_hint(&session), "build Bed: Enter to place (U: pick a building)");
+    }
+
+    /// `Enter` on a building's own tile with nobody visibly there cycles its occupants (#226,
+    /// #229), the same way it cycles several units sharing one tile: past the last it wraps
+    /// back to the first.
+    #[test]
+    fn enter_on_a_building_with_nobody_visible_cycles_its_occupants() {
+        use fn_sim::Nation;
+        use fn_sim::building::Building;
+        use fn_sim::geom::Footprint;
+        let mut s = Session::new(7, Nation::Fire, 64, 64);
+        let hall = s.defs.building_id("study_hall").unwrap();
+        let passable = s.defs.building(hall).passable;
+        let at = Pos::new(30, 30);
+        for dy in 0..3 {
+            for dx in 0..3 {
+                let t = s.world.map.get_mut(Pos::new(at.x + dx, at.y + dy)).unwrap();
+                t.terrain = fn_sim::Terrain::Land;
+                t.resource = None;
+            }
+        }
+        let foot = Footprint::new(at, 2, 2);
+        for p in foot.tiles() {
+            let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
+            let b = Building { part, size: [2, 2], ..Building::new(hall, passable, false) };
+            s.world.map.get_mut(p).unwrap().building = Some(b);
+        }
+        let door = foot.entrance();
+        s.world.units[0].pos = door;
+        s.world.units[1].pos = door;
+        let ids = [s.world.units[0].id, s.world.units[1].id];
+        assert!(s.world.enter_building(0, at, &s.defs));
+        assert!(s.world.enter_building(1, at, &s.defs));
+
+        let mut ui = UiState::new(&s, (120, 40));
+        // On the door itself: nobody is visibly there (#226), and it isn't the building's own
+        // tile, so nothing happens.
+        ui.cursor = door;
+        ui.select_here(&s);
+        assert_eq!(ui.selected, None);
+
+        // On a footprint tile: cycles the occupants in id order, same as several units on one
+        // tile would, including wrapping back to none and round again.
+        ui.cursor = at;
+        ui.select_here(&s);
+        assert_eq!(ui.selected, Some(ids[0]));
+        ui.select_here(&s);
+        assert_eq!(ui.selected, Some(ids[1]));
+        ui.select_here(&s);
+        assert_eq!(ui.selected, Some(ids[0]), "wraps back to the first");
     }
 }

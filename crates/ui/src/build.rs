@@ -13,7 +13,7 @@
 
 use fn_sim::building::{BuildingDef, BuildingId};
 use fn_sim::geom::Footprint;
-use fn_sim::world::{Blocker, BuildError, CommandError, DesignateError};
+use fn_sim::world::{Blocker, BuildError, CommandError, DesignateError, Task, Unit, UnitId};
 use fn_sim::{Pos, Terrain};
 
 use crate::session::Session;
@@ -274,6 +274,47 @@ pub fn site_report(session: &Session, pos: Pos) -> Option<SiteReport> {
 pub fn built_name(session: &Session, pos: Pos) -> Option<String> {
     let id = session.world.building_at(pos)?;
     Some(session.defs.building(id).display_name(session.world.nation).to_owned())
+}
+
+/// One line of a building's occupants list (`docs/design/buildings.md`, "Units inside
+/// buildings", #226, #229): the unit and the row that selects it.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct OccupantRow {
+    pub id: UnitId,
+    pub name: String,
+    /// A short, lower-case word for what it's doing inside: "studying" while it holds a study
+    /// seat, "sleeping" once beds are places inside too (#227), "idle" with nothing claimed. A
+    /// need pre-empts a seat by sending the unit out the door first (`world/study.rs`), so an
+    /// occupant is never doing anything else while it's inside.
+    pub task: &'static str,
+}
+
+impl OccupantRow {
+    /// "Mai, studying", for the side panel and the selection bar.
+    pub fn text(&self) -> String {
+        format!("{}, {}", self.name, self.task)
+    }
+}
+
+/// What an occupant's row says it's doing ([`OccupantRow::task`]).
+fn occupant_task(unit: &Unit) -> &'static str {
+    match unit.task() {
+        Some(Task::Study(_)) => "studying",
+        Some(Task::Sleep) => "sleeping",
+        _ => "idle",
+    }
+}
+
+/// The occupants of the building on `pos` (any tile of its footprint), in unit-id order
+/// (`World::occupants`); empty off a building, or on one with nobody inside.
+pub fn occupant_rows(session: &Session, pos: Pos) -> Vec<OccupantRow> {
+    let world = &session.world;
+    let Some(anchor) = world.footprint_at(pos).map(|f| f.anchor) else { return Vec::new() };
+    world
+        .occupants(anchor)
+        .filter_map(|id| world.unit(id))
+        .map(|u| OccupantRow { id: u.id, name: u.name.clone(), task: occupant_task(u) })
+        .collect()
 }
 
 /// What the Build modal's detail pane says about one building (#285): its name for the nation,
@@ -776,5 +817,67 @@ mod tests {
         for p in foot.tiles() {
             assert_eq!(built_name(&s, p).as_deref(), Some("Bed"), "{p:?}");
         }
+    }
+
+    /// A finished study hall (capacity 2, #226) anchored at a clear 3x3 patch, baked onto the map
+    /// directly as `every_tile_of_a_footprint_reports_the_same_site_and_building` does, so the
+    /// test needs no real construction.
+    fn earth_with_a_study_hall() -> (Session, BuildingId, Pos) {
+        let mut s = session(Nation::Earth);
+        let hall = s.defs.building_id("study_hall").unwrap();
+        let passable = s.defs.building(hall).passable;
+        let at = Pos::new(30, 30);
+        for dy in 0..3 {
+            for dx in 0..3 {
+                let t = s.world.map.get_mut(Pos::new(at.x + dx, at.y + dy)).unwrap();
+                t.terrain = Terrain::Land;
+                t.resource = None;
+            }
+        }
+        let foot = Footprint::new(at, 2, 2);
+        let door = foot.entrance();
+        s.world.units.retain(|u| !foot.contains(u.pos) && u.pos != door);
+        for p in foot.tiles() {
+            let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
+            let b = fn_sim::building::Building {
+                part,
+                size: [2, 2],
+                ..fn_sim::building::Building::new(hall, passable, false)
+            };
+            s.world.map.get_mut(p).unwrap().building = Some(b);
+        }
+        (s, hall, at)
+    }
+
+    /// `occupant_rows` (#226, #229): empty with nobody inside, then each occupant in id order,
+    /// reported the same from every tile of the hall's footprint. Nothing claims a study seat
+    /// without #227's jobs yet, so an occupant put inside directly (`World::enter_building`)
+    /// reads "idle"; #227 will make "studying" reachable.
+    #[test]
+    fn occupant_rows_lists_who_is_inside_in_id_order_with_a_short_task() {
+        let (mut s, _, at) = earth_with_a_study_hall();
+        assert_eq!(occupant_rows(&s, at), Vec::new(), "nobody inside yet");
+
+        let door = Footprint::new(at, 2, 2).entrance();
+        s.world.units[0].pos = door;
+        s.world.units[1].pos = door;
+        let names = [s.world.units[0].name.clone(), s.world.units[1].name.clone()];
+        let ids = [s.world.units[0].id, s.world.units[1].id];
+        assert!(s.world.enter_building(0, at, &s.defs));
+        assert!(s.world.enter_building(1, at, &s.defs));
+
+        let rows = occupant_rows(&s, at);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].id, ids[0]);
+        assert_eq!(rows[0].task, "idle");
+        assert_eq!(rows[0].text(), format!("{}, idle", names[0]));
+        assert_eq!(rows[1].text(), format!("{}, idle", names[1]));
+
+        // Every footprint tile names the same occupants (#212).
+        for p in Footprint::new(at, 2, 2).tiles() {
+            assert_eq!(occupant_rows(&s, p), rows, "{p:?}");
+        }
+        // Off the building, or past its door: nothing.
+        assert_eq!(occupant_rows(&s, door), Vec::new());
     }
 }
