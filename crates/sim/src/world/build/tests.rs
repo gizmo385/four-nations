@@ -433,6 +433,9 @@ fn finishing_a_site_bakes_the_building_onto_every_footprint_tile() {
     assert_eq!(w.building_at(at(7, 2)), None);
     assert_eq!(w.buildings().collect::<Vec<_>>(), [(foot, hall)], "listed once");
     assert_eq!(w.build_sites().count(), 0);
+    // Hauling and building both work from the ring and never enter, even though this building
+    // has room inside (#227).
+    assert!(w.units[0].inside().is_none());
 }
 
 /// Sizes are baked onto the tiles and sites when they are placed, never re-derived from the
