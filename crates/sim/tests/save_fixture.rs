@@ -238,6 +238,8 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     "avatar",
     "guest",
     "unhappy_since",
+    // Farm plots (#198): which tiles are plots and what stage each is in.
+    "farm_plots",
 ];
 
 /// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239

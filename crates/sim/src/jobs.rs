@@ -297,6 +297,12 @@ pub enum JobKind {
     /// site (`world/gate.rs`, #236). `task` is its place in `GateSite::tasks`, which saves name
     /// by id. Queued automatically once the task's materials are in.
     EndeavorTask { task: u8 },
+    /// Plant an empty farm plot (`data/buildings.toml`, `[building.farm]`, issue #198), opened
+    /// by `Command::Sow`.
+    Sow { pos: Pos },
+    /// Gather a farm plot's ripe crop (issue #198), queued automatically once it ripens
+    /// (`world/farm.rs`).
+    Reap { pos: Pos },
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

@@ -46,6 +46,10 @@ pub enum Command {
     /// Withdraw the gate's site before work on it starts. Materials delivered drop on the ground
     /// and the endeavor is Ready again.
     CancelEndeavor,
+    /// Plant the empty farm plot on a tile (`data/buildings.toml`, `[building.farm]`, #198).
+    Sow { pos: Pos },
+    /// Withdraw a Sow designation. Work already done on it is lost.
+    CancelSow { pos: Pos },
 }
 
 /// Why a command was refused. The world is unchanged when `apply` returns one of these.
@@ -97,6 +101,8 @@ impl std::fmt::Display for CommandError {
             Self::Designate(DesignateError::AlreadyDesignated) => f.write_str("already designated"),
             Self::Designate(DesignateError::NotDesignated) => f.write_str("not designated"),
             Self::Designate(DesignateError::CannotStockpile) => f.write_str("can't stockpile here"),
+            Self::Designate(DesignateError::NoFarmPlot) => f.write_str("not a farm plot"),
+            Self::Designate(DesignateError::PlotNotEmpty) => f.write_str("plot isn't empty"),
             Self::Research(e) => e.fmt(f),
             Self::Bend(e) => e.fmt(f),
             Self::Build(e) => e.fmt(f),
@@ -136,6 +142,8 @@ impl World {
             Command::CancelBuild { pos } => self.cancel_build(pos, defs)?,
             Command::BeginEndeavor { anchor } => self.begin_endeavor(anchor, defs)?,
             Command::CancelEndeavor => self.cancel_endeavor(defs)?,
+            Command::Sow { pos } => self.designate_sow(pos, defs).map(drop)?,
+            Command::CancelSow { pos } => self.cancel_sow(pos)?,
         }
         self.command_log.push(Recorded { tick: self.tick, command });
         Ok(())

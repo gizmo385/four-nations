@@ -44,6 +44,11 @@
 #             `auto_pick` each planted tree carries a standing harvest order (#81), so its fruit
 #             is picked as it ripens. Which nations can build one is the unlocking tech's
 #             business (data/research.toml), not this section's.
+# - farm:     a farm plot (issue #198, docs/design/research.md, "Farm plots"): empty until a Sow
+#             job (`sow_seconds` of work) plants `crop`, which then grows for `grow_seconds`
+#             (times `crop_growth`, the hook irrigation and terraces will multiply) before a Reap
+#             job (`reap_seconds` of work) gathers `harvest_count` of it and the plot is empty
+#             again.
 # - names:    what each nation calls this building, if it varies. Either all four nations or
 #             none; falls back to `name` for a building that omits it.
 # - art:      which sprite of art/buildings.toml each nation draws it with, if it varies (the study
@@ -322,3 +327,34 @@ verb = "Raise"
 passable = true
 footprint = [4, 4]
 endeavor = true
+
+# --- Farming (shared tier) ---
+# Appended last, though `farming` (data/research.toml) is a tier-0 tech every nation starts
+# able to research: `BuildingId` is this file's position, baked onto every tile a building
+# stands on (`Building::id`), so inserting a new entry anywhere earlier would silently change
+# what an existing save's buildings are read back as. New shared or nation buildings go here
+# from now on, for the same reason.
+
+# Unlocked by `farming` (data/research.toml, shared tier): tilled soil any nation can sow.
+# Empty until a Sow job plants it, then cabbage grows for `grow_seconds` (scaled by
+# `crop_growth`, the hook irrigation and terraces will multiply, docs/design/research.md, "Farm
+# plots") before a Reap job gathers it and it's empty again. One plot nets 3 cabbage every
+# 6 + 240 + 6 = 252 s (about six times a wild tree's 1 cabbage per 480 s), for two short stints
+# of a farmer's time rather than a wild forage's one. Cost and work are a bed's (5 wood, 20 s)
+# halved, since it's only a marked plot of ground, pending a balance pass.
+[[building]]
+id = "farm_plot"
+name = "Farm Plot"
+verb = "Till"
+work = 10.0
+passable = true
+[building.farm]
+crop = "cabbage"
+harvest_count = 3
+sow_seconds = 6.0
+grow_seconds = 240.0
+reap_seconds = 6.0
+crop_growth = 1.0
+[[building.cost]]
+item = "wood"
+count = 2

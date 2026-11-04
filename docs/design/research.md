@@ -422,6 +422,58 @@ orchard. Mockups: `mockups/142/`.
 older saves load unchanged; `World::adopt_orchards` registers an orchard that is already on a
 loaded map, so saves from before this issue start planting. The save version doesn't change.
 
+### Farm plots (#198)
+
+`farming` (shared tier, every nation) unlocks the `farm_plot` building: tilled ground, 1x1 and
+walkable, raised like any other building (`Command::DesignateBuild`). Unlike the orchard, which
+plants and tends itself, a farm plot needs the player's hand twice a cycle, which is the
+difference the design docs asked for between the two foods: the orchard is Air's hands-off
+specialty, farming is everyone's labour-for-food trade.
+
+**The cycle.** A finished plot starts **empty**. `Command::Sow` (the TUI's `G` tool) opens a
+`JobKind::Sow` job: a unit walks onto the plot and works `sow_seconds` (6 s), after which it is
+**growing** for `grow_seconds` (240 s, scaled by `crop_growth` below). Once that runs out it is
+**ripe**, and (like a standing harvest order, #81) a `JobKind::Reap` job queues itself with no
+further order from the player: a unit walks over, works `reap_seconds` (6 s), and `harvest_count`
+(3) cabbage drops on the ground to be hauled off, counting toward the end game's
+`crops_harvested` tally (#233, the "farm crops" sign, #224). The plot is empty again, ready to
+sow once more. `CancelSow` (the Cancel tool, `X`, over a tile with a pending Sow) withdraws an
+unclaimed or claimed Sow job while the plot is still empty; there's no cancelling a Reap; that
+would waste a ripe crop for nothing.
+
+**Which crop.** Cabbage, the one food every nation already knows (wild cabbage needs no tech
+either). `[building.farm]`'s `crop` names the item a plot yields, so a second farm-like
+building (the windmill's grain, #203) is a new building with its own `crop`, not a choice the
+player makes per plot.
+
+**The `crop_growth` hook.** `World::crop_growth_rate(pos, defs)` is the one thing `tick_farms`
+reads to know how fast a growing plot's clock counts down; today it is just the plot's own
+`crop_growth` (1.0), read off the building standing there. Irrigation's channel (#126) and
+Earth's terrace (#136) are buildings with their own reach, so the clean way for each to speed up
+plots nearby is the same pattern `World::tend_rate` already uses for an orchard's trees: scan
+buildings of that kind in range and take the best boost, the same way two orchards in reach of
+one tree don't stack. Nothing in `tick_farms` needs to change for that; `crop_growth_rate` is the
+one line to touch.
+
+**Balance.** A plot nets 3 cabbage every 6 + 240 + 6 = 252 s, about six times a wild cabbage tile
+(1 per 480 s), for two short stints of a farmer's time rather than a forage's one: the point of
+researching `farming` at all. Cost and work (2 wood, 10 s) are a bed's halved, since a plot is
+only marked ground, not a structure; revisit with a real balance pass once irrigation and
+terraces give it a ceiling worth tuning against.
+
+**What the player sees.** The TUI draws a plot's own glyph (`≡`/`~`) while empty, and overrides
+it with `overlay.plot_growing` (`·`/`,`) or `overlay.plot_ripe` (`✶`/`*`) while growing or ripe,
+the same way a sapling overrides a resource's glyph. The inspector's tooltip says "Growing, ripe
+in 3m 20s" or "Ripe" for a plot, next to its "Built" line. A placeholder; real pixel art (and the
+client's own rendering, since the client takes no new player-facing work per #283) is a
+follow-up if the client keeps farm plots at all.
+
+**Saves.** New world state (`farm_plots`) is `#[serde(default)]`; `World::adopt_farm_plots`
+registers a farm plot that is already on a loaded map, mirroring `adopt_orchards`. `farm_plot` is
+appended at the end of `data/buildings.toml` rather than filed under its shared-tier section,
+since `BuildingId` is file position and an existing save's buildings are read back by it: an
+earlier insertion would have silently renamed them.
+
 ## Data schema: `data/research.toml`
 
 ```toml

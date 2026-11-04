@@ -380,6 +380,13 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
         let plants = &session.defs.resource(orchard.plants).name;
         effects.push(format!("Tends up to {} {plants} trees nearby", orchard.max_trees));
     }
+    if let Some(farm) = &def.farm {
+        let crop = &session.defs.item(farm.crop).name;
+        effects.push(format!(
+            "Sow ({:.0}s), grows {crop} ({:.0}s), yields {} on reap ({:.0}s)",
+            farm.sow_seconds, farm.grow_seconds, farm.harvest_count, farm.reap_seconds
+        ));
+    }
     if effects.is_empty() {
         effects.push("Nothing beyond shelter".to_owned());
     }

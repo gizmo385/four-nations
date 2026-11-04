@@ -114,6 +114,10 @@ pub struct Overlays {
     pub flame: OverlayGlyph,
     /// A fruit tree an orchard planted that hasn't borne fruit yet (#142).
     pub sapling: OverlayGlyph,
+    /// A farm plot that has been sown and hasn't ripened yet (#198).
+    pub plot_growing: OverlayGlyph,
+    /// A farm plot ripe for reaping (#198).
+    pub plot_ripe: OverlayGlyph,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -197,6 +201,16 @@ mod tests {
         out.push(("unit".into(), g.unit.glyph, g.unit.ascii));
         out.push(("overlay.flame".into(), g.overlay.flame.glyph, g.overlay.flame.ascii));
         out.push(("overlay.sapling".into(), g.overlay.sapling.glyph, g.overlay.sapling.ascii));
+        out.push((
+            "overlay.plot_growing".into(),
+            g.overlay.plot_growing.glyph,
+            g.overlay.plot_growing.ascii,
+        ));
+        out.push((
+            "overlay.plot_ripe".into(),
+            g.overlay.plot_ripe.glyph,
+            g.overlay.plot_ripe.ascii,
+        ));
         for mask in 1..=15u8 {
             out.push((
                 format!("rail_track[{mask}]"),

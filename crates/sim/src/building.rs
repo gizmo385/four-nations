@@ -22,6 +22,11 @@
 //! - `orchard` makes it a grove-keeper (issue #142): it plants and tends renewable trees around
 //!   itself (`world/orchard.rs`). Every number is on `OrchardDef`.
 //!
+//! - `farm` makes it a farm plot (issue #198): empty until a `JobKind::Sow` job plants it, then
+//!   it grows `grow_seconds` (scaled by `World::crop_growth_rate`, the hook irrigation and
+//!   terraces will scale) before a `JobKind::Reap` job gathers its crop and it's empty again.
+//!   The rules are in `world/farm.rs`; every number is on `FarmDef`.
+//!
 //! - `endeavor` marks the end game's great work (the Harmony Gate, #236): it is never designated
 //!   from the build picker. The Endeavor screen places it (`Command::BeginEndeavor`) and its
 //!   stages in `data/endeavor.toml` carry its cost and work instead (`world/gate.rs`).
@@ -174,6 +179,26 @@ pub struct CostItem {
     pub count: u32,
 }
 
+/// A building that grows a crop once sown (`[building.farm]`, issue #198). The rules are in
+/// `world/farm.rs`; the design is in docs/design/research.md ("Farm plots").
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FarmDef {
+    /// What a harvest yields (cabbage to start).
+    pub crop: ItemId,
+    /// How many of `crop` one harvest yields.
+    pub harvest_count: u32,
+    /// In-game seconds of work to plant an empty plot (`JobKind::Sow`).
+    pub sow_seconds: f32,
+    /// In-game seconds from planting to ripe, at a `crop_growth` of 1.0.
+    pub grow_seconds: f32,
+    /// In-game seconds of work to gather a ripe plot (`JobKind::Reap`).
+    pub reap_seconds: f32,
+    /// How many times faster than `grow_seconds` the crop grows: the hook irrigation (#126) and
+    /// terraces (#136) will scale, the same way an orchard's `tend_boost` speeds up a tree
+    /// (`World::crop_growth_rate`). 1.0 for the plain plot.
+    pub crop_growth: f32,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct BuildingDef {
     pub id: String,
@@ -211,6 +236,8 @@ pub struct BuildingDef {
     pub rail: Option<RailDef>,
     /// Set if this plants and tends trees around itself (issue #142).
     pub orchard: Option<OrchardDef>,
+    /// Set if this is a farm plot: empty until sown, then grows a crop to harvest (issue #198).
+    pub farm: Option<FarmDef>,
     /// What each nation calls this building, if it varies (e.g. the study hall: Meditation
     /// Pavilion for Air). Empty when every nation uses the plain `name`. If set at all, every
     /// nation has an entry (`display_name` is the one place that matters).
@@ -287,6 +314,17 @@ struct RawOrchard {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawFarm {
+    crop: String,
+    harvest_count: u32,
+    sow_seconds: f32,
+    grow_seconds: f32,
+    reap_seconds: f32,
+    crop_growth: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawBuilding {
     id: String,
     name: String,
@@ -308,6 +346,7 @@ struct RawBuilding {
     heat: Option<RawHeat>,
     rail: Option<RawRail>,
     orchard: Option<RawOrchard>,
+    farm: Option<RawFarm>,
     #[serde(default)]
     names: HashMap<Nation, String>,
     #[serde(default)]
@@ -436,6 +475,10 @@ impl BuildingsFile {
                 None => None,
                 Some(o) => Some(resolve_orchard(&b.id, o, resources)?),
             };
+            let farm = match &b.farm {
+                None => None,
+                Some(f) => Some(resolve_farm(&b.id, f, items)?),
+            };
             for (nation, name) in &b.names {
                 if name.trim().is_empty() {
                     return err(format!(
@@ -463,6 +506,7 @@ impl BuildingsFile {
                 }),
                 rail: b.rail.map(|d| RailDef { speed: d.speed }),
                 orchard,
+                farm,
                 names: b.names,
                 art: b.art,
                 unlocked_by: None,
@@ -507,6 +551,32 @@ fn resolve_orchard(
         tend_boost: o.tend_boost,
         spacing: o.spacing,
         auto_pick: o.auto_pick,
+    })
+}
+
+/// Checks a `[building.farm]` and links its crop item.
+fn resolve_farm(building: &str, f: &RawFarm, items: &[ItemDef]) -> Result<FarmDef, DefsError> {
+    let err = |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: {msg}")));
+    let Some(crop) = items.iter().position(|i| i.id == f.crop) else {
+        return err(&format!("farm crop is unknown item {:?}", f.crop));
+    };
+    if f.harvest_count == 0 {
+        return err("farm harvest_count must be at least 1");
+    }
+    let seconds_ok = |x: f32| x.is_finite() && x > 0.0;
+    if !(seconds_ok(f.sow_seconds) && seconds_ok(f.grow_seconds) && seconds_ok(f.reap_seconds)) {
+        return err("farm sow_seconds, grow_seconds and reap_seconds must be positive numbers");
+    }
+    if !(f.crop_growth.is_finite() && f.crop_growth > 0.0) {
+        return err("farm crop_growth must be a positive number");
+    }
+    Ok(FarmDef {
+        crop: ItemId(crop as u16),
+        harvest_count: f.harvest_count,
+        sow_seconds: f.sow_seconds,
+        grow_seconds: f.grow_seconds,
+        reap_seconds: f.reap_seconds,
+        crop_growth: f.crop_growth,
     })
 }
 
@@ -749,6 +819,41 @@ mod tests {
         assert!(bad("spacing = 2", "spacing = 0").contains("spacing"));
         assert!(bad("spacing = 2", "spacing = 5").contains("spacing"));
         assert!(bad("\"fruit_tree\"", "\"nothing\"").contains("unknown resource"));
+    }
+
+    #[test]
+    fn the_farm_plot_is_data() {
+        let defs = Defs::bundled();
+        let def = defs.building(defs.building_id("farm_plot").unwrap());
+        let f = def.farm.expect("a farm plot grows a crop");
+        assert_eq!(defs.item(f.crop).id, "cabbage");
+        assert!(f.harvest_count > 0);
+        assert!(f.sow_seconds > 0.0 && f.grow_seconds > 0.0 && f.reap_seconds > 0.0);
+        assert_eq!(f.crop_growth, 1.0);
+        assert!(def.passable, "units walk through a farm plot");
+        // Only the farm plot grows a crop.
+        assert_eq!(defs.buildings.iter().filter(|b| b.farm.is_some()).count(), 1);
+    }
+
+    #[test]
+    fn farm_numbers_are_validated() {
+        let one = |extra: &str| {
+            format!(
+                "[[building]]\nid = \"plot\"\nname = \"Plot\"\nverb = \"Till\"\nwork = 1.0\n\
+                 passable = true\n[building.farm]\ncrop = \"cabbage\"\nharvest_count = 3\n\
+                 sow_seconds = 6.0\ngrow_seconds = 300.0\nreap_seconds = 5.0\n\
+                 crop_growth = 1.0\n{extra}"
+            )
+        };
+        resolve(&one("")).unwrap();
+        let bad = |from: &str, to: &str| resolve(&one("").replacen(from, to, 1)).unwrap_err().0;
+        assert!(bad("harvest_count = 3", "harvest_count = 0").contains("harvest_count"));
+        assert!(bad("sow_seconds = 6.0", "sow_seconds = 0.0").contains("positive"));
+        assert!(bad("grow_seconds = 300.0", "grow_seconds = -1.0").contains("positive"));
+        assert!(bad("reap_seconds = 5.0", "reap_seconds = 0.0").contains("positive"));
+        assert!(bad("crop_growth = 1.0", "crop_growth = 0.0").contains("crop_growth"));
+        assert!(bad("crop_growth = 1.0", "crop_growth = -1.0").contains("crop_growth"));
+        assert!(bad("\"cabbage\"", "\"nothing\"").contains("unknown item"));
     }
 
     fn resolve(toml: &str) -> Result<Vec<BuildingDef>, DefsError> {

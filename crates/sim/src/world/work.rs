@@ -93,6 +93,10 @@ pub enum Task {
     Study(JobId),
     /// Doing one of the endeavor gate's tasks (`world/gate.rs`, #236).
     Endeavor(JobId),
+    /// Planting an empty farm plot (`world/farm.rs`, #198).
+    Sow(JobId),
+    /// Gathering a farm plot's ripe crop (`world/farm.rs`, #198).
+    Reap(JobId),
     /// Carrying a stack to a stockpile tile.
     Deliver,
     Eat(FoodSource),
@@ -113,6 +117,10 @@ pub enum DesignateError {
     NotDesignated,
     /// Stockpiles need a walkable tile with nothing on it.
     CannotStockpile,
+    /// There is no farm plot on that tile (`Command::Sow`, #198).
+    NoFarmPlot,
+    /// The farm plot on that tile isn't empty: it's already sown, growing or ripe.
+    PlotNotEmpty,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -175,7 +183,9 @@ impl World {
                 | JobKind::Bend { .. }
                 | JobKind::Build { .. }
                 | JobKind::Study { .. }
-                | JobKind::EndeavorTask { .. } => None,
+                | JobKind::EndeavorTask { .. }
+                | JobKind::Sow { .. }
+                | JobKind::Reap { .. } => None,
             })
             .chain(self.standing_harvest.iter().copied())
     }
@@ -497,7 +507,7 @@ impl World {
     /// Drops unclaimed jobs whose target has gone: a tree someone else cleared, a stack that was
     /// eaten.
     fn prune_jobs(&mut self, defs: &Defs) {
-        let (map, ground, sites) = (&self.map, &self.ground, &self.sites);
+        let (map, ground, sites, plots) = (&self.map, &self.ground, &self.sites, &self.farm_plots);
         self.jobs.retain(|j| {
             j.claimed_by.is_some()
                 || match j.kind {
@@ -514,6 +524,14 @@ impl World {
                     JobKind::Study { pos } => map[pos].building.is_some(),
                     // The gate drops its own task jobs when it moves on (`gate.rs`).
                     JobKind::EndeavorTask { .. } => true,
+                    // Moot if the plot is gone (no demolish yet, so only a hand-edited map) or
+                    // moved past the stage this job was for.
+                    JobKind::Sow { pos } => {
+                        plots.get(&pos).is_some_and(|p| p.stage == PlotStage::Empty)
+                    }
+                    JobKind::Reap { pos } => {
+                        plots.get(&pos).is_some_and(|p| p.stage == PlotStage::Ripe)
+                    }
                 }
         });
         // A standing order (#81) outlives its job (which disappears between harvests while the
@@ -1028,6 +1046,8 @@ impl World {
                         | JobKind::Haul { .. }
                         | JobKind::Build { .. }
                         | JobKind::Study { .. }
+                        | JobKind::Sow { .. }
+                        | JobKind::Reap { .. }
                 )
             {
                 continue;
@@ -1036,6 +1056,12 @@ impl World {
                 JobKind::Harvest { pos } => {
                     self.ripe_harvest(pos, defs).and_then(|_| self.stand_tile(&flood, pos))
                 }
+                JobKind::Sow { pos } => (self.plot_stage(pos) == Some(PlotStage::Empty))
+                    .then(|| self.stand_building(&flood, pos, defs))
+                    .flatten(),
+                JobKind::Reap { pos } => (self.plot_stage(pos) == Some(PlotStage::Ripe))
+                    .then(|| self.stand_building(&flood, pos, defs))
+                    .flatten(),
                 JobKind::Haul { pos } => {
                     let item = self.ground[&pos].item;
                     let room = match room_cache.iter().find(|(it, _)| *it == item) {
@@ -1093,6 +1119,8 @@ impl World {
             JobKind::Build { .. } => Task::Build(job.id),
             JobKind::Study { .. } => Task::Study(job.id),
             JobKind::EndeavorTask { .. } => Task::Endeavor(job.id),
+            JobKind::Sow { .. } => Task::Sow(job.id),
+            JobKind::Reap { .. } => Task::Reap(job.id),
         };
         let u = &mut self.units[i];
         u.job_task = Some(task);
@@ -1121,11 +1149,13 @@ impl World {
         let can_stand_building = |pos: Pos| can_stand_in(self.work_area(pos, defs));
         let is_avatar = self.units[i].is_avatar();
         self.jobs.iter().filter(|j| j.claimed_by.is_none()).any(|job| match job.kind {
-            // The Avatar never hauls, builds, studies or harvests (#237).
+            // The Avatar never hauls, builds, studies, harvests, sows or reaps (#237).
             JobKind::Harvest { .. }
             | JobKind::Haul { .. }
             | JobKind::Build { .. }
             | JobKind::Study { .. }
+            | JobKind::Sow { .. }
+            | JobKind::Reap { .. }
                 if is_avatar =>
             {
                 false
@@ -1149,6 +1179,12 @@ impl World {
                 self.gate_task(task, defs).is_some_and(|(def, anchor)| {
                     self.unit_can_raise(i, def) && can_stand_building(anchor)
                 })
+            }
+            JobKind::Sow { pos } => {
+                self.plot_stage(pos) == Some(PlotStage::Empty) && can_stand_building(pos)
+            }
+            JobKind::Reap { pos } => {
+                self.plot_stage(pos) == Some(PlotStage::Ripe) && can_stand_building(pos)
             }
         })
     }
@@ -1204,6 +1240,8 @@ impl World {
             Task::Build(id) => self.run_build(i, id, defs),
             Task::Study(id) => self.run_study(i, id, defs),
             Task::Endeavor(id) => self.run_gate_task(i, id, defs),
+            Task::Sow(id) => self.run_sow(i, id, defs),
+            Task::Reap(id) => self.run_reap(i, id, defs),
             Task::Deliver => self.run_deliver(i, defs),
             // Need tasks never sit in the job slot.
             _ => self.finish_job(i),
@@ -1369,7 +1407,9 @@ fn job_priority(kind: JobKind) -> u8 {
         | JobKind::Haul { .. }
         | JobKind::Bend { .. }
         | JobKind::Build { .. }
-        | JobKind::EndeavorTask { .. } => 0,
+        | JobKind::EndeavorTask { .. }
+        | JobKind::Sow { .. }
+        | JobKind::Reap { .. } => 0,
     }
 }
 

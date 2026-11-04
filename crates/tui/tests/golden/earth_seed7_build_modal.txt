@@ -14,7 +14,7 @@
 "♠♠♠♠♠♠♠♠♠♠│   Scroll L… 10 Wood, 2x2                                       │♠""♠"√√√√~√│ No target set        3.0/min │
 "♠"♠♠♠♠♠♠♠♠│   Earth Wall      Locked  5 Wood (0 in stores)                 │"""""♠♣√~√√│ 0 pts banked                 │
 "♠♠""♠♠♠...│   Rail            Locked                                       │.♠""♠√√~√√♠│                              │
-"♠√♠♠♠♠..≈≈│                           Bed: sleeps 1.4x faster, sought      │."♠♠♠τ~√√♠♠│ ◇ MODIFIERS                  │
+"♠√♠♠♠♠..≈≈│   Farm Plot       Locked  Bed: sleeps 1.4x faster, sought      │."♠♠♠τ~√√♠♠│ ◇ MODIFIERS                  │
 "♣♣~"♠♠.≈≈≈│                           within 30 tiles                      │.♠♠♠♠~♠♠♠"♠│ Move speed              x0.9 │
 ..~."...≈≈≈│                                                                │~~"~~""""♠♠│ Carry capacity          x1.3 │
 .≈≈...≈≈ƒ≈≈│                                                                │♠"~""♠¥"♠♠♠│ Earthworks              x2.5 │

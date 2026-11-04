@@ -1122,6 +1122,58 @@ fn an_orchards_sapling_has_its_own_glyph() {
     }
 }
 
+/// A farm plot draws its own glyph while empty, the sim's `overlay.plot_growing` once sown and
+/// `overlay.plot_ripe` once it ripens (#198).
+#[test]
+fn a_farm_plot_shows_its_growing_and_ripe_glyphs() {
+    let mut s = Session::new(1, Nation::Earth, 48, 32);
+    let plot = Pos::new(s.world.units[0].pos.x + 2, s.world.units[0].pos.y);
+    let id = s.defs.building_id("farm_plot").unwrap();
+    let passable = s.defs.building(id).passable;
+    s.world.map.get_mut(plot).unwrap().building =
+        Some(fn_sim::building::Building::new(id, passable, false));
+    s.world.adopt_farm_plots(&s.defs);
+    s.apply(Command::Sow { pos: plot }).unwrap();
+
+    let mut app = App::new(s, SIZE);
+    app.ui.cursor = Pos::new(plot.x, if plot.y > 0 { plot.y - 1 } else { 1 });
+    let empty = |app: &App| !app.session.world.units.iter().any(|u| u.pos == plot);
+    for _ in 0..3000 {
+        if app.session.world.plot_stage(plot) == Some(fn_sim::world::PlotStage::Growing)
+            && empty(&app)
+        {
+            break;
+        }
+        app.session.tick_n(10);
+    }
+    assert_eq!(app.session.world.plot_stage(plot), Some(fn_sim::world::PlotStage::Growing));
+    assert!(empty(&app), "no unit should be standing on the plot between jobs");
+    for ascii in [false, true] {
+        let p = palette(&app.session, ColorDepth::TrueColor, ascii);
+        let buf = frame(&mut app, ColorDepth::TrueColor, ascii, SIZE);
+        let look = &p.glyphs.overlay.plot_growing;
+        let cell = cell_at(&app, &buf, plot);
+        assert_eq!(cell.symbol(), look.glyph(ascii).to_string());
+        assert_eq!(cell.fg, Color::Rgb(look.fg[0], look.fg[1], look.fg[2]));
+    }
+
+    for _ in 0..6000 {
+        if app.session.world.plot_stage(plot) == Some(fn_sim::world::PlotStage::Ripe) && empty(&app)
+        {
+            break;
+        }
+        app.session.tick_n(1);
+    }
+    assert_eq!(app.session.world.plot_stage(plot), Some(fn_sim::world::PlotStage::Ripe));
+    assert!(empty(&app), "no unit should be standing on the plot while it's ripe");
+    let p = palette(&app.session, ColorDepth::TrueColor, false);
+    let buf = frame(&mut app, ColorDepth::TrueColor, false, SIZE);
+    let look = &p.glyphs.overlay.plot_ripe;
+    let cell = cell_at(&app, &buf, plot);
+    assert_eq!(cell.symbol(), look.glyph(false).to_string());
+    assert_eq!(cell.fg, Color::Rgb(look.fg[0], look.fg[1], look.fg[2]));
+}
+
 /// A wet patch (Water the Land) is a dark mud background under whatever else is on the tile.
 #[test]
 fn a_wet_patch_is_a_mud_background() {
