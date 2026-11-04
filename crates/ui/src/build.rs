@@ -68,11 +68,16 @@ pub fn anchor_for(cursor: Pos, footprint: (u8, u8)) -> Pos {
 #[derive(Clone, PartialEq, Debug)]
 pub struct Placement {
     pub footprint: Footprint,
-    /// Every footprint tile, row-major, with what blocks it (`World::build_blocker`).
+    /// Every footprint tile, row-major, with what blocks it (`World::build_blocker`, plus
+    /// `Blocker::Entrance` for a tile that would bury another building's door, #230).
     pub tiles: Vec<(Pos, Option<Blocker>)>,
     /// Why designating it would be refused, if it would: the tech it still needs, else the
     /// first blocked tile (`World::check_build`).
     pub refused: Option<BuildError>,
+    /// The footprint's own door (`Footprint::entrance`) and whether it's free to use, if the
+    /// building can be entered (`BuildingDef::capacity` above 0, #226). `None` for one that
+    /// can't, like a wall or a bed: it has no door for the ghost to mark (#230).
+    pub entrance: Option<(Pos, bool)>,
 }
 
 impl Placement {
@@ -90,11 +95,23 @@ pub fn placement(session: &Session, cursor: Pos, building: BuildingId) -> Placem
 /// The placement of `building` with its anchor (top-left tile) on `anchor`.
 pub fn placement_at(session: &Session, anchor: Pos, building: BuildingId) -> Placement {
     let world = &session.world;
-    let (w, h) = session.defs.building(building).footprint;
+    let defs = &session.defs;
+    let def = defs.building(building);
+    let (w, h) = def.footprint;
     let footprint = Footprint::new(anchor, w, h);
-    let tiles = footprint.tiles().map(|p| (p, world.build_blocker(p))).collect();
-    let refused = world.check_build(anchor, building, &session.defs).err();
-    Placement { footprint, tiles, refused }
+    let tiles = footprint
+        .tiles()
+        .map(|p| {
+            let blocker = world
+                .build_blocker(p)
+                .or_else(|| world.door_owner(p, defs).is_some().then_some(Blocker::Entrance));
+            (p, blocker)
+        })
+        .collect();
+    let refused = world.check_build(anchor, building, defs).err();
+    let entrance = (def.capacity > 0)
+        .then(|| (footprint.entrance(), world.door_walkable(footprint.entrance())));
+    Placement { footprint, tiles, refused, entrance }
 }
 
 /// The ghosts the Build tool shows (#212): with no corner set, the one placement under the
@@ -143,9 +160,18 @@ fn describe_blocker(session: &Session, at: Pos, why: Blocker) -> String {
             None => why.to_string(),
         },
         Blocker::OffMap => why.to_string(),
-        // "blocks a door": another building's entrance (#226), or this footprint's own door
-        // isn't walkable. Either way `Blocker::Display` already says enough for a notice.
-        Blocker::Entrance => why.to_string(),
+        // Either `at` covers another building's or site's door (#226), named here so the
+        // Cursor line reads "would block the Academy's door" (#230), or it's this footprint's
+        // own door and isn't walkable, which `Blocker::Display` already says enough about.
+        Blocker::Entrance => match world.door_owner(at, &session.defs) {
+            Some(b) => {
+                format!(
+                    "would block {}'s door",
+                    session.defs.building(b).display_name(world.nation)
+                )
+            }
+            None => why.to_string(),
+        },
     }
 }
 
@@ -609,6 +635,66 @@ mod tests {
         let campfire = s.defs.building_id("campfire").unwrap();
         let locked = placement(&s, Pos::new(at.x + 5, at.y), campfire);
         assert!(matches!(locked.refused, Some(BuildError::NotResearched(_))));
+    }
+
+    /// Earth's study hall (2x2, capacity 2 since seats defaults the door, #226) and a clear 3x3
+    /// patch at the returned tile, which also clears the ring row below it where its door
+    /// (`Footprint::entrance`) lands.
+    fn earth_with_clear_hall_site() -> (Session, BuildingId, Pos) {
+        let mut s = session(Nation::Earth);
+        let hall = s.defs.building_id("study_hall").unwrap();
+        let at = Pos::new(40, 40);
+        for dy in 0..3 {
+            for dx in 0..3 {
+                let t = s.world.map.get_mut(Pos::new(at.x + dx, at.y + dy)).unwrap();
+                t.terrain = Terrain::Land;
+                t.resource = None;
+            }
+        }
+        (s, hall, at)
+    }
+
+    /// #230: the ghost names a capacity-above-0 building's own door and whether it's free, and
+    /// marks nothing for one that can't be entered at all.
+    #[test]
+    fn a_placement_names_its_own_door_and_whether_it_is_free() {
+        let (mut s, hall, at) = earth_with_clear_hall_site();
+        let door = Footprint::new(at, 2, 2).entrance();
+        let free = placement(&s, at, hall);
+        assert_eq!(free.entrance, Some((door, true)));
+
+        // A resource on the door tile makes it unwalkable, so the ghost would mark it blocked,
+        // and the whole placement is refused for it.
+        let oak = s.defs.resource_id("oak_tree").unwrap();
+        s.world.map.get_mut(door).unwrap().resource = Some(oak);
+        let blocked = placement(&s, at, hall);
+        assert_eq!(blocked.entrance, Some((door, false)));
+        assert_eq!(
+            blocked.refused,
+            Some(BuildError::CannotBuild { at: door, why: Blocker::Entrance })
+        );
+
+        // A bed has no capacity, so no door to mark.
+        let bed = s.defs.building_id("bed").unwrap();
+        assert_eq!(placement(&s, at, bed).entrance, None);
+    }
+
+    /// #230: a footprint that would cover another building's door is refused for that tile, in
+    /// red like any other blocked tile, and the Cursor line names whose door it would block.
+    #[test]
+    fn a_placement_marks_a_tile_that_would_cover_another_buildings_door() {
+        let (mut s, hall, at) = earth_with_clear_hall_site();
+        s.apply(Command::DesignateBuild { pos: at, building: hall }).unwrap();
+        let door = Footprint::new(at, 2, 2).entrance();
+
+        let bed = s.defs.building_id("bed").unwrap();
+        let on_door = placement(&s, door, bed);
+        assert_eq!(on_door.tiles, vec![(door, Some(Blocker::Entrance))]);
+        let err = CommandError::Build(on_door.refused.expect("refused"));
+        assert_eq!(
+            describe_error(&s, err),
+            format!("would block {}'s door", s.defs.building(hall).display_name(Nation::Earth))
+        );
     }
 
     #[test]

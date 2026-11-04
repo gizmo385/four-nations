@@ -298,6 +298,26 @@ impl World {
             .or_else(|| self.entrance_blocker(foot, def.capacity > 0, defs))
     }
 
+    /// Whether `pos` could hold a door: walkable the way a unit stepping through one needs
+    /// (`entrance_blocker`'s own check). The frontends' placement ghost (#230) uses this to
+    /// colour a footprint's own entrance tile without duplicating `rules`, which is private.
+    pub fn door_walkable(&self, pos: Pos) -> bool {
+        self.map.get(pos).is_some_and(|t| self.rules.passable(t))
+    }
+
+    /// The building whose door is at `pos`, if any: a finished building or an unfinished site,
+    /// so long as it can be entered (`BuildingDef::capacity` above 0; walls, beds and campfires
+    /// have no door and never answer here). `entrance_blocker` uses this to refuse a footprint
+    /// that would cover it; the frontends (#230) use it to name whose door a refused placement
+    /// would block.
+    pub fn door_owner(&self, pos: Pos, defs: &Defs) -> Option<BuildingId> {
+        let door =
+            |f: Footprint, b: BuildingId| (defs.building(b).capacity > 0).then(|| f.entrance());
+        self.buildings().find_map(|(f, b)| (door(f, b) == Some(pos)).then_some(b)).or_else(|| {
+            self.build_sites().find_map(|(f, b, _)| (door(f, b) == Some(pos)).then_some(b))
+        })
+    }
+
     /// Why `foot`'s door can't be placed, if anything (#226): it has a door (`has_door`, a
     /// capacity above 0) that isn't walkable, or the footprint would cover a door another finished
     /// building or site already has. Only buildings that can be entered have doors, so walls,
@@ -310,16 +330,10 @@ impl World {
         defs: &Defs,
     ) -> Option<(Pos, Blocker)> {
         let entrance = foot.entrance();
-        if has_door && !self.map.get(entrance).is_some_and(|t| self.rules.passable(t)) {
+        if has_door && !self.door_walkable(entrance) {
             return Some((entrance, Blocker::Entrance));
         }
-        let door =
-            |f: Footprint, b: BuildingId| (defs.building(b).capacity > 0).then(|| f.entrance());
-        let taken = |p: Pos| {
-            self.buildings().any(|(f, b)| door(f, b) == Some(p))
-                || self.build_sites().any(|(f, b, _)| door(f, b) == Some(p))
-        };
-        foot.tiles().find(|&p| taken(p)).map(|p| (p, Blocker::Entrance))
+        foot.tiles().find(|&p| self.door_owner(p, defs).is_some()).map(|p| (p, Blocker::Entrance))
     }
 
     /// Designates a building with its anchor on `pos`: the whole footprint, or nothing.

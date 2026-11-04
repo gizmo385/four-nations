@@ -3,11 +3,11 @@
 //!
 //! * Glyph: unit > the Build tool's ghost (#212) > building or build site > item stack (ground
 //!   or stored) > lit flame > resource > terrain or biome.
-//! * Background: cursor > the Build tool's ghost (#212), green where the building fits and red
-//!   where something is in the way > the rectangle being dragged (#98), in its tool's hue >
-//!   designation tint (harvest, bend, build, stockpile) and the cast highlight share that tint >
-//!   wet patch > an aura carrier's own warmth > the warmth of the flame or aura under the cursor >
-//!   terrain or biome.
+//! * Background: cursor > a ghost's own door tile (#230), amber free or red blocked > the Build
+//!   tool's ghost (#212), green where the building fits and red where something is in the way >
+//!   the rectangle being dragged (#98), in its tool's hue > designation tint (harvest, bend,
+//!   build, stockpile) and the cast highlight share that tint > wet patch > an aura carrier's own
+//!   warmth > the warmth of the flame or aura under the cursor > terrain or biome.
 //!
 //! A building or a site covers its whole footprint (#196, docs/design/buildings.md, "TUI"), so a
 //! 2x2 forge is a 2x2 block of its glyph, and so is its ghost.
@@ -26,6 +26,7 @@ use fn_sim::jobs::Stack;
 use fn_sim::world::{BendOutcome, Moved, TICKS_PER_SECOND};
 use fn_sim::{Pos, Terrain};
 use fn_ui::Session;
+use fn_ui::build::Placement;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
@@ -114,6 +115,9 @@ pub struct Overlays {
     /// Every tile of the Build tool's ghosts, with the building and whether it can go there
     /// (#212).
     ghost: BTreeMap<Pos, (BuildingId, bool)>,
+    /// Each ghost's own door tile, and whether it's free to use (#230). Keyed on position like
+    /// `ghost`, so a drag's later stamps win where two doors would land on the same tile.
+    door: BTreeMap<Pos, bool>,
     flames: BTreeSet<Pos>,
     wet: BTreeSet<Pos>,
     /// Tiles a bend changed lately: flash the nation's accent (#278).
@@ -130,6 +134,7 @@ impl Overlays {
         let world = &session.world;
         let flames = world.flames();
         let glows = world.glows();
+        let ghosts = ui.ghosts(session);
         Self {
             units: world.units.iter().map(|u| u.pos).collect(),
             selected: ui.selected_unit(session).map(|u| u.pos),
@@ -141,7 +146,8 @@ impl Overlays {
                 .build_sites()
                 .flat_map(|(f, b, _)| f.tiles().map(move |p| (p, b)))
                 .collect(),
-            ghost: ghost_tiles(session, ui),
+            ghost: ghost_tiles(ui.ghost_building(session), &ghosts),
+            door: door_tiles(&ghosts),
             flames: flames.iter().map(|f| f.pos).collect(),
             wet: world.wet_tiles().into_iter().map(|(p, _)| p).collect(),
             cast: cast_highlights(session),
@@ -162,16 +168,25 @@ impl Overlays {
 
 /// Every tile of the Build tool's ghosts (#212): free unless something is on it, and every tile
 /// of a ghost refused as a whole (its tech, say) is blocked too, so a red tile always means the
-/// click there would be refused.
-fn ghost_tiles(session: &Session, ui: &UiState) -> BTreeMap<Pos, (BuildingId, bool)> {
-    let ghosts = ui.ghosts(session);
-    let Some(building) = ui.ghost_building(session) else { return BTreeMap::new() };
+/// click there would be refused. `None` outside the Build tool, or with nothing placeable yet.
+fn ghost_tiles(
+    building: Option<BuildingId>,
+    ghosts: &[Placement],
+) -> BTreeMap<Pos, (BuildingId, bool)> {
+    let Some(building) = building else { return BTreeMap::new() };
     let mut tiles = BTreeMap::new();
     for g in ghosts {
         let whole = g.refused.is_some() && g.tiles.iter().all(|(_, b)| b.is_none());
         tiles.extend(g.tiles.iter().map(|&(p, b)| (p, (building, b.is_none() && !whole))));
     }
     tiles
+}
+
+/// Each ghost's own door tile (#230, `Placement::entrance`), for a building that has one
+/// (`BuildingDef::capacity` above 0): amber where it's free, red where it's blocked -- another
+/// building's door already there, or the tile isn't walkable.
+fn door_tiles(ghosts: &[Placement]) -> BTreeMap<Pos, bool> {
+    ghosts.iter().filter_map(|g| g.entrance).collect()
 }
 
 /// How one tile draws: its glyph and style.
@@ -281,14 +296,20 @@ pub fn tile_cell(
     // The Build tool's ghost (#212), green where the building fits and red where it doesn't,
     // outranks everything below it: it has to read clearly over a designation or a drag.
     let ghost = over.ghost.get(&pos).map(|&(_, free)| free);
-    if let Some(free) = ghost
+    // A ghost's own door tile (#230) outranks the ghost itself: it never lies inside the
+    // footprint that placed it (the door is on the ring), but a tight drag can still land
+    // another stamp's footprint on it, and the door is the more specific thing to show there.
+    let door = over.door.get(&pos).copied();
+    if let Some(free) = door.or(ghost)
         && palette.mono()
     {
-        // Without colour the ghost is reversed: bold where it fits, dim where it doesn't.
+        // Without colour a door or the ghost itself is reversed: bold free, dim blocked.
         mods.remove(Modifier::DIM | Modifier::UNDERLINED);
         mods |= Modifier::REVERSED | if free { Modifier::BOLD } else { Modifier::DIM };
     }
-    let bg = if let Some(free) = ghost {
+    let bg = if let Some(free) = door {
+        palette.door(base_bg, free)
+    } else if let Some(free) = ghost {
         palette.ghost(base_bg, free)
     } else if let Some(tint) = dragged {
         palette.dragged(base_bg, tint)
@@ -307,9 +328,10 @@ pub fn tile_cell(
 
     let mut style = Style::new().fg(palette.color(fg)).bg(bg).add_modifier(mods);
     if pos == ui.cursor {
-        if ghost.is_some() && !palette.mono() {
-            // Over the ghost the cursor keeps the tile's green or red instead of its own colour,
-            // so a 1x1 ghost still shows which it is; the glyph goes black for contrast.
+        if (door.is_some() || ghost.is_some()) && !palette.mono() {
+            // Over a door or the ghost the cursor keeps the tile's own colour instead of its
+            // own, so a 1x1 ghost (or its door) still shows which it is; the glyph goes black
+            // for contrast.
             style = style.fg(palette.color([0, 0, 0])).add_modifier(Modifier::BOLD);
         } else {
             // The cursor takes the whole look but keeps the glyph (and bold/dim) it covers.

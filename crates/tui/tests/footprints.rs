@@ -6,7 +6,7 @@
 
 use fn_sim::building::{Building, BuildingId};
 use fn_sim::geom::Footprint;
-use fn_sim::world::Command;
+use fn_sim::world::{Command, CommandError};
 use fn_sim::{Nation, Pos, Terrain};
 use fn_tui::app::App;
 use fn_tui::color::{ColorDepth, Palette, Tint};
@@ -229,4 +229,80 @@ fn no_ghost_outside_the_build_tool_or_with_nothing_chosen() {
     let buf = frame(&mut app, ColorDepth::TrueColor, false);
     let p = palette(&app, ColorDepth::TrueColor, false);
     assert_eq!(cell_at(&app, &buf, at).bg, p.color(ground_bg(&p, &app, at)));
+}
+
+/// Earth, seed 7, with the Build tool already on its study hall (2x2, capacity 2, so it has a
+/// door, #226) and a clear 3x3 patch at the returned tile, which also clears the ring row below
+/// it where the door (`Footprint::entrance`) lands. The settler's cursor starts on its own tile.
+fn app_with_study_hall_chosen() -> (App, BuildingId, Pos) {
+    let mut s = new_session(7, Nation::Earth);
+    let hall = s.defs.building_id("study_hall").unwrap();
+    let from = s.world.units[0].pos;
+    let at = Pos::new(from.x + 3, from.y + 3);
+    let patch = Footprint::new(at, 3, 3);
+    for p in patch.tiles() {
+        let t = s.world.map.get_mut(p).unwrap();
+        t.terrain = Terrain::Land;
+        t.resource = None;
+    }
+    s.world.units.retain(|u| !patch.contains(u.pos));
+    let mut app = App::new(s, SIZE);
+    app.ui.cursor = from;
+    app.ui.tool = Tool::Build;
+    app.ui.choice = Some(hall);
+    (app, hall, at)
+}
+
+/// #230: the ghost marks a capacity-above-0 building's own door amber when it's free, distinct
+/// from the green the rest of a fitting footprint wears, and still distinct with no colour.
+#[test]
+fn the_ghost_marks_its_own_door_amber_when_free() {
+    let (mut app, _hall, at) = app_with_study_hall_chosen();
+    app.ui.cursor = at;
+    let door = Footprint::new(at, 2, 2).entrance();
+
+    let p = palette(&app, ColorDepth::TrueColor, false);
+    let buf = frame(&mut app, ColorDepth::TrueColor, false);
+    let want = p.door(ground_bg(&p, &app, door), true);
+    assert_eq!(cell_at(&app, &buf, door).bg, want);
+    assert_ne!(want, p.ghost(ground_bg(&p, &app, door), true), "amber, not the ghost's green");
+    golden("earth_seed7_door_free", &to_text(&buf));
+
+    let mono = frame(&mut app, ColorDepth::Never, false);
+    assert!(cell_at(&app, &mono, door).modifier.contains(Modifier::REVERSED | Modifier::BOLD));
+}
+
+/// #230: a footprint that would cover another building's door shows that tile in the ghost's
+/// own red, like any other blocked tile, and the Cursor section names whose door it would
+/// block.
+#[test]
+fn covering_another_buildings_door_is_red_and_the_cursor_names_whose_it_is() {
+    let (mut app, hall, at) = app_with_study_hall_chosen();
+    // Finished or still a site, `World::door_owner` answers the same way; finish it so the
+    // frame also shows a real building beside the blocked door.
+    bake(&mut app, hall, at, (2, 2));
+    let door = Footprint::new(at, 2, 2).entrance();
+
+    // A bed has no door of its own, but it still can't bury another building's.
+    let bed = app.session.defs.building_id("bed").unwrap();
+    app.ui.choice = Some(bed);
+    app.ui.cursor = door;
+
+    let p = palette(&app, ColorDepth::TrueColor, false);
+    let buf = frame(&mut app, ColorDepth::TrueColor, false);
+    let want = p.ghost(ground_bg(&p, &app, door), false);
+    assert_eq!(cell_at(&app, &buf, door).bg, want);
+    golden("earth_seed7_door_blocked", &to_text(&buf));
+
+    // The Cursor section shows the refusal; the panel is narrow (32 columns) and truncates a
+    // long reason, so the full wording ("would block <name>'s door") is checked straight from
+    // `fn_ui::build` below, which is what the panel's row calls.
+    assert!(cursor_section(&mut app).contains("Can't build here"));
+    let placement = fn_ui::build::placement(&app.session, door, bed);
+    let err = CommandError::Build(placement.refused.expect("refused"));
+    let name = app.session.defs.building(hall).display_name(app.session.world.nation);
+    assert_eq!(
+        fn_ui::build::describe_error(&app.session, err),
+        format!("would block {name}'s door")
+    );
 }
