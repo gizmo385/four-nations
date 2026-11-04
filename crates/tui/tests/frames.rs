@@ -443,8 +443,13 @@ fn the_result_notice_fits_on_the_smallest_terminal() {
         .unwrap();
     app.ui.cursor = sea;
     app.play(&keys::parse("h <enter> <enter>").unwrap());
+    // No stale "hold Shift to repeat" (#305: the client that read it is gone, #281); checked on
+    // the unwrapped notice since the rendered frame wraps it over a couple of lines.
+    assert_eq!(
+        app.ui.notice,
+        "designate harvest (chop, mine, gather): 0 done, 1 skipped (nothing to harvest)"
+    );
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, (80, 24)));
-    assert!(text.contains("0 done, 1 skipped"), "{text}");
     assert!(text.contains("Enter: set a corner"), "the Cursor section survives:\n{text}");
 }
 

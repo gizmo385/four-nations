@@ -128,7 +128,9 @@ impl Tool {
     pub fn label(self) -> &'static str {
         match self {
             Self::Select => "select units",
-            Self::Harvest => "designate harvest (chop, mine, gather); hold Shift to repeat",
+            // The client that read held Shift as a standing order is gone (#281); the TUI's
+            // own `O` key stands in for it (#277, `fn_tui::state::UiState::tool_hint`).
+            Self::Harvest => "designate harvest (chop, mine, gather)",
             Self::CancelHarvest => "cancel harvest, build site, stockpile or sowing",
             Self::Stockpile => "designate stockpile",
             Self::Bend => "channel the nation's ability",
@@ -612,9 +614,7 @@ mod tests {
         let notice =
             apply_rect(&mut s, Tool::Harvest, Pos::new(-2, -2), Pos::new(-2, -2), false, None);
         assert!(
-            notice.starts_with(
-                "designate harvest (chop, mine, gather); hold Shift to repeat: 0 done, 1 skipped ("
-            ),
+            notice.starts_with("designate harvest (chop, mine, gather): 0 done, 1 skipped ("),
             "{notice}"
         );
         assert!(notice.ends_with(')'), "{notice}");

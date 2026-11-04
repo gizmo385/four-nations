@@ -379,7 +379,7 @@ mod tests {
         assert_eq!(lines("aa bb cc dd ee", 5, 2), ["aa bb", "cc d…"]);
         assert_eq!(lines("aa bb cc", 5, 1), ["aa b…"]);
         assert!(lines("anything", 0, 3).is_empty());
-        for line in lines("designate harvest (chop, mine, gather); hold Shift to repeat", 28, 3) {
+        for line in lines("designate harvest (chop, mine, gather); O: standing order", 28, 3) {
             assert!(line.chars().count() <= 28, "{line}");
         }
     }
