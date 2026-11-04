@@ -18,7 +18,7 @@
 │ X                      Cancel tool: cancel harvest, build site or stockpile          ││ Move speed              x0.9 │
 │ P                      Stockpile tool: designate stockpile                           ││ Carry capacity          x1.3 │
 │ B                      Bend tool: channel the nation's ability                       ││ Earthworks              x2.5 │
-│ U                      Build tool: place the chosen building (U: next building)      ││ Water work              x0.9 │
+│ U                      Build tool: place the chosen building (U: pick one)           ││ Water work              x0.9 │
 │                                                                                      ││ Power generation        x0.8 │
 │ TIME                                                                                 ││ Construction            x1.5 │
 │ Space                  Pause or run                                                  ││                              │

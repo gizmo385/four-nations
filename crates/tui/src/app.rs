@@ -14,7 +14,7 @@ use crate::keys::Step;
 use crate::research;
 use crate::saves as saves_screen;
 use crate::screens;
-use crate::state::{PINNED, Prompt, Screen, UiState};
+use crate::state::{Modal, PINNED, Prompt, Screen, UiState};
 
 /// What `F5`, `F9` and `F6` say when there is no save directory.
 const NO_SAVE_DIR: &str = "Save failed: this platform has no data directory (set FN_SAVE_DIR)";
@@ -60,6 +60,10 @@ impl App {
             }
             return;
         }
+        if let Some(modal) = self.ui.modal {
+            self.modal_key(modal, key);
+            return;
+        }
         // The saves screen's own two keys: `n` (new) is free everywhere, but `s` already moves
         // the highlight down, so only its shifted, upper-case spelling saves over it (a
         // terminal sends Shift+s as `S`, with or without the Shift flag: `input::map_key`'s own
@@ -83,6 +87,9 @@ impl App {
         match action {
             Action::Move { dx, dy, tiles } => self.ui.move_cursor(dx * tiles, dy * tiles),
             Action::Jump { dx, dy } => self.ui.jump(dx, dy),
+            // `U` opens the Build modal instead of switching tools (#285); every other tool key
+            // still goes straight to `pick_tool`.
+            Action::PickTool(Tool::Build) => self.open_build_modal(),
             Action::PickTool(tool) => self.pick_tool(tool),
             Action::Confirm => self.confirm(),
             Action::Cancel => self.cancel(),
@@ -377,16 +384,71 @@ impl App {
         self.dirty = true;
     }
 
-    /// A tool key: the tool becomes active, and the corner and the last result are dropped
-    /// (pressing the active tool's own key again does just that). `U` picks the first building
-    /// the nation can place; `U` again moves on to the next (`fn_ui::tools::switch_tool`, as the
-    /// client's `BuildChoice` uses it).
+    /// A tool key other than `U`, which opens the Build modal instead ([`Self::open_build_modal`]):
+    /// the tool becomes active, and the corner and the last result are dropped (pressing the
+    /// active tool's own key again does just that).
     fn pick_tool(&mut self, requested: Tool) {
         // `B` again moves on to the next ability the settlement can use (#123).
         cycle_ability(&mut self.session, self.ui.tool, requested);
         let (tool, choice) = switch_tool(&self.session, self.ui.tool, self.ui.choice, requested);
         self.ui.choice = choice;
         self.ui.set_tool(tool);
+    }
+
+    /// `U`: opens the Build modal (#285) instead of switching tools; the tool and the choice
+    /// stay as they were until `Enter` there picks one. The highlight starts on the current
+    /// choice if it can still be placed, else the first one that can (`fn_ui::build::valid_choice`,
+    /// as `switch_tool` used to resolve it for the plain tool key).
+    fn open_build_modal(&mut self) {
+        let rows = fn_ui::build::picker_rows(&self.session);
+        let choice = fn_ui::build::valid_choice(&rows, self.ui.choice);
+        self.ui.build_cursor =
+            choice.and_then(|id| rows.iter().position(|r| r.id == id)).unwrap_or(0);
+        self.ui.modal = Some(Modal::Build);
+    }
+
+    /// What a key does while a modal is open: it captures every key until the modal resolves
+    /// itself, so no tool key, screen key or clock action reaches [`Self::act`].
+    fn modal_key(&mut self, modal: Modal, key: KeyEvent) {
+        match modal {
+            Modal::Build => self.build_modal_key(key),
+        }
+    }
+
+    /// The Build modal's own keys (#285, `crate::build`): arrows or `W`/`S` move the highlight
+    /// by one row (locked included); `Enter` on an unlocked building picks it, closes the modal
+    /// and leaves the Build tool active with it; `Esc` leaves the tool and the choice as they
+    /// were; any other letter jumps the highlight to the next name that starts with it.
+    fn build_modal_key(&mut self, key: KeyEvent) {
+        let rows = fn_ui::build::picker_rows(&self.session);
+        if rows.is_empty() {
+            if key.code == KeyCode::Esc {
+                self.ui.modal = None;
+            }
+            return;
+        }
+        let at = self.ui.build_cursor.min(rows.len() - 1);
+        match key.code {
+            KeyCode::Esc => self.ui.modal = None,
+            KeyCode::Up | KeyCode::Char('w' | 'W') => {
+                self.ui.build_cursor = crate::build::step(&rows, at, -1);
+            }
+            KeyCode::Down | KeyCode::Char('s' | 'S') => {
+                self.ui.build_cursor = crate::build::step(&rows, at, 1);
+            }
+            KeyCode::Enter => {
+                let row = &rows[at];
+                if !row.locked() {
+                    self.ui.choice = Some(row.id);
+                    self.ui.set_tool(Tool::Build);
+                    self.ui.modal = None;
+                }
+            }
+            KeyCode::Char(c) if c.is_alphabetic() => {
+                self.ui.build_cursor = crate::build::jump_to_letter(&rows, at, c);
+            }
+            _ => {}
+        }
     }
 
     /// `Enter`. In Select mode it selects the unit under the cursor (again: the next one on that

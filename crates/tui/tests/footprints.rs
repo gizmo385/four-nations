@@ -144,9 +144,9 @@ fn the_cursor_section_says_the_same_from_every_tile_of_a_footprint() {
 }
 
 #[test]
-fn u_picks_the_build_tool_and_its_ghost_is_green_where_the_building_fits() {
+fn u_opens_the_modal_enter_picks_the_build_tool_and_its_ghost_is_green_where_it_fits() {
     let (mut app, bed, at) = app_with_2x2_bed();
-    app.play(&keys::parse("u").unwrap());
+    app.play(&keys::parse("u <enter>").unwrap());
     assert_eq!(app.ui.tool, Tool::Build);
     assert_eq!(app.ui.choice, Some(bed), "the first building Earth can place");
     // A 2x2 grows down and right from the cursor.
@@ -169,7 +169,7 @@ fn a_blocked_tile_is_red_and_mono_keeps_what_is_in_the_way() {
     let (mut app, _, at) = app_with_2x2_bed();
     let corner = Pos::new(at.x + 1, at.y + 1);
     app.session.apply(Command::DesignateStockpile { pos: corner }).unwrap();
-    app.play(&keys::parse("u").unwrap());
+    app.play(&keys::parse("u <enter>").unwrap());
     app.ui.cursor = at;
     let p = palette(&app, ColorDepth::TrueColor, false);
     let buf = frame(&mut app, ColorDepth::TrueColor, false);
@@ -190,7 +190,7 @@ fn a_blocked_tile_is_red_and_mono_keeps_what_is_in_the_way() {
 #[test]
 fn a_drag_shows_a_ghost_per_stamp_and_enter_places_them() {
     let (mut app, bed, at) = app_with_2x2_bed();
-    app.play(&keys::parse("u").unwrap());
+    app.play(&keys::parse("u <enter>").unwrap());
     app.ui.cursor = at;
     app.play(&keys::parse("<enter>").unwrap());
     // The strip is 6 wide: two 2x2 stamps fit across it, the fifth and sixth columns left out.
