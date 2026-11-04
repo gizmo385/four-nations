@@ -10,6 +10,10 @@ The owner wanted to play the whole game from a terminal: a glyph map, keyboard m
 terminal frontend needed no new game rules. It also gives agents a way to play and check the
 game without a GUI at all (there is no longer one to avoid).
 
+**Side panel redesign proposed** (#302): [side-panel.md](side-panel.md) replaces the roster with
+activity counts and a Nation screen (`N`), turns section headings into dividers, and adds a tool
+banner on the map (#307). The panel described below is the one that ships today.
+
 ## Decisions in brief
 
 1. **Two new crates, no Bevy.** `crates/ui` (`fn_ui`) holds the frontend logic every UI needs:
