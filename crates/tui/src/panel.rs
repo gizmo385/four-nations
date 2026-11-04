@@ -2,15 +2,16 @@
 //! name on the top edge, then sections in ui.md's order, each hidden while it has nothing to show:
 //! the header (seed, clock, speed), People (the count, then a line per unit while they fit),
 //! Stores, Research (target, bar, rate), Endeavor (the end game's progress, #235, #242; hidden
-//! with no endeavor in the data), the nation's modifiers, Tool (the active designation tool, its
-//! hint, the Build tool's chosen building and the last rectangle's result), Alerts and Cursor
-//! (what is under the keyboard cursor, and what `Enter` does next). The Build tool's full picker
-//! moved to its own modal (`U`, `crate::build`, #285); the panel names only the choice.
+//! with no endeavor in the data), Tool (the active designation tool, its hint, the Build tool's
+//! chosen building and the last rectangle's result), Alerts and Cursor (what is under the
+//! keyboard cursor, and what `Enter` does next). The Build tool's full picker moved to its own
+//! modal (`U`, `crate::build`, #285); the panel names only the choice. The nation's modifiers
+//! moved to the Nation screen's Traits (`N`, #308, docs/design/side-panel.md).
 //!
 //! The panel is a fixed height, so a terminal that is too short for every section gives up the
 //! least useful lines first: the tool's hint and the Build tool's chosen-building line (the
-//! status line names it too), the modifiers, the whole Endeavor section, the unit lines, the
-//! older alerts and all but one line of stores. The header, Research and Cursor always stay.
+//! status line names it too), the whole Endeavor section, the unit lines, the older alerts and
+//! all but one line of stores. The header, Research and Cursor always stay.
 
 use fn_sim::Pos;
 use fn_sim::building::BuildingId;
@@ -114,7 +115,6 @@ struct Data {
     research: Vec<Row>,
     /// The Endeavor section's rows (#235, #242); empty with no endeavor in the data.
     endeavor: Vec<Row>,
-    modifiers: Vec<Row>,
     hint: Vec<Row>,
     /// The Tool section's one row for the Build tool's chosen building (#111; its full picker
     /// moved to the Build modal, #285), or every usable ability for the Bend tool (#248,
@@ -133,7 +133,6 @@ struct Data {
 #[derive(Clone, Copy)]
 struct Knobs {
     units: usize,
-    modifiers: usize,
     alerts: usize,
     hint: usize,
     picker: usize,
@@ -367,11 +366,6 @@ fn cursor_rows(session: &Session, ui: &UiState, choice: Option<BuildingId>) -> V
 fn gather(session: &Session, ui: &UiState, marks: &Marks, width: usize) -> Data {
     let view = side_view(session, ui.tool, &ui.notice, ui.choice, &ui.alerts);
     let ellipsis = marks.ellipsis;
-    let modifiers = view
-        .modifiers
-        .iter()
-        .map(|(label, value)| Row::pair(label.clone(), Tone::Dim, value.clone(), Tone::Text))
-        .collect();
     // `UiState::tool_hint`, not `view.tool_hint`: every other tool's is `fn_ui`'s own (the same
     // text either way), but the Build tool's names the TUI's own choice and `U` key (#285),
     // which the shared text can't (the choice belongs to the frontend, not the `Session`).
@@ -408,7 +402,6 @@ fn gather(session: &Session, ui: &UiState, marks: &Marks, width: usize) -> Data 
         stores: store_rows(session, width),
         research: research_rows(&view, marks),
         endeavor: endeavor_rows(&view, marks),
-        modifiers,
         hint,
         picker,
         notice,
@@ -435,8 +428,6 @@ fn sections(d: &Data, k: Knobs) -> Vec<Section> {
     // Under Research (docs/design/endgame.md, "Showing progress"); hides itself with no
     // endeavor in the data (`d.endeavor` is then empty) or when `k.endeavor` gives it up whole.
     let endeavor = k.endeavor.then(|| Section::new("ENDEAVOR", "", d.endeavor.clone()));
-    let modifiers =
-        Section::new("MODIFIERS", "", d.modifiers.iter().take(k.modifiers).cloned().collect());
     // Select mode has no tool to talk about.
     let tool = (d.view.tool != Tool::Select).then(|| {
         let mut rows: Vec<Row> = d.hint.iter().take(k.hint).cloned().collect();
@@ -451,8 +442,7 @@ fn sections(d: &Data, k: Knobs) -> Vec<Section> {
     let skip = d.alerts.len().saturating_sub(k.alerts);
     let alerts = Section::new("ALERTS", "", d.alerts.iter().skip(skip).cloned().collect());
     let cursor = Section::new("CURSOR", d.cursor_pos.clone(), d.cursor.clone()).always();
-    let all =
-        [Some(people), Some(stores), Some(research), endeavor, Some(modifiers), tool, Some(alerts)];
+    let all = [Some(people), Some(stores), Some(research), endeavor, tool, Some(alerts)];
     all.into_iter().flatten().chain([cursor]).filter(Section::visible).collect()
 }
 
@@ -479,7 +469,6 @@ pub fn draw_panel(
     let head = header(&d.view, &marks);
     let mut k = Knobs {
         units: d.units.len(),
-        modifiers: d.modifiers.len(),
         alerts: d.alerts.len(),
         hint: d.hint.len(),
         picker: d.picker.len(),
@@ -491,8 +480,6 @@ pub fn draw_panel(
             k.hint -= 1;
         } else if k.picker > 0 {
             k.picker -= 1;
-        } else if k.modifiers > 0 {
-            k.modifiers -= 1;
         } else if k.endeavor {
             k.endeavor = false;
         } else if k.units > 0 {

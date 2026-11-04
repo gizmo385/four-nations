@@ -23,6 +23,7 @@ pub mod keys;
 pub mod layout;
 pub mod map;
 pub mod modal;
+pub mod nation;
 pub mod panel;
 pub mod research;
 pub mod run;

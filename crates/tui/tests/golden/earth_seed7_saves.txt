@@ -20,18 +20,18 @@
 │                                                                                      ││ Signs met - G: open          │
 │                                                                                      ││ Next: 10 more people, 6 mor… │
 │                                                                                      ││                              │
-│                                                                                      ││ ◇ MODIFIERS                  │
-│                                                                                      ││ Move speed              x0.9 │
-│                                                                                      ││ Carry capacity          x1.3 │
-│                                                                                      ││ Earthworks              x2.5 │
-│                                                                                      ││ Water work              x0.9 │
-│                                                                                      ││ Power generation        x0.8 │
-│                                                                                      ││ Construction            x1.5 │
-│                                                                                      ││                              │
 │                                                                                      ││ ◇ CURSOR            (94, 64) │
 │                                                                                      ││ Coast                        │
 │                                                                                      ││ Plains (94, 64)              │
 │                                                                                      ││ Elevation 152                │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │

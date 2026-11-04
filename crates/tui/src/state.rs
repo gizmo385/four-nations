@@ -45,6 +45,10 @@ pub enum Screen {
     /// `F6`: the save slots. It moves a highlight ([`UiState::save_cursor`]) over
     /// [`UiState::save_slots`] and does not scroll.
     Saves,
+    /// `N`: every settler grouped by activity, every store and the nation's traits (today's
+    /// panel's own Modifiers, moved here, #308, docs/design/side-panel.md "The Nation screen").
+    /// It moves a pointer ([`UiState::nation_cursor`]) over the roster.
+    Nation,
 }
 
 /// A modal dialog over the map (`crate::modal`, #285). Unlike a [`Screen`] it draws as a centred
@@ -108,6 +112,9 @@ pub struct UiState {
     pub build_cursor: usize,
     /// The research screen's cursor: a column of the tech tree and a card in it.
     pub tech: (usize, usize),
+    /// The Nation screen's cursor: an index into its roster (`crate::nation::roster`), in the
+    /// screen's own grouped order.
+    pub nation_cursor: usize,
     /// The saves screen's slots (newest first), read from disk when the screen opens or a save
     /// changes them ([`crate::app::App::refresh_saves`]), not on every frame.
     pub save_slots: Vec<Slot>,
@@ -147,6 +154,7 @@ impl UiState {
             modal: None,
             build_cursor: 0,
             tech: (0, 0),
+            nation_cursor: 0,
             save_slots: Vec::new(),
             save_cursor: 0,
             alerts: Alerts::default(),
@@ -361,6 +369,16 @@ impl UiState {
             },
         };
         self.select(Some(next));
+    }
+
+    /// `Enter` in the Nation screen (`N`, #308): puts the cursor on `id` and opens the selection
+    /// bar on it, the way [`Self::cycle`] does for Tab, but by id rather than by stepping; a dead
+    /// or missing id is a no-op (the screen's own roster is read from the same `Session`, so this
+    /// should never happen).
+    pub fn select_unit(&mut self, session: &Session, id: UnitId) {
+        let Some(unit) = session.world.units.iter().find(|u| u.id == id) else { return };
+        self.cursor = self.clamp_to_map(unit.pos);
+        self.select(Some(id));
     }
 
     /// `Tab` (`step` 1) and Shift+`Tab` (`step` -1): the next or previous unit in the order of

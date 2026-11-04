@@ -392,11 +392,7 @@ fn people_lists_a_line_per_unit_while_they_fit_and_then_counts_the_rest() {
     assert!(frame.contains("PEOPLE"), "{frame}");
     assert!(frame.contains("CURSOR") && frame.contains("RESEARCH"), "{frame}");
     let listed = b.session.world.units.iter().filter(|u| frame.contains(&u.name)).count();
-    assert_eq!(
-        listed,
-        b.session.world.units.len(),
-        "the unit lines outrank the modifiers:\n{frame}"
-    );
+    assert_eq!(listed, b.session.world.units.len(), "every unit should fit:\n{frame}");
 
     // With a tool and a result to report there is less room, and the count says what is missing.
     run(&mut b, "b <enter> <enter>");
@@ -487,16 +483,6 @@ fn stores_appear_once_something_is_stockpiled_and_hide_before() {
 }
 
 #[test]
-fn the_modifiers_that_differ_from_one_are_listed() {
-    let mut a = app(7, Nation::Earth, SIZE);
-    let frame = text(&mut a, SIZE);
-    assert!(frame.contains("MODIFIERS") && frame.contains("x2.5"), "{frame}");
-    for (label, value) in fn_ui::view::modifier_rows(a.session.world.modifiers()) {
-        assert!(frame.contains(&label) && frame.contains(&value), "{label} {value}\n{frame}");
-    }
-}
-
-#[test]
 fn the_sections_come_in_ui_md_order() {
     let mut a = bending_game();
     run(&mut a, "b");
@@ -504,12 +490,12 @@ fn the_sections_come_in_ui_md_order() {
     let at = |s: &str| frame.find(s).unwrap_or_else(|| panic!("{s} in\n{frame}"));
     // ENDEAVOR is the one section here that may give way on a tight panel (#242): this scene
     // packs long task lines and several alerts, so it checks the order of whichever show up
-    // rather than demanding every one of them.
-    let order: Vec<&str> =
-        ["Seed", "PEOPLE", "RESEARCH", "ENDEAVOR", "MODIFIERS", "TOOL", "ALERTS", "CURSOR"]
-            .into_iter()
-            .filter(|s| *s == "Seed" || frame.contains(s))
-            .collect();
+    // rather than demanding every one of them. Modifiers moved to the Nation screen's Traits
+    // (#308), so the panel no longer carries that section.
+    let order: Vec<&str> = ["Seed", "PEOPLE", "RESEARCH", "ENDEAVOR", "TOOL", "ALERTS", "CURSOR"]
+        .into_iter()
+        .filter(|s| *s == "Seed" || frame.contains(s))
+        .collect();
     assert!(order.contains(&"RESEARCH") && order.contains(&"CURSOR"), "{frame}");
     for pair in order.windows(2) {
         // Compare by row: the map shares each row with the panel.

@@ -1,7 +1,7 @@
 //! The screens that open over the map area (the side panel stays): the message log (`L`), the
 //! key help (`?`) and the Endeavor screen (`G`, `endeavor.rs`) are framed pages of rows that
 //! scroll; the research screen (`T`) is a framed grid of tech cards with a cursor
-//! (`research.rs`).
+//! (`research.rs`); the Nation screen (`N`, #308, `nation.rs`) is a framed roster with a pointer.
 
 use fn_ui::Session;
 use fn_ui::alerts::{Alerts, Kind};
@@ -41,9 +41,9 @@ pub fn lines(
         }
         Screen::Help => help_lines(width, marks.ellipsis),
         Screen::Endeavor => crate::endeavor::lines(session, width, &marks),
-        // A grid or a list with a cursor, not rows that scroll: `research::draw` and
-        // `saves::draw` lay them out.
-        Screen::Research | Screen::Saves => Vec::new(),
+        // A grid or a list with a cursor, not rows that scroll: `research::draw`, `saves::draw`
+        // and `nation::draw` lay them out.
+        Screen::Research | Screen::Saves | Screen::Nation => Vec::new(),
     }
 }
 
@@ -140,6 +140,9 @@ pub fn draw_screen(
         Screen::Saves => {
             ("SAVES", "Arrows W S choose  Enter load  Shift+S save over  N new  Esc/F6 close")
         }
+        Screen::Nation => {
+            ("NATION", "Arrows W S choose  PgUp PgDn page  Enter select  Esc/N close")
+        }
     };
     let title = format!(" {0} {title} {0} ", marks.seal);
     draw_frame(buf, area, palette, &title, TitleAt::Centre, footer);
@@ -150,6 +153,14 @@ pub fn draw_screen(
     }
     if screen == Screen::Saves {
         saves::draw(&ui.save_slots, ui.save_cursor, &session.defs, palette, inner, buf);
+        return;
+    }
+    if screen == Screen::Nation {
+        // Whether the map region (`area`, not `inner`) is wide enough for the meters
+        // (docs/design/side-panel.md "The Nation screen"); the panel sits beside it, so this is
+        // not the screen's own frame width.
+        let wide = area.width >= crate::nation::METER_MIN_WIDTH;
+        crate::nation::draw(session, ui, wide, palette, inner, buf);
         return;
     }
     let rows = lines(session, screen, &ui.alerts, usize::from(inner.width), palette.ascii);

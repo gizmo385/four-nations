@@ -20,17 +20,17 @@
 |   Available   60 pts                                                                 || Signs met - G: open          |
 |   -                                                                                  || Next: 10 more people, 6 mor~ |
 |                                                                                      ||                              |
-|                                                                                      || o MODIFIERS                  |
-|                                                                                      || Heating                 x2.5 |
-|                                                                                      || Water work              x0.7 |
-|                                                                                      || Power generation        x1.3 |
-|                                                                                      || Construction            x1.1 |
-|                                                                                      ||                              |
 |                                                                                      || o CURSOR            (97, 63) |
 |                                                                                      || Jee                          |
 |                                                                                      || Fire Nation - Idle           |
 |                                                                                      || Carrying: nothing - Bends: 0 |
 |                                                                                      || Press Enter to select        |
+|                                                                                      ||                              |
+|                                                                                      ||                              |
+|                                                                                      ||                              |
+|                                                                                      ||                              |
+|                                                                                      ||                              |
+|                                                                                      ||                              |
 |                                                                                      ||                              |
 | ------------------------------------------------------------------------------------ ||                              |
 | Smelting                                                             Queued  120 pts ||                              |

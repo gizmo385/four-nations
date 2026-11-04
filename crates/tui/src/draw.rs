@@ -82,6 +82,8 @@ const KEYS_ENDEAVOR: &str =
 const KEYS_RESEARCH: &str = "arrows/WASD choose  Enter set target  Esc/T close  L log  ? keys";
 const KEYS_SAVES: &str =
     "arrows/W S choose  Enter load  Shift+S save over  N new  Esc/F6 close  ? keys";
+const KEYS_NATION: &str =
+    "arrows/W S choose  PgUp/PgDn page  Enter select  Esc/N close  ? keys  Space pause";
 const KEYS_BUILD_MODAL: &str = "Arrows/W S choose  Enter build  Esc close";
 
 /// The status line in a tool: what `Enter` and `Esc` do now, "Harvest · repeating" while the
@@ -152,6 +154,7 @@ fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, b
                 Some(Screen::Endeavor) => (" ENDEAVOR ", KEYS_ENDEAVOR),
                 Some(Screen::Research) => (" RESEARCH ", KEYS_RESEARCH),
                 Some(Screen::Saves) => (" SAVES ", KEYS_SAVES),
+                Some(Screen::Nation) => (" NATION ", KEYS_NATION),
                 _ => (" LOG ", KEYS_SCREEN),
             };
             buf.set_string(area.x, area.y, text, badge(theme.on_accent, theme.accent));

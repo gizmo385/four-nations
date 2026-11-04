@@ -20,19 +20,19 @@
 │   Available   60 pts                                                                 ││ Signs met - G: open          │
 │   -                                                                                  ││ Next: 10 more people, 6 mor… │
 │                                                                                      ││                              │
-│                                                                                      ││ ◇ MODIFIERS                  │
-│                                                                                      ││ Move speed              x0.9 │
-│                                                                                      ││ Carry capacity          x1.3 │
-│                                                                                      ││ Earthworks              x2.5 │
-│                                                                                      ││ Water work              x0.9 │
-│                                                                                      ││ Power generation        x0.8 │
-│                                                                                      ││ Construction            x1.5 │
-│                                                                                      ││                              │
 │                                                                                      ││ ◇ CURSOR            (94, 64) │
 │                                                                                      ││ Tyro                         │
 │                                                                                      ││ Earth Kingdom - Idle         │
 │                                                                                      ││ Carrying: nothing - Bends: 0 │
-│ ──────────────────────────────────────────────────────────────────────────────────── ││ Press Enter to select        │
+│                                                                                      ││ Press Enter to select        │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│ ──────────────────────────────────────────────────────────────────────────────────── ││                              │
 │ Masonry                                                              Queued  120 pts ││                              │
 │ Dress stone and mortar it into lasting walls.                                        ││                              │
 │ Unlocks: Construction x1.15   Needs: Carpentry                                       ││                              │
