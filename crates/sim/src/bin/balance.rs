@@ -34,9 +34,27 @@
 //!
 //!     cargo run -p fn_sim --bin balance -- --mastery --seeds 7,42
 //!         --minutes 30,60,90,120,150,180,240 [--nations fire,earth,water,air]
-//!         [--preset normal] [--bend-slots 6]
+//!         [--preset normal] [--bend-slots 6] [--full-research]
+//!
+//! `--full-research` swaps the short `RESEARCH_PLAN` for the settlement's whole visible tech
+//! tree (`fn_sim::autoplay::Opening::with_full_research`, #352): off by default, since the
+//! mastery sweep predates it, but a caller comparing Earth's and Air's pace with and without
+//! their own branch researched (Bore Tunnel, Gliders) can turn it on either way.
+//!
+//! `--economy` switches to the economy opening instead (#352, `docs/design/materials.md`
+//! section 7): `fn_sim::autoplay::Economy`, which plays toward the Harmony Gate's signs (stone,
+//! ore, population, buildings, the nation's branch) rather than just surviving. One row per
+//! season reached, for every named `(nation, seed)`.
+//!
+//!     cargo run -p fn_sim --bin balance -- --economy --seeds 7,42 --minutes 180
+//!         [--nations fire,earth,water,air] [--preset normal] [--no-farms]
+//!
+//! `--no-farms` tills no farm plots and raises no orchard (materials.md's own `--no-farms`,
+//! owner question 2's check).
 
-use fn_sim::balance::{PEOPLE, RunConfig, RunReport, run};
+use fn_sim::balance::{
+    EconomyConfig, EconomyReport, PEOPLE, RunConfig, RunReport, run, run_economy,
+};
 use fn_sim::defs::ResourceId;
 use fn_sim::embark::Survey;
 use fn_sim::{Defs, Nation};
@@ -49,6 +67,10 @@ fn main() {
     }
     if args.first().map(String::as_str) == Some("--mastery") {
         run_mastery(&args[1..]);
+        return;
+    }
+    if args.first().map(String::as_str) == Some("--economy") {
+        run_economy_sweep(&args[1..]);
         return;
     }
     let mut seeds = parse_seeds("1-8");
@@ -112,6 +134,7 @@ fn main() {
                         minutes,
                         opening,
                         bend_slots: None,
+                        full_research: false,
                         width: size.width,
                         height: size.height,
                     };
@@ -228,6 +251,7 @@ fn run_mastery(args: &[String]) {
     let mut nation_ids: Option<Vec<String>> = None;
     let mut preset = "normal".to_owned();
     let mut bend_slots: u32 = PEOPLE;
+    let mut full_research = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -251,6 +275,7 @@ fn run_mastery(args: &[String]) {
                     .parse()
                     .unwrap_or_else(|_| mastery_usage_error("--bend-slots needs a number"))
             }
+            "--full-research" => full_research = true,
             other => mastery_usage_error(&format!("unknown argument {other:?}")),
         }
         i += 1;
@@ -279,6 +304,7 @@ fn run_mastery(args: &[String]) {
                     minutes,
                     opening: true,
                     bend_slots: Some(bend_slots),
+                    full_research,
                     width: size.width,
                     height: size.height,
                 };
@@ -342,6 +368,93 @@ fn usage_error(msg: &str) -> ! {
     eprintln!("{msg}");
     eprintln!(
         "usage: balance [--seeds 1-8] [--minutes 180] [--presets sandbox,normal,hard] [--nations air,water,earth,fire]"
+    );
+    std::process::exit(1);
+}
+
+/// `--economy`'s own loop: one run per `(nation, seed)`, driving `fn_sim::autoplay::Economy`
+/// (#352, `docs/design/materials.md` section 7). Each run reports one row per season reached,
+/// plus a trailing row with the minute every sign was first met (or "none").
+fn run_economy_sweep(args: &[String]) {
+    let mut seeds = parse_seeds("7,42");
+    let mut minutes: f32 = 180.0;
+    let mut nation_ids: Option<Vec<String>> = None;
+    let mut preset = "normal".to_owned();
+    let mut farms = true;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--seeds" => seeds = parse_seeds(&value(args, &mut i)),
+            "--minutes" => minutes = value(args, &mut i).parse().expect("--minutes needs a number"),
+            "--nations" => {
+                nation_ids = Some(value(args, &mut i).split(',').map(str::to_owned).collect())
+            }
+            "--preset" => preset = value(args, &mut i),
+            "--no-farms" => farms = false,
+            other => economy_usage_error(&format!("unknown argument {other:?}")),
+        }
+        i += 1;
+    }
+
+    let defs = Defs::bundled();
+    let size = defs.embark.map_size("small").expect("bundled data always has a small map size");
+    if defs.difficulty.preset(&preset).is_none() {
+        economy_usage_error(&format!("unknown preset {preset:?}"));
+    }
+    let nations: Vec<Nation> = nation_ids
+        .map(|ids| ids.iter().map(|id| nation_from_id(id)).collect())
+        .unwrap_or_else(|| Nation::ALL.to_vec());
+
+    println!(
+        "{:<6} {:>4} {:>4} {:>7}  {:>6} {:>6} {:>6} {:>6} {:>4}  signs",
+        "nation", "seed", "year", "minute", "stone", "ore", "wood", "food/h", "pop"
+    );
+    for &nation in &nations {
+        for &seed in &seeds {
+            let cfg = EconomyConfig {
+                seed,
+                nation,
+                preset: Some(preset.clone()),
+                minutes,
+                farms,
+                width: size.width,
+                height: size.height,
+            };
+            let report = run_economy(&cfg, &defs);
+            for season in &report.seasons {
+                println!(
+                    "{:<6} {seed:>4} {:>4} {:>7.1}  {:>6} {:>6} {:>6} {:>6.1} {:>4}  {}",
+                    nation.as_str(),
+                    season.year,
+                    season.minute,
+                    season.stone_stored,
+                    season.ore_mined,
+                    season.wood_stored,
+                    season.food_per_head,
+                    season.population,
+                    season.signs_met.join(","),
+                );
+            }
+            print_sign_minutes(nation, seed, &report);
+        }
+    }
+}
+
+fn print_sign_minutes(nation: Nation, seed: u64, report: &EconomyReport) {
+    let signs = report
+        .sign_minutes
+        .iter()
+        .map(|(id, m)| format!("{id}={}", m.map_or("none".to_owned(), |m| format!("{m:.1}"))))
+        .collect::<Vec<_>>()
+        .join(" ");
+    println!("{:<6} {seed:>4} signs: {signs}", nation.as_str());
+}
+
+fn economy_usage_error(msg: &str) -> ! {
+    eprintln!("{msg}");
+    eprintln!(
+        "usage: balance --economy [--seeds 7,42] [--minutes 180] [--nations fire,earth,water,air] [--preset normal] [--no-farms]"
     );
     std::process::exit(1);
 }

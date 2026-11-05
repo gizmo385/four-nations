@@ -14,14 +14,23 @@
 //! `RunReport::top_bends` and `masters_minute` are what that mode adds to read off the pace:
 //! the `balance` binary's own mastery sweep drives this over every nation and seed named, at
 //! whatever `--minutes` checkpoints a caller wants (re-running fresh for each, since one run is
-//! cheap, module doc above).
+//! cheap, module doc above). `RunConfig::full_research` (#352) swaps `Opening`'s short
+//! `RESEARCH_PLAN` for the settlement's whole visible tree; the mastery sweep can opt into it to
+//! see whether Earth and Air cast more once their own branch (Bore Tunnel, Gliders) is reachable.
+//!
+//! `run_economy` (#352, `docs/design/materials.md` section 7) is a second entry point,
+//! independent of `run`/`RunConfig`: it drives `autoplay::Economy` instead of `Opening`, and
+//! reports the columns the doc asks for (stone, ore, wood, food per head, population, signs met)
+//! once per season rather than once at the end, so a retune's effect on pacing shows up at every
+//! point in a run, not just the last. It shares `run`'s determinism, for the same reason.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::autoplay::Opening;
+use crate::autoplay::{self, Economy, Opening};
 use crate::defs::Defs;
 use crate::embark::Survey;
 use crate::geom::Pos;
+use crate::jobs::ItemId;
 use crate::mapgen::MapGenConfig;
 use crate::nation::Nation;
 use crate::world::{
@@ -54,6 +63,9 @@ pub struct RunConfig {
     /// chi (almost) never sits idle. `None` leaves bending alone; ignored if `opening` is
     /// `false`, since there is then no `Opening` to drive it.
     pub bend_slots: Option<u32>,
+    /// Research the settlement's whole visible tech tree instead of `Opening`'s short
+    /// `RESEARCH_PLAN` (module doc; #352). Ignored if `opening` is `false`.
+    pub full_research: bool,
     pub width: i32,
     pub height: i32,
 }
@@ -104,9 +116,12 @@ pub fn run(cfg: &RunConfig, defs: &Defs) -> RunReport {
     let start = survey.default_site(defs);
     let mut world = World::found(survey, cfg.nation, start, PEOPLE, cfg.preset.clone(), defs)
         .expect("Survey::default_site always names a site World::found accepts");
-    let opening = cfg.opening.then(|| match cfg.bend_slots {
-        Some(slots) => Opening::with_bending(PEOPLE, slots),
-        None => Opening::new(PEOPLE),
+    let opening = cfg.opening.then(|| {
+        let opening = match cfg.bend_slots {
+            Some(slots) => Opening::with_bending(PEOPLE, slots),
+            None => Opening::new(PEOPLE),
+        };
+        if cfg.full_research { opening.with_full_research() } else { opening }
     });
 
     let total_ticks = minutes_to_ticks(cfg.minutes);
@@ -160,6 +175,151 @@ pub fn run(cfg: &RunConfig, defs: &Defs) -> RunReport {
         walk_minute_90: median(window_samples[1].clone()),
         top_bends,
         masters_minute,
+    }
+}
+
+/// What one economy run varies (`run_economy`, module doc; #352). Independent of `RunConfig`:
+/// `autoplay::Economy` plays differently enough from `Opening` (research plan, farms, quarrying)
+/// that bolting it onto the same config would mean two unrelated sets of fields guarded by one
+/// `opening: bool`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EconomyConfig {
+    pub seed: u64,
+    pub nation: Nation,
+    /// A `data/difficulty.toml` preset id, or `None` for identity (`World::found`'s own
+    /// `difficulty` meaning); `docs/design/materials.md`'s own targets assume `"normal"`.
+    pub preset: Option<String>,
+    pub minutes: f32,
+    /// Till farm plots and raise an orchard (`Economy::farms`)? `false` is materials.md's
+    /// `--no-farms` check (owner question 2).
+    pub farms: bool,
+    pub width: i32,
+    pub height: i32,
+}
+
+/// One season's snapshot (`run_economy`, `docs/design/materials.md` section 7: "stone stored,
+/// ore mined, food per head, wood stored, population, signs met, and the minute each sign was
+/// first met").
+#[derive(Debug, Clone, PartialEq)]
+pub struct EconomySeason {
+    pub year: u64,
+    /// Index into `defs.seasons.seasons`; the caller names it (`SeasonDef::name`).
+    pub season: usize,
+    pub minute: f32,
+    /// Summed over the "stone" sign's own items (`autoplay::sign_items`), so a retune that adds
+    /// a second stone-like item needs no change here.
+    pub stone_stored: u32,
+    /// Lifetime mined, not currently stored: the "ore" sign's own kind
+    /// (`SignKind::Tally(Tally::Harvested)`), summed the same generic way.
+    pub ore_mined: u32,
+    pub wood_stored: u32,
+    pub food_per_head: f32,
+    pub population: u32,
+    /// Ids of every sign met by this point, in `data/endeavor.toml`'s order.
+    pub signs_met: Vec<String>,
+}
+
+/// What `run_economy` reports (module doc; #352).
+#[derive(Debug, Clone, PartialEq)]
+pub struct EconomyReport {
+    /// One entry at tick 0 (spring, year 1), plus one per further season boundary reached
+    /// within `cfg.minutes`, oldest first: never empty, though with a preset that leaves
+    /// `seasons` off (Sandbox) the tick-0 entry is the only one, since nothing marks a boundary
+    /// without them (`World::tick_season`).
+    pub seasons: Vec<EconomySeason>,
+    /// Every sign in `data/endeavor.toml`'s order, with the minute it was first met within
+    /// `cfg.minutes`, or `None` if it never was.
+    pub sign_minutes: Vec<(String, Option<f32>)>,
+}
+
+/// Runs one `(preset, nation, seed)` with `autoplay::Economy` driving it (module doc), the same
+/// way `run` does with `Opening`: `World::found` at `Survey::default_site`, ticked forward
+/// `cfg.minutes`, reporting a season at a time. Draws no randomness beyond `World`'s own seeded
+/// streams, so the same `cfg` and `defs` always produce an equal `EconomyReport`.
+pub fn run_economy(cfg: &EconomyConfig, defs: &Defs) -> EconomyReport {
+    let map_cfg = MapGenConfig {
+        seed: cfg.seed,
+        width: cfg.width,
+        height: cfg.height,
+        ..MapGenConfig::default()
+    };
+    let survey = Survey::new(&map_cfg, defs);
+    let start = survey.default_site(defs);
+    let mut world = World::found(survey, cfg.nation, start, PEOPLE, cfg.preset.clone(), defs)
+        .expect("Survey::default_site always names a site World::found accepts");
+    let economy = if cfg.farms { Economy::new(PEOPLE) } else { Economy::without_farms(PEOPLE) };
+
+    let stone_items = autoplay::sign_items(defs, "stone");
+    let ore_items = autoplay::sign_items(defs, "ore");
+    let wood = defs.item_id("wood");
+
+    let total_ticks = minutes_to_ticks(cfg.minutes);
+    // `World::tick_season` only ever logs a `Changed` event at a later boundary (`World::tick`
+    // increments the tick before checking, so tick 0 itself never is one): spring, year 1 is
+    // reported here instead, the same way `World::season_index` already treats a fresh world.
+    let mut seasons = vec![economy_season(
+        &world,
+        defs,
+        world.season_index(defs),
+        &stone_items,
+        &ore_items,
+        wood,
+    )];
+    for tick in 0..total_ticks {
+        if Opening::due(tick) {
+            economy.step(&mut world, defs);
+        }
+        world.tick(defs);
+
+        for ev in world.season_events().iter().rev().take_while(|e| e.tick == world.tick) {
+            if let SeasonEventKind::Changed { season } = ev.kind {
+                seasons.push(economy_season(&world, defs, season, &stone_items, &ore_items, wood));
+            }
+        }
+    }
+
+    let sign_minutes = defs
+        .endeavor
+        .signs
+        .iter()
+        .map(|s| {
+            let minute = world.endeavor_events().iter().find_map(|e| match &e.kind {
+                EndeavorEventKind::SignMet(id) if *id == s.id => Some(ticks_to_minutes(e.tick)),
+                _ => None,
+            });
+            (s.id.clone(), minute)
+        })
+        .collect();
+
+    EconomyReport { seasons, sign_minutes }
+}
+
+/// One `EconomySeason` snapshot of `world` right now (`run_economy`).
+fn economy_season(
+    world: &World,
+    defs: &Defs,
+    season: usize,
+    stone_items: &[ItemId],
+    ore_items: &[ItemId],
+    wood: Option<ItemId>,
+) -> EconomySeason {
+    let population = world.units.len() as u32;
+    let signs_met: Vec<String> =
+        world.endeavor_signs(defs).into_iter().filter(|p| p.met).map(|p| p.id.to_owned()).collect();
+    EconomySeason {
+        year: world.year(defs),
+        season,
+        minute: ticks_to_minutes(world.tick),
+        stone_stored: stone_items.iter().map(|&i| world.stored_total(i)).sum(),
+        ore_mined: ore_items.iter().map(|&i| world.tallies().harvested(i)).sum(),
+        wood_stored: wood.map_or(0, |w| world.stored_total(w)),
+        food_per_head: if population > 0 {
+            world.stored_food(defs) as f32 / population as f32
+        } else {
+            0.0
+        },
+        population,
+        signs_met,
     }
 }
 
@@ -244,6 +404,7 @@ mod tests {
             minutes,
             opening,
             bend_slots: None,
+            full_research: false,
             width: size.width,
             height: size.height,
         }
@@ -251,6 +412,20 @@ mod tests {
 
     fn bending_cfg(nation: Nation, minutes: f32, bend_slots: u32) -> RunConfig {
         RunConfig { bend_slots: Some(bend_slots), ..cfg("normal", nation, true, minutes) }
+    }
+
+    fn economy_cfg(nation: Nation, minutes: f32, farms: bool) -> EconomyConfig {
+        let defs = Defs::bundled();
+        let size = defs.embark.map_size("small").expect("bundled data always has a small map size");
+        EconomyConfig {
+            seed: 7,
+            nation,
+            preset: Some("normal".to_owned()),
+            minutes,
+            farms,
+            width: size.width,
+            height: size.height,
+        }
     }
 
     #[test]
@@ -330,5 +505,47 @@ mod tests {
         let report = run(&c, &defs);
         assert_eq!(report.top_bends, vec![0, 0, 0]);
         assert_eq!(report.masters_minute, None);
+    }
+
+    /// `run_economy` is as deterministic as `run` (module doc; #352): `Economy` reads only
+    /// `World`, so two identical runs issue the same commands and end at the same state.
+    #[test]
+    fn economy_report_is_deterministic() {
+        let defs = Defs::bundled();
+        let c = economy_cfg(Nation::Earth, 60.0, true);
+        assert_eq!(run_economy(&c, &defs), run_economy(&c, &defs));
+    }
+
+    /// Normal turns seasons on, so the very first tick is already a season boundary (spring,
+    /// year 1): `run_economy` reports it, not just later ones.
+    #[test]
+    fn economy_report_starts_with_spring_of_year_one() {
+        let defs = Defs::bundled();
+        let c = economy_cfg(Nation::Water, 20.0, true);
+        let report = run_economy(&c, &defs);
+        let first = report.seasons.first().expect("at least one season within 20 minutes");
+        assert_eq!((first.year, first.season, first.minute), (1, 0, 0.0));
+    }
+
+    /// `sign_minutes` always lists every sign in `data/endeavor.toml`, met or not, so a caller
+    /// can print "none" for one that never was rather than it silently being absent.
+    #[test]
+    fn economy_report_lists_every_sign() {
+        let defs = Defs::bundled();
+        let c = economy_cfg(Nation::Fire, 20.0, true);
+        let report = run_economy(&c, &defs);
+        assert_eq!(report.sign_minutes.len(), defs.endeavor.signs.len());
+    }
+
+    /// `--no-farms` (`Economy::without_farms`) never sows a farm plot, so the food sign's path
+    /// there is wild food alone: a `food_per_head` reading never above what `--no-farms`
+    /// produces is the shape materials.md's owner question 2 wants, though the numbers
+    /// themselves are a data question, not this harness's.
+    #[test]
+    fn economy_report_runs_with_no_farms() {
+        let defs = Defs::bundled();
+        let c = economy_cfg(Nation::Water, 20.0, false);
+        let report = run_economy(&c, &defs);
+        assert!(!report.seasons.is_empty());
     }
 }
