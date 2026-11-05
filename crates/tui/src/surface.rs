@@ -130,6 +130,33 @@ impl Host {
         &self.log
     }
 
+    /// How many game seconds one `end_turn` turn covers (`Self::with_turn_seconds`).
+    pub fn turn_seconds(&self) -> u32 {
+        self.turn_seconds
+    }
+
+    /// How many ticks one `end_turn` turn runs (`Self::turn_seconds` times
+    /// `TICKS_PER_SECOND`): what a run log needs to turn a turn count back into the `<tick N>`
+    /// a key script would use (`fn_agent keys`, docs/design/agent-play.md, "Racing").
+    pub fn ticks_per_turn(&self) -> u32 {
+        self.turn_seconds * TICKS_PER_SECOND
+    }
+
+    /// The world's own tick: for a run log's diagnostics (`fn_agent`'s own `Turn` event), which
+    /// names the tick a turn ended on. Not part of [`Observation`] (#315: an observation only
+    /// says what a screen does, and no screen prints the raw tick), but harmless to read here
+    /// since it changes nothing and isn't returned to an agent.
+    pub fn tick(&self) -> u64 {
+        self.app().session.world.tick
+    }
+
+    /// `Defs::id_hash`: a stable hash of the bundled data's id tables (docs/design/agent-play.md,
+    /// "Racing"), for a run log's header -- a replay only holds for the same code and data, so
+    /// the header records what the run was made against.
+    pub fn data_digest(&self) -> u64 {
+        self.shell.defs().id_hash()
+    }
+
     /// `Host::new` never leaves embark or the title screen open (a bad site or difficulty is an
     /// error instead), so this always holds.
     fn app(&self) -> &App {
@@ -497,9 +524,10 @@ impl Host {
         }
         let label = (!labels.is_empty()).then(|| labels.join("; "));
         let note = note.map(|n| n.chars().take(80).collect::<String>());
-        self.log.push(LogEntry::Keys { keys: pressed.clone(), label, note });
+        self.log.push(LogEntry::Keys { keys: pressed.clone(), label: label.clone(), note });
         ActResult {
             keys: pressed.into_iter().map(key_token).collect(),
+            label,
             error,
             observe: self.observe(),
         }
@@ -822,6 +850,10 @@ impl DesignateTool {
 #[derive(Clone, Debug, Serialize)]
 pub struct ActResult {
     pub keys: Vec<String>,
+    /// Every step that ran, in order, joined as the mockup's own "designate harvest 6x4 at
+    /// (86,60)" style (`None` if every step failed to plan, so nothing ran): the same label
+    /// kept in [`Host::log`].
+    pub label: Option<String>,
     pub error: Option<ActError>,
     pub observe: Observation,
 }
