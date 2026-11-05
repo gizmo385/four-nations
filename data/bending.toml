@@ -76,6 +76,7 @@ duration_minutes = 8.0
 radius = 3                # tiles, Chebyshev
 sleep_bonus = 1.5         # energy regained asleep nearby, times the base rate
 seek_tiles = 20           # a unit about to sleep walks to a flame within this many path tiles
+restoke_below = 0.5       # #359: a restoke is refused while more than half the burn is left
 
 # Air: blows a whole ground stack into a stockpile, over anything.
 [[ability]]
@@ -108,6 +109,7 @@ kind = "heat_aura"
 duration_minutes = 4.0
 radius = 2                # tiles, Chebyshev, around the carrier
 sleep_bonus = 1.25        # energy regained asleep nearby, times the base rate
+restoke_below = 0.5       # #359: a recast is refused while more than half the aura is left
 
 # Earth, from `tunneling` (#132, docs/design/research.md, "Tunneling"): bores one tile of tunnel
 # into a mountain from open ground or another tunnel beside it, so tunnels grow inward a tile at a

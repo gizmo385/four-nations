@@ -154,7 +154,7 @@ flame burns without fuel for a while, and it doesn't block movement.
 | Cooked meals | A unit eating within the radius eats the food cooked (`cooked_hunger`) |
 | Warm sleep | A unit sleeping within the radius regains energy at `sleep_bonus = 1.5` × the base rate. Multiple flames don't stack |
 | Seeking | A unit about to sleep walks to a lit flame's radius if one is within 20 path tiles. Otherwise it sleeps where it is, as today |
-| Restoke | Designating a lit flame resets its timer (same chi cost) |
+| Restoke | Designating a lit flame resets its timer (same chi cost), but only once it has burned below half its time (`restoke_below = 0.5`, #359). Restoking too soon is refused ("flame still burning, restoke below half") and spends no chi |
 
 - **Why it's Fire's:** others cook only once they have a campfire, which takes a building, wood
   and labor (#58). Fire cooks from minute one, anywhere, without fuel, and its people rest
@@ -218,7 +218,7 @@ forager or hauler eats cooked food in the field, which Hearthflame can't do.
 | Cooked meals | A unit eating within the radius eats the food cooked, as at a flame |
 | Warm sleep | A unit sleeping within the radius regains energy at `sleep_bonus = 1.25` × the base rate. Never stacks with a flame's or campfire's: the best one applies |
 | Seeking | None. Nobody walks to an aura, because it moves |
-| Recast | Casting it again resets the timer (same chi) |
+| Recast | Casting it again resets the timer (same chi), but only once the carrier's aura has burned below half its time (`restoke_below = 0.5`, #359). Recasting too soon on a bender whose aura is still warmer than that is refused ("aura still warm, recast below half") and spends no chi |
 
 - **Who gets it: the caster.** This is the one self-cast ability. The player designates a tile,
   like every bend, and it means "channel here": open ground with no resource or building on it.
@@ -359,12 +359,16 @@ duration_minutes = 8.0          # the magnitude for this kind
 radius = 3
 sleep_bonus = 1.5
 seek_tiles = 20
+restoke_below = 0.5             # optional, default 1.0 (today's "always restoke"): a share of
+                                 # the duration in (0, 1]; a lit flame with more than that share
+                                 # left refuses a restoke (#359)
 ```
 
 `irrigate` (`source_range`, `wet_minutes`, `sprouts`, `sprout_resource`, `biomes`,
 `fallow_minutes`), `wind_carry` (`range`, the magnitude) and `heat_aura` (`duration_minutes`, the
-magnitude; `radius`; `sleep_bonus`) follow the same shape. Each effect
-kind documents which field its `magnitude_modifier` scales.
+magnitude; `radius`; `sleep_bonus`; `restoke_below`, the same rule applied to the carrier's own
+aura) follow the same shape. Each effect kind documents which field its `magnitude_modifier`
+scales.
 
 **Validation at load** (`DefsError`, with a test for each): unique ids; the nation exists; chi is
 greater than 0 and no more than `chi.max`, since an ability costing more than max chi could
