@@ -35,14 +35,22 @@
 //! stage ([`gate_stage_look`], `[gate_stage.*]` in `data/tui.toml`), in place of the generic
 //! dimmed site every other building's gets; once it is finished it is an ordinary building with
 //! its own glyph (`[building.harmony_gate]`).
+//!
+//! **One source for the screen and an agent** (#313, #314): [`cell_look`] decides the precedence
+//! above and returns a [`CellLook`] -- a [`Thing`] (what's on top), a [`Ground`] (the terrain or
+//! biome under it) and the [`Mark`]s on it -- as data ids, not glyphs or colours. [`style_cell`]
+//! turns that into a [`TileCell`] for a given [`Palette`], but never re-derives which thing or
+//! mark applies. `fn_tui::surface`'s `look` (#315) reads the same `cell_look`, so the map an
+//! agent sees can't show anything the screen hides, or hide anything it shows.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use fn_sim::building::BuildingId;
+use fn_sim::defs::{BiomeId, ResourceId};
 use fn_sim::geom::Footprint;
-use fn_sim::jobs::Stack;
+use fn_sim::jobs::{ItemId, Stack};
 use fn_sim::world::{BendOutcome, Moved, PlotStage, TICKS_PER_SECOND};
-use fn_sim::{Nation, Pos, Terrain};
+use fn_sim::{Defs, Nation, Pos, Terrain};
 use fn_ui::build::Placement;
 use fn_ui::{Session, Tool};
 use ratatui::buffer::Buffer;
@@ -301,23 +309,21 @@ fn rail_at(world: &fn_sim::World, defs: &fn_sim::Defs, over: &Overlays, pos: Pos
         .is_some_and(|b| is_rail(defs, b))
 }
 
-/// The piece of track `pos` (a rail tile or site) draws, by which of its four neighbours are
-/// rail (#279): `None` for a lone tile, which keeps the rail building's own glyph instead.
-fn rail_glyph(
-    session: &Session,
-    g: &Glyphs,
-    over: &Overlays,
-    pos: Pos,
-    ascii: bool,
-) -> Option<char> {
+/// The mask [`rail_mask`] builds for the rail tiles or sites `pos` (a rail building of `kind`)
+/// joins: `None` if `kind` isn't a rail building at all, which keeps its own glyph instead of
+/// ever looking up a piece. This is `cell_look`'s job, not the painter's, because it reads the
+/// neighbours through `over`.
+fn rail_mask_at(session: &Session, over: &Overlays, pos: Pos, kind: BuildingId) -> Option<u8> {
     let (world, defs) = (&session.world, &session.defs);
-    let mask = rail_mask(
+    if !is_rail(defs, kind) {
+        return None;
+    }
+    Some(rail_mask(
         rail_at(world, defs, over, Pos::new(pos.x, pos.y - 1)),
         rail_at(world, defs, over, Pos::new(pos.x + 1, pos.y)),
         rail_at(world, defs, over, Pos::new(pos.x, pos.y + 1)),
         rail_at(world, defs, over, Pos::new(pos.x - 1, pos.y)),
-    );
-    link_glyph(&g.rail_track, mask, ascii)
+    ))
 }
 
 /// How one tile draws: its glyph and style.
@@ -327,145 +333,369 @@ pub struct TileCell {
     pub style: Style,
 }
 
-/// The terrain or biome look under everything else on `pos`.
-fn ground_look<'a>(session: &Session, palette: &'a Palette, pos: Pos) -> Option<&'a Look> {
-    let tile = session.world.map.get(pos)?;
-    let g = &palette.glyphs;
-    match tile.terrain {
-        Terrain::Land => g.biome.get(&session.defs.biome(tile.biome).id),
-        other => g.terrain(other),
-    }
+/// The terrain or biome a tile's background shows (#314): a data id, so a legend (#315) can
+/// describe it without re-deriving which of the two it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ground {
+    Terrain(Terrain),
+    Biome(BiomeId),
 }
 
-/// The tile at `pos` as the terminal shows it, or `None` off the map.
-pub fn tile_cell(
+/// What draws on top of a tile -- a unit, an item, a resource, a building or nothing, in which
+/// case the terrain or biome itself shows -- as a data id (#314, #313): the one thing a player's
+/// eye reads there, chosen by [`cell_look`]'s precedence (this module's doc comment) so
+/// [`style_cell`] only has to style it, never decide it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Thing {
+    /// The Avatar (#237, #242): always this, never a plain unit; `selected` if the panel's own
+    /// unit is him.
+    Avatar {
+        selected: bool,
+    },
+    /// A settler or bender of `nation`; `selected` if it's the panel's own unit.
+    Unit {
+        nation: Nation,
+        selected: bool,
+    },
+    /// The Build tool's ghost for `building` (#212): green if it fits here, red if something is
+    /// in the way. Without colour a blocked ghost falls through to the next case instead
+    /// (`cell_look` only ever returns this when `free`, or the palette has colour).
+    Ghost {
+        building: BuildingId,
+        free: bool,
+    },
+    /// A building with people inside (#226, #229): its front-middle cell shows how many.
+    Occupied {
+        building: BuildingId,
+        n: u32,
+    },
+    /// A farm plot's crop, over its own tilled-soil glyph (#198).
+    Plot(PlotStage),
+    /// A finished building; `rail_mask` is `Some` for a rail tile (#279), the mask of whichever
+    /// of its four neighbours ([`rail_mask`]'s bits) are rail too.
+    Building {
+        building: BuildingId,
+        rail_mask: Option<u8>,
+    },
+    /// The Harmony Gate's site at a stage with its own look (#242), named by the stage's id in
+    /// `data/endeavor.toml`.
+    GateStage(String),
+    /// Any other building's site, dimmed until it's built; `rail_mask` as [`Thing::Building`].
+    Site {
+        building: BuildingId,
+        rail_mask: Option<u8>,
+    },
+    /// An item stack on the ground or in a stockpile.
+    Item(ItemId),
+    /// A lit flame (a hearth, a forge) with nothing else drawn on it.
+    Flame,
+    /// A resource an orchard planted that hasn't grown back yet.
+    Sapling,
+    /// A resource resting after being harvested, greyed until it regrows.
+    RestingResource(ResourceId),
+    Resource(ResourceId),
+    /// Nothing on top: the terrain or biome itself draws.
+    Ground,
+}
+
+/// A tint or overlay marking a tile apart from its plain look (#314, #313): everything
+/// [`cell_look`] finds true of `pos` besides what's on top of it. More than one may apply (the
+/// cursor and a designation, say); [`style_cell`] composes them in a fixed, data-independent
+/// order (this module's doc comment), never deciding which facts hold.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mark {
+    Cursor,
+    /// A one-off harvest designation.
+    Harvest,
+    /// A harvest with a standing order on it (#81, #277): tinted apart from a one-off harvest.
+    Standing,
+    /// A farm plot with a Sow job designated (#198): the same tint as `Harvest`.
+    Sowing,
+    /// A bend being designated, or one that just landed (the two moments never overlap).
+    Bend,
+    Build,
+    Stockpile,
+    /// The rectangle being dragged, in the tool's hue (or the standing-order hue, #277).
+    Dragged(Tint),
+    /// The Build tool's ghost (#212): green where it fits, red where it doesn't.
+    Ghost {
+        free: bool,
+    },
+    /// A ghost's own door tile (#230): amber free, red blocked.
+    Door {
+        free: bool,
+    },
+    Wet,
+    /// Warmth: an aura carrier's own, or the reach of the flame or aura under the cursor.
+    Warm,
+    /// The Avatar's own background: the nation's accent, not his tile's own (#237, #242).
+    AvatarAccent,
+}
+
+/// What `pos` shows: its `thing`, its `ground`, and every mark on it (#314, #313). The shared
+/// source for the painter ([`style_cell`]) and, later, an agent's `look` (#315): both read this
+/// and nothing closer to `World`, so neither can show what the other hides.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CellLook {
+    pub thing: Thing,
+    pub ground: Ground,
+    pub marks: Vec<Mark>,
+}
+
+/// What `pos` shows, decided once by the precedence this module's doc comment lists: `None` off
+/// the map. Pure given `session`, `ui`, `over` and whether `palette` has colour (the one place a
+/// blocked Build ghost's glyph depends on it, so the player can see what's in the way without
+/// colour to show it some other way).
+pub fn cell_look(
     session: &Session,
     ui: &UiState,
     palette: &Palette,
     over: &Overlays,
     pos: Pos,
-) -> Option<TileCell> {
-    let (world, defs, g) = (&session.world, &session.defs, &palette.glyphs);
+) -> Option<CellLook> {
+    let (world, defs) = (&session.world, &session.defs);
     let tile = world.map.get(pos)?;
-    let ground = ground_look(session, palette, pos)?;
-    let base_bg = ground.bg.expect("terrain and biome entries have a bg (tested)");
+    let ground = match tile.terrain {
+        Terrain::Land => Ground::Biome(tile.biome),
+        other => Ground::Terrain(other),
+    };
 
-    // The glyph and its colour, top to bottom.
-    let mut mods = Modifier::empty();
-    let (glyph, fg): (char, Rgb8) = if over.avatar == Some(pos) {
-        // The Avatar (#237, #242): always `@` in white, never the nation's own unit look, so he
-        // reads as a guest apart from every unit (his own background follows below).
-        mods |= Modifier::BOLD;
-        if palette.mono() {
-            // No colour to set him apart with, so reverse video does, whether selected or not.
-            mods |= Modifier::REVERSED;
-        } else if over.selected == Some(pos) {
-            mods |= Modifier::REVERSED;
-        }
-        (g.avatar.glyph(palette.ascii), g.avatar.fg)
+    // What's on top, top to bottom.
+    let thing = if over.avatar == Some(pos) {
+        Thing::Avatar { selected: over.selected == Some(pos) }
     } else if let Some(&nation) = over.units.get(&pos) {
-        mods |= Modifier::BOLD;
-        if over.selected == Some(pos) {
-            // The selected unit stands out from the others, whatever the colour depth.
-            mods |= Modifier::REVERSED;
-        }
-        // A newcomer draws in its own nation's colour (#248), not necessarily the
-        // settlement's own.
-        (g.unit.glyph(palette.ascii), palette.unit_rgb_for(defs, nation))
-    } else if let Some(&(b, _)) = over.ghost.get(&pos).filter(|&&(_, free)| free || !palette.mono())
+        Thing::Unit { nation, selected: over.selected == Some(pos) }
+    } else if let Some(&(b, free)) =
+        over.ghost.get(&pos).filter(|&&(_, free)| free || !palette.mono())
     {
-        // Without colour a blocked ghost tile keeps the glyph of what is in the way instead
-        // (below), so the player can still tell what they'd be building over.
-        let look = &g.building[&defs.building(b).id];
-        (look.glyph(palette.ascii), look.fg)
+        Thing::Ghost { building: b, free }
     } else if let Some(b) = world.building_at(pos) {
-        let look = &g.building[&defs.building(b).id];
         match (over.occupants.get(&pos), world.plot_stage(pos)) {
-            // The front-middle cell of a building with anyone inside (#226, #229) shows how
-            // many as a digit (`+` above 9), in the building's own colour, in place of its
-            // glyph; `--ascii` draws the same digit, already plain ASCII.
-            (Some(&n), _) if n > 0 => {
-                ((if n > 9 { '+' } else { char::from(b'0' + n as u8) }), look.fg)
-            }
-            // A farm plot's own glyph is tilled soil; growing or ripe override it (#198).
-            (_, Some(PlotStage::Growing)) => {
-                let o = &g.overlay.plot_growing;
-                (o.glyph(palette.ascii), o.fg)
-            }
-            (_, Some(PlotStage::Ripe)) => {
-                let o = &g.overlay.plot_ripe;
-                (o.glyph(palette.ascii), o.fg)
-            }
-            _ if is_rail(defs, b) => {
-                let glyph = rail_glyph(session, g, over, pos, palette.ascii)
-                    .unwrap_or_else(|| look.glyph(palette.ascii));
-                (glyph, look.fg)
-            }
-            _ => (look.glyph(palette.ascii), look.fg),
+            (Some(&n), _) if n > 0 => Thing::Occupied { building: b, n },
+            (_, Some(stage @ (PlotStage::Growing | PlotStage::Ripe))) => Thing::Plot(stage),
+            _ => Thing::Building { building: b, rail_mask: rail_mask_at(session, over, pos, b) },
         }
     } else if let Some(&b) = over.sites.get(&pos) {
         // The Harmony Gate's site draws its own 4x4 glyph block by stage (#242); every other
         // site is its building, dimmed until it's built, and a rail site joins the rail beside
         // it (built or still a site) the same as a finished tile does.
-        match gate_stage_look(g, world, defs, b) {
-            Some(look) => (look.glyph(palette.ascii), look.fg),
-            None => {
-                let look = &g.building[&defs.building(b).id];
-                if palette.mono() {
-                    mods |= Modifier::DIM;
-                }
-                let glyph = if is_rail(defs, b) {
-                    rail_glyph(session, g, over, pos, palette.ascii)
-                        .unwrap_or_else(|| look.glyph(palette.ascii))
-                } else {
-                    look.glyph(palette.ascii)
-                };
-                (glyph, mix(look.fg, base_bg, 0.5))
+        match gate_stage_look(&palette.glyphs, world, defs, b) {
+            Some(_) => {
+                let (_, stage) = world.gate_stage(defs).expect("a look implies a stage");
+                Thing::GateStage(stage.id.clone())
             }
+            None => Thing::Site { building: b, rail_mask: rail_mask_at(session, over, pos, b) },
         }
     } else if let Some(stack) = over.ground.get(&pos).copied().or_else(|| world.stored_at(pos)) {
-        let look = &g.item[&defs.item(stack.item).id];
-        (look.glyph(palette.ascii), look.fg)
+        Thing::Item(stack.item)
     } else if over.flames.contains(&pos) {
-        let f = &g.overlay.flame;
-        (f.glyph(palette.ascii), f.fg)
+        Thing::Flame
     } else if let Some(r) = tile.resource {
-        let look = &g.resource[&defs.resource(r).id];
         if world.is_sapling(pos) {
             // Planted by an orchard and not yet grown: a sapling, not a resting tree.
-            let s = &g.overlay.sapling;
-            (s.glyph(palette.ascii), s.fg)
+            Thing::Sapling
         } else if world.is_resting(pos) {
-            // Growing back: the client greys its sprite, so grey the glyph.
-            if palette.mono() {
-                mods |= Modifier::DIM;
-            }
-            (look.glyph(palette.ascii), crate::color::to_u8(palette.theme.dim))
+            Thing::RestingResource(r)
         } else {
-            (look.glyph(palette.ascii), look.fg)
+            Thing::Resource(r)
         }
     } else {
-        (ground.glyph(palette.ascii), ground.fg)
+        Thing::Ground
     };
 
-    // The background, top to bottom.
-    let designation = if over.standing.contains(&pos) {
+    let mut marks = Vec::new();
+    if pos == ui.cursor {
+        marks.push(Mark::Cursor);
+    }
+    if over.standing.contains(&pos) {
         // A standing order (#277) is a harvest too, but tinted apart from a one-off one.
-        Some(Tint::RepeatingHarvest)
-    } else if over.harvest.contains(&pos) || over.sowing.contains(&pos) {
-        Some(Tint::Harvest)
+        marks.push(Mark::Standing);
+    } else if over.harvest.contains(&pos) {
+        marks.push(Mark::Harvest);
+    } else if over.sowing.contains(&pos) {
+        marks.push(Mark::Sowing);
     } else if over.bend.contains(&pos) || over.cast.contains(&pos) {
-        // A bend being designated and one that just landed wear the same accent; their moments
-        // never overlap (a landed bend's designation is gone).
-        Some(Tint::Bend)
+        marks.push(Mark::Bend);
     } else if over.sites.contains_key(&pos) {
-        Some(Tint::Build)
+        marks.push(Mark::Build);
     } else if over.zones.contains(&pos) {
-        Some(Tint::Stockpile)
-    } else {
+        marks.push(Mark::Stockpile);
+    }
+    // The rectangle being dragged shows the tool's hue; the Harvest tool's standing-order toggle
+    // (`O`, #277) shows in the drag too.
+    let drag_tint = if !ui.in_rect(pos) {
         None
+    } else if ui.tool == Tool::Harvest && ui.repeating {
+        Some(Tint::RepeatingHarvest)
+    } else {
+        Tint::for_tool(ui.tool)
     };
-    if designation.is_some() && palette.mono() {
+    if let Some(tint) = drag_tint {
+        marks.push(Mark::Dragged(tint));
+    }
+    // The Build tool's ghost (#212) and its own door tile (#230) mark `pos` independently of
+    // whether `thing` ended up being the ghost itself (a blocked ghost without colour falls
+    // through to what's in the way, but still marks the tile red).
+    if let Some(&(_, free)) = over.ghost.get(&pos) {
+        marks.push(Mark::Ghost { free });
+    }
+    if let Some(&free) = over.door.get(&pos) {
+        marks.push(Mark::Door { free });
+    }
+    if over.wet.contains(&pos) {
+        marks.push(Mark::Wet);
+    }
+    if over.aura.contains(&pos) || over.is_warmed(pos) {
+        // An aura carrier wears its own warmth, cursor or not; so does the reach of the flame or
+        // aura under the cursor.
+        marks.push(Mark::Warm);
+    }
+    if over.avatar == Some(pos) {
+        marks.push(Mark::AvatarAccent);
+    }
+
+    Some(CellLook { thing, ground, marks })
+}
+
+/// The terrain or biome look `ground` names.
+fn ground_look<'a>(ground: Ground, defs: &Defs, g: &'a Glyphs) -> &'a Look {
+    match ground {
+        Ground::Terrain(t) => g.terrain(t).expect("every non-land terrain has a look (tested)"),
+        Ground::Biome(id) => &g.biome[&defs.biome(id).id],
+    }
+}
+
+/// The glyph and colour `thing` alone draws, and the modifier it alone contributes (the
+/// Avatar's and a unit's bold and selected reverse video, a dimmed site or resting resource): no
+/// mark has a say in any of it. Split out of [`style_cell`] so a test can check this is the
+/// glyph that ends up on the screen, with no mark changing it (#314).
+fn thing_look(
+    thing: &Thing,
+    defs: &Defs,
+    palette: &Palette,
+    base_bg: Rgb8,
+) -> (char, Rgb8, Modifier) {
+    let g = &palette.glyphs;
+    let (mono, ascii) = (palette.mono(), palette.ascii);
+    let mut mods = Modifier::empty();
+    let (glyph, fg): (char, Rgb8) = match thing {
+        Thing::Avatar { selected } => {
+            // The Avatar (#237, #242): always `@` in white, never the nation's own unit look, so
+            // he reads as a guest apart from every unit (his own background follows below).
+            mods |= Modifier::BOLD;
+            if mono || *selected {
+                // No colour to set him apart with, so reverse video does, whether selected or
+                // not; with colour, only selection does.
+                mods |= Modifier::REVERSED;
+            }
+            (g.avatar.glyph(ascii), g.avatar.fg)
+        }
+        Thing::Unit { nation, selected } => {
+            mods |= Modifier::BOLD;
+            if *selected {
+                // The selected unit stands out from the others, whatever the colour depth.
+                mods |= Modifier::REVERSED;
+            }
+            // A newcomer draws in its own nation's colour (#248), not necessarily the
+            // settlement's own.
+            (g.unit.glyph(ascii), palette.unit_rgb_for(defs, *nation))
+        }
+        Thing::Ghost { building, .. } => {
+            let look = &g.building[&defs.building(*building).id];
+            (look.glyph(ascii), look.fg)
+        }
+        Thing::Occupied { building, n } => {
+            // The front-middle cell of a building with anyone inside (#226, #229) shows how
+            // many as a digit (`+` above 9), in the building's own colour, in place of its
+            // glyph; `--ascii` draws the same digit, already plain ASCII.
+            let look = &g.building[&defs.building(*building).id];
+            let digit = if *n > 9 { '+' } else { char::from(b'0' + *n as u8) };
+            (digit, look.fg)
+        }
+        // A farm plot's own glyph is tilled soil; growing or ripe override it (#198).
+        Thing::Plot(PlotStage::Ripe) => {
+            let o = &g.overlay.plot_ripe;
+            (o.glyph(ascii), o.fg)
+        }
+        Thing::Plot(_) => {
+            let o = &g.overlay.plot_growing;
+            (o.glyph(ascii), o.fg)
+        }
+        Thing::Building { building, rail_mask } => {
+            let look = &g.building[&defs.building(*building).id];
+            let glyph = rail_mask
+                .and_then(|m| link_glyph(&g.rail_track, m, ascii))
+                .unwrap_or_else(|| look.glyph(ascii));
+            (glyph, look.fg)
+        }
+        Thing::GateStage(stage_id) => {
+            let look = &g.gate_stage[stage_id];
+            (look.glyph(ascii), look.fg)
+        }
+        Thing::Site { building, rail_mask } => {
+            let look = &g.building[&defs.building(*building).id];
+            if mono {
+                mods |= Modifier::DIM;
+            }
+            let glyph = rail_mask
+                .and_then(|m| link_glyph(&g.rail_track, m, ascii))
+                .unwrap_or_else(|| look.glyph(ascii));
+            (glyph, mix(look.fg, base_bg, 0.5))
+        }
+        Thing::Item(item) => {
+            let look = &g.item[&defs.item(*item).id];
+            (look.glyph(ascii), look.fg)
+        }
+        Thing::Flame => {
+            let f = &g.overlay.flame;
+            (f.glyph(ascii), f.fg)
+        }
+        Thing::Sapling => {
+            let s = &g.overlay.sapling;
+            (s.glyph(ascii), s.fg)
+        }
+        Thing::RestingResource(r) => {
+            // Growing back: the client greys its sprite, so grey the glyph.
+            let look = &g.resource[&defs.resource(*r).id];
+            if mono {
+                mods |= Modifier::DIM;
+            }
+            (look.glyph(ascii), crate::color::to_u8(palette.theme.dim))
+        }
+        Thing::Resource(r) => {
+            let look = &g.resource[&defs.resource(*r).id];
+            (look.glyph(ascii), look.fg)
+        }
+        Thing::Ground => unreachable!("the caller passes the ground's own look instead"),
+    };
+    (glyph, fg, mods)
+}
+
+/// What `marks` alone contributes: the modifier they add without colour, and the designation,
+/// drag, ghost and door facts [`style_cell`]'s background needs, read once. Split out so a test
+/// can check this is the modifier that ends up on the screen, on tiles where `thing` adds none
+/// of its own (#314).
+struct MarksEffect {
+    mods: Modifier,
+    is_cursor: bool,
+    designation: Option<Tint>,
+    dragged: Option<Tint>,
+    ghost: Option<bool>,
+    door: Option<bool>,
+}
+
+fn marks_effect(marks: &[Mark], mono: bool) -> MarksEffect {
+    let is_cursor = marks.contains(&Mark::Cursor);
+    let designation = marks.iter().find_map(|m| match m {
+        Mark::Standing => Some(Tint::RepeatingHarvest),
+        Mark::Harvest | Mark::Sowing => Some(Tint::Harvest),
+        Mark::Bend => Some(Tint::Bend),
+        Mark::Build => Some(Tint::Build),
+        Mark::Stockpile => Some(Tint::Stockpile),
+        _ => None,
+    });
+    let mut mods = Modifier::empty();
+    if designation.is_some() && mono {
         // Without colour a designated tile is underlined; a standing order is bold too, so it
         // still reads apart from a one-off harvest (#277).
         mods |= Modifier::UNDERLINED;
@@ -473,49 +703,69 @@ pub fn tile_cell(
             mods |= Modifier::BOLD;
         }
     }
-    // The rectangle being dragged shows the tool's hue, stronger than a designation's; the
-    // Harvest tool's standing-order toggle (`O`, #277) shows in the drag too.
-    let dragged = if !ui.in_rect(pos) {
-        None
-    } else if ui.tool == Tool::Harvest && ui.repeating {
-        Some(Tint::RepeatingHarvest)
-    } else {
-        Tint::for_tool(ui.tool)
-    };
-    if dragged.is_some() && palette.mono() && pos != ui.cursor {
+    let dragged = marks.iter().find_map(|m| match m {
+        Mark::Dragged(t) => Some(*t),
+        _ => None,
+    });
+    if dragged.is_some() && mono && !is_cursor {
         // Without colour a dragged tile is reversed and dimmed; the cursor is reversed alone.
         mods |= Modifier::REVERSED | Modifier::DIM;
     }
-    // The Build tool's ghost (#212), green where the building fits and red where it doesn't,
-    // outranks everything below it: it has to read clearly over a designation or a drag.
-    let ghost = over.ghost.get(&pos).map(|&(_, free)| free);
+    let ghost = marks.iter().find_map(|m| match m {
+        Mark::Ghost { free } => Some(*free),
+        _ => None,
+    });
     // A ghost's own door tile (#230) outranks the ghost itself: it never lies inside the
     // footprint that placed it (the door is on the ring), but a tight drag can still land
     // another stamp's footprint on it, and the door is the more specific thing to show there.
-    let door = over.door.get(&pos).copied();
+    let door = marks.iter().find_map(|m| match m {
+        Mark::Door { free } => Some(*free),
+        _ => None,
+    });
     if let Some(free) = door.or(ghost)
-        && palette.mono()
+        && mono
     {
         // Without colour a door or the ghost itself is reversed: bold free, dim blocked.
         mods.remove(Modifier::DIM | Modifier::UNDERLINED);
         mods |= Modifier::REVERSED | if free { Modifier::BOLD } else { Modifier::DIM };
     }
-    let bg = if let Some(free) = door {
+    MarksEffect { mods, is_cursor, designation, dragged, ghost, door }
+}
+
+/// Styles a [`CellLook`] through `palette`: the colour depth, glyph set and nation theme turn
+/// what `cell_look` already decided into what the terminal draws. Never re-derives which thing
+/// or mark applies -- that's `cell_look`'s job (`thing_look` and `marks_effect` above) -- only
+/// how it looks at this depth.
+pub fn style_cell(look: &CellLook, defs: &Defs, palette: &Palette) -> TileCell {
+    let g = &palette.glyphs;
+    let ascii = palette.ascii;
+    let ground = ground_look(look.ground, defs, g);
+    let base_bg = ground.bg.expect("terrain and biome entries have a bg (tested)");
+
+    let (glyph, fg, thing_mods) = if look.thing == Thing::Ground {
+        (ground.glyph(ascii), ground.fg, Modifier::empty())
+    } else {
+        thing_look(&look.thing, defs, palette, base_bg)
+    };
+
+    // The background, from `marks`, top to bottom (this module's doc comment).
+    let marks = marks_effect(&look.marks, palette.mono());
+    let mods = thing_mods | marks.mods;
+    // The Build tool's ghost (#212), green where the building fits and red where it doesn't,
+    // outranks everything below it: it has to read clearly over a designation or a drag.
+    let bg = if let Some(free) = marks.door {
         palette.door(base_bg, free)
-    } else if let Some(free) = ghost {
+    } else if let Some(free) = marks.ghost {
         palette.ghost(base_bg, free)
-    } else if let Some(tint) = dragged {
+    } else if let Some(tint) = marks.dragged {
         palette.dragged(base_bg, tint)
-    } else if let Some(tint) = designation {
+    } else if let Some(tint) = marks.designation {
         palette.tinted(base_bg, tint)
-    } else if over.wet.contains(&pos) {
+    } else if look.marks.contains(&Mark::Wet) {
         palette.tinted(base_bg, Tint::Wet)
-    } else if over.aura.contains(&pos) {
-        // An aura carrier wears its own warmth, cursor or not.
+    } else if look.marks.contains(&Mark::Warm) {
         palette.tinted(base_bg, Tint::Warm)
-    } else if over.is_warmed(pos) {
-        palette.tinted(base_bg, Tint::Warm)
-    } else if over.avatar == Some(pos) {
+    } else if look.marks.contains(&Mark::AvatarAccent) {
         // The Avatar's own background (#237, #242): the nation's accent, not his tile's own, so
         // he reads as a guest wherever he stands.
         palette.color(palette.tint_rgb(Tint::Bend))
@@ -524,8 +774,8 @@ pub fn tile_cell(
     };
 
     let mut style = Style::new().fg(palette.color(fg)).bg(bg).add_modifier(mods);
-    if pos == ui.cursor {
-        if (door.is_some() || ghost.is_some()) && !palette.mono() {
+    if marks.is_cursor {
+        if (marks.door.is_some() || marks.ghost.is_some()) && !palette.mono() {
             // Over a door or the ghost the cursor keeps the tile's own colour instead of its
             // own, so a 1x1 ghost (or its door) still shows which it is; the glyph goes black
             // for contrast.
@@ -535,7 +785,21 @@ pub fn tile_cell(
             style = style.patch(palette.cursor_style());
         }
     }
-    Some(TileCell { glyph, style })
+    TileCell { glyph, style }
+}
+
+/// The tile at `pos` as the terminal shows it, or `None` off the map: `cell_look`'s decision,
+/// styled by `style_cell`. The painter's one entry point, kept so nothing outside this module
+/// has to call the two in order.
+pub fn tile_cell(
+    session: &Session,
+    ui: &UiState,
+    palette: &Palette,
+    over: &Overlays,
+    pos: Pos,
+) -> Option<TileCell> {
+    let look = cell_look(session, ui, palette, over, pos)?;
+    Some(style_cell(&look, &session.defs, palette))
 }
 
 /// Draws the tiles in view into `area`. Cells past the edge of the map stay blank.
@@ -557,6 +821,7 @@ mod tests {
     use fn_sim::Defs;
     use fn_sim::building::Building;
     use fn_sim::jobs::ItemId;
+    use fn_sim::world::Command;
 
     use super::*;
     use crate::color::ColorDepth;
@@ -753,5 +1018,175 @@ mod tests {
         assert!(gate_stage_look(&g, &dormant.world, &defs, gate).is_none());
         // Any other building's site never looks here up, whatever the gate's own stage.
         assert!(gate_stage_look(&g, &world, &defs, other).is_none());
+    }
+
+    /// Land, free of everyone and everything, nearest `from` first: tiles `designate_scenario`
+    /// (below) can hand a designation or a ghost without clashing with anything else it set up.
+    fn free_land(s: &Session, from: Pos) -> Vec<Pos> {
+        let mut land: Vec<Pos> = s
+            .world
+            .map
+            .iter()
+            .filter(|(p, t)| {
+                t.terrain == Terrain::Land
+                    && t.resource.is_none()
+                    && t.building.is_none()
+                    && !s.world.units.iter().any(|u| u.pos == *p)
+            })
+            .map(|(p, _)| p)
+            .collect();
+        land.sort_by_key(|p| (p.x - from.x).pow(2) + (p.y - from.y).pow(2));
+        land
+    }
+
+    /// A one-off harvest, a standing order, a stockpile zone and a build site, each on their own
+    /// tile near the settlers, plus a dragged Harvest rectangle and a Build ghost with its own
+    /// door tile elsewhere: every [`Mark`] this module's doc comment lists except `Wet`, `Warm`
+    /// and `AvatarAccent` (those need a bend or an aura, covered by the golden frames instead).
+    /// Returns the session, the `UiState` with the drag and the ghost set up, and every tile of
+    /// interest by name.
+    fn designate_scenario(nation: Nation) -> (Session, UiState, BTreeMap<&'static str, Pos>) {
+        let mut s = crate::new_session(7, nation);
+        let from = s.world.units[0].pos;
+        let mut resources: Vec<Pos> =
+            s.world.map.iter().filter(|(_, t)| t.resource.is_some()).map(|(p, _)| p).collect();
+        resources.sort_by_key(|p| (p.x - from.x).pow(2) + (p.y - from.y).pow(2));
+        let can_harvest =
+            |s: &Session, pos: Pos| s.clone().apply(Command::DesignateHarvest { pos }).is_ok();
+        let harvest = *resources.iter().find(|&&p| can_harvest(&s, p)).unwrap();
+        let standing = *resources.iter().find(|&&p| p != harvest && can_harvest(&s, p)).unwrap();
+        s.apply(Command::DesignateHarvest { pos: harvest }).unwrap();
+        s.apply(Command::DesignateRepeatingHarvest { pos: standing }).unwrap();
+
+        let land = free_land(&s, from);
+        let zone = land[0];
+        s.apply(Command::DesignateStockpile { pos: zone }).unwrap();
+        let site = land[1];
+        let bed = s.defs.building_id("bed").unwrap();
+        s.apply(Command::DesignateBuild { pos: site, building: bed }).unwrap();
+        let dragged = land[2];
+
+        let mut ui = UiState::new(&s, (120, 40));
+        ui.view = Pos::new((from.x - 20).max(0), (from.y - 20).max(0));
+        ui.tool = Tool::Harvest;
+        ui.anchor = Some(dragged);
+        // Away from `dragged` itself, so that tile is inside the rectangle without being the
+        // cursor tile too (the cursor's own styling, not a mark, would otherwise cover it).
+        ui.cursor = Pos::new(dragged.x + 3, dragged.y + 3);
+
+        let mut tiles = BTreeMap::new();
+        tiles.insert("harvest", harvest);
+        tiles.insert("standing", standing);
+        tiles.insert("stockpile", zone);
+        tiles.insert("build_site", site);
+        tiles.insert("dragged", dragged);
+        (s, ui, tiles)
+    }
+
+    /// For every cell of [`designate_scenario`] (every nation), the glyph `thing_look` (or the
+    /// ground's own look, for [`Thing::Ground`]) computes from `cell_look`'s `thing` alone, with
+    /// `--ascii` or without, is the glyph that ends up in the frame -- no mark ever changes it
+    /// (#314's acceptance criteria).
+    #[test]
+    fn a_cells_glyph_comes_from_its_thing_alone() {
+        for nation in Nation::ALL {
+            let (s, ui, _) = designate_scenario(nation);
+            let over = Overlays::gather(&s, &ui);
+            for ascii in [false, true] {
+                for depth in [ColorDepth::TrueColor, ColorDepth::Never] {
+                    let palette = Palette::new(&s.defs, nation, depth, ascii);
+                    for dy in -8..8 {
+                        for dx in -8..8 {
+                            let pos = Pos::new(ui.cursor.x + dx, ui.cursor.y + dy);
+                            let Some(look) = cell_look(&s, &ui, &palette, &over, pos) else {
+                                continue;
+                            };
+                            let ground = ground_look(look.ground, &s.defs, &palette.glyphs);
+                            let base_bg = ground.bg.unwrap();
+                            let want = if look.thing == Thing::Ground {
+                                ground.glyph(ascii)
+                            } else {
+                                thing_look(&look.thing, &s.defs, &palette, base_bg).0
+                            };
+                            let got = style_cell(&look, &s.defs, &palette).glyph;
+                            assert_eq!(want, got, "{nation:?} {depth:?} ascii={ascii} {pos:?}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// For [`designate_scenario`]'s harvest, standing, stockpile and dragged tiles -- each a bare
+    /// resource or plain ground, so `thing` contributes no modifier of its own -- the modifier
+    /// `marks_effect` computes for a mono palette is the whole of the rendered cell's modifier
+    /// (#314's acceptance criteria). The build site is left out: its own `Thing::Site` is dimmed
+    /// in mono too, so it isn't a tile where marks alone account for the modifier.
+    #[test]
+    fn marks_alone_account_for_a_mono_cells_modifier_where_the_thing_adds_none() {
+        let (s, ui, tiles) = designate_scenario(Nation::Earth);
+        let over = Overlays::gather(&s, &ui);
+        let palette = Palette::new(&s.defs, Nation::Earth, ColorDepth::Never, false);
+        for name in ["harvest", "standing", "stockpile", "dragged"] {
+            let pos = tiles[name];
+            let look = cell_look(&s, &ui, &palette, &over, pos).expect("on the map");
+            assert!(
+                matches!(look.thing, Thing::Resource(_) | Thing::Ground),
+                "{name}: {:?}",
+                look.thing
+            );
+            let want = marks_effect(&look.marks, true).mods;
+            let got = style_cell(&look, &s.defs, &palette).style.add_modifier;
+            assert_eq!(want, got, "{name} ({pos:?}): {:?}", look.marks);
+        }
+    }
+
+    /// The Build tool's ghost and its own door tile (#212, #230) mark a tile independently of
+    /// whether `thing` ended up being the ghost (a blocked one without colour falls through to
+    /// what's in the way, #314's doc comment): `cell_look` always marks a free ghost `Ghost` and
+    /// its door `Door`, and neither adds its own modifier, so `marks_effect` alone accounts for
+    /// the mono cell's modifier here too.
+    #[test]
+    fn a_build_ghost_and_its_door_mark_the_cell_independently_of_the_thing() {
+        let s = crate::new_session(7, Nation::Earth);
+        let from = s.world.units[0].pos;
+        let study_hall = s.defs.building_id("study_hall").unwrap();
+        // The nearest free cursor spot with a clear 2x2 placement and a free door beside it.
+        let cursor = free_land(&s, from)
+            .into_iter()
+            .find(|&p| {
+                let placements = fn_ui::build::ghosts(&s, None, p, study_hall);
+                placements.len() == 1
+                    && placements[0].refused.is_none()
+                    && placements[0].entrance.is_some_and(|(_, free)| free)
+            })
+            .expect("a clear placement with a free door nearby");
+
+        let mut ui = UiState::new(&s, (120, 40));
+        ui.view = Pos::new((from.x - 20).max(0), (from.y - 20).max(0));
+        ui.tool = Tool::Build;
+        ui.choice = Some(study_hall);
+        ui.cursor = cursor;
+
+        let over = Overlays::gather(&s, &ui);
+        let palette = Palette::new(&s.defs, Nation::Earth, ColorDepth::Never, false);
+        let ghost_pos = *over.ghost.keys().next().expect("a ghost preview");
+        let ghost_look = cell_look(&s, &ui, &palette, &over, ghost_pos).expect("on the map");
+        assert!(matches!(ghost_look.thing, Thing::Ghost { free: true, .. }));
+        assert!(ghost_look.marks.contains(&Mark::Ghost { free: true }));
+        assert_eq!(
+            marks_effect(&ghost_look.marks, true).mods,
+            style_cell(&ghost_look, &s.defs, &palette).style.add_modifier,
+            "ghost at {ghost_pos:?}"
+        );
+
+        let door_pos = *over.door.keys().next().expect("a door tile");
+        let door_look = cell_look(&s, &ui, &palette, &over, door_pos).expect("on the map");
+        assert!(door_look.marks.contains(&Mark::Door { free: true }));
+        assert_eq!(
+            marks_effect(&door_look.marks, true).mods,
+            style_cell(&door_look, &s.defs, &palette).style.add_modifier,
+            "door at {door_pos:?}"
+        );
     }
 }
