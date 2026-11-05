@@ -348,6 +348,33 @@ impl SiteReport {
     }
 }
 
+/// What `Survey::supply` found of one surveyed resource within one radius
+/// (`docs/design/materials.md`, "What the map holds", `balance --supply`, #348).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DepositSupply {
+    pub resource: ResourceId,
+    /// Deposits that touch (8 neighbours) a walkable tile of the start's region, within the
+    /// radius: directly, or (a buried resource only) by boring at most `bore_limit` tiles of
+    /// tunnel to reach one.
+    pub count: u32,
+    /// Of `count`, how many were only reachable through a bore, so `worth` used
+    /// `HarvestDef::tunnel_count` for them instead of `count`. Always 0 for a surface resource,
+    /// which is already exposed and has nothing to bore.
+    pub tunnelled: u32,
+    /// Total yield: `HarvestDef::count` per deposit, except a tunnelled one, which uses
+    /// `tunnel_count` (falling back to `count` if the harvest defines none). 0 for a resource
+    /// with no `HarvestDef` at all.
+    pub worth: u32,
+}
+
+/// One radius's results from `Survey::supply`, in the same order as the resources it was asked
+/// for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RadiusSupply {
+    pub radius: i32,
+    pub deposits: Vec<DepositSupply>,
+}
+
 /// A generated map with its buried resources hidden, ready to be surveyed for a site
 /// (`docs/design/embark.md`, "The sim surveys first, then founds").
 #[derive(Debug, Clone)]
@@ -679,6 +706,154 @@ impl Survey {
     }
 }
 
+/// What `Survey::deposit_supply` needs that doesn't change across the resources it's called for
+/// (`Survey::supply`'s own loop): bundled so the function stays under clippy's argument limit.
+struct SupplyCtx<'a> {
+    at: Pos,
+    region: Option<RegionId>,
+    /// `Survey::bore_distances`, computed once for `region` and shared by every buried resource
+    /// `supply` is asked about; `None` if `at` has no region (shouldn't happen for a valid site,
+    /// but `supply` stays total rather than panicking).
+    bore: Option<BTreeMap<Pos, u32>>,
+    bore_limit: u32,
+    defs: &'a Defs,
+}
+
+impl Survey {
+    /// The supply survey (`docs/design/materials.md`, "What the map holds" and "Measuring it",
+    /// #348): for `at`'s region, at each of `radii` (ascending, Chebyshev tiles from `at`), how
+    /// many of each of `resources` are reachable and what they're worth under `defs`'s bundled
+    /// `data/jobs.toml` yields.
+    ///
+    /// A deposit counts once it touches (8 neighbours) a walkable tile of the start's region.
+    /// A buried resource (`gold_seam`) additionally counts up to `bore_limit` Bore Tunnel casts
+    /// deep in the rock, chained one orthogonal tile at a time off that region exactly as
+    /// `world::bending`'s chain rule requires, since nothing stands beside it otherwise; those
+    /// are valued at `tunnel_count` instead of `count` (`DepositSupply::tunnelled`). A surface
+    /// resource (`stone`, `gold_vein`) is never tunnel-aware: it's already exposed, so a
+    /// deposit that touches nothing walkable simply isn't counted. Only Earth has Bore Tunnel
+    /// and Seismic Sense, so a buried resource's worth is only real for it in practice; this
+    /// method itself is nation-agnostic, the same way the map is.
+    ///
+    /// `resources` names what to survey, not the code: a new deposit kind (#134's metal ore, or
+    /// #349's foothill boulders) is a caller's list, never a hard-coded id here. A resource with
+    /// no `HarvestDef` reports zero reachability rather than panicking, so a caller can survey a
+    /// find like `ancient_scroll` without special-casing it.
+    pub fn supply(
+        &self,
+        at: Pos,
+        resources: &[ResourceId],
+        radii: &[i32],
+        bore_limit: u32,
+        defs: &Defs,
+    ) -> Vec<RadiusSupply> {
+        let region = self.regions.region(at);
+        let ctx = SupplyCtx {
+            at,
+            region,
+            bore: region.map(|r| self.bore_distances(r)),
+            bore_limit,
+            defs,
+        };
+        radii
+            .iter()
+            .map(|&radius| RadiusSupply {
+                radius,
+                deposits: resources
+                    .iter()
+                    .map(|&id| self.deposit_supply(&ctx, id, radius))
+                    .collect(),
+            })
+            .collect()
+    }
+
+    /// `resource`'s reachable count and worth within `radius`, for `Survey::supply`.
+    fn deposit_supply(&self, ctx: &SupplyCtx, resource: ResourceId, radius: i32) -> DepositSupply {
+        let mut out = DepositSupply { resource, count: 0, tunnelled: 0, worth: 0 };
+        let (Some(harvest), Some(region)) = (ctx.defs.harvest(resource), ctx.region) else {
+            return out;
+        };
+        let buried = ctx.defs.resource(resource).buried;
+        let positions: Vec<Pos> = if buried {
+            self.buried.iter().filter(|&(_, &r)| r == resource).map(|(&p, _)| p).collect()
+        } else {
+            self.surface
+                .iter()
+                .filter(|(_, t)| t.resource == Some(resource))
+                .map(|(p, _)| p)
+                .collect()
+        };
+        for p in positions {
+            if p.chebyshev(ctx.at) > radius {
+                continue;
+            }
+            let direct =
+                self.surface.neighbors(p, true).any(|n| self.regions.region(n) == Some(region));
+            if direct {
+                out.count += 1;
+                out.worth += harvest.count;
+                continue;
+            }
+            if !buried {
+                continue; // exposed already: no walkable neighbour means truly unreachable
+            }
+            let nearest_bore = ctx.bore.as_ref().and_then(|dist| {
+                self.surface
+                    .neighbors(p, true)
+                    .filter(|&n| self.borable(n))
+                    .filter_map(|n| dist.get(&n).copied())
+                    .min()
+            });
+            if let Some(bores) = nearest_bore
+                && bores <= ctx.bore_limit
+            {
+                out.count += 1;
+                out.tunnelled += 1;
+                out.worth += harvest.tunnel_count.unwrap_or(harvest.count);
+            }
+        }
+        out
+    }
+
+    /// Whether `p` is an empty `Terrain::Mountain` tile Bore Tunnel could target: not water or
+    /// open land, nothing sitting on it, and not hiding a buried resource either, the same
+    /// "something is in the way" rule `world::bending::validate_effect` applies to a real cast.
+    /// A buried resource's own tile has no `resource` on `surface` (`Survey::new` hides it, as
+    /// `World::bury` does), so that has to be checked against `buried` separately.
+    fn borable(&self, p: Pos) -> bool {
+        self.surface.get(p).is_some_and(|t| t.terrain == Terrain::Mountain && t.resource.is_none())
+            && !self.buried.contains_key(&p)
+    }
+
+    /// For every tile `borable` allows, how many Bore Tunnel casts, chained one orthogonal tile
+    /// at a time off `region`'s own walkable ground, it would take to turn that tile into a
+    /// tunnel (`world::bending`'s `has_bank`/chain rule for `Effect::Reshape`, #132). A
+    /// multi-source BFS from every such tile that already has a walkable neighbour in `region`
+    /// (distance 1, one bore).
+    fn bore_distances(&self, region: RegionId) -> BTreeMap<Pos, u32> {
+        let mut dist: BTreeMap<Pos, u32> = BTreeMap::new();
+        let mut queue: VecDeque<Pos> = VecDeque::new();
+        for (p, _) in self.surface.iter().filter(|&(p, _)| self.borable(p)) {
+            if self.surface.neighbors(p, false).any(|n| self.regions.region(n) == Some(region)) {
+                dist.insert(p, 1);
+                queue.push_back(p);
+            }
+        }
+        while let Some(p) = queue.pop_front() {
+            let d = dist[&p];
+            for n in self.surface.neighbors(p, false) {
+                if self.borable(n) {
+                    dist.entry(n).or_insert_with(|| {
+                        queue.push_back(n);
+                        d + 1
+                    });
+                }
+            }
+        }
+        dist
+    }
+}
+
 /// Outlook points a level contributes on its own (before the group's weight): `none` is worth
 /// twice `scarce`, and `some`/`plenty` never cost anything (`docs/design/embark.md`, "The site
 /// report").
@@ -949,6 +1124,136 @@ mod tests {
         assert_eq!(in_box(vein), 1, "test assumption: one surfaced vein in the box");
         assert_eq!(in_box(seam), 1, "test assumption: one buried seam in the box");
         assert_eq!(gold.count, Some(1), "the buried seam must not be counted");
+    }
+
+    // ---- The supply survey (#348) ----
+
+    #[test]
+    fn supply_is_deterministic() {
+        let defs = Defs::bundled();
+        let cfg = Survey::config(7, defs.embark.map_size("small").unwrap());
+        let survey = Survey::new(&cfg, &defs);
+        let start = survey.default_site(&defs);
+        let resources =
+            [defs.resource_id("stone").unwrap(), defs.resource_id("gold_seam").unwrap()];
+        let a = survey.supply(start, &resources, &[20, 40], 2, &defs);
+        let b = survey.supply(start, &resources, &[20, 40], 2, &defs);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn supply_pins_seed_7_small_counts() {
+        // A regression pin (#348's acceptance criteria): if a data or sim change moves these
+        // numbers, `docs/design/materials.md`'s own trial needs a second look too.
+        let defs = Defs::bundled();
+        let cfg = Survey::config(7, defs.embark.map_size("small").unwrap());
+        let survey = Survey::new(&cfg, &defs);
+        let start = survey.default_site(&defs);
+        let stone = defs.resource_id("stone").unwrap();
+        let vein = defs.resource_id("gold_vein").unwrap();
+        let seam = defs.resource_id("gold_seam").unwrap();
+        let report = survey.supply(start, &[stone, vein, seam], &[20, 40], 2, &defs);
+
+        assert_eq!(report[0].radius, 20);
+        assert_eq!(
+            report[0].deposits,
+            vec![
+                DepositSupply { resource: stone, count: 5, tunnelled: 0, worth: 15 },
+                DepositSupply { resource: vein, count: 1, tunnelled: 0, worth: 1 },
+                DepositSupply { resource: seam, count: 1, tunnelled: 0, worth: 3 },
+            ]
+        );
+        assert_eq!(report[1].radius, 40);
+        assert_eq!(
+            report[1].deposits,
+            vec![
+                DepositSupply { resource: stone, count: 36, tunnelled: 0, worth: 108 },
+                DepositSupply { resource: vein, count: 4, tunnelled: 0, worth: 4 },
+                DepositSupply { resource: seam, count: 7, tunnelled: 4, worth: 29 },
+            ]
+        );
+    }
+
+    #[test]
+    fn supply_count_never_shrinks_as_the_radius_grows() {
+        let defs = Defs::bundled();
+        let stone = defs.resource_id("stone").unwrap();
+        for seed in 1..=8u64 {
+            let cfg = Survey::config(seed, defs.embark.map_size("small").unwrap());
+            let survey = Survey::new(&cfg, &defs);
+            let start = survey.default_site(&defs);
+            let report = survey.supply(start, &[stone], &[20, 40], 2, &defs);
+            assert!(
+                report[0].deposits[0].count <= report[1].deposits[0].count,
+                "seed {seed}: {report:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn supply_is_generic_over_a_buried_find_with_no_tunnel_count() {
+        // lost_ruins is buried like gold_seam but its harvest (data/jobs.toml) defines no
+        // `tunnel_count`: nothing here is specific to gold_seam's id or its numbers.
+        let defs = Defs::bundled();
+        let ruins = defs.resource_id("lost_ruins").unwrap();
+        let harvest = defs.harvest(ruins).unwrap();
+        assert!(harvest.tunnel_count.is_none());
+        for seed in 1..=8u64 {
+            let cfg = Survey::config(seed, defs.embark.map_size("small").unwrap());
+            let survey = Survey::new(&cfg, &defs);
+            let start = survey.default_site(&defs);
+            let report = survey.supply(start, &[ruins], &[60], 2, &defs);
+            let d = &report[0].deposits[0];
+            assert_eq!(d.worth, d.count * harvest.count, "seed {seed}: tunnelled {d:?}");
+        }
+    }
+
+    #[test]
+    fn supply_counts_a_buried_seam_only_within_its_bore_limit() {
+        // A one-row map: open ground at x=0..=1, then a chain of empty mountain tiles, then a
+        // buried seam at x=5 with no open neighbour of its own. Each mountain tile's bore
+        // distance grows by one per step away from the open ground (x=2 is 1 bore from the
+        // bank, x=3 is 2, x=4 is 3), so the seam -- reachable only by boring the x=4 tile next
+        // to it -- needs exactly 3 bores. `x=6` dangles past the seam with no bank-connected
+        // mountain tile of its own (its only neighbour is the seam, which can't be bored
+        // through), so it never gets a distance at all: boring in from the far side isn't a way
+        // around the limit.
+        let defs = Defs::bundled();
+        let seam = defs.resource_id("gold_seam").unwrap();
+        let harvest = defs.harvest(seam).unwrap();
+        let mut surface = Grid::from_fn(7, 1, |p| Tile {
+            elevation: 0,
+            temperature: 128,
+            moisture: 128,
+            terrain: if p.x <= 1 { Terrain::Land } else { Terrain::Mountain },
+            biome: BiomeId(0),
+            resource: None,
+            building: None,
+        });
+        let seam_pos = Pos::new(5, 0);
+        surface[seam_pos].resource = None; // hidden, as `Survey::new` leaves a buried tile
+        let buried = BTreeMap::from([(seam_pos, seam)]);
+        let regions = Regions::compute(&surface, &MoveRules::default());
+        let cfg = MapGenConfig { width: 7, height: 1, ..Default::default() };
+        let survey = Survey { cfg, surface, buried, regions };
+        let start = Pos::new(0, 0);
+
+        let too_tight = survey.supply(start, &[seam], &[10], 2, &defs);
+        assert_eq!(
+            too_tight[0].deposits[0],
+            DepositSupply { resource: seam, count: 0, tunnelled: 0, worth: 0 }
+        );
+
+        let enough = survey.supply(start, &[seam], &[10], 3, &defs);
+        assert_eq!(
+            enough[0].deposits[0],
+            DepositSupply {
+                resource: seam,
+                count: 1,
+                tunnelled: 1,
+                worth: harvest.tunnel_count.unwrap(),
+            }
+        );
     }
 
     // ---- The site report ----
