@@ -1,0 +1,19 @@
+[package]
+name = "fn_agent"
+description = "An MCP server over stdio for the agent surface (fn_tui::surface::Host): lets an LLM agent play The Four Nations with a player's own capabilities. Depends on fn_tui and fn_ui only; fn_sim gains no new dependency."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lib]
+name = "fn_agent"
+
+[[bin]]
+name = "fn_agent"
+path = "src/main.rs"
+
+[dependencies]
+fn_tui = { path = "../tui" }
+fn_ui = { path = "../ui" }
+serde = { workspace = true }
+serde_json = { workspace = true }
