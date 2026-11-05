@@ -401,6 +401,14 @@ impl World {
             .find_map(|(idx, (c, &d))| (d < c.count).then_some((idx, c.item, c.count - d)))
     }
 
+    /// Whether any stockpile tile or ground stack holds `item` at all, reachability aside: the
+    /// cheap half of `nearest_source`, checked before paying for a flood. A build job stuck on
+    /// an item nothing in the world has yet (for example a bed with no wood anywhere) would
+    /// otherwise flood the whole map every `retry_seconds` for as long as it stays stuck (#322).
+    fn any_source(&self, item: ItemId) -> bool {
+        self.stored.values().any(|s| s.item == item) || self.ground.values().any(|s| s.item == item)
+    }
+
     /// The nearest stockpile tile or ground stack holding `item`, stockpiles preferred on a tie,
     /// with the tile a unit should stand on to reach it.
     pub(super) fn nearest_source(&self, flood: &Flood, item: ItemId) -> Option<(Source, Pos)> {
@@ -492,7 +500,11 @@ impl World {
 
         match self.next_shortfall(pos, defs) {
             Some((_, item, needed)) => {
-                // Fetch a trip's worth of the next missing item.
+                // Fetch a trip's worth of the next missing item. Nothing to fetch from anywhere
+                // is the common stuck case (#322): check that cheaply before paying for a flood.
+                if !self.any_source(item) {
+                    return self.abandon_job(i, id, defs);
+                }
                 let flood = self.flood_from(i);
                 let Some((source, stand)) = self.nearest_source(&flood, item) else {
                     return self.abandon_job(i, id, defs);

@@ -109,6 +109,30 @@ fn a_build_waits_on_missing_materials_instead_of_failing() {
     assert_eq!(w.build_sites().count(), 1);
 }
 
+/// #322: a build job that can never be supplied (nothing in the world holds its next missing
+/// item) used to pay for a whole-map flood every time `run_build` ran, which is every retry for
+/// as long as it stays stuck. Calling `run_build` directly, bypassing the retry delay, makes
+/// "every retry" cheap to simulate: if the fix holds, none of these calls floods at all.
+#[test]
+fn an_unsuppliable_build_job_is_abandoned_without_flooding_the_map() {
+    let (mut w, defs) = setup(&GRID, &[at(1, 1)]);
+    let bed = defs.building_id("bed").unwrap();
+    let job = w.designate_build(at(5, 2), bed, &defs).unwrap();
+    // No wood exists anywhere on the map: every retry hits the same shortfall.
+    crate::flood::CALLS.with(|c| c.set(0));
+    for _ in 0..50 {
+        w.run_build(0, job, &defs);
+    }
+    assert_eq!(
+        crate::flood::CALLS.with(|c| c.get()),
+        0,
+        "no source of the item exists, so the fetch branch should never flood"
+    );
+    // The job is left waiting, exactly as before the fix.
+    assert!(w.job(job).is_some());
+    assert_eq!(w.units[0].route, None);
+}
+
 #[test]
 fn a_finished_building_blocks_pathing_when_its_def_says_so() {
     let (mut w, mut defs) = setup(&GRID, &[at(1, 1)]);
