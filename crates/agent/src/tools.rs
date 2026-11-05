@@ -215,6 +215,15 @@ impl<W: std::io::Write> Tools<W> {
         Ok(Self { host, log, written: 0 })
     }
 
+    /// Wraps a [`Host`] built with [`fn_tui::surface::Host::resume`] and a `log` that's already
+    /// had its header and every replayed line written (`fn_agent serve --resume`, #341):
+    /// `written` starts at `host.log().lines().len()`, not 0, so [`Self::call`]'s first flush
+    /// appends only what's new instead of writing the replayed lines a second time.
+    pub fn resume(host: Host, log: Writer<W>) -> Self {
+        let written = host.log().lines().len();
+        Self { host, log, written }
+    }
+
     /// The run log written so far, for a test to read back (`Writer::get_ref`).
     pub fn log(&self) -> &Writer<W> {
         &self.log
