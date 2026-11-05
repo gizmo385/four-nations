@@ -38,9 +38,23 @@ pub struct ChiSettings {
 impl ChiSettings {
     /// `chi` after one tick of regeneration, clamped to `max`. `multiplier` is the unit's
     /// effective `chi_regen` modifier; `max` is usually `self.max`, but the Avatar's own meter
-    /// (#237, `World::chi_max_for`) can hold more.
-    pub fn regen(&self, chi: f32, sleeping: bool, multiplier: f32, max: f32) -> f32 {
-        let per_minute = if sleeping { self.sleep_regen_per_minute } else { self.regen_per_minute };
+    /// (#237, `World::chi_max_for`) can hold more. `sleep_scale` is the same sleep-rate
+    /// multiplier energy regen uses while asleep (`World::tick_needs`'s `rest`: a bed's
+    /// `sleep_bonus`, a heat source, the cold penalty), ignored while awake, so a comfier sleep
+    /// is shorter but earns chi faster by the same factor and so restores the same total (#345).
+    pub fn regen(
+        &self,
+        chi: f32,
+        sleeping: bool,
+        multiplier: f32,
+        sleep_scale: f32,
+        max: f32,
+    ) -> f32 {
+        let per_minute = if sleeping {
+            self.sleep_regen_per_minute * sleep_scale
+        } else {
+            self.regen_per_minute
+        };
         let per_tick = per_minute * multiplier / (60.0 * TICKS_PER_SECOND as f32);
         (chi + per_tick).min(max)
     }

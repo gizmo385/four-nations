@@ -459,3 +459,31 @@ fn a_heat_sources_size_is_saved_only_when_bigger_than_one_tile() {
     assert_eq!(loaded.heat[&at(10, 4)].size, [2, 2]);
     assert_eq!(loaded.heat[&at(4, 4)].size, [1, 1]);
 }
+
+/// #345: a bed shortens sleep (its `sleep_bonus` speeds up energy regen), but chi regen asleep
+/// now speeds up by the same factor, so a full night's sleep restores the same chi wherever it's
+/// taken.
+#[test]
+fn a_comfier_sleep_restores_the_same_chi_as_the_ground() {
+    let defs = Defs::bundled();
+    let bonus = defs.building(defs.building_id("bed").unwrap()).bed.unwrap().sleep_bonus;
+    assert!(bonus > 1.0);
+
+    let sleep_and_wake_chi = |w: &mut World| {
+        w.units[0].chi = 0.0;
+        tire(w, &defs, 0);
+        run_until(w, &defs, 400, |w| w.units[0].is_sleeping());
+        run_until(w, &defs, 6000, |w| !w.units[0].is_sleeping());
+        w.units[0].chi
+    };
+
+    let mut ground = world(Nation::Earth, &[at(2, 4)], &defs);
+    let ground_chi = sleep_and_wake_chi(&mut ground);
+
+    let mut bed = world(Nation::Earth, &[at(2, 4)], &defs);
+    place(&mut bed, &defs, at(6, 4), "bed");
+    let bed_chi = sleep_and_wake_chi(&mut bed);
+    assert_eq!(bed.units[0].pos, at(6, 4), "slept in the bed");
+
+    assert!((ground_chi - bed_chi).abs() < 1.0, "ground={ground_chi} bed={bed_chi}");
+}

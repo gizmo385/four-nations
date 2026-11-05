@@ -58,16 +58,29 @@ fn chi_regenerates_per_minute_and_is_clamped() {
     let defs = Defs::bundled();
     let ticks = 60 * TICKS_PER_SECOND;
     let minute = |sleeping, mult| {
-        (0..ticks).fold(0.0, |chi, _| defs.chi.regen(chi, sleeping, mult, defs.chi.max))
+        (0..ticks).fold(0.0, |chi, _| defs.chi.regen(chi, sleeping, mult, 1.0, defs.chi.max))
     };
     assert!((minute(false, 1.0) - 2.0).abs() < 0.01);
     assert!((minute(true, 1.0) - 8.0).abs() < 0.01);
     assert!((minute(false, 1.25) - 2.5).abs() < 0.01);
-    assert_eq!(defs.chi.regen(99.999, true, 1.0, defs.chi.max), 100.0);
+    assert_eq!(defs.chi.regen(99.999, true, 1.0, 1.0, defs.chi.max), 100.0);
     // A bigger cap (the Avatar's own meter, #237) is respected: it isn't clamped at the usual
     // `chi.max`, but is still clamped at its own, higher one.
-    assert!(defs.chi.regen(199.0, true, 1.0, 200.0) > defs.chi.max);
-    assert_eq!(defs.chi.regen(199.999, true, 1.0, 200.0), 200.0);
+    assert!(defs.chi.regen(199.0, true, 1.0, 1.0, 200.0) > defs.chi.max);
+    assert_eq!(defs.chi.regen(199.999, true, 1.0, 1.0, 200.0), 200.0);
+}
+
+/// A comfier sleep (a higher `sleep_scale`, from a bed's `sleep_bonus` or a heat source) earns
+/// chi faster asleep by the same factor, awake is unaffected (#345).
+#[test]
+fn sleep_scale_speeds_up_chi_regen_while_asleep_only() {
+    let defs = Defs::bundled();
+    let ticks = 60 * TICKS_PER_SECOND;
+    let minute = |sleeping, scale| {
+        (0..ticks).fold(0.0, |chi, _| defs.chi.regen(chi, sleeping, 1.0, scale, defs.chi.max))
+    };
+    assert!((minute(true, 1.4) - 8.0 * 1.4).abs() < 0.01);
+    assert!((minute(false, 1.4) - 2.0).abs() < 0.01, "sleep_scale is ignored while awake");
 }
 
 #[test]

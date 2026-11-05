@@ -57,16 +57,17 @@ Each unit has `chi` from 0 to `max`, stored on `Unit` next to `needs`.
 |---|---|---|
 | `max` | 100 | Units start full |
 | `regen_per_minute` | 2 | While awake |
-| `sleep_regen_per_minute` | 8 | While asleep. Rest restores chi, which ties it to the energy need |
+| `sleep_regen_per_minute` | 8 | While asleep, times the same sleep-rate multiplier as energy (bed `sleep_bonus`, a heat source, the cold penalty, #345). Rest restores chi, which ties it to the energy need |
 
 - **Effective regen** is the setting × a new modifier `chi_regen`: 1.0 for every nation, and
   Air's `meditation` tech gives ×1.25 (it already promises "chi regeneration"). The modifier
   is added to `Modifiers`, `nations.toml` and `ModifierMultipliers` together (research.md rule).
 - **Budget.** With the needs rates in `data/needs.toml`, a unit is awake about 23 minutes and
   asleep about 5 minutes per cycle. That's roughly **85 chi per 28-minute cycle**, or one to
-  three bends depending on the ability. The cost table below is tuned against that budget.
-  A bed shortens sleep and so cuts that to about 74, and the same budget caps how fast a
-  settler can become a bending master: see endgame.md, "Mastery pacing" (#340, #345).
+  three bends depending on the ability. The cost table below is tuned against that budget. A
+  bed shortens sleep, but earns chi faster by the same factor it shortens sleep (#345), so it
+  restores about the same 85 instead of less: the same budget caps how fast a settler can
+  become a bending master: see endgame.md, "Mastery pacing" (#340, #345).
 - **Spent on completion, checked on claim.** A unit only claims a bend job if `chi >= cost`.
   Since a unit holds one job at a time, chi can't be double-spent. If the target is no longer
   valid at completion (the stack is gone, the tile has changed), the job is dropped, no chi is
