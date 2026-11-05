@@ -234,9 +234,13 @@ headless at full speed, and watching never slows them.
   afterwards.
 - **Attention ghosts:** `look` and `inspect` are logged too. The watcher briefly outlines the
   looked-at region or the inspected tile, so a human sees what the agent was reading.
-- **Turns** fast-forward at the watch pace with the render throttled to 30 fps (ticks per frame
-  uncapped for the watcher). When the watcher catches up with a live log, the strip reads
-  "waiting for agent (12 s)".
+- **Turns** play at the watch pace too, like the normal game clock: x1 is real time, x5 is five
+  game seconds a real second, and so on (#328), with the render throttled to 30 fps. A turn no
+  longer lands the instant it's reached -- that froze the screen while the agent thought, then
+  flashed the whole turn by at once. When the watcher catches up with a live log, the strip
+  reads "waiting for agent (12 s)"; when the agent writes turns faster than the chosen pace
+  plays them back, it reads "3 turns behind" instead, so a human watching knows to bump the
+  pace (`+`).
 - **The end marker** (#327): `fn_agent serve` writes an `end` line (the world's own tick, and
   the reason -- stdin closed, or an error) when its session ends. Once the watcher replays it,
   the strip reads "run finished" instead of ever counting up a wait that will never end. A log

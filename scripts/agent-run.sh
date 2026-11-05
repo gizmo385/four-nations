@@ -12,7 +12,11 @@
 #   --difficulty ID    a data/difficulty.toml preset (default normal)
 #   --turns N          how many turns the prompt asks for (default 40)
 #   --turn-secs S      game seconds per end_turn (default: fn_agent's own, 20)
-#   --pace N           watch pace to start at: 1, 2, 5, 10, 20 or 40 (default 5)
+#   --pace N           watch pace to start at: 1, 2, 5, 10, 20 or 40 (default 20: a turn's ticks
+#                      now play at the watch pace instead of landing all at once (#328), so the
+#                      default needs to play a 20-60s turn well under the agent's own ~5s of
+#                      thinking between turns -- at x20 that's 1-3s, comfortably inside that --
+#                      or the watcher falls behind)
 #   --model M          passed to `claude --model`
 #   --prompt TEXT      replaces the default prompt
 #
@@ -39,11 +43,11 @@ if [[ "${1:-}" == "watch" ]]; then
   dir="${2:-$(ls -1dt "$runs"/*/ 2>/dev/null | head -1)}"
   [[ -n "$dir" ]] || { say "no runs in $runs"; exit 1; }
   cargo build -q --release -p fn_tui --manifest-path "$repo/Cargo.toml"
-  watch_run "${dir%/}" 5
+  watch_run "${dir%/}" 20
   exit
 fi
 
-seed=7 nation=earth difficulty=normal turns=40 turn_secs="" pace=5 model="" prompt="" interactive=0
+seed=7 nation=earth difficulty=normal turns=40 turn_secs="" pace=20 model="" prompt="" interactive=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --seed) seed="$2"; shift 2 ;;
