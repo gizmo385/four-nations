@@ -59,9 +59,10 @@ Enter sets a rectangle's corners, Space pauses, + and - change speed, . steps a 
 the research tree, L the message log, ? the key help, R starts a new map, 1-4 switch nation
 (each asks y/n first), F5 quicksaves, F9 quickloads (asks first), F6 opens the saves screen
 (Enter loads, Shift+S saves over, N a new slot) and q quits. With no tool active and nothing
-else open, Esc opens a game menu with the same Save, Load, Key help and Quit, for a terminal
-where the function keys don't arrive (Windows Terminal on WSL, some multiplexers). Saves go in
-FN_SAVE_DIR, else the platform's data directory.";
+else open, Esc opens a game menu with the same Save as…, Quicksave, Load…, Quickload, Key help
+and Quit — every save and load action, for a terminal where the function keys don't arrive
+(Windows Terminal on WSL, some multiplexers). Saves go in FN_SAVE_DIR, else the platform's data
+directory.";
 
 pub const DEFAULT_SIZE: (u16, u16) = (120, 40);
 

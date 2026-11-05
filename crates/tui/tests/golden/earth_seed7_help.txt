@@ -8,23 +8,25 @@
 │                        In a tool: set a corner, then apply                           ││  Ming Idle                   │
 │ Esc                    Close the screen, a modal or the bar. In a tool: drop the     ││  Oma  Idle                   │
 │                        corner, then leave the tool. With nothing to close: the game  ││  Song Idle                   │
-│                        menu (Resume, Save, Load, Key help, Quit, #306)               ││  Lin  Idle                   │
-│ Tab                    Select the next unit (Select mode)                            ││                              │
-│ Shift+Tab              Select the previous unit (Select mode)                        ││ ◇ RESEARCH                   │
-│ F                      Follow the selected unit (Select mode)                        ││ No target set        3.0/min │
-│                                                                                      ││ 0 pts banked                 │
-│ DESIGNATING                                                                          ││                              │
-│ H                      Harvest tool: designate harvest (chop, mine, gather)          ││ ◇ ENDEAVOR                   │
-│ X                      Cancel tool: cancel harvest, build site, stockpile or sowing  ││ The Harmony Gate         0/9 │
-│ P                      Stockpile tool: designate stockpile                           ││ ░░░░░░░░░░                   │
-│ B                      Bend tool: channel the nation's ability                       ││ Signs met - G: open          │
-│ U                      Build tool: place the chosen building (U: pick one)           ││ Next: 10 more people, 6 mor… │
-│ C                      Sow tool: sow an empty farm plot                              ││                              │
-│ O                      Harvest tool: toggle a standing order (re-designates when the ││ ◇ CURSOR            (94, 64) │
-│                        resource ripens again)                                        ││ Tyro                         │
-│                                                                                      ││ Earth Kingdom - Idle         │
-│ TIME                                                                                 ││ Carrying: nothing - Bends: 0 │
-│ Space                  Pause or run                                                  ││ Press Enter to select        │
+│                        menu (Resume, Save as…, Quicksave, Load…, Quickload, Key      ││  Lin  Idle                   │
+│                        help, Quit, #306, #312) — every save and load action, for a   ││                              │
+│                        terminal the function keys don't reach                        ││ ◇ RESEARCH                   │
+│ Tab                    Select the next unit (Select mode)                            ││ No target set        3.0/min │
+│ Shift+Tab              Select the previous unit (Select mode)                        ││ 0 pts banked                 │
+│ F                      Follow the selected unit (Select mode)                        ││                              │
+│                                                                                      ││ ◇ ENDEAVOR                   │
+│ DESIGNATING                                                                          ││ The Harmony Gate         0/9 │
+│ H                      Harvest tool: designate harvest (chop, mine, gather)          ││ ░░░░░░░░░░                   │
+│ X                      Cancel tool: cancel harvest, build site, stockpile or sowing  ││ Signs met - G: open          │
+│ P                      Stockpile tool: designate stockpile                           ││ Next: 10 more people, 6 mor… │
+│ B                      Bend tool: channel the nation's ability                       ││                              │
+│ U                      Build tool: place the chosen building (U: pick one)           ││ ◇ CURSOR            (94, 64) │
+│ C                      Sow tool: sow an empty farm plot                              ││ Tyro                         │
+│ O                      Harvest tool: toggle a standing order (re-designates when the ││ Earth Kingdom - Idle         │
+│                        resource ripens again)                                        ││ Carrying: nothing - Bends: 0 │
+│                                                                                      ││ Press Enter to select        │
+│ TIME                                                                                 ││                              │
+│ Space                  Pause or run                                                  ││                              │
 │ + =                    Faster                                                        ││                              │
 │ - _                    Slower                                                        ││                              │
 │ .                      One tick, while paused                                        ││                              │
@@ -34,7 +36,5 @@
 │                        target                                                        ││                              │
 │ L                      Message log                                                   ││                              │
 │ ?                      Key help                                                      ││                              │
-│ G                      Endeavor: the Harmony Gate's progress and, once building, its ││                              │
-│                        stage                                                         ││                              │
 ┗─ Arrows W S scroll  PgUp PgDn page  Esc close  L log ────────────────────────────────┛┗──────────────────────────────┛
  KEYS  arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause

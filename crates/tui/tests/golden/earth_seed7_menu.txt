@@ -4,17 +4,17 @@
 "♠♠♠",,,,,,▲▲,,,,.≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈.,τ,.≈≈≈≈≈.│                              │
 """ƒ,,,,,,,•,,♣♣♣.≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈.,,,.ƒ≈≈≈≈~│ ◇ PEOPLE                   6 │
 ""~♠,,¥,,,,,,,♣,♣...≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈.♣,,.≈≈.≈≈.│  Tyro Idle                   │
-"~"",,,,,,,,,,,,,,,....≈≈≈≈≈≈≈≈≈≈≈≈≈..♣,,...≈≈≈.│  Ping Idle                   │
-~"",,¥,,┏────────── ◆ MENU ◆ ──────────┓¥♣,.....│  Ming Idle                   │
-~",,¥,,,│ ▸ Resume                     │♣♣♣♣.≈.♣│  Oma  Idle                   │
-τ",♣,,τ,│   Save (quicksave)           │♣,♣♣...♣│  Song Idle                   │
-"♠,♣,,,,│   Load (and named saves)     │♣,,,,♣,♣│  Lin  Idle                   │
-""♣,,,,,│   Key help                   │♣,,,,♣♣♣│                              │
-",♣♣,,,,│   Quit                       │,,,♣♣,,♣│ ◇ RESEARCH                   │
-",,♣,♣♣,│                              │,♣,♣♣♣,♣│ No target set        3.0/min │
-"♣,♣,,,♣│                              │,♣,,♣,♣♣│ 0 pts banked                 │
-"♣,,,,,,┗─ Arrows/W S choose  Enter s…─┛,,,¥,,τ♣│                              │
-♠♣♣♣,,,,,,,,,,,,♣,♣♣,♣,..≈≈≈≈≈≈≈≈≈≈≈≈.,♣,♣,♣♣♣,♠│ ◇ CURSOR            (94, 64) │
+"~""┏────────────── ◆ MENU ◆ ──────────────┓≈≈≈.│  Ping Idle                   │
+~"",│ ▸ Resume                             │....│  Ming Idle                   │
+~",,│   Save as… (named slot)              │.≈.♣│  Oma  Idle                   │
+τ",♣│   Quicksave                       F5 │...♣│  Song Idle                   │
+"♠,♣│   Load… (and named saves)         F6 │,♣,♣│  Lin  Idle                   │
+""♣,│   Quickload (none yet)            F9 │,♣♣♣│                              │
+",♣♣│   Key help                           │♣,,♣│ ◇ RESEARCH                   │
+",,♣│   Quit                               │♣♣,♣│ No target set        3.0/min │
+"♣,♣│                                      │♣,♣♣│ 0 pts banked                 │
+"♣,,│                                      │,,τ♣│                              │
+♠♣♣♣┗─ Arrows/W S choose  Enter select  E…─┛♣♣,♠│ ◇ CURSOR            (94, 64) │
 ,,,♣♣♣♣♣♣♣,¥¥,,♣,,,,,,♣.≈≈≈≈≈≈≈≈≈≈≈≈≈.,,,,,....~│ Tyro                         │
 ,♣♣,♣,♣,,♣♣,,,,,,,♣♣♣,♣.≈≈≈≈≈≈≈≈≈≈≈≈..,,,♣..≈≈~,│ Earth Kingdom - Idle         │
 ,,,♣,♣♣,♣,,,,,,♣♣♣,♣♣...≈≈≈≈≈≈≈≈≈≈≈≈.,,,...≈≈≈.♣│ Carrying: nothing - Bends: 0 │

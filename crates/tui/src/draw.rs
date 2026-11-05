@@ -63,7 +63,14 @@ fn draw_modal(
             let rows = fn_ui::build::picker_rows(session);
             crate::build::draw(session, &rows, ui.build_cursor, palette, area, buf);
         }
-        Modal::Menu => crate::menu::draw(ui.menu_cursor, palette, area, buf),
+        Modal::Menu => crate::menu::draw(
+            ui.menu_cursor,
+            ui.menu_name.as_deref(),
+            ui.has_quicksave,
+            palette,
+            area,
+            buf,
+        ),
     }
 }
 
@@ -94,6 +101,7 @@ const KEYS_NATION: &str =
     "arrows/W S choose  PgUp/PgDn page  Enter select  Esc/N close  ? keys  Space pause";
 const KEYS_BUILD_MODAL: &str = "Arrows/W S choose  Enter build  Esc close";
 const KEYS_MENU: &str = "Arrows/W S choose  Enter select  Esc resume";
+const KEYS_MENU_NAMING: &str = "Type a name  Enter save  Esc back";
 
 /// The status line in a tool: what `Enter` and `Esc` do now, "Harvest · repeating" while the
 /// standing-order toggle is on (#277), then what the tool does (for `B`, the nation's ability;
@@ -171,6 +179,7 @@ fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, b
         }
         None if ui.modal.is_some() => {
             let (text, keys) = match ui.modal {
+                Some(Modal::Menu) if ui.menu_name.is_some() => (" SAVE AS ", KEYS_MENU_NAMING),
                 Some(Modal::Menu) => (" MENU ", KEYS_MENU),
                 _ => (" BUILD ", KEYS_BUILD_MODAL),
             };
