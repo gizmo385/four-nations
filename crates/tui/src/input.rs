@@ -221,7 +221,9 @@ fn build_table() -> Vec<Binding> {
     add(
         Group::Units,
         "Close the screen, a modal or the bar. In a tool: drop the corner, then leave the tool. \
-         With nothing to close: the game menu (Resume, Save, Load, Key help, Quit, #306)",
+         With nothing to close: the game menu (Resume, Save as…, Quicksave, Load…, Quickload, \
+         Key help, Quit, #306, #312) — every save and load action, for a terminal the function \
+         keys don't reach",
         Key::plain(Esc),
         Action::Cancel,
     );

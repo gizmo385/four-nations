@@ -300,9 +300,19 @@ impl App {
                 let seed = self.session.world.seed;
                 self.restart(seed, nation);
             }
-            Prompt::QuickLoad => self.quickload(),
+            // `close_menu` after both: harmless when the prompt came from `F9` or the saves
+            // screen directly (there is no menu behind it then), and needed when it came from
+            // the game menu (#312), since a successful quickload replaces `self.ui` outright
+            // (`Self::load`) and a successful save as… has nothing left open behind it either.
+            Prompt::QuickLoad => {
+                self.quickload();
+                self.close_menu();
+            }
             Prompt::LoadSave(name) => self.load_save(&name),
-            Prompt::SaveOver(name) => self.save_over(&name),
+            Prompt::SaveOver(name) => {
+                self.save_over(&name);
+                self.close_menu();
+            }
         }
     }
 
@@ -602,17 +612,27 @@ impl App {
     }
 
     /// `Esc` in Select mode with nothing selected (#306): no tool, no bar, no screen and no
-    /// modal were left to close, so `Esc` opens the game menu (Resume, Save, Load, Key help,
-    /// Quit) instead. Pauses the clock while it's open; [`Self::close_menu`] puts it back.
+    /// modal were left to close, so `Esc` opens the game menu (Resume, Save as…, Quicksave,
+    /// Load…, Quickload, Key help, Quit, #312) instead. Pauses the clock while it's open;
+    /// [`Self::close_menu`] puts it back. Reads whether a quicksave exists fresh every time
+    /// (`UiState::has_quicksave`), so Quickload's own row can say when there's nothing to load.
     fn open_menu(&mut self) {
         self.menu_prev_paused = Some(self.session.clock.paused);
         self.session.clock.paused = true;
         self.ui.modal = Some(Modal::Menu);
         self.ui.menu_cursor = 0;
+        self.ui.menu_name = None;
+        self.ui.has_quicksave = self
+            .saves
+            .as_deref()
+            .is_some_and(|dir| saves::slot_path(dir, saves::QUICKSAVE).exists());
     }
 
     /// Closes the game menu (`Resume`, or `Esc` inside it), restoring the clock's pause from
-    /// just before it opened.
+    /// just before it opened. Harmless to call when the menu isn't open (nothing to restore):
+    /// [`Self::confirm_prompt`] calls it after every save/load prompt whether or not the menu
+    /// was behind it, so a quickload through the menu (which replaces `self.ui` outright,
+    /// #312) still gets its pause back.
     fn close_menu(&mut self) {
         if let Some(paused) = self.menu_prev_paused.take() {
             self.session.clock.paused = paused;
@@ -620,9 +640,14 @@ impl App {
         self.ui.modal = None;
     }
 
-    /// What a key does while the game menu is open (#306): arrows or `W`/`S` move the
-    /// highlight, `Enter` acts on it, and `Esc` resumes, as choosing `Resume` itself does.
+    /// What a key does while the game menu is open (#306): the Save as… name prompt
+    /// ([`Self::menu_name_key`]) takes every key while it's up; otherwise arrows or `W`/`S` move
+    /// the row highlight, `Enter` acts on it, and `Esc` resumes, as choosing `Resume` itself
+    /// does.
     fn menu_key(&mut self, key: KeyEvent) {
+        if self.ui.menu_name.is_some() {
+            return self.menu_name_key(key);
+        }
         match key.code {
             KeyCode::Esc => self.close_menu(),
             KeyCode::Up | KeyCode::Char('w' | 'W') => {
@@ -640,7 +665,8 @@ impl App {
     fn menu_choose(&mut self) {
         match crate::menu::MenuRow::ALL[self.ui.menu_cursor] {
             crate::menu::MenuRow::Resume => self.close_menu(),
-            crate::menu::MenuRow::Save => {
+            crate::menu::MenuRow::SaveAs => self.start_save_as(),
+            crate::menu::MenuRow::Quicksave => {
                 self.quicksave();
                 self.close_menu();
             }
@@ -648,6 +674,10 @@ impl App {
                 self.close_menu();
                 self.show_saves();
             }
+            // The same question `F9` asks (`Action::AskQuickLoad`); the menu stays open behind
+            // the prompt, same as Quit below, and `confirm_prompt`'s own `QuickLoad` arm closes
+            // it once answered.
+            crate::menu::MenuRow::Quickload => self.ui.prompt = Some(Prompt::QuickLoad),
             crate::menu::MenuRow::Help => {
                 self.close_menu();
                 self.open(Screen::Help);
@@ -656,6 +686,54 @@ impl App {
             // (`draw_status` shows it over whatever's open, as it already does over a screen),
             // so declining leaves the menu where it was instead of losing it.
             crate::menu::MenuRow::Quit => self.ui.prompt = Some(Prompt::Quit),
+        }
+    }
+
+    /// `Enter` on Save as… (#312): turns the row list into the name prompt
+    /// ([`UiState::menu_name`]), reading the save directory first so [`Self::submit_save_as`]
+    /// can tell a new name from one that already exists. Without a save directory, says so and
+    /// leaves the menu where it was, as Quicksave does.
+    fn start_save_as(&mut self) {
+        if self.saves.is_none() {
+            self.ui.status = NO_SAVE_DIR.to_owned();
+            return;
+        }
+        self.refresh_saves();
+        self.ui.menu_name = Some(String::new());
+    }
+
+    /// A key while the Save as… name prompt is up (#312): typed letters, digits, `-` and `_`
+    /// build the name (the same alphabet `fn_ui::saves::check_name` allows, capped at
+    /// `MAX_NAME`), `Backspace` edits it, `Enter` submits and `Esc` goes back to the row list
+    /// without saving anything.
+    fn menu_name_key(&mut self, key: KeyEvent) {
+        let Some(name) = &mut self.ui.menu_name else { return };
+        match key.code {
+            KeyCode::Esc => self.ui.menu_name = None,
+            KeyCode::Backspace => {
+                name.pop();
+            }
+            KeyCode::Char(c) if is_save_name_char(c) && name.chars().count() < saves::MAX_NAME => {
+                name.push(c);
+            }
+            KeyCode::Enter => self.submit_save_as(),
+            _ => {}
+        }
+    }
+
+    /// `Enter` on the Save as… name prompt (#312): an empty name falls back to the saves
+    /// screen's own suggestion (`fn_ui::saves::new_name`), so Enter alone always saves
+    /// something; a name already in the list asks first, as Shift+`S` does there
+    /// (`Prompt::SaveOver`, whose `confirm_prompt` arm closes the menu once answered); any other
+    /// name writes straight away and closes the menu back to the game, as Quicksave does.
+    fn submit_save_as(&mut self) {
+        let Some(typed) = self.ui.menu_name.take() else { return };
+        let name = if typed.is_empty() { saves::new_name(&self.ui.save_slots) } else { typed };
+        if self.ui.save_slots.iter().any(|s| s.name == name) {
+            self.ui.prompt = Some(Prompt::SaveOver(name));
+        } else {
+            self.save_over(&name);
+            self.close_menu();
         }
     }
 
@@ -713,4 +791,11 @@ impl App {
         self.session.tick_n(n);
         self.settle(0.0);
     }
+}
+
+/// Whether `c` can go in a typed save name (#312, [`App::menu_name_key`]): the same alphabet
+/// `fn_ui::saves::check_name` allows, so nothing the player types there can fail its own
+/// validation once they're done.
+fn is_save_name_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '-' || c == '_'
 }

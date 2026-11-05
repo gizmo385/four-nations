@@ -64,9 +64,9 @@ pub enum Modal {
     /// ([`UiState::build_cursor`], `crate::build`). `Enter` on an unlocked one picks it and
     /// leaves the Build tool active with it; `Esc` leaves the tool and the choice as they were.
     Build,
-    /// `Esc` with nothing else to close (#306, `crate::menu`): Resume, Save, Load, Key help and
-    /// Quit ([`UiState::menu_cursor`]). Pauses the clock while it's open; `Resume` or `Esc`
-    /// (`App::close_menu`) restores whatever it was.
+    /// `Esc` with nothing else to close (#306, `crate::menu`): Resume, Save as…, Quicksave,
+    /// Load…, Quickload, Key help and Quit ([`UiState::menu_cursor`], #312). Pauses the clock
+    /// while it's open; `Resume` or `Esc` (`App::close_menu`) restores whatever it was.
     Menu,
 }
 
@@ -120,6 +120,14 @@ pub struct UiState {
     pub build_cursor: usize,
     /// The game menu's highlight: an index into `crate::menu::MenuRow::ALL` (#306).
     pub menu_cursor: usize,
+    /// The game menu's Save as… prompt (#312): `None` on the row list, `Some` with what's been
+    /// typed so far while the name prompt replaces it (`App::menu_name_key`,
+    /// `crate::menu::draw`). Starts empty, not pre-filled, so an unedited `Enter` falls back to
+    /// `fn_ui::saves::new_name` instead of a half-typed name reading as the player's own choice.
+    pub menu_name: Option<String>,
+    /// Whether the quicksave slot exists, read fresh each time the menu opens
+    /// (`App::open_menu`): greys out Quickload there when there's nothing to load.
+    pub has_quicksave: bool,
     /// The research screen's cursor: a column of the tech tree and a card in it.
     pub tech: (usize, usize),
     /// The Nation screen's cursor: an index into its roster (`crate::nation::roster`), in the
@@ -164,6 +172,8 @@ impl UiState {
             modal: None,
             build_cursor: 0,
             menu_cursor: 0,
+            menu_name: None,
+            has_quicksave: false,
             tech: (0, 0),
             nation_cursor: 0,
             save_slots: Vec::new(),
