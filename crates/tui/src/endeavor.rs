@@ -20,7 +20,7 @@ fn sign_rows(sign: &SignRow, name_width: usize, marks: &Marks) -> Vec<Row> {
     let (mark, mark_tone) = if sign.met { (marks.known, Tone::Ok) } else { (" ", Tone::Dim) };
     let name_tone = if sign.met { Tone::Dim } else { Tone::Text };
     let bar_tone = if sign.met { Tone::Ok } else { Tone::Accent };
-    let (full, empty) = meter(sign.frac, BAR_CELLS, marks);
+    let (full, empty) = meter(sign.frac, BAR_CELLS, marks.full, marks.empty);
     let mut rows = vec![Row::spans(vec![
         (format!("{mark} "), mark_tone),
         (format!("{:<name_width$} ", sign.name), name_tone),

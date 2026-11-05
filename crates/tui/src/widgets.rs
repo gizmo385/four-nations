@@ -307,12 +307,16 @@ pub fn fit(text: &str, width: usize, ellipsis: char) -> String {
     out
 }
 
-/// A meter as `width` cells: `frac` of them filled (rounded), as (filled, empty) strings.
-pub fn meter(frac: f32, width: usize, marks: &Marks) -> (String, String) {
+/// A meter as `width` cells: `frac` of them filled (rounded), as (filled, empty) strings, in
+/// whatever `full`/`empty` glyphs the caller wants (usually `Marks::full`/`empty`, but the
+/// Nation screen's roster uses its own, #325: a meter that fills a whole cell's height, stacked
+/// row after row with the same status, fuses into one solid stripe instead of reading as one bar
+/// per settler).
+pub fn meter(frac: f32, width: usize, full: char, empty: char) -> (String, String) {
     let filled = ((frac.clamp(0.0, 1.0) * width as f32).round() as usize).min(width);
     (
-        std::iter::repeat_n(marks.full, filled).collect(),
-        std::iter::repeat_n(marks.empty, width - filled).collect(),
+        std::iter::repeat_n(full, filled).collect(),
+        std::iter::repeat_n(empty, width - filled).collect(),
     )
 }
 
@@ -479,11 +483,10 @@ mod tests {
 
     #[test]
     fn a_meter_fills_cells_in_proportion() {
-        let m = Marks::new(true);
-        assert_eq!(meter(1.0, 10, &m), ("##########".into(), String::new()));
-        assert_eq!(meter(0.0, 10, &m), (String::new(), "..........".into()));
-        assert_eq!(meter(0.23, 10, &m), ("##".into(), "........".into()));
-        assert_eq!(meter(0.72, 10, &m).0.len(), 7);
-        assert_eq!(meter(7.0, 10, &m).0.len(), 10, "out of range clamps");
+        assert_eq!(meter(1.0, 10, '#', '.'), ("##########".into(), String::new()));
+        assert_eq!(meter(0.0, 10, '#', '.'), (String::new(), "..........".into()));
+        assert_eq!(meter(0.23, 10, '#', '.'), ("##".into(), "........".into()));
+        assert_eq!(meter(0.72, 10, '#', '.').0.len(), 7);
+        assert_eq!(meter(7.0, 10, '#', '.').0.len(), 10, "out of range clamps");
     }
 }

@@ -7,6 +7,15 @@
 //! The roster shows a five-cell meter (with a `!` flag) for hunger, thirst, energy and health
 //! when the map region is at least [`METER_MIN_WIDTH`] columns wide; narrower than that, a flag
 //! after the task names whichever aren't ok instead (`fn_ui::view::need_word`).
+//!
+//! The meters sit at a fixed column just past a capped task column (#325), not stretched to the
+//! screen's far edge on a wide terminal, under a header naming each one that stays put while the
+//! roster scrolls (it sits above the scrolled window, not inside it). They wear their own glyphs
+//! ([`need_glyphs`]), not the frame's own [`Marks::full`]/[`Marks::empty`]: those fill a cell's
+//! whole height, and consecutive settlers with the same status would otherwise fuse into one
+//! solid stripe instead of reading as one bar per person -- a problem the selection bar and the
+//! side panel's research bar don't have, since each only ever draws one bar, never several
+//! stacked rows of them.
 
 use fn_sim::world::UnitId;
 use fn_ui::Session;
@@ -29,11 +38,51 @@ const METER_GAP: usize = 2;
 const METERS_WIDTH: usize = METER_COL * 4 + METER_GAP * 3;
 
 /// Hunger, thirst, energy and health, in the doc's own order (unlike the selection bar's
-/// health-first `UnitView::needs`).
+/// health-first `UnitView::needs`). Each is exactly [`METER_COL`] characters, so the header
+/// built from them ([`meter_header`]) lines up over its meter with no extra padding.
 const NEED_ORDER: [&str; 4] = ["Hunger", "Thirst", "Energy", "Health"];
 
 fn ordered_needs(unit: &UnitView) -> impl Iterator<Item = &NeedView> {
     NEED_ORDER.into_iter().filter_map(move |label| unit.needs.iter().find(|n| n.label == label))
+}
+
+/// The task column's width before the meters start (`fit` truncates anything longer): capped so
+/// the meters land just past the task text instead of stretching to the screen's far edge on a
+/// wide terminal, but never wider than `width` leaves room for once the name and the meters have
+/// theirs.
+const TASK_CAP: usize = 40;
+
+fn task_width(name_width: usize, width: usize) -> usize {
+    width.saturating_sub(2 + name_width + 1 + METERS_WIDTH).min(TASK_CAP)
+}
+
+/// The need meters' own filled/empty glyphs, not [`Marks::full`]/[`Marks::empty`] (#325): a
+/// parallelogram that doesn't fill its cell's whole height, so one settler's meter doesn't visibly
+/// touch the one above or below it even when both are entirely full. ASCII keeps `#` for full
+/// (the same as the frame's own marks) but uses `-` rather than `.` for empty, since a run of dots
+/// beside a meter reads as a decimal point.
+fn need_glyphs(ascii: bool) -> (char, char) {
+    if ascii { ('#', '-') } else { ('▰', '▱') }
+}
+
+/// The longest settler name in the roster, the width every row's name column shares.
+fn name_width(view: &NationView) -> usize {
+    view.groups.iter().flat_map(|(_, us)| us).map(|u| u.name.chars().count()).max().unwrap_or(0)
+}
+
+/// The column header above the meters (docs/design/side-panel.md "The Nation screen"): one row
+/// naming each need in [`NEED_ORDER`]'s own order, aligned over its own meter. It is drawn once,
+/// outside the roster's scrolled window, so it stays visible no matter how far the roster scrolls.
+fn meter_header(name_width: usize, width: usize) -> Row {
+    let pad = " ".repeat(2 + name_width + 1 + task_width(name_width, width));
+    let mut spans = vec![(pad, Tone::Dim)];
+    for (i, label) in NEED_ORDER.into_iter().enumerate() {
+        if i > 0 {
+            spans.push((" ".repeat(METER_GAP), Tone::Dim));
+        }
+        spans.push((format!("{label:<METER_COL$}"), Tone::Dim));
+    }
+    Row::spans(spans)
 }
 
 /// Every settler the pointer can land on, in the screen's own order: its groups
@@ -69,24 +118,26 @@ struct Line {
 /// One need's five-cell meter and flag column: the filled cells and the empty ones wear the
 /// status (`ok`, `warn`, `bad`), and the flag only shows once it isn't ok, the same shape the
 /// selection bar's own meters use (`crate::bar::meter_row`), without the label.
-fn need_cells(n: &NeedView, marks: &Marks) -> [(String, Tone); 3] {
+fn need_cells(n: &NeedView, glyphs: (char, char)) -> [(String, Tone); 3] {
     let tone = Tone::of(n.status);
-    let (full, empty) = meter(n.frac, NEED_CELLS, marks);
+    let (full, empty) = meter(n.frac, NEED_CELLS, glyphs.0, glyphs.1);
     let flag = if n.status == Status::Ok { " " } else { "!" }.to_owned();
     [(full, tone), (empty, Tone::Dim), (flag, tone)]
 }
 
-/// A settler's row with its meters: the pointer, the name, the task (truncated to leave room),
-/// then the four need meters.
+/// A settler's row with its meters: the pointer, the name, the task (truncated to a fixed
+/// width, #325, so the meters stay near the name instead of drifting to the far edge), then the
+/// four need meters, in `glyphs` ([`need_glyphs`]) rather than the frame's own marks.
 fn wide_unit_row(
     unit: &UnitView,
     chosen: bool,
     name_width: usize,
     width: usize,
     marks: &Marks,
+    glyphs: (char, char),
 ) -> Row {
     let pointer = if chosen { marks.pointer } else { " " };
-    let task_width = width.saturating_sub(2 + name_width + 1 + METERS_WIDTH);
+    let task_width = task_width(name_width, width);
     let task = format!("{:<task_width$}", fit(&unit.task, task_width, marks.ellipsis));
     let name_tone = if chosen { Tone::Title } else { Tone::Text };
     let mut spans = vec![
@@ -98,7 +149,7 @@ fn wide_unit_row(
         if i > 0 {
             spans.push((" ".repeat(METER_GAP), Tone::Dim));
         }
-        spans.extend(need_cells(n, marks));
+        spans.extend(need_cells(n, glyphs));
     }
     Row::spans(spans)
 }
@@ -147,14 +198,9 @@ fn roster_lines(
     wide: bool,
     width: usize,
     marks: &Marks,
+    glyphs: (char, char),
 ) -> Vec<Line> {
-    let name_width = view
-        .groups
-        .iter()
-        .flat_map(|(_, us)| us)
-        .map(|u| u.name.chars().count())
-        .max()
-        .unwrap_or(0);
+    let name_width = name_width(view);
     let units = roster(view);
     let mut out = Vec::new();
     for (activity, group) in &view.groups {
@@ -168,7 +214,7 @@ fn roster_lines(
         for unit in group {
             let chosen = units.get(at) == Some(&unit.id);
             let row = if wide {
-                wide_unit_row(unit, chosen, name_width, width, marks)
+                wide_unit_row(unit, chosen, name_width, width, marks, glyphs)
             } else {
                 narrow_unit_row(unit, chosen, name_width, marks)
             };
@@ -179,7 +225,8 @@ fn roster_lines(
 }
 
 /// Draws the screen's contents into `inner` (the frame's inside, minus its padding): the header
-/// line, the roster (windowed round the pointer), every store, then the nation's traits.
+/// line, the meter column header (wide only, #325, outside the roster's own scroll so it never
+/// scrolls away), the roster (windowed round the pointer), every store, then the nation's traits.
 /// `wide` says whether the map region is at least [`METER_MIN_WIDTH`] columns -- the frame around
 /// `inner`, not `inner` itself, since the panel beside it already eats into `inner`'s own width.
 pub fn draw(
@@ -191,6 +238,7 @@ pub fn draw(
     buf: &mut Buffer,
 ) {
     let marks = Marks::new(palette.ascii);
+    let glyphs = need_glyphs(palette.ascii);
     let view = nation_view(session);
     let width = usize::from(inner.width);
     let height = usize::from(inner.height);
@@ -202,10 +250,10 @@ pub fn draw(
     let store_block = 1 + store_lines.len().max(1);
     let trait_block = if trait_lines.is_empty() { 0 } else { 1 + 1 + trait_lines.len() };
     let footer_rows = 1 + store_block + trait_block;
-    let header_rows = 2;
+    let header_rows = if wide { 3 } else { 2 };
     let roster_h = height.saturating_sub(header_rows + footer_rows).max(1);
 
-    let lines = roster_lines(&view, ui.nation_cursor, wide, width, &marks);
+    let lines = roster_lines(&view, ui.nation_cursor, wide, width, &marks, glyphs);
     let chosen_row =
         lines.iter().enumerate().filter(|(_, l)| l.unit).nth(ui.nation_cursor).map(|(i, _)| i);
     let first = window_start(chosen_row.unwrap_or(0), roster_h);
@@ -221,6 +269,9 @@ pub fn draw(
         Tone::Dim,
     ));
     p.blank();
+    if wide {
+        p.row(&meter_header(name_width(&view), width));
+    }
     for line in lines.iter().skip(first).take(roster_h) {
         p.row(&line.row);
     }
@@ -277,7 +328,7 @@ mod tests {
     fn the_roster_lines_up_a_heading_then_a_row_per_settler() {
         let v = view(7, Nation::Earth);
         let marks = Marks::new(false);
-        let lines = roster_lines(&v, 0, true, 120, &marks);
+        let lines = roster_lines(&v, 0, true, 120, &marks, need_glyphs(false));
         assert_eq!(lines[0].row.plain(), format!("IDLE {}", v.groups[0].1.len()));
         assert!(!lines[0].unit);
         assert!(lines[1].unit);
@@ -305,8 +356,35 @@ mod tests {
         s.world.units[0].needs.hunger = 0.0;
         let v = nation_view(&s);
         let marks = Marks::new(false);
-        let row = wide_unit_row(&v.groups[0].1[0], false, 4, 120, &marks);
+        let row = wide_unit_row(&v.groups[0].1[0], false, 4, 120, &marks, need_glyphs(false));
         assert!(!row.plain().contains("Starving"), "{}", row.plain());
         assert!(row.plain().contains('!'), "{}", row.plain());
+    }
+
+    /// The header names each need right above its own meter: the pad before it matches
+    /// `wide_unit_row`'s own fixed columns, so "Hunger" lands over the hunger meter's first cell.
+    #[test]
+    fn the_meter_header_lines_up_over_the_first_meter() {
+        let header = meter_header(4, 120).plain();
+        let marks = Marks::new(false);
+        let row = wide_unit_row(
+            &view(7, Nation::Earth).groups[0].1[0],
+            false,
+            4,
+            120,
+            &marks,
+            need_glyphs(false),
+        );
+        let meter_start = row.plain().chars().position(|c| c == '▰' || c == '▱').unwrap();
+        assert_eq!(header.find("Hunger"), Some(meter_start), "{header}\n{}", row.plain());
+    }
+
+    /// A terminal wide enough for the meters still caps the task column instead of stretching it
+    /// to the far edge (#325): the meters sit a fixed distance past the name, not past whatever
+    /// `width` happens to be.
+    #[test]
+    fn the_task_column_is_capped_on_a_wide_terminal() {
+        assert_eq!(task_width(4, 400), TASK_CAP);
+        assert!(task_width(4, 60) < TASK_CAP, "a narrow terminal still shrinks it");
     }
 }

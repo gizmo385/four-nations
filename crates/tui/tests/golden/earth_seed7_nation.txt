@@ -1,16 +1,16 @@
 ┏───────────────────────────────────── ◆ NATION ◆ ─────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
 │ Earth Kingdom · seed 7 · 6 people                                              22:40 ││ ▶ Running x1           22:40 │
 │                                                                                      │├─ PEOPLE ───────────────── 6 ─┤
-│ IDLE 4                                                                               ││ Idle 4  Haul 1  Eat 1        │
-│ ▸ Tyro Idle                                           ███░░   ███░░   ██░░░   █████  ││ Hungry 1                 [N] │
-│   Ping Idle                                           ███░░   ███░░   ██░░░   █████  │├─ STORES ─────────────────────┤
-│   Song Idle                                           ███░░   ███░░   ██░░░   █████  ││ Wood 20  Fruit 2             │
-│   Lin  Idle                                           ███░░   ███░░   ██░░░   █████  │├─ RESEARCH ───────────────────┤
-│ HAUL 1                                                                               ││ No target set        3.0/min │
-│   Oma  Fetching 1 Fruit from (92, 64)                 ███░░   ███░░   ██░░░   █████  ││ 10 pts banked                │
-│ EAT 1                                                                                │├─ ENDEAVOR ───────────── 0/9 ─┤
-│   Ming Foraging at (86, 65)                           ██░░░!  ███░░   ██░░░   █████  ││ Next: 10 more people     [G] │
-│                                                                                      │├─ CURSOR ────────── (94, 64) ─┤
+│                                                Hunger  Thirst  Energy  Health        ││ Idle 4  Haul 1  Eat 1        │
+│ IDLE 4                                                                               ││ Hungry 1                 [N] │
+│ ▸ Tyro Idle                                    ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰         │├─ STORES ─────────────────────┤
+│   Ping Idle                                    ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰         ││ Wood 20  Fruit 2             │
+│   Song Idle                                    ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰         │├─ RESEARCH ───────────────────┤
+│   Lin  Idle                                    ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰         ││ No target set        3.0/min │
+│ HAUL 1                                                                               ││ 10 pts banked                │
+│   Oma  Fetching 1 Fruit from (92, 64)          ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰         │├─ ENDEAVOR ───────────── 0/9 ─┤
+│ EAT 1                                                                                ││ Next: 10 more people     [G] │
+│   Ming Foraging at (86, 65)                    ▰▰▱▱▱!  ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰         │├─ CURSOR ────────── (94, 64) ─┤
 │                                                                                      ││ Coast                        │
 │                                                                                      ││ Plains (94, 64)              │
 │                                                                                      ││ Elevation 152                │
