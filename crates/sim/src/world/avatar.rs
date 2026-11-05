@@ -113,6 +113,7 @@ impl World {
             idle_until: 0,
             wander_left: 0,
             bends: 0,
+            mastered: false,
             inside: None,
             guest: Some(Guest::Avatar),
             unhappy_since: None,

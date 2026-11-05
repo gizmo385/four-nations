@@ -247,6 +247,8 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     "irrigation_channels",
     // Air Scooter's speed bursts, on `World` (#143).
     "rides",
+    // Whether a unit has already been credited with the mastery toast (#347).
+    "mastered",
 ];
 
 /// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239

@@ -329,6 +329,58 @@ fn masters_are_units_with_enough_finished_bends() {
     assert_eq!(progress(&w, &defs, "masters"), (3, 3, true));
 }
 
+/// `World::note_mastery` fires `EndeavorEventKind::Mastered` the first tick a unit's bends reach
+/// its own nation's threshold, never again for that unit, and a save/load in between doesn't
+/// refire it either (#347).
+#[test]
+fn note_mastery_fires_once_per_unit_and_a_save_load_does_not_refire_it() {
+    let defs = Defs::bundled();
+    let mut w = world(Nation::Fire, 2, &defs);
+    w.units[0].bends = 24;
+    w.note_mastery(0, &defs);
+    assert!(w.endeavor_events().is_empty(), "not at the threshold yet");
+
+    w.units[0].bends = 25;
+    w.note_mastery(0, &defs);
+    let id = w.units[0].id;
+    let name = w.units[0].name.clone();
+    assert_eq!(
+        w.endeavor_events(),
+        [EndeavorEvent {
+            tick: w.tick,
+            kind: EndeavorEventKind::Mastered { unit: id, name: name.clone() },
+        }]
+    );
+
+    // Calling again (more bends, still master) doesn't refire it.
+    w.units[0].bends += 1;
+    w.note_mastery(0, &defs);
+    assert_eq!(w.endeavor_events().len(), 1);
+
+    // Neither does a save/load round trip.
+    let saved = w.save(&defs).expect("world saves");
+    let mut w2 = World::load(&saved, &defs).expect("world loads");
+    w2.units[0].bends += 1;
+    w2.note_mastery(0, &defs);
+    assert_eq!(w2.endeavor_events().len(), 1, "already credited before the save");
+
+    // The second unit still gets its own event once it reaches the threshold.
+    w2.units[1].bends = 25;
+    w2.note_mastery(1, &defs);
+    assert_eq!(w2.endeavor_events().len(), 2);
+}
+
+/// Without a masters sign in the data, `note_mastery` never fires (`EndeavorDef::master_threshold`
+/// is `None`).
+#[test]
+fn note_mastery_does_nothing_without_a_masters_sign() {
+    let defs = Defs::bundled().with_endeavor("[endeavor]\nname = \"Gate\"\n").unwrap();
+    let mut w = world(Nation::Fire, 1, &defs);
+    w.units[0].bends = 1000;
+    w.note_mastery(0, &defs);
+    assert!(w.endeavor_events().is_empty());
+}
+
 const STONE_SIGNS: &str = "
 [[sign]]
 id = \"people\"

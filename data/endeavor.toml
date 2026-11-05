@@ -144,7 +144,7 @@ name = "Bending masters (25 bends each)"
 kind = "masters"
 bends = 25
 target = 3
-hint = "Bend often"
+hint = "Each finished bend counts for whoever channels it"
 
 [[sign]]
 id = "scrolls"

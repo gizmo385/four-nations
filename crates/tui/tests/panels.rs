@@ -8,6 +8,7 @@ use fn_sim::{Nation, Pos};
 use fn_tui::app::App;
 use fn_tui::color::{ColorDepth, Palette};
 use fn_tui::frame::{render_app, to_text};
+use fn_tui::layout::PANEL_WIDTH;
 use fn_tui::state::{PINNED, Screen};
 use fn_tui::widgets::Tone;
 use fn_tui::{keys, new_session};
@@ -657,6 +658,37 @@ fn deaths_are_logged() {
     assert!(frame.contains(" died of "), "{frame}");
 }
 
+/// Strips box-drawing borders and folds runs of whitespace to one space, including a line
+/// break: a long alert now carries its mastery count too (#347), long enough for the smallest
+/// terminal to wrap it across two rows, and folding reads it back as the one contiguous phrase
+/// `widgets::wrap` broke apart only to fit the column.
+fn fold(s: &str) -> String {
+    s.chars()
+        .map(|c| if "│┃┏┓┗┛┣┫─◆▶".contains(c) { ' ' } else { c })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// `frame`'s left side only (the map or an overlay like the Log screen), folded
+/// (`layout::PANEL_WIDTH` is the side panel's own, fixed width): the side panel's unrelated text
+/// on the same physical row must never complete a phrase a wrapped alert line split in two.
+fn left_text(frame: &str) -> String {
+    let width = frame.lines().map(|l| l.chars().count()).max().unwrap_or(0);
+    let split_at = width.saturating_sub(usize::from(PANEL_WIDTH));
+    let left: String = frame
+        .lines()
+        .map(|line| {
+            let chars: Vec<char> = line.chars().collect();
+            let at = split_at.min(chars.len());
+            chars[..at].iter().collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    fold(&left)
+}
+
 #[test]
 fn the_log_scrolls_with_the_arrows_ws_and_the_page_keys_and_sticks_to_the_end() {
     let mut a = bending_game();
@@ -672,12 +704,12 @@ fn the_log_scrolls_with_the_arrows_ws_and_the_page_keys_and_sticks_to_the_end() 
     assert!(n >= 40, "only {n} log lines: pick a seed with more fuel near the start");
     run(&mut a, "l");
     assert_eq!(a.ui.scroll, PINNED, "the log opens on its newest line");
-    let newest = a.ui.alerts.history()[n - 1].text.clone();
+    let newest = fold(&a.ui.alerts.history()[n - 1].text);
     let frame = text(&mut a, SMALL);
     if n > 22 {
-        assert!(frame.contains(&newest[..newest.len().min(40)]), "{frame}");
-        let oldest = a.ui.alerts.history()[0].text.clone();
-        assert!(!frame.contains(&oldest[..oldest.len().min(40)]), "scrolled to the end:\n{frame}");
+        assert!(left_text(&frame).contains(&newest), "{frame}");
+        let oldest = fold(&a.ui.alerts.history()[0].text);
+        assert!(!left_text(&frame).contains(&oldest), "scrolled to the end:\n{frame}");
 
         run(&mut a, "<up>");
         let one_up = a.ui.scroll;
@@ -693,7 +725,7 @@ fn the_log_scrolls_with_the_arrows_ws_and_the_page_keys_and_sticks_to_the_end() 
         run(&mut a, "<pgup*40>");
         assert_eq!(a.ui.scroll, 0, "the top");
         let frame = text(&mut a, SMALL);
-        assert!(frame.contains(&oldest[..oldest.len().min(40)]), "{frame}");
+        assert!(left_text(&frame).contains(&oldest), "{frame}");
         run(&mut a, "<pgdn*40>");
         assert_eq!(a.ui.scroll, PINNED);
     }

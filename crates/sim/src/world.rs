@@ -128,6 +128,13 @@ pub struct Unit {
     /// (`docs/design/endgame.md`, #233). Read it through `bends()`.
     #[serde(default)]
     bends: u32,
+    /// Whether this unit has already been credited with the mastery toast and event
+    /// (`EndeavorEventKind::Mastered`, `docs/design/endgame.md`, "Showing mastery", #347). Set
+    /// once `bends` first reaches `EndeavorDef::master_threshold` for this unit's own nation, so
+    /// a save/load, or the threshold changing later, never refires the event for a unit that was
+    /// already a master.
+    #[serde(default)]
+    mastered: bool,
     /// The building this unit stepped inside, if any: its anchor (docs/design/buildings.md,
     /// "Units inside buildings", #226). While set, `pos` stays on the entrance tile, so floods,
     /// regions and paths need no change; everything that asks "who is standing on the map here"
@@ -610,6 +617,7 @@ impl World {
                 idle_until: 0,
                 wander_left: 0,
                 bends: 0,
+                mastered: false,
                 inside: None,
                 guest: None,
                 unhappy_since: None,

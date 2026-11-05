@@ -50,6 +50,10 @@ pub struct SignRow {
     pub value: String,
     /// In `[0, 1]`.
     pub frac: f32,
+    /// The masters sign only, shown only while it isn't met: who has already mastered and the
+    /// closest non-masters ("Master: Lu Ten. Closest: Jee 9/10, Shyu 8/10, Ikem 8/10",
+    /// `docs/design/endgame.md`, "Showing mastery", #347). `None` for every other sign.
+    pub closest: Option<String>,
 }
 
 /// The side panel's Endeavor section.
@@ -105,6 +109,73 @@ fn missing_building_names<'d>(world: &World, defs: &'d Defs) -> Vec<&'d str> {
         .into_iter()
         .map(|id| defs.building(id).display_name(world.nation))
         .collect()
+}
+
+/// How many of the closest non-masters the masters sign's own line names.
+const MASTERS_SHOWN: usize = 3;
+
+/// Non-master units with their own bends and nation's mastery threshold
+/// (`fn_sim::endeavor::EndeavorDef::master_threshold`), closest to mastery first (a tie keeps
+/// each unit's order in `World::units`). Guests (the Avatar) never count. Empty without a
+/// masters sign in the data, or once every counted unit has already mastered.
+fn closest_non_masters(world: &World, defs: &Defs) -> Vec<(String, u32, u32)> {
+    let mut rest: Vec<(String, u32, u32)> = world
+        .units
+        .iter()
+        .filter(|u| !u.is_avatar())
+        .filter_map(|u| {
+            let threshold = defs.endeavor.master_threshold(world.nation_of(u))?;
+            (u.bends() < threshold).then(|| (u.name.clone(), u.bends(), threshold))
+        })
+        .collect();
+    rest.sort_by_key(|&(_, bends, _)| std::cmp::Reverse(bends));
+    rest
+}
+
+/// Names of units that have already reached their own nation's mastery threshold, alphabetical.
+fn current_masters(world: &World, defs: &Defs) -> Vec<String> {
+    let mut masters: Vec<String> = world
+        .units
+        .iter()
+        .filter(|u| !u.is_avatar())
+        .filter_map(|u| {
+            let threshold = defs.endeavor.master_threshold(world.nation_of(u))?;
+            (u.bends() >= threshold).then(|| u.name.clone())
+        })
+        .collect();
+    masters.sort();
+    masters
+}
+
+/// The masters sign's own line: who has already mastered and the closest non-masters ("Master:
+/// Lu Ten. Closest: Jee 9/10, Shyu 8/10, Ikem 8/10"). `None` with nobody to name (no masters
+/// sign, or no units at all).
+fn masters_line(world: &World, defs: &Defs) -> Option<String> {
+    masters_text(&current_masters(world, defs), &closest_non_masters(world, defs))
+}
+
+/// Pure text assembly for `masters_line`, split out so it can be tested against literal data
+/// without simulating real bends: `masters` (already alphabetical) and `closest` (already
+/// closest-first, as `closest_non_masters` returns them).
+fn masters_text(masters: &[String], closest: &[(String, u32, u32)]) -> Option<String> {
+    let master_part = (!masters.is_empty()).then(|| {
+        let label = if masters.len() == 1 { "Master" } else { "Masters" };
+        format!("{label}: {}.", masters.join(", "))
+    });
+    let closest_part = (!closest.is_empty()).then(|| {
+        let names: Vec<String> = closest
+            .iter()
+            .take(MASTERS_SHOWN)
+            .map(|(name, bends, threshold)| format!("{name} {bends}/{threshold}"))
+            .collect();
+        format!("Closest: {}", names.join(", "))
+    });
+    match (master_part, closest_part) {
+        (Some(m), Some(c)) => Some(format!("{m} {c}")),
+        (Some(m), None) => Some(m),
+        (None, Some(c)) => Some(c),
+        (None, None) => None,
+    }
 }
 
 /// The hint for an unmet sign: the branch names the techs left once only one or two are, the
@@ -172,7 +243,13 @@ pub fn missing(sign: &SignDef, p: &SignProgress, world: &World, defs: &Defs) -> 
             format!("{n} {}", items(list))
         }
         SignKind::Tally(Tally::ScrollsRead) => count(n, "more scroll read", "more scrolls read"),
-        SignKind::Masters { .. } => count(n, "more master", "more masters"),
+        SignKind::Masters { .. } => {
+            let label = count(n, "more master", "more masters");
+            match closest_non_masters(world, defs).first() {
+                Some((name, bends, threshold)) => format!("{label} ({name} {bends}/{threshold})"),
+                None => label,
+            }
+        }
     }
 }
 
@@ -207,6 +284,9 @@ pub fn screen_view(session: &Session) -> ScreenView {
     let total = signs.len();
     let mut groups: Vec<GroupView> = Vec::new();
     for (sign, p) in &signs {
+        let closest = (!p.met && matches!(sign.kind, SignKind::Masters { .. }))
+            .then(|| masters_line(world, defs))
+            .flatten();
         let row = SignRow {
             id: sign.id.clone(),
             name: sign_name(sign, world, defs),
@@ -214,6 +294,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
             hint: if p.met { None } else { hint(sign, world, defs) },
             value: format!("{}/{}", p.value, p.target),
             frac: frac(p),
+            closest,
         };
         let heading = heading(sign.group);
         match groups.last_mut() {
@@ -311,6 +392,8 @@ pub fn describe_event(defs: &Defs, ev: &EndeavorEvent) -> String {
             let name = defs.endeavor.avatar.as_ref().map_or("The Avatar", |a| a.name.as_str());
             format!("{name} gives his farewell and flies off on Appa.")
         }
+        // The masters sign's own toast (#347): fires once per unit, `World::note_mastery`.
+        EndeavorEventKind::Mastered { name, .. } => format!("{name} is now a bending master"),
     }
 }
 
@@ -423,8 +506,53 @@ mod tests {
         assert_eq!(text("food"), "150 food");
         assert_eq!(text("stone"), "200 stone");
         assert_eq!(text("ore"), "40 gold ore");
-        assert_eq!(text("masters"), "3 more masters");
+        // A fresh game: nobody has bent yet, so the closest is whoever is first, at 0/25
+        // (`EndeavorDef::master_threshold` reads the bundled sign).
+        let closest = &w.units[0].name;
+        assert_eq!(text("masters"), format!("3 more masters ({closest} 0/25)"));
         assert_eq!(text("scrolls"), "3 more scrolls read");
+    }
+
+    /// `closest_non_masters` and `current_masters` on a fresh game: nobody has bent yet, so
+    /// everyone is a non-master at 0/25, and nobody is a master.
+    #[test]
+    fn mastery_helpers_read_a_fresh_games_units() {
+        let s = session(Nation::Fire);
+        let (w, d) = (&s.world, &s.defs);
+        assert!(current_masters(w, d).is_empty());
+        let closest = closest_non_masters(w, d);
+        assert_eq!(closest.len(), w.units.len());
+        assert!(closest.iter().all(|(_, bends, threshold)| (*bends, *threshold) == (0, 25)));
+        let mut names: Vec<&str> = closest.iter().map(|(n, ..)| n.as_str()).collect();
+        names.sort();
+        let mut unit_names: Vec<&str> = w.units.iter().map(|u| u.name.as_str()).collect();
+        unit_names.sort();
+        assert_eq!(names, unit_names);
+    }
+
+    /// `masters_text`'s own assembly, from literal data (#347): no need to simulate real bends
+    /// to cover every shape of the line.
+    #[test]
+    fn masters_text_covers_every_shape_of_the_line() {
+        let jee = ("Jee".to_owned(), 9, 10);
+        let shyu = ("Shyu".to_owned(), 8, 10);
+        let ikem = ("Ikem".to_owned(), 8, 10);
+        let extra = ("Zei".to_owned(), 1, 10);
+        assert_eq!(masters_text(&[], &[]), None);
+        assert_eq!(
+            masters_text(&[], &[jee.clone(), shyu.clone(), ikem.clone(), extra.clone()]),
+            Some("Closest: Jee 9/10, Shyu 8/10, Ikem 8/10".to_owned()),
+            "only the closest three show"
+        );
+        assert_eq!(
+            masters_text(&["Lu Ten".to_owned()], &[jee.clone(), shyu.clone(), ikem.clone()]),
+            Some("Master: Lu Ten. Closest: Jee 9/10, Shyu 8/10, Ikem 8/10".to_owned())
+        );
+        assert_eq!(
+            masters_text(&["Jee".to_owned(), "Lu Ten".to_owned()], &[]),
+            Some("Masters: Jee, Lu Ten.".to_owned()),
+            "more than one master is plural, and no closest line without a non-master"
+        );
     }
 
     #[test]
@@ -448,5 +576,30 @@ mod tests {
             describe_event(&defs, &farewell),
             "Aang gives his farewell and flies off on Appa."
         );
+        let mastered = EndeavorEvent {
+            tick: 10,
+            kind: EndeavorEventKind::Mastered {
+                unit: fn_sim::world::UnitId(0),
+                name: "Jee".into(),
+            },
+        };
+        assert_eq!(describe_event(&defs, &mastered), "Jee is now a bending master");
+    }
+
+    /// Under the masters sign, while it isn't met, the screen names the closest non-masters
+    /// (`docs/design/endgame.md`, "Showing mastery", #347); once it is met, the row carries
+    /// neither a hint nor a closest line, as every other sign already does.
+    #[test]
+    fn the_masters_sign_names_the_closest_non_masters_while_unmet() {
+        let s = session(Nation::Fire);
+        let v = screen_view(&s);
+        let row = v.groups.iter().flat_map(|g| &g.signs).find(|r| r.id == "masters").unwrap();
+        assert!(!row.met);
+        assert_eq!(row.closest, masters_line(&s.world, &s.defs));
+        assert!(row.closest.as_deref().unwrap().starts_with("Closest: "));
+        // Every other sign carries no closest line.
+        for other in v.groups.iter().flat_map(|g| &g.signs).filter(|r| r.id != "masters") {
+            assert_eq!(other.closest, None);
+        }
     }
 }
