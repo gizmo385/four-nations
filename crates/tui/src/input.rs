@@ -302,6 +302,42 @@ fn build_table() -> Vec<Binding> {
     t
 }
 
+/// Whether `action` may reach the watch spectator's own `UiState` in free look (#330,
+/// `crate::spectate`): camera and cursor movement, browsing a unit or a read-only screen, never
+/// anything that would change the agent's own game. Every [`Action`] variant is matched by name,
+/// with no wildcard arm, so a new one fails to compile here until it's judged -- that's this
+/// crate's one enforcement that a new binding never reaches a spectator unclassified, since a
+/// test can't see a variant `map_key` never returns.
+///
+/// `Action::PickTool` is judged by `tool`, not blanket: Build's own key only opens the
+/// browse-only picker (#330's acceptance criteria, "Build list (U, browse only)"); it never
+/// places anything by itself (`crate::spectate` refuses `Enter` inside it), so it alone is
+/// allowed, and any other (including a tool added after this was written) is refused, the safe
+/// default. `Action::Confirm` is allowed in general (mostly "select a unit to see its bar"); the
+/// Research screen's own exception (`Enter` there sets the agent's research target) is judged by
+/// `crate::spectate`, which knows which screen is open and this function doesn't.
+pub fn spectator_allowed(action: Action) -> bool {
+    match action {
+        Action::Move { .. } | Action::Jump { .. } => true,
+        Action::PickTool(Tool::Build) => true,
+        Action::PickTool(_) => false,
+        Action::ToggleRepeat => false,
+        Action::Confirm => true,
+        Action::Cancel => false,
+        Action::NextUnit | Action::PrevUnit | Action::Follow => true,
+        Action::ShowResearch
+        | Action::ShowLog
+        | Action::ShowHelp
+        | Action::ShowEndeavor
+        | Action::ShowNation => true,
+        Action::ShowSaves => false,
+        Action::AskNewMap | Action::AskNation(_) => false,
+        Action::QuickSave | Action::AskQuickLoad => false,
+        Action::TogglePause | Action::Faster | Action::Slower | Action::Step => false,
+        Action::AskQuit | Action::QuitNow => false,
+    }
+}
+
 /// What a key means when no prompt is open, if anything.
 pub fn map_key(key: KeyEvent) -> Option<Action> {
     if key.kind == KeyEventKind::Release {
@@ -547,6 +583,68 @@ mod tests {
             let event =
                 KeyEvent { code: b.key.code, modifiers: mods, kind: KeyEventKind::Press, state };
             assert_eq!(map_key(event), Some(b.action), "{}", b.key.name());
+        }
+    }
+
+    /// `spectator_allowed`'s own table (#330's acceptance criteria): camera, cursor, browsing a
+    /// unit and every read-only screen are allowed; every mutating action -- tools other than
+    /// Build's browse-only picker, standing orders, cancel, saves and loads, a new map, a
+    /// nation switch, the game's own pause/speed and quit -- is refused. Exhaustiveness (no new
+    /// binding reaches a spectator unclassified) is enforced by `spectator_allowed`'s match
+    /// having no wildcard arm, which fails to compile, not merely a test, once an `Action`
+    /// variant is added without being judged there.
+    #[test]
+    fn spectator_allowed_matches_the_acceptance_criteria() {
+        let allowed = [
+            Action::Move { dx: 1, dy: 0, tiles: 1 },
+            Action::Jump { dx: 0, dy: 1 },
+            Action::PickTool(Tool::Build),
+            Action::Confirm,
+            Action::NextUnit,
+            Action::PrevUnit,
+            Action::Follow,
+            Action::ShowResearch,
+            Action::ShowLog,
+            Action::ShowHelp,
+            Action::ShowEndeavor,
+            Action::ShowNation,
+        ];
+        for a in allowed {
+            assert!(spectator_allowed(a), "{a:?} should be allowed");
+        }
+        let refused = [
+            Action::PickTool(Tool::Harvest),
+            Action::PickTool(Tool::CancelHarvest),
+            Action::PickTool(Tool::Stockpile),
+            Action::PickTool(Tool::Bend),
+            Action::PickTool(Tool::Sow),
+            Action::PickTool(Tool::Select),
+            Action::ToggleRepeat,
+            Action::Cancel,
+            Action::ShowSaves,
+            Action::AskNewMap,
+            Action::AskNation(Nation::Air),
+            Action::QuickSave,
+            Action::AskQuickLoad,
+            Action::TogglePause,
+            Action::Faster,
+            Action::Slower,
+            Action::Step,
+            Action::AskQuit,
+            Action::QuitNow,
+        ];
+        for a in refused {
+            assert!(!spectator_allowed(a), "{a:?} should be refused");
+        }
+    }
+
+    /// Every entry of the real table resolves through `spectator_allowed` without needing a
+    /// wildcard here either, so a binding that only shows up through `bindings()` (never
+    /// constructed by hand above) is still exercised.
+    #[test]
+    fn every_binding_is_classified_for_the_spectator() {
+        for b in bindings() {
+            let _ = spectator_allowed(b.action);
         }
     }
 
