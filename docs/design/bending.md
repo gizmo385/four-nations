@@ -130,9 +130,10 @@ When it dries, up to `sprouts` of its empty, fertile land tiles grow a wild food
   careless watering clutters the camp.
 - **Randomness:** which tiles sprout comes from `rng::stream(seed, "bending.sprout")`, a
   stream held by `World`. Patches dry in `(tick, pos)` order.
-- **Later (#56):** when farm plots exist, wet plots grow faster (`crop_growth` × a data value).
-  That's the same ability with a second reader of the wet state, and the `irrigation` tech's
-  channel becomes the permanent version.
+- **Later (#56):** wet plots grow faster (`crop_growth` × a data value), the same ability with a
+  second reader of the wet state. The `irrigation` tech's channel is the permanent version of
+  that boost, already built (docs/design/research.md, "The irrigation channel", #126): a farm
+  plot within a channel's radius grows faster for good, with no bending or re-watering needed.
 
 ### Fire Nation: Hearthflame
 

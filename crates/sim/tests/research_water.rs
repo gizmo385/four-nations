@@ -11,7 +11,6 @@ const MINUTE: u64 = 600; // ticks
 /// Every Water branch tech either unlocks a concrete building, job or ability, or is listed
 /// here with the reason it doesn't. A tech that gains an unlock must leave this list.
 const NO_CONCRETE_UNLOCK: &[(&str, &str)] = &[
-    ("irrigation", "modifier-only: the channel needs farm plots (#126)"),
     ("healing", "needs a healing mechanic for the hut, healer and Healing Water (#125)"),
     ("tide_mills", "modifier-only: no power or mill system yet (#127)"),
     ("water_travel", "needs a rule for crossing water tiles (#127)"),

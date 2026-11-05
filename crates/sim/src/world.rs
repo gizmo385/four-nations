@@ -288,6 +288,10 @@ pub struct World {
     /// Finished farm plots by tile, with what stage each is in (`farm.rs`, #198).
     #[serde(default)]
     farm_plots: BTreeMap<Pos, farm::FarmPlot>,
+    /// Finished irrigation channels by tile (`farm.rs`, #126): each speeds up farm plots within
+    /// its own `IrrigationDef::radius`.
+    #[serde(default)]
+    irrigation_channels: BTreeSet<Pos>,
     /// Lifetime counts for the end-game signs: items harvested, scrolls read (`tally.rs`, #233).
     #[serde(default)]
     tallies: Tallies,
@@ -406,6 +410,7 @@ impl World {
             orchards: BTreeMap::new(),
             saplings: BTreeSet::new(),
             farm_plots: BTreeMap::new(),
+            irrigation_channels: BTreeSet::new(),
             tallies: Tallies::default(),
             endeavor: EndeavorState::Dormant,
             endeavor_log: EndeavorLog::default(),

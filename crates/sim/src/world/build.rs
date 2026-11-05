@@ -555,6 +555,9 @@ impl World {
                 if def.farm.is_some() {
                     self.open_farm_plot(pos);
                 }
+                if def.irrigation.is_some() {
+                    self.open_irrigation_channel(pos);
+                }
                 self.sites.remove(&pos);
                 self.jobs.remove(idx);
                 self.raise(footprint, building, def);

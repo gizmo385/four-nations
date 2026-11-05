@@ -167,6 +167,7 @@ impl World {
         world.validate(defs).map_err(SaveError::Corrupt)?;
         world.adopt_orchards(defs);
         world.adopt_farm_plots(defs);
+        world.adopt_irrigation_channels(defs);
         // building_index isn't saved (#292); rebuild it once here rather than on every
         // once-a-second endeavor check.
         world.rebuild_building_index();

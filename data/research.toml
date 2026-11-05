@@ -291,8 +291,10 @@ description = "Bend water along channels so nearby crops grow faster."
 nation = "water"
 cost = 60
 prereqs = ["farming"]
-# Modifier-only for now: the irrigation channel needs farm plots to act on (issue #126).
+# The irrigation channel (issue #126): farm plots within its reach grow faster
+# (`World::crop_growth_rate`, world/farm.rs).
 [tech.unlocks]
+buildings = ["irrigation_channel"]
 modifiers = { water_work = 1.15 }
 
 [[tech]]

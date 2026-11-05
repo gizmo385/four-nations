@@ -414,15 +414,16 @@ Power (the steam engine, lightning station, a grid) is out of scope: #255.
 
 | id | Cost | Prereqs | Unlocks |
 |---|---|---|---|
-| `irrigation` | 60 | farming | irrigation channel (crops near it grow faster; waits on farm plots, #126); water_work ×1.15 |
+| `irrigation` | 60 | farming | irrigation channel (farm plots within reach grow faster, #126); water_work ×1.15 |
 | `ice_construction` | 120 | shelter | igloo (a cheap bed with better sleep; wood until there is an ice item); ice blocks as a material later |
 | `healing` | 120 | herbalism | healing hut; healer job; ability: healing water (all wait on a healing mechanic, #125) |
 | `tide_mills` | 250 | irrigation | push-and-pull tide mill on the coast (waits on a power system, #127); power_generation ×1.25 |
 | `water_travel` | 250 | fishing, ice_construction | canoes and ice skiffs; units can cross water tiles (#127) |
 | `spirit_oasis` | 500 | healing, tide_mills | spirit oasis (chi and mood regeneration, #127); water_work ×1.25 |
 
-Only `ice_construction` unlocks a concrete def so far (#27); the rest stay modifier-only or empty
-until the issues above add the mechanics they need. No tree costs changed: a headless playtest
+`ice_construction` (#27) and `irrigation` (#126) unlock a concrete def so far; the rest stay
+modifier-only or empty until the issues above add the mechanics they need. No tree costs changed:
+a headless playtest
 (`crates/sim/tests/research_water.rs`) following the pacing assumptions above researches the whole
 Water tree (2190 points) in about 108 minutes with ~950 points earned by minute 60, which is
 inside the targets within 25%.
@@ -567,18 +568,20 @@ player makes per plot.
 
 **The `crop_growth` hook.** `World::crop_growth_rate(pos, defs)` is the one thing `tick_farms`
 reads to know how fast a growing plot's clock counts down: the plot's own `crop_growth` (1.0),
-read off the building standing there, times the difficulty preset's season factor
+read off the building standing there, times `World::irrigation_rate` (the irrigation channel's
+boost in reach, #126, below), times the difficulty preset's season factor
 (`World::season_growth_factor`, #311; identity with `seasons` off, so this is exactly
-`crop_growth` for every save from before #311 landed) — the same hook `World::growth_rate`
-already uses for wild regrowth, so a plot in a cold band grows slower in winter exactly like a
-wild plant does. The first frost also takes an unharvested ripe crop on a frost-band tile, the
-plot going back to empty (`World::frost_plot`, called from the same `apply_frost` that sends a
-ripe wild plant back to resting). Farm plots are tended, so they never take strain (#296), the
-way an orchard's trees don't either. Irrigation's channel (#126) and Earth's terrace (#136) are
-buildings with their own reach, so the clean way for each to speed up plots nearby is the same
-pattern `World::tend_rate` already uses for an orchard's trees: scan buildings of that kind in
-range and take the best boost, the same way two orchards in reach of one tree don't stack.
-Nothing in `tick_farms` needs to change for that; `crop_growth_rate` is the one line to touch.
+`crop_growth * irrigation_rate` for every save from before #311 landed) — the same season hook
+`World::growth_rate` already uses for wild regrowth, so a plot in a cold band grows slower in
+winter exactly like a wild plant does, irrigated or not. The first frost also takes an
+unharvested ripe crop on a frost-band tile, the plot going back to empty (`World::frost_plot`,
+called from the same `apply_frost` that sends a ripe wild plant back to resting). Farm plots are
+tended, so they never take strain (#296), the way an orchard's trees don't either. Irrigation's
+channel (#126) and Earth's terrace (#136, still to come) are buildings with their own reach, so
+the clean way for each to speed up plots nearby is the same pattern `World::tend_rate` already
+uses for an orchard's trees: scan buildings of that kind in range and take the best boost, the
+same way two orchards in reach of one tree don't stack. Nothing in `tick_farms` needed to change
+for that; `crop_growth_rate` was the one line to touch.
 
 **Balance.** A plot nets 3 cabbage every 6 + 240 + 6 = 252 s, about six times a wild cabbage tile
 (1 per 480 s), for two short stints of a farmer's time rather than a forage's one: the point of
@@ -598,6 +601,44 @@ registers a farm plot that is already on a loaded map, mirroring `adopt_orchards
 appended at the end of `data/buildings.toml` rather than filed under its shared-tier section,
 since `BuildingId` is file position and an existing save's buildings are read back by it: an
 earlier insertion would have silently renamed them.
+
+### The irrigation channel (#126)
+
+`irrigation` (Water tier 1, after `farming`) unlocks `irrigation_channel`: a 1x1, walkable
+building with no job of its own (unlike a farm plot, it needs nobody's labour once built). The
+permanent version of Water the Land's wet state (docs/design/bending.md, "Water the Land"), the
+same way a bender's channel outlasts the one-off patch.
+
+**The mechanic.** Every farm plot within the channel's `radius` (Chebyshev, 3 tiles) grows
+`growth_boost` (1.5) times as fast, read by `World::crop_growth_rate`
+(`world/farm.rs::irrigation_rate`) the same way `World::tend_rate` speeds up a resting tree an
+orchard tends: the best boost among channels in reach, or 1.0 with none, so two channels near one
+plot don't stack. `IrrigationDef` (`[building.irrigation]`) carries `radius` and `growth_boost`;
+`World::open_irrigation_channel` registers a finished one in `World::irrigation_channels` (a
+tracked set, not a full map scan, mirroring `orchards`), and `World::adopt_irrigation_channels`
+registers one already on a loaded map, mirroring `adopt_orchards`.
+
+**Composing with the season.** `crop_growth_rate` multiplies three independent factors in order:
+the plot's own `crop_growth`, `irrigation_rate`, and `World::season_growth_factor` (#311). Order
+doesn't matter since all three are plain multipliers, but keeping irrigation and the season
+factor as separate multiplications (rather than, say, irrigation only applying outside winter)
+means a channel helps exactly as much in a slow winter as it does in high summer: it halves
+however long is left, whatever that is. A sim test plants the same plot in a warm band's winter
+(`winter_growth` 0.6, so already slower than plain speed) with and without a channel in reach and
+checks the irrigated one ripens close to `growth_boost` times faster than the bare one, not just
+"faster".
+
+**Reach and cost.** The radius matches Water the Land's own 3x3 patch (one tile out from
+centre), so a channel reads as the ability's footprint made permanent; the boost reuses an
+orchard's `tend_boost` scale, since both are "a building tends things nearby" at the same order
+of magnitude. Cost and work (4 wood, 30 s) match the igloo, Water's other tier-1-ish building,
+pending a real balance pass once terraces (#136) give irrigation a ceiling worth tuning against.
+
+**What the player sees.** A placeholder glyph (`≈`/`=`) like every other building here; real art
+is a follow-up if the client keeps buildings at all (#283).
+
+**Saves.** New world state (`irrigation_channels`) is `#[serde(default)]`; `irrigation_channel`
+is appended at the end of `data/buildings.toml`, same reasoning as `farm_plot`.
 
 ## Data schema: `data/research.toml`
 

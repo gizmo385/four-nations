@@ -243,6 +243,8 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     "newcomer_rng",
     // Farm plots (#198): which tiles are plots and what stage each is in.
     "farm_plots",
+    // The irrigation channel (#126): which tiles speed up farm plots nearby.
+    "irrigation_channels",
 ];
 
 /// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239
