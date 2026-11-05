@@ -204,6 +204,9 @@ pub struct Watcher {
     /// The log's `End` line's own reason, once replayed (#327): a finished run's strip reads
     /// "run finished" instead of counting up a wait that will never end.
     finished: Option<String>,
+    /// The latest act's strip text (its label and note), kept on the strip while that act's turn
+    /// plays out, so the agent's note stays readable for longer than its keys take to press.
+    last_action: Option<String>,
 }
 
 impl Watcher {
@@ -255,6 +258,7 @@ impl Watcher {
             waiting_secs: 0.0,
             nation_label: header.nation.as_str().to_owned(),
             finished: None,
+            last_action: None,
         })
     }
 
@@ -451,7 +455,9 @@ impl Watcher {
                 if keys.is_empty() {
                     return self.start_next();
                 }
-                self.current = Some(Current::Keys(CurrentAction { label, note, keys, pressed: 0 }));
+                let action = CurrentAction { label, note, keys, pressed: 0 };
+                self.last_action = Some(describe_action_line(&action));
+                self.current = Some(Current::Keys(action));
             }
             LogLine::Look { x, y, w, h } => {
                 self.ghost = Some(Ghost { x, y, w, h, left: GHOST_SECONDS });
@@ -560,29 +566,24 @@ impl Watcher {
         buf.set_stringn(area.x, area.y, &text, usize::from(area.width), style);
     }
 
-    /// " AGENT earth  turn 6  02:00  designate harvest 6x4 at (86,60) "wood for two beds"  x40",
-    /// "...  waiting for agent (12 s)  x40" once the watcher has caught up with a live log,
-    /// "...  3 turns behind  x40" once a live log's agent has written turns faster than the
-    /// chosen pace plays them back ([`Self::turns_behind`], #328: the strip says how far instead
-    /// of the keys and ticks it's mid-playing, since catching up matters more than what they are)
-    /// or "...  run finished  x40" once the log's own `End` line has been replayed (#327): a
+    /// " AGENT earth  turn 6  02:00  designate harvest 6x4 at (86,60) "wood for two beds"  x40":
+    /// the latest act stays on the strip while its turn plays out. A live log's agent that has
+    /// written turns faster than the chosen pace plays them back adds "  3 turns behind"
+    /// ([`Self::turns_behind`], #328), "waiting for agent (12 s)" shows once the watcher has
+    /// caught up, and "run finished" once the log's own `End` line has been replayed (#327): a
     /// finished run never says "waiting" for a wait that will never end.
     fn strip_text(&self) -> String {
         let clock = fn_ui::view::format_clock(self.app().session.world.tick);
         let behind = self.turns_behind();
+        let latest = self.last_action.clone().unwrap_or_default();
         let action = if self.finished() {
             "run finished".to_owned()
         } else if behind > 0 {
-            format!("{behind} turn{} behind", if behind == 1 { "" } else { "s" })
+            format!("{latest}  {behind} turn{} behind", if behind == 1 { "" } else { "s" })
+        } else if self.current.is_none() && self.caught_up() {
+            format!("waiting for agent ({} s)", self.waiting_secs.round() as u64)
         } else {
-            match &self.current {
-                Some(Current::Keys(a)) => describe_action_line(a),
-                Some(Current::Ticks { .. }) => String::new(),
-                None if self.caught_up() => {
-                    format!("waiting for agent ({} s)", self.waiting_secs.round() as u64)
-                }
-                None => String::new(),
-            }
+            latest
         };
         format!(
             " AGENT {}  turn {}  {clock}  {action}  x{}",
@@ -1006,6 +1007,24 @@ mod tests {
 
         w.fast_forward_to_turn(100);
         assert_eq!(w.turns_behind(), 0);
+    }
+
+    /// The latest act's note stays on the strip while its turn's ticks play out, and a backlog is
+    /// added after it rather than replacing it: the note is what a watcher is there to read.
+    #[test]
+    fn the_latest_note_stays_on_the_strip_through_its_turn_and_a_backlog() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.feed([
+            LogLine::Keys { keys: "<right>".to_owned(), label: None, note: Some("scout".into()) },
+            LogLine::Turn { index: 1, tick: 200 },
+        ]);
+        w.advance(1.0);
+        assert!(matches!(w.current, Some(Current::Ticks { .. })), "mid-turn");
+        assert!(w.strip_text().contains("\"scout\""), "{}", w.strip_text());
+
+        w.feed([LogLine::Turn { index: 2, tick: 400 }]);
+        let strip = w.strip_text();
+        assert!(strip.contains("\"scout\"") && strip.contains("1 turn behind"), "{strip}");
     }
 
     /// Pausing freezes the replay but still ages the attention ghost down (it's cosmetic, not
