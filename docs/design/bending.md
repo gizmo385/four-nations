@@ -265,6 +265,59 @@ Changing to option 1 touches only `validate_effect` and the `HeatAura` arm of `a
 (`world/bending.rs`), because everything downstream reads `Aura::unit`. The numbers are all in
 `data/bending.toml`.
 
+### Air Nomads: Air Scooter (unlocked by `air_scooter`)
+
+*Aang's spinning ball of air.* The bender steps onto it and rides, much faster than on foot, for
+a little while. Where Wind Carry moves goods, Air Scooter moves the bender: a quick way to reach
+a far harvest, a stranded hauler's stockpile, or a unit that needs tending, without waiting on
+foot the whole way.
+
+| | Value |
+|---|---|
+| Chi | 20 |
+| Channel | 3 s (no speed modifier) |
+| Duration | 2 min × `move_speed` (3.84 min for Air's 1.6 × Gliders 1.15 × Air Scooter's own 1.2) |
+| Multiplier | 2.5 × the rider's own effective `move_speed`, stacking on top of it |
+| Recast | Casting it again resets the timer (same chi) |
+
+- **Who gets it: the caster.** Like Inner Fire, this is a self-cast ability: the designated
+  tile is only where the bender stands to summon the scooter (open ground, no resource or
+  building on it), not a place the scooter goes. The bender who claims the job rides it, not
+  whoever stands on the tile afterward.
+- **Why it's a new effect and not a bigger `move_speed` modifier:** a nation modifier is
+  permanent and settlement-wide; a ride is temporary and personal to the unit that cast it, and
+  it has to end on its own timer without the rest of the sim noticing anything but a faster
+  walk. The effect is `scooter` in `data/bending.toml`, kept as a `Ride { multiplier, until }` in
+  `world/bending.rs`, by rider. Every place that reads a unit's effective `move_speed` for
+  movement (`walk`, `wander` and the client-facing `Stride`) multiplies by the rider's current
+  `multiplier`, so no other system needs to know a ride exists. A ride that outlives its rider
+  (death) is dropped, the same way an aura is.
+- **Scaling:** `magnitude_modifier = "move_speed"` scales `duration_minutes`, so research that
+  raises `move_speed` (Gliders, Air Scooter's own modifier, later Sky Bison) also makes the ride
+  last a little longer: a nation already fast on its feet keeps the burst going longer, the same
+  way `heating` lengthens Hearthflame and Inner Fire. The multiplier itself (2.5) is flat, not
+  scaled by anything, and `move_speed` is read once, at the moment the bend completes.
+- **Why it's Air's:** Air already leans on speed (base `move_speed` 1.6, Gliders ×1.15), and
+  the ride compounds on top of every modifier the nation has earned, so an Air settlement deep
+  into its tree rides both longer and faster than one that just unlocked it. It fits the "quick
+  response" niche Wind Carry doesn't cover: Wind Carry moves what's already stacked on the
+  ground, Air Scooter moves the bender who still has to get somewhere.
+- **Counterplay:** the burst ends with its timer, not with distance covered, so a long haul
+  can outrun it partway there and finish on foot. It costs chi (20, against Wind Carry's
+  signature 15) and a few seconds to summon, so it isn't free to spam. It affects only the
+  rider's own movement: it does nothing for anyone else, and unlike Inner Fire it has no
+  radius, so there is no interaction with heat, sleep or anyone standing nearby.
+- **Terminal frontend (`crates/tui`):** the Bend tool already lists every ability the
+  settlement can use generically (`fn_ui::tools::usable_abilities`), so Air Scooter needed no
+  tool code once it was in the data. The one entry that is per-ability is the post-bend flash
+  (`crates/tui/src/map.rs`'s `HIGHLIGHTS`, the TUI's live equivalent of the old client's
+  `cast::LOOKS`): Air Scooter's is `Shape::Target`, the same shape Inner Fire uses, since both
+  land on the caster's own tile. A visible "riding" indicator on the map (so another player
+  watching can tell who is on a scooter right now, the way a glow marks an Inner Fire carrier)
+  is a nice-to-have, not required for the ability to work, and is left to a follow-up issue.
+- **Saves:** `rides` is part of world state with `#[serde(default)]`, so a save from before
+  #143 loads with none.
+
 ## Data schema: `data/bending.toml`
 
 ```toml
@@ -370,9 +423,9 @@ impl World {
 
 ## Not in this design
 
-- The later abilities that research.md assigns to branch techs: seismic sense, metalbend,
-  healing water and air scooter. They should use this framework, and #25–#28 wire them up.
-  Inner Fire is done (#123).
+- Healing water, the one remaining branch ability research.md assigns but this doc doesn't
+  design. It should use this framework, and #25 wires it up. Inner Fire (#123), Bore Tunnel
+  (#132), Seismic Sense (#133), Glide (#197), Metalbend (#134) and Air Scooter (#143) are done.
 - Non-benders, bending skill levels and per-unit chi max. Every unit bends for now (see
   question 1).
 - Auto-cast (see question 3).
