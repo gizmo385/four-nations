@@ -79,6 +79,12 @@ pub enum EndeavorEventKind {
     /// The Avatar's farewell: he leaves the settlement for good, `AvatarDef::farewell_minutes`
     /// after the Harmony Rite completed (`world/avatar.rs`, #238).
     AvatarFarewell,
+    /// This unit's finished bends first reached its own nation's mastery threshold
+    /// (`EndeavorDef::master_threshold`, `docs/design/endgame.md`, "Showing mastery", #347),
+    /// named here (not just by id) the way `Death` and `Arrival` carry their own name, so the
+    /// toast reads correctly even if the unit later dies. Fires exactly once per unit
+    /// (`Unit::mastered`, `world/bending.rs`).
+    Mastered { unit: UnitId, name: String },
 }
 
 /// Why the Avatar left (`world/avatar.rs`, #237): named for the client's toast ("Aang has gone
@@ -197,6 +203,27 @@ impl World {
     /// Logs an endeavor event at the current tick.
     pub(super) fn endeavor_event(&mut self, kind: EndeavorEventKind) {
         self.endeavor_log.events.push(EndeavorEvent { tick: self.tick, kind });
+    }
+
+    /// Checks whether unit `i`'s bend just finished has brought it to its own nation's mastery
+    /// threshold (`EndeavorDef::master_threshold`) for the first time, and if so marks it and
+    /// logs `EndeavorEventKind::Mastered` (`world/bending.rs::run_bend`, #347). Does nothing
+    /// without a masters sign in the data, or once this unit has already been credited: `Unit`'s
+    /// own `mastered` flag, not a recomputed comparison, is what makes this a once-only event, so
+    /// a save/load or a later threshold change never refires it.
+    pub(super) fn note_mastery(&mut self, i: usize, defs: &Defs) {
+        if self.units[i].mastered {
+            return;
+        }
+        let nation = self.nation_of(&self.units[i]);
+        let Some(threshold) = defs.endeavor.master_threshold(nation) else { return };
+        if self.units[i].bends < threshold {
+            return;
+        }
+        self.units[i].mastered = true;
+        let unit = self.units[i].id;
+        let name = self.units[i].name.clone();
+        self.endeavor_event(EndeavorEventKind::Mastered { unit, name });
     }
 }
 

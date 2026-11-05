@@ -29,10 +29,10 @@
 │                                                                                      ││                              │
 │ BENDING                                                                              ││                              │
 │   Bending masters (25 bends each) ░░░░░░░░░░       0/3                               ││                              │
-│   Bend often                                                                         ││                              │
+│   Closest: Tyro 0/25, Ping 0/25, Ming 0/25                                           ││                              │
+│   Each finished bend counts for whoever channels it                                  ││                              │
 │   Ancient scrolls read            ░░░░░░░░░░       0/3                               ││                              │
 │   Bring scrolls to a study hall                                                      ││                              │
-│                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │

@@ -652,6 +652,7 @@ impl Host {
                             met: s.met,
                             hint: s.hint,
                             value: s.value,
+                            closest: s.closest,
                         })
                         .collect(),
                 })
@@ -1448,6 +1449,9 @@ pub struct SignRowView {
     pub met: bool,
     pub hint: Option<String>,
     pub value: String,
+    /// The masters sign's own line, naming who has mastered and who is closest (#347). `None`
+    /// for every other sign.
+    pub closest: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]

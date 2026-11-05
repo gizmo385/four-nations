@@ -485,6 +485,7 @@ impl World {
             Ok(()) => {
                 moved = self.apply_bend(i, def, pos, defs);
                 self.units[i].bends += 1;
+                self.note_mastery(i, defs);
                 BendOutcome::Done
             }
             Err(why) => {

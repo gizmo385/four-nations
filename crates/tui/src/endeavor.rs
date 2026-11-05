@@ -14,8 +14,8 @@ use crate::widgets::{Marks, Row, Tone, meter, wrap};
 /// A sign's bar is this many cells, the same as the selection bar's meters.
 const BAR_CELLS: usize = 10;
 
-/// One sign's row (a mark, its name, a bar and its count) and, while it isn't met, a second row
-/// with its hint.
+/// One sign's row (a mark, its name, a bar and its count), the masters sign's own "Closest" row
+/// while it isn't met, and, while it isn't met, a last row with its hint.
 fn sign_rows(sign: &SignRow, name_width: usize, marks: &Marks) -> Vec<Row> {
     let (mark, mark_tone) = if sign.met { (marks.known, Tone::Ok) } else { (" ", Tone::Dim) };
     let name_tone = if sign.met { Tone::Dim } else { Tone::Text };
@@ -28,10 +28,13 @@ fn sign_rows(sign: &SignRow, name_width: usize, marks: &Marks) -> Vec<Row> {
         (empty, Tone::Dim),
         (format!(" {:>9}", sign.value), Tone::Dim),
     ])];
-    if !sign.met
-        && let Some(hint) = &sign.hint
-    {
-        rows.push(Row::text(format!("  {hint}"), Tone::Warn));
+    if !sign.met {
+        if let Some(closest) = &sign.closest {
+            rows.push(Row::text(format!("  {closest}"), Tone::Text));
+        }
+        if let Some(hint) = &sign.hint {
+            rows.push(Row::text(format!("  {hint}"), Tone::Warn));
+        }
     }
     rows
 }
@@ -102,6 +105,22 @@ mod tests {
         let pop = rows.iter().find(|r| r.plain().contains("Population")).unwrap();
         assert_eq!(pop.left[0].1, Tone::Dim, "not yet met");
         let hint = rows.iter().find(|r| r.plain().contains("Spare beds")).unwrap();
+        assert_eq!(hint.left[0].1, Tone::Warn);
+    }
+
+    /// The masters sign carries its own "Closest" row (in plain text, not a warning) right
+    /// before its hint row (`docs/design/endgame.md`, "Showing mastery", #347).
+    #[test]
+    fn the_masters_sign_carries_a_closest_row_before_its_hint() {
+        let s = new_session(7, Nation::Fire);
+        let marks = Marks::new(false);
+        let rows = lines(&s, 80, &marks);
+        let i = rows.iter().position(|r| r.plain().contains("Bending masters")).unwrap();
+        let closest = &rows[i + 1];
+        assert!(closest.plain().contains("Closest:"), "{:?}", closest.plain());
+        assert_eq!(closest.left[0].1, Tone::Text);
+        let hint = &rows[i + 2];
+        assert_eq!(hint.plain(), "  Each finished bend counts for whoever channels it");
         assert_eq!(hint.left[0].1, Tone::Warn);
     }
 

@@ -224,12 +224,24 @@ pub fn describe_arrival(a: &Arrival) -> String {
     format!("{} has joined the settlement", a.name)
 }
 
-/// "Haru used Raise Earth at (5, 3)" or "Haru's Raise Earth failed: needs dry ground beside it".
+/// "Haru used Raise Earth at (5, 3) - bend 9 of 10" (the bender's own count toward mastery,
+/// `docs/design/endgame.md`, "Showing mastery", #347; the suffix drops once the data has no
+/// masters sign), or "Haru's Raise Earth failed: needs dry ground beside it" (a failed bend
+/// never counts, so it never carries one).
 pub fn describe_bend_event(session: &Session, ev: &BendEvent) -> String {
     let def = session.defs.ability(ev.ability);
-    let who = session.world.unit(ev.unit).map_or("Someone", |u| u.name.as_str());
+    let unit = session.world.unit(ev.unit);
+    let who = unit.map_or("Someone", |u| u.name.as_str());
     match ev.outcome {
-        BendOutcome::Done => format!("{who} used {} at ({}, {})", def.name, ev.pos.x, ev.pos.y),
+        BendOutcome::Done => {
+            let line = format!("{who} used {} at ({}, {})", def.name, ev.pos.x, ev.pos.y);
+            let threshold = unit
+                .and_then(|u| session.defs.endeavor.master_threshold(session.world.nation_of(u)));
+            match threshold {
+                Some(t) => format!("{line} - bend {} of {t}", unit.map_or(0, |u| u.bends())),
+                None => line,
+            }
+        }
         BendOutcome::Failed(why) => format!("{who}'s {} failed: {why}", def.name),
     }
 }
@@ -326,11 +338,34 @@ mod tests {
         let line = describe_bend_event(&s, &done);
         assert!(line.contains(&s.world.units[0].name), "{line}");
         assert!(line.contains("(5, 3)"), "{line}");
+        // The bundled masters sign's threshold (#347); a fresh unit hasn't bent yet.
+        assert!(line.ends_with(" - bend 0 of 25"), "{line}");
 
         let failed =
             BendEvent { outcome: BendOutcome::Failed("needs dry ground beside it"), ..done };
         let line = describe_bend_event(&s, &failed);
         assert!(line.contains("failed: needs dry ground beside it"), "{line}");
+        assert!(!line.contains(" - bend "), "a failed bend never counts: {line}");
+    }
+
+    /// Without a masters sign in the data, a done bend's line carries no credit suffix at all
+    /// (`EndeavorDef::master_threshold` is `None`).
+    #[test]
+    fn a_done_bend_carries_no_suffix_without_a_masters_sign() {
+        let mut s = Session::new(1, Nation::Earth, 48, 32);
+        s.defs = s.defs.clone().with_endeavor("[endeavor]\nname = \"Gate\"\n").unwrap();
+        let ability = ability_for_nation(&s.defs, Nation::Earth).unwrap();
+        let unit = s.world.units[0].id;
+        let done = BendEvent {
+            tick: 0,
+            unit,
+            ability,
+            pos: Pos::new(5, 3),
+            outcome: BendOutcome::Done,
+            moved: None,
+        };
+        let line = describe_bend_event(&s, &done);
+        assert!(!line.contains(" - bend "), "{line}");
     }
 
     #[test]
