@@ -10,8 +10,10 @@
 //! sweep over every seed, nation and preset belongs to the `balance` binary
 //! (`cargo run -p fn_sim --bin balance`), not this gate.
 
-use fn_sim::balance::{RunConfig, run};
-use fn_sim::{Defs, Nation};
+use fn_sim::autoplay::{Economy, Opening};
+use fn_sim::balance::{EconomyConfig, RunConfig, run, run_economy};
+use fn_sim::embark::Survey;
+use fn_sim::{Defs, MapGenConfig, Nation, World};
 
 const SEED: u64 = 7;
 const NATION: Nation = Nation::Earth;
@@ -26,6 +28,7 @@ fn cfg(preset: &str, opening: bool, defs: &Defs) -> RunConfig {
         minutes: MINUTES,
         opening,
         bend_slots: None,
+        full_research: false,
         width: size.width,
         height: size.height,
     }
@@ -66,4 +69,45 @@ fn the_opening_loses_nobody_under_normal() {
     let defs = Defs::bundled();
     let normal = run(&cfg("normal", true, &defs), &defs);
     assert_eq!(normal.deaths, 0, "{normal:?}");
+}
+
+/// The economy opening's own CI soak test (#352, `docs/design/materials.md` section 7): seed 7,
+/// Earth, 60 minutes. This only checks determinism (`run_economy`, the same way `run`'s own test
+/// above does) and that `World::apply` keeps accepting `Economy`'s commands throughout (if one
+/// ever stopped, `fn_sim::autoplay`'s module doc says this notices, the same promise
+/// `fn_sim::autoplay::Opening` makes). It asserts no absolute target: those are a data question
+/// for the `balance` binary's own `--economy` sweep and `docs/design/materials.md` section 7's
+/// table, not this gate.
+#[test]
+fn the_economy_opening_is_deterministic_and_keeps_applying() {
+    let defs = Defs::bundled();
+    let size = defs.embark.map_size("small").expect("bundled data always has a small map size");
+    let cfg = EconomyConfig {
+        seed: SEED,
+        nation: NATION,
+        preset: Some("normal".to_owned()),
+        minutes: 60.0,
+        farms: true,
+        width: size.width,
+        height: size.height,
+    };
+    assert_eq!(run_economy(&cfg, &defs), run_economy(&cfg, &defs));
+
+    let map_cfg =
+        MapGenConfig { seed: SEED, width: size.width, height: size.height, ..Default::default() };
+    let survey = Survey::new(&map_cfg, &defs);
+    let start = survey.default_site(&defs);
+    let mut world = World::found(survey, NATION, start, 6, Some("normal".to_owned()), &defs)
+        .expect("Survey::default_site always names a site World::found accepts");
+    let economy = Economy::new(6);
+    for tick in 0..(60 * 600) {
+        if Opening::due(tick) {
+            economy.step(&mut world, &defs);
+        }
+        world.tick(&defs);
+    }
+    assert!(
+        !world.command_log().is_empty(),
+        "expected the economy opening to issue at least one command in 60 minutes"
+    );
 }

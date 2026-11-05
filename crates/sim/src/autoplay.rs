@@ -36,14 +36,48 @@
 //! first, `World::apply`'s own validation deciding), so chi never sits idle. This is generic
 //! over `data/bending.toml`, with no `if nation == ..`: the `balance` harness's mastery mode is
 //! what exercises it.
+//!
+//! **`Opening::with_full_research`** (#352) swaps `RESEARCH_PLAN` for the settlement's whole
+//! visible tech tree, in file order (`Defs::techs_for`: the shared tier, then the nation's own
+//! branch, prereqs always before what needs them). `docs/design/materials.md`'s own finding is
+//! why this exists: the short plan never reaches a nation's own branch, so Earth never researches
+//! tunneling and Air never researches gliders, and `with_bending`'s bend step then runs out of
+//! anything for them to cast once their one tech-free ability's targets near the anchor are used
+//! up. `Economy` always researches this way; the `balance` binary's `--mastery` sweep opts in
+//! with it to check whether that changes Earth's and Air's pace.
+//!
+//! ## Economy (#352)
+//!
+//! `Economy` is a second opening, written the same way as `Opening` and sharing its low-level
+//! moves (the free functions below), that plays toward the Harmony Gate's signs
+//! (`docs/design/materials.md`, section 7) instead of just keeping a settlement alive. Each step
+//! it additionally:
+//! - researches the whole visible tree (`with_full_research`'s reasoning above, always on here);
+//! - keeps a one-shot harvest designated on every reachable stone and ore deposit within
+//!   `DEPOSIT_RADIUS` tiles (outcrops, boulders, veins: whatever `data/resources.toml` holds),
+//!   read generically from the "stone" and "ore" signs' `items` in `data/endeavor.toml`, so a new
+//!   deposit kind or a second ore (#349, #134) needs no change here;
+//! - keeps a bed one ahead of the living population (instead of a fixed headcount, so growth
+//!   doesn't stall on a full house) and one of every other building the nation can reach
+//!   (`endeavor::reachable_buildings`), each once its cost is affordable;
+//! - (unless `farms` is false, `Economy::without_farms`, materials.md's own `--no-farms` check)
+//!   tills one farm plot per `PEOPLE_PER_FARM_PLOT` people and sows each the moment it's empty,
+//!   and raises an orchard where the nation has one;
+//! - keeps up to `people` bends designated within `DEPOSIT_RADIUS` tiles of the anchor
+//!   (`with_bending`'s own mechanism), so Earth's Bore Tunnel and Seismic Sense, once researched,
+//!   work the same ground the quarry and mine orders do.
+//!
+//! Stateless and `Copy`, and deterministic for the reasons given above for `Opening`.
 
 use crate::bending::AbilityId;
 use crate::building::{BuildingId, CostItem};
 use crate::defs::Defs;
+use crate::endeavor::{self, SignKind, Tally};
 use crate::geom::Pos;
 use crate::jobs::ItemId;
 use crate::mapgen::Tile;
-use crate::world::{Command, TICKS_PER_SECOND, World};
+use crate::research::TechId;
+use crate::world::{Command, PlotStage, TICKS_PER_SECOND, World};
 
 /// How far from the settlement's anchor (`World::settlement_anchor`) the opening designates
 /// standing harvest orders on wild food, and looks for the material a bed or a campfire costs
@@ -64,13 +98,26 @@ pub const RESEARCH_PLAN: &[&str] = &["fire_making", "farming"];
 /// How many stockpile tiles the opening lays near the anchor, once there is no stockpile at all.
 const STOCKPILE_TILES: usize = 4;
 
+/// How many stockpile tiles `Economy` keeps per non-readable item kind (`grow_stockpile`), so
+/// one popular item never starves another of room.
+const STOCKPILE_TILES_PER_ITEM: u32 = 3;
+
 /// How far out the opening will look for room to build a bed or a campfire, in tiles, before
 /// giving up for this step (and trying again next one).
 const BUILD_SEARCH_RADIUS: i32 = 30;
 
-/// A scripted opening for one settlement. Stateless beyond `people` and `bend_slots`
-/// (`Opening::step` reads everything else off the `World` it's given), so it's `Copy` and safe
-/// to keep around for a whole run.
+/// How far out `Economy` looks for stone and ore deposits to quarry and mine, and the bend it
+/// keeps up toward them (module doc, "Economy"): richer than `FORAGE_RADIUS`, since
+/// `docs/design/materials.md` ("What the map holds") finds most of a seed's stone and ore only
+/// past 20 tiles.
+pub const DEPOSIT_RADIUS: i32 = 40;
+
+/// People per farm plot `Economy` keeps tilled (module doc, "Economy").
+const PEOPLE_PER_FARM_PLOT: u32 = 3;
+
+/// A scripted opening for one settlement. Stateless beyond `people`, `bend_slots` and
+/// `full_research` (`Opening::step` reads everything else off the `World` it's given), so it's
+/// `Copy` and safe to keep around for a whole run.
 #[derive(Debug, Clone, Copy)]
 pub struct Opening {
     /// Beds the opening keeps built: usually the settlement's starting headcount, but a harness
@@ -79,17 +126,26 @@ pub struct Opening {
     /// Bends the opening keeps designated near the anchor (module doc, "Bending"); `None` leaves
     /// bending alone, which is what every opening did before #343.
     pub bend_slots: Option<u32>,
+    /// Research the settlement's whole visible tech tree instead of `RESEARCH_PLAN` (module
+    /// doc, "Economy"; #352). Set with `with_full_research`.
+    full_research: bool,
 }
 
 impl Opening {
     pub fn new(people: u32) -> Self {
-        Self { people, bend_slots: None }
+        Self { people, bend_slots: None, full_research: false }
     }
 
     /// The same opening, but every `step` also keeps up to `bend_slots` bends designated near
     /// the anchor (module doc, "Bending"): the balance harness's mastery mode (#343).
     pub fn with_bending(people: u32, bend_slots: u32) -> Self {
-        Self { people, bend_slots: Some(bend_slots) }
+        Self { people, bend_slots: Some(bend_slots), full_research: false }
+    }
+
+    /// The same opening, but `research` queues the settlement's whole visible tech tree in file
+    /// order instead of `RESEARCH_PLAN` (module doc, "Economy"; #352).
+    pub fn with_full_research(self) -> Self {
+        Self { full_research: true, ..self }
     }
 
     /// Ticks between decisions (`STEP_MINUTES`), at least 1.
@@ -107,34 +163,14 @@ impl Opening {
     /// `Opening::due` tick.
     pub fn step(&self, world: &mut World, defs: &Defs) {
         let anchor = world.settlement_anchor();
-        self.stockpile(world, defs, anchor);
-        self.forage(world, defs, anchor);
+        ensure_stockpile(world, defs, anchor);
+        forage_wild_food(world, defs, anchor);
         self.materials(world, defs, anchor);
         self.beds(world, defs, anchor);
         self.campfire(world, defs, anchor);
         self.research(world, defs);
         if let Some(slots) = self.bend_slots {
-            self.bend(world, defs, anchor, slots);
-        }
-    }
-
-    /// Lays a small stockpile near the anchor, once there is none at all.
-    fn stockpile(&self, world: &mut World, defs: &Defs, anchor: Pos) {
-        if world.stockpile_zones().next().is_some() {
-            return;
-        }
-        let candidates = open_tiles_near(world, anchor, BUILD_SEARCH_RADIUS);
-        for pos in candidates.into_iter().take(STOCKPILE_TILES) {
-            let _ = world.apply(Command::DesignateStockpile { pos }, defs);
-        }
-    }
-
-    /// Standing harvest orders on every wild, renewable food resource within `FORAGE_RADIUS`.
-    /// Harmless to call every step: an already-designated tile just refuses the repeat.
-    fn forage(&self, world: &mut World, defs: &Defs, anchor: Pos) {
-        let targets = nearby(anchor, FORAGE_RADIUS, world, defs, is_wild_food);
-        for pos in targets {
-            let _ = world.apply(Command::DesignateRepeatingHarvest { pos }, defs);
+            keep_bends_designated(world, defs, anchor, FORAGE_RADIUS, slots);
         }
     }
 
@@ -150,103 +186,307 @@ impl Opening {
             .chain(defs.building(campfire).cost.iter())
             .map(|c: &CostItem| c.item)
             .collect();
-        let targets =
-            nearby(anchor, FORAGE_RADIUS, world, defs, |t, defs| yields_any(t, defs, &items));
-        for pos in targets {
-            let _ = world.apply(Command::DesignateHarvest { pos }, defs);
-        }
+        gather_materials(world, defs, anchor, &items);
     }
 
     /// Builds a bed if there's room for one more and the headcount still needs it, one at a
     /// time (no second bed designated while one is already under way) and only once its full
-    /// cost is already in stores or on the ground (module doc).
+    /// cost is already in stores or on the ground (module doc, and `ensure_building`).
     fn beds(&self, world: &mut World, defs: &Defs, anchor: Pos) {
         let Some(bed) = defs.building_id("bed") else { return };
-        if building_count(world, bed) >= self.people {
-            return;
-        }
-        if world.build_sites().any(|(_, id, _)| id == bed) {
-            return;
-        }
-        if !have_enough(world, &defs.building(bed).cost) {
-            return;
-        }
-        if let Some(pos) = nearest_build_site(world, defs, anchor, bed, BUILD_SEARCH_RADIUS) {
-            let _ = world.apply(Command::DesignateBuild { pos, building: bed }, defs);
-        }
+        ensure_building(world, defs, anchor, bed, self.people, BUILD_SEARCH_RADIUS);
     }
 
     /// Builds one campfire, once fire-making (or whatever unlocks it) is known and its cost is
     /// already in stores or on the ground.
     fn campfire(&self, world: &mut World, defs: &Defs, anchor: Pos) {
         let Some(campfire) = defs.building_id("campfire") else { return };
-        if let Some(tech) = defs.building(campfire).unlocked_by
-            && !world.research().is_known(tech)
-        {
-            return;
-        }
-        if building_count(world, campfire) > 0 {
-            return;
-        }
-        if !have_enough(world, &defs.building(campfire).cost) {
-            return;
-        }
-        if let Some(pos) = nearest_build_site(world, defs, anchor, campfire, BUILD_SEARCH_RADIUS) {
-            let _ = world.apply(Command::DesignateBuild { pos, building: campfire }, defs);
-        }
+        ensure_building(world, defs, anchor, campfire, 1, BUILD_SEARCH_RADIUS);
     }
 
-    /// Queues the next tech in `RESEARCH_PLAN` the nation doesn't already know, once nothing is
-    /// queued. Skips a tech belonging to another nation's branch, with no `if nation == ..`:
-    /// `SetResearch`'s own refusal tells it to move on.
+    /// Queues the next tech the nation doesn't already know, once nothing is queued: from
+    /// `RESEARCH_PLAN`, or from the whole visible tree in file order if `full_research` is set
+    /// (module doc, "Economy"). Skips a tech belonging to another nation's branch, with no
+    /// `if nation == ..`: `SetResearch`'s own refusal tells it to move on.
     fn research(&self, world: &mut World, defs: &Defs) {
-        if !world.research().queue().is_empty() {
-            return;
+        if self.full_research {
+            queue_next_known_tech(world, defs, defs.techs_for(world.nation).map(|(id, _)| id));
+        } else {
+            queue_next_known_tech(
+                world,
+                defs,
+                RESEARCH_PLAN.iter().filter_map(|id| defs.tech_id(id)),
+            );
         }
-        for &id in RESEARCH_PLAN {
-            let Some(tech) = defs.tech_id(id) else { continue };
-            if world.research().is_known(tech) {
-                continue;
-            }
-            if world.apply(Command::SetResearch { tech }, defs).is_ok() {
-                return;
-            }
+    }
+}
+
+/// The economy opening (#352, `docs/design/materials.md` section 7): see the module doc,
+/// "Economy", for everything it does beyond `Opening`'s basics.
+#[derive(Debug, Clone, Copy)]
+pub struct Economy {
+    /// Bends `Economy` keeps designated near the anchor, same meaning as `Opening::bend_slots`
+    /// but always on.
+    pub people: u32,
+    /// Till farm plots and raise an orchard (module doc, "Economy")? `true` unless built with
+    /// `without_farms`.
+    pub farms: bool,
+}
+
+impl Economy {
+    pub fn new(people: u32) -> Self {
+        Self { people, farms: true }
+    }
+
+    /// The same opening, but it tills no farm plots and raises no orchard
+    /// (`docs/design/materials.md` section 7's `--no-farms`, owner question 2's check).
+    pub fn without_farms(people: u32) -> Self {
+        Self { people, farms: false }
+    }
+
+    /// Issues whatever the opening still wants done, reading `world` fresh. Call this once per
+    /// `Opening::due` tick (the same fixed decision points; `Economy` doesn't need its own).
+    pub fn step(&self, world: &mut World, defs: &Defs) {
+        let anchor = world.settlement_anchor();
+        let deposits = deposit_items(defs);
+        ensure_stockpile(world, defs, anchor);
+        grow_stockpile(world, defs, anchor);
+        forage_wild_food(world, defs, anchor);
+        gather_materials(world, defs, anchor, &self.build_material_items(world, defs, &deposits));
+        self.quarry_and_mine(world, defs, anchor, &deposits);
+        queue_next_known_tech(world, defs, defs.techs_for(world.nation).map(|(id, _)| id));
+        self.raise_buildings(world, defs, anchor);
+        if self.farms {
+            self.sow_farm_plots(world, defs);
+        }
+        keep_bends_designated(world, defs, anchor, DEPOSIT_RADIUS, self.people);
+    }
+
+    /// Every item any building the nation can reach costs, other than `deposits` (stone and ore
+    /// get their own standing harvest via `quarry_and_mine`; gathering them here too would be
+    /// harmless but pointless). On the bundled data this is just wood, but nothing here names it.
+    fn build_material_items(&self, world: &World, defs: &Defs, deposits: &[ItemId]) -> Vec<ItemId> {
+        endeavor::reachable_buildings(world.nation, &defs.techs, &defs.buildings)
+            .flat_map(|b| defs.building(b).cost.iter().map(|c: &CostItem| c.item))
+            .filter(|item| !deposits.contains(item))
+            .collect()
+    }
+
+    /// A one-shot harvest on every resource within `DEPOSIT_RADIUS` that yields one of
+    /// `deposits` (module doc, "Economy"). Not a standing order: these resources don't regrow,
+    /// but calling this every step is harmless either way (`AlreadyDesignated` is ignored).
+    fn quarry_and_mine(&self, world: &mut World, defs: &Defs, anchor: Pos, deposits: &[ItemId]) {
+        let targets =
+            nearby(anchor, DEPOSIT_RADIUS, world, defs, |t, defs| yields_any(t, defs, deposits));
+        for pos in targets {
+            let _ = world.apply(Command::DesignateHarvest { pos }, defs);
         }
     }
 
-    /// Keeps up to `slots` bends designated within `FORAGE_RADIUS` tiles of `anchor` (module
-    /// doc, "Bending"): while fewer than `slots` are pending, designates the cheapest ability
-    /// (lowest `AbilityDef::chi`) the settlement can cast right now (`World::check_ability`)
-    /// that has a valid target among those tiles, nearest first, leaving `World::apply`'s own
-    /// validation to decide what counts as valid. Stops for this step once nothing can be added,
-    /// so a nation with no ability available, or no target anywhere nearby, is left alone rather
-    /// than looping.
-    fn bend(&self, world: &mut World, defs: &Defs, anchor: Pos, slots: u32) {
-        let mut abilities: Vec<AbilityId> = (0..defs.abilities.len() as u16)
-            .map(AbilityId)
-            .filter(|&a| world.check_ability(a, defs).is_ok())
+    /// Raises one of every building the nation can reach (`endeavor::reachable_buildings`), each
+    /// once its own target count is still unmet and its cost is affordable (`ensure_building`),
+    /// with `building_target` giving bed, farm plot and orchard their own counts.
+    fn raise_buildings(&self, world: &mut World, defs: &Defs, anchor: Pos) {
+        let targets: Vec<BuildingId> =
+            endeavor::reachable_buildings(world.nation, &defs.techs, &defs.buildings).collect();
+        for building in targets {
+            let target = self.building_target(world, defs, building);
+            ensure_building(world, defs, anchor, building, target, BUILD_SEARCH_RADIUS);
+        }
+    }
+
+    /// How many of `building` `Economy` wants standing right now (module doc, "Economy"): a bed
+    /// kept one ahead of the living population so growth never stalls on a full house, a farm
+    /// plot per `PEOPLE_PER_FARM_PLOT` people (none with `farms` off), an orchard if the nation
+    /// has one and `farms` is on, one of everything else. Keyed by the building's own id, not
+    /// the nation: every nation's farm plot and bed (if it has one) gets the same treatment.
+    fn building_target(&self, world: &World, defs: &Defs, building: BuildingId) -> u32 {
+        match defs.building(building).id.as_str() {
+            "bed" => world.units.len() as u32 + 1,
+            "farm_plot" => {
+                if self.farms {
+                    self.farm_plot_target(world)
+                } else {
+                    0
+                }
+            }
+            "orchard" => u32::from(self.farms),
+            _ => 1,
+        }
+    }
+
+    /// One farm plot per `PEOPLE_PER_FARM_PLOT` living settlers, at least 1.
+    fn farm_plot_target(&self, world: &World) -> u32 {
+        (world.units.len() as u32).div_ceil(PEOPLE_PER_FARM_PLOT).max(1)
+    }
+
+    /// Sows every empty farm plot the settlement has built (`Command::Sow`): a plot sits empty
+    /// until sown, then grows and is reaped on its own (`world/farm.rs`).
+    fn sow_farm_plots(&self, world: &mut World, defs: &Defs) {
+        let Some(farm_plot) = defs.building_id("farm_plot") else { return };
+        let empty: Vec<Pos> = world
+            .buildings()
+            .filter(|&(_, id)| id == farm_plot)
+            .map(|(footprint, _)| footprint.anchor)
+            .filter(|&pos| world.plot_stage(pos) == Some(PlotStage::Empty))
             .collect();
-        if abilities.is_empty() {
+        for pos in empty {
+            let _ = world.apply(Command::Sow { pos }, defs);
+        }
+    }
+}
+
+/// The items the sign named `id` in `data/endeavor.toml` counts (a `Stored` or `Tally::Harvested`
+/// sign's own `items`), read generically so a new deposit kind or a second ore (#349, #134)
+/// needs no change here or in `crate::balance`'s economy report, which reads the same signs for
+/// its own columns. Empty if there's no such sign, or its kind doesn't carry an item list.
+pub(crate) fn sign_items(defs: &Defs, id: &str) -> Vec<ItemId> {
+    defs.endeavor
+        .signs
+        .iter()
+        .find(|s| s.id == id)
+        .map(|s| match &s.kind {
+            SignKind::Stored { items } => items.clone(),
+            SignKind::Tally(Tally::Harvested(items)) => items.clone(),
+            _ => Vec::new(),
+        })
+        .unwrap_or_default()
+}
+
+/// The items the "stone" and "ore" signs count between them: `Economy`'s own definition of "a
+/// deposit" (module doc, "Economy").
+fn deposit_items(defs: &Defs) -> Vec<ItemId> {
+    sign_items(defs, "stone").into_iter().chain(sign_items(defs, "ore")).collect()
+}
+
+/// Lays a small stockpile near the anchor, once there is none at all.
+fn ensure_stockpile(world: &mut World, defs: &Defs, anchor: Pos) {
+    if world.stockpile_zones().next().is_some() {
+        return;
+    }
+    let candidates = open_tiles_near(world, anchor, BUILD_SEARCH_RADIUS);
+    for pos in candidates.into_iter().take(STOCKPILE_TILES) {
+        let _ = world.apply(Command::DesignateStockpile { pos }, defs);
+    }
+}
+
+/// Grows the stockpile until there are at least `STOCKPILE_TILES_PER_ITEM` tiles for every item
+/// kind that isn't read instead of stored (a scroll, `ItemDef::knowledge`): a stockpile tile
+/// holds only one item kind until it's emptied (`World::room_at`), so `Economy`'s wide spread of
+/// production (several foods, wood, stone, ore and whatever a nation's recipes make) can fill
+/// `Opening`'s own fixed handful of tiles with food alone, leaving stone and ore quarried and
+/// mined onto the ground with nowhere to go and nobody to haul them (#352). Not needed by
+/// `Opening`, which never produces more than a couple of kinds at once.
+fn grow_stockpile(world: &mut World, defs: &Defs, anchor: Pos) {
+    let target = defs.items.iter().filter(|i| i.knowledge.is_none()).count() as u32
+        * STOCKPILE_TILES_PER_ITEM;
+    let have = world.stockpile_zones().count() as u32;
+    if have >= target {
+        return;
+    }
+    let candidates = open_tiles_near(world, anchor, BUILD_SEARCH_RADIUS);
+    for pos in candidates.into_iter().take((target - have) as usize) {
+        let _ = world.apply(Command::DesignateStockpile { pos }, defs);
+    }
+}
+
+/// Standing harvest orders on every wild, renewable food resource within `FORAGE_RADIUS`.
+/// Harmless to call every step: an already-designated tile just refuses the repeat.
+fn forage_wild_food(world: &mut World, defs: &Defs, anchor: Pos) {
+    let targets = nearby(anchor, FORAGE_RADIUS, world, defs, is_wild_food);
+    for pos in targets {
+        let _ = world.apply(Command::DesignateRepeatingHarvest { pos }, defs);
+    }
+}
+
+/// A one-shot harvest within `FORAGE_RADIUS` on any resource that yields one of `items`.
+fn gather_materials(world: &mut World, defs: &Defs, anchor: Pos, items: &[ItemId]) {
+    let targets = nearby(anchor, FORAGE_RADIUS, world, defs, |t, defs| yields_any(t, defs, items));
+    for pos in targets {
+        let _ = world.apply(Command::DesignateHarvest { pos }, defs);
+    }
+}
+
+/// Builds one more `building` if the headcount or sign still wants it (fewer than `target`
+/// living or under construction), one at a time (no second site of this kind designated while
+/// one is already under way), only once its unlocking tech (if any) is known and its full cost
+/// is already in stores or on the ground: the generalization behind `Opening`'s beds and
+/// campfire, and `Economy`'s whole-building sweep (#352). A `target` of 0 always skips.
+fn ensure_building(
+    world: &mut World,
+    defs: &Defs,
+    anchor: Pos,
+    building: BuildingId,
+    target: u32,
+    search_radius: i32,
+) {
+    if target == 0 {
+        return;
+    }
+    if let Some(tech) = defs.building(building).unlocked_by
+        && !world.research().is_known(tech)
+    {
+        return;
+    }
+    if building_count(world, building) >= target {
+        return;
+    }
+    if world.build_sites().any(|(_, id, _)| id == building) {
+        return;
+    }
+    if !have_enough(world, &defs.building(building).cost) {
+        return;
+    }
+    if let Some(pos) = nearest_build_site(world, defs, anchor, building, search_radius) {
+        let _ = world.apply(Command::DesignateBuild { pos, building }, defs);
+    }
+}
+
+/// Queues the first tech in `plan` the nation doesn't already know, once nothing is queued.
+/// Skips a tech belonging to another nation's branch, with no `if nation == ..`: `SetResearch`'s
+/// own refusal tells it to move on (harmless here since neither caller ever includes one).
+fn queue_next_known_tech(world: &mut World, defs: &Defs, plan: impl Iterator<Item = TechId>) {
+    if !world.research().queue().is_empty() {
+        return;
+    }
+    for tech in plan {
+        if world.research().is_known(tech) {
+            continue;
+        }
+        if world.apply(Command::SetResearch { tech }, defs).is_ok() {
             return;
         }
-        abilities.sort_by(|&a, &b| defs.ability(a).chi.total_cmp(&defs.ability(b).chi));
-        let positions = positions_near(anchor, FORAGE_RADIUS);
-        loop {
-            let pending = world
-                .bend_designations()
-                .filter(|&(_, p)| p.chebyshev(anchor) <= FORAGE_RADIUS)
-                .count() as u32;
-            if pending >= slots {
-                return;
-            }
-            let placed = abilities.iter().any(|&ability| {
-                positions
-                    .iter()
-                    .any(|&pos| world.apply(Command::Bend { ability, pos }, defs).is_ok())
-            });
-            if !placed {
-                return;
-            }
+    }
+}
+
+/// Keeps up to `slots` bends designated within `radius` tiles of `anchor` (module doc,
+/// "Bending"): while fewer than `slots` are pending, designates the cheapest ability (lowest
+/// `AbilityDef::chi`) the settlement can cast right now (`World::check_ability`) that has a
+/// valid target among those tiles, nearest first, leaving `World::apply`'s own validation to
+/// decide what counts as valid. Stops for this step once nothing can be added, so a nation with
+/// no ability available, or no target anywhere nearby, is left alone rather than looping.
+fn keep_bends_designated(world: &mut World, defs: &Defs, anchor: Pos, radius: i32, slots: u32) {
+    let mut abilities: Vec<AbilityId> = (0..defs.abilities.len() as u16)
+        .map(AbilityId)
+        .filter(|&a| world.check_ability(a, defs).is_ok())
+        .collect();
+    if abilities.is_empty() {
+        return;
+    }
+    abilities.sort_by(|&a, &b| defs.ability(a).chi.total_cmp(&defs.ability(b).chi));
+    let positions = positions_near(anchor, radius);
+    loop {
+        let pending =
+            world.bend_designations().filter(|&(_, p)| p.chebyshev(anchor) <= radius).count()
+                as u32;
+        if pending >= slots {
+            return;
+        }
+        let placed = abilities.iter().any(|&ability| {
+            positions.iter().any(|&pos| world.apply(Command::Bend { ability, pos }, defs).is_ok())
+        });
+        if !placed {
+            return;
         }
     }
 }
@@ -480,5 +720,122 @@ mod tests {
             b.tick(&defs);
         }
         assert_eq!(a.command_log(), b.command_log());
+    }
+
+    /// `Opening::with_full_research` queues the shared tier and then `earth_shaping`, not just
+    /// `RESEARCH_PLAN`'s `fire_making`/`farming` (module doc, "Economy"; #352). `Opening` builds
+    /// no study hall on its own, so this leans only on the passive trickle
+    /// (`passive_knowledge_per_minute`): slow, but enough within a few game-hours to prove the
+    /// plan reaches past the shared tier with no extra code.
+    #[test]
+    fn with_full_research_eventually_reaches_the_nations_own_branch() {
+        let (mut world, defs) = world(Nation::Earth);
+        let opening = Opening::new(6).with_full_research();
+        let earth_shaping = defs.tech_id("earth_shaping").unwrap();
+        for tick in 0..(320 * 600) {
+            if Opening::due(tick) {
+                opening.step(&mut world, &defs);
+            }
+            world.tick(&defs);
+        }
+        assert!(
+            world.research().is_known(earth_shaping)
+                || world.research().queue().contains(&earth_shaping),
+            "expected Earth Shaping known or queued after {:?} minutes of full research",
+            320
+        );
+    }
+
+    fn economy_opening(nation: Nation) -> (World, Defs, Economy) {
+        let (world, defs) = world(nation);
+        (world, defs, Economy::new(6))
+    }
+
+    fn run_economy(world: &mut World, defs: &Defs, economy: &Economy, minutes: u64) {
+        for tick in 0..(minutes * 600) {
+            if Opening::due(tick) {
+                economy.step(world, defs);
+            }
+            world.tick(defs);
+        }
+    }
+
+    /// `Economy` is as deterministic as `Opening`, for the same reason (module doc): it reads
+    /// only `World` and `Defs`, so two identical worlds given the same steps issue the same
+    /// commands.
+    #[test]
+    fn economy_is_deterministic_given_the_same_world_twice() {
+        let (mut a, defs, economy) = economy_opening(Nation::Water);
+        let (mut b, _, _) = economy_opening(Nation::Water);
+        run_economy(&mut a, &defs, &economy, 60);
+        run_economy(&mut b, &defs, &economy, 60);
+        assert_eq!(a.command_log(), b.command_log());
+    }
+
+    /// Gold needs no tech, so with a reachable vein nearby `quarry_and_mine` designates a
+    /// harvest on it from the very first step, well before research or farming has got anywhere
+    /// (`docs/design/materials.md`, "What the map holds": seed 7 has gold veins within
+    /// `DEPOSIT_RADIUS`).
+    #[test]
+    fn economy_designates_a_harvest_on_a_nearby_deposit_before_any_tech() {
+        let (mut world, defs, economy) = economy_opening(Nation::Fire);
+        economy.step(&mut world, &defs);
+        let anchor = world.settlement_anchor();
+        assert!(
+            world.harvest_designations().any(|p| p.chebyshev(anchor) <= DEPOSIT_RADIUS
+                && yields_any(&world.map[p], &defs, &deposit_items(&defs))),
+            "expected a deposit harvest designated near the anchor"
+        );
+    }
+
+    /// `Economy` keeps a study hall built once wood is reachable (module doc, "Economy"): with
+    /// nothing queued, no scholar would ever claim a seat either (`world/study.rs`), but
+    /// `Economy::step`'s own research call keeps something queued throughout.
+    #[test]
+    fn economy_eventually_builds_a_study_hall() {
+        let (mut world, defs, economy) = economy_opening(Nation::Air);
+        let study_hall = defs.building_id("study_hall").unwrap();
+        run_economy(&mut world, &defs, &economy, 60);
+        assert!(building_count(&world, study_hall) > 0, "expected a study hall within an hour");
+    }
+
+    /// `Economy` tills and sows a farm plot once farming is known (module doc, "Economy"):
+    /// `PlotStage::Empty` only while unsown.
+    #[test]
+    fn economy_tills_and_sows_a_farm_plot() {
+        let (mut world, defs, economy) = economy_opening(Nation::Water);
+        let farm_plot = defs.building_id("farm_plot").unwrap();
+        run_economy(&mut world, &defs, &economy, 90);
+        let sown = world
+            .buildings()
+            .filter(|&(_, id)| id == farm_plot)
+            .any(|(footprint, _)| world.plot_stage(footprint.anchor) != Some(PlotStage::Empty));
+        assert!(sown, "expected at least one sown farm plot within 90 minutes");
+    }
+
+    /// `Economy::without_farms` tills nothing (`docs/design/materials.md`'s `--no-farms`, owner
+    /// question 2's check), even once farming is known and wood is plentiful.
+    #[test]
+    fn economy_without_farms_builds_no_farm_plot() {
+        let (mut world, defs) = world(Nation::Water);
+        let economy = Economy::without_farms(6);
+        let farm_plot = defs.building_id("farm_plot").unwrap();
+        run_economy(&mut world, &defs, &economy, 90);
+        assert_eq!(building_count(&world, farm_plot), 0);
+    }
+
+    /// `Economy` keeps a bed ahead of the living population instead of a fixed headcount
+    /// (module doc, "Economy"): with no growth in a short run the target is just one more than
+    /// today's six, and `ensure_building`'s own "one at a time" rule still applies.
+    #[test]
+    fn economy_keeps_a_bed_ahead_of_the_population() {
+        let (mut world, defs, economy) = economy_opening(Nation::Fire);
+        let bed = defs.building_id("bed").unwrap();
+        run_economy(&mut world, &defs, &economy, 60);
+        assert!(building_count(&world, bed) >= 1, "expected at least one bed within an hour");
+        assert!(
+            building_count(&world, bed) <= world.units.len() as u32 + 1,
+            "never more beds than the population needs"
+        );
     }
 }
