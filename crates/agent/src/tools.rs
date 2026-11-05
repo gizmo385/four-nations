@@ -138,11 +138,16 @@ pub fn list() -> Vec<Value> {
         json!({
             "name": "end_turn",
             "description": "Runs turns of turn_seconds game seconds each (the host owns the \
-                             clock); stops early at the end of the first turn with a new alert, \
-                             or a need flag that wasn't already up when this call started and \
-                             hasn't shown yet in this same call (a flag that flickers on and \
-                             off only counts once). The result's `stopped` names why it stopped \
-                             early, or is null when every requested turn ran.",
+                             clock); stops early at the end of the first turn with an alert \
+                             worth stopping for -- a death, an arrival, an endeavor event \
+                             (including a settler becoming a bending master), a finished tech, \
+                             a season event, or a bend that failed; a bend that merely finished \
+                             is routine and never stops it on its own -- or a need flag that \
+                             wasn't already up when this call started and hasn't shown yet in \
+                             this same call (a flag that flickers on and off only counts once). \
+                             The result's `stopped` names why it stopped early, or is null when \
+                             every requested turn ran. Every alert is still in the result's own \
+                             `alerts` list either way.",
             "inputSchema": json!({
                 "type": "object",
                 "properties": {"turns": {"type": "integer", "default": 1}},

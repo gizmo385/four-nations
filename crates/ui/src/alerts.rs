@@ -77,6 +77,25 @@ pub struct Entry {
     pub text: String,
     /// Seconds its toast has left; at or below zero it is history only.
     left: f32,
+    /// A `Bend` that failed rather than finished. Ignored for every other kind: only `Bend`
+    /// alerts need the distinction, since a finished bend is routine (#377) but a failed one
+    /// still says something worth an agent's attention.
+    failed: bool,
+}
+
+impl Entry {
+    /// Worth an agent stopping `Host::end_turn` (crates/tui/src/surface.rs) for: every kind but
+    /// `Bend` and `Agent`, since those two are either routine (a settlement that bends a lot
+    /// finishes one most turns, #377) or, for `Agent`, never produced by [`Alerts::update`] in
+    /// the first place (only [`Alerts::push_agent`], for `--watch` replay). A `Bend` that
+    /// *failed* is the one exception: still worth stopping for.
+    pub fn worth_stopping(&self) -> bool {
+        match self.kind {
+            Kind::Death | Kind::Arrival | Kind::Endeavor | Kind::Tech | Kind::Season => true,
+            Kind::Bend => self.failed,
+            Kind::Agent => false,
+        }
+    }
 }
 
 /// The alert log. Feed it every frame with [`Alerts::update`].
@@ -129,10 +148,16 @@ impl Alerts {
 
         let mut fresh = Vec::new();
         for ev in &events[self.seen.0..] {
-            fresh.push((ev.tick, Kind::Bend, describe_bend_event(session, ev)));
+            let failed = matches!(ev.outcome, BendOutcome::Failed(_));
+            fresh.push((ev.tick, Kind::Bend, describe_bend_event(session, ev), failed));
         }
         for c in &completions[self.seen.1..] {
-            fresh.push((c.tick, Kind::Tech, format!("Learned {}", session.defs.tech(c.tech).name)));
+            fresh.push((
+                c.tick,
+                Kind::Tech,
+                format!("Learned {}", session.defs.tech(c.tech).name),
+                false,
+            ));
         }
         for d in &deaths[self.seen.2..] {
             let how = match d.cause {
@@ -140,29 +165,35 @@ impl Alerts {
                 DeathCause::Dehydration => "dehydration",
                 DeathCause::Exhaustion => "exhaustion",
             };
-            fresh.push((d.tick, Kind::Death, format!("{} died of {how}", d.name)));
+            fresh.push((d.tick, Kind::Death, format!("{} died of {how}", d.name), false));
         }
         for ev in &endeavor[self.seen.3..] {
-            fresh.push((ev.tick, Kind::Endeavor, endeavor::describe_event(&session.defs, ev)));
+            fresh.push((
+                ev.tick,
+                Kind::Endeavor,
+                endeavor::describe_event(&session.defs, ev),
+                false,
+            ));
         }
         for a in &arrivals[self.seen.4..] {
-            fresh.push((a.tick, Kind::Arrival, describe_arrival(a)));
+            fresh.push((a.tick, Kind::Arrival, describe_arrival(a), false));
         }
         for ev in &seasons[self.seen.5..] {
             if let Some(text) = describe_season_event(session, ev) {
-                fresh.push((ev.tick, Kind::Season, text));
+                fresh.push((ev.tick, Kind::Season, text, false));
             }
         }
         for ev in &strains[self.seen.6..] {
-            fresh.push((ev.tick, Kind::Season, describe_strain_event(&session.defs, ev)));
+            fresh.push((ev.tick, Kind::Season, describe_strain_event(&session.defs, ev), false));
         }
         self.seen = counts;
         fresh.sort_by_key(|(tick, ..)| *tick);
-        self.log.extend(fresh.into_iter().map(|(tick, kind, text)| Entry {
+        self.log.extend(fresh.into_iter().map(|(tick, kind, text, failed)| Entry {
             tick,
             kind,
             text,
             left: kind.toast_seconds(),
+            failed,
         }));
         for e in &mut self.log {
             e.left -= dt;
@@ -182,7 +213,13 @@ impl Alerts {
     /// (docs/design/agent-play.md, "Watching": "The message log gains an Agent entry for every
     /// act"). Appends in call order, so the caller is the one keeping `tick` non-decreasing.
     pub fn push_agent(&mut self, tick: u64, text: String) {
-        self.log.push(Entry { tick, kind: Kind::Agent, text, left: Kind::Agent.toast_seconds() });
+        self.log.push(Entry {
+            tick,
+            kind: Kind::Agent,
+            text,
+            left: Kind::Agent.toast_seconds(),
+            failed: false,
+        });
         if self.log.len() > MAX_HISTORY {
             self.log.drain(0..self.log.len() - MAX_HISTORY);
         }
@@ -285,7 +322,7 @@ fn describe_strain_event(defs: &fn_sim::Defs, ev: &StrainEvent) -> String {
 mod tests {
     use fn_sim::bending::AbilityId;
     use fn_sim::world::Command;
-    use fn_sim::{Nation, Pos};
+    use fn_sim::{Nation, Pos, Terrain};
 
     use super::*;
     use crate::tools::ability_for_nation;
@@ -319,6 +356,7 @@ mod tests {
                 name: "Pema".into(),
             }),
             left: Kind::Arrival.toast_seconds(),
+            failed: false,
         });
         alerts.update(&s, 0.0);
         assert_eq!(alerts.toast_lines(), ["Pema has joined the settlement"]);
@@ -385,6 +423,56 @@ mod tests {
         assert_eq!(alerts.history().len(), 1);
     }
 
+    /// A finished bend is routine and never worth stopping `end_turn` for (#377); a failed one
+    /// still is, so it needs the same attention a death or an arrival gets.
+    #[test]
+    fn a_finished_bend_isnt_worth_stopping_but_a_failed_one_is() {
+        let mut s = Session::new(1, Nation::Fire, 48, 32);
+        let ability: AbilityId = ability_for_nation(&s.defs, Nation::Fire).unwrap();
+        let pos = s.world.units[0].pos;
+        s.apply(Command::Bend { ability, pos }).unwrap();
+        run_until(&mut s, |s| !s.world.bend_events().is_empty());
+        let mut alerts = Alerts::default();
+        alerts.update(&s, 0.0);
+        let done = alerts.history().last().expect("the finished bend logged a line");
+        assert_eq!(done.kind, Kind::Bend);
+        assert!(!done.text.contains("failed"), "{}", done.text);
+        assert!(!done.worth_stopping(), "a finished bend is routine: {}", done.text);
+
+        let mut s = Session::new(1, Nation::Fire, 48, 32);
+        let pos = s.world.units[0].pos;
+        s.apply(Command::Bend { ability, pos }).unwrap();
+        // The ground turns to rock before the channel finishes, so it fails instead.
+        s.world.map[pos].terrain = Terrain::Mountain;
+        s.world.map_changed();
+        run_until(&mut s, |s| !s.world.bend_events().is_empty());
+        let mut alerts = Alerts::default();
+        alerts.update(&s, 0.0);
+        let failed = alerts.history().last().expect("the failed bend logged a line");
+        assert_eq!(failed.kind, Kind::Bend);
+        assert!(failed.text.contains("failed"), "{}", failed.text);
+        assert!(failed.worth_stopping(), "a failed bend still says something: {}", failed.text);
+    }
+
+    /// Every other kind `Alerts::update` ever produces -- a tech, a death, an endeavor sign (or
+    /// #347's "is now a bending master", which comes through as `Kind::Endeavor` too), an
+    /// arrival, a season event -- is worth stopping `end_turn` for; only `Agent` (never produced
+    /// here, only by [`Alerts::push_agent`] for `--watch` replay) isn't.
+    #[test]
+    fn every_kind_but_a_finished_bend_and_agent_is_worth_stopping() {
+        let worth_stopping = |kind: Kind, failed: bool| {
+            Entry { tick: 0, kind, text: String::new(), left: 0.0, failed }.worth_stopping()
+        };
+        assert!(worth_stopping(Kind::Death, false));
+        assert!(worth_stopping(Kind::Arrival, false));
+        assert!(worth_stopping(Kind::Endeavor, false));
+        assert!(worth_stopping(Kind::Tech, false));
+        assert!(worth_stopping(Kind::Season, false));
+        assert!(worth_stopping(Kind::Bend, true), "a failed bend");
+        assert!(!worth_stopping(Kind::Bend, false), "a finished bend is routine");
+        assert!(!worth_stopping(Kind::Agent, false));
+    }
+
     #[test]
     fn a_completed_tech_becomes_a_toast() {
         let mut s = Session::new(7, Nation::Fire, 48, 32);
@@ -438,6 +526,7 @@ mod tests {
                 kind: Kind::Bend,
                 text: i.to_string(),
                 left: Kind::Bend.toast_seconds(),
+                failed: false,
             });
         }
         alerts.update(&s, 0.5);
@@ -454,7 +543,7 @@ mod tests {
         let s = Session::new(7, Nation::Fire, 48, 32);
         let mut alerts = Alerts::default();
         for (tick, kind) in [(1, Kind::Tech), (2, Kind::Bend), (3, Kind::Tech)] {
-            alerts.log.push(Entry { tick, kind, text: tick.to_string(), left: 5.0 });
+            alerts.log.push(Entry { tick, kind, text: tick.to_string(), left: 5.0, failed: false });
         }
         alerts.update(&s, 0.0);
         assert_eq!(alerts.toast_lines(), ["1", "2", "3"]);

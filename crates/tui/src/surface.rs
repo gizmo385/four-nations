@@ -5,11 +5,14 @@
 //!
 //! **Time is lockstep** ([`Host::end_turn`]): the sim stands still between calls, and a turn is
 //! a fixed slice of game time (`Host::turn_seconds`, 20 by default), so every call gets the same
-//! amount of the world moving. A turn ends early the moment a new alert lands or a need flag
-//! shows that wasn't already up at the call's start and hasn't shown yet in this same call (a
-//! flag that flickers on and off doesn't count twice), which stands in for a human's continuous
-//! attention without telling the agent anything the alert log and the side panel don't already
-//! say. [`Observation::stopped`] names which.
+//! amount of the world moving. A turn ends early the moment an alert worth an agent's attention
+//! lands (`fn_ui::alerts::Entry::worth_stopping`: a death, an arrival, an endeavor event -- which
+//! covers #347's "is now a bending master" too -- a finished tech, a season event, or a bend
+//! that *failed*; a bend that merely finished is routine and never stops it on its own, #377) or
+//! a need flag shows that wasn't already up at the call's start and hasn't shown yet in this
+//! same call (a flag that flickers on and off doesn't count twice), which stands in for a
+//! human's continuous attention without telling the agent anything the alert log and the side
+//! panel don't already say. [`Observation::stopped`] names which.
 //!
 //! **Keys, not commands** ([`Host::press_keys`], [`Host::act`]): every action goes through
 //! `Shell::key`, the same path a human's keyboard feeds, so an agent can't do anything a key
@@ -373,12 +376,18 @@ impl Host {
 
     /// Runs `turns` turns of `turn_seconds` game seconds each, through the same path a
     /// `<tick N>` of a key script takes (`App::run_ticks`). Stops early at the end of the first
-    /// turn in which a new alert lands, or a need flag shows that wasn't already up when this
-    /// call started and hasn't shown yet in an earlier turn of this same call -- so a flag that
-    /// clears and comes back within the call's own window (thirst easing off and returning a
-    /// few turns later, say) doesn't count as new every time it recurs, only the first time.
-    /// Returns the observation after whichever turn it stopped on, with [`Observation::stopped`]
-    /// naming why (`None` only when every requested turn ran with nothing to report).
+    /// turn in which an alert worth an agent's attention lands -- a death, an arrival, an
+    /// endeavor event (including #347's "is now a bending master"), a finished tech, a season
+    /// event, or a bend that *failed*; a bend that merely finished is routine and never stops it
+    /// on its own, since a settlement that bends a lot would otherwise stop every turn or two
+    /// (#377, `fn_ui::alerts::Entry::worth_stopping`) -- or a need flag shows that wasn't
+    /// already up when this call started and hasn't shown yet in an earlier turn of this same
+    /// call -- so a flag that clears and comes back within the call's own window (thirst easing
+    /// off and returning a few turns later, say) doesn't count as new every time it recurs, only
+    /// the first time. Returns the observation after whichever turn it stopped on, with
+    /// [`Observation::stopped`] naming why (`None` only when every requested turn ran with
+    /// nothing to report). Every alert the turns covered -- worth stopping for or not -- is
+    /// still in the observation's own `alerts` list either way (`Self::observe`).
     pub fn end_turn(&mut self, turns: u32) -> Observation {
         // Everything already flagged when the call started never counts as new; `first_new_flag`
         // folds in every turn's own flags too, so only something genuinely unseen in this
@@ -397,13 +406,13 @@ impl Host {
             self.alerts_since_turn = after_alerts;
             if after_alerts > before_alerts {
                 let history = self.app().ui.alerts.history();
-                let text = history[before_alerts..after_alerts]
-                    .iter()
-                    .map(|e| e.text.as_str())
-                    .collect::<Vec<_>>()
-                    .join("; ");
-                stopped = Some(format!("new alert: {text}"));
-                break;
+                let fresh = &history[before_alerts..after_alerts];
+                let worth: Vec<&str> =
+                    fresh.iter().filter(|e| e.worth_stopping()).map(|e| e.text.as_str()).collect();
+                if !worth.is_empty() {
+                    stopped = Some(format!("new alert: {}", worth.join("; ")));
+                    break;
+                }
             }
             let now_needs = need_flags(&self.app().session);
             if let Some(flag) = first_new_flag(&mut seen, now_needs) {
@@ -1694,7 +1703,9 @@ fn named_token(name: &str, shift: bool) -> String {
 
 #[cfg(test)]
 mod tests {
-    use fn_sim::Nation;
+    use fn_sim::world::Command;
+    use fn_sim::{Nation, Terrain};
+    use fn_ui::tools::ability_for_nation;
 
     use super::*;
     use crate::state::{BANNER_HEIGHT, BAR_HEIGHT};
@@ -1946,6 +1957,43 @@ mod tests {
         assert!(obs.turn >= 1 && obs.turn < 5, "{}", obs.turn);
         let stopped = obs.stopped.expect("a death is a new alert, never silent");
         assert!(stopped.starts_with("new alert:") && stopped.contains("died of"), "{stopped}");
+    }
+
+    /// A settlement that bends a lot (Fire's Hearthflame, say) finishes several bends over a
+    /// run and none of them stop it (#377): routine `Bend` alerts never counted toward
+    /// `Observation::stopped`, only a death, an arrival, an endeavor event, a finished tech, a
+    /// season event or a *failed* bend do.
+    #[test]
+    fn end_turn_runs_every_turn_despite_several_finished_bends() {
+        let mut h = host(Nation::Fire).with_turn_seconds(5);
+        let ability = ability_for_nation(&h.app().session.defs, Nation::Fire).unwrap();
+        // Every unit kindles its own flame: several finished bends well inside the window below.
+        let positions: Vec<_> = h.app().session.world.units.iter().map(|u| u.pos).collect();
+        for pos in positions {
+            h.app_mut().session.apply(Command::Bend { ability, pos }).unwrap();
+        }
+        let obs = h.end_turn(30);
+        assert_eq!(obs.turn, 30, "finished bends alone should never cut a call short");
+        assert_eq!(obs.stopped, None);
+        let events = h.app().session.world.bend_events();
+        assert!(events.len() > 1, "expected several finished bends, got {}", events.len());
+        assert!(events.iter().all(|e| e.outcome == fn_sim::world::BendOutcome::Done));
+    }
+
+    /// Unlike a finished bend, a *failed* one still stops `end_turn` and names it (#377): the
+    /// ground it targeted turns to rock before the channel completes.
+    #[test]
+    fn end_turn_stops_on_a_failed_bend_and_names_it() {
+        let mut h = host(Nation::Fire).with_turn_seconds(1);
+        let ability = ability_for_nation(&h.app().session.defs, Nation::Fire).unwrap();
+        let pos = h.app().session.world.units[0].pos;
+        h.app_mut().session.apply(Command::Bend { ability, pos }).unwrap();
+        h.app_mut().session.world.map[pos].terrain = Terrain::Mountain;
+        h.app_mut().session.world.map_changed();
+        let obs = h.end_turn(20);
+        assert!(obs.turn >= 1 && obs.turn < 20, "{}", obs.turn);
+        let stopped = obs.stopped.expect("a failed bend is worth an agent's attention");
+        assert!(stopped.starts_with("new alert:") && stopped.contains("failed"), "{stopped}");
     }
 
     /// `Host::look`'s "blank tile" entry ("-", [`describe_thing`]'s `Thing::Ground` case) names
