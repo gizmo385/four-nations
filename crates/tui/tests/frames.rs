@@ -786,6 +786,26 @@ fn golden_frame_of_the_build_modal() {
     );
 }
 
+/// A Fire picker row whose stone cost names brick as a stand-in (issue #371): "N Stone (or
+/// brick)". Only Fire can ever raise a brick kiln, so this is Fire's own golden, not Earth's.
+#[test]
+fn golden_frame_of_a_fire_picker_row_with_a_stone_stand_in() {
+    let mut app = App::new(new_session(7, Nation::Fire), SIZE);
+    app.play(&keys::parse("u").unwrap());
+    let rows = fn_ui::build::picker_rows(&app.session);
+    let workshop = rows.iter().position(|r| r.name == "Workshop").expect("Fire has a workshop");
+    app.play(&keys::parse(&format!("<down*{workshop}>")).unwrap());
+    assert!(
+        rows[workshop].cost.contains("(or brick)"),
+        "the workshop's stone cost should name brick: {}",
+        rows[workshop].cost
+    );
+    golden(
+        "fire_seed7_build_modal_stand_in",
+        &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)),
+    );
+}
+
 /// The rectangle's tiles take the tool's hue (stronger than a designation's), the cursor keeps
 /// its own colour, and tiles outside the rectangle are untouched.
 #[test]

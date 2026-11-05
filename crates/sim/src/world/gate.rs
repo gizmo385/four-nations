@@ -158,24 +158,38 @@ enum Next {
     Done,
 }
 
-/// How many of `item` are in `list`.
-fn count_of(list: &[Stack], item: ItemId) -> u32 {
-    list.iter().filter(|s| s.item == item).map(|s| s.count).sum()
+/// How many of `item`, or of a stand-in for it (brick for stone, issue #371), are in `list`.
+fn count_of(list: &[Stack], item: ItemId, defs: &Defs) -> u32 {
+    list.iter()
+        .filter(|s| s.item == item || defs.stands_for(s.item) == Some(item))
+        .map(|s| s.count)
+        .sum()
 }
 
-/// The first cost entry not yet fully delivered, and how many are still short.
-fn shortfall(cost: &[CostItem], delivered: &[Stack]) -> Option<(ItemId, u32)> {
+/// The first cost entry not yet fully delivered, and how many are still short. The item named is
+/// the cost's own (a stand-in pays it just as well, `World::nearest_source_for`).
+fn shortfall(cost: &[CostItem], delivered: &[Stack], defs: &Defs) -> Option<(ItemId, u32)> {
     cost.iter().find_map(|c| {
-        let have = count_of(delivered, c.item);
+        let have = count_of(delivered, c.item, defs);
         (have < c.count).then_some((c.item, c.count - have))
     })
 }
 
-/// Adds up to what `cost` still needs of `stack`'s item to `delivered`, and returns how many that
-/// was.
-fn take_into(cost: &[CostItem], delivered: &mut Vec<Stack>, item: ItemId, count: u32) -> u32 {
-    let Some(c) = cost.iter().find(|c| c.item == item) else { return 0 };
-    let n = c.count.saturating_sub(count_of(delivered, item)).min(count);
+/// Adds up to what `cost` still needs of `stack`'s item to `delivered` (directly, or as a
+/// stand-in for one of `cost`'s items), and returns how many that was. `delivered` keeps the
+/// item actually handed over, so cancelling refunds it, not what it stood in for.
+fn take_into(
+    cost: &[CostItem],
+    delivered: &mut Vec<Stack>,
+    item: ItemId,
+    count: u32,
+    defs: &Defs,
+) -> u32 {
+    let Some(c) = cost.iter().find(|c| c.item == item || defs.stands_for(item) == Some(c.item))
+    else {
+        return 0;
+    };
+    let n = c.count.saturating_sub(count_of(delivered, c.item, defs)).min(count);
     if n > 0 {
         match delivered.iter_mut().find(|s| s.item == item) {
             Some(s) => s.count += n,
@@ -331,7 +345,7 @@ impl World {
         let (Some(g), Some((_, stage))) = (self.gate(), self.gate_stage(defs)) else {
             return Next::Done;
         };
-        if let Some((item, n)) = shortfall(&stage.cost, &g.delivered) {
+        if let Some((item, n)) = shortfall(&stage.cost, &g.delivered, defs) {
             return Next::Fetch(item, n);
         }
         if g.progress < stage.work {
@@ -340,22 +354,23 @@ impl World {
         g.tasks
             .iter()
             .filter(|t| !t.done)
-            .filter_map(|t| shortfall(&task_def(stage, t)?.cost, &t.delivered))
+            .filter_map(|t| shortfall(&task_def(stage, t)?.cost, &t.delivered, defs))
             .map(|(item, n)| Next::Fetch(item, n))
             .next()
             .unwrap_or(Next::Done)
     }
 
-    /// Adds a delivered stack to the stage's cost, then to the tasks' in order. Anything left over
-    /// (the stage moved on mid-trip) drops beside the site.
+    /// Adds a delivered stack to the stage's cost, then to the tasks' in order (directly, or as a
+    /// stand-in, issue #371). Anything left over (the stage moved on mid-trip) drops beside the
+    /// site.
     fn deliver_to_gate(&mut self, stack: Stack, defs: &Defs) {
         let Some((_, stage)) = self.gate_stage(defs) else { return };
         let g = self.gate_mut().expect("has a stage");
         let mut left = stack.count;
-        left -= take_into(&stage.cost, &mut g.delivered, stack.item, left);
+        left -= take_into(&stage.cost, &mut g.delivered, stack.item, left, defs);
         for t in g.tasks.iter_mut().filter(|t| !t.done) {
             if let Some(def) = stage.tasks.iter().find(|d| d.id == t.id) {
-                left -= take_into(&def.cost, &mut t.delivered, stack.item, left);
+                left -= take_into(&def.cost, &mut t.delivered, stack.item, left, defs);
             }
         }
         if left > 0 {
@@ -376,7 +391,8 @@ impl World {
                 // Attend jobs (if they aren't already) and leave it to `tick_rite` (#238).
                 return self.open_rite(anchor);
             }
-            let built = g.progress >= stage.work && shortfall(&stage.cost, &g.delivered).is_none();
+            let built =
+                g.progress >= stage.work && shortfall(&stage.cost, &g.delivered, defs).is_none();
             let ready: Vec<u8> = g
                 .tasks
                 .iter()
@@ -385,7 +401,7 @@ impl World {
                     built
                         && !t.done
                         && task_def(stage, t)
-                            .is_some_and(|d| shortfall(&d.cost, &t.delivered).is_none())
+                            .is_some_and(|d| shortfall(&d.cost, &t.delivered, defs).is_none())
                 })
                 .map(|(k, _)| k as u8)
                 .filter(|&k| !self.jobs.iter().any(|j| j.kind == JobKind::EndeavorTask { task: k }))
@@ -445,8 +461,10 @@ impl World {
         }
         match self.gate_next(defs) {
             Next::Fetch(item, needed) => {
+                // Fetches the item itself or a stand-in for it (brick for stone, issue #371).
                 let flood = self.flood_from(i);
-                let Some((source, stand)) = self.nearest_source(&flood, item) else {
+                let Some((source, stand, found)) = self.nearest_source_for(&flood, item, defs)
+                else {
                     return self.abandon_job(i, id, defs);
                 };
                 if self.units[i].route.is_none() {
@@ -463,7 +481,7 @@ impl World {
                     // Someone else got there first: look again next tick.
                     return self.abandon_job(i, id, defs);
                 }
-                self.units[i].carrying = Some(Stack { item, count: take });
+                self.units[i].carrying = Some(Stack { item: found, count: take });
                 self.units[i].route = None;
             }
             Next::Work => {

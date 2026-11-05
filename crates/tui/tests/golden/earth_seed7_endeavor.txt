@@ -23,7 +23,7 @@
 │   Food in stores                  ░░░░░░░░░░     0/150                               ││                              │
 │   Stockpile food                                                                     ││                              │
 │   Stone in stores                 ░░░░░░░░░░     0/200                               ││                              │
-│   Quarry stone                                                                       ││                              │
+│   Quarry stone (bricks count)                                                        ││                              │
 │   Ore mined                       ░░░░░░░░░░      0/40                               ││                              │
 │   Mine gold veins                                                                    ││                              │
 │                                                                                      ││                              │

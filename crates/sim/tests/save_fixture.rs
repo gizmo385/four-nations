@@ -247,6 +247,9 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     "irrigation_channels",
     // Air Scooter's speed bursts, on `World` (#143).
     "rides",
+    // Brick standing in for stone (#371): how much of each build site's cost was paid by a
+    // stand-in item rather than its own, on `Site`.
+    "stand_in_delivered",
 ];
 
 /// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239

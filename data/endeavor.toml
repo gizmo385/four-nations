@@ -123,9 +123,9 @@ id = "stone"
 group = "stores"
 name = "Stone in stores"
 kind = "stored"
-items = ["stone"]
+items = ["stone", "brick"]       # brick stands for stone one for one (#371, `stands_for`)
 target = 200
-hint = "Quarry stone"
+hint = "Quarry stone (bricks count)"
 
 [[sign]]
 id = "ore"

@@ -415,6 +415,29 @@ impl Defs {
         &self.items[id.0 as usize]
     }
 
+    /// The item `item` may pay for, one for one, in a building or endeavor cost (issue #371:
+    /// `ItemDef::stands_for`, brick for stone). Never a recipe input.
+    pub fn stands_for(&self, item: ItemId) -> Option<ItemId> {
+        self.item(item).stands_for
+    }
+
+    /// The item, if any, whose `stands_for` names `target` (the reverse of `stands_for`: stone
+    /// -> brick). At most one item may stand for a given target (validated at load), so this is
+    /// unambiguous.
+    pub fn stand_in_for(&self, target: ItemId) -> Option<ItemId> {
+        self.items.iter().position(|i| i.stands_for == Some(target)).map(|i| ItemId(i as u16))
+    }
+
+    /// Whether `nation` could ever raise a building whose recipe makes `item` (not a harvest):
+    /// the brick kiln for brick, say. Used so a stand-in's cost hint ("or brick") only shows for
+    /// a nation that can actually make the stand-in (issue #371).
+    pub fn nation_can_make(&self, nation: Nation, item: ItemId) -> bool {
+        self.buildings.iter().any(|b| {
+            b.recipe.as_ref().is_some_and(|r| r.output.item == item)
+                && b.unlocked_by.is_none_or(|t| self.tech(t).nation.is_none_or(|n| n == nation))
+        })
+    }
+
     /// The food an item is, if it can be eaten.
     pub fn food_of(&self, id: ItemId) -> Option<&FoodDef> {
         self.item(id).food.map(|f| &self.foods[f])

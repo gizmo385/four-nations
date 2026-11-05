@@ -291,6 +291,18 @@ fn stored_sums_the_listed_items_and_food_counts_every_edible_item() {
 }
 
 #[test]
+fn the_stone_sign_counts_brick_too() {
+    // Brick stands in for stone one for one (issue #371), and `data/endeavor.toml`'s stone sign
+    // lists both, so brick gets the settlement there just as stone does.
+    let defs = Defs::bundled();
+    let mut w = world(Nation::Fire, 1, &defs);
+    store(&mut w, &defs, "stone", at(1, 5), 150);
+    assert_eq!(progress(&w, &defs, "stone"), (150, 200, false));
+    store(&mut w, &defs, "brick", at(2, 5), 50);
+    assert_eq!(progress(&w, &defs, "stone"), (200, 200, true));
+}
+
+#[test]
 fn per_nation_targets_apply_to_their_nation_only() {
     let defs = defs_with(
         "[[sign]]\nid = \"stone\"\ngroup = \"stores\"\nname = \"S\"\nkind = \"stored\"\n\

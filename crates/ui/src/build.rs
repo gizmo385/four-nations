@@ -13,6 +13,7 @@
 
 use fn_sim::building::{BuildingDef, BuildingId};
 use fn_sim::geom::Footprint;
+use fn_sim::jobs::ItemId;
 use fn_sim::world::{Blocker, BuildError, CommandError, DesignateError, Task, Unit, UnitId};
 use fn_sim::{Pos, Terrain};
 
@@ -24,7 +25,8 @@ pub struct PickerRow {
     pub id: BuildingId,
     /// The nation's name for it (`BuildingDef::display_name`).
     pub name: String,
-    /// "5 Wood", "10 Wood, 2 Stone" or "free".
+    /// "5 Wood", "10 Wood, 2 Stone" or "free"; a stone cost reads "10 Stone (or brick)" for a
+    /// nation that can make brick (issue #371).
     pub cost: String,
     /// "20s work".
     pub work: String,
@@ -38,13 +40,43 @@ impl PickerRow {
     }
 }
 
+/// The item that stands in for `item` in a cost, if the current nation could ever make it
+/// (issue #371: "N Stone (or brick)" only shows for a nation that can make brick).
+fn stand_in_for_nation(session: &Session, item: ItemId) -> Option<ItemId> {
+    let stand_in = session.defs.stand_in_for(item)?;
+    session.defs.nation_can_make(session.world.nation, stand_in).then_some(stand_in)
+}
+
+/// How much of `item` is in stores, plus its stand-in's if the nation can make one (issue #371):
+/// what a cost's "in stores" figure should count.
+fn stored_with_stand_in(session: &Session, item: ItemId) -> u32 {
+    let mut total = session.world.stored_total(item);
+    if let Some(stand_in) = stand_in_for_nation(session, item) {
+        total += session.world.stored_total(stand_in);
+    }
+    total
+}
+
+/// One cost entry's item name, with its stand-in named too where one applies: "Stone" or
+/// "Stone (or brick)".
+fn cost_item_text(session: &Session, item: ItemId) -> String {
+    let name = &session.defs.item(item).name;
+    match stand_in_for_nation(session, item) {
+        Some(stand_in) => {
+            format!("{name} (or {})", session.defs.item(stand_in).name.to_lowercase())
+        }
+        None => name.clone(),
+    }
+}
+
 /// What a building costs, as "5 Wood" (comma-separated for several items), followed by its
-/// size if it covers more than one tile ("10 Wood, 2x2").
+/// size if it covers more than one tile ("10 Wood, 2x2"). A cost item that a stand-in may pay
+/// (brick for stone, issue #371) names it: "10 Stone (or brick)".
 fn cost_text(session: &Session, def: &BuildingDef) -> String {
     let mut parts: Vec<String> = def
         .cost
         .iter()
-        .map(|c| format!("{} {}", c.count, session.defs.item(c.item).name))
+        .map(|c| format!("{} {}", c.count, cost_item_text(session, c.item)))
         .collect();
     if parts.is_empty() {
         parts.push("free".into());
@@ -324,7 +356,9 @@ pub fn occupant_rows(session: &Session, pos: Pos) -> Vec<OccupantRow> {
 #[derive(Clone, PartialEq, Debug)]
 pub struct BuildingDetail {
     pub name: String,
-    /// "5 Wood (12 in stores)" per item costed, or "free" for a building with none.
+    /// "5 Wood (12 in stores)" per item costed, or "free" for a building with none. A stone
+    /// cost reads "10 Stone (or brick) (12 in stores)" for a nation that can make brick, and the
+    /// figure counts both (issue #371).
     pub cost: Vec<String>,
     /// "1x1" or "2x2" (`BuildingDef::footprint`).
     pub footprint: String,
@@ -345,9 +379,8 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
         def.cost
             .iter()
             .map(|c| {
-                let item = session.defs.item(c.item);
-                let have = session.world.stored_total(c.item);
-                format!("{} {} ({have} in stores)", c.count, item.name)
+                let have = stored_with_stand_in(session, c.item);
+                format!("{} {} ({have} in stores)", c.count, cost_item_text(session, c.item))
             })
             .collect()
     };
@@ -459,6 +492,19 @@ mod tests {
         assert_eq!(row(&picker_rows(&fire), &fire, "study_hall").name, "Academy");
         let air = session(Nation::Air);
         assert_eq!(row(&picker_rows(&air), &air, "study_hall").name, "Meditation Pavilion");
+    }
+
+    #[test]
+    fn a_stone_cost_shows_the_stand_in_for_a_nation_that_can_make_it() {
+        // Only Fire can ever raise a brick kiln, so only Fire's picker names brick as a stand-in
+        // for stone (issue #371); the shared Workshop costs stone for everyone.
+        let fire = session(Nation::Fire);
+        assert_eq!(
+            row(&picker_rows(&fire), &fire, "workshop").cost,
+            "8 Wood, 4 Stone (or brick), 2x2"
+        );
+        let earth = session(Nation::Earth);
+        assert_eq!(row(&picker_rows(&earth), &earth, "workshop").cost, "8 Wood, 4 Stone, 2x2");
     }
 
     #[test]
