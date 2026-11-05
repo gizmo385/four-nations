@@ -193,6 +193,60 @@ impl Host {
         self.header.clone()
     }
 
+    /// Rebuilds the session `header` describes (`Self::new`, with `header`'s own
+    /// `turn_seconds`), then replays `lines` into it in order -- `Keys` through
+    /// [`Self::press_keys`], `Look` through [`Self::look`], `Inspect` through [`Self::inspect`]
+    /// and `Turn` as one [`Self::end_turn`] call each (every `Turn` line is already one whole
+    /// turn's worth of ticks, never a partial one: [`Self::end_turn`]'s own early-stop only ever
+    /// decides whether a *later* turn in the same call runs, not whether this one does) -- so an
+    /// agent run can be played as a chain of short sessions, each with a run log the size of one
+    /// chunk's own context instead of the whole game's (`fn_agent serve --resume`, #341). `Header`
+    /// and `End` lines are skipped: a header only ever makes sense first, and an `End` is a fact
+    /// about where a previous session stopped, not something to replay.
+    ///
+    /// Refuses a log made against different data, the same rule and message
+    /// `watch::Watcher::new` applies (#324): a replay only holds for the same data a header's
+    /// `Host` was built against. Every other error here is `Self::press_keys`'s own (a line that
+    /// somehow doesn't parse as a key script) -- it shouldn't happen to a log this crate wrote
+    /// itself, but a corrupted or hand-edited log should fail loudly rather than desync.
+    pub fn resume(header: &RunLogHeader, lines: &[LogLine]) -> Result<Self, String> {
+        let mut host = Self::new(
+            header.seed,
+            header.nation,
+            header.map_size.clone(),
+            header.difficulty.clone(),
+            header.site,
+            header.rough,
+        )?
+        .with_turn_seconds(header.turn_seconds);
+        let digest = host.data_digest();
+        if digest != header.data_digest {
+            return Err(format!(
+                "this run log was made against different data (digest {:#x}, the data here is \
+                 {digest:#x}); it can't be resumed",
+                header.data_digest
+            ));
+        }
+        for line in lines {
+            match line {
+                LogLine::Header(_) | LogLine::End { .. } => {}
+                LogLine::Keys { keys, label, note } => {
+                    host.press_keys(keys, label.clone(), note.clone())?;
+                }
+                LogLine::Look { x, y, w, h } => {
+                    host.look(*x, *y, *w, *h);
+                }
+                LogLine::Inspect { x, y } => {
+                    host.inspect(*x, *y);
+                }
+                LogLine::Turn { .. } => {
+                    host.end_turn(1);
+                }
+            }
+        }
+        Ok(host)
+    }
+
     /// `Host::new` never leaves embark or the title screen open (a bad site or difficulty is an
     /// error instead), so this always holds.
     fn app(&self) -> &App {
@@ -2000,6 +2054,54 @@ mod tests {
         }
         assert_eq!(a.log, b.log);
         assert_eq!(a.frame(80, 30), b.frame(80, 30));
+    }
+
+    // ----------------------------------------------------------------------------------------
+    // Resuming a run log (#341)
+    // ----------------------------------------------------------------------------------------
+
+    /// Play a few turns, stop, then `Host::resume` from the header and lines so far: the
+    /// resumed session's `observe` and frame match the one it left off at (#341's acceptance
+    /// criteria), and it keeps playing from the same point rather than restarting.
+    #[test]
+    fn resuming_a_log_continues_from_the_same_observation_and_frame() {
+        let mut h = host(Nation::Water).with_turn_seconds(10);
+        h.press_keys("h <right*3> <enter> <down*2> <enter>", Some("harvest".into()), None).unwrap();
+        h.end_turn(2);
+        h.look(0, 0, 10, 10);
+        h.inspect(5, 5);
+
+        let header = h.header();
+        let lines = h.log().lines();
+        let mut resumed = Host::resume(&header, &lines).unwrap();
+
+        let size = (100, 40);
+        assert_eq!(
+            serde_json::to_value(resumed.observe()).unwrap(),
+            serde_json::to_value(h.observe()).unwrap(),
+        );
+        assert_eq!(resumed.frame(size.0, size.1), h.frame(size.0, size.1));
+        assert_eq!(resumed.turn, h.turn);
+
+        // Resuming isn't a snapshot: the resumed `Host` keeps playing from here, exactly as the
+        // original would have.
+        resumed.press_keys("x", None, None).unwrap();
+        h.press_keys("x", None, None).unwrap();
+        assert_eq!(resumed.frame(size.0, size.1), h.frame(size.0, size.1));
+    }
+
+    /// `Host::resume` refuses a log made against different data, the same message
+    /// `watch::Watcher::new` gives (#324's rule applied here too).
+    #[test]
+    fn resume_refuses_a_mismatched_data_digest() {
+        let h = host(Nation::Earth);
+        let mut header = h.header();
+        header.data_digest = header.data_digest.wrapping_add(1);
+        let err = match Host::resume(&header, &h.log().lines()) {
+            Ok(_) => panic!("a mismatched digest should be refused"),
+            Err(e) => e,
+        };
+        assert!(err.contains("different data"), "{err}");
     }
 
     // ----------------------------------------------------------------------------------------
