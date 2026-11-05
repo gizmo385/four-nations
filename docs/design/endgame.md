@@ -478,6 +478,10 @@ settler. Mockup, edited from `--keys 'G'`:
 |   Each finished bend counts for whoever channels it                                  |
 ```
 
+The route that sits on these numbers (ranks, forms, and what adepts and masters can bend) is in
+bending.md, "More abilities and the route to mastery" (#358). It leaves the thresholds and chi
+regen as they are.
+
 ### Open questions for the owner
 
 1. **Which lever?** *Recommended: A, lower the threshold per nation, and leave chi regen alone.*
