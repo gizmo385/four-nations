@@ -71,6 +71,17 @@ impl World {
         let research_cost = self.knobs(defs).research_cost;
         self.research.add_toward_target(rate.round() as u64, defs, research_cost);
     }
+
+    /// How many units are seated at a study hall and producing knowledge right now, as opposed
+    /// to merely holding the job while they walk to one: `run_study` only adds to the pool once
+    /// `inside` is set. What the research screen's effective rate (#338) adds on top of the
+    /// passive trickle.
+    pub fn study_seats_filled(&self) -> usize {
+        self.units
+            .iter()
+            .filter(|u| matches!(u.task(), Some(Task::Study(_))) && u.inside().is_some())
+            .count()
+    }
 }
 
 #[cfg(test)]

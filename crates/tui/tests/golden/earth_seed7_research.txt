@@ -2,23 +2,23 @@
 │ TIER 1               TIER 2               TIER 3               TIER 4               ▸││ ▶ Running x1           00:00 │
 │  ◇ Fire Making        · Pottery           ▸◆ Masonry            · Cartography        │├─ PEOPLE ───────────────── 6 ─┤
 │   Available   25 pts   Locked      60 pts   Queued     120 pts   Locked     250 pts  ││ Idle 6                   [N] │
-│   -                    -                    Construction x1.15   -                   │├─ RESEARCH ───────────────────┤
+│   Campfire             Needs: Fire Making   Construction x1.15   Needs: Writing      │├─ RESEARCH ───────────────────┤
 │                                                                                      ││ Shelter +2           3.0/min │
 │  ◆ Shelter            ◆ Carpentry          · Writing            · Earthen Walls      ││ ░░░░░░░░░░   0% 0/25 pts     │
 │   Queued      25 pts   Queued      60 pts   Locked     120 pts   Locked     120 pts  │├─ ENDEAVOR ───────────── 0/9 ─┤
-│   -                    Construction x1.1    Study x1.25          Construction x1.25  ││ Next: 10 more people     [G] │
+│   Prerequisite for …   Construction x1.1…   Needs: Pottery       Needs: Earth Shap…  ││ Next: 10 more people     [G] │
 │                                                                                      │├─ CURSOR ────────── (94, 64) ─┤
 │  ◇ Fishing            · Herbalism          · Tunneling          · Seismic Sense      ││ Tyro                         │
 │   Available   25 pts   Locked     120 pts   Locked     120 pts   Locked     250 pts  ││ Earth Kingdom - Idle         │
-│   -                    -                    Bore Tunnel          Seismic Sense       ││ Carrying: nothing - Bends: 0 │
+│   Fishing Spot         Needs: Farming       Needs: Earth Shap…   Needs: Tunneling    ││ Carrying: nothing - Bends: 0 │
 │                                                                                      ││ Press Enter to select        │
 │  ✓ Stoneworking       ◇ Earth Shaping                                                ││                              │
 │   Known       25 pts   Available   60 pts                                            ││                              │
-│   -                    Earthworks x1.2                                               ││                              │
+│   Stone Outcrop, Bo…   Earthworks x1.2                                               ││                              │
 │                                                                                      ││                              │
 │  ◇ Farming                                                                           ││                              │
 │   Available   60 pts                                                                 ││                              │
-│   -                                                                                  ││                              │
+│   Farm Plot                                                                          ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │

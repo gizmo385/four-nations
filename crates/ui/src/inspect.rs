@@ -120,6 +120,15 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
                 PlotStage::Ripe => "Ripe".to_owned(),
             }));
         }
+        // A study hall says how many of its seats are filled right now (#338): the Build
+        // modal's own line (`build::building_detail`) only has the total, since nothing is
+        // built yet when it shows it.
+        if let Some(seats) =
+            world.building_at(tile).map(|b| defs.building(b).seats).filter(|&s| s > 0)
+        {
+            let filled = world.occupants(at).count();
+            lines.push(Line::Detail(format!("Study: {filled}/{seats} seats filled")));
+        }
         return Some(lines);
     }
     let biome = &defs.biome(t.biome).name;
@@ -390,6 +399,40 @@ mod tests {
                 "{p:?} should name the anchor"
             );
         }
+    }
+
+    /// A study hall's tooltip says how many of its seats are filled, counting whoever is
+    /// currently inside (#338): the Build modal's own line, shown before anything is built, has
+    /// only the total (`build::building_detail`).
+    #[test]
+    fn a_study_hall_says_how_many_seats_are_filled() {
+        use fn_sim::building::Building;
+        use fn_sim::geom::Footprint;
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let hall = s.defs.building_id("study_hall").unwrap();
+        let def = s.defs.building(hall);
+        let (seats, passable) = (def.seats, def.passable);
+        let at = Pos::new(30, 30);
+        let foot = Footprint::new(at, 2, 2);
+        s.world.units.retain(|u| !foot.contains(u.pos) && u.pos != foot.entrance());
+        for p in foot.tiles() {
+            let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
+            let b = Building { part, size: [2, 2], ..Building::new(hall, passable, false) };
+            s.world.map.get_mut(p).unwrap().building = Some(b);
+        }
+        let lines = tooltip_lines(&s, Tool::Select, at).unwrap();
+        assert!(
+            lines.contains(&Line::Detail(format!("Study: 0/{seats} seats filled"))),
+            "{lines:?}"
+        );
+
+        s.world.units[0].pos = foot.entrance();
+        assert!(s.world.enter_building(0, at, &s.defs));
+        let lines = tooltip_lines(&s, Tool::Select, at).unwrap();
+        assert!(
+            lines.contains(&Line::Detail(format!("Study: 1/{seats} seats filled"))),
+            "{lines:?}"
+        );
     }
 
     #[test]

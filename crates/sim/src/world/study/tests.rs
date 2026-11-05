@@ -364,3 +364,17 @@ fn two_scholars_fill_a_solid_two_by_two_hall_while_a_third_waits() {
     let passive = defs.research.passive_millis_per_tick * 100;
     assert!(w.research().pool_millis() - before > passive, "both scholars add knowledge");
 }
+
+#[test]
+fn study_seats_filled_counts_only_scholars_already_inside() {
+    let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(1, 2)]);
+    place_study_hall(&mut w, &defs, at(2, 2));
+    assert_eq!(w.study_seats_filled(), 0, "nothing queued, nobody seated");
+    start_research(&mut w, &defs, "earth_shaping");
+    // One unit starts right beside the door and claims a seat before it has entered.
+    w.tick(&defs);
+    assert!(!seated(&w, 0), "still walking in");
+    assert_eq!(w.study_seats_filled(), 0, "claimed, but not inside yet");
+    run_until(&mut w, &defs, 200, |w| seated(w, 0));
+    assert_eq!(w.study_seats_filled(), 1);
+}
