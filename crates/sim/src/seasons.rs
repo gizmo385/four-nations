@@ -56,6 +56,10 @@ pub struct ClimateDef {
     /// Does a unit standing here in winter, with no heat source in reach, feel the cold
     /// (`World::tick_needs`)?
     pub cold: bool,
+    /// Added to a site's outlook (`Survey::report`, #297) when the chosen difficulty preset has
+    /// seasons on, scaled by `winter_severity` and rounded. 0 for a band that doesn't make the
+    /// outlook any harder on its own (warm, today).
+    pub outlook_points: u32,
 }
 
 /// `[cold]` of `data/seasons.toml`: how much faster a cold unit's needs move, before
@@ -102,6 +106,7 @@ impl Default for SeasonsDef {
                 winter_growth: 1.0,
                 frost: false,
                 cold: false,
+                outlook_points: 0,
             }],
             cold: ColdDef { energy_decay: 1.0, hunger_decay: 1.0, sleep: 1.0 },
         }
@@ -167,6 +172,8 @@ struct RawClimate {
     frost: bool,
     #[serde(default)]
     cold: bool,
+    #[serde(default)]
+    outlook_points: u32,
 }
 
 #[derive(Deserialize)]
@@ -264,6 +271,7 @@ impl SeasonsFile {
                 winter_growth: raw.winter_growth,
                 frost: raw.frost,
                 cold: raw.cold,
+                outlook_points: raw.outlook_points,
             });
         }
         if climates.last().unwrap().max_temperature != 1.0 {
@@ -360,6 +368,9 @@ mod tests {
         let polar = &defs.seasons.climates[0];
         assert!(polar.frost && polar.cold);
         assert_eq!(polar.winter_growth, 0.0);
+        assert!(polar.outlook_points > 0, "polar should make the outlook harder");
+        let warm = defs.seasons.climates.last().unwrap();
+        assert_eq!(warm.outlook_points, 0, "warm shouldn't make the outlook harder on its own");
     }
 
     #[test]

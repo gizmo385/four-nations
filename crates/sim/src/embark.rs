@@ -19,6 +19,7 @@ use crate::mapgen::{self, MapGenConfig, Tile, TileMap};
 use crate::path::MoveRules;
 use crate::regions::{RegionId, Regions};
 use crate::rng;
+use crate::seasons::ClimateDef;
 
 /// Settlers a found world gets today (`fn_ui::STARTING_UNITS`). The report doesn't know the
 /// count the player will found with, so it checks room for this many while surveying; only
@@ -319,6 +320,10 @@ pub struct SiteReport {
     /// nothing is within the 40-step cap.
     pub water: Option<(Terrain, u32)>,
     pub groups: Vec<GroupCount>,
+    /// The start tile's climate band (`World::climate_at`, #295), exact whether the survey is
+    /// rough or not: terrain and climate are never what the scouts get wrong
+    /// (`docs/design/difficulty.md`, "Embark").
+    pub climate: ClimateDef,
     pub outlook: Outlook,
     /// The one or two facts that decided the outlook.
     pub reasons: Vec<String>,
@@ -327,7 +332,7 @@ pub struct SiteReport {
 }
 
 impl SiteReport {
-    fn refused(problem: SiteProblem, rough: bool) -> Self {
+    fn refused(problem: SiteProblem, climate: ClimateDef, rough: bool) -> Self {
         Self {
             problem: Some(problem),
             biomes: Vec::new(),
@@ -335,6 +340,7 @@ impl SiteReport {
             mainland: false,
             water: None,
             groups: Vec::new(),
+            climate,
             outlook: Outlook::Hard,
             reasons: Vec::new(),
             rough,
@@ -460,6 +466,16 @@ impl Survey {
         self.regions.size(region) == max
     }
 
+    /// `at`'s climate band (`World::climate_at`, #295), by the survey's own mapgen temperature;
+    /// always exact, never jittered by a rough survey. Falls back to the coldest band if `at` is
+    /// off the map, which `report` never shows (a refused site draws no climate line).
+    fn climate_at(&self, at: Pos, defs: &Defs) -> ClimateDef {
+        self.surface.get(at).map_or_else(
+            || defs.seasons.climates.first().expect("validated: at least one climate band").clone(),
+            |t| defs.seasons.climate_for(t.temperature).clone(),
+        )
+    }
+
     /// The nearest tile a unit could drink from, walking from `at` under the default
     /// `MoveRules` (8-connected, no corner cutting), capped at `WATER_SEARCH_CAP` steps. Terrain
     /// is always accurate, rough survey or not (`docs/design/embark.md`, "Rough survey").
@@ -556,11 +572,22 @@ impl Survey {
 
     /// The report on `at`: land, room, water, resources and an outlook
     /// (`docs/design/embark.md`, "The site report"). Pure; `SurveyMode::Exact` reads no RNG.
-    pub fn report(&self, at: Pos, mode: SurveyMode, defs: &Defs) -> SiteReport {
+    ///
+    /// `preset` is the chosen difficulty preset's id (`World::difficulty`), or `None`; it decides
+    /// whether a winter term joins the outlook (`docs/design/difficulty.md`, "Embark"). An id the
+    /// data doesn't have resolves to identity, the same way `World::knobs` treats one.
+    pub fn report(
+        &self,
+        at: Pos,
+        mode: SurveyMode,
+        preset: Option<&str>,
+        defs: &Defs,
+    ) -> SiteReport {
         let embark = &defs.embark;
         let rough = mode == SurveyMode::Rough;
+        let climate = self.climate_at(at, defs);
         if let Some(problem) = self.problem_at(at, defs) {
-            return SiteReport::refused(problem, rough);
+            return SiteReport::refused(problem, climate, rough);
         }
         let biomes = self.biome_shares(at, embark.report_radius, defs);
         let region = self.regions.region(at).expect("checked by problem_at");
@@ -608,6 +635,21 @@ impl Survey {
             _ => {}
         }
 
+        // The winter term (`docs/design/difficulty.md`, "Embark"): this is how a difficulty
+        // preset reaches the outlook, instead of shifting every verdict. Identity, and every
+        // preset with `seasons` off (Sandbox), adds nothing.
+        let knobs =
+            preset.and_then(|id| defs.difficulty.preset(id)).unwrap_or(&defs.difficulty.identity);
+        if knobs.seasons {
+            let winter_points = (f64::from(climate.outlook_points)
+                * f64::from(knobs.winter_severity))
+            .round() as i32;
+            points += winter_points;
+            if winter_points > 0 {
+                negatives.push("cold winters".to_owned());
+            }
+        }
+
         let outlook = classify_outlook(points, embark.outlook.fair_from, embark.outlook.hard_from);
         // The one or two facts that decided it: lead with what's actually wrong, if anything;
         // otherwise a highlight plus the walk to water, which is always worth knowing.
@@ -622,7 +664,18 @@ impl Survey {
         };
         reasons.truncate(2);
 
-        SiteReport { problem: None, biomes, room, mainland, water, groups, outlook, reasons, rough }
+        SiteReport {
+            problem: None,
+            biomes,
+            room,
+            mainland,
+            water,
+            groups,
+            climate,
+            outlook,
+            reasons,
+            rough,
+        }
     }
 }
 
@@ -855,7 +908,7 @@ mod tests {
             let cfg = Survey::config(seed, defs.embark.map_size("small").unwrap());
             let survey = Survey::new(&cfg, &defs);
             let site = survey.default_site(&defs);
-            let report = survey.report(site, SurveyMode::Exact, &defs);
+            let report = survey.report(site, SurveyMode::Exact, None, &defs);
             assert_eq!(report.problem, None, "seed {seed}: default site {site:?} is refused");
         }
     }
@@ -883,7 +936,7 @@ mod tests {
         let survey = Survey::new(&cfg, &defs);
         let at = Pos::new(98, 79);
         assert!(at.chebyshev(Pos::new(103, 89)) <= defs.embark.report_radius);
-        let report = survey.report(at, SurveyMode::Exact, &defs);
+        let report = survey.report(at, SurveyMode::Exact, None, &defs);
         let gold = report.groups.iter().find(|g| g.id == "gold").unwrap();
         // Exactly the one surfaced gold vein in the box (verified against the raw, pre-hidden
         // map below); the buried seam at (103, 89) must not add to it.
@@ -927,7 +980,7 @@ mod tests {
     fn a_refused_site_s_report_carries_the_problem_and_nothing_else() {
         let survey = survey_of(tiny_map(&[".~."]));
         let defs = with_embark_def(test_embark(0, 1, 0));
-        let r = survey.report(Pos::new(1, 0), SurveyMode::Exact, &defs);
+        let r = survey.report(Pos::new(1, 0), SurveyMode::Exact, None, &defs);
         assert_eq!(r.problem, Some(SiteProblem::NotLand));
         assert!(r.groups.is_empty() && r.biomes.is_empty() && r.water.is_none());
     }
@@ -938,7 +991,7 @@ mod tests {
         let cfg = Survey::config(7, defs.embark.map_size("small").unwrap());
         let survey = Survey::new(&cfg, &defs);
         let site = survey.default_site(&defs);
-        let report = survey.report(site, SurveyMode::Rough, &defs);
+        let report = survey.report(site, SurveyMode::Rough, None, &defs);
         assert!(report.rough);
         for g in &report.groups {
             if g.id == "gold" || g.id == "scrolls" {
@@ -959,20 +1012,24 @@ mod tests {
             let cfg = Survey::config(seed, small);
             let survey = Survey::new(&cfg, &defs);
             let site = survey.default_site(&defs);
-            let a = survey.report(site, SurveyMode::Rough, &defs);
-            let b = survey.report(site, SurveyMode::Rough, &defs);
+            let a = survey.report(site, SurveyMode::Rough, None, &defs);
+            let b = survey.report(site, SurveyMode::Rough, None, &defs);
             assert_eq!(a, b, "seed {seed}: two calls at the same site must agree");
 
             // Visiting other sites first (a different "cursor path") must not change the
             // reading at `site`.
             let other = Pos::new(site.x.saturating_sub(5), site.y);
-            let _ = survey.report(other, SurveyMode::Rough, &defs);
-            let _ =
-                survey.report(Pos::new(site.x, site.y.saturating_add(3)), SurveyMode::Rough, &defs);
-            let c = survey.report(site, SurveyMode::Rough, &defs);
+            let _ = survey.report(other, SurveyMode::Rough, None, &defs);
+            let _ = survey.report(
+                Pos::new(site.x, site.y.saturating_add(3)),
+                SurveyMode::Rough,
+                None,
+                &defs,
+            );
+            let c = survey.report(site, SurveyMode::Rough, None, &defs);
             assert_eq!(a, c, "seed {seed}: unrelated reports in between must not change it");
 
-            let exact = survey.report(site, SurveyMode::Exact, &defs);
+            let exact = survey.report(site, SurveyMode::Exact, None, &defs);
             let levels_differ = a
                 .groups
                 .iter()
@@ -989,8 +1046,88 @@ mod tests {
         let cfg = Survey::config(7, defs.embark.map_size("small").unwrap());
         let survey = Survey::new(&cfg, &defs);
         let site = survey.default_site(&defs);
-        let exact = survey.report(site, SurveyMode::Exact, &defs);
-        let rough = survey.report(site, SurveyMode::Rough, &defs);
+        let exact = survey.report(site, SurveyMode::Exact, None, &defs);
+        let rough = survey.report(site, SurveyMode::Rough, None, &defs);
         assert_eq!(exact.water, rough.water);
+    }
+
+    // ---- Climate and the winter term (#297, docs/design/difficulty.md "Embark") ----
+
+    #[test]
+    fn rough_survey_never_jitters_the_climate_band() {
+        let defs = Defs::bundled();
+        let cfg = Survey::config(7, defs.embark.map_size("small").unwrap());
+        let survey = Survey::new(&cfg, &defs);
+        let site = survey.default_site(&defs);
+        let exact = survey.report(site, SurveyMode::Exact, Some("normal"), &defs);
+        let rough = survey.report(site, SurveyMode::Rough, Some("normal"), &defs);
+        assert_eq!(exact.climate, rough.climate);
+    }
+
+    /// A 5x5 all-land map, every tile at mapgen temperature 0 (polar), with one water tile at a
+    /// corner close enough that the walk to it never adds outlook points: isolates the winter
+    /// term from everything else `report` scores.
+    fn polar_survey() -> Survey {
+        let map = Grid::from_fn(5, 5, |p| {
+            let (terrain, temperature) =
+                if p == Pos::new(0, 0) { (Terrain::Water, 0) } else { (Terrain::Land, 0) };
+            Tile {
+                elevation: 0,
+                temperature,
+                moisture: 128,
+                terrain,
+                biome: BiomeId(0),
+                resource: None,
+                building: None,
+            }
+        });
+        survey_of(map)
+    }
+
+    /// `fair_from`/`hard_from` set so the winter term alone (no groups, water close enough to
+    /// cost nothing) decides the outlook: Normal's rounded term (2) clears `fair_from` but not
+    /// `hard_from`; Hard's (3, `winter_severity` 1.3) clears both.
+    fn polar_embark() -> Defs {
+        with_embark_def(EmbarkDef {
+            report_radius: 2,
+            min_edge_distance: 0,
+            min_room: 1,
+            spawn_radius: 2,
+            outlook: OutlookSettings { water_far: 15, water_weight: 2, fair_from: 2, hard_from: 3 },
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn a_polar_site_rates_harder_under_hard_than_normal_and_sandbox_ignores_it() {
+        let defs = polar_embark();
+        let survey = polar_survey();
+        let site = Pos::new(2, 2);
+
+        let none = survey.report(site, SurveyMode::Exact, None, &defs);
+        assert_eq!(none.climate.id, "polar");
+        assert_eq!(none.outlook, Outlook::Easy, "{none:?}");
+        assert!(!none.reasons.iter().any(|r| r == "cold winters"));
+
+        let sandbox = survey.report(site, SurveyMode::Exact, Some("sandbox"), &defs);
+        assert_eq!(sandbox.outlook, none.outlook, "sandbox has no seasons: ignores climate");
+
+        let normal = survey.report(site, SurveyMode::Exact, Some("normal"), &defs);
+        assert_eq!(normal.outlook, Outlook::Fair, "{normal:?}");
+        assert!(normal.reasons.iter().any(|r| r == "cold winters"));
+
+        let hard = survey.report(site, SurveyMode::Exact, Some("hard"), &defs);
+        assert_eq!(hard.outlook, Outlook::Hard, "{hard:?}");
+        assert!(hard.reasons.iter().any(|r| r == "cold winters"));
+    }
+
+    #[test]
+    fn an_unknown_preset_id_resolves_to_identity_like_world_knobs_does() {
+        let defs = polar_embark();
+        let survey = polar_survey();
+        let site = Pos::new(2, 2);
+        let none = survey.report(site, SurveyMode::Exact, None, &defs);
+        let unknown = survey.report(site, SurveyMode::Exact, Some("extreme"), &defs);
+        assert_eq!(none.outlook, unknown.outlook);
     }
 }

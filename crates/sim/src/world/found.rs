@@ -38,7 +38,9 @@ impl World {
             units, SETTLERS,
             "World::found's unit count no longer matches what Survey::report checked room for"
         );
-        if let Some(problem) = survey.report(start, SurveyMode::Exact, defs).problem {
+        if let Some(problem) =
+            survey.report(start, SurveyMode::Exact, difficulty.as_deref(), defs).problem
+        {
             return Err(problem);
         }
         let (cfg, map, buried, regions) = survey.into_parts();
