@@ -27,6 +27,12 @@ retry_seconds = 5.0
 idle_pause_seconds = 8.0
 idle_wander_chance = 0.5
 idle_wander_steps = 4
+# Strain fades this fast, ripe or resting, regardless of difficulty (docs/design/difficulty.md,
+# "Strain: tiring land", #296).
+strain_recovery_per_minute = 0.05
+# With the difficulty preset's strain_kills, a harvest that leaves a tile's strain at or above
+# this kills the plant.
+strain_kill_at = 4.0
 
 # Items that aren't food. Foods (data/needs.toml) are items too, with the id they have there.
 # `icon` names the item's sprite for a future graphical frontend; no current frontend reads it.
@@ -93,6 +99,10 @@ name = "Tool"
 #             `hardy_winter_growth` (data/seasons.toml) in every climate band instead of the
 #             season or climate factor (docs/design/difficulty.md, "Seasons", #295). Only
 #             fishing has this: ice fishing keeps working through winter everywhere.
+# - strain:   optional, at least 0, needs `regrow` if above 0. Strain this harvest adds to its
+#             tile per pick, times the difficulty preset's `strain` knob
+#             (docs/design/difficulty.md, "Strain: tiring land", #296): 0 (the default) means
+#             the plant never tires.
 # Which tech, if any, must be known before a resource's designation is available is
 # `[tech.unlocks] jobs` in data/research.toml (issue #22): until the nation knows it, the
 # resource can't be designated, and hungry units won't forage it either.
@@ -155,6 +165,7 @@ item = "cabbage"
 count = 1
 work = 2.0
 regrow = 480.0
+strain = 1.0
 
 [[harvest]]
 resource = "fruit_tree"
@@ -163,6 +174,7 @@ item = "fruit"
 count = 2
 work = 4.0
 regrow = 360.0
+strain = 1.0
 
 # Fishing is slow work, and the water-working nations are good at it.
 [[harvest]]
@@ -174,6 +186,7 @@ work = 8.0
 modifier = "water_work"
 regrow = 300.0
 frost_hardy = true
+strain = 0.5
 
 # --- #197 (Air: gliders) -----------------------------------------------------------------------
 

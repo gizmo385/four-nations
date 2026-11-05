@@ -551,11 +551,14 @@ fn a_renewable_resource_stays_after_harvest_and_ripens_on_schedule() {
 #[test]
 fn the_difficulty_presets_regrow_knob_scales_the_resting_time() {
     // The difficulty preset's `regrow` knob (#294): Hard's resting time is `regrow` times
-    // identity's. Hard also turns `seasons` on (#295), which would otherwise mix the season's
-    // own growth factor into this; turned off here so this test is only about `regrow`.
+    // identity's. Hard also turns `seasons` on (#295) and `strain` above 0 (#296), which would
+    // otherwise mix their own factors into this; turned off here so this test is only about
+    // `regrow`.
     let rows = ["~~~~~~~~~", ".........", "....Y....", ".........", "........."];
     let (mut w, mut defs) = setup(Nation::Earth, &rows, &[at(1, 3)]);
-    defs.difficulty.presets.iter_mut().find(|p| p.id == "hard").unwrap().seasons = false;
+    let hard = defs.difficulty.presets.iter_mut().find(|p| p.id == "hard").unwrap();
+    hard.seasons = false;
+    hard.strain = 0.0;
     w.difficulty = Some("hard".into());
     let regrow = w.knobs(&defs).regrow;
     assert!(regrow > 1.0, "test assumes hard's regrow knob is above identity");

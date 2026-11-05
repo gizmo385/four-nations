@@ -36,6 +36,7 @@ mod inside;
 mod orchard;
 mod population;
 mod season;
+mod strain;
 mod stride;
 mod study;
 mod tally;
@@ -57,6 +58,7 @@ pub use gate::{EndeavorError, GateSite, GateTask};
 pub use heat::{Aura, Flame, Glow, HeatSource};
 pub use population::Arrival;
 pub use season::{SeasonEvent, SeasonEventKind};
+pub use strain::StrainEvent;
 pub use stride::{STRIDE_LOOKAHEAD, Stride};
 pub use tally::Tallies;
 pub use work::{DesignateError, FoodSource, Task};
@@ -323,6 +325,17 @@ pub struct World {
     /// empty (so unwritten) for every save from before this existed, so neither changes a byte.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     season_events: Vec<SeasonEvent>,
+    /// Live strain on wild renewable tiles, by tile (`world/strain.rs`, #296): added by a
+    /// harvest, scaled by the difficulty preset's `strain` knob, and fading on its own. Empty
+    /// unless the knob is above 0, and empty (so unwritten) for every save from before this
+    /// existed, so neither changes a byte. Read it through `strain_at()`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    strain: BTreeMap<Pos, f32>,
+    /// Wild plants killed by over-picking (`strain_kills`), oldest first, for the TUI's alert
+    /// log. Empty unless a difficulty preset turns `strain_kills` on, and empty (so unwritten)
+    /// for every save from before this existed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    strain_events: Vec<StrainEvent>,
     /// The id the next unit gets, whether it is a newcomer (`population.rs`, #232) or some
     /// future runtime spawn: always past every id a unit (living or dead) has ever had, so none
     /// is reused. A save from before this counter existed deserializes it as 0; `World::load`
@@ -401,6 +414,8 @@ impl World {
             start: None,
             difficulty: None,
             season_events: Vec::new(),
+            strain: BTreeMap::new(),
+            strain_events: Vec::new(),
             next_unit: 0,
             arrivals: Vec::new(),
             orchard_rng: orchard::new_rng(seed),
@@ -633,6 +648,7 @@ impl World {
         self.tick_needs(defs);
         self.tick_season(defs);
         self.tick_growth(defs);
+        self.tick_strain(defs);
         self.tick_population(defs);
         self.tick_orchards(defs);
         self.tick_farms(defs);
