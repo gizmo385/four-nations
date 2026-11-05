@@ -76,6 +76,36 @@ impl Session {
         self.tick_n(n);
         n
     }
+
+    // ----------------------------------------------------------------------------------------
+    // Read-only helpers for `fn_tui::surface::Host` (#320): the agent surface's source lint
+    // forbids a bare `.world` in `crates/tui/src/surface.rs`, so a handful of small, named
+    // reads live here instead of there, the same way every other screen's read already goes
+    // through an `fn_ui` view model rather than touching `World` directly.
+    // ----------------------------------------------------------------------------------------
+
+    /// The world's own tick count, for a run log's diagnostics (not part of any observation).
+    pub fn ticks_elapsed(&self) -> u64 {
+        self.world.tick
+    }
+
+    /// The map's width and height, for an off-map check (`Host::look`'s own regions already
+    /// clamp to this; a step's exact tile has to be on the map too).
+    pub fn map_size(&self) -> (i32, i32) {
+        (self.world.map.width(), self.world.map.height())
+    }
+
+    /// This session's nation, for naming a building or ghost the way `defs.building(..)
+    /// .display_name` wants it.
+    pub fn nation(&self) -> Nation {
+        self.world.nation
+    }
+
+    /// The settler standing at `pos`, if any, by name -- `World::units_at`'s first occupant,
+    /// the same one a cell's `Thing::Unit` means.
+    pub fn unit_name_at(&self, pos: Pos) -> Option<&str> {
+        self.world.units_at(pos).next().map(|u| u.name.as_str())
+    }
 }
 
 #[cfg(test)]
