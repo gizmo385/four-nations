@@ -21,10 +21,19 @@ const INVALID_PARAMS: i64 = -32602;
 
 /// Reads one JSON-RPC message per line from `input` until EOF, dispatches it against `tools`,
 /// and writes one response per line to `output` for every request that had an `id` (a
-/// notification gets none). Returns once `input` is exhausted.
-pub fn serve<W: std::io::Write>(input: impl BufRead, mut output: impl Write, tools: &mut Tools<W>) {
+/// notification gets none). Returns once `input` is exhausted, with the reason why (#327):
+/// "stdin closed" on plain EOF, or the I/O error that stopped the loop early -- what the caller
+/// writes as the run log's own `end` line (`Tools::end`).
+pub fn serve<W: std::io::Write>(
+    input: impl BufRead,
+    mut output: impl Write,
+    tools: &mut Tools<W>,
+) -> String {
     for line in input.lines() {
-        let Ok(line) = line else { break };
+        let line = match line {
+            Ok(line) => line,
+            Err(e) => return format!("stdin read error: {e}"),
+        };
         if line.trim().is_empty() {
             continue;
         }
@@ -48,6 +57,7 @@ pub fn serve<W: std::io::Write>(input: impl BufRead, mut output: impl Write, too
             Err((code, message)) => write_error(&mut output, id, code, &message),
         }
     }
+    "stdin closed".to_owned()
 }
 
 fn dispatch<W: std::io::Write>(
@@ -160,6 +170,30 @@ mod tests {
         );
         assert_eq!(responses[0]["error"]["code"], METHOD_NOT_FOUND);
         assert_eq!(responses[1]["result"]["isError"], true);
+    }
+
+    /// `serve`'s own return value (#327): "stdin closed" on a plain, clean EOF -- what
+    /// `fn_agent serve` writes as the run log's `end` line once stdin closes.
+    #[test]
+    fn serve_returns_stdin_closed_on_a_clean_eof() {
+        let mut out = Vec::new();
+        let reason = serve(
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#.as_bytes(),
+            &mut out,
+            &mut tools(),
+        );
+        assert_eq!(reason, "stdin closed");
+    }
+
+    /// A line `BufRead` can't even read (not valid UTF-8) stops the loop early with that error
+    /// as the reason, instead of "stdin closed" claiming a clean end it wasn't.
+    #[test]
+    fn serve_returns_the_read_error_when_a_line_cannot_be_read() {
+        let mut out = Vec::new();
+        let bad: &[u8] = &[0xff, 0xfe, b'\n'];
+        let reason = serve(bad, &mut out, &mut tools());
+        assert_ne!(reason, "stdin closed", "{reason}");
+        assert!(reason.contains("stdin read error"), "{reason}");
     }
 
     #[test]

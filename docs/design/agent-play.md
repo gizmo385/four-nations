@@ -123,7 +123,7 @@ MCP tools that read. They're free, change nothing, and take no game time:
 | `observe` | Turn, clock, season, tool, notice, people (activity counts, need flags), research, stores, endeavor, cursor tile, and alerts since the last turn | `side_view`, `activity_counts`, `need_flags`, `tooltip_lines`, the `Alerts` history |
 | `look {x,y,w,h}` | A map region, at most 64x40 | The TUI's per-cell look (below) |
 | `inspect {x,y}` | That tile's Cursor-section lines | `tooltip_lines`, as if the cursor were there |
-| `screen {name}` | `nation`, `research`, `endeavor`, `log` or `help`, as data | `nation_view`, `research::screen_view`, `endeavor::screen_view`, `help_rows` |
+| `screen {name}` | `nation`, `research`, `endeavor`, `log`, `help` or `build`, as data | `nation_view`, `research::screen_view`, `endeavor::screen_view`, `help_rows`, `build::picker_rows` |
 | `frame {w,h}` | The rendered frame as ASCII text | `frame::render_shell` |
 
 **The map.** `look` returns three layers, which are what a human reads from glyph, background
@@ -177,12 +177,18 @@ resulting `observe`. No game time passes. A step is one of:
 The planner reads `UiState` (the cursor, open screen and tool) to plan keys. If the plan can't
 be made (an unknown tech, a building the modal doesn't offer, a tile off the map), the step
 fails with the reason and nothing is pressed. `note` is the agent's one-line reason (80
-characters at most), shown to watchers and logged, and it never affects the game.
+characters at most), shown to watchers and logged, and it never affects the game. The result's
+`notices` carries each `designate` or `build` step's own notice (the "N done, M skipped:
+reason" text a player sees in the Tool section), one entry per step that left one, so a
+mostly-skipped rectangle is obvious right away instead of only in a later `observe` -- and
+never masked by a later step in the same call overwriting the one live UI notice.
 
 **Refused keys:** `Space`, `+`, `-`, `.` (the host owns time), and `R`, `1`-`4`, `q`, `F5`,
 `F6` and `F9`, plus the Esc menu's Save, Load and Quit (no saves, no new maps, no quitting
 mid-race). Refusing is always parity-safe. Named actions never need an F-key, so the WSL gap
-doesn't matter, and raw `keys` may still name one.
+doesn't matter, and raw `keys` may still name one. A bare `Esc` with nothing open to close is
+refused too: for a player it opens the game menu, but every row there except Resume and Key
+help is already refused above, so for an agent the menu is only a trap, never a tool.
 
 ## Time: lockstep turns
 
@@ -231,6 +237,10 @@ headless at full speed, and watching never slows them.
 - **Turns** fast-forward at the watch pace with the render throttled to 30 fps (ticks per frame
   uncapped for the watcher). When the watcher catches up with a live log, the strip reads
   "waiting for agent (12 s)".
+- **The end marker** (#327): `fn_agent serve` writes an `end` line (the world's own tick, and
+  the reason -- stdin closed, or an error) when its session ends. Once the watcher replays it,
+  the strip reads "run finished" instead of ever counting up a wait that will never end. A log
+  with no `end` line (one from before #327, or still live) follows exactly as before.
 
 Watcher keys: `Space` pauses the replay, `+`/`-` change the pace, `.` steps one action, `]`
 jumps to the end of the next turn, and `q` quits. Mockup (a real `--frame`, with the bottom row

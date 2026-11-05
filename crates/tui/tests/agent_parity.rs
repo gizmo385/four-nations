@@ -75,7 +75,7 @@ fn observation_leaves(h: &Host) -> Vec<String> {
     observe.as_object_mut().unwrap().remove("turn");
     let mut out = Vec::new();
     leaves(&observe, &mut out);
-    for name in ["nation", "research", "endeavor", "log", "help"] {
+    for name in ["nation", "research", "endeavor", "log", "help", "build"] {
         leaves(&serde_json::to_value(h.screen(name).unwrap()).unwrap(), &mut out);
     }
     out
@@ -105,7 +105,12 @@ fn columns(frame: &str) -> (String, String) {
 /// The rendered text of every screen `Host::observe` and `Host::screen`'s leaves could be
 /// checked against: the main view (cursor already where `observe`'s own `cursor` reports it),
 /// then `N`, `T`, `G`, `L` and `?` in turn, each closed again before the next (the acceptance
-/// criteria's "main, N, T, G, L, ? and the Cursor section").
+/// criteria's "main, N, T, G, L, ? and the Cursor section"), and finally `U`'s Build modal
+/// (#327: `screen {"build"}`'s own leaves) -- stepping down its list to capture the detail
+/// pane for every row, not only whichever one the Build tool happened to leave highlighted: a
+/// long locked name is squeezed with an ellipsis in the list itself once it's paired with its
+/// cost (`crate::widgets::Row`'s own "gives way" rule), and only the detail pane, for the
+/// highlighted row, ever shows it in full.
 fn reachable_text(h: &mut Host) -> String {
     const SIZE: (u16, u16) = (220, 50);
     let mut text = String::new();
@@ -120,6 +125,17 @@ fn reachable_text(h: &mut Host) -> String {
         push(&h.frame(SIZE.0, SIZE.1), &mut text);
         h.press_keys("<esc>", None, None).unwrap();
     }
+    let rows = match h.screen("build").unwrap() {
+        fn_tui::surface::ScreenView::Build(v) => v.rows.len(),
+        other => unreachable!("{other:?}"),
+    };
+    h.press_keys("u", None, None).unwrap();
+    push(&h.frame(SIZE.0, SIZE.1), &mut text);
+    for _ in 1..rows {
+        h.press_keys("<down>", None, None).unwrap();
+        push(&h.frame(SIZE.0, SIZE.1), &mut text);
+    }
+    h.press_keys("<esc>", None, None).unwrap();
     text
 }
 

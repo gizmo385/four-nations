@@ -58,13 +58,15 @@ pub fn list() -> Vec<Value> {
         }),
         json!({
             "name": "screen",
-            "description": "nation, research, endeavor, log or help, as data.",
+            "description": "nation, research, endeavor, log, help or build, as data. `build` \
+                             is the Build modal's own list (name, size, cost, locked or \
+                             unlocked), the same text the modal shows, without opening it.",
             "inputSchema": json!({
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "enum": ["nation", "research", "endeavor", "log", "help"],
+                        "enum": ["nation", "research", "endeavor", "log", "help", "build"],
                     },
                 },
                 "required": ["name"],
@@ -86,7 +88,10 @@ pub fn list() -> Vec<Value> {
                              {name}, research {tech}, cursor {x,y}, keys {script}. A step that \
                              can't be planned (an unknown tech, a building the Build modal \
                              doesn't offer, a tile off the map, ...) presses nothing and the \
-                             steps after it don't run.",
+                             steps after it don't run. The result's `notices` carries each \
+                             designate or build step's own 'N done, M skipped: reason' text, so \
+                             a mostly-skipped rectangle (an impassable tile, say) is obvious \
+                             right away instead of only in a later `observe`.",
             "inputSchema": json!({
                 "type": "object",
                 "properties": {
@@ -213,6 +218,14 @@ impl<W: std::io::Write> Tools<W> {
     /// The run log written so far, for a test to read back (`Writer::get_ref`).
     pub fn log(&self) -> &Writer<W> {
         &self.log
+    }
+
+    /// Writes the log's `end` line (#327): the world's own tick right now, and `reason` (stdin
+    /// closed, or an error reading it). The last thing `fn_agent serve` writes before it exits,
+    /// so `fn_tui --watch` can tell a finished run from one that's merely caught up with a live
+    /// agent still thinking.
+    pub fn end(&mut self, reason: &str) -> Result<(), String> {
+        self.log.write_end(self.host.tick(), reason).map_err(|e| e.to_string())
     }
 
     /// Runs `name` with `arguments` (as `tools/call`'s own params shape), returning the tool's
