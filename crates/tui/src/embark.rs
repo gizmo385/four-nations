@@ -241,7 +241,7 @@ impl EmbarkScreen {
     /// `E`, or `Enter`/`+` at the closest zoom: the y/n prompt, unless the site is refused, which
     /// shows the reason as a status message instead (docs/design/embark.md, "The y/n prompt").
     fn ask_or_refuse(&mut self, defs: &Defs) {
-        match self.survey.report(self.cursor, self.mode, defs).problem {
+        match self.survey.report(self.cursor, self.mode, self.difficulty(), defs).problem {
             Some(problem) => {
                 self.status =
                     format!("Can't settle: {}.", problem_text(problem, self.tile_terrain()));
@@ -476,7 +476,7 @@ pub fn draw_embark(
         );
         return;
     };
-    let report = screen.survey.report(screen.cursor, screen.mode, defs);
+    let report = screen.survey.report(screen.cursor, screen.mode, screen.difficulty(), defs);
     if screen.help {
         draw_help(palette, regions.map, buf);
     } else {
@@ -655,6 +655,20 @@ fn land_label(kind: fn_sim::embark::LandKind, defs: &Defs) -> String {
     }
 }
 
+/// The climate band's name and effects, lower case (`docs/design/difficulty.md`, "Embark"): for
+/// example `cool: cold, frost`, or `warm: mild` for a band with neither.
+fn climate_word(climate: &fn_sim::seasons::ClimateDef) -> String {
+    let mut effects = Vec::new();
+    if climate.cold {
+        effects.push("cold");
+    }
+    if climate.frost {
+        effects.push("frost");
+    }
+    let effects = if effects.is_empty() { "mild".to_owned() } else { effects.join(", ") };
+    format!("{}: {effects}", climate.name.to_lowercase())
+}
+
 fn level_word(level: Level) -> &'static str {
     match level {
         Level::None => "none",
@@ -792,6 +806,13 @@ fn draw_panel(
             .collect::<Vec<_>>()
             .join("  ");
         p.row(&Row::text(text, Tone::Text));
+    }
+    // The start tile's climate band (#297, docs/design/difficulty.md "Embark"), only when the
+    // chosen preset has seasons on: Sandbox, or no preset, never shows it.
+    let seasons_on =
+        screen.difficulty().and_then(|id| defs.difficulty.preset(id)).is_some_and(|k| k.seasons);
+    if seasons_on {
+        p.row(&Row::pair("Winter", Tone::Text, climate_word(&report.climate), Tone::Text));
     }
     p.row(&Row::pair(
         "Room to roam",
