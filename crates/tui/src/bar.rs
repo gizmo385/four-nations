@@ -30,7 +30,7 @@ pub fn bar_area(map: Rect) -> Rect {
 
 /// One meter as a row: `Hunger ███████░░░  72%!`. The `!` marks anything that is not ok.
 pub fn meter_row(label: &str, frac: f32, tone: Tone, flag: bool, marks: &Marks) -> Row {
-    let (full, empty) = meter(frac, BAR_CELLS, marks);
+    let (full, empty) = meter(frac, BAR_CELLS, marks.full, marks.empty);
     Row::spans(vec![
         (format!("{label:<LABEL$} "), Tone::Dim),
         (full, tone),

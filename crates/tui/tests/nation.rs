@@ -14,6 +14,9 @@ use fn_ui::Tool;
 
 const SIZE: (u16, u16) = (120, 40);
 const SMALL: (u16, u16) = (80, 24);
+/// Wide enough that the old far-right-pinned meters (#325) would have drifted well away from the
+/// names; the header and meters should still sit a fixed distance past them.
+const WIDE: (u16, u16) = (200, 40);
 
 fn app(seed: u64, nation: Nation, size: (u16, u16)) -> App {
     App::new(new_session(seed, nation), size)
@@ -138,4 +141,13 @@ fn golden_nation_narrow_drops_the_meters_for_a_flag() {
     let mut a = working_game(SMALL);
     run(&mut a, "n");
     golden("earth_seed7_nation_small", &text(&mut a, SMALL));
+}
+
+/// A very wide terminal (#325): the meter header and the meters themselves stay a fixed distance
+/// past the name/task column instead of being pinned to the far right edge.
+#[test]
+fn golden_nation_wide_terminal_keeps_the_meters_near_the_names() {
+    let mut a = working_game(WIDE);
+    run(&mut a, "n");
+    golden("earth_seed7_nation_wide", &text(&mut a, WIDE));
 }

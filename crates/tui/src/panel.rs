@@ -319,7 +319,7 @@ fn research_rows(view: &SideView, marks: &Marks) -> Vec<Row> {
     }
     let label =
         if r.more_queued > 0 { format!("{} +{}", r.label, r.more_queued) } else { r.label.clone() };
-    let (full, empty) = meter(r.frac, BAR_CELLS, marks);
+    let (full, empty) = meter(r.frac, BAR_CELLS, marks.full, marks.empty);
     vec![
         Row::pair(label, Tone::Strong, r.rate.clone(), Tone::Dim),
         Row::spans(vec![
@@ -339,7 +339,7 @@ fn research_row_short(view: &SideView, marks: &Marks) -> Row {
     if r.frac == 0.0 && r.label == "No target set" {
         return Row::pair(r.label.clone(), Tone::Dim, r.pool.clone(), Tone::Dim);
     }
-    let (full, empty) = meter(r.frac, BAR_CELLS, marks);
+    let (full, empty) = meter(r.frac, BAR_CELLS, marks.full, marks.empty);
     Row::spans(vec![
         (format!("{} ", r.label), Tone::Strong),
         (full, Tone::Accent),
