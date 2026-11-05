@@ -7,6 +7,14 @@
 //! Everything here is a pure function of `RunConfig` and `Defs`: the same inputs always produce
 //! the same `RunReport` (the harness's own determinism test, and `tests/balance.rs`'s), since
 //! `World` draws no randomness but its own seeded streams and the opening reads only `World`.
+//!
+//! `RunConfig::bend_slots` switches on the mastery mode (#343, `docs/design/endgame.md`,
+//! "Mastery pacing"): alongside the opening, `Opening::with_bending` keeps that many bends
+//! designated near the anchor every in-game minute, so a settler's chi (almost) never sits idle.
+//! `RunReport::top_bends` and `masters_minute` are what that mode adds to read off the pace:
+//! the `balance` binary's own mastery sweep drives this over every nation and seed named, at
+//! whatever `--minutes` checkpoints a caller wants (re-running fresh for each, since one run is
+//! cheap, module doc above).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -16,7 +24,9 @@ use crate::embark::Survey;
 use crate::geom::Pos;
 use crate::mapgen::MapGenConfig;
 use crate::nation::Nation;
-use crate::world::{FoodSource, SeasonEventKind, TICKS_PER_SECOND, Task, UnitId, World};
+use crate::world::{
+    EndeavorEventKind, FoodSource, SeasonEventKind, TICKS_PER_SECOND, Task, UnitId, World,
+};
 
 /// The settlement's starting headcount every run uses: the same six settlers the TUI starts a
 /// new game with (`fn_ui::STARTING_UNITS`). `fn_sim` doesn't depend on `fn_ui`, so this is kept
@@ -40,6 +50,10 @@ pub struct RunConfig {
     /// Whether `autoplay::Opening` drives the settlement, instead of leaving it to forage, drink
     /// and sleep on its own.
     pub opening: bool,
+    /// The mastery mode (module doc): bends the opening keeps designated near the anchor, so
+    /// chi (almost) never sits idle. `None` leaves bending alone; ignored if `opening` is
+    /// `false`, since there is then no `Opening` to drive it.
+    pub bend_slots: Option<u32>,
     pub width: i32,
     pub height: i32,
 }
@@ -62,6 +76,14 @@ pub struct RunReport {
     pub walk_minute_15: Option<f32>,
     /// The same, for the window starting at minute 90.
     pub walk_minute_90: Option<f32>,
+    /// The three highest `Unit::bends` among living settlers when the run ended, highest first,
+    /// short if fewer than three settlers are alive (mastery mode, module doc).
+    pub top_bends: Vec<u32>,
+    /// The minute the `masters` sign (`data/endeavor.toml`) was first met, if ever within
+    /// `cfg.minutes`: `World::endeavor_events`'s own `SignMet("masters")`, so the threshold and
+    /// target come from the data, not a number this module hardcodes. `None` if it was never
+    /// met, or the data has no such sign.
+    pub masters_minute: Option<f32>,
 }
 
 /// Runs one `(preset, nation, seed)`: surveys `cfg`'s map, founds a world at the valid site
@@ -82,7 +104,10 @@ pub fn run(cfg: &RunConfig, defs: &Defs) -> RunReport {
     let start = survey.default_site(defs);
     let mut world = World::found(survey, cfg.nation, start, PEOPLE, cfg.preset.clone(), defs)
         .expect("Survey::default_site always names a site World::found accepts");
-    let opening = cfg.opening.then(|| Opening::new(PEOPLE));
+    let opening = cfg.opening.then(|| match cfg.bend_slots {
+        Some(slots) => Opening::with_bending(PEOPLE, slots),
+        None => Opening::new(PEOPLE),
+    });
 
     let total_ticks = minutes_to_ticks(cfg.minutes);
     let mut walker = WalkTracker::default();
@@ -118,6 +143,14 @@ pub fn run(cfg: &RunConfig, defs: &Defs) -> RunReport {
         }
     }
 
+    let mut top_bends: Vec<u32> = world.units.iter().map(|u| u.bends()).collect();
+    top_bends.sort_unstable_by(|a, b| b.cmp(a));
+    top_bends.truncate(3);
+    let masters_minute = world.endeavor_events().iter().find_map(|e| match &e.kind {
+        EndeavorEventKind::SignMet(id) if id == "masters" => Some(ticks_to_minutes(e.tick)),
+        _ => None,
+    });
+
     RunReport {
         first_death_minute: world.deaths.first().map(|d| ticks_to_minutes(d.tick)),
         deaths: world.deaths.len() as u32,
@@ -125,6 +158,8 @@ pub fn run(cfg: &RunConfig, defs: &Defs) -> RunReport {
         winter_food_per_head,
         walk_minute_15: median(window_samples[0].clone()),
         walk_minute_90: median(window_samples[1].clone()),
+        top_bends,
+        masters_minute,
     }
 }
 
@@ -208,9 +243,14 @@ mod tests {
             preset: Some(preset.to_owned()),
             minutes,
             opening,
+            bend_slots: None,
             width: size.width,
             height: size.height,
         }
+    }
+
+    fn bending_cfg(nation: Nation, minutes: f32, bend_slots: u32) -> RunConfig {
+        RunConfig { bend_slots: Some(bend_slots), ..cfg("normal", nation, true, minutes) }
     }
 
     #[test]
@@ -241,5 +281,54 @@ mod tests {
         let c = cfg("normal", Nation::Earth, true, 90.0);
         let report = run(&c, &defs);
         assert!(!report.winter_food_per_head.is_empty());
+    }
+
+    /// The mastery mode (#343): two runs of the same bending config give the same report, as
+    /// the module doc promises.
+    #[test]
+    fn bending_is_also_deterministic() {
+        let defs = Defs::bundled();
+        let c = bending_cfg(Nation::Fire, 20.0, 6);
+        assert_eq!(run(&c, &defs), run(&c, &defs));
+    }
+
+    /// Fire's Hearthflame needs no tech and never runs out of valid ground to kindle, so bends
+    /// pile up steadily (`docs/design/endgame.md`, "Mastery pacing").
+    #[test]
+    fn bending_designates_hearthflame_for_fire() {
+        let defs = Defs::bundled();
+        let c = bending_cfg(Nation::Fire, 30.0, 6);
+        let report = run(&c, &defs);
+        assert!(report.top_bends.first().copied().unwrap_or(0) > 0, "{report:?}");
+    }
+
+    /// Water's Water the Land needs no tech either, and wetting a patch never consumes the
+    /// ground beside the river, so it never runs dry the way Earth's Raise Earth can.
+    #[test]
+    fn bending_designates_water_the_land_for_water() {
+        let defs = Defs::bundled();
+        let c = bending_cfg(Nation::Water, 30.0, 6);
+        let report = run(&c, &defs);
+        assert!(report.top_bends.first().copied().unwrap_or(0) > 0, "{report:?}");
+    }
+
+    /// `top_bends` is at most 3 entries and never more than the living population.
+    #[test]
+    fn top_bends_is_at_most_three() {
+        let defs = Defs::bundled();
+        let c = bending_cfg(Nation::Earth, 30.0, PEOPLE);
+        let report = run(&c, &defs);
+        assert!(report.top_bends.len() <= 3, "{report:?}");
+    }
+
+    /// With no bending mode, the opening never designates a bend, so `masters_minute` is never
+    /// met and `top_bends` stays at zero: the pre-#343 behaviour is unchanged.
+    #[test]
+    fn with_no_bend_slots_nobody_bends() {
+        let defs = Defs::bundled();
+        let c = cfg("normal", Nation::Fire, true, 30.0);
+        let report = run(&c, &defs);
+        assert_eq!(report.top_bends, vec![0, 0, 0]);
+        assert_eq!(report.masters_minute, None);
     }
 }

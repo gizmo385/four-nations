@@ -28,7 +28,16 @@
 //! and drives a short, shared research queue, skipping whatever a nation already knows or can't
 //! research (`Command::SetResearch`'s own `WrongNation`/`AlreadyKnown` refusals), so the same
 //! plan plays for every nation with no `if nation == ..`.
+//!
+//! **Bending** (`Opening::with_bending`, #343, `docs/design/endgame.md`, "Mastery pacing") is
+//! off by default. When on, `step` also keeps up to `bend_slots` bends designated within
+//! `FORAGE_RADIUS` tiles of the anchor: for every empty slot, the cheapest ability (by chi) the
+//! settlement can cast (`World::check_ability`) that has a valid target nearby (nearest tile
+//! first, `World::apply`'s own validation deciding), so chi never sits idle. This is generic
+//! over `data/bending.toml`, with no `if nation == ..`: the `balance` harness's mastery mode is
+//! what exercises it.
 
+use crate::bending::AbilityId;
 use crate::building::{BuildingId, CostItem};
 use crate::defs::Defs;
 use crate::geom::Pos;
@@ -59,19 +68,28 @@ const STOCKPILE_TILES: usize = 4;
 /// giving up for this step (and trying again next one).
 const BUILD_SEARCH_RADIUS: i32 = 30;
 
-/// A scripted opening for one settlement. Stateless beyond `people` (`Opening::step` reads
-/// everything else off the `World` it's given), so it's `Copy` and safe to keep around for a
-/// whole run.
+/// A scripted opening for one settlement. Stateless beyond `people` and `bend_slots`
+/// (`Opening::step` reads everything else off the `World` it's given), so it's `Copy` and safe
+/// to keep around for a whole run.
 #[derive(Debug, Clone, Copy)]
 pub struct Opening {
     /// Beds the opening keeps built: usually the settlement's starting headcount, but a harness
     /// that wants fewer or more may pass anything.
     pub people: u32,
+    /// Bends the opening keeps designated near the anchor (module doc, "Bending"); `None` leaves
+    /// bending alone, which is what every opening did before #343.
+    pub bend_slots: Option<u32>,
 }
 
 impl Opening {
     pub fn new(people: u32) -> Self {
-        Self { people }
+        Self { people, bend_slots: None }
+    }
+
+    /// The same opening, but every `step` also keeps up to `bend_slots` bends designated near
+    /// the anchor (module doc, "Bending"): the balance harness's mastery mode (#343).
+    pub fn with_bending(people: u32, bend_slots: u32) -> Self {
+        Self { people, bend_slots: Some(bend_slots) }
     }
 
     /// Ticks between decisions (`STEP_MINUTES`), at least 1.
@@ -95,6 +113,9 @@ impl Opening {
         self.beds(world, defs, anchor);
         self.campfire(world, defs, anchor);
         self.research(world, defs);
+        if let Some(slots) = self.bend_slots {
+            self.bend(world, defs, anchor, slots);
+        }
     }
 
     /// Lays a small stockpile near the anchor, once there is none at all.
@@ -192,6 +213,42 @@ impl Opening {
             }
         }
     }
+
+    /// Keeps up to `slots` bends designated within `FORAGE_RADIUS` tiles of `anchor` (module
+    /// doc, "Bending"): while fewer than `slots` are pending, designates the cheapest ability
+    /// (lowest `AbilityDef::chi`) the settlement can cast right now (`World::check_ability`)
+    /// that has a valid target among those tiles, nearest first, leaving `World::apply`'s own
+    /// validation to decide what counts as valid. Stops for this step once nothing can be added,
+    /// so a nation with no ability available, or no target anywhere nearby, is left alone rather
+    /// than looping.
+    fn bend(&self, world: &mut World, defs: &Defs, anchor: Pos, slots: u32) {
+        let mut abilities: Vec<AbilityId> = (0..defs.abilities.len() as u16)
+            .map(AbilityId)
+            .filter(|&a| world.check_ability(a, defs).is_ok())
+            .collect();
+        if abilities.is_empty() {
+            return;
+        }
+        abilities.sort_by(|&a, &b| defs.ability(a).chi.total_cmp(&defs.ability(b).chi));
+        let positions = positions_near(anchor, FORAGE_RADIUS);
+        loop {
+            let pending = world
+                .bend_designations()
+                .filter(|&(_, p)| p.chebyshev(anchor) <= FORAGE_RADIUS)
+                .count() as u32;
+            if pending >= slots {
+                return;
+            }
+            let placed = abilities.iter().any(|&ability| {
+                positions
+                    .iter()
+                    .any(|&pos| world.apply(Command::Bend { ability, pos }, defs).is_ok())
+            });
+            if !placed {
+                return;
+            }
+        }
+    }
 }
 
 /// Tiles in the box of `radius` tiles around `anchor`, in bounds, whose resource satisfies
@@ -253,6 +310,19 @@ fn open_tiles_near(world: &World, anchor: Pos, radius: i32) -> Vec<Pos> {
         .collect();
     open.sort_by_key(|p| ((p.x - anchor.x).pow(2) + (p.y - anchor.y).pow(2), *p));
     open
+}
+
+/// Every tile in the box of `radius` tiles around `anchor`, nearest first (squared distance,
+/// then by position, `open_tiles_near`'s own tie-break): candidate bend targets, in the order
+/// `Opening::bend` tries them. Unlike `open_tiles_near` this doesn't filter by what's on the
+/// tile, since a bend's valid targets (a river bank, a ground stack, open ground) vary by
+/// ability and `World::apply`'s own validation is what decides.
+fn positions_near(anchor: Pos, radius: i32) -> Vec<Pos> {
+    let mut ps: Vec<Pos> = (anchor.y - radius..=anchor.y + radius)
+        .flat_map(|y| (anchor.x - radius..=anchor.x + radius).map(move |x| Pos::new(x, y)))
+        .collect();
+    ps.sort_by_key(|p| ((p.x - anchor.x).pow(2) + (p.y - anchor.y).pow(2), *p));
+    ps
 }
 
 /// The nearest tile to `anchor` (by `Pos`'s own ordering within each ring, nearest ring first)
@@ -370,6 +440,37 @@ mod tests {
         let (mut a, defs) = world(Nation::Air);
         let (mut b, _) = world(Nation::Air);
         let opening = Opening::new(6);
+        for tick in 0..600u64 {
+            if Opening::due(tick) {
+                opening.step(&mut a, &defs);
+                opening.step(&mut b, &defs);
+            }
+            a.tick(&defs);
+            b.tick(&defs);
+        }
+        assert_eq!(a.command_log(), b.command_log());
+    }
+
+    /// Fire's Hearthflame needs no tech, so `with_bending` designates one near the anchor on
+    /// the very first step (#343).
+    #[test]
+    fn with_bending_designates_a_bend_near_the_anchor() {
+        let (mut world, defs) = world(Nation::Fire);
+        let opening = Opening::with_bending(6, 6);
+        opening.step(&mut world, &defs);
+        let anchor = world.settlement_anchor();
+        assert!(
+            world.bend_designations().any(|(_, p)| p.chebyshev(anchor) <= FORAGE_RADIUS),
+            "expected a bend designated near the anchor"
+        );
+    }
+
+    /// Bending is as deterministic as the rest of the opening (module doc, "Bending").
+    #[test]
+    fn with_bending_is_deterministic_given_the_same_world_twice() {
+        let (mut a, defs) = world(Nation::Earth);
+        let (mut b, _) = world(Nation::Earth);
+        let opening = Opening::with_bending(6, 6);
         for tick in 0..600u64 {
             if Opening::due(tick) {
                 opening.step(&mut a, &defs);

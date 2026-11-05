@@ -25,6 +25,7 @@ fn cfg(preset: &str, opening: bool, defs: &Defs) -> RunConfig {
         preset: Some(preset.to_owned()),
         minutes: MINUTES,
         opening,
+        bend_slots: None,
         width: size.width,
         height: size.height,
     }
