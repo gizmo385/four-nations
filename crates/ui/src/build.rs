@@ -204,6 +204,9 @@ fn describe_blocker(session: &Session, at: Pos, why: Blocker) -> String {
             }
             None => why.to_string(),
         },
+        // The word is already in the sim's `Blocker::Beside` text ("must touch rock", #373):
+        // `BuildingDef::beside_word` picked it when `check_build` refused the placement.
+        Blocker::Beside(_) => why.to_string(),
     }
 }
 

@@ -35,6 +35,12 @@
 //!   from the build picker. The Endeavor screen places it (`Command::BeginEndeavor`) and its
 //!   stages in `data/endeavor.toml` carry its cost and work instead (`world/gate.rs`).
 //!
+//! - `beside` (issue #373) restricts *where* a building may go, on top of the usual per-tile
+//!   checks: at least one tile of its footprint's ring (`Footprint::ring`) must be one of the
+//!   named terrains, or `World::check_build` refuses it (`world/build.rs`'s `Blocker::Beside`),
+//!   for buildings that work a vein from inside the rock (Earth's Mine Shaft and Deep Mine) or
+//!   need open water alongside (a future Water building).
+//!
 //! Which tech must be known before a building may be designated is `Unlocks::buildings` in
 //! `data/research.toml`, resolved here into `BuildingDef::unlocked_by` (issue #22). A building no
 //! tech names is available from the start.
@@ -43,7 +49,7 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
-use crate::defs::{DefsError, ResourceDef, ResourceId};
+use crate::defs::{DefsError, ResourceDef, ResourceId, Terrain};
 use crate::geom::{Footprint, Pos};
 use crate::jobs::{ItemDef, ItemId};
 use crate::nation::{Modifiers, Nation};
@@ -189,10 +195,14 @@ pub struct CostItem {
 /// `work` seconds (scaled by `modifier`, if named) and the batch yields `output`, dropped near
 /// the building for hauling, before the cycle starts again. Unlike a building's own `cost`, a
 /// recipe never finishes: the building keeps making batches for as long as its inputs keep
-/// coming, up to `stock_limit` (issue #350).
+/// coming, up to `stock_limit` (issue #350). `inputs` may be empty (issue #373): a source
+/// recipe, like Earth's Mine Shaft cutting stone out of the rock it's built against. With
+/// nothing to fetch, a crafter goes straight to working inside once a batch is free to start
+/// (`World::next_craft_shortfall` finds no shortfall), so it still needs a worker and still
+/// takes `work` seconds; `stock_limit` still idles it once enough output is stored.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecipeDef {
-    /// What one batch consumes. At least one entry, no item named twice.
+    /// What one batch consumes. May be empty (issue #373: a source recipe); no item named twice.
     pub inputs: Vec<CostItem>,
     /// What one batch yields.
     pub output: CostItem,
@@ -303,9 +313,26 @@ pub struct BuildingDef {
     /// The end game's great work (#236): hidden from the build picker and refused by
     /// `Command::DesignateBuild`. `data/endeavor.toml` names it and holds its stages.
     pub endeavor: bool,
+    /// Terrains at least one tile of the footprint's ring must touch (issue #373), or
+    /// `World::check_build` refuses the placement. `None` means no such rule. Earth's Mine Shaft
+    /// and Deep Mine need `["mountain", "tunnel"]`, the rock they work from inside.
+    pub beside: Option<Vec<Terrain>>,
 }
 
 impl BuildingDef {
+    /// The word naming what `beside` requires touching, for the placement ghost's refusal
+    /// ("must touch rock", issue #373). `None` when this building has no `beside` rule.
+    pub fn beside_word(&self) -> Option<&'static str> {
+        let terrains = self.beside.as_ref()?;
+        Some(if terrains.iter().all(|t| matches!(t, Terrain::Mountain | Terrain::Tunnel)) {
+            "rock"
+        } else if terrains.iter().all(|t| t.is_water()) {
+            "water"
+        } else {
+            "the right ground"
+        })
+    }
+
     /// The name of the sprite this building is drawn with in `nation`: `art[nation]` if the
     /// building has per-nation art, else its `id`.
     pub fn art_for(&self, nation: Nation) -> &str {
@@ -431,6 +458,10 @@ struct RawBuilding {
     art: HashMap<Nation, String>,
     #[serde(default)]
     endeavor: bool,
+    /// `beside = ["mountain", "tunnel"]` (issue #373): the footprint's ring must touch one of
+    /// these, or the placement is refused. Absent means no such rule.
+    #[serde(default)]
+    beside: Option<Vec<Terrain>>,
 }
 
 #[derive(Deserialize)]
@@ -555,6 +586,11 @@ impl BuildingsFile {
                     ));
                 }
             }
+            if let Some(beside) = &b.beside
+                && beside.is_empty()
+            {
+                return err(format!("building {}: beside must name at least one terrain", b.id));
+            }
             let orchard = match &b.orchard {
                 None => None,
                 Some(o) => Some(resolve_orchard(&b.id, o, resources)?),
@@ -605,6 +641,7 @@ impl BuildingsFile {
                 art: b.art,
                 unlocked_by: None,
                 endeavor: b.endeavor,
+                beside: b.beside,
             });
         }
         link_unlocks(&mut buildings, techs)?;
@@ -656,9 +693,8 @@ fn resolve_recipe(
 ) -> Result<RecipeDef, DefsError> {
     let err =
         |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: recipe {msg}")));
-    if r.input.is_empty() {
-        return err("needs at least one input");
-    }
+    // `input = []` is allowed (issue #373): a source recipe, like the Mine Shaft's stone cut
+    // from the rock it's built against, with nothing to fetch.
     let mut inputs = Vec::new();
     for i in &r.input {
         let Some(item) = items.iter().position(|d| d.id == i.item) else {

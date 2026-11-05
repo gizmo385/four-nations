@@ -989,8 +989,8 @@ mod tests {
     }
 
     /// The bundled data's reachable count, per nation, before `spare` (today: Air 9, Water 7,
-    /// Earth 7, Fire 10; `docs/design/materials.md` section 6, raised by the shared Workshop,
-    /// #369).
+    /// Earth 9, Fire 10; `docs/design/materials.md` section 6, raised by the shared Workshop
+    /// (#369) and, for Earth, the Mine Shaft and Deep Mine (#373)).
     fn reachable_counts() -> [(Nation, u32); 4] {
         let defs = Defs::bundled();
         Nation::ALL
@@ -1011,7 +1011,7 @@ mod tests {
         // Today's bundled counts, so a content change that moves these is visible in review.
         assert_eq!(
             reachable_counts(),
-            [(Nation::Air, 9), (Nation::Water, 7), (Nation::Earth, 7), (Nation::Fire, 10)]
+            [(Nation::Air, 9), (Nation::Water, 7), (Nation::Earth, 9), (Nation::Fire, 10)]
         );
     }
 

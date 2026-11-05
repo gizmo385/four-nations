@@ -470,11 +470,11 @@ mod tests {
         assert_eq!(building_hint(&["Earth Wall"], data), Some("Not yet raised: Earth Wall".into()));
         assert_eq!(building_hint(&["A", "B", "C"], data), Some("Raise something new".into()));
         assert_eq!(building_hint(&[], None), None);
-        // A new Earth game hasn't raised any of its 7 reachable kinds yet (4 shared, earth_wall,
-        // rail and the shared Workshop, #369).
+        // A new Earth game hasn't raised any of its 9 reachable kinds yet (4 shared, earth_wall,
+        // rail, the shared Workshop, #369, and the Mine Shaft and Deep Mine, #373).
         let s = session(Nation::Earth);
         let left = missing_building_names(&s.world, &s.defs);
-        assert_eq!(left.len(), 7);
+        assert_eq!(left.len(), 9);
     }
 
     #[test]

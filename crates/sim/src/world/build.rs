@@ -21,6 +21,12 @@
 //! construct work is a `Build` job, but its cost and work come from its stages: `run_build` hands
 //! it to `gate.rs`. The queries for ordinary sites (`build_sites`, `build_site`) leave it out, and
 //! `CancelBuild` refuses it.
+//!
+//! A building with `BuildingDef::beside` set (issue #373) needs more than free land: its
+//! footprint's ring (`Footprint::ring`) must touch one of the named terrains too, or
+//! `check_build` refuses it with `Blocker::Beside`. Earth's Mine Shaft and Deep Mine need
+//! `["mountain", "tunnel"]`: a shaft placed against a tunnel works the same as one against bare
+//! rock.
 
 use crate::building::{Building, BuildingId, is_one_by_one, one_by_one};
 use crate::defs::Terrain;
@@ -83,19 +89,24 @@ pub enum Blocker {
     /// buildings"): a building's door never moves once it's placed, so a unit that walked in
     /// could never be found again.
     Entrance,
+    /// The footprint's ring touches none of `BuildingDef::beside`'s terrains (issue #373: the
+    /// Mine Shaft and Deep Mine must touch rock). Carries the word for what to touch
+    /// (`BuildingDef::beside_word`), since it differs by building.
+    Beside(&'static str),
 }
 
 impl std::fmt::Display for Blocker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::OffMap => "off the map",
-            Self::Terrain => "can't build on this ground",
-            Self::Resource => "something is in the way",
-            Self::Building => "a building is in the way",
-            Self::Site => "already designated",
-            Self::Stockpile => "a stockpile is in the way",
-            Self::Entrance => "blocks a door",
-        })
+        match self {
+            Self::OffMap => f.write_str("off the map"),
+            Self::Terrain => f.write_str("can't build on this ground"),
+            Self::Resource => f.write_str("something is in the way"),
+            Self::Building => f.write_str("a building is in the way"),
+            Self::Site => f.write_str("already designated"),
+            Self::Stockpile => f.write_str("a stockpile is in the way"),
+            Self::Entrance => f.write_str("blocks a door"),
+            Self::Beside(word) => write!(f, "must touch {word}"),
+        }
     }
 }
 
@@ -326,6 +337,22 @@ impl World {
         foot.tiles()
             .find_map(|at| self.build_blocker(at).map(|why| (at, why)))
             .or_else(|| self.entrance_blocker(foot, def.capacity > 0, defs))
+            .or_else(|| self.beside_blocker(foot, def))
+    }
+
+    /// Why `foot` fails `def`'s `beside` rule, if it has one and nothing in `foot`'s ring is one
+    /// of the named terrains (issue #373): the anchor, with the word for what to touch
+    /// (`BuildingDef::beside_word`). `None` if `def` has no `beside` rule, or the ring already
+    /// touches it.
+    fn beside_blocker(&self, foot: Footprint, def: &BuildingDef) -> Option<(Pos, Blocker)> {
+        let terrains = def.beside.as_ref()?;
+        let touches =
+            foot.ring().filter_map(|p| self.map.get(p)).any(|t| terrains.contains(&t.terrain));
+        if touches {
+            None
+        } else {
+            Some((foot.anchor, Blocker::Beside(def.beside_word().expect("beside is Some"))))
+        }
     }
 
     /// Whether `pos` could hold a door: walkable the way a unit stepping through one needs

@@ -122,9 +122,10 @@ fn a_building_over_several_tiles_counts_once() {
 fn every_building_counts_only_kinds_distinct_and_finished() {
     let defs = Defs::bundled();
     let mut w = world(Nation::Earth, 1, &defs);
-    // Earth reaches 7 kinds today (4 shared, earth_wall, rail and the shared Workshop); spare = 1
-    // makes the target 6 (`docs/design/materials.md` section 6, #272, #354; the Workshop, #369).
-    assert_eq!(progress(&w, &defs, "building_kinds"), (0, 6, false));
+    // Earth reaches 9 kinds today (4 shared, earth_wall, rail, the shared Workshop, the Mine
+    // Shaft and the Deep Mine); spare = 1 makes the target 8 (`docs/design/materials.md` section
+    // 6, #272, #354; the Workshop, #369; the mines, #373).
+    assert_eq!(progress(&w, &defs, "building_kinds"), (0, 8, false));
     put(&mut w, &defs, "bed", at(3, 3));
     put(&mut w, &defs, "bed", at(4, 3));
     put(&mut w, &defs, "campfire", at(5, 3));
@@ -160,11 +161,12 @@ fn every_building_targets_are_computed_per_nation() {
         .iter()
         .map(|&n| (n, progress(&world(n, 1, &defs), &defs, "building_kinds").1))
         .collect();
-    // Today's numbers (`docs/design/materials.md` section 6, raised by the shared Workshop,
-    // #369): Air 9, Water 7, Earth 7 and Fire 10 reachable, minus the bundled sign's `spare = 1`.
+    // Today's numbers (`docs/design/materials.md` section 6, raised by the shared Workshop
+    // (#369) and, for Earth, the Mine Shaft and Deep Mine (#373)): Air 9, Water 7, Earth 9 and
+    // Fire 10 reachable, minus the bundled sign's `spare = 1`.
     assert_eq!(
         targets,
-        [(Nation::Air, 8), (Nation::Water, 6), (Nation::Earth, 6), (Nation::Fire, 9)]
+        [(Nation::Air, 8), (Nation::Water, 6), (Nation::Earth, 8), (Nation::Fire, 9)]
     );
 }
 
