@@ -507,8 +507,11 @@ mod tests {
     /// and ability unlocks (so `fish_spot`, `stone` and the abilities don't dangle).
     fn bare_research() -> String {
         let mut src = RESEARCH.to_string();
-        for job in ["fish_spot", "stone"] {
-            let unlock = format!("[tech.unlocks]\njobs = [\"{job}\"]\n");
+        for (job, unlock) in [
+            ("fish_spot", "[tech.unlocks]\njobs = [\"fish_spot\"]\n".to_owned()),
+            // boulder added alongside stone by #349.
+            ("stone", "[tech.unlocks]\njobs = [\"stone\", \"boulder\"]\n".to_owned()),
+        ] {
             assert!(src.contains(&unlock), "{job}'s unlocks.jobs moved; update this helper");
             src = src.replace(&unlock, "");
         }

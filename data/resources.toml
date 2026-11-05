@@ -29,15 +29,20 @@ terrains = ["land"]
 biomes = ["tundra", "desert"]
 min_spacing = 20
 
-# Gold is a find, not wallpaper: mountains only, roughly 20-25 veins on a 192x128 map
-# (a few per screen at default zoom). Listed first so it wins over stone on a mountain tile.
+# Gold is a find, not wallpaper, but mountains only: a non-Earth settlement that strips every
+# reachable vein within 40 tiles still needs several times today's density to pass the ore sign.
+# chance and min_spacing raised by #349 (docs/design/materials.md, section 1; the balance survey
+# below is #348's `balance --supply`, not the doc's own throwaway trial, whose reachability
+# estimate ran well above what the real tool measures): seeds 1-8, Small, median gold_vein worth
+# reachable within 40 tiles went from 4 to 42 ore against the sign's 40 (jobs.toml's richer
+# `count` does the rest). Listed first so it wins over stone on a mountain tile.
 [[resource]]
 id = "gold_vein"
 name = "Gold Vein"
 glyph = "$"
-chance = 0.05
+chance = 0.14
 terrains = ["mountain"]
-min_spacing = 6
+min_spacing = 2
 
 [[resource]]
 id = "stone"
@@ -66,6 +71,22 @@ terrains = ["land"]
 biomes = ["forest", "taiga", "tundra"]
 clustering = 0.7
 moisture_scaled = true
+
+# Foothill boulders (#349, docs/design/materials.md, section 2): open land beside a mountain, so
+# every nation can quarry stone without boring into rock, not just the outcrops on the mountain
+# tiles themselves. Listed after the trees so it never displaces them (a boulder only takes land
+# the forests passed on). Blocks movement like any other resource tile, which is also why `chance`
+# stays at the doc's "about 0.2" rather than rising further: a denser field of boulders chokes the
+# walkable ground around a mountain's foot, which measurably costs more reachable outcrops and
+# veins than the extra boulders are worth (jobs.toml's `count` carries the rest of the load).
+[[resource]]
+id = "boulder"
+name = "Boulder"
+glyph = "0"
+chance = 0.2
+terrains = ["land"]
+beside = ["mountain"]
+clustering = 0.5
 
 [[resource]]
 id = "cabbage"

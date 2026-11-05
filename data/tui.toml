@@ -115,6 +115,13 @@ glyph = "•"
 ascii = "o"
 fg = [205, 205, 212]
 
+# A foothill boulder (#349, docs/design/materials.md, section 2): a bigger, bolder mark than an
+# outcrop's bullet, in stone's own colour.
+[resource.boulder]
+glyph = "●"
+ascii = "0"
+fg = [205, 205, 212]
+
 [resource.ancient_scroll]
 glyph = "§"
 ascii = "?"

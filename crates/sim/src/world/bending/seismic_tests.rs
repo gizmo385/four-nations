@@ -124,7 +124,11 @@ fn the_sense_uncovers_what_is_in_reach_and_it_can_be_mined() {
     }
     let mined: u32 = w.ground_items().filter(|(_, s)| s.item == h.item).map(|(_, s)| s.count).sum();
     assert_eq!(mined, h.tunnel_count.unwrap());
-    assert!(h.count > defs.harvest(defs.resource_id("gold_vein").unwrap()).unwrap().count);
+    // #349 (docs/design/materials.md, section 1) brought the surface vein's yield up to match a
+    // seam's: a seam's edge is in who can reach it (Seismic Sense, Earth only), not how rich it is.
+    let vein = defs.harvest(defs.resource_id("gold_vein").unwrap()).unwrap();
+    assert_eq!(h.count, vein.count);
+    assert_eq!(h.tunnel_count, vein.tunnel_count);
 }
 
 #[test]

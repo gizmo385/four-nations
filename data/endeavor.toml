@@ -119,7 +119,7 @@ name = "Stone in stores"
 kind = "stored"
 items = ["stone"]
 target = 200
-hint = "Quarry stone"
+hint = "Quarry outcrops and foothill boulders"
 
 [[sign]]
 id = "ore"
@@ -129,7 +129,7 @@ kind = "tally"
 tally = "harvested"
 items = ["gold_ore"]
 target = 40
-hint = "Mine gold veins"
+hint = "Mine gold veins ($); tunnels yield more"
 
 [[sign]]
 id = "masters"

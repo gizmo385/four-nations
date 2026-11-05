@@ -54,8 +54,11 @@ fn bending_game() -> App {
     let ability = ability_for_nation(&s.defs, Nation::Fire).unwrap();
     let from = s.world.units[0].pos;
     let mut designated = 0;
-    for dy in -4..=4 {
-        for dx in -4..=4 {
+    // -4..=4 (a 9x9 box) was enough fuel before #349's foothill boulders started blocking a few
+    // of its tiles near the mountain this settler starts beside, which otherwise trimmed the
+    // message log below the 40-line floor `the_log_scrolls_...` needs; -5..=5 has slack again.
+    for dy in -5..=5 {
+        for dx in -5..=5 {
             let pos = Pos::new(from.x + dx, from.y + dy);
             if s.apply(Command::Bend { ability, pos }).is_ok() {
                 designated += 1;
