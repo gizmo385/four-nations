@@ -37,7 +37,7 @@ const FRAME: Duration = Duration::from_millis(33);
 static ENHANCED: AtomicBool = AtomicBool::new(false);
 
 /// Puts the terminal back the way we found it. Safe to call twice, and from a panic hook.
-fn restore() {
+pub(crate) fn restore() {
     let mut out = io::stdout();
     if ENHANCED.swap(false, Ordering::SeqCst) {
         let _ = execute!(out, PopKeyboardEnhancementFlags);
@@ -48,7 +48,7 @@ fn restore() {
 }
 
 /// Restores the terminal when dropped, so an error return leaves a usable shell too.
-struct Restore;
+pub(crate) struct Restore;
 
 impl Drop for Restore {
     fn drop(&mut self) {
@@ -56,7 +56,7 @@ impl Drop for Restore {
     }
 }
 
-fn setup() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
+pub(crate) fn setup() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
     // A panic restores the terminal before its message prints, so the message is readable.
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {

@@ -29,7 +29,7 @@ use fn_sim::{Nation, Pos};
 use fn_ui::Session;
 use fn_ui::inspect::Line;
 use fn_ui::view::{activity_counts, nation_view, need_flags, side_view};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::app::App;
 use crate::cli::{self, Args};
@@ -71,6 +71,10 @@ pub struct Host {
     /// an `observe` between turns, or right after one, reports exactly what's new since then.
     alerts_since_turn: usize,
     log: RunLog,
+    /// [`Self::new`]'s own arguments, kept only so [`Self::header`] can describe how to rebuild
+    /// this session (a watcher, #319, or `fn_agent verify`, #317/#318, start from a header, not
+    /// from this live `Host`).
+    header: RunLogHeader,
 }
 
 impl Host {
@@ -101,9 +105,21 @@ impl Host {
             map_size,
             rough,
             difficulty,
+            watch: None,
+            pace: None,
+            at: None,
         };
         let shell = Shell::for_args(&args, cli::DEFAULT_SIZE, None, 0)?;
         let palette = Palette::new(shell.defs(), nation, ColorDepth::TrueColor, true);
+        let header = RunLogHeader {
+            seed,
+            nation,
+            turn_seconds: DEFAULT_TURN_SECONDS,
+            map_size: args.map_size,
+            difficulty: args.difficulty,
+            site,
+            rough,
+        };
         Ok(Self {
             shell,
             palette,
@@ -111,18 +127,28 @@ impl Host {
             turn: 0,
             alerts_since_turn: 0,
             log: RunLog::new(seed, nation),
+            header,
         })
     }
 
     /// Sets how many game seconds one `end_turn` turn covers (20 by default); at least one.
     pub fn with_turn_seconds(mut self, turn_seconds: u32) -> Self {
         self.turn_seconds = turn_seconds.max(1);
+        self.header.turn_seconds = self.turn_seconds;
         self
     }
 
     /// The run log so far: every key pressed and every turn run, in order.
     pub fn log(&self) -> &RunLog {
         &self.log
+    }
+
+    /// Enough of how this session started to rebuild it (`seed`, `nation`, `turn_seconds`,
+    /// `map_size`, `difficulty`, `site` and `rough`, [`Self::new`]'s own arguments): the first
+    /// line a run log writes (docs/design/agent-play.md, "Racing": "Run log"), and what
+    /// `fn_tui --watch` (#319) and `fn_agent verify` (#317/#318) read to start one of their own.
+    pub fn header(&self) -> RunLogHeader {
+        self.header.clone()
     }
 
     /// `Host::new` never leaves embark or the title screen open (a bad site or difficulty is an
@@ -792,12 +818,80 @@ impl RunLog {
         }
         tokens.join(" ")
     }
+
+    /// Every entry as a [`LogLine`], in the order [`Host`] made them (not including the header,
+    /// which is [`Host::header`]): the shape a run log's lines after the first take
+    /// (docs/design/agent-play.md, "Racing": "Run log"), that `fn_tui --watch` (#319) reads back
+    /// and `fn_agent` (#317) will write as it goes.
+    pub fn lines(&self) -> Vec<LogLine> {
+        self.entries.iter().map(LogLine::from).collect()
+    }
+
+    /// The whole run log as JSON Lines: `header`'s own line, then [`Self::lines`], one JSON
+    /// object a line. What a watcher reads (`fn_tui --watch`, #319) and, once `fn_agent` (#317)
+    /// writes a real one incrementally, what its file looks like start to finish.
+    pub fn to_jsonl(&self, header: &RunLogHeader) -> String {
+        let mut out = String::new();
+        out.push_str(&serde_json::to_string(&LogLine::Header(header.clone())).unwrap());
+        out.push('\n');
+        for line in self.lines() {
+            out.push_str(&serde_json::to_string(&line).unwrap());
+            out.push('\n');
+        }
+        out
+    }
+}
+
+/// Enough of how a [`Host`] session started to rebuild it: [`Host::new`]'s own arguments, plus
+/// how many game seconds one `end_turn` turn covers. The first line of a run log
+/// (docs/design/agent-play.md, "Racing": "Run log"), read by `fn_tui --watch` (#319) and
+/// `fn_agent verify` (#317/#318) to build the same session a live `Host` started from.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RunLogHeader {
+    pub seed: u64,
+    pub nation: Nation,
+    pub turn_seconds: u32,
+    pub map_size: Option<String>,
+    pub difficulty: Option<String>,
+    pub site: Option<(i32, i32)>,
+    pub rough: bool,
+}
+
+/// One line of a run log file, after the first ([`RunLogHeader`]'s own line): the JSON shape
+/// `fn_agent` (#317) writes, one object a line, flushed as it goes, and `fn_tui --watch` (#319)
+/// reads back. `keys` is the pressed keys as a `--keys` script (`key_token`'s syntax, parsed
+/// back by `crate::keys::parse`), not the raw [`KeyEvent`]s, since those have no `serde` of
+/// their own and a script is what a human watching -- or re-running `fn_agent keys` -- wants to
+/// read anyway.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum LogLine {
+    Header(RunLogHeader),
+    Keys { keys: String, label: Option<String>, note: Option<String> },
+    Look { x: i32, y: i32, w: u16, h: u16 },
+    Inspect { x: i32, y: i32 },
+    Turn { index: u32, tick: u64 },
+}
+
+impl From<&LogEntry> for LogLine {
+    fn from(entry: &LogEntry) -> Self {
+        match entry {
+            LogEntry::Keys { keys, label, note } => LogLine::Keys {
+                keys: keys.iter().map(|&k| key_token(k)).collect::<Vec<_>>().join(" "),
+                label: label.clone(),
+                note: note.clone(),
+            },
+            LogEntry::Look { x, y, w, h } => LogLine::Look { x: *x, y: *y, w: *w, h: *h },
+            LogEntry::Inspect { x, y } => LogLine::Inspect { x: *x, y: *y },
+            LogEntry::Turn { index, tick } => LogLine::Turn { index: *index, tick: *tick },
+        }
+    }
 }
 
 /// The `--keys` token for `key` (the inverse of `keys::named_key`/`char_key`): round-trips every
 /// key [`Host::press_keys`] can actually send, since those all came from `keys::parse` in the
 /// first place.
-fn key_token(key: KeyEvent) -> String {
+pub(crate) fn key_token(key: KeyEvent) -> String {
     let (ctrl, shift) = (
         key.modifiers.contains(KeyModifiers::CONTROL),
         key.modifiers.contains(KeyModifiers::SHIFT),
@@ -1003,6 +1097,9 @@ mod tests {
             map_size: None,
             rough: false,
             difficulty: None,
+            watch: None,
+            pace: None,
+            at: None,
         };
         let mut replay = Shell::for_args(&args, cli::DEFAULT_SIZE, None, 0).unwrap();
         replay.play(&steps);
@@ -1033,5 +1130,48 @@ mod tests {
         }
         assert_eq!(a.log, b.log);
         assert_eq!(a.frame(80, 30), b.frame(80, 30));
+    }
+
+    /// The run log's JSON Lines shape (#319's acceptance criteria rely on this): a header line,
+    /// then one line an entry, each round-tripping through `serde_json`, with `keys` back as a
+    /// `--keys` script `crate::keys::parse` accepts.
+    #[test]
+    fn to_jsonl_round_trips_through_serde_json() {
+        let mut h = host(Nation::Earth).with_turn_seconds(12);
+        h.press_keys("h <right*3> <enter>", Some("harvest".into()), Some("wood".into())).unwrap();
+        h.end_turn(1);
+        h.look(1, 1, 4, 4);
+        h.inspect(2, 2);
+
+        let header = h.header();
+        assert_eq!(
+            header,
+            RunLogHeader {
+                seed: 7,
+                nation: Nation::Earth,
+                turn_seconds: 12,
+                map_size: None,
+                difficulty: None,
+                site: None,
+                rough: false,
+            }
+        );
+
+        let text = h.log().to_jsonl(&header);
+        let mut lines = text.lines();
+        let first: LogLine = serde_json::from_str(lines.next().unwrap()).unwrap();
+        assert_eq!(first, LogLine::Header(header));
+
+        let rest: Vec<LogLine> =
+            lines.map(|l| serde_json::from_str(l).unwrap()).collect::<Vec<_>>();
+        assert_eq!(rest, h.log().lines());
+        assert_eq!(rest.len(), 4, "keys, turn, look, inspect");
+        let LogLine::Keys { keys, label, note } = &rest[0] else { panic!("{:?}", rest[0]) };
+        assert_eq!(keys::parse(keys).unwrap().len(), 5, "h <right*3> <enter>");
+        assert_eq!(label.as_deref(), Some("harvest"));
+        assert_eq!(note.as_deref(), Some("wood"));
+        assert!(matches!(rest[1], LogLine::Turn { index: 1, .. }));
+        assert_eq!(rest[2], LogLine::Look { x: 1, y: 1, w: 4, h: 4 });
+        assert_eq!(rest[3], LogLine::Inspect { x: 2, y: 2 });
     }
 }

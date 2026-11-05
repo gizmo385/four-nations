@@ -35,6 +35,7 @@ pub mod shell;
 pub mod state;
 pub mod surface;
 pub mod title;
+pub mod watch;
 pub mod widgets;
 
 use fn_sim::{MapGenConfig, Nation};

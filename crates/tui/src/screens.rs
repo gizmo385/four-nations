@@ -65,6 +65,8 @@ pub(crate) fn kind_tone(kind: Kind) -> Tone {
         // The warning, winter itself, frost and a plant picked to death are all cautionary;
         // spring's good news is the one exception, not worth a tone of its own.
         Kind::Season => Tone::Warn,
+        // A watched run's own entries (#319): plain text, like a human's own actions would read.
+        Kind::Agent => Tone::Text,
     }
 }
 
