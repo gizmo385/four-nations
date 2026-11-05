@@ -487,14 +487,22 @@ impl World {
     /// The work on `pos` is done: a renewable resource goes back to growing, anything else is
     /// used up and its tile cleared. Returns its yield (`harvest_yield`), which counts in full
     /// toward the harvest tally. The resting time is multiplied by the difficulty preset's
-    /// `regrow` knob (1.0 is identity, #294).
+    /// `regrow` knob (1.0 is identity, #294) and, for a wild renewable harvest, by `1 + strain`
+    /// (`harvest_strain`, #296); strain_kills may clear the resource outright instead of resting
+    /// it.
     fn work_done(&mut self, pos: Pos, h: &HarvestDef, defs: &Defs) -> u32 {
         let count = self.harvest_yield(pos, h);
         self.tallies.count_harvest(h.item, count);
         match h.regrow {
-            Some(seconds) => {
-                self.resting.insert(pos, seconds * self.knobs(defs).regrow);
-            }
+            Some(seconds) => match self.harvest_strain(pos, h, defs) {
+                Some(strain_mult) => {
+                    self.resting.insert(pos, seconds * self.knobs(defs).regrow * strain_mult);
+                }
+                None => {
+                    self.map[pos].resource = None;
+                    self.map_changed();
+                }
+            },
             None => {
                 self.map[pos].resource = None;
                 self.map_changed();

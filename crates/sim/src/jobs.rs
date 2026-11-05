@@ -68,6 +68,12 @@ pub struct HarvestDef {
     /// "Seasons", #295). Only the fish harvest has this today: ice fishing keeps working through
     /// winter everywhere.
     pub frost_hardy: bool,
+    /// Strain this harvest adds to its tile per pick, before the difficulty preset's `strain`
+    /// knob (`docs/design/difficulty.md`, "Strain: tiring land", #296): 0.0 (the default) means
+    /// it never tires. Only wild renewable harvests (fruit, cabbage, fish) have one; one-shot
+    /// harvests (trees, stone, gold) are used up instead, so strain would never be read for
+    /// them.
+    pub strain: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -91,6 +97,12 @@ pub struct JobSettings {
     pub idle_wander_chance: f32,
     /// A wander is 1 to this many random steps.
     pub idle_wander_steps: u8,
+    /// Strain fades by this much per in-game minute, ripe or resting (`docs/design/difficulty.md`,
+    /// "Strain: tiring land", #296), unscaled by any difficulty knob.
+    pub strain_recovery_per_minute: f32,
+    /// With the difficulty preset's `strain_kills`, a harvest that leaves its tile's strain at
+    /// or above this kills the plant (#296).
+    pub strain_kill_at: f32,
 }
 
 #[derive(Deserialize)]
@@ -116,6 +128,8 @@ struct RawHarvest {
     tunnel_count: Option<u32>,
     #[serde(default)]
     frost_hardy: bool,
+    #[serde(default)]
+    strain: f32,
 }
 
 #[derive(Deserialize)]
@@ -142,6 +156,8 @@ impl JobsFile {
             ("drink_seconds", s.drink_seconds),
             ("retry_seconds", s.retry_seconds),
             ("idle_pause_seconds", s.idle_pause_seconds),
+            ("strain_recovery_per_minute", s.strain_recovery_per_minute),
+            ("strain_kill_at", s.strain_kill_at),
         ] {
             if !(v.is_finite() && v > 0.0) {
                 return err(format!("settings.{what} must be a positive number"));
@@ -231,6 +247,12 @@ impl JobsFile {
             if h.frost_hardy && h.regrow.is_none() {
                 return err(format!("harvest {r}: frost_hardy needs a regrow time"));
             }
+            if !(h.strain.is_finite() && h.strain >= 0.0) {
+                return err(format!("harvest {r}: strain must be at least 0"));
+            }
+            if h.strain > 0.0 && h.regrow.is_none() {
+                return err(format!("harvest {r}: strain needs a regrow time"));
+            }
             harvests.push(HarvestDef {
                 resource: ResourceId(resource as u16),
                 verb: h.verb,
@@ -242,6 +264,7 @@ impl JobsFile {
                 tunnel_count: h.tunnel_count,
                 unlocked_by: None,
                 frost_hardy: h.frost_hardy,
+                strain: h.strain,
             });
         }
         link_unlocks(&mut harvests, resources, techs)?;
