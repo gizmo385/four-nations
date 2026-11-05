@@ -15,7 +15,7 @@
 "♠"♠♠♠♠♠♠♠♠│   Earth Wall      Locked  5 Wood (0 in stores)                 │"""""♠♣√~√√│                              │
 "♠♠""♠♠♠...│   Rail            Locked                                       │.♠""♠√√~√√♠│                              │
 "♠√♠♠♠♠..≈≈│   Farm Plot       Locked  Bed: sleeps 1.4x faster, sought      │."♠♠♠τ~√√♠♠│                              │
-"♣♣~"♠♠.≈≈≈│                           within 30 tiles                      │.♠♠♠♠~♠♠♠"♠│                              │
+"♣♣~"♠♠.≈≈≈│   Workshop        Locked  within 30 tiles                      │.♠♠♠♠~♠♠♠"♠│                              │
 ..~."...≈≈≈│                                                                │~~"~~""""♠♠│                              │
 .≈≈...≈≈ƒ≈≈│                                                                │♠"~""♠¥"♠♠♠│                              │
 ≈≈≈ƒ≈≈≈≈≈≈≈│                                                                │♠♠"""♠♠"""♠│                              │

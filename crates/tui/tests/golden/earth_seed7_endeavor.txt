@@ -12,7 +12,7 @@
 │   Build beds                                                                         ││ Earth Kingdom - Idle         │
 │                                                                                      ││ Carrying: nothing - Bends: 0 │
 │ BUILDINGS                                                                            ││ Press Enter to select        │
-│   One of every building           ░░░░░░░░░░       0/5                               ││                              │
+│   One of every building           ░░░░░░░░░░       0/6                               ││                              │
 │   Raise something new                                                                ││                              │
 │                                                                                      ││                              │
 │ KNOWLEDGE                                                                            ││                              │

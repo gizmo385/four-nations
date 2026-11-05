@@ -85,8 +85,10 @@ name = "Carpentry"
 description = "Saws, joints and the workbench: build in wood."
 cost = 60
 prereqs = ["shelter"]
-# Later: buildings = ["workbench"], wooden buildings
+# The workbench: a shared Workshop makes tools from wood (issue #369,
+# docs/design/nation-buildings.md, "Tools").
 [tech.unlocks]
+buildings = ["workshop"]
 modifiers = { construction = 1.1 }
 
 [[tech]]

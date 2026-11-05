@@ -293,6 +293,13 @@ glyph = "≡"
 ascii = "~"
 fg = [180, 150, 70]
 
+# --- Carpentry (shared tier, #369) ---
+# Unlocked by `carpentry`: every nation's way to make tools from wood.
+[building.workshop]
+glyph = "⚒"
+ascii = "T"
+fg = [200, 160, 100]
+
 # The gate's site, while it is building, draws as this 4x4 glyph block instead of the generic
 # dimmed site (#212, #242): one entry per `data/endeavor.toml` stage id, so the player can tell
 # the stage apart at a glance. A stage the data doesn't name here falls back to the generic site.

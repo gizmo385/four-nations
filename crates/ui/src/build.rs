@@ -512,6 +512,18 @@ mod tests {
         }
     }
 
+    /// The shared Workshop (`carpentry`, issue #369) is in every nation's picker, the way the
+    /// Bed is: tools are everyone's fitting-out good, not just Fire's.
+    #[test]
+    fn the_workshop_is_listed_for_every_nation() {
+        let workshop = session(Nation::Fire).defs.building_id("workshop").unwrap();
+        for nation in Nation::ALL {
+            let s = session(nation);
+            let ids: Vec<BuildingId> = picker_rows(&s).iter().map(|r| r.id).collect();
+            assert!(ids.contains(&workshop), "{nation:?} should see the Workshop");
+        }
+    }
+
     #[test]
     fn a_locked_building_cannot_be_the_choice() {
         let earth = session(Nation::Earth);
