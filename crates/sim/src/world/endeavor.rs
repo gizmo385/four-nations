@@ -17,7 +17,7 @@
 use std::collections::BTreeSet;
 
 use crate::building::BuildingId;
-use crate::endeavor::{SignDef, SignKind, Tally};
+use crate::endeavor::{self, SignDef, SignKind, Tally};
 use crate::jobs::ItemId;
 
 use super::gate::GateSite;
@@ -123,9 +123,15 @@ impl World {
                 let beds = self.finished_buildings().filter(|&b| defs.building(b).bed.is_some());
                 (beds.count() as u32, Some(population))
             }
-            SignKind::BuildingKinds => {
-                let kinds: BTreeSet<BuildingId> = self.finished_buildings().collect();
-                (kinds.len() as u32, None)
+            SignKind::EveryBuilding { spare } => {
+                let reachable: Vec<BuildingId> =
+                    endeavor::reachable_buildings(self.nation, &defs.techs, &defs.buildings)
+                        .collect();
+                let finished: BTreeSet<BuildingId> = self.finished_buildings().collect();
+                let value = reachable.iter().filter(|b| finished.contains(b)).count() as u32;
+                // `spare` is validated at load time to be below every nation's own count, so
+                // this never underflows.
+                (value, Some(reachable.len() as u32 - spare))
             }
             SignKind::BranchComplete => {
                 let own = |t: &TechId| defs.tech(*t).nation == Some(self.nation);
@@ -150,10 +156,19 @@ impl World {
     /// The id of every finished building, once per building however many tiles it covers. Reads
     /// `building_index` (#292), maintained wherever a building finishes (`World::raise`,
     /// `build.rs`), rather than `buildings()`'s full map scan: this runs once a second for as
-    /// long as the `BedsForAll` and `BuildingKinds` signs below are unmet (`tick_endeavor`),
+    /// long as the `BedsForAll` and `EveryBuilding` signs below are unmet (`tick_endeavor`),
     /// essentially the whole game, so a bigger map mustn't cost more to check.
     fn finished_buildings(&self) -> impl Iterator<Item = BuildingId> + '_ {
         self.building_index.values().filter_map(|&p| self.map[p].building.map(|b| b.id))
+    }
+
+    /// The reachable kinds (`endeavor::reachable_buildings`) this settlement hasn't finished
+    /// yet, in data order: what the `EveryBuilding` sign's hint names (`fn_ui::endeavor`, #354).
+    pub fn missing_building_kinds(&self, defs: &Defs) -> Vec<BuildingId> {
+        let finished: BTreeSet<BuildingId> = self.finished_buildings().collect();
+        endeavor::reachable_buildings(self.nation, &defs.techs, &defs.buildings)
+            .filter(|b| !finished.contains(b))
+            .collect()
     }
 
     /// The once-a-second check: log signs met for the first time, and latch Ready when all are

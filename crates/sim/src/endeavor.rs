@@ -30,6 +30,7 @@ use crate::building::{BuildingDef, BuildingId, CostItem};
 use crate::defs::DefsError;
 use crate::jobs::{ItemDef, ItemId};
 use crate::nation::{Modifiers, Nation};
+use crate::research::TechDef;
 
 /// The endeavor and its signs. Empty (no signs) when the data has no endeavor, as in
 /// `Defs::from_toml` without `Defs::with_endeavor`: then the endeavor never becomes Ready.
@@ -168,8 +169,11 @@ pub enum SignKind {
     /// Beds, against the population: met when there is a bed for everyone. Its target is the
     /// population, so it has none in the data.
     BedsForAll,
-    /// Distinct kinds of finished building.
-    BuildingKinds,
+    /// Non-endeavor buildings this nation can ever unlock (`reachable_buildings`): no unlocking
+    /// tech, or one unlocked by a shared tech or its own, minus `spare`. The target is computed
+    /// per nation, the way `BranchComplete`'s is, so it has none in the data
+    /// (`docs/design/materials.md`, section 6; #272, #354).
+    EveryBuilding { spare: u32 },
     /// Techs of the settlement's own nation known, against all of them. Its target is the size of
     /// the branch, so it has none in the data.
     BranchComplete,
@@ -188,6 +192,33 @@ pub enum Tally {
     /// Items harvested, summed over these items.
     Harvested(Vec<ItemId>),
     ScrollsRead,
+}
+
+/// Non-endeavor buildings `nation` can ever unlock: no unlocking tech, or one unlocked by a
+/// shared tech (`TechDef::nation` is `None`) or by the nation's own
+/// (`SignKind::EveryBuilding`, `docs/design/materials.md` section 6, #354). Reads only `defs`,
+/// not any particular settlement, so it adapts automatically as buildings are added to the data
+/// (#357 and friends) rather than going stale the way a hand-set `per_nation` count would.
+/// `techs` and `buildings` are `Defs::techs` and `Defs::buildings`; `buildings[i].unlocked_by`
+/// indexes into `techs`.
+pub fn reachable_buildings<'a>(
+    nation: Nation,
+    techs: &'a [TechDef],
+    buildings: &'a [BuildingDef],
+) -> impl Iterator<Item = BuildingId> + 'a {
+    buildings.iter().enumerate().filter_map(move |(i, b)| {
+        if b.endeavor {
+            return None;
+        }
+        let reachable = match b.unlocked_by {
+            None => true,
+            Some(t) => match techs[t.0 as usize].nation {
+                None => true,
+                Some(n) => n == nation,
+            },
+        };
+        reachable.then_some(BuildingId(i as u16))
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -321,7 +352,7 @@ struct RawTask {
 enum RawKind {
     Population,
     BedsForAll,
-    BuildingKinds,
+    EveryBuilding,
     BranchComplete,
     Stored,
     Tally,
@@ -369,15 +400,20 @@ struct RawSign {
     /// `masters`: the finished bends that make a master.
     #[serde(default)]
     bends: Option<u32>,
+    /// `every_building`: kinds the player may skip; defaults to 0.
+    #[serde(default)]
+    spare: Option<u32>,
 }
 
 impl EndeavorFile {
-    /// Validates the file and resolves item, building and ability ids. `items` is `Defs::items`,
-    /// `buildings` `Defs::buildings` and `abilities` `Defs::abilities`.
+    /// Validates the file and resolves item, building, tech and ability ids. `items` is
+    /// `Defs::items`, `buildings` `Defs::buildings`, `techs` `Defs::techs` and `abilities`
+    /// `Defs::abilities`.
     pub(crate) fn resolve(
         self,
         items: &[ItemDef],
         buildings: &[BuildingDef],
+        techs: &[TechDef],
         abilities: &[AbilityDef],
         chi_max: f32,
     ) -> Result<EndeavorDef, DefsError> {
@@ -389,6 +425,21 @@ impl EndeavorFile {
             let sign = raw.resolve(items)?;
             if signs.iter().any(|s| s.id == sign.id) {
                 return Err(DefsError(format!("sign {}: duplicate id", sign.id)));
+            }
+            if let SignKind::EveryBuilding { spare } = sign.kind {
+                // Every nation's reachable count, so `spare` can never zero out even the
+                // smallest nation's target (`docs/design/materials.md` section 6; #354).
+                let smallest = Nation::ALL
+                    .iter()
+                    .map(|&n| reachable_buildings(n, techs, buildings).count() as u32)
+                    .min()
+                    .expect("Nation::ALL is non-empty");
+                if spare >= smallest {
+                    return Err(DefsError(format!(
+                        "sign {}: spare must be below the smallest nation's count ({smallest})",
+                        sign.id
+                    )));
+                }
             }
             signs.push(sign);
         }
@@ -645,12 +696,14 @@ impl RawSign {
             }
         };
         let k = self.kind;
-        let computed = matches!(k, RawKind::BedsForAll | RawKind::BranchComplete);
+        let computed =
+            matches!(k, RawKind::BedsForAll | RawKind::BranchComplete | RawKind::EveryBuilding);
         allowed(self.target.is_some(), !computed, "target")?;
         allowed(self.per_nation.is_some(), !computed, "per_nation")?;
         allowed(self.food.is_some(), k == RawKind::Stored, "food")?;
         allowed(self.tally.is_some(), k == RawKind::Tally, "tally")?;
         allowed(self.bends.is_some(), k == RawKind::Masters, "bends")?;
+        allowed(self.spare.is_some(), k == RawKind::EveryBuilding, "spare")?;
         let takes_items = k == RawKind::Stored
             || (k == RawKind::Tally && self.tally == Some(RawTally::Harvested));
         allowed(self.items.is_some(), takes_items, "items")?;
@@ -682,7 +735,7 @@ impl RawSign {
         let kind = match k {
             RawKind::Population => SignKind::Population,
             RawKind::BedsForAll => SignKind::BedsForAll,
-            RawKind::BuildingKinds => SignKind::BuildingKinds,
+            RawKind::EveryBuilding => SignKind::EveryBuilding { spare: self.spare.unwrap_or(0) },
             RawKind::BranchComplete => SignKind::BranchComplete,
             RawKind::Stored => {
                 if self.food == Some(true) {
@@ -759,8 +812,8 @@ mod tests {
         let has = |f: fn(&SignKind) -> bool| e.signs.iter().any(|s| f(&s.kind));
         assert!(has(|k| *k == SignKind::Population));
         assert!(has(|k| *k == SignKind::BedsForAll));
-        assert!(has(|k| *k == SignKind::BuildingKinds));
         assert!(has(|k| *k == SignKind::BranchComplete));
+        assert!(has(|k| matches!(k, SignKind::EveryBuilding { .. })));
         assert!(has(|k| matches!(k, SignKind::Stored { .. })));
         assert!(has(|k| matches!(k, SignKind::Tally(Tally::Harvested(_)))));
         assert!(has(|k| matches!(k, SignKind::Tally(Tally::ScrollsRead))));
@@ -900,6 +953,60 @@ mod tests {
             error(&sign("kind = \"population\"\ntarget = 3\ntally = \"scrolls_read\""))
                 .contains("tally doesn't apply")
         );
+        assert!(
+            error(&sign("kind = \"population\"\ntarget = 3\nspare = 1"))
+                .contains("spare doesn't apply")
+        );
+    }
+
+    /// The bundled data's reachable count, per nation, before `spare` (today: Air 8, Water 6,
+    /// Earth 6, Fire 9; `docs/design/materials.md` section 6).
+    fn reachable_counts() -> [(Nation, u32); 4] {
+        let defs = Defs::bundled();
+        Nation::ALL
+            .map(|n| (n, reachable_buildings(n, &defs.techs, &defs.buildings).count() as u32))
+    }
+
+    #[test]
+    fn every_building_is_computed_per_nation_with_no_target_in_the_data() {
+        let e = load(
+            "[[sign]]\nid = \"b\"\ngroup = \"buildings\"\nname = \"B\"\nkind = \"every_building\"\n\
+             spare = 1\n",
+        )
+        .unwrap();
+        assert_eq!(e.signs[0].kind, SignKind::EveryBuilding { spare: 1 });
+        // No target in the data: target_for is always None, the way BranchComplete's is; the
+        // sim works out the per-nation number itself (`world/endeavor.rs`).
+        assert_eq!(e.signs[0].target_for(Nation::Air), None);
+        // Today's bundled counts, so a content change that moves these is visible in review.
+        assert_eq!(
+            reachable_counts(),
+            [(Nation::Air, 8), (Nation::Water, 6), (Nation::Earth, 6), (Nation::Fire, 9)]
+        );
+    }
+
+    #[test]
+    fn every_building_defaults_spare_to_zero_and_target_and_per_nation_dont_apply() {
+        let e = load(
+            "[[sign]]\nid = \"b\"\ngroup = \"buildings\"\nname = \"B\"\nkind = \"every_building\"\n",
+        )
+        .unwrap();
+        assert_eq!(e.signs[0].kind, SignKind::EveryBuilding { spare: 0 });
+        assert!(
+            error(&sign("kind = \"every_building\"\ntarget = 3")).contains("target doesn't apply")
+        );
+        assert!(
+            error(&sign("kind = \"every_building\"\nper_nation = { air = 3 }"))
+                .contains("per_nation doesn't apply")
+        );
+    }
+
+    #[test]
+    fn every_building_spare_must_be_below_the_smallest_nations_count() {
+        // Water and Earth both reach 6 kinds today; spare = 6 would zero their target.
+        let e = error(&sign("kind = \"every_building\"\nspare = 6"));
+        assert!(e.contains("spare must be below the smallest nation's count (6)"), "{e}");
+        assert!(load(&sign("kind = \"every_building\"\nspare = 5")).is_ok());
     }
 
     #[test]
