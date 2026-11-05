@@ -1,7 +1,8 @@
 # End game: the Harmony Gate, built with the Avatar
 
 Status: **decided** (#224, owner, 2026-10-25). The owner's answers are under "Owner decisions",
-and follow-up work is listed in "Follow-up issues".
+and follow-up work is listed in "Follow-up issues". The bending-masters sign's pacing is reopened in
+"Mastery pacing" at the end (#340, proposed, 2026-11-05).
 
 The game has no long-term goal yet. A settlement researches its tree in about two hours, builds,
 and then just keeps going. The owner's idea (2026-10-25) is an end-game **great work that needs
@@ -64,7 +65,7 @@ anyway, so the road rewards playing well rather than a separate grind.
 | Stores | **200** stone in stores | Stored | |
 | Harvests | **100** crops harvested from farm plots | Lifetime tally | #198 |
 | Harvests | **40** ore mined | Lifetime tally of `gold_ore` (later metal ore) | #132, #134 |
-| Bending | **3** bending masters | Units with at least 25 finished bends | #67 |
+| Bending | **3** bending masters | Units with at least 25 finished bends (out of reach: retune in "Mastery pacing", #340) | #67 |
 | Bending | **3** ancient scrolls read | Lifetime tally | #24 |
 
 - **Pacing target:** about 3.5 to 4 hours for a steady player. That's the research tree (~2 h)
@@ -318,3 +319,186 @@ The owner accepted all four recommendations. The alternatives stay below as the 
 4. **Length: about 3.5 to 4 hours of play to qualify, plus about an hour for the project**, with
    the default targets in the signs table. *Considered:* shorter (2.5 h: population 12, no farm
    or ore signs), and longer (6 h or more), which needs more mid-game content than exists today.
+
+## Mastery pacing (#340, proposed 2026-11-05)
+
+The bending-masters sign asks for **3 settlers with 25 finished bends each**. In two agent
+playtests (seed 7 Earth, seed 42 Fire, normal, two in-game years) the best settler had 9, and
+neither agent could tell how bends are credited. The owner saw the same. This section measures
+why, proposes a retune, and makes mastery visible. The stone, ore, food and wood numbers belong
+to #339, and this section doesn't touch them.
+
+### How a bend is credited today
+
+- When a bend's channel finishes and its target is still valid, the unit that channelled it gets
+  `Unit::bends += 1` (`World::run_bend`, `world/bending.rs`). A failed bend (the stack moved, the
+  tile changed) spends no chi and counts nothing. Pillar tasks count too (`world/gate.rs`), but
+  they come after the sign.
+- **The player can't choose who bends.** Whichever settler has enough chi claims the job, so
+  bends spread across everyone. That's fine: as the numbers below show, each settler's own chi is
+  the cap, so concentrating bends on three people wouldn't help them anyway.
+- The count shows only on the Cursor section's hover line ("Carrying: nothing - Bends: 0"). Chi
+  shows only in the selection bar. Neither says what a master needs.
+
+### The numbers
+
+**Chi budget per settler** (data/bending.toml `[chi]`, data/needs.toml). Awake from 100 energy to
+`low` (30) is about 23 minutes at 2 chi a minute. Asleep is 70 energy at 15 a minute, times the
+sleep bonus, at 8 chi a minute.
+
+| Sleeps | Asleep | Chi per cycle | Chi per minute |
+|---|---|---|---|
+| On the ground | 4.7 min | 47 + 37 = 84 | 3.0 |
+| In a bed (`sleep_bonus` 1.4) | 3.3 min | 47 + 27 = 74 | 2.75 |
+
+So a settler earns about **170 chi per in-game year** (a year is 60 minutes, data/seasons.toml)
+on top of the 100 they start with. Note the second row: **a comfier bed means less chi**,
+because the sleeper wakes sooner. That runs against "rest restores chi" (bending.md, "Chi").
+
+**Ceiling by nation.** Chi divided by what the nation's bends usually cost:
+
+| Nation | Usual bends (chi) | Bends per hour at most | 25 bends at the earliest |
+|---|---|---|---|
+| Fire | Hearthflame 30 | ~5.7 | ~265 min (measured) |
+| Earth | Bore Tunnel 40, Raise Earth 50, Seismic Sense 30, Metalbend 35 | ~4.3 | ~330 min |
+| Water | Water the Land 40 | ~4.3 | ~330 min |
+| Air | Wind Carry 15, Air Scooter 20 | ~10 | ~115 min (if there are stacks to blow) |
+
+**Measured** with a throwaway headless run (#343 makes it a tool): Fire, normal, Small, seeds 7
+and 42, the standard opening (`fn_sim::autoplay::Opening`, beds for everyone), plus Hearthflame
+kept designated near the anchor every minute, so no chi ever sits idle (settlers were at full chi
+under 1% of the time). Best settler's bends, the same on both seeds within a bend:
+
+| Minute | 30 | 60 | 90 | 120 | 150 | 180 | 240 |
+|---|---|---|---|---|---|---|---|
+| Today | 5 | 8 | 10 | 13 | 16 | 18 | 23 |
+| Chi regen x1.5 | 7 | 10 | 14 | 18 | 22 | 25 | 33 |
+| Chi regen x2 | 8 | 13 | 17 | 24 | 28 | 33 | 43 |
+
+The playtests' best settler had 9 at minute 120 against this ceiling of 13: about **70% of the
+ceiling in real play**, with the third-best lower. So:
+
+- **25 is out of reach for three of four nations.** Fire's third master would land around year
+  6 or later. Even doubling chi regen only brings the *ceiling* to minute 125.
+- **Population doesn't help.** Thirteen settlers make more bends in total, but each one's chi cap
+  is the same, and a fixed number of designations is spread thinner.
+- **The sign is lopsided.** Air's 15-chi Wind Carry masters about 2.5 times faster than Earth's
+  and Water's 40-chi bends.
+
+**Target.** #339 aims the stone and ore signs at about two in-game years. The original "3.5 to 4
+hours" (owner decision 4 above) predates seasons. Mastery should be one of the long signs, not
+the last one by a year: **the third master around minute 150 (year 2.5) of steady play**, which
+puts the all-out ceiling near minute 90.
+
+### Options
+
+| Lever | Change | Fire's third master, steady play | Side effects | Verdict |
+|---|---|---|---|---|
+| **A. Lower threshold, per nation** | `bends = 10`, Earth and Water 8, Air 16 | ~150 min (ceiling ~90) | None outside the sign | **Recommended** |
+| B. Faster chi | Regen x2, keep 25 | ~180+ min (ceiling ~125) | Doubles every bend's economy: Bore Tunnel is Earth's only route to mountain stone (#339), Water the Land is food (already too plentiful, #339), Wind Carry is hauling. Chi stops being a constraint at all | No |
+| C. Count chi spent, not bends | Master at ~300 chi of finished bends | Same as A | Equal across nations by construction, but "210 of 300 chi" is harder to read than "7 of 10 bends", and the hover says "Bends" | Fallback if the owner dislikes per-nation numbers |
+| D. More ways to earn mastery | An idle settler at full chi "practises", or a training building | Depends | The measurement shows chi isn't idle when bends are designated; the playtests' waste was unworked designations. Practice makes the sign passive, so "bend often" stops meaning anything | Not now |
+| E. Fix the comfort penalty | Sleep chi uses the same sleep multiplier as energy | ~10% sooner | Bed sleepers get ~15% more chi, which also speeds Bore Tunnel (#339) | **Recommended**, alongside A |
+
+**Why per-nation numbers.** A nation's bends cost between 15 and 50 chi, so one flat threshold
+either hands Air the sign in about a year or leaves Earth and Water near year 4. The recommended
+numbers each come to about **300 chi of finished bends**: Fire 10 x 30, Earth 8 x ~38, Water
+8 x 40, Air 16 x ~18. The sign keeps counting bends, which the player can watch happen, and the
+equalising lives in data.
+
+**Why not touch chi.** Chi is an economy lever as much as a mastery one. Bore Tunnel gates
+Earth's stone, Metalbend turns ore into metal, and Water the Land is food. Retuning regen to fix
+one sign would reopen #339's numbers. E is the exception, because it fixes a backwards incentive
+rather than a pace, and it's small. #345 should land before #339 measures Earth's stone, or #339
+re-measures afterwards.
+
+### Data
+
+```toml
+[[sign]]
+id = "masters"
+group = "bending"
+name = "Bending masters"            # the UI appends "(10 bends each)" from the threshold
+kind = "masters"
+bends = 10
+bends_per_nation = { earth = 8, water = 8, air = 16 }   # overrides `bends`, like `per_nation`
+target = 3
+hint = "Each finished bend counts for whoever channels it"
+```
+
+- Each unit is judged against **its own nation's** threshold (`World::nation_of`, #239), so
+  United City newcomers count against theirs. Guests (the Avatar) never count.
+- One sim helper answers "how many bends make this unit a master" for every frontend.
+- `Unit::bends` is unchanged, so old saves load and keep their counts. There's no RNG, so the
+  sim stays deterministic. The loader validates `bends_per_nation` the way it does `per_nation`.
+
+### Showing mastery
+
+The credit rule should be visible in the game, not just in this doc: **every finished bend
+counts for the settler who channels it.**
+
+**Selection bar** (#346). The empty fourth left-hand line becomes the settler's progress. It
+reads "Bending master - 12 bends" once met, and just "Bends 7" with no masters sign. Mockup,
+edited from `cargo run -p fn_tui -- 42 fire --frame --ascii --ticks 3000 --keys '<tab> <enter>'`:
+
+```
++- Lu Ten - Fire Nation ---------------------------------------------------------------+
+| Kindle (Hearthflame)                                         Health ########## 100%  |
+| Carrying: nothing                                            Hunger ########..  80%  |
+| At (98, 62)                                                  Thirst #######...  70%  |
+| Bends 7 of 10 to master                                      Energy #########.  85%  |
+| [Esc] close  [Tab] next  [F] follow                          Chi    ###.......  30%  |
++--------------------------------------------------------------------------------------+
+```
+
+**Nation screen** (#346). It gets `Chi` and `Bends` columns. Chi also satisfies #337's "each
+settler's chi shows" criterion, so whichever of the two lands second reuses the column. Mockup,
+edited from `--keys 'N'`:
+
+```
+|                                        Hunger  Thirst  Energy  Health  Chi     Bends |
+| > Lu Ten Kindle                        ####-   ###--   ####-   #####   #----   10 *  |
+|   Jee    Kindle                        ###--   ####-   ###--   #####   ##---   9/10  |
+|   Shyu   Haul                          ####-   ###--   ####-   #####   ###--   8/10  |
+|   Ikem   Chop                          ####-   ####-   ##---   #####   #####   8/10  |
+```
+
+**Endeavor screen and events** (#347). The masters sign names who is close, and its hint states
+the credit rule. A toast and a log line fire the first time someone becomes a master ("Jee is now
+a bending master"). A finished bend's log line carries the count ("Jee kindled a flame - bend 9
+of 10"). When masters is the next missing sign, the side panel's "Next:" names the closest
+settler. Mockup, edited from `--keys 'G'`:
+
+```
+| BENDING                                                                              |
+|   Bending masters (10 bends each) ###.......       1/3                               |
+|   Master: Lu Ten. Closest: Jee 9/10, Shyu 8/10, Ikem 8/10                            |
+|   Each finished bend counts for whoever channels it                                  |
+```
+
+### Open questions for the owner
+
+1. **Which lever?** *Recommended: A, lower the threshold per nation, and leave chi regen alone.*
+   Faster chi (B) reopens #339's stone and food economy. Chi-weighted mastery (C) is the
+   fallback if per-nation numbers feel fiddly. Practice (D) waits.
+2. **How soon, and which numbers?** *Recommended: the third master around minute 150 (year 2.5)
+   of steady play, with Fire 10, Earth 8, Water 8 and Air 16 bends.* The alternative is a flat
+   10 for everyone: simpler, but Air gets the sign in about a year. #343 verifies whichever
+   numbers are picked, and changing them later is one line of data.
+3. **Should a comfier sleep stop costing chi (#345)?** *Recommended: yes.* Today a bed gives
+   about 8% less chi a minute than bare ground. The fix gives bed sleepers about 15% more chi,
+   which also speeds Earth's Bore Tunnel a little.
+4. **A practice or training route to mastery later?** *Recommended: not now.* Revisit after #344
+   lands and a playtest shows whether the sign still lags.
+
+### Follow-up issues
+
+Filed without `ready`. #344 and #345 wait on the answers above.
+
+| # | Issue | Blocked by |
+|---|---|---|
+| #343 | Balance harness: measure bending mastery pacing for every nation | none |
+| #344 | Bending mastery: per-nation master threshold, retuned so 3 masters are reachable | #340, #343 |
+| #345 | Chi: a comfier sleep restores the same chi, not less | #340 |
+| #346 | TUI: each settler's bends toward mastery and chi (selection bar, Nation screen) | none |
+| #347 | Endeavor: who is close to mastery, a master toast, and how bends are credited | #346 |
