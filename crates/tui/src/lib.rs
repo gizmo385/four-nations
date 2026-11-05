@@ -33,6 +33,7 @@ pub mod saves;
 pub mod screens;
 pub mod shell;
 pub mod state;
+pub mod surface;
 pub mod title;
 pub mod widgets;
 
