@@ -97,13 +97,27 @@ fn missing_techs<'d>(world: &World, defs: &'d Defs) -> Vec<&'d str> {
         .collect()
 }
 
-/// The hint for an unmet sign: the branch names the techs left once only one or two are, and
-/// every other sign uses its data hint.
+/// Names of the reachable building kinds this nation hasn't raised yet, in data order
+/// (`World::missing_building_kinds`, #354).
+fn missing_building_names<'d>(world: &World, defs: &'d Defs) -> Vec<&'d str> {
+    world
+        .missing_building_kinds(defs)
+        .into_iter()
+        .map(|id| defs.building(id).display_name(world.nation))
+        .collect()
+}
+
+/// The hint for an unmet sign: the branch names the techs left once only one or two are, the
+/// buildings sign names the missing kinds the same way ("Not yet raised: Earth Wall, Rail"),
+/// and every other sign uses its data hint.
 fn hint(sign: &SignDef, world: &World, defs: &Defs) -> Option<String> {
-    if sign.kind == SignKind::BranchComplete {
-        return branch_hint(&missing_techs(world, defs), sign.hint.as_deref());
+    match &sign.kind {
+        SignKind::BranchComplete => branch_hint(&missing_techs(world, defs), sign.hint.as_deref()),
+        SignKind::EveryBuilding { .. } => {
+            building_hint(&missing_building_names(world, defs), sign.hint.as_deref())
+        }
+        _ => sign.hint.clone(),
     }
-    sign.hint.clone()
 }
 
 /// The branch sign's hint, given the techs `left`: their names when there are one or two, else
@@ -111,6 +125,16 @@ fn hint(sign: &SignDef, world: &World, defs: &Defs) -> Option<String> {
 fn branch_hint(left: &[&str], hint: Option<&str>) -> Option<String> {
     if (1..=2).contains(&left.len()) {
         Some(format!("{} left", left.join(", ")))
+    } else {
+        hint.map(str::to_owned)
+    }
+}
+
+/// The buildings sign's hint, given the kinds `left` unbuilt: their names when there are one or
+/// two, else the data's `hint` ("Raise something new").
+fn building_hint(left: &[&str], hint: Option<&str>) -> Option<String> {
+    if (1..=2).contains(&left.len()) {
+        Some(format!("Not yet raised: {}", left.join(", ")))
     } else {
         hint.map(str::to_owned)
     }
@@ -140,7 +164,9 @@ pub fn missing(sign: &SignDef, p: &SignProgress, world: &World, defs: &Defs) -> 
     match &sign.kind {
         SignKind::Population => count(n, "more person", "more people"),
         SignKind::BedsForAll => count(n, "more bed", "more beds"),
-        SignKind::BuildingKinds => count(n, "more kind of building", "more kinds of building"),
+        SignKind::EveryBuilding { .. } => {
+            count(n, "more kind of building", "more kinds of building")
+        }
         SignKind::BranchComplete => branch_missing(&missing_techs(world, defs)),
         SignKind::Stored { items: list } | SignKind::Tally(Tally::Harvested(list)) => {
             format!("{n} {}", items(list))
@@ -344,6 +370,32 @@ mod tests {
         let left = missing_techs(&s.world, &s.defs);
         let branch = s.defs.techs.iter().filter(|t| t.nation == Some(Nation::Earth)).count();
         assert_eq!(left.len(), branch);
+    }
+
+    #[test]
+    fn the_buildings_sign_names_the_last_missing_kinds() {
+        let data = Some("Raise something new");
+        assert_eq!(
+            building_hint(&["Earth Wall", "Rail"], data),
+            Some("Not yet raised: Earth Wall, Rail".into())
+        );
+        assert_eq!(building_hint(&["Earth Wall"], data), Some("Not yet raised: Earth Wall".into()));
+        assert_eq!(building_hint(&["A", "B", "C"], data), Some("Raise something new".into()));
+        assert_eq!(building_hint(&[], None), None);
+        // A new Earth game hasn't raised any of its 6 reachable kinds yet.
+        let s = session(Nation::Earth);
+        let left = missing_building_names(&s.world, &s.defs);
+        assert_eq!(left.len(), 6);
+    }
+
+    #[test]
+    fn a_new_games_buildings_sign_is_renamed_and_falls_back_to_the_data_hint() {
+        let s = session(Nation::Earth);
+        let v = screen_view(&s);
+        let row = &v.groups[1].signs[0];
+        assert_eq!(row.name, "One of every building");
+        // Too many kinds are missing to name them all, so the data's own hint shows instead.
+        assert_eq!(row.hint.as_deref(), Some("Raise something new"));
     }
 
     #[test]

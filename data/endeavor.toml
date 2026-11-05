@@ -16,13 +16,19 @@
 # - kind:       what it counts, one of:
 #     population      living units;
 #     beds_for_all    beds against the population (no target: met when everyone has one);
-#     building_kinds  distinct kinds of finished building;
+#     every_building  distinct kinds of finished building, against every non-endeavor building
+#                      the nation can ever unlock (no unlocking tech, or one unlocked by a shared
+#                      tech or its own), minus `spare` (no target in the data: computed per
+#                      nation, like `branch_complete`; docs/design/materials.md section 6, #354);
 #     branch_complete every tech of the settlement's own nation known (no target);
 #     stored          `items` in stockpiles, summed; `food = true` adds every edible item;
 #     tally           a lifetime count: `tally = "harvested"` with `items`, or "scrolls_read";
 #     masters         units with at least `bends` finished bends.
 # - target:     the number to reach (at least 1). `per_nation = { air = 150 }` overrides it for
-#               the nations named; the rest use `target`.
+#               the nations named; the rest use `target`. Neither applies to a computed kind
+#               (`beds_for_all`, `every_building`, `branch_complete`).
+# - spare:      `every_building` only: kinds the player may skip, at least 0 (the default) and
+#               below the smallest nation's reachable count.
 # - hint:       optional; what the UI suggests while the sign isn't met.
 #
 # [[stage]], built in the order listed once the player has placed the site (issue #236):
@@ -89,11 +95,11 @@ kind = "beds_for_all"
 hint = "Build beds"
 
 [[sign]]
-id = "building_kinds"
+id = "building_kinds"             # unchanged: saves refer to signs by id
 group = "buildings"
-name = "Kinds of building raised"
-kind = "building_kinds"
-target = 8
+name = "One of every building"
+kind = "every_building"           # target: every non-endeavor building the nation can unlock
+spare = 1                         # today: Air 7, Water 5, Earth 5, Fire 8
 hint = "Raise something new"
 
 [[sign]]

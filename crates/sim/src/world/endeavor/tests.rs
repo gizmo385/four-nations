@@ -119,10 +119,12 @@ fn a_building_over_several_tiles_counts_once() {
 }
 
 #[test]
-fn building_kinds_counts_distinct_finished_buildings() {
+fn every_building_counts_only_kinds_distinct_and_finished() {
     let defs = Defs::bundled();
     let mut w = world(Nation::Earth, 1, &defs);
-    assert_eq!(progress(&w, &defs, "building_kinds"), (0, 8, false));
+    // Earth reaches 6 kinds today (4 shared, earth_wall and rail); spare = 1 makes the target 5
+    // (`docs/design/materials.md` section 6, #272, #354).
+    assert_eq!(progress(&w, &defs, "building_kinds"), (0, 5, false));
     put(&mut w, &defs, "bed", at(3, 3));
     put(&mut w, &defs, "bed", at(4, 3));
     put(&mut w, &defs, "campfire", at(5, 3));
@@ -137,6 +139,114 @@ fn building_kinds_counts_distinct_finished_buildings() {
     )
     .unwrap();
     assert_eq!(progress(&w, &defs, "building_kinds").0, 2);
+}
+
+#[test]
+fn every_building_ignores_kinds_this_nation_cant_reach() {
+    let defs = Defs::bundled();
+    let mut w = world(Nation::Earth, 1, &defs);
+    put(&mut w, &defs, "bed", at(3, 3));
+    assert_eq!(progress(&w, &defs, "building_kinds").0, 1);
+    // The orchard is Air's own kind; even standing here (never possible through normal play) it
+    // doesn't count toward Earth's target.
+    put(&mut w, &defs, "orchard", at(5, 3));
+    assert_eq!(progress(&w, &defs, "building_kinds").0, 1);
+}
+
+#[test]
+fn every_building_targets_are_computed_per_nation() {
+    let defs = Defs::bundled();
+    let targets: Vec<(Nation, u32)> = Nation::ALL
+        .iter()
+        .map(|&n| (n, progress(&world(n, 1, &defs), &defs, "building_kinds").1))
+        .collect();
+    // Today's numbers (`docs/design/materials.md` section 6): Air 8, Water 6, Earth 6 and Fire 9
+    // reachable, minus the bundled sign's `spare = 1`.
+    assert_eq!(
+        targets,
+        [(Nation::Air, 7), (Nation::Water, 5), (Nation::Earth, 5), (Nation::Fire, 8)]
+    );
+}
+
+/// The bundled data, plus a new building unlocked by a new tech on `nation`'s own branch, with
+/// `signs` as the endeavor's whole list: proves the `every_building` target tracks content added
+/// to one nation's branch without moving anyone else's (#354, and the designer work of #357).
+fn defs_with_extra_building(nation: &str, signs: &str) -> Defs {
+    const BIOMES: &str = include_str!("../../../../../data/biomes.toml");
+    const RESOURCES: &str = include_str!("../../../../../data/resources.toml");
+    const NATIONS: &str = include_str!("../../../../../data/nations.toml");
+    const RESEARCH: &str = include_str!("../../../../../data/research.toml");
+    const NEEDS: &str = include_str!("../../../../../data/needs.toml");
+    const JOBS: &str = include_str!("../../../../../data/jobs.toml");
+    const BENDING: &str = include_str!("../../../../../data/bending.toml");
+    const BUILDINGS: &str = include_str!("../../../../../data/buildings.toml");
+    let research = format!(
+        "{RESEARCH}\n[[tech]]\nid = \"test_tech\"\nname = \"Test Tech\"\ndescription = \"\"\n\
+         nation = \"{nation}\"\ncost = 10\n[tech.unlocks]\nbuildings = [\"test_building\"]\n"
+    );
+    let buildings = format!(
+        "{BUILDINGS}\n[[building]]\nid = \"test_building\"\nname = \"Test Building\"\n\
+         verb = \"Build\"\nwork = 10.0\npassable = true\n"
+    );
+    Defs::from_toml(BIOMES, RESOURCES, NATIONS, &research, NEEDS, JOBS, BENDING, &buildings)
+        .and_then(|d| d.with_endeavor(&format!("[endeavor]\nname = \"Gate\"\n{signs}")))
+        .expect("test data is valid")
+}
+
+/// The bundled `every_building` sign (the one real sign the test data above needs).
+const EVERY_BUILDING_SIGN: &str = "[[sign]]\nid = \"building_kinds\"\ngroup = \"buildings\"\n\
+    name = \"One of every building\"\nkind = \"every_building\"\nspare = 1\n";
+
+#[test]
+fn adding_a_building_to_one_nations_branch_raises_only_that_nations_target() {
+    let defs = Defs::bundled();
+    let before: Vec<(Nation, u32)> = Nation::ALL
+        .iter()
+        .map(|&n| (n, progress(&world(n, 1, &defs), &defs, "building_kinds").1))
+        .collect();
+
+    let defs2 = defs_with_extra_building("earth", EVERY_BUILDING_SIGN);
+    let after: Vec<(Nation, u32)> = Nation::ALL
+        .iter()
+        .map(|&n| (n, progress(&world(n, 1, &defs2), &defs2, "building_kinds").1))
+        .collect();
+
+    for ((nation, before), (_, after)) in before.iter().zip(after.iter()) {
+        let want = if *nation == Nation::Earth { before + 1 } else { *before };
+        assert_eq!(*after, want, "{nation:?}");
+    }
+}
+
+#[test]
+fn a_save_with_the_sign_already_met_keeps_it_met() {
+    let defs = Defs::bundled();
+    let mut w = world(Nation::Fire, 1, &defs);
+    // Fire's target is 8: raise 8 of its 9 reachable kinds, skipping the lightning station.
+    let kinds = [
+        "bed",
+        "campfire",
+        "study_hall",
+        "farm_plot",
+        "forge",
+        "brick_kiln",
+        "smelter",
+        "steam_engine",
+    ];
+    for (i, building) in kinds.iter().enumerate() {
+        put(&mut w, &defs, building, at(i as i32, 1));
+    }
+    run(&mut w, &defs, 10);
+    assert_eq!(progress(&w, &defs, "building_kinds"), (8, 8, true));
+    assert!(
+        w.endeavor_events()
+            .iter()
+            .any(|e| e.kind == EndeavorEventKind::SignMet("building_kinds".into()))
+    );
+
+    let saved = w.save(&defs).expect("world saves");
+    let w2 = World::load(&saved, &defs).expect("world loads");
+    assert_eq!(progress(&w2, &defs, "building_kinds"), (8, 8, true));
+    assert_eq!(w2.endeavor_events(), w.endeavor_events());
 }
 
 #[test]

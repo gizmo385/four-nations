@@ -252,6 +252,7 @@ impl Defs {
         self.endeavor = parse::<EndeavorFile>("endeavor.toml", endeavor)?.resolve(
             &self.items,
             &self.buildings,
+            &self.techs,
             &self.abilities,
             self.chi.max,
         )?;
