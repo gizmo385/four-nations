@@ -189,7 +189,7 @@ pub struct CostItem {
 /// `work` seconds (scaled by `modifier`, if named) and the batch yields `output`, dropped near
 /// the building for hauling, before the cycle starts again. Unlike a building's own `cost`, a
 /// recipe never finishes: the building keeps making batches for as long as its inputs keep
-/// coming.
+/// coming, up to `stock_limit` (issue #350).
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecipeDef {
     /// What one batch consumes. At least one entry, no item named twice.
@@ -201,6 +201,11 @@ pub struct RecipeDef {
     /// Nation modifier (`Modifiers::get`) that scales the work speed, if any (the Fire production
     /// buildings all use `heating`).
     pub modifier: Option<String>,
+    /// A crafter starts a new batch only while fewer than this many of `output` are in stores
+    /// (`World::stored_total`, issue #350: the Brick Kiln and the smelter burn their inputs for
+    /// an output nothing uses otherwise). A batch already under way finishes regardless. 0 (the
+    /// default) means no limit.
+    pub stock_limit: u32,
 }
 
 /// A building that grows a crop once sown (`[building.farm]`, issue #198). The rules are in
@@ -372,6 +377,8 @@ struct RawRecipe {
     output_count: u32,
     work: f32,
     modifier: Option<String>,
+    #[serde(default)]
+    stock_limit: u32,
 }
 
 #[derive(Deserialize)]
@@ -684,6 +691,7 @@ fn resolve_recipe(
         output: CostItem { item: ItemId(output as u16), count: r.output_count },
         work: r.work,
         modifier: r.modifier.clone(),
+        stock_limit: r.stock_limit,
     })
 }
 

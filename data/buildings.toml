@@ -50,7 +50,10 @@
 #             inputs are in, at `modifier` 1.0 (optional, a nation modifier that scales it, like
 #             `heating`). A unit holding the building's craft job fetches the inputs, works
 #             inside (so a recipe needs a `capacity`, the door it works through), and the cycle
-#             repeats for as long as inputs keep coming; it never finishes on its own.
+#             repeats for as long as inputs keep coming; it never finishes on its own. A crafter
+#             starts a new batch only while fewer than `stock_limit` of `output` (items, optional,
+#             default 0 meaning no limit, issue #350) are in stores; a batch already under way
+#             finishes regardless.
 # - farm:     a farm plot (issue #198, docs/design/research.md, "Farm plots"): empty until a Sow
 #             job (`sow_seconds` of work) plants `crop`, which then grows for `grow_seconds`
 #             (times `crop_growth`, the hook irrigation and terraces will multiply) before a Reap
@@ -251,13 +254,15 @@ count = 8
 [[building.cost]]
 item = "wood"
 count = 4
-# The smith job (#124): hot metal worked into tools.
+# The smith job (#124): hot metal worked into tools. Idles once 4 tools are stored (#350):
+# nothing uses tools yet.
 [building.recipe]
 output = "tool"
 output_count = 1
 work = 25.0
 modifier = "heating"
 input = [{ item = "metal", count = 1 }]
+stock_limit = 4
 
 [[building]]
 id = "brick_kiln"
@@ -274,12 +279,15 @@ count = 12
 item = "wood"
 count = 6
 # Fires stone into bricks by the thousand (#124; `brickmaking`'s description, data/research.toml).
+# Burns 1 wood a batch as fuel and idles once 20 bricks are stored (#350): without the limit it
+# burns stone as fast as a crafter can carry it over, into bricks nothing uses.
 [building.recipe]
 output = "brick"
 output_count = 4
 work = 15.0
 modifier = "heating"
-input = [{ item = "stone", count = 3 }]
+input = [{ item = "stone", count = 3 }, { item = "wood", count = 1 }]
+stock_limit = 20
 
 [[building]]
 id = "smelter"
@@ -297,12 +305,15 @@ item = "wood"
 count = 6
 # Draws metal out of ore with steady heat (#124; `smelting`'s description, data/research.toml).
 # `gold_ore` is the only ore today (#132, #133): there's no separate generic "ore" item yet.
+# Burns 1 wood a batch as fuel and idles once 4 metal are stored (#350), the same reason as the
+# kiln: metal only feeds the forge, and nothing uses tools either.
 [building.recipe]
 output = "metal"
 output_count = 1
 work = 20.0
 modifier = "heating"
-input = [{ item = "gold_ore", count = 2 }]
+input = [{ item = "gold_ore", count = 2 }, { item = "wood", count = 1 }]
+stock_limit = 4
 
 [[building]]
 id = "steam_engine"

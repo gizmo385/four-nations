@@ -18,6 +18,11 @@
 //! Needs pre-empt a craft job exactly like a study seat: `consider_needs` steps a unit standing
 //! inside back out before planning anything, and the next tick picks the cycle up again from
 //! wherever `World::crafts` says it left off.
+//!
+//! A recipe's `stock_limit` (issue #350) stops a crafter from starting a *new* batch once that
+//! many of its output are already in stores (`World::craft_idle`); a batch already under way
+//! still finishes. This is the only thing keeping the Brick Kiln and the smelter from burning
+//! every stone or ore a settlement can carry into an output nothing uses.
 
 use crate::building::{BuildingDef, RecipeDef};
 use crate::jobs::{ItemId, JobKind, Stack};
@@ -55,6 +60,17 @@ impl World {
             let have = delivered.get(idx).copied().unwrap_or(0);
             (have < c.count).then_some((c.item, c.count - have))
         })
+    }
+
+    /// Whether the craft job at `pos` is idle at `recipe`'s `stock_limit` (issue #350): no batch
+    /// is under way (nothing of this one delivered yet) and the output is already at or past the
+    /// limit. A batch already started (`World::crafts` holds an entry for `pos`) always finishes,
+    /// however much is in stores. `stock_limit` 0 means no limit, so this is always false. Used
+    /// both to gate `run_craft` and to describe the crafter's task to the player.
+    pub fn craft_idle(&self, pos: Pos, recipe: &RecipeDef) -> bool {
+        recipe.stock_limit > 0
+            && !self.crafts.contains_key(&pos)
+            && self.stored_total(recipe.output.item) >= recipe.stock_limit
     }
 
     /// Adds a delivered stack to the building's batch under way. A no-op if the item isn't one
@@ -103,6 +119,12 @@ impl World {
             self.deliver_to_craft(pos, stack, recipe);
             self.units[i].carrying = None;
             self.units[i].route = None;
+            return;
+        }
+
+        if self.craft_idle(pos, recipe) {
+            // At the stock limit with no batch under way: wait rather than fetch inputs for one
+            // that would just pile up more output nothing uses (issue #350).
             return;
         }
 
