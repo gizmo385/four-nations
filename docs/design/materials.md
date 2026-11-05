@@ -336,7 +336,7 @@ Filed without `ready`. Issues that wait on an owner answer are labelled `needs-o
 | #353 | Data: food, growth and wood retune for Normal (farms, orchard, arrivals, chop) | #352 | 2 |
 | #354 | Sim and data: the "one of every building" sign (`every_building`, `spare`) | none | 3 |
 | #355 | Balance check: re-run the playtests and update the endgame pacing (closes out #339 and #272) | #349, #350, #353, #354 | |
-| #356 | Fire: give bricks and metal a use (bricks stand in for stone, say) | none | p3, later |
+| #356 | Fire: give bricks and metal a use. Designed with #357 in [nation-buildings.md](nation-buildings.md) | none | |
 
 ## Open questions for the owner
 
