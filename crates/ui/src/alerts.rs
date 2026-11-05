@@ -7,10 +7,11 @@
 //! [`Alerts::update`], in real seconds, so this crate never reads a clock.
 
 use fn_sim::needs::DeathCause;
-use fn_sim::world::{Arrival, BendEvent, BendOutcome};
+use fn_sim::world::{Arrival, BendEvent, BendOutcome, SeasonEvent, SeasonEventKind, StrainEvent};
 
 use crate::endeavor;
 use crate::session::Session;
+use crate::view::food_in_stores;
 
 /// How many lines of history to keep; the oldest drop first.
 pub const MAX_HISTORY: usize = 1000;
@@ -28,6 +29,9 @@ pub enum Kind {
     Endeavor,
     /// A newcomer joined the settlement (#232).
     Arrival,
+    /// The winter warning, a season change worth announcing (winter or spring), the first
+    /// frost, or (Hard) a wild plant picked to death (#295, #296, #299).
+    Season,
 }
 
 impl Kind {
@@ -39,6 +43,7 @@ impl Kind {
             Self::Death => 0.0,
             Self::Endeavor => 10.0,
             Self::Arrival => 8.0,
+            Self::Season => 10.0,
         }
     }
 
@@ -50,6 +55,7 @@ impl Kind {
             Self::Death => 0,
             Self::Endeavor => 3,
             Self::Arrival => 3,
+            Self::Season => 3,
         }
     }
 }
@@ -71,8 +77,9 @@ pub struct Alerts {
     /// Oldest first.
     log: Vec<Entry>,
     /// How many of `World::bend_events`, `Research::completions`, `World::deaths`,
-    /// `World::endeavor_events` and `World::arrivals` have already become a line.
-    seen: (usize, usize, usize, usize, usize),
+    /// `World::endeavor_events`, `World::arrivals`, `World::season_events` and
+    /// `World::strain_events` have already become a line.
+    seen: (usize, usize, usize, usize, usize, usize, usize),
     /// The tick of the last update, to notice a new world.
     last_tick: u64,
 }
@@ -87,14 +94,25 @@ impl Alerts {
         let deaths = &world.deaths;
         let endeavor = world.endeavor_events();
         let arrivals = world.arrivals();
-        let counts =
-            (events.len(), completions.len(), deaths.len(), endeavor.len(), arrivals.len());
+        let seasons = world.season_events();
+        let strains = world.strain_events();
+        let counts = (
+            events.len(),
+            completions.len(),
+            deaths.len(),
+            endeavor.len(),
+            arrivals.len(),
+            seasons.len(),
+            strains.len(),
+        );
         if world.tick < self.last_tick
             || counts.0 < self.seen.0
             || counts.1 < self.seen.1
             || counts.2 < self.seen.2
             || counts.3 < self.seen.3
             || counts.4 < self.seen.4
+            || counts.5 < self.seen.5
+            || counts.6 < self.seen.6
         {
             // A new world (regenerate, nation switch, a loaded game): the old log is gone.
             *self = Self::default();
@@ -122,6 +140,14 @@ impl Alerts {
         for a in &arrivals[self.seen.4..] {
             fresh.push((a.tick, Kind::Arrival, describe_arrival(a)));
         }
+        for ev in &seasons[self.seen.5..] {
+            if let Some(text) = describe_season_event(session, ev) {
+                fresh.push((ev.tick, Kind::Season, text));
+            }
+        }
+        for ev in &strains[self.seen.6..] {
+            fresh.push((ev.tick, Kind::Season, describe_strain_event(&session.defs, ev)));
+        }
         self.seen = counts;
         fresh.sort_by_key(|(tick, ..)| *tick);
         self.log.extend(fresh.into_iter().map(|(tick, kind, text)| Entry {
@@ -148,7 +174,9 @@ impl Alerts {
     pub fn toasts(&self) -> Vec<&Entry> {
         let live = |e: &&Entry| e.left > 0.0;
         let mut keep = vec![false; self.log.len()];
-        for kind in [Kind::Bend, Kind::Tech, Kind::Death, Kind::Endeavor, Kind::Arrival] {
+        for kind in
+            [Kind::Bend, Kind::Tech, Kind::Death, Kind::Endeavor, Kind::Arrival, Kind::Season]
+        {
             let of_kind: Vec<usize> = (0..self.log.len())
                 .filter(|&i| self.log[i].kind == kind && live(&&self.log[i]))
                 .collect();
@@ -179,6 +207,41 @@ pub fn describe_bend_event(session: &Session, ev: &BendEvent) -> String {
         BendOutcome::Done => format!("{who} used {} at ({}, {})", def.name, ev.pos.x, ev.pos.y),
         BendOutcome::Failed(why) => format!("{who}'s {} failed: {why}", def.name),
     }
+}
+
+/// A season event's line (`docs/design/difficulty.md` "TUI"): the winter warning (with current
+/// food and population), entering winter, or spring returning. `None` for a change the doc
+/// doesn't call out (every season but winter and the one right after it, generically "spring",
+/// whichever a difficulty preset's own data calls the season before `winter_index`).
+fn describe_season_event(session: &Session, ev: &SeasonEvent) -> Option<String> {
+    let defs = &session.defs;
+    Some(match ev.kind {
+        SeasonEventKind::WinterWarning => {
+            let minutes = defs.seasons.calendar.winter_warning_minutes.round() as u32;
+            let food = food_in_stores(session);
+            let people = session.world.units.len();
+            format!("Winter in {minutes} minutes: {food} food for {people} people.")
+        }
+        SeasonEventKind::Changed { season } => {
+            let n = defs.seasons.seasons.len();
+            if defs.seasons.seasons[season].winter {
+                "Winter. Wild plants rest, and the cold tires people away from fires.".to_owned()
+            } else if n > 0 && season == (defs.seasons.winter_index() + 1) % n {
+                "Spring: the land wakes.".to_owned()
+            } else {
+                return None;
+            }
+        }
+        SeasonEventKind::Frost { count } => format!("First frost: {count} wild plants died back."),
+    })
+}
+
+/// "A fruit tree at (90, 41) was picked to death" (Hard, `strain_kills`, #296): the resource's
+/// name, lower case, since the tile's own picked-to-death tree reads better as a thing than a
+/// proper noun.
+fn describe_strain_event(defs: &fn_sim::Defs, ev: &StrainEvent) -> String {
+    let name = defs.resource(ev.resource).name.to_lowercase();
+    format!("A {name} at ({}, {}) was picked to death.", ev.pos.x, ev.pos.y)
 }
 
 #[cfg(test)]
@@ -365,5 +428,54 @@ mod tests {
         assert_eq!(alerts.history().len(), 1);
         alerts.update(&Session::new(2, Nation::Fire, 48, 32), 0.0);
         assert!(alerts.history().is_empty());
+    }
+
+    /// The winter warning names the minutes, the food and the population;
+    /// entering winter and the season right after it (generically "spring") each have their own
+    /// line; every other season change is silent.
+    #[test]
+    fn describes_the_winter_warning_winter_and_spring_but_nothing_else() {
+        let s = Session::new(7, Nation::Earth, 48, 32);
+        let warning = SeasonEvent { tick: 0, kind: SeasonEventKind::WinterWarning };
+        let line = describe_season_event(&s, &warning).unwrap();
+        assert!(line.starts_with("Winter in 3 minutes: "), "{line}");
+        assert!(line.ends_with(&format!("for {} people.", s.world.units.len())), "{line}");
+
+        let winter_idx = s.defs.seasons.winter_index();
+        let winter = SeasonEvent { tick: 0, kind: SeasonEventKind::Changed { season: winter_idx } };
+        assert_eq!(
+            describe_season_event(&s, &winter).as_deref(),
+            Some("Winter. Wild plants rest, and the cold tires people away from fires.")
+        );
+
+        let n = s.defs.seasons.seasons.len();
+        let spring_idx = (winter_idx + 1) % n;
+        let spring = SeasonEvent { tick: 0, kind: SeasonEventKind::Changed { season: spring_idx } };
+        assert_eq!(describe_season_event(&s, &spring).as_deref(), Some("Spring: the land wakes."));
+
+        for season in 0..n {
+            if season != winter_idx && season != spring_idx {
+                let ev = SeasonEvent { tick: 0, kind: SeasonEventKind::Changed { season } };
+                assert_eq!(describe_season_event(&s, &ev), None, "season {season} stays quiet");
+            }
+        }
+
+        let frost = SeasonEvent { tick: 0, kind: SeasonEventKind::Frost { count: 23 } };
+        assert_eq!(
+            describe_season_event(&s, &frost).as_deref(),
+            Some("First frost: 23 wild plants died back.")
+        );
+    }
+
+    /// A plant picked to death names what it was, lower case, and where.
+    #[test]
+    fn describes_a_plant_picked_to_death() {
+        let defs = fn_sim::Defs::bundled();
+        let resource = defs.resource_id("fruit_tree").unwrap();
+        let ev = StrainEvent { tick: 0, pos: Pos::new(90, 41), resource };
+        assert_eq!(
+            describe_strain_event(&defs, &ev),
+            "A fruit tree at (90, 41) was picked to death."
+        );
     }
 }

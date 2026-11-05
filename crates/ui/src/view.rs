@@ -262,6 +262,92 @@ pub fn format_clock(tick: u64) -> String {
     format!("{:02}:{:02}", secs / 60, secs % 60)
 }
 
+/// Seconds as "4:10 left" (minutes with no leading zero, seconds zero-padded):
+/// `docs/design/difficulty.md` ("TUI"), the Season section's heading.
+fn clock_left(secs: f32) -> String {
+    let secs = secs.max(0.0).round() as u64;
+    format!("{}:{:02} left", secs / 60, secs % 60)
+}
+
+/// Food items in the stockpiles, summed across every `FoodDef` (`docs/design/difficulty.md`
+/// "TUI": the Season section's "Food in stores" line, #299).
+pub fn food_in_stores(session: &Session) -> u32 {
+    let (world, defs) = (&session.world, &session.defs);
+    defs.items
+        .iter()
+        .filter(|i| i.food.is_some())
+        .filter_map(|i| defs.item_id(&i.id))
+        .map(|id| world.stored_total(id))
+        .sum()
+}
+
+/// A climate band's effects, lower case, in the doc's own pairs ("cold, frost"), or "mild" with
+/// neither (`docs/design/difficulty.md` "TUI" and "Embark"; `embark.md`'s own report shares the
+/// words, not the function, since it also names the band).
+pub fn climate_effects(climate: &fn_sim::seasons::ClimateDef) -> String {
+    let mut effects = Vec::new();
+    if climate.cold {
+        effects.push("cold");
+    }
+    if climate.frost {
+        effects.push("frost");
+    }
+    if effects.is_empty() { "mild".to_owned() } else { effects.join(", ") }
+}
+
+/// The side panel's Season section (`docs/design/difficulty.md` "TUI",
+/// `docs/design/side-panel.md` "How it fits #299 and #306"): shown under People whenever the
+/// chosen difficulty preset has seasons on (#295); `None` otherwise, which hides the section.
+#[derive(Clone, PartialEq, Debug)]
+pub struct SeasonView {
+    /// The heading's title: the season and the year ("Autumn · Y1"; the divider format upper
+    /// cases it, docs/design/side-panel.md "Headings").
+    pub heading: String,
+    /// The heading's right-hand value: time left in the season ("4:10 left").
+    pub left: String,
+    /// "38 · 4/head": what's in the stockpiles against the population, the Season section's
+    /// second row.
+    pub food: String,
+    /// Whether `food` should read as a warning: autumn or winter, below the caller's
+    /// `winter_food_per_head` threshold (presentation, not a sim rule, so the caller -- which
+    /// reads `data/tui.toml` -- decides the number).
+    pub food_warn: bool,
+    /// "Winter here: cold, frost": the climate band at the settlement's start (or the map's
+    /// centre, for a `World::new` with no embark site), the Season section's third row.
+    pub here: String,
+}
+
+/// `SeasonView` for `session`'s world, or `None` with seasons off. `winter_food_per_head` is the
+/// frontend's own threshold (`data/tui.toml` for the TUI), not a sim number.
+pub fn season_view(session: &Session, winter_food_per_head: u32) -> Option<SeasonView> {
+    let (world, defs) = (&session.world, &session.defs);
+    if !world.knobs(defs).seasons {
+        return None;
+    }
+    let season = world.season(defs);
+    let year = world.year(defs);
+    let n = defs.seasons.seasons.len();
+    let idx = world.season_index(defs);
+    let is_autumn = n > 0 && (idx + 1) % n == defs.seasons.winter_index();
+    let food = food_in_stores(session);
+    let people = (world.units.len() as u32).max(1);
+    let per_head = food / people;
+    let food_warn = (is_autumn || season.winter) && per_head < winter_food_per_head;
+    let start =
+        world.start().unwrap_or_else(|| Pos::new(world.map.width() / 2, world.map.height() / 2));
+    let here = world
+        .climate_at(start, defs)
+        .map(|c| format!("Winter here: {}", climate_effects(c)))
+        .unwrap_or_default();
+    Some(SeasonView {
+        heading: format!("{} · Y{year}", season.name),
+        left: clock_left(world.season_left(defs)),
+        food: format!("{food} · {per_head}/head"),
+        food_warn,
+        here,
+    })
+}
+
 /// The modifiers that aren't 1.0, as (label, "x1.6"). A modifier at its baseline says nothing.
 pub fn modifier_rows(m: &Modifiers) -> Vec<(String, String)> {
     Modifiers::NAMES
@@ -724,5 +810,57 @@ mod tests {
         assert_eq!(view.groups[0].1.len(), s.world.units.len());
         assert_eq!(view.traits, modifier_rows(s.world.modifiers()));
         assert_eq!(view.stores, store_rows(&s));
+    }
+
+    /// `climate_effects` lists the doc's own words, "cold, frost", in that order, and "mild"
+    /// with neither.
+    #[test]
+    fn climate_effects_lists_cold_then_frost_or_mild_with_neither() {
+        use fn_sim::seasons::ClimateDef;
+        let band = |cold, frost| ClimateDef {
+            id: String::new(),
+            name: String::new(),
+            max_temperature: 1.0,
+            winter_growth: 1.0,
+            cold,
+            frost,
+            outlook_points: 0,
+        };
+        assert_eq!(climate_effects(&band(true, true)), "cold, frost");
+        assert_eq!(climate_effects(&band(true, false)), "cold");
+        assert_eq!(climate_effects(&band(false, true)), "frost");
+        assert_eq!(climate_effects(&band(false, false)), "mild");
+    }
+
+    /// With seasons off (no difficulty preset, as every test session starts), the Season
+    /// section hides.
+    #[test]
+    fn season_view_is_none_with_seasons_off() {
+        let s = Session::new(7, Nation::Earth, 48, 32);
+        assert_eq!(season_view(&s, 4), None);
+    }
+
+    /// With Normal (seasons on), the heading names the season and the year, the left value
+    /// counts down the season, and the food line warns in autumn or winter below the threshold
+    /// but not in spring, however little is stored.
+    #[test]
+    fn season_view_names_the_season_and_warns_on_low_food_in_autumn_or_winter() {
+        let mut s = Session::new(7, Nation::Earth, 48, 32);
+        s.world.set_difficulty(Some("normal".to_owned()));
+        let v = season_view(&s, 4).expect("Normal has seasons on");
+        assert_eq!(v.heading, "Spring · Y1");
+        assert!(v.left.ends_with(" left"), "{}", v.left);
+        assert_eq!(food_in_stores(&s), 0, "nothing stockpiled yet");
+        assert!(!v.food_warn, "spring never warns, however little is stored");
+        assert!(v.here.starts_with("Winter here: "), "{}", v.here);
+
+        // Jump to autumn (index 2 of 4, the season right before winter): no food now warns.
+        let season_ticks = (f64::from(s.defs.seasons.calendar.season_minutes)
+            * 60.0
+            * f64::from(TICKS_PER_SECOND)) as u64;
+        s.world.tick = season_ticks * 2; // spring(0), summer(1), autumn(2)
+        assert_eq!(s.world.season(&s.defs).id, "autumn");
+        let v = season_view(&s, 4).expect("still Normal");
+        assert!(v.food_warn, "no food in autumn should warn: {v:?}");
     }
 }

@@ -22,6 +22,22 @@ fn frame_prints_one_frame_and_exits_without_a_tty() {
     assert!(!text.contains('\x1b'), "no escapes without --ansi");
 }
 
+/// `--difficulty normal` reaches the plain `SEED NATION` path (#298) and turns on the side
+/// panel's Season section (#299, docs/design/difficulty.md "TUI"); with no preset the section
+/// stays hidden.
+#[test]
+fn difficulty_turns_on_the_season_section() {
+    let out = fn_tui().args(["7", "earth", "--frame", "--difficulty", "normal"]).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("SPRING · Y1"), "{text}");
+    assert!(text.contains("Food in stores"), "{text}");
+
+    let out = fn_tui().args(["7", "earth", "--frame"]).output().unwrap();
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(!text.contains("Food in stores"), "no preset: seasons stay off:\n{text}");
+}
+
 #[test]
 fn ticks_advance_the_clock_in_the_frame() {
     let frame = |ticks: &str| {

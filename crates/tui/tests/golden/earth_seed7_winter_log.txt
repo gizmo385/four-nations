@@ -1,0 +1,40 @@
+┏────────────────────────────────── ◆ MESSAGE LOG ◆ ───────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
+│ 42:00 Winter in 3 minutes: 0 food for 6 people.                                      ││ ▶ Running x1           45:00 │
+│ 45:00 Winter. Wild plants rest, and the cold tires people away from fires.           │├─ PEOPLE ───────────────── 6 ─┤
+│ 45:00 First frost: 71 wild plants died back.                                         ││  Tyro Foraging               │
+│                                                                                      ││  Ping Eating from the ground │
+│                                                                                      ││  Ming Foraging               │
+│                                                                                      ││  Oma  Eating from the ground │
+│                                                                                      ││  Song Eating from the ground │
+│                                                                                      ││  Lin  Foraging               │
+│                                                                                      │├─ WINTER · Y1 ─── 15:00 left ─┤
+│                                                                                      ││ Food in stores    0 · 0/head │
+│                                                                                      ││ Winter here: mild            │
+│                                                                                      │├─ RESEARCH ───────────────────┤
+│                                                                                      ││ No target set        3.0/min │
+│                                                                                      ││ 10 pts banked                │
+│                                                                                      │├─ ENDEAVOR ───────────── 0/9 ─┤
+│                                                                                      ││ Next: 10 more people     [G] │
+│                                                                                      │├─ ALERTS ─────────────── [L] ─┤
+│                                                                                      ││ Winter in 3 minutes: 0 food… │
+│                                                                                      ││ Winter. Wild plants rest,…   │
+│                                                                                      ││ First frost: 71 wild plants… │
+│                                                                                      │├─ CURSOR ────────── (94, 64) ─┤
+│                                                                                      ││ Coast                        │
+│                                                                                      ││ Plains (94, 64)              │
+│                                                                                      ││ Elevation 152                │
+│                                                                                      ││ Warm climate: mild in winter │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+┗─ Arrows W S scroll  PgUp PgDn page  Esc close  ? keys ───────────────────────────────┛┗─ seed 7 ─────────────────────┛
+ LOG  arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause

@@ -656,17 +656,10 @@ fn land_label(kind: fn_sim::embark::LandKind, defs: &Defs) -> String {
 }
 
 /// The climate band's name and effects, lower case (`docs/design/difficulty.md`, "Embark"): for
-/// example `cool: cold, frost`, or `warm: mild` for a band with neither.
+/// example `cool: cold, frost`, or `warm: mild` for a band with neither. The effects list is
+/// `fn_ui::view::climate_effects`'s own, which the Season section shares (#299).
 fn climate_word(climate: &fn_sim::seasons::ClimateDef) -> String {
-    let mut effects = Vec::new();
-    if climate.cold {
-        effects.push("cold");
-    }
-    if climate.frost {
-        effects.push("frost");
-    }
-    let effects = if effects.is_empty() { "mild".to_owned() } else { effects.join(", ") };
-    format!("{}: {effects}", climate.name.to_lowercase())
+    format!("{}: {}", climate.name.to_lowercase(), fn_ui::view::climate_effects(climate))
 }
 
 fn level_word(level: Level) -> &'static str {

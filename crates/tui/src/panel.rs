@@ -3,21 +3,22 @@
 //! the doc's order, each a divider heading joined to the frame (`crate::widgets::heading_row`)
 //! plus a short, fixed shape, with no blank rows between them: the header (one row: run/pause,
 //! speed and the clock), People (the count, then a line per unit while they fit -- counts
-//! instead come with #310), Stores (at most two rows), Research (target, bar, rate; one row when
-//! short), Endeavor (the end game's progress, #235, #242, its count on the heading; hidden with
-//! no endeavor in the data), Alerts (one line each, newest last), Tool (just above Cursor: the
-//! active tool's name in its own tint, the Build tool's chosen building or the Bend abilities,
-//! then the last rectangle's result; hidden off a tool) and Cursor (what is under the keyboard
-//! cursor). The Build tool's full picker moved to its own modal (`U`, `crate::build`, #285); the
-//! panel names only the choice. The nation's modifiers moved to the Nation screen's Traits (`N`,
-//! #308). What `Enter` does next in a tool, and the tool's own hint, are the active tool banner's
-//! own lines (#307, `crate::banner`) and the status line's, not the panel's.
+//! instead come with #310), Season (#299, under People: food per head and the band's winter
+//! effects; hidden with seasons off), Stores (at most two rows), Research (target, bar, rate;
+//! one row when short), Endeavor (the end game's progress, #235, #242, its count on the heading;
+//! hidden with no endeavor in the data), Alerts (one line each, newest last), Tool (just above
+//! Cursor: the active tool's name in its own tint, the Build tool's chosen building or the Bend
+//! abilities, then the last rectangle's result; hidden off a tool) and Cursor (what is under the
+//! keyboard cursor). The Build tool's full picker moved to its own modal (`U`, `crate::build`,
+//! #285); the panel names only the choice. The nation's modifiers moved to the Nation screen's
+//! Traits (`N`, #308). What `Enter` does next in a tool, and the tool's own hint, are the active
+//! tool banner's own lines (#307, `crate::banner`) and the status line's, not the panel's.
 //!
 //! The panel is a fixed height, so a terminal that is too short for every section gives up rows
 //! in docs/design/side-panel.md's own order: Endeavor's one row, alerts beyond the newest,
-//! Research's second row, Stores' second row, the unit lines, the Tool section's result beyond
-//! two lines, then the Bend ability list down to the current ability. The header, every section's
-//! heading and three Cursor rows always stay.
+//! Research's second row, Stores' second row, the unit lines, Season's "Winter here" line, the
+//! Tool section's result beyond two lines, then the Bend ability list down to the current
+//! ability. The header, every section's heading and three Cursor rows always stay.
 
 use fn_sim::Pos;
 use fn_sim::building::BuildingId;
@@ -27,7 +28,7 @@ use fn_ui::build;
 use fn_ui::inspect::{Hint, Line, tooltip_lines};
 use fn_ui::text::{describe_stack, describe_task};
 use fn_ui::tools::{bend_ability, usable_abilities};
-use fn_ui::view::{SideView, side_view, stores};
+use fn_ui::view::{SeasonView, SideView, season_view, side_view, stores};
 use fn_ui::{Session, Tool};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -140,6 +141,9 @@ impl Section {
 struct Data {
     view: SideView,
     units: Vec<Row>,
+    /// The Season section (#299), under People; `None` with the chosen difficulty preset's
+    /// seasons off, which hides the whole section.
+    season: Option<SeasonView>,
     stores: Vec<Row>,
     /// Research's full, two-row shape (target and rate, then the bar).
     research: Vec<Row>,
@@ -173,6 +177,9 @@ struct Knobs {
     stores: usize,
     /// 2 for Research's full shape, 1 for its short one (`Data::research_short`).
     research: usize,
+    /// 2 rows (food, then "Winter here") or 1 (food alone); meaningless with `Data::season`
+    /// `None`.
+    season: usize,
     notice: usize,
     /// Whether the Endeavor section's one row shows; its heading stays either way
     /// (docs/design/side-panel.md "Sections, top to bottom": "When short, the heading alone
@@ -417,7 +424,13 @@ fn cursor_rows(session: &Session, ui: &UiState, choice: Option<BuildingId>) -> V
     rows
 }
 
-fn gather(session: &Session, ui: &UiState, marks: &Marks, width: usize) -> Data {
+fn gather(
+    session: &Session,
+    ui: &UiState,
+    marks: &Marks,
+    width: usize,
+    winter_food_per_head: u32,
+) -> Data {
     let view = side_view(session, ui.tool, &ui.notice, ui.choice, &ui.alerts);
     let ellipsis = marks.ellipsis;
     // Just the chosen building (#285 moved the rest of the picker to the Build modal); the Bend
@@ -442,12 +455,13 @@ fn gather(session: &Session, ui: &UiState, marks: &Marks, width: usize) -> Data 
         .toasts()
         .into_iter()
         .flat_map(|e| {
-            let tone = if e.kind == fn_ui::alerts::Kind::Death { Tone::Bad } else { Tone::Text };
+            let tone = crate::screens::kind_tone(e.kind);
             wrap(&e.text, width, ALERT_LINES, ellipsis).into_iter().map(move |l| Row::text(l, tone))
         })
         .collect();
     Data {
         units: unit_rows(session, ui, marks),
+        season: season_view(session, winter_food_per_head),
         stores: store_rows(session, width),
         research: research_rows(&view, marks),
         research_short: research_row_short(&view, marks),
@@ -482,6 +496,21 @@ fn sections(d: &Data, k: Knobs, palette: &Palette) -> Vec<Section> {
         }
         Section::new("PEOPLE", population_label(&d.view), rows).always()
     };
+    // Under People, shortened to fit the heading's own width (docs/design/side-panel.md "How it
+    // fits #299 and #306"); hidden with the chosen difficulty preset's seasons off
+    // (`Data::season` `None`).
+    let season = d.season.as_ref().map(|s| {
+        let mut rows = vec![Row::pair(
+            "Food in stores",
+            Tone::Dim,
+            s.food.clone(),
+            if s.food_warn { Tone::Warn } else { Tone::Text },
+        )];
+        if k.season >= 2 {
+            rows.push(Row::text(s.here.clone(), Tone::Dim));
+        }
+        Section::new(s.heading.clone(), s.left.clone(), rows)
+    });
     let stores = Section::new("STORES", "", d.stores.iter().take(k.stores).cloned().collect());
     let research_rows =
         if k.research >= 2 { d.research.clone() } else { vec![d.research_short.clone()] };
@@ -509,7 +538,7 @@ fn sections(d: &Data, k: Knobs, palette: &Palette) -> Vec<Section> {
         Section::new(name, format!("[{}]", d.view.tool.key()), rows).always().tint(tone)
     });
     let cursor = Section::new("CURSOR", d.cursor_pos.clone(), d.cursor.clone()).always();
-    let all = [Some(people), Some(stores), Some(research), endeavor, Some(alerts), tool];
+    let all = [Some(people), season, Some(stores), Some(research), endeavor, Some(alerts), tool];
     all.into_iter().flatten().chain([cursor]).filter(Section::visible).collect()
 }
 
@@ -530,7 +559,8 @@ pub fn draw_panel(
 ) {
     let marks = Marks::new(palette.ascii);
     let inner = Rect::new(area.left() + 2, area.top() + 1, area.width - 4, area.height - 2);
-    let d = gather(session, ui, &marks, usize::from(inner.width));
+    let winter_food_per_head = palette.glyphs.season.winter_food_per_head;
+    let d = gather(session, ui, &marks, usize::from(inner.width), winter_food_per_head);
     let title = format!(" {0} {1} {0} ", marks.seal, d.view.nation.to_uppercase());
     let footer = format!("seed {}", d.view.seed);
     draw_frame(buf, area, palette, &title, TitleAt::Centre, &footer);
@@ -546,6 +576,7 @@ pub fn draw_panel(
         picker: d.picker.len(),
         stores: d.stores.len().min(STORES_SHOWN),
         research: 2,
+        season: 2,
         notice: d.notice.len(),
         endeavor: true,
     };
@@ -560,6 +591,8 @@ pub fn draw_panel(
             k.stores -= 1;
         } else if k.units > 0 {
             k.units -= 1;
+        } else if k.season > 1 {
+            k.season -= 1;
         } else if k.notice > notice_floor {
             k.notice -= 1;
         } else if k.picker > picker_floor {

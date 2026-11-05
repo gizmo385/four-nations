@@ -946,3 +946,78 @@ fn selecting_issues_no_commands_so_a_replay_needs_none() {
     run(&mut a, "<tab> f <tab> l <esc> ? <esc> <tick 100>");
     assert!(a.session.world.command_log().is_empty());
 }
+
+// ---------------------------------------------------------------------------------------------
+// Seasons and strain, made readable (#299, docs/design/difficulty.md "TUI")
+// ---------------------------------------------------------------------------------------------
+
+/// Ticks in one season, at the bundled `data/seasons.toml` numbers.
+fn season_ticks(a: &App) -> u64 {
+    let minutes = f64::from(a.session.defs.seasons.calendar.season_minutes);
+    (minutes * 60.0 * f64::from(fn_sim::world::TICKS_PER_SECOND)) as u64
+}
+
+#[test]
+fn golden_frame_of_the_season_section_in_autumn_with_low_stores() {
+    let mut a = app(7, Nation::Earth, SMALL);
+    a.session.world.set_difficulty(Some("normal".to_owned()));
+    let per_season = season_ticks(&a);
+    // Spring(0), summer(1), autumn(2): nothing has been stockpiled, so food per head is 0 and
+    // the Season section's food line warns.
+    run(&mut a, &format!("<tick {}>", per_season * 2 + 1));
+    assert_eq!(a.session.world.season(&a.session.defs).id, "autumn");
+    let frame = text(&mut a, SMALL);
+    assert!(frame.contains("AUTUMN"), "{frame}");
+    assert!(frame.contains("Food in stores"), "{frame}");
+    assert!(frame.contains("Winter here"), "{frame}");
+    golden("earth_seed7_autumn_low_stores", &frame);
+}
+
+#[test]
+fn golden_frame_of_a_tired_plants_hover() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    a.session.world.set_difficulty(Some("normal".to_owned()));
+    let from = a.session.world.units[0].pos;
+    let mut renewable: Vec<Pos> = a
+        .session
+        .world
+        .map
+        .iter()
+        .filter(|(_, t)| {
+            t.resource.and_then(|r| a.session.defs.harvest(r)).is_some_and(|h| h.regrow.is_some())
+        })
+        .map(|(p, _)| p)
+        .collect();
+    renewable.sort_by_key(|p| (p.x - from.x).pow(2) + (p.y - from.y).pow(2));
+    let target = renewable
+        .into_iter()
+        .find(|&pos| a.session.apply(Command::DesignateHarvest { pos }).is_ok())
+        .expect("a renewable resource the nation can work");
+    for _ in 0..200 {
+        a.session.tick_n(100);
+        if a.session.world.is_resting(target) {
+            break;
+        }
+    }
+    assert!(a.session.world.is_resting(target), "the resource should have been worked");
+    assert!(a.session.world.strain_at(target).unwrap() > 0.0, "and tired, on Normal");
+    a.ui.cursor = target;
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("ripe in"), "{frame}");
+    assert!(frame.contains("Tired (strain"), "{frame}");
+    golden("earth_seed7_tired_plant", &frame);
+}
+
+#[test]
+fn golden_frame_of_the_alert_log_through_a_winter() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    a.session.world.set_difficulty(Some("normal".to_owned()));
+    let per_season = season_ticks(&a);
+    run(&mut a, &format!("<tick {}> l", per_season * 3 + 1));
+    assert!(a.session.world.season(&a.session.defs).winter);
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("Winter in 3 minutes"), "{frame}");
+    assert!(frame.contains("Winter. Wild plants rest"), "{frame}");
+    assert!(frame.contains("First frost"), "{frame}");
+    golden("earth_seed7_winter_log", &frame);
+}
