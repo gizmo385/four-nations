@@ -82,6 +82,11 @@ pub struct Host {
     /// this session (a watcher, #319, or `fn_agent verify`, #317/#318, start from a header, not
     /// from this live `Host`).
     header: RunLogHeader,
+    /// [`Host::look`]'s character assignments, kept for the whole session rather than rebuilt
+    /// each call (#332): a description keeps the character it was first given, whatever else is
+    /// in a later region, so the legend reads the same call after call instead of depending on
+    /// what else that particular region happened to contain.
+    char_pool: CharPool,
 }
 
 impl Host {
@@ -140,6 +145,7 @@ impl Host {
             alerts_since_turn: 0,
             log: RunLog::new(seed, nation),
             header,
+            char_pool: CharPool::default(),
         })
     }
 
@@ -494,18 +500,23 @@ impl Host {
     /// (marks never change a cell's glyph, only its colour and modifier, so `style_cell` alone
     /// decides it); `ground` is the same glyph `style_cell` would choose with nothing on top,
     /// which only matters apart from `things` where something is (#320, "Map-cell equality").
-    /// The legend is local to this response: one character per distinct thing or ground
-    /// actually present, so there are no collisions (docs/design/agent-play.md, "The map") --
-    /// the real glyph when that's still free in this response, a fallback character on the rare
-    /// ascii collision (docs/design/agent-play.md, "Frames and keys": "F, *, $, %, = and S each
-    /// mean two or more things").
+    /// `legend` is this response's own subset of [`Self::char_pool`]'s session-long assignment
+    /// (#332): one character per distinct thing or ground actually present, so there are no
+    /// collisions within it (docs/design/agent-play.md, "The map") -- the real glyph when
+    /// another description hasn't already claimed it this session, a fallback character on the
+    /// rare ascii collision (docs/design/agent-play.md, "Frames and keys": "F, *, $, %, = and S
+    /// each mean two or more things") -- and, once given, a description's character never
+    /// changes for the rest of the session, whatever else later shares a region with it.
     pub fn look(&mut self, x: i32, y: i32, w: u16, h: u16) -> MapView {
         let (w, h) = (w.clamp(1, MAX_LOOK.0), h.clamp(1, MAX_LOOK.1));
+        // Taken out of `self` so the loop below can hold `self.app()`'s borrow (`session`,
+        // `ui`, `defs`) and still assign characters through it; put back before returning.
+        let mut pool = std::mem::take(&mut self.char_pool);
         let app = self.app();
         let (session, ui) = (&app.session, &app.ui);
         let defs = &session.defs;
         let over = Overlays::gather(session, ui);
-        let mut pool = CharPool::default();
+        let mut legend = BTreeMap::new();
         let mut things = Vec::with_capacity(h as usize);
         let mut ground = Vec::with_capacity(h as usize);
         let mut marks = Vec::new();
@@ -523,12 +534,14 @@ impl Host {
                             marks: Vec::new(),
                         };
                         let ground_glyph = style_cell(&ground_only, defs, &self.palette).glyph;
-                        thing_line.push(
-                            pool.char_for(&describe_thing(session, &cell.thing, pos), thing_glyph),
-                        );
-                        ground_line.push(
-                            pool.char_for(&describe_ground(session, cell.ground), ground_glyph),
-                        );
+                        let thing_desc = describe_thing(session, &cell.thing, pos);
+                        let thing_ch = pool.char_for(&thing_desc, thing_glyph);
+                        legend.insert(thing_ch.to_string(), thing_desc);
+                        thing_line.push(thing_ch);
+                        let ground_desc = describe_ground(session, cell.ground);
+                        let ground_ch = pool.char_for(&ground_desc, ground_glyph);
+                        legend.insert(ground_ch.to_string(), ground_desc);
+                        ground_line.push(ground_ch);
                         if !cell.marks.is_empty() {
                             let kinds = cell.marks.iter().map(describe_mark).collect();
                             marks.push(MarkView { x: pos.x, y: pos.y, kinds });
@@ -543,8 +556,9 @@ impl Host {
             things.push(thing_line);
             ground.push(ground_line);
         }
+        self.char_pool = pool;
         self.log.push(LogEntry::Look { x, y, w, h });
-        MapView { x, y, w, h, things, ground, legend: pool.legend, marks }
+        MapView { x, y, w, h, things, ground, legend, marks }
     }
 
     /// `nation`, `research`, `endeavor`, `log`, `help` or `build`, as data: `nation_view`,
@@ -1252,17 +1266,20 @@ fn describe_mark(mark: &Mark) -> String {
     .to_owned()
 }
 
-/// Assigns one character per distinct description, preferring each description's own `--ascii`
+/// Assigns one character per distinct description, for the whole session (kept on [`Host`] as
+/// [`Host::char_pool`], not rebuilt per call, #332): preferring each description's own `--ascii`
 /// glyph (so [`Host::look`]'s `things` and `ground` read as the frame does, #320's "Map-cell
 /// equality"), and only falling back to a pool character on the rare ascii collision -- two
-/// different descriptions sharing one glyph in this response, which colour alone would tell
-/// apart (docs/design/agent-play.md, "Frames and keys"). Either way there's one character per
-/// distinct description actually present, so there are no collisions in the legend itself
-/// (docs/design/agent-play.md, "The map").
+/// different descriptions sharing one glyph, which colour alone would tell apart
+/// (docs/design/agent-play.md, "Frames and keys"). Once a description has a character it keeps
+/// it for the rest of the session, whatever else later shares a region with it -- so the legend
+/// reads the same call after call -- and no two descriptions are ever given the same character,
+/// so a single response's legend (built from the subset of this session's assignments its own
+/// region touches) never collides either (docs/design/agent-play.md, "The map").
 #[derive(Default)]
 struct CharPool {
     by_description: BTreeMap<String, char>,
-    legend: BTreeMap<String, String>,
+    used: BTreeSet<char>,
 }
 
 /// Printable ASCII, cheapest and least ambiguous characters first; `?` once the pool runs out
@@ -1273,20 +1290,20 @@ const POOL: &str =
 
 impl CharPool {
     /// `preferred` is the glyph `style_cell` would actually draw for `description`; used as is
-    /// unless this response has already given it to a different description, in which case the
-    /// next free pool character stands in instead.
+    /// unless an earlier, different description already claimed it this session, in which case
+    /// the next free pool character stands in instead. Either way, once `description` has a
+    /// character this returns the same one for the rest of the session.
     fn char_for(&mut self, description: &str, preferred: char) -> char {
         if let Some(&ch) = self.by_description.get(description) {
             return ch;
         }
-        let taken = |ch: char| self.legend.contains_key(&ch.to_string());
-        let ch = if !taken(preferred) {
+        let ch = if !self.used.contains(&preferred) {
             preferred
         } else {
-            POOL.chars().find(|&c| !taken(c)).unwrap_or('?')
+            POOL.chars().find(|c| !self.used.contains(c)).unwrap_or('?')
         };
         self.by_description.insert(description.to_owned(), ch);
-        self.legend.insert(ch.to_string(), description.to_owned());
+        self.used.insert(ch);
         ch
     }
 }
@@ -1925,6 +1942,48 @@ mod tests {
         assert!(obs.turn >= 1 && obs.turn < 5, "{}", obs.turn);
         let stopped = obs.stopped.expect("a death is a new alert, never silent");
         assert!(stopped.starts_with("new alert:") && stopped.contains("died of"), "{stopped}");
+    }
+
+    /// `Host::look`'s "blank tile" entry ("-", [`describe_thing`]'s `Thing::Ground` case) names
+    /// whatever bare ground its call happens to see first, so the *named* ground that preferred
+    /// glyph actually belongs to collides with it and falls back to a pool character (#332) --
+    /// this is the real-world shape of the bug: at seed 7 Earth, a `look` from the map's corner
+    /// sees water first, so "-" claims water's own glyph (`~`) and "water" itself is bumped to a
+    /// fallback. Two overlapping regions with different contents -- one whose own corner is
+    /// water, one whose corner is Plains instead, but which still has water somewhere in view --
+    /// must still agree on "water"'s character: `CharPool` persisted on `Host` (not rebuilt each
+    /// call) means the fallback "water" was given the first time is the one it keeps, rather
+    /// than reverting to `~` just because this particular region's blank tile claimed something
+    /// else.
+    #[test]
+    fn look_gives_a_shared_description_the_same_character_across_overlapping_regions() {
+        let mut h = host(Nation::Earth);
+        // The map's corner is water with nothing on it (confirmed for this seed): "-" claims
+        // water's own glyph here, so "water" itself falls back to a pool character.
+        let first = h.look(0, 0, 64, 40);
+        assert_eq!(first.legend.get("~"), Some(&"-".to_owned()));
+        let (water_char, _) = first
+            .legend
+            .iter()
+            .find(|(_, d)| d.as_str() == "water")
+            .expect("water is on screen and bumped off its own glyph");
+        assert_ne!(water_char, "~", "water lost its own glyph to the blank-tile entry");
+
+        // A different, overlapping region whose own corner is Plains, not water, so a fresh
+        // `CharPool` would let "-" claim Plains's glyph here instead and hand "water" its real
+        // glyph back. With `CharPool` kept on `Host`, "water" already has a character and keeps
+        // it.
+        let second = h.look(80, 18, 64, 40);
+        let (water_char_2, _) = second
+            .legend
+            .iter()
+            .find(|(_, d)| d.as_str() == "water")
+            .expect("water is still somewhere in this region too");
+        assert_eq!(
+            water_char, water_char_2,
+            "\"water\" got a different character in an overlapping region: {:?} vs {:?}",
+            first.legend, second.legend
+        );
     }
 
     #[test]
