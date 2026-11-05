@@ -491,10 +491,14 @@ fn the_sections_come_in_ui_md_order() {
     // ENDEAVOR is the one section here that may give way on a tight panel (#242): this scene
     // packs long task lines and several alerts, so it checks the order of whichever show up
     // rather than demanding every one of them. Modifiers moved to the Nation screen's Traits
-    // (#308), so the panel no longer carries that section.
-    let order: Vec<&str> = ["Seed", "PEOPLE", "RESEARCH", "ENDEAVOR", "TOOL", "ALERTS", "CURSOR"]
+    // (#308), so the panel no longer carries that section. The Tool section's heading is the
+    // tool's own name, not the literal word "TOOL" (docs/design/side-panel.md "Headings"), but
+    // "BEND" also names itself in the active tool banner's own row (#307) above the panel, so
+    // this looks for its heading's own key bracket instead; the seed moved to the panel's bottom
+    // edge, after CURSOR, as "seed" (lower case).
+    let order: Vec<&str> = ["PEOPLE", "RESEARCH", "ENDEAVOR", "ALERTS", "[B]", "CURSOR", "seed"]
         .into_iter()
-        .filter(|s| *s == "Seed" || frame.contains(s))
+        .filter(|s| frame.contains(s))
         .collect();
     assert!(order.contains(&"RESEARCH") && order.contains(&"CURSOR"), "{frame}");
     for pair in order.windows(2) {
@@ -521,6 +525,63 @@ fn bending_game_for(nation: Nation) -> App {
         return bending_game();
     }
     app(3, nation, SMALL)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Divider headings (#309, docs/design/side-panel.md "Headings")
+// ---------------------------------------------------------------------------------------------
+
+/// At 80x24, with the Harvest tool active and a notice showing, every section's heading still
+/// fits on screen (docs/design/side-panel.md's own shapes, #309's acceptance criteria).
+#[test]
+fn every_heading_is_on_screen_at_80x24_with_a_tool_and_a_notice() {
+    let mut a = app(7, Nation::Earth, SMALL);
+    run(&mut a, "h <enter> <right*2> <enter> <enter>");
+    assert!(!a.ui.notice.is_empty(), "there should be a result to report");
+    let frame = text(&mut a, SMALL);
+    // Stores hides itself with nothing stockpiled yet (own test: `stores_appear_once_...`); it
+    // isn't exercised here.
+    for heading in ["PEOPLE", "RESEARCH", "ENDEAVOR", "HARVEST", "CURSOR"] {
+        assert!(frame.contains(heading), "{heading} in\n{frame}");
+    }
+}
+
+/// `--ascii --color never`: every heading row starts with `+-` and names its section, shape
+/// alone carrying the divider (no colour to rely on).
+#[test]
+fn ascii_headings_start_with_a_plus_dash_and_name_their_section() {
+    let mut a = app(7, Nation::Earth, SMALL);
+    run(&mut a, "h <enter> <right*2> <enter> <enter>");
+    let p = Palette::new(&a.session.defs, a.session.world.nation, ColorDepth::Never, true);
+    let frame = to_text(&render_app(&mut a, &p, SMALL));
+    let headings: Vec<&str> = frame.lines().filter(|l| l.contains("+-")).collect();
+    assert!(!headings.is_empty(), "{frame}");
+    for section in ["PEOPLE", "RESEARCH", "ENDEAVOR", "HARVEST", "CURSOR"] {
+        assert!(
+            headings.iter().any(|l| l.contains("+-") && l.contains(section)),
+            "{section} in\n{}",
+            headings.join("\n")
+        );
+    }
+}
+
+/// The Tool section's heading wears the active tool's own tint (docs/design/side-panel.md
+/// "Headings": "the title is the tool's name in the tool's tint"), the same colour the active
+/// tool banner and the status badge wear (#307).
+#[test]
+fn the_tool_heading_wears_the_active_tools_tint() {
+    let mut a = App::new(new_session(7, Nation::Earth), SIZE);
+    run(&mut a, "h");
+    let p = Palette::new(&a.session.defs, a.session.world.nation, ColorDepth::TrueColor, false);
+    let buf = render_app(&mut a, &p, SIZE);
+    let frame = to_text(&buf);
+    let row = frame.lines().position(|l| l.contains("HARVEST") && l.contains("[H]")).unwrap();
+    let line = frame.lines().nth(row).unwrap();
+    // The character column, not the byte offset: the map side of the same row is full of
+    // multi-byte glyphs.
+    let col = line.chars().position(|c| c == 'H').unwrap();
+    let want = p.color(p.tint_rgb(fn_tui::color::Tint::Harvest));
+    assert_eq!(buf[(col as u16, row as u16)].fg, want);
 }
 
 // ---------------------------------------------------------------------------------------------

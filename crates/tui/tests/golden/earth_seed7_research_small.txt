@@ -1,24 +1,24 @@
 ┏──────────────── ◆ RESEARCH ◆ ────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
-│◂TIER 4                TIER 5                 ││ Seed 7                 00:00 │
-│  · Cartography         · Earth Rail          ││ ▶ Running x1      Space  + - │
-│   Locked      250 pts   Locked      250 pts  ││                              │
-│   -                     Carry capacity x1.…  ││ ◇ PEOPLE                   6 │
-│                                              ││  Tyro Idle                   │
-│  · Earthen Walls      ▸· Metalbending        ││  Ping Idle                   │
-│   Locked      120 pts   Locked      500 pts  ││  Ming Idle                   │
-│   Construction x1.25    Metalbend            ││  Oma  Idle                   │
-│                                              ││  Song Idle                   │
-│  · Seismic Sense                             ││  Lin  Idle                   │
-│   Locked      250 pts                        ││                              │
-│   Seismic Sense                              ││ ◇ RESEARCH                   │
-│                                              ││ Shelter +2           3.0/min │
-│                                              ││ ░░░░░░░░░░   0% 0/25 pts     │
-│                                              ││                              │
-│                                              ││ ◇ CURSOR            (94, 64) │
+│◂TIER 4                TIER 5                 ││ ▶ Running x1           00:00 │
+│  · Cartography         · Earth Rail          │├─ PEOPLE ───────────────── 6 ─┤
+│   Locked      250 pts   Locked      250 pts  ││  Tyro Idle                   │
+│   -                     Carry capacity x1.…  ││  Ping Idle                   │
+│                                              ││  Ming Idle                   │
+│  · Earthen Walls      ▸· Metalbending        ││  Oma  Idle                   │
+│   Locked      120 pts   Locked      500 pts  ││  Song Idle                   │
+│   Construction x1.25    Metalbend            ││  Lin  Idle                   │
+│                                              │├─ RESEARCH ───────────────────┤
+│  · Seismic Sense                             ││ Shelter +2           3.0/min │
+│   Locked      250 pts                        ││ ░░░░░░░░░░   0% 0/25 pts     │
+│   Seismic Sense                              │├─ ENDEAVOR ───────────── 0/9 ─┤
+│                                              ││ Next: 10 more people     [G] │
+│                                              │├─ CURSOR ────────── (94, 64) ─┤
 │                                              ││ Tyro                         │
-│ ──────────────────────────────────────────── ││ Earth Kingdom - Idle         │
-│ Metalbending          Needs prereqs  500 pts ││ Carrying: nothing - Bends: 0 │
-│ Bend the earth still left in metal.          ││ Press Enter to select        │
+│                                              ││ Earth Kingdom - Idle         │
+│                                              ││ Carrying: nothing - Bends: 0 │
+│ ──────────────────────────────────────────── ││ Press Enter to select        │
+│ Metalbending          Needs prereqs  500 pts ││                              │
+│ Bend the earth still left in metal.          ││                              │
 │ Unlocks: Metalbend   Needs: Masonry, Seismi… ││                              │
-┗─ Arrows WASD choose  Enter target  Esc/T cl…─┛┗──────────────────────────────┛
+┗─ Arrows WASD choose  Enter target  Esc/T cl…─┛┗─ seed 7 ─────────────────────┛
  RESEARCH  arrows/WASD choose  Enter set target  Esc/T close  L log  ? keys

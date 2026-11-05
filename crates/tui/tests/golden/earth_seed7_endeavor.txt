@@ -1,30 +1,30 @@
 ┏──────────────────────────────────── ◆ ENDEAVOR ◆ ────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
-│ The Harmony Gate                                                        0 of 9 signs ││ Seed 7                 00:00 │
-│ A great work with the Avatar. When every sign is met, word of the settlement reaches ││ ▶ Running x1      Space  + - │
-│ Aang.                                                                                ││                              │
-│                                                                                      ││ ◇ PEOPLE                   6 │
-│ Stage: not begun                                                                     ││  Tyro Idle                   │
+│ The Harmony Gate                                                        0 of 9 signs ││ ▶ Running x1           00:00 │
+│ A great work with the Avatar. When every sign is met, word of the settlement reaches │├─ PEOPLE ───────────────── 6 ─┤
+│ Aang.                                                                                ││  Tyro Idle                   │
 │                                                                                      ││  Ping Idle                   │
-│ PEOPLE                                                                               ││  Ming Idle                   │
-│   Population                      ████░░░░░░      6/16                               ││  Oma  Idle                   │
-│   Spare beds and food draw newcomers                                                 ││  Song Idle                   │
-│   Everyone has a bed              ░░░░░░░░░░       0/6                               ││  Lin  Idle                   │
-│   Build beds                                                                         ││                              │
-│                                                                                      ││ ◇ RESEARCH                   │
-│ BUILDINGS                                                                            ││ No target set        3.0/min │
-│   Kinds of building raised        ░░░░░░░░░░       0/8                               ││ 0 pts banked                 │
-│   Raise something new                                                                ││                              │
-│                                                                                      ││ ◇ ENDEAVOR                   │
-│ KNOWLEDGE                                                                            ││ The Harmony Gate         0/9 │
-│   Earth Kingdom branch            ░░░░░░░░░░       0/6                               ││ ░░░░░░░░░░                   │
-│   Research your branch                                                               ││ Signs met - G: open          │
-│                                                                                      ││ Next: 10 more people, 6 mor… │
+│ Stage: not begun                                                                     ││  Ming Idle                   │
+│                                                                                      ││  Oma  Idle                   │
+│ PEOPLE                                                                               ││  Song Idle                   │
+│   Population                      ████░░░░░░      6/16                               ││  Lin  Idle                   │
+│   Spare beds and food draw newcomers                                                 │├─ RESEARCH ───────────────────┤
+│   Everyone has a bed              ░░░░░░░░░░       0/6                               ││ No target set        3.0/min │
+│   Build beds                                                                         ││ 0 pts banked                 │
+│                                                                                      │├─ ENDEAVOR ───────────── 0/9 ─┤
+│ BUILDINGS                                                                            ││ Next: 10 more people     [G] │
+│   Kinds of building raised        ░░░░░░░░░░       0/8                               │├─ CURSOR ────────── (94, 64) ─┤
+│   Raise something new                                                                ││ Tyro                         │
+│                                                                                      ││ Earth Kingdom - Idle         │
+│ KNOWLEDGE                                                                            ││ Carrying: nothing - Bends: 0 │
+│   Earth Kingdom branch            ░░░░░░░░░░       0/6                               ││ Press Enter to select        │
+│   Research your branch                                                               ││                              │
+│                                                                                      ││                              │
 │ STORES AND HARVESTS                                                                  ││                              │
-│   Food in stores                  ░░░░░░░░░░     0/150                               ││ ◇ CURSOR            (94, 64) │
-│   Stockpile food                                                                     ││ Tyro                         │
-│   Stone in stores                 ░░░░░░░░░░     0/200                               ││ Earth Kingdom - Idle         │
-│   Quarry stone                                                                       ││ Carrying: nothing - Bends: 0 │
-│   Ore mined                       ░░░░░░░░░░      0/40                               ││ Press Enter to select        │
+│   Food in stores                  ░░░░░░░░░░     0/150                               ││                              │
+│   Stockpile food                                                                     ││                              │
+│   Stone in stores                 ░░░░░░░░░░     0/200                               ││                              │
+│   Quarry stone                                                                       ││                              │
+│   Ore mined                       ░░░░░░░░░░      0/40                               ││                              │
 │   Mine gold veins                                                                    ││                              │
 │                                                                                      ││                              │
 │ BENDING                                                                              ││                              │
@@ -36,5 +36,5 @@
 │                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
-┗─ Arrows W S scroll  PgUp PgDn page  Esc/G close ─────────────────────────────────────┛┗──────────────────────────────┛
+┗─ Arrows W S scroll  PgUp PgDn page  Esc/G close ─────────────────────────────────────┛┗─ seed 7 ─────────────────────┛
  ENDEAVOR  arrows/W S scroll  PgUp/PgDn page  Esc/G close  L log  ? keys  Space pause

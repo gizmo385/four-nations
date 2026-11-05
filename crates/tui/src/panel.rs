@@ -1,18 +1,23 @@
-//! The Seal side panel (docs/design/ui.md, docs/design/tui.md): a framed column with the nation's
-//! name on the top edge, then sections in ui.md's order, each hidden while it has nothing to show:
-//! the header (seed, clock, speed), People (the count, then a line per unit while they fit),
-//! Stores, Research (target, bar, rate), Endeavor (the end game's progress, #235, #242; hidden
-//! with no endeavor in the data), Tool (the active designation tool, its hint, the Build tool's
-//! chosen building and the last rectangle's result), Alerts and Cursor (what is under the
-//! keyboard cursor). The Build tool's full picker moved to its own modal (`U`, `crate::build`,
-//! #285); the panel names only the choice. The nation's modifiers moved to the Nation screen's
-//! Traits (`N`, #308, docs/design/side-panel.md). What `Enter` does next in a tool is the active
-//! tool banner's own line (#307, `crate::banner`), not the Cursor section's.
+//! The Seal side panel (docs/design/side-panel.md, which revises docs/design/tui.md): a framed
+//! column with the nation's name on the top edge, the seed on the bottom edge, and sections in
+//! the doc's order, each a divider heading joined to the frame (`crate::widgets::heading_row`)
+//! plus a short, fixed shape, with no blank rows between them: the header (one row: run/pause,
+//! speed and the clock), People (the count, then a line per unit while they fit -- counts
+//! instead come with #310), Stores (at most two rows), Research (target, bar, rate; one row when
+//! short), Endeavor (the end game's progress, #235, #242, its count on the heading; hidden with
+//! no endeavor in the data), Alerts (one line each, newest last), Tool (just above Cursor: the
+//! active tool's name in its own tint, the Build tool's chosen building or the Bend abilities,
+//! then the last rectangle's result; hidden off a tool) and Cursor (what is under the keyboard
+//! cursor). The Build tool's full picker moved to its own modal (`U`, `crate::build`, #285); the
+//! panel names only the choice. The nation's modifiers moved to the Nation screen's Traits (`N`,
+//! #308). What `Enter` does next in a tool, and the tool's own hint, are the active tool banner's
+//! own lines (#307, `crate::banner`) and the status line's, not the panel's.
 //!
-//! The panel is a fixed height, so a terminal that is too short for every section gives up the
-//! least useful lines first: the tool's hint and the Build tool's chosen-building line (the
-//! status line names it too), the whole Endeavor section, the unit lines, the older alerts and
-//! all but one line of stores. The header, Research and Cursor always stay.
+//! The panel is a fixed height, so a terminal that is too short for every section gives up rows
+//! in docs/design/side-panel.md's own order: Endeavor's one row, alerts beyond the newest,
+//! Research's second row, Stores' second row, the unit lines, the Tool section's result beyond
+//! two lines, then the Bend ability list down to the current ability. The header, every section's
+//! heading and three Cursor rows always stay.
 
 use fn_sim::Pos;
 use fn_sim::building::BuildingId;
@@ -28,7 +33,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Color;
 
-use crate::color::Palette;
+use crate::color::{Palette, Tint};
 use crate::state::UiState;
 use crate::widgets::{Marks, Painter, Row, TitleAt, Tone, draw_frame, meter, wrap};
 
@@ -69,12 +74,20 @@ fn apply_verb(tool: Tool) -> &'static str {
     }
 }
 
-/// The most lines the Tool section gives its hint (a bend ability's takes four) and the last
-/// result.
-const HINT_LINES: usize = 4;
+/// The most lines the Tool section's last result (`notice`) wraps to before fitting trims it
+/// (down to [`NOTICE_FLOOR`]). The tool's own hint is the status line's and the active tool
+/// banner's now (#307), not a row here.
 const NOTICE_LINES: usize = 5;
-/// The most lines one alert takes.
-const ALERT_LINES: usize = 2;
+/// Fitting never takes the Tool section's result below this many lines (docs/design/side-panel.md
+/// "Fitting": "the Tool notice past two lines").
+const NOTICE_FLOOR: usize = 2;
+/// One alert is one line (docs/design/side-panel.md "Sections, top to bottom"): the full text is
+/// in the log (`L`).
+const ALERT_LINES: usize = 1;
+/// At most this many alert rows show at once, even with room for more.
+const ALERTS_SHOWN: usize = 3;
+/// At most this many stores rows show at once, even with room for more.
+const STORES_SHOWN: usize = 2;
 /// A research bar is this many cells.
 const BAR_CELLS: usize = 10;
 
@@ -84,22 +97,37 @@ pub fn short_task(task: &str) -> &str {
     cut.map_or(task, |i| &task[..i])
 }
 
-/// A titled block of rows.
+/// A heading (`crate::widgets::heading_row`) and the rows under it.
 struct Section {
-    title: &'static str,
+    title: String,
     right: String,
     rows: Vec<Row>,
-    /// Shown even with no rows (People, Cursor).
+    /// Shown even with no rows (People, Endeavor, Tool, Cursor): their heading is still useful
+    /// on its own (docs/design/side-panel.md "Sections, top to bottom").
     always: bool,
+    /// The heading's title tone: `Tone::Heading` for every section but Tool, which wears the
+    /// active tool's own tint instead (`Tone::Custom`).
+    title_tone: Tone,
 }
 
 impl Section {
-    fn new(title: &'static str, right: impl Into<String>, rows: Vec<Row>) -> Self {
-        Self { title, right: right.into(), rows, always: false }
+    fn new(title: impl Into<String>, right: impl Into<String>, rows: Vec<Row>) -> Self {
+        Self {
+            title: title.into(),
+            right: right.into(),
+            rows,
+            always: false,
+            title_tone: Tone::Heading,
+        }
     }
 
     fn always(mut self) -> Self {
         self.always = true;
+        self
+    }
+
+    fn tint(mut self, tone: Tone) -> Self {
+        self.title_tone = tone;
         self
     }
 
@@ -113,14 +141,20 @@ struct Data {
     view: SideView,
     units: Vec<Row>,
     stores: Vec<Row>,
+    /// Research's full, two-row shape (target and rate, then the bar).
     research: Vec<Row>,
-    /// The Endeavor section's rows (#235, #242); empty with no endeavor in the data.
+    /// Research's one-row shape, used once `Knobs::research` drops to 1
+    /// (docs/design/side-panel.md "Sections, top to bottom": `Masonry ██████░░░░ 68%`).
+    research_short: Row,
+    /// The Endeavor section's one row (#235, #242); empty with no endeavor in the data. The
+    /// heading carries the `met/total` count (`SideView::endeavor`'s own `count`).
     endeavor: Vec<Row>,
-    hint: Vec<Row>,
-    /// The Tool section's one row for the Build tool's chosen building (#111; its full picker
-    /// moved to the Build modal, #285), or every usable ability for the Bend tool (#248,
-    /// `bend_ability_rows`); empty for every other tool, or with nothing placeable or castable.
+    /// The Tool section's rows for the Build tool's chosen building (#111; its full picker moved
+    /// to the Build modal, #285), or every usable ability for the Bend tool (#248,
+    /// `bend_ability_rows`, the current one first so fitting can keep it alone); empty for every
+    /// other tool, or with nothing placeable or castable.
     picker: Vec<Row>,
+    /// The Tool section's last result, wrapped to at most [`NOTICE_LINES`].
     notice: Vec<Row>,
     alerts: Vec<Row>,
     cursor: Vec<Row>,
@@ -135,11 +169,14 @@ struct Data {
 struct Knobs {
     units: usize,
     alerts: usize,
-    hint: usize,
     picker: usize,
     stores: usize,
-    /// Whether the Endeavor section shows at all: unlike Research and Cursor it gives way
-    /// whole, before the unit lines, on a terminal too short for everything (#242).
+    /// 2 for Research's full shape, 1 for its short one (`Data::research_short`).
+    research: usize,
+    notice: usize,
+    /// Whether the Endeavor section's one row shows; its heading stays either way
+    /// (docs/design/side-panel.md "Sections, top to bottom": "When short, the heading alone
+    /// shows").
     endeavor: bool,
 }
 
@@ -154,16 +191,16 @@ fn population_label(view: &SideView) -> String {
     format!("{} ({})", view.people, by_nation.join(", "))
 }
 
+/// The header (docs/design/side-panel.md "Sections, top to bottom"): one row, the run/pause mark,
+/// word and speed on the left, the clock on the right. The seed is the panel's own bottom edge
+/// now, and `Space + -` is the status line's and the key help's.
 fn header(view: &SideView, marks: &Marks) -> Vec<Row> {
     let (icon, word, tone) = if view.paused {
         (marks.pause, "Paused", Tone::Paused)
     } else {
         (marks.run, "Running", Tone::Running)
     };
-    vec![
-        Row::pair(format!("Seed {}", view.seed), Tone::Dim, view.clock.clone(), Tone::Text),
-        Row::pair(format!("{icon} {word} x{}", view.speed), tone, "Space  + -", Tone::Dim),
-    ]
+    vec![Row::pair(format!("{icon} {word} x{}", view.speed), tone, view.clock.clone(), Tone::Text)]
 }
 
 /// A channelling unit's line in place of the plain task text ("Channelling Hearthflame 1.2s"):
@@ -224,8 +261,9 @@ fn store_rows(session: &Session, width: usize) -> Vec<Row> {
     rows
 }
 
-/// The target and how far along it is: the tech and the rate, then the bar, the percentage and
-/// the points. With no target, the points banked.
+/// The target and how far along it is, in two rows (docs/design/side-panel.md "Sections, top to
+/// bottom"): the tech and the rate, then the bar, the percentage and the points. With no target,
+/// the points banked.
 fn research_rows(view: &SideView, marks: &Marks) -> Vec<Row> {
     let r = &view.research;
     if r.frac == 0.0 && r.label == "No target set" {
@@ -248,21 +286,34 @@ fn research_rows(view: &SideView, marks: &Marks) -> Vec<Row> {
     ]
 }
 
-/// The side panel's Endeavor section (#235, #242), under Research: `met/total`, a bar, the line
-/// under it (what `G` is for, or that the endeavor is Ready), and up to three missing things.
-/// Empty with no endeavor in the data, which hides the whole section.
-fn endeavor_rows(view: &SideView, marks: &Marks) -> Vec<Row> {
-    let Some(e) = &view.endeavor else { return Vec::new() };
-    let (full, empty) = meter(e.frac, BAR_CELLS, marks);
-    let mut rows = vec![
-        Row::pair(e.name.clone(), Tone::Strong, e.count.clone(), Tone::Dim),
-        Row::spans(vec![(full, Tone::Accent), (empty, Tone::Dim)]),
-        Row::text(e.line.clone(), Tone::Dim),
-    ];
-    if !e.next.is_empty() {
-        rows.push(Row::text(format!("Next: {}", e.next.join(", ")), Tone::Warn));
+/// Research's short, one-row shape (docs/design/side-panel.md "Sections, top to bottom"): the
+/// target's name, its bar and its percent, all on one row ("Masonry ██████░░░░ 68%"). With no
+/// target, the label and the points banked.
+fn research_row_short(view: &SideView, marks: &Marks) -> Row {
+    let r = &view.research;
+    if r.frac == 0.0 && r.label == "No target set" {
+        return Row::pair(r.label.clone(), Tone::Dim, r.pool.clone(), Tone::Dim);
     }
-    rows
+    let (full, empty) = meter(r.frac, BAR_CELLS, marks);
+    Row::spans(vec![
+        (format!("{} ", r.label), Tone::Strong),
+        (full, Tone::Accent),
+        (empty, Tone::Dim),
+        (format!(" {:>3.0}%", r.frac * 100.0), Tone::Text),
+    ])
+}
+
+/// The side panel's Endeavor section (#235, #242), under Research: the heading carries
+/// `met/total` (`EndeavorStatus::count`); the one row under it names the first missing sign
+/// (docs/design/side-panel.md "Sections, top to bottom": "only the first missing sign"), or, with
+/// nothing missing, the line the bar used to sit above (signs met, or the endeavor's own stage).
+/// Empty with no endeavor in the data, which hides the whole section.
+fn endeavor_rows(view: &SideView) -> Vec<Row> {
+    let Some(e) = &view.endeavor else { return Vec::new() };
+    vec![match e.next.first() {
+        Some(next) => Row::pair(format!("Next: {next}"), Tone::Warn, "[G]", Tone::Dim),
+        None => Row::pair(e.line.clone(), Tone::Dim, "[G]", Tone::Dim),
+    }]
 }
 
 /// The Tool section's one row for the Build tool's current choice (#111, #285): its name marked
@@ -280,12 +331,18 @@ fn picker_row(row: &build::PickerRow, chosen: Option<BuildingId>, marks: &Marks)
 
 /// The Tool section's rows while the Bend tool is active (#248, docs/design/endgame.md "The
 /// transformation"): every ability someone in the settlement can cast, the one `B` would channel
-/// next marked, with how many could cast it ("Raise Earth: 14 benders", `World::caster_count`).
-/// Empty off the Bend tool, which keeps the Build tool's single-row `picker_row` in its slot.
+/// next marked, with how many could cast it ("Raise Earth: 14 benders", `World::caster_count`),
+/// the current ability first so fitting ("the Bend ability list down to the current ability",
+/// docs/design/side-panel.md) can drop everyone else and still leave it on screen. Empty off the
+/// Bend tool, which keeps the Build tool's single-row `picker_row` in its slot.
 fn bend_ability_rows(session: &Session, marks: &Marks) -> Vec<Row> {
     let defs = &session.defs;
     let current = bend_ability(session);
-    usable_abilities(session)
+    let mut abilities = usable_abilities(session);
+    if let Some(at) = current.and_then(|c| abilities.iter().position(|&id| id == c)) {
+        abilities.swap(0, at);
+    }
+    abilities
         .into_iter()
         .map(|id| {
             let def = defs.ability(id);
@@ -363,15 +420,10 @@ fn cursor_rows(session: &Session, ui: &UiState, choice: Option<BuildingId>) -> V
 fn gather(session: &Session, ui: &UiState, marks: &Marks, width: usize) -> Data {
     let view = side_view(session, ui.tool, &ui.notice, ui.choice, &ui.alerts);
     let ellipsis = marks.ellipsis;
-    // `UiState::tool_hint`, not `view.tool_hint`: every other tool's is `fn_ui`'s own (the same
-    // text either way), but the Build tool's names the TUI's own choice and `U` key (#285),
-    // which the shared text can't (the choice belongs to the frontend, not the `Session`).
-    let hint = wrap(&ui.tool_hint(session), width, HINT_LINES, ellipsis)
-        .into_iter()
-        .map(|l| Row::text(l, Tone::Dim))
-        .collect();
     // Just the chosen building (#285 moved the rest of the picker to the Build modal); the Bend
-    // tool uses the same slot for every usable ability instead (#248).
+    // tool uses the same slot for every usable ability instead (#248). The tool's own hint
+    // (`UiState::tool_hint`) is the status line's and the active tool banner's now (#307), not a
+    // row here (docs/design/side-panel.md "Sections, top to bottom").
     let picker: Vec<Row> = if ui.tool == Tool::Bend {
         bend_ability_rows(session, marks)
     } else {
@@ -398,8 +450,8 @@ fn gather(session: &Session, ui: &UiState, marks: &Marks, width: usize) -> Data 
         units: unit_rows(session, ui, marks),
         stores: store_rows(session, width),
         research: research_rows(&view, marks),
-        endeavor: endeavor_rows(&view, marks),
-        hint,
+        research_short: research_row_short(&view, marks),
+        endeavor: endeavor_rows(&view),
         picker,
         notice,
         alerts,
@@ -410,8 +462,18 @@ fn gather(session: &Session, ui: &UiState, marks: &Marks, width: usize) -> Data 
     }
 }
 
+/// The active tool's tint ([`crate::banner::tint`]'s own logic, over `Data` rather than
+/// `UiState`, since `sections` doesn't otherwise need the latter): `None` off a tool (Select).
+fn tool_tint(d: &Data) -> Option<Tint> {
+    if d.view.tool == Tool::Harvest && d.repeating_label.is_some() {
+        Some(Tint::RepeatingHarvest)
+    } else {
+        Tint::for_tool(d.view.tool)
+    }
+}
+
 /// The sections as the knobs allow, in order, with the hidden ones left out.
-fn sections(d: &Data, k: Knobs) -> Vec<Section> {
+fn sections(d: &Data, k: Knobs, palette: &Palette) -> Vec<Section> {
     let people = {
         let n = d.units.len();
         let mut rows: Vec<Row> = d.units.iter().take(k.units).cloned().collect();
@@ -421,34 +483,44 @@ fn sections(d: &Data, k: Knobs) -> Vec<Section> {
         Section::new("PEOPLE", population_label(&d.view), rows).always()
     };
     let stores = Section::new("STORES", "", d.stores.iter().take(k.stores).cloned().collect());
-    let research = Section::new("RESEARCH", "", d.research.clone());
-    // Under Research (docs/design/endgame.md, "Showing progress"); hides itself with no
-    // endeavor in the data (`d.endeavor` is then empty) or when `k.endeavor` gives it up whole.
-    let endeavor = k.endeavor.then(|| Section::new("ENDEAVOR", "", d.endeavor.clone()));
-    // Select mode has no tool to talk about.
-    let tool = (d.view.tool != Tool::Select).then(|| {
-        let mut rows: Vec<Row> = d.hint.iter().take(k.hint).cloned().collect();
-        rows.extend(d.picker.iter().take(k.picker).cloned());
-        rows.extend(d.notice.iter().cloned());
-        // "Harvest · repeating" while the standing-order toggle is on (#277), else just the
-        // tool's name.
-        let name = d.repeating_label.clone().unwrap_or_else(|| d.view.tool.name().to_owned());
-        Section::new("TOOL", format!("{name} [{}]", d.view.tool.key()), rows).always()
+    let research_rows =
+        if k.research >= 2 { d.research.clone() } else { vec![d.research_short.clone()] };
+    let research = Section::new("RESEARCH", "", research_rows);
+    // The heading carries `met/total` either way; the one row under it (the first missing sign)
+    // is the one thing fitting gives up first (docs/design/side-panel.md "Sections, top to
+    // bottom": "When short, the heading alone shows").
+    let endeavor = d.view.endeavor.as_ref().map(|e| {
+        let rows: Vec<Row> = d.endeavor.iter().take(usize::from(k.endeavor)).cloned().collect();
+        Section::new("ENDEAVOR", e.count.clone(), rows).always()
     });
     // The newest alerts are the last rows; a short panel keeps those.
     let skip = d.alerts.len().saturating_sub(k.alerts);
-    let alerts = Section::new("ALERTS", "", d.alerts.iter().skip(skip).cloned().collect());
+    let alerts = Section::new("ALERTS", "[L]", d.alerts.iter().skip(skip).cloned().collect());
+    // Just above Cursor, in the tool's own tint (docs/design/side-panel.md "Headings"). Select
+    // mode has no tool to talk about.
+    let tool = (d.view.tool != Tool::Select).then(|| {
+        let mut rows: Vec<Row> = d.picker.iter().take(k.picker).cloned().collect();
+        rows.extend(d.notice.iter().take(k.notice).cloned());
+        // "Harvest · repeating" while the standing-order toggle is on (#277), else just the
+        // tool's name.
+        let name = d.repeating_label.clone().unwrap_or_else(|| d.view.tool.name().to_owned());
+        let tone = tool_tint(d)
+            .map_or(Tone::Heading, |t| Tone::Custom(palette.color(palette.tint_rgb(t))));
+        Section::new(name, format!("[{}]", d.view.tool.key()), rows).always().tint(tone)
+    });
     let cursor = Section::new("CURSOR", d.cursor_pos.clone(), d.cursor.clone()).always();
-    let all = [Some(people), Some(stores), Some(research), endeavor, tool, Some(alerts)];
+    let all = [Some(people), Some(stores), Some(research), endeavor, Some(alerts), tool];
     all.into_iter().flatten().chain([cursor]).filter(Section::visible).collect()
 }
 
-/// The rows the header and `sections` take, with a blank row before each section.
+/// The rows the header and `sections` take: one row per heading, no blank rows between them
+/// (docs/design/side-panel.md "Decisions in brief": "the blank row between sections goes").
 fn height(header_rows: usize, sections: &[Section]) -> usize {
-    header_rows + sections.iter().map(|s| 2 + s.rows.len()).sum::<usize>()
+    header_rows + sections.iter().map(|s| 1 + s.rows.len()).sum::<usize>()
 }
 
-/// Draws the panel into `area`: the frame, then the sections.
+/// Draws the panel into `area`: the frame (the nation on top, the seed on the bottom edge), then
+/// the header and the sections, each a divider heading (`Painter::heading`) joined to the frame.
 pub fn draw_panel(
     session: &Session,
     ui: &UiState,
@@ -460,31 +532,38 @@ pub fn draw_panel(
     let inner = Rect::new(area.left() + 2, area.top() + 1, area.width - 4, area.height - 2);
     let d = gather(session, ui, &marks, usize::from(inner.width));
     let title = format!(" {0} {1} {0} ", marks.seal, d.view.nation.to_uppercase());
-    draw_frame(buf, area, palette, &title, TitleAt::Centre, "");
+    let footer = format!("seed {}", d.view.seed);
+    draw_frame(buf, area, palette, &title, TitleAt::Centre, &footer);
 
-    // Fit: give up the least useful lines first until the sections fit the panel.
+    // Fit: give up the least useful rows first, in docs/design/side-panel.md's own order, until
+    // the sections fit the panel.
     let head = header(&d.view, &marks);
+    let notice_floor = d.notice.len().min(NOTICE_FLOOR);
+    let picker_floor = usize::from(!d.picker.is_empty());
     let mut k = Knobs {
         units: d.units.len(),
-        alerts: d.alerts.len(),
-        hint: d.hint.len(),
+        alerts: d.alerts.len().min(ALERTS_SHOWN),
         picker: d.picker.len(),
-        stores: d.stores.len(),
+        stores: d.stores.len().min(STORES_SHOWN),
+        research: 2,
+        notice: d.notice.len(),
         endeavor: true,
     };
-    while height(head.len(), &sections(&d, k)) > usize::from(inner.height) {
-        if k.hint > 0 {
-            k.hint -= 1;
-        } else if k.picker > 0 {
-            k.picker -= 1;
-        } else if k.endeavor {
+    while height(head.len(), &sections(&d, k, palette)) > usize::from(inner.height) {
+        if k.endeavor {
             k.endeavor = false;
-        } else if k.units > 0 {
-            k.units -= 1;
         } else if k.alerts > 0 {
             k.alerts -= 1;
+        } else if k.research > 1 {
+            k.research -= 1;
         } else if k.stores > 1 {
             k.stores -= 1;
+        } else if k.units > 0 {
+            k.units -= 1;
+        } else if k.notice > notice_floor {
+            k.notice -= 1;
+        } else if k.picker > picker_floor {
+            k.picker -= 1;
         } else {
             break;
         }
@@ -494,11 +573,8 @@ pub fn draw_panel(
     for row in &head {
         p.row(row);
     }
-    for section in sections(&d, k) {
-        p.blank();
-        let head = format!("{} {}", p.marks.bullet, section.title);
-        let right = (!section.right.is_empty()).then(|| (section.right.clone(), Tone::Text));
-        p.row(&Row { left: vec![(head, Tone::Title)], right });
+    for section in sections(&d, k, palette) {
+        p.heading(area, &section.title, &section.right, section.title_tone);
         for row in &section.rows {
             p.row(row);
         }

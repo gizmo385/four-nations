@@ -1,24 +1,24 @@
 ┏───────────────── ◆ NATION ◆ ─────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
-│ Earth Kingdom · seed 7 · 6 people      22:40 ││ Seed 7                 22:40 │
-│                                              ││ ▶ Running x1      Space  + - │
-│ IDLE 4                                       ││                              │
-│ ▸ Tyro Idle                                  ││ ◇ PEOPLE                   6 │
-│   Ping Idle                                  ││  Tyro Idle                   │
-│   Song Idle                                  ││  Ping Idle                   │
-│   Lin  Idle                                  ││  Ming Foraging               │
-│ HAUL 1                                       ││  Oma  Fetching 1 Fruit from… │
-│   Oma  Fetching 1 Fruit from (92, 64)        ││ +2 more                [Tab] │
-│ EAT 1                                        ││                              │
-│   Ming Foraging at (86, 65)  Hungry!         ││ ◇ STORES                     │
-│                                              ││ Wood 20  Fruit 2             │
-│                                              ││                              │
-│                                              ││ ◇ RESEARCH                   │
-│ STORES                                       ││ No target set        3.0/min │
-│ Wood 20  Fruit 2                             ││ 10 pts banked                │
-│                                              ││                              │
-│ TRAITS                                       ││ ◇ CURSOR            (94, 64) │
-│ Move speed x0.9  Carry capacity x1.3         ││ Coast                        │
-│ Earthworks x2.5  Water work x0.9             ││ Plains (94, 64)              │
-│ Power generation x0.8  Construction x1.5     ││ Elevation 152                │
-┗─ Arrows W S choose  PgUp PgDn page  Enter s…─┛┗──────────────────────────────┛
+│ Earth Kingdom · seed 7 · 6 people      22:40 ││ ▶ Running x1           22:40 │
+│                                              │├─ PEOPLE ───────────────── 6 ─┤
+│ IDLE 4                                       ││  Tyro Idle                   │
+│ ▸ Tyro Idle                                  ││  Ping Idle                   │
+│   Ping Idle                                  ││  Ming Foraging               │
+│   Song Idle                                  ││  Oma  Fetching 1 Fruit from… │
+│   Lin  Idle                                  ││  Song Idle                   │
+│ HAUL 1                                       ││  Lin  Idle                   │
+│   Oma  Fetching 1 Fruit from (92, 64)        │├─ STORES ─────────────────────┤
+│ EAT 1                                        ││ Wood 20  Fruit 2             │
+│   Ming Foraging at (86, 65)  Hungry!         │├─ RESEARCH ───────────────────┤
+│                                              ││ No target set        3.0/min │
+│                                              ││ 10 pts banked                │
+│                                              │├─ ENDEAVOR ───────────── 0/9 ─┤
+│ STORES                                       ││ Next: 10 more people     [G] │
+│ Wood 20  Fruit 2                             │├─ CURSOR ────────── (94, 64) ─┤
+│                                              ││ Coast                        │
+│ TRAITS                                       ││ Plains (94, 64)              │
+│ Move speed x0.9  Carry capacity x1.3         ││ Elevation 152                │
+│ Earthworks x2.5  Water work x0.9             ││                              │
+│ Power generation x0.8  Construction x1.5     ││                              │
+┗─ Arrows W S choose  PgUp PgDn page  Enter s…─┛┗─ seed 7 ─────────────────────┛
  NATION  arrows/W S choose  PgUp/PgDn page  Enter select  Esc/N close  ? keys …

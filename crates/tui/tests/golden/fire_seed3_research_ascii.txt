@@ -1,30 +1,30 @@
 +------------------------------------ * RESEARCH * ------------------------------------++------ * FIRE NATION * -------+
-| TIER 1               TIER 2               TIER 3               TIER 4               >|| Seed 3                 00:00 |
-|  + Fire Making        o Pottery            - Masonry            - Cartography        || > Running x1      Space  + - |
-|   Known       25 pts   Available   60 pts   Locked     120 pts   Locked     250 pts  ||                              |
-|   -                    -                    Construction x1.15   -                   || o PEOPLE                   6 |
-|                                                                                      ||  Jee    Idle                 |
-|  o Shelter            - Carpentry          - Writing            - Dancing Dragon     ||  Kuzon  Idle                 |
-|   Available   25 pts   Locked      60 pts   Locked     120 pts   Locked     250 pts  ||  Noriko Idle                 |
-|   -                    Construction x1.1    Study x1.25          Heating x1.25, In~  ||  Shyu   Idle                 |
-|                                                                                      ||  Lu Ten Idle                 |
-|  o Fishing            - Herbalism          - Brickmaking        - Steam Engines      ||  Kiyi   Idle                 |
-|   Available   25 pts   Locked     120 pts   Locked     120 pts   Locked     250 pts  ||                              |
-|   -                    -                    Construction x1.15   Power generation ~  || o RESEARCH                   |
-|                                                                                      || Forging +1           3.0/min |
-|  o Stoneworking       * Forging           >* Smelting                                || ..........   0% 0/60 pts     |
-|   Available   25 pts   Queued      60 pts   Queued     120 pts                       ||                              |
-|   -                    -                    Heating x1.2                             || o ENDEAVOR                   |
-|                                                                                      || The Harmony Gate         0/9 |
-|  o Farming                                                                           || ..........                   |
-|   Available   60 pts                                                                 || Signs met - G: open          |
-|   -                                                                                  || Next: 10 more people, 6 mor~ |
-|                                                                                      ||                              |
-|                                                                                      || o CURSOR            (97, 63) |
-|                                                                                      || Jee                          |
-|                                                                                      || Fire Nation - Idle           |
+| TIER 1               TIER 2               TIER 3               TIER 4               >|| > Running x1           00:00 |
+|  + Fire Making        o Pottery            - Masonry            - Cartography        |+- PEOPLE ----------------- 6 -+
+|   Known       25 pts   Available   60 pts   Locked     120 pts   Locked     250 pts  ||  Jee    Idle                 |
+|   -                    -                    Construction x1.15   -                   ||  Kuzon  Idle                 |
+|                                                                                      ||  Noriko Idle                 |
+|  o Shelter            - Carpentry          - Writing            - Dancing Dragon     ||  Shyu   Idle                 |
+|   Available   25 pts   Locked      60 pts   Locked     120 pts   Locked     250 pts  ||  Lu Ten Idle                 |
+|   -                    Construction x1.1    Study x1.25          Heating x1.25, In~  ||  Kiyi   Idle                 |
+|                                                                                      |+- RESEARCH -------------------+
+|  o Fishing            - Herbalism          - Brickmaking        - Steam Engines      || Forging +1           3.0/min |
+|   Available   25 pts   Locked     120 pts   Locked     120 pts   Locked     250 pts  || ..........   0% 0/60 pts     |
+|   -                    -                    Construction x1.15   Power generation ~  |+- ENDEAVOR ------------- 0/9 -+
+|                                                                                      || Next: 10 more people     [G] |
+|  o Stoneworking       * Forging           >* Smelting                                |+- CURSOR ---------- (97, 63) -+
+|   Available   25 pts   Queued      60 pts   Queued     120 pts                       || Jee                          |
+|   -                    -                    Heating x1.2                             || Fire Nation - Idle           |
 |                                                                                      || Carrying: nothing - Bends: 0 |
-|                                                                                      || Press Enter to select        |
+|  o Farming                                                                           || Press Enter to select        |
+|   Available   60 pts                                                                 ||                              |
+|   -                                                                                  ||                              |
+|                                                                                      ||                              |
+|                                                                                      ||                              |
+|                                                                                      ||                              |
+|                                                                                      ||                              |
+|                                                                                      ||                              |
+|                                                                                      ||                              |
 |                                                                                      ||                              |
 |                                                                                      ||                              |
 |                                                                                      ||                              |
@@ -36,5 +36,5 @@
 | Smelting                                                             Queued  120 pts ||                              |
 | Draw metal out of ore with steady firebending heat.                                  ||                              |
 | Unlocks: Heating x1.2   Needs: Forging                                               ||                              |
-+- Arrows WASD choose  Enter target  Esc/T close --------------------------------------++------------------------------+
++- Arrows WASD choose  Enter target  Esc/T close --------------------------------------++- seed 3 ---------------------+
  RESEARCH  arrows/WASD choose  Enter set target  Esc/T close  L log  ? keys

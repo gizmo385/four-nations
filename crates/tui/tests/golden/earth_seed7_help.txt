@@ -1,30 +1,30 @@
 ┏──────────────────────────────────── ◆ KEY HELP ◆ ────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
-│ CURSOR AND VIEW                                                                      ││ Seed 7                 00:00 │
-│ Arrows W A S D         Move the cursor 1 tile (Shift: 10)                            ││ ▶ Running x1      Space  + - │
-│ Ctrl+Arrows PgUp PgDn  Jump the view a quarter screen                                ││                              │
-│                                                                                      ││ ◇ PEOPLE                   6 │
-│ UNITS                                                                                ││  Tyro Idle                   │
-│ Enter                  Select the unit under the cursor; again: the next one there.  ││  Ping Idle                   │
-│                        In a tool: set a corner, then apply                           ││  Ming Idle                   │
-│ Esc                    Close the screen, a modal or the bar. In a tool: drop the     ││  Oma  Idle                   │
-│                        corner, then leave the tool. With nothing to close: the game  ││  Song Idle                   │
-│                        menu (Resume, Save, Load, Key help, Quit, #306)               ││  Lin  Idle                   │
-│ Tab                    Select the next unit (Select mode)                            ││                              │
-│ Shift+Tab              Select the previous unit (Select mode)                        ││ ◇ RESEARCH                   │
-│ F                      Follow the selected unit (Select mode)                        ││ No target set        3.0/min │
-│                                                                                      ││ 0 pts banked                 │
-│ DESIGNATING                                                                          ││                              │
-│ H                      Harvest tool: designate harvest (chop, mine, gather)          ││ ◇ ENDEAVOR                   │
-│ X                      Cancel tool: cancel harvest, build site, stockpile or sowing  ││ The Harmony Gate         0/9 │
-│ P                      Stockpile tool: designate stockpile                           ││ ░░░░░░░░░░                   │
-│ B                      Bend tool: channel the nation's ability                       ││ Signs met - G: open          │
-│ U                      Build tool: place the chosen building (U: pick one)           ││ Next: 10 more people, 6 mor… │
+│ CURSOR AND VIEW                                                                      ││ ▶ Running x1           00:00 │
+│ Arrows W A S D         Move the cursor 1 tile (Shift: 10)                            │├─ PEOPLE ───────────────── 6 ─┤
+│ Ctrl+Arrows PgUp PgDn  Jump the view a quarter screen                                ││  Tyro Idle                   │
+│                                                                                      ││  Ping Idle                   │
+│ UNITS                                                                                ││  Ming Idle                   │
+│ Enter                  Select the unit under the cursor; again: the next one there.  ││  Oma  Idle                   │
+│                        In a tool: set a corner, then apply                           ││  Song Idle                   │
+│ Esc                    Close the screen, a modal or the bar. In a tool: drop the     ││  Lin  Idle                   │
+│                        corner, then leave the tool. With nothing to close: the game  │├─ RESEARCH ───────────────────┤
+│                        menu (Resume, Save, Load, Key help, Quit, #306)               ││ No target set        3.0/min │
+│ Tab                    Select the next unit (Select mode)                            ││ 0 pts banked                 │
+│ Shift+Tab              Select the previous unit (Select mode)                        │├─ ENDEAVOR ───────────── 0/9 ─┤
+│ F                      Follow the selected unit (Select mode)                        ││ Next: 10 more people     [G] │
+│                                                                                      │├─ CURSOR ────────── (94, 64) ─┤
+│ DESIGNATING                                                                          ││ Tyro                         │
+│ H                      Harvest tool: designate harvest (chop, mine, gather)          ││ Earth Kingdom - Idle         │
+│ X                      Cancel tool: cancel harvest, build site, stockpile or sowing  ││ Carrying: nothing - Bends: 0 │
+│ P                      Stockpile tool: designate stockpile                           ││ Press Enter to select        │
+│ B                      Bend tool: channel the nation's ability                       ││                              │
+│ U                      Build tool: place the chosen building (U: pick one)           ││                              │
 │ C                      Sow tool: sow an empty farm plot                              ││                              │
-│ O                      Harvest tool: toggle a standing order (re-designates when the ││ ◇ CURSOR            (94, 64) │
-│                        resource ripens again)                                        ││ Tyro                         │
-│                                                                                      ││ Earth Kingdom - Idle         │
-│ TIME                                                                                 ││ Carrying: nothing - Bends: 0 │
-│ Space                  Pause or run                                                  ││ Press Enter to select        │
+│ O                      Harvest tool: toggle a standing order (re-designates when the ││                              │
+│                        resource ripens again)                                        ││                              │
+│                                                                                      ││                              │
+│ TIME                                                                                 ││                              │
+│ Space                  Pause or run                                                  ││                              │
 │ + =                    Faster                                                        ││                              │
 │ - _                    Slower                                                        ││                              │
 │ .                      One tick, while paused                                        ││                              │
@@ -36,5 +36,5 @@
 │ ?                      Key help                                                      ││                              │
 │ G                      Endeavor: the Harmony Gate's progress and, once building, its ││                              │
 │                        stage                                                         ││                              │
-┗─ Arrows W S scroll  PgUp PgDn page  Esc close  L log ────────────────────────────────┛┗──────────────────────────────┛
+┗─ Arrows W S scroll  PgUp PgDn page  Esc close  L log ────────────────────────────────┛┗─ seed 7 ─────────────────────┛
  KEYS  arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause

@@ -5,7 +5,7 @@
 use fn_ui::view::Status;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 
 use crate::color::Palette;
 
@@ -21,6 +21,11 @@ pub struct Marks {
     pub bullet: &'static str,
     pub run: &'static str,
     pub pause: &'static str,
+    /// A section heading's left and right ends (docs/design/side-panel.md "Headings"): the
+    /// frame's own `v` on both sides, replaced for that one row (`+` on both sides in ASCII,
+    /// like the frame's corners).
+    pub ls: char,
+    pub rs: char,
     pub ellipsis: char,
     /// A filled and an empty cell of a meter bar.
     pub full: char,
@@ -58,6 +63,8 @@ impl Marks {
                 bullet: "o",
                 run: ">",
                 pause: "|",
+                ls: '+',
+                rs: '+',
                 ellipsis: '~',
                 full: '#',
                 empty: '.',
@@ -86,6 +93,8 @@ impl Marks {
                 bullet: "◇",
                 run: "▶",
                 pause: "‖",
+                ls: '├',
+                rs: '┤',
                 ellipsis: '…',
                 full: '█',
                 empty: '░',
@@ -127,6 +136,17 @@ pub enum Tone {
     /// bold, on the nation's accent instead of the panel, so the selection bar marks the
     /// moment he holds the Harmony Rite apart from anything else he could be doing.
     Avatar,
+    /// A section heading's title (docs/design/side-panel.md "Headings"): `accent_text`, bold,
+    /// upper case, the same look as `Title` but its own variant, so a future change to one can't
+    /// bleed into the other by accident.
+    Heading,
+    /// A section heading's rule, including the `├`/`┤` that replace the frame's own `│` for that
+    /// row: `accent_soft`, like the frame's own lines.
+    Rule,
+    /// An explicit colour the caller already resolved (the Tool section's heading, in the
+    /// active tool's own tint, `crate::color::Tint`, which isn't a theme token): bold, on the
+    /// panel like every other tone.
+    Custom(Color),
 }
 
 impl Tone {
@@ -149,6 +169,9 @@ impl Tone {
                 .bg(palette.token(t.accent))
                 .add_modifier(Modifier::BOLD);
         }
+        if let Self::Custom(c) = self {
+            return Style::new().fg(c).bg(palette.token(t.panel)).add_modifier(Modifier::BOLD);
+        }
         let (rgb, bold) = match self {
             Self::Text => (t.text, false),
             Self::Dim => (t.dim, false),
@@ -160,7 +183,9 @@ impl Tone {
             Self::Bad => (t.bad, false),
             Self::Running => (t.ok, true),
             Self::Paused => (t.warn, true),
-            Self::Avatar => unreachable!("handled above"),
+            Self::Heading => (t.accent_text, true),
+            Self::Rule => (t.accent_soft, false),
+            Self::Avatar | Self::Custom(_) => unreachable!("handled above"),
         };
         let style = Style::new().fg(palette.token(rgb)).bg(palette.token(t.panel));
         if bold { style.add_modifier(Modifier::BOLD) } else { style }
@@ -197,6 +222,37 @@ impl Row {
         }
         s
     }
+}
+
+/// A section heading's row (docs/design/side-panel.md "Headings"): the frame's own side lines
+/// become `├─ PEOPLE ──────────────── 20 ─┤` (`+- PEOPLE ---------------- 20 -+` in `--ascii`),
+/// across `width` cells, border cells included. `title` is put upper case in `title_tone`
+/// (`Tone::Heading`, except the Tool section's own tint); the rest of the rule, `├`/`┤`
+/// included, is `Tone::Rule` (`accent_soft`, like the frame's own lines); `value` (empty for
+/// none) sits in `Tone::Text` just before the closing rule.
+pub fn heading_row(title: &str, value: &str, width: usize, marks: &Marks, title_tone: Tone) -> Row {
+    let title = title.to_uppercase();
+    // "─ TITLE " / " VALUE ─": the fixed parts around the title and the value, so what's left
+    // of `width` (minus the two border cells) is the dash fill between them.
+    let prefix_len = title.chars().count() + 3;
+    let suffix_len = if value.is_empty() { 0 } else { value.chars().count() + 3 };
+    let content_width = width.saturating_sub(2);
+    let fill_len = content_width.saturating_sub(prefix_len).saturating_sub(suffix_len);
+    let fill: String = std::iter::repeat_n(marks.h, fill_len).collect();
+    let mut left = vec![
+        (marks.ls.to_string(), Tone::Rule),
+        (format!("{} ", marks.h), Tone::Rule),
+        (title, title_tone),
+        (format!(" {fill}"), Tone::Rule),
+    ];
+    if value.is_empty() {
+        left.push((marks.rs.to_string(), Tone::Rule));
+    } else {
+        left.push((" ".to_owned(), Tone::Rule));
+        left.push((value.to_owned(), Tone::Text));
+        left.push((format!(" {}{}", marks.h, marks.rs), Tone::Rule));
+    }
+    Row::spans(left)
 }
 
 /// `text` broken at spaces into lines of at most `width` cells (a word longer than a line is
@@ -336,29 +392,43 @@ impl<'a> Painter<'a> {
     }
 
     pub fn row(&mut self, row: &Row) {
+        self.write_row(self.inner.x, self.inner.width, row);
+    }
+
+    /// [`Self::row`], but across `x..x+width` instead of `self.inner`'s own column and width: a
+    /// section heading ([`Self::heading`]) spans the panel's full width, border cells included,
+    /// not just `inner`.
+    fn write_row(&mut self, x: u16, width: u16, row: &Row) {
         if self.full() {
             return;
         }
-        let width = usize::from(self.inner.width);
+        let width = usize::from(width);
         let y = self.inner.y + self.row;
         let right_len = row.right.as_ref().map_or(0, |(t, _)| t.chars().count());
         let mut remaining = width.saturating_sub(right_len + usize::from(right_len > 0));
-        let mut x = self.inner.x;
+        let mut cx = x;
         for (text, tone) in &row.left {
             if remaining == 0 {
                 break;
             }
             let shown = fit(text, remaining, self.marks.ellipsis);
             let n = shown.chars().count();
-            self.buf.set_stringn(x, y, &shown, n, tone.style(self.palette));
-            x += n as u16;
+            self.buf.set_stringn(cx, y, &shown, n, tone.style(self.palette));
+            cx += n as u16;
             remaining -= n;
         }
         if let Some((text, tone)) = &row.right {
-            let x = self.inner.right() - right_len as u16;
-            self.buf.set_stringn(x, y, text, right_len, tone.style(self.palette));
+            let rx = x + width as u16 - right_len as u16;
+            self.buf.set_stringn(rx, y, text, right_len, tone.style(self.palette));
         }
         self.row += 1;
+    }
+
+    /// A section heading ([`heading_row`]), across `area`'s full width (border cells included),
+    /// at the current row.
+    pub fn heading(&mut self, area: Rect, title: &str, value: &str, title_tone: Tone) {
+        let row = heading_row(title, value, usize::from(area.width), &self.marks, title_tone);
+        self.write_row(area.x, area.width, &row);
     }
 
     pub fn blank(&mut self) {
@@ -382,6 +452,21 @@ mod tests {
         for line in lines("designate harvest (chop, mine, gather); O: standing order", 28, 3) {
             assert!(line.chars().count() <= 28, "{line}");
         }
+    }
+
+    /// `heading_row`'s shape matches docs/design/side-panel.md "Headings" exactly, with and
+    /// without a value, in both Unicode and `--ascii`.
+    #[test]
+    fn a_heading_row_is_a_divider_joined_to_the_frame() {
+        let marks = Marks::new(false);
+        let row = heading_row("people", "20", 32, &marks, Tone::Heading);
+        assert_eq!(row.plain(), "├─ PEOPLE ──────────────── 20 ─┤");
+        let row = heading_row("stores", "", 32, &marks, Tone::Heading);
+        assert_eq!(row.plain(), "├─ STORES ─────────────────────┤");
+
+        let ascii = Marks::new(true);
+        let row = heading_row("people", "20", 32, &ascii, Tone::Heading);
+        assert_eq!(row.plain(), "+- PEOPLE ---------------- 20 -+");
     }
 
     #[test]
