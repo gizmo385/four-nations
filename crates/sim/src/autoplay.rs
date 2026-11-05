@@ -98,8 +98,8 @@ pub const RESEARCH_PLAN: &[&str] = &["fire_making", "farming"];
 /// How many stockpile tiles the opening lays near the anchor, once there is no stockpile at all.
 const STOCKPILE_TILES: usize = 4;
 
-/// How many stockpile tiles `Economy` keeps per non-readable item kind (`grow_stockpile`), so
-/// one popular item never starves another of room.
+/// How many stockpile tiles `grow_stockpile` lays at a time, once something is stranded on the
+/// ground with no room (#378).
 const STOCKPILE_TILES_PER_ITEM: u32 = 3;
 
 /// How far out the opening will look for room to build a bed or a campfire, in tiles, before
@@ -370,22 +370,32 @@ fn ensure_stockpile(world: &mut World, defs: &Defs, anchor: Pos) {
     }
 }
 
-/// Grows the stockpile until there are at least `STOCKPILE_TILES_PER_ITEM` tiles for every item
-/// kind that isn't read instead of stored (a scroll, `ItemDef::knowledge`): a stockpile tile
-/// holds only one item kind until it's emptied (`World::room_at`), so `Economy`'s wide spread of
-/// production (several foods, wood, stone, ore and whatever a nation's recipes make) can fill
-/// `Opening`'s own fixed handful of tiles with food alone, leaving stone and ore quarried and
-/// mined onto the ground with nowhere to go and nobody to haul them (#352). Not needed by
-/// `Opening`, which never produces more than a couple of kinds at once.
+/// Grows the stockpile whenever something lying on the ground has nowhere to go: a stockpile
+/// tile holds only one item kind until it's emptied (`World::room_at`), and nothing partitions
+/// the tiles `Economy` has laid among item kinds, so whichever item is produced fastest can claim
+/// every one of them and leave a slower one (stone, behind research and a long haul) stranded on
+/// the ground for the length of a run (#378: on one seed, Economy's own untiring wood gathering
+/// filled every tile it had, so quarried stone never reached stores at all). A target sized from
+/// the item list (`defs.items.len() * STOCKPILE_TILES_PER_ITEM`, #352's original fix) guesses a
+/// total that the fastest-growing item can still exhaust before the slowest one is ever stored;
+/// reacting to an actual stranding instead means production, not a guess, decides how big the
+/// stockpile needs to be, and the moment anything has nowhere to go, the next haul always finds
+/// the new tile empty. Not needed by `Opening`, which never produces more than a couple of kinds
+/// at once.
 fn grow_stockpile(world: &mut World, defs: &Defs, anchor: Pos) {
-    let target = defs.items.iter().filter(|i| i.knowledge.is_none()).count() as u32
-        * STOCKPILE_TILES_PER_ITEM;
-    let have = world.stockpile_zones().count() as u32;
-    if have >= target {
+    let cap = defs.jobs.stockpile_stack;
+    let has_room = |item: ItemId, pos: Pos| match world.stored_at(pos) {
+        None => true,
+        Some(stored) => stored.item == item && stored.count < cap,
+    };
+    let stranded = world
+        .ground_items()
+        .any(|(_, stack)| !world.stockpile_zones().any(|pos| has_room(stack.item, pos)));
+    if !stranded {
         return;
     }
     let candidates = open_tiles_near(world, anchor, BUILD_SEARCH_RADIUS);
-    for pos in candidates.into_iter().take((target - have) as usize) {
+    for pos in candidates.into_iter().take(STOCKPILE_TILES_PER_ITEM as usize) {
         let _ = world.apply(Command::DesignateStockpile { pos }, defs);
     }
 }
@@ -751,6 +761,26 @@ mod tests {
         (world, defs, Economy::new(6))
     }
 
+    /// The same settlement `balance::run_economy` would found on `seed`: `World::found` at
+    /// `Survey::default_site`, not the fixed spawn `world` uses (`#378`'s reproduction needed the
+    /// same anchor placement the `balance` binary sees).
+    fn economy_opening_on_seed(nation: Nation, seed: u64) -> (World, Defs, Economy) {
+        use crate::embark::Survey;
+        let defs = Defs::bundled();
+        let size = defs.embark.map_size("small").unwrap();
+        let cfg = MapGenConfig {
+            seed,
+            width: size.width,
+            height: size.height,
+            ..MapGenConfig::default()
+        };
+        let survey = Survey::new(&cfg, &defs);
+        let start = survey.default_site(&defs);
+        let world = World::found(survey, nation, start, 6, Some("normal".to_owned()), &defs)
+            .expect("Survey::default_site always names a site World::found accepts");
+        (world, defs, Economy::new(6))
+    }
+
     fn run_economy(world: &mut World, defs: &Defs, economy: &Economy, minutes: u64) {
         for tick in 0..(minutes * 600) {
             if Opening::due(tick) {
@@ -811,6 +841,22 @@ mod tests {
             .filter(|&(_, id)| id == farm_plot)
             .any(|(footprint, _)| world.plot_stage(footprint.anchor) != Some(PlotStage::Empty));
         assert!(sown, "expected at least one sown farm plot within 90 minutes");
+    }
+
+    /// `#378`: on seed 42, every nation stored 0 stone for 180 minutes under `--economy`, even
+    /// though the supply survey finds 30 reachable outcrops (worth 300 stone) within
+    /// `DEPOSIT_RADIUS`. The cause was `grow_stockpile`'s flat per-item target: wood, gathered
+    /// for every building's cost, filled every tile `Economy` ever laid before stone (gated
+    /// behind research, and farther out) got a single one, so it sat on the ground unhauled for
+    /// the whole run. `grow_stockpile` now lays more room the moment anything is stranded,
+    /// instead of guessing a fixed total from the item list.
+    #[test]
+    fn economy_stores_stone_on_seed_42() {
+        let (mut world, defs, economy) = economy_opening_on_seed(Nation::Earth, 42);
+        let stone_items = sign_items(&defs, "stone");
+        run_economy(&mut world, &defs, &economy, 150);
+        let stored: u32 = stone_items.iter().map(|&i| world.stored_total(i)).sum();
+        assert!(stored > 0, "expected some stone stored within 150 minutes on seed 42");
     }
 
     /// `Economy::without_farms` tills nothing (`docs/design/materials.md`'s `--no-farms`, owner
