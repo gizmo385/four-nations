@@ -50,7 +50,8 @@ fn f5_saves_and_f9_after_a_yes_brings_the_game_back() {
     let tmp = TempDir::new("roundtrip");
     let mut app = app(Some(tmp.0.clone()));
     play(&mut app, "<tick 40> <f5>");
-    assert_eq!(app.ui.status, "Quicksaved (tick 40)");
+    let path = fn_ui::saves::slot_path(&tmp.0, fn_ui::saves::QUICKSAVE);
+    assert_eq!(app.ui.status, format!("Quicksaved to {} (tick 40)", path.display()));
     let saved = app.session.world.save(&app.session.defs).unwrap();
     assert!(tmp.0.join("quicksave.ron").is_file());
 

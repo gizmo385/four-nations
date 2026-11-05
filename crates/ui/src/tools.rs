@@ -128,12 +128,26 @@ impl Tool {
     pub fn label(self) -> &'static str {
         match self {
             Self::Select => "select units",
-            Self::Harvest => "designate harvest (chop, mine, gather); hold Shift to repeat",
+            // The client that read held Shift as a standing order is gone (#281); the TUI's
+            // own `O` key stands in for it (#277, `fn_tui::state::UiState::tool_hint`).
+            Self::Harvest => "designate harvest (chop, mine, gather)",
             Self::CancelHarvest => "cancel harvest, build site, stockpile or sowing",
             Self::Stockpile => "designate stockpile",
             Self::Bend => "channel the nation's ability",
             Self::Build => "place the chosen building (U: next building)",
             Self::Sow => "sow an empty farm plot",
+        }
+    }
+
+    /// A short clause naming what the tool does, for the TUI's active-tool banner (#307),
+    /// without the verb its own name badge already says ("HARVEST" already says this designates
+    /// a harvest) and without the stale Shift text #305 dropped from `label`. `""` where the
+    /// name alone says enough (`Select`, `Stockpile`, `Bend`, `Build`, `Sow`).
+    pub fn brief(self) -> &'static str {
+        match self {
+            Self::Select | Self::Stockpile | Self::Bend | Self::Build | Self::Sow => "",
+            Self::Harvest => "chop, mine, gather",
+            Self::CancelHarvest => "harvest, build site, stockpile or sowing",
         }
     }
 
@@ -540,6 +554,20 @@ mod tests {
         assert_eq!(Tool::from_letter('Z'), None);
     }
 
+    /// The banner's brief (#307) never repeats #305's dropped "hold Shift to repeat", and is
+    /// empty exactly for the tools whose name badge already says enough on its own.
+    #[test]
+    fn brief_has_no_stale_shift_text_and_is_empty_where_the_name_says_enough() {
+        for tool in Tool::ALL {
+            assert!(!tool.brief().contains("Shift"), "{tool:?}");
+        }
+        for tool in [Tool::Select, Tool::Stockpile, Tool::Bend, Tool::Build, Tool::Sow] {
+            assert_eq!(tool.brief(), "", "{tool:?}");
+        }
+        assert_eq!(Tool::Harvest.brief(), "chop, mine, gather");
+        assert!(!Tool::CancelHarvest.brief().is_empty());
+    }
+
     #[test]
     fn the_hint_names_the_nation_s_own_ability_for_bend() {
         let s = Session::new(1, Nation::Fire, 48, 32);
@@ -612,9 +640,7 @@ mod tests {
         let notice =
             apply_rect(&mut s, Tool::Harvest, Pos::new(-2, -2), Pos::new(-2, -2), false, None);
         assert!(
-            notice.starts_with(
-                "designate harvest (chop, mine, gather); hold Shift to repeat: 0 done, 1 skipped ("
-            ),
+            notice.starts_with("designate harvest (chop, mine, gather): 0 done, 1 skipped ("),
             "{notice}"
         );
         assert!(notice.ends_with(')'), "{notice}");

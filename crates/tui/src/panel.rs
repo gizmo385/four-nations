@@ -4,9 +4,10 @@
 //! Stores, Research (target, bar, rate), Endeavor (the end game's progress, #235, #242; hidden
 //! with no endeavor in the data), Tool (the active designation tool, its hint, the Build tool's
 //! chosen building and the last rectangle's result), Alerts and Cursor (what is under the
-//! keyboard cursor, and what `Enter` does next). The Build tool's full picker moved to its own
-//! modal (`U`, `crate::build`, #285); the panel names only the choice. The nation's modifiers
-//! moved to the Nation screen's Traits (`N`, #308, docs/design/side-panel.md).
+//! keyboard cursor). The Build tool's full picker moved to its own modal (`U`, `crate::build`,
+//! #285); the panel names only the choice. The nation's modifiers moved to the Nation screen's
+//! Traits (`N`, #308, docs/design/side-panel.md). What `Enter` does next in a tool is the active
+//! tool banner's own line (#307, `crate::banner`), not the Cursor section's.
 //!
 //! The panel is a fixed height, so a terminal that is too short for every section gives up the
 //! least useful lines first: the tool's hint and the Build tool's chosen-building line (the
@@ -35,8 +36,8 @@ use crate::widgets::{Marks, Painter, Row, TitleAt, Tone, draw_frame, meter, wrap
 ///
 /// * Selecting a unit names its key.
 /// * Starting a tool names its key.
-/// * Applying the active tool is the rectangle line ([`rect_hint`]), which the Cursor section
-///   shows in every tool, so the tooltip's own hint adds nothing.
+/// * Applying the active tool is the rectangle line ([`rect_hint`]), which the active tool
+///   banner shows in every tool (#307, `crate::banner`), so the tooltip's own hint adds nothing.
 pub fn hint_text(hint: Hint) -> Option<String> {
     match hint {
         Hint::SelectUnit => Some("Press Enter to select".to_owned()),
@@ -315,16 +316,12 @@ fn placement_row(session: &Session, pos: Pos, choice: Option<BuildingId>) -> Opt
     })
 }
 
-/// The tile under the cursor: what `Enter` does next in a tool, whether the Build tool's choice
-/// would fit there, then the tooltip, then anything else lying on it.
+/// The tile under the cursor: whether the Build tool's choice would fit there, then the
+/// tooltip, then anything else lying on it. What `Enter` does next in a tool is the active tool
+/// banner's own line now (#307, `crate::banner`), not repeated here.
 fn cursor_rows(session: &Session, ui: &UiState, choice: Option<BuildingId>) -> Vec<Row> {
     let pos = ui.cursor;
     let mut rows = Vec::new();
-    // What Enter does next in a tool comes first, so a small terminal cuts the tile's details
-    // before it.
-    if let Some(s) = rect_hint(ui) {
-        rows.push(Row::text(s, Tone::Title));
-    }
     if ui.tool == Tool::Build
         && let Some(row) = placement_row(session, pos, choice)
     {

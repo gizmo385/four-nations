@@ -6,6 +6,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
 use ratatui::style::{Modifier, Style};
 
+use crate::banner::{self, banner_area};
 use crate::bar::{bar_area, draw_bar};
 use crate::color::Palette;
 use crate::layout::{self, MIN_HEIGHT, MIN_WIDTH};
@@ -28,14 +29,20 @@ pub fn draw(session: &Session, ui: &UiState, palette: &Palette, buf: &mut Buffer
         return;
     };
     draw_map(session, ui, palette, regions.map, buf);
-    // A screen or a modal covers the map, and the selection bar hides behind either
-    // (docs/design/ui.md).
+    // A screen or a modal covers the map, and the tool banner and the selection bar hide behind
+    // either (docs/design/ui.md); the banner (top row) and the bar (bottom rows) can otherwise
+    // both show at once, a tool active with a unit still selected.
     if let Some(screen) = ui.screen {
         draw_screen(session, ui, screen, palette, regions.map, buf);
     } else if let Some(modal) = ui.modal {
         draw_modal(session, ui, modal, palette, regions.map, buf);
-    } else if ui.selected_unit(session).is_some() {
-        draw_bar(session, ui, palette, bar_area(regions.map), buf);
+    } else {
+        if ui.tool != Tool::Select {
+            banner::draw(session, ui, palette, banner_area(regions.map), buf);
+        }
+        if ui.selected_unit(session).is_some() {
+            draw_bar(session, ui, palette, bar_area(regions.map), buf);
+        }
     }
     draw_panel(session, ui, palette, regions.panel, buf);
     draw_status(session, ui, palette, regions.status, buf);
@@ -56,6 +63,7 @@ fn draw_modal(
             let rows = fn_ui::build::picker_rows(session);
             crate::build::draw(session, &rows, ui.build_cursor, palette, area, buf);
         }
+        Modal::Menu => crate::menu::draw(ui.menu_cursor, palette, area, buf),
     }
 }
 
@@ -71,8 +79,8 @@ pub fn terminal_cursor(ui: &UiState, area: Rect) -> Option<Position> {
 
 /// The keys the status line teaches in Select mode, and (after `Esc` closes it) with a unit
 /// selected, and in a screen. The key help (`?`) has the whole table.
-const KEYS: &str = "arrows/wasd move  Enter select  Tab units  H X P B U tools  Space pause  \
-                    T research  L log  ? keys  q quit";
+const KEYS: &str = "arrows/wasd move  Enter select  Esc menu  Tab units  H X P B U tools  \
+                    Space pause  T research  L log  ? keys  q quit";
 const KEYS_SELECTED: &str = "Enter next here  Tab/Shift+Tab units  F follow  Esc close  \
                              H X P B U tools  Space pause  L log  ? keys";
 const KEYS_SCREEN: &str =
@@ -85,6 +93,7 @@ const KEYS_SAVES: &str =
 const KEYS_NATION: &str =
     "arrows/W S choose  PgUp/PgDn page  Enter select  Esc/N close  ? keys  Space pause";
 const KEYS_BUILD_MODAL: &str = "Arrows/W S choose  Enter build  Esc close";
+const KEYS_MENU: &str = "Arrows/W S choose  Enter select  Esc resume";
 
 /// The status line in a tool: what `Enter` and `Esc` do now, "Harvest · repeating" while the
 /// standing-order toggle is on (#277), then what the tool does (for `B`, the nation's ability;
@@ -161,9 +170,12 @@ fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, b
             (text.len() as u16, keys.to_owned())
         }
         None if ui.modal.is_some() => {
-            let text = " BUILD ";
+            let (text, keys) = match ui.modal {
+                Some(Modal::Menu) => (" MENU ", KEYS_MENU),
+                _ => (" BUILD ", KEYS_BUILD_MODAL),
+            };
             buf.set_string(area.x, area.y, text, badge(theme.on_accent, theme.accent));
-            (text.len() as u16, KEYS_BUILD_MODAL.to_owned())
+            (text.len() as u16, keys.to_owned())
         }
         None if ui.tool == Tool::Select => {
             let text = " SELECT ";
@@ -173,7 +185,13 @@ fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, b
         }
         None => {
             let text = format!(" {} ", ui.tool.name().to_uppercase());
-            buf.set_string(area.x, area.y, &text, badge(theme.on_accent, theme.accent));
+            // The same tint as the banner above the map (#307), so the two badges match; a
+            // standing order's own greener tint included.
+            let style = match banner::tint(ui) {
+                Some(tint) => palette.banner_style(tint),
+                None => badge(theme.on_accent, theme.accent),
+            };
+            buf.set_string(area.x, area.y, &text, style);
             (text.len() as u16, tool_status(session, ui))
         }
     };

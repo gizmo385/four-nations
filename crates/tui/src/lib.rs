@@ -9,6 +9,7 @@
 //! [`run`] touches the terminal or the wall clock.
 
 pub mod app;
+pub mod banner;
 pub mod bar;
 pub mod build;
 pub mod cli;
@@ -22,6 +23,7 @@ pub mod input;
 pub mod keys;
 pub mod layout;
 pub mod map;
+pub mod menu;
 pub mod modal;
 pub mod nation;
 pub mod panel;

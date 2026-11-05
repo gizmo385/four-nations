@@ -34,13 +34,24 @@ pub struct App {
     /// (#290, docs/design/embark.md, "In the game, `R`"), since only it can leave the game
     /// behind for a pre-game screen.
     pub reopen_embark: bool,
+    /// The clock's pause from just before the game menu opened (#306), so `close_menu` can put
+    /// it back rather than the menu itself toggling pause.
+    menu_prev_paused: Option<bool>,
 }
 
 impl App {
     pub fn new(session: Session, screen: (u16, u16)) -> Self {
         let mut ui = UiState::new(&session, screen);
         ui.alerts.update(&session, 0.0);
-        Self { session, ui, dirty: true, screen, saves: None, reopen_embark: false }
+        Self {
+            session,
+            ui,
+            dirty: true,
+            screen,
+            saves: None,
+            reopen_embark: false,
+            menu_prev_paused: None,
+        }
     }
 
     pub fn resize(&mut self, width: u16, height: u16) {
@@ -295,12 +306,17 @@ impl App {
         }
     }
 
-    /// `F5`: writes the game to the quicksave slot and says how that went in the status line.
+    /// `F5` (or the game menu's `Save`, #306): writes the game to the quicksave slot and says
+    /// in the status line whether it worked, with the path it went to — so a failed or missing
+    /// save (the wrong platform data directory, say) can't pass silently.
     fn quicksave(&mut self) {
         self.ui.status = match self.saves.as_deref() {
             None => NO_SAVE_DIR.to_owned(),
             Some(dir) => match saves::quicksave(dir, &self.session) {
-                Ok(()) => format!("Quicksaved (tick {})", self.session.world.tick),
+                Ok(()) => {
+                    let path = saves::slot_path(dir, saves::QUICKSAVE);
+                    format!("Quicksaved to {} (tick {})", path.display(), self.session.world.tick)
+                }
                 Err(why) => format!("Quicksave failed: {why}"),
             },
         };
@@ -387,12 +403,16 @@ impl App {
         }
     }
 
-    /// `Shift+S` in the saves screen, once confirmed: writes the game over the named slot.
+    /// `Shift+S` in the saves screen, once confirmed: writes the game over the named slot, with
+    /// the path it went to in the status line (#306), as `quicksave` says.
     fn save_over(&mut self, name: &str) {
         self.ui.status = match self.saves.as_deref() {
             None => NO_SAVE_DIR.to_owned(),
             Some(dir) => match saves::save(dir, name, &self.session) {
-                Ok(()) => format!("Saved {name} (tick {})", self.session.world.tick),
+                Ok(()) => {
+                    let path = saves::slot_path(dir, name);
+                    format!("Saved to {} (tick {})", path.display(), self.session.world.tick)
+                }
                 Err(why) => format!("Save failed: {why}"),
             },
         };
@@ -400,7 +420,7 @@ impl App {
     }
 
     /// `N` in the saves screen: writes a new slot ([`fn_ui::saves::new_name`]), with no prompt
-    /// since nothing is overwritten.
+    /// since nothing is overwritten, and the path it went to in the status line (#306).
     fn new_save(&mut self) {
         let Some(dir) = self.saves.clone() else {
             self.ui.status = NO_SAVE_DIR.to_owned();
@@ -408,7 +428,10 @@ impl App {
         };
         let name = saves::new_name(&self.ui.save_slots);
         self.ui.status = match saves::save(&dir, &name, &self.session) {
-            Ok(()) => format!("Saved {name} (tick {})", self.session.world.tick),
+            Ok(()) => {
+                let path = saves::slot_path(&dir, &name);
+                format!("Saved to {} (tick {})", path.display(), self.session.world.tick)
+            }
             Err(why) => format!("Save failed: {why}"),
         };
         self.refresh_saves();
@@ -498,6 +521,7 @@ impl App {
     fn modal_key(&mut self, modal: Modal, key: KeyEvent) {
         match modal {
             Modal::Build => self.build_modal_key(key),
+            Modal::Menu => self.menu_key(key),
         }
     }
 
@@ -564,12 +588,74 @@ impl App {
     }
 
     /// `Esc` in a tool: drop the corner, or with none leave the tool. In Select mode it closes
-    /// the selection bar.
+    /// the selection bar; with nothing left to close (#306), it opens the game menu instead.
     fn cancel(&mut self) {
         if self.ui.tool == Tool::Select {
-            self.ui.select(None);
+            if self.ui.selected.is_some() {
+                self.ui.select(None);
+            } else {
+                self.open_menu();
+            }
         } else if self.ui.anchor.take().is_none() {
             self.ui.set_tool(Tool::Select);
+        }
+    }
+
+    /// `Esc` in Select mode with nothing selected (#306): no tool, no bar, no screen and no
+    /// modal were left to close, so `Esc` opens the game menu (Resume, Save, Load, Key help,
+    /// Quit) instead. Pauses the clock while it's open; [`Self::close_menu`] puts it back.
+    fn open_menu(&mut self) {
+        self.menu_prev_paused = Some(self.session.clock.paused);
+        self.session.clock.paused = true;
+        self.ui.modal = Some(Modal::Menu);
+        self.ui.menu_cursor = 0;
+    }
+
+    /// Closes the game menu (`Resume`, or `Esc` inside it), restoring the clock's pause from
+    /// just before it opened.
+    fn close_menu(&mut self) {
+        if let Some(paused) = self.menu_prev_paused.take() {
+            self.session.clock.paused = paused;
+        }
+        self.ui.modal = None;
+    }
+
+    /// What a key does while the game menu is open (#306): arrows or `W`/`S` move the
+    /// highlight, `Enter` acts on it, and `Esc` resumes, as choosing `Resume` itself does.
+    fn menu_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.close_menu(),
+            KeyCode::Up | KeyCode::Char('w' | 'W') => {
+                self.ui.menu_cursor = crate::menu::step(self.ui.menu_cursor, -1);
+            }
+            KeyCode::Down | KeyCode::Char('s' | 'S') => {
+                self.ui.menu_cursor = crate::menu::step(self.ui.menu_cursor, 1);
+            }
+            KeyCode::Enter => self.menu_choose(),
+            _ => {}
+        }
+    }
+
+    /// `Enter` in the game menu: what the highlighted row does.
+    fn menu_choose(&mut self) {
+        match crate::menu::MenuRow::ALL[self.ui.menu_cursor] {
+            crate::menu::MenuRow::Resume => self.close_menu(),
+            crate::menu::MenuRow::Save => {
+                self.quicksave();
+                self.close_menu();
+            }
+            crate::menu::MenuRow::Load => {
+                self.close_menu();
+                self.show_saves();
+            }
+            crate::menu::MenuRow::Help => {
+                self.close_menu();
+                self.open(Screen::Help);
+            }
+            // Asks the same question `Q` does; the menu stays open behind the prompt
+            // (`draw_status` shows it over whatever's open, as it already does over a screen),
+            // so declining leaves the menu where it was instead of losing it.
+            crate::menu::MenuRow::Quit => self.ui.prompt = Some(Prompt::Quit),
         }
     }
 

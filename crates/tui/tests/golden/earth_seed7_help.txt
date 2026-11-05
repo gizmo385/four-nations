@@ -6,15 +6,15 @@
 │ UNITS                                                                                ││  Tyro Idle                   │
 │ Enter                  Select the unit under the cursor; again: the next one there.  ││  Ping Idle                   │
 │                        In a tool: set a corner, then apply                           ││  Ming Idle                   │
-│ Esc                    Close the screen or the bar. In a tool: drop the corner, then ││  Oma  Idle                   │
-│                        leave the tool                                                ││  Song Idle                   │
-│ Tab                    Select the next unit (Select mode)                            ││  Lin  Idle                   │
-│ Shift+Tab              Select the previous unit (Select mode)                        ││                              │
-│ F                      Follow the selected unit (Select mode)                        ││ ◇ RESEARCH                   │
-│                                                                                      ││ No target set        3.0/min │
-│ DESIGNATING                                                                          ││ 0 pts banked                 │
-│ H                      Harvest tool: designate harvest (chop, mine, gather); hold    ││                              │
-│                        Shift to repeat                                               ││ ◇ ENDEAVOR                   │
+│ Esc                    Close the screen, a modal or the bar. In a tool: drop the     ││  Oma  Idle                   │
+│                        corner, then leave the tool. With nothing to close: the game  ││  Song Idle                   │
+│                        menu (Resume, Save, Load, Key help, Quit, #306)               ││  Lin  Idle                   │
+│ Tab                    Select the next unit (Select mode)                            ││                              │
+│ Shift+Tab              Select the previous unit (Select mode)                        ││ ◇ RESEARCH                   │
+│ F                      Follow the selected unit (Select mode)                        ││ No target set        3.0/min │
+│                                                                                      ││ 0 pts banked                 │
+│ DESIGNATING                                                                          ││                              │
+│ H                      Harvest tool: designate harvest (chop, mine, gather)          ││ ◇ ENDEAVOR                   │
 │ X                      Cancel tool: cancel harvest, build site, stockpile or sowing  ││ The Harmony Gate         0/9 │
 │ P                      Stockpile tool: designate stockpile                           ││ ░░░░░░░░░░                   │
 │ B                      Bend tool: channel the nation's ability                       ││ Signs met - G: open          │

@@ -165,13 +165,15 @@ fn n_writes_a_new_slot_with_no_prompt_and_the_list_grows() {
     let tmp = TempDir::new("new");
     let mut a = app(Some(tmp.0.clone()));
     run(&mut a, "<tick 40> <f6> n");
-    assert_eq!(a.ui.status, "Saved save-1 (tick 40)");
-    assert!(tmp.0.join("save-1.ron").is_file());
+    let path = fn_ui::saves::slot_path(&tmp.0, "save-1");
+    assert_eq!(a.ui.status, format!("Saved to {} (tick 40)", path.display()));
+    assert!(path.is_file());
     assert_eq!(a.ui.save_slots.len(), 1);
     assert_eq!(a.ui.prompt, None, "N never asks: nothing is overwritten");
 
     run(&mut a, "n");
-    assert_eq!(a.ui.status, "Saved save-2 (tick 40)");
+    let path = fn_ui::saves::slot_path(&tmp.0, "save-2");
+    assert_eq!(a.ui.status, format!("Saved to {} (tick 40)", path.display()));
     assert_eq!(a.ui.save_slots.len(), 2);
 }
 
@@ -245,7 +247,8 @@ fn shift_s_asks_and_saves_over_the_highlighted_slot() {
     run(&mut a, "<tick 40> <f6> n <tick 60> S");
     assert!(text(&mut a, SIZE).contains("SAVE?"), "the prompt shows");
     run(&mut a, "y");
-    assert_eq!(a.ui.status, "Saved save-1 (tick 100)");
+    let path = fn_ui::saves::slot_path(&tmp.0, "save-1");
+    assert_eq!(a.ui.status, format!("Saved to {} (tick 100)", path.display()));
     assert_eq!(a.ui.screen, Some(Screen::Saves), "saving over a slot does not close the screen");
 
     // The slot now holds the later tick.

@@ -397,6 +397,42 @@ impl Palette {
         self.color(self.glyphs.overlay.cursor)
     }
 
+    /// The active tool banner's look (#307, `crate::banner`): a solid fill in `tint`'s colour,
+    /// bold text in whichever of black or white reads more clearly on it once quantised
+    /// (`banner_fg`). With no colour it's reverse video and bold instead, as `cursor_style`
+    /// falls back the same way.
+    pub fn banner_style(&self, tint: Tint) -> Style {
+        let bold = Style::new().add_modifier(Modifier::BOLD);
+        if self.mono() {
+            return bold.add_modifier(Modifier::REVERSED);
+        }
+        bold.fg(self.banner_fg(tint)).bg(self.color(self.tint_rgb(tint)))
+    }
+
+    /// Whichever of black or white has the better WCAG contrast against `tint`'s solid fill as
+    /// it's actually shown at this depth, not the design's own truecolor hue: on 16 or 256
+    /// colours the nearest entry can land lighter or darker than it (`rendered_tint`), and the
+    /// pick that was right at truecolor isn't always still the better one. Every tint and every
+    /// nation's accent (`Tint::Bend`) clears 4.5:1 this way (tested in `color::tests`).
+    fn banner_fg(&self, tint: Tint) -> Color {
+        let shown = to_f32(self.rendered_tint(tint));
+        if theme::contrast(theme::WHITE, shown) > theme::contrast(to_f32([0, 0, 0]), shown) {
+            self.color([255, 255, 255])
+        } else {
+            self.color([0, 0, 0])
+        }
+    }
+
+    /// The sRGB `tint` actually renders as at this depth, after quantising to the nearest entry.
+    fn rendered_tint(&self, tint: Tint) -> Rgb8 {
+        let rgb = self.tint_rgb(tint);
+        match self.depth {
+            ColorDepth::Ansi16 => ANSI[nearest_ansi_index(rgb, &[])].1,
+            ColorDepth::Indexed256 => entry_256(nearest_256(rgb)),
+            ColorDepth::TrueColor | ColorDepth::Never => rgb,
+        }
+    }
+
     /// The style of the cursor tile's text: black on the cursor colour, or reverse video when
     /// there is no colour.
     pub fn cursor_style(&self) -> Style {
@@ -628,5 +664,35 @@ mod tests {
         assert_eq!(mix([0, 0, 0], [200, 100, 50], 0.0), [0, 0, 0]);
         assert_eq!(mix([0, 0, 0], [200, 100, 50], 1.0), [200, 100, 50]);
         assert_eq!(mix([0, 0, 0], [200, 100, 50], 0.5), [100, 50, 25]);
+    }
+
+    /// The banner's text (#307) clears WCAG AA (4.5:1) against every tool tint's solid fill,
+    /// for every nation (`Tint::Bend` is the nation's own accent), on every colour depth: on 16
+    /// colours and 256 colours a tint can land lighter or darker than its own truecolor hue
+    /// (`banner_fg` picks black or white by what's actually shown, not the design's own hue).
+    #[test]
+    fn the_banner_text_clears_aa_contrast_on_every_tint_and_depth() {
+        let defs = Defs::bundled();
+        for nation in Nation::ALL {
+            for depth in [ColorDepth::TrueColor, ColorDepth::Indexed256, ColorDepth::Ansi16] {
+                let p = Palette::new(&defs, nation, depth, false);
+                for tint in [
+                    Tint::Harvest,
+                    Tint::RepeatingHarvest,
+                    Tint::Stockpile,
+                    Tint::Build,
+                    Tint::Bend,
+                ] {
+                    let shown = p.rendered_tint(tint);
+                    let fg = if p.banner_fg(tint) == p.color([255, 255, 255]) {
+                        theme::WHITE
+                    } else {
+                        to_f32([0, 0, 0])
+                    };
+                    let ratio = theme::contrast(fg, to_f32(shown));
+                    assert!(ratio >= 4.5, "{nation:?} {depth:?} {tint:?}: {ratio:.2} < 4.5");
+                }
+            }
+        }
     }
 }
