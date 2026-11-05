@@ -117,14 +117,18 @@ impl Host {
         };
         let shell = Shell::for_args(&args, cli::DEFAULT_SIZE, None, 0)?;
         let palette = Palette::new(shell.defs(), nation, ColorDepth::TrueColor, true);
+        let data_digest = shell.defs().id_hash();
         let header = RunLogHeader {
             seed,
             nation,
             turn_seconds: DEFAULT_TURN_SECONDS,
+            ticks_per_turn: DEFAULT_TURN_SECONDS * TICKS_PER_SECOND,
             map_size: args.map_size,
             difficulty: args.difficulty,
             site,
             rough,
+            data_digest,
+            crate_version: env!("CARGO_PKG_VERSION").to_owned(),
         };
         Ok(Self {
             shell,
@@ -141,6 +145,7 @@ impl Host {
     pub fn with_turn_seconds(mut self, turn_seconds: u32) -> Self {
         self.turn_seconds = turn_seconds.max(1);
         self.header.turn_seconds = self.turn_seconds;
+        self.header.ticks_per_turn = self.turn_seconds * TICKS_PER_SECOND;
         self
     }
 
@@ -177,9 +182,11 @@ impl Host {
     }
 
     /// Enough of how this session started to rebuild it (`seed`, `nation`, `turn_seconds`,
-    /// `map_size`, `difficulty`, `site` and `rough`, [`Self::new`]'s own arguments): the first
-    /// line a run log writes (docs/design/agent-play.md, "Racing": "Run log"), and what
-    /// `fn_tui --watch` (#319) and `fn_agent verify` (#317/#318) read to start one of their own.
+    /// `map_size`, `difficulty`, `site` and `rough`, [`Self::new`]'s own arguments), plus
+    /// `ticks_per_turn`, `data_digest` and `crate_version` (what the run was made against): the
+    /// first line a run log writes (docs/design/agent-play.md, "Racing": "Run log"), and what
+    /// `fn_tui --watch` (#324) and `fn_agent keys`/`verify` (#317/#318) read to start one of
+    /// their own.
     pub fn header(&self) -> RunLogHeader {
         self.header.clone()
     }
@@ -1316,14 +1323,15 @@ impl RunLog {
     /// Every entry as a [`LogLine`], in the order [`Host`] made them (not including the header,
     /// which is [`Host::header`]): the shape a run log's lines after the first take
     /// (docs/design/agent-play.md, "Racing": "Run log"), that `fn_tui --watch` (#319) reads back
-    /// and `fn_agent` (#317) will write as it goes.
+    /// and `fn_agent serve` (#317, #324) writes as it goes (`fn_agent::tools::Tools` diffs
+    /// against this on every tool call, so it never has its own copy of what to log).
     pub fn lines(&self) -> Vec<LogLine> {
         self.entries.iter().map(LogLine::from).collect()
     }
 
     /// The whole run log as JSON Lines: `header`'s own line, then [`Self::lines`], one JSON
-    /// object a line. What a watcher reads (`fn_tui --watch`, #319) and, once `fn_agent` (#317)
-    /// writes a real one incrementally, what its file looks like start to finish.
+    /// object a line. What a watcher reads (`fn_tui --watch`, #319), and the shape `fn_agent
+    /// serve` (#317, #324) writes incrementally rather than all at once.
     pub fn to_jsonl(&self, header: &RunLogHeader) -> String {
         let mut out = String::new();
         out.push_str(&serde_json::to_string(&LogLine::Header(header.clone())).unwrap());
@@ -1337,26 +1345,42 @@ impl RunLog {
 }
 
 /// Enough of how a [`Host`] session started to rebuild it: [`Host::new`]'s own arguments, plus
-/// how many game seconds one `end_turn` turn covers. The first line of a run log
-/// (docs/design/agent-play.md, "Racing": "Run log"), read by `fn_tui --watch` (#319) and
-/// `fn_agent verify` (#317/#318) to build the same session a live `Host` started from.
+/// how many game seconds (and ticks) one `end_turn` turn covers, and what the run was made
+/// against. The first line of a run log (docs/design/agent-play.md, "Racing": "Run log"), read
+/// by `fn_tui --watch` (#319) and `fn_agent keys`/`verify` (#317/#318) to build the same session
+/// a live `Host` started from. `data_digest` and `crate_version` are not needed to rebuild the
+/// session (a fresh one always uses whatever data and code are at hand), only to tell a reader
+/// whether it still can: `--watch` refuses a log whose `data_digest` doesn't match
+/// (`Watcher::new`), the same rule `fn_sim::save` applies to a save file.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RunLogHeader {
     pub seed: u64,
     pub nation: Nation,
     pub turn_seconds: u32,
+    /// How many ticks one `end_turn` turn runs (`turn_seconds * TICKS_PER_SECOND`): what turns a
+    /// `Turn` line's `index` back into a `<tick N>` a key script would use (`fn_agent keys`,
+    /// docs/design/agent-play.md, "Racing"), without a reader having to know `TICKS_PER_SECOND`
+    /// itself.
+    pub ticks_per_turn: u32,
     pub map_size: Option<String>,
     pub difficulty: Option<String>,
     pub site: Option<(i32, i32)>,
     pub rough: bool,
+    /// `Defs::id_hash`: a stable hash of the bundled data's id tables this run was made against
+    /// (`Host::data_digest`'s own doc comment). A replay only holds for the same data.
+    pub data_digest: u64,
+    /// `env!("CARGO_PKG_VERSION")` at the time this run was made: the other half of "replays only
+    /// hold for the same code and data".
+    pub crate_version: String,
 }
 
 /// One line of a run log file, after the first ([`RunLogHeader`]'s own line): the JSON shape
-/// `fn_agent` (#317) writes, one object a line, flushed as it goes, and `fn_tui --watch` (#319)
-/// reads back. `keys` is the pressed keys as a `--keys` script (`key_token`'s syntax, parsed
-/// back by `crate::keys::parse`), not the raw [`KeyEvent`]s, since those have no `serde` of
-/// their own and a script is what a human watching -- or re-running `fn_agent keys` -- wants to
-/// read anyway.
+/// `fn_agent serve` (#317, #324) writes, one object a line, flushed as it goes, and `fn_tui
+/// --watch` (#319) reads back -- the one schema both sides use, so they can't drift apart.
+/// `keys` is the pressed keys as a `--keys` script (`key_token`'s syntax, parsed back by
+/// `crate::keys::parse`), not the raw [`KeyEvent`]s, since those have no `serde` of their own
+/// and a script is what a human watching -- or re-running `fn_agent keys` -- wants to read
+/// anyway.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LogLine {
@@ -1999,10 +2023,13 @@ mod tests {
                 seed: 7,
                 nation: Nation::Earth,
                 turn_seconds: 12,
+                ticks_per_turn: 12 * TICKS_PER_SECOND,
                 map_size: None,
                 difficulty: None,
                 site: None,
                 rough: false,
+                data_digest: h.data_digest(),
+                crate_version: env!("CARGO_PKG_VERSION").to_owned(),
             }
         );
 

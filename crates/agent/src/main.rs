@@ -1,21 +1,25 @@
 //! The CLI: `fn_agent serve ...` and `fn_agent keys LOG`. See the crate's own doc comment
 //! (`fn_agent::...`) for the protocol and the sandboxing recipe.
 
-use std::fs;
 use std::io::{BufReader, stdin, stdout};
+use std::path::Path;
 use std::process::ExitCode;
 
-use fn_agent::runlog::{self, Writer};
+use fn_agent::runlog::Writer;
 use fn_agent::server;
 use fn_agent::tools::Tools;
 use fn_tui::surface::{DEFAULT_TURN_SECONDS, Host};
+use fn_tui::watch;
 
 const USAGE: &str = "\
 usage: fn_agent serve --seed N --nation X [--start default|X,Y] [--difficulty ID]
                        [--turn SECS] --log PATH
        fn_agent keys LOG
 
-serve speaks MCP (JSON-RPC 2.0) over stdin and stdout: initialize, tools/list and tools/call.
+serve speaks MCP (JSON-RPC 2.0) over stdin and stdout: initialize, tools/list and tools/call. It
+writes --log PATH as it goes; watch it live (or replay it after) with
+    fn_tui --watch PATH
+in another terminal.
 keys prints the run at LOG as a --keys script (fn_tui SEED NATION --frame --keys \"...\").";
 
 fn main() -> ExitCode {
@@ -92,19 +96,20 @@ fn serve(args: Vec<String>) -> Result<(), String> {
         .ok_or_else(|| format!("unknown nation {:?} (air, water, earth or fire)", a.nation))?;
     let host = Host::new(a.seed, nation, None, a.difficulty, a.start, false)?
         .with_turn_seconds(a.turn_seconds);
-    let writer = Writer::create(std::path::Path::new(&a.log)).map_err(|e| e.to_string())?;
-    let mut tools = Tools::new(host, writer);
-    tools.write_header(a.seed, &a.nation)?;
+    let writer = Writer::create(Path::new(&a.log)).map_err(|e| e.to_string())?;
+    let mut tools = Tools::new(host, writer)?;
 
     let input = BufReader::new(stdin());
     server::serve(input, stdout(), &mut tools);
     Ok(())
 }
 
+/// Prints the run at `LOG` as a `--keys` script (`fn_tui SEED NATION --frame --keys "..."`):
+/// reads the same `fn_tui::surface::RunLogHeader`/`LogLine` schema `fn_tui --watch` does (#324),
+/// so a log `fn_agent serve` is still writing reads back here exactly as it would there.
 fn keys(args: Vec<String>) -> Result<(), String> {
     let path = args.into_iter().next().ok_or("fn_agent keys needs a LOG path")?;
-    let text = fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
-    let events = runlog::read(text.as_bytes())?;
-    println!("{}", runlog::to_keys_script(&events)?);
+    let (header, lines) = watch::read_file(Path::new(&path))?;
+    println!("{}", watch::to_keys_script(&header, &lines));
     Ok(())
 }

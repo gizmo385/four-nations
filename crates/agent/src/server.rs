@@ -109,7 +109,7 @@ mod tests {
         let host =
             Host::new(7, fn_tui::cli::parse_nation("earth").unwrap(), None, None, None, false)
                 .unwrap();
-        Tools::new(host, Writer::new(Vec::new()))
+        Tools::new(host, Writer::new(Vec::new())).unwrap()
     }
 
     fn call(input: &str) -> Vec<Value> {
@@ -175,7 +175,6 @@ mod tests {
     #[test]
     fn act_and_end_turn_drive_the_game_through_the_same_session() {
         let mut t = tools();
-        t.write_header(7, "earth").unwrap();
         let mut out = Vec::new();
         let script = [
             r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"act","arguments":{"steps":[{"step":"cursor","x":5,"y":5}],"note":"scout the east"}}}"#,
@@ -192,12 +191,15 @@ mod tests {
         let act: Value = serde_json::from_str(act_text).unwrap();
         assert!(act["error"].is_null(), "{act}");
         assert_eq!(act["observe"]["cursor"]["x"], 5);
+        assert!(act["keys"].as_array().unwrap().contains(&json!("<up>")));
 
         let turn_text = responses[1]["result"]["content"][0]["text"].as_str().unwrap();
         let turn: Value = serde_json::from_str(turn_text).unwrap();
         assert_eq!(turn["turn"], 1);
 
-        // The log holds the header, the act (with its keys and label) and the turn, in order.
+        // The log holds the header (written at `Tools::new`), the act's keys and label, and the
+        // turn, in order -- the one schema `fn_tui::surface::{RunLogHeader, LogLine}` defines
+        // (#324), which is also what `Host::log` itself would have recorded for the same calls.
         let log_lines: Vec<Value> = String::from_utf8(t.log().get_ref().clone())
             .unwrap()
             .lines()
@@ -207,29 +209,35 @@ mod tests {
         assert_eq!(log_lines[0]["type"], "header");
         assert_eq!(log_lines[0]["seed"], 7);
         assert_eq!(log_lines[0]["nation"], "earth");
-        assert_eq!(log_lines[1]["type"], "act");
+        assert_eq!(log_lines[1]["type"], "keys");
         assert_eq!(log_lines[1]["label"], "cursor (5,5)");
         assert_eq!(log_lines[1]["note"], "scout the east");
-        assert!(log_lines[1]["keys"].as_array().unwrap().contains(&json!("<up>")));
+        assert!(log_lines[1]["keys"].as_str().unwrap().contains("<up>"));
         assert_eq!(log_lines[2]["type"], "turn");
-        assert_eq!(log_lines[2]["turns"], 1);
+        assert_eq!(log_lines[2]["index"], 1);
     }
 
-    /// Every read-only tool call is logged too (an attention ghost for a watcher later, #319),
-    /// as a `read` event naming the tool and its arguments.
+    /// `look` and `inspect` are logged too (a watcher's attention ghosts, #319), as `LogLine`'s
+    /// own `look`/`inspect` lines; every other read (`observe`, `screen`, `frame`) changes
+    /// nothing and logs nothing, the same as `Host::log` itself only tracks those two.
     #[test]
-    fn read_only_tool_calls_are_logged_as_reads() {
+    fn look_and_inspect_are_logged_but_other_reads_are_not() {
         let mut t = tools();
         t.call("look", json!({"x": 0, "y": 0, "w": 4, "h": 4})).unwrap();
+        t.call("inspect", json!({"x": 1, "y": 1})).unwrap();
+        t.call("observe", json!({})).unwrap();
+        t.call("screen", json!({"name": "help"})).unwrap();
         let log_lines: Vec<Value> = String::from_utf8(t.log().get_ref().clone())
             .unwrap()
             .lines()
             .map(|l| serde_json::from_str(l).unwrap())
             .collect();
-        assert_eq!(log_lines.len(), 1);
-        assert_eq!(log_lines[0]["type"], "read");
-        assert_eq!(log_lines[0]["tool"], "look");
-        assert_eq!(log_lines[0]["args"]["w"], 4);
+        // The header, then exactly the look and the inspect: observe and screen add nothing.
+        assert_eq!(log_lines.len(), 3, "{log_lines:?}");
+        assert_eq!(log_lines[1]["type"], "look");
+        assert_eq!(log_lines[1]["w"], 4);
+        assert_eq!(log_lines[2]["type"], "inspect");
+        assert_eq!(log_lines[2]["x"], 1);
     }
 
     /// `briefing` is in-game knowledge only: the seed, the nation, the turn length and the key

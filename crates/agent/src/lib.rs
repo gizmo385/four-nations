@@ -12,9 +12,13 @@
 //! `serve` wraps a [`fn_tui::surface::Host`] (the same one `fn_tui`'s own `--frame` and `--keys`
 //! use) and speaks JSON-RPC 2.0 over stdin and stdout: `initialize`, `tools/list` and
 //! `tools/call` ([`tools`]), hand-rolled rather than through an SDK ([`server`]). It writes its
-//! run to `--log PATH` as JSON Lines as it goes ([`runlog`]). `keys` reads a finished (or still
-//! growing) log and prints the `--keys` script that reproduces its final frame with
-//! `fn_tui SEED NATION --frame --keys "..."`.
+//! run to `--log PATH` as JSON Lines as it goes, flushing each line ([`runlog`]), in the one
+//! schema `fn_tui::surface::{RunLogHeader, LogLine}` defines -- the same shape `fn_tui --watch`
+//! reads, so the two can't drift apart (#324). `fn_tui --watch run.jsonl` follows that file live
+//! in a human's own terminal while `serve` is still writing it, or replays it once `serve` has
+//! exited; `fn_agent keys LOG` reads a finished (or still growing) log the same way and prints
+//! the `--keys` script that reproduces its final frame with `fn_tui SEED NATION --frame --keys
+//! "..."`.
 //!
 //! ## Sandboxing a racer (docs/design/agent-play.md, "Enforcing and testing parity")
 //!

@@ -1,7 +1,9 @@
 //! `fn_tui --watch LOG` (#319): follows a live agent run log or replays a finished one in the
 //! normal TUI (docs/design/agent-play.md, "Watching"). The log is JSON Lines in the shape
-//! `crate::surface::{RunLogHeader, LogLine}` writes (and `fn_agent`, #317, will write as it
-//! goes): a header line, then one `Keys`/`Look`/`Inspect`/`Turn` event a line.
+//! `crate::surface::{RunLogHeader, LogLine}` defines -- the one schema both `fn_tui --watch` and
+//! `fn_agent serve`/`keys` use (#324) -- a header line, then one `Keys`/`Look`/`Inspect`/`Turn`
+//! event a line. [`Watcher::new`] refuses a header whose `data_digest` doesn't match the data
+//! here, the same rule a save file follows.
 //!
 //! Replay goes through the same [`Shell`] a human's keyboard drives ([`Watcher::advance`]
 //! presses the logged keys itself), animated at a readable rate instead of a human's hand, so
@@ -91,6 +93,23 @@ pub fn read_file(path: &Path) -> Result<(RunLogHeader, Vec<LogLine>), String> {
     parse(&format!("{text}\n"))
 }
 
+/// `lines` as a `--keys` script (`fn_agent keys`, docs/design/agent-play.md, "Racing"): every
+/// `Keys` entry's own script, in order, and `<tick N>` for every `Turn` (`header.ticks_per_turn`,
+/// the same ticks `Host::end_turn` ran) -- what `fn_tui SEED NATION --frame --keys "..."`
+/// replays to reach the same frame. `Look` and `Inspect` leave nothing to replay: `Shell::key`
+/// has no equivalent for either.
+pub fn to_keys_script(header: &RunLogHeader, lines: &[LogLine]) -> String {
+    let mut tokens = Vec::new();
+    for line in lines {
+        match line {
+            LogLine::Keys { keys, .. } => tokens.push(keys.clone()),
+            LogLine::Turn { .. } => tokens.push(format!("<tick {}>", header.ticks_per_turn)),
+            LogLine::Look { .. } | LogLine::Inspect { .. } | LogLine::Header(_) => {}
+        }
+    }
+    tokens.join(" ")
+}
+
 /// Tails a growing run log file: every call to [`Self::poll`] returns whatever whole lines have
 /// landed since the last one, leaving a not-yet-newline-terminated tail buffered for next time
 /// (docs/design/agent-play.md, "Watching": "If the log is still growing, it follows it live").
@@ -169,7 +188,10 @@ pub struct Watcher {
 
 impl Watcher {
     /// Builds the session `header` describes (the way `surface::Host::new` does), with nothing
-    /// yet to replay: feed it events with [`Self::feed`].
+    /// yet to replay: feed it events with [`Self::feed`]. Refuses a log made against different
+    /// data (`header.data_digest` against the bundled data's own `Defs::id_hash` -- #324's
+    /// acceptance criteria), the same rule `fn_sim::save` applies to a save file: a replay only
+    /// holds for the same data a header's `Host` was built against.
     pub fn new(header: &RunLogHeader) -> Result<Self, String> {
         let args = Args {
             seed: Some(header.seed),
@@ -192,6 +214,14 @@ impl Watcher {
             at: None,
         };
         let shell = Shell::for_args(&args, cli::DEFAULT_SIZE, None, 0)?;
+        let digest = shell.defs().id_hash();
+        if digest != header.data_digest {
+            return Err(format!(
+                "this run log was made against different data (digest {:#x}, the data here is \
+                 {digest:#x}); it can't be replayed",
+                header.data_digest
+            ));
+        }
         Ok(Self {
             shell,
             turn_seconds: header.turn_seconds.max(1),
@@ -640,11 +670,27 @@ mod tests {
             seed: 7,
             nation,
             turn_seconds: 10,
+            ticks_per_turn: 10 * TICKS_PER_SECOND,
             map_size: None,
             difficulty: None,
             site: None,
             rough: false,
+            data_digest: fn_sim::Defs::bundled().id_hash(),
+            crate_version: env!("CARGO_PKG_VERSION").to_owned(),
         }
+    }
+
+    /// `Watcher::new` refuses a log whose `data_digest` doesn't match the data here, with a
+    /// clear message (#324's acceptance criteria).
+    #[test]
+    fn a_mismatched_data_digest_is_refused() {
+        let mut h = header(Nation::Earth);
+        h.data_digest = h.data_digest.wrapping_add(1);
+        let err = match Watcher::new(&h) {
+            Ok(_) => panic!("a mismatched digest should be refused"),
+            Err(e) => e,
+        };
+        assert!(err.contains("different data"), "{err}");
     }
 
     #[test]

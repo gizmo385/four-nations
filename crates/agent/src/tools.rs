@@ -14,7 +14,7 @@ use fn_tui::surface::{ActionStep, Host};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::runlog::{LogEvent, Writer};
+use crate::runlog::Writer;
 
 /// Every tool's name, description and input schema, in the order `tools/list` returns them.
 pub fn list() -> Vec<Value> {
@@ -187,16 +187,27 @@ struct EndTurnArgs {
     turns: Option<u32>,
 }
 
-/// Wraps a [`Host`] and the run log [`Writer`]: the one place `tools/call` dispatches to, so
-/// every tool call is logged the same way it's served.
+/// Wraps a [`Host`] and the run log [`Writer`]: the one place `tools/call` dispatches to.
+///
+/// Logging doesn't duplicate [`Host`]'s own bookkeeping: `Host` already keeps a `RunLog` of
+/// every `Keys`, `Look`, `Inspect` and `Turn` entry a call makes (`press_keys`, `act`, `look`,
+/// `inspect`, `end_turn`), in the one schema `fn_tui::surface::LogLine` defines (#324). After
+/// every call, [`Self::flush_new_lines`] writes whatever of `host.log().lines()` wasn't on disk
+/// yet, so the file is exactly what a live `fn_tui --watch` or a later `fn_agent keys` reads
+/// back -- the same lines [`Host`]'s own tests already check.
 pub struct Tools<W: std::io::Write> {
     host: Host,
     log: Writer<W>,
+    /// How many of `host.log().lines()` are already flushed to `log`.
+    written: usize,
 }
 
 impl<W: std::io::Write> Tools<W> {
-    pub fn new(host: Host, log: Writer<W>) -> Self {
-        Self { host, log }
+    /// Wraps `host` and `log`, writing the header at once (`Host::header`): what the run was
+    /// made against, so a later `fn_tui --watch` or `fn_agent keys` can tell.
+    pub fn new(host: Host, mut log: Writer<W>) -> Result<Self, String> {
+        log.write_header(&host.header()).map_err(|e| e.to_string())?;
+        Ok(Self { host, log, written: 0 })
     }
 
     /// The run log written so far, for a test to read back (`Writer::get_ref`).
@@ -210,30 +221,29 @@ impl<W: std::io::Write> Tools<W> {
     /// `Host::act`'s own `error` field in the result, so the steps before it still show as
     /// having run.
     pub fn call(&mut self, name: &str, arguments: Value) -> Result<Value, String> {
+        let result = self.dispatch(name, arguments)?;
+        self.flush_new_lines()?;
+        Ok(result)
+    }
+
+    fn dispatch(&mut self, name: &str, arguments: Value) -> Result<Value, String> {
         match name {
             "briefing" => Ok(self.briefing()),
-            "observe" => {
-                self.read("observe", &arguments)?;
-                Ok(ok(&self.host.observe()))
-            }
+            "observe" => Ok(ok(&self.host.observe())),
             "look" => {
-                let a: LookArgs = args(name, arguments.clone())?;
-                self.read("look", &arguments)?;
+                let a: LookArgs = args(name, arguments)?;
                 Ok(ok(&self.host.look(a.x, a.y, a.w, a.h)))
             }
             "inspect" => {
-                let a: InspectArgs = args(name, arguments.clone())?;
-                self.read("inspect", &arguments)?;
+                let a: InspectArgs = args(name, arguments)?;
                 Ok(ok(&self.host.inspect(a.x, a.y)))
             }
             "screen" => {
-                let a: ScreenArgs = args(name, arguments.clone())?;
-                self.read("screen", &arguments)?;
+                let a: ScreenArgs = args(name, arguments)?;
                 self.host.screen(&a.name).map(|v| ok(&v))
             }
             "frame" => {
-                let a: FrameArgs = args(name, arguments.clone()).unwrap_or_default();
-                self.read("frame", &arguments)?;
+                let a: FrameArgs = args(name, arguments).unwrap_or_default();
                 let (w, h) = (
                     a.w.unwrap_or(fn_tui::cli::DEFAULT_SIZE.0),
                     a.h.unwrap_or(fn_tui::cli::DEFAULT_SIZE.1),
@@ -242,31 +252,12 @@ impl<W: std::io::Write> Tools<W> {
             }
             "act" => {
                 let a: ActArgs = args(name, arguments)?;
-                let note = a.note.map(|n| n.chars().take(80).collect::<String>());
-                let result = self.host.act(&a.steps, note.clone());
-                self.log
-                    .write(&LogEvent::Act {
-                        label: result.label.clone(),
-                        note,
-                        keys: result.keys.clone(),
-                        error: result
-                            .error
-                            .as_ref()
-                            .map(|e| format!("step {}: {}", e.step, e.reason)),
-                    })
-                    .map_err(|e| e.to_string())?;
-                Ok(ok(&result))
+                Ok(ok(&self.host.act(&a.steps, a.note)))
             }
             "end_turn" => {
                 let a: EndTurnArgs = args(name, arguments).unwrap_or_default();
                 let turns = a.turns.unwrap_or(1).max(1);
-                let before = self.host.observe().turn;
-                let obs = self.host.end_turn(turns);
-                let ran = obs.turn.saturating_sub(before);
-                self.log
-                    .write(&LogEvent::Turn { turns: ran, tick: self.host.tick() })
-                    .map_err(|e| e.to_string())?;
-                Ok(ok(&obs))
+                Ok(ok(&self.host.end_turn(turns)))
             }
             other => Err(format!("no such tool {other:?}; call tools/list")),
         }
@@ -291,24 +282,14 @@ impl<W: std::io::Write> Tools<W> {
         })
     }
 
-    fn read(&mut self, tool: &str, args: &Value) -> Result<(), String> {
-        self.log
-            .write(&LogEvent::Read { tool: tool.to_owned(), args: args.clone() })
-            .map_err(|e| e.to_string())
-    }
-
-    /// Writes the log's header (`fn_agent serve`'s own first write): what the run was made
-    /// against, so a later `fn_agent keys` or a verify (#318) can tell.
-    pub fn write_header(&mut self, seed: u64, nation: &str) -> Result<(), String> {
-        self.log
-            .write(&LogEvent::Header {
-                seed,
-                nation: nation.to_owned(),
-                turn_seconds: self.host.turn_seconds(),
-                ticks_per_turn: self.host.ticks_per_turn(),
-                data_digest: self.host.data_digest(),
-                crate_version: env!("CARGO_PKG_VERSION").to_owned(),
-            })
-            .map_err(|e| e.to_string())
+    /// Writes whatever of `host.log().lines()` isn't on disk yet (`Self::written`'s own count),
+    /// flushing each as it goes (`Writer::write_line`).
+    fn flush_new_lines(&mut self) -> Result<(), String> {
+        let lines = self.host.log().lines();
+        for line in &lines[self.written..] {
+            self.log.write_line(line).map_err(|e| e.to_string())?;
+        }
+        self.written = lines.len();
+        Ok(())
     }
 }
