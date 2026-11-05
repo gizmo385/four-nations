@@ -2,7 +2,7 @@
 
 use fn_sim::jobs::{JobKind, Stack};
 use fn_sim::world::{FoodSource, Task, Unit};
-use fn_sim::{Defs, World};
+use fn_sim::{Defs, Pos, World};
 
 /// "3 Wood", or "nothing".
 pub fn describe_stack(defs: &Defs, stack: Option<Stack>) -> String {
@@ -10,6 +10,27 @@ pub fn describe_stack(defs: &Defs, stack: Option<Stack>) -> String {
         Some(s) => format!("{} {}", s.count, defs.item(s.item).name),
         None => "nothing".into(),
     }
+}
+
+/// A crafter's task: "Crafting at (x, y)", or, once its recipe's `stock_limit` is reached with
+/// no batch under way (`World::craft_idle`, issue #350), "<Building> idle: n/limit <item>
+/// stored" so the player can see why it stopped.
+fn describe_craft(world: &World, defs: &Defs, unit: &Unit, pos: Pos) -> String {
+    let fallback = || format!("Crafting at ({}, {})", pos.x, pos.y);
+    let Some(building) = world.building_at(pos) else { return fallback() };
+    let def = defs.building(building);
+    let Some(recipe) = &def.recipe else { return fallback() };
+    if !world.craft_idle(pos, recipe) {
+        return fallback();
+    }
+    let stored = world.stored_total(recipe.output.item);
+    format!(
+        "{} idle: {}/{} {} stored",
+        def.display_name(world.nation_of(unit)),
+        stored,
+        recipe.stock_limit,
+        defs.item(recipe.output.item).name
+    )
 }
 
 /// What the unit is doing, in a short phrase for the info panel.
@@ -74,9 +95,9 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
             Some(JobKind::Study { pos }) => format!("Studying at ({}, {})", pos.x, pos.y),
             _ => "Studying".into(),
         },
-        // Minimal text; a recipe display is client work for a later issue.
+        // Minimal text; a recipe display is client work for a later issue (#351).
         Task::Craft(id) => match world.job(id).map(|j| j.kind) {
-            Some(JobKind::Craft { pos }) => format!("Crafting at ({}, {})", pos.x, pos.y),
+            Some(JobKind::Craft { pos }) => describe_craft(world, defs, unit, pos),
             _ => "Crafting".into(),
         },
         Task::Endeavor(id) => match world.job(id).map(|j| (j.kind, j.progress)) {
