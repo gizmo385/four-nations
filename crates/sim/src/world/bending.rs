@@ -45,14 +45,21 @@
 //! the effect's numbers with it, so drying never has to look at the ability again.
 //!
 //! **Hearthflame** (#70) lights a `HeatSource` on an empty Land or Coast tile for
-//! `duration_minutes` x the `heating` modifier; bending a lit tile again resets the timer. What
-//! a lit source does (cooked meals, faster and sought-out sleep) lives in `heat.rs`, which a
-//! campfire (#58) can reuse.
+//! `duration_minutes` x the `heating` modifier; bending a lit tile again restokes it, resetting
+//! the timer, but only once it has burned below `restoke_below`'s share of a fresh burn (#359):
+//! restoking a flame with more than that share left is refused ("flame still burning, restoke
+//! below half"), both when designated and when the channel finishes (the flame may have been
+//! restoked by someone else, or burned down, in between). What a lit source does (cooked meals,
+//! faster and sought-out sleep) lives in `heat.rs`, which a campfire (#58) can reuse.
 //!
 //! **Inner Fire** (#123) is the one self-cast ability: the designated tile is where the bender
 //! stands to channel (open ground, like a flame), and the aura goes to *whoever channelled it*,
 //! not to the tile. It is an `Aura` (`heat.rs`) that follows its carrier for `duration_minutes` x
-//! the `heating` modifier; casting again resets the timer.
+//! the `heating` modifier; casting again recasts it, resetting the timer, under the same
+//! `restoke_below` rule (#359) applied to the carrier's own aura instead of a tile: since the
+//! aura belongs to a unit, not a position, `validate_effect`'s check is a settlement-wide
+//! feasibility check (is anyone's aura cool enough to recast right now), and `unit_can_bend`'s
+//! own check on the specific unit is what actually gates whether it can claim or keep the job.
 //!
 //! **Wind Carry** (#71) sends the whole stack on the ground tile, ignoring carry capacity, to
 //! the nearest stockpile tile with room (holding that item, or empty) within `range` tiles of
@@ -428,12 +435,27 @@ impl World {
         }
     }
 
-    /// Whether unit `i` may take a bend job for `ability` right now: its chi covers the cost and
-    /// `can_cast` allows it.
+    /// Whether unit `i` may take a bend job for `ability` right now: its chi covers the cost,
+    /// `can_cast` allows it, and (Inner Fire's restoke rule, #359) its own aura, if it has one
+    /// from a prior cast, isn't still too fresh to recast. The aura check is per-unit because the
+    /// aura belongs to a unit, not a tile (`validate_effect`'s `HeatAura` arm is the
+    /// settlement-wide feasibility half of the same rule).
     pub(super) fn unit_can_bend(&self, i: usize, ability: AbilityId, defs: &Defs) -> bool {
         let def = defs.ability(ability);
         let u = &self.units[i];
-        u.chi >= def.chi && self.can_cast(u, ability, defs)
+        u.chi >= def.chi && self.can_cast(u, ability, defs) && self.unit_can_restoke(u.id, def)
+    }
+
+    /// Whether `unit` is clear to carry a fresh cast of `def`'s effect right now: always true
+    /// unless it is a `HeatAura` and `unit` already carries one with more than `restoke_below`'s
+    /// share of a fresh cast left (#359).
+    fn unit_can_restoke(&self, unit: UnitId, def: &AbilityDef) -> bool {
+        let Effect::HeatAura { duration_minutes, restoke_below, .. } = &def.effect else {
+            return true;
+        };
+        let magnitude = self.bend_magnitude(def);
+        let until = self.auras.get(&unit).map(|a| a.until);
+        !self.too_fresh_to_restoke(until, *duration_minutes, magnitude, *restoke_below)
     }
 
     /// How many living units could cast `ability` at all, `can_cast`'s chi-free eligibility
@@ -514,6 +536,40 @@ impl World {
     /// The nation modifier the ability scales its effect's magnitude by, or 1.0.
     fn bend_magnitude(&self, def: &AbilityDef) -> f32 {
         def.magnitude_modifier.as_deref().and_then(|m| self.modifiers().get(m)).unwrap_or(1.0)
+    }
+
+    /// The restoke rule (#359): whether something still lit until `until` (a flame's tile, or an
+    /// aura's carrier) has more than `restoke_below`'s share of a fresh `duration_minutes` x
+    /// `magnitude` cast left to run. `None`, or anything already out, is never too fresh.
+    fn too_fresh_to_restoke(
+        &self,
+        until: Option<u64>,
+        duration_minutes: f32,
+        magnitude: f32,
+        restoke_below: f32,
+    ) -> bool {
+        let Some(until) = until.filter(|&u| u > self.tick) else { return false };
+        let full = minutes_to_ticks(duration_minutes * magnitude) as f32;
+        (until - self.tick) as f32 > restoke_below * full
+    }
+
+    /// Whether every living unit's own aura (if it has one) is still too fresh to recast, so
+    /// nobody in the settlement could restoke Inner Fire right now: the settlement-wide half of
+    /// the restoke rule (#359), checked by `validate_effect` at designation and again at
+    /// completion. A unit with no aura at all is always free to cast one, so this is only true
+    /// once every living unit (if any) carries a fresh one. `unit_can_bend`'s `unit_can_restoke`
+    /// is what actually decides which unit may claim or finish the job.
+    fn nobody_can_restoke_aura(
+        &self,
+        duration_minutes: f32,
+        magnitude: f32,
+        restoke_below: f32,
+    ) -> bool {
+        !self.units.is_empty()
+            && self.units.iter().all(|u| {
+                let until = self.auras.get(&u.id).map(|a| a.until);
+                self.too_fresh_to_restoke(until, duration_minutes, magnitude, restoke_below)
+            })
     }
 
     /// Brings the resource buried on `pos`, if any, onto the map (#133). Returns whether it did.
@@ -622,25 +678,40 @@ impl World {
                     .any(|t| matches!(t.terrain, Terrain::River | Terrain::Lake | Terrain::Ford));
                 if fresh { Ok(()) } else { Err("needs fresh water nearby") }
             }
-            // An empty open tile. A lit flame is a fine target too: that restokes it.
-            Effect::HeatSource { .. } => {
+            // An empty open tile. A lit flame is a fine target too: that restokes it, unless it
+            // still has more than `restoke_below`'s share of a fresh burn left (#359).
+            Effect::HeatSource { duration_minutes, restoke_below, .. } => {
                 let tile = &self.map[pos];
+                let until = self.heat.get(&pos).map(|s| s.until);
                 if !matches!(tile.terrain, Terrain::Land | Terrain::Coast) {
                     Err("needs open ground to kindle")
                 } else if tile.resource.is_some() || tile.building.is_some() {
                     Err("something is in the way")
+                } else if self.too_fresh_to_restoke(
+                    until,
+                    *duration_minutes,
+                    magnitude,
+                    *restoke_below,
+                ) {
+                    Err("flame still burning, restoke below half")
                 } else {
                     Ok(())
                 }
             }
             // Somewhere to stand and channel: open ground with nothing on it. The aura lands on
-            // the caster, so there is nothing else about the tile to check.
-            Effect::HeatAura { .. } => {
+            // the caster, so there is nothing else about the tile to check -- except that nobody
+            // in the settlement can recast one while every living aura-carrier's is still too
+            // fresh (#359): the per-unit half of the same rule is `unit_can_bend`'s own check,
+            // since this tile check can't yet know which unit will claim the job.
+            Effect::HeatAura { duration_minutes, restoke_below, .. } => {
                 let tile = &self.map[pos];
                 if !tile.terrain.is_walkable() {
                     Err("needs open ground to stand on")
                 } else if tile.resource.is_some() || tile.building.is_some() {
                     Err("something is in the way")
+                } else if self.nobody_can_restoke_aura(*duration_minutes, magnitude, *restoke_below)
+                {
+                    Err("aura still warm, recast below half")
                 } else {
                     Ok(())
                 }
@@ -749,8 +820,9 @@ impl World {
                 }
                 Some(Moved { to: dest, item: stack.item, count: put })
             }
-            // The magnitude scales how long the flame burns. Lighting a lit tile restokes it.
-            Effect::HeatSource { duration_minutes, radius, sleep_bonus, seek_tiles } => {
+            // The magnitude scales how long the flame burns. Lighting a lit tile restokes it
+            // (`validate_effect` already refused one still more than half full, #359).
+            Effect::HeatSource { duration_minutes, radius, sleep_bonus, seek_tiles, .. } => {
                 self.light_heat_source(HeatSource {
                     pos,
                     radius: *radius,
@@ -762,8 +834,9 @@ impl World {
                 None
             }
             // The aura goes to the caster and follows them. The magnitude scales how long it
-            // lasts; casting it again resets the timer.
-            Effect::HeatAura { duration_minutes, radius, sleep_bonus } => {
+            // lasts; casting it again resets the timer (`unit_can_bend` already refused a caster
+            // whose own aura is still more than half full, #359).
+            Effect::HeatAura { duration_minutes, radius, sleep_bonus, .. } => {
                 self.light_aura(Aura {
                     unit: caster,
                     radius: *radius,

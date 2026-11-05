@@ -681,6 +681,29 @@ mod tests {
         }
     }
 
+    /// The restoke rule (#359): a flame that's still nearly full refuses a second Hearthflame on
+    /// the same tile, and the notice names why -- the same "done, skipped (reason)" shape every
+    /// other tool already reports through, so no bend-specific plumbing was needed.
+    #[test]
+    fn restoking_a_still_fresh_flame_is_skipped_with_the_restoke_reason() {
+        let mut s = Session::new(7, Nation::Fire, 64, 64);
+        s.bend_choice = Some(s.defs.ability_id("hearthflame").unwrap());
+        let pos = free_tile(&s);
+
+        let first = apply_rect(&mut s, Tool::Bend, pos, pos, false, None);
+        assert_eq!(first, "channel the nation's ability: 1 done, 0 skipped", "{first}");
+        s.tick_n(2000);
+        assert!(s.world.flames().iter().any(|f| f.pos == pos), "the flame should be lit by now");
+
+        let second = apply_rect(&mut s, Tool::Bend, pos, pos, false, None);
+        assert_eq!(
+            second,
+            "channel the nation's ability: 0 done, 1 skipped \
+             (flame still burning, restoke below half)",
+            "{second}"
+        );
+    }
+
     #[test]
     fn the_build_tool_names_the_building_and_cancel_withdraws_the_site() {
         let mut s = Session::new(7, Nation::Earth, 64, 64);

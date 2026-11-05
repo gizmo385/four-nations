@@ -78,13 +78,22 @@ pub enum Effect {
         fallow_minutes: f32,
     },
     /// A timed flame that cooks meals and warms sleep (Fire's "Hearthflame"). The magnitude
-    /// scales `duration_minutes`.
-    HeatSource { duration_minutes: f32, radius: u32, sleep_bonus: f32, seek_tiles: u32 },
+    /// scales `duration_minutes`. `restoke_below` (in `(0, 1]`, default 1.0) is the restoke rule
+    /// (#359): designating a lit flame with more than that share of a fresh burn still left is
+    /// refused, so restoking only ever shortens the wasted tail instead of resetting it outright.
+    HeatSource {
+        duration_minutes: f32,
+        radius: u32,
+        sleep_bonus: f32,
+        seek_tiles: u32,
+        restoke_below: f32,
+    },
     /// A warmth aura on the bender that follows them (Fire's "Inner Fire", #123): meals eaten
     /// within `radius` tiles of the carrier are cooked and sleep there is better, for
     /// `duration_minutes`. The magnitude scales `duration_minutes`. Unlike `HeatSource` it is
-    /// never sought out, since it moves.
-    HeatAura { duration_minutes: f32, radius: u32, sleep_bonus: f32 },
+    /// never sought out, since it moves. `restoke_below` is the same restoke rule (#359), applied
+    /// to the carrier's own aura instead of a tile.
+    HeatAura { duration_minutes: f32, radius: u32, sleep_bonus: f32, restoke_below: f32 },
     /// Blow a ground stack into a stockpile (Air's "Wind Carry"). The magnitude scales `range`.
     WindCarry { range: u32 },
     /// A burst of speed on the caster (Air's "Air Scooter", #143): for `duration_minutes`, the
@@ -152,11 +161,15 @@ enum RawEffect {
         radius: u32,
         sleep_bonus: f32,
         seek_tiles: u32,
+        #[serde(default = "full_restoke")]
+        restoke_below: f32,
     },
     HeatAura {
         duration_minutes: f32,
         radius: u32,
         sleep_bonus: f32,
+        #[serde(default = "full_restoke")]
+        restoke_below: f32,
     },
     WindCarry {
         range: u32,
@@ -204,6 +217,17 @@ pub(crate) struct BendingFile {
 
 fn positive(v: f32) -> bool {
     v.is_finite() && v > 0.0
+}
+
+/// The default `restoke_below` for `heat_source` and `heat_aura`: a full share of the duration,
+/// i.e. today's "always restoke" behaviour (#359).
+fn full_restoke() -> f32 {
+    1.0
+}
+
+/// Whether `v` is a share of a duration in `(0, 1]`, as `restoke_below` must be.
+fn is_share(v: f32) -> bool {
+    v.is_finite() && v > 0.0 && v <= 1.0
 }
 
 impl BendingFile {
@@ -332,23 +356,35 @@ fn resolve_effect(
                 fallow_minutes,
             }
         }
-        RawEffect::HeatSource { duration_minutes, radius, sleep_bonus, seek_tiles } => {
+        RawEffect::HeatSource {
+            duration_minutes,
+            radius,
+            sleep_bonus,
+            seek_tiles,
+            restoke_below,
+        } => {
             if !positive(duration_minutes) || radius == 0 {
                 return err("heat_source duration_minutes and radius must be positive");
             }
             if !(sleep_bonus.is_finite() && sleep_bonus >= 1.0) {
                 return err("heat_source sleep_bonus must be at least 1.0");
             }
-            Effect::HeatSource { duration_minutes, radius, sleep_bonus, seek_tiles }
+            if !is_share(restoke_below) {
+                return err("heat_source restoke_below must be a share in (0, 1]");
+            }
+            Effect::HeatSource { duration_minutes, radius, sleep_bonus, seek_tiles, restoke_below }
         }
-        RawEffect::HeatAura { duration_minutes, radius, sleep_bonus } => {
+        RawEffect::HeatAura { duration_minutes, radius, sleep_bonus, restoke_below } => {
             if !positive(duration_minutes) || radius == 0 {
                 return err("heat_aura duration_minutes and radius must be positive");
             }
             if !(sleep_bonus.is_finite() && sleep_bonus >= 1.0) {
                 return err("heat_aura sleep_bonus must be at least 1.0");
             }
-            Effect::HeatAura { duration_minutes, radius, sleep_bonus }
+            if !is_share(restoke_below) {
+                return err("heat_aura restoke_below must be a share in (0, 1]");
+            }
+            Effect::HeatAura { duration_minutes, radius, sleep_bonus, restoke_below }
         }
         RawEffect::WindCarry { range } => {
             if range == 0 {

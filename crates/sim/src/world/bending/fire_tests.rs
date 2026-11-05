@@ -145,6 +145,40 @@ fn bending_a_lit_flame_restokes_it() {
     assert!((flames[0].seconds_left - full).abs() < 1.0, "{}", flames[0].seconds_left);
 }
 
+/// The restoke rule (#359): a flame still more than half full refuses a restoke outright, and
+/// one below half accepts it. 108 Hearthflames with chi to spare was the whole reason.
+#[test]
+fn restoking_above_half_its_time_left_is_refused_and_spends_no_chi() {
+    let defs = Defs::bundled();
+    let mut w = world(&[at(10, 4)], &defs);
+    kindle(&mut w, &defs, at(11, 4));
+    let full = w.flames()[0].seconds_left;
+    let ability = hearth(&defs);
+    let bend = |w: &mut World, pos| w.apply(Command::Bend { ability, pos }, &defs);
+
+    // 60% of the burn left: still more than half, so the restoke is refused and nothing is
+    // spent or designated.
+    let sixty = (full * 0.6 * TICKS_PER_SECOND as f32) as u64;
+    run_until(&mut w, &defs, 20_000, |w| w.heat[&at(11, 4)].until - w.tick <= sixty);
+    w.units[0].chi = defs.chi.max;
+    let chi_before = w.units[0].chi;
+    assert_eq!(
+        bend(&mut w, at(11, 4)),
+        Err(CommandError::Bend(BendError::InvalidTarget(
+            "flame still burning, restoke below half"
+        )))
+    );
+    assert_eq!(w.units[0].chi, chi_before);
+    assert!(w.jobs().is_empty(), "a refused bend designates nothing");
+
+    // Below half, the same bend succeeds and resets the timer.
+    let forty = (full * 0.4 * TICKS_PER_SECOND as f32) as u64;
+    run_until(&mut w, &defs, 20_000, |w| w.heat[&at(11, 4)].until - w.tick <= forty);
+    w.units[0].needs = Needs::full(&defs.needs);
+    kindle(&mut w, &defs, at(11, 4));
+    assert!((w.flames()[0].seconds_left - full).abs() < 1.0, "{}", w.flames()[0].seconds_left);
+}
+
 #[test]
 fn a_meal_within_a_lit_flame_is_cooked_and_elsewhere_it_is_raw() {
     let defs = Defs::bundled();
@@ -297,8 +331,9 @@ fn play_session(defs: &Defs) -> World {
                 w.apply(Command::Bend { ability, pos: at(15, 7) }, defs).unwrap();
             }
             30 => w.apply(Command::CancelBend { pos: at(15, 7) }, defs).unwrap(),
-            // Restoke well before it would go out.
-            6000 => w.apply(Command::Bend { ability, pos: at(11, 4) }, defs).unwrap(),
+            // Restoke well past half its 12,000-tick burn (#359's rule needs that), but still
+            // well before it would go out on its own.
+            9000 => w.apply(Command::Bend { ability, pos: at(11, 4) }, defs).unwrap(),
             _ => {}
         }
         w.tick(defs);
@@ -481,6 +516,39 @@ fn the_aura_fades_at_its_end_tick_and_a_recast_resets_it() {
     assert!(w.glows().is_empty());
     assert!(!w.is_heated(w.units[0].pos));
     assert!(w.auras.is_empty(), "the spent aura is dropped");
+}
+
+/// The restoke rule (#359), applied to a bender's own aura instead of a tile: a recast while
+/// more than half the aura is left is refused, and one below half resets it.
+#[test]
+fn recasting_inner_fire_above_half_its_time_left_is_refused_and_spends_no_chi() {
+    let defs = Defs::bundled();
+    let mut w = dragon_world(&[at(10, 4)], &defs);
+    cast_inner_fire(&mut w, &defs, at(10, 4));
+    let full = w.glows()[0].seconds_left;
+    let id = w.units[0].id;
+    let ability = inner_fire(&defs);
+    let bend = |w: &mut World, pos| w.apply(Command::Bend { ability, pos }, &defs);
+
+    // 60% of the aura left: still more than half, so the recast is refused and nothing is
+    // spent or designated.
+    let sixty = (full * 0.6 * TICKS_PER_SECOND as f32) as u64;
+    run_until(&mut w, &defs, 20_000, |w| w.auras[&id].until - w.tick <= sixty);
+    w.units[0].chi = defs.chi.max;
+    let chi_before = w.units[0].chi;
+    assert_eq!(
+        bend(&mut w, at(10, 4)),
+        Err(CommandError::Bend(BendError::InvalidTarget("aura still warm, recast below half")))
+    );
+    assert_eq!(w.units[0].chi, chi_before);
+    assert!(w.jobs().is_empty(), "a refused bend designates nothing");
+
+    // Below half, the same cast succeeds and resets the timer.
+    let forty = (full * 0.4 * TICKS_PER_SECOND as f32) as u64;
+    run_until(&mut w, &defs, 20_000, |w| w.auras[&id].until - w.tick <= forty);
+    w.units[0].needs = Needs::full(&defs.needs);
+    cast_inner_fire(&mut w, &defs, at(10, 4));
+    assert!((w.glows()[0].seconds_left - full).abs() < 1.0, "{}", w.glows()[0].seconds_left);
 }
 
 #[test]

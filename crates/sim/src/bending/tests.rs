@@ -1,5 +1,5 @@
-use super::BendingFile;
 use super::testing::{BENDING, PROBE_TECH, load, load_only, probe_defs};
+use super::{BendingFile, Effect};
 use crate::defs::{Defs, DefsError};
 use crate::nation::Nation;
 use crate::world::TICKS_PER_SECOND;
@@ -159,10 +159,19 @@ fn effect_ids_and_numbers_are_validated() {
     assert!(bad("range = 8 ", "range = 0 ").contains("range"));
     assert!(bad("sleep_bonus = 1.5", "sleep_bonus = 0.5").contains("sleep_bonus"));
     assert!(bad("sprouts = 2", "sprouts = 0").contains("sprouts"));
+    // Hearthflame's restoke rule (#359): `restoke_below` must be a share in (0, 1]. The full
+    // line (comment included) keeps this one line unique against Inner Fire's identical value.
+    const HEARTH_RESTOKE: &str = "restoke_below = 0.5       # #359: a restoke is refused while more than half the burn is left";
+    for bad_share in ["restoke_below = 0.0", "restoke_below = -0.5", "restoke_below = 1.5"] {
+        assert!(bad(HEARTH_RESTOKE, bad_share).contains("heat_source"), "{bad_share}");
+    }
     // Inner Fire's aura.
     assert!(bad("radius = 2 ", "radius = 0 ").contains("heat_aura"));
     assert!(bad("sleep_bonus = 1.25", "sleep_bonus = 0.5").contains("heat_aura"));
     assert!(bad("duration_minutes = 4.0", "duration_minutes = 0.0").contains("heat_aura"));
+    // Inner Fire's restoke rule (#359) applies the same share check to its own aura.
+    const INNER_RESTOKE: &str = "restoke_below = 0.5       # #359: a recast is refused while more than half the aura is left";
+    assert!(bad(INNER_RESTOKE, "restoke_below = 0.0").contains("heat_aura"));
     // Air Scooter.
     assert!(bad("duration_minutes = 2.0", "duration_minutes = 0.0").contains("scooter"));
     assert!(bad("multiplier = 2.5", "multiplier = 1.0").contains("scooter"));
@@ -171,6 +180,35 @@ fn effect_ids_and_numbers_are_validated() {
     assert!(bad("metal = \"metal\"", "metal = \"steel\"").contains("steel"));
     assert!(bad("ratio = 2", "ratio = 0").contains("ratio"));
     assert!(bad("metal = \"metal\"", "metal = \"gold_ore\"").contains("must be different"));
+}
+
+/// `restoke_below` is optional (#359): omitted, a `heat_source` or `heat_aura` keeps today's
+/// "always restoke" behaviour (a share of 1.0, which `too_fresh_to_restoke` can never exceed).
+#[test]
+fn restoke_below_defaults_to_always_restoke() {
+    let heat_source = ability(
+        "[ability.effect]\nkind='heat_source'\nduration_minutes=1.0\nradius=1\n\
+         sleep_bonus=1.0\nseek_tiles=1",
+    );
+    let defs = load(&heat_source, "").unwrap();
+    assert_eq!(
+        defs.ability(defs.ability_id("x").unwrap()).effect,
+        Effect::HeatSource {
+            duration_minutes: 1.0,
+            radius: 1,
+            sleep_bonus: 1.0,
+            seek_tiles: 1,
+            restoke_below: 1.0,
+        }
+    );
+    let heat_aura = ability(
+        "[ability.effect]\nkind='heat_aura'\nduration_minutes=1.0\nradius=1\nsleep_bonus=1.0",
+    );
+    let defs = load(&heat_aura, "").unwrap();
+    assert_eq!(
+        defs.ability(defs.ability_id("x").unwrap()).effect,
+        Effect::HeatAura { duration_minutes: 1.0, radius: 1, sleep_bonus: 1.0, restoke_below: 1.0 }
+    );
 }
 
 #[test]
