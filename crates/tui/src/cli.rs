@@ -3,7 +3,8 @@
 //! ```text
 //! fn_tui [SEED NATION] [--frame [--size WxH] [--ticks N] [--keys SCRIPT] [--ansi]] [--ascii]
 //!        [--color MODE] [--embark | --start X,Y] [--size small|medium|large] [--rough]
-//!        [--difficulty ID]
+//!        [--difficulty ID] [--fast]
+//! fn_tui --watch LOG [--pace xN] [--frame [--at TURN] [--ascii] [--color MODE]]
 //! ```
 //!
 //! With no `SEED`/`NATION`, the game opens on the title screen (#280): New game, Continue, Load
@@ -18,11 +19,22 @@
 //! docs/design/difficulty.md) is a `data/difficulty.toml` preset's id: it needs `SEED NATION`
 //! too, and applies to `--embark`, `--start` and the plain path alike (checked against the
 //! bundled data in `Shell::for_args`, since parsing alone has no `Defs` to check against).
+//!
+//! `--watch LOG` (#319, docs/design/agent-play.md, "Watching") replaces the whole `SEED NATION`
+//! path: the log's own header says the seed, nation and every other starting argument, so none
+//! of `SEED`/`NATION`/`--embark`/`--start`/`--size small|medium|large`/`--rough`/`--difficulty`/
+//! `--fast` may be given alongside it (`--fast` is a different lane entirely: a watcher paces
+//! itself with `--pace`/`+`/`-`, never the sim's own clock). `--frame` still means one frame to
+//! stdout with no terminal, as it always does, and `--at TURN` (only with both) says which
+//! turn's end to render; without it, the frame is of the log as far as it currently reaches.
+
+use std::path::PathBuf;
 
 use fn_sim::Nation;
 
 use crate::color::ColorDepth;
 use crate::keys::{self, Step};
+use crate::watch;
 
 pub const USAGE: &str = "\
 usage: fn_tui [SEED NATION] [options]
@@ -51,6 +63,13 @@ options:
   --rough        a rough survey, with --embark or --start
   --difficulty ID  a data/difficulty.toml preset's id (sandbox, normal or hard), with SEED
                  NATION: applies to --embark, --start and the plain SEED NATION path alike
+  --fast         adds x10, x20 and x50 to the +/- speed ladder (a host setting, not a balance
+                 change: docs/design/agent-play.md, Speed). Works alone or with SEED NATION
+  --watch LOG    follow or replay an agent run log in the normal TUI (docs/design/agent-play.md,
+                 Watching). Takes the place of SEED NATION; the log's own header says those
+  --pace xN      the watch pace to start at (1, 2, 5, 10, 20 or 40; default 1), with --watch
+  --at TURN      with --watch --frame: the frame as of the end of that turn, instead of as far
+                 as the log currently reaches
 
 Without --frame this starts the game in the terminal: arrows or WASD move the cursor
 (Shift: 10 tiles), Enter selects a unit (Tab cycles, F follows, Esc closes the bar), H X P B U
@@ -92,6 +111,18 @@ pub struct Args {
     /// the plain `SEED NATION` path (#298). `None` is each path's own default (the seed step's
     /// picker, or identity for the plain path).
     pub difficulty: Option<String>,
+    /// `--fast` (#321): adds x10, x20 and x50 to the `+`/`-` speed ladder. A host setting, not
+    /// an agent capability (`crate::surface::Host` never reads it).
+    pub fast: bool,
+    /// `--watch LOG` (#319): follow or replay a run log instead of playing, in place of
+    /// `SEED NATION`.
+    pub watch: Option<PathBuf>,
+    /// `--pace xN`, with `--watch`: the watch pace to start at, one of `watch::PACES`. `None` is
+    /// the default (the first, x1).
+    pub pace: Option<u32>,
+    /// `--at TURN`, with `--watch --frame`: the frame as of the end of that turn. `None` is as
+    /// far as the log currently reaches.
+    pub at: Option<u32>,
 }
 
 pub fn parse_nation(s: &str) -> Option<Nation> {
@@ -138,6 +169,10 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         map_size: None,
         rough: false,
         difficulty: None,
+        fast: false,
+        watch: None,
+        pace: None,
+        at: None,
     };
     while let Some(arg) = args.next() {
         // `--flag=value` and `--flag value` both work.
@@ -173,6 +208,24 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             }
             "--rough" => out.rough = true,
             "--difficulty" => out.difficulty = Some(value("--difficulty")?),
+            "--fast" => out.fast = true,
+            "--watch" => out.watch = Some(PathBuf::from(value("--watch")?)),
+            "--pace" => {
+                let v = value("--pace")?;
+                let n = v
+                    .trim_start_matches(['x', 'X'])
+                    .parse()
+                    .map_err(|_| format!("--pace wants xN (such as x10), got {v:?}"))?;
+                if !watch::PACES.contains(&n) {
+                    return Err(format!("--pace wants one of {:?}, got {v:?}", watch::PACES));
+                }
+                out.pace = Some(n);
+            }
+            "--at" => {
+                let v = value("--at")?;
+                out.at =
+                    Some(v.parse().map_err(|_| format!("--at wants a whole number, got {v:?}"))?);
+            }
             "--ticks" => {
                 let v = value("--ticks")?;
                 out.ticks =
@@ -216,6 +269,28 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         }
         (Some(_), None) => return Err("missing NATION".to_owned()),
         (None, Some(_)) => return Err("missing SEED".to_owned()),
+    }
+    if out.watch.is_some() {
+        if out.seed.is_some() || out.nation.is_some() {
+            return Err("--watch takes the place of SEED NATION; the log's own header says those"
+                .to_owned());
+        }
+        if out.embark
+            || out.start.is_some()
+            || out.rough
+            || out.map_size.is_some()
+            || out.difficulty.is_some()
+            || out.fast
+        {
+            return Err("--watch can't be combined with --embark, --start, --size \
+                         small/medium/large, --rough, --difficulty or --fast"
+                .to_owned());
+        }
+    } else if out.pace.is_some() {
+        return Err("--pace only means something with --watch".to_owned());
+    }
+    if out.at.is_some() && !(out.watch.is_some() && out.frame) {
+        return Err("--at only means something with --watch --frame".to_owned());
     }
     for (flag, given) in [
         ("--size", out.size != DEFAULT_SIZE),
@@ -339,6 +414,52 @@ mod tests {
         assert_eq!(a.difficulty.as_deref(), Some("hard"));
         let a = parse_str("7 earth --embark --difficulty sandbox").unwrap();
         assert_eq!(a.difficulty.as_deref(), Some("sandbox"));
+    }
+
+    /// `--fast` works alone or with `SEED NATION` (#321's acceptance criteria), and needs
+    /// neither `--embark`/`--start` nor `--frame`.
+    #[test]
+    fn fast_works_alone_or_with_seed_nation() {
+        assert!(parse_str("--fast").unwrap().fast);
+        assert!(parse_str("7 earth --fast").unwrap().fast);
+        assert!(!parse_str("7 earth").unwrap().fast);
+        assert!(parse_str("7 earth --embark --fast").unwrap().fast);
+    }
+
+    /// `--watch LOG` takes the place of `SEED NATION` (#319's acceptance criteria), with
+    /// `--pace` and (with `--frame`) `--at` of its own.
+    #[test]
+    fn watch_takes_the_place_of_seed_nation() {
+        let a = parse_str("--watch run.jsonl").unwrap();
+        assert_eq!(a.watch.as_deref(), Some(std::path::Path::new("run.jsonl")));
+        assert_eq!((a.seed, a.nation), (None, None));
+
+        let a = parse_str("--watch run.jsonl --pace x10").unwrap();
+        assert_eq!(a.pace, Some(10));
+        let a = parse_str("--watch run.jsonl --frame --at 7").unwrap();
+        assert_eq!(a.at, Some(7));
+
+        assert!(parse_str("--watch=run.jsonl").unwrap().watch.is_some(), "the = form too");
+    }
+
+    #[test]
+    fn watch_rejects_everything_that_only_means_something_without_it() {
+        for (args, want) in [
+            ("7 earth --watch run.jsonl", "takes the place of SEED NATION"),
+            ("--watch run.jsonl --embark", "can't be combined"),
+            ("--watch run.jsonl --start 5,5", "can't be combined"),
+            ("--watch run.jsonl --size medium", "can't be combined"),
+            ("--watch run.jsonl --rough --embark", "can't be combined"),
+            ("--watch run.jsonl --difficulty hard", "can't be combined"),
+            ("--watch run.jsonl --fast", "can't be combined"),
+            ("--pace x10", "--pace only means something"),
+            ("--watch run.jsonl --pace x3", "--pace wants one of"),
+            ("--at 3", "--at only means something"),
+            ("--watch run.jsonl --at 3", "--at only means something"), // needs --frame too
+        ] {
+            let err = parse_str(args).unwrap_err();
+            assert!(err.contains(want), "{args:?}: {err}");
+        }
     }
 
     #[test]

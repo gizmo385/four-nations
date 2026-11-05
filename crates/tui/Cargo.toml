@@ -18,5 +18,6 @@ fn_ui = { path = "../ui" }
 ratatui = "0.30"
 crossterm = "0.29"
 serde = { workspace = true }
+serde_json = { workspace = true }
 toml = { workspace = true }
 unicode-width = "0.2"

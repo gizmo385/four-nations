@@ -31,6 +31,32 @@ fn main() -> ExitCode {
     let depth = ColorDepth::detect(args.color, |k| std::env::var(k).ok());
     let saves = fn_ui::saves::default_save_dir();
 
+    if let Some(path) = &args.watch {
+        if args.frame {
+            return match print_watch_frame(&args, path, depth) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("fn_tui: {e}");
+                    ExitCode::from(2)
+                }
+            };
+        }
+        if !(std::io::stdout().is_terminal() && std::io::stdin().is_terminal()) {
+            eprintln!(
+                "fn_tui: this needs a terminal. To look at a watched run from a script, add \
+                 --frame."
+            );
+            return ExitCode::from(2);
+        }
+        return match fn_tui::watch::run(path, depth, args.ascii, args.pace) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("fn_tui: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+
     if args.frame {
         return match print_frame(&args, depth, saves) {
             Ok(()) => ExitCode::SUCCESS,
@@ -81,6 +107,22 @@ fn print_frame(
     shell.play(&steps);
     let palette = Palette::new(shell.defs(), shell.nation(), depth, args.ascii);
     let buf = frame::render_shell(&mut shell, &palette, args.size);
+    let text = if args.ansi { frame::to_ansi(&buf) } else { frame::to_text(&buf) };
+    print!("{text}");
+    Ok(())
+}
+
+/// `--watch LOG --frame [--at TURN]`: one frame of the watched session on stdout, no terminal
+/// needed (#319's acceptance criteria: "so a test checks the frame at a given turn without a
+/// TTY"). Reads as much of `path` as is on disk right now (it need not be finished) and replays
+/// it all at once, up to the end of `--at`'s turn, or as far as it reaches without one.
+fn print_watch_frame(args: &Args, path: &std::path::Path, depth: ColorDepth) -> Result<(), String> {
+    let (header, events) = fn_tui::watch::read_file(path)?;
+    let mut watcher = fn_tui::watch::Watcher::new(&header)?;
+    watcher.feed(events);
+    watcher.fast_forward_to_turn(args.at.unwrap_or(u32::MAX));
+    let palette = Palette::new(watcher.defs(), watcher.nation(), depth, args.ascii);
+    let buf = watcher.render(&palette, args.size);
     let text = if args.ansi { frame::to_ansi(&buf) } else { frame::to_text(&buf) };
     print!("{text}");
     Ok(())

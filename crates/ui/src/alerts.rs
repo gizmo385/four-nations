@@ -32,6 +32,10 @@ pub enum Kind {
     /// The winter warning, a season change worth announcing (winter or spring), the first
     /// frost, or (Hard) a wild plant picked to death (#295, #296, #299).
     Season,
+    /// An agent's act, while `fn_tui --watch` (#319) is replaying a run log: not something the
+    /// world logged, so [`Alerts::push_agent`] adds it directly instead of coming from
+    /// [`Alerts::update`]'s own counts.
+    Agent,
 }
 
 impl Kind {
@@ -44,6 +48,9 @@ impl Kind {
             Self::Endeavor => 10.0,
             Self::Arrival => 8.0,
             Self::Season => 10.0,
+            // The agent strip (#319) already names the current action; the log (`L`) is where
+            // this is meant to be read back, not a toast on top of the map.
+            Self::Agent => 0.0,
         }
     }
 
@@ -56,6 +63,7 @@ impl Kind {
             Self::Endeavor => 3,
             Self::Arrival => 3,
             Self::Season => 3,
+            Self::Agent => 0,
         }
     }
 }
@@ -169,14 +177,31 @@ impl Alerts {
         &self.log
     }
 
+    /// Adds an `Agent` line directly, for `fn_tui --watch` (#319), which has no world events of
+    /// its own to turn into one: every act a run log replays gets a line here too
+    /// (docs/design/agent-play.md, "Watching": "The message log gains an Agent entry for every
+    /// act"). Appends in call order, so the caller is the one keeping `tick` non-decreasing.
+    pub fn push_agent(&mut self, tick: u64, text: String) {
+        self.log.push(Entry { tick, kind: Kind::Agent, text, left: Kind::Agent.toast_seconds() });
+        if self.log.len() > MAX_HISTORY {
+            self.log.drain(0..self.log.len() - MAX_HISTORY);
+        }
+    }
+
     /// The toasts still showing, oldest first: those with time left, at most `Kind::max_toasts`
     /// of each kind (the newest).
     pub fn toasts(&self) -> Vec<&Entry> {
         let live = |e: &&Entry| e.left > 0.0;
         let mut keep = vec![false; self.log.len()];
-        for kind in
-            [Kind::Bend, Kind::Tech, Kind::Death, Kind::Endeavor, Kind::Arrival, Kind::Season]
-        {
+        for kind in [
+            Kind::Bend,
+            Kind::Tech,
+            Kind::Death,
+            Kind::Endeavor,
+            Kind::Arrival,
+            Kind::Season,
+            Kind::Agent,
+        ] {
             let of_kind: Vec<usize> = (0..self.log.len())
                 .filter(|&i| self.log[i].kind == kind && live(&&self.log[i]))
                 .collect();

@@ -433,6 +433,7 @@ dependencies = [
  "fn_ui",
  "ratatui",
  "serde",
+ "serde_json",
  "toml",
  "unicode-width",
 ]
