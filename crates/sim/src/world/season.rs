@@ -5,14 +5,16 @@
 //! nothing here is stored on `World` itself (the four seasons cycle forever, so there's nothing
 //! to save beyond the tick already kept). They're always computable, whether or not a difficulty
 //! preset turns `seasons` on; it's the systems that read them (`World::growth_rate` in
-//! `work.rs`, `World::tick_needs` in `world.rs`, and `tick_season` below) that check
-//! `knobs(defs).seasons` first, so with it off (or no preset at all) nothing changes.
+//! `work.rs`, `World::crop_growth_rate` in `farm.rs` (#311), `World::tick_needs` in `world.rs`,
+//! and `tick_season` below) that check `knobs(defs).seasons` first, so with it off (or no preset
+//! at all) nothing changes.
 //!
 //! `tick_season`, called once a tick from `World::tick`, fires the events the TUI turns into
 //! alerts: a `Changed` event at every season boundary, a `WinterWarning`
 //! `calendar.winter_warning_minutes` before winter, and on winter's first tick, the first frost
 //! (`Frost`), which sends every ripe, non-`frost_hardy` wild plant on a frost-band tile back to
-//! resting for its full regrow time.
+//! resting for its full regrow time, and every ripe, unharvested farm plot on one back to empty
+//! (#311).
 
 use crate::seasons::{ClimateDef, SeasonDef};
 
@@ -149,7 +151,9 @@ impl World {
 
     /// The first frost of winter: every ripe (not resting), non-`frost_hardy` renewable wild
     /// plant on a frost-band tile goes back to resting for its full regrow time (times the
-    /// difficulty preset's `regrow` knob, as a normal harvest does). Returns how many it struck.
+    /// difficulty preset's `regrow` knob, as a normal harvest does), and every ripe,
+    /// unharvested farm plot on a frost-band tile (#311) goes back to empty. Returns how many
+    /// of either it struck.
     fn apply_frost(&mut self, defs: &Defs) -> u32 {
         let regrow_knob = self.knobs(defs).regrow;
         let mut hit: Vec<(Pos, f32)> = Vec::new();
@@ -165,9 +169,22 @@ impl World {
             }
             hit.push((pos, seconds * regrow_knob));
         }
-        let count = hit.len() as u32;
+        let mut count = hit.len() as u32;
         for (pos, seconds) in hit {
             self.resting.insert(pos, seconds);
+        }
+
+        let frosted_plots: Vec<Pos> = self
+            .farm_plots
+            .iter()
+            .filter(|&(&pos, p)| {
+                p.stage == PlotStage::Ripe && self.climate_at(pos, defs).is_some_and(|c| c.frost)
+            })
+            .map(|(&pos, _)| pos)
+            .collect();
+        count += frosted_plots.len() as u32;
+        for pos in frosted_plots {
+            self.frost_plot(pos);
         }
         count
     }
