@@ -32,6 +32,7 @@ pub mod run;
 pub mod saves;
 pub mod screens;
 pub mod shell;
+pub mod spectate;
 pub mod state;
 pub mod surface;
 pub mod title;

@@ -4,7 +4,7 @@
 //! fn_tui [SEED NATION] [--frame [--size WxH] [--ticks N] [--keys SCRIPT] [--ansi]] [--ascii]
 //!        [--color MODE] [--embark | --start X,Y] [--size small|medium|large] [--rough]
 //!        [--difficulty ID] [--fast]
-//! fn_tui --watch LOG [--pace xN] [--frame [--at TURN] [--ascii] [--color MODE]]
+//! fn_tui --watch LOG [--pace xN] [--frame [--at TURN] [--keys SCRIPT] [--ascii] [--color MODE]]
 //! ```
 //!
 //! With no `SEED`/`NATION`, the game opens on the title screen (#280): New game, Continue, Load
@@ -27,6 +27,9 @@
 //! itself with `--pace`/`+`/`-`, never the sim's own clock). `--frame` still means one frame to
 //! stdout with no terminal, as it always does, and `--at TURN` (only with both) says which
 //! turn's end to render; without it, the frame is of the log as far as it currently reaches.
+//! `--keys SCRIPT` (only with both too, #330, `crate::spectate`) plays free-look spectator keys
+//! -- never the game's own -- before the frame, so a golden test can check what free look shows
+//! without a terminal, the same way `--keys` lets `--frame` alone check the game.
 
 use std::path::PathBuf;
 
@@ -70,6 +73,10 @@ options:
   --pace xN      the watch pace to start at (1, 2, 5, 10, 20 or 40; default 1), with --watch
   --at TURN      with --watch --frame: the frame as of the end of that turn, instead of as far
                  as the log currently reaches
+  --keys SCRIPT  with --watch --frame: plays free-look spectator keys (V toggles Follow/Free;
+                 arrows/WASD move; N T G L ? open the Nation, Research, Endeavor, log and key
+                 help screens; U browses the Build list) before the frame, so free look can be
+                 golden-tested. Never the game's own keys: a spectator can't change the replay
 
 Without --frame this starts the game in the terminal: arrows or WASD move the cursor
 (Shift: 10 tiles), Enter selects a unit (Tab cycles, F follows, Esc closes the bar), H X P B U
@@ -93,7 +100,9 @@ pub struct Args {
     pub frame: bool,
     pub size: (u16, u16),
     pub ticks: u32,
-    /// The parsed `--keys` script, played after the ticks.
+    /// The parsed `--keys` script, played after the ticks; with `--watch` (#330), played as
+    /// free-look spectator keys instead (`crate::spectate`), since there are no ticks to run
+    /// after and no game for them to touch.
     pub keys: Vec<Step>,
     pub ascii: bool,
     pub ansi: bool,
@@ -440,6 +449,15 @@ mod tests {
         assert_eq!(a.at, Some(7));
 
         assert!(parse_str("--watch=run.jsonl").unwrap().watch.is_some(), "the = form too");
+    }
+
+    /// `--keys` works with `--watch --frame` too (#330's acceptance criteria): free-look
+    /// spectator keys, played before the frame.
+    #[test]
+    fn keys_works_with_watch_frame() {
+        let args = ["--watch", "run.jsonl", "--frame", "--keys", "v <right*3>"].map(str::to_owned);
+        let a = parse(args).unwrap();
+        assert_eq!(a.keys.len(), 4);
     }
 
     #[test]

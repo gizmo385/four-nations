@@ -4,6 +4,7 @@
 
 use std::io::Write;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use fn_sim::Nation;
 use fn_tui::surface::Host;
@@ -15,8 +16,11 @@ fn fn_tui() -> Command {
 }
 
 /// A short run log: a harvest designation, two turns, and a look, written as `fn_agent` (#317)
-/// will write one -- a header line, then one line an event -- to a fresh temp file.
+/// will write one -- a header line, then one line an event -- to a fresh temp file. Every call
+/// gets its own file (a counter on top of the process id): `cargo test` runs this file's tests
+/// in parallel threads of the one process, so a shared name would race.
 fn write_log() -> std::path::PathBuf {
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
     let mut h = Host::new(7, Nation::Earth, None, None, None, false).unwrap().with_turn_seconds(5);
     h.press_keys(
         "h <right*3> <enter> <down*2> <enter>",
@@ -29,8 +33,9 @@ fn write_log() -> std::path::PathBuf {
     h.end_turn(1);
     let text = h.log().to_jsonl(&h.header());
 
-    let path =
-        std::env::temp_dir().join(format!("fn_tui_watch_binary_test_{}.jsonl", std::process::id()));
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir()
+        .join(format!("fn_tui_watch_binary_test_{}_{n}.jsonl", std::process::id()));
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(text.as_bytes()).unwrap();
     path
@@ -93,4 +98,45 @@ fn watch_without_a_terminal_or_frame_says_so() {
     let out = fn_tui().args(["--watch", "nonexistent.jsonl"]).output().unwrap();
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("needs a terminal"));
+}
+
+/// `--keys` plays free-look spectator keys before a `--watch --frame` (#330's acceptance
+/// criteria): `V` switches to Free look, the strip says so, and moving the spectator's own
+/// cursor away from the agent's doesn't change which turn or action the strip reports (the
+/// replay is unaffected).
+#[test]
+fn watch_frame_keys_plays_free_look_spectator_keys() {
+    let path = write_log();
+    let follow = fn_tui()
+        .args(["--watch", path.to_str().unwrap(), "--frame", "--at", "1", "--size", "100x30"])
+        .output()
+        .unwrap();
+    let free = fn_tui()
+        .args([
+            "--watch",
+            path.to_str().unwrap(),
+            "--frame",
+            "--at",
+            "1",
+            "--size",
+            "100x30",
+            "--keys",
+            "v <right*5> <down*3> n",
+        ])
+        .output()
+        .unwrap();
+    std::fs::remove_file(&path).ok();
+    assert!(follow.status.success(), "{}", String::from_utf8_lossy(&follow.stderr));
+    assert!(free.status.success(), "{}", String::from_utf8_lossy(&free.stderr));
+    let follow_text = String::from_utf8(follow.stdout).unwrap();
+    let free_text = String::from_utf8(free.stdout).unwrap();
+
+    assert!(follow_text.contains("FOLLOW"), "{follow_text}");
+    assert!(free_text.contains("FREE"), "{free_text}");
+    // Free look opened the Nation screen (`n`), which Follow never does.
+    assert!(free_text.contains("NATION"), "{free_text}");
+    assert!(!follow_text.contains("NATION"), "{follow_text}");
+    // The replay itself -- the turn and the agent strip's own action -- is unaffected: both say
+    // the same turn, whichever view is on.
+    assert!(follow_text.contains("turn 1") && free_text.contains("turn 1"));
 }

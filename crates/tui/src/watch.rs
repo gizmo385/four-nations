@@ -32,6 +32,7 @@ use crate::frame::render_shell;
 use crate::keys;
 use crate::layout;
 use crate::shell::{Mode, Shell};
+use crate::state::UiState;
 use crate::surface::{LogLine, RunLogHeader};
 
 /// Keys a second at pace x1: about a readable rate (docs/design/agent-play.md, "Watching": "the
@@ -207,6 +208,17 @@ pub struct Watcher {
     /// The latest act's strip text (its label and note), kept on the strip while that act's turn
     /// plays out, so the agent's note stays readable for longer than its keys take to press.
     last_action: Option<String>,
+    /// Free-look spectating (#330): a second, separate `UiState` over the same `Session` as
+    /// [`Self::shell`]'s own game, so a spectator moving around, opening screens or selecting a
+    /// unit never touches what [`Self::advance`] replays. `crate::spectate::key` is the only way
+    /// into it; nothing here ever reaches it through anything that takes `&mut Session`.
+    spectator: UiState,
+    /// Whether the frame draws the agent's own view (`true`, cursor, tool banner and ghosts as
+    /// `Shell::draw` always has) or [`Self::spectator`]'s (`false`): the strip says which
+    /// (`FOLLOW`/`FREE`, #330's acceptance criteria). Starts in Follow; [`Self::spectator_key`]
+    /// switches to Free the moment any spectator action does anything at all, since otherwise
+    /// its effect would never show.
+    follow: bool,
 }
 
 impl Watcher {
@@ -245,6 +257,10 @@ impl Watcher {
                 header.data_digest
             ));
         }
+        let spectator = match &shell.mode {
+            Mode::Game(app) => UiState::new(&app.session, cli::DEFAULT_SIZE),
+            _ => unreachable!("Shell::for_args with a seed and a nation always builds a game"),
+        };
         Ok(Self {
             shell,
             turn_seconds: header.turn_seconds.max(1),
@@ -259,6 +275,8 @@ impl Watcher {
             nation_label: header.nation.as_str().to_owned(),
             finished: None,
             last_action: None,
+            spectator,
+            follow: true,
         })
     }
 
@@ -323,6 +341,50 @@ impl Watcher {
 
     pub fn resize(&mut self, width: u16, height: u16) {
         self.shell.resize(width, height);
+        self.spectator.resize(width, height);
+    }
+
+    // --------------------------------------------------------------------------------------
+    // Free-look spectating (#330)
+    // --------------------------------------------------------------------------------------
+
+    /// Whether the frame draws the agent's own view (`true`) or the spectator's free-look one
+    /// (`false`).
+    pub fn following(&self) -> bool {
+        self.follow
+    }
+
+    /// `V`: explicitly switches between Follow and Free look, whatever either is doing.
+    pub fn toggle_view(&mut self) {
+        self.follow = !self.follow;
+    }
+
+    /// Every other key, while a spectator is driving: applies it to [`Self::spectator`]'s own
+    /// `UiState` through `crate::spectate::key`, which only ever reads the `Session` -- the one
+    /// path into this that the command-log equality test (`tests::spectating_never_changes_the_
+    /// replay`) exists to prove never reaches it. Switches to Free look the moment anything at
+    /// all happens, so an action's effect is never invisible because Follow is still showing the
+    /// agent's own view (#330's acceptance criteria: "Moving the camera or cursor switches to
+    /// free look automatically").
+    pub fn spectator_key(&mut self, key: KeyEvent) {
+        let session = match &self.shell.mode {
+            Mode::Game(app) => &app.session,
+            _ => unreachable!("Watcher::new always builds a game"),
+        };
+        if crate::spectate::key(&mut self.spectator, session, key) {
+            self.follow = false;
+        }
+    }
+
+    /// `V` (the Follow/Free toggle) or [`Self::spectator_key`]: the one entry point for every
+    /// key a spectator might press, whether typed live (`run`'s own loop, once the watcher's
+    /// own controls don't match it first) or played by `--keys` before a `--watch --frame`, so
+    /// free look can be golden-tested without a terminal (#330's acceptance criteria).
+    pub fn free_look_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('v' | 'V') => self.toggle_view(),
+            _ => self.spectator_key(key),
+        }
     }
 
     // --------------------------------------------------------------------------------------
@@ -545,13 +607,27 @@ impl Watcher {
 
     /// The frame for this watcher's session, with the agent strip over the bottom status row
     /// instead of the key hints, and an attention ghost outlined over the map, if one is live
-    /// (docs/design/agent-play.md, "Watching").
+    /// (docs/design/agent-play.md, "Watching"). In Follow this is the agent's own view, as
+    /// always; in Free look (#330) it's the spectator's own `UiState` instead, with the agent's
+    /// own cursor outlined on the map too, the same look an attention ghost wears, so a
+    /// spectator looking elsewhere can still see where the agent is pointing.
     pub fn render(&mut self, palette: &Palette, size: (u16, u16)) -> Buffer {
-        let mut buf = render_shell(&mut self.shell, palette, size);
+        self.resize(size.0, size.1);
+        let mut buf = if self.follow {
+            render_shell(&mut self.shell, palette, size)
+        } else {
+            crate::frame::render(&self.app().session, &self.spectator, palette, size)
+        };
         if let Some(regions) = layout::regions(Rect::new(0, 0, size.0, size.1)) {
             self.draw_strip(&mut buf, regions.status);
+            let view = if self.follow { self.app().ui.view } else { self.spectator.view };
             if let Some(ghost) = self.ghost {
-                draw_ghost(&self.app().ui.view, ghost, regions.map, &mut buf);
+                draw_ghost(&view, ghost, regions.map, &mut buf);
+            }
+            if !self.follow {
+                let agent = self.app().ui.cursor;
+                let marker = Ghost { x: agent.x, y: agent.y, w: 1, h: 1, left: 0.0 };
+                draw_ghost(&view, marker, regions.map, &mut buf);
             }
         }
         buf
@@ -566,12 +642,13 @@ impl Watcher {
         buf.set_stringn(area.x, area.y, &text, usize::from(area.width), style);
     }
 
-    /// " AGENT earth  turn 6  02:00  designate harvest 6x4 at (86,60) "wood for two beds"  x40":
-    /// the latest act stays on the strip while its turn plays out. A live log's agent that has
-    /// written turns faster than the chosen pace plays them back adds "  3 turns behind"
-    /// ([`Self::turns_behind`], #328), "waiting for agent (12 s)" shows once the watcher has
-    /// caught up, and "run finished" once the log's own `End` line has been replayed (#327): a
-    /// finished run never says "waiting" for a wait that will never end.
+    /// " AGENT earth  FOLLOW  turn 6  02:00  designate harvest 6x4 at (86,60) "wood for two
+    /// beds"  x40": the latest act stays on the strip while its turn plays out. A live log's
+    /// agent that has written turns faster than the chosen pace plays them back adds "  3 turns
+    /// behind" ([`Self::turns_behind`], #328), "waiting for agent (12 s)" shows once the watcher
+    /// has caught up, and "run finished" once the log's own `End` line has been replayed (#327):
+    /// a finished run never says "waiting" for a wait that will never end. `FOLLOW`/`FREE`
+    /// (#330) says which view is on, right after the nation.
     fn strip_text(&self) -> String {
         let clock = fn_ui::view::format_clock(self.app().session.world.tick);
         let behind = self.turns_behind();
@@ -585,8 +662,9 @@ impl Watcher {
         } else {
             latest
         };
+        let view = if self.follow { "FOLLOW" } else { "FREE" };
         format!(
-            " AGENT {}  turn {}  {clock}  {action}  x{}",
+            " AGENT {}  {view}  turn {}  {clock}  {action}  x{}",
             self.nation_label,
             self.turn,
             self.pace()
@@ -749,13 +827,19 @@ pub fn run(
                 Event::Key(key) if key.kind != KeyEventKind::Release => {
                     use crossterm::event::KeyCode;
                     match key.code {
+                        // The watcher's own controls (docs/design/agent-play.md, "Watching")
+                        // win over anything the game or the spectator would otherwise do with
+                        // the same key (#330's acceptance criteria).
                         KeyCode::Char(' ') => watcher.toggle_pause(),
                         KeyCode::Char('+' | '=') => watcher.faster(),
                         KeyCode::Char('-' | '_') => watcher.slower(),
                         KeyCode::Char('.') => watcher.step_one(),
                         KeyCode::Char(']') => watcher.fast_forward_to_turn(watcher.turn() + 1),
                         KeyCode::Char('q' | 'Q') => quit = true,
-                        _ => {} // game keys are ignored: a watcher's keys are watcher controls
+                        // Every other key is free look's: `V` (not an F-key, since the owner's
+                        // WSL terminal never sees those) toggles the view, and everything else
+                        // is the spectator's own, read-only (`Watcher::free_look_key`).
+                        _ => watcher.free_look_key(key),
                     }
                 }
                 // A watched session's nation never changes (there's no key for it, #319's
@@ -1117,5 +1201,179 @@ mod tests {
         let lines: Vec<&str> =
             w.app().ui.alerts.history().iter().map(|e| e.text.as_str()).collect();
         assert!(lines.iter().any(|l| l == &"Agent: harvest \"for beds\""), "{lines:?}");
+    }
+
+    // ----------------------------------------------------------------------------------------
+    // Free-look spectating (#330)
+    // ----------------------------------------------------------------------------------------
+
+    /// A fresh watcher starts in Follow, and `V` switches it to Free look and back, whatever
+    /// else is going on.
+    #[test]
+    fn toggle_view_switches_between_follow_and_free() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        assert!(w.following());
+        w.toggle_view();
+        assert!(!w.following());
+        w.toggle_view();
+        assert!(w.following());
+    }
+
+    /// Moving the spectator's cursor switches to Free look on its own, without needing `V`
+    /// first (#330's acceptance criteria).
+    #[test]
+    fn moving_the_spectator_switches_to_free_look_automatically() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        assert!(w.following());
+        w.spectator_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert!(!w.following());
+    }
+
+    /// A key the spectator refuses outright (a designation tool, which would need to touch the
+    /// session) does nothing, including not switching the view -- there is nothing new to see.
+    #[test]
+    fn a_refused_key_does_not_switch_to_free_look() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.spectator_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE));
+        assert!(w.following(), "a refused action shouldn't switch the view");
+    }
+
+    /// In free look, the agent's own cursor still shows on the map -- the same outline an
+    /// attention ghost wears -- even once the spectator's own camera has moved well away from
+    /// it (#330's acceptance criteria).
+    #[test]
+    fn the_agents_cursor_still_shows_on_the_map_in_free_look() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.toggle_view();
+        for _ in 0..5 {
+            w.spectator_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        }
+        let palette =
+            Palette::new(&fn_sim::Defs::bundled(), Nation::Earth, ColorDepth::TrueColor, true);
+        let buf = w.render(&palette, (100, 40));
+        let agent = w.app().ui.cursor;
+        let view = w.spectator.view;
+        let regions = layout::regions(Rect::new(0, 0, 100, 40)).unwrap();
+        let (sx, sy) = (agent.x - view.x, agent.y - view.y);
+        assert!(
+            (0..i32::from(regions.map.width)).contains(&sx),
+            "the agent should still be on screen"
+        );
+        assert!((0..i32::from(regions.map.height)).contains(&sy));
+        let (x, y) = (regions.map.x + sx as u16, regions.map.y + sy as u16);
+        assert!(
+            buf[(x, y)].style().add_modifier.contains(Modifier::REVERSED),
+            "the agent's cursor should be outlined"
+        );
+    }
+
+    /// The strip names whichever view is on.
+    #[test]
+    fn the_strip_says_which_view_is_on() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        assert!(w.strip_text().contains("FOLLOW"), "{}", w.strip_text());
+        w.toggle_view();
+        assert!(w.strip_text().contains("FREE"), "{}", w.strip_text());
+    }
+
+    /// The watcher's own controls -- Space, `+`/`-`, `.`, `]`, `q` -- are read directly by
+    /// `watch::run`'s own loop before anything reaches `spectator_key` (the match in `run`
+    /// above), so pressing `q` here (never routed through `spectator_key` in the real loop)
+    /// doesn't quit the replay or touch the spectator; this just documents that `spectator_key`
+    /// itself, if a game key ever did collide, treats an unmapped or refused key as a no-op
+    /// rather than guessing.
+    #[test]
+    fn spectator_key_ignores_keys_with_no_allowed_action() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.spectator_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        assert!(w.following(), "q maps to AskQuit, which is refused for the spectator");
+    }
+
+    /// The hard constraint (#330): free-look spectator input never changes what the replay
+    /// does. Replaying the same log twice -- once untouched, once with a spectator moving the
+    /// cursor, opening and closing every read-only screen and the Build modal, trying (and
+    /// failing) to choose research and place a building, switching views and stepping one
+    /// action at a time between every one of those -- lands on the exact same command log
+    /// (`fn_sim::world::command_log`, the ledger `World::apply` keeps for replay): the proof
+    /// that nothing here ever reaches a `&mut Session`.
+    #[test]
+    fn spectating_never_changes_the_replay() {
+        let mut h =
+            Host::new(7, Nation::Earth, None, None, None, false).unwrap().with_turn_seconds(5);
+        h.press_keys(
+            "h <right*3> <enter> <down*2> <enter>",
+            Some("harvest".into()),
+            Some("wood".into()),
+        )
+        .unwrap();
+        h.end_turn(1);
+        h.press_keys("p <right*2> <enter> <down*2> <enter>", None, None).unwrap();
+        h.end_turn(1);
+        h.look(10, 10, 5, 5);
+        h.inspect(20, 20);
+        h.press_keys("x", None, None).unwrap();
+        h.end_turn(1);
+
+        // Every key a spectator might try, mutating and refused ones included: free movement,
+        // every read-only screen (opened, then closed by the same key), the Build modal
+        // (opened, Enter tried inside it, then closed), a tool key, Tab/F, and the Research
+        // screen's own `Enter` (which would set the agent's research target if it reached the
+        // session).
+        let spectator_keys: Vec<KeyEvent> = [
+            (KeyCode::Right, KeyModifiers::NONE),
+            (KeyCode::Down, KeyModifiers::SHIFT),
+            (KeyCode::Char('n'), KeyModifiers::NONE),
+            (KeyCode::Enter, KeyModifiers::NONE),
+            (KeyCode::Char('n'), KeyModifiers::NONE),
+            (KeyCode::Char('t'), KeyModifiers::NONE),
+            (KeyCode::Right, KeyModifiers::NONE),
+            (KeyCode::Enter, KeyModifiers::NONE),
+            (KeyCode::Char('t'), KeyModifiers::NONE),
+            (KeyCode::Char('u'), KeyModifiers::NONE),
+            (KeyCode::Down, KeyModifiers::NONE),
+            (KeyCode::Enter, KeyModifiers::NONE),
+            (KeyCode::Esc, KeyModifiers::NONE),
+            (KeyCode::Char('h'), KeyModifiers::NONE),
+            (KeyCode::Char('g'), KeyModifiers::NONE),
+            (KeyCode::Char('g'), KeyModifiers::NONE),
+            (KeyCode::Char('l'), KeyModifiers::NONE),
+            (KeyCode::Char('l'), KeyModifiers::NONE),
+            (KeyCode::Char('?'), KeyModifiers::NONE),
+            (KeyCode::Char('?'), KeyModifiers::NONE),
+            (KeyCode::Tab, KeyModifiers::NONE),
+            (KeyCode::Char('f'), KeyModifiers::NONE),
+            (KeyCode::Char('1'), KeyModifiers::NONE),
+            (KeyCode::F(5), KeyModifiers::NONE),
+            (KeyCode::F(9), KeyModifiers::NONE),
+        ]
+        .into_iter()
+        .map(|(code, mods)| KeyEvent::new(code, mods))
+        .collect();
+
+        let mut plain = Watcher::new(&h.header()).unwrap();
+        plain.feed(h.log().lines());
+        plain.fast_forward_to_turn(u32::MAX);
+        assert!(plain.caught_up());
+
+        let mut spied = Watcher::new(&h.header()).unwrap();
+        spied.feed(h.log().lines());
+        let mut guard = 0;
+        while !spied.caught_up() {
+            for &key in &spectator_keys {
+                spied.spectator_key(key);
+            }
+            spied.toggle_view();
+            spied.step_one();
+            guard += 1;
+            assert!(guard < 100_000, "should have caught up long before this");
+        }
+
+        assert_eq!(
+            spied.app().session.world.command_log(),
+            plain.app().session.world.command_log(),
+            "spectator input must never change the replay's own commands"
+        );
+        assert_eq!(spied.app().session.world.tick, plain.app().session.world.tick);
+        assert_eq!(spied.turn(), plain.turn());
     }
 }

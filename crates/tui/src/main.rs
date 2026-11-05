@@ -112,15 +112,24 @@ fn print_frame(
     Ok(())
 }
 
-/// `--watch LOG --frame [--at TURN]`: one frame of the watched session on stdout, no terminal
-/// needed (#319's acceptance criteria: "so a test checks the frame at a given turn without a
-/// TTY"). Reads as much of `path` as is on disk right now (it need not be finished) and replays
-/// it all at once, up to the end of `--at`'s turn, or as far as it reaches without one.
+/// `--watch LOG --frame [--at TURN] [--keys SCRIPT]`: one frame of the watched session on
+/// stdout, no terminal needed (#319's acceptance criteria: "so a test checks the frame at a
+/// given turn without a TTY"). Reads as much of `path` as is on disk right now (it need not be
+/// finished) and replays it all at once, up to the end of `--at`'s turn, or as far as it reaches
+/// without one. `--keys` then plays spectator keys (`V` the Follow/Free toggle included) before
+/// the frame, so free look can be golden-tested the same way the game's own `--keys` is (#330's
+/// acceptance criteria); a `<tick N>` in the script has no equivalent for a spectator (nothing
+/// here ever runs the world forward on its own), so it's skipped rather than erroring.
 fn print_watch_frame(args: &Args, path: &std::path::Path, depth: ColorDepth) -> Result<(), String> {
     let (header, events) = fn_tui::watch::read_file(path)?;
     let mut watcher = fn_tui::watch::Watcher::new(&header)?;
     watcher.feed(events);
     watcher.fast_forward_to_turn(args.at.unwrap_or(u32::MAX));
+    for step in &args.keys {
+        if let Step::Key(key) = step {
+            watcher.free_look_key(*key);
+        }
+    }
     let palette = Palette::new(watcher.defs(), watcher.nation(), depth, args.ascii);
     let buf = watcher.render(&palette, args.size);
     let text = if args.ansi { frame::to_ansi(&buf) } else { frame::to_text(&buf) };

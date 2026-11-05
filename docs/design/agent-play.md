@@ -247,8 +247,28 @@ headless at full speed, and watching never slows them.
   with no `end` line (one from before #327, or still live) follows exactly as before.
 
 Watcher keys: `Space` pauses the replay, `+`/`-` change the pace, `.` steps one action, `]`
-jumps to the end of the next turn, and `q` quits. Mockup (a real `--frame`, with the bottom row
-replaced by the strip):
+jumps to the end of the next turn, and `q` quits. These win over the game's own keys if they'd
+otherwise clash (#330): the watcher's meaning always comes first.
+
+**Free-look spectating** (#330, `crate::spectate`): the rest of the game's own keys move a
+second, separate `UiState` -- its own camera, cursor, selection and open screen -- over the same
+read-only `Session`, never the one the replay drives. `V` (not an F-key: the owner's WSL
+terminal never sees those) switches between **Follow** (the agent's own view, as above) and
+**Free look** (the spectator's own); moving the spectator's camera or cursor, selecting a unit,
+or opening a screen switches to Free look on its own, since otherwise its effect would never
+show. In Free look the agent's own cursor and the attention ghosts still outline on the map, so
+a spectator looking elsewhere can still see what the agent is doing. Every read-only screen and
+modal opens for browsing (Nation, Research, Endeavor, the log, key help, and the Build list,
+browse-only); every mutating action -- a designation tool, `Enter` that would place a building
+or choose a tech, cancel, saves and loads, a new map, a nation switch, and the game's own
+pause/speed/quit -- is refused outright (`input::spectator_allowed`, exhaustively judged by
+`Action`, so a new one fails to compile unclassified). The strip says which view is on
+(`FOLLOW`/`FREE`). The hard constraint: nothing a spectator does ever reaches the replay's own
+`Session` -- proved by replaying the same log twice, once untouched and once with a spectator
+doing everything it can in between every step, and comparing the final command log
+(`fn_sim::world::command_log`), which comes out identical either way.
+
+Mockup (a real `--frame`, with the bottom row replaced by the strip):
 
 ```text
 = HARVEST = Enter: designate 6x4 - Esc: drop the corner ============+----- * EARTH KINGDOM * ------+
