@@ -1,22 +1,22 @@
 ┏──────────────────────────────────── ◆ KEY HELP ◆ ────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
 │ CURSOR AND VIEW                                                                      ││ ▶ Running x1           00:00 │
 │ Arrows W A S D         Move the cursor 1 tile (Shift: 10)                            │├─ PEOPLE ───────────────── 6 ─┤
-│ Ctrl+Arrows PgUp PgDn  Jump the view a quarter screen                                ││  Tyro Idle                   │
-│                                                                                      ││  Ping Idle                   │
-│ UNITS                                                                                ││  Ming Idle                   │
-│ Enter                  Select the unit under the cursor; again: the next one there.  ││  Oma  Idle                   │
-│                        In a tool: set a corner, then apply                           ││  Song Idle                   │
-│ Esc                    Close the screen, a modal or the bar. In a tool: drop the     ││  Lin  Idle                   │
-│                        corner, then leave the tool. With nothing to close: the game  │├─ RESEARCH ───────────────────┤
-│                        menu (Resume, Save, Load, Key help, Quit, #306)               ││ No target set        3.0/min │
-│ Tab                    Select the next unit (Select mode)                            ││ 0 pts banked                 │
-│ Shift+Tab              Select the previous unit (Select mode)                        │├─ ENDEAVOR ───────────── 0/9 ─┤
-│ F                      Follow the selected unit (Select mode)                        ││ Next: 10 more people     [G] │
-│                                                                                      │├─ CURSOR ────────── (94, 64) ─┤
-│ DESIGNATING                                                                          ││ Tyro                         │
-│ H                      Harvest tool: designate harvest (chop, mine, gather)          ││ Earth Kingdom - Idle         │
-│ X                      Cancel tool: cancel harvest, build site, stockpile or sowing  ││ Carrying: nothing - Bends: 0 │
-│ P                      Stockpile tool: designate stockpile                           ││ Press Enter to select        │
+│ Ctrl+Arrows PgUp PgDn  Jump the view a quarter screen                                ││ Idle 6                   [N] │
+│                                                                                      │├─ RESEARCH ───────────────────┤
+│ UNITS                                                                                ││ No target set        3.0/min │
+│ Enter                  Select the unit under the cursor; again: the next one there.  ││ 0 pts banked                 │
+│                        In a tool: set a corner, then apply                           │├─ ENDEAVOR ───────────── 0/9 ─┤
+│ Esc                    Close the screen, a modal or the bar. In a tool: drop the     ││ Next: 10 more people     [G] │
+│                        corner, then leave the tool. With nothing to close: the game  │├─ CURSOR ────────── (94, 64) ─┤
+│                        menu (Resume, Save, Load, Key help, Quit, #306)               ││ Tyro                         │
+│ Tab                    Select the next unit (Select mode)                            ││ Earth Kingdom - Idle         │
+│ Shift+Tab              Select the previous unit (Select mode)                        ││ Carrying: nothing - Bends: 0 │
+│ F                      Follow the selected unit (Select mode)                        ││ Press Enter to select        │
+│                                                                                      ││                              │
+│ DESIGNATING                                                                          ││                              │
+│ H                      Harvest tool: designate harvest (chop, mine, gather)          ││                              │
+│ X                      Cancel tool: cancel harvest, build site, stockpile or sowing  ││                              │
+│ P                      Stockpile tool: designate stockpile                           ││                              │
 │ B                      Bend tool: channel the nation's ability                       ││                              │
 │ U                      Build tool: place the chosen building (U: pick one)           ││                              │
 │ C                      Sow tool: sow an empty farm plot                              ││                              │

@@ -1,22 +1,22 @@
 ┏──────────────────────────────────── ◆ ENDEAVOR ◆ ────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
 │ The Harmony Gate                                                        0 of 9 signs ││ ▶ Running x1           00:00 │
 │ A great work with the Avatar. When every sign is met, word of the settlement reaches │├─ PEOPLE ───────────────── 6 ─┤
-│ Aang.                                                                                ││  Tyro Idle                   │
-│                                                                                      ││  Ping Idle                   │
-│ Stage: not begun                                                                     ││  Ming Idle                   │
-│                                                                                      ││  Oma  Idle                   │
-│ PEOPLE                                                                               ││  Song Idle                   │
-│   Population                      ████░░░░░░      6/16                               ││  Lin  Idle                   │
-│   Spare beds and food draw newcomers                                                 │├─ RESEARCH ───────────────────┤
-│   Everyone has a bed              ░░░░░░░░░░       0/6                               ││ No target set        3.0/min │
-│   Build beds                                                                         ││ 0 pts banked                 │
-│                                                                                      │├─ ENDEAVOR ───────────── 0/9 ─┤
-│ BUILDINGS                                                                            ││ Next: 10 more people     [G] │
-│   Kinds of building raised        ░░░░░░░░░░       0/8                               │├─ CURSOR ────────── (94, 64) ─┤
-│   Raise something new                                                                ││ Tyro                         │
-│                                                                                      ││ Earth Kingdom - Idle         │
-│ KNOWLEDGE                                                                            ││ Carrying: nothing - Bends: 0 │
-│   Earth Kingdom branch            ░░░░░░░░░░       0/6                               ││ Press Enter to select        │
+│ Aang.                                                                                ││ Idle 6                   [N] │
+│                                                                                      │├─ RESEARCH ───────────────────┤
+│ Stage: not begun                                                                     ││ No target set        3.0/min │
+│                                                                                      ││ 0 pts banked                 │
+│ PEOPLE                                                                               │├─ ENDEAVOR ───────────── 0/9 ─┤
+│   Population                      ████░░░░░░      6/16                               ││ Next: 10 more people     [G] │
+│   Spare beds and food draw newcomers                                                 │├─ CURSOR ────────── (94, 64) ─┤
+│   Everyone has a bed              ░░░░░░░░░░       0/6                               ││ Tyro                         │
+│   Build beds                                                                         ││ Earth Kingdom - Idle         │
+│                                                                                      ││ Carrying: nothing - Bends: 0 │
+│ BUILDINGS                                                                            ││ Press Enter to select        │
+│   Kinds of building raised        ░░░░░░░░░░       0/8                               ││                              │
+│   Raise something new                                                                ││                              │
+│                                                                                      ││                              │
+│ KNOWLEDGE                                                                            ││                              │
+│   Earth Kingdom branch            ░░░░░░░░░░       0/6                               ││                              │
 │   Research your branch                                                               ││                              │
 │                                                                                      ││                              │
 │ STORES AND HARVESTS                                                                  ││                              │

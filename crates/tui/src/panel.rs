@@ -2,33 +2,36 @@
 //! column with the nation's name on the top edge, the seed on the bottom edge, and sections in
 //! the doc's order, each a divider heading joined to the frame (`crate::widgets::heading_row`)
 //! plus a short, fixed shape, with no blank rows between them: the header (one row: run/pause,
-//! speed and the clock), People (the count, then a line per unit while they fit -- counts
-//! instead come with #310), Season (#299, under People: food per head and the band's winter
-//! effects; hidden with seasons off), Stores (at most two rows), Research (target, bar, rate;
-//! one row when short), Endeavor (the end game's progress, #235, #242, its count on the heading;
-//! hidden with no endeavor in the data), Alerts (one line each, newest last), Tool (just above
-//! Cursor: the active tool's name in its own tint, the Build tool's chosen building or the Bend
-//! abilities, then the last rectangle's result; hidden off a tool) and Cursor (what is under the
-//! keyboard cursor). The Build tool's full picker moved to its own modal (`U`, `crate::build`,
-//! #285); the panel names only the choice. The nation's modifiers moved to the Nation screen's
-//! Traits (`N`, #308). What `Enter` does next in a tool, and the tool's own hint, are the active
-//! tool banner's own lines (#307, `crate::banner`) and the status line's, not the panel's.
+//! speed and the clock), People (activity counts and need flags, #310, not a line per settler --
+//! the roster is the Nation screen's, `N`, #308), Season (#299, under People: food per head and
+//! the band's winter effects; hidden with seasons off), Stores (at most two rows), Research
+//! (target, bar, rate; one row when short), Endeavor (the end game's progress, #235, #242, its
+//! count on the heading; hidden with no endeavor in the data), Alerts (one line each, newest
+//! last), Tool (just above Cursor: the active tool's name in its own tint, the Build tool's
+//! chosen building or the Bend abilities, then the last rectangle's result; hidden off a tool)
+//! and Cursor (what is under the keyboard cursor). The Build tool's full picker moved to its own
+//! modal (`U`, `crate::build`, #285); the panel names only the choice. The nation's modifiers
+//! moved to the Nation screen's Traits (`N`, #308). What `Enter` does next in a tool, and the
+//! tool's own hint, are the active tool banner's own lines (#307, `crate::banner`) and the status
+//! line's, not the panel's.
 //!
 //! The panel is a fixed height, so a terminal that is too short for every section gives up rows
 //! in docs/design/side-panel.md's own order: Endeavor's one row, alerts beyond the newest,
-//! Research's second row, Stores' second row, the unit lines, Season's "Winter here" line, the
-//! Tool section's result beyond two lines, then the Bend ability list down to the current
-//! ability. The header, every section's heading and three Cursor rows always stay.
+//! Research's second row, Stores' second row, People's group rows past the first (folded into
+//! `+N`), Season's "Winter here" line, the Tool section's result beyond two lines, then the Bend
+//! ability list down to the current ability. The header, every section's heading and three
+//! Cursor rows always stay.
 
 use fn_sim::Pos;
 use fn_sim::building::BuildingId;
-use fn_sim::world::CommandError;
-use fn_sim::world::Unit;
+use fn_sim::world::{CommandError, Unit};
 use fn_ui::build;
 use fn_ui::inspect::{Hint, Line, tooltip_lines};
-use fn_ui::text::{describe_stack, describe_task};
+use fn_ui::text::describe_stack;
 use fn_ui::tools::{bend_ability, usable_abilities};
-use fn_ui::view::{SeasonView, SideView, season_view, side_view, stores};
+use fn_ui::view::{
+    SeasonView, SideView, activity_counts, need_flags, season_view, side_view, stores,
+};
 use fn_ui::{Session, Tool};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -91,12 +94,10 @@ const ALERTS_SHOWN: usize = 3;
 const STORES_SHOWN: usize = 2;
 /// A research bar is this many cells.
 const BAR_CELLS: usize = 10;
-
-/// What a task says in a unit's line: the phrase before the place and the progress.
-pub fn short_task(task: &str) -> &str {
-    let cut = [" at (", " to ("].iter().filter_map(|m| task.find(m)).min();
-    cut.map_or(task, |i| &task[..i])
-}
+/// The People section never shows more activity-count rows than this, however wide the panel or
+/// however many distinct activities are in play (docs/design/side-panel.md "People: counts, not
+/// names": "The groups pack into at most three rows").
+const ACTIVITY_ROWS_MAX: usize = 3;
 
 /// A heading (`crate::widgets::heading_row`) and the rows under it.
 struct Section {
@@ -140,7 +141,14 @@ impl Section {
 /// Everything the sections show, computed once; the fitting loop picks how much of it to use.
 struct Data {
     view: SideView,
-    units: Vec<Row>,
+    /// The People section's activity-count rows (#310, docs/design/side-panel.md "People:
+    /// counts, not names"), each paired with the settlers it and every row before it account
+    /// for, so fitting can say how many a dropped tail folds into (`+N`). At most
+    /// [`ACTIVITY_ROWS_MAX`] of them; never empty for a settlement with at least one unit (Idle
+    /// is the fallback group).
+    activity_rows: Vec<(Row, usize)>,
+    /// The need-flags row (#310): `None` when nobody is flagged, which hides the row.
+    need_flags_row: Option<Row>,
     /// The Season section (#299), under People; `None` with the chosen difficulty preset's
     /// seasons off, which hides the whole section.
     season: Option<SeasonView>,
@@ -171,6 +179,8 @@ struct Data {
 /// How much of each trimmable block to show.
 #[derive(Clone, Copy)]
 struct Knobs {
+    /// How many of `Data::activity_rows` to show; the rest fold into `+N` (#310). Never 0 for a
+    /// live settlement: fitting only takes rows past the first.
     units: usize,
     alerts: usize,
     picker: usize,
@@ -210,9 +220,10 @@ fn header(view: &SideView, marks: &Marks) -> Vec<Row> {
     vec![Row::pair(format!("{icon} {word} x{}", view.speed), tone, view.clock.clone(), Tone::Text)]
 }
 
-/// A channelling unit's line in place of the plain task text ("Channelling Hearthflame 1.2s"):
+/// A channelling unit's status in place of the plain task text ("Channelling Hearthflame 1.2s"):
 /// its ability and the time left, while it stands on the tile and bends (`World::bend_channels`,
-/// #278). `None` while it walks there or does anything else, which keeps [`describe_task`].
+/// #278). `None` while it walks there or does anything else, which keeps the plain task (the
+/// selection bar's own use, `crate::bar`; the Nation screen's roster, `N`, #308, has its own).
 pub fn channel_text(session: &Session, unit: &Unit) -> Option<String> {
     let defs = &session.defs;
     session.world.bend_channels(defs).into_iter().find(|c| c.unit == unit.id).map(|c| {
@@ -220,32 +231,59 @@ pub fn channel_text(session: &Session, unit: &Unit) -> Option<String> {
     })
 }
 
-/// What a unit's line says it is doing: [`channel_text`] while it channels, else the plain task.
-fn task_text(session: &Session, unit: &Unit) -> String {
-    channel_text(session, unit)
-        .unwrap_or_else(|| describe_task(&session.world, &session.defs, unit))
+/// The People section's activity-count rows (#310, docs/design/side-panel.md "People: counts,
+/// not names"): `fn_ui::view::activity_counts` as "Label N" entries, packed into as few rows as
+/// fit `width`, each paired with the settlers it and every row before it account for (so a
+/// dropped tail's count is `total - last shown row's`).
+fn activity_rows(session: &Session, width: usize) -> Vec<(Row, usize)> {
+    let mut rows = Vec::new();
+    let mut line = String::new();
+    let mut line_total = 0usize;
+    let mut cumulative = 0usize;
+    for (activity, n) in activity_counts(session) {
+        let entry = format!("{} {n}", activity.label());
+        if !line.is_empty() && line.chars().count() + 2 + entry.chars().count() > width {
+            cumulative += line_total;
+            rows.push((Row::text(std::mem::take(&mut line), Tone::Text), cumulative));
+            line_total = 0;
+        }
+        if !line.is_empty() {
+            line.push_str("  ");
+        }
+        line.push_str(&entry);
+        line_total += n;
+    }
+    if !line.is_empty() {
+        cumulative += line_total;
+        rows.push((Row::text(line, Tone::Text), cumulative));
+    }
+    rows
 }
 
-/// A line per unit: its name, then what it is doing. The selected unit is marked, so it can be
-/// told without colour.
-fn unit_rows(session: &Session, ui: &UiState, marks: &Marks) -> Vec<Row> {
-    let units = &session.world.units;
-    let name_width = units.iter().map(|u| u.name.chars().count()).max().unwrap_or(0);
-    units
-        .iter()
-        .map(|u| {
-            let selected = ui.selected == Some(u.id);
-            let mark = if selected { if marks.h == '-' { ">" } else { "▸" } } else { " " };
-            let task = task_text(session, u);
-            Row::spans(vec![
-                (
-                    format!("{mark}{:<name_width$} ", u.name),
-                    if selected { Tone::Title } else { Tone::Text },
-                ),
-                (short_task(&task).to_owned(), Tone::Dim),
-            ])
-        })
-        .collect()
+/// The tone a need-flag word wears (#310): the "bad" half of each `fn_ui::view::need_word` pair
+/// is `Tone::Bad`, the "warn" half `Tone::Warn`.
+fn need_flag_tone(word: &str) -> Tone {
+    match word {
+        "Starving" | "Parched" | "Exhausted" | "Dying" => Tone::Bad,
+        _ => Tone::Warn,
+    }
+}
+
+/// The People section's need-flags row (#310): "Hungry 2  Exhausted 1", each word in its own
+/// tone. `None` when nobody is flagged, which hides the row.
+fn need_flags_row(session: &Session) -> Option<Row> {
+    let flags = need_flags(session);
+    if flags.is_empty() {
+        return None;
+    }
+    let mut spans = Vec::new();
+    for (i, (word, n)) in flags.iter().enumerate() {
+        if i > 0 {
+            spans.push(("  ".to_owned(), Tone::Text));
+        }
+        spans.push((format!("{word} {n}"), need_flag_tone(word)));
+    }
+    Some(Row::spans(spans))
 }
 
 /// What the stockpiles hold, "Wood 12  Stone 4", packed into as few lines as fit `width`.
@@ -460,7 +498,8 @@ fn gather(
         })
         .collect();
     Data {
-        units: unit_rows(session, ui, marks),
+        activity_rows: activity_rows(session, width).into_iter().take(ACTIVITY_ROWS_MAX).collect(),
+        need_flags_row: need_flags_row(session),
         season: season_view(session, winter_food_per_head),
         stores: store_rows(session, width),
         research: research_rows(&view, marks),
@@ -489,10 +528,25 @@ fn tool_tint(d: &Data) -> Option<Tint> {
 /// The sections as the knobs allow, in order, with the hidden ones left out.
 fn sections(d: &Data, k: Knobs, palette: &Palette) -> Vec<Section> {
     let people = {
-        let n = d.units.len();
-        let mut rows: Vec<Row> = d.units.iter().take(k.units).cloned().collect();
-        if k.units < n && k.units > 0 {
-            rows.push(Row::pair(format!("+{} more", n - k.units), Tone::Dim, "[Tab]", Tone::Dim));
+        // At least one row always shows (`Knobs::units` never reaches 0): fitting only takes
+        // rows past the first (docs/design/side-panel.md "Fitting").
+        let shown = k.units.min(d.activity_rows.len()).max(1);
+        let mut rows: Vec<Row> =
+            d.activity_rows.iter().take(shown).map(|(row, _)| row.clone()).collect();
+        if shown < d.activity_rows.len() {
+            let accounted = d.activity_rows[shown - 1].1;
+            rows.push(Row::text(
+                format!("+{}", d.view.people.saturating_sub(accounted)),
+                Tone::Dim,
+            ));
+        }
+        if let Some(flags) = &d.need_flags_row {
+            rows.push(flags.clone());
+        }
+        // `[N]` sits at the right end of the last row, flags or not (docs/design/side-panel.md
+        // "People: counts, not names").
+        if let Some(last) = rows.last_mut() {
+            last.right = Some(("[N]".to_owned(), Tone::Dim));
         }
         Section::new("PEOPLE", population_label(&d.view), rows).always()
     };
@@ -571,7 +625,7 @@ pub fn draw_panel(
     let notice_floor = d.notice.len().min(NOTICE_FLOOR);
     let picker_floor = usize::from(!d.picker.is_empty());
     let mut k = Knobs {
-        units: d.units.len(),
+        units: d.activity_rows.len(),
         alerts: d.alerts.len().min(ALERTS_SHOWN),
         picker: d.picker.len(),
         stores: d.stores.len().min(STORES_SHOWN),
@@ -589,7 +643,7 @@ pub fn draw_panel(
             k.research -= 1;
         } else if k.stores > 1 {
             k.stores -= 1;
-        } else if k.units > 0 {
+        } else if k.units > 1 {
             k.units -= 1;
         } else if k.season > 1 {
             k.season -= 1;
@@ -635,13 +689,6 @@ mod tests {
         assert_eq!(rect_hint(&ui).as_deref(), Some("Enter: designate 5x3"));
         ui.set_tool(Tool::CancelHarvest);
         assert_eq!(rect_hint(&ui).as_deref(), Some("Enter: set a corner"), "a new tool drops it");
-    }
-
-    #[test]
-    fn a_unit_line_keeps_the_phrase_and_drops_the_place() {
-        assert_eq!(short_task("Chopping Oak Tree at (76, 64), 40% done"), "Chopping Oak Tree");
-        assert_eq!(short_task("Hauling 5 Wood to (3, 4)"), "Hauling 5 Wood");
-        assert_eq!(short_task("Sleeping"), "Sleeping");
     }
 
     #[test]

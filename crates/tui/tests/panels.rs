@@ -9,6 +9,7 @@ use fn_tui::app::App;
 use fn_tui::color::{ColorDepth, Palette};
 use fn_tui::frame::{render_app, to_text};
 use fn_tui::state::{PINNED, Screen};
+use fn_tui::widgets::Tone;
 use fn_tui::{keys, new_session};
 use fn_ui::tools::ability_for_nation;
 use fn_ui::{Session, Tool};
@@ -374,47 +375,54 @@ fn golden_ascii_frame_with_a_selected_unit() {
 // The side panel
 // ---------------------------------------------------------------------------------------------
 
-#[test]
-fn people_lists_a_line_per_unit_while_they_fit_and_then_counts_the_rest() {
-    let mut a = app(7, Nation::Earth, SIZE);
-    let frame = text(&mut a, SIZE);
-    for u in &a.session.world.units {
-        assert!(frame.contains(&format!(" {} ", u.name)) || frame.contains(&u.name), "{}", u.name);
+/// Pushes `a`'s settlement to 20 units (#310's own test scenario), cloning the first one with a
+/// fresh id so every other id stays unique.
+fn push_to_twenty(a: &mut App) {
+    while a.session.world.units.len() < 20 {
+        let mut u = a.session.world.units[0].clone();
+        u.id = fn_sim::world::UnitId(1000 + a.session.world.units.len() as u32);
+        a.session.world.units.push(u);
     }
-    // "[Tab]" only ever marks the People section's own "+N more" row (#242's Endeavor section
-    // has its own "more" wording -- "10 more people" -- so a bare search for "more" would be a
-    // false positive there).
-    assert!(!frame.contains("[Tab]"), "all six fit at 120x40:\n{frame}");
-
-    // At 80x24 the panel is 21 rows: it gives up unit lines for the sections that matter.
-    let mut b = app(7, Nation::Earth, SMALL);
-    let frame = text(&mut b, SMALL);
-    assert!(frame.contains("PEOPLE"), "{frame}");
-    assert!(frame.contains("CURSOR") && frame.contains("RESEARCH"), "{frame}");
-    let listed = b.session.world.units.iter().filter(|u| frame.contains(&u.name)).count();
-    assert_eq!(listed, b.session.world.units.len(), "every unit should fit:\n{frame}");
-
-    // With a tool and a result to report there is less room, and the count says what is missing.
-    run(&mut b, "b <enter> <enter>");
-    let frame = text(&mut b, SMALL);
-    let listed = b.session.world.units.iter().filter(|u| frame.contains(&u.name)).count();
-    if listed > 0 && listed < b.session.world.units.len() {
-        assert!(
-            frame.contains(&format!("+{} more", b.session.world.units.len() - listed)),
-            "{frame}"
-        );
-    }
-    assert!(frame.contains("CURSOR"), "{frame}");
 }
 
+/// People's own rows, between its heading and the next one (docs/design/side-panel.md "People:
+/// counts, not names"): the activity-count rows, then the need-flags row if any.
+fn people_rows(frame: &str) -> usize {
+    frame
+        .lines()
+        .skip_while(|l| !l.contains("PEOPLE"))
+        .skip(1)
+        .take_while(|l| !l.contains('├') && !l.contains('┗'))
+        .count()
+}
+
+/// #310: with 20 settlers, the People section shows activity counts (not a line per settler),
+/// packed into at most [`fn_tui::panel`]'s own three rows plus one for need flags, at 120x40 and
+/// 80x24 alike; a starving one shows up as "Starving 1", in the bad tone.
 #[test]
-fn the_selected_unit_is_marked_in_the_people_list() {
+fn people_shows_activity_counts_in_at_most_the_docs_rows_with_a_starving_unit_in_the_bad_tone() {
     let mut a = app(7, Nation::Earth, SIZE);
-    run(&mut a, "<tab> <tab>");
-    let name = a.session.world.units[1].name.clone();
-    let frame = text(&mut a, SIZE);
-    assert!(frame.contains(&format!("▸{name}")), "{frame}");
-    assert_eq!(frame.matches('▸').count(), 1);
+    push_to_twenty(&mut a);
+    a.session.world.units[0].needs.hunger = 0.0;
+    assert_eq!(a.session.world.units.len(), 20);
+
+    let p = Palette::new(&a.session.defs, a.session.world.nation, ColorDepth::TrueColor, false);
+    let buf = render_app(&mut a, &p, SIZE);
+    let frame = to_text(&buf);
+    assert!(people_rows(&frame) <= 4, "{}:\n{frame}", people_rows(&frame));
+    assert!(frame.contains("Idle"), "{frame}");
+    assert!(frame.contains("Starving 1"), "{frame}");
+    assert!(frame.contains("[N]"), "{frame}");
+    let row = frame.lines().position(|l| l.contains("Starving 1")).unwrap();
+    let col = frame.lines().nth(row).unwrap().chars().position(|c| c == 'S').unwrap();
+    let want = Tone::Bad.style(&p).fg;
+    assert_eq!(buf[(col as u16, row as u16)].fg, want.unwrap());
+
+    let mut b = app(7, Nation::Earth, SMALL);
+    push_to_twenty(&mut b);
+    let frame = text(&mut b, SMALL);
+    assert!(people_rows(&frame) <= 2, "{}:\n{frame}", people_rows(&frame));
+    assert!(frame.contains("CURSOR") && frame.contains("RESEARCH"), "{frame}");
 }
 
 #[test]

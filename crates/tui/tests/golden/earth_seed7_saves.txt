@@ -1,12 +1,7 @@
 ┏───────────────────────────────────── ◆ SAVES ◆ ──────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
 │ ▸ junk  can't load: not a Four Nations save (1:1-1:4: Expected struct `Probe` but f… ││ ▶ Running x1           00:04 │
 │   save-1  Earth Kingdom, seed 7, 00:04 (tick 40)                                     │├─ PEOPLE ───────────────── 6 ─┤
-│                                                                                      ││  Tyro Idle                   │
-│                                                                                      ││  Ping Idle                   │
-│                                                                                      ││  Ming Idle                   │
-│                                                                                      ││  Oma  Idle                   │
-│                                                                                      ││  Song Idle                   │
-│                                                                                      ││  Lin  Idle                   │
+│                                                                                      ││ Idle 6                   [N] │
 │                                                                                      │├─ RESEARCH ───────────────────┤
 │                                                                                      ││ No target set        3.0/min │
 │                                                                                      ││ 0 pts banked                 │
@@ -16,6 +11,11 @@
 │                                                                                      ││ Coast                        │
 │                                                                                      ││ Plains (94, 64)              │
 │                                                                                      ││ Elevation 152                │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
