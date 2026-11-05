@@ -1,0 +1,383 @@
+//! A deterministic scripted opening (#300, `docs/design/difficulty.md`, "Measuring it"): plain
+//! code over `Command`, so it doubles as a smoke test for the command API (if a command this
+//! issues ever stops applying, `crates/sim/tests/balance.rs` notices).
+//!
+//! `Opening` carries no progress state of its own: every decision reads the `World` it's handed
+//! fresh, so calling `step` on the same world twice in a row is harmless (everything it might
+//! redo is already done, and `World::apply` refuses a repeat harmlessly), and the same opening
+//! given two identical worlds always issues the same commands. That is what lets the `balance`
+//! harness (`crate::balance`) assert two runs give identical output.
+//!
+//! It does five things, each read from world state rather than tracked by the script:
+//! - a stockpile near the settlement's anchor, once there is none;
+//! - a standing harvest order (`Command::DesignateRepeatingHarvest`) on every wild, renewable
+//!   food resource within `FORAGE_RADIUS` tiles;
+//! - a one-shot harvest on whatever nearby resource yields a bed's or a campfire's cost (wood,
+//!   on the bundled data): without this, a preset with no `starting_stores` (Hard) would leave a
+//!   bed designated with nothing to build it from, and a unit would sit there re-planning a
+//!   route to fetch material that never arrives. `beds`/`campfire` only ever designate once
+//!   enough of each cost item is already in stores or on the ground, so no building is ever
+//!   designated that can't finish: the sim's own retry backoff (`data/jobs.toml`'s
+//!   `retry_seconds`) would otherwise have a stuck unit re-planning a whole-map route every few
+//!   seconds for as long as the opening runs, the exact cost `tests/balance.rs` and the
+//!   `balance` binary need to stay cheap;
+//! - a bed per person, built where there's room, one at a time;
+//! - a campfire, once its tech is known (`BuildingDef::unlocked_by`), with no nation check: Fire
+//!   starts knowing it, every other nation researches it first (`RESEARCH_PLAN`).
+//!
+//! and drives a short, shared research queue, skipping whatever a nation already knows or can't
+//! research (`Command::SetResearch`'s own `WrongNation`/`AlreadyKnown` refusals), so the same
+//! plan plays for every nation with no `if nation == ..`.
+
+use crate::building::{BuildingId, CostItem};
+use crate::defs::Defs;
+use crate::geom::Pos;
+use crate::jobs::ItemId;
+use crate::mapgen::Tile;
+use crate::world::{Command, TICKS_PER_SECOND, World};
+
+/// How far from the settlement's anchor (`World::settlement_anchor`) the opening designates
+/// standing harvest orders on wild food, and looks for the material a bed or a campfire costs
+/// (`docs/design/difficulty.md`, "Measuring it").
+pub const FORAGE_RADIUS: i32 = 15;
+
+/// In-game minutes between the opening's decisions (`Opening::due`). `World::tick` runs
+/// `TICKS_PER_SECOND * 60` ticks a minute either way; this only sets how often the opening looks
+/// at the world, not how fast anything it designates gets done.
+pub const STEP_MINUTES: f32 = 1.0;
+
+/// The opening's research queue, in order: fire-making first (a campfire needs it, and only
+/// Fire starts knowing it, `data/research.toml`), then farming (a hedge against tired land
+/// outgrowing the start box, #296). Both are shared-tier techs, so the list is the same for every
+/// nation; `Opening::research` skips an entry already known.
+pub const RESEARCH_PLAN: &[&str] = &["fire_making", "farming"];
+
+/// How many stockpile tiles the opening lays near the anchor, once there is no stockpile at all.
+const STOCKPILE_TILES: usize = 4;
+
+/// How far out the opening will look for room to build a bed or a campfire, in tiles, before
+/// giving up for this step (and trying again next one).
+const BUILD_SEARCH_RADIUS: i32 = 30;
+
+/// A scripted opening for one settlement. Stateless beyond `people` (`Opening::step` reads
+/// everything else off the `World` it's given), so it's `Copy` and safe to keep around for a
+/// whole run.
+#[derive(Debug, Clone, Copy)]
+pub struct Opening {
+    /// Beds the opening keeps built: usually the settlement's starting headcount, but a harness
+    /// that wants fewer or more may pass anything.
+    pub people: u32,
+}
+
+impl Opening {
+    pub fn new(people: u32) -> Self {
+        Self { people }
+    }
+
+    /// Ticks between decisions (`STEP_MINUTES`), at least 1.
+    fn step_ticks() -> u64 {
+        ((STEP_MINUTES * 60.0 * TICKS_PER_SECOND as f32).round() as u64).max(1)
+    }
+
+    /// Whether `tick` is one of the opening's fixed decision points. A harness calls `step` when
+    /// this is true, including at tick 0.
+    pub fn due(tick: u64) -> bool {
+        tick.is_multiple_of(Self::step_ticks())
+    }
+
+    /// Issues whatever the opening still wants done, reading `world` fresh. Call this once per
+    /// `Opening::due` tick.
+    pub fn step(&self, world: &mut World, defs: &Defs) {
+        let anchor = world.settlement_anchor();
+        self.stockpile(world, defs, anchor);
+        self.forage(world, defs, anchor);
+        self.materials(world, defs, anchor);
+        self.beds(world, defs, anchor);
+        self.campfire(world, defs, anchor);
+        self.research(world, defs);
+    }
+
+    /// Lays a small stockpile near the anchor, once there is none at all.
+    fn stockpile(&self, world: &mut World, defs: &Defs, anchor: Pos) {
+        if world.stockpile_zones().next().is_some() {
+            return;
+        }
+        let candidates = open_tiles_near(world, anchor, BUILD_SEARCH_RADIUS);
+        for pos in candidates.into_iter().take(STOCKPILE_TILES) {
+            let _ = world.apply(Command::DesignateStockpile { pos }, defs);
+        }
+    }
+
+    /// Standing harvest orders on every wild, renewable food resource within `FORAGE_RADIUS`.
+    /// Harmless to call every step: an already-designated tile just refuses the repeat.
+    fn forage(&self, world: &mut World, defs: &Defs, anchor: Pos) {
+        let targets = nearby(anchor, FORAGE_RADIUS, world, defs, is_wild_food);
+        for pos in targets {
+            let _ = world.apply(Command::DesignateRepeatingHarvest { pos }, defs);
+        }
+    }
+
+    /// A one-shot harvest on any nearby resource that yields what a bed or a campfire costs
+    /// (module doc). Not a standing order: these resources don't regrow.
+    fn materials(&self, world: &mut World, defs: &Defs, anchor: Pos) {
+        let Some(bed) = defs.building_id("bed") else { return };
+        let Some(campfire) = defs.building_id("campfire") else { return };
+        let items: Vec<ItemId> = defs
+            .building(bed)
+            .cost
+            .iter()
+            .chain(defs.building(campfire).cost.iter())
+            .map(|c: &CostItem| c.item)
+            .collect();
+        let targets =
+            nearby(anchor, FORAGE_RADIUS, world, defs, |t, defs| yields_any(t, defs, &items));
+        for pos in targets {
+            let _ = world.apply(Command::DesignateHarvest { pos }, defs);
+        }
+    }
+
+    /// Builds a bed if there's room for one more and the headcount still needs it, one at a
+    /// time (no second bed designated while one is already under way) and only once its full
+    /// cost is already in stores or on the ground (module doc).
+    fn beds(&self, world: &mut World, defs: &Defs, anchor: Pos) {
+        let Some(bed) = defs.building_id("bed") else { return };
+        if building_count(world, bed) >= self.people {
+            return;
+        }
+        if world.build_sites().any(|(_, id, _)| id == bed) {
+            return;
+        }
+        if !have_enough(world, &defs.building(bed).cost) {
+            return;
+        }
+        if let Some(pos) = nearest_build_site(world, defs, anchor, bed, BUILD_SEARCH_RADIUS) {
+            let _ = world.apply(Command::DesignateBuild { pos, building: bed }, defs);
+        }
+    }
+
+    /// Builds one campfire, once fire-making (or whatever unlocks it) is known and its cost is
+    /// already in stores or on the ground.
+    fn campfire(&self, world: &mut World, defs: &Defs, anchor: Pos) {
+        let Some(campfire) = defs.building_id("campfire") else { return };
+        if let Some(tech) = defs.building(campfire).unlocked_by
+            && !world.research().is_known(tech)
+        {
+            return;
+        }
+        if building_count(world, campfire) > 0 {
+            return;
+        }
+        if !have_enough(world, &defs.building(campfire).cost) {
+            return;
+        }
+        if let Some(pos) = nearest_build_site(world, defs, anchor, campfire, BUILD_SEARCH_RADIUS) {
+            let _ = world.apply(Command::DesignateBuild { pos, building: campfire }, defs);
+        }
+    }
+
+    /// Queues the next tech in `RESEARCH_PLAN` the nation doesn't already know, once nothing is
+    /// queued. Skips a tech belonging to another nation's branch, with no `if nation == ..`:
+    /// `SetResearch`'s own refusal tells it to move on.
+    fn research(&self, world: &mut World, defs: &Defs) {
+        if !world.research().queue().is_empty() {
+            return;
+        }
+        for &id in RESEARCH_PLAN {
+            let Some(tech) = defs.tech_id(id) else { continue };
+            if world.research().is_known(tech) {
+                continue;
+            }
+            if world.apply(Command::SetResearch { tech }, defs).is_ok() {
+                return;
+            }
+        }
+    }
+}
+
+/// Tiles in the box of `radius` tiles around `anchor`, in bounds, whose resource satisfies
+/// `want`.
+fn nearby(
+    anchor: Pos,
+    radius: i32,
+    world: &World,
+    defs: &Defs,
+    want: impl Fn(&Tile, &Defs) -> bool,
+) -> Vec<Pos> {
+    (anchor.y - radius..=anchor.y + radius)
+        .flat_map(|y| (anchor.x - radius..=anchor.x + radius).map(move |x| Pos::new(x, y)))
+        .filter(|&p| world.map.get(p).is_some_and(|t| want(t, defs)))
+        .collect()
+}
+
+/// Is the resource on this tile a wild, renewable food (fruit, fish, cabbage): something
+/// `Command::DesignateRepeatingHarvest` can stand a standing order on. One-shot harvests (trees,
+/// stone, gold) have no `regrow`, and strain never touches anything that isn't food either.
+fn is_wild_food(tile: &Tile, defs: &Defs) -> bool {
+    let Some(resource) = tile.resource else { return false };
+    let Some(harvest) = defs.harvest(resource) else { return false };
+    harvest.regrow.is_some() && defs.food_of(harvest.item).is_some()
+}
+
+/// Does this tile's resource, once harvested, yield one of `items`?
+fn yields_any(tile: &Tile, defs: &Defs, items: &[ItemId]) -> bool {
+    let Some(resource) = tile.resource else { return false };
+    let Some(harvest) = defs.harvest(resource) else { return false };
+    items.contains(&harvest.item)
+}
+
+/// Is at least `cost`'s worth of every item already in stockpiles or on the ground: enough that
+/// designating the building now wouldn't leave a unit fetching material that isn't there.
+fn have_enough(world: &World, cost: &[CostItem]) -> bool {
+    cost.iter().all(|c| {
+        let ground: u32 =
+            world.ground_items().filter(|(_, s)| s.item == c.item).map(|(_, s)| s.count).sum();
+        world.stored_total(c.item) + ground >= c.count
+    })
+}
+
+/// Finished buildings plus unfinished sites of `building`, counted together: a bed being built
+/// is as good as claimed, for the opening's purposes.
+fn building_count(world: &World, building: BuildingId) -> u32 {
+    let built = world.buildings().filter(|&(_, id)| id == building).count();
+    let sited = world.build_sites().filter(|&(_, id, _)| id == building).count();
+    (built + sited) as u32
+}
+
+/// Open, buildable tiles (no resource, no building, not already a site or a stockpile) nearest
+/// `anchor`, squared distance first and then by position: the same tie-break
+/// `World::found`'s `lay_starting_stores` uses for the same kind of placement.
+fn open_tiles_near(world: &World, anchor: Pos, radius: i32) -> Vec<Pos> {
+    let mut open: Vec<Pos> = (anchor.y - radius..=anchor.y + radius)
+        .flat_map(|y| (anchor.x - radius..=anchor.x + radius).map(move |x| Pos::new(x, y)))
+        .filter(|&p| world.build_blocker(p).is_none())
+        .collect();
+    open.sort_by_key(|p| ((p.x - anchor.x).pow(2) + (p.y - anchor.y).pow(2), *p));
+    open
+}
+
+/// The nearest tile to `anchor` (by `Pos`'s own ordering within each ring, nearest ring first)
+/// where `building` could be designated right now, if any within `radius` tiles.
+fn nearest_build_site(
+    world: &World,
+    defs: &Defs,
+    anchor: Pos,
+    building: BuildingId,
+    radius: i32,
+) -> Option<Pos> {
+    let ok = |p: Pos| world.check_build(p, building, defs).is_ok();
+    if ok(anchor) {
+        return Some(anchor);
+    }
+    (1..=radius).find_map(|r| {
+        let mut ring: Vec<Pos> = (-r..=r)
+            .flat_map(|dy| (-r..=r).map(move |dx| Pos::new(anchor.x + dx, anchor.y + dy)))
+            .filter(|&p| p.chebyshev(anchor) == r)
+            .filter(|&p| ok(p))
+            .collect();
+        ring.sort();
+        ring.into_iter().next()
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::defs::Defs;
+    use crate::mapgen::MapGenConfig;
+    use crate::nation::Nation;
+    use crate::world::World;
+
+    fn world(nation: Nation) -> (World, Defs) {
+        let defs = Defs::bundled();
+        let size = defs.embark.map_size("small").unwrap();
+        let cfg = MapGenConfig {
+            seed: 7,
+            width: size.width,
+            height: size.height,
+            ..MapGenConfig::default()
+        };
+        (World::new(&cfg, nation, 6, &defs), defs)
+    }
+
+    #[test]
+    fn lays_a_stockpile_and_stands_forage_orders() {
+        let (mut world, defs) = world(Nation::Earth);
+        let opening = Opening::new(6);
+        opening.step(&mut world, &defs);
+        assert!(world.stockpile_zones().next().is_some());
+        let anchor = world.settlement_anchor();
+        let any_forage = (anchor.y - FORAGE_RADIUS..=anchor.y + FORAGE_RADIUS).any(|y| {
+            (anchor.x - FORAGE_RADIUS..=anchor.x + FORAGE_RADIUS)
+                .any(|x| world.is_repeating_harvest(Pos::new(x, y)))
+        });
+        assert!(any_forage, "expected at least one standing harvest order near the start");
+    }
+
+    #[test]
+    fn never_designates_a_bed_it_cant_yet_pay_for() {
+        let (mut world, defs) = world(Nation::Water);
+        let opening = Opening::new(6);
+        let bed = defs.building_id("bed").unwrap();
+        for _ in 0..3 {
+            opening.step(&mut world, &defs);
+            // Any site this opening ever starts must already be fully affordable: it never
+            // leaves a unit fetching material that was never there (module doc).
+            for (_, id, _) in world.build_sites() {
+                if id == bed {
+                    assert!(have_enough(&world, &defs.building(bed).cost));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn eventually_builds_beds_once_wood_is_reachable() {
+        let (mut world, defs) = world(Nation::Water);
+        let opening = Opening::new(6);
+        let bed = defs.building_id("bed").unwrap();
+        for tick in 0..(30 * 600) {
+            if Opening::due(tick) {
+                opening.step(&mut world, &defs);
+            }
+            world.tick(&defs);
+        }
+        assert!(building_count(&world, bed) > 0, "expected at least one bed after 30 minutes");
+    }
+
+    #[test]
+    fn queues_fire_making_before_farming_for_a_nation_that_starts_without_it() {
+        let (mut world, defs) = world(Nation::Water);
+        let opening = Opening::new(6);
+        opening.step(&mut world, &defs);
+        let fire_making = defs.tech_id("fire_making").unwrap();
+        assert!(
+            world.research().queue().contains(&fire_making)
+                || world.research().is_known(fire_making)
+        );
+    }
+
+    #[test]
+    fn fire_already_knows_fire_making_so_the_opening_queues_farming_next() {
+        let (mut world, defs) = world(Nation::Fire);
+        let opening = Opening::new(6);
+        opening.step(&mut world, &defs);
+        let farming = defs.tech_id("farming").unwrap();
+        assert!(world.research().queue().contains(&farming));
+    }
+
+    #[test]
+    fn is_deterministic_given_the_same_world_twice() {
+        let (mut a, defs) = world(Nation::Air);
+        let (mut b, _) = world(Nation::Air);
+        let opening = Opening::new(6);
+        for tick in 0..600u64 {
+            if Opening::due(tick) {
+                opening.step(&mut a, &defs);
+                opening.step(&mut b, &defs);
+            }
+            a.tick(&defs);
+            b.tick(&defs);
+        }
+        assert_eq!(a.command_log(), b.command_log());
+    }
+}
