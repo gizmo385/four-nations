@@ -237,7 +237,10 @@ mod tests {
         assert!(!normal.starting_stores.is_empty());
         let hard = defs.difficulty.preset("hard").unwrap();
         assert!(hard.strain_kills);
-        assert!(hard.starting_stores.is_empty());
+        // #301's tuning pass found the opening needed a small bootstrap to reach winter 2 with
+        // food to spare; it's still smaller than Normal's.
+        assert!(!hard.starting_stores.is_empty());
+        assert!(hard.starting_stores.len() < normal.starting_stores.len());
     }
 
     #[test]
@@ -260,7 +263,7 @@ mod tests {
 
     #[test]
     fn multiplier_out_of_range_is_rejected() {
-        let bad = DIFFICULTY.replacen("need_decay = 1.1", "need_decay = 5.0", 1);
+        let bad = DIFFICULTY.replacen("need_decay = 1.05", "need_decay = 5.0", 1);
         let err = defs_without_difficulty().with_difficulty(&bad).unwrap_err();
         assert!(err.0.contains("need_decay"), "{err}");
     }

@@ -183,7 +183,7 @@ strain = 1.0          # added to the tile's strain per harvest (times the preset
 
 [settings]
 strain_recovery_per_minute = 0.05   # strain fades this fast, ripe or resting
-strain_kill_at = 4.0                # with the preset's strain_kills: a harvest that leaves
+strain_kill_at = 3.0                # with the preset's strain_kills: a harvest that leaves
                                     # the tile at or above this kills the plant
 ```
 
@@ -200,10 +200,14 @@ strain_kill_at = 4.0                # with the preset's strain_kills: a harvest 
 
 With these numbers, a fruit tree picked whenever it ripens settles at strain 2.3 and a 20-minute
 cycle: 6 fruit an hour instead of 20. A fishing spot (strain 0.5) settles at 12 fish an hour
-instead of 24. Under Hard's x1.5 strain, a tree picked whenever it ripens reaches 4 within a few
-cycles and dies, so picking has to rotate. A 21x21 start box then feeds roughly its first
-dozen people in summer and fewer in winter. That's the point where the player farms, plants
-orchards or walks farther. The harness tunes the exact numbers.
+instead of 24. Under Hard's x1.5 strain and x1.1 regrow, a tree picked whenever it ripens climbs
+toward an equilibrium around strain 3.5, crossing `strain_kill_at` (3.0, #301's tuning pass lowered
+it from the first guess of 4.0, which the equilibrium never reached) within about five picks and
+dying, so picking has to rotate. A fishing spot (equilibrium ~1.7) and even an unrotated wild
+cabbage patch (~2.4) stay under that threshold, so only a hard-worked tree is at real risk. A
+21x21 start box then feeds roughly its first dozen people in summer and fewer in winter. That's
+the point where the player farms, plants orchards or walks farther. The harness tuned the exact
+numbers (#301).
 
 Strain doesn't apply to one-shot harvests (trees, stone, gold). Those are already used up when
 they're worked.
@@ -245,18 +249,30 @@ itself, with no new quest systems:
 | Knob | Sandbox | **Normal** (default) | Hard | Scales |
 |---|---|---|---|---|
 | `seasons` | off | on | on | Calendar, frost, cold, winter growth |
-| `winter_severity` | — | 1.0 | 1.3 | Winter growth loss `(1-g)` and cold's extra drain `(m-1)`. Frost needs > 0 |
+| `winter_severity` | — | 1.0 | 1.5 | Winter growth loss `(1-g)` and cold's extra drain `(m-1)`. Frost needs > 0 |
 | `strain` | 0 | 1.0 | 1.5 | Strain per harvest. 0 means plants never tire |
 | `strain_kills` | no | no | yes | Exhausted wild plants die |
-| `need_decay` | 1.0 | 1.0 | 1.1 | Hunger, thirst and energy decay |
-| `regrow` | 1.0 | 1.0 | 1.25 | Every regrow time |
+| `need_decay` | 1.0 | 1.0 | 1.05 | Hunger, thirst and energy decay |
+| `regrow` | 1.0 | 1.0 | 1.1 | Every regrow time |
 | `research_cost` | 1.0 | 1.0 | 1.25 | Every tech's cost |
 | `newcomer_food` | 0 | 10 | 20 | Food eaten from stores on arrival |
-| `starting_stores` | 30 food, 20 wood, 10 stone | 15 food, 10 wood | none | Laid down by `World::found` |
+| `starting_stores` | 30 food, 20 wood, 10 stone | 15 food, 10 wood | 10 food | Laid down by `World::found` |
 
 Sandbox is today's game with a head start: no winter, no tiring land. Normal adds the year and
 the tiring land, and nothing that punishes beyond them. Hard turns everything up and makes
 over-picking fatal to the plant, never directly to a person.
+
+`winter_severity`, `need_decay`, `regrow` and `starting_stores` are #301's tuning pass, not the
+original guesses (1.3, 1.1, 1.25 and none). The harness showed the no-input settlement sometimes
+starving before the calendar even reached winter 1 (pure need decay outrunning a map with little
+nearby food, nothing to do with cold) and the opening entering its second Hard winter with no
+food at all on several maps. `need_decay` and `regrow` came down to stop the first: cold still
+gets *more* severe (`winter_severity` up, since cold no longer has `need_decay`'s help outrunning
+the calendar on its own) while the everyday hunger and regrowth pressure that was killing people
+before winter even began eased off. A 10-food bootstrap (less than half of Normal's, no wood)
+fixed the second: not a safety net so much as closing the worst-case gap, since the opening still
+starts every Hard run with no banked wood and the highest `newcomer_food` and `research_cost` of
+the three presets.
 
 The rough survey stays a separate choice on the same screen (question 4). Floods (#199) add a
 `flood_chance` knob when they land; until then the schema has none, because validation rejects
