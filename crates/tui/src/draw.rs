@@ -6,6 +6,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
 use ratatui::style::{Modifier, Style};
 
+use crate::banner::{self, banner_area};
 use crate::bar::{bar_area, draw_bar};
 use crate::color::Palette;
 use crate::layout::{self, MIN_HEIGHT, MIN_WIDTH};
@@ -28,14 +29,20 @@ pub fn draw(session: &Session, ui: &UiState, palette: &Palette, buf: &mut Buffer
         return;
     };
     draw_map(session, ui, palette, regions.map, buf);
-    // A screen or a modal covers the map, and the selection bar hides behind either
-    // (docs/design/ui.md).
+    // A screen or a modal covers the map, and the tool banner and the selection bar hide behind
+    // either (docs/design/ui.md); the banner (top row) and the bar (bottom rows) can otherwise
+    // both show at once, a tool active with a unit still selected.
     if let Some(screen) = ui.screen {
         draw_screen(session, ui, screen, palette, regions.map, buf);
     } else if let Some(modal) = ui.modal {
         draw_modal(session, ui, modal, palette, regions.map, buf);
-    } else if ui.selected_unit(session).is_some() {
-        draw_bar(session, ui, palette, bar_area(regions.map), buf);
+    } else {
+        if ui.tool != Tool::Select {
+            banner::draw(session, ui, palette, banner_area(regions.map), buf);
+        }
+        if ui.selected_unit(session).is_some() {
+            draw_bar(session, ui, palette, bar_area(regions.map), buf);
+        }
     }
     draw_panel(session, ui, palette, regions.panel, buf);
     draw_status(session, ui, palette, regions.status, buf);
@@ -175,7 +182,13 @@ fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, b
         }
         None => {
             let text = format!(" {} ", ui.tool.name().to_uppercase());
-            buf.set_string(area.x, area.y, &text, badge(theme.on_accent, theme.accent));
+            // The same tint as the banner above the map (#307), so the two badges match; a
+            // standing order's own greener tint included.
+            let style = match banner::tint(ui) {
+                Some(tint) => palette.banner_style(tint),
+                None => badge(theme.on_accent, theme.accent),
+            };
+            buf.set_string(area.x, area.y, &text, style);
             (text.len() as u16, tool_status(session, ui))
         }
     };

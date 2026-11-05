@@ -9,6 +9,7 @@
 //! [`run`] touches the terminal or the wall clock.
 
 pub mod app;
+pub mod banner;
 pub mod bar;
 pub mod build;
 pub mod cli;

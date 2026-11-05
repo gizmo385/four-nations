@@ -64,6 +64,34 @@ fn golden_ascii_frame() {
     golden("earth_seed7_ascii", &text);
 }
 
+/// The active tool banner (#307) at the smallest terminal, for Select (none), Harvest and
+/// Build: obvious at a glance, and the difference is the signal (no banner in Select).
+#[test]
+fn golden_frames_of_the_active_tool_banner_for_select_harvest_and_build() {
+    const TINY: (u16, u16) = (80, 24);
+    let mut select = App::new(new_session(7, Nation::Earth), TINY);
+    assert_eq!(select.ui.tool, Tool::Select);
+    golden(
+        "earth_seed7_banner_select",
+        &to_text(&frame(&mut select, ColorDepth::TrueColor, false, TINY)),
+    );
+
+    let mut harvest = App::new(new_session(7, Nation::Earth), TINY);
+    harvest.play(&keys::parse("h").unwrap());
+    golden(
+        "earth_seed7_banner_harvest",
+        &to_text(&frame(&mut harvest, ColorDepth::TrueColor, false, TINY)),
+    );
+
+    let mut build = App::new(new_session(7, Nation::Earth), TINY);
+    build.play(&keys::parse("u <enter>").unwrap());
+    assert_eq!(build.ui.tool, Tool::Build);
+    golden(
+        "earth_seed7_banner_build",
+        &to_text(&frame(&mut build, ColorDepth::TrueColor, false, TINY)),
+    );
+}
+
 /// Paused, with a few designations and the cursor moved: the status badge, the Cursor section on
 /// a tree, and the same map at another scroll.
 #[test]
@@ -450,7 +478,10 @@ fn the_result_notice_fits_on_the_smallest_terminal() {
         "designate harvest (chop, mine, gather): 0 done, 1 skipped (nothing to harvest)"
     );
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, (80, 24)));
-    assert!(text.contains("Enter: set a corner"), "the Cursor section survives:\n{text}");
+    // What Enter does next is the banner's own line now (#307, trimmed to fit the 48-column
+    // map at this size), not the Cursor section's, which still has room for its own rows.
+    assert!(text.contains("HARVEST"), "the banner survives:\n{text}");
+    assert!(text.contains("Elevation 0"), "the Cursor section survives:\n{text}");
 }
 
 #[test]
