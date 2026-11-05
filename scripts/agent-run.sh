@@ -87,17 +87,42 @@ claude_args=(--strict-mcp-config --mcp-config "$dir/mcp.json"
   --disallowedTools "Bash,Read,Edit,Write,Glob,Grep,WebFetch,WebSearch,NotebookEdit,Agent")
 [[ -n "$model" ]] && claude_args+=(--model "$model")
 
+# Claude Code stops its MCP servers with a signal when it exits, so fn_agent rarely gets to
+# write the log's `end` line itself. This writes it once claude has exited, so the watcher shows
+# "run finished" instead of waiting forever. A log that already ends with one is left alone.
+finish_log() {
+  sleep 1
+  python3 - "$dir/run.jsonl" "$1" << 'PY'
+import json, sys
+path, reason = sys.argv[1:]
+try:
+    lines = [json.loads(l) for l in open(path) if l.strip()]
+except FileNotFoundError:
+    sys.exit(0)
+if not lines or lines[-1].get("type") == "end":
+    sys.exit(0)
+tick = next((l["tick"] for l in reversed(lines) if l.get("type") == "turn"), 0)
+with open(path, "a") as f:
+    f.write(json.dumps({"type": "end", "tick": tick, "reason": reason}) + "\n")
+PY
+}
+
 say "run folder: $dir"
 cd "$dir"
 if [[ "$interactive" == 1 ]]; then
   say "watch it from another terminal with: $repo/scripts/agent-run.sh watch $dir"
   say "suggested first message: $prompt"
-  exec claude "${claude_args[@]}"
+  claude "${claude_args[@]}" || true
+  finish_log "agent session closed"
+  exit
 fi
 
-claude -p "$prompt" "${claude_args[@]}" > "$dir/agent.log" 2>&1 &
+(
+  claude -p "$prompt" "${claude_args[@]}" || true
+  finish_log "agent finished"
+) > "$dir/agent.log" 2>&1 &
 agent=$!
-trap 'kill "$agent" 2> /dev/null || true' EXIT
-say "agent running (pid $agent); quit the watcher to stop it"
+trap 'pkill -P "$agent" 2> /dev/null; kill "$agent" 2> /dev/null; finish_log "stopped by watcher"' EXIT
+say "agent running; quit the watcher to stop it"
 watch_run "$dir" "$pace"
 if kill -0 "$agent" 2> /dev/null; then say "stopping the agent"; else say "agent finished; its summary is in $dir/agent.log"; fi
