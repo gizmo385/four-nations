@@ -3,7 +3,8 @@
 Status: **decided** (#196; owner decisions of 2026-10-25 are listed at the end). Follow-up work
 is listed at the end of this doc. Units go *inside* buildings through a door, on top of the solid
 footprints ([Units inside buildings](#units-inside-buildings)), and the study halls get taller
-art ([Larger art](#larger-art)).
+art ([Larger art](#larger-art)). Which buildings each nation has, and what they cost, is in
+[nation-buildings.md](nation-buildings.md) (#357).
 
 Every building is 1x1 in the rules today. `BuildingDef` has no size, the sim stores one
 `Building` per tile (`World::building_at`), and `passable` covers that one tile. The art is
