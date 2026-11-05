@@ -6,15 +6,15 @@
 ""~♠,,¥,,,,,,,♣,♣...≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈.♣,,.≈≈.≈≈.│ No target set        3.0/min │
 "~""┏────────────── ◆ MENU ◆ ──────────────┓≈≈≈.│ 0 pts banked                 │
 ~"",│ ▸ Resume                             │....├─ ENDEAVOR ───────────── 0/9 ─┤
-~",,│   Save as… (named slot)              │.≈.♣│ Next: 10 more people     [G] │
+~",,│   Save as…                           │.≈.♣│ Next: 10 more people     [G] │
 τ",♣│   Quicksave                       F5 │...♣├─ CURSOR ────────── (94, 64) ─┤
-"♠,♣│   Load… (and named saves)         F6 │,♣,♣│ Tyro                         │
-""♣,│   Quickload (none yet)            F9 │,♣♣♣│ Earth Kingdom - Idle         │
+"♠,♣│   Load…                           F6 │,♣,♣│ Tyro                         │
+""♣,│   Quickload                       F9 │,♣♣♣│ Earth Kingdom - Idle         │
 ",♣♣│   Key help                           │♣,,♣│ Carrying: nothing - Bends: 0 │
 ",,♣│   Quit                               │♣♣,♣│ Press Enter to select        │
 "♣,♣│                                      │♣,♣♣│                              │
 "♣,,│                                      │,,τ♣│                              │
-♠♣♣♣┗─ Arrows/W S choose  Enter select  E…─┛♣♣,♠│                              │
+♠♣♣♣┗─ Enter select  Esc resume ───────────┛♣♣,♠│                              │
 ,,,♣♣♣♣♣♣♣,¥¥,,♣,,,,,,♣.≈≈≈≈≈≈≈≈≈≈≈≈≈.,,,,,....~│                              │
 ,♣♣,♣,♣,,♣♣,,,,,,,♣♣♣,♣.≈≈≈≈≈≈≈≈≈≈≈≈..,,,♣..≈≈~,│                              │
 ,,,♣,♣♣,♣,,,,,,♣♣♣,♣♣...≈≈≈≈≈≈≈≈≈≈≈≈.,,,...≈≈≈.♣│                              │

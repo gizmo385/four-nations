@@ -55,21 +55,15 @@ impl MenuRow {
         Self::Quit,
     ];
 
-    /// The row's text. `has_quicksave` only changes [`Self::Quickload`]'s, which says so when
-    /// there's nothing to load yet.
-    pub fn label(self, has_quicksave: bool) -> &'static str {
+    /// The row's text. With no quicksave yet, [`Self::Quickload`] is dimmed rather than
+    /// relabelled (`draw`).
+    pub fn label(self) -> &'static str {
         match self {
             Self::Resume => "Resume",
-            Self::SaveAs => "Save as… (named slot)",
+            Self::SaveAs => "Save as…",
             Self::Quicksave => "Quicksave",
-            Self::Load => "Load… (and named saves)",
-            Self::Quickload => {
-                if has_quicksave {
-                    "Quickload"
-                } else {
-                    "Quickload (none yet)"
-                }
-            }
+            Self::Load => "Load…",
+            Self::Quickload => "Quickload",
             Self::Help => "Key help",
             Self::Quit => "Quit",
         }
@@ -121,7 +115,7 @@ pub fn draw(
 fn draw_rows(at: usize, has_quicksave: bool, palette: &Palette, outer: Rect, buf: &mut Buffer) {
     let marks = Marks::new(palette.ascii);
     let title = format!(" {0} MENU {0} ", marks.seal);
-    let footer = "Arrows/W S choose  Enter select  Esc resume";
+    let footer = "Enter select  Esc resume";
     let inner = modal::draw(buf, outer, SIZE, palette, &title, footer);
     let at = at.min(MenuRow::ALL.len() - 1);
     let mut p = Painter::new(buf, inner, palette);
@@ -140,7 +134,7 @@ fn draw_rows(at: usize, has_quicksave: bool, palette: &Palette, outer: Rect, buf
         } else {
             Tone::Text
         };
-        let left = format!("{pointer} {}", row.label(has_quicksave));
+        let left = format!("{pointer} {}", row.label());
         match row.hint() {
             Some(hint) => p.row(&Row::pair(left, tone, hint, Tone::Dim)),
             None => p.row(&Row::text(left, tone)),
@@ -184,8 +178,7 @@ mod tests {
     #[test]
     fn every_row_has_a_label() {
         for row in MenuRow::ALL {
-            assert!(!row.label(true).is_empty());
-            assert!(!row.label(false).is_empty());
+            assert!(!row.label().is_empty());
         }
     }
 
@@ -195,11 +188,5 @@ mod tests {
             let expect = matches!(row, MenuRow::Quicksave | MenuRow::Load | MenuRow::Quickload);
             assert_eq!(row.hint().is_some(), expect, "{row:?}");
         }
-    }
-
-    #[test]
-    fn quickload_says_so_when_there_is_nothing_to_load() {
-        assert_eq!(MenuRow::Quickload.label(true), "Quickload");
-        assert!(MenuRow::Quickload.label(false).contains("none yet"));
     }
 }

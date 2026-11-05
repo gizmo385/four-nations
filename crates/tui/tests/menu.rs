@@ -297,7 +297,7 @@ fn quickload_is_greyed_out_and_fails_gracefully_with_no_quicksave_yet() {
     run(&mut a, "<esc>");
     assert!(!a.ui.has_quicksave, "nothing saved yet");
     let frame = text(&mut a, SIZE);
-    assert!(frame.contains("none yet"), "{frame}");
+    assert!(frame.contains("Quickload"), "the row stays, dimmed: {frame}");
 
     run(&mut a, "<down*4> <enter> y");
     assert!(a.ui.status.contains("no quicksave yet"), "{}", a.ui.status);
