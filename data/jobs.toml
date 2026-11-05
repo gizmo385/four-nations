@@ -31,8 +31,11 @@ idle_wander_steps = 4
 # "Strain: tiring land", #296).
 strain_recovery_per_minute = 0.05
 # With the difficulty preset's strain_kills, a harvest that leaves a tile's strain at or above
-# this kills the plant.
-strain_kill_at = 4.0
+# this kills the plant. Hard's always-repicked fruit tree converges on strain ~3.5 (#301's tuning
+# pass measured it with the harness); 3.0 is comfortably below that so a tree worked without rest
+# reliably dies within a handful of picks, while a tended or rotated one, and fish (equilibrium
+# ~1.7) and cabbage (~2.4) even left unrotated, never reach it.
+strain_kill_at = 3.0
 
 # Items that aren't food. Foods (data/needs.toml) are items too, with the id they have there.
 # `icon` names the item's sprite for a future graphical frontend; no current frontend reads it.

@@ -68,11 +68,13 @@ id = "hard"
 name = "Hard"
 hint = "Harsh winters and land that gives out if you don't let it rest."
 seasons = true
-winter_severity = 1.3
+winter_severity = 1.5
 strain = 1.5
 strain_kills = true
-need_decay = 1.1
-regrow = 1.25
+need_decay = 1.05
+regrow = 1.1
 research_cost = 1.25
 newcomer_food = 20
-starting_stores = []
+starting_stores = [
+    { item = "fruit", count = 10 },
+]
