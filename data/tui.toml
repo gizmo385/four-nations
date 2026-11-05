@@ -273,6 +273,12 @@ glyph = "⌂"
 ascii = "n"
 fg = [200, 228, 245]
 
+# The irrigation channel (#126): speeds up farm plots within its radius.
+[building.irrigation_channel]
+glyph = "≈"
+ascii = "="
+fg = [120, 190, 230]
+
 # --- The endeavor (#236, #242) ---
 [building.harmony_gate]
 glyph = "⛩"

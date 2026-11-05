@@ -27,6 +27,10 @@
 //!   terraces will scale) before a `JobKind::Reap` job gathers its crop and it's empty again.
 //!   The rules are in `world/farm.rs`; every number is on `FarmDef`.
 //!
+//! - `irrigation` makes it the irrigation channel (issue #126): farm plots within its `radius`
+//!   grow `growth_boost` times as fast, the same way an orchard tends trees nearby. Every number
+//!   is on `IrrigationDef`; the lookup is `World::irrigation_rate` in `world/farm.rs`.
+//!
 //! - `endeavor` marks the end game's great work (the Harmony Gate, #236): it is never designated
 //!   from the build picker. The Endeavor screen places it (`Command::BeginEndeavor`) and its
 //!   stages in `data/endeavor.toml` carry its cost and work instead (`world/gate.rs`).
@@ -213,10 +217,25 @@ pub struct FarmDef {
     pub grow_seconds: f32,
     /// In-game seconds of work to gather a ripe plot (`JobKind::Reap`).
     pub reap_seconds: f32,
-    /// How many times faster than `grow_seconds` the crop grows: the hook irrigation (#126) and
-    /// terraces (#136) will scale, the same way an orchard's `tend_boost` speeds up a tree
-    /// (`World::crop_growth_rate`). 1.0 for the plain plot.
+    /// How many times faster than `grow_seconds` the crop grows: the plot's own rate before
+    /// `World::crop_growth_rate` multiplies in the irrigation channel's boost (#126) and, later,
+    /// terraces' (#136), the same way an orchard's `tend_boost` speeds up a tree. 1.0 for the
+    /// plain plot.
     pub crop_growth: f32,
+}
+
+/// A building that speeds up farm plots nearby (`[building.irrigation]`, issue #126): the
+/// `irrigation` tech's permanent version of Water's Water the Land ability (docs/design/
+/// bending.md). The rules are in `world/farm.rs`, read by `World::crop_growth_rate` the same way
+/// `OrchardDef::tend_boost` speeds up a resting tree.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct IrrigationDef {
+    /// How far from the channel, Chebyshev, a farm plot is sped up.
+    pub radius: u32,
+    /// How many times faster a farm plot within `radius` grows (at least 1.0). Two channels in
+    /// reach of one plot don't stack; it takes the best boost, the same as an orchard's
+    /// `tend_boost`.
+    pub growth_boost: f32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -262,6 +281,8 @@ pub struct BuildingDef {
     pub recipe: Option<RecipeDef>,
     /// Set if this is a farm plot: empty until sown, then grows a crop to harvest (issue #198).
     pub farm: Option<FarmDef>,
+    /// Set if this speeds up farm plots nearby: the irrigation channel (issue #126).
+    pub irrigation: Option<IrrigationDef>,
     /// What each nation calls this building, if it varies (e.g. the study hall: Meditation
     /// Pavilion for Air). Empty when every nation uses the plain `name`. If set at all, every
     /// nation has an entry (`display_name` is the one place that matters).
@@ -366,6 +387,13 @@ struct RawFarm {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawIrrigation {
+    radius: u32,
+    growth_boost: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawBuilding {
     id: String,
     name: String,
@@ -389,6 +417,7 @@ struct RawBuilding {
     orchard: Option<RawOrchard>,
     recipe: Option<RawRecipe>,
     farm: Option<RawFarm>,
+    irrigation: Option<RawIrrigation>,
     #[serde(default)]
     names: HashMap<Nation, String>,
     #[serde(default)]
@@ -531,6 +560,10 @@ impl BuildingsFile {
                 None => None,
                 Some(f) => Some(resolve_farm(&b.id, f, items)?),
             };
+            let irrigation = match &b.irrigation {
+                None => None,
+                Some(i) => Some(resolve_irrigation(&b.id, i)?),
+            };
             for (nation, name) in &b.names {
                 if name.trim().is_empty() {
                     return err(format!(
@@ -560,6 +593,7 @@ impl BuildingsFile {
                 orchard,
                 recipe,
                 farm,
+                irrigation,
                 names: b.names,
                 art: b.art,
                 unlocked_by: None,
@@ -677,6 +711,18 @@ fn resolve_farm(building: &str, f: &RawFarm, items: &[ItemDef]) -> Result<FarmDe
         reap_seconds: f.reap_seconds,
         crop_growth: f.crop_growth,
     })
+}
+
+/// Checks a `[building.irrigation]`.
+fn resolve_irrigation(building: &str, i: &RawIrrigation) -> Result<IrrigationDef, DefsError> {
+    let err = |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: {msg}")));
+    if i.radius == 0 {
+        return err("irrigation needs radius > 0");
+    }
+    if !(i.growth_boost.is_finite() && i.growth_boost >= 1.0) {
+        return err("irrigation growth_boost must be at least 1.0");
+    }
+    Ok(IrrigationDef { radius: i.radius, growth_boost: i.growth_boost })
 }
 
 /// Resolves every tech's `unlocks.buildings` into `BuildingDef::unlocked_by`: the building must
@@ -953,6 +999,32 @@ mod tests {
         assert!(bad("crop_growth = 1.0", "crop_growth = 0.0").contains("crop_growth"));
         assert!(bad("crop_growth = 1.0", "crop_growth = -1.0").contains("crop_growth"));
         assert!(bad("\"cabbage\"", "\"nothing\"").contains("unknown item"));
+    }
+
+    #[test]
+    fn the_irrigation_channel_is_data() {
+        let defs = Defs::bundled();
+        let def = defs.building(defs.building_id("irrigation_channel").unwrap());
+        let i = def.irrigation.expect("the channel speeds up farm plots");
+        assert!(i.radius > 0);
+        assert!(i.growth_boost >= 1.0);
+        assert!(def.passable, "units walk through a channel");
+        // Only the channel speeds up plots.
+        assert_eq!(defs.buildings.iter().filter(|b| b.irrigation.is_some()).count(), 1);
+    }
+
+    #[test]
+    fn irrigation_numbers_are_validated() {
+        let one = |extra: &str| {
+            format!(
+                "[[building]]\nid = \"channel\"\nname = \"Channel\"\nverb = \"Dig\"\nwork = 1.0\n\
+                 passable = true\n[building.irrigation]\nradius = 3\ngrowth_boost = 1.5\n{extra}"
+            )
+        };
+        resolve(&one("")).unwrap();
+        let bad = |from: &str, to: &str| resolve(&one("").replacen(from, to, 1)).unwrap_err().0;
+        assert!(bad("radius = 3", "radius = 0").contains("radius > 0"));
+        assert!(bad("growth_boost = 1.5", "growth_boost = 0.5").contains("growth_boost"));
     }
 
     fn resolve(toml: &str) -> Result<Vec<BuildingDef>, DefsError> {

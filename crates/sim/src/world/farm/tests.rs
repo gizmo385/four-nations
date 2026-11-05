@@ -1,5 +1,5 @@
 use super::*;
-use crate::building::{Building, FarmDef};
+use crate::building::{Building, FarmDef, IrrigationDef};
 use crate::defs::{BiomeId, Terrain};
 use crate::geom::Grid;
 use crate::jobs::JobKind;
@@ -41,6 +41,20 @@ fn raise_farm_plot(w: &mut World, defs: &Defs, pos: Pos) {
     let def = defs.building(id);
     w.map[pos].building = Some(Building::new(id, def.passable, false));
     w.open_farm_plot(pos);
+}
+
+fn irrigation_def(defs: &Defs) -> IrrigationDef {
+    defs.building(defs.building_id("irrigation_channel").unwrap())
+        .irrigation
+        .expect("the channel speeds up plots")
+}
+
+/// Puts a finished irrigation channel on `pos`, as if built.
+fn raise_irrigation_channel(w: &mut World, defs: &Defs, pos: Pos) {
+    let id = defs.building_id("irrigation_channel").unwrap();
+    let def = defs.building(id);
+    w.map[pos].building = Some(Building::new(id, def.passable, false));
+    w.open_irrigation_channel(pos);
 }
 
 fn secs(s: f32) -> u64 {
@@ -246,4 +260,77 @@ fn with_no_difficulty_preset_frost_never_touches_a_ripe_crop() {
     w.tick = 3 * season_ticks(&defs) - 1;
     w.tick(&defs);
     assert_eq!(w.plot_stage(MID), Some(PlotStage::Ripe), "no seasons on, no frost");
+}
+
+// ---- irrigation channels speed up farm plots in reach (#126) ----
+
+#[test]
+fn a_plot_beside_an_irrigation_channel_ripens_faster_than_one_without() {
+    let ripen_ticks = |channel_at: Option<Pos>| {
+        let (mut w, defs) = setup(Nation::Water, 1, &[]);
+        raise_farm_plot(&mut w, &defs, MID);
+        if let Some(pos) = channel_at {
+            raise_irrigation_channel(&mut w, &defs, pos);
+        }
+        plant_growing(&mut w, MID, farm_def(&defs).grow_seconds);
+        run_until(&mut w, &defs, secs(farm_def(&defs).grow_seconds) + 50, |w| {
+            w.plot_stage(MID) == Some(PlotStage::Ripe)
+        })
+    };
+    let irrigation = irrigation_def(&Defs::bundled());
+    let plain = ripen_ticks(None);
+    // Within the channel's own radius: at(7, 4) is 3 tiles from MID (7, 7), Chebyshev.
+    let irrigated = ripen_ticks(Some(at(MID.x, MID.y - irrigation.radius as i32)));
+    assert!(irrigated < plain, "{irrigated} should be well under {plain}");
+    // Close to exactly the channel's growth_boost: growth is linear in the rate.
+    let want = (plain as f32 / irrigation.growth_boost).round() as u64;
+    assert!(irrigated.abs_diff(want) <= 2, "irrigated {irrigated}, want close to {want}");
+}
+
+#[test]
+fn a_channel_outside_its_radius_does_not_speed_up_a_distant_plot() {
+    let (mut w, defs) = setup(Nation::Water, 1, &[]);
+    raise_farm_plot(&mut w, &defs, MID);
+    let irrigation = irrigation_def(&defs);
+    raise_irrigation_channel(&mut w, &defs, at(MID.x, MID.y - irrigation.radius as i32 - 1));
+    assert_eq!(w.irrigation_rate(MID, &defs), 1.0, "one tile beyond radius: no boost");
+}
+
+#[test]
+fn two_channels_in_reach_of_one_plot_dont_stack() {
+    let (mut w, defs) = setup(Nation::Water, 1, &[]);
+    raise_farm_plot(&mut w, &defs, MID);
+    let irrigation = irrigation_def(&defs);
+    raise_irrigation_channel(&mut w, &defs, at(MID.x, MID.y - irrigation.radius as i32));
+    raise_irrigation_channel(&mut w, &defs, at(MID.x + irrigation.radius as i32, MID.y));
+    assert_eq!(w.irrigation_rate(MID, &defs), irrigation.growth_boost, "best boost, not the sum");
+}
+
+#[test]
+fn irrigation_still_speeds_up_growth_in_a_slow_winter_season() {
+    // A warm band's winter_growth (0.6) is still slower than full speed, so this composes the
+    // channel's boost with a season factor below 1.0, not just with the plain 1.0 default.
+    let ripen_ticks = |channel_at: Option<Pos>| {
+        let (mut w, defs) = setup(Nation::Water, 1, &[]);
+        w.map[MID].temperature = 255; // warm band
+        w.difficulty = Some("normal".into());
+        w.tick = 3 * season_ticks(&defs); // winter's first tick
+        raise_farm_plot(&mut w, &defs, MID);
+        if let Some(pos) = channel_at {
+            raise_irrigation_channel(&mut w, &defs, pos);
+        }
+        plant_growing(&mut w, MID, farm_def(&defs).grow_seconds);
+        // Winter growth alone is already slower than plain speed, so give it plenty of room.
+        run_until(&mut w, &defs, secs(farm_def(&defs).grow_seconds) * 3 + 50, |w| {
+            w.plot_stage(MID) == Some(PlotStage::Ripe)
+        })
+    };
+    let irrigation = irrigation_def(&Defs::bundled());
+    let plain = ripen_ticks(None);
+    let irrigated = ripen_ticks(Some(at(MID.x, MID.y - irrigation.radius as i32)));
+    assert!(irrigated < plain, "irrigation still helps in a slow winter: {irrigated} vs {plain}");
+    // Composes multiplicatively with the season factor: still close to growth_boost times
+    // faster than the same winter without irrigation.
+    let want = (plain as f32 / irrigation.growth_boost).round() as u64;
+    assert!(irrigated.abs_diff(want) <= 2, "irrigated {irrigated}, want close to {want}");
 }

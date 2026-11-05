@@ -398,3 +398,24 @@ crop_growth = 1.0
 [[building.cost]]
 item = "wood"
 count = 2
+
+# Unlocked by `irrigation` (data/research.toml, Water tier 1): the permanent version of Water
+# the Land's wet state (docs/design/bending.md). Farm plots within `radius` grow `growth_boost`
+# times as fast, read by `World::crop_growth_rate` (issue #126) the same way an orchard's
+# `tend_boost` speeds up a tree; two channels in reach of one plot don't stack. Radius matches
+# the ability's own 3x3 patch (one tile out from center); the boost is an orchard's tend_boost,
+# since both are "a building tends things nearby" at the same scale. Cost and work are an
+# igloo's (4 wood, 30 s), since it's Water's second building, pending a balance pass once
+# terraces (#136) give irrigation a ceiling worth tuning against.
+[[building]]
+id = "irrigation_channel"
+name = "Irrigation Channel"
+verb = "Dig"
+work = 30.0
+passable = true
+[building.irrigation]
+radius = 3
+growth_boost = 1.5
+[[building.cost]]
+item = "wood"
+count = 4
