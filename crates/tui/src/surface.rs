@@ -32,7 +32,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fn_sim::world::TICKS_PER_SECOND;
 use fn_sim::{Nation, Pos};
 use fn_ui::inspect::Line;
-use fn_ui::view::{activity_counts, nation_view, need_flags, side_view};
+use fn_ui::view::{activity_counts, nation_view, need_flags, season_view, side_view};
 use fn_ui::{Session, Tool};
 use serde::{Deserialize, Serialize};
 
@@ -42,7 +42,7 @@ use crate::color::{ColorDepth, Palette};
 use crate::frame::{render_shell, to_text};
 use crate::input::{self, Action};
 use crate::keys::{self, Step};
-use crate::map::{Ground, Mark, Overlays, Thing, cell_look};
+use crate::map::{CellLook, Ground, Mark, Overlays, Thing, cell_look, style_cell};
 use crate::menu::MenuRow;
 use crate::panel::hint_text;
 use crate::shell::{Mode, Shell};
@@ -171,7 +171,7 @@ impl Host {
     /// says what a screen does, and no screen prints the raw tick), but harmless to read here
     /// since it changes nothing and isn't returned to an agent.
     pub fn tick(&self) -> u64 {
-        self.app().session.world.tick
+        self.app().session.ticks_elapsed()
     }
 
     /// `Defs::id_hash`: a stable hash of the bundled data's id tables (docs/design/agent-play.md,
@@ -334,10 +334,11 @@ impl Host {
         let activity =
             activity_counts(session).into_iter().map(|(a, n)| (a.label().to_owned(), n)).collect();
         let needs = need_flags(session).into_iter().collect();
-        let season = session.world.knobs(&session.defs).seasons.then(|| {
-            let defs = &session.defs;
-            session.world.season(defs).name.clone()
-        });
+        // `season_view`'s own heading is "Spring · Y1"; the bare name before " · " is the same
+        // word the panel's divider prints (uppercased there, a styling difference the
+        // observation-containment test treats as such -- docs/design/agent-play.md, "The map").
+        let season = season_view(session, 0)
+            .map(|s| s.heading.split(" · ").next().unwrap_or(&s.heading).to_owned());
         let history = ui.alerts.history();
         let start = self.alerts_since_turn.min(history.len());
         let alerts = history[start..].iter().map(|e| e.text.clone()).collect();
@@ -354,11 +355,23 @@ impl Host {
                 rate: side.research.rate,
             },
             stores: side.stores.into_iter().map(StoreView::from).collect(),
-            endeavor: side.endeavor.map(|e| EndeavorView {
-                name: e.name,
-                count: e.count,
-                line: e.line,
-                next: e.next,
+            endeavor: side.endeavor.map(|e| {
+                // The same row `panel::endeavor_rows` draws under the Endeavor heading: `e.line`
+                // on its own ("Signs met - G: open", the Ready text, or the stage) only once
+                // nothing is missing; otherwise the first missing sign, the same way, so this
+                // never claims signs are met while `next` still lists one (#320, "Observation
+                // containment").
+                let line = match e.next.first() {
+                    Some(next) => format!("Next: {next}"),
+                    None => e.line,
+                };
+                // `panel::endeavor_rows` only ever names the first missing sign; the rest of
+                // `e.next` (`fn_ui::endeavor::NEXT_SHOWN`'s headroom for a future comma-joined
+                // row) isn't shown anywhere yet, so `next` stops at one too (#320, "Observation
+                // containment"; a richer row is a TUI change first, docs/design/agent-play.md,
+                // "The parity rule").
+                let next = e.next.into_iter().take(1).collect();
+                EndeavorView { name: e.name, count: e.count, line, next }
             }),
             cursor: self.cursor_view(ui.cursor),
             alerts,
@@ -384,14 +397,21 @@ impl Host {
     }
 
     /// A map region, at most [`MAX_LOOK`]: `things`, `ground` and `marks`, through the same
-    /// `cell_look` the painter uses (#314), so this can't show anything the screen hides. The
-    /// legend is local to this response: one character per distinct thing or ground actually
-    /// present, so there are no collisions (docs/design/agent-play.md, "The map"). Logged, for a
-    /// watcher's attention ghosts (#319).
+    /// `cell_look` and `style_cell` the painter uses (#314), so this can't show anything the
+    /// screen hides. Each cell's `things` character is the very glyph `--ascii` draws there
+    /// (marks never change a cell's glyph, only its colour and modifier, so `style_cell` alone
+    /// decides it); `ground` is the same glyph `style_cell` would choose with nothing on top,
+    /// which only matters apart from `things` where something is (#320, "Map-cell equality").
+    /// The legend is local to this response: one character per distinct thing or ground
+    /// actually present, so there are no collisions (docs/design/agent-play.md, "The map") --
+    /// the real glyph when that's still free in this response, a fallback character on the rare
+    /// ascii collision (docs/design/agent-play.md, "Frames and keys": "F, *, $, %, = and S each
+    /// mean two or more things").
     pub fn look(&mut self, x: i32, y: i32, w: u16, h: u16) -> MapView {
         let (w, h) = (w.clamp(1, MAX_LOOK.0), h.clamp(1, MAX_LOOK.1));
         let app = self.app();
         let (session, ui) = (&app.session, &app.ui);
+        let defs = &session.defs;
         let over = Overlays::gather(session, ui);
         let mut pool = CharPool::default();
         let mut things = Vec::with_capacity(h as usize);
@@ -404,8 +424,19 @@ impl Host {
                 let pos = Pos::new(x + i32::from(col), y + i32::from(row));
                 match cell_look(session, ui, &self.palette, &over, pos) {
                     Some(cell) => {
-                        thing_line.push(pool.char_for(&describe_thing(session, &cell.thing, pos)));
-                        ground_line.push(pool.char_for(&describe_ground(session, cell.ground)));
+                        let thing_glyph = style_cell(&cell, defs, &self.palette).glyph;
+                        let ground_only = CellLook {
+                            thing: Thing::Ground,
+                            ground: cell.ground,
+                            marks: Vec::new(),
+                        };
+                        let ground_glyph = style_cell(&ground_only, defs, &self.palette).glyph;
+                        thing_line.push(
+                            pool.char_for(&describe_thing(session, &cell.thing, pos), thing_glyph),
+                        );
+                        ground_line.push(
+                            pool.char_for(&describe_ground(session, cell.ground), ground_glyph),
+                        );
                         if !cell.marks.is_empty() {
                             let kinds = cell.marks.iter().map(describe_mark).collect();
                             marks.push(MarkView { x: pos.x, y: pos.y, kinds });
@@ -480,7 +511,12 @@ impl Host {
                         .map(|c| TechCardView {
                             name: c.name,
                             cost: c.cost,
-                            state: c.state.label().to_owned(),
+                            // `crate::research::state_word`, not `TechState::label`: every
+                            // card's own row carries the short word ("Locked"); the longer
+                            // sentence (`label`, "Needs prereqs") only shows for whichever card
+                            // the cursor is on, under the grid (#320, "Observation
+                            // containment").
+                            state: crate::research::state_word(c.state).to_owned(),
                             unlock: c.unlock,
                         })
                         .collect()
@@ -776,8 +812,8 @@ impl Host {
     /// Whether `pos` is on the map at all (`Host::look`'s own regions clamp instead; a step's
     /// tile has to be an exact one, so off the map is a planning failure, not a silent clamp).
     fn in_bounds(&self, pos: Pos) -> bool {
-        let map = &self.app().session.world.map;
-        (0..map.width()).contains(&pos.x) && (0..map.height()).contains(&pos.y)
+        let (w, h) = self.app().session.map_size();
+        (0..w).contains(&pos.x) && (0..h).contains(&pos.y)
     }
 }
 
@@ -1001,28 +1037,28 @@ fn step_label(step: &ActionStep) -> String {
 /// display name for a building or item, "-" for [`Thing::Ground`] (nothing on top; `ground`
 /// already names what's under it).
 fn describe_thing(session: &Session, thing: &Thing, pos: Pos) -> String {
-    let (world, defs) = (&session.world, &session.defs);
+    let defs = &session.defs;
+    let nation = session.nation();
     match thing {
         Thing::Avatar { .. } => "the Avatar".to_owned(),
-        Thing::Unit { .. } => world
-            .units_at(pos)
-            .next()
-            .map(|u| format!("settler ({})", u.name))
+        Thing::Unit { .. } => session
+            .unit_name_at(pos)
+            .map(|name| format!("settler ({name})"))
             .unwrap_or_else(|| "settler".to_owned()),
         Thing::Ghost { building, free } => {
-            let name = defs.building(*building).display_name(world.nation);
+            let name = defs.building(*building).display_name(nation);
             format!("{name} ghost ({})", if *free { "fits" } else { "blocked" })
         }
         Thing::Occupied { building, n } => {
-            format!("{} ({n} inside)", defs.building(*building).display_name(world.nation))
+            format!("{} ({n} inside)", defs.building(*building).display_name(nation))
         }
         Thing::Plot(stage) => format!("farm plot ({stage:?})"),
         Thing::Building { building, .. } => {
-            defs.building(*building).display_name(world.nation).to_owned()
+            defs.building(*building).display_name(nation).to_owned()
         }
         Thing::GateStage(stage_id) => format!("Harmony Gate ({stage_id})"),
         Thing::Site { building, .. } => {
-            format!("{} (site)", defs.building(*building).display_name(world.nation))
+            format!("{} (site)", defs.building(*building).display_name(nation))
         }
         Thing::Item(item) => defs.item(*item).name.clone(),
         Thing::Flame => "flame".to_owned(),
@@ -1062,12 +1098,16 @@ fn describe_mark(mark: &Mark) -> String {
     .to_owned()
 }
 
-/// Assigns one character per distinct description, in the order each is first seen, from a pool
-/// generous enough for any region [`MAX_LOOK`] allows in practice (docs/design/agent-play.md,
-/// "The map": "one character per distinct thing actually present, so there are no collisions").
+/// Assigns one character per distinct description, preferring each description's own `--ascii`
+/// glyph (so [`Host::look`]'s `things` and `ground` read as the frame does, #320's "Map-cell
+/// equality"), and only falling back to a pool character on the rare ascii collision -- two
+/// different descriptions sharing one glyph in this response, which colour alone would tell
+/// apart (docs/design/agent-play.md, "Frames and keys"). Either way there's one character per
+/// distinct description actually present, so there are no collisions in the legend itself
+/// (docs/design/agent-play.md, "The map").
 #[derive(Default)]
 struct CharPool {
-    order: Vec<String>,
+    by_description: BTreeMap<String, char>,
     legend: BTreeMap<String, String>,
 }
 
@@ -1078,15 +1118,20 @@ const POOL: &str =
     "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*()[]{};:'\"\\|/~`+=_<>";
 
 impl CharPool {
-    fn char_for(&mut self, description: &str) -> char {
-        let index = match self.order.iter().position(|d| d == description) {
-            Some(i) => i,
-            None => {
-                self.order.push(description.to_owned());
-                self.order.len() - 1
-            }
+    /// `preferred` is the glyph `style_cell` would actually draw for `description`; used as is
+    /// unless this response has already given it to a different description, in which case the
+    /// next free pool character stands in instead.
+    fn char_for(&mut self, description: &str, preferred: char) -> char {
+        if let Some(&ch) = self.by_description.get(description) {
+            return ch;
+        }
+        let taken = |ch: char| self.legend.contains_key(&ch.to_string());
+        let ch = if !taken(preferred) {
+            preferred
+        } else {
+            POOL.chars().find(|&c| !taken(c)).unwrap_or('?')
         };
-        let ch = POOL.chars().nth(index).unwrap_or('?');
+        self.by_description.insert(description.to_owned(), ch);
         self.legend.insert(ch.to_string(), description.to_owned());
         ch
     }
@@ -1447,6 +1492,7 @@ mod tests {
     use fn_sim::Nation;
 
     use super::*;
+    use crate::state::{BANNER_HEIGHT, BAR_HEIGHT};
 
     fn host(nation: Nation) -> Host {
         Host::new(7, nation, None, None, None, false).unwrap()
@@ -2049,5 +2095,124 @@ mod tests {
         assert!(matches!(rest[1], LogLine::Turn { index: 1, .. }));
         assert_eq!(rest[2], LogLine::Look { x: 1, y: 1, w: 4, h: 4 });
         assert_eq!(rest[3], LogLine::Inspect { x: 2, y: 2 });
+    }
+
+    // ----------------------------------------------------------------------------------------
+    // Parity: map-cell equality (#320's acceptance criteria)
+    // ----------------------------------------------------------------------------------------
+
+    /// A seed-7 game past its opening moments, a settler selected and the Build tool active
+    /// with a building already chosen (its ghost on the map, not just its banner) -- one golden
+    /// scenario per nation, the richest ordinary state `observe`, `screen` and `look` all have
+    /// something to say about (docs/design/agent-play.md, "Enforcing and testing parity").
+    /// Bounded to a few dozen turns, cheap enough for `ci --fast` (#291).
+    fn mid_game(nation: Nation) -> Host {
+        let mut h = host(nation);
+        for _ in 0..20 {
+            h.end_turn(50);
+        }
+        let name = h.app().session.world.units[0].name.clone();
+        let select = h.act(&[ActionStep::Select { x: None, y: None, name: Some(name) }], None);
+        assert!(select.error.is_none(), "{select:?}");
+        let build = h.press_keys("u <enter>", None, None).unwrap();
+        assert_eq!(build.refused, 0, "u and <enter> are never refused");
+        assert_eq!(h.app().ui.tool, Tool::Build, "the Build tool is active");
+        h
+    }
+
+    /// `Host::look`'s `things` glyph at every cell is the very glyph `--ascii` draws there: a
+    /// mark never changes a cell's glyph, only its colour and modifier (`map`'s own doc
+    /// comment), so this holds everywhere in the visible view, not just the plain tiles.
+    #[test]
+    fn looks_things_glyph_equals_the_ascii_frames_glyph_for_every_nation() {
+        // 80x24: within `MAX_LOOK`, so the whole map region in one `look` lines up with the
+        // whole map region of one `frame`.
+        const SIZE: (u16, u16) = (80, 24);
+        for nation in Nation::ALL {
+            let mut h = mid_game(nation);
+            let frame = h.frame(SIZE.0, SIZE.1);
+            let frame_lines: Vec<&str> = frame.lines().collect();
+            let ui = &h.app().ui;
+            let (view, (vw, vh)) = (ui.view, ui.viewport());
+            // The tool banner (top) and the selection bar (bottom) cover their own rows of the
+            // map area with their own text, not a tile glyph (`UiState::visible`'s own doc
+            // comment); `mid_game` has both.
+            let top = if ui.banner() { BANNER_HEIGHT } else { 0 };
+            let bottom = if ui.selected.is_some() { BAR_HEIGHT } else { 0 };
+            let rows = (vh - top - bottom).max(1);
+            let look = h.look(view.x, view.y + top, vw as u16, rows as u16);
+            for (row, thing_line) in look.things.iter().enumerate() {
+                let frame_row = top as usize + row;
+                let frame_line = frame_lines.get(frame_row).copied().unwrap_or("");
+                for (col, ch) in thing_line.chars().enumerate() {
+                    let frame_ch = frame_line.chars().nth(col).unwrap_or(' ');
+                    if ch == frame_ch {
+                        continue;
+                    }
+                    // A real ascii collision (docs/design/agent-play.md, "Frames and keys":
+                    // "ASCII glyphs collide"): this cell's own thing drew in a character this
+                    // response's legend had already given to a different thing, so `CharPool`
+                    // fell back to another one. Not a parity problem -- the legend still names
+                    // this cell correctly -- as long as the frame's own character really is
+                    // somebody else's in this legend, not an unrelated mismatch.
+                    assert!(
+                        look.legend.contains_key(&frame_ch.to_string()),
+                        "{nation:?}: world ({},{}) (frame row {frame_row}, col {col}): look \
+                         says {ch:?} but the frame says {frame_ch:?}, which isn't any \
+                         description in this response's own legend {:?}",
+                        view.x + col as i32,
+                        view.y + top + row as i32,
+                        look.legend,
+                    );
+                }
+            }
+        }
+    }
+
+    /// Every mark `Host::look` reports changes the look a mono palette (no colour, #320's
+    /// "mono-palette modifier") would give its cell: the agent is never told about a mark a
+    /// colourless human wouldn't also see some sign of, through bold, underline, reverse video
+    /// or dim (`map::marks_effect`).
+    #[test]
+    fn looks_marks_change_the_mono_palette_look_of_their_cell_for_every_nation() {
+        for nation in Nation::ALL {
+            let mut h = mid_game(nation);
+            // Settles the view at a known size first (`Host::frame`'s own `shell.resize`), so
+            // the cursor -- always kept in view -- is inside this `look` region too.
+            h.frame(80, 24);
+            let (origin, (vw, vh)) = (h.app().ui.view, h.app().ui.viewport());
+            let view = h.look(origin.x, origin.y, vw as u16, vh as u16);
+            assert!(!view.marks.is_empty(), "{nation:?}: the cursor's own mark always shows");
+
+            let app = h.app();
+            let (session, ui) = (&app.session, &app.ui);
+            let over = Overlays::gather(session, ui);
+            let defs = &session.defs;
+            let mono = Palette::new(defs, nation, ColorDepth::Never, true);
+            for mark in &view.marks {
+                let pos = Pos::new(mark.x, mark.y);
+                let cell = cell_look(session, ui, &h.palette, &over, pos)
+                    .expect("a mark is only ever reported on a tile that's on the map");
+                // The Avatar, and a selected unit, already draw reversed in mono on their own
+                // (`thing_look`'s own `mono || *selected` and `*selected` checks), with no mark
+                // involved at all. A cursor or ghost mark landing on either can't add anything
+                // a mono human would see apart from that -- not a parity problem, just this
+                // thing's own look already covering what the mark would say.
+                let self_reverses = matches!(cell.thing, Thing::Avatar { .. })
+                    || matches!(cell.thing, Thing::Unit { selected: true, .. });
+                if self_reverses {
+                    continue;
+                }
+                let plain =
+                    CellLook { thing: cell.thing.clone(), ground: cell.ground, marks: Vec::new() };
+                let with_marks = style_cell(&cell, defs, &mono);
+                let without = style_cell(&plain, defs, &mono);
+                assert_ne!(
+                    with_marks, without,
+                    "{nation:?}: {:?} at ({},{}) should change the mono-palette look",
+                    mark.kinds, pos.x, pos.y,
+                );
+            }
+        }
     }
 }

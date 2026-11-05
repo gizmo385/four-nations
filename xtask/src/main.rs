@@ -6,6 +6,8 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+mod lint;
+
 type Result<T = ()> = std::result::Result<T, String>;
 
 fn main() -> ExitCode {
@@ -34,7 +36,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn root() -> PathBuf {
+pub(crate) fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
 }
 
@@ -72,6 +74,8 @@ fn ci(fast: bool) -> Result {
     };
 
     cargo(&["fmt", "--all", "--check"])?;
+    println!("$ xtask lint agent-surface-parity");
+    lint::check(&root())?;
     let clippy =
         [&["clippy", "--workspace", "--all-targets"][..], profile, &["--", "-D", "warnings"]];
     cargo_env(&clippy.concat(), env)?;
