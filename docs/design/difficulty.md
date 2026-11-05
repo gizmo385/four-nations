@@ -91,8 +91,10 @@ learn the rhythm, and too few for it to become a chore.
 | Winter | by climate band | First frost on its first tick. Cold on cold land |
 
 "Growth" is the factor `World::growth_rate` already returns (the hook that the orchard's
-`tend_rate` uses today), so anything that grows through it obeys the seasons: wild regrowth,
-orchard saplings, and #198's farm plots once they use the same hook.
+`tend_rate` uses today), so anything that grows through it obeys the seasons: wild regrowth and
+orchard saplings. Farm plots (#198) grow through their own `World::crop_growth_rate` instead
+(`world/farm.rs`), which multiplies in the same season factor (#311), so they obey the seasons
+too, just not through this exact function.
 
 ### Climate bands
 
@@ -395,9 +397,10 @@ Absolute targets stay out of CI, because they shift with every retune.
 
 ## Fit with other work
 
-- **#198 farm plots** (in progress): growing through `growth_rate` and resting means plots obey
-  the seasons for free. Plots are tended, so they take no strain. Frost should take unharvested
-  ripe crops in frost bands. The seasons issue covers this once both have landed.
+- **#198 farm plots** (landed): grow through their own `crop_growth_rate`, not `growth_rate`
+  directly, so seasons didn't reach them for free as this doc assumed; #311 closed that gap by
+  multiplying the same season factor into `crop_growth_rate` and having the first frost take an
+  unharvested ripe crop on a frost-band tile too. Plots are tended, so they take no strain.
 - **#232 population**: unchanged except `newcomer_food`. **#272** (retune endeavor targets after
   growth) should wait for the tuning pass.
 - **#237 the Avatar**: he's a guest. Cold and need decay apply to him as to anyone, and his

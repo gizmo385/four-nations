@@ -566,13 +566,19 @@ building (the windmill's grain, #203) is a new building with its own `crop`, not
 player makes per plot.
 
 **The `crop_growth` hook.** `World::crop_growth_rate(pos, defs)` is the one thing `tick_farms`
-reads to know how fast a growing plot's clock counts down; today it is just the plot's own
-`crop_growth` (1.0), read off the building standing there. Irrigation's channel (#126) and
-Earth's terrace (#136) are buildings with their own reach, so the clean way for each to speed up
-plots nearby is the same pattern `World::tend_rate` already uses for an orchard's trees: scan
-buildings of that kind in range and take the best boost, the same way two orchards in reach of
-one tree don't stack. Nothing in `tick_farms` needs to change for that; `crop_growth_rate` is the
-one line to touch.
+reads to know how fast a growing plot's clock counts down: the plot's own `crop_growth` (1.0),
+read off the building standing there, times the difficulty preset's season factor
+(`World::season_growth_factor`, #311; identity with `seasons` off, so this is exactly
+`crop_growth` for every save from before #311 landed) — the same hook `World::growth_rate`
+already uses for wild regrowth, so a plot in a cold band grows slower in winter exactly like a
+wild plant does. The first frost also takes an unharvested ripe crop on a frost-band tile, the
+plot going back to empty (`World::frost_plot`, called from the same `apply_frost` that sends a
+ripe wild plant back to resting). Farm plots are tended, so they never take strain (#296), the
+way an orchard's trees don't either. Irrigation's channel (#126) and Earth's terrace (#136) are
+buildings with their own reach, so the clean way for each to speed up plots nearby is the same
+pattern `World::tend_rate` already uses for an orchard's trees: scan buildings of that kind in
+range and take the best boost, the same way two orchards in reach of one tree don't stack.
+Nothing in `tick_farms` needs to change for that; `crop_growth_rate` is the one line to touch.
 
 **Balance.** A plot nets 3 cabbage every 6 + 240 + 6 = 252 s, about six times a wild cabbage tile
 (1 per 480 s), for two short stints of a farmer's time rather than a forage's one: the point of

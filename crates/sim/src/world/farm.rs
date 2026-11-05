@@ -14,9 +14,14 @@
 //!   yield), counts toward the end game's `crops_harvested` tally (#233), and returns the plot to
 //!   empty, ready to sow again.
 //! * `World::crop_growth_rate` is the hook irrigation (#126) and terraces (#136) will scale,
-//!   the same way `World::tend_rate` speeds up a tree an orchard tends: today it is just the
-//!   plot's own `crop_growth` (1.0 for the plain plot), read from the building that stands on
-//!   the tile, so changing the data changes how fast every plot of that kind grows.
+//!   the same way `World::tend_rate` speeds up a tree an orchard tends: the plot's own
+//!   `crop_growth` (1.0 for the plain plot), read from the building that stands on the tile,
+//!   times the difficulty preset's season factor (`World::season_growth_factor`, `world/season.rs`,
+//!   #295/#311): identity with `seasons` off, so this is exactly `crop_growth` for every save
+//!   from before #311.
+//! * The first frost of winter (`World::tick_season`) also takes an unharvested **ripe** crop on
+//!   a frost-band tile (#311): `frost_plot` sends it back to **empty**, the same way frost sends
+//!   a ripe wild plant back to resting, and the frost event's count includes it.
 //! * Farm plots are shared-tier (`farming`, every nation), unlike the orchard's Air-only tech, so
 //!   there's no nation gate in this module at all: `designate_build` already refuses a farm plot
 //!   to a nation that hasn't researched `farming`.
@@ -95,11 +100,21 @@ impl World {
     }
 
     /// How many times faster than its plain `grow_seconds` the crop on `pos` grows: the plot's
-    /// own `crop_growth` for now (`FarmDef`). The hook irrigation (#126) and terraces (#136) will
-    /// scale, the same way `tend_rate` layers onto an orchard's trees; nothing else in
-    /// `tick_farms` would need to change.
+    /// own `crop_growth` (`FarmDef`) times the season factor `World::growth_rate` already uses
+    /// for wild harvests (`World::season_growth_factor`, #311; identity with `seasons` off). A
+    /// farm plot is tended, so it is never `frost_hardy`-exempt the way fishing is. The hook
+    /// irrigation (#126) and terraces (#136) will scale further, the same way `tend_rate` layers
+    /// onto an orchard's trees; nothing else in `tick_farms` would need to change.
     fn crop_growth_rate(&self, pos: Pos, defs: &Defs) -> f32 {
-        self.farm_def(pos, defs).map(|d| d.crop_growth).unwrap_or(1.0)
+        let base = self.farm_def(pos, defs).map(|d| d.crop_growth).unwrap_or(1.0);
+        base * self.season_growth_factor(pos, defs, false)
+    }
+
+    /// The first frost of winter also takes an unharvested ripe crop (#311, called from
+    /// `World::tick_season`'s `apply_frost`): the plot goes back to **empty**, as if nothing had
+    /// grown, the same way frost sends a ripe wild plant back to resting.
+    pub(super) fn frost_plot(&mut self, pos: Pos) {
+        self.farm_plots.insert(pos, FarmPlot { stage: PlotStage::Empty, growing_left: 0.0 });
     }
 
     /// Checks that `pos` has an empty farm plot, for `designate_sow`.

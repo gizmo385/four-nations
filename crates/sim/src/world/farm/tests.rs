@@ -172,3 +172,78 @@ fn adopt_farm_plots_registers_a_hand_placed_plot_but_leaves_a_known_one_alone() 
     w.adopt_farm_plots(&defs);
     assert_eq!(w.plot_stage(MID), Some(PlotStage::Growing), "already known, left alone");
 }
+
+// ---- crop_growth_rate obeys the season and climate (#311), the same hook World::growth_rate
+// uses for wild regrowth ----
+
+/// Ticks in one season (mirrors `World::season_ticks`, private to `world/season.rs`).
+fn season_ticks(defs: &Defs) -> u64 {
+    (defs.seasons.calendar.season_minutes as f64 * 60.0 * TICKS_PER_SECOND as f64) as u64
+}
+
+/// Puts a growing plot on `pos` with `left` seconds to ripen.
+fn plant_growing(w: &mut World, pos: Pos, left: f32) {
+    let plot = w.farm_plots.get_mut(&pos).unwrap();
+    plot.stage = PlotStage::Growing;
+    plot.growing_left = left;
+}
+
+#[test]
+fn a_polar_plot_does_not_ripen_in_winter_while_a_warm_one_does() {
+    let ripens = |temperature: u8| {
+        let (mut w, defs) = setup(Nation::Earth, 1, &[]);
+        w.map[MID].temperature = temperature;
+        w.difficulty = Some("normal".into());
+        w.tick = 3 * season_ticks(&defs); // winter's first tick
+        raise_farm_plot(&mut w, &defs, MID);
+        plant_growing(&mut w, MID, farm_def(&defs).grow_seconds);
+        // A warm band's winter growth (0.6) is still slower than full speed, so give it twice
+        // its plain time, not just a few extra ticks.
+        run(&mut w, &defs, secs(farm_def(&defs).grow_seconds) * 2 + 50);
+        w.plot_stage(MID) == Some(PlotStage::Ripe)
+    };
+    assert!(ripens(255), "warm band keeps growing in winter");
+    assert!(!ripens(0), "polar winter_growth is 0: it never ripens in winter");
+}
+
+#[test]
+fn with_no_difficulty_preset_crop_growth_ignores_season_and_climate() {
+    let (mut w, defs) = setup(Nation::Earth, 1, &[]);
+    assert_eq!(w.difficulty, None);
+    w.map[MID].temperature = 0; // polar, which would stall growth with seasons on
+    w.tick = 3 * season_ticks(&defs); // what would be winter, if seasons were on
+    raise_farm_plot(&mut w, &defs, MID);
+    plant_growing(&mut w, MID, farm_def(&defs).grow_seconds);
+    run(&mut w, &defs, secs(farm_def(&defs).grow_seconds) + 50);
+    assert_eq!(w.plot_stage(MID), Some(PlotStage::Ripe), "identity growth, regardless of band");
+}
+
+// ---- the first frost also takes an unharvested ripe crop (#311) ----
+
+#[test]
+fn frost_takes_an_unharvested_ripe_crop_on_a_frost_band_tile() {
+    let (mut w, defs) = setup(Nation::Earth, 1, &[]);
+    w.map[MID].temperature = 0; // polar: frost band
+    w.difficulty = Some("normal".into());
+    raise_farm_plot(&mut w, &defs, MID);
+    w.farm_plots.get_mut(&MID).unwrap().stage = PlotStage::Ripe;
+    w.tick = 3 * season_ticks(&defs) - 1; // the tick before winter
+    w.tick(&defs); // crosses into winter: the first frost
+    assert_eq!(w.plot_stage(MID), Some(PlotStage::Empty), "frost took the unharvested crop");
+    assert!(
+        w.season_events().iter().any(|e| matches!(e.kind, SeasonEventKind::Frost { count: 1 })),
+        "{:?}",
+        w.season_events()
+    );
+}
+
+#[test]
+fn with_no_difficulty_preset_frost_never_touches_a_ripe_crop() {
+    let (mut w, defs) = setup(Nation::Earth, 1, &[]);
+    w.map[MID].temperature = 0; // polar: would be a frost band with seasons on
+    raise_farm_plot(&mut w, &defs, MID);
+    w.farm_plots.get_mut(&MID).unwrap().stage = PlotStage::Ripe;
+    w.tick = 3 * season_ticks(&defs) - 1;
+    w.tick(&defs);
+    assert_eq!(w.plot_stage(MID), Some(PlotStage::Ripe), "no seasons on, no frost");
+}
