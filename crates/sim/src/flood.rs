@@ -15,6 +15,13 @@ use crate::path::{DIAGONAL_SIDES, MoveRules, NEIGHBORS};
 
 const UNSEEN: u32 = u32::MAX;
 
+#[cfg(test)]
+thread_local! {
+    /// Test-only count of `Flood::new` calls, so a test can assert a cheap pre-check skips the
+    /// flood instead of timing it (#322: a stuck build job used to pay for one every retry).
+    pub(crate) static CALLS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
 /// Cheapest costs from `origin` to every tile it can reach.
 #[derive(Debug, Clone)]
 pub struct Flood {
@@ -28,6 +35,8 @@ impl Flood {
     /// Floods outward from `origin`, which counts as reachable even if its own tile is
     /// impassable (a unit may be standing somewhere it could no longer walk onto).
     pub fn new(map: &TileMap, origin: Pos, rules: &MoveRules) -> Self {
+        #[cfg(test)]
+        CALLS.with(|c| c.set(c.get() + 1));
         let (w, len) = (map.width(), (map.width() * map.height()) as usize);
         let idx = |p: Pos| (p.y * w + p.x) as usize;
         let pos = |i: usize| Pos::new(i as i32 % w, i as i32 / w);
