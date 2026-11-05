@@ -37,10 +37,16 @@ pub struct App {
     /// The clock's pause from just before the game menu opened (#306), so `close_menu` can put
     /// it back rather than the menu itself toggling pause.
     menu_prev_paused: Option<bool>,
+    /// `--fast` (#321): carried across `R` and `1`-`4` (`Self::restart`), which otherwise build a
+    /// brand new [`Session`] (and so a plain [`fn_ui::Clock::default`]) from scratch. A host or
+    /// session setting, not the player's own clock state, so it survives a restart the way the
+    /// clock's speed and pause deliberately don't (`Self::restart`'s doc comment).
+    pub fast: bool,
 }
 
 impl App {
     pub fn new(session: Session, screen: (u16, u16)) -> Self {
+        let fast = session.clock.is_fast();
         let mut ui = UiState::new(&session, screen);
         ui.alerts.update(&session, 0.0);
         Self {
@@ -51,6 +57,7 @@ impl App {
             saves: None,
             reopen_embark: false,
             menu_prev_paused: None,
+            fast,
         }
     }
 
@@ -498,6 +505,7 @@ impl App {
                 session
             }
         };
+        self.session.clock = self.session.clock.clone().with_fast(self.fast);
         self.ui = UiState::new(&self.session, self.screen);
         self.ui.alerts.update(&self.session, 0.0);
         self.dirty = true;

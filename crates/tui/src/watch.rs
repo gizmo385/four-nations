@@ -186,6 +186,7 @@ impl Watcher {
             map_size: header.map_size.clone(),
             rough: header.rough,
             difficulty: header.difficulty.clone(),
+            fast: false,
             watch: None,
             pace: None,
             at: None,

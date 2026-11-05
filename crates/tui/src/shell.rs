@@ -58,6 +58,11 @@ pub struct Shell {
     /// returning to the title screen more than once doesn't always suggest the same seed. Only
     /// `main` and `run` read the wall clock (docs/design/tui.md); this is seeded from there once.
     seed_hint: u64,
+    /// `--fast` (#321): a process-wide host setting, so it survives the title screen, a new map
+    /// or save, and a nation switch, the way the clock's own speed and pause deliberately don't.
+    /// [`Self::with_fast`] sets it (and the current game's, if there is one already);
+    /// [`Self::start`] and `App::restart` apply it to every game that appears after.
+    fast: bool,
 }
 
 impl Shell {
@@ -74,6 +79,7 @@ impl Shell {
             saves,
             defs,
             seed_hint,
+            fast: false,
         }
     }
 
@@ -82,6 +88,7 @@ impl Shell {
         let defs = session.defs.clone();
         let mut app = App::new(session, screen);
         app.saves = saves.clone();
+        let fast = app.fast;
         Self {
             mode: Mode::Game(Box::new(app)),
             exit_prompt: false,
@@ -91,6 +98,7 @@ impl Shell {
             saves,
             defs,
             seed_hint: 0,
+            fast,
         }
     }
 
@@ -117,6 +125,7 @@ impl Shell {
             saves,
             defs,
             seed_hint: 0,
+            fast: false,
         }
     }
 
@@ -124,6 +133,17 @@ impl Shell {
     /// neither for the title screen): the one place `--frame` and the interactive `run` share
     /// this resolution, since each knows `screen` (the terminal's size) differently.
     pub fn for_args(
+        args: &crate::cli::Args,
+        screen: (u16, u16),
+        saves: Option<PathBuf>,
+        seed_hint: u64,
+    ) -> Result<Self, String> {
+        Self::for_args_inner(args, screen, saves, seed_hint).map(|s| s.with_fast(args.fast))
+    }
+
+    /// [`Self::for_args`], before `--fast` (#321) is applied: every return in here reaches a
+    /// title screen, embark or a game, so applying it once at the end covers them all.
+    fn for_args_inner(
         args: &crate::cli::Args,
         screen: (u16, u16),
         saves: Option<PathBuf>,
@@ -376,9 +396,23 @@ impl Shell {
 
     fn start(&mut self, session: Session) {
         self.defs = session.defs.clone();
+        let mut session = session;
+        session.clock = session.clock.with_fast(self.fast);
         let mut app = App::new(session, self.screen);
         app.saves = self.saves.clone();
         self.mode = Mode::Game(Box::new(app));
+    }
+
+    /// Sets `--fast` (#321): a process-wide host setting applied to the game in front of us now
+    /// (if there is one) and every game that appears after, through `Self::start` and
+    /// `App::restart`. Agents never call this; it isn't on the agent surface (`crate::surface`).
+    pub fn with_fast(mut self, fast: bool) -> Self {
+        self.fast = fast;
+        if let Mode::Game(app) = &mut self.mode {
+            app.fast = fast;
+            app.session.clock = app.session.clock.clone().with_fast(fast);
+        }
+        self
     }
 
     /// Runs the ticks `real_secs` of wall time is worth; a no-op at the title screen.

@@ -3,7 +3,7 @@
 //! ```text
 //! fn_tui [SEED NATION] [--frame [--size WxH] [--ticks N] [--keys SCRIPT] [--ansi]] [--ascii]
 //!        [--color MODE] [--embark | --start X,Y] [--size small|medium|large] [--rough]
-//!        [--difficulty ID]
+//!        [--difficulty ID] [--fast]
 //! fn_tui --watch LOG [--pace xN] [--frame [--at TURN] [--ascii] [--color MODE]]
 //! ```
 //!
@@ -22,10 +22,11 @@
 //!
 //! `--watch LOG` (#319, docs/design/agent-play.md, "Watching") replaces the whole `SEED NATION`
 //! path: the log's own header says the seed, nation and every other starting argument, so none
-//! of `SEED`/`NATION`/`--embark`/`--start`/`--size small|medium|large`/`--rough`/`--difficulty`
-//! may be given alongside it. `--frame` still means one frame to stdout with no terminal, as it
-//! always does, and `--at TURN` (only with both) says which turn's end to render; without it,
-//! the frame is of the log as far as it currently reaches.
+//! of `SEED`/`NATION`/`--embark`/`--start`/`--size small|medium|large`/`--rough`/`--difficulty`/
+//! `--fast` may be given alongside it (`--fast` is a different lane entirely: a watcher paces
+//! itself with `--pace`/`+`/`-`, never the sim's own clock). `--frame` still means one frame to
+//! stdout with no terminal, as it always does, and `--at TURN` (only with both) says which
+//! turn's end to render; without it, the frame is of the log as far as it currently reaches.
 
 use std::path::PathBuf;
 
@@ -62,6 +63,8 @@ options:
   --rough        a rough survey, with --embark or --start
   --difficulty ID  a data/difficulty.toml preset's id (sandbox, normal or hard), with SEED
                  NATION: applies to --embark, --start and the plain SEED NATION path alike
+  --fast         adds x10, x20 and x50 to the +/- speed ladder (a host setting, not a balance
+                 change: docs/design/agent-play.md, Speed). Works alone or with SEED NATION
   --watch LOG    follow or replay an agent run log in the normal TUI (docs/design/agent-play.md,
                  Watching). Takes the place of SEED NATION; the log's own header says those
   --pace xN      the watch pace to start at (1, 2, 5, 10, 20 or 40; default 1), with --watch
@@ -108,6 +111,9 @@ pub struct Args {
     /// the plain `SEED NATION` path (#298). `None` is each path's own default (the seed step's
     /// picker, or identity for the plain path).
     pub difficulty: Option<String>,
+    /// `--fast` (#321): adds x10, x20 and x50 to the `+`/`-` speed ladder. A host setting, not
+    /// an agent capability (`crate::surface::Host` never reads it).
+    pub fast: bool,
     /// `--watch LOG` (#319): follow or replay a run log instead of playing, in place of
     /// `SEED NATION`.
     pub watch: Option<PathBuf>,
@@ -163,6 +169,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         map_size: None,
         rough: false,
         difficulty: None,
+        fast: false,
         watch: None,
         pace: None,
         at: None,
@@ -201,6 +208,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             }
             "--rough" => out.rough = true,
             "--difficulty" => out.difficulty = Some(value("--difficulty")?),
+            "--fast" => out.fast = true,
             "--watch" => out.watch = Some(PathBuf::from(value("--watch")?)),
             "--pace" => {
                 let v = value("--pace")?;
@@ -272,9 +280,10 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             || out.rough
             || out.map_size.is_some()
             || out.difficulty.is_some()
+            || out.fast
         {
             return Err("--watch can't be combined with --embark, --start, --size \
-                         small/medium/large, --rough or --difficulty"
+                         small/medium/large, --rough, --difficulty or --fast"
                 .to_owned());
         }
     } else if out.pace.is_some() {
@@ -407,6 +416,16 @@ mod tests {
         assert_eq!(a.difficulty.as_deref(), Some("sandbox"));
     }
 
+    /// `--fast` works alone or with `SEED NATION` (#321's acceptance criteria), and needs
+    /// neither `--embark`/`--start` nor `--frame`.
+    #[test]
+    fn fast_works_alone_or_with_seed_nation() {
+        assert!(parse_str("--fast").unwrap().fast);
+        assert!(parse_str("7 earth --fast").unwrap().fast);
+        assert!(!parse_str("7 earth").unwrap().fast);
+        assert!(parse_str("7 earth --embark --fast").unwrap().fast);
+    }
+
     /// `--watch LOG` takes the place of `SEED NATION` (#319's acceptance criteria), with
     /// `--pace` and (with `--frame`) `--at` of its own.
     #[test]
@@ -432,6 +451,7 @@ mod tests {
             ("--watch run.jsonl --size medium", "can't be combined"),
             ("--watch run.jsonl --rough --embark", "can't be combined"),
             ("--watch run.jsonl --difficulty hard", "can't be combined"),
+            ("--watch run.jsonl --fast", "can't be combined"),
             ("--pace x10", "--pace only means something"),
             ("--watch run.jsonl --pace x3", "--pace wants one of"),
             ("--at 3", "--at only means something"),

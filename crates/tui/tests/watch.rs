@@ -65,7 +65,8 @@ fn watch_frame_without_at_reaches_the_end_of_the_log() {
 }
 
 /// `--at` needs `--watch --frame`; `--pace` needs `--watch`; `--watch` can't take `SEED NATION`
-/// (#319's acceptance criteria).
+/// or `--fast` (#319's and #321's acceptance criteria: watch has its own pace, never the sim's
+/// clock, and `--fast` is a different lane entirely).
 #[test]
 fn mistakes_say_what_is_wrong() {
     let out = fn_tui().args(["--at", "3"]).output().unwrap();
@@ -79,6 +80,10 @@ fn mistakes_say_what_is_wrong() {
     let out = fn_tui().args(["7", "earth", "--watch", "run.jsonl"]).output().unwrap();
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("takes the place of SEED NATION"));
+
+    let out = fn_tui().args(["--watch", "run.jsonl", "--fast"]).output().unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("can't be combined"));
 }
 
 /// Without a terminal and without `--frame`, `--watch` says so and exits instead of hanging
