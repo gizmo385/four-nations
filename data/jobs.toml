@@ -42,6 +42,11 @@ strain_kill_at = 3.0
 # `knowledge` (optional, points, at least 1) makes an item readable: it is never stockpiled. A
 # unit carries it to a study hall instead, where it is used up and adds that many points to the
 # research pool (issue #24). With no study hall to take it, it stays where it lies.
+# `stands_for` (optional, an item id) lets this item pay, one for one, any building or endeavor
+# cost (and the sign that counts it) that asks for the named item instead -- never a recipe
+# input (issue #371: `brick` stands for `stone`, the kiln's purpose). Validated: not itself, no
+# chains (the named item can't itself stand in for something), and at most one item may stand in
+# for a given target.
 [[item]]
 id = "wood"
 icon = "wood"
@@ -78,6 +83,7 @@ name = "Metal"
 id = "brick"
 icon = "brick"
 name = "Brick"
+stands_for = "stone"
 
 [[item]]
 id = "tool"

@@ -230,6 +230,11 @@ pub fn missing(sign: &SignDef, p: &SignProgress, world: &World, defs: &Defs) -> 
     let items = |items: &[fn_sim::jobs::ItemId]| match items {
         [one] => defs.item(*one).name.to_lowercase(),
         many if many.iter().all(|&i| defs.food_of(i).is_some()) => "food".to_owned(),
+        // A sign whose extra items are all stand-ins for the first (brick for stone, issue
+        // #371) is still named for that one item: "200 stone", not the sign's own name.
+        [primary, rest @ ..] if rest.iter().all(|&i| defs.stands_for(i) == Some(*primary)) => {
+            defs.item(*primary).name.to_lowercase()
+        }
         _ => sign.name.to_lowercase(),
     };
     match &sign.kind {

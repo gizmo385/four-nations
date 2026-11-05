@@ -591,3 +591,87 @@ fn finishing_a_walkable_building_leaves_units_and_items_where_they_are() {
     assert_eq!(w.units[1].pos, at(6, 3));
     assert!(w.ground.contains_key(&at(5, 2)));
 }
+
+// --- Brick stands in for stone (#371) ---
+
+#[test]
+fn a_site_takes_stone_or_its_stand_in_whichever_is_shorter_of_the_two() {
+    use crate::building::CostItem;
+
+    let (mut w, mut defs) = setup_as(Nation::Fire, &GRID, &[at(1, 1)]);
+    let stone = defs.item_id("stone").unwrap();
+    let brick = defs.item_id("brick").unwrap();
+    let bed = defs.building_id("bed").unwrap();
+    defs.buildings[bed.0 as usize].cost = vec![CostItem { item: stone, count: 10 }];
+    w.designate_stockpile(at(0, 0)).unwrap();
+    w.designate_stockpile(at(0, 1)).unwrap();
+    // Only 4 stone exists; the rest has to come from brick, which stands in for it one for one
+    // (issue #371).
+    w.stored.insert(at(0, 0), Stack { item: stone, count: 4 });
+    w.stored.insert(at(0, 1), Stack { item: brick, count: 6 });
+    let job = w.designate_build(at(5, 2), bed, &defs).unwrap();
+
+    run_until(&mut w, &defs, 8000, |w| w.job(job).is_none());
+    assert_eq!(w.building_at(at(5, 2)), Some(bed));
+    assert_eq!(w.stored_total(stone), 0, "all 4 stone went into the site");
+    assert_eq!(w.stored_total(brick), 0, "all 6 brick went into the site too");
+}
+
+#[test]
+fn cancelling_a_site_paid_partly_in_brick_refunds_brick_not_stone() {
+    use crate::building::CostItem;
+
+    let (mut w, mut defs) = setup_as(Nation::Fire, &GRID, &[at(1, 1)]);
+    let stone = defs.item_id("stone").unwrap();
+    let brick = defs.item_id("brick").unwrap();
+    let bed = defs.building_id("bed").unwrap();
+    defs.buildings[bed.0 as usize].cost = vec![CostItem { item: stone, count: 10 }];
+    let job = w.designate_build(at(5, 2), bed, &defs).unwrap();
+    // Simulate a partial delivery: 4 stone and 6 brick (the stand-in) have reached the site.
+    {
+        let site = w.sites.get_mut(&at(5, 2)).expect("just designated");
+        site.delivered[0] = 10;
+        site.stand_in_delivered = vec![6];
+    }
+
+    w.cancel_build(at(5, 2), &defs).unwrap();
+    assert!(w.job(job).is_none());
+    assert!(w.building_at(at(5, 2)).is_none());
+    let ground: std::collections::HashMap<ItemId, u32> =
+        w.ground_items().map(|(_, s)| (s.item, s.count)).collect();
+    assert_eq!(ground.get(&stone).copied(), Some(4), "the stone delivered drops as stone");
+    assert_eq!(
+        ground.get(&brick).copied(),
+        Some(6),
+        "the brick delivered drops as brick, not stone"
+    );
+}
+
+#[test]
+fn a_stand_in_never_pays_a_recipe_input() {
+    // The kiln's own recipe burns stone, not brick, even with nothing but brick in stores
+    // (issue #371: a stand-in only ever pays a build or endeavor cost).
+    let (mut w, mut defs) = setup_as(Nation::Fire, &GRID, &[at(1, 1)]);
+    let stone = defs.item_id("stone").unwrap();
+    let brick = defs.item_id("brick").unwrap();
+    let wood = defs.item_id("wood").unwrap();
+    let kiln = defs.building_id("brick_kiln").unwrap();
+    defs.buildings[kiln.0 as usize].unlocked_by = None;
+    w.designate_stockpile(at(0, 0)).unwrap();
+    w.designate_stockpile(at(0, 1)).unwrap();
+    w.stored.insert(at(0, 0), Stack { item: stone, count: defs.building(kiln).cost[0].count });
+    w.stored.insert(at(0, 1), Stack { item: wood, count: defs.building(kiln).cost[1].count });
+    let job = w.designate_build(at(5, 2), kiln, &defs).unwrap();
+    run_until(&mut w, &defs, 6000, |w| w.job(job).is_none());
+    assert_eq!(w.building_at(at(5, 2)), Some(kiln));
+
+    // Now give the kiln's crafter nothing but brick where its recipe wants stone: it must not
+    // take it.
+    w.stored.clear();
+    w.designate_stockpile(at(2, 0)).unwrap();
+    w.stored.insert(at(2, 0), Stack { item: brick, count: 50 });
+    for _ in 0..3000 {
+        w.tick(&defs);
+    }
+    assert_eq!(w.stored_total(brick), 50, "the crafter never touched the brick");
+}

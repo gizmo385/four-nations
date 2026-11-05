@@ -255,9 +255,9 @@ fn cancelling_before_work_starts_refunds_what_was_delivered() {
     begin(&mut w, &defs);
     let stone = defs.item_id("stone").unwrap();
     run_until(&mut w, &defs, 2_000, |w| {
-        w.gate().is_some_and(|g| count_of(&g.delivered, stone) > 0)
+        w.gate().is_some_and(|g| count_of(&g.delivered, stone, &defs) > 0)
     });
-    let delivered = count_of(&w.gate().unwrap().delivered, stone);
+    let delivered = count_of(&w.gate().unwrap().delivered, stone, &defs);
     assert!(delivered < 30);
     w.apply(Command::CancelEndeavor, &defs).expect("no work yet");
     assert_eq!(*w.endeavor(), EndeavorState::Ready { tick: 0 });
@@ -273,6 +273,25 @@ fn cancelling_before_work_starts_refunds_what_was_delivered() {
         w.apply(Command::CancelEndeavor, &defs),
         Err(CommandError::Endeavor(EndeavorError::Started))
     );
+}
+
+#[test]
+fn the_foundation_accepts_brick_in_place_of_stone() {
+    // Brick stands in for stone one for one, the gate included (issue #371).
+    let defs = defs_with(
+        "[[stage]]\nid = \"base\"\nname = \"Base\"\ncost = [{ item = \"stone\", count = 10 }]\n\
+         work = 2.0\n",
+    );
+    let mut w = world(Nation::Fire, 1, &defs);
+    let stone = defs.item_id("stone").unwrap();
+    let brick = defs.item_id("brick").unwrap();
+    // Swap out `world`'s stone stockpile for one of brick.
+    w.stored.remove(&at(1, 8));
+    w.stored.insert(at(1, 8), Stack { item: brick, count: 40 });
+    begin(&mut w, &defs);
+    run_until(&mut w, &defs, 5_000, |w| stage_id(w) != Some("base"));
+    assert_eq!(w.stored_total(stone), 0, "no stone existed to spend");
+    assert_eq!(w.stored_total(brick), 30, "10 of the 40 brick paid the foundation");
 }
 
 #[test]

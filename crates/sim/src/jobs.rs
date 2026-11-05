@@ -31,6 +31,11 @@ pub struct ItemDef {
     /// Knowledge points reading this item adds to the research pool, if it can be read (issue
     /// #24). A readable item is carried to a study hall and used up there, never stockpiled.
     pub knowledge: Option<u32>,
+    /// The item this one may pay for, one for one, in any building or endeavor cost (issue #371:
+    /// `brick` stands for `stone`). Never a recipe input (`world/forge.rs` never substitutes).
+    /// `None` for an ordinary item. Validated at load: not itself, no chains (the target can't
+    /// itself stand in for something), and at most one item may stand in for a given target.
+    pub stands_for: Option<ItemId>,
 }
 
 /// A number of one kind of item.
@@ -113,6 +118,8 @@ struct RawItem {
     icon: String,
     #[serde(default)]
     knowledge: Option<u32>,
+    #[serde(default)]
+    stands_for: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -197,6 +204,10 @@ impl JobsFile {
         if let Some(i) = self.item.iter().find(|i| i.knowledge == Some(0)) {
             return err(format!("item {}: knowledge must be at least 1", i.id));
         }
+        // `stands_for` only ever names a non-food item (brick for stone), so it's resolved
+        // against the raw list before it's consumed below.
+        let raw_stands_for: Vec<Option<String>> =
+            self.item.iter().map(|i| i.stands_for.clone()).collect();
         let mut items: Vec<ItemDef> = self
             .item
             .into_iter()
@@ -206,6 +217,7 @@ impl JobsFile {
                 icon: i.icon,
                 food: None,
                 knowledge: i.knowledge,
+                stands_for: None,
             })
             .collect();
         items.extend(foods.iter().enumerate().map(|(n, f)| ItemDef {
@@ -214,7 +226,41 @@ impl JobsFile {
             icon: f.icon.clone(),
             food: Some(n),
             knowledge: None,
+            stands_for: None,
         }));
+        for (idx, target) in raw_stands_for.iter().enumerate() {
+            let Some(target_id) = target else { continue };
+            if target_id == &items[idx].id {
+                return err(format!("item {}: stands_for can't name itself", items[idx].id));
+            }
+            let Some(target_idx) = items.iter().position(|i| &i.id == target_id) else {
+                return err(format!(
+                    "item {}: stands_for names unknown item {target_id:?}",
+                    items[idx].id
+                ));
+            };
+            if raw_stands_for.get(target_idx).is_some_and(Option::is_some) {
+                return err(format!(
+                    "item {}: stands_for can't chain to {target_id:?}, which itself stands for \
+                     something",
+                    items[idx].id
+                ));
+            }
+            items[idx].stands_for = Some(ItemId(target_idx as u16));
+        }
+        for (i, item) in items.iter().enumerate() {
+            if let Some(target) = item.stands_for
+                && items
+                    .iter()
+                    .enumerate()
+                    .any(|(j, other)| j != i && other.stands_for == Some(target))
+            {
+                return err(format!(
+                    "two items stand in for {}; only one may",
+                    items[target.0 as usize].id
+                ));
+            }
+        }
 
         let mut harvests: Vec<HarvestDef> = Vec::new();
         for h in self.harvest {
@@ -396,6 +442,11 @@ mod tests {
         )
     }
 
+    /// The bundled data, with `jobs` in place of `data/jobs.toml`.
+    fn load_jobs(jobs: &str) -> Result<Defs, DefsError> {
+        Defs::from_toml(BIOMES, RESOURCES, NATIONS, RESEARCH, NEEDS, jobs, BENDING, BUILDINGS)
+    }
+
     #[test]
     fn a_tech_records_the_job_it_unlocks() {
         let defs = Defs::bundled();
@@ -434,5 +485,35 @@ mod tests {
         assert!(two.unwrap_err().0.contains("one tech"));
         let twice = load(&tech("a", "['oak_tree', 'oak_tree']"), "");
         assert!(twice.unwrap_err().0.contains("listed twice"));
+    }
+
+    /// `stands_for` (issue #371: brick pays for stone): not itself, must name a known item, no
+    /// chains, and at most one item may stand for a given target.
+    #[test]
+    fn stands_for_is_validated() {
+        let self_ref = JOBS.replace("stands_for = \"stone\"", "stands_for = \"brick\"");
+        let err = load_jobs(&self_ref).unwrap_err();
+        assert!(err.0.contains("can't name itself"), "{err}");
+
+        let unknown = JOBS.replace("stands_for = \"stone\"", "stands_for = \"mithril\"");
+        let err = load_jobs(&unknown).unwrap_err();
+        assert!(err.0.contains("unknown item"), "{err}");
+
+        let chain = format!(
+            "{JOBS}\n[[item]]\nid = \"super_brick\"\nicon = \"brick\"\nname = \"Super Brick\"\n\
+             stands_for = \"brick\"\n"
+        );
+        let err = load_jobs(&chain).unwrap_err();
+        assert!(err.0.contains("chain"), "{err}");
+
+        let twice = format!(
+            "{JOBS}\n[[item]]\nid = \"rubble\"\nicon = \"stone\"\nname = \"Rubble\"\n\
+             stands_for = \"stone\"\n"
+        );
+        let err = load_jobs(&twice).unwrap_err();
+        assert!(err.0.contains("only one may"), "{err}");
+
+        // Valid: the bundled data's own brick -> stone.
+        assert!(load_jobs(JOBS).is_ok());
     }
 }

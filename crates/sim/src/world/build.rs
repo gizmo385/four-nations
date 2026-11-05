@@ -112,6 +112,13 @@ pub(super) enum Source {
 pub(super) struct Site {
     pub building: BuildingId,
     delivered: Vec<u32>,
+    /// How much of each cost entry's `delivered` was actually paid by a stand-in item rather
+    /// than the cost's own item (brick for stone, issue #371), parallel to `delivered`.
+    /// `#[serde(default)]`: an old save with no stand-in deliveries reads as all zero, with no
+    /// `SAVE_VERSION` bump, and a shorter-than-`delivered` vector (any save from before this
+    /// field existed) is read the same way (missing entries default to 0, `cancel_build`).
+    #[serde(default)]
+    stand_in_delivered: Vec<u32>,
     progress: f32,
     /// The footprint it was designated with, `[w, h]`; the site is keyed by its anchor. Skipped
     /// when 1x1, like `Building::size`.
@@ -123,7 +130,13 @@ impl Site {
     /// The endeavor's site (`gate.rs`): it only holds the footprint, since the gate's deliveries
     /// and work are per stage and live in `EndeavorState::Building`.
     pub(super) fn gate(building: BuildingId, size: [u8; 2]) -> Self {
-        Self { building, delivered: Vec::new(), progress: 0.0, size }
+        Self {
+            building,
+            delivered: Vec::new(),
+            stand_in_delivered: Vec::new(),
+            progress: 0.0,
+            size,
+        }
     }
 
     fn footprint(&self, anchor: Pos) -> Footprint {
@@ -364,13 +377,18 @@ impl World {
         let def = defs.building(building);
         let (w, h) = def.footprint;
         let delivered = vec![0; def.cost.len()];
-        self.sites.insert(pos, Site { building, delivered, progress: 0.0, size: [w, h] });
+        let stand_in_delivered = vec![0; def.cost.len()];
+        self.sites.insert(
+            pos,
+            Site { building, delivered, stand_in_delivered, progress: 0.0, size: [w, h] },
+        );
         Ok(self.add_job(JobKind::Build { pos }))
     }
 
     /// Withdraws the build designation covering `pos` (any tile of its footprint). Materials
     /// already delivered drop on the ground near its anchor for hauling; work done on the site
-    /// is lost.
+    /// is lost. Refunds exactly what was delivered: a cost entry paid partly in a stand-in item
+    /// (brick for stone, issue #371) drops that much brick, not stone.
     pub(super) fn cancel_build(&mut self, pos: Pos, defs: &Defs) -> Result<(), BuildError> {
         let Some((pos, _)) = self.site_at(pos) else { return Err(BuildError::NotDesignated) };
         if self.is_gate(pos) {
@@ -379,9 +397,16 @@ impl World {
         let site = self.sites.remove(&pos).expect("just found");
         self.jobs.retain(|j| j.kind != JobKind::Build { pos });
         let def = defs.building(site.building);
-        for (cost, &count) in def.cost.iter().zip(&site.delivered) {
-            if count > 0 {
-                self.place_ground(pos, Stack { item: cost.item, count });
+        for (idx, (cost, &count)) in def.cost.iter().zip(&site.delivered).enumerate() {
+            let stand_in = site.stand_in_delivered.get(idx).copied().unwrap_or(0).min(count);
+            let direct = count - stand_in;
+            if direct > 0 {
+                self.place_ground(pos, Stack { item: cost.item, count: direct });
+            }
+            if stand_in > 0
+                && let Some(stand_in_item) = defs.stand_in_for(cost.item)
+            {
+                self.place_ground(pos, Stack { item: stand_in_item, count: stand_in });
             }
         }
         Ok(())
@@ -409,6 +434,12 @@ impl World {
         self.stored.values().any(|s| s.item == item) || self.ground.values().any(|s| s.item == item)
     }
 
+    /// `any_source`, but also true if a stand-in for `item` (brick for stone, issue #371) is
+    /// anywhere. Used before paying for a flood to fetch a build or endeavor cost.
+    pub(super) fn any_source_for(&self, item: ItemId, defs: &Defs) -> bool {
+        self.any_source(item) || defs.stand_in_for(item).is_some_and(|s| self.any_source(s))
+    }
+
     /// The nearest stockpile tile or ground stack holding `item`, stockpiles preferred on a tie,
     /// with the tile a unit should stand on to reach it.
     pub(super) fn nearest_source(&self, flood: &Flood, item: ItemId) -> Option<(Source, Pos)> {
@@ -431,6 +462,52 @@ impl World {
             }
         }
         best.map(|(_, source, stand)| (source, stand))
+    }
+
+    /// `nearest_source`, but also considers a stand-in for `item` (brick for stone, issue #371):
+    /// a build or endeavor cost may be paid by either. The nearest of the two wins; a tie
+    /// (equal path cost) goes to the stand-in, so a Fire settlement spends its kiln's output
+    /// before its raw stone. Never used for a recipe input, which only ever accepts its own
+    /// item (`world/forge.rs`). Returns which item was actually found, since the hauler may end
+    /// up carrying the stand-in rather than `item`.
+    pub(super) fn nearest_source_for(
+        &self,
+        flood: &Flood,
+        item: ItemId,
+        defs: &Defs,
+    ) -> Option<(Source, Pos, ItemId)> {
+        // (path cost, stand-in rank, source rank, tile): the sort key a tie is broken by, in
+        // order.
+        type Key = (u32, u8, u8, Pos);
+        let stand_in = defs.stand_in_for(item);
+        let mut best: Option<(Key, Source, Pos, ItemId)> = None;
+        let mut consider = |source_rank: u8,
+                            item_rank: u8,
+                            pos: Pos,
+                            source: Source,
+                            found: ItemId,
+                            stand: Option<(u32, Pos)>| {
+            let Some((cost, stand)) = stand else { return };
+            let key = (cost, item_rank, source_rank, pos);
+            if best.as_ref().is_none_or(|b| key < b.0) {
+                best = Some((key, source, stand, found));
+            }
+        };
+        for (&pos, s) in &self.stored {
+            if s.item == item {
+                consider(0, 1, pos, Source::Stockpile(pos), item, self.stand_tile(flood, pos));
+            } else if Some(s.item) == stand_in {
+                consider(0, 0, pos, Source::Stockpile(pos), s.item, self.stand_tile(flood, pos));
+            }
+        }
+        for (&pos, s) in &self.ground {
+            if s.item == item {
+                consider(1, 1, pos, Source::Ground(pos), item, self.stand_tile(flood, pos));
+            } else if Some(s.item) == stand_in {
+                consider(1, 0, pos, Source::Ground(pos), s.item, self.stand_tile(flood, pos));
+            }
+        }
+        best.map(|(_, source, stand, found)| (source, stand, found))
     }
 
     /// Takes up to `needed`, capped by carry capacity and what's actually there, from `source`.
@@ -458,13 +535,27 @@ impl World {
         take
     }
 
-    /// Adds a delivered stack to the site's tally for the cost entry it matches. A no-op if the
-    /// site is gone (cancelled mid-trip) or the item isn't part of its cost.
+    /// Adds a delivered stack to the site's tally for the cost entry it matches, directly or as
+    /// a stand-in (brick for stone, issue #371). A no-op if the site is gone (cancelled mid-trip)
+    /// or the item pays for nothing in its cost.
     fn deliver_to_site(&mut self, pos: Pos, stack: Stack, defs: &Defs) {
         let Some(site) = self.sites.get(&pos) else { return };
         let cost = &defs.building(site.building).cost;
-        if let Some(idx) = cost.iter().position(|c| c.item == stack.item) {
-            self.sites.get_mut(&pos).expect("just read").delivered[idx] += stack.count;
+        let Some(idx) = cost
+            .iter()
+            .position(|c| c.item == stack.item)
+            .or_else(|| cost.iter().position(|c| defs.stands_for(stack.item) == Some(c.item)))
+        else {
+            return;
+        };
+        let direct = cost[idx].item == stack.item;
+        let site = self.sites.get_mut(&pos).expect("just read");
+        if site.stand_in_delivered.len() <= idx {
+            site.stand_in_delivered.resize(cost.len(), 0);
+        }
+        site.delivered[idx] += stack.count;
+        if !direct {
+            site.stand_in_delivered[idx] += stack.count;
         }
     }
 
@@ -500,13 +591,15 @@ impl World {
 
         match self.next_shortfall(pos, defs) {
             Some((_, item, needed)) => {
-                // Fetch a trip's worth of the next missing item. Nothing to fetch from anywhere
-                // is the common stuck case (#322): check that cheaply before paying for a flood.
-                if !self.any_source(item) {
+                // Fetch a trip's worth of the next missing item, or a stand-in for it (brick for
+                // stone, issue #371). Nothing to fetch from anywhere is the common stuck case
+                // (#322): check that cheaply before paying for a flood.
+                if !self.any_source_for(item, defs) {
                     return self.abandon_job(i, id, defs);
                 }
                 let flood = self.flood_from(i);
-                let Some((source, stand)) = self.nearest_source(&flood, item) else {
+                let Some((source, stand, found)) = self.nearest_source_for(&flood, item, defs)
+                else {
                     return self.abandon_job(i, id, defs);
                 };
                 if self.units[i].route.is_none() {
@@ -523,7 +616,7 @@ impl World {
                     // Someone else got there first: look again next tick.
                     return self.abandon_job(i, id, defs);
                 }
-                self.units[i].carrying = Some(Stack { item, count: take });
+                self.units[i].carrying = Some(Stack { item: found, count: take });
                 self.units[i].route = None;
             }
             None => {

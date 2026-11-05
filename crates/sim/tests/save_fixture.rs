@@ -249,6 +249,9 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     "rides",
     // Whether a unit has already been credited with the mastery toast (#347).
     "mastered",
+    // Brick standing in for stone (#371): how much of each build site's cost was paid by a
+    // stand-in item rather than its own, on `Site`.
+    "stand_in_delivered",
 ];
 
 /// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239

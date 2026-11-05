@@ -289,16 +289,17 @@ count = 12
 item = "wood"
 count = 6
 # Fires stone into bricks by the thousand (#124; `brickmaking`'s description, data/research.toml).
-# Burns 1 wood a batch as fuel and idles once 20 bricks are stored (#350). The power buildings
-# below spend bricks now (#369); the stock limit stays until brick also stands in for stone
-# (#371).
+# Burns 1 wood a batch as fuel. Brick now stands in for stone everywhere (#371), so the owner
+# kept a limit as well as a use: it idles once 60 bricks are stored (#350; raised from 20, not
+# removed, since brick is now worth stretching rather than hoarding without end). The power
+# buildings below spend bricks too (#369).
 [building.recipe]
 output = "brick"
 output_count = 4
 work = 15.0
 modifier = "heating"
 input = [{ item = "stone", count = 3 }, { item = "wood", count = 1 }]
-stock_limit = 20
+stock_limit = 60
 
 [[building]]
 id = "smelter"
