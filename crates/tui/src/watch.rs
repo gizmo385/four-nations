@@ -155,6 +155,19 @@ struct CurrentAction {
     pressed: usize,
 }
 
+/// What [`Watcher`] is mid-way through right now, spent gradually by [`Watcher::advance`]'s
+/// budget instead of all at once (#328): a `Keys` entry's script, pressed key by key, or a
+/// turn's ticks, run a few at a time like the normal game clock instead of in one uncapped burst.
+#[derive(Clone, Debug, PartialEq)]
+enum Current {
+    Keys(CurrentAction),
+    /// A turn's `remaining` ticks, out of `turn_seconds * TICKS_PER_SECOND`, counting down to
+    /// zero as [`Watcher::advance`] spends its budget on them.
+    Ticks {
+        remaining: u32,
+    },
+}
+
 /// A `look`'s region or an `inspect`'s tile, briefly outlined on the map
 /// (docs/design/agent-play.md, "Watching": "attention ghosts").
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -175,10 +188,11 @@ pub struct Watcher {
     shell: Shell,
     turn_seconds: u32,
     pending: VecDeque<LogLine>,
-    current: Option<CurrentAction>,
+    current: Option<Current>,
     ghost: Option<Ghost>,
-    /// Fractional keys owed at the current pace, carried between [`Self::advance`] calls
-    /// (`fn_ui::Clock::advance`'s own pattern).
+    /// Real seconds owed at the current pace, carried between [`Self::advance`] calls
+    /// (`fn_ui::Clock::advance`'s own pattern): spent on keys (at [`KEYS_PER_SECOND`]) or on a
+    /// turn's ticks (at `TICKS_PER_SECOND`, #328), whichever [`Self::current`] is.
     owed: f64,
     pace_index: usize,
     paused: bool,
@@ -313,10 +327,13 @@ impl Watcher {
 
     /// Spends `real_secs` of real time animating the log at the current pace: `Keys` entries
     /// press at about `pace * 20` keys a second (compressing a long walk into Shift-steps,
-    /// [`COMPRESS_FROM`]); `Look`, `Inspect` and `Turn` entries (which took no game time, or ran
-    /// their ticks "whatever the clock says", `end_turn`'s own doc comment) apply the moment
-    /// they're reached, uncapped, since nothing paces them but the keys around them. Does
-    /// nothing while [`Self::toggle_pause`]d, except keep the attention ghost ageing.
+    /// [`COMPRESS_FROM`]), and a turn's ticks run at `pace` game seconds a real second -- x1 is
+    /// real time, x5 is five game seconds a second, the same ladder the normal game clock uses
+    /// (`fn_ui::Clock::advance`), instead of a whole turn landing the instant it's reached (#328:
+    /// the owner's "nothing happens while the agent is thinking and then everything happens very
+    /// fast"). `Look` and `Inspect` (which took no game time) apply the moment they're reached,
+    /// uncapped, since nothing paces them but the keys and ticks around them. Does nothing while
+    /// [`Self::toggle_pause`]d, except keep the attention ghost ageing.
     pub fn advance(&mut self, real_secs: f64) {
         self.age_ghost(real_secs);
         if self.paused || self.finished() {
@@ -327,30 +344,46 @@ impl Watcher {
             return;
         }
         self.waiting_secs = 0.0;
-        let owed = self.owed + real_secs.max(0.0) * f64::from(self.pace()) * KEYS_PER_SECOND;
-        let mut budget = owed.floor();
-        self.owed = owed - budget;
-        while budget > 0.0 {
+        let mut owed = self.owed + real_secs.max(0.0) * f64::from(self.pace());
+        loop {
             if self.current.is_none() && !self.start_next() {
                 break; // caught up mid-budget
             }
-            if self.current.is_some() {
+            if let Some(Current::Keys(_)) = &self.current {
+                let cost = 1.0 / KEYS_PER_SECOND;
+                if owed < cost {
+                    break;
+                }
+                owed -= cost;
                 self.press_one();
-                budget -= 1.0;
+                continue;
             }
-            // A `Look`/`Inspect`/`Turn` `start_next` just applied costs no budget; loop again
-            // either to start the next thing or to spend the budget on a `Keys` entry's keys.
+            if let Some(Current::Ticks { remaining }) = &self.current {
+                let remaining = *remaining;
+                let cost = 1.0 / f64::from(TICKS_PER_SECOND);
+                if owed < cost {
+                    break;
+                }
+                let affordable = (owed / cost).floor() as u32;
+                let run = affordable.max(1).min(remaining);
+                owed -= f64::from(run) * cost;
+                self.spend_ticks(run);
+                continue;
+            }
+            // `start_next` just applied a `Look`/`Inspect`/`End` directly (they take no game
+            // time, so nothing paces them): loop again, either to start the next thing or to
+            // spend the budget on it.
         }
+        self.owed = owed;
     }
 
     /// Completes exactly one more act at once, ignoring the pace: the watcher's own `.` key
     /// (docs/design/agent-play.md, "Watching": "`.` steps one action"). Finishes
-    /// [`Self::current`] if one is already mid-press, rather than starting yet another.
+    /// [`Self::current`] if one is already mid-press (every remaining key of a `Keys` act, or
+    /// every remaining tick of a turn), rather than starting yet another.
     pub fn step_one(&mut self) {
         if self.current.is_some() {
-            while self.current.is_some() {
-                self.press_one();
-            }
+            self.finish_current();
             return;
         }
         self.start_next();
@@ -363,7 +396,7 @@ impl Watcher {
     pub fn fast_forward_to_turn(&mut self, turn: u32) {
         while self.turn < turn {
             if self.current.is_some() {
-                self.press_one();
+                self.finish_current();
                 continue;
             }
             if !self.start_next() {
@@ -372,11 +405,37 @@ impl Watcher {
         }
     }
 
-    /// Pops the next pending entry and starts it: `Keys` becomes [`Self::current`] (nothing
-    /// pressed yet), `Look`/`Inspect` sets the attention ghost and logs an Agent line at once
-    /// (they take no game time), and `Turn` runs its ticks at once (`end_turn`'s own ticks,
-    /// uncapped) and logs nothing beyond what the world itself logged. `false` with nothing
-    /// pending.
+    /// Finishes whatever's mid-progress right now, in one shot and ignoring pace: every
+    /// remaining key of a `Keys` act ([`Self::press_one`], repeated), or every remaining tick of
+    /// a turn ([`Self::spend_ticks`], all at once) -- [`Self::step_one`] and
+    /// [`Self::fast_forward_to_turn`]'s shared way of draining [`Self::current`].
+    fn finish_current(&mut self) {
+        match &self.current {
+            Some(Current::Keys(_)) => {
+                while matches!(self.current, Some(Current::Keys(_))) {
+                    self.press_one();
+                }
+            }
+            Some(Current::Ticks { remaining }) => {
+                let remaining = *remaining;
+                self.spend_ticks(remaining);
+            }
+            None => {}
+        }
+    }
+
+    /// How many turns the log already holds (as queued `LogLine::Turn` entries) that
+    /// [`Self::advance`] hasn't reached yet: a live log's backlog once the agent writes turns
+    /// faster than the chosen pace plays them back (#328's acceptance criteria: "the strip says
+    /// how far"). Zero whenever the watcher is keeping up.
+    pub fn turns_behind(&self) -> u32 {
+        self.pending.iter().filter(|l| matches!(l, LogLine::Turn { .. })).count() as u32
+    }
+
+    /// Pops the next pending entry and starts it: `Keys` and `Turn` become [`Self::current`]
+    /// (nothing pressed or ticked yet -- [`Self::advance`] spends its budget on them next),
+    /// while `Look`/`Inspect` set the attention ghost and log an Agent line at once, since they
+    /// take no game time. `false` with nothing pending.
     fn start_next(&mut self) -> bool {
         let Some(entry) = self.pending.pop_front() else { return false };
         match entry {
@@ -392,7 +451,7 @@ impl Watcher {
                 if keys.is_empty() {
                     return self.start_next();
                 }
-                self.current = Some(CurrentAction { label, note, keys, pressed: 0 });
+                self.current = Some(Current::Keys(CurrentAction { label, note, keys, pressed: 0 }));
             }
             LogLine::Look { x, y, w, h } => {
                 self.ghost = Some(Ghost { x, y, w, h, left: GHOST_SECONDS });
@@ -409,8 +468,7 @@ impl Watcher {
             }
             LogLine::Turn { .. } => {
                 let ticks = self.turn_seconds * TICKS_PER_SECOND;
-                self.app_mut().run_ticks(ticks);
-                self.turn += 1;
+                self.current = Some(Current::Ticks { remaining: ticks });
             }
             // The run is over (#327): nothing left to replay, ever, however much more of the
             // log there might be. Logged once, like `Look`/`Inspect`, since it takes no game
@@ -427,19 +485,42 @@ impl Watcher {
 
     /// Presses [`Self::current`]'s next key (or, deep in a long plain-arrow run, a whole
     /// Shift-step's worth at once, [`COMPRESS_FROM`]), finishing and logging the act once every
-    /// key is pressed.
+    /// key is pressed. A no-op if [`Self::current`] isn't a `Keys` act.
     fn press_one(&mut self) {
-        let Some(action) = &self.current else { return };
+        let Some(Current::Keys(action)) = &self.current else { return };
         let remaining = &action.keys[action.pressed..];
         let (key, advance_by) = next_press(remaining);
         self.shell.key(key);
-        let action = self.current.as_mut().expect("just matched Some above");
+        let Some(Current::Keys(action)) = self.current.as_mut() else {
+            unreachable!("just matched Some(Current::Keys) above")
+        };
         action.pressed += advance_by;
         if action.pressed >= action.keys.len() {
-            let CurrentAction { label, note, keys, .. } = self.current.take().unwrap();
+            let Some(Current::Keys(CurrentAction { label, note, keys, .. })) = self.current.take()
+            else {
+                unreachable!("just matched Some(Current::Keys) above")
+            };
             let script = keys.iter().map(|&k| crate::surface::key_token(k)).collect::<Vec<_>>();
             let tick = self.app().session.world.tick;
             self.app_mut().ui.alerts.push_agent(tick, describe_act(&label, &note, &script));
+        }
+    }
+
+    /// Runs `run` of the current turn's remaining ticks ([`Current::Ticks`]), advancing
+    /// [`Self::turn`] once none are left. A no-op if [`Self::current`] isn't a turn's ticks, or
+    /// if `run` is 0.
+    fn spend_ticks(&mut self, run: u32) {
+        if run == 0 || !matches!(self.current, Some(Current::Ticks { .. })) {
+            return;
+        }
+        self.app_mut().run_ticks(run);
+        let Some(Current::Ticks { remaining }) = &mut self.current else {
+            unreachable!("just matched Some(Current::Ticks) above")
+        };
+        *remaining = remaining.saturating_sub(run);
+        if *remaining == 0 {
+            self.current = None;
+            self.turn += 1;
         }
     }
 
@@ -480,18 +561,28 @@ impl Watcher {
     }
 
     /// " AGENT earth  turn 6  02:00  designate harvest 6x4 at (86,60) "wood for two beds"  x40",
-    /// "...  waiting for agent (12 s)  x40" once the watcher has caught up with a live log, or
-    /// "...  run finished  x40" once the log's own `End` line has been replayed (#327): a
+    /// "...  waiting for agent (12 s)  x40" once the watcher has caught up with a live log,
+    /// "...  3 turns behind  x40" once a live log's agent has written turns faster than the
+    /// chosen pace plays them back ([`Self::turns_behind`], #328: the strip says how far instead
+    /// of the keys and ticks it's mid-playing, since catching up matters more than what they are)
+    /// or "...  run finished  x40" once the log's own `End` line has been replayed (#327): a
     /// finished run never says "waiting" for a wait that will never end.
     fn strip_text(&self) -> String {
         let clock = fn_ui::view::format_clock(self.app().session.world.tick);
-        let action = match &self.current {
-            Some(a) => describe_action_line(a),
-            None if self.finished() => "run finished".to_owned(),
-            None if self.caught_up() => {
-                format!("waiting for agent ({} s)", self.waiting_secs.round() as u64)
+        let behind = self.turns_behind();
+        let action = if self.finished() {
+            "run finished".to_owned()
+        } else if behind > 0 {
+            format!("{behind} turn{} behind", if behind == 1 { "" } else { "s" })
+        } else {
+            match &self.current {
+                Some(Current::Keys(a)) => describe_action_line(a),
+                Some(Current::Ticks { .. }) => String::new(),
+                None if self.caught_up() => {
+                    format!("waiting for agent ({} s)", self.waiting_secs.round() as u64)
+                }
+                None => String::new(),
             }
-            None => String::new(),
         };
         format!(
             " AGENT {}  turn {}  {clock}  {action}  x{}",
@@ -843,11 +934,78 @@ mod tests {
             note: None,
         }]);
         w.advance(0.1); // at pace x1 (20 keys/s): about 2 keys
-        assert!(w.current.is_some(), "not finished yet");
-        let pressed_so_far = w.current.as_ref().unwrap().pressed;
+        let pressed_so_far = match w.current.as_ref() {
+            Some(Current::Keys(a)) => a.pressed,
+            other => panic!("not finished yet: {other:?}"),
+        };
         assert!((1..=3).contains(&pressed_so_far), "{pressed_so_far}");
         w.advance(1.0); // plenty to finish the rest
         assert!(w.caught_up());
+    }
+
+    /// `advance` spends a turn's ticks gradually too (#328): at pace x1 (real time), a
+    /// `turn_seconds`-long turn's worth of ticks should take about that many real seconds, not
+    /// land the instant the `Turn` entry is reached.
+    #[test]
+    fn advance_spreads_a_turns_ticks_across_real_time_at_the_chosen_pace() {
+        let h = header(Nation::Earth); // turn_seconds: 10
+        let mut w = Watcher::new(&h).unwrap();
+        w.feed([LogLine::Turn { index: 0, tick: u64::from(h.ticks_per_turn) }]);
+
+        w.advance(1.0); // one real second at pace x1: about one game second of ticks
+        assert_eq!(w.turn(), 0, "a ten-second turn shouldn't be done after one second");
+        let ticks_so_far = w.app().session.world.tick;
+        assert!(
+            (TICKS_PER_SECOND / 2..=TICKS_PER_SECOND * 2).contains(&(ticks_so_far as u32)),
+            "{ticks_so_far}"
+        );
+
+        w.advance(20.0); // plenty to finish the rest
+        assert!(w.caught_up());
+        assert_eq!(w.turn(), 1);
+    }
+
+    /// At a faster pace, the same turn's ticks land in proportionally less real time: x5 plays
+    /// five game seconds a real second, the same ladder the normal game clock uses.
+    #[test]
+    fn a_faster_pace_spends_a_turns_ticks_proportionally_faster() {
+        let h = header(Nation::Earth); // turn_seconds: 10
+        let mut w = Watcher::new(&h).unwrap();
+        w.feed([LogLine::Turn { index: 0, tick: u64::from(h.ticks_per_turn) }]);
+        for _ in 0..2 {
+            w.faster(); // pace x5 (PACES[2])
+        }
+        assert_eq!(w.pace(), 5);
+
+        w.advance(1.0); // one real second at pace x5: about five game seconds of ticks
+        assert_eq!(w.turn(), 0);
+        let ticks_so_far = w.app().session.world.tick;
+        let want = u64::from(TICKS_PER_SECOND) * 5;
+        assert!((want / 2..=want * 2).contains(&ticks_so_far), "{ticks_so_far} vs about {want}");
+    }
+
+    /// `turns_behind` counts the turns a live log has already written but the watcher hasn't
+    /// reached yet (#328's acceptance criteria: "the strip says how far"), and the strip shows
+    /// it instead of "waiting" once it's nonzero.
+    #[test]
+    fn turns_behind_counts_queued_turns_not_yet_reached() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        assert_eq!(w.turns_behind(), 0);
+
+        w.feed([
+            LogLine::Turn { index: 0, tick: 100 },
+            LogLine::Turn { index: 1, tick: 200 },
+            LogLine::Turn { index: 2, tick: 300 },
+        ]);
+        assert_eq!(w.turns_behind(), 3);
+        assert!(w.strip_text().contains("3 turns behind"), "{}", w.strip_text());
+
+        w.fast_forward_to_turn(2);
+        assert_eq!(w.turns_behind(), 1);
+        assert!(w.strip_text().contains("1 turn behind"), "{}", w.strip_text());
+
+        w.fast_forward_to_turn(100);
+        assert_eq!(w.turns_behind(), 0);
     }
 
     /// Pausing freezes the replay but still ages the attention ghost down (it's cosmetic, not
