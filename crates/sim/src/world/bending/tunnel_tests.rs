@@ -202,6 +202,8 @@ fn mining_stays_open_to_every_nation_without_tunneling() {
         let h = defs.harvest(defs.resource_id(resource).unwrap()).unwrap();
         assert_ne!(h.unlocked_by, Some(tech), "{resource} isn't gated behind tunneling");
     }
+    // #349 raised gold_vein's surface yield; read it from data instead of hard-coding it.
+    let vein_count = defs.harvest(defs.resource_id("gold_vein").unwrap()).unwrap().count;
     for nation in Nation::ALL {
         let mut w = world(nation, false, &defs);
         // Stone is stoneworking's (a shared tech Earth starts with); gold needs nothing.
@@ -215,7 +217,7 @@ fn mining_stays_open_to_every_nation_without_tunneling() {
         run_until(&mut w, &defs, 6000, |w| w.map[at(4, 3)].resource.is_none());
         let mined: u32 =
             w.ground_items().filter(|(_, s)| s.item == gold).map(|(_, s)| s.count).sum();
-        assert_eq!(mined, 1, "{nation:?}");
+        assert_eq!(mined, vein_count, "{nation:?}");
     }
 }
 

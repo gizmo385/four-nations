@@ -125,25 +125,43 @@ item = "wood"
 count = 4
 work = 8.0
 
+# count and tunnel_count raised by #349 (docs/design/materials.md, section 2): the #348 survey's
+# reachable counts ran well under the doc's own trial, so outcrops ended up richer than the doc's
+# starting numbers (5 / 8) to actually clear the 200-stone sign within 20 tiles at the median
+# (seeds 1-8, Small; see `balance --supply`).
 [[harvest]]
 resource = "stone"
 verb = "Quarry"
 item = "stone"
-count = 3
+count = 10
 work = 12.0
 modifier = "earthworks"
-tunnel_count = 5
+tunnel_count = 14
 
+# count and tunnel_count raised by #349 (docs/design/materials.md, section 1): a surface vein
+# alone couldn't reach the 40-ore sign on any seed (median 13 ore stripping the whole map).
 [[harvest]]
 resource = "gold_vein"
 verb = "Mine"
 item = "gold_ore"
-count = 1
+count = 3
 work = 30.0
 modifier = "earthworks"
-tunnel_count = 2
+tunnel_count = 5
 
-# A buried seam (#133) is found by Seismic Sense and is richer than a surface vein.
+# Foothill boulders (#349, docs/design/materials.md, section 2): open land, no tunnel bonus since
+# a boulder isn't rock to bore into. count raised above the doc's starting 3 alongside stone's
+# count above, for the same reason (the real survey's reachable counts run short of the trial's).
+[[harvest]]
+resource = "boulder"
+verb = "Quarry"
+item = "stone"
+count = 6
+work = 10.0
+modifier = "earthworks"
+
+# A buried seam (#133) is found by Seismic Sense; #349 brought the surface vein above up to the
+# same yield, so a seam's edge over a vein is in who can reach it (Earth only), not how rich it is.
 [[harvest]]
 resource = "gold_seam"
 verb = "Mine"

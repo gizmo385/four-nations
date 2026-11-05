@@ -58,8 +58,10 @@ id = "stoneworking"
 name = "Stoneworking"
 description = "Split and shape stone from the land."
 cost = 25
+# boulder added by #349 (docs/design/materials.md, section 2): a foothill boulder is worked the
+# same as an outcrop, under the same tech.
 [tech.unlocks]
-jobs = ["stone"]
+jobs = ["stone", "boulder"]
 
 [[tech]]
 id = "farming"

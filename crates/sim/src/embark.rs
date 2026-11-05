@@ -1113,17 +1113,18 @@ mod tests {
         assert!(at.chebyshev(Pos::new(103, 89)) <= defs.embark.report_radius);
         let report = survey.report(at, SurveyMode::Exact, None, &defs);
         let gold = report.groups.iter().find(|g| g.id == "gold").unwrap();
-        // Exactly the one surfaced gold vein in the box (verified against the raw, pre-hidden
-        // map below); the buried seam at (103, 89) must not add to it.
+        // The surfaced gold veins in the box (verified against the raw, pre-hidden map below;
+        // #349's denser veins put three here, up from one); the buried seam at (103, 89) must
+        // not add to that count.
         let raw = mapgen::generate(&cfg, &defs);
         let vein = defs.resource_id("gold_vein").unwrap();
         let seam = defs.resource_id("gold_seam").unwrap();
         let in_box = |id: ResourceId| {
             raw.iter().filter(|(p, t)| t.resource == Some(id) && p.chebyshev(at) <= 10).count()
         };
-        assert_eq!(in_box(vein), 1, "test assumption: one surfaced vein in the box");
+        assert_eq!(in_box(vein), 3, "test assumption: three surfaced veins in the box");
         assert_eq!(in_box(seam), 1, "test assumption: one buried seam in the box");
-        assert_eq!(gold.count, Some(1), "the buried seam must not be counted");
+        assert_eq!(gold.count, Some(3), "the buried seam must not be counted");
     }
 
     // ---- The supply survey (#348) ----
@@ -1145,21 +1146,25 @@ mod tests {
     fn supply_pins_seed_7_small_counts() {
         // A regression pin (#348's acceptance criteria): if a data or sim change moves these
         // numbers, `docs/design/materials.md`'s own trial needs a second look too.
+        // #349 re-pinned these after richer outcrops, denser veins and foothill boulders
+        // (`boulder` is counted alongside `stone`, per the doc's "outcrops + boulders").
         let defs = Defs::bundled();
         let cfg = Survey::config(7, defs.embark.map_size("small").unwrap());
         let survey = Survey::new(&cfg, &defs);
         let start = survey.default_site(&defs);
         let stone = defs.resource_id("stone").unwrap();
+        let boulder = defs.resource_id("boulder").unwrap();
         let vein = defs.resource_id("gold_vein").unwrap();
         let seam = defs.resource_id("gold_seam").unwrap();
-        let report = survey.supply(start, &[stone, vein, seam], &[20, 40], 2, &defs);
+        let report = survey.supply(start, &[stone, boulder, vein, seam], &[20, 40], 2, &defs);
 
         assert_eq!(report[0].radius, 20);
         assert_eq!(
             report[0].deposits,
             vec![
-                DepositSupply { resource: stone, count: 5, tunnelled: 0, worth: 15 },
-                DepositSupply { resource: vein, count: 1, tunnelled: 0, worth: 1 },
+                DepositSupply { resource: stone, count: 3, tunnelled: 0, worth: 30 },
+                DepositSupply { resource: boulder, count: 11, tunnelled: 0, worth: 66 },
+                DepositSupply { resource: vein, count: 2, tunnelled: 0, worth: 6 },
                 DepositSupply { resource: seam, count: 1, tunnelled: 0, worth: 3 },
             ]
         );
@@ -1167,9 +1172,10 @@ mod tests {
         assert_eq!(
             report[1].deposits,
             vec![
-                DepositSupply { resource: stone, count: 36, tunnelled: 0, worth: 108 },
-                DepositSupply { resource: vein, count: 4, tunnelled: 0, worth: 4 },
-                DepositSupply { resource: seam, count: 7, tunnelled: 4, worth: 29 },
+                DepositSupply { resource: stone, count: 25, tunnelled: 0, worth: 250 },
+                DepositSupply { resource: boulder, count: 30, tunnelled: 0, worth: 180 },
+                DepositSupply { resource: vein, count: 16, tunnelled: 0, worth: 48 },
+                DepositSupply { resource: seam, count: 6, tunnelled: 3, worth: 24 },
             ]
         );
     }

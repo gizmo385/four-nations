@@ -1,26 +1,26 @@
 === default site: (94, 64) ===
 problem: none
 biomes: water 54%, plains 46%
-room: 4563 tiles, mainland: true
+room: 4503 tiles, mainland: true
 water: Water, 0 steps
 wood: 49 (plenty)
-stone: 0 (none)
+stone: 2 (scarce)
 food: 6 (some)
 gold: 0 (none)
 scrolls: 0 (none)
 climate: Warm (frost: false, cold: false)
 outlook: Fair
-reasons: no stone nearby
+reasons: Stone is scarce
 rough: false
 === near a buried gold seam: (98, 79) ===
 problem: none
 biomes: plains 58%, water 33%, mountain 8%, desert 0%
-room: 4563 tiles, mainland: true
+room: 4503 tiles, mainland: true
 water: Water, 0 steps
 wood: 43 (plenty)
 stone: 8 (some)
 food: 4 (scarce)
-gold: 1 (some)
+gold: 3 (some)
 scrolls: 0 (none)
 climate: Warm (frost: false, cold: false)
 outlook: Fair

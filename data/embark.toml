@@ -69,10 +69,12 @@ resources = ["oak_tree", "fir_tree"]
 levels = [1, 10, 30]
 outlook_weight = 1
 
+# boulder added by #349 (docs/design/materials.md, section 2): a rough survey counts foothill
+# boulders alongside outcrops, since both are stone in reach.
 [[group]]
 id = "stone"
 name = "Stone"
-resources = ["stone"]
+resources = ["stone", "boulder"]
 levels = [1, 4, 12]
 outlook_weight = 1
 

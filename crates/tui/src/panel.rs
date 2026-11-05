@@ -92,6 +92,11 @@ const ALERT_LINES: usize = 1;
 const ALERTS_SHOWN: usize = 3;
 /// At most this many stores rows show at once, even with room for more.
 const STORES_SHOWN: usize = 2;
+/// At most this many lines a Cursor Detail wraps to (docs/design/side-panel.md: Cursor "gets the
+/// spare rows"), so a nation name plus a position ("Air Nomads - Foraging at (79, 75)") never
+/// silently loses its tail to [`crate::widgets::fit`]'s ellipsis instead of wrapping (#349 hit
+/// this once boulders gave foothill pathing a reason to differ from before).
+const CURSOR_DETAIL_LINES: usize = 2;
 /// A research bar is this many cells.
 const BAR_CELLS: usize = 10;
 /// The People section never shows more activity-count rows than this, however wide the panel or
@@ -421,7 +426,18 @@ fn placement_row(session: &Session, pos: Pos, choice: Option<BuildingId>) -> Opt
 /// The tile under the cursor: whether the Build tool's choice would fit there, then the
 /// tooltip, then anything else lying on it. What `Enter` does next in a tool is the active tool
 /// banner's own line now (#307, `crate::banner`), not repeated here.
-fn cursor_rows(session: &Session, ui: &UiState, choice: Option<BuildingId>) -> Vec<Row> {
+///
+/// A Detail line wraps (at most [`CURSOR_DETAIL_LINES`]) instead of fitting with an ellipsis:
+/// the Cursor section is always last and "gets the spare rows" (docs/design/side-panel.md), so
+/// unlike every other section's rows, it can afford to grow rather than lose a tail a player (or
+/// an agent reading the panel, #320) might need.
+fn cursor_rows(
+    session: &Session,
+    ui: &UiState,
+    choice: Option<BuildingId>,
+    width: usize,
+    ellipsis: char,
+) -> Vec<Row> {
     let pos = ui.cursor;
     let mut rows = Vec::new();
     if ui.tool == Tool::Build
@@ -446,7 +462,11 @@ fn cursor_rows(session: &Session, ui: &UiState, choice: Option<BuildingId>) -> V
     for line in lines {
         match line {
             Line::Title(s) => rows.push(Row::text(s, Tone::Strong)),
-            Line::Detail(s) => rows.push(Row::text(s, Tone::Text)),
+            Line::Detail(s) => rows.extend(
+                wrap(&s, width, CURSOR_DETAIL_LINES, ellipsis)
+                    .into_iter()
+                    .map(|l| Row::text(l, Tone::Text)),
+            ),
             Line::Hint(h) => {
                 if let Some(s) = hint_text(h) {
                     rows.push(Row::text(s, Tone::Dim));
@@ -508,7 +528,7 @@ fn gather(
         picker,
         notice,
         alerts,
-        cursor: cursor_rows(session, ui, view.choice),
+        cursor: cursor_rows(session, ui, view.choice, width, ellipsis),
         cursor_pos: format!("({}, {})", ui.cursor.x, ui.cursor.y),
         repeating_label: ui.repeating_label(),
         view,
@@ -803,7 +823,7 @@ mod tests {
         }
         let foot = Footprint::new(at, 2, 2);
         let ui = UiState::new(&s, (120, 40));
-        assert!(cursor_rows(&s, &ui, None).iter().all(|r| !r.plain().contains(", idle")));
+        assert!(cursor_rows(&s, &ui, None, 28, '…').iter().all(|r| !r.plain().contains(", idle")));
 
         for p in foot.tiles() {
             let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
@@ -816,12 +836,12 @@ mod tests {
         let mut ui = UiState::new(&s, (120, 40));
         ui.cursor = at;
         assert!(
-            cursor_rows(&s, &ui, None).iter().all(|r| !r.plain().contains(", idle")),
+            cursor_rows(&s, &ui, None, 28, '…').iter().all(|r| !r.plain().contains(", idle")),
             "nobody inside yet"
         );
 
         assert!(s.world.enter_building(0, at, &s.defs));
-        let rows = cursor_rows(&s, &ui, None);
+        let rows = cursor_rows(&s, &ui, None, 28, '…');
         assert_eq!(rows.last().map(Row::plain), Some(format!("{name}, idle")));
     }
 }
