@@ -100,7 +100,8 @@ fn serve(args: Vec<String>) -> Result<(), String> {
     let mut tools = Tools::new(host, writer)?;
 
     let input = BufReader::new(stdin());
-    server::serve(input, stdout(), &mut tools);
+    let reason = server::serve(input, stdout(), &mut tools);
+    tools.end(&reason)?;
     Ok(())
 }
 

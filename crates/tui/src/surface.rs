@@ -249,7 +249,9 @@ impl Host {
     /// once) and `F6` (the saves screen) -- the same bindings `input::bindings` already names,
     /// so a future rebinding can't quietly change what parity allows -- plus `Enter` on the Esc
     /// menu's Save as…, Quicksave, Load…, Quickload or Quit row, which do the same things
-    /// without a function key (#306).
+    /// without a function key (#306), plus `Esc` itself when nothing is open to close and it
+    /// would only open the game menu (#327: every row but Resume and Key help is already
+    /// refused above, so for an agent the menu is only a trap, not a tool).
     pub fn refuses(&self, key: KeyEvent) -> bool {
         if let Some(action) = input::map_key(key)
             && matches!(
@@ -285,7 +287,22 @@ impl Host {
                 }
             }
         }
+        if key.code == KeyCode::Esc && self.opens_menu() {
+            return true;
+        }
         false
+    }
+
+    /// Whether an `Esc` right now would do nothing but `App::cancel`'s own last resort
+    /// (`App::open_menu`): no prompt, modal or screen open, the Select tool, and nothing
+    /// selected -- the exact condition `App::cancel` checks before it opens the menu.
+    fn opens_menu(&self) -> bool {
+        let ui = &self.app().ui;
+        ui.prompt.is_none()
+            && ui.modal.is_none()
+            && ui.screen.is_none()
+            && ui.tool == Tool::Select
+            && ui.selected.is_none()
     }
 
     // --------------------------------------------------------------------------------------
@@ -455,9 +472,10 @@ impl Host {
         MapView { x, y, w, h, things, ground, legend: pool.legend, marks }
     }
 
-    /// `nation`, `research`, `endeavor`, `log` or `help`, as data: `nation_view`,
-    /// `research::screen_view`, `endeavor::screen_view` or `input::help_rows`, reachable in the
-    /// TUI the same way (`N`, `T`, `G`, `L`, `?`).
+    /// `nation`, `research`, `endeavor`, `log`, `help` or `build`, as data: `nation_view`,
+    /// `research::screen_view`, `endeavor::screen_view`, `input::help_rows` or
+    /// `fn_ui::build::picker_rows`, reachable in the TUI the same way (`N`, `T`, `G`, `L`, `?`,
+    /// `U`).
     pub fn screen(&self, name: &str) -> Result<ScreenView, String> {
         match name {
             "nation" => Ok(ScreenView::Nation(self.nation_screen())),
@@ -476,9 +494,10 @@ impl Host {
                     })
                     .collect(),
             })),
-            other => {
-                Err(format!("no such screen {other:?} (nation, research, endeavor, log or help)"))
-            }
+            "build" => Ok(ScreenView::Build(self.build_screen())),
+            other => Err(format!(
+                "no such screen {other:?} (nation, research, endeavor, log, help or build)"
+            )),
         }
     }
 
@@ -551,6 +570,26 @@ impl Host {
         }
     }
 
+    /// `fn_ui::build::picker_rows`, the Build modal's own list (#327): every row's name, size
+    /// (`defs.building(id).footprint`, "1x1" or "2x2", the same text `BuildingDetail::footprint`
+    /// already formats) and the modal's own list text for the rest of the row (the real cost,
+    /// "5 Wood", or "Locked" when the nation hasn't unlocked it yet, `crate::build::list_row`'s
+    /// own choice) -- so an agent can read the list the way the Build modal's own rows show it,
+    /// without a `build` step to probe it blind.
+    fn build_screen(&self) -> BuildScreenView {
+        let session = &self.app().session;
+        let rows = fn_ui::build::picker_rows(session)
+            .into_iter()
+            .map(|r| {
+                let (w, h) = session.defs.building(r.id).footprint;
+                let locked = r.locked();
+                let cost = if locked { "Locked".to_owned() } else { r.cost };
+                BuildRowView { name: r.name, size: format!("{w}x{h}"), cost, locked }
+            })
+            .collect();
+        BuildScreenView { rows }
+    }
+
     /// The rendered frame as ASCII text (`frame::render_shell`, `--ascii`): the parity escape
     /// hatch (docs/design/agent-play.md, "Frames and keys"). Resizes the view, as `--frame`
     /// does; changes nothing else and takes no game time.
@@ -570,9 +609,17 @@ impl Host {
     /// reason is returned and the steps after it don't run, but the steps before it already
     /// happened. `note` is the agent's one-line reason, kept with the keys in the run log
     /// (truncated to 80 characters), and never affects the game.
+    ///
+    /// `ActResult::notices` carries each `designate` or `build` step's own notice (#327: the "N
+    /// done, M skipped: reason" text a player sees in the Tool section), so a mostly-skipped
+    /// rectangle is as visible to an agent as it is to a player, even in a call with several
+    /// steps -- a tool switch clears `UiState::notice` first (`UiState::set_tool`), so the step
+    /// right after a designate or build always reads that step's own, not a stale one from
+    /// before it.
     pub fn act(&mut self, steps: &[ActionStep], note: Option<String>) -> ActResult {
         let mut pressed = Vec::new();
         let mut labels = Vec::new();
+        let mut notices = Vec::new();
         let mut error = None;
         for (index, step) in steps.iter().enumerate() {
             match self.plan_step(step) {
@@ -585,6 +632,10 @@ impl Host {
                         pressed.push(key);
                     }
                     labels.push(step_label(step));
+                    let notice = self.app().ui.notice.clone();
+                    if !notice.is_empty() {
+                        notices.push(StepNotice { step: index, notice });
+                    }
                 }
                 Err(reason) => {
                     error = Some(ActError { step: index, reason });
@@ -598,6 +649,7 @@ impl Host {
         ActResult {
             keys: pressed.into_iter().map(key_token).collect(),
             label,
+            notices,
             error,
             observe: self.observe(),
         }
@@ -924,8 +976,22 @@ pub struct ActResult {
     /// (86,60)" style (`None` if every step failed to plan, so nothing ran): the same label
     /// kept in [`Host::log`].
     pub label: Option<String>,
+    /// Each `designate` or `build` step's own notice (#327), in the order its step ran: the "N
+    /// done, M skipped: reason" text a player sees in the Tool section, so a mostly-skipped
+    /// rectangle is obvious even several steps into one `act` call. Empty for a call with no
+    /// `designate` or `build` step, or where one left no notice to show.
+    pub notices: Vec<StepNotice>,
     pub error: Option<ActError>,
     pub observe: Observation,
+}
+
+/// One step's own notice, from [`Host::act`]'s `notices` (#327): `step` indexes the same
+/// `steps` array `ActError::step` would, so an agent can tell which designate or build it
+/// belongs to even when several ran in the one call.
+#[derive(Clone, Debug, Serialize)]
+pub struct StepNotice {
+    pub step: usize,
+    pub notice: String,
 }
 
 /// Which step of an [`Host::act`] call failed, and why (`Host::plan_step`'s own reason: an
@@ -1225,6 +1291,7 @@ pub enum ScreenView {
     Endeavor(EndeavorScreenView),
     Log(LogScreenView),
     Help(HelpScreenView),
+    Build(BuildScreenView),
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1275,6 +1342,25 @@ pub struct SignRowView {
 #[derive(Clone, Debug, Serialize)]
 pub struct LogScreenView {
     pub lines: Vec<String>,
+}
+
+/// `screen {"build"}` (#327): the Build modal's own list (`fn_ui::build::picker_rows`), in the
+/// same order it draws them.
+#[derive(Clone, Debug, Serialize)]
+pub struct BuildScreenView {
+    pub rows: Vec<BuildRowView>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BuildRowView {
+    pub name: String,
+    /// "1x1" or "2x2" (`BuildingDef::footprint`): what `build {building, from, to}`'s rectangle
+    /// has to cover.
+    pub size: String,
+    /// The modal's own list text for this row: the real cost ("5 Wood") when it can be built,
+    /// or "Locked" when the nation hasn't unlocked it yet (`crate::build::list_row`).
+    pub cost: String,
+    pub locked: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1425,7 +1511,10 @@ pub struct RunLogHeader {
 /// `keys` is the pressed keys as a `--keys` script (`key_token`'s syntax, parsed back by
 /// `crate::keys::parse`), not the raw [`KeyEvent`]s, since those have no `serde` of their own
 /// and a script is what a human watching -- or re-running `fn_agent keys` -- wants to read
-/// anyway.
+/// anyway. `End` (#327) is the last line a finished run's log ever gets: `fn_agent serve` writes
+/// one when its session ends (stdin closed, or an error), with the world's own tick at that
+/// moment and the reason, so `fn_tui --watch` can tell a run that's finished from one that's
+/// merely caught up with a live agent still thinking.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LogLine {
@@ -1434,6 +1523,7 @@ pub enum LogLine {
     Look { x: i32, y: i32, w: u16, h: u16 },
     Inspect { x: i32, y: i32 },
     Turn { index: u32, tick: u64 },
+    End { tick: u64, reason: String },
 }
 
 impl From<&LogEntry> for LogLine {
@@ -1594,11 +1684,13 @@ mod tests {
     }
 
     /// The Esc menu's Save as…, Quicksave, Load…, Quickload and Quit rows are refused too
-    /// (`Enter` on any of them), while Resume and Key help still work.
+    /// (`Enter` on any of them), while Resume and Key help still work. An agent can never open
+    /// the menu itself (#327), so this drives `App::key` directly, as if the menu were already
+    /// open (a loaded save can start mid-menu), to check the rows alone.
     #[test]
     fn the_esc_menus_save_load_and_quit_rows_are_refused() {
         let mut h = host(Nation::Earth);
-        h.press_keys("<esc>", None, None).unwrap(); // opens the menu (nothing else to close)
+        h.app_mut().key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert_eq!(h.app().ui.modal, Some(Modal::Menu));
         for _ in 0..crate::menu::MenuRow::ALL.len() {
             let row = crate::menu::MenuRow::ALL[h.app().ui.menu_cursor];
@@ -1617,6 +1709,48 @@ mod tests {
             }
             h.press_keys("<down>", None, None).unwrap();
         }
+    }
+
+    /// A bare `Esc` with nothing else open would, for a human, open the game menu and pause
+    /// the clock; for an agent it's refused outright instead (#327), a no-op that changes
+    /// nothing -- the menu is only a trap for an agent (every row but Resume and Key help is
+    /// already refused above).
+    #[test]
+    fn a_bare_esc_with_nothing_open_is_refused_and_does_not_open_the_menu() {
+        let mut h = host(Nation::Earth);
+        let paused_before = h.app().session.clock.paused;
+        let before = h.frame(40, 20);
+        let result = h.press_keys("<esc>", None, None).unwrap();
+        assert_eq!(result, PressResult { pressed: 0, refused: 1 });
+        assert_eq!(h.app().ui.modal, None);
+        assert_eq!(h.app().session.clock.paused, paused_before);
+        assert_eq!(h.frame(40, 20), before);
+    }
+
+    /// `act`'s `keys` step refuses the same bare `Esc` `press_keys` does (#327): planned through
+    /// `plan_keys` but then skipped by the same `refuses` check `act` already runs every
+    /// pressed key through.
+    #[test]
+    fn act_keys_also_refuses_a_bare_esc_that_would_open_the_menu() {
+        let mut h = host(Nation::Earth);
+        let steps = vec![ActionStep::Keys { script: "<esc>".into() }];
+        let result = h.act(&steps, None);
+        assert!(result.error.is_none(), "{result:?}");
+        assert_eq!(result.keys, Vec::<String>::new());
+        assert_eq!(h.app().ui.modal, None);
+    }
+
+    /// Once a tool has a corner set, or the Select bar has something selected, `Esc` still does
+    /// its ordinary job instead of being refused: only the no-op case (nothing left to close)
+    /// is special.
+    #[test]
+    fn esc_still_works_when_there_is_something_to_close() {
+        let mut h = host(Nation::Earth);
+        h.press_keys("h", None, None).unwrap(); // Harvest tool, no corner yet
+        let result = h.press_keys("<esc>", None, None).unwrap();
+        assert_eq!(result, PressResult { pressed: 1, refused: 0 });
+        assert_eq!(h.observe().tool, "Select", "Esc with no corner leaves the tool");
+        assert_eq!(h.app().ui.modal, None);
     }
 
     #[test]
@@ -1673,10 +1807,33 @@ mod tests {
     #[test]
     fn every_screen_name_resolves_and_an_unknown_one_errors() {
         let h = host(Nation::Earth);
-        for name in ["nation", "research", "endeavor", "log", "help"] {
+        for name in ["nation", "research", "endeavor", "log", "help", "build"] {
             h.screen(name).unwrap();
         }
         assert!(h.screen("bogus").is_err());
+    }
+
+    /// `screen {"build"}` is the Build modal's own list (#327): every row's name, footprint
+    /// size, and the modal's own list text ("5 Wood" when it can be built, "Locked" otherwise).
+    #[test]
+    fn screen_build_matches_the_build_modals_own_rows() {
+        let h = host(Nation::Earth);
+        let ScreenView::Build(view) = h.screen("build").unwrap() else { panic!("not Build") };
+        let rows = fn_ui::build::picker_rows(&h.app().session);
+        assert_eq!(view.rows.len(), rows.len());
+        for (got, row) in view.rows.iter().zip(&rows) {
+            assert_eq!(got.name, row.name);
+            assert_eq!(got.locked, row.locked());
+            let (w, hh) = h.app().session.defs.building(row.id).footprint;
+            assert_eq!(got.size, format!("{w}x{hh}"));
+            if row.locked() {
+                assert_eq!(got.cost, "Locked");
+            } else {
+                assert_eq!(got.cost, row.cost);
+            }
+        }
+        // A new game always has at least one buildable thing (a bed).
+        assert!(view.rows.iter().any(|r| r.name == "Bed" && !r.locked));
     }
 
     /// Replaying a run log's `to_keys_script` through a fresh `Shell::play` gives the same frame
@@ -1767,6 +1924,65 @@ mod tests {
         let script = result.keys.join(" ");
         assert_eq!(script, "h <right> <right> <down> <enter> <right> <down> <enter>");
         assert_same_as_key_script(&mut h, Nation::Earth, &script);
+    }
+
+    /// #327: the real bug a first agent run hit -- a stockpile placed on water stored nothing,
+    /// and the agent didn't notice for turns because a second designate in the same `act` call
+    /// overwrote `observe().notice` with its own. `act`'s own `notices` keeps every step's own
+    /// notice, so the water stockpile's "0 done" is still there even once the harvest step after
+    /// it has replaced the UI's one live notice.
+    #[test]
+    fn act_keeps_each_designates_own_notice_even_once_a_later_step_overwrites_the_uis_one() {
+        let mut h = host(Nation::Earth);
+        let water = water_tile(&h);
+        let cursor = h.app().ui.cursor;
+        let land_from = Pos::new(cursor.x + 2, cursor.y + 1);
+        let land_to = Pos::new(land_from.x + 1, land_from.y + 1);
+        let steps = vec![
+            ActionStep::Designate {
+                tool: DesignateTool::Stockpile,
+                from: Coord { x: water.x, y: water.y },
+                to: Coord { x: water.x, y: water.y },
+                standing: false,
+            },
+            ActionStep::Designate {
+                tool: DesignateTool::Harvest,
+                from: Coord { x: land_from.x, y: land_from.y },
+                to: Coord { x: land_to.x, y: land_to.y },
+                standing: false,
+            },
+        ];
+        let result = h.act(&steps, None);
+        assert!(result.error.is_none(), "{result:?}");
+        assert_eq!(result.notices.len(), 2, "{:?}", result.notices);
+        assert_eq!(result.notices[0].step, 0);
+        assert!(
+            result.notices[0].notice.starts_with("designate stockpile: 0 done, 1 skipped"),
+            "{}",
+            result.notices[0].notice
+        );
+        assert_eq!(result.notices[1].step, 1);
+        assert!(
+            result.notices[1].notice.starts_with("designate harvest"),
+            "{}",
+            result.notices[1].notice
+        );
+        // The live UI notice (what a bare `observe` would have shown) is only the second step's
+        // own -- the first step's failure would otherwise have gone unseen, #327's own bug.
+        assert_eq!(h.observe().notice, result.notices[1].notice);
+        assert_ne!(h.observe().notice, result.notices[0].notice);
+    }
+
+    /// A water tile, for a designate that the sim refuses (#327's own stockpile-on-water bug).
+    fn water_tile(h: &Host) -> Pos {
+        h.app()
+            .session
+            .world
+            .map
+            .iter()
+            .find(|(_, t)| t.terrain == fn_sim::Terrain::Water)
+            .map(|(p, _)| p)
+            .expect("a new map always has water")
     }
 
     #[test]

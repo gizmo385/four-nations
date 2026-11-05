@@ -105,6 +105,9 @@ pub fn to_keys_script(header: &RunLogHeader, lines: &[LogLine]) -> String {
             LogLine::Keys { keys, .. } => tokens.push(keys.clone()),
             LogLine::Turn { .. } => tokens.push(format!("<tick {}>", header.ticks_per_turn)),
             LogLine::Look { .. } | LogLine::Inspect { .. } | LogLine::Header(_) => {}
+            // The end marker (#327) is a fact about the log, not a key anyone pressed: it
+            // leaves nothing to replay.
+            LogLine::End { .. } => {}
         }
     }
     tokens.join(" ")
@@ -184,6 +187,9 @@ pub struct Watcher {
     /// mid-press): a live log's "waiting for agent (N s)".
     waiting_secs: f64,
     nation_label: String,
+    /// The log's `End` line's own reason, once replayed (#327): a finished run's strip reads
+    /// "run finished" instead of counting up a wait that will never end.
+    finished: Option<String>,
 }
 
 impl Watcher {
@@ -234,6 +240,7 @@ impl Watcher {
             turn: 0,
             waiting_secs: 0.0,
             nation_label: header.nation.as_str().to_owned(),
+            finished: None,
         })
     }
 
@@ -264,6 +271,12 @@ impl Watcher {
     /// end (though a live one might still grow).
     pub fn caught_up(&self) -> bool {
         self.pending.is_empty() && self.current.is_none()
+    }
+
+    /// Whether the log's `End` line (#327) has been replayed: the run is over for good, not
+    /// merely caught up with a live agent that might still write more.
+    pub fn finished(&self) -> bool {
+        self.finished.is_some()
     }
 
     pub fn toggle_pause(&mut self) {
@@ -306,7 +319,7 @@ impl Watcher {
     /// nothing while [`Self::toggle_pause`]d, except keep the attention ghost ageing.
     pub fn advance(&mut self, real_secs: f64) {
         self.age_ghost(real_secs);
-        if self.paused {
+        if self.paused || self.finished() {
             return;
         }
         if self.caught_up() {
@@ -399,6 +412,14 @@ impl Watcher {
                 self.app_mut().run_ticks(ticks);
                 self.turn += 1;
             }
+            // The run is over (#327): nothing left to replay, ever, however much more of the
+            // log there might be. Logged once, like `Look`/`Inspect`, since it takes no game
+            // time either.
+            LogLine::End { reason, .. } => {
+                let tick = self.app().session.world.tick;
+                self.app_mut().ui.alerts.push_agent(tick, format!("Run finished: {reason}"));
+                self.finished = Some(reason);
+            }
             LogLine::Header(_) => return self.start_next(), // shouldn't recur; harmless if it did
         }
         true
@@ -459,12 +480,14 @@ impl Watcher {
     }
 
     /// " AGENT earth  turn 6  02:00  designate harvest 6x4 at (86,60) "wood for two beds"  x40",
-    /// or "...  waiting for agent (12 s)  x40" once the watcher has caught up with a live log
-    /// (docs/design/agent-play.md, "Watching").
+    /// "...  waiting for agent (12 s)  x40" once the watcher has caught up with a live log, or
+    /// "...  run finished  x40" once the log's own `End` line has been replayed (#327): a
+    /// finished run never says "waiting" for a wait that will never end.
     fn strip_text(&self) -> String {
         let clock = fn_ui::view::format_clock(self.app().session.world.tick);
         let action = match &self.current {
             Some(a) => describe_action_line(a),
+            None if self.finished() => "run finished".to_owned(),
             None if self.caught_up() => {
                 format!("waiting for agent ({} s)", self.waiting_secs.round() as u64)
             }

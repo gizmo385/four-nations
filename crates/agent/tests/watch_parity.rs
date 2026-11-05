@@ -79,3 +79,54 @@ fn watching_a_log_fn_agent_served_shows_the_same_frame_the_host_that_served_it_h
         |s: &str| s.lines().take(usize::from(SIZE.1) - 1).collect::<Vec<_>>().join("\n");
     assert_eq!(trim_strip(&got), trim_strip(&want));
 }
+
+/// `fn_agent serve`'s own end marker (#327): once stdin closes, `server::serve` says why and
+/// `Tools::end` writes an `end` line with the world's own tick, the log's last line. A watcher
+/// that replays the whole log reaches it and shows "run finished" instead of ever counting up
+/// "waiting for agent" -- the fix for the first real run's watcher waiting forever.
+#[test]
+fn fn_agent_writes_an_end_marker_the_watcher_shows_as_run_finished() {
+    let path =
+        std::env::temp_dir().join(format!("fn_agent_end_marker_test_{}.jsonl", std::process::id()));
+    let nation = fn_tui::cli::parse_nation("earth").unwrap();
+    let host =
+        Host::new(SEED, nation, None, None, None, false).unwrap().with_turn_seconds(TURN_SECONDS);
+    let writer = Writer::create(&path).unwrap();
+    let mut tools = Tools::new(host, writer).unwrap();
+
+    let script = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"end_turn","arguments":{"turns":1}}}"#;
+    let mut out = Vec::new();
+    let reason = server::serve(BufReader::new(script.as_bytes()), &mut out, &mut tools);
+    assert_eq!(reason, "stdin closed", "the script's input ends cleanly, not on an I/O error");
+    tools.end(&reason).unwrap();
+
+    let (header, lines) = watch::read_file(&path).unwrap();
+    std::fs::remove_file(&path).ok();
+    assert_eq!(
+        lines.last(),
+        Some(&fn_tui::surface::LogLine::End {
+            tick: u64::from(header.ticks_per_turn),
+            reason: "stdin closed".into(),
+        })
+    );
+
+    let mut watcher = watch::Watcher::new(&header).unwrap();
+    watcher.feed(lines);
+    while !watcher.caught_up() {
+        watcher.step_one();
+    }
+    assert!(watcher.finished(), "the watcher replayed the end marker");
+
+    // Once finished, `advance` never grows a wait that will never end (#327's acceptance
+    // criteria: "stops counting").
+    watcher.advance(5.0);
+    let palette = fn_tui::color::Palette::new(
+        watcher.defs(),
+        watcher.nation(),
+        fn_tui::color::ColorDepth::TrueColor,
+        true,
+    );
+    let text = fn_tui::frame::to_text(&watcher.render(&palette, SIZE));
+    assert!(text.contains("run finished"), "{text}");
+    assert!(!text.contains("waiting for agent"), "{text}");
+}

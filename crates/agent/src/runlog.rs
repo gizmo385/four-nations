@@ -32,6 +32,12 @@ impl<W: Write> Writer<W> {
         self.write_json(line)
     }
 
+    /// The log's last line, ever (#327): `tick` is the world's own tick when the session ended,
+    /// `reason` says why (stdin closed, or an error). Nothing is written after this.
+    pub fn write_end(&mut self, tick: u64, reason: &str) -> io::Result<()> {
+        self.write_json(&LogLine::End { tick, reason: reason.to_owned() })
+    }
+
     fn write_json(&mut self, value: &impl Serialize) -> io::Result<()> {
         let text = serde_json::to_string(value).expect("a run log line always serializes");
         writeln!(self.out, "{text}")?;
