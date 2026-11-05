@@ -115,6 +115,13 @@ fn the_forges_smith_job_turns_metal_into_tools() {
     runs_one_batch("forge");
 }
 
+/// The shared Workshop (`carpentry`, issue #369): everyone's route to tools, from wood instead
+/// of the forge's metal.
+#[test]
+fn the_workshops_job_turns_wood_into_tools() {
+    runs_one_batch("workshop");
+}
+
 #[test]
 fn a_craft_waits_on_missing_inputs_instead_of_failing() {
     let (mut w, defs) = setup(&grid(), &[at(1, 1)]);
@@ -187,8 +194,11 @@ fn a_kiln_idles_at_its_stock_limit_instead_of_starting_a_batch() {
 }
 
 /// A smelter with gold ore and wood stocked well past its needs never eats more than the stock
-/// limit's worth (issue #350): 4 metal at 2 ore a batch is 8 ore, however long it runs with a
-/// hauler to carry the metal into the stockpile.
+/// limit's worth, plus at most one batch already under way when the hauler's delivery first
+/// brings the stockpile to the limit (issue #350, raised to 6 by #369; `craft_idle` only sees
+/// what's *stockpiled*, not what's on the ground waiting for a haul, so one extra batch can
+/// already be committed the instant the limit is reached): 6 metal (plus at most one more) at
+/// 2 ore a batch, however long it runs with a hauler to carry the metal into the stockpile.
 #[test]
 fn a_smelter_never_eats_more_ore_than_its_stock_limit_allows() {
     let (mut w, defs) = setup(&grid(), &[at(1, 1), at(2, 1)]);
@@ -209,21 +219,66 @@ fn a_smelter_never_eats_more_ore_than_its_stock_limit_allows() {
     // Somewhere for the second unit to haul metal to, so `stored_total` ever sees it.
     w.designate_stockpile(at(5, 0)).unwrap();
 
-    run_until(&mut w, &defs, 30_000, |w| w.stored_total(recipe.output.item) >= recipe.stock_limit);
-    assert_eq!(
-        w.stored_total(recipe.output.item),
-        recipe.stock_limit,
-        "stops exactly at the limit"
-    );
-
-    // It stays there: no more ore is spent however long we keep ticking.
+    run_until(&mut w, &defs, 40_000, |w| w.stored_total(recipe.output.item) >= recipe.stock_limit);
+    // Give any batch already committed when the limit was first reached time to finish and be
+    // hauled in, then settle: no more ore is spent however long we keep ticking after that.
     for _ in 0..3000 {
         w.tick(&defs);
     }
-    assert_eq!(w.stored_total(recipe.output.item), recipe.stock_limit, "still at the limit");
+    let settled = w.stored_total(recipe.output.item);
+    let ceiling = recipe.stock_limit + recipe.output.count;
+    assert!(settled <= ceiling, "at most one batch past the limit, got {settled}");
+    for _ in 0..3000 {
+        w.tick(&defs);
+    }
+    assert_eq!(w.stored_total(recipe.output.item), settled, "settled, no further batches");
     let ore_spent = ore_before - w.stored_total(ore);
-    assert_eq!(ore_spent, 8, "exactly 4 batches' worth, 2 ore each");
-    assert!(ore_spent <= 8, "never eats more than 8 ore while metal sits at its limit");
+    let max_spend = ore_count * ceiling;
+    assert!(
+        ore_spent <= max_spend,
+        "never eats more ore than the stock limit (plus one batch) allows"
+    );
+}
+
+/// The shared Workshop (#369) makes tools from wood and stops once about 6 are stored, the same
+/// way the forge and the smelter stop at their own limits (#350). As with the smelter below,
+/// `craft_idle` only sees what's stockpiled, not what's on the ground waiting for a haul, so one
+/// extra batch can already be committed the instant the limit is reached.
+#[test]
+fn a_workshop_makes_tools_from_wood_and_stops_at_its_stock_limit() {
+    let (mut w, defs) = setup(&grid(), &[at(1, 1), at(2, 1)]);
+    let workshop = defs.building_id("workshop").unwrap();
+    let recipe = defs.building(workshop).recipe.clone().unwrap();
+    let wood = defs.item_id("wood").unwrap();
+    let anchor = at(4, 4);
+    place_building(&mut w, &defs, workshop, anchor);
+
+    // Plenty of wood, well past what the stock limit allows the Workshop to use.
+    for (n, input) in recipe.inputs.iter().enumerate() {
+        let zone = at(n as i32, 0);
+        w.designate_stockpile(zone).unwrap();
+        w.stored.insert(zone, Stack { item: input.item, count: input.count * 20 });
+    }
+    let wood_count = recipe.inputs.iter().find(|c| c.item == wood).unwrap().count;
+    let wood_before = wood_count * 20;
+    // Somewhere for the second unit to haul tools to, so `stored_total` ever sees them.
+    w.designate_stockpile(at(5, 0)).unwrap();
+
+    run_until(&mut w, &defs, 30_000, |w| w.stored_total(recipe.output.item) >= recipe.stock_limit);
+    // Give any batch already committed when the limit was first reached time to finish and be
+    // hauled in, then settle: no more wood is spent however long we keep ticking after that.
+    for _ in 0..3000 {
+        w.tick(&defs);
+    }
+    let settled = w.stored_total(recipe.output.item);
+    let ceiling = recipe.stock_limit + recipe.output.count;
+    assert!(settled <= ceiling, "at most one batch past the limit, got {settled}");
+    for _ in 0..3000 {
+        w.tick(&defs);
+    }
+    assert_eq!(w.stored_total(recipe.output.item), settled, "settled, no further batches");
+    let wood_spent = wood_before - w.stored_total(wood);
+    assert!(wood_spent <= wood_count * ceiling, "never spends more wood than the limit allows");
 }
 
 /// A plain grid of land, big enough for a 2x2 building and a stockpile tile.

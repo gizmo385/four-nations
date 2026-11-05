@@ -205,7 +205,11 @@ work = 60.0
 [[stage]]
 id = "arch"
 name = "The Arch"
-cost = [{ item = "wood", count = 60 }, { item = "gold_ore", count = 20 }]
+cost = [
+    { item = "wood", count = 60 },
+    { item = "gold_ore", count = 20 },
+    { item = "tool", count = 6 },
+]
 work = 600.0
 
 [[stage.task]]

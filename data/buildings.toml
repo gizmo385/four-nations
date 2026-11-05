@@ -216,6 +216,9 @@ count = 12
 [[building.cost]]
 item = "stone"
 count = 8
+[[building.cost]]
+item = "tool"
+count = 2
 
 [[building]]
 id = "bison_stable"
@@ -230,6 +233,9 @@ count = 20
 [[building.cost]]
 item = "stone"
 count = 6
+[[building.cost]]
+item = "tool"
+count = 2
 
 # --- Fire Nation ---
 # The Fire branch's buildings (issue #26), each unlocked by its tech in data/research.toml.
@@ -239,6 +245,10 @@ count = 6
 # job: each works alone, the way a 2-seat study hall took two. Costs are a first balance pass
 # over #26's placeholders, heavier than the shared-tier buildings above since these are 60- and
 # 120-knowledge techs; the power buildings' costs are still placeholders for #255 to revisit.
+# Issue #369 closes Fire's chain: the kiln's bricks and the smelter's metal now pay for the
+# power buildings below, and the forge's tools (now 2 a batch) go to the shared Workshop's
+# advanced buildings, same as everyone else's (see "--- Carpentry (shared) ---" at the end of
+# this file).
 
 [[building]]
 id = "forge"
@@ -254,15 +264,15 @@ count = 8
 [[building.cost]]
 item = "wood"
 count = 4
-# The smith job (#124): hot metal worked into tools. Idles once 4 tools are stored (#350):
-# nothing uses tools yet.
+# The smith job (#124): hot metal worked into tools, two a batch, Fire's faster route to the
+# tools the Workshop also makes from wood (#369). Idles once 6 tools are stored (#350).
 [building.recipe]
 output = "tool"
-output_count = 1
+output_count = 2
 work = 25.0
 modifier = "heating"
 input = [{ item = "metal", count = 1 }]
-stock_limit = 4
+stock_limit = 6
 
 [[building]]
 id = "brick_kiln"
@@ -279,8 +289,9 @@ count = 12
 item = "wood"
 count = 6
 # Fires stone into bricks by the thousand (#124; `brickmaking`'s description, data/research.toml).
-# Burns 1 wood a batch as fuel and idles once 20 bricks are stored (#350): without the limit it
-# burns stone as fast as a crafter can carry it over, into bricks nothing uses.
+# Burns 1 wood a batch as fuel and idles once 20 bricks are stored (#350). The power buildings
+# below spend bricks now (#369); the stock limit stays until brick also stands in for stone
+# (#371).
 [building.recipe]
 output = "brick"
 output_count = 4
@@ -305,16 +316,18 @@ item = "wood"
 count = 6
 # Draws metal out of ore with steady heat (#124; `smelting`'s description, data/research.toml).
 # `gold_ore` is the only ore today (#132, #133): there's no separate generic "ore" item yet.
-# Burns 1 wood a batch as fuel and idles once 4 metal are stored (#350), the same reason as the
-# kiln: metal only feeds the forge, and nothing uses tools either.
+# Burns 1 wood a batch as fuel and idles once 6 metal are stored (#350, raised by #369): the
+# forge's tools and the power buildings below both draw on metal now.
 [building.recipe]
 output = "metal"
 output_count = 1
 work = 20.0
 modifier = "heating"
 input = [{ item = "gold_ore", count = 2 }, { item = "wood", count = 1 }]
-stock_limit = 4
+stock_limit = 6
 
+# Spends the kiln's bricks and the smelter's metal (#369): Fire's own production chain pays for
+# its power buildings, instead of raw stone.
 [[building]]
 id = "steam_engine"
 name = "Steam Engine"
@@ -323,8 +336,11 @@ work = 120.0
 passable = false
 footprint = [2, 2]
 [[building.cost]]
-item = "stone"
-count = 15
+item = "brick"
+count = 10
+[[building.cost]]
+item = "metal"
+count = 2
 [[building.cost]]
 item = "wood"
 count = 10
@@ -337,8 +353,14 @@ work = 200.0
 passable = false
 footprint = [2, 2]
 [[building.cost]]
-item = "stone"
-count = 25
+item = "brick"
+count = 16
+[[building.cost]]
+item = "metal"
+count = 3
+[[building.cost]]
+item = "tool"
+count = 2
 [[building.cost]]
 item = "wood"
 count = 15
@@ -430,3 +452,34 @@ growth_boost = 1.5
 [[building.cost]]
 item = "wood"
 count = 4
+
+# --- Carpentry (shared tier) ---
+# Appended last, though `carpentry` (data/research.toml) is a 60-knowledge shared tech every
+# nation can research: see the "Farming" section above for why new shared or nation buildings
+# go at the end of this file (`BuildingId` is file position).
+
+# Unlocked by `carpentry` (data/research.toml, shared tier): everyone's fitting-out good, tools
+# made from the wood glut rather than scarce stone (docs/design/nation-buildings.md, "Tools").
+# Fire's forge is the faster route, from metal; the Workshop is what the other three nations
+# have instead. Idles once 6 tools are stored (#350), the same limit the forge carries.
+[[building]]
+id = "workshop"
+name = "Workshop"
+verb = "Build"
+work = 50.0
+passable = false
+footprint = [2, 2]
+capacity = 1
+[[building.cost]]
+item = "wood"
+count = 8
+[[building.cost]]
+item = "stone"
+count = 4
+[building.recipe]
+output = "tool"
+output_count = 1
+work = 40.0
+modifier = "construction"
+input = [{ item = "wood", count = 3 }]
+stock_limit = 6

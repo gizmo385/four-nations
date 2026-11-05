@@ -399,14 +399,17 @@ structures (#214). Three decisions:
    ore is the `gold_ore` that mining already yields (#132, #133) -- there's no separate generic
    "ore" item, since gold is the only mineral any nation mines yet. `metal` is also the hook
    #134 (metalbending) needs: that tech is meant to produce it directly, without a smelter.
-   `tool` has no use yet (nothing asks for one to work faster or build cheaper); that's later
-   content, not a gap in this issue.
+   `tool` had no use at first (nothing asked for one to work faster or build cheaper); #369
+   (docs/design/nation-buildings.md, "Tools") gives all three a job: bricks and metal pay for
+   Fire's own power buildings (the steam engine and the lightning station), and tools -- made by
+   every nation's Workshop (`carpentry`) or, for Fire, twice as fast at the forge -- pay for the
+   advanced buildings every branch raises, plus the Harmony Gate's Arch.
 
 Costs for the three buildings got a first balance pass (placeholders from #26): `brick_kiln`
 and `smelter`'s work rose a little (70 s, 90 s) to sit above `forge`'s (60 s), since both are
 120-knowledge techs against `forging`'s 60, and `smelter`'s wood cost rose to 6 to match
 `brick_kiln`'s. Recipe numbers (2 ore -> 1 metal in 20 s; 3 stone -> 4 bricks in 15 s; 1 metal ->
-1 tool in 25 s) are starting values, not a design target.
+2 tools in 25 s, #369) are starting values, not a design target.
 
 Power (the steam engine, lightning station, a grid) is out of scope: #255.
 
