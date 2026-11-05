@@ -52,7 +52,9 @@ without trade or diplomacy screens, and with no war.
 ## The road: ten signs
 
 The signs are a list in `data/endeavor.toml`. Every sign counts things the settlement does
-anyway, so the road rewards playing well rather than a separate grind.
+anyway, so the road rewards playing well rather than a separate grind. (The 2026-11-05 playtests
+stalled at 3 of 9 signs. docs/design/materials.md, #339, retunes stone and ore supply and
+proposes a computed building-kinds sign.)
 
 | Group | Sign (default target) | Counts | Depends on |
 |---|---|---|---|
