@@ -245,6 +245,8 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     "farm_plots",
     // The irrigation channel (#126): which tiles speed up farm plots nearby.
     "irrigation_channels",
+    // Air Scooter's speed bursts, on `World` (#143).
+    "rides",
 ];
 
 /// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239

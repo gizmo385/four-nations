@@ -438,7 +438,7 @@ No bloodbending. It's a dark art that doesn't fit peaceful progress.
 | `meditation` | 60 | none | chi regeneration; study ×1.2 |
 | `gliders` | 60 | carpentry | glider staffs; move_speed ×1.15; ability: glide (spot lost ruins from the air, #197) |
 | `windmills` | 120 | gliders, farming | windmill (grinds grain for more food); power_generation ×1.2 |
-| `air_scooter` | 250 | gliders, meditation | ability: air scooter; move_speed ×1.2. *Modifier-only until the ability is designed: #143* |
+| `air_scooter` | 250 | gliders, meditation | ability: air scooter (a temporary speed burst on the rider, docs/design/bending.md, "Air Nomads: Air Scooter", #143); move_speed ×1.2 |
 | `wind_turbines` | 250 | windmills | wind turbine powers workshops; power_generation ×1.25 |
 | `sky_bison` | 500 | meditation, air_scooter | bison stable; bison haul and fast travel; carry_capacity ×1.3 |
 

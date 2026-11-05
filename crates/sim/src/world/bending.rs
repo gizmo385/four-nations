@@ -69,6 +69,14 @@
 //! behind, as ore. It shares Wind Carry's tile-ownership rule: designating it over a ground stack
 //! takes over the tile's haul job, given back if the bend is cancelled or the stack is gone or
 //! too small when the channel finishes.
+//!
+//! **Air Scooter** (#143, from `air_scooter`) is the second self-cast ability, like Inner Fire:
+//! the designated tile is only where the bender stands to summon it (open ground, like Inner
+//! Fire's aura). It leaves a `Ride` on the caster: for `duration_minutes` x the `move_speed`
+//! modifier, every place that reads a unit's effective move speed (`walk`, `wander` and
+//! `Stride`) multiplies it by `multiplier` on top of everything else. It ends with its timer, not
+//! with distance covered; casting it again resets the timer. Unlike Inner Fire it does nothing
+//! to anyone nearby, so there is no interaction with heat or sleep.
 
 use rand::seq::SliceRandom;
 
@@ -167,6 +175,15 @@ pub(super) struct Patch {
     resource: ResourceId,
     biomes: Vec<BiomeId>,
     fallow_ticks: u64,
+}
+
+/// A speed burst a unit is riding (Air Scooter, #143). While it lasts, the rider's `move_speed`
+/// is multiplied by `multiplier` on top of every other modifier.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(super) struct Ride {
+    pub multiplier: f32,
+    /// The first tick it is over. The rider is on it while `tick < until`.
+    pub until: u64,
 }
 
 /// Ticks in `minutes` in-game minutes, at least 1.
@@ -627,6 +644,18 @@ impl World {
                     Ok(())
                 }
             }
+            // Somewhere to stand and summon the scooter: open ground with nothing on it. The
+            // ride lands on the caster, so there is nothing else about the tile to check.
+            Effect::Scooter { .. } => {
+                let tile = &self.map[pos];
+                if !tile.terrain.is_walkable() {
+                    Err("needs open ground to stand on")
+                } else if tile.resource.is_some() || tile.building.is_some() {
+                    Err("something is in the way")
+                } else {
+                    Ok(())
+                }
+            }
             // Somewhere to stand and feel the ground: open ground or a tunnel with nothing on it.
             // Whether anything is buried nearby is what the bend finds out, so it isn't checked.
             Effect::Reveal { .. } => {
@@ -742,6 +771,18 @@ impl World {
                 });
                 None
             }
+            // The ride goes to the caster. The magnitude scales how long it lasts; casting it
+            // again resets the timer.
+            Effect::Scooter { duration_minutes, multiplier } => {
+                self.mount_scooter(
+                    caster,
+                    Ride {
+                        multiplier: *multiplier,
+                        until: self.tick + minutes_to_ticks(duration_minutes * magnitude),
+                    },
+                );
+                None
+            }
             // What it finds within the (scaled) radius comes onto the map.
             Effect::Reveal { radius, finds } => {
                 let reach = scaled_range(*radius, magnitude);
@@ -804,6 +845,31 @@ impl World {
             #[cfg(test)]
             Effect::Probe => None,
         }
+    }
+}
+
+/// Riding a scooter (Air Scooter, #143).
+impl World {
+    /// Gives `unit` the ride, replacing the one it had (a recast resets the timer).
+    pub(super) fn mount_scooter(&mut self, unit: UnitId, ride: Ride) {
+        self.rides.insert(unit, ride);
+    }
+
+    /// `unit`'s speed burst, if it is riding one right now: `multiplier` while `tick < until`,
+    /// else 1.0. Every place that moves a unit at its effective `move_speed` (`walk`, `wander`
+    /// and `Stride`) multiplies by this on top of everything else.
+    pub(super) fn scooter_multiplier(&self, unit: UnitId) -> f32 {
+        self.rides.get(&unit).filter(|r| r.until > self.tick).map_or(1.0, |r| r.multiplier)
+    }
+
+    /// Drops the rides whose time is up, or whose rider died.
+    pub(super) fn tick_scooters(&mut self) {
+        if self.rides.is_empty() {
+            return;
+        }
+        let (now, units) = (self.tick, &self.units);
+        self.rides
+            .retain(|id, r| r.until > now && units.binary_search_by_key(id, |u| u.id).is_ok());
     }
 }
 
@@ -882,6 +948,8 @@ mod fire_tests;
 mod glide_tests;
 #[cfg(test)]
 mod metalbend_tests;
+#[cfg(test)]
+mod scooter_tests;
 #[cfg(test)]
 mod seismic_tests;
 #[cfg(test)]

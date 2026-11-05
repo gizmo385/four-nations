@@ -278,6 +278,10 @@ pub struct World {
     /// Warmth auras on units, by carrier (Inner Fire, #123; `heat.rs`).
     #[serde(default)]
     auras: BTreeMap<UnitId, Aura>,
+    /// Speed bursts on units, by rider (Air Scooter, #143; `world/bending.rs`). A save from
+    /// before #143 loads with none.
+    #[serde(default)]
+    rides: BTreeMap<UnitId, bending::Ride>,
     /// Finished orchards by tile, with what each has planted (`orchard.rs`, #142).
     #[serde(default)]
     orchards: BTreeMap<Pos, orchard::Orchard>,
@@ -407,6 +411,7 @@ impl World {
             fallow: BTreeMap::new(),
             heat: BTreeMap::new(),
             auras: BTreeMap::new(),
+            rides: BTreeMap::new(),
             orchards: BTreeMap::new(),
             saplings: BTreeSet::new(),
             farm_plots: BTreeMap::new(),
@@ -659,6 +664,7 @@ impl World {
         self.tick_farms(defs);
         self.tick_irrigation(defs);
         self.tick_heat();
+        self.tick_scooters();
         for i in 0..self.units.len() {
             self.act(i, defs);
         }
@@ -686,7 +692,9 @@ impl World {
             self.units[i].wander_left = self.rng.random_range(1..=s.idle_wander_steps);
             self.units[i].move_progress = 0.0;
         }
-        let speed = self.modifiers_for(&self.units[i], defs).move_speed;
+        let id = self.units[i].id;
+        let speed =
+            self.modifiers_for(&self.units[i], defs).move_speed * self.scooter_multiplier(id);
         self.units[i].move_progress += speed;
         if self.units[i].move_progress < BASE_TICKS_PER_STEP {
             return;

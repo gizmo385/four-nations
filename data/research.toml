@@ -406,11 +406,10 @@ description = "Ride a spinning ball of air."
 nation = "air"
 cost = 250
 prereqs = ["gliders", "meditation"]
-# Modifier-only for now: the air scooter ability needs a new bending effect that the four in
-# data/bending.toml don't cover; tracked in issue #143 (the design table in research.md still
-# lists it).
-# Later: abilities = ["air_scooter"]
+# Ability: a burst of speed on the caster (docs/design/bending.md, "Air Nomads: Air Scooter",
+# #143).
 [tech.unlocks]
+abilities = ["air_scooter"]
 modifiers = { move_speed = 1.2 }
 
 [[tech]]

@@ -9,9 +9,9 @@ use fn_sim::{Defs, MapGenConfig, MoveRules, Nation, Pos, World};
 
 const MINUTE: u64 = 600; // ticks
 
-/// The Air branch in tree order, with the buildings each tech must unlock. `meditation` and
-/// `air_scooter` are modifier-only for the reasons given in research.toml; `gliders` unlocks the
-/// Glide ability (#197).
+/// The Air branch in tree order, with the buildings each tech must unlock. `meditation` is
+/// modifier-only for the reason given in research.toml; `gliders` unlocks the Glide ability
+/// (#197) and `air_scooter` unlocks Air Scooter (#143).
 const BRANCH: [(&str, &[&str]); 7] = [
     ("orchards", &["orchard"]),
     ("meditation", &[]),
@@ -23,7 +23,7 @@ const BRANCH: [(&str, &[&str]); 7] = [
 ];
 
 /// Techs with no building, ability or job to unlock, each with a reason in research.toml.
-const MODIFIER_ONLY: [&str; 2] = ["meditation", "air_scooter"];
+const MODIFIER_ONLY: [&str; 1] = ["meditation"];
 
 fn fresh(defs: &Defs) -> World {
     let cfg = MapGenConfig { seed: 13, ..Default::default() };

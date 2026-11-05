@@ -42,6 +42,10 @@ fn bundled_abilities_load_one_signature_per_nation() {
     assert_eq!(inner.nation, Nation::Fire);
     assert_eq!(inner.unlocked_by, defs.tech_id("dancing_dragon"));
     assert_eq!(inner.magnitude_modifier.as_deref(), Some("heating"));
+    let scooter = defs.ability(defs.ability_id("air_scooter").unwrap());
+    assert_eq!(scooter.nation, Nation::Air);
+    assert_eq!(scooter.unlocked_by, defs.tech_id("air_scooter"));
+    assert_eq!(scooter.magnitude_modifier.as_deref(), Some("move_speed"));
     let earth = defs.ability(defs.ability_id("raise_earth").unwrap());
     assert_eq!(earth.nation, Nation::Earth);
     assert_eq!((earth.chi, earth.work), (50.0, 15.0));
@@ -146,6 +150,9 @@ fn effect_ids_and_numbers_are_validated() {
     assert!(bad("radius = 2 ", "radius = 0 ").contains("heat_aura"));
     assert!(bad("sleep_bonus = 1.25", "sleep_bonus = 0.5").contains("heat_aura"));
     assert!(bad("duration_minutes = 4.0", "duration_minutes = 0.0").contains("heat_aura"));
+    // Air Scooter.
+    assert!(bad("duration_minutes = 2.0", "duration_minutes = 0.0").contains("scooter"));
+    assert!(bad("multiplier = 2.5", "multiplier = 1.0").contains("scooter"));
     // Metalbend.
     assert!(bad("ore = \"gold_ore\"", "ore = \"coal\"").contains("coal"));
     assert!(bad("metal = \"metal\"", "metal = \"steel\"").contains("steel"));

@@ -73,6 +73,11 @@ pub enum Effect {
     HeatAura { duration_minutes: f32, radius: u32, sleep_bonus: f32 },
     /// Blow a ground stack into a stockpile (Air's "Wind Carry"). The magnitude scales `range`.
     WindCarry { range: u32 },
+    /// A burst of speed on the caster (Air's "Air Scooter", #143): for `duration_minutes`, the
+    /// caster's `move_speed` is multiplied by `multiplier` on top of everything else. Ends with
+    /// its timer, not with distance covered. The magnitude scales `duration_minutes`, by
+    /// `move_speed` itself: a nation already fast on its feet rides the burst a little longer.
+    Scooter { duration_minutes: f32, multiplier: f32 },
     /// Uncover what is buried within `radius` tiles (Chebyshev) of the target: every buried
     /// resource (`ResourceDef::buried`) of a kind named in `finds` comes onto the map, to be
     /// worked like any other. Earth's "Seismic Sense" (#133) feels gold seams in the rock; Air's
@@ -141,6 +146,10 @@ enum RawEffect {
     },
     WindCarry {
         range: u32,
+    },
+    Scooter {
+        duration_minutes: f32,
+        multiplier: f32,
     },
     Reveal {
         radius: u32,
@@ -332,6 +341,15 @@ fn resolve_effect(
                 return err("wind_carry range must be at least 1");
             }
             Effect::WindCarry { range }
+        }
+        RawEffect::Scooter { duration_minutes, multiplier } => {
+            if !positive(duration_minutes) {
+                return err("scooter duration_minutes must be positive");
+            }
+            if !(multiplier.is_finite() && multiplier > 1.0) {
+                return err("scooter multiplier must be greater than 1.0");
+            }
+            Effect::Scooter { duration_minutes, multiplier }
         }
         RawEffect::Reveal { radius, finds: names } => {
             if radius == 0 || names.is_empty() {

@@ -663,7 +663,9 @@ impl World {
     /// One tick of walking along the route. True once the unit is at the end of it (or the
     /// route is empty to begin with); arriving costs the tick the last step landed on.
     pub(super) fn walk(&mut self, i: usize, defs: &Defs) -> bool {
-        let speed = self.modifiers_for(&self.units[i], defs).move_speed;
+        let id = self.units[i].id;
+        let speed =
+            self.modifiers_for(&self.units[i], defs).move_speed * self.scooter_multiplier(id);
         let rules = rules_for(&self.rules, &self.cart_rules, &self.units[i]);
         let u = &mut self.units[i];
         let Some(route) = u.route.as_mut() else { return false };

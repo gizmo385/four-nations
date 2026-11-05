@@ -165,6 +165,27 @@ kind = "reveal"
 radius = 14               # tiles, Chebyshev
 finds = ["lost_ruins"]
 
+# --- #143 (Air: air scooter) -------------------------------------------------------------------
+
+# Air, from `air_scooter` (#143, docs/design/bending.md, "Air Nomads: Air Scooter"): the bender
+# steps onto a spinning ball of air and rides it, much faster than on foot, for a little while.
+# The burst ends with its timer, not with distance covered, so a long haul might outrun it partway
+# there. It's a self-cast like Inner Fire: the designated tile is only where the bender stands to
+# summon it.
+[[ability]]
+id = "air_scooter"
+nation = "air"
+name = "Air Scooter"
+verb = "Ride"
+description = "Spin up a ball of air and ride it, much faster than on foot, for a little while."
+chi = 20.0
+work = 3.0
+magnitude_modifier = "move_speed"   # scales duration_minutes: already-fast nations ride it longer
+[ability.effect]
+kind = "scooter"
+duration_minutes = 2.0
+multiplier = 2.5
+
 # --- #134 (Earth: metalbending) -----------------------------------------------------------------
 
 # Earth, from `metalbending` (docs/design/research.md, "Metalbending"): the bender reaches into a
