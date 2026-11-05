@@ -6,8 +6,10 @@
 //! **Time is lockstep** ([`Host::end_turn`]): the sim stands still between calls, and a turn is
 //! a fixed slice of game time (`Host::turn_seconds`, 20 by default), so every call gets the same
 //! amount of the world moving. A turn ends early the moment a new alert lands or a need flag
-//! first shows, which stands in for a human's continuous attention without telling the agent
-//! anything the alert log and the side panel don't already say.
+//! shows that wasn't already up at the call's start and hasn't shown yet in this same call (a
+//! flag that flickers on and off doesn't count twice), which stands in for a human's continuous
+//! attention without telling the agent anything the alert log and the side panel don't already
+//! say. [`Observation::stopped`] names which.
 //!
 //! **Keys, not commands** ([`Host::press_keys`], [`Host::act`]): every action goes through
 //! `Shell::key`, the same path a human's keyboard feeds, so an agent can't do anything a key
@@ -26,7 +28,7 @@
 //! so it can be replayed with `Shell::play` (a seed plus keys is the whole game, as a key script
 //! always is) and exported as a `--keys` script (`RunLog::to_keys_script`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fn_sim::world::TICKS_PER_SECOND;
@@ -311,29 +313,47 @@ impl Host {
 
     /// Runs `turns` turns of `turn_seconds` game seconds each, through the same path a
     /// `<tick N>` of a key script takes (`App::run_ticks`). Stops early at the end of the first
-    /// turn in which a new alert lands or a need flag shows for the first time, so a long
-    /// `turns` never runs past the next thing worth an agent's attention. Returns the
-    /// observation after whichever turn it stopped on.
+    /// turn in which a new alert lands, or a need flag shows that wasn't already up when this
+    /// call started and hasn't shown yet in an earlier turn of this same call -- so a flag that
+    /// clears and comes back within the call's own window (thirst easing off and returning a
+    /// few turns later, say) doesn't count as new every time it recurs, only the first time.
+    /// Returns the observation after whichever turn it stopped on, with [`Observation::stopped`]
+    /// naming why (`None` only when every requested turn ran with nothing to report).
     pub fn end_turn(&mut self, turns: u32) -> Observation {
+        // Everything already flagged when the call started never counts as new; `first_new_flag`
+        // folds in every turn's own flags too, so only something genuinely unseen in this
+        // call's whole window can stop it.
+        let mut seen: BTreeSet<String> =
+            need_flags(&self.app().session).into_iter().map(|(w, _)| w).collect();
+        let mut stopped = None;
         for _ in 0..turns {
             let before_alerts = self.app().ui.alerts.history().len();
-            let before_needs: Vec<String> =
-                need_flags(&self.app().session).into_iter().map(|(w, _)| w).collect();
             let ticks = self.turn_seconds * TICKS_PER_SECOND;
             self.app_mut().run_ticks(ticks);
             self.turn += 1;
             let tick = self.app().session.world.tick;
             self.log.push(LogEntry::Turn { index: self.turn, tick });
             let after_alerts = self.app().ui.alerts.history().len();
-            let new_need_flag = need_flags(&self.app().session)
-                .into_iter()
-                .any(|(w, _)| !before_needs.contains(&w));
             self.alerts_since_turn = after_alerts;
-            if after_alerts > before_alerts || new_need_flag {
+            if after_alerts > before_alerts {
+                let history = self.app().ui.alerts.history();
+                let text = history[before_alerts..after_alerts]
+                    .iter()
+                    .map(|e| e.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                stopped = Some(format!("new alert: {text}"));
+                break;
+            }
+            let now_needs = need_flags(&self.app().session);
+            if let Some(flag) = first_new_flag(&mut seen, now_needs) {
+                stopped = Some(format!("need flag: {flag} first shown"));
                 break;
             }
         }
-        self.observe()
+        let mut obs = self.observe();
+        obs.stopped = stopped;
+        obs
     }
 
     // --------------------------------------------------------------------------------------
@@ -392,6 +412,7 @@ impl Host {
             }),
             cursor: self.cursor_view(ui.cursor),
             alerts,
+            stopped: None,
         }
     }
 
@@ -869,6 +890,19 @@ impl Host {
     }
 }
 
+/// The first of `now`'s need words that isn't already in `seen` ([`Host::end_turn`]'s own doc
+/// comment, #331): the thing that stops an `end_turn` call, if anything does. Every word in
+/// `now` is folded into `seen` regardless, so a flag that clears and later shows again within
+/// the same call can't count as new a second time -- only the call's very first sight of it
+/// can. A pure, standalone function (no `Session` or ticks) so a test can drive the exact rule
+/// with a flag's own flicker, one turn's worth of `need_flags` output at a time, without
+/// needing the AI to actually clear and re-trip a real need on a schedule.
+fn first_new_flag(seen: &mut BTreeSet<String>, now: Vec<(String, usize)>) -> Option<String> {
+    let flag = now.iter().find(|(w, _)| !seen.contains(w)).map(|(w, _)| w.clone());
+    seen.extend(now.into_iter().map(|(w, _)| w));
+    flag
+}
+
 /// One line of a tooltip as plain text (`fn_ui::inspect::Line`): a hint with no words
 /// (`Hint::ApplyTool`, already implied by the tool banner) leaves nothing out of the lines
 /// `panel::hint_text` would skip too.
@@ -1221,6 +1255,12 @@ pub struct Observation {
     pub endeavor: Option<EndeavorView>,
     pub cursor: CursorView,
     pub alerts: Vec<String>,
+    /// Why the turn-run that produced this reading stopped early: `"new alert: ..."` or
+    /// `"need flag: ... first shown"` ([`Host::end_turn`]'s own doc comment). `None` from a bare
+    /// `observe` (nothing ran), and `None` from `end_turn` too when every requested turn ran
+    /// with nothing to report -- never left unset while `alerts` is empty, so an early stop
+    /// can't look silent.
+    pub stopped: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1769,6 +1809,68 @@ mod tests {
         let obs = h.end_turn(200);
         assert!(obs.turn >= 1 && obs.turn < 200, "{}", obs.turn);
         assert!(!obs.people.needs.is_empty(), "a need flag should have stopped it");
+        let stopped = obs.stopped.expect("an early stop always says why");
+        assert!(stopped.contains("need flag:"), "{stopped}");
+    }
+
+    /// A need flag that was already up when the call started, and that flickers off and back
+    /// on inside the call's own window, never stops `end_turn` -- only something genuinely
+    /// unseen in that window does (#331). Drives `run_one_turn` directly (needs set by hand
+    /// between turns) rather than `end_turn` itself, so the flicker is exact and doesn't depend
+    /// on the AI's own timing for when a need actually clears.
+    #[test]
+    fn first_new_flag_ignores_a_flag_that_already_showed_and_flickers() {
+        // A colony where Thirsty is already up when the call starts (so it's in `seen` before
+        // turn 1 runs at all, exactly as `end_turn` seeds it).
+        let mut seen: BTreeSet<String> = ["Thirsty".to_owned()].into_iter().collect();
+
+        // Turn 1: the flag clears (the colonist found water).
+        assert_eq!(first_new_flag(&mut seen, vec![]), None);
+
+        // Turn 2: it flickers back -- still not new, since it showed at the call's start.
+        assert_eq!(
+            first_new_flag(&mut seen, vec![("Thirsty".to_owned(), 1)]),
+            None,
+            "a flag that flickers back isn't new"
+        );
+
+        // Turn 3: a different need crossing its own threshold for the first time still stops.
+        assert_eq!(
+            first_new_flag(&mut seen, vec![("Hungry".to_owned(), 1)]),
+            Some("Hungry".to_owned())
+        );
+
+        // Turn 4: and now that Hungry has shown once, it flickering too isn't new either.
+        assert_eq!(first_new_flag(&mut seen, vec![]), None);
+        assert_eq!(first_new_flag(&mut seen, vec![("Hungry".to_owned(), 1)]), None);
+    }
+
+    /// A need flag already up at the call's start doesn't stop `end_turn` even once, through
+    /// the public API end to end (#331): the companion to the test above, which drives the
+    /// flicker turn by turn.
+    #[test]
+    fn end_turn_runs_the_full_count_when_the_only_flag_already_showed() {
+        let mut h = host(Nation::Earth).with_turn_seconds(1);
+        let hungry = h.app().session.defs.needs.hunger.low - 1.0;
+        h.app_mut().session.world.units[0].needs.hunger = hungry;
+        let obs = h.end_turn(3);
+        assert_eq!(obs.turn, 3, "a flag already showing at the start never stops it");
+        assert_eq!(obs.stopped, None);
+    }
+
+    /// A truly new alert -- not a need flag -- still stops `end_turn` early, and
+    /// `Observation::stopped` names it instead of leaving `alerts: []` to look silent (#331).
+    #[test]
+    fn end_turn_stops_on_a_new_alert_and_names_it() {
+        let mut h = host(Nation::Earth).with_turn_seconds(1);
+        // Already flagged (Starving, Dying) before the call starts, so those don't stop it;
+        // the death that follows almost at once is a new alert instead.
+        h.app_mut().session.world.units[1].needs.hunger = 0.0;
+        h.app_mut().session.world.units[1].needs.health = 0.01;
+        let obs = h.end_turn(5);
+        assert!(obs.turn >= 1 && obs.turn < 5, "{}", obs.turn);
+        let stopped = obs.stopped.expect("a death is a new alert, never silent");
+        assert!(stopped.starts_with("new alert:") && stopped.contains("died of"), "{stopped}");
     }
 
     #[test]

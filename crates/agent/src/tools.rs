@@ -136,8 +136,11 @@ pub fn list() -> Vec<Value> {
         json!({
             "name": "end_turn",
             "description": "Runs turns of turn_seconds game seconds each (the host owns the \
-                             clock); stops early at the end of the first turn with a new alert \
-                             or a first-shown need flag.",
+                             clock); stops early at the end of the first turn with a new alert, \
+                             or a need flag that wasn't already up when this call started and \
+                             hasn't shown yet in this same call (a flag that flickers on and \
+                             off only counts once). The result's `stopped` names why it stopped \
+                             early, or is null when every requested turn ran.",
             "inputSchema": json!({
                 "type": "object",
                 "properties": {"turns": {"type": "integer", "default": 1}},
