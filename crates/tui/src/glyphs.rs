@@ -99,6 +99,16 @@ pub struct EmbarkGlyphDef {
     pub river_lake_share: f64,
 }
 
+/// The side panel's Season section's presentation threshold (`[season]`, #299,
+/// docs/design/difficulty.md "TUI"): not a sim rule (`data/seasons.toml` has none of it), just
+/// when the food line turns to the warn tone.
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SeasonGlyphDef {
+    /// Food per head below which, in autumn or winter, the Season section's food line warns.
+    pub winter_food_per_head: u32,
+}
+
 /// The background tints (`[overlay]`).
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -139,6 +149,7 @@ pub struct Glyphs {
     pub gate_stage: BTreeMap<String, OverlayGlyph>,
     pub overlay: Overlays,
     pub embark: EmbarkGlyphDef,
+    pub season: SeasonGlyphDef,
 }
 
 /// The key of a terrain in `[terrain.*]`. `Land` has none: bare land draws as its biome. The

@@ -290,7 +290,9 @@ fn the_panel_and_the_status_line_show_the_tool_its_hint_and_the_result() {
     let status = text.lines().last().unwrap();
     assert!(status.starts_with(" HARVEST "), "{status}");
     assert!(status.contains("Enter set corner") && status.contains("designate harvest"));
-    assert!(text.contains("TOOL") && text.contains("Harvest [H]"), "{text}");
+    // The Tool section's heading is the tool's own name now, not the literal word "TOOL"
+    // (docs/design/side-panel.md "Headings"): `├─ HARVEST ────────── [H] ─┤`.
+    assert!(text.contains("HARVEST") && text.contains("[H]"), "{text}");
     assert!(text.contains("Enter: set a corner"), "{text}");
 
     app.play(&keys::parse("<left*2> <enter> <down> <left>").unwrap());
@@ -358,13 +360,14 @@ fn o_toggles_a_standing_order_in_the_harvest_tool_only() {
 
     app.play(&keys::parse("h").unwrap());
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
-    assert!(text.contains("Harvest [H]"), "{text}");
-    assert!(!text.contains("repeating"), "{text}");
+    // The heading is upper case (docs/design/side-panel.md "Headings").
+    assert!(text.contains("HARVEST ") && text.contains("[H]"), "{text}");
+    assert!(!text.to_lowercase().contains("repeating"), "{text}");
 
     app.play(&keys::parse("o").unwrap());
     assert!(app.ui.repeating);
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
-    assert!(text.contains("Harvest · repeating [H]"), "{text}");
+    assert!(text.contains("HARVEST · REPEATING") && text.contains("[H]"), "{text}");
     let status = text.lines().last().unwrap();
     assert!(status.contains("Harvest · repeating"), "{status}");
 
@@ -510,7 +513,12 @@ fn escape_drops_the_corner_then_leaves_the_tool() {
     assert_eq!((app.ui.tool, app.ui.anchor), (Tool::Select, None));
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
     assert!(text.lines().last().unwrap().starts_with(" SELECT "));
-    assert!(!text.contains("TOOL"), "Select mode hides the section:\n{text}");
+    // The Tool section's heading names the active tool (docs/design/side-panel.md "Headings");
+    // Select mode has none, so none of a tool's own name shows.
+    assert!(
+        !["STOCKPILE", "HARVEST", "BUILD", "BEND"].iter().any(|t| text.contains(t)),
+        "Select mode hides the section:\n{text}"
+    );
 }
 
 #[test]

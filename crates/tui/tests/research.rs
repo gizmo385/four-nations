@@ -335,7 +335,16 @@ fn enter_on_a_locked_tech_queues_its_prereqs() {
     let frame = text(&mut a, WIDE);
     // (The details line under the grid says it once more, for the card under the cursor.)
     assert_eq!(frame.matches("Queued").count(), queued.len() + 1, "{frame}");
-    let mark = |name: &str| frame.lines().find(|l| l.contains(name)).unwrap().to_owned();
+    // The map region only: the side panel's own Research row names the current target too (a
+    // queued prereq, here), which can otherwise collide with the grid's own card for it.
+    let map_width = usize::from(WIDE.0 - fn_tui::layout::PANEL_WIDTH);
+    let mark = |name: &str| {
+        frame
+            .lines()
+            .map(|l| l.chars().take(map_width).collect::<String>())
+            .find(|l| l.contains(name))
+            .unwrap()
+    };
     let chain: Vec<char> = queued
         .iter()
         .map(|&id| {

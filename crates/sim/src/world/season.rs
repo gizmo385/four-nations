@@ -77,6 +77,16 @@ impl World {
         Some(defs.seasons.climate_for(tile.temperature))
     }
 
+    /// Does a unit standing at `pos` feel the cold right now (`tick_needs`'s own check, for the
+    /// TUI's hover, `docs/design/difficulty.md` "Readable simulation"): the preset has seasons
+    /// on, it's winter, the tile's climate band feels cold, and nothing heats it.
+    pub fn is_cold(&self, pos: Pos, defs: &Defs) -> bool {
+        self.knobs(defs).seasons
+            && self.season(defs).winter
+            && self.climate_at(pos, defs).is_some_and(|c| c.cold)
+            && !self.is_heated(pos)
+    }
+
     /// Season changes, the winter warning and frost, oldest first.
     pub fn season_events(&self) -> &[SeasonEvent] {
         &self.season_events

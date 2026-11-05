@@ -229,6 +229,39 @@ fn a_unit_on_a_cold_band_tile_in_winter_loses_hunger_and_energy_faster_unless_he
     assert_eq!(w.units[0].needs.thirst, baseline.units[0].needs.thirst, "never thirst");
 }
 
+/// `World::is_cold` agrees with `tick_needs`'s own check (the TUI's hover, #299): on, in
+/// winter, on a cold band, unheated; off a heat source, off that band, outside winter, or with
+/// seasons off altogether.
+#[test]
+fn is_cold_matches_the_tick_needs_check() {
+    let defs = Defs::bundled();
+    let pos = at(2, 0);
+    let w = cold_test_world(&defs, 0, pos); // polar, winter, Normal
+    assert!(w.is_cold(pos, &defs));
+
+    let warm_band = cold_test_world(&defs, 255, pos); // warm band: never cold
+    assert!(!warm_band.is_cold(pos, &defs));
+
+    let mut not_winter = cold_test_world(&defs, 0, pos);
+    not_winter.tick = 0; // spring
+    assert!(!not_winter.is_cold(pos, &defs));
+
+    let mut sandbox = cold_test_world(&defs, 0, pos);
+    sandbox.difficulty = Some("sandbox".into()); // seasons off
+    assert!(!sandbox.is_cold(pos, &defs));
+
+    let mut heated = cold_test_world(&defs, 0, pos);
+    heated.light_heat_source(HeatSource {
+        pos,
+        radius: 3,
+        sleep_bonus: 1.0,
+        seek_tiles: 10,
+        until: HeatSource::FOREVER,
+        size: [1, 1],
+    });
+    assert!(!heated.is_cold(pos, &defs));
+}
+
 #[test]
 fn a_campfire_in_range_negates_cold() {
     let defs = Defs::bundled();

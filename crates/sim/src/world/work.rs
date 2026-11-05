@@ -220,6 +220,13 @@ impl World {
         self.resting.contains_key(&pos)
     }
 
+    /// Seconds left before the resting resource on `pos` ripens again, for the TUI's hover
+    /// (`docs/design/difficulty.md`, "Readable simulation"). `None` when it isn't resting
+    /// (`is_resting`, which an orchard's sapling also counts as).
+    pub fn resting_left(&self, pos: Pos) -> Option<f32> {
+        self.resting.get(&pos).copied()
+    }
+
     /// Item stacks lying on the ground waiting for a hauler, by tile.
     pub fn ground_items(&self) -> impl Iterator<Item = (Pos, Stack)> + '_ {
         self.ground.iter().map(|(&p, &s)| (p, s))

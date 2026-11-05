@@ -158,6 +158,11 @@ fn hard_kills_an_over_picked_tree_and_normal_never_does() {
     assert_eq!(w.strain_at(TREE), None, "the dead tile holds no strain");
     assert_eq!(w.strain_events().len(), 1);
     assert_eq!(w.strain_events()[0].pos, TREE);
+    assert_eq!(
+        w.strain_events()[0].resource,
+        defs.resource_id("fruit_tree").unwrap(),
+        "the TUI's alert (#299) names what it was"
+    );
 
     let (mut w, mut defs) = setup(Some("normal"), &ROWS, &[at(4, 2)]);
     without_seasons(&mut defs, "normal");

@@ -10,9 +10,11 @@ The owner wanted to play the whole game from a terminal: a glyph map, keyboard m
 terminal frontend needed no new game rules. It also gives agents a way to play and check the
 game without a GUI at all (there is no longer one to avoid).
 
-**Side panel redesign proposed** (#302): [side-panel.md](side-panel.md) replaces the roster with
-activity counts and a Nation screen (`N`), turns section headings into dividers, and adds a tool
-banner on the map (#307). The panel described below is the one that ships today.
+**Side panel redesign** (#302): [side-panel.md](side-panel.md) replaces the roster with activity
+counts and a Nation screen (`N`, #308, #310), turns section headings into dividers joined to the
+frame (#309), and adds a tool banner on the map (#307). It has shipped; "What #99 built" below
+predates it and is out of date in the particulars side-panel.md changed -- most notably, the
+panel's own **Modifiers** section moved to the Nation screen's Traits (#308).
 
 ## Decisions in brief
 

@@ -1,30 +1,30 @@
 ┏──────────────────────────────────── ◆ RESEARCH ◆ ────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
-│ TIER 1               TIER 2               TIER 3               TIER 4               ▸││ Seed 7                 00:00 │
-│  ◇ Fire Making        · Pottery           ▸◆ Masonry            · Cartography        ││ ▶ Running x1      Space  + - │
-│   Available   25 pts   Locked      60 pts   Queued     120 pts   Locked     250 pts  ││                              │
-│   -                    -                    Construction x1.15   -                   ││ ◇ PEOPLE                   6 │
-│                                                                                      ││  Tyro Idle                   │
-│  ◆ Shelter            ◆ Carpentry          · Writing            · Earthen Walls      ││  Ping Idle                   │
-│   Queued      25 pts   Queued      60 pts   Locked     120 pts   Locked     120 pts  ││  Ming Idle                   │
-│   -                    Construction x1.1    Study x1.25          Construction x1.25  ││  Oma  Idle                   │
-│                                                                                      ││  Song Idle                   │
-│  ◇ Fishing            · Herbalism          · Tunneling          · Seismic Sense      ││  Lin  Idle                   │
-│   Available   25 pts   Locked     120 pts   Locked     120 pts   Locked     250 pts  ││                              │
-│   -                    -                    Bore Tunnel          Seismic Sense       ││ ◇ RESEARCH                   │
+│ TIER 1               TIER 2               TIER 3               TIER 4               ▸││ ▶ Running x1           00:00 │
+│  ◇ Fire Making        · Pottery           ▸◆ Masonry            · Cartography        │├─ PEOPLE ───────────────── 6 ─┤
+│   Available   25 pts   Locked      60 pts   Queued     120 pts   Locked     250 pts  ││ Idle 6                   [N] │
+│   -                    -                    Construction x1.15   -                   │├─ RESEARCH ───────────────────┤
 │                                                                                      ││ Shelter +2           3.0/min │
-│  ✓ Stoneworking       ◇ Earth Shaping                                                ││ ░░░░░░░░░░   0% 0/25 pts     │
-│   Known       25 pts   Available   60 pts                                            ││                              │
-│   -                    Earthworks x1.2                                               ││ ◇ ENDEAVOR                   │
-│                                                                                      ││ The Harmony Gate         0/9 │
-│  ◇ Farming                                                                           ││ ░░░░░░░░░░                   │
-│   Available   60 pts                                                                 ││ Signs met - G: open          │
-│   -                                                                                  ││ Next: 10 more people, 6 mor… │
-│                                                                                      ││                              │
-│                                                                                      ││ ◇ CURSOR            (94, 64) │
-│                                                                                      ││ Tyro                         │
-│                                                                                      ││ Earth Kingdom - Idle         │
-│                                                                                      ││ Carrying: nothing - Bends: 0 │
+│  ◆ Shelter            ◆ Carpentry          · Writing            · Earthen Walls      ││ ░░░░░░░░░░   0% 0/25 pts     │
+│   Queued      25 pts   Queued      60 pts   Locked     120 pts   Locked     120 pts  │├─ ENDEAVOR ───────────── 0/9 ─┤
+│   -                    Construction x1.1    Study x1.25          Construction x1.25  ││ Next: 10 more people     [G] │
+│                                                                                      │├─ CURSOR ────────── (94, 64) ─┤
+│  ◇ Fishing            · Herbalism          · Tunneling          · Seismic Sense      ││ Tyro                         │
+│   Available   25 pts   Locked     120 pts   Locked     120 pts   Locked     250 pts  ││ Earth Kingdom - Idle         │
+│   -                    -                    Bore Tunnel          Seismic Sense       ││ Carrying: nothing - Bends: 0 │
 │                                                                                      ││ Press Enter to select        │
+│  ✓ Stoneworking       ◇ Earth Shaping                                                ││                              │
+│   Known       25 pts   Available   60 pts                                            ││                              │
+│   -                    Earthworks x1.2                                               ││                              │
+│                                                                                      ││                              │
+│  ◇ Farming                                                                           ││                              │
+│   Available   60 pts                                                                 ││                              │
+│   -                                                                                  ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
@@ -36,5 +36,5 @@
 │ Masonry                                                              Queued  120 pts ││                              │
 │ Dress stone and mortar it into lasting walls.                                        ││                              │
 │ Unlocks: Construction x1.15   Needs: Carpentry                                       ││                              │
-┗─ Arrows WASD choose  Enter target  Esc/T close ──────────────────────────────────────┛┗──────────────────────────────┛
+┗─ Arrows WASD choose  Enter target  Esc/T close ──────────────────────────────────────┛┗─ seed 7 ─────────────────────┛
  RESEARCH  arrows/WASD choose  Enter set target  Esc/T close  L log  ? keys

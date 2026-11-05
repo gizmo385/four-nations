@@ -57,15 +57,22 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
     if let Some(unit) = world.units_at(tile).next() {
         lines.push(Line::Title(unit.name.clone()));
         let task = describe_task(world, defs, unit);
-        // Inner Fire (#123) rides on the unit: its time left joins the line, since a tooltip
-        // tops out at four lines.
-        let warm = world
+        // Inner Fire (#123) and the cold (#299) share this slot, since a tooltip tops out at
+        // four lines and the two never apply at once (being heated is what rules cold out,
+        // `World::is_cold`).
+        let status = world
             .glows()
             .into_iter()
             .find(|g| g.unit == unit.id)
-            .map_or(String::new(), |g| format!(" - Warm {}", clock(g.seconds_left)));
+            .map(|g| format!(" - Warm {}", clock(g.seconds_left)))
+            .or_else(|| {
+                world
+                    .is_cold(unit.pos, defs)
+                    .then(|| " - Cold: tiring faster (no fire near)".to_owned())
+            })
+            .unwrap_or_default();
         lines.push(Line::Detail(format!(
-            "{} - {task}{warm}",
+            "{} - {task}{status}",
             defs.nation(world.nation_of(unit)).name
         )));
         // Finished bends (#233) share the carrying line, for the same four-line reason.
@@ -121,6 +128,20 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
         lines.push(Line::Title(format!("{:?}", t.terrain)));
         lines.push(Line::Detail(format!("{biome} ({}, {})", tile.x, tile.y)));
         lines.push(Line::Detail(format!("Elevation {}", t.elevation)));
+        // The climate band's winter effects (#299, docs/design/difficulty.md "Readable
+        // simulation"): only once a difficulty preset turns seasons on, which is also when
+        // `World::tick_needs` and `World::growth_rate` start reading it.
+        if world.knobs(defs).seasons
+            && let Some(c) = world.climate_at(tile, defs)
+        {
+            let effects = match (c.cold, c.frost) {
+                (true, true) => "cold and frost",
+                (true, false) => "cold",
+                (false, true) => "frost",
+                (false, false) => "mild",
+            };
+            lines.push(Line::Detail(format!("{} climate: {effects} in winter", c.name)));
+        }
         // A lit flame or a wet patch (#72): the result of a bend, so hovering explains it
         // (pillar 4, "readable simulation").
         if let Some(status) = bending_status_line(world, tile) {
@@ -139,8 +160,25 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
             let text = if repeating { "Sapling - repeating order" } else { "Sapling" };
             lines.push(Line::Detail(text.into()));
         } else if world.is_resting(tile) {
-            let text = if repeating { "Growing back - repeating order" } else { "Growing back" };
-            lines.push(Line::Detail(text.into()));
+            // Its own line, not folded into the harvest's (docs/design/difficulty.md "Readable
+            // simulation"): "Growing, ripe in 11m 05s - tired (strain 2.1)" doesn't fit the
+            // panel's 28 columns together, but each half alone does.
+            let left = world.resting_left(tile).unwrap_or(0.0);
+            let suffix = if repeating { " - repeating order" } else { "" };
+            lines.push(Line::Detail(format!("Growing, ripe in {}{suffix}", clock(left))));
+            // Strain (#296): off, or fully rested already, says nothing.
+            if let Some(strain) = world.strain_at(tile).filter(|&s| s > 0.0) {
+                lines.push(Line::Detail(format!("Tired (strain {strain:.1})")));
+            }
+            // Hard only: this harvest's own strain, added to what it already carries, would
+            // reach the kill threshold next time it's picked.
+            let knobs = world.knobs(defs);
+            if knobs.strain_kills {
+                let strain = world.strain_at(tile).unwrap_or(0.0);
+                if strain + h.strain * knobs.strain >= defs.jobs.strain_kill_at {
+                    lines.push(Line::Detail("One more picking may kill it".to_owned()));
+                }
+            }
         } else {
             let item = &defs.item(h.item).name;
             let suffix = if repeating { " (repeating)" } else { "" };
@@ -163,11 +201,35 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
 
 #[cfg(test)]
 mod tests {
-    use fn_sim::Nation;
+    use fn_sim::defs::{BiomeId, Terrain};
     use fn_sim::world::Command;
+    use fn_sim::{Defs, Grid, Nation, Tile, TileMap, World};
 
     use super::*;
+    use crate::clock::Clock;
     use crate::tools::ability_for_nation;
+
+    /// A flat field, `w` by `h`, every tile at `temperature`, with `resource` on `(1, 1)`.
+    fn field(
+        w: i32,
+        h: i32,
+        temperature: u8,
+        resource: Option<fn_sim::defs::ResourceId>,
+    ) -> TileMap {
+        Grid::from_fn(w, h, |p| Tile {
+            elevation: 100,
+            temperature,
+            moisture: 128,
+            terrain: Terrain::Land,
+            biome: BiomeId(0),
+            resource: if p == Pos::new(1, 1) { resource } else { None },
+            building: None,
+        })
+    }
+
+    fn custom_session(defs: Defs, world: World) -> Session {
+        Session { world, defs, clock: Clock::default(), bend_choice: None }
+    }
 
     #[test]
     fn tooltips_have_at_most_four_lines() {
@@ -383,5 +445,94 @@ mod tests {
         let line = bending_status_line(&s.world, pos).expect("a lit flame");
         assert!(line.starts_with("Lit:"), "{line}");
         assert_eq!(bending_status_line(&s.world, Pos::new(-1, -1)), None);
+    }
+
+    /// A resting wild plant names its regrow time and, once a pick has left it tired, its
+    /// strain (#296, #299, docs/design/difficulty.md "Readable simulation").
+    #[test]
+    fn a_resting_wild_plant_shows_its_regrow_time_and_strain() {
+        let defs = Defs::bundled();
+        let fruit = defs.resource_id("fruit_tree").unwrap();
+        let map = field(3, 3, 128, Some(fruit));
+        let mut world = World::with_map(1, map, Nation::Earth, &[Pos::new(0, 0)], &defs);
+        world.set_difficulty(Some("normal".to_owned()));
+        let pos = Pos::new(1, 1);
+        world.apply(Command::DesignateHarvest { pos }, &defs).unwrap();
+        for _ in 0..2000 {
+            world.tick(&defs);
+            if world.is_resting(pos) {
+                break;
+            }
+        }
+        assert!(world.is_resting(pos), "the pick should leave it resting");
+        assert!(world.strain_at(pos).unwrap() > 0.0, "and tired, on Normal");
+        let s = custom_session(defs, world);
+        let lines = tooltip_lines(&s, Tool::Select, pos).unwrap();
+        let growing = lines
+            .iter()
+            .find_map(|l| match l {
+                Line::Detail(t) if t.starts_with("Growing") => Some(t.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("a Growing line in {lines:?}"));
+        assert!(growing.contains("ripe in"), "{growing}");
+        assert!(
+            lines.iter().any(|l| matches!(l, Line::Detail(t) if t.starts_with("Tired (strain"))),
+            "{lines:?}"
+        );
+    }
+
+    /// A bare tile names its climate band's winter effects once a difficulty preset turns
+    /// seasons on, and says nothing extra without one (#299).
+    #[test]
+    fn a_tile_names_its_climate_band_once_seasons_are_on() {
+        let defs = Defs::bundled();
+        let map = field(3, 3, 0, None); // polar: cold and frost
+        let pos = Pos::new(1, 1);
+        let plain = World::with_map(1, map.clone(), Nation::Earth, &[Pos::new(0, 0)], &defs);
+        let s = custom_session(defs.clone(), plain);
+        let lines = tooltip_lines(&s, Tool::Select, pos).unwrap();
+        assert!(
+            !lines.iter().any(|l| matches!(l, Line::Detail(t) if t.contains("climate"))),
+            "seasons off: {lines:?}"
+        );
+
+        let mut seasonal = World::with_map(1, map, Nation::Earth, &[Pos::new(0, 0)], &defs);
+        seasonal.set_difficulty(Some("normal".to_owned()));
+        let s = custom_session(defs, seasonal);
+        let lines = tooltip_lines(&s, Tool::Select, pos).unwrap();
+        let climate = s.defs.seasons.climate_for(0);
+        assert!(
+            lines
+                .iter()
+                .any(|l| matches!(l, Line::Detail(t) if t == &format!("{} climate: cold and frost in winter", climate.name))),
+            "{lines:?}"
+        );
+    }
+
+    /// A unit standing on a cold band in winter, with no fire near, reads "Cold" in the slot
+    /// Inner Fire's own warmth uses (#299): the two never show together, since being heated is
+    /// what rules cold out.
+    #[test]
+    fn a_cold_unit_s_status_names_the_cold() {
+        let defs = Defs::bundled();
+        let map = field(3, 3, 0, None); // polar: cold
+        let pos = Pos::new(0, 0);
+        let mut world = World::with_map(1, map, Nation::Earth, &[pos], &defs);
+        world.set_difficulty(Some("normal".to_owned()));
+        let season_ticks = (f64::from(defs.seasons.calendar.season_minutes)
+            * 60.0
+            * f64::from(fn_sim::world::TICKS_PER_SECOND)) as u64;
+        world.tick = season_ticks * 3; // winter
+        assert!(world.season(&defs).winter);
+        assert!(world.is_cold(pos, &defs));
+        let s = custom_session(defs, world);
+        let lines = tooltip_lines(&s, Tool::Select, pos).unwrap();
+        assert!(
+            lines.iter().any(
+                |l| matches!(l, Line::Detail(t) if t.ends_with("Cold: tiring faster (no fire near)"))
+            ),
+            "{lines:?}"
+        );
     }
 }

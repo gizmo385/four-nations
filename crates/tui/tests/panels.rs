@@ -9,6 +9,7 @@ use fn_tui::app::App;
 use fn_tui::color::{ColorDepth, Palette};
 use fn_tui::frame::{render_app, to_text};
 use fn_tui::state::{PINNED, Screen};
+use fn_tui::widgets::Tone;
 use fn_tui::{keys, new_session};
 use fn_ui::tools::ability_for_nation;
 use fn_ui::{Session, Tool};
@@ -374,47 +375,54 @@ fn golden_ascii_frame_with_a_selected_unit() {
 // The side panel
 // ---------------------------------------------------------------------------------------------
 
-#[test]
-fn people_lists_a_line_per_unit_while_they_fit_and_then_counts_the_rest() {
-    let mut a = app(7, Nation::Earth, SIZE);
-    let frame = text(&mut a, SIZE);
-    for u in &a.session.world.units {
-        assert!(frame.contains(&format!(" {} ", u.name)) || frame.contains(&u.name), "{}", u.name);
+/// Pushes `a`'s settlement to 20 units (#310's own test scenario), cloning the first one with a
+/// fresh id so every other id stays unique.
+fn push_to_twenty(a: &mut App) {
+    while a.session.world.units.len() < 20 {
+        let mut u = a.session.world.units[0].clone();
+        u.id = fn_sim::world::UnitId(1000 + a.session.world.units.len() as u32);
+        a.session.world.units.push(u);
     }
-    // "[Tab]" only ever marks the People section's own "+N more" row (#242's Endeavor section
-    // has its own "more" wording -- "10 more people" -- so a bare search for "more" would be a
-    // false positive there).
-    assert!(!frame.contains("[Tab]"), "all six fit at 120x40:\n{frame}");
-
-    // At 80x24 the panel is 21 rows: it gives up unit lines for the sections that matter.
-    let mut b = app(7, Nation::Earth, SMALL);
-    let frame = text(&mut b, SMALL);
-    assert!(frame.contains("PEOPLE"), "{frame}");
-    assert!(frame.contains("CURSOR") && frame.contains("RESEARCH"), "{frame}");
-    let listed = b.session.world.units.iter().filter(|u| frame.contains(&u.name)).count();
-    assert_eq!(listed, b.session.world.units.len(), "every unit should fit:\n{frame}");
-
-    // With a tool and a result to report there is less room, and the count says what is missing.
-    run(&mut b, "b <enter> <enter>");
-    let frame = text(&mut b, SMALL);
-    let listed = b.session.world.units.iter().filter(|u| frame.contains(&u.name)).count();
-    if listed > 0 && listed < b.session.world.units.len() {
-        assert!(
-            frame.contains(&format!("+{} more", b.session.world.units.len() - listed)),
-            "{frame}"
-        );
-    }
-    assert!(frame.contains("CURSOR"), "{frame}");
 }
 
+/// People's own rows, between its heading and the next one (docs/design/side-panel.md "People:
+/// counts, not names"): the activity-count rows, then the need-flags row if any.
+fn people_rows(frame: &str) -> usize {
+    frame
+        .lines()
+        .skip_while(|l| !l.contains("PEOPLE"))
+        .skip(1)
+        .take_while(|l| !l.contains('├') && !l.contains('┗'))
+        .count()
+}
+
+/// #310: with 20 settlers, the People section shows activity counts (not a line per settler),
+/// packed into at most [`fn_tui::panel`]'s own three rows plus one for need flags, at 120x40 and
+/// 80x24 alike; a starving one shows up as "Starving 1", in the bad tone.
 #[test]
-fn the_selected_unit_is_marked_in_the_people_list() {
+fn people_shows_activity_counts_in_at_most_the_docs_rows_with_a_starving_unit_in_the_bad_tone() {
     let mut a = app(7, Nation::Earth, SIZE);
-    run(&mut a, "<tab> <tab>");
-    let name = a.session.world.units[1].name.clone();
-    let frame = text(&mut a, SIZE);
-    assert!(frame.contains(&format!("▸{name}")), "{frame}");
-    assert_eq!(frame.matches('▸').count(), 1);
+    push_to_twenty(&mut a);
+    a.session.world.units[0].needs.hunger = 0.0;
+    assert_eq!(a.session.world.units.len(), 20);
+
+    let p = Palette::new(&a.session.defs, a.session.world.nation, ColorDepth::TrueColor, false);
+    let buf = render_app(&mut a, &p, SIZE);
+    let frame = to_text(&buf);
+    assert!(people_rows(&frame) <= 4, "{}:\n{frame}", people_rows(&frame));
+    assert!(frame.contains("Idle"), "{frame}");
+    assert!(frame.contains("Starving 1"), "{frame}");
+    assert!(frame.contains("[N]"), "{frame}");
+    let row = frame.lines().position(|l| l.contains("Starving 1")).unwrap();
+    let col = frame.lines().nth(row).unwrap().chars().position(|c| c == 'S').unwrap();
+    let want = Tone::Bad.style(&p).fg;
+    assert_eq!(buf[(col as u16, row as u16)].fg, want.unwrap());
+
+    let mut b = app(7, Nation::Earth, SMALL);
+    push_to_twenty(&mut b);
+    let frame = text(&mut b, SMALL);
+    assert!(people_rows(&frame) <= 2, "{}:\n{frame}", people_rows(&frame));
+    assert!(frame.contains("CURSOR") && frame.contains("RESEARCH"), "{frame}");
 }
 
 #[test]
@@ -491,10 +499,14 @@ fn the_sections_come_in_ui_md_order() {
     // ENDEAVOR is the one section here that may give way on a tight panel (#242): this scene
     // packs long task lines and several alerts, so it checks the order of whichever show up
     // rather than demanding every one of them. Modifiers moved to the Nation screen's Traits
-    // (#308), so the panel no longer carries that section.
-    let order: Vec<&str> = ["Seed", "PEOPLE", "RESEARCH", "ENDEAVOR", "TOOL", "ALERTS", "CURSOR"]
+    // (#308), so the panel no longer carries that section. The Tool section's heading is the
+    // tool's own name, not the literal word "TOOL" (docs/design/side-panel.md "Headings"), but
+    // "BEND" also names itself in the active tool banner's own row (#307) above the panel, so
+    // this looks for its heading's own key bracket instead; the seed moved to the panel's bottom
+    // edge, after CURSOR, as "seed" (lower case).
+    let order: Vec<&str> = ["PEOPLE", "RESEARCH", "ENDEAVOR", "ALERTS", "[B]", "CURSOR", "seed"]
         .into_iter()
-        .filter(|s| *s == "Seed" || frame.contains(s))
+        .filter(|s| frame.contains(s))
         .collect();
     assert!(order.contains(&"RESEARCH") && order.contains(&"CURSOR"), "{frame}");
     for pair in order.windows(2) {
@@ -521,6 +533,63 @@ fn bending_game_for(nation: Nation) -> App {
         return bending_game();
     }
     app(3, nation, SMALL)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Divider headings (#309, docs/design/side-panel.md "Headings")
+// ---------------------------------------------------------------------------------------------
+
+/// At 80x24, with the Harvest tool active and a notice showing, every section's heading still
+/// fits on screen (docs/design/side-panel.md's own shapes, #309's acceptance criteria).
+#[test]
+fn every_heading_is_on_screen_at_80x24_with_a_tool_and_a_notice() {
+    let mut a = app(7, Nation::Earth, SMALL);
+    run(&mut a, "h <enter> <right*2> <enter> <enter>");
+    assert!(!a.ui.notice.is_empty(), "there should be a result to report");
+    let frame = text(&mut a, SMALL);
+    // Stores hides itself with nothing stockpiled yet (own test: `stores_appear_once_...`); it
+    // isn't exercised here.
+    for heading in ["PEOPLE", "RESEARCH", "ENDEAVOR", "HARVEST", "CURSOR"] {
+        assert!(frame.contains(heading), "{heading} in\n{frame}");
+    }
+}
+
+/// `--ascii --color never`: every heading row starts with `+-` and names its section, shape
+/// alone carrying the divider (no colour to rely on).
+#[test]
+fn ascii_headings_start_with_a_plus_dash_and_name_their_section() {
+    let mut a = app(7, Nation::Earth, SMALL);
+    run(&mut a, "h <enter> <right*2> <enter> <enter>");
+    let p = Palette::new(&a.session.defs, a.session.world.nation, ColorDepth::Never, true);
+    let frame = to_text(&render_app(&mut a, &p, SMALL));
+    let headings: Vec<&str> = frame.lines().filter(|l| l.contains("+-")).collect();
+    assert!(!headings.is_empty(), "{frame}");
+    for section in ["PEOPLE", "RESEARCH", "ENDEAVOR", "HARVEST", "CURSOR"] {
+        assert!(
+            headings.iter().any(|l| l.contains("+-") && l.contains(section)),
+            "{section} in\n{}",
+            headings.join("\n")
+        );
+    }
+}
+
+/// The Tool section's heading wears the active tool's own tint (docs/design/side-panel.md
+/// "Headings": "the title is the tool's name in the tool's tint"), the same colour the active
+/// tool banner and the status badge wear (#307).
+#[test]
+fn the_tool_heading_wears_the_active_tools_tint() {
+    let mut a = App::new(new_session(7, Nation::Earth), SIZE);
+    run(&mut a, "h");
+    let p = Palette::new(&a.session.defs, a.session.world.nation, ColorDepth::TrueColor, false);
+    let buf = render_app(&mut a, &p, SIZE);
+    let frame = to_text(&buf);
+    let row = frame.lines().position(|l| l.contains("HARVEST") && l.contains("[H]")).unwrap();
+    let line = frame.lines().nth(row).unwrap();
+    // The character column, not the byte offset: the map side of the same row is full of
+    // multi-byte glyphs.
+    let col = line.chars().position(|c| c == 'H').unwrap();
+    let want = p.color(p.tint_rgb(fn_tui::color::Tint::Harvest));
+    assert_eq!(buf[(col as u16, row as u16)].fg, want);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -884,4 +953,79 @@ fn selecting_issues_no_commands_so_a_replay_needs_none() {
     let mut a = app(7, Nation::Earth, SIZE);
     run(&mut a, "<tab> f <tab> l <esc> ? <esc> <tick 100>");
     assert!(a.session.world.command_log().is_empty());
+}
+
+// ---------------------------------------------------------------------------------------------
+// Seasons and strain, made readable (#299, docs/design/difficulty.md "TUI")
+// ---------------------------------------------------------------------------------------------
+
+/// Ticks in one season, at the bundled `data/seasons.toml` numbers.
+fn season_ticks(a: &App) -> u64 {
+    let minutes = f64::from(a.session.defs.seasons.calendar.season_minutes);
+    (minutes * 60.0 * f64::from(fn_sim::world::TICKS_PER_SECOND)) as u64
+}
+
+#[test]
+fn golden_frame_of_the_season_section_in_autumn_with_low_stores() {
+    let mut a = app(7, Nation::Earth, SMALL);
+    a.session.world.set_difficulty(Some("normal".to_owned()));
+    let per_season = season_ticks(&a);
+    // Spring(0), summer(1), autumn(2): nothing has been stockpiled, so food per head is 0 and
+    // the Season section's food line warns.
+    run(&mut a, &format!("<tick {}>", per_season * 2 + 1));
+    assert_eq!(a.session.world.season(&a.session.defs).id, "autumn");
+    let frame = text(&mut a, SMALL);
+    assert!(frame.contains("AUTUMN"), "{frame}");
+    assert!(frame.contains("Food in stores"), "{frame}");
+    assert!(frame.contains("Winter here"), "{frame}");
+    golden("earth_seed7_autumn_low_stores", &frame);
+}
+
+#[test]
+fn golden_frame_of_a_tired_plants_hover() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    a.session.world.set_difficulty(Some("normal".to_owned()));
+    let from = a.session.world.units[0].pos;
+    let mut renewable: Vec<Pos> = a
+        .session
+        .world
+        .map
+        .iter()
+        .filter(|(_, t)| {
+            t.resource.and_then(|r| a.session.defs.harvest(r)).is_some_and(|h| h.regrow.is_some())
+        })
+        .map(|(p, _)| p)
+        .collect();
+    renewable.sort_by_key(|p| (p.x - from.x).pow(2) + (p.y - from.y).pow(2));
+    let target = renewable
+        .into_iter()
+        .find(|&pos| a.session.apply(Command::DesignateHarvest { pos }).is_ok())
+        .expect("a renewable resource the nation can work");
+    for _ in 0..200 {
+        a.session.tick_n(100);
+        if a.session.world.is_resting(target) {
+            break;
+        }
+    }
+    assert!(a.session.world.is_resting(target), "the resource should have been worked");
+    assert!(a.session.world.strain_at(target).unwrap() > 0.0, "and tired, on Normal");
+    a.ui.cursor = target;
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("ripe in"), "{frame}");
+    assert!(frame.contains("Tired (strain"), "{frame}");
+    golden("earth_seed7_tired_plant", &frame);
+}
+
+#[test]
+fn golden_frame_of_the_alert_log_through_a_winter() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    a.session.world.set_difficulty(Some("normal".to_owned()));
+    let per_season = season_ticks(&a);
+    run(&mut a, &format!("<tick {}> l", per_season * 3 + 1));
+    assert!(a.session.world.season(&a.session.defs).winter);
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("Winter in 3 minutes"), "{frame}");
+    assert!(frame.contains("Winter. Wild plants rest"), "{frame}");
+    assert!(frame.contains("First frost"), "{frame}");
+    golden("earth_seed7_winter_log", &frame);
 }

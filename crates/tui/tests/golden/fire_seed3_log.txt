@@ -1,40 +1,40 @@
 ┏────────────────────────────────── ◆ MESSAGE LOG ◆ ───────────────────────────────────┓┏────── ◆ FIRE NATION ◆ ───────┓
-│ 00:04 Jee used Hearthflame at (25, 16)                                               ││ Seed 3                 00:10 │
-│ 00:04 Kuzon used Hearthflame at (25, 15)                                             ││ ▶ Running x1      Space  + - │
-│ 00:04 Noriko used Hearthflame at (25, 17)                                            ││                              │
-│ 00:04 Shyu used Hearthflame at (24, 18)                                              ││ ◇ PEOPLE                   6 │
-│ 00:04 Lu Ten used Hearthflame at (26, 16)                                            ││  Jee    Kindle               │
-│ 00:04 Kiyi used Hearthflame at (22, 17)                                              ││  Kuzon  Channelling Hearthf… │
-│ 00:09 Noriko used Hearthflame at (25, 18)                                            ││  Noriko Channelling Hearthf… │
-│ 00:09 Shyu used Hearthflame at (24, 19)                                              ││  Shyu   Channelling Hearthf… │
-│ 00:09 Kiyi used Hearthflame at (21, 17)                                              ││  Lu Ten Channelling Hearthf… │
-│ 00:09 Jee used Hearthflame at (26, 17)                                               ││  Kiyi   Channelling Hearthf… │
-│ 00:09 Lu Ten used Hearthflame at (27, 17)                                            ││                              │
-│                                                                                      ││ ◇ RESEARCH                   │
-│                                                                                      ││ No target set        3.0/min │
-│                                                                                      ││ 0 pts banked                 │
-│                                                                                      ││                              │
-│                                                                                      ││ ◇ ENDEAVOR                   │
-│                                                                                      ││ The Harmony Gate         0/9 │
-│                                                                                      ││ ░░░░░░░░░░                   │
-│                                                                                      ││ Signs met - G: open          │
-│                                                                                      ││ Next: 10 more people, 6 mor… │
-│                                                                                      ││                              │
-│                                                                                      ││ ◇ ALERTS                     │
-│                                                                                      ││ Shyu used Hearthflame at     │
-│                                                                                      ││ (24, 19)                     │
-│                                                                                      ││ Kiyi used Hearthflame at     │
-│                                                                                      ││ (21, 17)                     │
-│                                                                                      ││ Jee used Hearthflame at (26, │
-│                                                                                      ││ 17)                          │
-│                                                                                      ││ Lu Ten used Hearthflame at   │
-│                                                                                      ││ (27, 17)                     │
-│                                                                                      ││                              │
-│                                                                                      ││ ◇ CURSOR            (25, 16) │
+│ 00:04 Jee used Hearthflame at (25, 16)                                               ││ ▶ Running x1           00:10 │
+│ 00:04 Kuzon used Hearthflame at (25, 15)                                             │├─ PEOPLE ───────────────── 6 ─┤
+│ 00:04 Noriko used Hearthflame at (25, 17)                                            ││ Bend 6                   [N] │
+│ 00:04 Shyu used Hearthflame at (24, 18)                                              │├─ RESEARCH ───────────────────┤
+│ 00:04 Lu Ten used Hearthflame at (26, 16)                                            ││ No target set        3.0/min │
+│ 00:04 Kiyi used Hearthflame at (22, 17)                                              ││ 0 pts banked                 │
+│ 00:09 Noriko used Hearthflame at (25, 18)                                            │├─ ENDEAVOR ───────────── 0/9 ─┤
+│ 00:09 Shyu used Hearthflame at (24, 19)                                              ││ Next: 10 more people     [G] │
+│ 00:09 Kiyi used Hearthflame at (21, 17)                                              │├─ ALERTS ─────────────── [L] ─┤
+│ 00:09 Jee used Hearthflame at (26, 17)                                               ││ Kiyi used Hearthflame at…    │
+│ 00:09 Lu Ten used Hearthflame at (27, 17)                                            ││ Jee used Hearthflame at (26… │
+│                                                                                      ││ Lu Ten used Hearthflame at…  │
+│                                                                                      │├─ CURSOR ────────── (25, 16) ─┤
 │                                                                                      ││ Land                         │
 │                                                                                      ││ Plains (25, 16)              │
 │                                                                                      ││ Elevation 193                │
 │                                                                                      ││ Lit: 19m 54s left            │
 │                                                                                      ││                              │
-┗─ Arrows W S scroll  PgUp PgDn page  Esc close  ? keys ───────────────────────────────┛┗──────────────────────────────┛
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+┗─ Arrows W S scroll  PgUp PgDn page  Esc close  ? keys ───────────────────────────────┛┗─ seed 3 ─────────────────────┛
  LOG  arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause

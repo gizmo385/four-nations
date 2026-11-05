@@ -1,26 +1,13 @@
 ┏───────────────────────────────────── ◆ SAVES ◆ ──────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
-│ ▸ junk  can't load: not a Four Nations save (1:1-1:4: Expected struct `Probe` but f… ││ Seed 7                 00:04 │
-│   save-1  Earth Kingdom, seed 7, 00:04 (tick 40)                                     ││ ▶ Running x1      Space  + - │
-│                                                                                      ││                              │
-│                                                                                      ││ ◇ PEOPLE                   6 │
-│                                                                                      ││  Tyro Idle                   │
-│                                                                                      ││  Ping Idle                   │
-│                                                                                      ││  Ming Idle                   │
-│                                                                                      ││  Oma  Idle                   │
-│                                                                                      ││  Song Idle                   │
-│                                                                                      ││  Lin  Idle                   │
-│                                                                                      ││                              │
-│                                                                                      ││ ◇ RESEARCH                   │
+│ ▸ junk  can't load: not a Four Nations save (1:1-1:4: Expected struct `Probe` but f… ││ ▶ Running x1           00:04 │
+│   save-1  Earth Kingdom, seed 7, 00:04 (tick 40)                                     │├─ PEOPLE ───────────────── 6 ─┤
+│                                                                                      ││ Idle 6                   [N] │
+│                                                                                      │├─ RESEARCH ───────────────────┤
 │                                                                                      ││ No target set        3.0/min │
 │                                                                                      ││ 0 pts banked                 │
-│                                                                                      ││                              │
-│                                                                                      ││ ◇ ENDEAVOR                   │
-│                                                                                      ││ The Harmony Gate         0/9 │
-│                                                                                      ││ ░░░░░░░░░░                   │
-│                                                                                      ││ Signs met - G: open          │
-│                                                                                      ││ Next: 10 more people, 6 mor… │
-│                                                                                      ││                              │
-│                                                                                      ││ ◇ CURSOR            (94, 64) │
+│                                                                                      │├─ ENDEAVOR ───────────── 0/9 ─┤
+│                                                                                      ││ Next: 10 more people     [G] │
+│                                                                                      │├─ CURSOR ────────── (94, 64) ─┤
 │                                                                                      ││ Coast                        │
 │                                                                                      ││ Plains (94, 64)              │
 │                                                                                      ││ Elevation 152                │
@@ -36,5 +23,18 @@
 │                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
-┗─ Arrows W S choose  Enter load  Shift+S save over  N new  Esc/F6 close ──────────────┛┗──────────────────────────────┛
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+┗─ Arrows W S choose  Enter load  Shift+S save over  N new  Esc/F6 close ──────────────┛┗─ seed 7 ─────────────────────┛
  SAVES  arrows/W S choose  Enter load  Shift+S save over  N new  Esc/F6 close  ? keys

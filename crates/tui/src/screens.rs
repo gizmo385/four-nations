@@ -53,14 +53,18 @@ pub fn line_count(screen: Screen, session: &Session, alerts: &Alerts, width: usi
     lines(session, screen, alerts, width, false).len()
 }
 
-/// The tone a log line wears: deaths stand out, discoveries read as good news.
-fn kind_tone(kind: Kind) -> Tone {
+/// The tone a log line wears: deaths stand out, discoveries read as good news. The side panel's
+/// Alerts toasts share this (`crate::panel`), so the two never disagree.
+pub(crate) fn kind_tone(kind: Kind) -> Tone {
     match kind {
         Kind::Bend => Tone::Text,
         Kind::Tech => Tone::Ok,
         Kind::Death => Tone::Bad,
         Kind::Endeavor => Tone::Ok,
         Kind::Arrival => Tone::Ok,
+        // The warning, winter itself, frost and a plant picked to death are all cautionary;
+        // spring's good news is the one exception, not worth a tone of its own.
+        Kind::Season => Tone::Warn,
     }
 }
 

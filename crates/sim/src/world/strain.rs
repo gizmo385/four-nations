@@ -14,11 +14,15 @@
 use super::*;
 use crate::jobs::HarvestDef;
 
-/// A wild plant killed by over-picking (`strain_kills`), oldest first, for the TUI's alert log.
+/// A wild plant killed by over-picking (`strain_kills`), oldest first, for the TUI's alert log
+/// (`docs/design/difficulty.md` "TUI": "a plant picked to death").
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StrainEvent {
     pub tick: u64,
     pub pos: Pos,
+    /// What it was: the tile's own resource is already cleared by the time the caller can read
+    /// this event.
+    pub resource: ResourceId,
 }
 
 impl World {
@@ -57,7 +61,9 @@ impl World {
         let strain = self.add_strain(pos, h, defs);
         if strain >= defs.jobs.strain_kill_at && self.knobs(defs).strain_kills {
             self.strain.remove(&pos);
-            self.strain_events.push(StrainEvent { tick: self.tick, pos });
+            // Still here: `work_done` only clears the tile's resource once this returns `None`.
+            let resource = self.map[pos].resource.expect("harvesting a tile with a resource");
+            self.strain_events.push(StrainEvent { tick: self.tick, resource, pos });
             return None;
         }
         Some(1.0 + strain)

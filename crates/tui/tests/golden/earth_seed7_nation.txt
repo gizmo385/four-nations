@@ -1,32 +1,32 @@
 ┏───────────────────────────────────── ◆ NATION ◆ ─────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
-│ Earth Kingdom · seed 7 · 6 people                                              22:40 ││ Seed 7                 22:40 │
-│                                                                                      ││ ▶ Running x1      Space  + - │
-│ IDLE 4                                                                               ││                              │
-│ ▸ Tyro Idle                                           ███░░   ███░░   ██░░░   █████  ││ ◇ PEOPLE                   6 │
-│   Ping Idle                                           ███░░   ███░░   ██░░░   █████  ││  Tyro Idle                   │
-│   Song Idle                                           ███░░   ███░░   ██░░░   █████  ││  Ping Idle                   │
-│   Lin  Idle                                           ███░░   ███░░   ██░░░   █████  ││  Ming Foraging               │
-│ HAUL 1                                                                               ││  Oma  Fetching 1 Fruit from… │
-│   Oma  Fetching 1 Fruit from (92, 64)                 ███░░   ███░░   ██░░░   █████  ││  Song Idle                   │
-│ EAT 1                                                                                ││  Lin  Idle                   │
-│   Ming Foraging at (86, 65)                           ██░░░!  ███░░   ██░░░   █████  ││                              │
-│                                                                                      ││ ◇ STORES                     │
-│                                                                                      ││ Wood 20  Fruit 2             │
-│                                                                                      ││                              │
-│                                                                                      ││ ◇ RESEARCH                   │
-│                                                                                      ││ No target set        3.0/min │
-│                                                                                      ││ 10 pts banked                │
-│                                                                                      ││                              │
-│                                                                                      ││ ◇ ENDEAVOR                   │
-│                                                                                      ││ The Harmony Gate         0/9 │
-│                                                                                      ││ ░░░░░░░░░░                   │
-│                                                                                      ││ Signs met - G: open          │
-│                                                                                      ││ Next: 10 more people, 6 mor… │
-│                                                                                      ││                              │
-│                                                                                      ││ ◇ CURSOR            (94, 64) │
+│ Earth Kingdom · seed 7 · 6 people                                              22:40 ││ ▶ Running x1           22:40 │
+│                                                                                      │├─ PEOPLE ───────────────── 6 ─┤
+│ IDLE 4                                                                               ││ Idle 4  Haul 1  Eat 1        │
+│ ▸ Tyro Idle                                           ███░░   ███░░   ██░░░   █████  ││ Hungry 1                 [N] │
+│   Ping Idle                                           ███░░   ███░░   ██░░░   █████  │├─ STORES ─────────────────────┤
+│   Song Idle                                           ███░░   ███░░   ██░░░   █████  ││ Wood 20  Fruit 2             │
+│   Lin  Idle                                           ███░░   ███░░   ██░░░   █████  │├─ RESEARCH ───────────────────┤
+│ HAUL 1                                                                               ││ No target set        3.0/min │
+│   Oma  Fetching 1 Fruit from (92, 64)                 ███░░   ███░░   ██░░░   █████  ││ 10 pts banked                │
+│ EAT 1                                                                                │├─ ENDEAVOR ───────────── 0/9 ─┤
+│   Ming Foraging at (86, 65)                           ██░░░!  ███░░   ██░░░   █████  ││ Next: 10 more people     [G] │
+│                                                                                      │├─ CURSOR ────────── (94, 64) ─┤
 │                                                                                      ││ Coast                        │
 │                                                                                      ││ Plains (94, 64)              │
 │                                                                                      ││ Elevation 152                │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
@@ -36,5 +36,5 @@
 │ TRAITS                                                                               ││                              │
 │ Move speed x0.9  Carry capacity x1.3  Earthworks x2.5  Water work x0.9               ││                              │
 │ Power generation x0.8  Construction x1.5                                             ││                              │
-┗─ Arrows W S choose  PgUp PgDn page  Enter select  Esc/N close ───────────────────────┛┗──────────────────────────────┛
+┗─ Arrows W S choose  PgUp PgDn page  Enter select  Esc/N close ───────────────────────┛┗─ seed 7 ─────────────────────┛
  NATION  arrows/W S choose  PgUp/PgDn page  Enter select  Esc/N close  ? keys  Space pause

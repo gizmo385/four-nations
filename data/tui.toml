@@ -366,3 +366,10 @@ mountain_share = 0.3333333333333333
 # Fresh water (river, lake or ford) is at least this share of N, the block's edge in tiles (so
 # the threshold is `max(1, N * river_lake_share)`), at 1:4 and 1:2 only.
 river_lake_share = 0.5
+
+# The side panel's Season section (#299, docs/design/difficulty.md "TUI"): presentation, not a
+# sim rule, so it lives here rather than data/seasons.toml.
+[season]
+# Food per head below which, in autumn or winter, the Season section's food line warns: about
+# two winter meals each.
+winter_food_per_head = 4

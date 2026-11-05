@@ -529,6 +529,8 @@ fn a_renewable_resource_stays_after_harvest_and_ripens_on_schedule() {
     assert!(w.is_resting(at(4, 2)));
     assert_eq!(w.ground_items().map(|(_, s)| s.count).sum::<u32>(), 2);
     assert_eq!(w.ground_items().next().map(|(_, s)| s.item), Some(fruit));
+    assert!(w.resting_left(at(4, 2)).unwrap() > 0.0, "the TUI's hover (#299) counts down from it");
+    assert_eq!(w.resting_left(at(0, 0)), None, "not resting");
 
     // Resting trees can't be picked or foraged, though they can be queued.
     let again = w.designate_harvest(at(4, 2), &defs).unwrap();
