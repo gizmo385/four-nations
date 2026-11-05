@@ -41,7 +41,9 @@ pub fn list() -> Vec<Value> {
         json!({
             "name": "look",
             "description": "A map region (things, ground and marks, with a legend), at most \
-                             64x40.",
+                             64x40. A legend character always means the same thing for the \
+                             whole session, even across different regions, so there's no need \
+                             to re-check it once learned.",
             "inputSchema": json!({
                 "type": "object",
                 "properties": {

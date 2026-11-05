@@ -139,11 +139,14 @@ colour and tint:
            {"kind": "cursor", "x": 91, "y": 63}]}
 ```
 
-The legend is local to each response: one character per distinct thing actually present, so
-there are no collisions. The meanings come from the same look the painter uses, so the agent's
-map can't show something the screen hides. Today's painter (`map.rs`) works out glyph, colours
-and modifiers in one pass. Extracting a pure `cell_look(...) -> CellLook { thing, ground,
-marks }` that the painter then styles is a prerequisite.
+A response's legend only lists what's actually in it, so there are no collisions within one, but
+the character behind a description is fixed for the whole session (#332): once something has a
+character it keeps it, whatever else later shares a region with it, so the legend reads the same
+call after call instead of depending on what else that particular region happened to contain.
+The meanings come from the same look the painter uses, so the agent's map can't show something
+the screen hides. Today's painter (`map.rs`) works out glyph, colours and modifiers in one pass.
+Extracting a pure `cell_look(...) -> CellLook { thing, ground, marks }` that the painter then
+styles is a prerequisite.
 
 **`observe`** (abridged):
 
