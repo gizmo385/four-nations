@@ -768,7 +768,7 @@ impl World {
                 self.modifiers.chi_regen
             };
             let chi_max = self.chi_max_for(&u, defs);
-            u.chi = defs.chi.regen(u.chi, u.is_sleeping(), chi_regen, chi_max);
+            u.chi = defs.chi.regen(u.chi, u.is_sleeping(), chi_regen, rest, chi_max);
             if u.needs.is_dead() {
                 if u.is_avatar() {
                     // The Avatar never dies (docs/design/endgame.md, "Needs and leaving"); his
