@@ -14,12 +14,28 @@
 //! not: 3 presets x 4 nations x 8 seeds x 2 modes is 192 runs of up to 180 minutes each. It's a
 //! dev tool, run on demand, never part of `cargo xtask ci` (`crates/sim/tests/balance.rs` is the
 //! cheap, CI-sized version of this same check).
+//!
+//! `--supply` switches to the supply survey instead (`docs/design/materials.md`, "What the map
+//! holds" and "Measuring it", #348): how much of each named deposit is reachable from
+//! `Survey::default_site` on Small, per seed, at each named radius.
+//!
+//!     cargo run -p fn_sim --bin balance -- --supply --seeds 1-8
+//!         [--radii 20,40] [--resources stone,gold_vein,gold_seam] [--bore-limit 2]
+//!
+//! This is cheap (one map generation and one BFS per seed): unlike the sweep above, it's fine to
+//! run it often while retuning `resources.toml` or `jobs.toml`.
 
 use fn_sim::balance::{RunConfig, RunReport, run};
+use fn_sim::defs::ResourceId;
+use fn_sim::embark::Survey;
 use fn_sim::{Defs, Nation};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("--supply") {
+        run_supply(&args[1..]);
+        return;
+    }
     let mut seeds = parse_seeds("1-8");
     let mut minutes: f32 = 180.0;
     let mut preset_ids: Option<Vec<String>> = None;
@@ -108,6 +124,84 @@ fn print_row(preset: &str, nation: Nation, seed: u64, opening: bool, r: &RunRepo
         walk(r.walk_minute_15),
         walk(r.walk_minute_90),
     );
+}
+
+/// `--supply`'s own loop: one `Survey` per seed, reported at every radius (#348).
+fn run_supply(args: &[String]) {
+    let mut seeds = parse_seeds("1-8");
+    let mut radii: Vec<i32> = vec![20, 40];
+    let mut resource_ids = vec!["stone".to_owned(), "gold_vein".to_owned(), "gold_seam".to_owned()];
+    let mut bore_limit: u32 = 2;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--seeds" => seeds = parse_seeds(&value(args, &mut i)),
+            "--radii" => {
+                radii = value(args, &mut i)
+                    .split(',')
+                    .map(|s| {
+                        s.parse().unwrap_or_else(|_| supply_usage_error("--radii must be numbers"))
+                    })
+                    .collect()
+            }
+            "--resources" => {
+                resource_ids = value(args, &mut i).split(',').map(str::to_owned).collect()
+            }
+            "--bore-limit" => {
+                bore_limit = value(args, &mut i)
+                    .parse()
+                    .unwrap_or_else(|_| supply_usage_error("--bore-limit needs a number"))
+            }
+            other => supply_usage_error(&format!("unknown argument {other:?}")),
+        }
+        i += 1;
+    }
+
+    let defs = Defs::bundled();
+    let size = defs.embark.map_size("small").expect("bundled data always has a small map size");
+    let resources: Vec<ResourceId> = resource_ids
+        .iter()
+        .map(|id| {
+            let rid = defs
+                .resource_id(id)
+                .unwrap_or_else(|| supply_usage_error(&format!("unknown resource {id:?}")));
+            if defs.harvest(rid).is_none() {
+                supply_usage_error(&format!("{id:?} has no harvest yield in data/jobs.toml"));
+            }
+            rid
+        })
+        .collect();
+
+    println!(
+        "{:<6} {:>6} {:<12} {:>7} {:>9} {:>7}",
+        "seed", "radius", "resource", "count", "tunnelled", "worth"
+    );
+    for &seed in &seeds {
+        let cfg = Survey::config(seed, size);
+        let survey = Survey::new(&cfg, &defs);
+        let start = survey.default_site(&defs);
+        for radius in survey.supply(start, &resources, &radii, bore_limit, &defs) {
+            for deposit in &radius.deposits {
+                println!(
+                    "{seed:<6} {:>6} {:<12} {:>7} {:>9} {:>7}",
+                    radius.radius,
+                    defs.resource(deposit.resource).id,
+                    deposit.count,
+                    deposit.tunnelled,
+                    deposit.worth,
+                );
+            }
+        }
+    }
+}
+
+fn supply_usage_error(msg: &str) -> ! {
+    eprintln!("{msg}");
+    eprintln!(
+        "usage: balance --supply [--seeds 1-8] [--radii 20,40] [--resources stone,gold_vein,gold_seam] [--bore-limit 2]"
+    );
+    std::process::exit(1);
 }
 
 fn value(args: &[String], i: &mut usize) -> String {
