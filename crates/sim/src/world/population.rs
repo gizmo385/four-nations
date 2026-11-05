@@ -126,13 +126,17 @@ impl World {
     }
 
     /// How many food items (anything `Defs::food_of` recognizes) are sitting in stockpiles.
-    fn stored_food(&self, defs: &Defs) -> u32 {
+    /// Public so a headless tool (`fn_sim::autoplay`, the `balance` binary, #300) can read food
+    /// per head without duplicating this filter.
+    pub fn stored_food(&self, defs: &Defs) -> u32 {
         self.stored.values().filter(|s| defs.food_of(s.item).is_some()).map(|s| s.count).sum()
     }
 
     /// `World::start()` if the world was founded at a chosen site, else the mean position of
-    /// its living units (see the module doc).
-    fn settlement_anchor(&self) -> Pos {
+    /// its living units (see the module doc). Public so a headless tool (`fn_sim::autoplay`,
+    /// the `balance` binary, #300) can anchor the opening's placements the same way growth
+    /// anchors a newcomer's entry point.
+    pub fn settlement_anchor(&self) -> Pos {
         if let Some(start) = self.start {
             return start;
         }

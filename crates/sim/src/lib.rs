@@ -4,6 +4,8 @@
 //! wall-clock time, no thread RNG. Everything is a pure function of the seed, the game data and
 //! the commands applied. That keeps it testable without a GPU and reusable from any frontend.
 
+pub mod autoplay;
+pub mod balance;
 pub mod bending;
 pub mod building;
 pub mod defs;
