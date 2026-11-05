@@ -34,7 +34,7 @@ FFFF"FFFFF""FF"""""Y"FFF",,,,,,^^,,,,.~~~~~~~~~~~~~~~~~~~.,c,.~~~~~.FFF"F""""""Y
 | Idle                                                         Health ########## 100%  ||                              |
 | Carrying: nothing                                            Hunger ########## 100%  ||                              |
 | At (94, 64)                                                  Thirst ########## 100%  ||                              |
-|                                                              Energy ########## 100%  ||                              |
+| Bends 0 of 25 to master                                      Energy ########## 100%  ||                              |
 | [Esc] close  [Tab] next  [F] follow                          Chi    ########## 100%  ||                              |
 +--------------------------------------------------------------------------------------++- seed 7 ---------------------+
  SELECT  Enter next here  Tab/Shift+Tab units  F follow  Esc close  H X P B U tools  Space pause  L log  ? keys

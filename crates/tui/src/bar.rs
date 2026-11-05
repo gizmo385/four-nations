@@ -5,6 +5,7 @@
 //! colour. Chi is in the accent and never warns: it can't hurt the unit.
 
 use fn_ui::Session;
+use fn_ui::text::bends_line;
 use fn_ui::view::{Status, UnitView, unit_view};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -74,7 +75,9 @@ fn key_hints(following: bool, width: usize) -> Row {
 /// or, while it's inside a building (#226, #229), which one ("In the Academy"). `avatar_rite`
 /// marks the moment the Avatar holds the Harmony Rite (#242): the task line wears its own look,
 /// bold on the nation's accent, so the Avatar State reads apart from anything else he could be
-/// doing.
+/// doing. A fourth row names the settler's progress toward bending mastery
+/// (`docs/design/endgame.md`, "Mastery pacing", #346); when the task wraps to two lines there's
+/// no room for it, the same as any other overflow here.
 pub fn detail_rows(view: &UnitView, width: usize, ellipsis: char, avatar_rite: bool) -> Vec<Row> {
     let task_tone = if avatar_rite { Tone::Avatar } else { Tone::Text };
     let mut rows: Vec<Row> =
@@ -85,6 +88,7 @@ pub fn detail_rows(view: &UnitView, width: usize, ellipsis: char, avatar_rite: b
         None => format!("At ({}, {})", view.tile.x, view.tile.y),
     };
     rows.push(Row::text(where_, Tone::Dim));
+    rows.push(Row::text(bends_line(view.bends, view.master_threshold), Tone::Text));
     rows
 }
 
@@ -180,6 +184,21 @@ mod tests {
         assert_eq!(text[0], view.task);
         assert_eq!(text[1], "Carrying: nothing");
         assert_eq!(text[2], format!("At ({}, {})", view.tile.x, view.tile.y));
+        // The fourth row is the bends-toward-mastery line (`fn_ui::text::bends_line`,
+        // docs/design/endgame.md "Mastery pacing", #346); its own forms are fn_ui's.
+        assert_eq!(text[3], bends_line(view.bends, view.master_threshold));
+    }
+
+    /// Once a settler's bends meet the threshold, the fourth row reads `fn_ui::text::bends_line`'s
+    /// master form ("Bending master - 12 bends") instead of "Bends n of target to master".
+    #[test]
+    fn the_fourth_row_reads_bending_master_once_the_threshold_is_met() {
+        let s = Session::new(7, Nation::Fire, 48, 32);
+        let mut view = unit_view(&s, &s.world.units[0]);
+        view.bends = 12;
+        view.master_threshold = Some(10);
+        let rows = detail_rows(&view, 40, '…', false);
+        assert_eq!(rows[3].plain(), "Bending master - 12 bends");
     }
 
     /// The Harmony Rite's Avatar State (#238, #242) marks the task line apart: bold, on the

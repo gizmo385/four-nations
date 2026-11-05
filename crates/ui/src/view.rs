@@ -428,6 +428,13 @@ pub struct UnitView {
     /// Chi, as a fraction of `data/bending.toml`'s `chi.max`. Not a `NeedView`: chi never hurts
     /// the unit, so it has no "low" threshold or warning colour (docs/design/bending.md).
     pub chi_frac: f32,
+    /// Finished bends over this unit's life (`Unit::bends`), toward the bending-masters sign
+    /// (`docs/design/endgame.md`, "Mastery pacing", #346).
+    pub bends: u32,
+    /// How many bends make this unit a master, `EndeavorDef::master_threshold` for its own
+    /// nation, or `None` when the data has no masters sign (`crate::text::bends_line`,
+    /// `crate::text::bends_cell`).
+    pub master_threshold: Option<u32>,
 }
 
 pub fn unit_view(session: &Session, unit: &Unit) -> UnitView {
@@ -441,7 +448,8 @@ pub fn unit_view(session: &Session, unit: &Unit) -> UnitView {
     // The Avatar (#237) reads "The Avatar - guest of <nation>", not his own name and nation
     // (#242, the closed client issue #243's own wording): he belongs to no nation of his own,
     // and `nation_of` already falls back to the settlement's for exactly this case.
-    let host = defs.nation(session.world.nation_of(unit)).name.clone();
+    let own_nation = session.world.nation_of(unit);
+    let host = defs.nation(own_nation).name.clone();
     let (name, nation) = if unit.is_avatar() {
         ("The Avatar".to_owned(), format!("guest of {host}"))
     } else {
@@ -465,6 +473,8 @@ pub fn unit_view(session: &Session, unit: &Unit) -> UnitView {
             meter("Energy", unit.needs.energy, s.max(), low(s.energy)),
         ],
         chi_frac: (unit.chi / defs.chi.max).clamp(0.0, 1.0),
+        bends: unit.bends(),
+        master_threshold: defs.endeavor.master_threshold(own_nation),
     }
 }
 
@@ -679,6 +689,17 @@ mod tests {
         assert_eq!(v.needs[0].percent(), "100%");
         assert_eq!(v.chi_frac, 1.0, "a fresh unit's chi starts full too");
         assert_eq!(v.inside, None, "standing outside names no building");
+    }
+
+    /// `unit_view` plumbs `Unit::bends` and the masters sign's threshold through unchanged
+    /// (`docs/design/endgame.md`, "Mastery pacing", #346): a fresh unit has no bends yet, and the
+    /// bundled data's masters sign gives it a threshold.
+    #[test]
+    fn unit_view_carries_bends_and_the_master_threshold() {
+        let s = Session::new(7, Nation::Water, 64, 64);
+        let v = unit_view(&s, &s.world.units[0]);
+        assert_eq!(v.bends, 0);
+        assert_eq!(v.master_threshold, Some(25), "the bundled masters sign's threshold");
     }
 
     /// A unit that stepped inside a building (#226, #229) names it in `inside`, in place of its

@@ -33,6 +33,28 @@ fn describe_craft(world: &World, defs: &Defs, unit: &Unit, pos: Pos) -> String {
     )
 }
 
+/// The selection bar's bends line (`docs/design/endgame.md`, "Mastery pacing", #346): "Bends 7
+/// of 10 to master" below the threshold, "Bending master - 12 bends" once it's met, or just
+/// "Bends 7" when the data has no masters sign at all (`threshold` is `None`,
+/// `fn_sim::endeavor::EndeavorDef::master_threshold`).
+pub fn bends_line(bends: u32, threshold: Option<u32>) -> String {
+    match threshold {
+        Some(t) if bends >= t => format!("Bending master - {bends} bends"),
+        Some(t) => format!("Bends {bends} of {t} to master"),
+        None => format!("Bends {bends}"),
+    }
+}
+
+/// The Nation screen's Bends column (`docs/design/endgame.md`, "Mastery pacing", #346): "7/10"
+/// below the threshold, "12 *" once it's met, or the bare count with no masters sign.
+pub fn bends_cell(bends: u32, threshold: Option<u32>) -> String {
+    match threshold {
+        Some(t) if bends >= t => format!("{bends} *"),
+        Some(t) => format!("{bends}/{t}"),
+        None => bends.to_string(),
+    }
+}
+
 /// What the unit is doing, in a short phrase for the info panel.
 pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
     let Some(task) = unit.task() else { return "Idle".into() };
@@ -188,5 +210,24 @@ mod tests {
         let wood = defs.item_id("wood").unwrap();
         assert_eq!(describe_stack(&defs, Some(Stack { item: wood, count: 3 })), "3 Wood");
         assert_eq!(describe_stack(&defs, None), "nothing");
+    }
+
+    /// The selection bar's bends line (`docs/design/endgame.md`, "Mastery pacing"): below the
+    /// threshold, once it's met, and with no masters sign at all.
+    #[test]
+    fn the_bends_line_reads_the_three_mockup_forms() {
+        assert_eq!(bends_line(7, Some(10)), "Bends 7 of 10 to master");
+        assert_eq!(bends_line(12, Some(10)), "Bending master - 12 bends");
+        assert_eq!(bends_line(10, Some(10)), "Bending master - 10 bends", "exactly met counts");
+        assert_eq!(bends_line(7, None), "Bends 7");
+    }
+
+    /// The Nation screen's Bends column, same three cases as the line.
+    #[test]
+    fn the_bends_cell_reads_the_three_mockup_forms() {
+        assert_eq!(bends_cell(7, Some(10)), "7/10");
+        assert_eq!(bends_cell(12, Some(10)), "12 *");
+        assert_eq!(bends_cell(10, Some(10)), "10 *", "exactly met counts");
+        assert_eq!(bends_cell(7, None), "7");
     }
 }

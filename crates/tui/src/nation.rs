@@ -4,9 +4,13 @@
 //! store and the nation's traits (today's panel's own Modifiers, moved here) sit under the
 //! roster, with no pointer of their own.
 //!
-//! The roster shows a five-cell meter (with a `!` flag) for hunger, thirst, energy and health
-//! when the map region is at least [`METER_MIN_WIDTH`] columns wide; narrower than that, a flag
-//! after the task names whichever aren't ok instead (`fn_ui::view::need_word`).
+//! The roster shows a five-cell meter (with a `!` flag) for hunger, thirst, energy and health,
+//! then the same five-cell meter for chi (never flagged: it can't hurt the unit, the selection
+//! bar's own rule) and a `Bends` column (`7/10`, or `12 *` for a master: `fn_ui::text::bends_cell`,
+//! docs/design/endgame.md "Mastery pacing", #346) -- when the map region is at least
+//! [`METER_MIN_WIDTH`] columns wide; narrower than that, a flag after the task names whichever
+//! needs aren't ok instead (`fn_ui::view::need_word`), and chi and bends don't show at all (#346:
+//! "Chi also satisfies #337's ... criterion", so the Nation screen is the one place both show).
 //!
 //! The meters sit at a fixed column just past a capped task column (#325), not stretched to the
 //! screen's far edge on a wide terminal, under a header naming each one that stays put while the
@@ -19,6 +23,7 @@
 
 use fn_sim::world::UnitId;
 use fn_ui::Session;
+use fn_ui::text::bends_cell;
 use fn_ui::view::{NationView, NeedView, Status, UnitView, nation_view, need_word};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -31,11 +36,15 @@ use crate::widgets::{Marks, Painter, Row, Tone, fit, meter};
 pub const METER_MIN_WIDTH: u16 = 80;
 
 /// A need meter is this many cells (the selection bar's own meters are ten; five, plus a flag
-/// column, let four of them and the task text share the roster's width).
+/// column, let four of them and the task text share the roster's width). Chi's meter shares it.
 const NEED_CELLS: usize = 5;
 const METER_COL: usize = NEED_CELLS + 1;
 const METER_GAP: usize = 2;
-const METERS_WIDTH: usize = METER_COL * 4 + METER_GAP * 3;
+/// The Bends column's width: wide enough for "100/100" to never truncate in practice, and
+/// exactly [`METER_COL`] for the common one- and two-digit case the mockup shows ("7/10", "12 *").
+const BENDS_COL: usize = METER_COL;
+/// Hunger, thirst, energy, health and chi (five meter columns), then Bends (text, no flag).
+const METERS_WIDTH: usize = METER_COL * 5 + BENDS_COL + METER_GAP * 5;
 
 /// Hunger, thirst, energy and health, in the doc's own order (unlike the selection bar's
 /// health-first `UnitView::needs`). Each is exactly [`METER_COL`] characters, so the header
@@ -76,12 +85,14 @@ fn name_width(view: &NationView) -> usize {
 fn meter_header(name_width: usize, width: usize) -> Row {
     let pad = " ".repeat(2 + name_width + 1 + task_width(name_width, width));
     let mut spans = vec![(pad, Tone::Dim)];
-    for (i, label) in NEED_ORDER.into_iter().enumerate() {
+    for (i, label) in NEED_ORDER.into_iter().chain(["Chi"]).enumerate() {
         if i > 0 {
             spans.push((" ".repeat(METER_GAP), Tone::Dim));
         }
         spans.push((format!("{label:<METER_COL$}"), Tone::Dim));
     }
+    spans.push((" ".repeat(METER_GAP), Tone::Dim));
+    spans.push((format!("{:<BENDS_COL$}", "Bends"), Tone::Dim));
     Row::spans(spans)
 }
 
@@ -125,9 +136,18 @@ fn need_cells(n: &NeedView, glyphs: (char, char)) -> [(String, Tone); 3] {
     [(full, tone), (empty, Tone::Dim), (flag, tone)]
 }
 
+/// Chi's own meter and flag column, the same shape as [`need_cells`] but always in the accent
+/// and never flagged: chi never hurts the unit, so it has no "low" threshold or warning colour
+/// (the selection bar's own rule, docs/design/bending.md).
+fn chi_cells(chi_frac: f32, glyphs: (char, char)) -> [(String, Tone); 3] {
+    let (full, empty) = meter(chi_frac, NEED_CELLS, glyphs.0, glyphs.1);
+    [(full, Tone::Accent), (empty, Tone::Dim), (" ".to_owned(), Tone::Accent)]
+}
+
 /// A settler's row with its meters: the pointer, the name, the task (truncated to a fixed
-/// width, #325, so the meters stay near the name instead of drifting to the far edge), then the
-/// four need meters, in `glyphs` ([`need_glyphs`]) rather than the frame's own marks.
+/// width, #325, so the meters stay near the name instead of drifting to the far edge), the four
+/// need meters and chi's own (`glyphs`, [`need_glyphs`], rather than the frame's own marks), then
+/// the Bends column (`fn_ui::text::bends_cell`, docs/design/endgame.md "Mastery pacing", #346).
 fn wide_unit_row(
     unit: &UnitView,
     chosen: bool,
@@ -151,6 +171,11 @@ fn wide_unit_row(
         }
         spans.extend(need_cells(n, glyphs));
     }
+    spans.push((" ".repeat(METER_GAP), Tone::Dim));
+    spans.extend(chi_cells(unit.chi_frac, glyphs));
+    spans.push((" ".repeat(METER_GAP), Tone::Dim));
+    let bends = format!("{:<BENDS_COL$}", bends_cell(unit.bends, unit.master_threshold));
+    spans.push((bends, Tone::Text));
     Row::spans(spans)
 }
 
@@ -361,6 +386,40 @@ mod tests {
         assert!(row.plain().contains('!'), "{}", row.plain());
     }
 
+    /// The wide row carries chi's own meter (always unflagged, even with a need in trouble) and
+    /// the Bends column, in `fn_ui::text::bends_cell`'s own text (`docs/design/endgame.md`,
+    /// "Mastery pacing", #346), right after the four need meters.
+    #[test]
+    fn a_wide_row_carries_chi_and_bends() {
+        let mut s = new_session(7, Nation::Earth);
+        s.world.units[0].needs.hunger = 0.0;
+        let v = nation_view(&s);
+        let unit = &v.groups[0].1[0];
+        assert_eq!(unit.bends, 0, "a fresh unit has no bends yet");
+        assert_eq!(unit.master_threshold, Some(25), "the bundled masters sign's threshold");
+        let marks = Marks::new(true);
+        let row = wide_unit_row(unit, false, 4, 120, &marks, need_glyphs(true));
+        let plain = row.plain();
+        // Hunger (zeroed, flagged) - Thirst, Energy, Health (full, unflagged) - Chi (full,
+        // never flagged even though a need just before it is) - Bends ("0/25", left-padded).
+        let tail = "-----!  #####   #####   #####   #####   0/25  ";
+        assert!(plain.ends_with(tail), "{plain}\nwant suffix {tail:?}");
+    }
+
+    /// Once a settler's bends meet the threshold, the Bends column reads `fn_ui::text::bends_cell`'s
+    /// master form ("12 *") instead of "n/target".
+    #[test]
+    fn a_wide_row_marks_a_master_in_the_bends_column() {
+        let s = new_session(7, Nation::Earth);
+        let v = nation_view(&s);
+        let mut unit = v.groups[0].1[0].clone();
+        unit.bends = 12;
+        unit.master_threshold = Some(10);
+        let marks = Marks::new(true);
+        let row = wide_unit_row(&unit, false, 4, 120, &marks, need_glyphs(true));
+        assert!(row.plain().ends_with("12 *  "), "{}", row.plain());
+    }
+
     /// The header names each need right above its own meter: the pad before it matches
     /// `wide_unit_row`'s own fixed columns, so "Hunger" lands over the hunger meter's first cell.
     #[test]
@@ -377,6 +436,9 @@ mod tests {
         );
         let meter_start = row.plain().chars().position(|c| c == '▰' || c == '▱').unwrap();
         assert_eq!(header.find("Hunger"), Some(meter_start), "{header}\n{}", row.plain());
+        // Chi and Bends (#346) follow the four needs, in that order.
+        assert!(header.find("Chi").unwrap() > header.find("Health").unwrap(), "{header}");
+        assert!(header.find("Bends").unwrap() > header.find("Chi").unwrap(), "{header}");
     }
 
     /// A terminal wide enough for the meters still caps the task column instead of stretching it

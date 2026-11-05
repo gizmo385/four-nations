@@ -58,6 +58,20 @@ impl EndeavorDef {
     pub fn stage(&self, id: &str) -> Option<(usize, &StageDef)> {
         self.stages.iter().enumerate().find(|(_, s)| s.id == id)
     }
+
+    /// How many finished bends make a unit of `nation` a bending master, from the `masters` sign
+    /// in `data/endeavor.toml` (`docs/design/endgame.md`, "Mastery pacing"), or `None` when the
+    /// data has no such sign. Every frontend reads mastery through this one helper, never the
+    /// sign's `bends` directly, so there's one place that answers "is this unit a master".
+    /// Today's data shares one flat number across nations; `_nation` is unused until #344 adds
+    /// `bends_per_nation` and this starts reading it, the way `SignDef::target_for` reads
+    /// `per_nation`.
+    pub fn master_threshold(&self, _nation: Nation) -> Option<u32> {
+        self.signs.iter().find_map(|s| match &s.kind {
+            SignKind::Masters { bends } => Some(*bends),
+            _ => None,
+        })
+    }
 }
 
 /// One stage of building the gate (`[[stage]]`).
@@ -849,6 +863,21 @@ mod tests {
         assert_eq!(stone.target_for(Nation::Earth), Some(200));
         assert_eq!(stone.hint.as_deref(), Some("Quarry stone"));
         assert_eq!(e.signs[1].target_for(Nation::Fire), None);
+    }
+
+    /// `master_threshold` reads the `masters` sign's one `bends` value, the same for every
+    /// nation until #344 adds a per-nation override, and `None` when the data has no such sign
+    /// at all (`docs/design/endgame.md`, "Mastery pacing").
+    #[test]
+    fn master_threshold_reads_the_masters_sign_or_none_without_one() {
+        let e = load(
+            "[[sign]]\nid = \"masters\"\ngroup = \"bending\"\nname = \"M\"\nkind = \"masters\"\n\
+             bends = 10\ntarget = 3\n",
+        )
+        .unwrap();
+        assert_eq!(e.master_threshold(Nation::Fire), Some(10));
+        assert_eq!(e.master_threshold(Nation::Air), Some(10));
+        assert_eq!(load("").unwrap().master_threshold(Nation::Fire), None);
     }
 
     #[test]
