@@ -121,6 +121,9 @@ pub struct Overlays {
     pub wet: Rgb8,
     pub cursor: Rgb8,
     pub warm: Rgb8,
+    /// A power source's reach (#428, #429): the cursor on a finished source, or the Build tool
+    /// placing one, the way `warm` shows a flame's reach.
+    pub powered: Rgb8,
     pub flame: OverlayGlyph,
     /// A fruit tree an orchard planted that hasn't borne fruit yet (#142).
     pub sapling: OverlayGlyph,

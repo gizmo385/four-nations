@@ -186,6 +186,9 @@ pub enum Tint {
     Wet,
     /// The reach of the flame under the cursor.
     Warm,
+    /// The reach of a finished power source under the cursor, or one the Build tool is placing
+    /// (issue #428, #429).
+    Powered,
 }
 
 impl Tint {
@@ -305,6 +308,7 @@ impl Palette {
             Tint::Build => o.build,
             Tint::Wet => o.wet,
             Tint::Warm => o.warm,
+            Tint::Powered => o.powered,
         }
     }
 

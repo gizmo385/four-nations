@@ -1,6 +1,7 @@
 //! What is under the cursor: the lines of the Here section (the terminal UI, #418; CURSOR until
 //! then).
 
+use fn_sim::building::BuildingId;
 use fn_sim::world::{PlotStage, Unit};
 use fn_sim::{Defs, Pos, World};
 
@@ -83,6 +84,53 @@ fn ground_line(world: &World, defs: &Defs, tile: Pos) -> Option<String> {
     let stuck = world.stockpile_zones().next().is_some() && !world.stockpile_zones().any(has_room);
     let suffix = if stuck { " (unreachable: every stockpile is full)" } else { "" };
     Some(format!("Lying here: {} {name}{suffix}", stack.count))
+}
+
+/// How many finished, `uses_power` buildings currently have `source` as the one that actually
+/// powers them: the best boost in reach (`World::power_at`), not merely every building its reach
+/// physically covers (two sources never both power one building, #428). For a source's own
+/// "Powering" readout (#429). Counted by anchor (`Building::part` zero), so a multi-tile
+/// consumer isn't counted once per tile.
+fn powering_count(world: &World, defs: &Defs, source: Pos) -> usize {
+    world
+        .map
+        .iter()
+        .filter(|&(p, t)| {
+            t.building.is_some_and(|b| b.part == [0, 0] && defs.building(b.id).uses_power)
+                && world.power_at(p, defs).is_some_and(|at| at.source == source)
+        })
+        .count()
+}
+
+/// What a finished power building says about itself (issue #428, #429,
+/// docs/design/late-tree.md "UI"): a source's reach, already scaled for the nation's current
+/// `power_generation`, and how many buildings it's powering right now; a consumer's source and
+/// boost, or "Unpowered" with none in reach. Empty for a building that is neither.
+fn power_lines(world: &World, defs: &Defs, anchor: Pos, building: BuildingId) -> Vec<String> {
+    let def = defs.building(building);
+    if let Some(power) = def.power {
+        let reach = power.radius_for(world.modifiers().power_generation);
+        let powering = powering_count(world, defs, anchor);
+        vec![
+            format!("Reach: {reach} tiles"),
+            format!("Powering: {powering} building{}", if powering == 1 { "" } else { "s" }),
+        ]
+    } else if def.uses_power {
+        let line = match world.power_at(anchor, defs) {
+            Some(p) => {
+                let source = world.building_at(p.source).expect("a registered source stands here");
+                format!(
+                    "Powered: {}, {:.1}x",
+                    defs.building(source).display_name(world.nation),
+                    p.boost
+                )
+            }
+            None => "Unpowered".to_owned(),
+        };
+        vec![line]
+    } else {
+        Vec::new()
+    }
 }
 
 /// The tooltip for what is under the cursor at `tile`: up to 4 lines (name, context, a yield or
@@ -192,6 +240,11 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
         {
             let filled = world.occupants(at).count();
             lines.push(Line::Detail(format!("Study: {filled}/{seats} seats filled")));
+        }
+        // A power source names its reach and how many buildings it's powering; a consumer names
+        // which source powers it, and at what boost, or "Unpowered" (issue #429).
+        if let Some(building) = world.building_at(tile) {
+            lines.extend(power_lines(world, defs, at, building).into_iter().map(Line::Detail));
         }
         return Some(lines);
     }
@@ -548,6 +601,52 @@ mod tests {
         assert!(
             lines.contains(&Line::Detail(format!("Study: 1/{seats} seats filled"))),
             "{lines:?}"
+        );
+    }
+
+    /// A consumer names the source that actually powers it and the boost, or "Unpowered" out of
+    /// reach (issue #428, #429); a source names its reach, already scaled for the nation's
+    /// current `power_generation`, and how many buildings it's powering right now. No bundled
+    /// building is a source yet (#255, #204, #200), so this gives one of its own, mutating a
+    /// building's `power` and `uses_power` fields the way `world/power/tests` does for the sim.
+    /// Water's `power_generation` is 1.0 (data/nations.toml), so its reach is the bare radius.
+    #[test]
+    fn a_consumer_names_its_source_and_a_source_names_its_reach_and_how_many_it_powers() {
+        use fn_sim::building::{Building, PowerDef};
+        let mut s = Session::new(7, Nation::Water, 24, 24);
+        let source_id = s.defs.building_id("bed").unwrap();
+        s.defs.buildings[source_id.0 as usize].power =
+            Some(PowerDef { radius: 3, boost: 1.5, boost_millis: 1500 });
+        let consumer_id = s.defs.building_id("earth_wall").unwrap();
+        s.defs.buildings[consumer_id.0 as usize].uses_power = true;
+
+        let source_at = Pos::new(10, 10);
+        let near = Pos::new(10, 13); // 3 tiles away: in reach
+        let far = Pos::new(10, 20); // out of reach
+        s.world.units.retain(|u| ![source_at, near, far].contains(&u.pos));
+        s.world.map.get_mut(source_at).unwrap().building =
+            Some(Building::new(source_id, true, false));
+        s.world.adopt_power_sources(&s.defs);
+        s.world.map.get_mut(near).unwrap().building = Some(Building::new(consumer_id, true, false));
+        s.world.map.get_mut(far).unwrap().building = Some(Building::new(consumer_id, true, false));
+
+        let source_name = s.defs.building(source_id).display_name(s.world.nation).to_owned();
+        let near_lines = tile_lines(&s, Tool::Select, near).unwrap();
+        assert!(
+            near_lines.contains(&Line::Detail(format!("Powered: {source_name}, 1.5x"))),
+            "{near_lines:?}"
+        );
+        let far_lines = tile_lines(&s, Tool::Select, far).unwrap();
+        assert!(far_lines.contains(&Line::Detail("Unpowered".to_owned())), "{far_lines:?}");
+
+        let source_lines = tile_lines(&s, Tool::Select, source_at).unwrap();
+        assert!(
+            source_lines.contains(&Line::Detail("Reach: 3 tiles".to_owned())),
+            "{source_lines:?}"
+        );
+        assert!(
+            source_lines.contains(&Line::Detail("Powering: 1 building".to_owned())),
+            "{source_lines:?}"
         );
     }
 

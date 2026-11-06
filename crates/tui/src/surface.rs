@@ -1285,6 +1285,7 @@ fn describe_mark(mark: &Mark) -> String {
         Mark::Door { .. } => "door",
         Mark::Wet => "wet",
         Mark::Warm => "warmth",
+        Mark::Powered => "powered",
         Mark::AvatarAccent => "avatar",
     }
     .to_owned()

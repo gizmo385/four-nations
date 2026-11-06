@@ -369,8 +369,8 @@ pub struct BuildingDetail {
     /// "1x1" or "2x2" (`BuildingDef::footprint`).
     pub footprint: String,
     /// What it does once finished: a line per fact the data carries (study seats, a bed, a kept
-    /// fire, a rail, an orchard). Capacity (#226) isn't here yet; add it once `BuildingDef`
-    /// carries it. "Nothing beyond shelter" for a building with none of those.
+    /// fire, a rail, an orchard, power, issue #429). Capacity (#226) isn't here yet; add it once
+    /// `BuildingDef` carries it. "Nothing beyond shelter" for a building with none of those.
     pub effects: Vec<String>,
     /// "Requires Fire Making" when the nation hasn't unlocked it; `None` when it can be placed.
     pub requires: Option<String>,
@@ -427,6 +427,16 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
             "Sow ({:.0}s), grows {crop} ({:.0}s), yields {} on reap ({:.0}s)",
             farm.sow_seconds, farm.grow_seconds, farm.harvest_count, farm.reap_seconds
         ));
+    }
+    // A power source (issue #428, #429): its reach, already scaled for the nation's current
+    // `power_generation`, and what a powered building gains from standing in it.
+    if let Some(power) = &def.power {
+        let reach = power.radius_for(session.world.modifiers().power_generation);
+        effects.push(format!("Powers buildings within {reach} tiles"));
+        effects.push(format!("Powered work: {:.1}x faster", power.boost));
+    }
+    if def.uses_power {
+        effects.push("Uses power".to_owned());
     }
     if effects.is_empty() {
         effects.push("Nothing beyond shelter".to_owned());
@@ -710,6 +720,35 @@ mod tests {
         // The endeavor's gate has no cost of its own (#236): its stages do.
         let gate = earth.defs.building_id("harmony_gate").unwrap();
         assert_eq!(building_detail(&earth, gate).cost, vec!["free".to_owned()]);
+    }
+
+    /// A power source's detail (issue #428, #429) names its reach, already scaled for the
+    /// nation's current `power_generation`, and what being powered buys; it no longer says
+    /// "Nothing beyond shelter". A consumer's just says it uses power. No bundled building is a
+    /// source yet (#255, #204, #200), so this gives one of its own, the way `world/power/tests`
+    /// does for the sim.
+    #[test]
+    fn a_sources_detail_names_its_reach_and_boost_a_consumers_says_it_uses_power() {
+        use fn_sim::building::PowerDef;
+        let mut earth = session(Nation::Earth);
+        let wall = earth.defs.building_id("earth_wall").unwrap();
+        earth.defs.buildings[wall.0 as usize].power =
+            Some(PowerDef { radius: 3, boost: 1.5, boost_millis: 1500 });
+        // The reach is already scaled for Earth's own `power_generation` (data/nations.toml),
+        // not the bare radius: `PowerDef::radius_for` is what the detail reads too.
+        let reach = earth.defs.buildings[wall.0 as usize].power.unwrap().radius_for(0.8);
+        assert_eq!(earth.world.modifiers().power_generation, 0.8, "assumed by this test");
+        let detail = building_detail(&earth, wall);
+        assert!(
+            detail.effects.contains(&format!("Powers buildings within {reach} tiles")),
+            "{detail:?}"
+        );
+        assert!(detail.effects.contains(&"Powered work: 1.5x faster".to_owned()), "{detail:?}");
+        assert!(!detail.effects.contains(&"Nothing beyond shelter".to_owned()), "{detail:?}");
+
+        let workshop = earth.defs.building_id("workshop").unwrap();
+        let workshop_detail = building_detail(&earth, workshop);
+        assert!(workshop_detail.effects.contains(&"Uses power".to_owned()), "{workshop_detail:?}");
     }
 
     #[test]
