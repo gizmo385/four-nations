@@ -454,10 +454,35 @@ fn footer(page: &Page) -> &'static str {
     }
 }
 
-/// The box the title screen draws in: centred, at most 64 columns wide.
-fn box_area(area: Rect) -> Rect {
-    let width = area.width.min(64);
-    let height = area.height.min(22);
+/// The title box's widest.
+const BOX_WIDTH: u16 = 64;
+/// Lines a page reserves for its wrapped description or hint, so the box keeps one height while
+/// the cursor moves between rows whose text wraps to different lengths.
+const NATION_DESCRIPTION_LINES: usize = 4;
+const SEED_HINT_LINES: usize = 3;
+/// The save list's own rows, which scroll inside whatever height the box gives them.
+const LOAD_ROWS: u16 = 20;
+
+/// The rows `page` draws inside the frame: what it shows, not a fixed 22, so a short page gets a
+/// short box instead of one mostly empty.
+fn content_rows(screen: &TitleScreen) -> u16 {
+    let rows = match &screen.page {
+        // The welcome line and a blank, the items, then room for a status line and its blank.
+        Page::Menu => 2 + screen.items().len() + 2,
+        // The prompt and a blank, one row per nation, a blank, then the description.
+        Page::Nation { .. } => 2 + Nation::ALL.len() + 1 + NATION_DESCRIPTION_LINES,
+        // The heading and a blank, the four rows, a blank, then the hint.
+        Page::Seed { .. } => 2 + SeedRow::ALL.len() + 1 + SEED_HINT_LINES,
+        Page::Load => return LOAD_ROWS,
+    };
+    u16::try_from(rows).unwrap_or(u16::MAX)
+}
+
+/// The box the title screen draws in: centred, at most [`BOX_WIDTH`] columns wide and as tall
+/// as the page's content plus its frame.
+fn box_area(area: Rect, rows: u16) -> Rect {
+    let width = area.width.min(BOX_WIDTH);
+    let height = area.height.min(rows.saturating_add(2));
     Rect::new(area.x + (area.width - width) / 2, area.y + (area.height - height) / 2, width, height)
 }
 
@@ -476,7 +501,7 @@ pub fn draw_title(
     }
     let marks = crate::widgets::Marks::new(palette.ascii);
     let title = format!(" {0} FOUR NATIONS {0} ", marks.seal);
-    let outer = box_area(area);
+    let outer = box_area(area, content_rows(screen));
     draw_frame(buf, outer, palette, &title, TitleAt::Centre, footer(&screen.page));
     let inner = Rect::new(outer.x + 2, outer.y + 1, outer.width - 4, outer.height - 2);
 
@@ -520,7 +545,7 @@ fn draw_nation(defs: &Defs, cursor: usize, p: &mut Painter) {
     p.blank();
     let chosen = defs.nation(Nation::ALL[cursor % Nation::ALL.len()]);
     let width = usize::from(p.inner.width);
-    for line in wrap(&chosen.description, width, 4, p.marks.ellipsis) {
+    for line in wrap(&chosen.description, width, NATION_DESCRIPTION_LINES, p.marks.ellipsis) {
         p.row(&Row::text(line, Tone::Text));
     }
 }
@@ -562,9 +587,14 @@ fn draw_seed(
         tone(SeedRow::Difficulty),
     ));
     p.blank();
-    p.row(&Row::text(seed_row_hint(row, defs, size_idx, survey, difficulty_idx), Tone::Dim));
-    p.blank();
-    p.row(&Row::text("Digits edit  Up/Down row  Left/Right change  Enter: embark.", Tone::Dim));
+    // Wrapped, not cut off: a difficulty's hint runs well past one line. The keys live in the
+    // frame's footer (`footer`) and the seed row's own hint says how to edit the digits, so the
+    // page doesn't repeat them.
+    let hint = seed_row_hint(row, defs, size_idx, survey, difficulty_idx);
+    let width = usize::from(p.inner.width);
+    for line in wrap(&hint, width, SEED_HINT_LINES, p.marks.ellipsis) {
+        p.row(&Row::text(line, Tone::Dim));
+    }
 }
 
 fn draw_load(screen: &TitleScreen, defs: &Defs, palette: &Palette, inner: Rect, buf: &mut Buffer) {
