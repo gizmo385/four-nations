@@ -187,13 +187,23 @@ fn every_card_names_its_state_cost_and_unlocks_or_what_it_still_needs() {
     assert!(row.contains('✓'), "{row}");
 }
 
+/// A substring's position in `char`s, not bytes: the frame carries multi-byte marks (bullets,
+/// checks, arrows) ahead of a card's name, so a plain `str::find` (byte offset) drifts away from
+/// the column it actually landed in as soon as the grid's own column width (it follows the
+/// terminal's, #423) shifts a column just past a multiple of the divisor below.
+fn char_index_of(haystack: &str, needle: &str) -> Option<usize> {
+    let byte_idx = haystack.find(needle)?;
+    Some(haystack[..byte_idx].chars().count())
+}
+
 #[test]
 fn columns_are_by_depth_and_start_with_the_tier_numbers() {
     let mut a = app(7, Nation::Earth, WIDE);
     run(&mut a, "t");
     let frame = text(&mut a, WIDE);
     let heads = frame.lines().find(|l| l.contains("TIER 1")).unwrap();
-    let at = |n: usize| heads.find(&format!("TIER {n}")).unwrap_or_else(|| panic!("TIER {n}"));
+    let at =
+        |n: usize| char_index_of(heads, &format!("TIER {n}")).unwrap_or_else(|| panic!("TIER {n}"));
     for n in 1..5 {
         assert!(at(n) < at(n + 1), "{heads}");
     }
@@ -201,7 +211,7 @@ fn columns_are_by_depth_and_start_with_the_tier_numbers() {
     let deepest = screen_view(&a.session).columns.len();
     assert_eq!(deepest, 5);
     let row = frame.lines().find(|l| l.contains("Earth Rail")).unwrap();
-    assert_eq!(row.find("Earth Rail").map(|x| x / 19), Some(heads.find("TIER 5").unwrap() / 19));
+    assert_eq!(char_index_of(row, "Earth Rail").map(|x| x / 19), Some(at(5) / 19));
 }
 
 #[test]
@@ -339,7 +349,7 @@ fn enter_on_a_locked_tech_queues_its_prereqs() {
     assert_eq!(frame.matches("Queued").count(), queued.len() + 1, "{frame}");
     // The map region only: the side panel's own Research row names the current target too (a
     // queued prereq, here), which can otherwise collide with the grid's own card for it.
-    let map_width = usize::from(WIDE.0 - fn_tui::layout::PANEL_WIDTH);
+    let map_width = usize::from(WIDE.0 - fn_tui::layout::panel_width(WIDE.0));
     let mark = |name: &str| {
         frame
             .lines()
