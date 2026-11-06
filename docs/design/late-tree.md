@@ -22,8 +22,9 @@ the slowest stretch of research ends in the least reward.
    labour sinks. A crafter or scholar who finishes sooner goes back to hauling and building, so
    power buys back hands while population is still a fixed clock (#412).
 3. **Five sources, three nations**: Windmill and Wind Turbine (Air), Tide Mill (Water, on the
-   water's edge), Steam Engine and Lightning Station (Fire). Earth gets none. It has rail and
-   two mines instead, and its `power_generation` of 0.8 is the vision's "weak at this".
+   water's edge), Steam Engine and Lightning Station (Fire). Earth got none here. The owner has
+   since given Earth one weak source (2026-11-06): power.md (#446, #447) proposes the Hot Spring
+   Mill on the rock face, and the power progression for all four nations.
 4. **Empty shared techs get a job.** `shelter` becomes a starting tech for every nation and
    unlocks the Bed, which is what it always described. `pottery` unlocks a **Cistern**, a fresh
    drinking place away from the river.
@@ -140,8 +141,9 @@ How each one plays:
   matters most. The Steam Engine covers the industrial yard. The Lightning Station is the one
   source with a `boost` of 2.0: it doubles everything around it, and the 500-point capstone is
   the strongest building Fire owns.
-- **Earth** builds no source. Its shared consumers just run unpowered, and nothing in the UI
-  suggests otherwise, because no Earth tech names power.
+- **Earth** builds no source in this doc. Superseded (owner, 2026-11-06): Earth gets one weak
+  source, the Hot Spring Mill in power.md (#446). It must touch rock and has a reach of 2 tiles,
+  so it powers the mines it stands beside.
 
 The radius and boost values are starting points for the balance follow-up (#432) to check. The
 four existing buildings keep the costs #369 and #376 gave them. The Tide Mill is new: 14 wood,
