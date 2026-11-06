@@ -5,11 +5,11 @@
 │   Campfire             Needs: Fire Making   Construction x1.15   Needs: Writing      ││ Food 0 · 0/head              │
 │                                                                                      ││ Shelter ░░░░░░░░░░   0%      │
 │  ◆ Shelter            ◆ Carpentry          · Writing            · Earthen Walls      ││ Gate 0/9 · 10 people     [G] │
-│   Queued      25 pts   Queued      60 pts   Locked     120 pts   Locked     120 pts  │├─ CURSOR ────────── (94, 64) ─┤
+│   Queued      25 pts   Queued      60 pts   Locked     120 pts   Locked     120 pts  │├─ HERE ──────────── (94, 64) ─┤
 │   Prerequisite for …   Construction x1.1…   Needs: Pottery       Needs: Earth Shap…  ││ Tyro                         │
-│                                                                                      ││ Earth Kingdom - Idle         │
-│  ◇ Fishing            · Herbalism          · Tunneling          · Seismic Sense      ││ Carrying: nothing - Bends: 0 │
-│   Available   25 pts   Locked     120 pts   Locked     120 pts   Locked     250 pts  ││ Press Enter to select        │
+│                                                                                      ││ Idle                         │
+│  ◇ Fishing            · Herbalism          · Tunneling          · Seismic Sense      ││ Press Enter to select        │
+│   Available   25 pts   Locked     120 pts   Locked     120 pts   Locked     250 pts  ││                              │
 │   Fishing Spot         Needs: Farming       Needs: Earth Shap…   Needs: Tunneling    ││                              │
 │                                                                                      ││                              │
 │  ✓ Stoneworking       ◇ Prospecting                                                  ││                              │

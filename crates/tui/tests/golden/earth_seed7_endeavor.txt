@@ -5,11 +5,11 @@
 │                                                                                      ││ Food 0 · 0/head              │
 │ Stage: not begun                                                                     ││ Research: none set       [T] │
 │                                                                                      ││ Gate 0/9 · 10 people     [G] │
-│ PEOPLE                                                                               │├─ CURSOR ────────── (94, 64) ─┤
+│ PEOPLE                                                                               │├─ HERE ──────────── (94, 64) ─┤
 │   Population                     ████░░░░░░      6/16                                ││ Tyro                         │
-│   Spare beds and food draw newcomers                                                 ││ Earth Kingdom - Idle         │
-│   Everyone has a bed             ░░░░░░░░░░       0/6                                ││ Carrying: nothing - Bends: 0 │
-│   Build beds                                                                         ││ Press Enter to select        │
+│   Spare beds and food draw newcomers                                                 ││ Idle                         │
+│   Everyone has a bed             ░░░░░░░░░░       0/6                                ││ Press Enter to select        │
+│   Build beds                                                                         ││                              │
 │                                                                                      ││                              │
 │ BUILDINGS                                                                            ││                              │
 │   One of every building          ░░░░░░░░░░       0/8                                ││                              │

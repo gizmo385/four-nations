@@ -84,7 +84,7 @@ fn golden(name: &str, actual: &str) {
     assert_eq!(actual, expected, "{name}: the frame changed; rebless with FN_BLESS=1 and review");
 }
 
-/// The side panel's CURSOR section, below its heading (which names the tile).
+/// The side panel's HERE section (CURSOR before #418), below its heading (which names the tile).
 fn cursor_section(app: &mut App) -> String {
     let text = to_text(&frame(app, ColorDepth::TrueColor, false));
     let panel = layout::regions(ratatui::layout::Rect::new(0, 0, SIZE.0, SIZE.1)).unwrap().panel;
@@ -92,7 +92,7 @@ fn cursor_section(app: &mut App) -> String {
         .lines()
         .map(|l| l.chars().skip(usize::from(panel.x)).collect::<String>().trim_end().to_owned())
         .collect();
-    let start = rows.iter().position(|r| r.contains("CURSOR")).expect("a CURSOR section");
+    let start = rows.iter().position(|r| r.contains("HERE")).expect("a HERE section");
     rows[start + 1..].join("\n")
 }
 

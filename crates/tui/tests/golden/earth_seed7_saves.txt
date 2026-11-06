@@ -5,7 +5,7 @@
 │                                                                                      ││ Food 0 · 0/head              │
 │                                                                                      ││ Research: none set       [T] │
 │                                                                                      ││ Gate 0/9 · 10 people     [G] │
-│                                                                                      │├─ CURSOR ────────── (94, 64) ─┤
+│                                                                                      │├─ HERE ──────────── (94, 64) ─┤
 │                                                                                      ││ Coast                        │
 │                                                                                      ││ Plains (94, 64)              │
 │                                                                                      ││ Elevation 152                │

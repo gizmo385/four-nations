@@ -5,11 +5,11 @@
 """ƒ,,,,,,,•,●♣♣♣.≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈.,,,.ƒ≈≈≈≈~│ Food 0 · 0/head              │
 ""~♠,,¥,,,●,●,♣,♣...≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈.♣,,.≈≈.≈≈.│ Research: none set       [T] │
 "~""┏────────────── ◆ MENU ◆ ──────────────┓≈≈≈.│ Gate 0/9 · 10 people     [G] │
-~"",│ ▸ Resume                             │....├─ CURSOR ────────── (94, 64) ─┤
+~"",│ ▸ Resume                             │....├─ HERE ──────────── (94, 64) ─┤
 ~",,│   Save as…                           │.≈.♣│ Tyro                         │
-τ",♣│   Quicksave                       F5 │...♣│ Earth Kingdom - Idle         │
-"♠,♣│   Load…                           F6 │,♣,♣│ Carrying: nothing - Bends: 0 │
-""♣,│   Quickload                       F9 │,♣♣♣│ Press Enter to select        │
+τ",♣│   Quicksave                       F5 │...♣│ Idle                         │
+"♠,♣│   Load…                           F6 │,♣,♣│ Press Enter to select        │
+""♣,│   Quickload                       F9 │,♣♣♣│                              │
 ",♣♣│   Key help                           │♣,,♣│                              │
 ",,♣│   Quit                               │♣♣,♣│                              │
 "♣,♣│                                      │♣,♣♣│                              │

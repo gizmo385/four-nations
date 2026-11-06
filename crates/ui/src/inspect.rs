@@ -1,6 +1,7 @@
-//! What is under the cursor: the lines of the Cursor section (the terminal UI).
+//! What is under the cursor: the lines of the Here section (the terminal UI, #418; CURSOR until
+//! then).
 
-use fn_sim::world::PlotStage;
+use fn_sim::world::{PlotStage, Unit};
 use fn_sim::{Defs, Pos, World};
 
 use crate::build;
@@ -86,44 +87,68 @@ fn ground_line(world: &World, defs: &Defs, tile: Pos) -> Option<String> {
 
 /// The tooltip for what is under the cursor at `tile`: up to 4 lines (name, context, a yield or
 /// reason, then an action hint). `None` when `tile` is off the map.
+///
+/// A unit standing there (`units_at` skips one inside a building, #226: it isn't standing there
+/// as far as the map is concerned, so hovering its door falls through to the building below
+/// instead) takes over the tile entirely (`unit_lines`); otherwise this is [`tile_lines`].
 pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
+    let world = &session.world;
+    world.map.get(tile)?;
+    if let Some(unit) = world.units_at(tile).next() {
+        return Some(unit_lines(session, tool, unit));
+    }
+    tile_lines(session, tool, tile)
+}
+
+/// A unit's own lines (docs/design/side-panel-v2.md "Zone 3"): its name, its task and, once
+/// selected, `Enter: select`. The own-nation prefix (`Fire Nation - `) only earns its keep once
+/// the settlement has more than one nation (#248, "the transformation") -- on a single-nation
+/// game it's the same word on every unit, worth nothing. Carrying shows only with something to
+/// carry ("nothing" says nothing worth a row); finished bends moved to the selection bar's own
+/// line instead (#418, `fn_ui::text::bends_line`), since a unit under the cursor can be selected
+/// and show both at once.
+fn unit_lines(session: &Session, tool: Tool, unit: &Unit) -> Lines {
+    let (world, defs) = (&session.world, &session.defs);
+    let mut lines = Lines::new();
+    lines.push(Line::Title(unit.name.clone()));
+    let task = describe_task(world, defs, unit);
+    // Inner Fire (#123) and the cold (#299) share this slot, since a tooltip tops out at
+    // four lines and the two never apply at once (being heated is what rules cold out,
+    // `World::is_cold`).
+    let status = world
+        .glows()
+        .into_iter()
+        .find(|g| g.unit == unit.id)
+        .map(|g| format!(" - Warm {}", clock(g.seconds_left)))
+        .or_else(|| {
+            world
+                .is_cold(unit.pos, defs)
+                .then(|| " - Cold: tiring faster (no fire near)".to_owned())
+        })
+        .unwrap_or_default();
+    let multi_nation = crate::view::population_by_nation(world, defs).len() > 1;
+    let detail = if multi_nation {
+        format!("{} - {task}{status}", defs.nation(world.nation_of(unit)).name)
+    } else {
+        format!("{task}{status}")
+    };
+    lines.push(Line::Detail(detail));
+    if unit.carrying.is_some() {
+        lines.push(Line::Detail(format!("Carrying: {}", describe_stack(defs, unit.carrying))));
+    }
+    if tool == Tool::Select {
+        lines.push(Line::Hint(Hint::SelectUnit));
+    }
+    lines
+}
+
+/// What `tile` itself holds, ignoring any unit standing there: the Here section's fallback once
+/// the unit under the cursor already has the selection bar open (#418), so it isn't named twice.
+/// `None` when `tile` is off the map.
+pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
     let (world, defs) = (&session.world, &session.defs);
     let t = world.map.get(tile)?;
     let mut lines = Lines::new();
-    // `units_at` skips a unit that is inside a building (#226): it isn't standing there as far
-    // as the map is concerned, so hovering its door falls through to the building below instead.
-    if let Some(unit) = world.units_at(tile).next() {
-        lines.push(Line::Title(unit.name.clone()));
-        let task = describe_task(world, defs, unit);
-        // Inner Fire (#123) and the cold (#299) share this slot, since a tooltip tops out at
-        // four lines and the two never apply at once (being heated is what rules cold out,
-        // `World::is_cold`).
-        let status = world
-            .glows()
-            .into_iter()
-            .find(|g| g.unit == unit.id)
-            .map(|g| format!(" - Warm {}", clock(g.seconds_left)))
-            .or_else(|| {
-                world
-                    .is_cold(unit.pos, defs)
-                    .then(|| " - Cold: tiring faster (no fire near)".to_owned())
-            })
-            .unwrap_or_default();
-        lines.push(Line::Detail(format!(
-            "{} - {task}{status}",
-            defs.nation(world.nation_of(unit)).name
-        )));
-        // Finished bends (#233) share the carrying line, for the same four-line reason.
-        lines.push(Line::Detail(format!(
-            "Carrying: {} - Bends: {}",
-            describe_stack(defs, unit.carrying),
-            unit.bends()
-        )));
-        if tool == Tool::Select {
-            lines.push(Line::Hint(Hint::SelectUnit));
-        }
-        return Some(lines);
-    }
     // A construction site or a finished building (#111): what it is and how far along.
     if let Some(report) = build::site_report(session, tile) {
         lines.push(Line::Title(format!("{} (under construction)", report.name)));
@@ -322,17 +347,39 @@ mod tests {
         assert_eq!(tooltip_lines(&s, Tool::Select, Pos::new(-1, -1)), None);
     }
 
+    /// A fresh single-nation game, off the Select tool: just the name and the task, no nation
+    /// prefix (#418, "only once there's more than one nation") and no Carrying row (carrying
+    /// nothing is omitted), nor a hint (that's Select's own).
     #[test]
     fn a_unit_only_offers_to_be_selected_with_the_select_tool() {
         let s = Session::new(7, Nation::Earth, 64, 64);
         let at = s.world.units[0].pos;
         let lines = tooltip_lines(&s, Tool::Harvest, at).unwrap();
-        assert_eq!(lines.len(), 3);
+        assert_eq!(lines.len(), 2, "name and task only: {lines:?}");
         assert!(!lines.contains(&Line::Hint(Hint::SelectUnit)));
     }
 
+    /// The own-nation prefix only shows once the settlement has more than one nation (#418,
+    /// #248 "the transformation"); until then it's the same word on every unit, so the Detail
+    /// row is the plain task.
     #[test]
-    fn a_unit_s_tooltip_counts_its_finished_bends() {
+    fn the_nation_prefix_only_shows_once_the_settlement_has_more_than_one_nation() {
+        let mut s = Session::new(7, Nation::Fire, 64, 64);
+        let at = s.world.units[0].pos;
+        let lines = tooltip_lines(&s, Tool::Select, at).unwrap();
+        let Line::Detail(detail) = &lines[1] else { panic!("{lines:?}") };
+        assert!(!detail.contains("Nation"), "single-nation: {detail}");
+
+        s.world.units[0].nation = Some(Nation::Earth);
+        let lines = tooltip_lines(&s, Tool::Select, at).unwrap();
+        let Line::Detail(detail) = &lines[1] else { panic!("{lines:?}") };
+        assert!(detail.starts_with(&s.defs.nation(Nation::Earth).name), "{detail}");
+    }
+
+    /// Carrying something shows a row for it; finished bends moved to the selection bar's own
+    /// line instead (#418, `fn_ui::text::bends_line`), so the tooltip never mentions them.
+    #[test]
+    fn a_unit_s_tooltip_shows_carrying_but_not_its_finished_bends() {
         use fn_sim::world::{BendOutcome, Command};
         let mut s = Session::new(3, Nation::Fire, 64, 64);
         let ability = s.defs.ability_id("hearthflame").expect("fire has a Hearthflame");
@@ -350,11 +397,21 @@ mod tests {
         let event = s.world.bend_events()[0];
         assert_eq!(event.outcome, BendOutcome::Done, "at {target:?}");
         let caster = s.world.unit(event.unit).unwrap();
-        assert_eq!(caster.bends(), 1);
+        assert_eq!(caster.bends(), 1, "finished a bend");
         let lines = tooltip_lines(&s, Tool::Select, caster.pos).unwrap();
-        let carrying = format!("Carrying: {} - Bends: 1", describe_stack(&s.defs, caster.carrying));
-        assert_eq!(lines[2], Line::Detail(carrying), "{lines:?}");
-        assert_eq!(lines.len(), 4, "still four lines");
+        assert!(
+            lines.iter().all(|l| !format!("{l:?}").contains("Bends")),
+            "bends are the selection bar's line now (#418): {lines:?}"
+        );
+
+        let wood = s.defs.item_id("wood").expect("the bundled data has wood");
+        let unit = s.world.units.iter_mut().find(|u| u.id == event.unit).unwrap();
+        unit.carrying = Some(fn_sim::jobs::Stack { item: wood, count: 1 });
+        let caster = s.world.unit(event.unit).unwrap();
+        let lines = tooltip_lines(&s, Tool::Select, caster.pos).unwrap();
+        let carrying =
+            lines.iter().find(|l| matches!(l, Line::Detail(d) if d.starts_with("Carrying")));
+        assert!(carrying.is_some(), "{lines:?}");
     }
 
     #[test]

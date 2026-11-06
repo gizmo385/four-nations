@@ -10,7 +10,7 @@
 │ HAUL 1                                                                                                                                                               │├─ ALERTS ─────────────── [L] ─┤
 │   Oma  Fetching 1 Fruit from (92, 64)                  ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                                   ││ 44 wood can't be stored:…    │
 │ EAT 1                                                                                                                                                                ││ Chi to spare, no bend…       │
-│   Ming Foraging at (86, 65)                            ▰▰▱▱▱!  ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                                   │├─ CURSOR ────────── (94, 64) ─┤
+│   Ming Foraging at (86, 65)                            ▰▰▱▱▱!  ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                                   │├─ HERE ──────────── (94, 64) ─┤
 │                                                                                                                                                                      ││ Coast                        │
 │                                                                                                                                                                      ││ Plains (94, 64)              │
 │                                                                                                                                                                      ││ Elevation 152                │
