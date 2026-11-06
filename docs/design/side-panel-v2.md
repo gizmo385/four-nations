@@ -153,7 +153,7 @@ Nation screen's header line and the Esc menu.
 - **Routine successes don't toast.** An ability cast, a building used: log only (`L`). Warnings,
   failures, deaths, research learned and season changes still toast.
 - **Repeats coalesce:** the same kind and subject inside the toast window is one line with a count,
-  `Hearthflame cast ×3`.
+  `Hearthflame failed ×3`.
 - **No coordinates in toasts.** They stay in the log entry, which is where you'd go to find the
   place anyway.
 - **Spare height comes here first**, up to 6 rows, before Here grows.
@@ -197,7 +197,7 @@ above would produce.
 ""~"",,¥,,,,,,¥,,,%Θ▤·Θ■■■≈≈≈≈≈≈≈≈≈≈≈≈.,,,¥♣,...│ Research: none set       [T] │
 ""~",,¥,,,,,,,,,,,☺▤%▤■Θ%≡≈≈≈≈≈≈≈≈≈≈.≈.,,,♣♣♣♣.≈│ Gate 8/9 · 3 scrolls     [G] │
 "~τ",♣,,τ,,,,,,,,,%%%▤%ΘΘ£≡≈≈≈≈≈≈≈≈....,,,♣,♣♣..├─ ALERTS ─────────────── [L] ─┤
-~""♠,♣,,,,,¥,,,,,,%☺☺%%▬☺Θ♦≈≈≈≈≈≈≈≈≈..,,,,♣,,,,♣│ Hearthflame cast ×3          │
+~""♠,♣,,,,,¥,,,,,,%☺☺%%▬☺Θ♦≈≈≈≈≈≈≈≈≈..,,,,♣,,,,♣│ Hearthflame failed ×3        │
 ."""♣,,,,,,,,,,,,¥▬τ☺■%%☺≡■≈≈≈≈≈≈≈ƒ.≈.,,,,♣,,,,♣│ Learned Weld                 │
 ..",♣♣,,,,,,,,,,,,¥%■■%%%¥≡≈≈≈≈≈≈≈≈≈..,,,,,,,♣♣,│ Bao is thirsty               │
 ≈.",,♣,♣♣,,,,,,,,,ΨΨ■■■ΘΘ≡≡≈≈≈≈≈≈≈≈≈≈..,,,,♣,♣♣♣├─ HERE ──────────── (92, 64) ─┤
@@ -229,7 +229,7 @@ above would produce.
 ♠"▲""♠♠"♠"♠♠♠♠¥♠♠"♠"""""",,,,,,,,▲▲▲,Θ☺...~..≈≈≈≈≈≈≈≈≈≈≈≈≈..,,,...≈≈≈.¥♠"""♠"♠"♠"""♠√√~√├─ ALERTS ─────────────── [L] ─┤
 ♠"♠♠♠♠"♠♠♠♠♠""♠♠"""""¥"♠♠♠",,,,,,▲▲,,,☺Θ≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈.,τ,.≈≈≈≈≈.♠♠♠"♠""""""¥""♣√~√│ Winter will be mild          │
 ♠""""♠♠♠♠♠""♠♠"""¥¥""""""ƒ,,,,,,,▲,,,,ΘΘ≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈.,,,.ƒ≈≈≈≈~♠♠♠""♠"♠♠"""♠♠√♣√~│ Learned Weld                 │
-"""♠♠♠♠♠♠♠♠♠♠♠♠"""""♠"""~♠,,¥,,,,,,,,,▦▦ΠΠ≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈.,,,.≈≈.≈≈.~♠♠"♠"♠♠♠♠""♠"√√√√│ Hearthflame cast ×3          │
+"""♠♠♠♠♠♠♠♠♠♠♠♠"""""♠"""~♠,,¥,,,,,,,,,▦▦ΠΠ≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈.,,,.≈≈.≈≈.~♠♠"♠"♠♠♠♠""♠"√√√√│ Hearthflame failed ×3        │
 """♠"♠♠♠♠♠♠♠♠♠"♠"""""""~"",,,,,,,,,,,%▦▦ΠΠ%■■≈≈≈≈≈≈≈≈≈≈≈≈≈..,,,...≈≈≈.♠~♠""♠♠"♠"""""♠♣√~│ Ilah: stockpile full         │
 """♠♠""♠♠♠...~..♠"♠♠""~"",,¥,,,,,,¥,,,%Θ▤·Θ■■■≈≈≈≈≈≈≈≈≈≈≈≈.,,,¥♣,.....♠♠~♠♠♠♠...♠""♠√√~√│ Bao is thirsty               │
 """♠√♠♠♠♠..≈≈≈≈...""""~",,¥,,,,,,,,,,,☺▤%▤■Θ%≡≈≈≈≈≈≈≈≈≈≈.≈.,,,♣♣♣♣.≈.♣♠♠♠~~"♠.≈."♠♠♠τ~√√├─ BEND ───────────────── [B] ─┤
