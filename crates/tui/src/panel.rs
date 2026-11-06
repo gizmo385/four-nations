@@ -368,15 +368,26 @@ fn endeavor_rows(view: &SideView) -> Vec<Row> {
 
 /// The Tool section's one row for the Build tool's current choice (#111, #285): its name marked
 /// and its cost on the right; dimmed with the tech it still needs in place of the cost if it's
-/// somehow locked (the Build modal only ever lets the player choose an unlocked one).
-fn picker_row(row: &build::PickerRow, chosen: Option<BuildingId>, marks: &Marks) -> Row {
+/// somehow locked (the Build modal only ever lets the player choose an unlocked one). A name and
+/// cost too wide to share `width` ("Mine Shaft" and "10 Stone, 6 Wood, 2 Tool, 2x2") take a
+/// row each, the cost right-aligned under the name, rather than the cost crowding the name out.
+fn picker_rows(
+    row: &build::PickerRow,
+    chosen: Option<BuildingId>,
+    marks: &Marks,
+    width: usize,
+) -> Vec<Row> {
     let mark = if Some(row.id) == chosen { marks.pointer } else { " " };
     let (name_tone, right, right_tone) = match &row.requires {
         Some(requires) => (Tone::Dim, requires.clone(), Tone::Warn),
         None if Some(row.id) == chosen => (Tone::Title, row.cost.clone(), Tone::Dim),
         None => (Tone::Text, row.cost.clone(), Tone::Dim),
     };
-    Row::pair(format!("{mark}{}", row.name), name_tone, right, right_tone)
+    let name = format!("{mark}{}", row.name);
+    if name.chars().count() + 1 + right.chars().count() <= width {
+        return vec![Row::pair(name, name_tone, right, right_tone)];
+    }
+    vec![Row::text(name, name_tone), Row::pair("", Tone::Dim, right, right_tone)]
 }
 
 /// The Tool section's rows while the Bend tool is active (#248, docs/design/endgame.md "The
@@ -384,7 +395,7 @@ fn picker_row(row: &build::PickerRow, chosen: Option<BuildingId>, marks: &Marks)
 /// next marked, with how many could cast it ("Raise Earth: 14 benders", `World::caster_count`),
 /// the current ability first so fitting ("the Bend ability list down to the current ability",
 /// docs/design/side-panel.md) can drop everyone else and still leave it on screen. Empty off the
-/// Bend tool, which keeps the Build tool's single-row `picker_row` in its slot.
+/// Bend tool, which keeps the Build tool's `picker_rows` in its slot.
 fn bend_ability_rows(session: &Session, marks: &Marks) -> Vec<Row> {
     let defs = &session.defs;
     let current = bend_ability(session);
@@ -411,16 +422,27 @@ fn bend_ability_rows(session: &Session, marks: &Marks) -> Vec<Row> {
 }
 
 /// Whether the building the Build tool would place fits the cursor's tile, or the reason it
-/// doesn't (`fn_ui::build::placement`). `None` off the Build tool, or with nothing placeable.
-fn placement_row(session: &Session, pos: Pos, choice: Option<BuildingId>) -> Option<Row> {
-    let placement = build::placement(session, pos, choice?);
-    Some(match placement.refused {
-        None => Row::text("Can build here", Tone::Ok),
+/// doesn't (`fn_ui::build::placement`), wrapped like the section's Detail lines so a long reason
+/// ("would block the Academy's door") isn't cut short. Empty off the Build tool, or with nothing
+/// placeable.
+fn placement_rows(
+    session: &Session,
+    pos: Pos,
+    choice: Option<BuildingId>,
+    width: usize,
+    ellipsis: char,
+) -> Vec<Row> {
+    let Some(choice) = choice else { return Vec::new() };
+    match build::placement(session, pos, choice).refused {
+        None => vec![Row::text("Can build here", Tone::Ok)],
         Some(why) => {
             let why = build::describe_error(session, CommandError::Build(why));
-            Row::text(format!("Can't build here: {why}"), Tone::Warn)
+            wrap(&format!("Can't build here: {why}"), width, CURSOR_DETAIL_LINES, ellipsis)
+                .into_iter()
+                .map(|l| Row::text(l, Tone::Warn))
+                .collect()
         }
-    })
+    }
 }
 
 /// The tile under the cursor: whether the Build tool's choice would fit there, then the
@@ -440,10 +462,8 @@ fn cursor_rows(
 ) -> Vec<Row> {
     let pos = ui.cursor;
     let mut rows = Vec::new();
-    if ui.tool == Tool::Build
-        && let Some(row) = placement_row(session, pos, choice)
-    {
-        rows.push(row);
+    if ui.tool == Tool::Build {
+        rows.extend(placement_rows(session, pos, choice, width, ellipsis));
     }
     let mut lines = tooltip_lines(session, ui.tool, pos).unwrap_or_default();
     // The tooltip names the top thing on the tile; the section lists what else is there.
@@ -501,7 +521,7 @@ fn gather(
         view.picker
             .iter()
             .find(|row| Some(row.id) == view.choice)
-            .map(|row| vec![picker_row(row, view.choice, marks)])
+            .map(|row| picker_rows(row, view.choice, marks, width))
             .unwrap_or_default()
     };
     let notice = wrap(&view.notice, width, NOTICE_LINES, ellipsis)
@@ -730,18 +750,39 @@ mod tests {
         let rows = build::picker_rows(&session);
         let marks = Marks::new(false);
         let bed = rows.iter().find(|r| r.name == "Bed").unwrap();
-        let chosen = picker_row(bed, Some(bed.id), &marks);
+        let one = |r, chosen| {
+            let mut rows = picker_rows(r, chosen, &marks, 60);
+            assert_eq!(rows.len(), 1);
+            rows.remove(0)
+        };
+        let chosen = one(bed, Some(bed.id));
         assert_eq!(chosen.plain(), format!("{}Bed {}", marks.pointer, bed.cost));
         assert_eq!(chosen.left[0].1, Tone::Title);
 
-        let unchosen = picker_row(bed, None, &marks);
+        let unchosen = one(bed, None);
         assert!(unchosen.plain().starts_with(' '), "{}", unchosen.plain());
 
         let locked = rows.iter().find(|r| r.locked()).expect("Earth has a locked building");
-        let row = picker_row(locked, None, &marks);
+        let row = one(locked, None);
         assert_eq!(row.left[0].1, Tone::Dim);
         assert_eq!(row.right.as_ref().unwrap().0, *locked.requires.as_ref().unwrap());
         assert_eq!(row.right.as_ref().unwrap().1, Tone::Warn);
+    }
+
+    /// A name and cost too wide to share the panel take a row each, so the name isn't crowded
+    /// out by the cost (the Mine Shaft's "10 Stone, 6 Wood, 2 Tool, 2x2").
+    #[test]
+    fn a_picker_row_too_wide_for_the_panel_puts_the_cost_on_its_own_row() {
+        use fn_sim::Nation;
+        let session = Session::new(7, Nation::Earth, 48, 32);
+        let rows = build::picker_rows(&session);
+        let marks = Marks::new(false);
+        let bed = rows.iter().find(|r| r.name == "Bed").unwrap();
+        let width = 1 + "Bed".len() + 1 + bed.cost.len() - 1;
+        let split = picker_rows(bed, Some(bed.id), &marks, width);
+        assert_eq!(split.len(), 2);
+        assert_eq!(split[0].plain(), format!("{}Bed", marks.pointer));
+        assert_eq!(split[1].right.as_ref().unwrap().0, bed.cost);
     }
 
     /// The Cursor section's placement line (#275): `Can build here` where the chosen building
@@ -752,7 +793,7 @@ mod tests {
         use fn_sim::Nation;
         let session = Session::new(7, Nation::Earth, 48, 32);
         let bed = session.defs.building_id("bed").unwrap();
-        assert_eq!(placement_row(&session, Pos::new(-1, -1), None), None);
+        assert!(placement_rows(&session, Pos::new(-1, -1), None, 30, '…').is_empty());
 
         let free = session
             .world
@@ -765,12 +806,18 @@ mod tests {
             })
             .map(|(p, _)| p)
             .unwrap();
-        let ok = placement_row(&session, free, Some(bed)).unwrap();
-        assert_eq!(ok.plain(), "Can build here");
+        let ok = placement_rows(&session, free, Some(bed), 30, '…');
+        assert_eq!(ok.len(), 1);
+        assert_eq!(ok[0].plain(), "Can build here");
 
-        let off_map = placement_row(&session, Pos::new(-1, -1), Some(bed)).unwrap();
-        assert!(off_map.plain().starts_with("Can't build here: "), "{}", off_map.plain());
-        assert!(off_map.plain().contains("off the map"), "{}", off_map.plain());
+        let off_map = placement_rows(&session, Pos::new(-1, -1), Some(bed), 60, '…');
+        assert_eq!(off_map.len(), 1);
+        assert_eq!(off_map[0].plain(), "Can't build here: off the map");
+
+        // Too long for the panel, the reason wraps onto another row instead of losing its tail.
+        let narrow = placement_rows(&session, Pos::new(-1, -1), Some(bed), 20, '…');
+        let text: Vec<_> = narrow.iter().map(Row::plain).collect();
+        assert_eq!(text.join(" "), "Can't build here: off the map", "{text:?}");
     }
 
     /// A unit standing on its tile and channelling (#278) names the ability and the time left;

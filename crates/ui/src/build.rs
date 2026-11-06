@@ -186,9 +186,9 @@ fn describe_blocker(session: &Session, at: Pos, why: Blocker) -> String {
         Blocker::Site => "a building is already planned there".into(),
         Blocker::Stockpile => "on a stockpile".into(),
         Blocker::Terrain => match tile.map(|t| t.terrain) {
-            Some(Terrain::Mountain) => "can't build on a mountain".into(),
-            Some(Terrain::Ford) => "can't build on a ford".into(),
-            Some(_) => "can't build on water".into(),
+            Some(Terrain::Mountain) => "on a mountain".into(),
+            Some(Terrain::Ford) => "on a ford".into(),
+            Some(_) => "on water".into(),
             None => why.to_string(),
         },
         Blocker::OffMap => why.to_string(),
@@ -859,7 +859,7 @@ mod tests {
         assert_eq!(why(&s), "an oak tree is in the way");
         s.world.map.get_mut(tree).unwrap().resource = None;
         s.world.map.get_mut(tree).unwrap().terrain = Terrain::Ford;
-        assert_eq!(why(&s), "can't build on a ford");
+        assert_eq!(why(&s), "on a ford");
     }
 
     #[test]
