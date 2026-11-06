@@ -283,6 +283,66 @@ fn a_script_designates_a_harvest_rectangle_and_the_world_agrees() {
     assert!(notice.contains(&format!("{done} done, {} skipped (", 30 - done)), "{notice}");
 }
 
+/// A hand-built map (docs/design/clearing.md, #411/#426): a 2x2 block of fruit trees at
+/// (2,0)-(3,1), a fish spot on the one water tile, and the settler well away from both so the
+/// rectangle below covers only the fruit trees.
+fn fruit_tree_session() -> Session {
+    use fn_sim::defs::BiomeId;
+    use fn_sim::{Defs, Grid, Terrain, Tile, World};
+
+    let defs = Defs::bundled();
+    let fruit = defs.resource_id("fruit_tree").unwrap();
+    let fish = defs.resource_id("fish_spot").unwrap();
+    let map = Grid::from_fn(8, 4, |p| {
+        let fruit_block = (2..=3).contains(&p.x) && (0..=1).contains(&p.y);
+        let water = p.x == 5 && p.y == 1;
+        Tile {
+            elevation: 100,
+            temperature: 128,
+            moisture: 128,
+            terrain: if water { Terrain::Water } else { Terrain::Land },
+            biome: BiomeId(0),
+            resource: if fruit_block {
+                Some(fruit)
+            } else if water {
+                Some(fish)
+            } else {
+                None
+            },
+            building: None,
+        }
+    });
+    let world = World::with_map(1, map, Nation::Earth, &[Pos::new(0, 3)], &defs);
+    Session { world, defs, clock: fn_ui::Clock::default(), bend_choice: None }
+}
+
+/// #411/#426: `E` marks a rectangle of fruit trees for clearing (the notice counts them, in
+/// "marked" not "done"), and `X` over the same rectangle withdraws the marks, as it would any
+/// other order.
+#[test]
+fn a_script_marks_fruit_trees_for_clearing_and_x_withdraws_them() {
+    let mut app = App::new(fruit_tree_session(), SIZE);
+    assert_eq!(app.ui.cursor, Pos::new(0, 3));
+
+    let fruit_corners = (Pos::new(2, 0), Pos::new(3, 1));
+    app.play(&keys::parse("e <up*3> <right*2> <enter> <right> <down> <enter>").unwrap());
+    assert_eq!(app.ui.tool, Tool::Clear);
+    assert_eq!(app.ui.notice, "clear: 4 marked, 0 skipped");
+    let marked: BTreeSet<Pos> = app.session.world.clear_designations().collect();
+    let want: BTreeSet<Pos> = tiles_between(fruit_corners.0, fruit_corners.1).collect();
+    assert_eq!(marked, want);
+
+    app.play(&keys::parse("x <left> <up> <enter> <right> <down> <enter>").unwrap());
+    assert_eq!(app.ui.tool, Tool::CancelHarvest);
+    assert!(app.ui.notice.starts_with("cancel harvest"), "{}", app.ui.notice);
+    assert!(app.ui.notice.contains("4 done, 0 skipped"), "{}", app.ui.notice);
+    assert_eq!(app.session.world.clear_designations().count(), 0);
+    // Withdrawing the mark doesn't touch the resource itself: nothing was cleared yet.
+    for pos in tiles_between(fruit_corners.0, fruit_corners.1) {
+        assert!(app.session.world.map.get(pos).unwrap().resource.is_some(), "{pos:?}");
+    }
+}
+
 #[test]
 fn the_panel_and_the_status_line_show_the_tool_its_hint_and_the_result() {
     let mut app = play("h");

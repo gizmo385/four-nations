@@ -17,7 +17,9 @@
 │                                                                                      ││                              │
 │ DESIGNATING                                                                          ││                              │
 │ H                      Harvest tool: designate harvest (chop, mine, gather)          ││                              │
-│ X                      Cancel tool: cancel harvest, build site, stockpile or sowing  ││                              │
+│ X                      Cancel tool: cancel harvest, build site, stockpile, sowing or ││                              │
+│                        clearing                                                      ││                              │
+│ E                      Clear tool: clear the ground                                  ││                              │
 │ P                      Stockpile tool: designate stockpile                           ││                              │
 │ B                      Bend tool: channel the nation's ability                       ││                              │
 │ U                      Build tool: place the chosen building (U: pick one)           ││                              │
@@ -34,7 +36,5 @@
 │ SCREENS AND GAME                                                                     ││                              │
 │ T                      Research: arrows W A S D choose a tech, Enter sets it as the  ││                              │
 │                        target                                                        ││                              │
-│ L                      Message log                                                   ││                              │
-│ ?                      Key help                                                      ││                              │
 ┗─ Arrows W S scroll  PgUp PgDn page  Esc close  L log ────────────────────────────────┛┗─ seed 7 ─────────────────────┛
  KEYS  arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause

@@ -170,7 +170,7 @@ resulting `observe`. No game time passes. A step is one of:
 
 | Step | Lowered to |
 |---|---|
-| `designate {tool, from, to, standing?}` with tool `harvest`, `cancel`, `stockpile` or `bend` | Esc to Select mode if needed, the tool's letter, `o` for a standing order, a cursor walk to `from` (Shift for runs of 10), `Enter`, a walk to `to`, `Enter` |
+| `designate {tool, from, to, standing?}` with tool `harvest`, `cancel`, `clear`, `stockpile` or `bend` | Esc to Select mode if needed, the tool's letter, `o` for a standing order, a cursor walk to `from` (Shift for runs of 10), `Enter`, a walk to `to`, `Enter` |
 | `build {building, from, to}` | `u`, the Build modal's navigation to `building`, `Enter`, then as `designate` |
 | `select {x,y}` or `select {name}` | A cursor walk and `Enter` (again, until that unit is selected), or `N`, row navigation and `Enter` |
 | `research {tech}` | `t`, arrow navigation to the tech, `Enter`, `Esc` |

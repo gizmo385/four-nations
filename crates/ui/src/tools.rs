@@ -3,11 +3,13 @@
 //! `Enter`s) into a rectangle; this turns the rectangle into `Command`s and a notice.
 //!
 //! Keys: `H` harvest (chop, quarry, gather, mine, whatever each tile's resource gives), `X` cancel
-//! harvest (also withdraws a build site, a stockpile tile or a Sow designation), `P` stockpile,
-//! `B` the nation's bending ability (pressed again it cycles through the abilities the settlement
-//! can use), `U` the build tool (pressed again it cycles through the buildings the nation can
-//! place), `C` sow an empty farm plot (issue #198; a ripe one is reaped on its own, with no tool)
-//! and `Esc` back to selecting.
+//! harvest (also withdraws a build site, a stockpile tile, a Sow designation or a Clear mark),
+//! `E` clear the ground (docs/design/clearing.md, #411/#426: uproots a plant or works a
+//! resource's ordinary harvest, removing it for good), `P` stockpile, `B` the nation's bending
+//! ability (pressed again it cycles through the abilities the settlement can use), `U` the build
+//! tool (pressed again it cycles through the buildings the nation can place), `C` sow an empty
+//! farm plot (issue #198; a ripe one is reaped on its own, with no tool) and `Esc` back to
+//! selecting.
 
 use fn_sim::bending::AbilityId;
 use fn_sim::building::BuildingId;
@@ -25,6 +27,10 @@ pub enum Tool {
     Select,
     Harvest,
     CancelHarvest,
+    /// Remove whatever resource stands on a tile, for good (docs/design/clearing.md, #411/#426,
+    /// ground mode only; a buildings mode would be a second press of `E`, #342). `X` also
+    /// withdraws a Clear mark, as it does any other order.
+    Clear,
     Stockpile,
     /// Channel one of the nation's abilities (docs/design/bending.md): its signature one, or
     /// the next the settlement can use after `B` again (`Session::bend_choice`).
@@ -58,6 +64,8 @@ pub struct Here {
     pub zone: bool,
     /// The tile has a Sow designation on it (#198).
     pub sowing: bool,
+    /// The tile has a Clear mark on it (docs/design/clearing.md, #411/#426).
+    pub clearing: bool,
 }
 
 impl Here {
@@ -68,16 +76,18 @@ impl Here {
             site: world.build_site(pos).is_some(),
             zone: world.stockpile_zones().any(|z| z == pos),
             sowing: world.sow_designations().any(|z| z == pos),
+            clearing: world.clear_designations().any(|z| z == pos),
         }
     }
 }
 
 impl Tool {
     /// Every tool, in the order the side panel lists them.
-    pub const ALL: [Tool; 7] = [
+    pub const ALL: [Tool; 8] = [
         Self::Select,
         Self::Harvest,
         Self::CancelHarvest,
+        Self::Clear,
         Self::Stockpile,
         Self::Bend,
         Self::Build,
@@ -90,6 +100,7 @@ impl Tool {
             Self::Select => "Select",
             Self::Harvest => "Harvest",
             Self::CancelHarvest => "Cancel",
+            Self::Clear => "Clear",
             Self::Stockpile => "Stockpile",
             Self::Bend => "Bend",
             Self::Build => "Build",
@@ -103,6 +114,7 @@ impl Tool {
             Self::Select => "Esc",
             Self::Harvest => "H",
             Self::CancelHarvest => "X",
+            Self::Clear => "E",
             Self::Stockpile => "P",
             Self::Bend => "B",
             Self::Build => "U",
@@ -131,7 +143,8 @@ impl Tool {
             // The client that read held Shift as a standing order is gone (#281); the TUI's
             // own `O` key stands in for it (#277, `fn_tui::state::UiState::tool_hint`).
             Self::Harvest => "designate harvest (chop, mine, gather)",
-            Self::CancelHarvest => "cancel harvest, build site, stockpile or sowing",
+            Self::CancelHarvest => "cancel harvest, build site, stockpile, sowing or clearing",
+            Self::Clear => "clear the ground",
             Self::Stockpile => "designate stockpile",
             Self::Bend => "channel the nation's ability",
             Self::Build => "place the chosen building (U: next building)",
@@ -142,12 +155,15 @@ impl Tool {
     /// A short clause naming what the tool does, for the TUI's active-tool banner (#307),
     /// without the verb its own name badge already says ("HARVEST" already says this designates
     /// a harvest) and without the stale Shift text #305 dropped from `label`. `""` where the
-    /// name alone says enough (`Select`, `Stockpile`, `Bend`, `Build`, `Sow`).
+    /// name alone says enough (`Select`, `Clear`, `Stockpile`, `Bend`, `Build`, `Sow`): the
+    /// banner's badge already names Clear's mode (`CLEAR ground`, `crate::banner` in `fn_tui`).
     pub fn brief(self) -> &'static str {
         match self {
-            Self::Select | Self::Stockpile | Self::Bend | Self::Build | Self::Sow => "",
+            Self::Select | Self::Clear | Self::Stockpile | Self::Bend | Self::Build | Self::Sow => {
+                ""
+            }
             Self::Harvest => "chop, mine, gather",
-            Self::CancelHarvest => "harvest, build site, stockpile or sowing",
+            Self::CancelHarvest => "harvest, build site, stockpile, sowing or clearing",
         }
     }
 
@@ -167,7 +183,7 @@ impl Tool {
 
     /// The command this tool issues for one tile, if it issues any. `here` says what else is
     /// designated on the tile: the cancel tool withdraws a build site, else a stockpile tile,
-    /// instead of a harvest.
+    /// a Sow designation or a Clear mark, instead of a harvest.
     pub fn command(self, pos: Pos, here: Here, pick: Pick) -> Option<Command> {
         match self {
             Self::Select => None,
@@ -176,7 +192,9 @@ impl Tool {
             Self::CancelHarvest if here.site => Some(Command::CancelBuild { pos }),
             Self::CancelHarvest if here.zone => Some(Command::CancelStockpile { pos }),
             Self::CancelHarvest if here.sowing => Some(Command::CancelSow { pos }),
+            Self::CancelHarvest if here.clearing => Some(Command::CancelClear { pos }),
             Self::CancelHarvest => Some(Command::CancelHarvest { pos }),
+            Self::Clear => Some(Command::DesignateClear { pos }),
             Self::Stockpile => Some(Command::DesignateStockpile { pos }),
             Self::Bend => Some(Command::Bend { ability: pick.ability?, pos }),
             Self::Build => Some(Command::DesignateBuild { pos, building: pick.building? }),
@@ -305,6 +323,9 @@ pub fn apply_rect(
             let name = rows.iter().find(|r| r.id == id).map_or("", |r| r.name.as_str());
             format!("build {name}")
         }
+        // Short, not the key-help label ("clear the ground"): docs/design/clearing.md's own
+        // example notice is `clear: 6 marked, 2 skipped (can't be cleared)`.
+        (Tool::Clear, _) => "clear".to_owned(),
         _ => tool.label().to_owned(),
     };
     let targets: Vec<Pos> = match (tool, building) {
@@ -338,12 +359,16 @@ pub fn apply_rect(
     }
     let suffix =
         if unreachable > 0 { format!(", {unreachable} unreachable") } else { String::new() };
+    // Clear marks tiles rather than finishing work on them (a unit still has to do the
+    // clearing), so its own notice says "marked" (docs/design/clearing.md, "One removal
+    // vocabulary"); every other tool keeps "done".
+    let verb = if tool == Tool::Clear { "marked" } else { "done" };
     match last_error {
         Some(e) => {
             let why = build::describe_error(session, e);
-            format!("{what}: {done} done, {refused} skipped ({why}){suffix}")
+            format!("{what}: {done} {verb}, {refused} skipped ({why}){suffix}")
         }
-        None => format!("{what}: {done} done, {refused} skipped{suffix}"),
+        None => format!("{what}: {done} {verb}, {refused} skipped{suffix}"),
     }
 }
 
@@ -400,6 +425,29 @@ mod tests {
             Some(Command::DesignateBuild { pos, building })
         );
         assert_eq!(Tool::Sow.command(pos, Here::default(), none), Some(Command::Sow { pos }));
+        assert_eq!(
+            Tool::Clear.command(pos, Here::default(), none),
+            Some(Command::DesignateClear { pos })
+        );
+    }
+
+    #[test]
+    fn cancel_withdraws_a_clear_mark_where_there_is_one() {
+        let pos = Pos::new(4, 4);
+        let none = Pick::default();
+        let clearing = Here { clearing: true, ..Here::default() };
+        assert_eq!(
+            Tool::CancelHarvest.command(pos, clearing, none),
+            Some(Command::CancelClear { pos })
+        );
+        // A build site comes first, as for a plain harvest or a Sow mark.
+        let site = Here { site: true, clearing: true, ..Here::default() };
+        assert_eq!(
+            Tool::CancelHarvest.command(pos, site, none),
+            Some(Command::CancelBuild { pos })
+        );
+        // The Clear tool itself is unaffected by what else is on the tile.
+        assert_eq!(Tool::Clear.command(pos, clearing, none), Some(Command::DesignateClear { pos }));
     }
 
     #[test]
@@ -428,7 +476,7 @@ mod tests {
     fn cancel_withdraws_a_build_site_where_there_is_one() {
         let pos = Pos::new(4, 4);
         let none = Pick::default();
-        let site = Here { site: true, zone: false, sowing: false };
+        let site = Here { site: true, ..Here::default() };
         assert_eq!(
             Tool::CancelHarvest.command(pos, site, none),
             Some(Command::CancelBuild { pos })
@@ -441,7 +489,7 @@ mod tests {
     fn cancel_withdraws_a_stockpile_tile_where_there_is_one() {
         let pos = Pos::new(4, 4);
         let none = Pick::default();
-        let zone = Here { site: false, zone: true, sowing: false };
+        let zone = Here { zone: true, ..Here::default() };
         assert_eq!(
             Tool::CancelHarvest.command(pos, zone, none),
             Some(Command::CancelStockpile { pos })
@@ -451,7 +499,7 @@ mod tests {
             Some(Command::DesignateStockpile { pos })
         );
         // A build site comes first.
-        let both = Here { site: true, zone: true, sowing: false };
+        let both = Here { site: true, zone: true, ..Here::default() };
         assert_eq!(
             Tool::CancelHarvest.command(pos, both, none),
             Some(Command::CancelBuild { pos })
@@ -567,7 +615,7 @@ mod tests {
         assert_eq!(Tool::Select.key(), "Esc");
         assert_eq!(Tool::Select.letter(), None);
         let letters: Vec<char> = Tool::ALL.iter().filter_map(|t| t.letter()).collect();
-        assert_eq!(letters, ['H', 'X', 'P', 'B', 'U', 'C']);
+        assert_eq!(letters, ['H', 'X', 'E', 'P', 'B', 'U', 'C']);
         for tool in Tool::ALL {
             if let Some(c) = tool.letter() {
                 assert_eq!(Tool::from_letter(c), Some(tool));
@@ -585,7 +633,8 @@ mod tests {
         for tool in Tool::ALL {
             assert!(!tool.brief().contains("Shift"), "{tool:?}");
         }
-        for tool in [Tool::Select, Tool::Stockpile, Tool::Bend, Tool::Build, Tool::Sow] {
+        for tool in [Tool::Select, Tool::Clear, Tool::Stockpile, Tool::Bend, Tool::Build, Tool::Sow]
+        {
             assert_eq!(tool.brief(), "", "{tool:?}");
         }
         assert_eq!(Tool::Harvest.brief(), "chop, mine, gather");
@@ -707,6 +756,48 @@ mod tests {
         let reachable = Pos::new(5, 1);
         let notice = apply_rect(&mut s, Tool::Stockpile, reachable, reachable, false, None);
         assert!(!notice.contains("unreachable"), "{notice}");
+    }
+
+    /// docs/design/clearing.md, #411/#426: a fruit tree marks ("clear: N marked"), but a fish
+    /// spot -- a renewable with no `[harvest.clear]` table -- is refused with "can't be
+    /// cleared", the reason the notice names.
+    #[test]
+    fn clear_marks_a_fruit_tree_and_refuses_a_fish_spot_as_cant_be_cleared() {
+        use fn_sim::defs::BiomeId;
+        use fn_sim::{Defs, Grid, Nation, Terrain, Tile, World};
+
+        use crate::clock::Clock;
+
+        let mut defs = Defs::bundled();
+        let fruit = defs.resource_id("fruit_tree").unwrap();
+        let fish = defs.resource_id("fish_spot").unwrap();
+        // Fishing itself is still behind its own tech in the bundled data; drop the gate here so
+        // the refusal below is `CannotClear`, not `NotResearched` (the tech gate isn't this
+        // test's own subject, as `with_2x2_hall`'s footprint mutation elsewhere in this module
+        // also isn't).
+        defs.harvests.iter_mut().find(|h| h.resource == fish).unwrap().unlocked_by = None;
+        let (fruit_pos, fish_pos) = (Pos::new(1, 0), Pos::new(2, 0));
+        let map = Grid::from_fn(4, 2, |p| Tile {
+            elevation: 100,
+            temperature: 128,
+            moisture: 128,
+            terrain: if p == fish_pos { Terrain::Water } else { Terrain::Land },
+            biome: BiomeId(0),
+            resource: if p == fruit_pos {
+                Some(fruit)
+            } else if p == fish_pos {
+                Some(fish)
+            } else {
+                None
+            },
+            building: None,
+        });
+        let world = World::with_map(1, map, Nation::Earth, &[Pos::new(0, 1)], &defs);
+        let mut s = Session { world, defs, clock: Clock::default(), bend_choice: None };
+
+        let notice = apply_rect(&mut s, Tool::Clear, fruit_pos, fish_pos, false, None);
+        assert_eq!(notice, "clear: 1 marked, 1 skipped (can't be cleared)", "{notice}");
+        assert_eq!(s.world.clear_designations().collect::<Vec<_>>(), [fruit_pos]);
     }
 
     #[test]

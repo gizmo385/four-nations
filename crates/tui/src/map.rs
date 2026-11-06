@@ -6,9 +6,9 @@
 //! * Background: cursor > a ghost's own door tile (#230), amber free or red blocked > the Build
 //!   tool's ghost (#212), green where the building fits and red where something is in the way >
 //!   the rectangle being dragged (#98), in its tool's hue > designation tint (harvest, a
-//!   harvest's standing order a shade greener, #277, bend, build, stockpile) and the cast
-//!   highlight share that tint > wet patch > an aura carrier's own warmth > the warmth of the
-//!   flame or aura under the cursor > terrain or biome.
+//!   harvest's standing order a shade greener, #277, a Clear mark in its own hue, #411/#426,
+//!   bend, build, stockpile) and the cast highlight share that tint > wet patch > an aura
+//!   carrier's own warmth > the warmth of the flame or aura under the cursor > terrain or biome.
 //!
 //! A building or a site covers its whole footprint (#196, docs/design/buildings.md, "TUI"), so a
 //! 2x2 forge is a 2x2 block of its glyph, and so is its ghost.
@@ -157,6 +157,9 @@ pub struct Overlays {
     standing: BTreeSet<Pos>,
     /// Farm plots with a Sow job designated on them (#198): tinted the same as `harvest`.
     sowing: BTreeSet<Pos>,
+    /// Tiles with a Clear mark (docs/design/clearing.md, #411/#426), in its own tint apart from
+    /// `harvest` and `standing`.
+    clearing: BTreeSet<Pos>,
     bend: BTreeSet<Pos>,
     /// Every tile of every build site, with the building it will be (#212).
     sites: BTreeMap<Pos, BuildingId>,
@@ -219,6 +222,7 @@ impl Overlays {
                 .filter(|&p| world.is_repeating_harvest(p))
                 .collect(),
             sowing: world.sow_designations().collect(),
+            clearing: world.clear_designations().collect(),
             bend: world.bend_designations().map(|(_, p)| p).collect(),
             sites: world
                 .build_sites()
@@ -436,6 +440,8 @@ pub enum Mark {
     Standing,
     /// A farm plot with a Sow job designated (#198): the same tint as `Harvest`.
     Sowing,
+    /// A Clear mark (docs/design/clearing.md, #411/#426): tinted apart from `Harvest`.
+    Clear,
     /// A bend being designated, or one that just landed (the two moments never overlap).
     Bend,
     Build,
@@ -539,6 +545,8 @@ pub fn cell_look(
         marks.push(Mark::Harvest);
     } else if over.sowing.contains(&pos) {
         marks.push(Mark::Sowing);
+    } else if over.clearing.contains(&pos) {
+        marks.push(Mark::Clear);
     } else if over.bend.contains(&pos) || over.cast.contains(&pos) {
         marks.push(Mark::Bend);
     } else if over.sites.contains_key(&pos) {
@@ -722,6 +730,7 @@ fn marks_effect(marks: &[Mark], mono: bool) -> MarksEffect {
     let designation = marks.iter().find_map(|m| match m {
         Mark::Standing => Some(Tint::RepeatingHarvest),
         Mark::Harvest | Mark::Sowing => Some(Tint::Harvest),
+        Mark::Clear => Some(Tint::Clear),
         Mark::Bend => Some(Tint::Bend),
         Mark::Build => Some(Tint::Build),
         Mark::Stockpile => Some(Tint::Stockpile),

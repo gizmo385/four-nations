@@ -615,6 +615,7 @@ mod tests {
         let refused = [
             Action::PickTool(Tool::Harvest),
             Action::PickTool(Tool::CancelHarvest),
+            Action::PickTool(Tool::Clear),
             Action::PickTool(Tool::Stockpile),
             Action::PickTool(Tool::Bend),
             Action::PickTool(Tool::Sow),

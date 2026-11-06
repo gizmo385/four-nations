@@ -395,6 +395,8 @@ harvest = [255, 166, 26]
 # A harvest with a standing order on it (#277): the same harvest colour pushed toward green so
 # it reads as "standing" rather than "one-shot".
 repeating = [166, 217, 26]
+# A Clear mark (#411/#426): a rust red, apart from the harvest amber and the repeating green.
+clear = [178, 90, 60]
 stockpile = [51, 140, 255]
 build = [150, 130, 200]
 wet = [64, 46, 20]

@@ -179,6 +179,8 @@ pub enum Tint {
     /// toward green so it reads as "standing" rather than "one-shot" (mirrors the client's
     /// `designate::Layer::RepeatingHarvest`).
     RepeatingHarvest,
+    /// A Clear mark (#411/#426): apart from `Harvest` and `RepeatingHarvest`.
+    Clear,
     Stockpile,
     /// The nation's accent.
     Bend,
@@ -196,6 +198,7 @@ impl Tint {
         match tool {
             // Sowing wears the harvest hue too: both are "designate a unit's work here" (#198).
             Tool::Harvest | Tool::CancelHarvest | Tool::Sow => Some(Self::Harvest),
+            Tool::Clear => Some(Self::Clear),
             Tool::Stockpile => Some(Self::Stockpile),
             Tool::Bend => Some(Self::Bend),
             Tool::Build => Some(Self::Build),
@@ -226,9 +229,9 @@ pub struct Palette {
     /// On 16 colours a tint can't be mixed into a background (every dark background is plain
     /// black), so each designation gets a colour of its own, picked so that no two share one,
     /// and so do the Build tool's ghost: free and blocked (#212), and its door tile when it's
-    /// free (#230; a blocked door reuses the ghost's own blocked colour, index 6), and a
-    /// harvest's standing order (#277, the last one here).
-    solid: [Color; 8],
+    /// free (#230; a blocked door reuses the ghost's own blocked colour, index 6), a harvest's
+    /// standing order (#277, index 7) and a Clear mark (#411/#426, the last one here).
+    solid: [Color; 9],
 }
 
 impl Palette {
@@ -258,6 +261,7 @@ impl Palette {
             pick(to_u8(theme.bad)),
             pick(to_u8(theme.warn)),
             pick(o.repeating),
+            pick(o.clear),
         ];
         Self { theme, glyphs, depth, ascii, accent, unit, solid }
     }
@@ -300,6 +304,7 @@ impl Palette {
         match tint {
             Tint::Harvest => o.harvest,
             Tint::RepeatingHarvest => o.repeating,
+            Tint::Clear => o.clear,
             Tint::Stockpile => o.stockpile,
             Tint::Bend => self.accent,
             Tint::Build => o.build,
@@ -317,6 +322,7 @@ impl Palette {
             (ColorDepth::Ansi16, Tint::Bend) => self.solid[2],
             (ColorDepth::Ansi16, Tint::Build) => self.solid[3],
             (ColorDepth::Ansi16, Tint::RepeatingHarvest) => self.solid[7],
+            (ColorDepth::Ansi16, Tint::Clear) => self.solid[8],
             (_, Tint::Wet) => self.color(mix(base, self.tint_rgb(tint), 0.75)),
             (ColorDepth::Indexed256, _) => Color::Indexed(self.designation_256(base, tint)),
             (_, _) => self.color(mix(base, self.tint_rgb(tint), TINT_STRENGTH)),
@@ -381,7 +387,14 @@ impl Palette {
     /// before it.
     fn designation_256(&self, base: Rgb8, tint: Tint) -> u8 {
         let mut avoid = vec![base, self.glyphs.overlay.cursor];
-        for t in [Tint::Harvest, Tint::RepeatingHarvest, Tint::Stockpile, Tint::Bend, Tint::Build] {
+        for t in [
+            Tint::Harvest,
+            Tint::RepeatingHarvest,
+            Tint::Clear,
+            Tint::Stockpile,
+            Tint::Bend,
+            Tint::Build,
+        ] {
             let target = mix(base, self.tint_rgb(t), TINT_STRENGTH);
             let pick = nearest_256_apart(target, &avoid);
             if t == tint {
@@ -604,7 +617,7 @@ mod tests {
             for depth in [ColorDepth::TrueColor, ColorDepth::Indexed256, ColorDepth::Ansi16] {
                 let p = Palette::new(&defs, n, depth, false);
                 for (what, base) in bases(&p.glyphs) {
-                    for tint in [Tint::Harvest, Tint::Stockpile, Tint::Bend] {
+                    for tint in [Tint::Harvest, Tint::Clear, Tint::Stockpile, Tint::Bend] {
                         let dragged = p.dragged(base, tint);
                         let who = format!("{n:?} {depth:?} {tint:?} on {what}");
                         assert_ne!(dragged, p.color(base), "{who}: ground");
@@ -623,6 +636,7 @@ mod tests {
         use fn_ui::Tool;
         assert_eq!(Tint::for_tool(Tool::Harvest), Some(Tint::Harvest));
         assert_eq!(Tint::for_tool(Tool::CancelHarvest), Some(Tint::Harvest));
+        assert_eq!(Tint::for_tool(Tool::Clear), Some(Tint::Clear));
         assert_eq!(Tint::for_tool(Tool::Stockpile), Some(Tint::Stockpile));
         assert_eq!(Tint::for_tool(Tool::Bend), Some(Tint::Bend));
         assert_eq!(Tint::for_tool(Tool::Select), None);
@@ -679,6 +693,7 @@ mod tests {
                 for tint in [
                     Tint::Harvest,
                     Tint::RepeatingHarvest,
+                    Tint::Clear,
                     Tint::Stockpile,
                     Tint::Build,
                     Tint::Bend,
