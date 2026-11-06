@@ -1,6 +1,6 @@
 ---
 name: designer
-description: Writes design proposals for the four-nations game (docs/design/*.md) from a GitHub design issue, breaks the result into follow-up issues, and opens a PR. Use for area:design issues (bending abilities, UI direction, new systems). Surfaces owner decisions instead of making taste calls. Prompt with the issue number plus any batch context.
+description: Writes design proposals for the four-nations game (docs/design/*.md) from a GitHub design issue, breaks the result into follow-up issues and `decision` issues, and commits it on a local branch for the integrator. Use for area:design issues (bending abilities, UI direction, new systems). Surfaces owner decisions instead of making taste calls. Prompt with the issue number plus any batch context.
 tools: Bash, Read, Edit, Write
 model: opus
 effort: high
@@ -36,8 +36,9 @@ opinionated design doc plus implementable follow-up issues.
 
 1. If issue N has `in-progress`, stop and report. Otherwise claim it:
    `gh issue edit N --add-label in-progress`, then comment
-   "Claimed by designer agent. Flow: PR from issue/N-slug".
-2. `git fetch origin && git switch -c issue/N-slug origin/main`, then `scripts/warm-target.sh`
+   "Claimed by designer agent. Flow: batch, branch issue/N-slug".
+2. `git switch -C issue/N-slug main` (the **local** `main`, which can be ahead of `origin`),
+   then `scripts/warm-target.sh`
    before any build (it clones the main checkout's `target/` so you don't recompile from
    scratch). Write `docs/design/<topic>.md`.
 3. File follow-up issues with
@@ -47,14 +48,15 @@ opinionated design doc plus implementable follow-up issues.
 4. Commits: subject `#N: ...`, ending with
    `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>`.
    `cargo xtask ci --fast` must pass.
-5. Push and open a PR (`Closes #N`) whose body lists the key decisions and the open questions,
-   ending with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
-6. If there are open questions for the owner, **don't enable auto-merge**. Add `needs-owner` to
-   the issue and stop. Otherwise run `gh pr merge --auto --squash`, then
-   `gh pr checks --watch`, and rebase on conflicts (`--force-with-lease` on your branch only).
+5. File each open owner question as its own `decision` issue (docs/process/work-tracking.md,
+   "Decisions"): options, trade-offs, your recommendation marked **Recommended**, a link to the
+   doc section. Link it as **blocked by** on issue N and on every follow-up it gates.
+6. Commit on your branch with `Refs #N` (not `Closes`: the design issue stays open until its
+   decisions close). Don't push and don't open a PR; the integrator merges locally. Use the PR
+   flow only if the brief says "PR mode".
 7. Remove `in-progress` when you stop. Never force-push `main`.
 
 ## Report (keep it short)
 
-PR URL; the design in 5 bullets; follow-up issue numbers; open questions for the owner with your
-recommendation for each.
+Branch and commit (or PR URL in PR mode); the design in 5 bullets; follow-up issue numbers;
+`decision` issue numbers with your recommendation for each.
