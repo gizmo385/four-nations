@@ -33,6 +33,7 @@ mod found;
 mod gate;
 mod harm;
 mod heat;
+mod injury;
 mod inside;
 mod orchard;
 mod population;
@@ -383,9 +384,10 @@ pub struct World {
     /// for every save from before this existed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     strain_events: Vec<StrainEvent>,
-    /// Harm events (lying down to sleep rough in the cold, for now), oldest first, for the TUI's
-    /// alerts (`world/harm.rs`, #387). Empty unless a difficulty preset's `harm` knob is above
-    /// 0, and empty (so unwritten) for every save from before this existed.
+    /// Harm events (lying down to sleep rough in the cold, an injury), oldest first, for the
+    /// TUI's alerts (`world/harm.rs`, #387; `world/injury.rs`, #388). Empty unless a difficulty
+    /// preset's `harm` knob is above 0, and empty (so unwritten) for every save from before this
+    /// existed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     harm_events: Vec<HarmEvent>,
     /// The id the next unit gets, whether it is a newcomer (`population.rs`, #232) or some
@@ -414,6 +416,11 @@ pub struct World {
     /// does for #232.
     #[serde(default = "population::default_newcomer_rng")]
     newcomer_rng: SimRng,
+    /// Rolls injuries from a finished heavy pick (`world/injury.rs`, `rng::stream(seed,
+    /// "harm.injury")`, issue #388). A save from before #388 loads this seeded by 0 instead of
+    /// the world seed, as `orchard_rng` does for #142; still deterministic.
+    #[serde(default = "injury::default_rng")]
+    injury_rng: SimRng,
     rng: SimRng,
 }
 
@@ -478,6 +485,7 @@ impl World {
             sprout_rng: rng::stream(seed, "bending.sprout"),
             growth_rng: population::new_rng(seed),
             newcomer_rng: population::new_newcomer_rng(seed),
+            injury_rng: injury::new_rng(seed),
             rng: rng::stream(seed, "world.units"),
         };
         world.bury(defs);

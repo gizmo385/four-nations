@@ -79,6 +79,12 @@ pub struct HarvestDef {
     /// harvests (trees, stone, gold) are used up instead, so strain would never be read for
     /// them.
     pub strain: f32,
+    /// The chance that finishing one pick of this harvest injures the worker (felling, quarrying,
+    /// mining; `docs/design/harm.md`, "Injury: heavy work", issue #388), in `[0, 1)`. 0.0 (the
+    /// default) means this harvest never injures anyone. The chance actually rolled
+    /// (`World::maybe_injure`) is this divided by the harvest's own `modifier` (earthworks for
+    /// stone and ore), so Earth's earthworks lowers it and Air's weaker one raises it.
+    pub risk: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -137,6 +143,8 @@ struct RawHarvest {
     frost_hardy: bool,
     #[serde(default)]
     strain: f32,
+    #[serde(default)]
+    risk: f32,
 }
 
 #[derive(Deserialize)]
@@ -299,6 +307,9 @@ impl JobsFile {
             if h.strain > 0.0 && h.regrow.is_none() {
                 return err(format!("harvest {r}: strain needs a regrow time"));
             }
+            if !(h.risk.is_finite() && (0.0..1.0).contains(&h.risk)) {
+                return err(format!("harvest {r}: risk must be in [0, 1)"));
+            }
             harvests.push(HarvestDef {
                 resource: ResourceId(resource as u16),
                 verb: h.verb,
@@ -311,6 +322,7 @@ impl JobsFile {
                 unlocked_by: None,
                 frost_hardy: h.frost_hardy,
                 strain: h.strain,
+                risk: h.risk,
             });
         }
         link_unlocks(&mut harvests, resources, techs)?;
@@ -522,5 +534,35 @@ mod tests {
 
         // Valid: the bundled data's own brick -> stone.
         assert!(load_jobs(JOBS).is_ok());
+    }
+
+    /// `risk` (issue #388): bundled values, and the `[0, 1)` bound.
+    #[test]
+    fn risk_is_validated() {
+        let defs = load_jobs(JOBS).unwrap();
+        for (resource, risk) in [
+            ("oak_tree", 0.01),
+            ("fir_tree", 0.01),
+            ("stone", 0.02),
+            ("boulder", 0.02),
+            ("gold_vein", 0.03),
+            ("gold_seam", 0.03),
+        ] {
+            let id = defs.resource_id(resource).unwrap();
+            assert_eq!(defs.harvest(id).unwrap().risk, risk, "{resource}");
+        }
+        // Recipes carry no risk.
+        let ancient_scroll = defs.resource_id("ancient_scroll").unwrap();
+        assert_eq!(defs.harvest(ancient_scroll).unwrap().risk, 0.0);
+
+        let too_high =
+            JOBS.replacen("tunnel_count = 14\nrisk = 0.02", "tunnel_count = 14\nrisk = 1.0", 1);
+        let err = load_jobs(&too_high).unwrap_err();
+        assert!(err.0.contains("risk"), "{err}");
+
+        let negative =
+            JOBS.replacen("tunnel_count = 14\nrisk = 0.02", "tunnel_count = 14\nrisk = -0.1", 1);
+        let err = load_jobs(&negative).unwrap_err();
+        assert!(err.0.contains("risk"), "{err}");
     }
 }

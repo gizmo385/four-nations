@@ -24,11 +24,14 @@ use super::*;
 use crate::needs::DeathCause;
 
 /// What's harming a unit, for `Unit::last_harm` and `Death::weakened_by` (issue #387). More
-/// variants arrive with injury (#388) and sickness (#389).
+/// variants arrive with sickness (#389).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum HarmKind {
     /// Asleep, unsheltered, on cold land (`World::apply_exposure`).
     Exposure,
+    /// Hurt finishing a heavy pick: felling, quarrying or mining (`World::maybe_injure`, issue
+    /// #388).
+    Injury,
 }
 
 impl HarmKind {
@@ -38,6 +41,7 @@ impl HarmKind {
     fn death_cause(self) -> DeathCause {
         match self {
             Self::Exposure => DeathCause::Exposure,
+            Self::Injury => DeathCause::Injury,
         }
     }
 }
@@ -57,6 +61,9 @@ pub enum HarmEventKind {
     /// Lay down to sleep rough (cold, unsheltered) and started taking exposure damage. Fires
     /// once per sleep (`World::apply_exposure`), not every tick it continues.
     SleepingRough,
+    /// Hurt finishing a heavy pick (`World::maybe_injure`, issue #388). Fires once per hit, not
+    /// once per pick.
+    Injured,
 }
 
 /// In-game minutes a death within this long of the last harm names that harm as

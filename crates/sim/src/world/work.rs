@@ -140,6 +140,10 @@ pub enum IdleReason {
     /// The nearest open work this unit could do is hauling an item that every stockpile able to
     /// take it is already full of.
     StockpileFull,
+    /// The nearest open work this unit could do is a harvest marked `risk`, and its own health
+    /// is below `data/harm.toml`'s `[settings] fit_for_heavy` (`World::fit_for_heavy_work`,
+    /// issue #388).
+    TooHurt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1273,9 +1277,10 @@ impl World {
                 continue;
             }
             let found = match job.kind {
-                JobKind::Harvest { pos } => {
-                    self.ripe_harvest(pos, defs).and_then(|_| self.stand_tile(&flood, pos))
-                }
+                JobKind::Harvest { pos } => self
+                    .ripe_harvest(pos, defs)
+                    .filter(|h| h.risk <= 0.0 || self.fit_for_heavy_work(&self.units[i], defs))
+                    .and_then(|_| self.stand_tile(&flood, pos)),
                 JobKind::Sow { pos } => (self.plot_stage(pos) == Some(PlotStage::Empty))
                     .then(|| self.stand_building(&flood, pos, defs))
                     .flatten(),
@@ -1363,10 +1368,11 @@ impl World {
     /// exactly as `claim_job`'s own match does -- ripe, in stage, on this unit's side of a wall
     /// -- and the first one still blocked even though a stand tile is in reach names why: a bend
     /// past the unit's current chi (`OutOfChi`; a recast too fresh to restoke, #359, is folded
-    /// into this too, since `unit_can_bend` doesn't separate the two), or a haul with no
-    /// stockpile room anywhere for its item (`StockpileFull`). Short of that, `Unreachable`
-    /// covers both a genuinely stranded designation and the Avatar standing idle beside jobs
-    /// that are never his (`docs/design/endgame.md`, "The Avatar").
+    /// into this too, since `unit_can_bend` doesn't separate the two), a haul with no
+    /// stockpile room anywhere for its item (`StockpileFull`), or a harvest marked `risk` with
+    /// the unit's own health below `fit_for_heavy` (`TooHurt`, issue #388). Short of that,
+    /// `Unreachable` covers both a genuinely stranded designation and the Avatar standing idle
+    /// beside jobs that are never his (`docs/design/endgame.md`, "The Avatar").
     pub fn idle_reason(&self, unit: UnitId, defs: &Defs) -> Option<IdleReason> {
         let i = self.units.iter().position(|u| u.id == unit)?;
         if self.units[i].task().is_some() {
@@ -1378,7 +1384,7 @@ impl World {
         }
         let is_avatar = self.units[i].is_avatar();
         let flood = self.flood_from(i);
-        let (mut chi_blocked, mut room_blocked) = (false, false);
+        let (mut chi_blocked, mut room_blocked, mut too_hurt) = (false, false, false);
         for job in unclaimed {
             if is_avatar
                 && matches!(
@@ -1397,11 +1403,15 @@ impl World {
             }
             match job.kind {
                 JobKind::Harvest { pos } => {
-                    if self.ripe_harvest(pos, defs).is_some()
-                        && self.stand_tile(&flood, pos).is_some()
-                    {
-                        return None;
+                    let Some(h) = self.ripe_harvest(pos, defs) else { continue };
+                    if self.stand_tile(&flood, pos).is_none() {
+                        continue;
                     }
+                    if h.risk > 0.0 && !self.fit_for_heavy_work(&self.units[i], defs) {
+                        too_hurt = true;
+                        continue;
+                    }
+                    return None;
                 }
                 JobKind::Sow { pos } => {
                     if self.plot_stage(pos) == Some(PlotStage::Empty)
@@ -1477,6 +1487,8 @@ impl World {
             IdleReason::StockpileFull
         } else if chi_blocked {
             IdleReason::OutOfChi
+        } else if too_hurt {
+            IdleReason::TooHurt
         } else {
             IdleReason::Unreachable
         })
@@ -1644,6 +1656,7 @@ impl World {
         self.jobs.remove(idx);
         let count = self.work_done(pos, h, defs);
         self.place_ground(pos, Stack { item: h.item, count });
+        self.maybe_injure(i, pos, h, defs);
         self.finish_job(i);
     }
 

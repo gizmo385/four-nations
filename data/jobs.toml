@@ -121,6 +121,14 @@ name = "Ice"
 #             tile per pick, times the difficulty preset's `strain` knob
 #             (docs/design/difficulty.md, "Strain: tiring land", #296): 0 (the default) means
 #             the plant never tires.
+# - risk:     optional, in [0, 1), default 0. The chance that finishing one pick of this harvest
+#             injures the worker (felling, quarrying, mining; docs/design/harm.md, "Injury: heavy
+#             work", issue #388). The chance actually rolled is `risk` divided by the harvest's
+#             own `modifier` (earthworks for stone and ore; no modifier means divided by 1), so
+#             Earth's earthworks lowers it and Air's weaker one raises it. Drawn once per
+#             finished pick, from `rng::stream(seed, "harm.injury")`, only while the difficulty
+#             preset's `harm` knob is above 0 (`data/harm.toml`'s `[injury] damage`); a unit below
+#             `[settings] fit_for_heavy` doesn't claim a harvest with `risk` at all.
 # Which tech, if any, must be known before a resource's designation is available is
 # `[tech.unlocks] jobs` in data/research.toml (issue #22): until the nation knows it, the
 # resource can't be designated, and hungry units won't forage it either.
@@ -132,6 +140,7 @@ verb = "Chop"
 item = "wood"
 count = 4
 work = 8.0
+risk = 0.01
 
 [[harvest]]
 resource = "fir_tree"
@@ -139,6 +148,7 @@ verb = "Chop"
 item = "wood"
 count = 4
 work = 8.0
+risk = 0.01
 
 # count and tunnel_count raised by #349 (docs/design/materials.md, section 2): the #348 survey's
 # reachable counts ran well under the doc's own trial, so outcrops ended up richer than the doc's
@@ -152,6 +162,7 @@ count = 10
 work = 12.0
 modifier = "earthworks"
 tunnel_count = 14
+risk = 0.02
 
 # count and tunnel_count raised by #349 (docs/design/materials.md, section 1): a surface vein
 # alone couldn't reach the 40-ore sign on any seed (median 13 ore stripping the whole map).
@@ -163,6 +174,7 @@ count = 3
 work = 30.0
 modifier = "earthworks"
 tunnel_count = 5
+risk = 0.03
 
 # Foothill boulders (#349, docs/design/materials.md, section 2): open land, no tunnel bonus since
 # a boulder isn't rock to bore into. count raised above the doc's starting 3 alongside stone's
@@ -174,6 +186,7 @@ item = "stone"
 count = 6
 work = 10.0
 modifier = "earthworks"
+risk = 0.02
 
 # A buried seam (#133) is found by Seismic Sense; #349 brought the surface vein above up to the
 # same yield, so a seam's edge over a vein is in who can reach it (Earth only), not how rich it is.
@@ -185,6 +198,7 @@ count = 3
 work = 45.0
 modifier = "earthworks"
 tunnel_count = 5
+risk = 0.03
 
 # Picking a scroll up is quick; the point is finding it. Not renewable: each is read once.
 [[harvest]]

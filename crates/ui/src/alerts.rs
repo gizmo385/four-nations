@@ -204,8 +204,9 @@ impl Alerts {
                 DeathCause::Starvation => "starvation",
                 DeathCause::Dehydration => "dehydration",
                 DeathCause::Exhaustion => "exhaustion",
-                // #387; the full wording (and `weakened_by`) is #393's job.
+                // #387, #388; the full wording (and `weakened_by`) is #393's job.
                 DeathCause::Exposure => "exposure",
+                DeathCause::Injury => "his injuries",
             };
             fresh.push((d.tick, Kind::Death, format!("{} died of {how}", d.name), false));
         }
