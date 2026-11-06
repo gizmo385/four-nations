@@ -272,6 +272,8 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     // stream sickness rolls draw from, on `World`.
     "sick_until",
     "sickness_rng",
+    // Power reach (#428): which tiles are finished power sources.
+    "power_sources",
 ];
 
 /// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239

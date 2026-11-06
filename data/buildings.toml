@@ -76,6 +76,17 @@
 #             reaches `stop_at` or a need pre-empts it. `regen_per_minute` must beat
 #             data/needs.toml's passive `health.regen_per_minute`, or it would do nothing; needs
 #             a `capacity`, the door it heals through, the same way a study hall's seats work.
+# - power:    a power source (issue #428, docs/design/late-tree.md): work in a `uses_power`
+#             building within reach runs `boost` times as fast (above 1.0, at most 4.0). `radius`
+#             is for a `power_generation` modifier of 1.0 (data/nations.toml), scaled the same
+#             way `heat`'s is by `heating` -- rounded, at least 1 tile -- and measured the same
+#             way, Chebyshev from every tile of the source's footprint. Two sources in reach of
+#             one consumer don't stack; the best `boost` applies. Which buildings are sources is
+#             #255 (Fire), #204 (Air) and #200 (Water); none are data yet.
+# - uses_power: this building's recipe batches or study seats run at the best `boost` of any
+#             power source in reach of any tile of its own footprint, else at their plain rate.
+#             Set on `workshop`, `forge`, `brick_kiln`, `smelter`, `mine_shaft`, `deep_mine` and
+#             `study_hall`.
 # - names:    what each nation calls this building, if it varies. Either all four nations or
 #             none; falls back to `name` for a building that omits it.
 # - art:      which sprite a graphical frontend draws it with for each nation, if it varies (the
@@ -123,6 +134,7 @@ work = 40.0
 passable = false
 footprint = [2, 2]
 seats = 2
+uses_power = true
 [[building.cost]]
 item = "wood"
 count = 10
@@ -275,6 +287,7 @@ work = 60.0
 passable = false
 footprint = [2, 2]
 capacity = 1
+uses_power = true
 [[building.cost]]
 item = "stone"
 count = 8
@@ -299,6 +312,7 @@ work = 70.0
 passable = false
 footprint = [2, 2]
 capacity = 1
+uses_power = true
 [[building.cost]]
 item = "stone"
 count = 12
@@ -326,6 +340,7 @@ work = 90.0
 passable = false
 footprint = [2, 2]
 capacity = 1
+uses_power = true
 [[building.cost]]
 item = "stone"
 count = 12
@@ -490,6 +505,7 @@ work = 50.0
 passable = false
 footprint = [2, 2]
 capacity = 1
+uses_power = true
 [[building.cost]]
 item = "wood"
 count = 8
@@ -520,6 +536,7 @@ work = 80.0
 passable = false
 footprint = [2, 2]
 capacity = 1
+uses_power = true
 beside = ["mountain", "tunnel"]
 [[building.cost]]
 item = "stone"
@@ -550,6 +567,7 @@ work = 150.0
 passable = false
 footprint = [2, 2]
 capacity = 1
+uses_power = true
 beside = ["mountain", "tunnel"]
 [[building.cost]]
 item = "stone"

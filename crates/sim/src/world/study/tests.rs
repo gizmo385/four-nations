@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use super::*;
-use crate::building::Building;
+use crate::building::{Building, BuildingDef, BuildingId, PowerDef};
 use crate::defs::{BiomeId, Terrain};
 use crate::geom::Grid;
 use crate::mapgen::Tile;
@@ -133,6 +135,73 @@ fn a_scholar_studying_adds_the_expected_knowledge_each_tick() {
     }
     let gained = w.research().pool_millis() - before;
     assert_eq!(gained, ticks * (passive + study));
+}
+
+/// A 1x1, passable building whose only trait is `[building.power]` (issue #428): which real
+/// buildings are sources is out of scope here (#255, #204, #200), so this is a test-only one.
+fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
+    let id = BuildingId(defs.buildings.len() as u16);
+    defs.buildings.push(BuildingDef {
+        id: "test_power_source".into(),
+        name: "Test Power Source".into(),
+        verb: "Build".into(),
+        cost: Vec::new(),
+        work: 1.0,
+        passable: true,
+        footprint: (1, 1),
+        seats: 0,
+        capacity: 0,
+        bed: None,
+        heat: None,
+        rail: None,
+        orchard: None,
+        recipe: None,
+        farm: None,
+        irrigation: None,
+        healing: None,
+        power: Some(PowerDef { radius, boost, boost_millis: (boost * 1000.0).round() as u32 }),
+        uses_power: false,
+        names: HashMap::new(),
+        art: HashMap::new(),
+        unlocked_by: None,
+        endeavor: false,
+        beside: None,
+    });
+    id
+}
+
+/// A seat powered by a source in reach adds `boost` times the knowledge an unpowered one would
+/// (issue #428), deterministically: `boost` is 2.0 here, which divides evenly into the integer
+/// millis `world/study.rs` scales, so the gain is exact, not just close. The settlement-wide
+/// passive trickle (`Research::tick`) isn't the seat's own knowledge, so it's subtracted out
+/// before comparing.
+#[test]
+fn a_powered_seat_adds_boost_times_the_knowledge_of_an_unpowered_one() {
+    const TICKS: u64 = 1000;
+    let seat_gain = |source: Option<(u32, f32)>| {
+        let mut defs = Defs::bundled();
+        let mut w = World::with_map(1, arena(&GRID), Nation::Earth, &[at(1, 2)], &defs);
+        place_study_hall(&mut w, &defs, at(2, 2));
+        if let Some((radius, boost)) = source {
+            let id = test_source(&mut defs, radius, boost);
+            let pos = at(8, 4);
+            w.map[pos].building = Some(Building::new(id, true, false));
+            w.open_power_source(pos);
+        }
+        start_research(&mut w, &defs, "earth_shaping");
+        run_until(&mut w, &defs, 200, |w| seated(w, 0));
+        let before = w.research().pool_millis();
+        for _ in 0..TICKS {
+            w.tick(&defs);
+        }
+        let gained = w.research().pool_millis() - before;
+        gained - TICKS * defs.research.passive_millis_per_tick
+    };
+
+    let unpowered = seat_gain(None);
+    let powered = seat_gain(Some((6, 2.0)));
+    assert_eq!(unpowered, TICKS * Defs::bundled().research.study_millis_per_tick);
+    assert_eq!(powered, unpowered * 2, "a boost of 2.0 doubles the seat's own knowledge exactly");
 }
 
 #[test]

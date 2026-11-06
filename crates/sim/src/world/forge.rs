@@ -95,11 +95,14 @@ impl World {
     pub(super) fn run_craft(&mut self, i: usize, id: JobId, defs: &Defs) {
         let Some(idx) = self.job_index(id) else { return self.finish_job(i) };
         let JobKind::Craft { pos } = self.jobs[idx].kind else { return self.finish_job(i) };
-        let Some(recipe) =
-            self.building_at(pos).map(|b| defs.building(b)).and_then(|d| d.recipe.as_ref())
-        else {
-            // The building is gone, or its data lost its recipe: moot (no demolish command
-            // exists yet, so unreachable in practice today).
+        let Some(def) = self.building_at(pos).map(|b| defs.building(b)) else {
+            // The building is gone: moot (no demolish command exists yet, so unreachable in
+            // practice today).
+            self.jobs.remove(idx);
+            return self.finish_job(i);
+        };
+        let Some(recipe) = def.recipe.as_ref() else {
+            // Its data lost its recipe: moot, same as above.
             self.jobs.remove(idx);
             return self.finish_job(i);
         };
@@ -170,12 +173,19 @@ impl World {
                 }
                 let mods = self.modifiers_for(&self.units[i], defs);
                 let rate = recipe.modifier.as_deref().and_then(|m| mods.get(m)).unwrap_or(1.0);
+                // A powered building's batch runs `boost` times as fast (issue #428): the best
+                // boost in reach of any tile of its footprint, 1.0 with nothing in reach.
+                let boost = if def.uses_power {
+                    self.footprint_at(pos).map_or(1.0, |f| self.power_boost(f, defs))
+                } else {
+                    1.0
+                };
                 let len = recipe.inputs.len();
                 let state = self
                     .crafts
                     .entry(pos)
                     .or_insert_with(|| CraftState { delivered: vec![0; len], progress: 0.0 });
-                state.progress += rate / TICKS_PER_SECOND as f32;
+                state.progress += rate * boost / TICKS_PER_SECOND as f32;
                 if state.progress < recipe.work {
                     return;
                 }

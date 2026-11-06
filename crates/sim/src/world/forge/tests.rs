@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use super::*;
-use crate::building::{Building, BuildingId};
+use crate::building::{Building, BuildingDef, BuildingId, PowerDef};
 use crate::defs::{BiomeId, Terrain};
 use crate::geom::{Footprint, Grid};
 use crate::mapgen::Tile;
@@ -344,6 +346,82 @@ fn a_deep_mines_ore_does_not_add_to_the_ore_mined_tally() {
 
     run_until(&mut w, &defs, 12_000, |w| w.ground_items().any(|(_, s)| s.item == ore));
     assert_eq!(w.tallies().harvested(ore), 0, "a recipe output isn't a harvest");
+}
+
+/// A 1x1, passable building whose only trait is `[building.power]` (issue #428): which real
+/// buildings are sources is out of scope here (#255, #204, #200), so this is a test-only one.
+fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
+    let id = BuildingId(defs.buildings.len() as u16);
+    defs.buildings.push(BuildingDef {
+        id: "test_power_source".into(),
+        name: "Test Power Source".into(),
+        verb: "Build".into(),
+        cost: Vec::new(),
+        work: 1.0,
+        passable: true,
+        footprint: (1, 1),
+        seats: 0,
+        capacity: 0,
+        bed: None,
+        heat: None,
+        rail: None,
+        orchard: None,
+        recipe: None,
+        farm: None,
+        irrigation: None,
+        healing: None,
+        power: Some(PowerDef { radius, boost, boost_millis: (boost * 1000.0).round() as u32 }),
+        uses_power: false,
+        names: HashMap::new(),
+        art: HashMap::new(),
+        unlocked_by: None,
+        endeavor: false,
+        beside: None,
+    });
+    id
+}
+
+/// A Workshop within a test source's reach finishes a batch in `work / boost` seconds, not
+/// `work` (issue #428): the boost scales the recipe's work rate, while the haul before it
+/// (fetching wood for the batch) is unaffected and identical between the two runs, so the *gap*
+/// between a powered and an unpowered run isolates exactly the time the boost saved.
+#[test]
+fn a_powered_workshop_finishes_a_batch_faster_by_exactly_its_boost() {
+    let run = |source: Option<(u32, f32)>| {
+        let mut defs = Defs::bundled();
+        let anchor = at(4, 4);
+        let mut w = World::with_map(1, arena(&grid()), Nation::Water, &[at(1, 1)], &defs);
+        let workshop = defs.building_id("workshop").unwrap();
+        place_building(&mut w, &defs, workshop, anchor);
+        let recipe = defs.building(workshop).recipe.clone().unwrap();
+        for (n, input) in recipe.inputs.iter().enumerate() {
+            let zone = at(n as i32, 0);
+            w.designate_stockpile(zone).unwrap();
+            w.stored.insert(zone, Stack { item: input.item, count: input.count * 3 });
+        }
+        if let Some((radius, boost)) = source {
+            let id = test_source(&mut defs, radius, boost);
+            let pos = at(8, 8);
+            w.map[pos].building = Some(Building::new(id, true, false));
+            w.open_power_source(pos);
+        }
+        let ticks = run_until(&mut w, &defs, 6000, |w| {
+            w.ground_items().any(|(_, s)| s.item == recipe.output.item)
+        });
+        (ticks, recipe.work)
+    };
+
+    let (unpowered_ticks, work) = run(None);
+    let boost = 2.0;
+    let (powered_ticks, _) = run(Some((6, boost)));
+
+    assert!(powered_ticks < unpowered_ticks, "the powered run finishes sooner");
+    // Water's `construction` is 1.0, so the plain run's work takes exactly `work` seconds; the
+    // haul beforehand is identical either way, so the gap between the two runs is exactly the
+    // time the boost saved.
+    let expected_gap = (work - work / boost) * TICKS_PER_SECOND as f32;
+    let gap = (unpowered_ticks - powered_ticks) as f32;
+    assert!((gap - expected_gap).abs() <= 2.0, "gap {gap}, expected close to {expected_gap}");
 }
 
 /// A plain grid of land, big enough for a 2x2 building and a stockpile tile.

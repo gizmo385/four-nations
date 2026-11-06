@@ -67,7 +67,16 @@ impl World {
                 return;
             }
         }
-        let rate = defs.research.study_millis_per_tick as f32 * self.modifiers().study;
+        // A powered hall's seat produces `boost` times the knowledge (issue #428), kept in
+        // integer millis so the boost's effect is exact on every platform: `boost_millis` is
+        // `boost * 1000`, rounded at load.
+        let def = self.building_at(anchor).map(|b| defs.building(b));
+        let boost_millis = def
+            .filter(|d| d.uses_power)
+            .and_then(|_| self.footprint_at(anchor))
+            .map_or(1000, |f| self.power_boost_millis(f, defs));
+        let millis = defs.research.study_millis_per_tick * boost_millis as u64 / 1000;
+        let rate = millis as f32 * self.modifiers().study;
         let research_cost = self.knobs(defs).research_cost;
         self.research.add_toward_target(rate.round() as u64, defs, research_cost);
     }

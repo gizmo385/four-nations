@@ -1,0 +1,147 @@
+use std::collections::HashMap;
+
+use super::*;
+use crate::building::{Building, BuildingDef, BuildingId, PowerDef};
+use crate::defs::{BiomeId, Terrain};
+use crate::geom::Grid;
+use crate::mapgen::Tile;
+use crate::world::Command;
+
+fn arena(size: i32) -> TileMap {
+    Grid::from_fn(size, size, |_| Tile {
+        elevation: 100,
+        temperature: 128,
+        moisture: 128,
+        terrain: Terrain::Land,
+        biome: BiomeId(0),
+        resource: None,
+        building: None,
+    })
+}
+
+fn at(x: i32, y: i32) -> Pos {
+    Pos::new(x, y)
+}
+
+/// A 1x1, passable building whose only trait is `[building.power]`, since which real buildings
+/// are sources is out of scope here (#255, #204, #200): these tests define their own.
+fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
+    let id = BuildingId(defs.buildings.len() as u16);
+    defs.buildings.push(BuildingDef {
+        id: "test_power_source".into(),
+        name: "Test Power Source".into(),
+        verb: "Build".into(),
+        cost: Vec::new(),
+        work: 1.0,
+        passable: true,
+        footprint: (1, 1),
+        seats: 0,
+        capacity: 0,
+        bed: None,
+        heat: None,
+        rail: None,
+        orchard: None,
+        recipe: None,
+        farm: None,
+        irrigation: None,
+        healing: None,
+        power: Some(PowerDef { radius, boost, boost_millis: (boost * 1000.0).round() as u32 }),
+        uses_power: false,
+        names: HashMap::new(),
+        art: HashMap::new(),
+        unlocked_by: None,
+        endeavor: false,
+        beside: None,
+    });
+    id
+}
+
+/// Puts a finished source of `id` on `pos`, as if built.
+fn raise_source(w: &mut World, defs: &Defs, id: BuildingId, pos: Pos) {
+    let def = defs.building(id);
+    w.map[pos].building = Some(Building::new(id, def.passable, false));
+    w.open_power_source(pos);
+}
+
+#[test]
+fn a_tile_within_reach_is_powered_at_the_sources_boost() {
+    let mut defs = Defs::bundled();
+    let source = test_source(&mut defs, 3, 1.5);
+    let mut w = World::with_map(1, arena(12), Nation::Water, &[at(0, 0)], &defs);
+    raise_source(&mut w, &defs, source, at(5, 5));
+
+    assert_eq!(w.power_at(at(5, 5), &defs), Some(PowerAt { source: at(5, 5), boost: 1.5 }));
+    assert_eq!(w.power_at(at(8, 5), &defs).map(|p| p.boost), Some(1.5), "3 tiles away: in reach");
+    assert!(w.power_at(at(9, 5), &defs).is_none(), "4 tiles away: out of reach");
+}
+
+#[test]
+fn two_sources_in_reach_give_the_best_boost_not_the_product() {
+    let mut defs = Defs::bundled();
+    let weak = test_source(&mut defs, 3, 1.5);
+    let strong = test_source(&mut defs, 3, 2.0);
+    let mut w = World::with_map(1, arena(12), Nation::Water, &[at(0, 0)], &defs);
+    raise_source(&mut w, &defs, weak, at(2, 2));
+    raise_source(&mut w, &defs, strong, at(6, 6));
+
+    // (4, 4) sits 2 tiles from each, inside both reaches.
+    let p = w.power_at(at(4, 4), &defs).expect("in reach of both");
+    assert_eq!(p.boost, 2.0, "the best of 1.5 and 2.0, not their product 3.0");
+    assert_eq!(p.source, at(6, 6));
+}
+
+#[test]
+fn researching_a_power_generation_tech_grows_the_reach() {
+    let mut defs = Defs::bundled();
+    let source = test_source(&mut defs, 4, 1.5);
+    let mut w = World::with_map(1, arena(20), Nation::Water, &[at(0, 0)], &defs);
+    raise_source(&mut w, &defs, source, at(10, 10));
+
+    // Water's base `power_generation` is 1.0 (data/nations.toml): the reach is the radius as-is.
+    assert_eq!(w.modifiers().power_generation, 1.0);
+    let edge = at(15, 10); // 5 tiles from the source: just outside a reach of 4
+    assert!(w.power_at(edge, &defs).is_none());
+
+    // `tide_mills` (prereqs: `farming`, `irrigation`) raises Water's `power_generation` to 1.25
+    // (data/research.toml): round(4 * 1.25) = 5, so the same tile is now in reach.
+    w.grant_tech(defs.tech_id("farming").unwrap());
+    w.grant_tech(defs.tech_id("irrigation").unwrap());
+    let tide_mills = defs.tech_id("tide_mills").unwrap();
+    w.apply(Command::SetResearch { tech: tide_mills }, &defs).unwrap();
+    w.research.bank_for_test(300_000);
+    w.tick(&defs);
+    assert!(w.research().is_known(tide_mills));
+    assert_eq!(w.modifiers().power_generation, 1.25);
+
+    assert_eq!(w.power_at(edge, &defs).map(|p| p.boost), Some(1.5), "now in reach");
+}
+
+#[test]
+fn a_save_from_before_power_sources_adopts_the_one_it_already_has() {
+    let mut defs = Defs::bundled();
+    let source = test_source(&mut defs, 3, 1.5);
+    let mut w = World::with_map(1, arena(12), Nation::Water, &[at(0, 0)], &defs);
+    // On the map but never registered, as a save from before #428 would be.
+    w.map[at(5, 5)].building = Some(Building::new(source, true, false));
+    assert!(w.power_at(at(5, 5), &defs).is_none());
+
+    w.adopt_power_sources(&defs);
+    assert_eq!(w.power_at(at(5, 5), &defs), Some(PowerAt { source: at(5, 5), boost: 1.5 }));
+}
+
+#[test]
+fn a_powered_layout_survives_a_save_and_load_round_trip() {
+    let mut defs = Defs::bundled();
+    let source = test_source(&mut defs, 3, 1.5);
+    let mut w = World::with_map(1, arena(12), Nation::Water, &[at(0, 0)], &defs);
+    raise_source(&mut w, &defs, source, at(5, 5));
+
+    let text = w.save(&defs).unwrap();
+    let loaded = World::load(&text, &defs).unwrap();
+    assert_eq!(
+        loaded.power_at(at(5, 5), &defs),
+        Some(PowerAt { source: at(5, 5), boost: 1.5 }),
+        "a power source reaches the same tiles once loaded"
+    );
+    assert_eq!(w.save(&defs).unwrap(), loaded.save(&defs).unwrap());
+}
