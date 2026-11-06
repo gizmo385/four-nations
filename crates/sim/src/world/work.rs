@@ -120,6 +120,25 @@ pub enum Task {
     Sleep,
 }
 
+/// Why a unit with nothing to do (`Unit::task` is `None`) has nothing to do (#337): read from
+/// the same facts `World::idle_reason` already asks `claim_job`'s own match for every unclaimed
+/// job, instead of a second copy of the assignment rules. A frontend falls back to a bare "Idle"
+/// for `None`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdleReason {
+    /// Nothing at all is designated for anyone to do.
+    NoWork,
+    /// Something is designated, but none of it is on this unit's side of a river, wall, shore or
+    /// door -- or every bit of it is a kind this unit never does at all (the Avatar on an
+    /// ordinary job).
+    Unreachable,
+    /// The nearest open work this unit could do is a bend past its current chi.
+    OutOfChi,
+    /// The nearest open work this unit could do is hauling an item that every stockpile able to
+    /// take it is already full of.
+    StockpileFull,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DesignateError {
     OutOfBounds,
@@ -215,6 +234,31 @@ impl World {
 
     pub fn job(&self, id: JobId) -> Option<&Job> {
         self.jobs.binary_search_by_key(&id, |j| j.id).ok().map(|i| &self.jobs[i])
+    }
+
+    /// Whether no living unit could ever reach `pos` or stand beside it, under the walk rules
+    /// every unit shares (`World::rules`): the same question `any_job_in_region` asks per unit,
+    /// generalized over every one of them, so a frontend can flag a harvest or stockpile tile
+    /// stranded on the wrong side of a river, wall or shore before a unit ever would have told
+    /// it itself (#337, "inspect shows no ... unreachable status on a tile"). This is a weaker
+    /// guarantee than `claim_job`'s own feasibility check: a tile can answer `false` here and
+    /// still never be worked, for reasons this doesn't ask about (a resting resource, a chi cost,
+    /// a full stockpile). `None` only in the narrow window before anything this map generation
+    /// has needed the connectivity cache (`World::tick`'s own job claiming populates it the
+    /// moment there's an unclaimed job and an idle unit to ask); a frontend that gets `None`
+    /// should say nothing rather than guess.
+    pub fn job_unreachable(&self, pos: Pos) -> Option<bool> {
+        let regions = self.regions.as_ref()?;
+        let in_region = |p: Pos| {
+            regions
+                .region(p)
+                .is_some_and(|r| self.units.iter().any(|u| regions.region(u.pos) == Some(r)))
+        };
+        let walkable = self.map.get(pos).is_some_and(|t| self.rules.passable(t));
+        let foot = Footprint::single(pos);
+        let reachable =
+            if walkable { foot.tiles().any(in_region) } else { foot.ring().any(in_region) };
+        Some(!reachable)
     }
 
     /// Is the resource on `pos` a renewable one that has been worked and is still growing back?
@@ -1196,6 +1240,131 @@ impl World {
         u.job_task = Some(task);
         u.route = flood.path_to(stand).map(route_from);
         true
+    }
+
+    /// Why `unit` is idle (#337), for a frontend's selection bar: `None` once it isn't (it has a
+    /// `Task`) or nothing designated explains it (the odd tick a claimable job hasn't been
+    /// picked up yet, a chained bend not yet reshaped). Otherwise walks every unclaimed job
+    /// exactly as `claim_job`'s own match does -- ripe, in stage, on this unit's side of a wall
+    /// -- and the first one still blocked even though a stand tile is in reach names why: a bend
+    /// past the unit's current chi (`OutOfChi`; a recast too fresh to restoke, #359, is folded
+    /// into this too, since `unit_can_bend` doesn't separate the two), or a haul with no
+    /// stockpile room anywhere for its item (`StockpileFull`). Short of that, `Unreachable`
+    /// covers both a genuinely stranded designation and the Avatar standing idle beside jobs
+    /// that are never his (`docs/design/endgame.md`, "The Avatar").
+    pub fn idle_reason(&self, unit: UnitId, defs: &Defs) -> Option<IdleReason> {
+        let i = self.units.iter().position(|u| u.id == unit)?;
+        if self.units[i].task().is_some() {
+            return None;
+        }
+        let unclaimed: Vec<&Job> = self.jobs.iter().filter(|j| j.claimed_by.is_none()).collect();
+        if unclaimed.is_empty() {
+            return Some(IdleReason::NoWork);
+        }
+        let is_avatar = self.units[i].is_avatar();
+        let flood = self.flood_from(i);
+        let (mut chi_blocked, mut room_blocked) = (false, false);
+        for job in unclaimed {
+            if is_avatar
+                && matches!(
+                    job.kind,
+                    JobKind::Harvest { .. }
+                        | JobKind::Haul { .. }
+                        | JobKind::Build { .. }
+                        | JobKind::Study { .. }
+                        | JobKind::Attend { .. }
+                        | JobKind::Craft { .. }
+                        | JobKind::Sow { .. }
+                        | JobKind::Reap { .. }
+                )
+            {
+                continue;
+            }
+            match job.kind {
+                JobKind::Harvest { pos } => {
+                    if self.ripe_harvest(pos, defs).is_some()
+                        && self.stand_tile(&flood, pos).is_some()
+                    {
+                        return None;
+                    }
+                }
+                JobKind::Sow { pos } => {
+                    if self.plot_stage(pos) == Some(PlotStage::Empty)
+                        && self.stand_building(&flood, pos, defs).is_some()
+                    {
+                        return None;
+                    }
+                }
+                JobKind::Reap { pos } => {
+                    if self.plot_stage(pos) == Some(PlotStage::Ripe)
+                        && self.stand_building(&flood, pos, defs).is_some()
+                    {
+                        return None;
+                    }
+                }
+                JobKind::Haul { pos } => {
+                    let Some(stack) = self.ground.get(&pos) else { continue };
+                    if self.stand_tile(&flood, pos).is_none() {
+                        continue;
+                    }
+                    if self.reachable_dest(&flood, stack.item, defs).is_some() {
+                        return None;
+                    }
+                    room_blocked = true;
+                }
+                JobKind::Bend { ability, pos } => {
+                    if !self.bend_ready(ability, pos, defs)
+                        || self.stand_tile(&flood, pos).is_none()
+                    {
+                        continue;
+                    }
+                    if self.unit_can_bend(i, ability, defs) {
+                        return None;
+                    }
+                    let cost = defs.ability(ability).chi;
+                    if self.can_cast(&self.units[i], ability, defs) && self.units[i].chi < cost {
+                        chi_blocked = true;
+                    }
+                }
+                JobKind::Build { pos } => {
+                    if self.stand_building(&flood, pos, defs).is_some() {
+                        return None;
+                    }
+                }
+                JobKind::Study { pos } => {
+                    if !self.research.queue().is_empty()
+                        && self.stand_entrance(&flood, pos).is_some()
+                    {
+                        return None;
+                    }
+                }
+                JobKind::EndeavorTask { task } => {
+                    if let Some((def, anchor)) = self.gate_task(task, defs)
+                        && self.unit_can_raise(i, def)
+                        && self.stand_building(&flood, anchor, defs).is_some()
+                    {
+                        return None;
+                    }
+                }
+                JobKind::Attend { pos } => {
+                    if self.stand_tile(&flood, pos).is_some() {
+                        return None;
+                    }
+                }
+                JobKind::Craft { pos } => {
+                    if self.stand_entrance(&flood, pos).is_some() {
+                        return None;
+                    }
+                }
+            }
+        }
+        Some(if room_blocked {
+            IdleReason::StockpileFull
+        } else if chi_blocked {
+            IdleReason::OutOfChi
+        } else {
+            IdleReason::Unreachable
+        })
     }
 
     /// A cheap, conservative check against the connectivity cache: false only if no unclaimed

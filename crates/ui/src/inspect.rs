@@ -53,6 +53,37 @@ pub fn bending_status_line(world: &World, defs: &Defs, tile: Pos) -> Option<Stri
     Some(format!("Wet: sprouts in {}", clock(left)))
 }
 
+/// "Stockpile: 12/20 Wood" or "Stockpile: empty" for a designated zone tile (#337: "stockpile
+/// capacity is visible somewhere"). `None` off a zone.
+fn stockpile_line(world: &World, defs: &Defs, tile: Pos) -> Option<String> {
+    if !world.stockpile_zones().any(|z| z == tile) {
+        return None;
+    }
+    let cap = defs.jobs.stockpile_stack;
+    Some(match world.stored_at(tile) {
+        Some(s) => format!("Stockpile: {}/{cap} {}", s.count, defs.item(s.item).name),
+        None => "Stockpile: empty".to_owned(),
+    })
+}
+
+/// "Lying here: 4 Wood (unreachable: every stockpile is full)" for an item stack waiting on the
+/// ground for a hauler (#337: a filled stockpile left a 2026-11-05 playtest's chopped wood on
+/// the ground with nothing to say why). The reason is only ever a full stockpile: `place_ground`
+/// never drops a stack somewhere no one could reach in the first place. `None` with nothing
+/// lying on `tile`.
+fn ground_line(world: &World, defs: &Defs, tile: Pos) -> Option<String> {
+    let (_, stack) = world.ground_items().find(|&(p, _)| p == tile)?;
+    let name = defs.item(stack.item).name.clone();
+    let cap = defs.jobs.stockpile_stack;
+    let has_room = |pos: Pos| match world.stored_at(pos) {
+        None => true,
+        Some(s) => s.item == stack.item && s.count < cap,
+    };
+    let stuck = world.stockpile_zones().next().is_some() && !world.stockpile_zones().any(has_room);
+    let suffix = if stuck { " (unreachable: every stockpile is full)" } else { "" };
+    Some(format!("Lying here: {} {name}{suffix}", stack.count))
+}
+
 /// The tooltip for what is under the cursor at `tile`: up to 4 lines (name, context, a yield or
 /// reason, then an action hint). `None` when `tile` is off the map.
 pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
@@ -163,6 +194,15 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
         if let Some(status) = bending_status_line(world, defs, tile) {
             lines.push(Line::Detail(status));
         }
+        // The tile's own designation (#337): a stockpile zone names what it holds and its
+        // capacity, an item stack waiting for a hauler names itself and, if a full stockpile is
+        // why it's still here, says so. The two never both apply (`World::place_ground` never
+        // drops a stack on a zone tile).
+        if let Some(line) = stockpile_line(world, defs, tile) {
+            lines.push(Line::Detail(line));
+        } else if let Some(line) = ground_line(world, defs, tile) {
+            lines.push(Line::Detail(line));
+        }
         return Some(lines);
     };
     lines.push(Line::Title(defs.resource(res).name.clone()));
@@ -210,6 +250,17 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
             } else {
                 Hint::StartTool(Tool::Harvest)
             }));
+        }
+        // A harvest designated on this tile (a one-shot job, or a standing order waiting to
+        // ripen) that no living settler could ever reach (#337: "inspect shows no designation
+        // or 'unreachable' status on a tile, so a job can't be told apart from one that's just
+        // waiting" -- a playtest's own scroll stayed marked for a year across a river nobody
+        // could cross). `None` from `job_unreachable` (the connectivity cache not warm yet)
+        // says nothing rather than guess.
+        if world.harvest_designations().any(|p| p == tile)
+            && world.job_unreachable(tile) == Some(true)
+        {
+            lines.push(Line::Detail("Unreachable: no settler can reach it".to_owned()));
         }
     }
     Some(lines)
@@ -613,6 +664,149 @@ mod tests {
             lines.iter().any(
                 |l| matches!(l, Line::Detail(t) if t.ends_with("Cold: tiring faster (no fire near)"))
             ),
+            "{lines:?}"
+        );
+    }
+
+    /// A woods-and-a-stockpile map: a stockpile zone at `(1, 2)`, an oak tree at `(7, 2)`, a
+    /// stone outcrop at `(4, 1)` (`Terrain::Mountain`, worked from the land tile beside it), the
+    /// settler at `(3, 2)`.
+    fn woods_and_stockpile(defs: &Defs) -> (World, Pos, Pos, Pos) {
+        let oak = defs.resource_id("oak_tree").unwrap();
+        let stone = defs.resource_id("stone").unwrap();
+        let map = Grid::from_fn(10, 3, |p| Tile {
+            elevation: 100,
+            temperature: 128,
+            moisture: 128,
+            terrain: if p == Pos::new(4, 1) { Terrain::Mountain } else { Terrain::Land },
+            biome: BiomeId(0),
+            resource: match p {
+                q if q == Pos::new(7, 2) => Some(oak),
+                q if q == Pos::new(4, 1) => Some(stone),
+                _ => None,
+            },
+            building: None,
+        });
+        let world = World::with_map(1, map, Nation::Earth, &[Pos::new(3, 2)], defs);
+        (world, Pos::new(1, 2), Pos::new(7, 2), Pos::new(4, 1))
+    }
+
+    /// A stockpile tile's own line (#337, "stockpile capacity is visible somewhere"): "empty"
+    /// with nothing in it yet, else "n/cap Item".
+    #[test]
+    fn a_stockpile_tile_names_what_it_holds_and_its_capacity() {
+        let defs = Defs::bundled();
+        let (mut world, zone, tree, _) = woods_and_stockpile(&defs);
+        world.apply(Command::DesignateStockpile { pos: zone }, &defs).unwrap();
+        let s = custom_session(defs.clone(), world);
+        let lines = tooltip_lines(&s, Tool::Select, zone).unwrap();
+        assert!(
+            lines.contains(&Line::Detail("Stockpile: empty".to_owned())),
+            "nothing stored yet: {lines:?}"
+        );
+
+        let mut s = s;
+        s.apply(Command::DesignateHarvest { pos: tree }).unwrap();
+        let wood = s.defs.item_id("wood").unwrap();
+        for _ in 0..3000 {
+            s.tick();
+            if s.world.stored_total(wood) > 0 {
+                break;
+            }
+        }
+        let count = s.world.stored_total(wood);
+        assert!(count > 0, "wood should have reached the stockpile");
+        // The hauler stands right on the zone tile to deposit it; step past that so the
+        // tooltip reads the tile, not the unit standing on it.
+        for _ in 0..200 {
+            if s.world.units_at(zone).next().is_none() {
+                break;
+            }
+            s.tick();
+        }
+        assert!(s.world.units_at(zone).next().is_none(), "the hauler should have moved on");
+        let cap = s.defs.jobs.stockpile_stack;
+        let lines = tooltip_lines(&s, Tool::Select, zone).unwrap();
+        assert!(
+            lines.contains(&Line::Detail(format!("Stockpile: {count}/{cap} Wood"))),
+            "{lines:?}"
+        );
+    }
+
+    /// An item stack on the ground names itself, and -- only once every stockpile is full --
+    /// says why it's still there (#337, the playtest evidence that made this the issue's
+    /// highest-value fix).
+    #[test]
+    fn a_ground_stack_names_itself_and_a_full_stockpile_blocking_it() {
+        let defs = Defs::bundled();
+        let (mut world, zone, tree, quarry) = woods_and_stockpile(&defs);
+        world.apply(Command::DesignateStockpile { pos: zone }, &defs).unwrap();
+        world.apply(Command::DesignateHarvest { pos: quarry }, &defs).unwrap();
+        let stone = defs.item_id("stone").unwrap();
+        let wood = defs.item_id("wood").unwrap();
+        let mut s = custom_session(defs, world);
+        for _ in 0..3000 {
+            s.tick();
+            if s.world.stored_total(stone) > 0 {
+                break;
+            }
+        }
+        assert!(s.world.stored_total(stone) > 0, "stone should have reached the stockpile");
+        s.apply(Command::DesignateHarvest { pos: tree }).unwrap();
+        let mut dropped = None;
+        for _ in 0..3000 {
+            s.tick();
+            if let Some((p, _)) = s.world.ground_items().find(|(_, st)| st.item == wood) {
+                dropped = Some(p);
+                break;
+            }
+        }
+        let dropped = dropped.expect("wood should have been chopped and dropped");
+        let lines = tooltip_lines(&s, Tool::Select, dropped).unwrap();
+        let line = lines
+            .iter()
+            .find_map(|l| match l {
+                Line::Detail(t) if t.starts_with("Lying here") => Some(t.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("a ground-stack line in {lines:?}"));
+        assert!(line.starts_with("Lying here: 4 Wood"), "{line}");
+        assert!(line.ends_with("(unreachable: every stockpile is full)"), "{line}");
+    }
+
+    /// A harvest designated across water nobody can cross flags itself unreachable once the
+    /// connectivity cache is warm (#337).
+    #[test]
+    fn an_unreachable_harvest_designation_flags_itself() {
+        let defs = Defs::bundled();
+        let rows = ["~~~~~~~~~", "~T~.....~", "~~~.....~", "~~~~~~~~~"];
+        let map = Grid::from_fn(rows[0].len() as i32, rows.len() as i32, |p| {
+            let c = rows[p.y as usize].as_bytes()[p.x as usize];
+            Tile {
+                elevation: 100,
+                temperature: 128,
+                moisture: 128,
+                terrain: if c == b'~' { Terrain::Water } else { Terrain::Land },
+                biome: BiomeId(0),
+                resource: (c == b'T').then(|| defs.resource_id("oak_tree").unwrap()),
+                building: None,
+            }
+        });
+        let mut world = World::with_map(1, map, Nation::Earth, &[Pos::new(3, 2)], &defs);
+        let island = Pos::new(1, 1);
+        world.apply(Command::DesignateHarvest { pos: island }, &defs).unwrap();
+        let mut s = custom_session(defs, world);
+        assert!(
+            tooltip_lines(&s, Tool::Select, island)
+                .unwrap()
+                .iter()
+                .all(|l| l != &Line::Detail("Unreachable: no settler can reach it".to_owned())),
+            "the connectivity cache isn't warm yet"
+        );
+        s.tick();
+        let lines = tooltip_lines(&s, Tool::Select, island).unwrap();
+        assert!(
+            lines.contains(&Line::Detail("Unreachable: no settler can reach it".to_owned())),
             "{lines:?}"
         );
     }

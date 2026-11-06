@@ -4,6 +4,7 @@
 
 use fn_sim::Pos;
 use fn_sim::building::BuildingId;
+use fn_sim::jobs::ItemId;
 use fn_sim::nation::Modifiers;
 use fn_sim::needs::NeedDef;
 use fn_sim::world::{TICKS_PER_SECOND, Task, Unit, UnitId};
@@ -110,6 +111,36 @@ pub fn store_rows(session: &Session) -> Vec<StoreRow> {
                 icon: item.icon.clone(),
                 count,
             })
+        })
+        .collect()
+}
+
+/// Items lying on the ground with nowhere to go: every stockpile tile that could take them
+/// already holds a different item, at its own full stack (#337, #378's own gap in the balance
+/// harness -- `World::room_at`: a stockpile tile holds one item kind until it's emptied, so
+/// whichever item fills every tile first strands every other one on the ground for good, with
+/// nothing in the Stores section to show it since `store_rows` only lists what's actually
+/// stored). Each entry is the item and how much of it sits stuck right now, in the item data's
+/// own order. Empty with no stockpile designated at all: that's a different problem (nowhere to
+/// store anything yet, not a full one).
+pub fn stuck_items(session: &Session) -> Vec<(ItemId, u32)> {
+    let (world, defs) = (&session.world, &session.defs);
+    if world.stockpile_zones().next().is_none() {
+        return Vec::new();
+    }
+    let cap = defs.jobs.stockpile_stack;
+    let has_room = |item: ItemId, pos: Pos| match world.stored_at(pos) {
+        None => true,
+        Some(s) => s.item == item && s.count < cap,
+    };
+    defs.items
+        .iter()
+        .filter_map(|def| {
+            let item = defs.item_id(&def.id)?;
+            let count: u32 =
+                world.ground_items().filter(|(_, s)| s.item == item).map(|(_, s)| s.count).sum();
+            let stuck = count > 0 && !world.stockpile_zones().any(|pos| has_room(item, pos));
+            stuck.then_some((item, count))
         })
         .collect()
 }
@@ -593,6 +624,60 @@ mod tests {
         }
         assert_eq!(side_view(&s, Tool::Select, "", None, &Alerts::default()).stores, rows);
         assert_eq!(stores(&s).len(), rows.len());
+    }
+
+    /// #337, #378's own gap in the balance harness: a single stockpile tile holds one item kind
+    /// until it's emptied, so once it holds any stone at all, wood chopped afterwards has
+    /// nowhere to go and `stuck_items` says so, even though `store_rows` never will (nothing of
+    /// it is ever stored).
+    #[test]
+    fn stuck_items_flags_wood_once_the_only_zone_already_holds_stone() {
+        use fn_sim::defs::BiomeId;
+        use fn_sim::world::Command;
+        use fn_sim::{Grid, Terrain, Tile};
+        let defs = Defs::bundled();
+        let stone = defs.resource_id("stone").unwrap();
+        let oak = defs.resource_id("oak_tree").unwrap();
+        let (stone_item, wood_item) =
+            (defs.item_id("stone").unwrap(), defs.item_id("wood").unwrap());
+        let map = Grid::from_fn(10, 3, |p| Tile {
+            elevation: 100,
+            temperature: 128,
+            moisture: 128,
+            terrain: if p == Pos::new(3, 1) { Terrain::Mountain } else { Terrain::Land },
+            biome: BiomeId(0),
+            resource: match p {
+                q if q == Pos::new(3, 1) => Some(stone),
+                q if q == Pos::new(7, 1) => Some(oak),
+                _ => None,
+            },
+            building: None,
+        });
+        let world = World::with_map(1, map, Nation::Earth, &[Pos::new(0, 1)], &defs);
+        let mut s =
+            Session { world, defs, clock: crate::clock::Clock::default(), bend_choice: None };
+        assert!(stuck_items(&s).is_empty(), "nothing designated yet");
+        s.apply(Command::DesignateStockpile { pos: Pos::new(1, 1) }).unwrap();
+        s.apply(Command::DesignateHarvest { pos: Pos::new(3, 1) }).unwrap();
+        for _ in 0..3000 {
+            s.tick();
+            if s.world.stored_total(stone_item) > 0 {
+                break;
+            }
+        }
+        assert!(s.world.stored_total(stone_item) > 0, "stone should have reached the stockpile");
+        s.apply(Command::DesignateHarvest { pos: Pos::new(7, 1) }).unwrap();
+        for _ in 0..3000 {
+            s.tick();
+            if s.world.ground_items().any(|(_, st)| st.item == wood_item) {
+                break;
+            }
+        }
+        let stuck = stuck_items(&s);
+        assert_eq!(stuck.len(), 1, "{stuck:?}");
+        assert_eq!(stuck[0].0, wood_item);
+        assert!(stuck[0].1 > 0, "{stuck:?}");
+        assert_eq!(s.world.stored_total(wood_item), 0, "wood never reaches the full stockpile");
     }
 
     #[test]

@@ -61,7 +61,7 @@ pub use season::{SeasonEvent, SeasonEventKind};
 pub use strain::StrainEvent;
 pub use stride::{STRIDE_LOOKAHEAD, Stride};
 pub use tally::Tallies;
-pub use work::{DesignateError, FoodSource, Task};
+pub use work::{DesignateError, FoodSource, IdleReason, Task};
 
 /// Ticks per in-game second. Movement and needs are expressed per tick.
 pub const TICKS_PER_SECOND: u32 = 10;
@@ -641,6 +641,15 @@ impl World {
     fn regions(&mut self) -> &Regions {
         let (map, rules) = (&self.map, &self.rules);
         self.regions.get_or_insert_with(|| Regions::compute(map, rules))
+    }
+
+    /// Forces the connectivity cache (`World::regions`) to be current, so a read-only query
+    /// like `job_unreachable` that only takes `&self` can rely on it being there (#337) even
+    /// before any unit's own job search has needed it -- the very first designation in a fresh
+    /// game, with no idle unit having tried to claim a job yet. Cheap once nothing has changed
+    /// the map since the last call.
+    pub fn ensure_regions(&mut self) {
+        self.regions();
     }
 
     fn walkable(&self, p: Pos) -> bool {
