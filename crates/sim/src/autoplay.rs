@@ -52,7 +52,9 @@
 //! moves (the free functions below), that plays toward the Harmony Gate's signs
 //! (`docs/design/materials.md`, section 7) instead of just keeping a settlement alive. Each step
 //! it additionally:
-//! - researches the whole visible tree (`with_full_research`'s reasoning above, always on here);
+//! - researches the whole visible tree (`with_full_research`'s reasoning above, always on here),
+//!   shared tier first unless `with_branch_first` is set (`docs/design/pacing.md`, "Measuring
+//!   it"; #434);
 //! - keeps a one-shot harvest designated on every reachable stone and ore deposit within
 //!   `DEPOSIT_RADIUS` tiles (outcrops, boulders, veins: whatever `data/resources.toml` holds),
 //!   read generically from the "stone" and "ore" signs' `items` in `data/endeavor.toml`, so a new
@@ -77,6 +79,7 @@ use crate::endeavor::{self, SignKind, Tally};
 use crate::geom::{Footprint, Pos};
 use crate::jobs::ItemId;
 use crate::mapgen::Tile;
+use crate::nation::Nation;
 use crate::research::TechId;
 use crate::world::{Command, PlotStage, TICKS_PER_SECOND, World};
 
@@ -232,17 +235,46 @@ pub struct Economy {
     /// Till farm plots and raise an orchard (module doc, "Economy")? `true` unless built with
     /// `without_farms`.
     pub farms: bool,
+    /// Research the nation's own branch before the shared tier, instead of the shared tier
+    /// first (`docs/design/pacing.md`, "Measuring it"; #434's `--branch-first`). Set with
+    /// `with_branch_first`; both orders research the whole visible tree either way
+    /// (`research_plan`), so this only changes which tech is picked first when nothing is
+    /// queued.
+    pub branch_first: bool,
 }
 
 impl Economy {
     pub fn new(people: u32) -> Self {
-        Self { people, farms: true }
+        Self { people, farms: true, branch_first: false }
     }
 
     /// The same opening, but it tills no farm plots and raises no orchard
     /// (`docs/design/materials.md` section 7's `--no-farms`, owner question 2's check).
     pub fn without_farms(people: u32) -> Self {
-        Self { people, farms: false }
+        Self { people, farms: false, branch_first: false }
+    }
+
+    /// The same opening, but `research_plan` tries the nation's own branch before the shared
+    /// tier (`docs/design/pacing.md`, "Measuring it"; #434), closer to how a person plays than
+    /// the default shared-tier-first order.
+    pub fn with_branch_first(self) -> Self {
+        Self { branch_first: true, ..self }
+    }
+
+    /// `defs.techs_for(nation)`'s own set, reordered with the nation's branch before the shared
+    /// tier if `self.branch_first`, else left in file order (shared tier first). Either order is
+    /// just a tie-break for which tech `queue_next_known_tech` picks first when nothing is
+    /// queued: `Research::set_target`'s own prereq closure (always ascending `TechId`) decides
+    /// what's actually researched first regardless, so a branch tech whose prereqs are still
+    /// shared-tier techs pulls those in ahead of itself either way.
+    fn research_plan(&self, nation: Nation, defs: &Defs) -> Vec<TechId> {
+        let mut techs: Vec<(TechId, bool)> =
+            defs.techs_for(nation).map(|(id, t)| (id, t.nation.is_none())).collect();
+        if self.branch_first {
+            // A stable sort keeps each group (branch, then shared) in its own file order.
+            techs.sort_by_key(|&(_, shared)| shared);
+        }
+        techs.into_iter().map(|(id, _)| id).collect()
     }
 
     /// Issues whatever the opening still wants done, reading `world` fresh. Call this once per
@@ -255,7 +287,7 @@ impl Economy {
         forage_wild_food(world, defs, anchor);
         gather_materials(world, defs, anchor, &self.build_material_items(world, defs, &deposits));
         self.quarry_and_mine(world, defs, anchor, &deposits);
-        queue_next_known_tech(world, defs, defs.techs_for(world.nation).map(|(id, _)| id));
+        queue_next_known_tech(world, defs, self.research_plan(world.nation, defs).into_iter());
         self.raise_buildings(world, defs, anchor);
         if self.farms {
             self.sow_farm_plots(world, defs);
@@ -852,6 +884,36 @@ mod tests {
                 || world.research().queue().contains(&earth_shaping),
             "expected Earth Shaping known or queued after {LIMIT_MINUTES:?} minutes of full research",
         );
+    }
+
+    /// `with_branch_first` (#434, `docs/design/pacing.md` "Measuring it"): Earth starts knowing
+    /// `stoneworking` (`data/nations.toml`), so its first branch tech (`earth_shaping`) needs no
+    /// further shared-tier prereq, and branch-first queues it straight away instead of the
+    /// shared tier's own first unknown tech (`fire_making`, which the default order queues
+    /// instead: the next test).
+    #[test]
+    fn with_branch_first_researches_the_nations_branch_before_the_shared_tier() {
+        let (mut world, defs) = world(Nation::Earth);
+        let economy = Economy::new(6).with_branch_first();
+        economy.step(&mut world, &defs);
+        let earth_shaping = defs.tech_id("earth_shaping").unwrap();
+        let fire_making = defs.tech_id("fire_making").unwrap();
+        assert!(world.research().queue().contains(&earth_shaping));
+        assert!(!world.research().queue().contains(&fire_making));
+    }
+
+    /// Without `with_branch_first`, `Economy`'s default order researches the shared tier first
+    /// (module doc, "Economy"): Earth doesn't start knowing `fire_making`, so that's what gets
+    /// queued, not `earth_shaping`.
+    #[test]
+    fn without_branch_first_the_shared_tier_is_researched_before_the_nations_branch() {
+        let (mut world, defs) = world(Nation::Earth);
+        let economy = Economy::new(6);
+        economy.step(&mut world, &defs);
+        let earth_shaping = defs.tech_id("earth_shaping").unwrap();
+        let fire_making = defs.tech_id("fire_making").unwrap();
+        assert!(world.research().queue().contains(&fire_making));
+        assert!(!world.research().queue().contains(&earth_shaping));
     }
 
     /// #376: an unbuilt building's missing cost item is "wanted" once its tech is known, so a
