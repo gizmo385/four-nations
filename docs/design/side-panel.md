@@ -1,5 +1,8 @@
 # Side panel: summaries in the panel, detail on demand
 
+> Revised by docs/design/side-panel-v2.md (#414), which regroups the sections below into a
+> Settlement glance, an Alerts feed and a Here section.
+
 Status: **proposed** (#302, from the owner's 2026-11-04 playtest). It revises the side panel in
 docs/design/tui.md ("Screen layout", "What #99 built"), gives #307 (active tool) its direction,
 and leaves room for #299 (Season section) and #306 (Esc game menu).
