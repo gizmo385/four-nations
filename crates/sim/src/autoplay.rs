@@ -654,7 +654,11 @@ fn positions_near(anchor: Pos, radius: i32) -> Vec<Pos> {
 /// it there wouldn't wall anyone into a dead end (`World::would_strand`, #384: the opening used
 /// to pick whatever tile `check_build` allowed, with no regard for what a solid building does to
 /// the ground around it, and on one seed that sealed a settler into a mountain pocket with no
-/// way back to water).
+/// way back to water) nor sit somewhere nothing can reach to begin with (`World::build_site_viable`,
+/// #395: on another seed, the opening designated a bed on a lone Coast tile ringed by Mountain,
+/// `check_build` and `would_strand` both happy with it since neither asks whether anyone could
+/// ever walk there, and the bed then sat at 0 work forever, with no second one ever tried because
+/// `ensure_building` saw a site of that kind already standing).
 fn nearest_build_site(
     world: &World,
     defs: &Defs,
@@ -663,9 +667,10 @@ fn nearest_build_site(
     radius: i32,
 ) -> Option<Pos> {
     let (w, h) = defs.building(building).footprint;
+    let before = world.flood_from_anchor(anchor);
     let ok = |p: Pos| {
         world.check_build(p, building, defs).is_ok()
-            && !world.would_strand(anchor, Footprint::new(p, w, h))
+            && world.build_site_viable(&before, Footprint::new(p, w, h))
     };
     if ok(anchor) {
         return Some(anchor);
@@ -775,6 +780,57 @@ mod tests {
             nearest_build_site(&world, &defs, anchor, study_hall, 5),
             None,
             "every site in this corridor strands something; building nowhere is the safe choice"
+        );
+    }
+
+    /// #395: on seed 3, the economy opening designated a Fire Nation bed on a lone Coast tile
+    /// ringed by Mountain, with no way for anyone to ever walk there. `check_build` passed it
+    /// (Coast is buildable ground) and so did `would_strand` (nothing reachable today becomes
+    /// unreachable by building on a tile nothing could reach in the first place, its own module
+    /// doc's point), so the old, unchecked search picked it anyway, and the bed sat at zero work
+    /// forever. Here the resource on `anchor` stands for the real settlement's stockpile (also
+    /// unbuildable), forcing the search outward; nothing at radius 1 is open ground, and the only
+    /// tile that passes `check_build` at radius 2 is the isolated pocket at `(2, 1)`, mountain on
+    /// every side. `nearest_build_site` must refuse it and come back with nothing, the same as
+    /// the dead-end corridor above, rather than hand back a site nobody can ever reach.
+    #[test]
+    fn nearest_build_site_refuses_an_unreachable_pocket_even_though_would_strand_passes_it() {
+        use crate::defs::{BiomeId, ResourceId, Terrain};
+        use crate::geom::Grid;
+        use crate::mapgen::Tile;
+
+        let defs = Defs::bundled();
+        // `(0, 1)` is the anchor, a resource tile (unbuildable, standing for a stockpile) boxed
+        // in by mountain on every side; `(2, 1)` is a second, separate one-tile pocket, also
+        // boxed in, two tiles away. Neither can reach the other, or anything else.
+        let rows = ["^^^^^", "T^.^^", "^^^^^"];
+        let map = Grid::from_fn(rows[0].len() as i32, rows.len() as i32, |p| {
+            let c = rows[p.y as usize].as_bytes()[p.x as usize];
+            Tile {
+                elevation: 100,
+                temperature: 128,
+                moisture: 128,
+                terrain: if c == b'^' { Terrain::Mountain } else { Terrain::Land },
+                biome: BiomeId(0),
+                resource: (c == b'T').then_some(ResourceId(0)),
+                building: None,
+            }
+        });
+        let anchor = Pos::new(0, 1);
+        let world = World::with_map(1, map, Nation::Fire, &[anchor], &defs);
+        let bed = defs.building_id("bed").unwrap();
+        let pocket = Pos::new(2, 1);
+
+        // The pocket passes `check_build` (open Land, no resource or building) and `would_strand`
+        // too (it was never reachable from `anchor` to begin with, so building there strands
+        // nothing): exactly the gap `build_site_viable` has to close.
+        assert_eq!(world.check_build(pocket, bed, &defs), Ok(()));
+        assert!(!world.would_strand(anchor, Footprint::new(pocket, 1, 1)));
+        assert_eq!(
+            nearest_build_site(&world, &defs, anchor, bed, 5),
+            None,
+            "the only candidate within radius is a pocket nothing can walk to; building nowhere \
+             is the safe choice"
         );
     }
 
@@ -1053,6 +1109,26 @@ mod tests {
         run_economy(&mut world, &defs, &economy, 150);
         let stored: u32 = stone_items.iter().map(|&i| world.stored_total(i)).sum();
         assert!(stored > 0, "expected some stone stored within 150 minutes on seed 42");
+    }
+
+    /// #395: on seed 3, `Economy` never raised a Fire Nation bed, keeping the population stuck
+    /// at six: `nearest_build_site` picked a lone Coast tile diagonally across from the anchor,
+    /// cut off from it by Mountain on both sides of the corner (no-corner-cutting, `path.rs`'s
+    /// module doc). `check_build` passed it (Coast is buildable ground) and so did the old
+    /// `would_strand` (nothing reachable today becomes unreachable by building on a tile nothing
+    /// could reach to begin with, its own module doc's point), so the unchecked search picked it
+    /// anyway, and the bed sat at zero work forever with no second one ever tried
+    /// (`ensure_building` saw a site of that kind already standing). `build_site_viable` closes
+    /// that gap; this seed is the regression it was found on.
+    #[test]
+    fn economy_raises_a_bed_on_seed_3() {
+        let (mut world, defs, economy) = economy_opening_on_seed(Nation::Fire, 3);
+        let bed = defs.building_id("bed").unwrap();
+        run_economy(&mut world, &defs, &economy, 30);
+        assert!(
+            world.buildings().any(|(_, id)| id == bed),
+            "expected a finished bed within 30 minutes on seed 3"
+        );
     }
 
     /// `Economy::without_farms` tills nothing (`docs/design/materials.md`'s `--no-farms`, owner
