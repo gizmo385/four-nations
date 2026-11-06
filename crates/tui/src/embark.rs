@@ -801,11 +801,13 @@ fn draw_panel(
         p.row(&Row::text(text, Tone::Text));
     }
     // The start tile's climate band (#297, docs/design/difficulty.md "Embark"), only when the
-    // chosen preset has seasons on: Sandbox, or no preset, never shows it.
+    // chosen preset has seasons on: Sandbox, or no preset, never shows it. Packed left like the
+    // biome rows above it: the value is short, so a right-aligned pair left it stranded at the
+    // panel's far edge.
     let seasons_on =
         screen.difficulty().and_then(|id| defs.difficulty.preset(id)).is_some_and(|k| k.seasons);
     if seasons_on {
-        p.row(&Row::pair("Winter", Tone::Text, climate_word(&report.climate), Tone::Text));
+        p.row(&Row::text(format!("Winter  {}", climate_word(&report.climate)), Tone::Text));
     }
     p.row(&Row::pair(
         "Room to roam",
