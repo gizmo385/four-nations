@@ -104,7 +104,7 @@ These costs name brick itself, not stone, so the kiln is a real step on the way 
 tier. Metal stays scarce: Fire's two machines take 5 metal (10 ore), so Fire's ore bill is about
 42 (the gate's 32 plus 10). That is materials.md's "about 48 for Fire" estimate, now spent on
 something. The smelter's stock limit rises from 4 to 6, enough for the Lightning Station with
-some spare.
+some spare. (#376 measured it and cut the limit to 3: see "Measured".)
 
 ## The new buildings
 
@@ -194,29 +194,78 @@ mill (#200) take Earth and Water to 11, which is still within two.
 
 ### Bills against materials.md's supply targets
 
-This is what one of every building costs. The figures in brackets are materials.md's "Buildings
-for the kinds sign" figures today.
+This is what one of every building costs, summed from `data/buildings.toml` as it stands after
+#369 to #375 (#376). The Terrace (#372) and Spirit Oasis (#202) haven't landed, so Earth's and
+Water's bills leave them out; they would add 4 and 20 stone. The figures in brackets are
+materials.md's "Buildings for the kinds sign" figures before this design.
 
-| | Stone | Ore | Tools | Wood |
-|---|---|---|---|---|
-| Fire | about 56 (32 stone plus 26 brick from about 20 stone) [72] | 10 | 2 | about 75 |
-| Air | 22 [18] | 0 | 4 | about 90 |
-| Earth | 43 [5+], repaid by the Mine Shaft | 8 | 4 | about 46 |
-| Water | 28 [0] | 0 | 5 | about 73 |
-| The gate | 180 (Fire: 135 quarried) | 32 | **6** | 150 (after #353) |
+| | Stone | Ore | Tools | Wood | Other |
+|---|---|---|---|---|---|
+| Fire (10 kinds) | 36 stone plus 26 brick (about 20 stone through the kiln) [72] | 10, as 5 metal | 2 | 69 | |
+| Air (9) | 22 [18] | 0 | 4 | 78 | |
+| Earth (9) | 39 [5+], repaid by the Mine Shaft | 8, as 4 metal from Metalbend | 4 | 34 | |
+| Water (9) | 8 [0] | 0 | 3 | 54 | 4 ice |
+| The gate | 180 (Fire: 135 quarried) | 32 | 6 | 150 | |
 
-- **Stone:** the building bills even out at 22 to 56 against the gate's 180 and the 200 sign.
-  The total mined stays inside materials.md's "about 215 to 290", and it falls for Fire.
-- **Ore:** Fire needs about 42 (32 for the gate, 10 for metal), just inside the 40-tile median
-  of about 42 after #349. That is tight, but it's materials.md's own Fire estimate, and the
-  smelter's limit stops it eating more. Earth's 8 comes back through the Deep Mine. Air and
-  Water are unchanged.
-- **Wood:** about 30 more for tools. That helps the glut a little and is far from a shortage.
-- **Food:** the Terrace and the Fishing Dock add producers that #353's retune never saw. Both
-  sit at or below the retuned orchard, and the re-check below measures them.
-- **Check:** the supply survey (#348) and the economy opening (#352) haven't landed. The last
-  follow-up re-runs both on these numbers, and confirms the stone and ore signs are still met by
-  minute 120 on at least 7 of 8 seeds for every nation.
+### Measured (#376)
+
+`balance --economy --seeds 1-8 --minutes 180`, Small, Normal, all four nations, with the
+supply survey (`balance --supply --radii 40 --resources stone,boulder,gold_vein,gold_seam`)
+alongside. The harness now also prints the minute each building first stood and what is in
+stores at the end, so the opening's coverage of the new buildings can be read off directly.
+
+**Coverage.** On every seed where the opening isn't stalled (below), it raises one of every
+building, the new ones included: the Workshop by minute 33 to 57, Fire's forge, kiln and smelter
+by minute 105, both machines by 152, the Mine Shaft by 106, and the Healing Hut and Fishing Dock
+by 109 and 132. Tools sit at their stock limit (6 to 11 in stores) and the kiln at its 60 brick
+for the whole second half of every Fire run, so both crafters are kept running. Two gaps remain:
+
+- **The Deep Mine is never built**, on any seed, even in 300-minute runs. Its 4 metal can only
+  come from Metalbend, and Metalbend only works a loose ground stack of ore. By the time Earth
+  researches `metalbending` (minute 147 or so), every vein in reach has been mined and every bit
+  of ore hauled into stockpiles, so there is never a stack to bend. That is a mechanic, not a
+  number; see open question 5 below (#398).
+- **The igloo was never built** either, because the opening filled every bend slot with cheaper
+  bends and never cut ice. The harness now designates a bend that makes an item an unbuilt
+  building is short of (Cut Ice, Metalbend) ahead of cheaper ones. With that, Water raises its
+  igloo on 4 of the 6 seeds that grow; the rest have no river, lake or sea in reach of the anchor.
+
+**Signs by minute 120.** Stone and ore are met on these seeds (target: 7 of 8 for each):
+
+| | Stone | Ore |
+|---|---|---|
+| Fire | 6 of 8 (16 to 36 min) | 5 of 8 |
+| Air | 7 of 8 (15 to 30 min) | 5 of 8 |
+| Earth | 8 of 8 (6 to 32 min) | 6 of 8 |
+| Water | 6 of 8 (17 to 37 min) | 4 of 8 |
+
+None of the misses trace to a building cost. Every one has one of three causes, all filed:
+
+- **Seeds 3 and 4: the opening stalls.** Fire, Water and Air raise no bed on either seed (and on
+  seed 4 next to nothing at all), with 40 to 290 wood in stores, so the population stays at 6.
+  Only Earth, which tunnels, grows there. #384 noted these seeds as slow growth; this run shows
+  the cause is placement, not food (#395).
+- **Seeds 2 and 6: ore isn't there.** The supply survey finds 5 and 17 ore within 40 tiles, and
+  every nation mines 27 to 30 and stops. No cost change helps (#396).
+- **Water on seed 7** never researches its branch and mines no ore (#397).
+
+**Fire's ore bill.** The gate needs 32 ore in stores after the machines are built. With the
+smelter's `stock_limit` at 6, Fire ended with 28 and 29 ore on seeds 5 and 7, below the gate's
+32, while Air on the same seeds kept 54 and 57: the smelter's standing stock and the forge's
+tools ate about 14 metal, 28 ore. **Retuned:** the smelter's `stock_limit` falls from 6 to 3,
+which is still enough for the Lightning Station's 3 metal. Fire now ends with 34 to 69 ore on
+every seed that meets the ore sign and doesn't stall (35, 34 and 39 on seeds 5, 7 and 8), so its
+whole bill fits the reachable ore wherever the ore sign itself can be met. (On stalled seed 3 the
+forge turns all of Fire's ore into tools, because its tools never reach a stockpile and so never
+count toward its stock limit. That's part of the stall.)
+
+**Food per head entering winter 2** (minute 105) is 10 to 21 for Fire, 5 to 20 for Earth, 6 to
+20 for Water and 30 to 55 for Air, outside the 3 to 8 band almost everywhere. The new producers
+aren't the cause: the Terrace isn't in data yet (#372), and the Fishing Dock first stands at
+minute 124 to 127, after winter 2 has begun. Fire, with no new food building at all, overshoots
+as much as Water does. Bringing food into the band is #353's retune (farms, orchard, arrivals),
+which is still open, so nothing is changed here. Wood at minute 120 is over 300 on seeds 2, 5 and
+6 for the same reason.
 
 ## UI
 
@@ -287,6 +336,10 @@ Filed without `ready`. The ones that wait on an owner answer are labelled `needs
 | #375 | Sim and data: Water Healing Hut (narrows #125) | #369 | |
 | #202 | Water: Spirit Oasis (existing issue; spec commented there, numbers from #358) | #358 | |
 | #376 | Balance check: these costs against the supply survey and the economy opening | #348, #352, #369, #371, #373, #374 | |
+| #395 | Balance harness: the economy opening raises no bed on seeds 3 and 4 (from #376) | none | |
+| #396 | Data: ore in reach on seeds 2 and 6 is far below the ore sign (from #376) | none | |
+| #397 | Balance harness: Water on seed 7 never researches its branch (from #376) | none | |
+| #398 | Earth: the Deep Mine's metal can't be made once ore is stockpiled (from #376) | none | 5 |
 
 ## Open questions for the owner
 
@@ -308,3 +361,10 @@ Filed without `ready`. The ones that wait on an owner answer are labelled `needs
 4. **Air: a new building, or make its idle three work first?** *Recommended: no new Air building
    now.* Air sits at 9, within one of the others, and #203 (the windmill grinds grain) is worth
    more than a fifth kind that does something. Consider raising #203 from p3.
+5. **Earth's Deep Mine can never be paid for (#376, #398). Let Metalbend work ore in a
+   stockpile, or drop metal from the Deep Mine's cost?** Metalbend only bends a loose stack, and
+   by the time Earth knows it all ore is stockpiled. *Recommended: Metalbend may target a
+   stockpile tile holding ore.* It keeps the design's point (Metalbend's metal is what the
+   capstone is for), and a player would expect to bend the ore they've gathered. The
+   alternative is a data-only cost of 20 stone and 4 tools, which is simpler but leaves Metalbend
+   with no economic use.

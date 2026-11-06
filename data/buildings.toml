@@ -334,15 +334,17 @@ item = "wood"
 count = 6
 # Draws metal out of ore with steady heat (#124; `smelting`'s description, data/research.toml).
 # `gold_ore` is the only ore today (#132, #133): there's no separate generic "ore" item yet.
-# Burns 1 wood a batch as fuel and idles once 6 metal are stored (#350, raised by #369): the
-# forge's tools and the power buildings below both draw on metal now.
+# Burns 1 wood a batch as fuel and idles once 3 metal are stored (#350). #369 raised this to 6;
+# #376 cut it to 3, the Lightning Station's own metal, because a stock of 6 left Fire short of
+# the gate's 32 ore on seeds where every other nation had enough (docs/design/nation-buildings.md,
+# "Measured").
 [building.recipe]
 output = "metal"
 output_count = 1
 work = 20.0
 modifier = "heating"
 input = [{ item = "gold_ore", count = 2 }, { item = "wood", count = 1 }]
-stock_limit = 6
+stock_limit = 3
 
 # Spends the kiln's bricks and the smelter's metal (#369): Fire's own production chain pays for
 # its power buildings, instead of raw stone.

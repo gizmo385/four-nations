@@ -65,11 +65,12 @@
 //!   and raises an orchard where the nation has one;
 //! - keeps up to `people` bends designated within `DEPOSIT_RADIUS` tiles of the anchor
 //!   (`with_bending`'s own mechanism), so Earth's Bore Tunnel and Seismic Sense, once researched,
-//!   work the same ground the quarry and mine orders do.
+//!   work the same ground the quarry and mine orders do. A bend that makes an item some unbuilt
+//!   building is short of (Cut Ice for the igloo, Metalbend for the Deep Mine) goes first (#376).
 //!
 //! Stateless and `Copy`, and deterministic for the reasons given above for `Opening`.
 
-use crate::bending::AbilityId;
+use crate::bending::{AbilityId, Effect};
 use crate::building::{BuildingId, CostItem};
 use crate::defs::Defs;
 use crate::endeavor::{self, SignKind, Tally};
@@ -170,7 +171,7 @@ impl Opening {
         self.campfire(world, defs, anchor);
         self.research(world, defs);
         if let Some(slots) = self.bend_slots {
-            keep_bends_designated(world, defs, anchor, FORAGE_RADIUS, slots);
+            keep_bends_designated(world, defs, anchor, FORAGE_RADIUS, slots, &[]);
         }
     }
 
@@ -259,7 +260,31 @@ impl Economy {
         if self.farms {
             self.sow_farm_plots(world, defs);
         }
-        keep_bends_designated(world, defs, anchor, DEPOSIT_RADIUS, self.people);
+        let wanted = self.wanted_items(world, defs);
+        keep_bends_designated(world, defs, anchor, DEPOSIT_RADIUS, self.people, &wanted);
+    }
+
+    /// Items some building `raise_buildings` still wants (its target unmet, its tech known)
+    /// costs more of than the settlement holds (#376). A bend that makes one of these
+    /// (Metalbend's metal for Earth's Deep Mine, Cut Ice's ice for Water's igloo) goes ahead of
+    /// cheaper bends in `keep_bends_designated`, which would otherwise fill every slot with
+    /// low-chi bends and never make the item at all.
+    fn wanted_items(&self, world: &World, defs: &Defs) -> Vec<ItemId> {
+        let mut wanted = Vec::new();
+        for building in endeavor::reachable_buildings(world.nation, &defs.techs, &defs.buildings) {
+            let def = defs.building(building);
+            if def.unlocked_by.is_some_and(|t| !world.research().is_known(t))
+                || building_count(world, building) >= self.building_target(world, defs, building)
+            {
+                continue;
+            }
+            for c in &def.cost {
+                if !wanted.contains(&c.item) && !have_enough(world, std::slice::from_ref(c)) {
+                    wanted.push(c.item);
+                }
+            }
+        }
+        wanted
     }
 
     /// Every item any building the nation can reach costs, other than `deposits` (stone and ore
@@ -471,11 +496,19 @@ fn queue_next_known_tech(world: &mut World, defs: &Defs, plan: impl Iterator<Ite
 
 /// Keeps up to `slots` bends designated within `radius` tiles of `anchor` (module doc,
 /// "Bending"): while fewer than `slots` are pending, designates the cheapest ability (lowest
-/// `AbilityDef::chi`) the settlement can cast right now (`World::check_ability`) that has a
+/// `AbilityDef::chi`, though any ability whose output is in `wanted` goes first: `Economy`'s
+/// `wanted_items`, #376) the settlement can cast right now (`World::check_ability`) that has a
 /// valid target among those tiles, nearest first, leaving `World::apply`'s own validation to
 /// decide what counts as valid. Stops for this step once nothing can be added, so a nation with
 /// no ability available, or no target anywhere nearby, is left alone rather than looping.
-fn keep_bends_designated(world: &mut World, defs: &Defs, anchor: Pos, radius: i32, slots: u32) {
+fn keep_bends_designated(
+    world: &mut World,
+    defs: &Defs,
+    anchor: Pos,
+    radius: i32,
+    slots: u32,
+    wanted: &[ItemId],
+) {
     let mut abilities: Vec<AbilityId> = (0..defs.abilities.len() as u16)
         .map(AbilityId)
         .filter(|&a| world.check_ability(a, defs).is_ok())
@@ -483,7 +516,16 @@ fn keep_bends_designated(world: &mut World, defs: &Defs, anchor: Pos, radius: i3
     if abilities.is_empty() {
         return;
     }
-    abilities.sort_by(|&a, &b| defs.ability(a).chi.total_cmp(&defs.ability(b).chi));
+    let makes_wanted = |a: AbilityId| match &defs.ability(a).effect {
+        Effect::DrawItem { item, .. } => wanted.contains(item),
+        Effect::Smelt { metal, .. } => wanted.contains(metal),
+        _ => false,
+    };
+    abilities.sort_by(|&a, &b| {
+        makes_wanted(b)
+            .cmp(&makes_wanted(a))
+            .then(defs.ability(a).chi.total_cmp(&defs.ability(b).chi))
+    });
     let positions = positions_near(anchor, radius);
     loop {
         let pending =
@@ -810,6 +852,17 @@ mod tests {
                 || world.research().queue().contains(&earth_shaping),
             "expected Earth Shaping known or queued after {LIMIT_MINUTES:?} minutes of full research",
         );
+    }
+
+    /// #376: an unbuilt building's missing cost item is "wanted" once its tech is known, so a
+    /// bend that makes it (Cut Ice for the igloo) goes ahead of cheaper bends.
+    #[test]
+    fn economy_wants_ice_for_the_igloo_only_once_ice_construction_is_known() {
+        let (mut world, defs, economy) = economy_opening(Nation::Water);
+        let ice = defs.item_id("ice").unwrap();
+        assert!(!economy.wanted_items(&world, &defs).contains(&ice));
+        world.grant_tech(defs.tech_id("ice_construction").unwrap());
+        assert!(economy.wanted_items(&world, &defs).contains(&ice));
     }
 
     fn economy_opening(nation: Nation) -> (World, Defs, Economy) {
