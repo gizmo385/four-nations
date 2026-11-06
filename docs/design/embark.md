@@ -275,7 +275,7 @@ on every cursor move. Exact mode draws no randomness. Rough mode draws only from
 | `biomes: Vec<(BiomeId, u8)>` | The share of the box per biome, plus mountain and water, largest first. The panel shows the top four |
 | `room: u32`, `mainland: bool` | Open tiles reachable from the start (`Regions` under the default `MoveRules`), and whether that is the largest landmass |
 | `water: Option<(Terrain, u32)>` | The nearest drinkable tile by walking steps, and its kind. Units drink from any water (`Terrain::is_water`), the sea included |
-| `groups: Vec<GroupCount>` | Per resource group from data: the count in the box and its level (none, scarce, some, plenty). Rough: no count, the estimated level, or unknown for `rough_hidden` groups |
+| `groups: Vec<GroupCount>` | Per resource group from data: the count in the box *that touches the start's own region* (8 neighbours; the same "reachable" rule the supply survey uses, #396) and its level (none, scarce, some, plenty). A deposit across water or behind a sealed-off pocket of the box doesn't count; it was never truly in reach. Rough: no count, the estimated level, or unknown for `rough_hidden` groups |
 | `outlook: Outlook`, `reasons`, `rough: bool` | Easy, Fair or Hard, and the one or two facts that decided it. Rough: computed from the estimates |
 
 Buried resources never count, and neither does anything else the player couldn't see on the map.
@@ -316,7 +316,9 @@ height = 256
 [rough]
 error_chance = 0.35       # chance each group's estimated level is one step off
 
-# Each group is counted inside the box. levels = [scarce_from, some_from, plenty_from].
+# Each group is counted inside the box, among the tiles that touch the start's own region
+# (#396: a deposit across water or a sealed border isn't actually reachable, so it doesn't
+# count just because it's in the box). levels = [scarce_from, some_from, plenty_from].
 [[group]]
 id = "wood"
 name = "Wood"

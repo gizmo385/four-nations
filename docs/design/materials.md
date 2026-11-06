@@ -114,6 +114,40 @@ roughly one season of a miner's time once the veins have been found.
 The vein density changes map generation, so the golden files need re-blessing. Resources roll
 from their own streams (#225), so nothing else moves.
 
+**Seeds 2 and 6 are acceptable hard sites, not a density bug (#396).** `balance --supply --radii
+40 --resources stone,boulder,gold_vein,gold_seam` reports only 5 ore in reach on seed 2 and 17 on
+seed 6, well under the 40-ore sign, against 38–72 on the other six. Tracing *why* with
+`Regions::compute` (not just the box the survey counts in, the whole map): the default site on
+seed 2 lands on a 401-tile pocket of land whose region borders only **6 mountain tiles in
+total**, ever, on the whole map, none of them a vein or a seam. Seed 6's site borders 51 mountain
+tiles, which is enough rock to eventually clear the sign, but a direct sweep of `gold_vein`
+`chance` (`min_spacing` unchanged at 2) only takes seed 6 from 17 ore today to 29 at `chance =
+0.30` and 53 at `chance = 0.60`, over 4x today's value; at that density seed 3, already tuned to
+the sign at 69, jumps to 198. Even saturating every eligible tile (`chance = 1.0`,
+`min_spacing = 1`, no spacing at all) only takes seed 2 to 18 ore: its 6 bordering mountain tiles
+are a hard ceiling no density change can lift. Retuning the whole curve to rescue two outlier
+seeds would overshoot the six seeds that already clear the sign at today's density. These two
+sites are genuinely short on ore, not under-sampled by the survey (#445 is a different,
+later-game effect and isn't the cause here): a settler on seed 2 is on a small landmass the
+mountain range never touches, and seed 6's landmass touches only the edge of it.
+
+This is the `--supply` tool's own fixed site (`Survey::default_site`, the box the autoplay
+economy opening also starts from); a player founding by hand can move the New Game cursor to a
+better-connected site before founding, the same way they would avoid any other hard start. What
+was missing was the warning: `Survey::count_group`, which feeds the embark outlook's resource
+levels, counted a group's tiles anywhere in the 21x21 report box, even across water or a sealed
+border the site's own region never touches, the same kind of overcount `deposit_supply` already
+guards against with its "touches a walkable tile of the region" rule (#348). Seed 2's site read
+Easy (stone and gold both looked present, at counts that were never actually reachable); seed 6
+read Fair. `count_group` now applies the same region-touching filter, so seed 2 reads Fair
+("Stone is scarce; Food is scarce") and seed 6 reads **Hard** ("no food nearby"). Gold itself stays
+`outlook_weight = 0` (`docs/design/embark.md`, "nice to have; never makes a site harder" is still
+the right call: it's a find, not a baseline resource), but the stone and food groups it shares a
+landmass with now correctly flag these two sites as the harder starts they are. The fix also
+corrected the seed 7 golden report (food was 6/some, reachably 5/scarce) and the matching TUI
+embark goldens; both re-blessed with `FN_BLESS=1 cargo test -p fn_sim` / `-p fn_tui`, no
+`mapgen::generate` output changed.
+
 ### 2. Stone: richer outcrops and foothill boulders (data)
 
 | `data/` | Today | Proposed |
