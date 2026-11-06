@@ -119,6 +119,8 @@ impl World {
             inside: None,
             guest: Some(Guest::Avatar),
             unhappy_since: None,
+            last_harm: None,
+            exposed_alerted: false,
         });
     }
 

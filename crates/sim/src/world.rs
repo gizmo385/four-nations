@@ -31,6 +31,7 @@ mod farm;
 mod forge;
 mod found;
 mod gate;
+mod harm;
 mod heat;
 mod inside;
 mod orchard;
@@ -55,6 +56,7 @@ pub use endeavor::{
 pub use farm::PlotStage;
 use forge::CraftState;
 pub use gate::{EndeavorError, GateSite, GateTask};
+pub use harm::{HarmEvent, HarmEventKind, HarmKind};
 pub use heat::{Aura, Flame, Glow, HeatSource};
 pub use population::Arrival;
 pub use season::{SeasonEvent, SeasonEventKind};
@@ -161,6 +163,16 @@ pub struct Unit {
     /// `AvatarDef::patience_minutes` of this he leaves. Harmless, if unused, for anyone else.
     #[serde(default)]
     unhappy_since: Option<u64>,
+    /// The most recent harm and the tick it struck, for `Death::weakened_by` (issue #387). Kept
+    /// even once healed, so a death shortly after still names what wore the unit down; `None`
+    /// for a save from before this existed, and for anyone never harmed.
+    #[serde(default)]
+    last_harm: Option<(HarmKind, u64)>,
+    /// Whether `World::apply_exposure` has already logged `HarmEventKind::SleepingRough` for the
+    /// sleep it's in right now: reset the moment it's no longer exposed, so the alert fires once
+    /// per night, not every tick it stays asleep in the cold.
+    #[serde(default)]
+    exposed_alerted: bool,
 }
 
 impl Unit {
@@ -210,6 +222,13 @@ pub struct Death {
     pub name: String,
     pub tick: u64,
     pub cause: DeathCause,
+    /// Harm that struck within `harm::WEAKENED_BY_MINUTES` of this death, if `cause` is a
+    /// depleted need rather than harm itself (issue #387, "a death names its weakener"): "died
+    /// of hunger, weakened by frostbite". `None` for a save from before this existed, and for
+    /// every death this doesn't apply to (no recent harm, or `cause` is already a `HarmKind`'s
+    /// own, like `DeathCause::Exposure`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weakened_by: Option<HarmKind>,
 }
 
 /// Where `count` starting units go: walkable tiles, spiralling out from the map center.
@@ -360,6 +379,11 @@ pub struct World {
     /// for every save from before this existed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     strain_events: Vec<StrainEvent>,
+    /// Harm events (lying down to sleep rough in the cold, for now), oldest first, for the TUI's
+    /// alerts (`world/harm.rs`, #387). Empty unless a difficulty preset's `harm` knob is above
+    /// 0, and empty (so unwritten) for every save from before this existed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    harm_events: Vec<HarmEvent>,
     /// The id the next unit gets, whether it is a newcomer (`population.rs`, #232) or some
     /// future runtime spawn: always past every id a unit (living or dead) has ever had, so none
     /// is reused. A save from before this counter existed deserializes it as 0; `World::load`
@@ -442,6 +466,7 @@ impl World {
             season_events: Vec::new(),
             strain: BTreeMap::new(),
             strain_events: Vec::new(),
+            harm_events: Vec::new(),
             next_unit: 0,
             arrivals: Vec::new(),
             orchard_rng: orchard::new_rng(seed),
@@ -632,6 +657,8 @@ impl World {
                 inside: None,
                 guest: None,
                 unhappy_since: None,
+                last_harm: None,
+                exposed_alerted: false,
             });
         }
     }
@@ -788,7 +815,12 @@ impl World {
                 cold_hunger,
                 cold_energy,
                 healing,
+                // No natural regen while cold, awake or asleep (`docs/design/harm.md`, "Rules
+                // every source shares", issue #387); `apply_exposure` below is the other half
+                // of what cold does.
+                !cold,
             );
+            self.apply_exposure(&mut u, cold, defs);
             // The Avatar's regen multiplier is his own (`[avatar].modifiers.chi_regen`, #237),
             // never the settlement's; everyone else still reads the settlement's cached value,
             // as before #237.
@@ -815,8 +847,9 @@ impl World {
         }
         let any_died = !dead.is_empty();
         for u in dead {
-            let cause = u.needs.depleted().unwrap_or(DeathCause::Starvation);
-            self.deaths.push(Death { id: u.id, name: u.name.clone(), tick, cause });
+            let cause = Self::death_cause(&u);
+            let weakened_by = Self::weakened_by(cause, u.last_harm, tick);
+            self.deaths.push(Death { id: u.id, name: u.name.clone(), tick, cause, weakened_by });
             self.release(&u);
         }
         if any_died {

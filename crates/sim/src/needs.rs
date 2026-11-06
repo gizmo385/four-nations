@@ -210,12 +210,17 @@ impl NeedsFile {
     }
 }
 
-/// Why a unit died: the first depleted need, in the order hunger, thirst, energy.
+/// Why a unit died: the first depleted need, in the order hunger, thirst, energy, or a harm
+/// source that took health to 0 on its own (`crate::world::HarmKind::death_cause`, issue #387:
+/// only reachable with the difficulty preset's `harm_kills` on, since harm otherwise floors
+/// above 0, `data/harm.toml`'s `[settings] floor`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DeathCause {
     Starvation,
     Dehydration,
     Exhaustion,
+    /// Exposure: asleep, unsheltered, on cold land (`World::apply_exposure`).
+    Exposure,
 }
 
 /// A unit's current meters. Each is in `[0, max]`; `health` has its own max.
@@ -322,6 +327,7 @@ impl Needs {
             cold_hunger,
             cold_energy,
             None,
+            true,
         );
     }
 
@@ -332,6 +338,13 @@ impl Needs {
     /// `tick_at_cold` exactly. Depleted needs still damage health first, same as ever: a need
     /// pre-empts healing in `run_need` long before this would matter, but the order here keeps
     /// the two rules from ever fighting over the same tick.
+    ///
+    /// `regen_allowed` gates both the passive and the healing-boosted branch: while cold, no one
+    /// regenerates, awake or asleep (`docs/design/harm.md`, "Rules every source shares", issue
+    /// #387); `World::tick_needs` passes `false` while the unit's tile is cold
+    /// (`World::is_cold`), on top of whatever `apply_exposure` does separately. Depleted-need
+    /// damage above is never gated by this: it isn't a form of harm this floors, and a death
+    /// still needs an empty need unless the difficulty preset's `harm_kills` is on.
     #[allow(clippy::too_many_arguments)]
     pub fn tick_at_cold_healing(
         &mut self,
@@ -343,6 +356,7 @@ impl Needs {
         cold_hunger: f32,
         cold_energy: f32,
         healing: Option<(f32, f32)>,
+        regen_allowed: bool,
     ) {
         let per_tick =
             |per_minute: f32| per_minute / (SECONDS_PER_MINUTE * ticks_per_second as f32);
@@ -364,7 +378,7 @@ impl Needs {
         if depleted > 0 {
             let dmg = per_tick(s.health.depleted_damage_per_minute) * depleted as f32;
             self.health = (self.health - dmg).max(0.0);
-        } else if !self.any_low(s) {
+        } else if regen_allowed && !self.any_low(s) {
             match healing {
                 Some((rate, stop_at)) if self.health < stop_at => {
                     self.health = (self.health + per_tick(rate)).min(stop_at);
@@ -544,8 +558,8 @@ mod tests {
         let mut boosted = Needs::full(s);
         boosted.health = 50.0;
         let mut passive = boosted;
-        boosted.tick_at_cold_healing(s, 1, false, 1.0, 1.0, 1.0, 1.0, Some((16.0, 90.0)));
-        passive.tick_at_cold_healing(s, 1, false, 1.0, 1.0, 1.0, 1.0, None);
+        boosted.tick_at_cold_healing(s, 1, false, 1.0, 1.0, 1.0, 1.0, Some((16.0, 90.0)), true);
+        passive.tick_at_cold_healing(s, 1, false, 1.0, 1.0, 1.0, 1.0, None, true);
         assert!(boosted.health > passive.health, "{} vs {}", boosted.health, passive.health);
 
         // One tick right at the cap never overshoots it: `World::run_need` (#375) is what
@@ -553,10 +567,10 @@ mod tests {
         // tick itself must never push past it even taken alone.
         let mut n = Needs::full(s);
         n.health = 89.9;
-        n.tick_at_cold_healing(s, 60, false, 1.0, 1.0, 1.0, 1.0, Some((16.0, 90.0)));
+        n.tick_at_cold_healing(s, 60, false, 1.0, 1.0, 1.0, 1.0, Some((16.0, 90.0)), true);
         assert!(n.health <= 90.0, "{}", n.health);
         n.health = 90.0;
-        n.tick_at_cold_healing(s, 60, false, 1.0, 1.0, 1.0, 1.0, Some((16.0, 90.0)));
+        n.tick_at_cold_healing(s, 60, false, 1.0, 1.0, 1.0, 1.0, Some((16.0, 90.0)), true);
         assert_eq!(n.health, 90.0 + s.health.regen_per_minute / 60.0 / 60.0);
 
         // With no boost in play, `tick_at_cold_healing(.., None)` matches `tick_at_cold` exactly.
@@ -564,8 +578,43 @@ mod tests {
         a.health = 50.0;
         let mut b = a;
         a.tick_at_cold(s, 1, false, 1.0, 1.0, 1.0, 1.0);
-        b.tick_at_cold_healing(s, 1, false, 1.0, 1.0, 1.0, 1.0, None);
+        b.tick_at_cold_healing(s, 1, false, 1.0, 1.0, 1.0, 1.0, None, true);
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn regen_allowed_false_blocks_regen_even_when_comfortable() {
+        // `World::tick_needs` passes `false` while the unit's tile is cold (issue #387, "no
+        // natural regen while cold"), whether or not a healing boost is also in play.
+        let defs = Defs::bundled();
+        let s = &defs.needs;
+        let mut blocked = Needs::full(s);
+        blocked.health = 50.0;
+        let before = blocked.health;
+        blocked.tick_at_cold_healing(s, 1, false, 1.0, 1.0, 1.0, 1.0, None, false);
+        assert_eq!(blocked.health, before, "no passive regen while cold");
+
+        let mut blocked_boosted = Needs::full(s);
+        blocked_boosted.health = 50.0;
+        let before = blocked_boosted.health;
+        blocked_boosted.tick_at_cold_healing(
+            s,
+            1,
+            false,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            Some((16.0, 90.0)),
+            false,
+        );
+        assert_eq!(blocked_boosted.health, before, "no healing boost either, while cold");
+
+        // A depleted need still damages health even with regen blocked: the floor/regen rule
+        // doesn't touch this path at all.
+        let mut starving = Needs { hunger: 0.0, thirst: 50.0, energy: 50.0, health: 50.0 };
+        starving.tick_at_cold_healing(s, 1, false, 1.0, 1.0, 1.0, 1.0, None, false);
+        assert!(starving.health < 50.0);
     }
 
     #[test]

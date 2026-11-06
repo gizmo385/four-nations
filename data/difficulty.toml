@@ -15,6 +15,12 @@
 #                       means plants never tire (#296).
 # - strain_kills:       whether a plant worked to exhaustion dies, instead of just slowing down
 #                       (#296, Hard only).
+# - harm:               scales every harm source's damage (data/harm.toml, #387), the way
+#                       `strain` scales a harvest's own; in [0, 4]. 0 means no harm at all, and
+#                       draws nothing (Sandbox).
+# - harm_kills:         whether harm may take a unit's health below data/harm.toml's
+#                       `[settings] floor`, all the way to 0 (Hard only). Off, harm alone never
+#                       kills: a death still needs an empty need.
 # - need_decay:         multiplies hunger, thirst and energy decay; in (0, 4].
 # - regrow:             multiplies every renewable harvest's regrow time; in (0, 4].
 # - research_cost:      multiplies every tech's cost, including the knowledge pool's cap on what
@@ -36,6 +42,8 @@ seasons = false
 winter_severity = 1.0
 strain = 0.0
 strain_kills = false
+harm = 0.0
+harm_kills = false
 need_decay = 1.0
 regrow = 1.0
 research_cost = 1.0
@@ -54,6 +62,8 @@ seasons = true
 winter_severity = 1.0
 strain = 1.0
 strain_kills = false
+harm = 1.0
+harm_kills = false
 need_decay = 1.0
 regrow = 1.0
 research_cost = 1.0
@@ -71,6 +81,8 @@ seasons = true
 winter_severity = 1.5
 strain = 1.5
 strain_kills = true
+harm = 1.5
+harm_kills = true
 need_decay = 1.05
 regrow = 1.1
 research_cost = 1.25

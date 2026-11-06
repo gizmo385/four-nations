@@ -261,6 +261,8 @@ impl World {
             inside: None,
             guest: None,
             unhappy_since: None,
+            last_harm: None,
+            exposed_alerted: false,
         });
         self.arrivals.push(Arrival { tick: self.tick, unit: id, name });
         true

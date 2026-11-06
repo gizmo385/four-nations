@@ -260,6 +260,10 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     // own retry timer, on `Unit`.
     "healing",
     "healing_retry_at",
+    // Harm and exposure (#387): the most recent harm each unit took and whether it's already
+    // logged the sleeping-rough alert this sleep, on `Unit`.
+    "last_harm",
+    "exposed_alerted",
 ];
 
 /// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239

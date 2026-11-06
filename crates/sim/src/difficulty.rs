@@ -23,6 +23,13 @@ pub struct Knobs {
     pub winter_severity: f32,
     pub strain: f32,
     pub strain_kills: bool,
+    /// Scales every harm source's damage (`data/harm.toml`; issue #387), the way `strain` scales
+    /// a harvest's own: 0 draws nothing at all (Sandbox), 1.0 is Normal, 1.5 Hard.
+    pub harm: f32,
+    /// Whether harm may take a unit's health below `data/harm.toml`'s `[settings] floor`, all
+    /// the way to 0 (Hard only). Off (Sandbox and Normal), harm alone never kills: a death still
+    /// needs an empty need.
+    pub harm_kills: bool,
     /// Multiplies hunger, thirst and energy decay (`Needs::tick_at_full`).
     pub need_decay: f32,
     /// Multiplies every renewable harvest's regrow time (`World::work_done`).
@@ -50,6 +57,8 @@ impl Knobs {
             winter_severity: 1.0,
             strain: 0.0,
             strain_kills: false,
+            harm: 0.0,
+            harm_kills: false,
             need_decay: 1.0,
             regrow: 1.0,
             research_cost: 1.0,
@@ -103,6 +112,8 @@ struct RawPreset {
     winter_severity: f32,
     strain: f32,
     strain_kills: bool,
+    harm: f32,
+    harm_kills: bool,
     need_decay: f32,
     regrow: f32,
     research_cost: f32,
@@ -132,6 +143,7 @@ impl DifficultyFile {
             for (what, v, allow_zero) in [
                 ("winter_severity", raw.winter_severity, true),
                 ("strain", raw.strain, true),
+                ("harm", raw.harm, true),
                 ("need_decay", raw.need_decay, false),
                 ("regrow", raw.regrow, false),
                 ("research_cost", raw.research_cost, false),
@@ -167,6 +179,8 @@ impl DifficultyFile {
                 winter_severity: raw.winter_severity,
                 strain: raw.strain,
                 strain_kills: raw.strain_kills,
+                harm: raw.harm,
+                harm_kills: raw.harm_kills,
                 need_decay: raw.need_decay,
                 regrow: raw.regrow,
                 research_cost: raw.research_cost,
@@ -244,6 +258,21 @@ mod tests {
     }
 
     #[test]
+    fn harm_and_harm_kills_follow_the_owners_2026_11_05_decision() {
+        // #387: harm never kills on Sandbox or Normal, and Sandbox draws no harm at all.
+        let defs = Defs::bundled();
+        let sandbox = defs.difficulty.preset("sandbox").unwrap();
+        assert_eq!(sandbox.harm, 0.0);
+        assert!(!sandbox.harm_kills);
+        let normal = defs.difficulty.preset("normal").unwrap();
+        assert_eq!(normal.harm, 1.0);
+        assert!(!normal.harm_kills);
+        let hard = defs.difficulty.preset("hard").unwrap();
+        assert_eq!(hard.harm, 1.5);
+        assert!(hard.harm_kills);
+    }
+
+    #[test]
     fn unknown_default_is_rejected() {
         let bad = DIFFICULTY.replacen("default = \"normal\"", "default = \"extreme\"", 1);
         let err = defs_without_difficulty().with_difficulty(&bad).unwrap_err();
@@ -255,6 +284,7 @@ mod tests {
         let dup = format!(
             "{DIFFICULTY}\n[[preset]]\nid = \"normal\"\nname = \"N2\"\nhint = \"\"\n\
              seasons = false\nwinter_severity = 1.0\nstrain = 0.0\nstrain_kills = false\n\
+             harm = 0.0\nharm_kills = false\n\
              need_decay = 1.0\nregrow = 1.0\nresearch_cost = 1.0\nnewcomer_food = 0\n"
         );
         let err = defs_without_difficulty().with_difficulty(&dup).unwrap_err();
