@@ -3,14 +3,14 @@
 │                                                                                      │├─ PEOPLE ───────────────── 6 ─┤
 │                                       Hunger  Thirst  Energy  Health  Chi     Bends  ││ Idle 4  Haul 1  Eat 1        │
 │ IDLE 4                                                                               ││ Hungry 1                 [N] │
-│ ▸ Tyro Idle: stockpile full           ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/25   │├─ STORES ─────────────────────┤
-│   Ping Idle: stockpile full           ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/25   ││ Wood 20  Fruit 2             │
-│   Song Idle: stockpile full           ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/25   │├─ RESEARCH ───────────────────┤
-│   Lin  Idle: stockpile full           ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/25   ││ No target set        3.0/min │
+│ ▸ Tyro Idle: stockpile full           ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8    │├─ STORES ─────────────────────┤
+│   Ping Idle: stockpile full           ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8    ││ Wood 20  Fruit 2             │
+│   Song Idle: stockpile full           ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8    │├─ RESEARCH ───────────────────┤
+│   Lin  Idle: stockpile full           ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8    ││ No target set        3.0/min │
 │ HAUL 1                                                                               ││ 10 pts banked                │
-│   Oma  Fetching 1 Fruit from (92, 6…  ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/25   │├─ ENDEAVOR ───────────── 0/9 ─┤
+│   Oma  Fetching 1 Fruit from (92, 6…  ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8    │├─ ENDEAVOR ───────────── 0/9 ─┤
 │ EAT 1                                                                                ││ Next: 10 more people     [G] │
-│   Ming Foraging at (86, 65)           ▰▰▱▱▱!  ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/25   │├─ ALERTS ─────────────── [L] ─┤
+│   Ming Foraging at (86, 65)           ▰▰▱▱▱!  ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8    │├─ ALERTS ─────────────── [L] ─┤
 │                                                                                      ││ 44 wood can't be stored:…    │
 │                                                                                      ││ Chi to spare, no bend…       │
 │                                                                                      │├─ CURSOR ────────── (94, 64) ─┤

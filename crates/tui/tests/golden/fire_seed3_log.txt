@@ -1,15 +1,15 @@
 ┏────────────────────────────────── ◆ MESSAGE LOG ◆ ───────────────────────────────────┓┏────── ◆ FIRE NATION ◆ ───────┓
-│ 00:04 Jee used Hearthflame at (25, 16) - bend 2 of 25                                ││ ▶ Running x1           00:10 │
-│ 00:04 Kuzon used Hearthflame at (25, 15) - bend 1 of 25                              │├─ PEOPLE ───────────────── 6 ─┤
-│ 00:04 Noriko used Hearthflame at (24, 18) - bend 2 of 25                             ││ Bend 6                   [N] │
-│ 00:04 Shyu used Hearthflame at (26, 16) - bend 2 of 25                               │├─ RESEARCH ───────────────────┤
-│ 00:04 Lu Ten used Hearthflame at (22, 17) - bend 2 of 25                             ││ No target set        3.0/min │
-│ 00:04 Kiyi used Hearthflame at (25, 18) - bend 2 of 25                               ││ 0 pts banked                 │
-│ 00:09 Noriko used Hearthflame at (24, 19) - bend 2 of 25                             │├─ ENDEAVOR ───────────── 0/9 ─┤
-│ 00:09 Lu Ten used Hearthflame at (21, 17) - bend 2 of 25                             ││ Next: 10 more people     [G] │
-│ 00:09 Kiyi used Hearthflame at (25, 19) - bend 2 of 25                               │├─ ALERTS ─────────────── [L] ─┤
-│ 00:09 Shyu used Hearthflame at (27, 17) - bend 2 of 25                               ││ Kiyi used Hearthflame at…    │
-│ 00:09 Jee used Hearthflame at (27, 16) - bend 2 of 25                                ││ Shyu used Hearthflame at…    │
+│ 00:04 Jee used Hearthflame at (25, 16) - bend 2 of 10                                ││ ▶ Running x1           00:10 │
+│ 00:04 Kuzon used Hearthflame at (25, 15) - bend 1 of 10                              │├─ PEOPLE ───────────────── 6 ─┤
+│ 00:04 Noriko used Hearthflame at (24, 18) - bend 2 of 10                             ││ Bend 6                   [N] │
+│ 00:04 Shyu used Hearthflame at (26, 16) - bend 2 of 10                               │├─ RESEARCH ───────────────────┤
+│ 00:04 Lu Ten used Hearthflame at (22, 17) - bend 2 of 10                             ││ No target set        3.0/min │
+│ 00:04 Kiyi used Hearthflame at (25, 18) - bend 2 of 10                               ││ 0 pts banked                 │
+│ 00:09 Noriko used Hearthflame at (24, 19) - bend 2 of 10                             │├─ ENDEAVOR ───────────── 0/9 ─┤
+│ 00:09 Lu Ten used Hearthflame at (21, 17) - bend 2 of 10                             ││ Next: 10 more people     [G] │
+│ 00:09 Kiyi used Hearthflame at (25, 19) - bend 2 of 10                               │├─ ALERTS ─────────────── [L] ─┤
+│ 00:09 Shyu used Hearthflame at (27, 17) - bend 2 of 10                               ││ Kiyi used Hearthflame at…    │
+│ 00:09 Jee used Hearthflame at (27, 16) - bend 2 of 10                                ││ Shyu used Hearthflame at…    │
 │                                                                                      ││ Jee used Hearthflame at (27… │
 │                                                                                      │├─ CURSOR ────────── (25, 16) ─┤
 │                                                                                      ││ Land                         │

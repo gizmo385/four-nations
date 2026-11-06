@@ -150,8 +150,20 @@ impl World {
                 (items.iter().map(|&i| self.tallies.harvested(i)).sum(), None)
             }
             SignKind::Tally(Tally::ScrollsRead) => (self.tallies.scrolls_read(), None),
-            SignKind::Masters { bends } => {
-                (self.units.iter().filter(|u| u.bends >= *bends).count() as u32, None)
+            SignKind::Masters { bends, bends_per_nation } => {
+                let count = self
+                    .units
+                    .iter()
+                    .filter(|u| {
+                        let threshold = endeavor::masters_threshold_for(
+                            *bends,
+                            bends_per_nation,
+                            self.nation_of(u),
+                        );
+                        u.bends >= threshold
+                    })
+                    .count() as u32;
+                (count, None)
             }
         };
         let target = target.or(sign.target_for(self.nation)).unwrap_or(0);

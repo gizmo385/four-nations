@@ -6,32 +6,32 @@
 │ Stage: not begun                                                                     ││ No target set        3.0/min │
 │                                                                                      ││ 0 pts banked                 │
 │ PEOPLE                                                                               │├─ ENDEAVOR ───────────── 0/9 ─┤
-│   Population                      ████░░░░░░      6/16                               ││ Next: 10 more people     [G] │
+│   Population                     ████░░░░░░      6/16                                ││ Next: 10 more people     [G] │
 │   Spare beds and food draw newcomers                                                 │├─ CURSOR ────────── (94, 64) ─┤
-│   Everyone has a bed              ░░░░░░░░░░       0/6                               ││ Tyro                         │
+│   Everyone has a bed             ░░░░░░░░░░       0/6                                ││ Tyro                         │
 │   Build beds                                                                         ││ Earth Kingdom - Idle         │
 │                                                                                      ││ Carrying: nothing - Bends: 0 │
 │ BUILDINGS                                                                            ││ Press Enter to select        │
-│   One of every building           ░░░░░░░░░░       0/8                               ││                              │
+│   One of every building          ░░░░░░░░░░       0/8                                ││                              │
 │   Raise something new                                                                ││                              │
 │                                                                                      ││                              │
 │ KNOWLEDGE                                                                            ││                              │
-│   Earth Kingdom branch            ░░░░░░░░░░       0/6                               ││                              │
+│   Earth Kingdom branch           ░░░░░░░░░░       0/6                                ││                              │
 │   Research your branch                                                               ││                              │
 │                                                                                      ││                              │
 │ STORES AND HARVESTS                                                                  ││                              │
-│   Food in stores                  ░░░░░░░░░░     0/150                               ││                              │
+│   Food in stores                 ░░░░░░░░░░     0/150                                ││                              │
 │   Stockpile food                                                                     ││                              │
-│   Stone in stores                 ░░░░░░░░░░     0/200                               ││                              │
+│   Stone in stores                ░░░░░░░░░░     0/200                                ││                              │
 │   Quarry outcrops and foothill boulders (bricks count)                               ││                              │
-│   Ore mined                       ░░░░░░░░░░      0/40                               ││                              │
+│   Ore mined                      ░░░░░░░░░░      0/40                                ││                              │
 │   Mine gold veins ($); tunnels yield more                                            ││                              │
 │                                                                                      ││                              │
 │ BENDING                                                                              ││                              │
-│   Bending masters (25 bends each) ░░░░░░░░░░       0/3                               ││                              │
-│   Closest: Tyro 0/25, Ping 0/25, Ming 0/25                                           ││                              │
+│   Bending masters (8 bends each) ░░░░░░░░░░       0/3                                ││                              │
+│   Closest: Tyro 0/8, Ping 0/8, Ming 0/8                                              ││                              │
 │   Designate a bend (B) on a tile a bender can work - credit to whoever channels it   ││                              │
-│   Ancient scrolls read            ░░░░░░░░░░       0/3                               ││                              │
+│   Ancient scrolls read           ░░░░░░░░░░       0/3                                ││                              │
 │   Bring scrolls to a study hall                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │

@@ -332,16 +332,30 @@ fn tallies_feed_the_ore_and_scroll_signs() {
     assert_eq!(progress(&w, &defs, "scrolls"), (2, 3, false));
 }
 
+/// Air's own mastery threshold (the bundled `bends_per_nation`, 16; the flat `bends` is 10).
 #[test]
 fn masters_are_units_with_enough_finished_bends() {
     let defs = Defs::bundled();
     let mut w = world(Nation::Air, 4, &defs);
-    for (u, bends) in w.units.iter_mut().zip([25, 40, 24, 0]) {
+    for (u, bends) in w.units.iter_mut().zip([16, 40, 15, 0]) {
         u.bends = bends;
     }
     assert_eq!(progress(&w, &defs, "masters"), (2, 3, false));
-    w.units[2].bends = 25;
+    w.units[2].bends = 16;
     assert_eq!(progress(&w, &defs, "masters"), (3, 3, true));
+}
+
+/// A United City newcomer (#240) is judged against their own nation's threshold, not the
+/// settlement's: an Air settler in a Fire settlement masters at 16 bends, not 10.
+#[test]
+fn a_newcomers_own_nation_sets_their_mastery_threshold() {
+    let defs = Defs::bundled();
+    let mut w = world(Nation::Fire, 1, &defs);
+    w.units[0].nation = Some(Nation::Air);
+    w.units[0].bends = 10;
+    assert_eq!(progress(&w, &defs, "masters"), (0, 3, false), "10 masters Fire, not Air");
+    w.units[0].bends = 16;
+    assert_eq!(progress(&w, &defs, "masters"), (1, 3, false));
 }
 
 /// `World::note_mastery` fires `EndeavorEventKind::Mastered` the first tick a unit's bends reach
@@ -351,11 +365,11 @@ fn masters_are_units_with_enough_finished_bends() {
 fn note_mastery_fires_once_per_unit_and_a_save_load_does_not_refire_it() {
     let defs = Defs::bundled();
     let mut w = world(Nation::Fire, 2, &defs);
-    w.units[0].bends = 24;
+    w.units[0].bends = 9;
     w.note_mastery(0, &defs);
     assert!(w.endeavor_events().is_empty(), "not at the threshold yet");
 
-    w.units[0].bends = 25;
+    w.units[0].bends = 10;
     w.note_mastery(0, &defs);
     let id = w.units[0].id;
     let name = w.units[0].name.clone();
@@ -380,7 +394,7 @@ fn note_mastery_fires_once_per_unit_and_a_save_load_does_not_refire_it() {
     assert_eq!(w2.endeavor_events().len(), 1, "already credited before the save");
 
     // The second unit still gets its own event once it reaches the threshold.
-    w2.units[1].bends = 25;
+    w2.units[1].bends = 10;
     w2.note_mastery(1, &defs);
     assert_eq!(w2.endeavor_events().len(), 2);
 }

@@ -788,7 +788,11 @@ mod tests {
         let s = Session::new(7, Nation::Water, 64, 64);
         let v = unit_view(&s, &s.world.units[0]);
         assert_eq!(v.bends, 0);
-        assert_eq!(v.master_threshold, Some(25), "the bundled masters sign's threshold");
+        assert_eq!(
+            v.master_threshold,
+            Some(8),
+            "Water's own threshold, the bundled bends_per_nation"
+        );
     }
 
     /// A unit that stepped inside a building (#226, #229) names it in `inside`, in place of its
