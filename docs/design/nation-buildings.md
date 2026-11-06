@@ -224,7 +224,7 @@ for the whole second half of every Fire run, so both crafters are kept running. 
   come from Metalbend, and Metalbend only works a loose ground stack of ore. By the time Earth
   researches `metalbending` (minute 147 or so), every vein in reach has been mined and every bit
   of ore hauled into stockpiles, so there is never a stack to bend. That is a mechanic, not a
-  number; see open question 5 below (#398).
+  number. Decided (question 5): Metalbend may work ore in a stockpile, which #398 implements.
 - **The igloo was never built** either, because the opening filled every bend slot with cheaper
   bends and never cut ice. The harness now designates a bend that makes an item an unbuilt
   building is short of (Cut Ice, Metalbend) ahead of cheaper ones. With that, Water raises its
@@ -339,7 +339,7 @@ Filed without `ready`. The ones that wait on an owner answer are labelled `needs
 | #395 | Balance harness: the economy opening raises no bed on seeds 3 and 4 (from #376) | none | |
 | #396 | Data: ore in reach on seeds 2 and 6 is far below the ore sign (from #376) | none | |
 | #397 | Balance harness: Water on seed 7 never researches its branch (from #376) | none | |
-| #398 | Earth: the Deep Mine's metal can't be made once ore is stockpiled (from #376) | none | 5 |
+| #398 | Earth: Metalbend works ore in a stockpile, so the Deep Mine can be paid for (from #376) | none | 5 (decided) |
 
 ## Open questions for the owner
 
@@ -363,8 +363,7 @@ Filed without `ready`. The ones that wait on an owner answer are labelled `needs
    more than a fifth kind that does something. Consider raising #203 from p3.
 5. **Earth's Deep Mine can never be paid for (#376, #398). Let Metalbend work ore in a
    stockpile, or drop metal from the Deep Mine's cost?** Metalbend only bends a loose stack, and
-   by the time Earth knows it all ore is stockpiled. *Recommended: Metalbend may target a
-   stockpile tile holding ore.* It keeps the design's point (Metalbend's metal is what the
-   capstone is for), and a player would expect to bend the ore they've gathered. The
-   alternative is a data-only cost of 20 stone and 4 tools, which is simpler but leaves Metalbend
-   with no economic use.
+   by the time Earth knows it all ore is stockpiled. **Decided (owner, 2026-11-06): Metalbend may
+   target a stockpile tile holding ore.** It keeps the design's point (Metalbend's metal is what
+   the capstone is for), and a player would expect to bend the ore they've gathered. #398
+   implements it.
