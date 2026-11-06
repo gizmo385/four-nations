@@ -6,6 +6,13 @@
 //! show as short-lived *toasts* in the side panel's Alerts section (ui.md: "a section with
 //! nothing to show hides itself"). A toast ages by the `dt` the caller passes to
 //! [`Alerts::update`], in real seconds, so this crate never reads a clock.
+//!
+//! A **routine success never toasts** (#417, docs/design/side-panel-v2.md "Zone 2"): a finished
+//! bend is logged (`L`) but never shown as a toast (a failed one still is -- that's the one
+//! worth an eye). **Repeats coalesce**: while two or more toasts of the same [`Kind`] and
+//! subject ([`Entry::toast`]'s own grouping key, e.g. the ability a failed bend named) are both
+//! still live, [`Alerts::toasts`] shows one line with a count instead of one row each. A toast's
+//! own text never carries map coordinates (the log entry, [`Alerts::history`], still does).
 
 use std::collections::BTreeSet;
 
@@ -57,7 +64,9 @@ pub enum Kind {
 }
 
 impl Kind {
-    /// How long the toast stays, in real seconds. A kind with no toast is history only.
+    /// How long the toast stays, in real seconds, for a kind that toasts at all. A finished
+    /// (non-failed) `Bend` never reaches this (#417: a routine success is log-only), so this is
+    /// really "how long a *failed* bend's toast stays" for that one kind.
     pub fn toast_seconds(self) -> f32 {
         match self {
             Self::Bend => 6.0,
@@ -92,15 +101,32 @@ impl Kind {
     }
 }
 
+/// What a toast shows for one entry, before [`Alerts::toasts`] folds repeats together (#417):
+/// `subject` is the grouping key (and the plural line's own text, "Hearthflame failed ×3"),
+/// `text` is what a single, uncoalesced occurrence shows -- the richer line, but still with no
+/// map coordinates (those stay in [`Entry::text`], the log's own copy).
+#[derive(Clone, Debug, PartialEq)]
+struct ToastSpec {
+    subject: String,
+    text: String,
+}
+
 /// One line of the log.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Entry {
     /// The world tick it happened on.
     pub tick: u64,
     pub kind: Kind,
+    /// The log's own copy: the full detail, map coordinates included where the describer names
+    /// a place. Never shown as a toast directly; see [`Entry::toast`].
     pub text: String,
-    /// Seconds its toast has left; at or below zero it is history only.
+    /// Seconds its toast has left; at or below zero it is history only. Always zero for an entry
+    /// that never toasts (`toast` is `None`): a routine success (#417, a finished `Bend`), a
+    /// `Death` or an `Agent` line.
     left: f32,
+    /// `Some` for a kind and an outcome that toasts at all; `None` for a routine success (#417),
+    /// a `Death` or an `Agent` line, which are log-only.
+    toast: Option<ToastSpec>,
     /// A `Bend` that failed rather than finished. Ignored for every other kind: only `Bend`
     /// alerts need the distinction, since a finished bend is routine (#377) but a failed one
     /// still says something worth an agent's attention.
@@ -189,15 +215,22 @@ impl Alerts {
         let mut fresh = Vec::new();
         for ev in &events[self.seen.0..] {
             let failed = matches!(ev.outcome, BendOutcome::Failed(_));
-            fresh.push((ev.tick, Kind::Bend, describe_bend_event(session, ev), failed));
+            let text = describe_bend_event(session, ev);
+            // A finished bend is routine (#377) and, since #417, log-only: with a settlement
+            // that bends a lot, toasting every one is exactly the noise this issue exists to
+            // cut. A failed one still says something worth a toast, coalesced by the ability
+            // that failed (not who was channelling it) so several benders failing the same way
+            // reads as one line with a count.
+            let toast = failed.then(|| {
+                let ability = &session.defs.ability(ev.ability).name;
+                ToastSpec { subject: format!("{ability} failed"), text: text.clone() }
+            });
+            fresh.push((ev.tick, Kind::Bend, text, failed, toast));
         }
         for c in &completions[self.seen.1..] {
-            fresh.push((
-                c.tick,
-                Kind::Tech,
-                format!("Learned {}", session.defs.tech(c.tech).name),
-                false,
-            ));
+            let text = format!("Learned {}", session.defs.tech(c.tech).name);
+            let toast = Some(ToastSpec { subject: text.clone(), text: text.clone() });
+            fresh.push((c.tick, Kind::Tech, text, false, toast));
         }
         for d in &deaths[self.seen.2..] {
             let how = match d.cause {
@@ -209,26 +242,29 @@ impl Alerts {
                 DeathCause::Injury => "injuries",
                 DeathCause::Sickness => "sickness",
             };
-            fresh.push((d.tick, Kind::Death, format!("{} died of {how}", d.name), false));
+            let text = format!("{} died of {how}", d.name);
+            fresh.push((d.tick, Kind::Death, text, false, None));
         }
         for ev in &endeavor[self.seen.3..] {
-            fresh.push((
-                ev.tick,
-                Kind::Endeavor,
-                endeavor::describe_event(&session.defs, ev),
-                false,
-            ));
+            let text = endeavor::describe_event(&session.defs, ev);
+            let toast = Some(ToastSpec { subject: text.clone(), text: text.clone() });
+            fresh.push((ev.tick, Kind::Endeavor, text, false, toast));
         }
         for a in &arrivals[self.seen.4..] {
-            fresh.push((a.tick, Kind::Arrival, describe_arrival(a), false));
+            let text = describe_arrival(a);
+            let toast = Some(ToastSpec { subject: text.clone(), text: text.clone() });
+            fresh.push((a.tick, Kind::Arrival, text, false, toast));
         }
         for ev in &seasons[self.seen.5..] {
             if let Some(text) = describe_season_event(session, ev) {
-                fresh.push((ev.tick, Kind::Season, text, false));
+                let toast = Some(ToastSpec { subject: text.clone(), text: text.clone() });
+                fresh.push((ev.tick, Kind::Season, text, false, toast));
             }
         }
         for ev in &strains[self.seen.6..] {
-            fresh.push((ev.tick, Kind::Season, describe_strain_event(&session.defs, ev), false));
+            let text = describe_strain_event(&session.defs, ev);
+            let toast = Some(strain_toast(&session.defs, ev));
+            fresh.push((ev.tick, Kind::Season, text, false, toast));
         }
         // Not one of `World`'s own monotonic event logs above (#337: a standing condition, not
         // something that happens once), so the line is for whichever items are newly stuck since
@@ -236,12 +272,9 @@ impl Alerts {
         let stuck = stuck_items(session);
         for &(item, count) in &stuck {
             if !self.full_items.contains(&item) {
-                fresh.push((
-                    world.tick,
-                    Kind::Stockpile,
-                    describe_stockpile_full(&session.defs, item, count),
-                    false,
-                ));
+                let text = describe_stockpile_full(&session.defs, item, count);
+                let toast = Some(ToastSpec { subject: text.clone(), text: text.clone() });
+                fresh.push((world.tick, Kind::Stockpile, text, false, toast));
             }
         }
         self.full_items = stuck.into_iter().map(|(item, _)| item).collect();
@@ -254,18 +287,17 @@ impl Alerts {
             if ever_designated {
                 self.bend_tip_shown = true;
             } else if world.tick >= BEND_TIP_AFTER_TICKS && chi_to_spare(session) {
-                fresh.push((world.tick, Kind::BendTip, bend_tip_text(), false));
+                let text = bend_tip_text();
+                let toast = Some(ToastSpec { subject: text.clone(), text: text.clone() });
+                fresh.push((world.tick, Kind::BendTip, text, false, toast));
                 self.bend_tip_shown = true;
             }
         }
         self.seen = counts;
         fresh.sort_by_key(|(tick, ..)| *tick);
-        self.log.extend(fresh.into_iter().map(|(tick, kind, text, failed)| Entry {
-            tick,
-            kind,
-            text,
-            left: kind.toast_seconds(),
-            failed,
+        self.log.extend(fresh.into_iter().map(|(tick, kind, text, failed, toast)| {
+            let left = if toast.is_some() { kind.toast_seconds() } else { 0.0 };
+            Entry { tick, kind, text, left, toast, failed }
         }));
         for e in &mut self.log {
             e.left -= dt;
@@ -289,7 +321,8 @@ impl Alerts {
             tick,
             kind: Kind::Agent,
             text,
-            left: Kind::Agent.toast_seconds(),
+            left: 0.0,
+            toast: None,
             failed: false,
         });
         if self.log.len() > MAX_HISTORY {
@@ -297,11 +330,39 @@ impl Alerts {
         }
     }
 
-    /// The toasts still showing, oldest first: those with time left, at most `Kind::max_toasts`
-    /// of each kind (the newest).
-    pub fn toasts(&self) -> Vec<&Entry> {
-        let live = |e: &&Entry| e.left > 0.0;
-        let mut keep = vec![false; self.log.len()];
+    /// The toasts still showing, oldest first: those with time left, folded by kind and subject
+    /// (#417, [`ToastSpec`]) into one [`Toast`] each with a count, at most `Kind::max_toasts`
+    /// groups of each kind (the newest).
+    pub fn toasts(&self) -> Vec<Toast> {
+        struct Group {
+            kind: Kind,
+            subject: String,
+            text: String,
+            count: usize,
+            tick: u64,
+        }
+        let mut groups: Vec<Group> = Vec::new();
+        for e in &self.log {
+            if e.left <= 0.0 {
+                continue;
+            }
+            let Some(toast) = &e.toast else { continue };
+            match groups.iter_mut().find(|g| g.kind == e.kind && g.subject == toast.subject) {
+                Some(g) => {
+                    g.count += 1;
+                    g.text = toast.text.clone();
+                    g.tick = e.tick;
+                }
+                None => groups.push(Group {
+                    kind: e.kind,
+                    subject: toast.subject.clone(),
+                    text: toast.text.clone(),
+                    count: 1,
+                    tick: e.tick,
+                }),
+            }
+        }
+        let mut keep = vec![true; groups.len()];
         for kind in [
             Kind::Bend,
             Kind::Tech,
@@ -313,21 +374,39 @@ impl Alerts {
             Kind::Agent,
             Kind::BendTip,
         ] {
-            let of_kind: Vec<usize> = (0..self.log.len())
-                .filter(|&i| self.log[i].kind == kind && live(&&self.log[i]))
-                .collect();
-            let skip = of_kind.len().saturating_sub(kind.max_toasts());
-            for &i in &of_kind[skip..] {
-                keep[i] = true;
+            let mut of_kind: Vec<usize> =
+                (0..groups.len()).filter(|&i| groups[i].kind == kind).collect();
+            of_kind.sort_by_key(|&i| groups[i].tick);
+            let drop = of_kind.len().saturating_sub(kind.max_toasts());
+            for &i in &of_kind[..drop] {
+                keep[i] = false;
             }
         }
-        self.log.iter().zip(keep).filter_map(|(e, k)| k.then_some(e)).collect()
+        let mut out: Vec<Group> =
+            groups.into_iter().zip(keep).filter_map(|(g, k)| k.then_some(g)).collect();
+        out.sort_by_key(|g| g.tick);
+        out.into_iter()
+            .map(|g| Toast {
+                kind: g.kind,
+                // A repeat coalesces into the subject plus a count (#417: "Hearthflame failed
+                // ×3"); a lone occurrence keeps its own, richer text instead.
+                text: if g.count > 1 { format!("{} ×{}", g.subject, g.count) } else { g.text },
+            })
+            .collect()
     }
 
     /// The toasts' text, oldest first, for the side panel.
     pub fn toast_lines(&self) -> Vec<String> {
-        self.toasts().into_iter().map(|e| e.text.clone()).collect()
+        self.toasts().into_iter().map(|t| t.text).collect()
     }
+}
+
+/// One toast [`Alerts::toasts`] shows: already folded by kind and subject, so its text is
+/// exactly what the side panel's Alerts section puts on screen.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Toast {
+    pub kind: Kind,
+    pub text: String,
 }
 
 /// "Pema has joined the settlement" (#232).
@@ -390,6 +469,17 @@ fn describe_season_event(session: &Session, ev: &SeasonEvent) -> Option<String> 
 fn describe_strain_event(defs: &fn_sim::Defs, ev: &StrainEvent) -> String {
     let name = defs.resource(ev.resource).name.to_lowercase();
     format!("A {name} at ({}, {}) was picked to death.", ev.pos.x, ev.pos.y)
+}
+
+/// A strain event's toast (#417): the log's own line (`describe_strain_event`) names the place,
+/// but the toast drops it, and coalesces by the resource (the subject), so several of the same
+/// kind dying back in a stretch reads as one line with a count instead of one row per tree.
+fn strain_toast(defs: &fn_sim::Defs, ev: &StrainEvent) -> ToastSpec {
+    let name = defs.resource(ev.resource).name.to_lowercase();
+    ToastSpec {
+        subject: format!("{name} picked to death"),
+        text: format!("A {name} was picked to death."),
+    }
 }
 
 /// "42 wood can't be stored: every stockpile is full" (#337): the lower-case name since the
@@ -462,15 +552,17 @@ mod tests {
     fn an_arrival_becomes_a_toast() {
         let s = Session::new(7, Nation::Fire, 48, 32);
         let mut alerts = Alerts::default();
+        let text = describe_arrival(&Arrival {
+            tick: 0,
+            unit: fn_sim::world::UnitId(6),
+            name: "Pema".into(),
+        });
         alerts.log.push(Entry {
             tick: 0,
             kind: Kind::Arrival,
-            text: describe_arrival(&Arrival {
-                tick: 0,
-                unit: fn_sim::world::UnitId(6),
-                name: "Pema".into(),
-            }),
+            text: text.clone(),
             left: Kind::Arrival.toast_seconds(),
+            toast: Some(ToastSpec { subject: text.clone(), text }),
             failed: false,
         });
         alerts.update(&s, 0.0);
@@ -522,8 +614,11 @@ mod tests {
         assert!(!line.contains(" - bend "), "{line}");
     }
 
+    /// A finished bend lands in the log (`alerts.history()`), but never as a toast (#417: a
+    /// routine success is noise, exactly what made three rows of "X used Hearthflame" push out
+    /// anything that mattered).
     #[test]
-    fn a_designated_bend_eventually_becomes_an_alert() {
+    fn a_designated_bend_eventually_becomes_a_log_line_but_not_a_toast() {
         let mut s = Session::new(1, Nation::Fire, 48, 32);
         let ability: AbilityId = ability_for_nation(&s.defs, Nation::Fire).unwrap();
         let pos = s.world.units[0].pos;
@@ -531,9 +626,9 @@ mod tests {
         run_until(&mut s, |s| !s.world.bend_events().is_empty());
         let mut alerts = Alerts::default();
         alerts.update(&s, 0.016);
-        let lines = alerts.toast_lines();
-        assert_eq!(lines.len(), 1, "{lines:?}");
-        assert!(lines[0].contains(&s.defs.ability(ability).name));
+        assert!(alerts.toast_lines().is_empty(), "{:?}", alerts.toast_lines());
+        assert_eq!(alerts.history().len(), 1);
+        assert!(alerts.history()[0].text.contains(&s.defs.ability(ability).name));
         // Updating again doesn't repeat it.
         alerts.update(&s, 0.016);
         assert_eq!(alerts.history().len(), 1);
@@ -577,7 +672,8 @@ mod tests {
     #[test]
     fn every_kind_but_a_finished_bend_agent_and_the_bend_tip_is_worth_stopping() {
         let worth_stopping = |kind: Kind, failed: bool| {
-            Entry { tick: 0, kind, text: String::new(), left: 0.0, failed }.worth_stopping()
+            Entry { tick: 0, kind, text: String::new(), left: 0.0, toast: None, failed }
+                .worth_stopping()
         };
         assert!(worth_stopping(Kind::Death, false));
         assert!(worth_stopping(Kind::Arrival, false));
@@ -641,11 +737,14 @@ mod tests {
         let s = Session::new(7, Nation::Fire, 48, 32);
         let mut alerts = Alerts::default();
         for i in 0..6 {
+            let text = i.to_string();
             alerts.log.push(Entry {
                 tick: i,
                 kind: Kind::Bend,
-                text: i.to_string(),
+                text: text.clone(),
                 left: Kind::Bend.toast_seconds(),
+                // Each a distinct subject, so this tests the per-kind cap, not coalescing.
+                toast: Some(ToastSpec { subject: text.clone(), text }),
                 failed: false,
             });
         }
@@ -663,7 +762,15 @@ mod tests {
         let s = Session::new(7, Nation::Fire, 48, 32);
         let mut alerts = Alerts::default();
         for (tick, kind) in [(1, Kind::Tech), (2, Kind::Bend), (3, Kind::Tech)] {
-            alerts.log.push(Entry { tick, kind, text: tick.to_string(), left: 5.0, failed: false });
+            let text = tick.to_string();
+            alerts.log.push(Entry {
+                tick,
+                kind,
+                text: text.clone(),
+                left: 5.0,
+                toast: Some(ToastSpec { subject: text.clone(), text }),
+                failed: false,
+            });
         }
         alerts.update(&s, 0.0);
         assert_eq!(alerts.toast_lines(), ["1", "2", "3"]);
@@ -868,5 +975,103 @@ mod tests {
             "designating once is enough, even cancelled: {:?}",
             alerts.history()
         );
+    }
+
+    /// Three toasts of the same kind and subject, still live at once, fold into one line with a
+    /// count (#417) instead of three separate rows -- the panel's own spare height then goes to
+    /// something that actually needs it, not three near-identical lines.
+    #[test]
+    fn repeats_of_the_same_kind_and_subject_coalesce_with_a_count() {
+        let s = Session::new(7, Nation::Fire, 48, 32);
+        let mut alerts = Alerts::default();
+        for tick in 0..3 {
+            alerts.log.push(Entry {
+                tick,
+                kind: Kind::Bend,
+                text: format!("Someone's Hearthflame failed at tick {tick}"),
+                left: Kind::Bend.toast_seconds(),
+                toast: Some(ToastSpec {
+                    subject: "Hearthflame failed".to_owned(),
+                    text: "Someone's Hearthflame failed: no fuel nearby".to_owned(),
+                }),
+                failed: true,
+            });
+        }
+        alerts.update(&s, 0.0);
+        assert_eq!(alerts.toast_lines(), ["Hearthflame failed ×3"]);
+        // Every occurrence still gets its own line in the log.
+        assert_eq!(alerts.history().len(), 3);
+    }
+
+    /// A single occurrence of a kind and subject -- no repeat yet -- keeps its own, richer text
+    /// instead of the terse "subject ×1" a count would otherwise force.
+    #[test]
+    fn a_single_toast_keeps_its_own_text_instead_of_a_count_of_one() {
+        let s = Session::new(7, Nation::Fire, 48, 32);
+        let mut alerts = Alerts::default();
+        alerts.log.push(Entry {
+            tick: 0,
+            kind: Kind::Bend,
+            text: "Haru's Hearthflame failed: no fuel nearby".to_owned(),
+            left: Kind::Bend.toast_seconds(),
+            toast: Some(ToastSpec {
+                subject: "Hearthflame failed".to_owned(),
+                text: "Haru's Hearthflame failed: no fuel nearby".to_owned(),
+            }),
+            failed: true,
+        });
+        alerts.update(&s, 0.0);
+        assert_eq!(alerts.toast_lines(), ["Haru's Hearthflame failed: no fuel nearby"]);
+    }
+
+    /// Different subjects of the same kind never coalesce: three different abilities failing
+    /// stay three separate toasts, up to `Kind::max_toasts`.
+    #[test]
+    fn different_subjects_of_the_same_kind_dont_coalesce() {
+        let s = Session::new(7, Nation::Fire, 48, 32);
+        let mut alerts = Alerts::default();
+        for (tick, ability) in [(0, "Hearthflame"), (1, "Inner Fire")] {
+            let text = format!("{ability} failed");
+            alerts.log.push(Entry {
+                tick,
+                kind: Kind::Bend,
+                text: text.clone(),
+                left: Kind::Bend.toast_seconds(),
+                toast: Some(ToastSpec { subject: text.clone(), text }),
+                failed: true,
+            });
+        }
+        alerts.update(&s, 0.0);
+        assert_eq!(alerts.toast_lines(), ["Hearthflame failed", "Inner Fire failed"]);
+    }
+
+    /// A strain event's toast drops the map coordinates the log entry keeps (#417): the log
+    /// still names the place, so going there is still one key away (`L`), but the toast reads
+    /// as a fact about the settlement, not a spot on the map.
+    #[test]
+    fn a_strain_toast_drops_the_coordinates_the_log_keeps() {
+        let defs = fn_sim::Defs::bundled();
+        let resource = defs.resource_id("fruit_tree").unwrap();
+        let ev = StrainEvent { tick: 0, pos: Pos::new(90, 41), resource };
+        let log_text = describe_strain_event(&defs, &ev);
+        assert!(log_text.contains("(90, 41)"), "{log_text}");
+        let toast = strain_toast(&defs, &ev);
+        assert!(!toast.text.contains('('), "{}", toast.text);
+        assert!(!toast.subject.contains('('), "{}", toast.subject);
+        assert_eq!(toast.text, "A fruit tree was picked to death.");
+    }
+
+    /// Two different resources picked to death in the same stretch stay two toasts (different
+    /// subjects); the same resource repeating would coalesce the same way a failed ability does.
+    #[test]
+    fn two_different_resources_picked_to_death_dont_coalesce() {
+        let defs = fn_sim::Defs::bundled();
+        let oak = defs.resource_id("oak_tree").unwrap();
+        let fruit = defs.resource_id("fruit_tree").unwrap();
+        let oak_toast =
+            strain_toast(&defs, &StrainEvent { tick: 0, pos: Pos::new(1, 1), resource: oak });
+        let fruit_toast =
+            strain_toast(&defs, &StrainEvent { tick: 0, pos: Pos::new(2, 2), resource: fruit });
+        assert_ne!(oak_toast.subject, fruit_toast.subject);
     }
 }

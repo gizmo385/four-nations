@@ -15,7 +15,11 @@
 //! second row; nothing in it is ever given up first.
 //!
 //! **Zone 2, Alerts** (one line each, newest last; always shows at least its heading and the
-//! newest toast, #415).
+//! newest toast, #415). A routine success (an ability cast) is log-only, never a toast (#417);
+//! repeats of the same kind and subject coalesce into one line with a count
+//! (`fn_ui::alerts::Alerts::toasts`); a toast's own text drops map coordinates, which stay in
+//! the log entry. Spare height goes here first, up to [`ALERTS_SHOWN`] rows, before anything
+//! else in the panel grows.
 //!
 //! **Zone 3, Here** (named CURSOR until #418): Tool (just above Cursor: the active tool's name
 //! in its own tint, the Build tool's chosen building or the Bend abilities, then the last
@@ -98,8 +102,12 @@ const NOTICE_FLOOR: usize = 2;
 /// One alert is one line (docs/design/side-panel.md "Sections, top to bottom"): the full text is
 /// in the log (`L`).
 const ALERT_LINES: usize = 1;
-/// At most this many alert rows show at once, even with room for more.
-const ALERTS_SHOWN: usize = 3;
+/// At most this many alert rows show at once, even with room for more (#417,
+/// docs/design/side-panel-v2.md "Fitting": "Spare rows go, in order: Alerts up to 6..."). Alerts
+/// are already given this much room before the fitting loop runs (`draw_panel`'s own `k.alerts`
+/// starts at `d.alerts.len().min(ALERTS_SHOWN)`), so the Settlement glance's own growth (a
+/// second Materials row) and Here only ever see what's left afterward.
+const ALERTS_SHOWN: usize = 6;
 /// At most this many Materials rows show at once, even with room for more (#416,
 /// docs/design/side-panel-v2.md "Zone 1": "Spare height adds a second materials row").
 const MATERIALS_ROWS_MAX: usize = 2;
