@@ -624,6 +624,24 @@ fn a_bend_becomes_an_alert_in_the_side_panel_and_a_line_in_the_log() {
     assert!(frame.contains("00:"), "each line is stamped with the game time:\n{frame}");
 }
 
+/// At 80x24, with Season on, Endeavor in the data and the Bend tool active, fitting is tight
+/// enough to want to drop the ALERTS section entirely, but a live toast must keep the heading
+/// and its own row on screen (#415): giving up alerts "beyond the newest" should never mean
+/// giving up the newest too.
+#[test]
+fn alerts_keep_the_heading_and_the_newest_row_at_80x24() {
+    let mut a = bending_game();
+    a.session.world.set_difficulty(Some("normal".to_owned()));
+    a.resize(SMALL.0, SMALL.1);
+    run(&mut a, "b <enter> <enter>");
+    assert!(!a.ui.alerts.toasts().is_empty(), "there should be a live toast");
+    assert_eq!(a.ui.tool, Tool::Bend, "the Bend tool should be active");
+    let newest = a.ui.alerts.toasts().last().unwrap().text.clone();
+    let frame = text(&mut a, SMALL);
+    assert!(frame.contains("ALERTS"), "the heading should stay:\n{frame}");
+    assert!(frame.contains(&newest[..newest.len().min(20)]), "{newest}\n{frame}");
+}
+
 #[test]
 fn toasts_age_out_by_real_seconds_but_the_log_keeps_them() {
     let mut a = bending_game();
