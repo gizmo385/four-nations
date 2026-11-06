@@ -90,6 +90,24 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
                 None => format!("Harvesting at ({}, {})", pos.x, pos.y),
             }
         }
+        Task::Clear(id) => {
+            let Some(job) = world.job(id) else { return "Clearing".into() };
+            let JobKind::Clear { pos } = job.kind else { return "Clearing".into() };
+            let resource = world.map.get(pos).and_then(|t| t.resource);
+            match resource.and_then(|r| Some((defs.harvest(r)?, defs.resource(r)))) {
+                Some((h, r)) => {
+                    let total = h.clear.map_or(h.work, |c| c.work);
+                    format!(
+                        "Clearing {} at ({}, {}), {:.0}% done",
+                        r.name,
+                        pos.x,
+                        pos.y,
+                        (job.progress / total * 100.0).clamp(0.0, 100.0)
+                    )
+                }
+                None => format!("Clearing at ({}, {})", pos.x, pos.y),
+            }
+        }
         Task::Haul(id) => {
             let at = world.job(id).and_then(|j| match j.kind {
                 JobKind::Haul { pos } => Some(pos),
@@ -101,6 +119,7 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
                 | JobKind::Attend { .. } => None,
                 JobKind::Craft { .. } => None,
                 JobKind::Sow { .. } | JobKind::Reap { .. } => None,
+                JobKind::Clear { .. } => None,
             });
             let stack = at.and_then(|p| world.ground_items().find(|(q, _)| *q == p));
             match (stack, at) {

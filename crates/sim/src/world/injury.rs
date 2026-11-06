@@ -42,16 +42,27 @@ impl World {
     /// loses `[injury] damage` times the preset's `harm`, subject to #387's floor (or killed
     /// outright with `harm_kills`), logs a `HarmEvent` and sets `last_harm`.
     pub(super) fn maybe_injure(&mut self, i: usize, pos: Pos, h: &HarvestDef, defs: &Defs) {
+        self.maybe_injure_at(i, pos, h.risk, h.modifier.as_deref(), defs);
+    }
+
+    /// `maybe_injure`, generalized to a risk and (optional) nation modifier that aren't
+    /// necessarily a harvest's own: a `JobKind::Clear` on a renewable resource rolls its own
+    /// `ClearDef::risk`, with no modifier to scale it (`run_clear`'s `clear_done`, issue #424).
+    pub(super) fn maybe_injure_at(
+        &mut self,
+        i: usize,
+        pos: Pos,
+        risk: f32,
+        modifier: Option<&str>,
+        defs: &Defs,
+    ) {
         let harm_scale = self.knobs(defs).harm;
-        if harm_scale <= 0.0 || h.risk <= 0.0 {
+        if harm_scale <= 0.0 || risk <= 0.0 {
             return;
         }
-        let modifier = h
-            .modifier
-            .as_deref()
-            .and_then(|m| self.modifiers_for(&self.units[i], defs).get(m))
-            .unwrap_or(1.0);
-        let chance = (h.risk / modifier).clamp(0.0, 1.0);
+        let modifier =
+            modifier.and_then(|m| self.modifiers_for(&self.units[i], defs).get(m)).unwrap_or(1.0);
+        let chance = (risk / modifier).clamp(0.0, 1.0);
         if self.injury_rng.random::<f32>() >= chance {
             return;
         }

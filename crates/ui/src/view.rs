@@ -226,7 +226,9 @@ impl Activity {
         match task {
             None => Self::Idle,
             Some(Task::Haul(_) | Task::Deliver) => Self::Haul,
-            Some(Task::Harvest(_)) => Self::Harvest,
+            // Clearing ground (#424) groups with harvesting until the Clear tool gets its own
+            // panel row (#426).
+            Some(Task::Harvest(_) | Task::Clear(_)) => Self::Harvest,
             Some(Task::Sow(_) | Task::Reap(_)) => Self::Farm,
             Some(Task::Build(_)) => Self::Build,
             Some(Task::Bend(_)) => Self::Bend,

@@ -50,6 +50,13 @@ pub enum Command {
     Sow { pos: Pos },
     /// Withdraw a Sow designation. Work already done on it is lost.
     CancelSow { pos: Pos },
+    /// Mark the resource on a tile to be removed for good (`docs/design/clearing.md`, issue
+    /// #411/#424): a unit uproots it (`[harvest.clear]`) or works its ordinary harvest, which
+    /// already clears it. Withdraws any harvest designation or standing order on the tile; a
+    /// unit mid-harvest drops it, as on `CancelHarvest`.
+    DesignateClear { pos: Pos },
+    /// Withdraw a Clear designation. Work already done on it is lost.
+    CancelClear { pos: Pos },
 }
 
 /// Why a command was refused. The world is unchanged when `apply` returns one of these.
@@ -103,6 +110,7 @@ impl std::fmt::Display for CommandError {
             Self::Designate(DesignateError::CannotStockpile) => f.write_str("can't stockpile here"),
             Self::Designate(DesignateError::NoFarmPlot) => f.write_str("not a farm plot"),
             Self::Designate(DesignateError::PlotNotEmpty) => f.write_str("plot isn't empty"),
+            Self::Designate(DesignateError::CannotClear) => f.write_str("can't be cleared"),
             Self::Research(e) => e.fmt(f),
             Self::Bend(e) => e.fmt(f),
             Self::Build(e) => e.fmt(f),
@@ -144,6 +152,8 @@ impl World {
             Command::CancelEndeavor => self.cancel_endeavor(defs)?,
             Command::Sow { pos } => self.designate_sow(pos, defs).map(drop)?,
             Command::CancelSow { pos } => self.cancel_sow(pos)?,
+            Command::DesignateClear { pos } => self.designate_clear(pos, defs).map(drop)?,
+            Command::CancelClear { pos } => self.cancel_clear(pos)?,
         }
         self.command_log.push(Recorded { tick: self.tick, command });
         Ok(())
