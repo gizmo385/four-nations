@@ -105,12 +105,15 @@ fn columns(frame: &str) -> (String, String) {
 /// The rendered text of every screen `Host::observe` and `Host::screen`'s leaves could be
 /// checked against: the main view (cursor already where `observe`'s own `cursor` reports it),
 /// then `N`, `T`, `G`, `L` and `?` in turn, each closed again before the next (the acceptance
-/// criteria's "main, N, T, G, L, ? and the Cursor section"), and finally `U`'s Build modal
-/// (#327: `screen {"build"}`'s own leaves) -- stepping down its list to capture the detail
-/// pane for every row, not only whichever one the Build tool happened to leave highlighted: a
-/// long locked name is squeezed with an ellipsis in the list itself once it's paired with its
-/// cost (`crate::widgets::Row`'s own "gives way" rule), and only the detail pane, for the
-/// highlighted row, ever shows it in full.
+/// criteria's "main, N, T, G, L, ? and the Cursor section"), stepping every card of `T`'s
+/// research grid into its own detail pane (#362: the grid's own column only ever shows a short,
+/// truncated summary -- `crate::research`'s own comment on `ResearchScreenView` -- so a tech
+/// with a long one, like a modifier and an ability together, needs the cursor on it at least
+/// once), and finally `U`'s Build modal (#327: `screen {"build"}`'s own leaves) -- stepping down
+/// its list to capture the detail pane for every row, not only whichever one the Build tool
+/// happened to leave highlighted: a long locked name is squeezed with an ellipsis in the list
+/// itself once it's paired with its cost (`crate::widgets::Row`'s own "gives way" rule), and
+/// only the detail pane, for the highlighted row, ever shows it in full.
 fn reachable_text(h: &mut Host) -> String {
     const SIZE: (u16, u16) = (220, 50);
     let mut text = String::new();
@@ -125,6 +128,25 @@ fn reachable_text(h: &mut Host) -> String {
         push(&h.frame(SIZE.0, SIZE.1), &mut text);
         h.press_keys("<esc>", None, None).unwrap();
     }
+    let research = match h.screen("research").unwrap() {
+        fn_tui::surface::ScreenView::Research(v) => v,
+        other => unreachable!("{other:?}"),
+    };
+    h.press_keys("t", None, None).unwrap();
+    // Column 0, row 0: a step clamps at an edge rather than wrapping, so enough steps always
+    // lands there, however many columns or cards the tree has.
+    h.press_keys("<left*50> <up*50>", None, None).unwrap();
+    for col in &research.columns {
+        push(&h.frame(SIZE.0, SIZE.1), &mut text);
+        for _ in 1..col.len() {
+            h.press_keys("<down>", None, None).unwrap();
+            push(&h.frame(SIZE.0, SIZE.1), &mut text);
+        }
+        // Next column, same row (`research::step`'s own rule) unless that is past its last
+        // card, so back to its own row 0 before walking it down in turn.
+        h.press_keys("<right> <up*50>", None, None).unwrap();
+    }
+    h.press_keys("<esc>", None, None).unwrap();
     let rows = match h.screen("build").unwrap() {
         fn_tui::surface::ScreenView::Build(v) => v.rows.len(),
         other => unreachable!("{other:?}"),

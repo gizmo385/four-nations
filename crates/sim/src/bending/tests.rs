@@ -199,6 +199,7 @@ fn restoke_below_defaults_to_always_restoke() {
             sleep_bonus: 1.0,
             seek_tiles: 1,
             restoke_below: 1.0,
+            cooks: true,
         }
     );
     let heat_aura = ability(
@@ -209,6 +210,36 @@ fn restoke_below_defaults_to_always_restoke() {
         defs.ability(defs.ability_id("x").unwrap()).effect,
         Effect::HeatAura { duration_minutes: 1.0, radius: 1, sleep_bonus: 1.0, restoke_below: 1.0 }
     );
+}
+
+/// `cooks` is optional (#362): omitted, a `heat_source` keeps today's "always cooks" behaviour.
+/// A shelter (Earth Tent, Air Shield) turns it off explicitly.
+#[test]
+fn cooks_defaults_to_true_and_can_be_turned_off() {
+    let heat_source = |rest: &str| {
+        ability(&format!(
+            "[ability.effect]\nkind='heat_source'\nduration_minutes=1.0\nradius=1\n\
+             sleep_bonus=1.0\nseek_tiles=1\n{rest}"
+        ))
+    };
+    let defs = load(&heat_source(""), "").unwrap();
+    assert_eq!(
+        defs.ability(defs.ability_id("x").unwrap()).effect,
+        Effect::HeatSource {
+            duration_minutes: 1.0,
+            radius: 1,
+            sleep_bonus: 1.0,
+            seek_tiles: 1,
+            restoke_below: 1.0,
+            cooks: true,
+        }
+    );
+    let defs = load(&heat_source("cooks=false"), "").unwrap();
+    let Effect::HeatSource { cooks, .. } = defs.ability(defs.ability_id("x").unwrap()).effect
+    else {
+        panic!("expected a heat_source effect");
+    };
+    assert!(!cooks);
 }
 
 #[test]

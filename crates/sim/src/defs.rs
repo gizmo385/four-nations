@@ -540,9 +540,16 @@ mod tests {
             src = src.replace(&unlock, "");
         }
         // The bare bending has no abilities, so a tech can't unlock one.
-        for id in
-            ["inner_fire", "bore_tunnel", "seismic_sense", "glide", "metalbend", "air_scooter"]
-        {
+        for id in [
+            "inner_fire",
+            "bore_tunnel",
+            "seismic_sense",
+            "glide",
+            "metalbend",
+            "air_scooter",
+            "earth_tent",
+            "air_shield",
+        ] {
             let ability = format!("abilities = [\"{id}\"]\n");
             assert!(src.contains(&ability), "{id}'s unlock moved; update this helper");
             src = src.replace(&ability, "");

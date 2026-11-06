@@ -9,9 +9,9 @@ use fn_sim::{Defs, MapGenConfig, MoveRules, Nation, Pos, World};
 
 const MINUTE: u64 = 600; // ticks
 
-/// The Air branch in tree order, with the buildings each tech must unlock. `meditation` is
-/// modifier-only for the reason given in research.toml; `gliders` unlocks the Glide ability
-/// (#197) and `air_scooter` unlocks Air Scooter (#143).
+/// The Air branch in tree order, with the buildings each tech must unlock. `meditation` unlocks
+/// the Air Shield ability (#362, no building); `gliders` unlocks the Glide ability (#197) and
+/// `air_scooter` unlocks Air Scooter (#143).
 const BRANCH: [(&str, &[&str]); 7] = [
     ("orchards", &["orchard"]),
     ("meditation", &[]),
@@ -23,7 +23,7 @@ const BRANCH: [(&str, &[&str]); 7] = [
 ];
 
 /// Techs with no building, ability or job to unlock, each with a reason in research.toml.
-const MODIFIER_ONLY: [&str; 1] = ["meditation"];
+const MODIFIER_ONLY: [&str; 0] = [];
 
 fn fresh(defs: &Defs) -> World {
     let cfg = MapGenConfig { seed: 13, ..Default::default() };
@@ -100,6 +100,15 @@ fn every_air_branch_tech_unlocks_something_or_says_why_not() {
             assert!(unlocked > 0, "{tech}");
         }
     }
+}
+
+/// Air Shield (#362): a dome of still air, unlocked by the same tech that raises chi regen.
+#[test]
+fn meditation_unlocks_air_shield() {
+    let defs = Defs::bundled();
+    let ability = defs.ability(defs.ability_id("air_shield").expect("air_shield is defined"));
+    assert_eq!(ability.nation, Nation::Air);
+    assert_eq!(ability.unlocked_by, defs.tech_id("meditation"));
 }
 
 /// An Air settlement with a Meditation Pavilion (two seats, so two scholars beside the passive

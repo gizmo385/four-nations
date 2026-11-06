@@ -209,3 +209,49 @@ kind = "smelt"
 ore = "gold_ore"
 metal = "metal"
 ratio = 2
+
+# --- #362 (Earth: Earth Tent, Air: Air Shield) ---------------------------------------------------
+
+# Earth, from `earth_shaping` (docs/design/bending.md, "More abilities and the route to
+# mastery"): Toph's tent, a stone shelter raised wherever a crew works far from a fire. Sleepers
+# within its radius get its own sleep_bonus and stay warm, same as a flame, but it kindles
+# nothing: `cooks = false` means a meal eaten nearby stays raw. It isn't a bed (it's a tile
+# effect, not a building), so growth's free-bed check and the bed sign never count it.
+[[ability]]
+id = "earth_tent"
+nation = "earth"
+name = "Earth Tent"
+verb = "Raise a tent"
+description = "Raise a stone shelter. Sleepers nearby stay warm, but nothing cooks there."
+chi = 30.0
+work = 8.0
+speed_modifier = "earthworks"
+magnitude_modifier = "earthworks"   # scales duration_minutes
+[ability.effect]
+kind = "heat_source"
+duration_minutes = 12.0
+radius = 1
+sleep_bonus = 1.4
+seek_tiles = 20
+cooks = false
+
+# Air, from `meditation` (docs/design/bending.md, "More abilities and the route to mastery"): a
+# dome of still air that keeps the cold off a crew caught out on cold ground, but burns nothing,
+# so it gives no sleep bonus of its own (`sleep_bonus = 1.0`) and nobody walks to one
+# (`seek_tiles = 0`): it's a shield for whoever is already there, not a destination.
+[[ability]]
+id = "air_shield"
+nation = "air"
+name = "Air Shield"
+verb = "Raise a shield"
+description = "Raise a dome of still air. No cold within reach, but it kindles nothing."
+chi = 20.0
+work = 3.0
+magnitude_modifier = "power_generation"   # scales duration_minutes
+[ability.effect]
+kind = "heat_source"
+duration_minutes = 6.0
+radius = 3
+sleep_bonus = 1.0
+seek_tiles = 0
+cooks = false

@@ -140,11 +140,13 @@ description = "Level and raise the ground with earthbending."
 nation = "earth"
 cost = 60
 prereqs = ["stoneworking"]
-# Modifier-only: Raise Earth, the nation's signature ability, is available from the start and
-# earthworks scales its channel time, so this tech makes fords faster (bending.md). A separate
-# level/raise-terrain designation is future work.
+# Raise Earth, the nation's signature ability, is available from the start and earthworks scales
+# its channel time, so this tech makes fords faster (bending.md). A separate level/raise-terrain
+# designation is future work. It also unlocks Earth Tent (#362, docs/design/bending.md "More
+# abilities and the route to mastery"): a stone shelter that keeps sleepers warm far from a fire.
 [tech.unlocks]
 modifiers = { earthworks = 1.2 }
+abilities = ["earth_tent"]
 
 [[tech]]
 id = "earthen_walls"
@@ -374,10 +376,13 @@ name = "Meditation"
 description = "Quiet the mind; chi flows and lessons come easier."
 nation = "air"
 cost = 60
-# Modifier-only by design: it raises chi regeneration and study speed, and the study hall
-# exists from the start (named Meditation Pavilion for Air), so there is nothing to unlock.
+# It raises chi regeneration and study speed, and the study hall exists from the start (named
+# Meditation Pavilion for Air). It also unlocks Air Shield (#362, docs/design/bending.md "More
+# abilities and the route to mastery"): a dome of still air that keeps the cold off a crew
+# caught out on cold ground.
 [tech.unlocks]
 modifiers = { study = 1.2, chi_regen = 1.25 }
+abilities = ["air_shield"]
 
 [[tech]]
 id = "gliders"

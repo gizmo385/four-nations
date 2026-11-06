@@ -258,6 +258,8 @@ fn is_cold_matches_the_tick_needs_check() {
         seek_tiles: 10,
         until: HeatSource::FOREVER,
         size: [1, 1],
+        cooks: true,
+        ability: None,
     });
     assert!(!heated.is_cold(pos, &defs));
 }
@@ -274,6 +276,8 @@ fn a_campfire_in_range_negates_cold() {
         seek_tiles: 10,
         until: HeatSource::FOREVER,
         size: [1, 1],
+        cooks: true,
+        ability: None,
     });
     assert!(w.is_heated(pos));
     let mut unheated = cold_test_world(&defs, 0, pos);

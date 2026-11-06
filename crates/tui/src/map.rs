@@ -45,6 +45,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use fn_sim::bending::AbilityId;
 use fn_sim::building::BuildingId;
 use fn_sim::defs::{BiomeId, ResourceId};
 use fn_sim::geom::Footprint;
@@ -87,6 +88,8 @@ const HIGHLIGHTS: &[(&str, Shape)] = &[
     ("glide", Shape::Target),
     ("metalbend", Shape::Target),
     ("air_scooter", Shape::Target),
+    ("earth_tent", Shape::Target),
+    ("air_shield", Shape::Target),
 ];
 
 /// The highlight shape of ability `id`, if it has one.
@@ -159,7 +162,9 @@ pub struct Overlays {
     /// Each ghost's own door tile, and whether it's free to use (#230). Keyed on position like
     /// `ghost`, so a drag's later stamps win where two doors would land on the same tile.
     door: BTreeMap<Pos, bool>,
-    flames: BTreeSet<Pos>,
+    /// Every lit flame or shelter, with which ability lit it (#362): `None` only for a save from
+    /// before the split, which can only have meant Hearthflame.
+    flames: BTreeMap<Pos, Option<AbilityId>>,
     wet: BTreeSet<Pos>,
     /// Tiles a bend changed lately: flash the nation's accent (#278).
     cast: BTreeSet<Pos>,
@@ -217,7 +222,7 @@ impl Overlays {
                 .collect(),
             ghost: ghost_tiles(ui.ghost_building(session), &ghosts),
             door: door_tiles(&ghosts),
-            flames: flames.iter().map(|f| f.pos).collect(),
+            flames: flames.iter().map(|f| (f.pos, f.ability)).collect(),
             wet: world.wet_tiles().into_iter().map(|(p, _)| p).collect(),
             cast: cast_highlights(session),
             aura: glows.iter().map(|g| g.pos).collect(),
@@ -283,6 +288,17 @@ fn door_tiles(ghosts: &[Placement]) -> BTreeMap<Pos, bool> {
 /// Whether `id` -- a finished building or a build site's building -- is a rail (#279).
 fn is_rail(defs: &fn_sim::Defs, id: BuildingId) -> bool {
     defs.building(id).rail.is_some()
+}
+
+/// Which `Thing` a lit flame or shelter draws, by the ability that lit it (#362): Earth Tent and
+/// Air Shield get their own look apart from the plain flame; everything else -- Hearthflame, and
+/// a save from before the split (`ability` is `None`) -- keeps it.
+fn flame_thing(ability: Option<AbilityId>, defs: &Defs) -> Thing {
+    match ability.map(|a| defs.ability(a).id.as_str()) {
+        Some("earth_tent") => Thing::EarthTent,
+        Some("air_shield") => Thing::AirShield,
+        _ => Thing::Flame,
+    }
 }
 
 /// The 4x4 glyph block for the Harmony Gate's site at its current stage (#242, `[gate_stage.*]`
@@ -390,6 +406,10 @@ pub enum Thing {
     Item(ItemId),
     /// A lit flame (a hearth, a forge) with nothing else drawn on it.
     Flame,
+    /// Earth's Earth Tent, lit (#362): a shelter apart from `Flame`.
+    EarthTent,
+    /// Air's Air Shield, lit (#362): a shelter apart from `Flame`.
+    AirShield,
     /// A resource an orchard planted that hasn't grown back yet.
     Sapling,
     /// A resource resting after being harvested, greyed until it regrows.
@@ -489,8 +509,8 @@ pub fn cell_look(
         }
     } else if let Some(stack) = over.ground.get(&pos).copied().or_else(|| world.stored_at(pos)) {
         Thing::Item(stack.item)
-    } else if over.flames.contains(&pos) {
-        Thing::Flame
+    } else if let Some(&ability) = over.flames.get(&pos) {
+        flame_thing(ability, defs)
     } else if let Some(r) = tile.resource {
         if world.is_sapling(pos) {
             // Planted by an orchard and not yet grown: a sapling, not a resting tree.
@@ -650,6 +670,14 @@ fn thing_look(
         Thing::Flame => {
             let f = &g.overlay.flame;
             (f.glyph(ascii), f.fg)
+        }
+        Thing::EarthTent => {
+            let o = &g.overlay.earth_tent;
+            (o.glyph(ascii), o.fg)
+        }
+        Thing::AirShield => {
+            let o = &g.overlay.air_shield;
+            (o.glyph(ascii), o.fg)
         }
         Thing::Sapling => {
             let s = &g.overlay.sapling;
@@ -1189,5 +1217,48 @@ mod tests {
             style_cell(&door_look, &s.defs, &palette).style.add_modifier,
             "door at {door_pos:?}"
         );
+    }
+
+    /// Earth Tent draws its own glyph apart from a plain flame's (#362): the AC's "each shelter
+    /// has a glyph" is `flame_thing` picking `Thing::EarthTent` for it instead of `Thing::Flame`.
+    #[test]
+    fn a_lit_earth_tent_draws_its_own_glyph_not_a_plain_flames() {
+        use fn_sim::Nation;
+        let mut s = crate::new_session(2, Nation::Earth);
+        let tech = s.defs.tech_id("earth_shaping").unwrap();
+        s.apply(Command::SetResearch { tech }).unwrap();
+        for _ in 0..60_000 {
+            if s.world.research().is_known(tech) {
+                break;
+            }
+            s.world.tick(&s.defs);
+        }
+        assert!(s.world.research().is_known(tech), "researched");
+
+        let pos = s.world.units[0].pos;
+        s.world.units[0].chi = s.defs.chi.max;
+        let ability = s.defs.ability_id("earth_tent").unwrap();
+        s.apply(Command::Bend { ability, pos }).expect("a unit's own tile validates");
+        for _ in 0..20_000 {
+            s.world.tick(&s.defs);
+            if s.world.is_lit(pos) {
+                break;
+            }
+        }
+        assert!(s.world.is_lit(pos), "the tent should finish raising");
+        // Off the tent's own tile, so the unit standing there doesn't outrank its glyph
+        // (`cell_look`'s own precedence: a unit draws over a lit flame or shelter).
+        s.world.units[0].pos = Pos::new(pos.x + 3, pos.y);
+
+        let mut ui = UiState::new(&s, (120, 40));
+        ui.cursor = Pos::new(pos.x + 10, pos.y + 10);
+        let palette = Palette::new(&s.defs, Nation::Earth, ColorDepth::TrueColor, false);
+        let over = Overlays::gather(&s, &ui);
+        let look = cell_look(&s, &ui, &palette, &over, pos).expect("on the map");
+        assert_eq!(look.thing, Thing::EarthTent);
+        let (glyph, fg, _) = thing_look(&look.thing, &s.defs, &palette, [0, 0, 0]);
+        assert_eq!(glyph, palette.glyphs.overlay.earth_tent.glyph);
+        assert_eq!(fg, palette.glyphs.overlay.earth_tent.fg);
+        assert_ne!(glyph, palette.glyphs.overlay.flame.glyph, "apart from a plain flame's glyph");
     }
 }

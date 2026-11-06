@@ -1,7 +1,7 @@
 //! What is under the cursor: the lines of the Cursor section (the terminal UI).
 
 use fn_sim::world::PlotStage;
-use fn_sim::{Pos, World};
+use fn_sim::{Defs, Pos, World};
 
 use crate::build;
 use crate::session::Session;
@@ -36,11 +36,18 @@ fn clock(secs: f32) -> String {
     format!("{}m {:02}s", secs / 60, secs % 60)
 }
 
-/// "Lit: 12m 03s left" for a flame on `tile`, or "Wet: sprouts in 3m 20s" for a watered one.
-/// `None` for anything else.
-pub fn bending_status_line(world: &World, tile: Pos) -> Option<String> {
+/// "Lit: 12m 03s left" for a flame on `tile`, "Earth Tent: 12m 03s left" for a shelter (#362, by
+/// the ability that lit it, same as the TUI's own glyph for it), or "Wet: sprouts in 3m 20s" for
+/// a watered one. `None` for anything else.
+pub fn bending_status_line(world: &World, defs: &Defs, tile: Pos) -> Option<String> {
     if let Some(flame) = world.flames().into_iter().find(|f| f.pos == tile) {
-        return Some(format!("Lit: {} left", clock(flame.seconds_left)));
+        // Hearthflame, and a save from before the split (`ability` is `None`), keep today's
+        // generic wording; a shelter (Earth Tent, Air Shield) names itself instead.
+        let label = match flame.ability.map(|a| defs.ability(a)) {
+            Some(def) if def.id != "hearthflame" => def.name.as_str(),
+            _ => "Lit",
+        };
+        return Some(format!("{label}: {} left", clock(flame.seconds_left)));
     }
     let (_, left) = world.wet_tiles().into_iter().find(|(p, _)| *p == tile)?;
     Some(format!("Wet: sprouts in {}", clock(left)))
@@ -144,7 +151,7 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
         }
         // A lit flame or a wet patch (#72): the result of a bend, so hovering explains it
         // (pillar 4, "readable simulation").
-        if let Some(status) = bending_status_line(world, tile) {
+        if let Some(status) = bending_status_line(world, defs, tile) {
             lines.push(Line::Detail(status));
         }
         return Some(lines);
@@ -442,9 +449,40 @@ mod tests {
             }
         }
         assert!(s.world.is_lit(pos), "the flame should finish lighting");
-        let line = bending_status_line(&s.world, pos).expect("a lit flame");
+        let line = bending_status_line(&s.world, &s.defs, pos).expect("a lit flame");
         assert!(line.starts_with("Lit:"), "{line}");
-        assert_eq!(bending_status_line(&s.world, Pos::new(-1, -1)), None);
+        assert_eq!(bending_status_line(&s.world, &s.defs, Pos::new(-1, -1)), None);
+    }
+
+    /// A shelter (Earth Tent, Air Shield, #362) reads like a flame's line, but names itself
+    /// instead of "Lit": "Earth Tent: 12m 00s left", not "Lit: 12m 00s left".
+    #[test]
+    fn bending_status_line_names_a_lit_shelter_by_its_own_ability() {
+        let mut s = Session::new(2, Nation::Earth, 48, 32);
+        let tech = s.defs.tech_id("earth_shaping").unwrap();
+        s.apply(Command::SetResearch { tech }).unwrap();
+        for _ in 0..60_000 {
+            if s.world.research().is_known(tech) {
+                break;
+            }
+            s.tick();
+        }
+        assert!(s.world.research().is_known(tech), "researched");
+
+        let pos = s.world.units[0].pos;
+        s.world.units[0].chi = s.defs.chi.max;
+        let ability = s.defs.ability_id("earth_tent").unwrap();
+        s.apply(Command::Bend { ability, pos }).expect("a unit's own tile validates");
+        for _ in 0..20_000 {
+            s.tick();
+            if s.world.is_lit(pos) {
+                break;
+            }
+        }
+        assert!(s.world.is_lit(pos), "the tent should finish raising");
+        let line = bending_status_line(&s.world, &s.defs, pos).expect("a lit shelter");
+        assert!(line.starts_with("Earth Tent:"), "{line}");
+        assert!(!line.starts_with("Lit:"), "{line}");
     }
 
     /// A resting wild plant names its regrow time and, once a pick has left it tired, its

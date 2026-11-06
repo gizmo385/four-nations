@@ -252,6 +252,10 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     // Brick standing in for stone (#371): how much of each build site's cost was paid by a
     // stand-in item rather than its own, on `Site`.
     "stand_in_delivered",
+    // Shelters (#362): whether a heat source cooks, and which ability lit it (so the TUI can
+    // tell Earth Tent and Air Shield apart from a flame), on `HeatSource`.
+    "cooks",
+    "ability",
 ];
 
 /// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239

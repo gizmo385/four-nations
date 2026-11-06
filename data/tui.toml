@@ -372,6 +372,10 @@ sapling = { glyph = "ψ", ascii = "y", fg = [150, 210, 110] }
 # A farm plot (#198), drawn in place of its building glyph while growing or ripe.
 plot_growing = { glyph = "·", ascii = ",", fg = [120, 200, 90] }
 plot_ripe = { glyph = "✶", ascii = "*", fg = [230, 200, 50] }
+# Earth Tent and Air Shield (#362): shelters, not flames, so each gets its own look apart from
+# the plain `flame` above.
+earth_tent = { glyph = "▲", ascii = "t", fg = [168, 140, 90] }
+air_shield = { glyph = "○", ascii = "s", fg = [210, 230, 235] }
 
 # The embark screen's overview (#290, docs/design/embark.md, "What a cell shows"): presentation
 # thresholds for the zoomed-out block classifier, not game rules, so they live here rather than
