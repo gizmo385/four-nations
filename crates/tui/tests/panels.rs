@@ -4,7 +4,7 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fn_sim::world::Command;
-use fn_sim::{Nation, Pos};
+use fn_sim::{Nation, Pos, Terrain};
 use fn_tui::app::App;
 use fn_tui::color::{ColorDepth, Palette};
 use fn_tui::frame::{render_app, to_text};
@@ -46,7 +46,9 @@ fn ids(app: &App) -> Vec<fn_sim::world::UnitId> {
     app.session.world.units.iter().map(|u| u.id).collect()
 }
 
-/// A Fire game where the first settler has bent a few times, so the log has lines.
+/// A Fire game where the first settler has bent a few times, so the log has lines, and one of
+/// those bends has failed, so there is a live toast too (#417: a finished bend is routine and
+/// log-only now, so the tests that need a live toast have to earn one with a failure).
 ///
 /// Seed 3 because it has enough fuel around the start for a log long enough to scroll (seed 1
 /// did until #225 reshuffled the map; the log golden is named for the seed).
@@ -67,14 +69,21 @@ fn bending_game() -> App {
         }
     }
     assert!(designated > 3, "the settler should have fire to light");
+    // The settler's own tile turns to rock before its channel finishes, so that one designation
+    // fails instead of finishing (the same technique `fn_ui::alerts`'s own tests use): no
+    // walking is involved, since it's already standing there, so this fails at the channel's
+    // own validation rather than being quietly abandoned for an unreachable target.
+    s.world.map[from].terrain = Terrain::Mountain;
+    s.world.map_changed();
     let mut app = App::new(s, SIZE);
     for _ in 0..200 {
         app.play(&[keys::Step::Tick(100)]);
-        if app.ui.alerts.history().len() >= 3 {
+        if app.ui.alerts.history().len() >= 3 && !app.ui.alerts.toasts().is_empty() {
             break;
         }
     }
     assert!(app.ui.alerts.history().len() >= 3, "bending should have been logged");
+    assert!(!app.ui.alerts.toasts().is_empty(), "the failed bend should toast");
     app
 }
 
@@ -584,13 +593,34 @@ fn the_tool_heading_wears_the_active_tools_tint() {
 // Alerts and the message log
 // ---------------------------------------------------------------------------------------------
 
+/// A failed bend becomes an alert in the side panel (and the log); a finished one is routine
+/// (#417), so it's only ever a line in the log, never a toast.
 #[test]
-fn a_bend_becomes_an_alert_in_the_side_panel_and_a_line_in_the_log() {
+fn a_failed_bend_becomes_an_alert_but_a_finished_one_is_log_only() {
     let mut a = bending_game();
     let frame = text(&mut a, SIZE);
-    let first = a.ui.alerts.history()[0].text.clone();
+    let failed =
+        a.ui.alerts
+            .history()
+            .iter()
+            .find(|e| e.text.contains("failed"))
+            .expect("bending_game designated a failure")
+            .text
+            .clone();
+    let done =
+        a.ui.alerts
+            .history()
+            .iter()
+            .find(|e| !e.text.contains("failed"))
+            .expect("bending_game designated plenty that finished")
+            .text
+            .clone();
     assert!(frame.contains("ALERTS"), "{frame}");
-    assert!(frame.contains(&first[..first.len().min(26)]), "{first}\n{frame}");
+    assert!(frame.contains(&failed[..failed.len().min(26)]), "{failed}\n{frame}");
+    assert!(
+        !frame.contains(&done[..done.len().min(26)]),
+        "a finished bend is log-only: {done}\n{frame}"
+    );
 
     run(&mut a, "l");
     assert_eq!(a.ui.screen, Some(Screen::Log));

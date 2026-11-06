@@ -7,6 +7,7 @@
 │                                                                                      ││ Research: none set       [T] │
 │                                                                                      ││ Gate 0/9 · 10 people     [G] │
 │                                                                                      │├─ ALERTS ─────────────── [L] ─┤
+│                                                                                      ││ Winter in 3 minutes: 0 food… │
 │                                                                                      ││ Winter. Wild plants rest,…   │
 │                                                                                      ││ First frost: 69 wild plants… │
 │                                                                                      ││ Chi to spare, no bend…       │
@@ -15,7 +16,6 @@
 │                                                                                      ││ Plains (94, 64)              │
 │                                                                                      ││ Elevation 152                │
 │                                                                                      ││ Warm climate: mild in winter │
-│                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
