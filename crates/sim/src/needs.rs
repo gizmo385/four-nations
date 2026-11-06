@@ -221,6 +221,8 @@ pub enum DeathCause {
     Exhaustion,
     /// Exposure: asleep, unsheltered, on cold land (`World::apply_exposure`).
     Exposure,
+    /// Injury: hurt finishing a heavy pick (`World::maybe_injure`, issue #388).
+    Injury,
 }
 
 /// A unit's current meters. Each is in `[0, max]`; `health` has its own max.

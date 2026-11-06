@@ -57,15 +57,16 @@ pub fn bends_cell(bends: u32, threshold: Option<u32>) -> String {
 
 /// "Idle" with nothing designated for anyone at all, else why this particular unit has nothing
 /// to do right now (`World::idle_reason`, #337): "Idle: no reachable job", "Idle: out of chi",
-/// "Idle: stockpile full". A unit genuinely idle for a moment too brief to explain (`None`, the
-/// odd tick between a job becoming claimable and `claim_job` actually taking it) reads the same
-/// bare "Idle".
+/// "Idle: stockpile full", "Idle: too hurt for heavy work" (#388). A unit genuinely idle for a
+/// moment too brief to explain (`None`, the odd tick between a job becoming claimable and
+/// `claim_job` actually taking it) reads the same bare "Idle".
 fn describe_idle(world: &World, defs: &Defs, unit: &Unit) -> String {
     match world.idle_reason(unit.id, defs) {
         None | Some(IdleReason::NoWork) => "Idle".to_owned(),
         Some(IdleReason::Unreachable) => "Idle: no reachable job".to_owned(),
         Some(IdleReason::OutOfChi) => "Idle: out of chi".to_owned(),
         Some(IdleReason::StockpileFull) => "Idle: stockpile full".to_owned(),
+        Some(IdleReason::TooHurt) => "Idle: too hurt for heavy work".to_owned(),
     }
 }
 

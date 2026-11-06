@@ -943,6 +943,38 @@ fn idle_reason_flags_a_full_stockpile_blocking_a_haul() {
     assert_eq!(w.idle_reason(UnitId(0), &defs), Some(IdleReason::StockpileFull));
 }
 
+/// A unit below `fit_for_heavy` (issue #388) doesn't claim a harvest marked `risk`: a hurt
+/// quarrier at 70 health stays idle beside an open quarry job, and reads `TooHurt` once it's
+/// the only open work (#337).
+#[test]
+fn a_unit_at_70_health_skips_a_quarry_job_and_reports_too_hurt() {
+    let (mut w, defs) = setup(Nation::Earth, &["....", "..s.", "...."], &[at(1, 1)]);
+    w.difficulty = Some("normal".into());
+    w.units[0].needs.health = 70.0;
+    w.designate_harvest(at(2, 1), &defs).unwrap();
+    for _ in 0..50 {
+        w.tick(&defs);
+    }
+    assert_eq!(w.units[0].task(), None, "too hurt to claim the only open job");
+    assert_eq!(w.jobs()[0].claimed_by, None);
+    assert_eq!(w.idle_reason(UnitId(0), &defs), Some(IdleReason::TooHurt));
+
+    // Once healed, the same unit claims it.
+    w.units[0].needs.health = 80.0;
+    run_until(&mut w, &defs, 2000, |w| w.map[at(2, 1)].resource.is_none());
+}
+
+/// With no difficulty preset (harm off), a harvest marked `risk` claims exactly as it did
+/// before #388, however low the unit's health.
+#[test]
+fn a_risky_harvest_is_claimed_normally_with_no_difficulty_preset() {
+    let (mut w, defs) = setup(Nation::Earth, &["....", "..s.", "...."], &[at(1, 1)]);
+    w.units[0].needs.health = 1.0;
+    w.designate_harvest(at(2, 1), &defs).unwrap();
+    w.tick(&defs);
+    assert_eq!(w.jobs()[0].claimed_by, Some(UnitId(0)));
+}
+
 /// A harvest stranded on an island no unit can ever reach reads `Unreachable`.
 #[test]
 fn idle_reason_flags_an_unreachable_harvest() {

@@ -9,9 +9,8 @@
 #                    this (`World::apply_exposure`). The need damage `data/needs.toml`'s
 #                    `health.depleted_damage_per_minute` already applies isn't floored: a death
 #                    still needs an empty need unless `harm_kills` is on.
-# - fit_for_heavy:   below this health, a unit claims no harvest marked `risk` (issue #388;
-#                    nothing reads this yet, but it's validated now so #388 lands with no data
-#                    change).
+# - fit_for_heavy:   below this health, a unit claims no harvest marked `risk` (issue #388,
+#                    `World::fit_for_heavy_work`).
 #
 # [exposure]:
 # - damage_per_minute: health lost a minute, times the preset's `harm`, while a unit is asleep
@@ -20,6 +19,12 @@
 #                      Inner Fire, an igloo, Earth Tent or Air Shield -- already rules a tile out
 #                      of `is_cold`, so this only ever matters for a plain bed or no shelter at
 #                      all).
+#
+# [injury] (issue #388, docs/design/harm.md "Injury: heavy work"):
+# - damage: health lost on a hit, times the preset's `harm`, subject to `[settings] floor`. The
+#           chance of a hit is a harvest's own `risk` (data/jobs.toml) divided by its `modifier`
+#           (earthworks for stone and ore; no modifier means divided by 1), rolled once per
+#           finished pick from `rng::stream(seed, "harm.injury")`.
 
 [settings]
 floor = 10.0
@@ -27,3 +32,6 @@ fit_for_heavy = 80.0
 
 [exposure]
 damage_per_minute = 4.0
+
+[injury]
+damage = 40.0

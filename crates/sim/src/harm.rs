@@ -1,7 +1,8 @@
 //! Harm settings shared by every source of damage beyond neglect (`data/harm.toml`,
-//! `docs/design/harm.md`, issue #387): the floor harm respects unless the difficulty preset's
-//! `harm_kills` is on, the health below which a unit is too hurt for heavy work (`fit_for_heavy`,
-//! read by #388, not yet by anything here), and exposure's own rate (`world/harm.rs`).
+//! `docs/design/harm.md`, issues #387 and #388): the floor harm respects unless the difficulty
+//! preset's `harm_kills` is on, the health below which a unit is too hurt for heavy work
+//! (`fit_for_heavy`, `World::fit_for_heavy_work`), exposure's own rate and injury's own damage
+//! (`world/harm.rs`, `world/injury.rs`).
 //!
 //! Read by `Defs::with_harm`, the way `seasons.toml` is read by `with_seasons`: a separate step
 //! from `from_toml`, so data without one (most tests) simply has `HarmDef::default`. Nothing acts
@@ -18,8 +19,8 @@ pub struct HarmSettings {
     /// With the difficulty preset's `harm_kills` off, harm never takes a unit's health below
     /// this (`World::apply_exposure`). Need damage (`Needs::tick_at_cold_healing`) isn't floored.
     pub floor: f32,
-    /// Below this health, a unit claims no harvest marked `risk` (issue #388; unused until
-    /// then).
+    /// Below this health, a unit claims no harvest marked `risk` (issue #388,
+    /// `World::fit_for_heavy_work`).
     pub fit_for_heavy: f32,
 }
 
@@ -32,6 +33,15 @@ pub struct ExposureDef {
     pub damage_per_minute: f32,
 }
 
+/// `[injury]` of `data/harm.toml` (issue #388).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InjuryDef {
+    /// Health lost on a hit, times the difficulty preset's `harm`, subject to `HarmSettings`'s
+    /// floor (`World::maybe_injure`). The chance of a hit is `data/jobs.toml`'s `risk` on the
+    /// harvest divided by the harvest's own `modifier`.
+    pub damage: f32,
+}
+
 /// Everything in `data/harm.toml`, resolved and validated. A default (unloaded) value matches
 /// the bundled starting values; nothing reads it unless a difficulty preset's `harm` knob is
 /// above 0, and the bundled data is always loaded by `Defs::bundled` before any preset can be
@@ -40,6 +50,7 @@ pub struct ExposureDef {
 pub struct HarmDef {
     pub settings: HarmSettings,
     pub exposure: ExposureDef,
+    pub injury: InjuryDef,
 }
 
 impl Default for HarmDef {
@@ -47,6 +58,7 @@ impl Default for HarmDef {
         Self {
             settings: HarmSettings { floor: 10.0, fit_for_heavy: 80.0 },
             exposure: ExposureDef { damage_per_minute: 4.0 },
+            injury: InjuryDef { damage: 40.0 },
         }
     }
 }
@@ -56,6 +68,7 @@ impl Default for HarmDef {
 struct HarmFile {
     settings: RawSettings,
     exposure: RawExposure,
+    injury: RawInjury,
 }
 
 #[derive(Deserialize)]
@@ -69,6 +82,12 @@ struct RawSettings {
 #[serde(deny_unknown_fields)]
 struct RawExposure {
     damage_per_minute: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawInjury {
+    damage: f32,
 }
 
 impl HarmFile {
@@ -88,9 +107,14 @@ impl HarmFile {
         if !(e.damage_per_minute.is_finite() && e.damage_per_minute > 0.0) {
             return err("exposure.damage_per_minute must be a positive number".into());
         }
+        let j = &self.injury;
+        if !(j.damage.is_finite() && j.damage > 0.0) {
+            return err("injury.damage must be a positive number".into());
+        }
         Ok(HarmDef {
             settings: HarmSettings { floor: s.floor, fit_for_heavy: s.fit_for_heavy },
             exposure: ExposureDef { damage_per_minute: e.damage_per_minute },
+            injury: InjuryDef { damage: j.damage },
         })
     }
 }
@@ -136,6 +160,7 @@ mod tests {
         assert_eq!(defs.harm.settings.floor, 10.0);
         assert_eq!(defs.harm.settings.fit_for_heavy, 80.0);
         assert_eq!(defs.harm.exposure.damage_per_minute, 4.0);
+        assert_eq!(defs.harm.injury.damage, 40.0);
     }
 
     #[test]
@@ -144,6 +169,7 @@ mod tests {
         assert_eq!(defs.harm.settings.floor, 10.0);
         assert_eq!(defs.harm.settings.fit_for_heavy, 80.0);
         assert_eq!(defs.harm.exposure.damage_per_minute, 4.0);
+        assert_eq!(defs.harm.injury.damage, 40.0);
     }
 
     #[test]
@@ -172,5 +198,12 @@ mod tests {
         let bad = HARM.replacen("floor = 10.0", "flooor = 10.0", 1);
         let err = defs_without_harm().with_harm(&bad).unwrap_err();
         assert!(err.0.contains("flooor"), "{err}");
+    }
+
+    #[test]
+    fn non_positive_injury_damage_is_rejected() {
+        let bad = HARM.replacen("damage = 40.0", "damage = 0.0", 1);
+        let err = defs_without_harm().with_harm(&bad).unwrap_err();
+        assert!(err.0.contains("injury.damage"), "{err}");
     }
 }

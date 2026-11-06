@@ -266,6 +266,8 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     // logged the sleeping-rough alert this sleep, on `Unit`.
     "last_harm",
     "exposed_alerted",
+    // Injury (#388): the stream injury rolls draw from, on `World`.
+    "injury_rng",
 ];
 
 /// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239
