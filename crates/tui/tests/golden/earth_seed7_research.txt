@@ -1,17 +1,17 @@
 ┏──────────────────────────────────── ◆ RESEARCH ◆ ────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
 │ TIER 1               TIER 2               TIER 3               TIER 4               ▸││ ▶ Running x1           00:00 │
-│  ◇ Fire Making        · Pottery           ▸◆ Masonry            · Cartography        │├─ PEOPLE ───────────────── 6 ─┤
-│   Available   25 pts   Locked      60 pts   Queued     120 pts   Locked     250 pts  ││ Idle 6                   [N] │
-│   Campfire             Needs: Fire Making   Construction x1.15   Needs: Writing      │├─ RESEARCH ───────────────────┤
-│                                                                                      ││ Shelter +2           3.0/min │
-│  ◆ Shelter            ◆ Carpentry          · Writing            · Earthen Walls      ││ ░░░░░░░░░░   0% 0/25 pts     │
-│   Queued      25 pts   Queued      60 pts   Locked     120 pts   Locked     120 pts  │├─ ENDEAVOR ───────────── 0/9 ─┤
-│   Prerequisite for …   Construction x1.1…   Needs: Pottery       Needs: Earth Shap…  ││ Next: 10 more people     [G] │
-│                                                                                      │├─ CURSOR ────────── (94, 64) ─┤
-│  ◇ Fishing            · Herbalism          · Tunneling          · Seismic Sense      ││ Tyro                         │
-│   Available   25 pts   Locked     120 pts   Locked     120 pts   Locked     250 pts  ││ Earth Kingdom - Idle         │
-│   Fishing Spot         Needs: Farming       Needs: Earth Shap…   Needs: Tunneling    ││ Carrying: nothing - Bends: 0 │
-│                                                                                      ││ Press Enter to select        │
+│  ◇ Fire Making        · Pottery           ▸◆ Masonry            · Cartography        │├─ SETTLEMENT ─────────── [N] ─┤
+│   Available   25 pts   Locked      60 pts   Queued     120 pts   Locked     250 pts  ││ People 6              Idle 6 │
+│   Campfire             Needs: Fire Making   Construction x1.15   Needs: Writing      ││ Food 0 · 0/head              │
+│                                                                                      ││ Shelter ░░░░░░░░░░   0%      │
+│  ◆ Shelter            ◆ Carpentry          · Writing            · Earthen Walls      ││ Gate 0/9 · 10 people     [G] │
+│   Queued      25 pts   Queued      60 pts   Locked     120 pts   Locked     120 pts  │├─ CURSOR ────────── (94, 64) ─┤
+│   Prerequisite for …   Construction x1.1…   Needs: Pottery       Needs: Earth Shap…  ││ Tyro                         │
+│                                                                                      ││ Earth Kingdom - Idle         │
+│  ◇ Fishing            · Herbalism          · Tunneling          · Seismic Sense      ││ Carrying: nothing - Bends: 0 │
+│   Available   25 pts   Locked     120 pts   Locked     120 pts   Locked     250 pts  ││ Press Enter to select        │
+│   Fishing Spot         Needs: Farming       Needs: Earth Shap…   Needs: Tunneling    ││                              │
+│                                                                                      ││                              │
 │  ✓ Stoneworking       ◇ Prospecting                                                  ││                              │
 │   Known       25 pts   Available  250 pts                                            ││                              │
 │   Stone Outcrop, Bo…   Gold Vein, Gold S…                                            ││                              │

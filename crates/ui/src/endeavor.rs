@@ -3,7 +3,7 @@
 //! for its events. Reads `World::endeavor_signs` and `World::endeavor` and words them; which signs
 //! there are, and when the endeavor is Ready, are the sim's.
 
-use fn_sim::endeavor::{SignDef, SignGroup, SignKind, Tally};
+use fn_sim::endeavor::{SignDef, SignGroup, SignKind};
 use fn_sim::world::{
     AvatarLeaveReason, EndeavorEvent, EndeavorEventKind, EndeavorState, SignProgress,
 };
@@ -226,57 +226,13 @@ fn building_hint(left: &[&str], hint: Option<&str>) -> Option<String> {
     }
 }
 
-/// What the branch sign still needs: the tech's name when one is left, else how many.
-fn branch_missing(left: &[&str]) -> String {
-    match left {
-        [one] => (*one).to_owned(),
-        _ => count(left.len() as u32, "more tech", "more techs"),
-    }
-}
-
-/// "1 more person" or "3 more people": `n` and the right noun.
-fn count(n: u32, one: &str, many: &str) -> String {
-    format!("{n} {}", if n == 1 { one } else { many })
-}
-
-/// What a sign still needs, in a few words: "2 more people", "Metalbending", "80 stone".
-pub fn missing(sign: &SignDef, p: &SignProgress, world: &World, defs: &Defs) -> String {
-    let n = p.target.saturating_sub(p.value);
-    let items = |items: &[fn_sim::jobs::ItemId]| match items {
-        [one] => defs.item(*one).name.to_lowercase(),
-        many if many.iter().all(|&i| defs.food_of(i).is_some()) => "food".to_owned(),
-        // A sign whose extra items are all stand-ins for the first (brick for stone, issue
-        // #371) is still named for that one item: "200 stone", not the sign's own name.
-        [primary, rest @ ..] if rest.iter().all(|&i| defs.stands_for(i) == Some(*primary)) => {
-            defs.item(*primary).name.to_lowercase()
-        }
-        _ => sign.name.to_lowercase(),
-    };
-    match &sign.kind {
-        SignKind::Population => count(n, "more person", "more people"),
-        SignKind::BedsForAll => count(n, "more bed", "more beds"),
-        SignKind::EveryBuilding { .. } => {
-            count(n, "more kind of building", "more kinds of building")
-        }
-        SignKind::BranchComplete => branch_missing(&missing_techs(world, defs)),
-        SignKind::Stored { items: list } | SignKind::Tally(Tally::Harvested(list)) => {
-            format!("{n} {}", items(list))
-        }
-        SignKind::Tally(Tally::ScrollsRead) => count(n, "more scroll read", "more scrolls read"),
-        // Also says how to start a bend (#382, `masters_hint`), so the side panel's own "Next:"
-        // line still says it once every earlier sign is met and this is the one left; the
-        // Endeavor screen's hint row carries the fuller wording.
-        SignKind::Masters { .. } => {
-            let label = count(n, "more master", "more masters");
-            let key = Tool::Bend.key();
-            match closest_non_masters(world, defs).first() {
-                Some((name, bends, threshold)) => {
-                    format!("{label} ({name} {bends}/{threshold}) - bend ({key})")
-                }
-                None => format!("{label} - bend ({key})"),
-            }
-        }
-    }
+/// What a sign still needs, as a count and the data's own short noun ("2 beds", "150 food",
+/// `SignDef::short`, #416, docs/design/side-panel-v2.md "Zone 1"): the side panel's compact Gate
+/// row and its `next` list both use this instead of a sentence, so the row ("Gate 8/9 · 3
+/// scrolls [G]") never needs to wrap. The fuller wording (which techs or masters are closest)
+/// stays on the Endeavor screen's own hint (`hint`, `masters_line`).
+pub fn missing(sign: &SignDef, p: &SignProgress) -> String {
+    format!("{} {}", p.target.saturating_sub(p.value), sign.short)
 }
 
 /// A sign's label: its data name, except that the branch sign names the nation's branch.
@@ -357,12 +313,7 @@ pub fn endeavor_status(session: &Session) -> Option<EndeavorStatus> {
     let next = if ready {
         Vec::new()
     } else {
-        signs
-            .iter()
-            .filter(|(_, p)| !p.met)
-            .take(NEXT_SHOWN)
-            .map(|(s, p)| missing(s, p, world, defs))
-            .collect()
+        signs.iter().filter(|(_, p)| !p.met).take(NEXT_SHOWN).map(|(s, p)| missing(s, p)).collect()
     };
     Some(EndeavorStatus {
         name: defs.endeavor.name.clone(),
@@ -472,8 +423,6 @@ mod tests {
         assert_eq!(branch_hint(&["A", "B"], data), Some("A, B left".into()));
         assert_eq!(branch_hint(&["A", "B", "C"], data), Some("Research every tech".into()));
         assert_eq!(branch_hint(&[], None), None);
-        assert_eq!(branch_missing(&["Metalbending"]), "Metalbending");
-        assert_eq!(branch_missing(&["A", "B"]), "2 more techs");
         // A new Earth game knows none of its branch yet.
         let s = session(Nation::Earth);
         let left = missing_techs(&s.world, &s.defs);
@@ -515,30 +464,28 @@ mod tests {
         assert_eq!(status.name, "The Harmony Gate");
         assert_eq!(status.next.len(), NEXT_SHOWN);
         let people = 16 - s.world.units.len();
-        assert_eq!(status.next[0], format!("{people} more people"));
-        assert_eq!(status.next[1], format!("{} more beds", s.world.units.len()));
-        assert_eq!(status.next[2], "9 more kinds of building");
+        assert_eq!(status.next[0], format!("{people} people"));
+        assert_eq!(status.next[1], format!("{} beds", s.world.units.len()));
+        assert_eq!(status.next[2], "9 kinds");
         assert_eq!(status.line, "Signs met - G: open");
     }
 
+    /// `missing` (#416): a count and the data's own short noun, the same for every kind -- the
+    /// fuller wording (which techs or masters are closest) is the Endeavor screen's own hint
+    /// (`hint`, `masters_line`), not this compact phrase.
     #[test]
-    fn missing_things_are_worded_by_kind() {
+    fn missing_is_a_count_and_the_signs_own_short_noun() {
         let s = session(Nation::Earth);
         let (w, d) = (&s.world, &s.defs);
         let text = |id: &str| {
             let (sign, p) = signs(w, d).into_iter().find(|(s, _)| s.id == id).unwrap();
-            missing(sign, &p, w, d)
+            missing(sign, &p)
         };
         assert_eq!(text("food"), "150 food");
         assert_eq!(text("stone"), "200 stone");
-        assert_eq!(text("ore"), "40 gold ore");
-        // A fresh game: nobody has bent yet, so the closest is whoever is first, at 0/25
-        // (`EndeavorDef::master_threshold` reads the bundled sign). The suffix names the real
-        // Bend tool key (#382), so a player reading only the side panel still learns how to
-        // start.
-        let closest = &w.units[0].name;
-        assert_eq!(text("masters"), format!("3 more masters ({closest} 0/25) - bend (B)"));
-        assert_eq!(text("scrolls"), "3 more scrolls read");
+        assert_eq!(text("ore"), "40 ore");
+        assert_eq!(text("masters"), "3 masters");
+        assert_eq!(text("scrolls"), "3 scrolls");
     }
 
     /// `closest_non_masters` and `current_masters` on a fresh game: nobody has bent yet, so

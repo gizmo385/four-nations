@@ -73,7 +73,12 @@ fn a_full_script_starts_a_game_from_the_title_screen_and_plays_it() {
     assert_eq!(shell.nation(), Nation::Earth);
     assert!(matches!(shell.mode, fn_tui::shell::Mode::Game(_)));
     assert!(text.contains("EARTH KINGDOM"), "{text}");
-    assert!(text.contains("01:00"), "<tick 600> is a minute:\n{text}");
+    // The title screen's own default preset has seasons on, so the panel's header shows the
+    // season instead of the elapsed clock (#416, owner decision 4 on #414); it moved to the
+    // Nation screen's header line.
+    press(&mut shell, KeyCode::Char('n'));
+    let nation_text = frame(&mut shell);
+    assert!(nation_text.contains("01:00"), "<tick 600> is a minute:\n{nation_text}");
 }
 
 /// `Enter` on the seed step opens embark instead of starting the game (#290); `Esc` at its

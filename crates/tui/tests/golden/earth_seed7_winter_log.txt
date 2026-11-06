@@ -1,16 +1,11 @@
 ┏────────────────────────────────── ◆ MESSAGE LOG ◆ ───────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
-│ 42:00 Winter in 3 minutes: 0 food for 6 people.                                      ││ ▶ Running x1           45:00 │
-│ 45:00 Winter. Wild plants rest, and the cold tires people away from fires.           │├─ PEOPLE ───────────────── 6 ─┤
-│ 45:00 First frost: 69 wild plants died back.                                         ││ Idle 1  Eat 5                │
-│ 45:00 Chi to spare, no bend designated yet - press B on a tile a bender can work.    ││ Hungry 6                 [N] │
-│                                                                                      │├─ WINTER · Y1 ─── 15:00 left ─┤
-│                                                                                      ││ Food in stores    0 · 0/head │
-│                                                                                      ││ Winter here: mild            │
-│                                                                                      │├─ RESEARCH ───────────────────┤
-│                                                                                      ││ No target set        3.0/min │
-│                                                                                      ││ 10 pts banked                │
-│                                                                                      │├─ ENDEAVOR ───────────── 0/9 ─┤
-│                                                                                      ││ Next: 10 more people     [G] │
+│ 42:00 Winter in 3 minutes: 0 food for 6 people.                                      ││ ▶ x1    Winter Y1 15:00 left │
+│ 45:00 Winter. Wild plants rest, and the cold tires people away from fires.           │├─ SETTLEMENT ─────────── [N] ─┤
+│ 45:00 First frost: 69 wild plants died back.                                         ││ People 6              Idle 1 │
+│ 45:00 Chi to spare, no bend designated yet - press B on a tile a bender can work.    ││ Hungry 6                     │
+│                                                                                      ││ Food 0 · 0/head  mild        │
+│                                                                                      ││ Research: none set       [T] │
+│                                                                                      ││ Gate 0/9 · 10 people     [G] │
 │                                                                                      │├─ ALERTS ─────────────── [L] ─┤
 │                                                                                      ││ Winter. Wild plants rest,…   │
 │                                                                                      ││ First frost: 69 wild plants… │
@@ -20,6 +15,11 @@
 │                                                                                      ││ Plains (94, 64)              │
 │                                                                                      ││ Elevation 152                │
 │                                                                                      ││ Warm climate: mild in winter │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │

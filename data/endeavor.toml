@@ -13,6 +13,9 @@
 # - id:         unique; saves refer to signs by id, so renaming one forgets that it was met.
 # - group:      people, buildings, knowledge, stores, harvests or bending.
 # - name:       the sign's label.
+# - short:      a short noun for a count ("people", "scrolls"): the side panel's compact Gate row
+#               (#416, docs/design/side-panel-v2.md "Zone 1", `Gate 8/9 · 3 scrolls [G]`),
+#               paired with how many of the first unmet sign are still missing.
 # - kind:       what it counts, one of:
 #     population      living units;
 #     beds_for_all    beds against the population (no target: met when everyone has one);
@@ -85,6 +88,7 @@ description = "A great work with the Avatar. When every sign is met, word of the
 id = "population"
 group = "people"
 name = "Population"
+short = "people"
 kind = "population"
 target = 16
 hint = "Spare beds and food draw newcomers"
@@ -93,6 +97,7 @@ hint = "Spare beds and food draw newcomers"
 id = "beds"
 group = "people"
 name = "Everyone has a bed"
+short = "beds"
 kind = "beds_for_all"
 hint = "Build beds"
 
@@ -100,6 +105,7 @@ hint = "Build beds"
 id = "building_kinds"             # unchanged: saves refer to signs by id
 group = "buildings"
 name = "One of every building"
+short = "kinds"
 kind = "every_building"           # target: every non-endeavor building the nation can unlock
 spare = 1                         # today: Air 9, Water 9, Earth 9, Fire 10
 hint = "Raise something new"
@@ -108,6 +114,7 @@ hint = "Raise something new"
 id = "branch"
 group = "knowledge"
 name = "The nation's branch complete"
+short = "techs"
 kind = "branch_complete"
 hint = "Research your branch"
 
@@ -115,6 +122,7 @@ hint = "Research your branch"
 id = "food"
 group = "stores"
 name = "Food in stores"
+short = "food"
 kind = "stored"
 food = true
 target = 150
@@ -124,6 +132,7 @@ hint = "Stockpile food"
 id = "stone"
 group = "stores"
 name = "Stone in stores"
+short = "stone"
 kind = "stored"
 items = ["stone", "brick"]       # brick stands for stone one for one (#371, `stands_for`)
 target = 200
@@ -133,6 +142,7 @@ hint = "Quarry outcrops and foothill boulders (bricks count)"
 id = "ore"
 group = "harvests"
 name = "Ore mined"
+short = "ore"
 kind = "tally"
 tally = "harvested"
 items = ["gold_ore"]
@@ -143,6 +153,7 @@ hint = "Mine gold veins ($); tunnels yield more"
 id = "masters"
 group = "bending"
 name = "Bending masters (25 bends each)"
+short = "masters"
 kind = "masters"
 bends = 25
 target = 3
@@ -152,6 +163,7 @@ hint = "Each finished bend counts for whoever channels it"
 id = "scrolls"
 group = "bending"
 name = "Ancient scrolls read"
+short = "scrolls"
 kind = "tally"
 tally = "scrolls_read"
 target = 3

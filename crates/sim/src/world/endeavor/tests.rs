@@ -79,7 +79,7 @@ fn population_counts_living_units() {
     w.units.truncate(1);
     assert_eq!(progress(&w, &defs, "population").0, 1);
     let defs = defs_with(
-        "[[sign]]\nid = \"p\"\ngroup = \"people\"\nname = \"P\"\nkind = \"population\"\ntarget = 3\n",
+        "[[sign]]\nid = \"p\"\ngroup = \"people\"\nname = \"P\"\nshort = \"p\"\nkind = \"population\"\ntarget = 3\n",
     );
     let w = world(Nation::Earth, 3, &defs);
     assert_eq!(progress(&w, &defs, "p"), (3, 3, true));
@@ -198,7 +198,7 @@ fn defs_with_extra_building(nation: &str, signs: &str) -> Defs {
 
 /// The bundled `every_building` sign (the one real sign the test data above needs).
 const EVERY_BUILDING_SIGN: &str = "[[sign]]\nid = \"building_kinds\"\ngroup = \"buildings\"\n\
-    name = \"One of every building\"\nkind = \"every_building\"\nspare = 1\n";
+    name = \"One of every building\"\nshort = \"kinds\"\nkind = \"every_building\"\nspare = 1\n";
 
 #[test]
 fn adding_a_building_to_one_nations_branch_raises_only_that_nations_target() {
@@ -308,7 +308,7 @@ fn the_stone_sign_counts_brick_too() {
 #[test]
 fn per_nation_targets_apply_to_their_nation_only() {
     let defs = defs_with(
-        "[[sign]]\nid = \"stone\"\ngroup = \"stores\"\nname = \"S\"\nkind = \"stored\"\n\
+        "[[sign]]\nid = \"stone\"\ngroup = \"stores\"\nname = \"S\"\nshort = \"s\"\nkind = \"stored\"\n\
          items = [\"stone\"]\ntarget = 200\nper_nation = { air = 150 }\n",
     );
     for (nation, target) in [(Nation::Air, 150), (Nation::Earth, 200)] {
@@ -401,6 +401,7 @@ const STONE_SIGNS: &str = "
 id = \"people\"
 group = \"people\"
 name = \"People\"
+short = \"people\"
 kind = \"population\"
 target = 1
 
@@ -408,6 +409,7 @@ target = 1
 id = \"stone\"
 group = \"stores\"
 name = \"Stone\"
+short = \"stone\"
 kind = \"stored\"
 items = [\"stone\"]
 target = 50
@@ -487,8 +489,8 @@ fn data_without_signs_never_becomes_ready() {
 fn the_endeavor_is_deterministic() {
     // A real game on a generated map: settlers chop wood, and two signs track it.
     let defs = defs_with(
-        "[[sign]]\nid = \"people\"\ngroup = \"people\"\nname = \"P\"\nkind = \"population\"\ntarget = 4\n\
-         [[sign]]\nid = \"wood\"\ngroup = \"harvests\"\nname = \"W\"\nkind = \"tally\"\n\
+        "[[sign]]\nid = \"people\"\ngroup = \"people\"\nname = \"P\"\nshort = \"p\"\nkind = \"population\"\ntarget = 4\n\
+         [[sign]]\nid = \"wood\"\ngroup = \"harvests\"\nname = \"W\"\nshort = \"w\"\nkind = \"tally\"\n\
          tally = \"harvested\"\nitems = [\"wood\"]\ntarget = 8\n",
     );
     let play = || {

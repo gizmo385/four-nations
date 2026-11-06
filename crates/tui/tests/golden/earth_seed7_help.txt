@@ -1,17 +1,17 @@
 ┏──────────────────────────────────── ◆ KEY HELP ◆ ────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
 │ CURSOR AND VIEW                                                                      ││ ▶ Running x1           00:00 │
-│ Arrows W A S D         Move the cursor 1 tile (Shift: 10)                            │├─ PEOPLE ───────────────── 6 ─┤
-│ Ctrl+Arrows PgUp PgDn  Jump the view a quarter screen                                ││ Idle 6                   [N] │
-│                                                                                      │├─ RESEARCH ───────────────────┤
-│ UNITS                                                                                ││ No target set        3.0/min │
-│ Enter                  Select the unit under the cursor; again: the next one there.  ││ 0 pts banked                 │
-│                        In a tool: set a corner, then apply                           │├─ ENDEAVOR ───────────── 0/9 ─┤
-│ Esc                    Close the screen, a modal or the bar. In a tool: drop the     ││ Next: 10 more people     [G] │
-│                        corner, then leave the tool. With nothing to close: the game  │├─ CURSOR ────────── (94, 64) ─┤
-│                        menu (Resume, Save as…, Quicksave, Load…, Quickload, Key      ││ Tyro                         │
-│                        help, Quit, #306, #312) — every save and load action, for a   ││ Earth Kingdom - Idle         │
-│                        terminal the function keys don't reach                        ││ Carrying: nothing - Bends: 0 │
-│ Tab                    Select the next unit (Select mode)                            ││ Press Enter to select        │
+│ Arrows W A S D         Move the cursor 1 tile (Shift: 10)                            │├─ SETTLEMENT ─────────── [N] ─┤
+│ Ctrl+Arrows PgUp PgDn  Jump the view a quarter screen                                ││ People 6              Idle 6 │
+│                                                                                      ││ Food 0 · 0/head              │
+│ UNITS                                                                                ││ Research: none set       [T] │
+│ Enter                  Select the unit under the cursor; again: the next one there.  ││ Gate 0/9 · 10 people     [G] │
+│                        In a tool: set a corner, then apply                           │├─ CURSOR ────────── (94, 64) ─┤
+│ Esc                    Close the screen, a modal or the bar. In a tool: drop the     ││ Tyro                         │
+│                        corner, then leave the tool. With nothing to close: the game  ││ Earth Kingdom - Idle         │
+│                        menu (Resume, Save as…, Quicksave, Load…, Quickload, Key      ││ Carrying: nothing - Bends: 0 │
+│                        help, Quit, #306, #312) — every save and load action, for a   ││ Press Enter to select        │
+│                        terminal the function keys don't reach                        ││                              │
+│ Tab                    Select the next unit (Select mode)                            ││                              │
 │ Shift+Tab              Select the previous unit (Select mode)                        ││                              │
 │ F                      Follow the selected unit (Select mode)                        ││                              │
 │                                                                                      ││                              │

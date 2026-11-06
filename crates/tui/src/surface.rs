@@ -456,24 +456,35 @@ impl Host {
             notice: side.notice,
             people: PeopleView { total: side.people, activity, needs },
             research: ResearchView {
-                label: side.research.label,
-                pool: side.research.pool,
-                rate: side.research.rate,
+                // The panel's compact Research row (#416, `panel::research_row`) reads
+                // "Research: none set" with no target, not the plain internal label; with a
+                // target, the tech's own name still shows (the bar row's own Strong text).
+                label: if side.research.label == "No target set" {
+                    "Research: none set".to_owned()
+                } else {
+                    side.research.label
+                },
+                // The row's short shape (target, bar, percent) drops the points pool and the
+                // rate from the panel entirely, so there's no on-screen text left to echo here
+                // (#320, "Observation containment": an agent must never see what a player
+                // watching the screen couldn't).
+                pool: String::new(),
+                rate: String::new(),
             },
             stores: side.stores.into_iter().map(StoreView::from).collect(),
             endeavor: side.endeavor.map(|e| {
-                // The same row `panel::endeavor_rows` draws under the Endeavor heading: `e.line`
-                // on its own ("Signs met - G: open", the Ready text, or the stage) only once
-                // nothing is missing; otherwise the first missing sign, the same way, so this
+                // The same text the Gate row carries (`panel::gate_row`, #416): `e.line` on its
+                // own ("Signs met - G: open", the Ready text, or the stage) only once nothing is
+                // missing; otherwise the first missing sign's short count ("10 people"), so this
                 // never claims signs are met while `next` still lists one (#320, "Observation
                 // containment").
                 let line = match e.next.first() {
-                    Some(next) => format!("Next: {next}"),
+                    Some(next) => next.clone(),
                     None => e.line,
                 };
-                // `panel::endeavor_rows` only ever names the first missing sign; the rest of
-                // `e.next` (`fn_ui::endeavor::NEXT_SHOWN`'s headroom for a future comma-joined
-                // row) isn't shown anywhere yet, so `next` stops at one too (#320, "Observation
+                // The Gate row only ever names the first missing sign; the rest of `e.next`
+                // (`fn_ui::endeavor::NEXT_SHOWN`'s headroom for a future comma-joined row) isn't
+                // shown anywhere yet, so `next` stops at one too (#320, "Observation
                 // containment"; a richer row is a TUI change first, docs/design/agent-play.md,
                 // "The parity rule").
                 let next = e.next.into_iter().take(1).collect();

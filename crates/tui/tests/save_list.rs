@@ -75,7 +75,7 @@ fn f6_opens_the_screen_and_f6_or_esc_close_it_with_the_side_panel_staying() {
     assert!(frame.contains("No saves yet"), "{frame}");
     // The side panel is all there, as with every other screen.
     assert!(frame.contains("EARTH KINGDOM"), "{frame}");
-    assert!(frame.contains("PEOPLE"), "{frame}");
+    assert!(frame.contains("SETTLEMENT"), "{frame}");
 
     run(&mut a, "<f6>");
     assert_eq!(a.ui.screen, None, "F6 again closes it");

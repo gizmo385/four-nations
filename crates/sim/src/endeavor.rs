@@ -241,6 +241,10 @@ pub struct SignDef {
     pub group: SignGroup,
     pub name: String,
     pub kind: SignKind,
+    /// A short noun for a count ("people", "scrolls"), the side panel's compact Gate row (#416,
+    /// docs/design/side-panel-v2.md "Zone 1": `Gate 8/9 · 3 scrolls [G]`), paired with how many
+    /// are still missing.
+    pub short: String,
     /// What the UI suggests while the sign isn't met ("Spare beds and food draw newcomers").
     pub hint: Option<String>,
     /// The shared target, 0 for the kinds whose target the sim works out (`target_for`).
@@ -396,6 +400,8 @@ struct RawSign {
     group: SignGroup,
     name: String,
     kind: RawKind,
+    /// The side panel's compact Gate row (#416): a short noun for a count ("people", "scrolls").
+    short: String,
     #[serde(default)]
     target: Option<u32>,
     #[serde(default)]
@@ -701,6 +707,9 @@ impl RawSign {
         if self.name.trim().is_empty() {
             return Err(err("name must not be empty"));
         }
+        if self.short.trim().is_empty() {
+            return Err(err("short must not be empty"));
+        }
         // Each optional field belongs to some kinds only; anywhere else it is a mistake.
         let allowed = |field: bool, ok: bool, name: &str| {
             if field && !ok {
@@ -784,6 +793,7 @@ impl RawSign {
             group: self.group,
             name: self.name,
             kind,
+            short: self.short,
             hint: self.hint.filter(|h| !h.trim().is_empty()),
             target,
             per_nation,
@@ -843,6 +853,7 @@ mod tests {
             group = "stores"
             name = "Stone in stores"
             kind = "stored"
+            short = "stone"
             items = ["stone"]
             target = 200
             per_nation = { air = 150 }
@@ -853,6 +864,7 @@ mod tests {
             group = "people"
             name = "Everyone has a bed"
             kind = "beds_for_all"
+            short = "beds"
             "#,
         )
         .unwrap();
@@ -871,8 +883,8 @@ mod tests {
     #[test]
     fn master_threshold_reads_the_masters_sign_or_none_without_one() {
         let e = load(
-            "[[sign]]\nid = \"masters\"\ngroup = \"bending\"\nname = \"M\"\nkind = \"masters\"\n\
-             bends = 10\ntarget = 3\n",
+            "[[sign]]\nid = \"masters\"\ngroup = \"bending\"\nname = \"M\"\nshort = \"m\"\n\
+             kind = \"masters\"\nbends = 10\ntarget = 3\n",
         )
         .unwrap();
         assert_eq!(e.master_threshold(Nation::Fire), Some(10));
@@ -883,8 +895,8 @@ mod tests {
     #[test]
     fn food_true_stores_every_edible_item() {
         let e = load(
-            "[[sign]]\nid = \"f\"\ngroup = \"stores\"\nname = \"F\"\nkind = \"stored\"\n\
-             food = true\ntarget = 5\n",
+            "[[sign]]\nid = \"f\"\ngroup = \"stores\"\nname = \"F\"\nshort = \"f\"\n\
+             kind = \"stored\"\nfood = true\ntarget = 5\n",
         )
         .unwrap();
         let defs = Defs::bundled();
@@ -905,7 +917,7 @@ mod tests {
     }
 
     fn sign(fields: &str) -> String {
-        format!("[[sign]]\nid = \"s\"\ngroup = \"people\"\nname = \"S\"\n{fields}\n")
+        format!("[[sign]]\nid = \"s\"\ngroup = \"people\"\nname = \"S\"\nshort = \"s\"\n{fields}\n")
     }
 
     #[test]
@@ -919,7 +931,7 @@ mod tests {
         assert!(file_error("[endeavor]\nname = \"G\"\nextra = 1\n").contains("extra"));
         assert!(file_error("[endeavor]\nname = \"G\"\n[[step]]\nid = \"x\"\n").contains("step"));
         assert!(
-            error("[[sign]]\nid = \"s\"\ngroup = \"war\"\nname = \"S\"\nkind = \"population\"\ntarget = 1\n")
+            error("[[sign]]\nid = \"s\"\ngroup = \"war\"\nname = \"S\"\nshort = \"s\"\nkind = \"population\"\ntarget = 1\n")
                 .contains("war")
         );
     }
@@ -1001,8 +1013,8 @@ mod tests {
     #[test]
     fn every_building_is_computed_per_nation_with_no_target_in_the_data() {
         let e = load(
-            "[[sign]]\nid = \"b\"\ngroup = \"buildings\"\nname = \"B\"\nkind = \"every_building\"\n\
-             spare = 1\n",
+            "[[sign]]\nid = \"b\"\ngroup = \"buildings\"\nname = \"B\"\nshort = \"b\"\n\
+             kind = \"every_building\"\nspare = 1\n",
         )
         .unwrap();
         assert_eq!(e.signs[0].kind, SignKind::EveryBuilding { spare: 1 });
@@ -1019,7 +1031,7 @@ mod tests {
     #[test]
     fn every_building_defaults_spare_to_zero_and_target_and_per_nation_dont_apply() {
         let e = load(
-            "[[sign]]\nid = \"b\"\ngroup = \"buildings\"\nname = \"B\"\nkind = \"every_building\"\n",
+            "[[sign]]\nid = \"b\"\ngroup = \"buildings\"\nname = \"B\"\nshort = \"b\"\nkind = \"every_building\"\n",
         )
         .unwrap();
         assert_eq!(e.signs[0].kind, SignKind::EveryBuilding { spare: 0 });
@@ -1050,8 +1062,8 @@ mod tests {
             sign("kind = \"population\"\ntarget = 2")
         );
         assert!(error(&two).contains("duplicate id"));
-        assert!(error("[[sign]]\nid = \" \"\ngroup = \"people\"\nname = \"S\"\nkind = \"population\"\ntarget = 1\n").contains("id must not be empty"));
-        assert!(error("[[sign]]\nid = \"s\"\ngroup = \"people\"\nname = \"\"\nkind = \"population\"\ntarget = 1\n").contains("name must not be empty"));
+        assert!(error("[[sign]]\nid = \" \"\ngroup = \"people\"\nname = \"S\"\nshort = \"s\"\nkind = \"population\"\ntarget = 1\n").contains("id must not be empty"));
+        assert!(error("[[sign]]\nid = \"s\"\ngroup = \"people\"\nname = \"\"\nshort = \"s\"\nkind = \"population\"\ntarget = 1\n").contains("name must not be empty"));
         assert!(file_error("[endeavor]\nname = \"\"\n").contains("name must not be empty"));
     }
 
