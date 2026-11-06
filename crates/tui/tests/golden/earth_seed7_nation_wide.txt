@@ -12,11 +12,11 @@
 │ EAT 1                                                                                                                                                                ││ Next: 10 more people     [G] │
 │   Ming Foraging at (86, 65)                    ▰▰▱▱▱!  ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/25                                                                          │├─ ALERTS ─────────────── [L] ─┤
 │                                                                                                                                                                      ││ 44 wood can't be stored:…    │
+│                                                                                                                                                                      ││ Chi to spare, no bend…       │
 │                                                                                                                                                                      │├─ CURSOR ────────── (94, 64) ─┤
 │                                                                                                                                                                      ││ Coast                        │
 │                                                                                                                                                                      ││ Plains (94, 64)              │
 │                                                                                                                                                                      ││ Elevation 152                │
-│                                                                                                                                                                      ││                              │
 │                                                                                                                                                                      ││                              │
 │                                                                                                                                                                      ││                              │
 │                                                                                                                                                                      ││                              │

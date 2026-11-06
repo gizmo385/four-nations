@@ -465,17 +465,19 @@ edited from `--keys 'N'`:
 |   Ikem   Chop                          ####-   ####-   ##---   #####   #####   8/10  |
 ```
 
-**Endeavor screen and events** (#347). The masters sign names who is close, and its hint states
-the credit rule. A toast and a log line fire the first time someone becomes a master ("Jee is now
-a bending master"). A finished bend's log line carries the count ("Jee kindled a flame - bend 9
-of 10"). When masters is the next missing sign, the side panel's "Next:" names the closest
-settler. Mockup, edited from `--keys 'G'`:
+**Endeavor screen and events** (#347). The masters sign names who is close, and its hint says how
+to start a bend, naming the Bend tool's own key, with the credit rule folded in (#382: playtests
+found agents never designated a bend at all, reading the old credit-only hint as bending being a
+rare, passive event). A toast and a log line fire the first time someone becomes a master ("Jee
+is now a bending master"). A finished bend's log line carries the count ("Jee kindled a flame -
+bend 9 of 10"). When masters is the next missing sign, the side panel's "Next:" names the closest
+settler and the same key. Mockup, edited from `--keys 'G'`:
 
 ```
 | BENDING                                                                              |
 |   Bending masters (10 bends each) ###.......       1/3                               |
 |   Master: Lu Ten. Closest: Jee 9/10, Shyu 8/10, Ikem 8/10                            |
-|   Each finished bend counts for whoever channels it                                  |
+|   Designate a bend (B) on a tile a bender can work - credit to whoever channels it   |
 ```
 
 The route that sits on these numbers (ranks, forms, and what adepts and masters can bend) is in

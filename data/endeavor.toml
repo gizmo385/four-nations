@@ -29,7 +29,9 @@
 #               (`beds_for_all`, `every_building`, `branch_complete`).
 # - spare:      `every_building` only: kinds the player may skip, at least 0 (the default) and
 #               below the smallest nation's reachable count.
-# - hint:       optional; what the UI suggests while the sign isn't met.
+# - hint:       optional; what the UI suggests while the sign isn't met. Ignored for `masters`:
+#               the UI always computes that one (`fn_ui::endeavor::masters_hint`, #382), so it
+#               can name the Bend tool's real key instead of a fixed string.
 #
 # [[stage]], built in the order listed once the player has placed the site (issue #236):
 # - id:   unique; saves refer to stages by id.
