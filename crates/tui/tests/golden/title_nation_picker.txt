@@ -7,6 +7,10 @@
 
 
 
+
+
+
+
                             ┏────────────────────── ◆ FOUR NATIONS ◆ ──────────────────────┓
                             │ Choose a nation (arrows or 1-4):                             │
                             │                                                              │
@@ -19,16 +23,12 @@
                             │ with airbending.                                             │
                             │                                                              │
                             │                                                              │
-                            │                                                              │
-                            │                                                              │
-                            │                                                              │
-                            │                                                              │
-                            │                                                              │
-                            │                                                              │
-                            │                                                              │
-                            │                                                              │
-                            │                                                              │
                             ┗─ Arrows/1-4 choose  Enter confirm  Esc back ─────────────────┛
+
+
+
+
+
 
 
 

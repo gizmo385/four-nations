@@ -85,6 +85,41 @@ pub struct HarvestDef {
     /// (`World::maybe_injure`) is this divided by the harvest's own `modifier` (earthworks for
     /// stone and ore), so Earth's earthworks lowers it and Air's weaker one raises it.
     pub risk: f32,
+    /// How to uproot this resource for good instead of merely working it (the Clear designation,
+    /// `docs/design/clearing.md`, issue #411/#424), when a plain harvest would leave it standing
+    /// (`regrow` is `Some`). `None` for a resource whose harvest already removes it (every
+    /// non-renewable: chopping a tree already clears it) and for a renewable with nothing to
+    /// offer a clear (fish spots, on water where nobody builds).
+    pub clear: Option<ClearDef>,
+}
+
+impl HarvestDef {
+    /// The risk actually rolled (before the modifier divide, `World::maybe_injure`) when a
+    /// `JobKind::Clear` on this resource finishes: the clear's own `risk` for a renewable with
+    /// `[harvest.clear]`, else this harvest's own, since clearing a non-renewable is its harvest.
+    pub fn clear_risk(&self) -> f32 {
+        self.clear.map_or(self.risk, |c| c.risk)
+    }
+}
+
+/// `HarvestDef::clear`: how a `JobKind::Clear` uproots a renewable resource instead of merely
+/// picking it. Validated at load (`JobsFile::resolve`): only on a harvest with `regrow`, `work`
+/// above 0, `item` known, `count` only with an `item`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ClearDef {
+    /// In-game seconds of work, at a flat rate of 1.0 (no nation modifier: the data has none to
+    /// name).
+    pub work: f32,
+    /// What the clear drops, beside the plant's own ripe yield if it has one (`item`/`count` of
+    /// the harvest itself). `None` means the clear drops nothing of its own (a cabbage: pulling
+    /// it up yields nothing but its crop, when ripe).
+    pub item: Option<ItemId>,
+    /// How many of `item` the clear drops. 0 when `item` is `None`.
+    pub count: u32,
+    /// The chance finishing the clear injures the worker, exactly as `HarvestDef::risk` (the
+    /// existing `harm.injury` stream), but with no modifier of its own: uprooting isn't scaled by
+    /// a nation's earthworks or the like.
+    pub risk: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -143,6 +178,22 @@ struct RawHarvest {
     frost_hardy: bool,
     #[serde(default)]
     strain: f32,
+    #[serde(default)]
+    risk: f32,
+    #[serde(default)]
+    clear: Option<RawClear>,
+}
+
+/// `[harvest.clear]` (`docs/design/clearing.md`, issue #411/#424): the Clear designation's own
+/// numbers, for a renewable resource whose ordinary harvest leaves it standing.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawClear {
+    work: f32,
+    #[serde(default)]
+    item: Option<String>,
+    #[serde(default)]
+    count: Option<u32>,
     #[serde(default)]
     risk: f32,
 }
@@ -310,6 +361,36 @@ impl JobsFile {
             if !(h.risk.is_finite() && (0.0..1.0).contains(&h.risk)) {
                 return err(format!("harvest {r}: risk must be in [0, 1)"));
             }
+            let clear = match h.clear {
+                None => None,
+                Some(c) => {
+                    if h.regrow.is_none() {
+                        return err(format!("harvest {r}: clear needs a regrow time"));
+                    }
+                    if !(c.work.is_finite() && c.work > 0.0) {
+                        return err(format!("harvest {r}: clear.work must be positive"));
+                    }
+                    if !(c.risk.is_finite() && (0.0..1.0).contains(&c.risk)) {
+                        return err(format!("harvest {r}: clear.risk must be in [0, 1)"));
+                    }
+                    let item = match (&c.item, c.count) {
+                        (None, Some(_)) => {
+                            return err(format!("harvest {r}: clear.count needs an item"));
+                        }
+                        (Some(_), None) => {
+                            return err(format!("harvest {r}: clear.item needs a count"));
+                        }
+                        (None, None) => None,
+                        (Some(name), Some(_)) => {
+                            let Some(i) = items.iter().position(|i| i.id == *name) else {
+                                return err(format!("harvest {r}: clear: unknown item {name:?}"));
+                            };
+                            Some(ItemId(i as u16))
+                        }
+                    };
+                    Some(ClearDef { work: c.work, item, count: c.count.unwrap_or(0), risk: c.risk })
+                }
+            };
             harvests.push(HarvestDef {
                 resource: ResourceId(resource as u16),
                 verb: h.verb,
@@ -323,6 +404,7 @@ impl JobsFile {
                 frost_hardy: h.frost_hardy,
                 strain: h.strain,
                 risk: h.risk,
+                clear,
             });
         }
         link_unlocks(&mut harvests, resources, techs)?;
@@ -406,6 +488,10 @@ pub enum JobKind {
     /// Gather a farm plot's ripe crop (issue #198), queued automatically once it ripens
     /// (`world/farm.rs`).
     Reap { pos: Pos },
+    /// Remove the resource on this tile for good: uproot a renewable plant (`HarvestDef::clear`)
+    /// or work a non-renewable's ordinary harvest, which already clears it
+    /// (`docs/design/clearing.md`, issue #411/#424). Opened by `Command::DesignateClear`.
+    Clear { pos: Pos },
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -564,5 +650,81 @@ mod tests {
             JOBS.replacen("tunnel_count = 14\nrisk = 0.02", "tunnel_count = 14\nrisk = -0.1", 1);
         let err = load_jobs(&negative).unwrap_err();
         assert!(err.0.contains("risk"), "{err}");
+    }
+
+    /// `[harvest.clear]` (the Clear designation, `docs/design/clearing.md`, issue #411/#424):
+    /// the bundled numbers, and validation (only on a harvest with `regrow`, `work` above 0,
+    /// `item` known, `count` only with an `item`).
+    #[test]
+    fn clear_is_validated() {
+        let defs = load_jobs(JOBS).unwrap();
+        let wood = defs.item_id("wood").unwrap();
+
+        let cabbage = defs.resource_id("cabbage").unwrap();
+        let c = defs.harvest(cabbage).unwrap().clear.unwrap();
+        assert_eq!((c.work, c.item, c.count, c.risk), (1.0, None, 0, 0.0));
+
+        let fruit_tree = defs.resource_id("fruit_tree").unwrap();
+        let c = defs.harvest(fruit_tree).unwrap().clear.unwrap();
+        assert_eq!((c.work, c.item, c.count, c.risk), (6.0, Some(wood), 2, 0.01));
+
+        // Non-renewables and the fish spot have no `[harvest.clear]` at all.
+        for resource in ["oak_tree", "stone", "ancient_scroll", "fish_spot"] {
+            let id = defs.resource_id(resource).unwrap();
+            assert_eq!(defs.harvest(id).unwrap().clear, None, "{resource}");
+        }
+
+        // Only allowed on a harvest with `regrow`.
+        let no_regrow = JOBS.replacen(
+            "resource = \"oak_tree\"\nverb = \"Chop\"\nitem = \"wood\"\ncount = 4\nwork = 8.0\n\
+             risk = 0.01\n",
+            "resource = \"oak_tree\"\nverb = \"Chop\"\nitem = \"wood\"\ncount = 4\nwork = 8.0\n\
+             risk = 0.01\n\n[harvest.clear]\nwork = 1.0\n",
+            1,
+        );
+        let err = load_jobs(&no_regrow).unwrap_err();
+        assert!(err.0.contains("clear needs a regrow time"), "{err}");
+
+        // `work` must be positive.
+        let bad_work =
+            JOBS.replacen("[harvest.clear]\nwork = 1.0\n", "[harvest.clear]\nwork = 0.0\n", 1);
+        let err = load_jobs(&bad_work).unwrap_err();
+        assert!(err.0.contains("clear.work"), "{err}");
+
+        // `count` needs an `item`.
+        let count_no_item = JOBS.replacen(
+            "[harvest.clear]\nwork = 1.0\n",
+            "[harvest.clear]\nwork = 1.0\ncount = 1\n",
+            1,
+        );
+        let err = load_jobs(&count_no_item).unwrap_err();
+        assert!(err.0.contains("clear.count needs an item"), "{err}");
+
+        // `item` needs a `count`.
+        let item_no_count = JOBS.replacen(
+            "[harvest.clear]\nwork = 1.0\n",
+            "[harvest.clear]\nwork = 1.0\nitem = \"wood\"\n",
+            1,
+        );
+        let err = load_jobs(&item_no_count).unwrap_err();
+        assert!(err.0.contains("clear.item needs a count"), "{err}");
+
+        // `item` must be a known item.
+        let unknown_item = JOBS.replacen(
+            "item = \"wood\"\ncount = 2\nrisk = 0.01",
+            "item = \"mithril\"\ncount = 2\nrisk = 0.01",
+            1,
+        );
+        let err = load_jobs(&unknown_item).unwrap_err();
+        assert!(err.0.contains("clear: unknown item"), "{err}");
+
+        // `risk` must be in [0, 1).
+        let bad_risk = JOBS.replacen(
+            "item = \"wood\"\ncount = 2\nrisk = 0.01",
+            "item = \"wood\"\ncount = 2\nrisk = 1.0",
+            1,
+        );
+        let err = load_jobs(&bad_risk).unwrap_err();
+        assert!(err.0.contains("clear.risk"), "{err}");
     }
 }

@@ -18,12 +18,18 @@ use crate::color::Palette;
 use crate::modal;
 use crate::widgets::{Marks, Painter, Row, Tone, wrap};
 
-/// The modal's target size: enough rows for a dozen buildings and the detail's wrapped effects,
-/// and enough columns for the longest name and cost.
-pub const SIZE: (u16, u16) = (66, 18);
-/// The list column's width; the rest of the inside (minus `modal::split`'s gap) is the detail
-/// pane.
-const LIST_WIDTH: u16 = 24;
+/// The modal's height: enough rows for a dozen buildings and the detail's wrapped effects. Its
+/// width follows the list ([`list_width`]) plus [`DETAIL_WIDTH`].
+const HEIGHT: u16 = 18;
+/// The list column's narrowest width, kept even when every row is short so the box doesn't jump
+/// about between nations.
+const MIN_LIST_WIDTH: u16 = 24;
+/// The detail pane's width: room for its longest fixed lines ("Room for 1 inside, through the
+/// door"); effects wrap within it.
+const DETAIL_WIDTH: u16 = 38;
+/// What the detail pane keeps when a small terminal shrinks the box: the list gives way first
+/// (its names take an ellipsis), so the detail never collapses to a sliver.
+const MIN_DETAIL_WIDTH: u16 = 20;
 
 /// The cursor after a step of `dy` rows (its sign only), stopping at the list's edges, as every
 /// other windowed list in this crate does (`crate::saves::step`).
@@ -54,6 +60,20 @@ pub fn jump_to_letter(rows: &[PickerRow], at: usize, c: char) -> usize {
 /// the cursor passes its far edge.
 fn window_start(at: usize, shown: usize) -> usize {
     (at + 1).saturating_sub(shown)
+}
+
+/// The list column's width: its widest row, pointer, name, gap and cost (or "Locked") together,
+/// so no name has to give way to an ellipsis for a long cost ("10 Stone, 6 Wood, 2 Tool, 2x2").
+fn list_width(rows: &[PickerRow]) -> u16 {
+    let widest = rows
+        .iter()
+        .map(|r| {
+            let right = if r.locked() { "Locked".len() } else { r.cost.chars().count() };
+            2 + r.name.chars().count() + 1 + right
+        })
+        .max()
+        .unwrap_or(0);
+    u16::try_from(widest).unwrap_or(u16::MAX).max(MIN_LIST_WIDTH)
 }
 
 /// One row of the list: the highlighted row's pointer, its name and its cost, or "Locked"
@@ -106,8 +126,12 @@ pub fn draw(
     let marks = Marks::new(palette.ascii);
     let title = format!(" {0} BUILD {0} ", marks.seal);
     let footer = "Arrows/W S choose  Enter build  Esc close";
-    let inner = modal::draw(buf, outer, SIZE, palette, &title, footer);
-    let split = modal::split(inner, LIST_WIDTH);
+    let list_width = list_width(rows);
+    // The frame's own padding: a border and a blank column on each side (`modal::draw`).
+    let size = (list_width + modal::GAP + DETAIL_WIDTH + 4, HEIGHT);
+    let inner = modal::draw(buf, outer, size, palette, &title, footer);
+    let room = inner.width.saturating_sub(modal::GAP + MIN_DETAIL_WIDTH);
+    let split = modal::split(inner, list_width.min(room.max(MIN_LIST_WIDTH)));
 
     let mut p = Painter::new(buf, split.list, palette);
     if rows.is_empty() {
@@ -197,6 +221,25 @@ mod tests {
         assert!(text.contains("BUILD"), "{text}");
         assert!(text.contains(&rows[0].name), "{text}");
         assert!(text.contains("Footprint:"), "{text}");
+    }
+
+    /// Every nation's longest name and cost fit the list whole: no name or cost is cut short.
+    #[test]
+    fn every_row_shows_its_whole_name_and_cost_at_a_roomy_size() {
+        for nation in [Nation::Earth, Nation::Fire, Nation::Water, Nation::Air] {
+            let (s, rows) = rows(nation);
+            let palette = Palette::new(&s.defs, nation, ColorDepth::TrueColor, false);
+            let area = Rect::new(0, 0, 120, 40);
+            let mut buf = Buffer::empty(area);
+            draw(&s, &rows, 0, &palette, area, &mut buf);
+            let text = crate::frame::to_text(&buf);
+            for row in rows.iter().take(usize::from(HEIGHT) - 2) {
+                assert!(text.contains(&row.name), "{nation:?} {}:\n{text}", row.name);
+                if !row.locked() {
+                    assert!(text.contains(&row.cost), "{nation:?} {}:\n{text}", row.cost);
+                }
+            }
+        }
     }
 
     #[test]

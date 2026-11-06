@@ -235,12 +235,20 @@ pub fn missing(sign: &SignDef, p: &SignProgress) -> String {
     format!("{} {}", p.target.saturating_sub(p.value), sign.short)
 }
 
-/// A sign's label: its data name, except that the branch sign names the nation's branch.
+/// A sign's label: its data name, except that the branch sign names the nation's branch, and the
+/// masters sign composes its own threshold ("Bending masters (10 bends each)") so the label
+/// can't drift from the settlement's own number (`EndeavorDef::master_threshold`, #344).
 fn sign_name(sign: &SignDef, world: &World, defs: &Defs) -> String {
-    if sign.kind == SignKind::BranchComplete {
-        format!("{} branch", defs.nation(world.nation).name)
-    } else {
-        sign.name.clone()
+    match &sign.kind {
+        SignKind::BranchComplete => format!("{} branch", defs.nation(world.nation).name),
+        SignKind::Masters { .. } => {
+            let threshold = defs
+                .endeavor
+                .master_threshold(world.nation)
+                .expect("this sign is the masters sign");
+            format!("{} ({threshold} bends each)", sign.name)
+        }
+        _ => sign.name.clone(),
     }
 }
 
@@ -489,7 +497,7 @@ mod tests {
     }
 
     /// `closest_non_masters` and `current_masters` on a fresh game: nobody has bent yet, so
-    /// everyone is a non-master at 0/25, and nobody is a master.
+    /// everyone is a non-master at 0/10 (Fire's own threshold), and nobody is a master.
     #[test]
     fn mastery_helpers_read_a_fresh_games_units() {
         let s = session(Nation::Fire);
@@ -497,7 +505,7 @@ mod tests {
         assert!(current_masters(w, d).is_empty());
         let closest = closest_non_masters(w, d);
         assert_eq!(closest.len(), w.units.len());
-        assert!(closest.iter().all(|(_, bends, threshold)| (*bends, *threshold) == (0, 25)));
+        assert!(closest.iter().all(|(_, bends, threshold)| (*bends, *threshold) == (0, 10)));
         let mut names: Vec<&str> = closest.iter().map(|(n, ..)| n.as_str()).collect();
         names.sort();
         let mut unit_names: Vec<&str> = w.units.iter().map(|u| u.name.as_str()).collect();
@@ -559,6 +567,21 @@ mod tests {
             },
         };
         assert_eq!(describe_event(&defs, &mastered), "Jee is now a bending master");
+    }
+
+    /// The masters sign's row composes its label from the settlement's own nation threshold
+    /// (`EndeavorDef::master_threshold`, #344), so the data's bare name never drifts from it:
+    /// Fire's 10, Earth's and Water's 8, Air's 16.
+    #[test]
+    fn the_masters_sign_names_its_own_nations_threshold() {
+        let thresholds =
+            [(Nation::Fire, 10), (Nation::Earth, 8), (Nation::Water, 8), (Nation::Air, 16)];
+        for (nation, bends) in thresholds {
+            let s = session(nation);
+            let v = screen_view(&s);
+            let row = v.groups.iter().flat_map(|g| &g.signs).find(|r| r.id == "masters").unwrap();
+            assert_eq!(row.name, format!("Bending masters ({bends} bends each)"));
+        }
     }
 
     /// Under the masters sign, while it isn't met, the screen names the closest non-masters

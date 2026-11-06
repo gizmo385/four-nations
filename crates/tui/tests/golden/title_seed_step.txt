@@ -7,6 +7,11 @@
 
 
 
+
+
+
+
+
                             ┏────────────────────── ◆ FOUR NATIONS ◆ ──────────────────────┓
                             │ Air Nomads — new game:                                       │
                             │                                                              │
@@ -17,18 +22,13 @@
                             │                                                              │
                             │ Exact: you'll see exactly what's at every site.              │
                             │                                                              │
-                            │ Digits edit  Up/Down row  Left/Right change  Enter: embark.  │
-                            │                                                              │
-                            │                                                              │
-                            │                                                              │
-                            │                                                              │
-                            │                                                              │
-                            │                                                              │
-                            │                                                              │
-                            │                                                              │
-                            │                                                              │
                             │                                                              │
                             ┗─ Up/Down row  Left/Right change  Enter embark  Esc back ─────┛
+
+
+
+
+
 
 
 

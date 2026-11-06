@@ -491,8 +491,9 @@ mod tests {
         let line = describe_bend_event(&s, &done);
         assert!(line.contains(&s.world.units[0].name), "{line}");
         assert!(line.contains("(5, 3)"), "{line}");
-        // The bundled masters sign's threshold (#347); a fresh unit hasn't bent yet.
-        assert!(line.ends_with(" - bend 0 of 25"), "{line}");
+        // Earth's own threshold from the bundled masters sign's `bends_per_nation` (#347); a
+        // fresh unit hasn't bent yet.
+        assert!(line.ends_with(" - bend 0 of 8"), "{line}");
 
         let failed =
             BendEvent { outcome: BendOutcome::Failed("needs dry ground beside it"), ..done };

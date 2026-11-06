@@ -3,14 +3,14 @@
 │                                                                                      │├─ SETTLEMENT ─────────── [N] ─┤
 │                                       Hunger  Thirst  Energy  Health  Chi     Bends  ││ People 6              Idle 4 │
 │ IDLE 4                                                                               ││ Hungry 1                     │
-│ ▸ Tyro Idle: stockpile full           ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/25   ││ Food 2 · 0/head              │
-│   Ping Idle: stockpile full           ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/25   ││ Wood 20                      │
-│   Song Idle: stockpile full           ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/25   ││ Research: none set       [T] │
-│   Lin  Idle: stockpile full           ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/25   ││ Gate 0/9 · 10 people     [G] │
+│ ▸ Tyro Idle: stockpile full           ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8    ││ Food 2 · 0/head              │
+│   Ping Idle: stockpile full           ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8    ││ Wood 20                      │
+│   Song Idle: stockpile full           ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8    ││ Research: none set       [T] │
+│   Lin  Idle: stockpile full           ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8    ││ Gate 0/9 · 10 people     [G] │
 │ HAUL 1                                                                               │├─ ALERTS ─────────────── [L] ─┤
-│   Oma  Fetching 1 Fruit from (92, 64) ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/25   ││ 44 wood can't be stored:…    │
+│   Oma  Fetching 1 Fruit from (92, 6…  ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8    ││ 44 wood can't be stored:…    │
 │ EAT 1                                                                                ││ Chi to spare, no bend…       │
-│   Ming Foraging at (86, 65)           ▰▰▱▱▱!  ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/25   │├─ CURSOR ────────── (94, 64) ─┤
+│   Ming Foraging at (86, 65)           ▰▰▱▱▱!  ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8    │├─ CURSOR ────────── (94, 64) ─┤
 │                                                                                      ││ Coast                        │
 │                                                                                      ││ Plains (94, 64)              │
 │                                                                                      ││ Elevation 152                │
