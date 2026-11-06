@@ -81,6 +81,20 @@
 //! takes over the tile's haul job, given back if the bend is cancelled or the stack is gone or
 //! too small when the channel finishes.
 //!
+//! The target may also be a stockpile tile holding at least a batch's worth of ore (#398, from
+//! #376: by the time Earth researches `metalbending`, every vein in reach is usually mined out
+//! and the ore is already stockpiled, so a bare ground stack is rarely there to bend). The
+//! conversion is the same either way (`validate_effect`/`apply_effect` read whichever of
+//! `ground` or `stored` holds the target), but the metal's destination differs: a ground
+//! stack's metal lands back on the same tile when nothing's left of the ore (`place_ground`'s
+//! own search tries the bent tile first); a stockpile tile is never offered that way
+//! (`place_ground` always skips zone tiles), so the metal instead starts its own haul job
+//! nearby and finds a stockpile the ordinary way, never overwriting the ore entry a build or
+//! craft job may already be mid-trip to fetch from (`take_for_build` trusts whatever is at the
+//! position it was sent to, so the ore at that key must stay ore, never metal, until it's
+//! actually gone). There is no haul job to take over on a stockpile tile -- the ore isn't
+//! waiting to be hauled -- so `owns_ground_stack`'s take-over is simply a no-op there.
+//!
 //! **Air Scooter** (#143, from `air_scooter`) is the second self-cast ability, like Inner Fire:
 //! the designated tile is only where the bender stands to summon it (open ground, like Inner
 //! Fire's aura). It leaves a `Ride` on the caster: for `duration_minutes` x the `move_speed`
@@ -275,7 +289,9 @@ fn scaled_range(range: u32, magnitude: f32) -> u32 {
 
 /// Whether `effect` works a ground stack at its target tile the way Wind Carry does (#71) and
 /// Metalbend does (#134): designating it takes over the tile's existing haul job, and the job
-/// comes back if the bend is cancelled or fails.
+/// comes back if the bend is cancelled or fails. Metalbend's own target may be a stockpile tile
+/// instead (#398), which never has a haul job of its own to take over, so this is simply a
+/// no-op there.
 fn owns_ground_stack(effect: &Effect) -> bool {
     matches!(effect, Effect::WindCarry { .. } | Effect::Smelt { .. })
 }
@@ -851,9 +867,12 @@ impl World {
                     Err("no stockpile with room in reach")
                 }
             }
-            // A ground stack of the right ore, with enough of it for at least one batch.
+            // A ground stack or a stockpile tile holding the right ore, with enough of it for
+            // at least one batch (#398: a stockpile tile is accepted the same as a ground
+            // stack, since Earth's ore is usually all stockpiled by the time it knows
+            // Metalbend).
             Effect::Smelt { ore, ratio, .. } => {
-                let Some(stack) = self.ground.get(&pos) else {
+                let Some(stack) = self.ground.get(&pos).or_else(|| self.stored.get(&pos)) else {
                     return Err("needs ore to bend");
                 };
                 if stack.item != *ore {
@@ -1023,19 +1042,36 @@ impl World {
                 None
             }
             // The stack converts batch by batch, right where it sits; what doesn't divide evenly
-            // by `ratio` stays behind as ore, with a fresh haul job if any is left.
+            // by `ratio` stays behind as ore, with a fresh haul job if any is left. The target
+            // may be a ground stack or a stockpile tile (#398): whichever it was, the leftover
+            // ore goes right back where it came from, keyed on the same tile a build or craft
+            // job may already be mid-trip to fetch it from -- it must stay ore under that key,
+            // never metal, so `take_for_build` (which trusts whatever it finds there) never
+            // hands someone a stack of metal labelled as the ore they went to fetch. The metal
+            // itself always goes through `place_ground`: for a ground stack that tries the bent
+            // tile first and lands there once the ore's gone, exactly as it always has; for a
+            // stockpile tile `place_ground` never offers the bent tile at all (it skips every
+            // zone tile), so the metal starts its own haul job on nearby open ground instead,
+            // never retaking the stockpile entry a pending fetch is aimed at.
             Effect::Smelt { ore, metal, ratio } => {
-                let stack = self.ground.get(&pos).copied()?;
+                let from_ground = self.ground.get(&pos).copied();
+                let stack = from_ground.or_else(|| self.stored.get(&pos).copied())?;
                 if stack.item != *ore {
                     return None;
                 }
                 let batches = stack.count / ratio;
                 let leftover = stack.count - batches * ratio;
-                if leftover > 0 {
-                    self.ground.insert(pos, Stack { item: *ore, count: leftover });
-                    self.ensure_haul_job(pos);
+                if from_ground.is_some() {
+                    if leftover > 0 {
+                        self.ground.insert(pos, Stack { item: *ore, count: leftover });
+                        self.ensure_haul_job(pos);
+                    } else {
+                        self.ground.remove(&pos);
+                    }
+                } else if leftover > 0 {
+                    self.stored.insert(pos, Stack { item: *ore, count: leftover });
                 } else {
-                    self.ground.remove(&pos);
+                    self.stored.remove(&pos);
                 }
                 self.place_ground(pos, Stack { item: *metal, count: batches });
                 None
