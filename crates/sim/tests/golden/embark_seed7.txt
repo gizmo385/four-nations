@@ -5,11 +5,11 @@ room: 4503 tiles, mainland: true
 water: Water, 0 steps
 wood: 49 (plenty)
 stone: 2 (scarce)
-food: 6 (some)
+food: 5 (scarce)
 gold: 0 (none)
 scrolls: 0 (none)
 outlook: Fair
-reasons: Stone is scarce
+reasons: Stone is scarce; Food is scarce
 rough: false
 === near a buried gold seam: (98, 79) ===
 problem: none
@@ -17,7 +17,7 @@ biomes: plains 58%, water 33%, mountain 8%, desert 0%
 room: 4503 tiles, mainland: true
 water: Water, 0 steps
 wood: 43 (plenty)
-stone: 8 (some)
+stone: 4 (some)
 food: 4 (scarce)
 gold: 3 (some)
 scrolls: 0 (none)

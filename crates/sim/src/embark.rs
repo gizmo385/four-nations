@@ -575,10 +575,19 @@ impl Survey {
     }
 
     /// `g`'s true count in `at`'s box: buried resources are already off `surface`, so they never
-    /// count.
-    fn count_group(&self, at: Pos, radius: i32, g: &GroupDef) -> u32 {
+    /// count. A deposit only counts once it touches (8 neighbours) a walkable tile of `region`
+    /// (`at`'s own region, same rule `deposit_supply` uses for the supply survey, #396): a vein
+    /// or grove the box can see across water or a sealed-off pocket of land isn't actually
+    /// reachable from the site, so the report shouldn't count it as if it were.
+    fn count_group(&self, at: Pos, radius: i32, region: RegionId, g: &GroupDef) -> u32 {
         self.box_tiles(at, radius)
-            .filter(|(_, t)| t.resource.is_some_and(|r| g.resources.contains(&r)))
+            .filter(|&(p, t)| {
+                t.resource.is_some_and(|r| g.resources.contains(&r))
+                    && self
+                        .surface
+                        .neighbors(p, true)
+                        .any(|n| self.regions.region(n) == Some(region))
+            })
             .count() as u32
     }
 
@@ -627,7 +636,7 @@ impl Survey {
         let mut negatives = Vec::new();
         let mut positives = Vec::new();
         for g in &embark.groups {
-            let count = self.count_group(at, embark.report_radius, g);
+            let count = self.count_group(at, embark.report_radius, region, g);
             let true_level = g.level_of(count);
             let (level, display_count, hidden) = match mode {
                 SurveyMode::Exact => (true_level, Some(count), false),
