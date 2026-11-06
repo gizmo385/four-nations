@@ -399,13 +399,17 @@ mod tests {
         let v = nation_view(&s);
         let unit = &v.groups[0].1[0];
         assert_eq!(unit.bends, 0, "a fresh unit has no bends yet");
-        assert_eq!(unit.master_threshold, Some(25), "the bundled masters sign's threshold");
+        assert_eq!(
+            unit.master_threshold,
+            Some(8),
+            "Earth's own threshold, the bundled masters sign"
+        );
         let marks = Marks::new(true);
         let row = wide_unit_row(unit, false, 4, 120, &marks, need_glyphs(true));
         let plain = row.plain();
         // Hunger (zeroed, flagged) - Thirst, Energy, Health (full, unflagged) - Chi (full,
-        // never flagged even though a need just before it is) - Bends ("0/25", left-padded).
-        let tail = "-----!  #####   #####   #####   #####   0/25  ";
+        // never flagged even though a need just before it is) - Bends ("0/8", left-padded).
+        let tail = "-----!  #####   #####   #####   #####   0/8   ";
         assert!(plain.ends_with(tail), "{plain}\nwant suffix {tail:?}");
     }
 
