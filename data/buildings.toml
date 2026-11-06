@@ -38,11 +38,14 @@
 #             `speed` times as fast on a straight step from one rail tile onto the next beside it,
 #             and plans its route to use that. Foot traffic gains nothing. Must be passable, and
 #             only one building may be a rail. `speed` is above 1.0 and at most 10.
-# - orchard:  plants and tends trees around itself (issue #142, docs/design/research.md, "The
-#             orchard"). Every `plant_seconds` it plants one `plants` (a renewable resource) on a
-#             free land tile within `radius` (a square) that has no other resource or building
-#             closer than `spacing` tiles (2 leaves a lane between trees, and keeps them off the
-#             orchard's own art), until it tends `max_trees` of them. A new tree is a sapling: it
+# - orchard:  plants and tends a renewable resource around itself (issue #142, docs/design/
+#             research.md, "The orchard"). Every `plant_seconds` it plants one `plants` (a
+#             renewable resource) on a free tile of its own mapgen terrain within `radius` (a
+#             square) that has no other resource or building closer than `spacing` tiles (2
+#             leaves a lane between trees, and keeps them off the orchard's own art), until it
+#             tends `max_trees` of them. `plants`'s own mapgen `beside` rule, if it has one,
+#             still applies, and a resource that spawns on water (Water's Fishing Dock, #374)
+#             skips the walkable check: the water itself is the point. A new tree is a sapling: it
 #             first bears fruit `grow_seconds` after planting. Resting trees of that resource
 #             within `radius`, planted or wild, regrow `tend_boost` times as fast. With
 #             `auto_pick` each planted tree carries a standing harvest order (#81), so its fruit
@@ -593,3 +596,34 @@ seek_below = 60.0
 regen_per_minute = 8.0
 stop_at = 90.0
 modifier = "water_work"
+
+# Water's orchard, on the water (issue #374, docs/design/nation-buildings.md, "Water: heal, fish
+# through winter, restore chi"). Unlocked by `water_travel`: it plants up to 3 fish spots in the
+# water within reach and tends them 1.25x faster; `auto_pick` means each is fished as it ripens,
+# with nobody designating it, the same as the orchard's fruit. Its footprint must touch water
+# (`beside`, #373): the dock sits on the bank, built from solid land, not afloat. Fishing is
+# frost-hardy (data/jobs.toml), so this is the one producer that keeps working through winter,
+# which suits a polar nation.
+[[building]]
+id = "fishing_dock"
+name = "Fishing Dock"
+verb = "Build"
+work = 70.0
+passable = false
+footprint = [2, 2]
+beside = ["water", "river", "lake"]
+[[building.cost]]
+item = "wood"
+count = 12
+[[building.cost]]
+item = "tool"
+count = 2
+[building.orchard]
+plants = "fish_spot"
+radius = 4
+max_trees = 3
+plant_seconds = 120.0
+grow_seconds = 300.0
+tend_boost = 1.25
+spacing = 2
+auto_pick = true

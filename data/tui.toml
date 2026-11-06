@@ -310,6 +310,12 @@ glyph = "✚"
 ascii = "+"
 fg = [180, 232, 220]
 
+# The Fishing Dock (#374): Water's orchard, on the water.
+[building.fishing_dock]
+glyph = "♆"
+ascii = "d"
+fg = [90, 170, 215]
+
 # --- The endeavor (#236, #242) ---
 [building.harmony_gate]
 glyph = "⛩"

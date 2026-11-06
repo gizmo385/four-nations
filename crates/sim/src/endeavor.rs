@@ -988,10 +988,10 @@ mod tests {
         );
     }
 
-    /// The bundled data's reachable count, per nation, before `spare` (today: Air 9, Water 8,
+    /// The bundled data's reachable count, per nation, before `spare` (today: Air 9, Water 9,
     /// Earth 9, Fire 10; `docs/design/materials.md` section 6, raised by the shared Workshop
-    /// (#369), the Mine Shaft and Deep Mine for Earth (#373), and the Healing Hut for Water
-    /// (#375)).
+    /// (#369), the Mine Shaft and Deep Mine for Earth (#373), and the Healing Hut and Fishing
+    /// Dock for Water (#375, #374)).
     fn reachable_counts() -> [(Nation, u32); 4] {
         let defs = Defs::bundled();
         Nation::ALL
@@ -1012,7 +1012,7 @@ mod tests {
         // Today's bundled counts, so a content change that moves these is visible in review.
         assert_eq!(
             reachable_counts(),
-            [(Nation::Air, 9), (Nation::Water, 8), (Nation::Earth, 9), (Nation::Fire, 10)]
+            [(Nation::Air, 9), (Nation::Water, 9), (Nation::Earth, 9), (Nation::Fire, 10)]
         );
     }
 
@@ -1034,11 +1034,12 @@ mod tests {
 
     #[test]
     fn every_building_spare_must_be_below_the_smallest_nations_count() {
-        // Water reaches the fewest kinds today, 8 (the shared Workshop, #369; the Healing Hut,
-        // #375); spare = 8 would zero its target.
-        let e = error(&sign("kind = \"every_building\"\nspare = 8"));
-        assert!(e.contains("spare must be below the smallest nation's count (8)"), "{e}");
-        assert!(load(&sign("kind = \"every_building\"\nspare = 7")).is_ok());
+        // Air, Water and Earth are tied for fewest kinds today, 9 (the shared Workshop, #369;
+        // the Mine Shaft and Deep Mine for Earth, #373; the Healing Hut and Fishing Dock for
+        // Water, #375, #374); spare = 9 would zero every one of their targets.
+        let e = error(&sign("kind = \"every_building\"\nspare = 9"));
+        assert!(e.contains("spare must be below the smallest nation's count (9)"), "{e}");
+        assert!(load(&sign("kind = \"every_building\"\nspare = 8")).is_ok());
     }
 
     #[test]

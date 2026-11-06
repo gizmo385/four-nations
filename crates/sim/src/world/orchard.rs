@@ -1,13 +1,16 @@
-//! The orchard: a building that plants and tends fruit trees around itself (issue #142). The
-//! design, and why each number is what it is, is in docs/design/research.md ("The orchard"); the
-//! numbers are `[building.orchard]` in data/buildings.toml (`OrchardDef`).
+//! The orchard: a building that plants and tends a renewable resource around itself (issue
+//! #142). The design, and why each number is what it is, is in docs/design/research.md ("The
+//! orchard"); the numbers are `[building.orchard]` in data/buildings.toml (`OrchardDef`). Water's
+//! Fishing Dock (issue #374) is the same mechanism, planting `fish_spot` on the water instead of
+//! `fruit_tree` on land.
 //!
 //! * **Planting** is a process of the building, not a job: while a finished orchard tends fewer
-//!   than `max_trees` trees, every `plant_seconds` it plants one more on a free land tile within
-//!   `radius`. The tile is drawn from the `orchard.plant` RNG stream. A new tree is an ordinary
-//!   `fruit_tree` resource (nothing new on the map) that starts out *resting* for `grow_seconds`
-//!   and is a **sapling** (`World::is_sapling`) until it first ripens. After that it is a
-//!   plain fruit tree: picking it works exactly as for a wild one.
+//!   than `max_trees` trees, every `plant_seconds` it plants one more on a free tile of the
+//!   planted resource's own terrain within `radius`. The tile is drawn from the `orchard.plant`
+//!   RNG stream. A new tree is an ordinary `fruit_tree` resource (nothing new on the map) that
+//!   starts out *resting* for `grow_seconds` and is a **sapling** (`World::is_sapling`) until it
+//!   first ripens. After that it is a plain fruit tree: picking it works exactly as for a wild
+//!   one.
 //! * **Tending** is twofold. The orchard counts the trees it planted that are still standing and
 //!   plants no more than `max_trees`; and any resting tree of the planted kind within `radius`
 //!   regrows `tend_boost` times as fast (`World::tend_rate`, read by `growth_rate`).
@@ -15,8 +18,9 @@
 //!   data/jobs.toml). With `auto_pick`, planting also leaves a standing harvest order (#81) on the
 //!   tree, so it is picked each time it ripens without anyone designating it. `CancelHarvest`
 //!   withdraws the order; the tree keeps growing and can still be picked by hand.
-//! * Which nations can build an orchard is research's business (`orchards`, an Air tech), and
-//!   `designate_build` refuses it otherwise. Wild fruit picking is unaffected.
+//! * Which nations can build an orchard is research's business (`orchards`, an Air tech, or
+//!   `water_travel` for the Fishing Dock), and `designate_build` refuses it otherwise. Wild
+//!   picking of either resource is unaffected.
 
 use super::*;
 
@@ -170,17 +174,21 @@ impl World {
     /// wouldn't), with nothing built, designated, stored,
     /// lying or bent there, no unit on it or walking over it (a resource blocks movement), and no
     /// other resource or building closer than `spacing` tiles. A unit inside a building (#226)
-    /// doesn't hold its entrance tile this way.
+    /// doesn't hold its entrance tile this way. A resource that spawns on water (Water's fishing
+    /// spots, issue #374) skips the walkable check entirely -- the water is the point -- but
+    /// still honours the resource's own mapgen `beside` rule (fish spots: coast or land), so
+    /// every one it plants stays within reach of the shore the same way a wild one would.
     fn can_plant(&self, p: Pos, def: &OrchardDef, defs: &Defs) -> bool {
         let Some(tile) = self.map.get(p) else { return false };
+        let plant = defs.resource(def.plants);
+        let aquatic = plant.terrains.as_ref().is_some_and(|t| t.iter().any(|t| t.is_water()));
         if tile.resource.is_some()
             || tile.building.is_some()
-            || !self.rules.passable(tile)
-            || !defs
-                .resource(def.plants)
-                .terrains
-                .as_ref()
-                .is_none_or(|t| t.contains(&tile.terrain))
+            || (!aquatic && !self.rules.passable(tile))
+            || !plant.terrains.as_ref().is_none_or(|t| t.contains(&tile.terrain))
+            || !plant.beside.as_ref().is_none_or(|ts| {
+                self.map.neighbors(p, true).any(|q| ts.contains(&self.map[q].terrain))
+            })
             || self.site_at(p).is_some()
             || self.zones.contains(&p)
             || self.ground.contains_key(&p)

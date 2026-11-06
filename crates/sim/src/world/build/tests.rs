@@ -364,6 +364,42 @@ fn a_mine_shaft_is_refused_on_open_land_and_accepted_beside_a_mountain_or_a_tunn
     );
 }
 
+/// Issue #374: Water's Fishing Dock has a `beside` rule too, `["water", "river", "lake"]`, so
+/// it's refused on open land exactly as the Mine Shaft is away from rock. A tile Draw Water
+/// (#364) turned into a temporary `Ford` doesn't satisfy it: `beside` names the terrain a tile
+/// must actually be, and a ford is its own `Terrain` variant, not `water`, `river` or `lake`, so
+/// a dock built against one would be standing on nothing once the ford reverts.
+#[test]
+fn a_fishing_dock_is_refused_on_open_land_and_a_temporary_ford_but_accepted_beside_water() {
+    let rows = [
+        "............",
+        "............",
+        "..~.......=.",
+        "............",
+        "............",
+        "............",
+        "............",
+    ];
+    let (w, mut defs) = setup(&rows, &[]);
+    let dock = defs.building_id("fishing_dock").unwrap();
+    defs.buildings[dock.0 as usize].unlocked_by = None;
+
+    // Anchored at (0, 1): the footprint covers (0,1)-(1,2), and the sea tile at (2, 2) touches
+    // its ring (corners included).
+    assert_eq!(w.check_build(at(0, 1), dock, &defs), Ok(()));
+
+    // Anchored at (8, 1): the footprint covers (8,1)-(9,2), and the only thing touching its ring
+    // is the ford at (10, 2) -- not real water, so this is refused exactly as open land is.
+    assert_eq!(
+        w.check_build(at(8, 1), dock, &defs),
+        Err(BuildError::CannotBuild { at: at(8, 1), why: Blocker::Beside("water") })
+    );
+    assert_eq!(
+        w.check_build(at(2, 4), dock, &defs),
+        Err(BuildError::CannotBuild { at: at(2, 4), why: Blocker::Beside("water") })
+    );
+}
+
 #[test]
 fn placement_checks_report_the_first_blocked_tile_row_major() {
     let rows = ["..........", "...~T.....", "...T~.....", ".........."];

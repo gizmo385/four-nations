@@ -141,11 +141,12 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
         // Its anchor, not the hovered tile (#212): every tile of its footprint says the same.
         let at = world.footprint_at(tile).map_or(tile, |f| f.anchor);
         lines.push(Line::Detail(format!("Built ({}, {})", at.x, at.y)));
-        // An orchard says how much of its grove is planted (#142).
-        let max =
-            world.building_at(tile).and_then(|b| defs.building(b).orchard).map(|o| o.max_trees);
-        if let (Some(trees), Some(max)) = (world.orchard_trees(tile), max) {
-            lines.push(Line::Detail(format!("Tends {trees} of {max} trees")));
+        // An orchard says how much of its grove is planted (#142); a Fishing Dock (#374) the
+        // same, in terms of fishing spots rather than trees.
+        let orchard = world.building_at(tile).and_then(|b| defs.building(b).orchard);
+        if let (Some(trees), Some(o)) = (world.orchard_trees(tile), orchard) {
+            let plants = defs.resource(o.plants).name.to_lowercase();
+            lines.push(Line::Detail(format!("Tends {trees} of {} {plants}s", o.max_trees)));
         }
         // A farm plot says what stage it's in (#198).
         if let Some(stage) = world.plot_stage(tile) {
@@ -520,10 +521,10 @@ mod tests {
             Some(fn_sim::building::Building::new(id, passable, false));
         s.world.adopt_orchards(&s.defs);
         let at = |s: &Session| tooltip_lines(s, Tool::Select, pos).unwrap();
-        assert!(at(&s).contains(&Line::Detail(format!("Tends 0 of {} trees", o.max_trees))));
+        assert!(at(&s).contains(&Line::Detail(format!("Tends 0 of {} fruit trees", o.max_trees))));
 
         s.tick_n(1200);
-        assert!(at(&s).contains(&Line::Detail(format!("Tends 1 of {} trees", o.max_trees))));
+        assert!(at(&s).contains(&Line::Detail(format!("Tends 1 of {} fruit trees", o.max_trees))));
         let sapling = s.world.map.iter().map(|(p, _)| p).find(|&p| s.world.is_sapling(p)).unwrap();
         let lines = tooltip_lines(&s, Tool::Select, sapling).unwrap();
         assert!(lines.contains(&Line::Detail("Sapling - repeating order".into())), "{lines:?}");

@@ -12,7 +12,6 @@ const MINUTE: u64 = 600; // ticks
 /// here with the reason it doesn't. A tech that gains an unlock must leave this list.
 const NO_CONCRETE_UNLOCK: &[(&str, &str)] = &[
     ("tide_mills", "modifier-only: no power or mill system yet (#127)"),
-    ("water_travel", "needs a rule for crossing water tiles (#127)"),
     ("spirit_oasis", "modifier-only: needs chi and mood regeneration (#127)"),
 ];
 
@@ -82,6 +81,19 @@ fn ice_construction_unlocks_the_igloo_for_water_only() {
     }
     assert!(w.research().is_known(ice), "145 points at 3 a minute fit in an hour");
     assert_eq!(try_build(&mut w), Ok(()), "unlocked once known");
+}
+
+/// #374: `water_travel` unlocks the Fishing Dock, Water's orchard on the water. Crossing water
+/// tiles itself still needs a movement rule (#127), so that part of the tech's name stays
+/// unfulfilled; the building is the concrete unlock `every_water_branch_tech_unlocks_something_or
+/// _says_why_not` requires.
+#[test]
+fn water_travel_unlocks_the_fishing_dock() {
+    let defs = Defs::bundled();
+    let dock = defs.building_id("fishing_dock").expect("fishing_dock is data");
+    let water_travel = defs.tech_id("water_travel").unwrap();
+    assert_eq!(defs.building(dock).unlocked_by, Some(water_travel));
+    assert!(defs.building(dock).orchard.is_some(), "the dock plants fish spots");
 }
 
 /// Plays the design doc's pacing assumptions for one settlement without the world around it: the

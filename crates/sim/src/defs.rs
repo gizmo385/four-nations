@@ -575,14 +575,18 @@ mod tests {
         &BENDING[..BENDING.find("\n[[ability]]").unwrap()]
     }
 
-    /// The bundled buildings without the orchard's `[building.orchard]`, for tests whose resources
-    /// don't include the fruit tree it plants.
+    /// The bundled buildings without any `[building.orchard]` section (the Orchard's and the
+    /// Fishing Dock's, issue #374), for tests whose resources don't include the fruit tree or
+    /// fish spot either one plants.
     fn bare_buildings() -> String {
-        let start = BUILDINGS.find("[building.orchard]").unwrap();
-        let end = start
-            + BUILDINGS[start..].find("auto_pick = true\n").unwrap()
-            + "auto_pick = true\n".len();
-        format!("{}{}", &BUILDINGS[..start], &BUILDINGS[end..])
+        let mut text = BUILDINGS.to_owned();
+        while let Some(start) = text.find("[building.orchard]") {
+            let end = start
+                + text[start..].find("auto_pick = true\n").unwrap()
+                + "auto_pick = true\n".len();
+            text.replace_range(start..end, "");
+        }
+        text
     }
 
     fn with_biomes(biomes: &str) -> Result<Defs, DefsError> {
