@@ -85,7 +85,7 @@ pub fn list() -> Vec<Value> {
         json!({
             "name": "act",
             "description": "Runs named steps in order, each lowered to the keys a player would \
-                             press: designate {tool: harvest|cancel|stockpile|bend, from, to, \
+                             press: designate {tool: harvest|cancel|clear|stockpile|bend, from, to, \
                              standing?}, build {building, from, to}, select {x,y} or \
                              {name}, research {tech}, cursor {x,y}, keys {script}. A step that \
                              can't be planned (an unknown tech, a building the Build modal \
@@ -111,7 +111,7 @@ pub fn list() -> Vec<Value> {
                                 },
                                 "tool": {
                                     "type": "string",
-                                    "enum": ["harvest", "cancel", "stockpile", "bend"],
+                                    "enum": ["harvest", "cancel", "clear", "stockpile", "bend"],
                                 },
                                 "building": {"type": "string"},
                                 "from": coord,

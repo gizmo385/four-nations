@@ -1065,6 +1065,8 @@ impl Coord {
 pub enum DesignateTool {
     Harvest,
     Cancel,
+    /// Clear the ground (docs/design/clearing.md, #411/#426): `e` plus the rectangle.
+    Clear,
     Stockpile,
     Bend,
 }
@@ -1074,6 +1076,7 @@ impl DesignateTool {
         match self {
             Self::Harvest => Tool::Harvest,
             Self::Cancel => Tool::CancelHarvest,
+            Self::Clear => Tool::Clear,
             Self::Stockpile => Tool::Stockpile,
             Self::Bend => Tool::Bend,
         }
@@ -1083,6 +1086,7 @@ impl DesignateTool {
         match self {
             Self::Harvest => "harvest",
             Self::Cancel => "cancel",
+            Self::Clear => "clear",
             Self::Stockpile => "stockpile",
             Self::Bend => "bend",
         }
@@ -1277,6 +1281,7 @@ fn describe_mark(mark: &Mark) -> String {
         Mark::Harvest => "harvest",
         Mark::Standing => "standing",
         Mark::Sowing => "sowing",
+        Mark::Clear => "clear",
         Mark::Bend => "bend",
         Mark::Build => "build",
         Mark::Stockpile => "stockpile",
@@ -2257,6 +2262,30 @@ mod tests {
 
         let script = result.keys.join(" ");
         assert_eq!(script, "h <right> <right> <down> <enter> <right> <down> <enter>");
+        assert_same_as_key_script(&mut h, Nation::Earth, &script);
+    }
+
+    /// `designate {tool: clear}` (docs/design/clearing.md, #411/#426) lowers to `e` plus the
+    /// rectangle, exactly as `designate {tool: harvest}` lowers to `h`.
+    #[test]
+    fn act_designate_clear_round_trips_with_its_key_script_and_clears_the_rectangle() {
+        let mut h = host(Nation::Earth);
+        let cursor = h.app().ui.cursor;
+        let from = Pos::new(cursor.x + 2, cursor.y + 1);
+        let to = Pos::new(from.x + 1, from.y + 1);
+        let steps = vec![ActionStep::Designate {
+            tool: DesignateTool::Clear,
+            from: Coord { x: from.x, y: from.y },
+            to: Coord { x: to.x, y: to.y },
+            standing: false,
+        }];
+        let result = h.act(&steps, Some("make room for a bed".into()));
+        assert!(result.error.is_none(), "{result:?}");
+        assert_eq!(h.observe().tool, "Clear");
+        assert_eq!(h.log.counts(), (1, 0, 0, 0));
+
+        let script = result.keys.join(" ");
+        assert_eq!(script, "e <right> <right> <down> <enter> <right> <down> <enter>");
         assert_same_as_key_script(&mut h, Nation::Earth, &script);
     }
 

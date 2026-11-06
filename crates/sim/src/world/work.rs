@@ -257,6 +257,25 @@ impl World {
         self.standing_harvest.contains(&pos)
     }
 
+    /// Tiles with a Clear mark that isn't finished (claimed or not): `designate_clear` queued a
+    /// `JobKind::Clear` on them (docs/design/clearing.md, #411/#424/#426).
+    pub fn clear_designations(&self) -> impl Iterator<Item = Pos> + '_ {
+        self.jobs.iter().filter_map(|j| match j.kind {
+            JobKind::Clear { pos } => Some(pos),
+            JobKind::Harvest { .. }
+            | JobKind::Haul { .. }
+            | JobKind::Bend { .. }
+            | JobKind::Build { .. }
+            | JobKind::Study { .. }
+            | JobKind::EndeavorTask { .. }
+            | JobKind::Attend { .. }
+            | JobKind::Craft { .. }
+            | JobKind::Sow { .. }
+            | JobKind::Reap { .. }
+            | JobKind::Chart { .. } => None,
+        })
+    }
+
     pub fn job(&self, id: JobId) -> Option<&Job> {
         self.jobs.binary_search_by_key(&id, |j| j.id).ok().map(|i| &self.jobs[i])
     }

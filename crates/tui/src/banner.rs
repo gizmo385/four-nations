@@ -36,8 +36,9 @@ pub fn tint(ui: &UiState) -> Option<Tint> {
     Tint::for_tool(ui.tool)
 }
 
-/// The badge: the tool's name, the Build tool's chosen building or the Bend ability it
-/// channels, and `· REPEATING` while the standing-order toggle (`O`, #277) is on.
+/// The badge: the tool's name, the Build tool's chosen building, the Bend ability it channels
+/// or the Clear tool's mode, and `· REPEATING` while the standing-order toggle (`O`, #277) is
+/// on.
 fn badge(session: &Session, ui: &UiState) -> String {
     let mut s = ui.tool.name().to_uppercase();
     match ui.tool {
@@ -53,6 +54,9 @@ fn badge(session: &Session, ui: &UiState) -> String {
                 s.push_str(&session.defs.ability(id).name);
             }
         }
+        // Ground mode only (docs/design/clearing.md, #411/#426); `E` would cycle to a buildings
+        // mode once #342 lands, which would name it the same way.
+        Tool::Clear => s.push_str(" ground"),
         _ => {}
     }
     if ui.tool == Tool::Harvest && ui.repeating {
