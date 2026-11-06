@@ -3,8 +3,8 @@ use crate::defs::{BiomeId, Terrain};
 use crate::geom::Grid;
 use crate::mapgen::Tile;
 
-/// A map from ASCII rows: `.` land, `~` water, `,` coast, `^` mountain, `=` ford, `T` land with
-/// a resource on it.
+/// A map from ASCII rows: `.` land, `~` water, `,` coast, `^` mountain, `=` ford, `t` tunnel, `T`
+/// land with a resource on it.
 fn arena(rows: &[&str]) -> TileMap {
     Grid::from_fn(rows[0].len() as i32, rows.len() as i32, |p| {
         let c = rows[p.y as usize].as_bytes()[p.x as usize];
@@ -13,6 +13,7 @@ fn arena(rows: &[&str]) -> TileMap {
             b',' => Terrain::Coast,
             b'^' => Terrain::Mountain,
             b'=' => Terrain::Ford,
+            b't' => Terrain::Tunnel,
             _ => Terrain::Land,
         };
         let resource = (c == b'T').then_some(crate::defs::ResourceId(0));
@@ -321,6 +322,46 @@ fn one_blocked_tile_of_four_refuses_the_whole_footprint() {
         w.designate_build(at(3, 2), hall, defs).unwrap();
     });
     blocks(Blocker::Stockpile, &|w, _| w.designate_stockpile(at(3, 2)).unwrap());
+}
+
+/// Issue #373: a building with a `beside` rule (Earth's Mine Shaft, `["mountain", "tunnel"]`)
+/// needs more than free land -- its footprint's ring must touch one of those terrains, or
+/// `check_build` refuses it with `Blocker::Beside`, naming what to touch ("must touch rock").
+/// A shaft against a bored tunnel works the same as one against bare rock. The tech gate is
+/// covered elsewhere (`a_locked_building_needs_its_tech_but_fire_starts_with_it`), so this frees
+/// the shaft from it to focus on placement alone.
+#[test]
+fn a_mine_shaft_is_refused_on_open_land_and_accepted_beside_a_mountain_or_a_tunnel() {
+    let rows = [
+        "............",
+        "............",
+        "..^.......t.",
+        "............",
+        "............",
+        "............",
+        "............",
+    ];
+    let (mut w, mut defs) = setup(&rows, &[]);
+    let shaft = defs.building_id("mine_shaft").unwrap();
+    defs.buildings[shaft.0 as usize].unlocked_by = None;
+
+    // Anchored at (0, 1): the footprint covers (0,1)-(1,2), and the mountain at (2, 2) touches
+    // its ring (corners included).
+    assert_eq!(w.check_build(at(0, 1), shaft, &defs), Ok(()));
+    // Anchored at (8, 1): the footprint covers (8,1)-(9,2), and the tunnel at (10, 2) touches
+    // its ring the same way a mountain would.
+    assert_eq!(w.check_build(at(8, 1), shaft, &defs), Ok(()));
+
+    // Anchored well away from either: open land, free of resources and buildings, but still
+    // refused for what it doesn't touch.
+    assert_eq!(
+        w.check_build(at(2, 4), shaft, &defs),
+        Err(BuildError::CannotBuild { at: at(2, 4), why: Blocker::Beside("rock") })
+    );
+    assert_eq!(
+        w.designate_build(at(2, 4), shaft, &defs),
+        Err(BuildError::CannotBuild { at: at(2, 4), why: Blocker::Beside("rock") })
+    );
 }
 
 #[test]

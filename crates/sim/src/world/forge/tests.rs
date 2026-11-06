@@ -281,6 +281,71 @@ fn a_workshop_makes_tools_from_wood_and_stops_at_its_stock_limit() {
     assert!(wood_spent <= wood_count * ceiling, "never spends more wood than the limit allows");
 }
 
+/// Earth's Mine Shaft (issue #373): a source recipe (`input = []`) still needs a worker inside,
+/// and still takes `work` seconds -- it just has nothing to fetch first.
+#[test]
+fn a_mine_shaft_cuts_stone_with_no_input_to_fetch() {
+    let (mut w, defs) = setup(&grid(), &[at(1, 1)]);
+    let shaft = defs.building_id("mine_shaft").unwrap();
+    let recipe = defs.building(shaft).recipe.clone().unwrap();
+    assert!(recipe.inputs.is_empty(), "a source recipe: nothing to fetch");
+    let anchor = at(4, 4);
+    place_building(&mut w, &defs, shaft, anchor);
+
+    // The crafter heads straight inside: there's no input trip to make first.
+    run_until(&mut w, &defs, 200, |w| w.units[0].inside().is_some());
+    run_until(&mut w, &defs, 6000, |w| w.ground_items().any(|(_, s)| s.item == recipe.output.item));
+    let (_, out) = w.ground_items().find(|(_, s)| s.item == recipe.output.item).unwrap();
+    assert_eq!(out.count, recipe.output.count);
+}
+
+/// A no-input recipe idles at its `stock_limit` exactly like any other (#350): the mechanic
+/// doesn't care whether there was anything to fetch, only whether a batch is already under way
+/// and how much output is already stored. Earth's data leaves the Mine Shaft's limit unset (it
+/// never runs out on its own), so this sets one for the test.
+#[test]
+fn a_mine_shafts_source_recipe_idles_at_its_stock_limit_like_any_other() {
+    let (mut w, mut defs) = setup(&grid(), &[at(1, 1)]);
+    let shaft = defs.building_id("mine_shaft").unwrap();
+    defs.buildings[shaft.0 as usize].recipe.as_mut().unwrap().stock_limit = 3;
+    let recipe = defs.building(shaft).recipe.clone().unwrap();
+    let anchor = at(4, 4);
+    place_building(&mut w, &defs, shaft, anchor);
+
+    // The output is already at the limit, as if it had all been hauled away already.
+    let zone = at(5, 0);
+    w.designate_stockpile(zone).unwrap();
+    w.stored.insert(zone, Stack { item: recipe.output.item, count: recipe.stock_limit });
+    assert!(w.craft_idle(anchor, &recipe), "idle from the start, with no batch under way");
+    for _ in 0..2000 {
+        w.tick(&defs);
+    }
+    assert_eq!(w.stored_total(recipe.output.item), recipe.stock_limit, "no new stone");
+    assert!(w.ground_items().next().is_none(), "nothing worked for a batch that never starts");
+
+    // Below the limit, a batch resumes: the crafter still has to walk in and spend the work.
+    w.stored.remove(&zone);
+    assert!(!w.craft_idle(anchor, &recipe));
+    run_until(&mut w, &defs, 6000, |w| w.ground_items().any(|(_, s)| s.item == recipe.output.item));
+}
+
+/// Earth's Deep Mine (issue #373): its gold ore comes from a recipe, not a harvest, so it never
+/// touches the "Ore mined" tally (`data/endeavor.toml`) -- the same way Metalbend's own metal
+/// doesn't (`World::tallies`, `world/work.rs`'s `count_harvest`).
+#[test]
+fn a_deep_mines_ore_does_not_add_to_the_ore_mined_tally() {
+    let (mut w, defs) = setup(&grid(), &[at(1, 1)]);
+    let mine = defs.building_id("deep_mine").unwrap();
+    let recipe = defs.building(mine).recipe.clone().unwrap();
+    let ore = defs.item_id("gold_ore").unwrap();
+    assert_eq!(recipe.output.item, ore);
+    let anchor = at(4, 4);
+    place_building(&mut w, &defs, mine, anchor);
+
+    run_until(&mut w, &defs, 12_000, |w| w.ground_items().any(|(_, s)| s.item == ore));
+    assert_eq!(w.tallies().harvested(ore), 0, "a recipe output isn't a harvest");
+}
+
 /// A plain grid of land, big enough for a 2x2 building and a stockpile tile.
 fn grid() -> [&'static str; 10] {
     [

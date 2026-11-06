@@ -16,8 +16,8 @@
 "♠♠""♠♠♠...│   Rail            Locked                                       │.♠""♠√√~√√♠│                              │
 "♠√♠♠♠♠..≈≈│   Farm Plot       Locked  Keeps a fire: warms 2 tiles, sleeps  │."♠♠♠τ~√√♠♠│                              │
 "♣♣~"♠♠.≈≈≈│   Workshop        Locked  1.5x faster nearby                   │.♠♠♠♠~♠♠♠"♠│                              │
-..~."...≈≈≈│                                                                │~~"~~""""♠♠│                              │
-.≈≈...≈≈ƒ≈≈│                           Requires Fire Making                 │♠"~""♠¥"♠♠♠│                              │
+..~."...≈≈≈│   Mine Shaft      Locked                                       │~~"~~""""♠♠│                              │
+.≈≈...≈≈ƒ≈≈│   Deep Mine       Locked  Requires Fire Making                 │♠"~""♠¥"♠♠♠│                              │
 ≈≈≈ƒ≈≈≈≈≈≈≈│                                                                │♠♠"""♠♠"""♠│                              │
 ≈≈≈≈≈≈≈≈≈≈≈│                                                                │♠♠""¥"♠"♠"♠│                              │
 ≈≈≈≈≈≈≈≈≈≈≈│                                                                │♠♠"""""""♠♠│                              │

@@ -170,9 +170,11 @@ prereqs = ["earth_shaping"]
 # Unlocks Bore Tunnel (#132, docs/design/research.md, "Tunneling"): a bend that turns a mountain
 # tile into a walkable tunnel. Minerals touching a tunnel yield their harvest's `tunnel_count`
 # (data/jobs.toml). Mining itself stays open to everyone: gold needs no tech, stone needs
-# stoneworking.
+# stoneworking. Also unlocks the Mine Shaft (#373, docs/design/nation-buildings.md): a miner
+# cuts stone from the rock a shaft is built against, instead of walking out to a deposit.
 [tech.unlocks]
 abilities = ["bore_tunnel"]
+buildings = ["mine_shaft"]
 
 [[tech]]
 id = "earth_rail"
@@ -207,9 +209,11 @@ nation = "earth"
 cost = 500
 prereqs = ["seismic_sense", "masonry"]
 # Unlocks Metalbend (#134, docs/design/research.md, "Metalbending"): ore straight into metal, in
-# place, no smelter trip needed.
+# place, no smelter trip needed. Also unlocks the Deep Mine (#373, docs/design/
+# nation-buildings.md): metal braces a shaft deep enough to reach gold, Metalbend's economic use.
 [tech.unlocks]
 abilities = ["metalbend"]
+buildings = ["deep_mine"]
 
 # ---------------------------------------------------------------------------------------------
 # Fire Nation: heat and industry

@@ -227,6 +227,18 @@ glyph = "╪"
 ascii = "="
 fg = [160, 164, 176]
 
+# A miner works inside, cutting stone from the rock it's built against (#373).
+[building.mine_shaft]
+glyph = "◆"
+ascii = "M"
+fg = [140, 128, 100]
+
+# Earth's capstone: braces a shaft deep enough to reach gold (#373).
+[building.deep_mine]
+glyph = "◈"
+ascii = "D"
+fg = [210, 180, 90]
+
 # --- Air Nomads ---
 [building.orchard]
 glyph = "♣"

@@ -17,6 +17,10 @@
 #             must be free buildable land. A building with a bed must be 1x1. A building keeps
 #             the size it was built with, so changing this leaves buildings already standing in
 #             a save as they were.
+# - beside:   `[terrain, ...]` (issue #373): at least one tile of the footprint's ring (the
+#             tiles touching it from outside, corners included) must be one of these terrains,
+#             or the placement is refused ("must touch rock" for `["mountain", "tunnel"]`).
+#             Optional; absent means no such rule.
 # - seats:    how many units may study here at once (0 unless this is a study hall).
 # - bed:      units sleep here. A tired unit walks to the nearest bed nobody else is using, if
 #             one is within `seek_tiles` path tiles, and sleeps there, regaining energy
@@ -45,12 +49,15 @@
 #             is picked as it ripens. Which nations can build one is the unlocking tech's
 #             business (data/research.toml), not this section's.
 # - recipe:   a production building (issue #124): the forge's smith job, a brick kiln, a
-#             smelter. `input` (one or more `{ item, count }`) is what one batch consumes;
-#             `output`/`output_count` is what it yields. `work` is in-game seconds once a batch's
-#             inputs are in, at `modifier` 1.0 (optional, a nation modifier that scales it, like
-#             `heating`). A unit holding the building's craft job fetches the inputs, works
-#             inside (so a recipe needs a `capacity`, the door it works through), and the cycle
-#             repeats for as long as inputs keep coming; it never finishes on its own. A crafter
+#             smelter. `input` (zero or more `{ item, count }`, issue #373) is what one batch
+#             consumes; `output`/`output_count` is what it yields. `work` is in-game seconds
+#             once a batch's inputs are in, at `modifier` 1.0 (optional, a nation modifier that
+#             scales it, like `heating`). A unit holding the building's craft job fetches the
+#             inputs, works inside (so a recipe needs a `capacity`, the door it works through),
+#             and the cycle repeats for as long as inputs keep coming; it never finishes on its
+#             own. `input = []` is a source recipe (issue #373): nothing to fetch, so the crafter
+#             goes straight to working, but it still needs a worker and still takes `work`
+#             seconds (Earth's Mine Shaft cuts stone from the rock it's built against). A crafter
 #             starts a new batch only while fewer than `stock_limit` of `output` (items, optional,
 #             default 0 meaning no limit, issue #350) are in stores; a batch already under way
 #             finishes regardless.
@@ -484,3 +491,66 @@ work = 40.0
 modifier = "construction"
 input = [{ item = "wood", count = 3 }]
 stock_limit = 6
+
+# --- Earth: mining (issue #373) ---
+# Earth runs out of things to raise halfway up its tree (docs/design/nation-buildings.md,
+# "Earth: work the land, then dig in"), so it digs in instead. Unlocked by `tunneling`: a miner
+# works inside, cutting stone straight out of the rock the shaft is built against, no input to
+# fetch (a source recipe, issue #373) but still a worker's time, at about half a quarrier's rate
+# after #349. It never runs out, and `stock_limit` (unset: no limit here) would still idle it
+# the way #350 idles any other recipe. Its footprint must touch mountain or tunnel (`beside`,
+# #373): a shaft against a bored tunnel works the same as one against bare rock.
+[[building]]
+id = "mine_shaft"
+name = "Mine Shaft"
+verb = "Dig"
+work = 80.0
+passable = false
+footprint = [2, 2]
+capacity = 1
+beside = ["mountain", "tunnel"]
+[[building.cost]]
+item = "stone"
+count = 10
+[[building.cost]]
+item = "wood"
+count = 6
+[[building.cost]]
+item = "tool"
+count = 2
+[building.recipe]
+output = "stone"
+output_count = 1
+work = 50.0
+modifier = "earthworks"
+input = []
+
+# Earth's capstone, unlocked by `metalbending`: metal braces a shaft deep enough to reach gold,
+# Metalbend's economic use (docs/design/nation-buildings.md). Same footprint and placement rule
+# as the Mine Shaft, and the same kind of source recipe (no input). Its ore isn't a harvest, so
+# it doesn't add to the "Ore mined" tally (data/endeavor.toml), the same way Metalbend's own
+# metal doesn't.
+[[building]]
+id = "deep_mine"
+name = "Deep Mine"
+verb = "Dig"
+work = 150.0
+passable = false
+footprint = [2, 2]
+capacity = 1
+beside = ["mountain", "tunnel"]
+[[building.cost]]
+item = "stone"
+count = 20
+[[building.cost]]
+item = "metal"
+count = 4
+[[building.cost]]
+item = "tool"
+count = 2
+[building.recipe]
+output = "gold_ore"
+output_count = 1
+work = 150.0
+modifier = "earthworks"
+input = []
