@@ -12,6 +12,7 @@ use crate::building::{BuildingDef, BuildingId, BuildingsFile};
 use crate::difficulty::DifficultyDef;
 use crate::embark::EmbarkDef;
 use crate::endeavor::{EndeavorDef, EndeavorFile};
+use crate::harm::HarmDef;
 use crate::jobs::{HarvestDef, ItemDef, ItemId, JobSettings, JobsFile};
 use crate::nation::{Nation, NationDef};
 use crate::needs::{FoodDef, NeedsFile, NeedsSettings};
@@ -155,6 +156,10 @@ pub struct Defs {
     /// unloaded (`SeasonsDef::default`); nothing acts on it unless a difficulty preset's
     /// `seasons` flag is on, and `bundled` always loads this alongside `difficulty`.
     pub seasons: SeasonsDef,
+    /// Harm's shared settings and exposure's rate (data/harm.toml, #387). Safe to read even
+    /// unloaded (`HarmDef::default`); nothing acts on it unless a difficulty preset's `harm`
+    /// knob is above 0, and `bundled` always loads this alongside `difficulty`.
+    pub harm: HarmDef,
     /// `harvests` index by `ResourceId`, so the lookup is O(1).
     harvest_by_resource: Vec<Option<usize>>,
 }
@@ -242,6 +247,7 @@ impl Defs {
         .and_then(|d| d.with_embark(include_str!("../../../data/embark.toml")))
         .and_then(|d| d.with_difficulty(include_str!("../../../data/difficulty.toml")))
         .and_then(|d| d.with_seasons(include_str!("../../../data/seasons.toml")))
+        .and_then(|d| d.with_harm(include_str!("../../../data/harm.toml")))
         .expect("bundled data/*.toml must be valid; run `cargo test -p fn_sim`")
     }
 
@@ -310,6 +316,7 @@ impl Defs {
             embark: EmbarkDef::default(),
             difficulty: DifficultyDef::default(),
             seasons: SeasonsDef::default(),
+            harm: HarmDef::default(),
             harvest_by_resource,
         };
         defs.validate()?;

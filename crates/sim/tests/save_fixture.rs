@@ -262,6 +262,10 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     "healing_retry_at",
     // Draw Water's temporary pool (#364): `Reshape`s waiting to revert, on `World`.
     "reverts",
+    // Harm and exposure (#387): the most recent harm each unit took and whether it's already
+    // logged the sleeping-rough alert this sleep, on `Unit`.
+    "last_harm",
+    "exposed_alerted",
 ];
 
 /// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239

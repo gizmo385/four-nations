@@ -897,12 +897,7 @@ impl World {
     /// sleeper inside a bed bigger than 1x1 (#227) lies on the entrance tile, not the building
     /// itself, so this looks the bed up through `inside`, the same as a study seat does.
     pub(super) fn sleep_factor_for(&self, u: &Unit, defs: &Defs) -> f32 {
-        let bed_tile = u.inside.unwrap_or(u.pos);
-        let bed = self.map[bed_tile]
-            .building
-            .and_then(|b| defs.building(b.id).bed)
-            .map_or(1.0, |b| b.sleep_bonus);
-        self.sleep_factor_at(u.pos) * bed
+        self.sleep_factor_at(u.pos) * self.bed_sleep_bonus(u, defs)
     }
 
     /// Where to heal (issue #375): the route to the nearest healing building with room whose

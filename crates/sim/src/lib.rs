@@ -14,6 +14,7 @@ pub mod embark;
 pub mod endeavor;
 pub mod flood;
 pub mod geom;
+pub mod harm;
 pub mod jobs;
 pub mod mapgen;
 pub mod nation;

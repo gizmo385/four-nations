@@ -1,0 +1,29 @@
+# Harm: the rules every source of damage beyond neglect shares (docs/design/harm.md, issue
+# #387), and the settings its first source, exposure, needs. Read by `Defs::with_harm`, the way
+# `seasons.toml` is read by `with_seasons`. None of this does anything unless the chosen
+# difficulty preset's `harm` knob is above 0 (data/difficulty.toml); with it at 0 (Sandbox), or
+# no preset at all, the world plays exactly as it did before this file existed.
+#
+# [settings]:
+# - floor:           with the preset's `harm_kills` off, harm never takes a unit's health below
+#                    this (`World::apply_exposure`). The need damage `data/needs.toml`'s
+#                    `health.depleted_damage_per_minute` already applies isn't floored: a death
+#                    still needs an empty need unless `harm_kills` is on.
+# - fit_for_heavy:   below this health, a unit claims no harvest marked `risk` (issue #388;
+#                    nothing reads this yet, but it's validated now so #388 lands with no data
+#                    change).
+#
+# [exposure]:
+# - damage_per_minute: health lost a minute, times the preset's `harm`, while a unit is asleep
+#                      on a cold tile (`World::is_cold`) not sheltered by a bed whose own
+#                      `sleep_bonus` beats the cold (a heat source -- a campfire, Hearthflame,
+#                      Inner Fire, an igloo, Earth Tent or Air Shield -- already rules a tile out
+#                      of `is_cold`, so this only ever matters for a plain bed or no shelter at
+#                      all).
+
+[settings]
+floor = 10.0
+fit_for_heavy = 80.0
+
+[exposure]
+damage_per_minute = 4.0
