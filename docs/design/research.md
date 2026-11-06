@@ -90,7 +90,7 @@ written as `field ×N`.
 | `masonry` | 120 | stoneworking, carpentry | stone buildings; construction ×1.15 |
 | `herbalism` | 120 | farming | herb garden; herbalist job (restores health, #3) |
 | `writing` | 120 | pottery | +2 study hall seats; study ×1.25 |
-| `cartography` | 250 | writing | reveals the region around the settlement; scrolls shown on the map |
+| `cartography` | 250 | writing | unlocks the Map Room, which charts lost ruins nearest first (cartography.md, #400) |
 
 ### Earth Kingdom: shaping the land
 
