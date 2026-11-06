@@ -238,7 +238,7 @@ shows before, during and after.
 |---|---|---|---|
 | Before | On cold sites, the winter warning adds "Sleeping rough on cold land causes frostbite: keep beds or a fire near work". The cold status line reads "Cold: no healing; frostbite if it sleeps here" | Resource hover and the harvest tool: "Risk: 2% injury a pick" | Embark Water line "sea 2 steps · fresh 31"; an outlook negative "only sea water near"; tile hover "Sea water: may cause sickness" |
 | During | People flag **Freezing**. Alert (once per sleep): "Kya is sleeping rough in the cold at (40, 12)" | Alert: "Tyro was hurt quarrying at (88, 40)"; #337 idle reason "Too hurt for heavy work (58/80)" | People flag **Sick**. Alert: "Kya fell sick from sea water" |
-| After | "Kya died of hunger, weakened by frostbite"; on Hard, "Kya froze to death at (40, 12)" | "…weakened by an injury"; on Hard, "Tyro died of his injuries" | "…weakened by sickness"; on Hard, "Kya died of sickness" |
+| After | "Kya died of hunger, weakened by frostbite"; on Hard, "Kya froze to death at (40, 12)" | "…weakened by an injury"; on Hard, "Tyro died of injuries" | "…weakened by sickness"; on Hard, "Kya died of sickness" |
 
 Harm alerts get their own kind (`Kind::Harm`), and fn_agent's `end_turn` stops on them as it
 does on deaths, so the agent playtests notice them. The People row already has "Hurt" and

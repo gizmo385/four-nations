@@ -206,7 +206,7 @@ impl Alerts {
                 DeathCause::Exhaustion => "exhaustion",
                 // #387, #388; the full wording (and `weakened_by`) is #393's job.
                 DeathCause::Exposure => "exposure",
-                DeathCause::Injury => "his injuries",
+                DeathCause::Injury => "injuries",
             };
             fresh.push((d.tick, Kind::Death, format!("{} died of {how}", d.name), false));
         }
