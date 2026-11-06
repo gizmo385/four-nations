@@ -169,9 +169,18 @@ So a tunnel both opens the inside of a mountain (2) and makes what is mined from
 Yields (confirmed by the owner 2026-10-25): stone 3 → **5** per outcrop, gold 1 → **2** per vein. Work time doesn't change.
 The rule is per harvest (`tunnel_count`), so ore and metal from #134 can carry their own.
 
-**Gold and stone stay open to everyone.** Neither harvest is gated by `tunneling`: gold needs no
-tech, stone needs the shared `stoneworking`, and any nation's units mine an edge vein for the
-plain `count`. Nothing asks who dug the tunnel or who mines beside it; only Earth can bore one.
+**Gold and stone stay open to everyone.** Neither harvest is gated by `tunneling` itself: stone
+needs the shared `stoneworking`, and any nation's units mine an edge vein for the plain `count`.
+Nothing asks who dug the tunnel or who mines beside it; only Earth can bore one.
+
+*Update (#383, 2026-11-05):* "gold needs no tech" above was this decision's own framing, and it
+turned out to be the bug: #379 found that no density or yield retune could move the ore sign's
+timing, because nothing delayed *when* mining could start at all (unlike stone, already gated
+behind `stoneworking`). The owner's 2026-11-05 decision adds a shared `prospecting` tech that
+gates gold mining the same way, for every nation including Earth (`data/research.toml`); see
+`docs/design/materials.md`'s own follow-up there. Earth's lead from `tunneling` and
+`seismic_sense` is unaffected: both still sit later in Earth's own branch, after the shared tier
+`prospecting` sits in.
 
 Tests: `crates/sim/src/world/bending/tunnel_tests.rs` (locking, targets, a deep vein reached and
 mined, the same vein mined with and without a tunnel, every nation mining without the tech).
@@ -425,11 +434,10 @@ Power (the steam engine, lightning station, a grid) is out of scope: #255.
 | `spirit_oasis` | 500 | healing, tide_mills | spirit oasis (chi and mood regeneration, #127); water_work ×1.25 |
 
 `ice_construction` (#27) and `irrigation` (#126) unlock a concrete def so far; the rest stay
-modifier-only or empty until the issues above add the mechanics they need. No tree costs changed:
-a headless playtest
+modifier-only or empty until the issues above add the mechanics they need. A headless playtest
 (`crates/sim/tests/research_water.rs`) following the pacing assumptions above researches the whole
-Water tree (2190 points) in about 108 minutes with ~950 points earned by minute 60, which is
-inside the targets within 25%.
+Water tree (2440 points, up from 2190 since #383 added the shared `prospecting` tech) in about
+118 minutes with ~950 points earned by minute 60, which is inside the targets within 25%.
 
 No bloodbending. It's a dark art that doesn't fit peaceful progress.
 

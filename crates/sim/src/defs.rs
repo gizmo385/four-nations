@@ -535,6 +535,8 @@ mod tests {
             ("fish_spot", "[tech.unlocks]\njobs = [\"fish_spot\"]\n".to_owned()),
             // boulder added alongside stone by #349.
             ("stone", "[tech.unlocks]\njobs = [\"stone\", \"boulder\"]\n".to_owned()),
+            // gold_vein and gold_seam added by #383 (prospecting).
+            ("gold_vein", "[tech.unlocks]\njobs = [\"gold_vein\", \"gold_seam\"]\n".to_owned()),
         ] {
             assert!(src.contains(&unlock), "{job}'s unlocks.jobs moved; update this helper");
             src = src.replace(&unlock, "");

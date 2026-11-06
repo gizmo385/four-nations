@@ -790,13 +790,16 @@ mod tests {
     /// `RESEARCH_PLAN`'s `fire_making`/`farming` (module doc, "Economy"; #352). `Opening` builds
     /// no study hall on its own, so this leans only on the passive trickle
     /// (`passive_knowledge_per_minute`): slow, but enough within a few game-hours to prove the
-    /// plan reaches past the shared tier with no extra code.
+    /// plan reaches past the shared tier with no extra code. The limit is 400, not 320, since
+    /// #383 added the shared `prospecting` tech (250 points): the whole shared tier is now 1140
+    /// points, which takes about 380 minutes at the bare passive trickle alone.
     #[test]
     fn with_full_research_eventually_reaches_the_nations_own_branch() {
         let (mut world, defs) = world(Nation::Earth);
         let opening = Opening::new(6).with_full_research();
         let earth_shaping = defs.tech_id("earth_shaping").unwrap();
-        for tick in 0..(320 * 600) {
+        const LIMIT_MINUTES: u64 = 400;
+        for tick in 0..(LIMIT_MINUTES * 600) {
             if Opening::due(tick) {
                 opening.step(&mut world, &defs);
             }
@@ -805,8 +808,7 @@ mod tests {
         assert!(
             world.research().is_known(earth_shaping)
                 || world.research().queue().contains(&earth_shaping),
-            "expected Earth Shaping known or queued after {:?} minutes of full research",
-            320
+            "expected Earth Shaping known or queued after {LIMIT_MINUTES:?} minutes of full research",
         );
     }
 
@@ -856,19 +858,44 @@ mod tests {
         assert_eq!(a.command_log(), b.command_log());
     }
 
-    /// Gold needs no tech, so with a reachable vein nearby `quarry_and_mine` designates a
-    /// harvest on it from the very first step, well before research or farming has got anywhere
-    /// (`docs/design/materials.md`, "What the map holds": seed 7 has gold veins within
-    /// `DEPOSIT_RADIUS`).
+    /// Gold needs `prospecting` now (#383, docs/design/materials.md): with a reachable vein
+    /// nearby but nothing researched yet, `quarry_and_mine`'s `DesignateHarvest` is refused the
+    /// same way it already was for stone before `stoneworking` (seed 7 has gold veins within
+    /// `DEPOSIT_RADIUS`, the same map `economy_designates_a_gold_harvest_once_prospecting_is_known`
+    /// below uses once the tech is known).
     #[test]
-    fn economy_designates_a_harvest_on_a_nearby_deposit_before_any_tech() {
+    fn economy_designates_no_gold_harvest_before_prospecting_is_known() {
         let (mut world, defs, economy) = economy_opening(Nation::Fire);
         economy.step(&mut world, &defs);
         let anchor = world.settlement_anchor();
+        let ore_items = sign_items(&defs, "ore");
+        assert!(
+            !world.harvest_designations().any(|p| p.chebyshev(anchor) <= DEPOSIT_RADIUS
+                && yields_any(&world.map[p], &defs, &ore_items)),
+            "expected no gold harvest designated before prospecting is known"
+        );
+    }
+
+    /// Once `Economy`'s full-tree research (module doc, "Economy") reaches `prospecting`,
+    /// `quarry_and_mine` designates a reachable vein the same way it already does for stone
+    /// once `stoneworking` is known (#383; `docs/design/materials.md`'s `balance --economy`
+    /// numbers put this around minute 70-80 on this seed, so 150 minutes is ample margin).
+    #[test]
+    fn economy_designates_a_gold_harvest_once_prospecting_is_known() {
+        let (mut world, defs, economy) = economy_opening_on_seed(Nation::Fire, 7);
+        run_economy(&mut world, &defs, &economy, 150);
+        let prospecting = defs.tech_id("prospecting").unwrap();
+        assert!(
+            world.research().is_known(prospecting),
+            "expected prospecting known within 150 minutes"
+        );
+        let anchor = world.settlement_anchor();
+        let ore_items = sign_items(&defs, "ore");
         assert!(
             world.harvest_designations().any(|p| p.chebyshev(anchor) <= DEPOSIT_RADIUS
-                && yields_any(&world.map[p], &defs, &deposit_items(&defs))),
-            "expected a deposit harvest designated near the anchor"
+                && yields_any(&world.map[p], &defs, &ore_items))
+                || ore_items.iter().any(|&i| world.stored_total(i) > 0),
+            "expected a gold harvest designated or already mined once prospecting is known"
         );
     }
 

@@ -542,10 +542,12 @@ mod tests {
     }
 
     #[test]
-    fn bundled_tree_has_eleven_shared_techs_and_a_branch_per_nation() {
+    fn bundled_tree_has_twelve_shared_techs_and_a_branch_per_nation() {
         let defs = Defs::bundled();
         let count = |n| defs.techs.iter().filter(|t| t.nation == n).count();
-        assert_eq!(count(None), 11);
+        // 12, not 11: #383 added the shared `prospecting` tech, gating gold mining the way
+        // `stoneworking` already gates stone.
+        assert_eq!(count(None), 12);
         for n in [Nation::Earth, Nation::Fire, Nation::Water] {
             assert_eq!(count(Some(n)), 6, "{n:?}");
         }
