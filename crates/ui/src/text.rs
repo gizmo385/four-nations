@@ -12,6 +12,34 @@ pub fn describe_stack(defs: &Defs, stack: Option<Stack>) -> String {
     }
 }
 
+/// "34 tiles north-west" from `from` to `to`: Chebyshev distance (the same measure a Map Room's
+/// `range` uses, `docs/design/cartography.md`) plus one of the eight compass points, or just
+/// "here" at distance 0. Shared by the Endeavor screen's found-scrolls list (#380) and, later, a
+/// finished chart's own notice (#403), so the two phrases never drift apart.
+pub fn compass_distance(from: Pos, to: Pos) -> String {
+    let (dx, dy) = (to.x - from.x, to.y - from.y);
+    let distance = from.chebyshev(to);
+    if dx == 0 && dy == 0 {
+        return "here".to_owned();
+    }
+    let ns = match dy.signum() {
+        -1 => "north",
+        1 => "south",
+        _ => "",
+    };
+    let ew = match dx.signum() {
+        -1 => "west",
+        1 => "east",
+        _ => "",
+    };
+    let direction = match (ns, ew) {
+        ("", ew) => ew.to_owned(),
+        (ns, "") => ns.to_owned(),
+        (ns, ew) => format!("{ns}-{ew}"),
+    };
+    format!("{distance} tiles {direction}")
+}
+
 /// A crafter's task: "Crafting at (x, y)", or, once its recipe's `stock_limit` is reached with
 /// no batch under way (`World::craft_idle`, issue #350), "<Building> idle: n/limit <item>
 /// stored" so the player can see why it stopped.
@@ -360,6 +388,24 @@ mod tests {
             describe_task(&s.world, &s.defs, &s.world.units[0]),
             "Healing in the Healing Hut"
         );
+    }
+
+    /// `compass_distance` reads all eight points plus "here", and measures Chebyshev (a
+    /// diagonal step counts the same as a straight one, like a Map Room's own `range`).
+    #[test]
+    fn compass_distance_names_all_eight_points_and_here() {
+        let home = fn_sim::Pos::new(50, 50);
+        assert_eq!(compass_distance(home, fn_sim::Pos::new(50, 16)), "34 tiles north");
+        assert_eq!(compass_distance(home, fn_sim::Pos::new(84, 50)), "34 tiles east");
+        assert_eq!(compass_distance(home, fn_sim::Pos::new(50, 84)), "34 tiles south");
+        assert_eq!(compass_distance(home, fn_sim::Pos::new(16, 50)), "34 tiles west");
+        assert_eq!(compass_distance(home, fn_sim::Pos::new(84, 16)), "34 tiles north-east");
+        assert_eq!(compass_distance(home, fn_sim::Pos::new(84, 84)), "34 tiles south-east");
+        assert_eq!(compass_distance(home, fn_sim::Pos::new(16, 84)), "34 tiles south-west");
+        assert_eq!(compass_distance(home, fn_sim::Pos::new(16, 16)), "34 tiles north-west");
+        assert_eq!(compass_distance(home, home), "here");
+        // Chebyshev, not Euclidean: 34 tiles east and 10 tiles south is still 34 away, not ~35.4.
+        assert_eq!(compass_distance(home, fn_sim::Pos::new(84, 60)), "34 tiles south-east");
     }
 
     /// The selection bar's bends line (`docs/design/endgame.md`, "Mastery pacing"): below the

@@ -758,6 +758,39 @@ mod tests {
         assert!(!notice.contains("unreachable"), "{notice}");
     }
 
+    /// Marking a scroll nobody can reach says so in the notice too (#380, "Marking a scroll no
+    /// settler can reach says so in the notice"): the same `apply_rect` path above, just with
+    /// the resource a playtest actually lost track of.
+    #[test]
+    fn designating_an_unreachable_scroll_says_so_in_the_notice() {
+        use fn_sim::defs::BiomeId;
+        use fn_sim::{Defs, Grid, Nation, Terrain, Tile, World};
+
+        use crate::clock::Clock;
+
+        let defs = Defs::bundled();
+        let scroll = defs.resource_id("ancient_scroll").unwrap();
+        let rows = ["~~~~~~~~~", "~T~.....~", "~~~.....~", "~~~~~~~~~"];
+        let map = Grid::from_fn(rows[0].len() as i32, rows.len() as i32, |p| {
+            let c = rows[p.y as usize].as_bytes()[p.x as usize];
+            Tile {
+                elevation: 100,
+                temperature: 128,
+                moisture: 128,
+                terrain: if c == b'~' { Terrain::Water } else { Terrain::Land },
+                biome: BiomeId(0),
+                resource: (c == b'T').then_some(scroll),
+                building: None,
+            }
+        });
+        let world = World::with_map(1, map, Nation::Earth, &[Pos::new(3, 2)], &defs);
+        let mut s = Session { world, defs, clock: Clock::default(), bend_choice: None };
+        let island = Pos::new(1, 1);
+        let notice = apply_rect(&mut s, Tool::Harvest, island, island, false, None);
+        assert!(notice.contains("1 done"), "{notice}");
+        assert!(notice.contains("1 unreachable"), "{notice}");
+    }
+
     /// docs/design/clearing.md, #411/#426: a fruit tree marks ("clear: N marked"), but a fish
     /// spot -- a renewable with no `[harvest.clear]` table -- is refused with "can't be
     /// cleared", the reason the notice names.
