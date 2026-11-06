@@ -73,7 +73,7 @@ use crate::bending::AbilityId;
 use crate::building::{BuildingId, CostItem};
 use crate::defs::Defs;
 use crate::endeavor::{self, SignKind, Tally};
-use crate::geom::Pos;
+use crate::geom::{Footprint, Pos};
 use crate::jobs::ItemId;
 use crate::mapgen::Tile;
 use crate::research::TechId;
@@ -576,7 +576,11 @@ fn positions_near(anchor: Pos, radius: i32) -> Vec<Pos> {
 }
 
 /// The nearest tile to `anchor` (by `Pos`'s own ordering within each ring, nearest ring first)
-/// where `building` could be designated right now, if any within `radius` tiles.
+/// where `building` could be designated right now, if any within `radius` tiles, and finishing
+/// it there wouldn't wall anyone into a dead end (`World::would_strand`, #384: the opening used
+/// to pick whatever tile `check_build` allowed, with no regard for what a solid building does to
+/// the ground around it, and on one seed that sealed a settler into a mountain pocket with no
+/// way back to water).
 fn nearest_build_site(
     world: &World,
     defs: &Defs,
@@ -584,7 +588,11 @@ fn nearest_build_site(
     building: BuildingId,
     radius: i32,
 ) -> Option<Pos> {
-    let ok = |p: Pos| world.check_build(p, building, defs).is_ok();
+    let (w, h) = defs.building(building).footprint;
+    let ok = |p: Pos| {
+        world.check_build(p, building, defs).is_ok()
+            && !world.would_strand(anchor, Footprint::new(p, w, h))
+    };
     if ok(anchor) {
         return Some(anchor);
     }
@@ -648,6 +656,52 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// #384: on seed 3, `Economy` once raised a Water Tribe study hall across the one gap out of
+    /// a mountain pocket, so whoever sat down to study there had no way back to water once the
+    /// gap closed behind them, and died of dehydration. Here, a two-tile-wide dead-end corridor
+    /// stands in for that pocket: every 2x2 footprint a study hall could take inside it either
+    /// walls off ground further down the corridor, or (at the very bottom) walls off its own
+    /// door, since there is nowhere else to stand once it's built. `nearest_build_site` must
+    /// refuse every one of them (`World::would_strand`) rather than pick the nearest blindly, so
+    /// it comes back with nothing instead of a trap.
+    #[test]
+    fn nearest_build_site_refuses_every_site_in_a_dead_end_corridor() {
+        use crate::defs::{BiomeId, Terrain};
+        use crate::geom::Grid;
+        use crate::mapgen::Tile;
+
+        let defs = Defs::bundled();
+        // Columns 1-2 are the corridor, five rows deep (0-4), flanked by mountain on both sides
+        // and sealed at the bottom (row 5): nowhere to go but straight down, and nowhere out
+        // once you reach the bottom.
+        let rows = ["^..^", "^..^", "^..^", "^..^", "^..^", "^^^^"];
+        let map = Grid::from_fn(rows[0].len() as i32, rows.len() as i32, |p| Tile {
+            elevation: 100,
+            temperature: 128,
+            moisture: 128,
+            terrain: if rows[p.y as usize].as_bytes()[p.x as usize] == b'^' {
+                Terrain::Mountain
+            } else {
+                Terrain::Land
+            },
+            biome: BiomeId(0),
+            resource: None,
+            building: None,
+        });
+        let anchor = Pos::new(1, 0);
+        let world = World::with_map(1, map, Nation::Water, &[anchor], &defs);
+        let study_hall = defs.building_id("study_hall").unwrap();
+
+        // A study hall anchored right at the top strands the three rows below it: a real trap,
+        // and (unlike the production code) what the old, unchecked pick would have been.
+        assert!(world.would_strand(anchor, Footprint::new(anchor, 2, 2)));
+        assert_eq!(
+            nearest_build_site(&world, &defs, anchor, study_hall, 5),
+            None,
+            "every site in this corridor strands something; building nowhere is the safe choice"
+        );
     }
 
     #[test]

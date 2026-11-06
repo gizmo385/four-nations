@@ -675,3 +675,42 @@ fn a_stand_in_never_pays_a_recipe_input() {
     }
     assert_eq!(w.stored_total(brick), 50, "the crafter never touched the brick");
 }
+
+/// #384: a building spanning the only way through a narrow place walls off everything past it,
+/// the same as a mountain would. `would_strand` catches that before anything is built, reading
+/// `study_hall`'s real footprint (2x2) off the data rather than hardcoding one.
+#[test]
+fn a_building_across_the_only_corridor_strands_the_far_end() {
+    let rows = ["^^^^^^^^", "^^^^^^^^", "........", "........", "^^^^^^^^", "^^^^^^^^"];
+    let (w, defs) = setup(&rows, &[]);
+    let study_hall = defs.building_id("study_hall").unwrap();
+    let (fw, fh) = defs.building(study_hall).footprint;
+    assert_eq!((fw, fh), (2, 2));
+    let anchor = at(0, 2);
+    assert!(w.would_strand(anchor, Footprint::new(at(3, 2), fw, fh)), "walls off columns 5-7");
+}
+
+/// The same building at the corridor's dead end strands nothing, since there is no ground past
+/// it to begin with: `would_strand` isn't just "is this footprint solid", it's "does solid ground
+/// here cut anything off".
+#[test]
+fn a_building_at_the_corridor_s_dead_end_strands_nothing() {
+    let rows = ["^^^^^^^^", "^^^^^^^^", "........", "........", "^^^^^^^^", "^^^^^^^^"];
+    let (w, defs) = setup(&rows, &[]);
+    let study_hall = defs.building_id("study_hall").unwrap();
+    let (fw, fh) = defs.building(study_hall).footprint;
+    let anchor = at(0, 2);
+    assert!(!w.would_strand(anchor, Footprint::new(at(6, 2), fw, fh)));
+}
+
+/// A footprint the flood never even reaches (an island with no path from `anchor` at all)
+/// strands nothing either: there was nothing there to cut off.
+#[test]
+fn a_footprint_already_unreachable_from_anchor_strands_nothing() {
+    let rows = ["..^.....", "..^.....", "..^.....", "..^....."];
+    let (w, defs) = setup(&rows, &[]);
+    let study_hall = defs.building_id("study_hall").unwrap();
+    let (fw, fh) = defs.building(study_hall).footprint;
+    let anchor = at(0, 0);
+    assert!(!w.would_strand(anchor, Footprint::new(at(4, 0), fw, fh)));
+}
