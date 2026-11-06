@@ -1,10 +1,12 @@
 //! Metalbend (#134): the tech that unlocks it, who can cast it, what targets it accepts, the
-//! haul job it takes over and gives back like Wind Carry, and the ore-to-metal conversion.
+//! haul job it takes over and gives back like Wind Carry, and the ore-to-metal conversion. #398
+//! adds a stockpile tile as a second kind of valid target, alongside a ground stack.
 
 use super::*;
 use crate::geom::Grid;
 use crate::jobs::ItemId;
 use crate::mapgen::Tile;
+use crate::world::build::Source;
 
 fn at(x: i32, y: i32) -> Pos {
     Pos::new(x, y)
@@ -227,4 +229,126 @@ fn a_unit_can_bend_it_only_with_metalbending_known_and_enough_chi() {
     assert!(!w.unit_can_bend(0, ability, &defs), "not enough chi");
     w.units[0].chi = defs.chi.max;
     assert!(w.unit_can_bend(0, ability, &defs));
+}
+
+// ---- a stockpile tile is a valid target too (#398, from #376) ----
+
+#[test]
+fn a_stockpile_tile_of_ore_is_accepted_the_same_way_a_ground_stack_is() {
+    let defs = Defs::bundled();
+    let (gold, metal_item) = (ore(&defs), metal(&defs));
+    let mut w = world(Nation::Earth, true, &defs);
+    let ability = metalbend(&defs);
+    let pos = at(10, 2);
+    w.zones.insert(pos);
+    let refused = |why| Err(CommandError::Bend(BendError::InvalidTarget(why)));
+
+    // Nothing stored yet: same refusal as an empty ground tile.
+    assert_eq!(w.apply(Command::Bend { ability, pos }, &defs), refused("needs ore to bend"));
+
+    w.stored.insert(pos, Stack { item: metal_item, count: 5 });
+    assert_eq!(w.apply(Command::Bend { ability, pos }, &defs), refused("that isn't ore"));
+
+    w.stored.insert(pos, Stack { item: gold, count: 1 });
+    assert_eq!(
+        w.apply(Command::Bend { ability, pos }, &defs),
+        refused("not enough ore for a batch")
+    );
+
+    w.stored.insert(pos, Stack { item: gold, count: 2 });
+    assert_eq!(w.apply(Command::Bend { ability, pos }, &defs), Ok(()));
+}
+
+#[test]
+fn designating_a_stockpile_tile_has_no_haul_job_to_take_over_or_give_back() {
+    let defs = Defs::bundled();
+    let gold = ore(&defs);
+    let mut w = world(Nation::Earth, true, &defs);
+    let pos = at(10, 2);
+    w.zones.insert(pos);
+    w.stored.insert(pos, Stack { item: gold, count: 4 });
+
+    w.apply(Command::Bend { ability: metalbend(&defs), pos }, &defs).unwrap();
+    assert!(!w.jobs().iter().any(|j| matches!(j.kind, JobKind::Haul { .. })));
+
+    w.apply(Command::CancelBend { pos }, &defs).unwrap();
+    assert!(
+        !w.jobs().iter().any(|j| matches!(j.kind, JobKind::Haul { .. })),
+        "the ore never left the stockpile, so there's no haul job to hand back"
+    );
+    assert_eq!(w.stored_at(pos), Some(Stack { item: gold, count: 4 }), "the ore is untouched");
+}
+
+#[test]
+fn bending_a_full_batch_out_of_a_stockpile_tile_leaves_nothing_behind() {
+    let defs = Defs::bundled();
+    let (gold, metal_item) = (ore(&defs), metal(&defs));
+    let mut w = world(Nation::Earth, true, &defs);
+    let pos = at(10, 2);
+    w.zones.insert(pos);
+    w.stored.insert(pos, Stack { item: gold, count: 6 });
+    bend(&mut w, &defs, pos);
+
+    assert_eq!(w.stored_at(pos), None, "6 ore at a ratio of 2 makes 3 metal with none left over");
+    // `place_ground` never offers a zone tile, so the metal starts a fresh haul job on open
+    // ground nearby rather than overwriting the stockpile entry in place.
+    let metal_on_ground: u32 =
+        w.ground_items().filter(|(_, s)| s.item == metal_item).map(|(_, s)| s.count).sum();
+    assert_eq!(metal_on_ground, 3);
+    assert!(
+        w.jobs().iter().any(|j| matches!(j.kind, JobKind::Haul { .. })),
+        "the metal needs hauling into a stockpile"
+    );
+
+    // It does make it into storage, and counts in `stored_total`, once hauled (the acceptance
+    // criterion: bending a stockpile tile doesn't break the stockpile).
+    run_until(&mut w, &defs, 3000, |w| w.stored_total(metal_item) == 3);
+}
+
+#[test]
+fn bending_a_stockpile_tile_with_a_remainder_leaves_the_ore_behind_in_the_stockpile() {
+    let defs = Defs::bundled();
+    let (gold, metal_item) = (ore(&defs), metal(&defs));
+    let mut w = world(Nation::Earth, true, &defs);
+    let pos = at(10, 2);
+    w.zones.insert(pos);
+    w.stored.insert(pos, Stack { item: gold, count: 5 });
+    bend(&mut w, &defs, pos);
+
+    // 5 ore at a ratio of 2 makes 2 metal and leaves 1 ore behind, still in the stockpile tile
+    // (not dropped on the ground, and not merged with anything else).
+    assert_eq!(w.stored_at(pos), Some(Stack { item: gold, count: 1 }));
+    let metal_on_ground: u32 =
+        w.ground_items().filter(|(_, s)| s.item == metal_item).map(|(_, s)| s.count).sum();
+    assert_eq!(metal_on_ground, 2);
+}
+
+#[test]
+fn a_pending_fetch_from_the_stockpile_tile_is_not_double_spent_by_the_bend() {
+    let defs = Defs::bundled();
+    let (gold, metal_item) = (ore(&defs), metal(&defs));
+    let mut w = world(Nation::Earth, true, &defs);
+    let pos = at(10, 2);
+    w.zones.insert(pos);
+    w.stored.insert(pos, Stack { item: gold, count: 6 });
+
+    // A build or craft job (`World::take_for_build`, shared by both) resolved this tile as its
+    // ore source, the way `nearest_source_for` would, and is about to fetch from it.
+    let source = Source::Stockpile(pos);
+
+    // The bend wins the race and converts the whole pile first (6 at a ratio of 2 leaves
+    // nothing behind).
+    bend(&mut w, &defs, pos);
+    assert_eq!(w.stored_at(pos), None);
+
+    // The pending fetch, arriving after, finds nothing to take at that key -- never metal
+    // mislabelled as the ore it went for, and nothing double-spent.
+    let take = w.take_for_build(0, source, 4, &defs);
+    assert_eq!(take, 0, "the tile holds metal under its own key now, not ore under this one");
+    assert_eq!(w.units[0].carrying, None);
+
+    // The metal itself is intact, findable, and on its own way into a stockpile.
+    let metal_on_ground: u32 =
+        w.ground_items().filter(|(_, s)| s.item == metal_item).map(|(_, s)| s.count).sum();
+    assert_eq!(metal_on_ground, 3);
 }
