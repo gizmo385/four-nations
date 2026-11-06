@@ -633,6 +633,13 @@ impl World {
         &self.research
     }
 
+    /// Marks `tech` known at once, for tests outside `world` (`autoplay`'s, #376) that need a
+    /// tech without researching it.
+    #[cfg(test)]
+    pub(crate) fn grant_tech(&mut self, tech: TechId) {
+        self.research.grant(tech);
+    }
+
     /// Is something whose `unlocked_by` is `unlocked_by` available to this settlement right now:
     /// no tech locks it (`None`), or the nation knows the one that does (`Unlocks::buildings`,
     /// `Unlocks::jobs`, issue #22).

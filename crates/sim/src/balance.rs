@@ -27,8 +27,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::autoplay::{self, Economy, Opening};
+use crate::building::BuildingId;
 use crate::defs::Defs;
 use crate::embark::Survey;
+use crate::endeavor;
 use crate::geom::Pos;
 use crate::jobs::ItemId;
 use crate::mapgen::MapGenConfig;
@@ -230,6 +232,15 @@ pub struct EconomyReport {
     /// Every sign in `data/endeavor.toml`'s order, with the minute it was first met within
     /// `cfg.minutes`, or `None` if it never was.
     pub sign_minutes: Vec<(String, Option<f32>)>,
+    /// Every building the nation can reach (`endeavor::reachable_buildings`), in
+    /// `data/buildings.toml`'s order, with the minute one first stood complete, or `None` if
+    /// none ever did (#376: does the opening raise one of every building, the new ones too?).
+    pub first_built: Vec<(String, Option<f32>)>,
+    /// Every item some reachable building's recipe makes or uses (tools, brick, metal, wood,
+    /// ...), plus the "ore" sign's items, with how many are in stores at the end of the run
+    /// (#376: are the Workshop, forge and kiln kept running, and what ore is left for the
+    /// gate?). In item order.
+    pub recipe_stores: Vec<(String, u32)>,
 }
 
 /// Runs one `(preset, nation, seed)` with `autoplay::Economy` driving it (module doc), the same
@@ -253,6 +264,10 @@ pub fn run_economy(cfg: &EconomyConfig, defs: &Defs) -> EconomyReport {
     let ore_items = autoplay::sign_items(defs, "ore");
     let wood = defs.item_id("wood");
 
+    let reachable: Vec<BuildingId> =
+        endeavor::reachable_buildings(cfg.nation, &defs.techs, &defs.buildings).collect();
+    let mut first_built: Vec<Option<f32>> = vec![None; reachable.len()];
+
     let total_ticks = minutes_to_ticks(cfg.minutes);
     // `World::tick_season` only ever logs a `Changed` event at a later boundary (`World::tick`
     // increments the tick before checking, so tick 0 itself never is one): spring, year 1 is
@@ -268,6 +283,14 @@ pub fn run_economy(cfg: &EconomyConfig, defs: &Defs) -> EconomyReport {
     for tick in 0..total_ticks {
         if Opening::due(tick) {
             economy.step(&mut world, defs);
+            if first_built.iter().any(Option::is_none) {
+                let standing: BTreeSet<BuildingId> = world.buildings().map(|(_, b)| b).collect();
+                for (slot, b) in first_built.iter_mut().zip(&reachable) {
+                    if slot.is_none() && standing.contains(b) {
+                        *slot = Some(ticks_to_minutes(world.tick));
+                    }
+                }
+            }
         }
         world.tick(defs);
 
@@ -291,7 +314,23 @@ pub fn run_economy(cfg: &EconomyConfig, defs: &Defs) -> EconomyReport {
         })
         .collect();
 
-    EconomyReport { seasons, sign_minutes }
+    let first_built = reachable
+        .iter()
+        .zip(first_built)
+        .map(|(&b, minute)| (defs.building(b).id.clone(), minute))
+        .collect();
+    let recipe_items: BTreeSet<ItemId> = reachable
+        .iter()
+        .filter_map(|&b| defs.building(b).recipe.as_ref())
+        .flat_map(|r| r.inputs.iter().chain(std::iter::once(&r.output)).map(|c| c.item))
+        .chain(ore_items.iter().copied())
+        .collect();
+    let recipe_stores = recipe_items
+        .into_iter()
+        .map(|item| (defs.item(item).id.clone(), world.stored_total(item)))
+        .collect();
+
+    EconomyReport { seasons, sign_minutes, first_built, recipe_stores }
 }
 
 /// One `EconomySeason` snapshot of `world` right now (`run_economy`).
@@ -535,6 +574,22 @@ mod tests {
         let c = economy_cfg(Nation::Fire, 20.0, true);
         let report = run_economy(&c, &defs);
         assert_eq!(report.sign_minutes.len(), defs.endeavor.signs.len());
+    }
+
+    /// #376: `first_built` names every building the nation can reach, in data order, so the
+    /// binary can print "none" for one the opening never raised.
+    #[test]
+    fn economy_report_lists_every_reachable_building() {
+        let defs = Defs::bundled();
+        let c = economy_cfg(Nation::Earth, 20.0, true);
+        let report = run_economy(&c, &defs);
+        let reachable: Vec<String> =
+            endeavor::reachable_buildings(Nation::Earth, &defs.techs, &defs.buildings)
+                .map(|b| defs.building(b).id.clone())
+                .collect();
+        let listed: Vec<String> = report.first_built.iter().map(|(id, _)| id.clone()).collect();
+        assert_eq!(listed, reachable);
+        assert!(listed.contains(&"deep_mine".to_owned()));
     }
 
     /// `--no-farms` (`Economy::without_farms`) never sows a farm plot, so the food sign's path

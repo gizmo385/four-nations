@@ -44,7 +44,9 @@
 //! `--economy` switches to the economy opening instead (#352, `docs/design/materials.md`
 //! section 7): `fn_sim::autoplay::Economy`, which plays toward the Harmony Gate's signs (stone,
 //! ore, population, buildings, the nation's branch) rather than just surviving. One row per
-//! season reached, for every named `(nation, seed)`.
+//! season reached, for every named `(nation, seed)`, then the minute each sign was first met, the
+//! minute each reachable building first stood, and what recipe items and ore are left in stores
+//! (#376).
 //!
 //!     cargo run -p fn_sim --bin balance -- --economy --seeds 7,42 --minutes 180
 //!         [--nations fire,earth,water,air] [--preset normal] [--no-farms]
@@ -449,6 +451,20 @@ fn print_sign_minutes(nation: Nation, seed: u64, report: &EconomyReport) {
         .collect::<Vec<_>>()
         .join(" ");
     println!("{:<6} {seed:>4} signs: {signs}", nation.as_str());
+    let built = report
+        .first_built
+        .iter()
+        .map(|(id, m)| format!("{id}={}", m.map_or("none".to_owned(), |m| format!("{m:.1}"))))
+        .collect::<Vec<_>>()
+        .join(" ");
+    println!("{:<6} {seed:>4} built: {built}", nation.as_str());
+    let stores = report
+        .recipe_stores
+        .iter()
+        .map(|(id, n)| format!("{id}={n}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    println!("{:<6} {seed:>4} in stores at the end: {stores}", nation.as_str());
 }
 
 fn economy_usage_error(msg: &str) -> ! {
