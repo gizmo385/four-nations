@@ -77,16 +77,21 @@ pub enum Effect {
         biomes: Vec<BiomeId>,
         fallow_minutes: f32,
     },
-    /// A timed flame that cooks meals and warms sleep (Fire's "Hearthflame"). The magnitude
-    /// scales `duration_minutes`. `restoke_below` (in `(0, 1]`, default 1.0) is the restoke rule
-    /// (#359): designating a lit flame with more than that share of a fresh burn still left is
-    /// refused, so restoking only ever shortens the wasted tail instead of resetting it outright.
+    /// A timed source of warmth (Fire's "Hearthflame", Earth's "Earth Tent", Air's "Air
+    /// Shield", #362). The magnitude scales `duration_minutes`. `cooks` (default true) says
+    /// whether a meal eaten within `radius` counts as cooked; a source with `cooks = false` is a
+    /// shelter, not a flame: it still keeps the cold away and gives its `sleep_bonus`, but
+    /// nothing kindles there to cook on. `restoke_below` (in `(0, 1]`, default 1.0) is the
+    /// restoke rule (#359): designating a lit source with more than that share of a fresh burn
+    /// still left is refused, so restoking only ever shortens the wasted tail instead of
+    /// resetting it outright.
     HeatSource {
         duration_minutes: f32,
         radius: u32,
         sleep_bonus: f32,
         seek_tiles: u32,
         restoke_below: f32,
+        cooks: bool,
     },
     /// A warmth aura on the bender that follows them (Fire's "Inner Fire", #123): meals eaten
     /// within `radius` tiles of the carrier are cooked and sleep there is better, for
@@ -163,6 +168,8 @@ enum RawEffect {
         seek_tiles: u32,
         #[serde(default = "full_restoke")]
         restoke_below: f32,
+        #[serde(default = "always_cooks")]
+        cooks: bool,
     },
     HeatAura {
         duration_minutes: f32,
@@ -223,6 +230,12 @@ fn positive(v: f32) -> bool {
 /// i.e. today's "always restoke" behaviour (#359).
 fn full_restoke() -> f32 {
     1.0
+}
+
+/// The default `cooks` for `heat_source`: true, today's only behaviour before #362 split the
+/// shelters (Earth Tent, Air Shield) off of it.
+fn always_cooks() -> bool {
+    true
 }
 
 /// Whether `v` is a share of a duration in `(0, 1]`, as `restoke_below` must be.
@@ -362,6 +375,7 @@ fn resolve_effect(
             sleep_bonus,
             seek_tiles,
             restoke_below,
+            cooks,
         } => {
             if !positive(duration_minutes) || radius == 0 {
                 return err("heat_source duration_minutes and radius must be positive");
@@ -372,7 +386,14 @@ fn resolve_effect(
             if !is_share(restoke_below) {
                 return err("heat_source restoke_below must be a share in (0, 1]");
             }
-            Effect::HeatSource { duration_minutes, radius, sleep_bonus, seek_tiles, restoke_below }
+            Effect::HeatSource {
+                duration_minutes,
+                radius,
+                sleep_bonus,
+                seek_tiles,
+                restoke_below,
+                cooks,
+            }
         }
         RawEffect::HeatAura { duration_minutes, radius, sleep_bonus, restoke_below } => {
             if !positive(duration_minutes) || radius == 0 {

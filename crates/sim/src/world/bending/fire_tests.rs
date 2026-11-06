@@ -53,7 +53,16 @@ fn run_until(w: &mut World, defs: &Defs, limit: u64, mut done: impl FnMut(&World
 
 /// A flame lit directly, with the Hearthflame numbers but any reach and time.
 fn lit(pos: Pos, until: u64, seek_tiles: u32) -> HeatSource {
-    HeatSource { pos, radius: 3, sleep_bonus: 1.5, seek_tiles, until, size: [1, 1] }
+    HeatSource {
+        pos,
+        radius: 3,
+        sleep_bonus: 1.5,
+        seek_tiles,
+        until,
+        size: [1, 1],
+        cooks: true,
+        ability: None,
+    }
 }
 
 /// Kindles `pos` with the first unit and runs until the bend is done.

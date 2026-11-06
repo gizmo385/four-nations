@@ -50,7 +50,11 @@
 //! restoking a flame with more than that share left is refused ("flame still burning, restoke
 //! below half"), both when designated and when the channel finishes (the flame may have been
 //! restoked by someone else, or burned down, in between). What a lit source does (cooked meals,
-//! faster and sought-out sleep) lives in `heat.rs`, which a campfire (#58) can reuse.
+//! faster and sought-out sleep) lives in `heat.rs`, which a campfire (#58) can reuse. Earth's
+//! Earth Tent and Air's Air Shield (#362) are the same `HeatSource` with `cooks = false`: a
+//! shelter, not a flame, so meals eaten within reach stay raw (`heat.rs`'s `is_cooking`), but the
+//! cold and sleep stay exactly as above. Both share Hearthflame's restoke rule above (at its own
+//! default of "always", unless the ability's own data says otherwise).
 //!
 //! **Inner Fire** (#123) is the one self-cast ability: the designated tile is where the bender
 //! stands to channel (open ground, like a flame), and the aura goes to *whoever channelled it*,
@@ -505,7 +509,7 @@ impl World {
         let mut moved = None;
         let outcome = match self.validate_bend(def, pos, defs) {
             Ok(()) => {
-                moved = self.apply_bend(i, def, pos, defs);
+                moved = self.apply_bend(i, ability, def, pos, defs);
                 self.units[i].bends += 1;
                 self.note_mastery(i, defs);
                 BendOutcome::Done
@@ -614,12 +618,19 @@ impl World {
 
     /// Spends the chi and takes effect. The target was just validated. Returns the stack Wind
     /// Carry moved, if that is what it was.
-    fn apply_bend(&mut self, i: usize, def: &AbilityDef, pos: Pos, defs: &Defs) -> Option<Moved> {
+    fn apply_bend(
+        &mut self,
+        i: usize,
+        ability: AbilityId,
+        def: &AbilityDef,
+        pos: Pos,
+        defs: &Defs,
+    ) -> Option<Moved> {
         let u = &mut self.units[i];
         u.chi = (u.chi - def.chi).max(0.0);
         let magnitude = self.bend_magnitude(def);
         let caster = self.units[i].id;
-        self.apply_effect(&def.effect, caster, pos, magnitude, defs)
+        self.apply_effect(&def.effect, ability, caster, pos, magnitude, defs)
     }
 
     // ---- the effects: the only matches on `Effect` ----
@@ -779,6 +790,7 @@ impl World {
     fn apply_effect(
         &mut self,
         effect: &Effect,
+        ability: AbilityId,
         caster: UnitId,
         pos: Pos,
         magnitude: f32,
@@ -820,9 +832,13 @@ impl World {
                 }
                 Some(Moved { to: dest, item: stack.item, count: put })
             }
-            // The magnitude scales how long the flame burns. Lighting a lit tile restokes it
-            // (`validate_effect` already refused one still more than half full, #359).
-            Effect::HeatSource { duration_minutes, radius, sleep_bonus, seek_tiles, .. } => {
+            // The magnitude scales how long the source burns. Lighting a lit tile restokes it
+            // (`validate_effect` already refused one still more than half full, #359). `cooks`
+            // (#362) rides along unchanged: a shelter (Earth Tent, Air Shield) stays a shelter
+            // when restoked, a flame stays a flame.
+            Effect::HeatSource {
+                duration_minutes, radius, sleep_bonus, seek_tiles, cooks, ..
+            } => {
                 self.light_heat_source(HeatSource {
                     pos,
                     radius: *radius,
@@ -830,6 +846,8 @@ impl World {
                     seek_tiles: *seek_tiles,
                     until: self.tick + minutes_to_ticks(duration_minutes * magnitude),
                     size: crate::building::ONE_BY_ONE,
+                    cooks: *cooks,
+                    ability: Some(ability),
                 });
                 None
             }
@@ -1026,6 +1044,8 @@ mod metalbend_tests;
 mod scooter_tests;
 #[cfg(test)]
 mod seismic_tests;
+#[cfg(test)]
+mod shelter_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

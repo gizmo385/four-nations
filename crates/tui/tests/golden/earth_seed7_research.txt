@@ -14,7 +14,7 @@
 │                                                                                      ││ Press Enter to select        │
 │  ✓ Stoneworking       ◇ Earth Shaping                                                ││                              │
 │   Known       25 pts   Available   60 pts                                            ││                              │
-│   Stone Outcrop, Bo…   Earthworks x1.2                                               ││                              │
+│   Stone Outcrop, Bo…   Earthworks x1.2, …                                            ││                              │
 │                                                                                      ││                              │
 │  ◇ Farming                                                                           ││                              │
 │   Available   60 pts                                                                 ││                              │

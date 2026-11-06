@@ -128,6 +128,10 @@ pub struct Overlays {
     pub plot_growing: OverlayGlyph,
     /// A farm plot ripe for reaping (#198).
     pub plot_ripe: OverlayGlyph,
+    /// Earth's Earth Tent, lit (#362): a shelter apart from `flame`.
+    pub earth_tent: OverlayGlyph,
+    /// Air's Air Shield, lit (#362): a shelter apart from `flame`.
+    pub air_shield: OverlayGlyph,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -229,6 +233,16 @@ mod tests {
             "overlay.plot_ripe".into(),
             g.overlay.plot_ripe.glyph,
             g.overlay.plot_ripe.ascii,
+        ));
+        out.push((
+            "overlay.earth_tent".into(),
+            g.overlay.earth_tent.glyph,
+            g.overlay.earth_tent.ascii,
+        ));
+        out.push((
+            "overlay.air_shield".into(),
+            g.overlay.air_shield.glyph,
+            g.overlay.air_shield.ascii,
         ));
         for (id, look) in &g.gate_stage {
             out.push((format!("gate_stage.{id}"), look.glyph, look.ascii));

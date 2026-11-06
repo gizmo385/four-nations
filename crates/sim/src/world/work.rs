@@ -44,8 +44,10 @@
 //! Hungry units eat from the closest of: food they carry, food in a stockpile, food lying on the
 //! ground, or a wild food resource they work for themselves. Raw food always works (owner rule,
 //! #3): nobody starves because their nation lacks fire. A meal eaten within reach of a lit heat
-//! source (a campfire, or Fire's Hearthflame, `heat.rs`) is cooked and restores the food's
-//! `cooked_hunger`; anywhere else it is raw.
+//! source that cooks (a campfire, or Fire's Hearthflame, `heat.rs`'s `is_cooking`) is cooked and
+//! restores the food's `cooked_hunger`; anywhere else -- including within reach of a shelter
+//! like Earth's Earth Tent or Air's Air Shield, which keeps the cold away but cooks nothing
+//! (#362) -- it is raw.
 //!
 //! **Sleep** (#58): an exhausted unit walks to the nearest free bed (`BuildingDef::bed`, within
 //! its `seek_tiles`) and sleeps there, regaining energy faster. A bed holds one sleeper: the
@@ -1001,9 +1003,10 @@ impl World {
             Task::Eat(source) => {
                 let item = self.food_item(i, source, defs).expect("checked above");
                 self.take_food(i, source, item, defs);
-                // Cooked if the unit is eating within reach of a lit heat source.
+                // Cooked if the unit is eating within reach of a lit heat source that cooks
+                // (#362): a shelter (Earth Tent, Air Shield) never counts.
                 let food = defs.food_of(item).expect("food_item checked");
-                let cooked = self.is_heated(self.units[i].pos);
+                let cooked = self.is_cooking(self.units[i].pos);
                 self.units[i].needs.eat(food, cooked, &defs.needs);
             }
             _ => {}

@@ -1,4 +1,5 @@
-//! Heat sources: a place that cooks meals eaten near it and makes sleep near it better.
+//! Heat sources: a place that keeps the cold away, and -- unless it is a shelter (#362) -- cooks
+//! meals eaten near it and makes sleep near it better.
 //!
 //! There are two kinds, and everything that *uses* heat asks only the questions below and never
 //! what lit it:
@@ -8,26 +9,40 @@
 //!   (`until` is `HeatSource::FOREVER`). Its radius follows the nation's `heating` modifier, so
 //!   `refresh_heat_radii` re-derives it whenever research changes that.
 //!
+//! Earth's Earth Tent and Air's Air Shield (#362) are timed sources exactly like Hearthflame,
+//! with one difference: `cooks = false`. A shelter still keeps the cold away and gives its own
+//! `sleep_bonus`, but nothing kindles there, so a meal eaten within reach stays raw.
 //!
-//! - `is_heated(pos)`: is `pos` within the radius of a lit source? A meal eaten there is cooked
-//!   (`work.rs` calls this), so `FoodDef::cooked_hunger` applies.
+//! - `is_heated(pos)`: is `pos` within the radius of a lit source, of any kind? This is what
+//!   keeps the cold away (`World::is_cold`); a shelter counts exactly like a flame.
+//! - `is_cooking(pos)`: is `pos` within the radius of a lit source that actually cooks (`cooks`
+//!   is true)? A meal eaten there is cooked (`work.rs` calls this), so `FoodDef::cooked_hunger`
+//!   applies. A shelter never counts, whatever else is in reach.
 //! - `sleep_factor_at(pos)`: the sleep-rate multiplier there, the best of the sources in range
 //!   (they don't stack). The needs pass in `world.rs` applies it.
 //! - `warm_sleep_route`: where a unit about to sleep should walk first, if a source is near.
 //!
-//! - Fire's Inner Fire (#123) is a third kind, an `Aura`: a source that rides on a unit. Every
-//!   question above treats it as a source at the carrier's tile this tick, so cooked meals and
-//!   warm sleep need no special case. It differs in one way: nobody walks to it
-//!   (`warm_sleep_route`), because it moves. It ends with its time, or with its carrier.
+//! - Fire's Inner Fire (#123) is a third kind, an `Aura`: a source that rides on a unit, and
+//!   always cooks (#362 only split `heat_source`, not `heat_aura`). Every question above treats
+//!   it as a source at the carrier's tile this tick, so cooked meals and warm sleep need no
+//!   special case. It differs in one way: nobody walks to it (`warm_sleep_route`), because it
+//!   moves. It ends with its time, or with its carrier.
 //!
 //! A source is lit while `tick < until`. Radius is Chebyshev (a square), like the rest of the
 //! bending ranges, measured from every tile the source covers: a building's whole footprint
 //! (#208). Nothing here blocks movement.
 
 use super::*;
+use crate::bending::AbilityId;
 use crate::building::{ONE_BY_ONE, is_one_by_one, one_by_one};
 use crate::geom::Footprint;
 use crate::path::STRAIGHT;
+
+/// The default `cooks` for a save from before #362, which predates Earth Tent and Air Shield and
+/// so can only have meant a source that cooks.
+fn always_cooks() -> bool {
+    true
+}
 
 /// A lit place of heat.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -46,6 +61,17 @@ pub struct HeatSource {
     /// aura is 1x1, and 1x1 isn't written to a save.
     #[serde(default = "one_by_one", skip_serializing_if = "is_one_by_one")]
     pub size: [u8; 2],
+    /// Whether a meal eaten within reach counts as cooked (#362): true for Fire's Hearthflame
+    /// and every building fire, false for Earth's Earth Tent and Air's Air Shield, which keep
+    /// the cold away and give their own `sleep_bonus` but cook nothing. A save from before the
+    /// split can only have meant true.
+    #[serde(default = "always_cooks")]
+    pub cooks: bool,
+    /// Which ability lit it, if any (#362): `None` for a building's fire, or a save from before
+    /// the split. Presentation only (the TUI's glyph and cursor line for a shelter apart from a
+    /// flame); nothing in `fn_sim` reads it.
+    #[serde(default)]
+    pub ability: Option<AbilityId>,
 }
 
 impl HeatSource {
@@ -94,18 +120,22 @@ pub struct Glow {
     pub seconds_left: f32,
 }
 
-/// A lit flame as the client sees it.
+/// A lit flame or shelter as the client sees it.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Flame {
     pub pos: Pos,
     pub radius: u32,
     /// In-game seconds until it goes out.
     pub seconds_left: f32,
+    /// Which ability lit it (#362): `None` for a save from before the split, which predates
+    /// Earth Tent and Air Shield and so can only have meant Hearthflame.
+    pub ability: Option<AbilityId>,
 }
 
 impl World {
-    /// Every lit timed flame (Hearthflame) with the time it has left, in position order. A
-    /// building's fire isn't listed: it is a building, with the tile it stands on.
+    /// Every lit timed flame or shelter (Hearthflame, Earth Tent, Air Shield) with the time it
+    /// has left, in position order. A building's fire isn't listed: it is a building, with the
+    /// tile it stands on.
     pub fn flames(&self) -> Vec<Flame> {
         self.fixed_sources()
             .filter(|s| !s.is_permanent())
@@ -113,6 +143,7 @@ impl World {
                 pos: s.pos,
                 radius: s.radius,
                 seconds_left: (s.until - self.tick) as f32 / TICKS_PER_SECOND as f32,
+                ability: s.ability,
             })
             .collect()
     }
@@ -134,13 +165,21 @@ impl World {
             .collect()
     }
 
-    /// Is `pos` within the radius of a lit heat source: do meals eaten there count as cooked?
+    /// Is `pos` within the radius of a lit source, flame or shelter: does it keep the cold away
+    /// there (`World::is_cold`)? A shelter (`cooks = false`) counts exactly like a flame.
     pub fn is_heated(&self, pos: Pos) -> bool {
         self.lit_sources().any(|s| s.warms(pos))
     }
 
+    /// Is `pos` within the radius of a lit source that actually cooks (#362)? Unlike
+    /// `is_heated`, a shelter with `cooks = false` (Earth's Earth Tent, Air's Air Shield) never
+    /// counts, whatever else is in reach: a meal eaten there stays raw.
+    pub fn is_cooking(&self, pos: Pos) -> bool {
+        self.lit_sources().any(|s| s.cooks && s.warms(pos))
+    }
+
     /// Every lit source this tick: timed flames, building fires and auras (as a source at the
-    /// carrier's tile).
+    /// carrier's tile). An aura always cooks (#362 only split `heat_source`, not `heat_aura`).
     fn lit_sources(&self) -> impl Iterator<Item = HeatSource> + '_ {
         let fixed = self.fixed_sources().copied();
         let carried = self.lit_auras().map(|(a, pos)| HeatSource {
@@ -150,6 +189,8 @@ impl World {
             seek_tiles: 0,
             until: a.until,
             size: ONE_BY_ONE,
+            cooks: true,
+            ability: None,
         });
         fixed.chain(carried)
     }
@@ -195,6 +236,8 @@ impl World {
                 seek_tiles: heat.seek_tiles,
                 until: HeatSource::FOREVER,
                 size,
+                cooks: true,
+                ability: None,
             });
         }
     }
