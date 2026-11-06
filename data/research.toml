@@ -296,7 +296,6 @@ description = "Boil water to drive mills and pumps."
 nation = "fire"
 cost = 250
 prereqs = ["smelting", "brickmaking"]
-# Later: the steam engine powering mills and pumps (no power system yet).
 [tech.unlocks]
 buildings = ["steam_engine"]
 modifiers = { power_generation = 1.25 }
@@ -308,7 +307,6 @@ description = "Firebenders feed lightning into a power station, Republic City st
 nation = "fire"
 cost = 500
 prereqs = ["dancing_dragon", "steam_engines"]
-# Later: the station's power output (no power system yet).
 [tech.unlocks]
 buildings = ["lightning_station"]
 modifiers = { power_generation = 1.5 }

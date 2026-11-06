@@ -289,15 +289,15 @@ count = 2
 # --- Fire Nation ---
 # The Fire branch's buildings (issue #26), each unlocked by its tech in data/research.toml.
 # `forge`, `brick_kiln` and `smelter` produce now (issue #124: smithing and bricks and metal
-# through their `recipe`, below); `steam_engine` and `lightning_station` stay structures only
-# until the power system lands (#255). A production building's `capacity` of 1 is its one craft
-# job: each works alone, the way a 2-seat study hall took two. Costs are a first balance pass
-# over #26's placeholders, heavier than the shared-tier buildings above since these are 60- and
-# 120-knowledge techs; the power buildings' costs are still placeholders for #255 to revisit.
-# Issue #369 closes Fire's chain: the kiln's bricks and the smelter's metal now pay for the
-# power buildings below, and the forge's tools (now 2 a batch) go to the shared Workshop's
-# advanced buildings, same as everyone else's (see "--- Carpentry (shared) ---" at the end of
-# this file).
+# through their `recipe`, below); `steam_engine` and `lightning_station` are power sources
+# (`[building.power]`, issue #255, docs/design/late-tree.md, "Power"): every other Fire building
+# above sets `uses_power = true` and runs `boost` times as fast within reach. A production
+# building's `capacity` of 1 is its one craft job: each works alone, the way a 2-seat study hall
+# took two. Costs are a first balance pass over #26's placeholders, heavier than the shared-tier
+# buildings above since these are 60- and 120-knowledge techs. Issue #369 closes Fire's chain:
+# the kiln's bricks and the smelter's metal now pay for the power buildings below, and the
+# forge's tools (now 2 a batch) go to the shared Workshop's advanced buildings, same as
+# everyone else's (see "--- Carpentry (shared) ---" at the end of this file).
 
 [[building]]
 id = "forge"
@@ -382,7 +382,12 @@ input = [{ item = "gold_ore", count = 2 }, { item = "wood", count = 1 }]
 stock_limit = 3
 
 # Spends the kiln's bricks and the smelter's metal (#369): Fire's own production chain pays for
-# its power buildings, instead of raw stone.
+# its power buildings, instead of raw stone. Fire's two sources (#255, docs/design/late-tree.md,
+# "Power"): a reach of 5 tiles for the Steam Engine and 10 for the Lightning Station once
+# `power_generation` reflects the tech that unlocks each (1.3 base × 1.25 for `steam_engines`,
+# ×1.5 more for `lightning_generation`), and 7 and 10 once Fire's branch is done. The Lightning
+# Station is the only source with a 2.0 boost: it doubles work in every powered building
+# around it, the strongest of Fire's 500-point capstones.
 [[building]]
 id = "steam_engine"
 name = "Steam Engine"
@@ -390,6 +395,9 @@ verb = "Build"
 work = 120.0
 passable = false
 footprint = [2, 2]
+[building.power]
+radius = 3
+boost = 1.5
 [[building.cost]]
 item = "brick"
 count = 10
@@ -407,6 +415,9 @@ verb = "Build"
 work = 200.0
 passable = false
 footprint = [2, 2]
+[building.power]
+radius = 4
+boost = 2.0
 [[building.cost]]
 item = "brick"
 count = 16

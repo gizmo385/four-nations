@@ -276,10 +276,10 @@ pub struct IrrigationDef {
 }
 
 /// A building that speeds up work in buildings nearby (`[building.power]`, issue #428,
-/// docs/design/late-tree.md): the Windmill, Wind Turbine, Tide Mill, Steam Engine and Lightning
-/// Station (#255, #204, #200, out of scope here) all set this. The lookup is `World::power_at`
-/// in `world/power.rs`, the third reader of the "best thing in reach, no stacking" pattern heat
-/// and irrigation already answer.
+/// docs/design/late-tree.md): the Steam Engine and Lightning Station (#255) set this; the
+/// Windmill, Wind Turbine and Tide Mill (#204, #200) are out of scope here. The lookup is
+/// `World::power_at` in `world/power.rs`, the third reader of the "best thing in reach, no
+/// stacking" pattern heat and irrigation already answer.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PowerDef {
     /// Tiles around it, Chebyshev, that count as in reach at a `power_generation` modifier of
@@ -1331,7 +1331,7 @@ mod tests {
     }
 
     #[test]
-    fn uses_power_is_set_on_every_consumer_and_no_bundled_building_is_a_source_yet() {
+    fn uses_power_is_set_on_every_consumer_and_fire_has_its_two_sources() {
         let defs = Defs::bundled();
         for id in
             ["workshop", "forge", "brick_kiln", "smelter", "mine_shaft", "deep_mine", "study_hall"]
@@ -1339,8 +1339,17 @@ mod tests {
             let def = defs.building(defs.building_id(id).unwrap());
             assert!(def.uses_power, "{id} should run faster when powered");
         }
-        // Which buildings are sources is out of scope here (#255, #204, #200): none yet.
-        assert_eq!(defs.buildings.iter().filter(|b| b.power.is_some()).count(), 0);
+        // Fire's two sources (#255, docs/design/late-tree.md, "Power"); Air's and Water's are
+        // out of scope here (#204, #200).
+        let steam_engine = defs.building(defs.building_id("steam_engine").unwrap());
+        let power = steam_engine.power.expect("the Steam Engine is a power source");
+        assert_eq!((power.radius, power.boost_millis), (3, 1500));
+
+        let lightning_station = defs.building(defs.building_id("lightning_station").unwrap());
+        let power = lightning_station.power.expect("the Lightning Station is a power source");
+        assert_eq!((power.radius, power.boost_millis), (4, 2000));
+
+        assert_eq!(defs.buildings.iter().filter(|b| b.power.is_some()).count(), 2);
     }
 
     #[test]
