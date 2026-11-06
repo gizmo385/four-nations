@@ -635,6 +635,7 @@ impl Host {
                             // containment").
                             state: crate::research::state_word(c.state).to_owned(),
                             unlock: c.unlock,
+                            needs: c.needs,
                         })
                         .collect()
                 })
@@ -1436,6 +1437,11 @@ pub struct TechCardView {
     pub cost: u32,
     pub state: String,
     pub unlock: String,
+    /// Names of its prereqs not yet known, comma-separated; empty once `state` isn't "Locked"
+    /// (`fn_ui::research::TechCard::needs`, #338). Keeps `screen {"research"}` at parity with
+    /// what a locked card's own row now says in the frame, instead of a dash that only
+    /// confirming -- by researching each candidate and rechecking -- would explain.
+    pub needs: String,
 }
 
 #[derive(Clone, Debug, Serialize)]

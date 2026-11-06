@@ -110,7 +110,9 @@ fn columns(frame: &str) -> (String, String) {
 /// pane for every row, not only whichever one the Build tool happened to leave highlighted: a
 /// long locked name is squeezed with an ellipsis in the list itself once it's paired with its
 /// cost (`crate::widgets::Row`'s own "gives way" rule), and only the detail pane, for the
-/// highlighted row, ever shows it in full.
+/// highlighted row, ever shows it in full. `T`'s own tree gets the same treatment (#338): a
+/// card's own row is squeezed the same way, and only the detail pane, for whichever card is
+/// under the cursor, ever shows a long "Unlocks:" or "Needs:" line in full.
 fn reachable_text(h: &mut Host) -> String {
     const SIZE: (u16, u16) = (220, 50);
     let mut text = String::new();
@@ -120,11 +122,32 @@ fn reachable_text(h: &mut Host) -> String {
         text.push_str(&right);
     };
     push(&h.frame(SIZE.0, SIZE.1), &mut text);
-    for key in ["n", "t", "g", "l", "?"] {
+    for key in ["n", "g", "l", "?"] {
         h.press_keys(key, None, None).unwrap();
         push(&h.frame(SIZE.0, SIZE.1), &mut text);
         h.press_keys("<esc>", None, None).unwrap();
     }
+    h.press_keys("t", None, None).unwrap();
+    let column_lens: Vec<usize> = match h.screen("research").unwrap() {
+        fn_tui::surface::ScreenView::Research(v) => v.columns.iter().map(Vec::len).collect(),
+        other => unreachable!("{other:?}"),
+    };
+    // A big enough step to reach either edge from anywhere in the tree, so the raster below
+    // starts at a known corner (top-left) whatever card `initial_cursor` happened to pick.
+    const FAR: usize = 64;
+    h.press_keys(&format!("<up*{FAR}> <left*{FAR}>"), None, None).unwrap();
+    for (c, &rows) in column_lens.iter().enumerate() {
+        for r in 0..rows {
+            push(&h.frame(SIZE.0, SIZE.1), &mut text);
+            if r + 1 < rows {
+                h.press_keys("<down>", None, None).unwrap();
+            }
+        }
+        if c + 1 < column_lens.len() {
+            h.press_keys(&format!("<right> <up*{FAR}>"), None, None).unwrap();
+        }
+    }
+    h.press_keys("<esc>", None, None).unwrap();
     let rows = match h.screen("build").unwrap() {
         fn_tui::surface::ScreenView::Build(v) => v.rows.len(),
         other => unreachable!("{other:?}"),

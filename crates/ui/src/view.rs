@@ -80,7 +80,7 @@ pub fn side_view(
         notice: notice.to_owned(),
         picker,
         choice,
-        research: research_status(world.research(), defs),
+        research: research_status(world, defs),
         stores: store_rows(session),
         endeavor: endeavor_status(session),
         alerts: alerts.toast_lines(),

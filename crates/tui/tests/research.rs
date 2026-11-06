@@ -167,17 +167,19 @@ fn only_the_shared_tier_and_the_players_own_branch_show() {
 }
 
 #[test]
-fn every_card_names_its_state_cost_and_unlocks() {
+fn every_card_names_its_state_cost_and_unlocks_or_what_it_still_needs() {
     let mut a = app(7, Nation::Earth, WIDE);
     run(&mut a, "t");
     let frame = text(&mut a, WIDE);
     for word in ["Known", "Available", "Locked"] {
         assert!(frame.contains(word), "{word}\n{frame}");
     }
-    // Writing: 120 points, +25% study. Masonry's unlock is a construction bonus.
-    assert!(frame.contains("120 pts"), "{frame}");
-    assert!(frame.contains("Study x1.25"), "{frame}");
-    assert!(frame.contains("Construction x1.15"), "{frame}");
+    // Earth Shaping: 60 points, available from the start, a modifier of its own.
+    assert!(frame.contains("60 pts"), "{frame}");
+    assert!(frame.contains("Earthworks x1.2"), "{frame}");
+    // Masonry is Locked (Carpentry still unknown): the card names what it still needs (#338),
+    // not the construction bonus it would eventually grant.
+    assert!(frame.contains("Needs: Carpentry"), "{frame}");
     // Stoneworking is the Earth Kingdom's starting tech.
     let known = a.session.world.research().is_known(tech(&a, "stoneworking"));
     assert!(known);

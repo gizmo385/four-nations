@@ -8,7 +8,6 @@
 //! which cards show) follows from the cursor and the size alone, so a frame is a pure function of
 //! the state like every other.
 
-use fn_sim::research::TechId;
 use fn_sim::world::Command;
 use fn_ui::Session;
 use fn_ui::research::{ScreenView, TechCard, TechState, screen_view};
@@ -130,7 +129,10 @@ fn state_mark(state: TechState, marks: &Marks) -> &'static str {
     }
 }
 
-/// A card as its three rows. `chosen` puts the cursor mark before the name.
+/// A card as its three rows. `chosen` puts the cursor mark before the name. The third row is
+/// what it unlocks once it's within reach, or, while `Locked`, what it still needs (#338): a
+/// locked card alone used to say only "Locked", leaving which tier-1 tech unlocks it invisible
+/// until the player researched each candidate and rechecked.
 pub fn card_rows(card: &TechCard, chosen: bool, marks: &Marks) -> [Row; CARD_ROWS] {
     let tone = state_tone(card.state);
     let name_tone = match card.state {
@@ -139,6 +141,11 @@ pub fn card_rows(card: &TechCard, chosen: bool, marks: &Marks) -> [Row; CARD_ROW
     };
     let mark_tone = if card.state == TechState::Known { Tone::Ok } else { tone };
     let pointer = if chosen { marks.pointer } else { " " };
+    let third = if card.state == TechState::Locked {
+        format!("  Needs: {}", card.needs)
+    } else {
+        format!("  {}", card.unlock)
+    };
     [
         Row::spans(vec![
             (pointer.to_owned(), Tone::Title),
@@ -151,34 +158,21 @@ pub fn card_rows(card: &TechCard, chosen: bool, marks: &Marks) -> [Row; CARD_ROW
             format!("{} pts", card.cost),
             Tone::Dim,
         ),
-        Row::text(format!("  {}", card.unlock), Tone::Dim),
+        Row::text(third, Tone::Dim),
     ]
 }
 
-/// The names of the techs `id` needs that are not known yet.
-fn missing_prereqs(session: &Session, id: TechId) -> Vec<String> {
-    let research = session.world.research();
-    session
-        .defs
-        .tech(id)
-        .prereqs
-        .iter()
-        .filter(|p| !research.is_known(**p))
-        .map(|p| session.defs.tech(*p).name.clone())
-        .collect()
-}
-
 /// The three rows under the grid about the tech under the cursor: its name, state and cost; what
-/// it is; what it unlocks and what it still needs.
+/// it is; what it unlocks (`card.unlock`, empty while `Locked`) and what it still needs
+/// (`card.needs`, `fn_ui::research::TechCard`): a Queued tech can show both at once (its own
+/// deeper prereqs may still be unknown), so the two are side by side rather than either/or.
 pub fn detail_rows(session: &Session, card: &TechCard) -> [Row; 3] {
     let def = session.defs.tech(card.id);
-    let mut needs = missing_prereqs(session, card.id);
-    let tail = if needs.is_empty() {
-        String::new()
-    } else {
-        needs.sort();
-        format!("   Needs: {}", needs.join(", "))
-    };
+    let unlocks =
+        if card.unlock.is_empty() { String::new() } else { format!("Unlocks: {}", card.unlock) };
+    let needs =
+        if card.needs.is_empty() { String::new() } else { format!("Needs: {}", card.needs) };
+    let sep = if unlocks.is_empty() || needs.is_empty() { "" } else { "   " };
     [
         Row::pair(
             card.name.clone(),
@@ -187,7 +181,7 @@ pub fn detail_rows(session: &Session, card: &TechCard) -> [Row; 3] {
             state_tone(card.state),
         ),
         Row::text(def.description.clone(), Tone::Text),
-        Row::spans(vec![(format!("Unlocks: {}", card.unlock), Tone::Dim), (tail, Tone::Warn)]),
+        Row::spans(vec![(unlocks, Tone::Dim), (format!("{sep}{needs}"), Tone::Warn)]),
     ]
 }
 
@@ -264,22 +258,44 @@ pub fn draw(session: &Session, at: Cursor, palette: &Palette, inner: Rect, buf: 
 #[cfg(test)]
 mod tests {
     use fn_sim::Nation;
+    use fn_sim::research::TechId;
 
     use super::*;
     use crate::new_session;
 
-    fn card(state: TechState, unlock: &str) -> TechCard {
-        TechCard { id: TechId(0), name: "Masonry".into(), cost: 120, state, unlock: unlock.into() }
+    fn card(state: TechState, unlock: &str, needs: &str) -> TechCard {
+        TechCard {
+            id: TechId(0),
+            name: "Masonry".into(),
+            cost: 120,
+            state,
+            unlock: unlock.into(),
+            needs: needs.into(),
+        }
     }
 
     #[test]
-    fn a_card_is_the_name_the_state_with_the_cost_and_the_unlocks() {
+    fn an_available_card_shows_the_name_the_state_the_cost_and_the_unlocks() {
         let marks = Marks::new(false);
-        let rows = card_rows(&card(TechState::Locked, "Construction x1.15"), false, &marks);
+        let rows = card_rows(&card(TechState::Available, "Construction x1.15", ""), false, &marks);
+        let text: Vec<String> = rows.iter().map(Row::plain).collect();
+        assert_eq!(text[0], " ◇ Masonry");
+        assert_eq!(text[1], "  Available 120 pts");
+        assert_eq!(text[2], "  Construction x1.15");
+    }
+
+    /// A Locked card shows what it still needs instead of what it would unlock (#338): the
+    /// evidence was a whole playtest session spent discovering that one tier-1 tech unlocks
+    /// another, with nothing on the Locked card itself saying so.
+    #[test]
+    fn a_locked_card_shows_what_it_needs_instead_of_what_it_would_unlock() {
+        let marks = Marks::new(false);
+        let rows =
+            card_rows(&card(TechState::Locked, "Construction x1.15", "Carpentry"), false, &marks);
         let text: Vec<String> = rows.iter().map(Row::plain).collect();
         assert_eq!(text[0], " · Masonry");
         assert_eq!(text[1], "  Locked 120 pts");
-        assert_eq!(text[2], "  Construction x1.15");
+        assert_eq!(text[2], "  Needs: Carpentry");
     }
 
     #[test]
@@ -297,7 +313,7 @@ mod tests {
     #[test]
     fn the_cursor_marks_the_chosen_card() {
         let marks = Marks::new(false);
-        let rows = card_rows(&card(TechState::Available, "-"), true, &marks);
+        let rows = card_rows(&card(TechState::Available, "-", ""), true, &marks);
         assert_eq!(rows[0].plain(), "▸◇ Masonry");
     }
 
