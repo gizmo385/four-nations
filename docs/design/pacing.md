@@ -1,0 +1,435 @@
+# Midgame pacing: the long wait from minute 60 to the Harmony Gate
+
+Status: **proposed** (#412). The owner's calls are under "Open questions for the owner", and the
+follow-up work is under "Follow-up issues".
+
+The owner's playtest (2026-11-06): "the midgame and end game felt like they really lagged." This
+is about pacing, not frame rate. The middle of the game has too few new decisions, and the total
+length isn't the problem: endgame.md's target of 3.5 to 4 hours to the gate stays. This doc
+measures where the decisions stop, then proposes four levers that don't touch research content.
+Research content is #413's job (docs/design/late-tree.md once it lands): its empty techs are one of
+the gaps measured below, and this doc only points at them.
+
+## Decisions in brief
+
+1. **Measure decisions, not stores.** The economy harness gains a decision timeline: every
+   visible unlock, first-met sign and caravan, the longest gap between them, and how much of the
+   time settlers sit idle. The pacing target is **no gap longer than 15 minutes between new
+   decisions from minute 30 to Ready, on 7 of 8 seeds per nation**.
+2. **Growth follows what the player builds.** The fixed arrival clock becomes a **draw** meter.
+   It fills faster with spare beds, warm beds and food variety, and a bare settlement draws at 60%
+   of #353's pace. A settlement with all three bonuses draws at 140%. #353 keeps its
+   `arrival_minutes`, which now means "minutes per newcomer at 100% draw".
+3. **Caravans spend the surplus.** Traders from the other three nations camp near the settlement
+   once a season and offer fixed barter deals: your food and wood for their stone, ore, tools,
+   bricks or a chart to a ruin. Each caravan also brings one **request**, a gift whose reward is
+   draw or knowledge. Settlers haul both sides, which puts the idle half of the colony to work.
+   It is vision.md's "neighbors to trade with", with no war and no diplomacy screen.
+4. **One chapter, and it opens a door.** "Known on the road" (population 10, four kinds of
+   building, 60 food) sits at the top of the Endeavor screen. Meeting it brings the first caravan.
+   There is no second chapter, because a reward that changes play is worth a milestone and a
+   badge isn't.
+5. **After the gate, the same loop, wider.** United City caravans come from all four nations, and
+   their requests grow. The population milestones carry on. The Spirit Portal stays the sequel,
+   with its own design issue when the owner wants it.
+6. **Time controls are the owner's call** (question 1). The recommendation is a "skip to news" key
+   (`]`) that runs fast until something happens, rather than a higher top speed.
+
+## What the harness shows
+
+`balance --economy`, seeds 1-8, all four nations, Small, Normal, 240 minutes, on main at
+`dee4911`. That's before #353, so a newcomer still arrives every 15 minutes. A throwaway patch also
+printed each tech's completion minute and the share of settlers with no task, sampled every
+in-game minute (#434 makes it permanent). On seeds 3 and 4 the opening raises no bed for
+Fire, Water or Air (#395), and Water never researches on seed 7 (#397), so those runs are left out
+of the medians. Earth's are kept. Seeds 2 and 6 never meet the ore sign for any nation (#396).
+
+### When each sign is first met (median minute)
+
+| | Beds | Stone | Food | Ore | Kinds | Branch | Population | Masters | Scrolls |
+|---|---|---|---|---|---|---|---|---|---|
+| Air | 6 | 18 | 39 | 69 (4/6) | 114 | 130 | **150** | 121 | never |
+| Water | 6 | 19 | 74 | 76 (3/5) | 107 | 148 | **150** | 236 (4/5) | never |
+| Earth | 5 | 11 | 86 | 77 (6/8) | 113 | 147 | **150** | never | never |
+| Fire | 6 | 20 | 84 | 75 (4/6) | 124 | 143 | **150** | 203 | never |
+
+Leaving masters (#344) and scrolls (#380, #402) aside, the gate would be Ready at **minute 150 to 165 on
+every seed where ore is met**. Population is the long pole on all but one of them: 6 to 16 is ten
+arrivals times 15 minutes, whatever the player does.
+
+### The decision timeline
+
+A decision is anything that gives the player something new to do: a tech that unlocks a building,
+ability or job, or a sign met for the first time. A typical run (Fire, seed 7):
+
+| Minutes | New decisions |
+|---|---|
+| 0-15 | Beds met (5), Fishing (11), Stoneworking (13) |
+| 15-30 | Stone met (21), Farming (26) |
+| 30-45 | Carpentry (42) |
+| **45-60** | **none**: Pottery, Masonry, Herbalism and Writing finish, and none unlocks anything |
+| 60-75 | Food met (66), Prospecting (73) |
+| 75-90 | Ore met (76), Forging (88) |
+| 90-120 | Brickmaking (95), Smelting (100), Dancing Dragon (110) |
+| 120-150 | Steam Engines (121), kinds met (123), Lightning Generation and branch met (142), population met (150): Ready but for masters and scrolls |
+| **150-200** | **none** |
+| 200+ | Masters met (204). Scrolls never |
+
+| | Longest gap, minute 30 to Ready | Where | What fills it today |
+|---|---|---|---|
+| Air | 25-31 min | 35-67 | Shared techs that unlock nothing (#413) |
+| Water | 29-38 min | 36-74 | The same |
+| Earth | 18-35 min | 36-77 | The same |
+| Fire | 25-35 min | 36-74 | The same |
+| Every nation, seeds 2 and 6 | 75-90 min | 150-240 | Nothing: ore is never met, so the gate is never Ready |
+
+Two notes on reading this:
+
+- **The harness researches the shared tier first**, then the branch. A player who goes branch
+  first moves the branch unlocks to minutes 30-90 and the dead block to 90-150. The block is the
+  same size either way, about 700 points of techs with no visible unlock. That block is #413's to
+  fill.
+- **Wherever the dead block sits, the end is a wait for the clock.** The branch is done by
+  minute 130-150, and the last ten minutes or more wait for the fifteenth newcomer.
+
+### Stores and idle hands (medians)
+
+| Minute | 30 | 60 | 90 | 120 | 150 | 180 |
+|---|---|---|---|---|---|---|
+| Settlers with no task, Air | 6% | 50% | 60% | 58% | 72% | 77% |
+| Water | 0% | 44% | 52% | 56% | 60% | 76% |
+| Earth | 1% | 45% | 46% | 44% | 54% | 66% |
+| Fire | 1% | 43% | 50% | 38% | 50% | 61% |
+| Stone stored (all nations) | 400-540 | 580-630 | flat | flat | flat | flat |
+| Wood stored (all nations) | 430-490 | 390-450 | slowly down | | 290-410 | |
+| Food per head, Air / others | 14 / 5-7 | 20 / 6-10 | 32 / 13-15 | 33 / 13-15 | 41 / 18-20 | 42 / 17-22 |
+
+**From minute 60, about half the settlers have nothing to do**, and stone and wood stop changing.
+The harness's opening gives fewer orders than a player would, so the real idle share is lower.
+But the shape is the owner's: full stores, spare hands and nothing to spend them on.
+#353 makes food and wood leaner, but it doesn't give either a use.
+
+## 1. Growth the player can drive: draw
+
+**Today:** every `arrival_minutes`, on the absolute clock, a newcomer comes if a bed is free and
+30 food is stored. Once the first spare bed stands, nothing else the player builds matters.
+
+**Proposed:** a `draw` meter (world state, `serde(default)`) fills every tick at
+
+```
+rate = (1 / arrival_minutes) x multiplier, per minute
+multiplier = base + food variety + warm beds + spare beds, capped at max
+```
+
+When draw reaches 1.0 and growth's existing conditions hold (a free bed and `food_per_newcomer`
+in stores), one newcomer arrives through the same spawn, and 1.0 is spent. While the conditions
+fail, accrual stops at 1.0, so a player who builds a bed late gets one newcomer, not a burst.
+
+| Term | Rule | Value | Why it's a decision |
+|---|---|---|---|
+| base | A free bed and the food floor | **0.6** | The passive pace: 16.7 min per newcomer with #353's 10, close to today's 15 |
+| food variety | Each food kind beyond the first with at least 10 in stores (fish, fruit, cabbage today) | **+0.2** each, up to 2 | Fish, forage and farm, not one big pile. Air's orchard alone doesn't max it |
+| warm beds | Every bed's tile is heated (`World::is_heated`: a campfire's radius, or Hearthflame) | **+0.2** | Where to put beds, and campfires to keep. Fire's Hearthflame counts, which suits the nation |
+| spare beds | Each free bed beyond the first | **+0.1** each, up to 2 | Building ahead of arrivals |
+| max | | **1.4** | 7.1 min per newcomer |
+
+**Numbers.** 6 to 16 takes about 167 minutes for a passive player (today's pace) and about 71 for
+one who keeps all three bonuses. The harness's economy opening should land near 100% (#353's own
+target, population 14 or more at minute 120) once it keeps a campfire by its beds and two foods in
+store. #440 teaches it that and checks the result.
+
+**Lumps on top.** A festival (#365) still brings a newcomer at once and doesn't touch draw. A
+caravan request (section 2) can grant draw directly, and only these grants can lift draw past
+1.0, up to 2.0. Arrivals are at least 2 minutes apart, so lumps can't produce a crowd at the edge
+of the map.
+
+**Readable.** The Endeavor screen's population hint and the side panel say when the next newcomer
+is due and what is raising or missing from draw:
+
+```
+| PEOPLE                                                           |
+|   Population                      #######...     11/16           |
+|   Next newcomer in about 6 min                                   |
+|   Draw 120%: 2 foods, warm beds, 1 spare bed                     |
+|   Not yet: a third food                                          |
+```
+
+*(Edited from `fn_tui 7 earth --frame --ascii --size 100x34 --ticks 3000 --keys G`. The strings
+follow text-voice.md: one idea per line, with no key glued on.)*
+
+**Alternatives.** Comfort scores per bed (housing quality) would be richer, but there's only one
+bed kind besides the igloo, so it would score nothing yet. Births are a family system, out of
+scope. A "draw from renown" (sum of everything built) would reward what the building-kinds sign
+already rewards.
+
+```toml
+# data/needs.toml
+[growth]
+arrival_minutes = 10.0     # #353: minutes per newcomer at 100% draw
+food_per_newcomer = 30
+
+[growth.draw]
+base = 0.6
+food_kind = 0.2
+food_kind_min = 10         # stored items of one food for it to count
+food_kinds_max = 2         # kinds beyond the first that count
+warm_beds = 0.2
+spare_bed = 0.1
+spare_beds_max = 2
+max = 1.4
+bank = 2.0                 # the most draw can hold, lumps included
+min_gap_minutes = 2.0
+```
+
+## 2. Something to spend surpluses on: caravans
+
+**Recommended: caravans with deals and one request each.** They turn food and wood, the two
+surpluses, into what's scarce (stone, ore, tools, metal, bricks, a chart to a ruin) and into
+draw. Hauling to and from the camp uses the idle half of the colony. It also introduces the
+other nations as friendly neighbors before the United City makes them settlers.
+
+**How it works.**
+
+- **Arrival.** Once the chapter is met (section 3), a caravan comes every `interval_minutes`
+  (15, one a season), `offset_minutes` (4) into the season so it doesn't land on the season's own
+  alert. It stays `stay_minutes` (9). It walks in from the nearest map edge like a newcomer and
+  makes camp on the first free 2x2 spot 8 to 14 path tiles from the settlement anchor, searched in
+  row-major order so it's deterministic.
+- **Who.** The three other nations take turns in a fixed order, so there's no RNG. Each nation's
+  caravan has its own deal list in data, which keeps nations distinct: Earth sells stone, ore and
+  tools, Fire sells metal and bricks, Water sells fish and healing herbs once #390 lands, and Air
+  sells knowledge and charts. Each visit shows `deals_per_visit` (3) of the list, drawn from
+  `rng::stream(seed, "trade.deals")`.
+- **Deals are fixed barters** ("30 food for 2 metal", up to 2 times). There are no prices, no
+  currency and no haggling screen. "Food" means any food items, as the food sign counts them.
+- **Indirect control.** Taking a deal queues haul jobs from your stockpiles to the camp, which
+  acts as a stockpile that accepts only what deals still need. When one side is complete, their
+  side appears as a stack at the camp, and ordinary hauling brings it home. When the caravan
+  leaves, anything delivered to an unfinished deal is left as a stack on the camp tile, so nothing
+  is lost.
+- **The request** is a one-off gift with no goods back: "Food for the families at Fire Fountain
+  City: 40 food." Rewards are `draw` (0.5 of a newcomer), `knowledge` (research points, mostly
+  Air's monks) or `chart`, which reuses #402's Map Room effect and uncovers the nearest lost ruin.
+
+**What it fixes, in harness terms:**
+
+- On seeds 2 and 6, ore is out of reach on the map for every nation (#396). An Earth or Fire
+  caravan offering ore is a second route to the sign. It doesn't replace #396's data fix.
+- Fire's bricks and metal (#356) and Earth's tools get a market without adding a new building.
+- Food and wood have a use for the rest of the game, including after the gate.
+
+**Screen.** `M` opens the camp's deals, as a centred screen like Endeavor. Mockup, edited from the
+Endeavor frame above:
+
+```
++--------------------------- * TRADERS * --------------------------++----- * EARTH KINGDOM * ------+
+| Fire Nation traders                              Leave in 7 min  || > Running x1           52:40 |
+| Camp at (88, 60)                                                 |+- PEOPLE ---------------- 11 -+
+|                                                                  || Haul 4  Quarry 2  Farm 2 [N] |
+| DEALS                                       Taken     In stores  |+- RESEARCH -------------------+
+| > 30 food for 2 metal                        0/2       212 food  || Tunneling          62/120    |
+|   40 wood for 8 bricks                       1/3       847 wood  || 4.0/min                      |
+|   25 wood for 3 gold ore                     0/2       847 wood  |+- ENDEAVOR ------------- 4/9 -+
+|                                                                  || Next: 4 more people      [G] |
+| REQUEST                                                          |+- ALERTS ---------------------+
+|   Food for the families at Fire Fountain City                    || Fire Nation traders made     |
+|   40 food                                    Draws a newcomer    || camp                         |
+|                                                                  ||                              |
+| UNDER WAY                                                        ||                              |
+|   40 wood for 8 bricks                      24/40 delivered      ||                              |
+|                                                                  ||                              |
++- Up Down choose  Enter take  X cancel  Esc/M close --------------++- seed 7 ---------------------+
+```
+
+The camp draws as a 2x2 glyph block, like any building (`data/tui.toml`), and the trader as a
+unit glyph in their nation's colour.
+
+**Considered, and why not now:**
+
+| Option | Verdict |
+|---|---|
+| **Upkeep: winter fuel for warmth** | No. A recurring cost gives the player a chore, not a choice. #353 left fuel out of scope, and the kiln and smelter already burn wood (#350). Revisit if Normal still feels safe after #353 and #394 |
+| **Upkeep: tools wear out** | Not now. It's a good sink for Fire's metal, but it's invisible until a job slows. Keep it as a candidate for #356's follow-ups |
+| **Standalone requests** (a quest log between start and gate) | Folded into caravans. A request needs someone to ask it, and a quest log is the checklist question 4 of #412 warns about |
+| **A market with prices** | No. A price UI and a currency are a lot of screen for a single-player colony sim, and fixed barters say the same thing in data |
+
+```toml
+# data/trade.toml
+[caravans]
+opens = "known_on_the_road"   # a chapter id; omit to start at minute 0
+interval_minutes = 15.0
+offset_minutes = 4.0
+stay_minutes = 9.0
+camp_distance = [8, 14]       # path tiles from the settlement anchor
+deals_per_visit = 3
+order = ["earth", "fire", "water", "air"]   # the settlement's own nation is skipped
+
+[[caravan]]
+nation = "fire"
+name = "Fire Nation traders"
+
+[[caravan.deal]]
+give = [{ item = "food", count = 30 }]    # "food" = any food items
+get = [{ item = "metal", count = 2 }]
+times = 2
+
+[[caravan.deal]]
+give = [{ item = "wood", count = 25 }]
+get = [{ item = "gold_ore", count = 3 }]
+times = 2
+
+[[caravan.request]]
+name = "Food for the families at Fire Fountain City"
+give = [{ item = "food", count = 40 }]
+reward = { draw = 0.5 }                   # or { knowledge = 60 }, or { chart = 1 }
+```
+
+Loaded strictly like `endeavor.rs`: unknown keys are rejected, items resolve at load, and every
+count has a range check. A deal whose items the visited nation can't use is still allowed,
+because selling Fire metal to Water is the point.
+
+## 3. Intermediate goals: one chapter
+
+**Decision: one chapter, "Known on the road", whose reward is the caravans.** It's not a second
+list to tick off. It's the moment the outside world notices the settlement, and it changes what
+the player can do. A second chapter between it and the gate would be a checklist: the gate's
+signs already show progress from minute one.
+
+- **Signs:** population 10, four kinds of building, 60 food in stores. These are ordinary sign
+  kinds (`SignKind`) with their own ids and smaller targets, so there's no new counting code.
+- **When:** about minute 40 to 60 with #353 and draw. That's the start of the measured dead block.
+- **Shown:** a short section at the top of the Endeavor screen until it's met, then one line
+  ("Known on the road"). It gets a toast when met, and the side panel's "Next:" names its missing
+  sign first.
+
+```
+| CHAPTER                                                          |
+|   Known on the road                                  2 of 3      |
+|   Population                      #########.     9/10            |
+|   Kinds of building               ##########      4/4            |
+|   Food in stores                  ##########    60/60            |
+|   Traders come once the road knows you                           |
+```
+
+```toml
+# data/endeavor.toml
+[[chapter]]
+id = "known_on_the_road"
+name = "Known on the road"
+hint = "Traders come once the road knows you"
+signs = ["chapter_population", "chapter_kinds", "chapter_food"]   # [[sign]] ids with chapter = true
+```
+
+Chapter signs carry `chapter = true` and are left out of the gate's Ready check and its "N of 9"
+count.
+
+## 4. Post-gate: a lighter loop
+
+**Recommended:** the United City keeps the same loop, wider. No new system is needed:
+
+- Caravans come from all four nations, including your own (kin visiting). Deals scale by
+  `united_scale` (1.5) in data.
+- Requests get bigger and their rewards change: "Stone for Omashu's walls: 150 stone" rewards
+  `draw`, which now brings newcomers of any nation (#240's weights).
+- The population milestones already planned by endgame.md (the next milestone shown on the
+  Endeavor screen) carry on, at 24 and 32 by default, each with a toast.
+
+The **Spirit Portal** (endgame.md, concept B) is the real sequel. It needs spirit AI and a new
+resource, so it's a separate design issue when the owner wants it (question 4). It isn't filed
+here.
+
+## 5. Time controls (owner call)
+
+The ladder is x1, x2, x3 and x5, and x10 to x50 are a host setting (`--fast`, #321). The
+options:
+
+| Option | What it does | For | Against |
+|---|---|---|---|
+| **A. Skip to news (`]`)** | Runs at the fastest the machine allows (up to x50) until something happens: an alert, a sign or chapter met, a newcomer, a caravan, a tech finished or a death. One season at most. Any key stops it | It aims at the wait itself. The busy parts of the game stay at playable speeds. `]` already means "fast-forward to the next turn" in the watcher | One more mode. It needs a stop list in `fn_ui` that's kept in step with the alerts |
+| B. Raise the normal top speed to x10 | Adds x10 to the ladder | Trivial | A colony at x10 is hard to read, and the waits shrink but don't go away |
+| C. Neither | Fix the content and leave time alone | Nothing to build | The last stretch before a sign is still a wait |
+
+**Recommended: A.** It's a frontend feature in `fn_ui`'s clock with no sim change, and it's
+deterministic, because the sim ticks the same and only the wall-clock pace changes. It isn't an
+F-key, so it works on WSL. The panel's header shows it:
+
+```
+""F"",,T,,,,T,,,,,TT^^^oT,,T,T,T,c,.~~~~~~..,,TT,,,.~~~~~.."""F"""F"+----- * EARTH KINGDOM * ------+
+"FF""",,,,,,,,,,,,c,,^^^,T,,T,,,,,..~~~~~~~..,,,T,,.~..~~~.",""""""F| >> To news x50         52:40 |
+F""FF"F,,,,,,,,,,,,,,^^$0T,=T,,,,,.~~~~~~~f~..,,,T,.....~..",c""F"""+- PEOPLE ---------------- 11 -+
+```
+
+*(Edited from `fn_tui 7 earth --frame --ascii --size 100x30 --ticks 3000`.)* The bottom bar
+reads `SKIPPING  any key stop`.
+
+## How this fits work in flight
+
+| Work | Interaction | Tuned where |
+|---|---|---|
+| #353 food, growth and wood retune | Keeps `arrival_minutes` (10) and `newcomer_food`. Draw multiplies it, so draw lands **after** #353 and re-checks #353's population row | #353 owns the base pace, this doc the multiplier |
+| #365 festivals | Unchanged: a festival is a newcomer now, separate from draw | #365 |
+| #344, #360 mastery | Untouched. Masters stay a long sign, not a pacing lever here | #344 |
+| #380, #402 scrolls | A caravan `chart` reward reuses #402's reveal effect, so Air caravans become a second route to a ruin. The Air chart deal waits on #402 | #402 owns the effect |
+| #413 late research tier | Its empty techs are the measured 30-minute dead block. This doc adds no research content, and the timeline harness (A) is how #413 shows its effect | #413 |
+| #355 close-out | Runs before this. Its pacing line in endgame.md is re-measured by #440 once draw and caravans land | #355, then #440 |
+| #396 ore in reach | Caravans are a second route on seeds 2 and 6. #396's data fix still stands | #396 |
+| #356 Fire bricks and metal | Fire caravans buy and sell them: a use for #356's outputs, not a replacement | #356 |
+| #395, #397 opening bugs | Excluded from the medians. The timeline target counts 7 of 8 seeds so one bad seed doesn't block it | those issues |
+
+## Measuring it
+
+#434 adds to `balance --economy`:
+
+- a `techs:` line (each completion's minute) and a `timeline:` line (every decision event: a tech
+  that unlocks a building, ability or job, a first-met sign, a chapter, a caravan arrival);
+- the longest gap from minute 30 to Ready (or to the end of the run), and the number of gaps
+  over 15 minutes;
+- the idle share per 15-minute window;
+- `--branch-first`, which researches the nation's branch before the shared tier, closer to how a
+  person plays.
+
+**Targets** (seeds 1-8, all nations, Small, Normal, economy opening, once draw, caravans and the
+chapter have landed):
+
+| | Target |
+|---|---|
+| Longest gap between decisions, minute 30 to Ready | 15 minutes or less, on 7 of 8 seeds per nation, in both research orders |
+| Population 16, economy opening | minute 100 to 130 (draw near 100%) |
+| Population 16, beds-only opening (no food variety, no campfire near beds) | minute 150 or later |
+| Ore sign on seeds 2 and 6 | met by minute 150 for Earth and Fire, with caravan deals |
+| Ready, ignoring masters and scrolls | minute 130 to 170 (unchanged length; the middle is fuller, not shorter) |
+
+## Follow-up issues
+
+Filed without `ready`. The issues that wait on an owner answer are labelled `needs-owner`.
+
+| # | Issue | Blocked by | Owner question |
+|---|---|---|---|
+| #434 | Balance harness: decision timeline, gaps, idle share, `--branch-first` | none | |
+| #435 | Growth: a draw meter that spare beds, warm beds and food variety fill | #353 | 2 |
+| #436 | TUI: when the next newcomer is due, and what draw is missing | #435 | |
+| #437 | Caravans: `data/trade.toml`, the camp, deals, requests and events | none | 3 |
+| #438 | TUI: the Traders screen (`M`), the camp glyph and caravan alerts | #437 | 3 |
+| #439 | Endeavor: the "Known on the road" chapter, which opens the caravans | #437 | 3 |
+| #440 | Balance: the economy opening takes caravan deals, and the pacing targets are checked | #434, #435, #437, #439 | |
+| #441 | TUI: skip to news (`]`) | none | 1 |
+| #442 | United City: caravans from all four nations, bigger requests, population milestones | #437 | 4 |
+
+## Open questions for the owner
+
+1. **Time controls: skip to news, a faster top speed, or neither?** *Recommended: skip to news
+   (`]`),* which runs fast until an alert, sign, newcomer, caravan or tech, for at most one
+   season. It aims at the wait without making busy moments unreadable. x10 on the normal ladder
+   is the cheap alternative.
+2. **Should a passive player grow slower than #353's clock?** *Recommended: yes, with draw from
+   60% to 140% of #353's 10 minutes.* A settlement that only builds beds grows at about today's
+   pace (one per 17 minutes), and one that stores three foods and keeps its beds warm grows about
+   twice as fast. The alternative is a floor of 100%, so draw only ever speeds growth up. That's
+   gentler, but the passive game then gets shorter, not fuller.
+3. **Caravans from the other nations before the gate, opened by one chapter?** *Recommended:
+   yes.* Visitors trade but never stay, which sets up the United City without spending its
+   payoff. The alternatives are caravans from minute 0 with no chapter (simpler, but nothing marks
+   the change), or no visitors until the gate (purer, but then the midgame has no sink).
+4. **After the gate: the lighter loop now, the Spirit Portal later?** *Recommended: yes.* The
+   United City reuses caravans and population milestones, with bigger requests. The Spirit Portal
+   gets its own design issue after a playtest of the loop shows whether it's needed.

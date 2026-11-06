@@ -72,7 +72,8 @@ proposes a computed building-kinds sign.)
 
 - **Pacing target:** about 3.5 to 4 hours for a steady player. That's the research tree (~2 h)
   plus building out and growing to 16. The project itself adds about an hour. Tune with the
-  targets first.
+  targets first. Where the new decisions run out on the way (minute 60 to Ready) and how to fill
+  that stretch is in [pacing.md](pacing.md) (#412, proposed).
 - **Latching.** The endeavor becomes **Ready** the first tick every sign is met at once. Stores
   that are eaten afterwards don't undo it. The toast reads "Word of your settlement has reached
   the Avatar. Choose a site for the Harmony Gate (G)."
