@@ -325,7 +325,10 @@ description = "Guide the body's own energy with water to mend wounds."
 nation = "water"
 cost = 120
 prereqs = ["herbalism"]
-# No unlocks yet: healing hut, healer job and Healing Water need a healing mechanic (issue #125).
+# The Healing Hut (issue #375, narrowing #125): hurt settlers rest and mend there. The healer
+# job and the Healing Water ability still need a bending mechanic (#358).
+[tech.unlocks]
+buildings = ["healing_hut"]
 
 [[tech]]
 id = "tide_mills"

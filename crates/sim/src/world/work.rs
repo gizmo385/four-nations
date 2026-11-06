@@ -118,6 +118,9 @@ pub enum Task {
     Eat(FoodSource),
     Drink,
     Sleep,
+    /// Resting at a healing building's anchor (`BuildingDef::healing`, issue #375), walking to
+    /// one or inside it.
+    Healing(Pos),
 }
 
 /// Why a unit with nothing to do (`Unit::task` is `None`) has nothing to do (#337): read from
@@ -175,6 +178,14 @@ impl Unit {
     /// walk to a warm place, see `heat.rs`).
     pub fn is_sleeping(&self) -> bool {
         self.need_task == Some(Task::Sleep) && self.route.as_ref().is_none_or(|r| r.is_empty())
+    }
+
+    /// Healing inside a healing building right now (issue #375), as opposed to merely holding
+    /// the task while walking there: it's actually stepped through the door
+    /// (`World::enter_building`). `World::tick_needs` reads this to apply the building's boosted
+    /// regen instead of the passive rate.
+    pub fn is_healing(&self) -> bool {
+        matches!(self.need_task, Some(Task::Healing(_))) && self.inside.is_some()
     }
 }
 
@@ -676,9 +687,10 @@ impl World {
     }
 
     fn finish_need(&mut self, i: usize) {
-        // Whatever bed held the entrance for it (#227, a bed bigger than 1x1) is done with, so a
-        // unit left inside steps back out: waking normally, or a hungrier need cutting sleep
-        // short (`run_need`'s `Task::Sleep` calls this directly, without going through
+        // Whatever bed or healing building held the entrance for it (#227, a bed bigger than
+        // 1x1; #375, the Healing Hut) is done with, so a unit left inside steps back out: waking
+        // normally, reaching `stop_at`, or a hungrier need cutting it short (`run_need`'s
+        // `Task::Sleep` and `Task::Healing` call this directly, without going through
         // `consider_needs`'s own leave-on-pre-empt).
         self.leave_building(i);
         let u = &mut self.units[i];
@@ -686,6 +698,7 @@ impl World {
         u.route = None;
         u.work = 0.0;
         u.bed = None;
+        u.healing = None;
     }
 
     pub(super) fn finish_job(&mut self, i: usize) {
@@ -787,6 +800,25 @@ impl World {
                 }
             }
         }
+        // Nothing urgent (issue #375): a hurt unit rests at the nearest healing building with
+        // room, the lowest priority there is. It only ever starts once every real need is
+        // comfortably above `low` (`Needs::any_low`), the same gate the passive regen uses, so a
+        // need that's merely on retry cooldown (the loop above skipped it, but it's still `<=
+        // low`) still rules healing out.
+        if self.tick >= self.units[i].healing_retry_at && !self.units[i].needs.any_low(n) {
+            match self.plan_healing(i, defs) {
+                Some((route, anchor)) => {
+                    let u = &mut self.units[i];
+                    u.need_task = Some(Task::Healing(anchor));
+                    u.route = Some(route);
+                    u.work = 0.0;
+                    u.healing = Some(anchor);
+                }
+                None => {
+                    self.units[i].healing_retry_at = self.tick + self.retry_ticks(defs);
+                }
+            }
+        }
     }
 
     /// The task for a need, the route to where it happens, and the bed it claims (sleeping only).
@@ -871,6 +903,71 @@ impl World {
             .and_then(|b| defs.building(b.id).bed)
             .map_or(1.0, |b| b.sleep_bonus);
         self.sleep_factor_at(u.pos) * bed
+    }
+
+    /// Where to heal (issue #375): the route to the nearest healing building with room whose
+    /// `seek_below` this unit's health is under, and the anchor it reserves (`Unit::healing`).
+    /// `None` with no reachable one -- no healing building in the data at all, none this
+    /// healthy would seek out, or every reachable one already full. Unlike `bed_route` there is
+    /// no `seek_tiles` limit: the data names none, so any reachable one counts.
+    fn plan_healing(&self, i: usize, defs: &Defs) -> Option<(Vec<Pos>, Pos)> {
+        if !defs.buildings.iter().any(|b| b.healing.is_some()) {
+            return None;
+        }
+        let health = self.units[i].needs.health;
+        // Every healing building's door, and the capacity and threshold of each (parallel to
+        // `bed_route`'s `targets`, keyed the same way: a door shared by more than one building
+        // keeps all of them, in `self.buildings()`'s anchor order).
+        let mut targets: HashMap<Pos, Vec<(Pos, u32, f32)>> = HashMap::new();
+        for (foot, id) in self.buildings() {
+            let Some(h) = defs.building(id).healing.as_ref() else { continue };
+            let capacity = defs.building(id).capacity;
+            if capacity == 0 || health >= h.seek_below {
+                continue;
+            }
+            targets.entry(foot.entrance()).or_default().push((foot.anchor, capacity, h.seek_below));
+        }
+        if targets.is_empty() {
+            return None;
+        }
+        let rules = self.rules_for(&self.units[i]);
+        let (flood, found) =
+            Flood::nearest(&self.map, self.units[i].pos, rules, &targets, |_, _, huts| {
+                huts.iter()
+                    .find(|&&(anchor, limit, _)| self.healing_has_room(anchor, i, limit))
+                    .map(|&(anchor, ..)| ((), anchor))
+            });
+        let (stand, key) = found?;
+        Some((route_from(flood.path_to(stand)?), key))
+    }
+
+    /// Whether fewer than `limit` other units have already claimed the healing building keyed
+    /// by `key` (`Unit::healing`: its anchor), counting from the moment they set off, not just
+    /// once they're inside. Mirrors `bed_has_room`.
+    fn healing_has_room(&self, key: Pos, me: usize, limit: u32) -> bool {
+        let claimed = self
+            .units
+            .iter()
+            .enumerate()
+            .filter(|&(k, u)| k != me && u.healing == Some(key))
+            .count();
+        (claimed as u32) < limit
+    }
+
+    /// The healing boost unit `u` gets from `data/needs.toml`'s passive rate right now (issue
+    /// #375): `(regen_per_minute, stop_at)`, scaled by the healing building's `modifier` if it
+    /// names one. `None` unless it is actually `Unit::is_healing` (walking there doesn't count,
+    /// and nor does a building that vanished from under it). Read by `World::tick_needs`.
+    pub(super) fn healing_bonus_for(&self, u: &Unit, defs: &Defs) -> Option<(f32, f32)> {
+        if !u.is_healing() {
+            return None;
+        }
+        let anchor = u.inside?;
+        let healing = self.building_at(anchor).map(|id| defs.building(id))?.healing.as_ref()?;
+        let mods = self.modifiers_for(u, defs);
+        let rate = healing.regen_per_minute
+            * healing.modifier.as_deref().and_then(|m| mods.get(m)).unwrap_or(1.0);
+        Some((rate, healing.stop_at))
     }
 
     /// The nearest tile beside water: `Flood::seek` (#293) checks the handful of tiles it
@@ -999,6 +1096,29 @@ impl World {
             Task::Drink | Task::Eat(_) => {
                 if self.walk(i, defs) {
                     self.consume(i, task, defs);
+                }
+            }
+            Task::Healing(anchor) => {
+                let Some(healing) = self
+                    .building_at(anchor)
+                    .map(|id| defs.building(id))
+                    .and_then(|d| d.healing.as_ref())
+                else {
+                    // The building is gone (no demolish command exists yet, so unreachable in
+                    // practice today).
+                    return self.finish_need(i);
+                };
+                let u = &self.units[i];
+                if u.needs.health >= healing.stop_at || u.needs.any_low(&defs.needs) {
+                    return self.finish_need(i);
+                }
+                if self.units[i].route.as_ref().is_some_and(|r| !r.is_empty()) {
+                    self.walk(i, defs);
+                }
+                // At the door, the tick it arrives or any tick after while it waits for room:
+                // step inside. A no-op once already inside.
+                if self.units[i].inside.is_none() {
+                    self.enter_building(i, anchor, defs);
                 }
             }
             // Job tasks never sit in the need slot.

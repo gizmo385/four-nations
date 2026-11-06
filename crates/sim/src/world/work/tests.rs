@@ -1,4 +1,5 @@
 use super::*;
+use crate::building::BuildingId;
 use crate::defs::{BiomeId, Terrain};
 use crate::geom::{Footprint, Grid};
 use crate::mapgen::Tile;
@@ -437,6 +438,81 @@ fn a_tired_unit_sleeps_until_rested_then_wakes() {
     assert!(w.units[0].needs.energy > start);
     run_until(&mut w, &defs, 10 * 60 * 10, |w| !w.units[0].is_sleeping());
     assert!(w.units[0].needs.energy >= defs.jobs.sleep_until);
+}
+
+/// A finished healing hut, anchored on `(0, 0)` of the `WOODS` arena, well clear of its one
+/// tree (#375).
+fn with_healing_hut(nation: Nation, units: &[Pos]) -> (World, Defs, BuildingId, Pos) {
+    let (mut w, defs) = setup(nation, &WOODS, units);
+    let id = defs.building_id("healing_hut").unwrap();
+    let anchor = at(0, 0);
+    w.raise(Footprint::new(anchor, 2, 2), id, defs.building(id));
+    (w, defs, id, anchor)
+}
+
+#[test]
+fn a_hurt_unit_rests_in_the_nearest_healing_hut_and_leaves_once_healed() {
+    let (mut w, defs, id, anchor) = with_healing_hut(Nation::Water, &[at(3, 2)]);
+    w.units[0].needs.health = 50.0;
+    run_until(&mut w, &defs, 2000, |w| w.units[0].is_healing());
+    assert_eq!(w.units[0].task(), Some(Task::Healing(anchor)));
+    assert_eq!(w.occupants(anchor).collect::<Vec<_>>(), [w.units[0].id]);
+    let stop_at = defs.building(id).healing.as_ref().unwrap().stop_at;
+    run_until(&mut w, &defs, 20_000, |w| w.units[0].task().is_none());
+    assert!(w.units[0].needs.health >= stop_at, "{}", w.units[0].needs.health);
+    assert_eq!(w.occupants(anchor).next(), None);
+}
+
+#[test]
+fn an_injured_unit_heals_to_90_faster_in_a_healing_hut_than_without_one() {
+    // Hunger, thirst and energy are pinned full every tick, so the only thing either run
+    // measures is how fast health itself climbs back to 90 (`Needs::any_low` never blocks it,
+    // and the unit never starves first).
+    let heal_ticks = |mut w: World, defs: &Defs| -> u64 {
+        w.units[0].needs.health = 50.0;
+        for ticks in 0u64.. {
+            if w.units[0].needs.health >= 90.0 {
+                return ticks;
+            }
+            w.units[0].needs.hunger = defs.needs.max();
+            w.units[0].needs.thirst = defs.needs.max();
+            w.units[0].needs.energy = defs.needs.max();
+            w.tick(defs);
+            assert!(ticks < 50_000, "never healed");
+        }
+        unreachable!()
+    };
+    let (with_hut, defs, ..) = with_healing_hut(Nation::Water, &[at(3, 2)]);
+    let healed_with = heal_ticks(with_hut, &defs);
+
+    let (without_hut, defs) = setup(Nation::Water, &WOODS, &[at(3, 2)]);
+    let healed_without = heal_ticks(without_hut, &defs);
+
+    assert!(healed_with < healed_without, "{healed_with} vs {healed_without}");
+}
+
+#[test]
+fn a_hungry_injured_unit_eats_before_healing() {
+    let rows = ["~~~~~~~~~", ".........", ".c.......", ".........", "........."];
+    let (mut w, defs) = setup(Nation::Water, &rows, &[at(7, 3)]);
+    let id = defs.building_id("healing_hut").unwrap();
+    w.raise(Footprint::new(at(0, 0), 2, 2), id, defs.building(id));
+    w.units[0].needs.health = 50.0;
+    w.units[0].needs.hunger = defs.needs.hunger.low - 1.0;
+    w.tick(&defs);
+    assert!(matches!(w.units[0].task(), Some(Task::Eat(_))), "{:?}", w.units[0].task());
+}
+
+#[test]
+fn a_healing_huts_capacity_fills_in_unit_id_order_and_turns_the_rest_away() {
+    let (mut w, defs, _, anchor) = with_healing_hut(Nation::Water, &[at(3, 2), at(3, 3), at(3, 4)]);
+    let ids: Vec<_> = w.units.iter().map(|u| u.id).collect();
+    for u in &mut w.units {
+        u.needs.health = 50.0;
+    }
+    run_until(&mut w, &defs, 2000, |w| w.occupants(anchor).count() == 2);
+    assert_eq!(w.occupants(anchor).collect::<Vec<_>>(), [ids[0], ids[1]]);
+    assert_ne!(w.units[2].task(), Some(Task::Healing(anchor)), "the third is turned away");
 }
 
 #[test]

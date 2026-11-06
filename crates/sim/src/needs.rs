@@ -313,6 +313,37 @@ impl Needs {
         cold_hunger: f32,
         cold_energy: f32,
     ) {
+        self.tick_at_cold_healing(
+            s,
+            ticks_per_second,
+            sleeping,
+            sleep_scale,
+            decay_scale,
+            cold_hunger,
+            cold_energy,
+            None,
+        );
+    }
+
+    /// `tick_at_cold` with a healing building's boosted regen (`BuildingDef::healing`, issue
+    /// #375), `Some((regen_per_minute, stop_at))`, in place of the passive `health.regen_per_minute`
+    /// while health is below `stop_at`: `World::tick_needs` passes this for a unit whose
+    /// `Task::Healing` has it resting inside one (`World::healing_bonus_for`). `None` is
+    /// `tick_at_cold` exactly. Depleted needs still damage health first, same as ever: a need
+    /// pre-empts healing in `run_need` long before this would matter, but the order here keeps
+    /// the two rules from ever fighting over the same tick.
+    #[allow(clippy::too_many_arguments)]
+    pub fn tick_at_cold_healing(
+        &mut self,
+        s: &NeedsSettings,
+        ticks_per_second: u32,
+        sleeping: bool,
+        sleep_scale: f32,
+        decay_scale: f32,
+        cold_hunger: f32,
+        cold_energy: f32,
+        healing: Option<(f32, f32)>,
+    ) {
         let per_tick =
             |per_minute: f32| per_minute / (SECONDS_PER_MINUTE * ticks_per_second as f32);
         let max = s.max();
@@ -334,7 +365,15 @@ impl Needs {
             let dmg = per_tick(s.health.depleted_damage_per_minute) * depleted as f32;
             self.health = (self.health - dmg).max(0.0);
         } else if !self.any_low(s) {
-            self.health = (self.health + per_tick(s.health.regen_per_minute)).min(s.health.max);
+            match healing {
+                Some((rate, stop_at)) if self.health < stop_at => {
+                    self.health = (self.health + per_tick(rate)).min(stop_at);
+                }
+                _ => {
+                    self.health =
+                        (self.health + per_tick(s.health.regen_per_minute)).min(s.health.max);
+                }
+            }
         }
     }
 
@@ -494,6 +533,39 @@ mod tests {
         n.hunger = s.hunger.low - 1.0;
         n.tick(s, false);
         assert_eq!(n.health, 50.0);
+    }
+
+    #[test]
+    fn a_healing_boost_regens_faster_than_passive_and_stops_at_the_cap() {
+        // A Healing Hut's boost (issue #375): faster than the passive rate, and capped below
+        // `health.max` rather than at it.
+        let defs = Defs::bundled();
+        let s = &defs.needs;
+        let mut boosted = Needs::full(s);
+        boosted.health = 50.0;
+        let mut passive = boosted;
+        boosted.tick_at_cold_healing(s, 1, false, 1.0, 1.0, 1.0, 1.0, Some((16.0, 90.0)));
+        passive.tick_at_cold_healing(s, 1, false, 1.0, 1.0, 1.0, 1.0, None);
+        assert!(boosted.health > passive.health, "{} vs {}", boosted.health, passive.health);
+
+        // One tick right at the cap never overshoots it: `World::run_need` (#375) is what
+        // actually stops the unit (and so the boost) once health reaches `stop_at`, but the
+        // tick itself must never push past it even taken alone.
+        let mut n = Needs::full(s);
+        n.health = 89.9;
+        n.tick_at_cold_healing(s, 60, false, 1.0, 1.0, 1.0, 1.0, Some((16.0, 90.0)));
+        assert!(n.health <= 90.0, "{}", n.health);
+        n.health = 90.0;
+        n.tick_at_cold_healing(s, 60, false, 1.0, 1.0, 1.0, 1.0, Some((16.0, 90.0)));
+        assert_eq!(n.health, 90.0 + s.health.regen_per_minute / 60.0 / 60.0);
+
+        // With no boost in play, `tick_at_cold_healing(.., None)` matches `tick_at_cold` exactly.
+        let mut a = Needs::full(s);
+        a.health = 50.0;
+        let mut b = a;
+        a.tick_at_cold(s, 1, false, 1.0, 1.0, 1.0, 1.0);
+        b.tick_at_cold_healing(s, 1, false, 1.0, 1.0, 1.0, 1.0, None);
+        assert_eq!(a, b);
     }
 
     #[test]

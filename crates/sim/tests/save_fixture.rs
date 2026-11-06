@@ -256,6 +256,10 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     // tell Earth Tent and Air Shield apart from a flame), on `HeatSource`.
     "cooks",
     "ability",
+    // The Healing Hut (#375): the healing building a unit is resting in or walking to, and its
+    // own retry timer, on `Unit`.
+    "healing",
+    "healing_retry_at",
 ];
 
 /// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239

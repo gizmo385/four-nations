@@ -988,9 +988,10 @@ mod tests {
         );
     }
 
-    /// The bundled data's reachable count, per nation, before `spare` (today: Air 9, Water 7,
+    /// The bundled data's reachable count, per nation, before `spare` (today: Air 9, Water 8,
     /// Earth 9, Fire 10; `docs/design/materials.md` section 6, raised by the shared Workshop
-    /// (#369) and, for Earth, the Mine Shaft and Deep Mine (#373)).
+    /// (#369), the Mine Shaft and Deep Mine for Earth (#373), and the Healing Hut for Water
+    /// (#375)).
     fn reachable_counts() -> [(Nation, u32); 4] {
         let defs = Defs::bundled();
         Nation::ALL
@@ -1011,7 +1012,7 @@ mod tests {
         // Today's bundled counts, so a content change that moves these is visible in review.
         assert_eq!(
             reachable_counts(),
-            [(Nation::Air, 9), (Nation::Water, 7), (Nation::Earth, 9), (Nation::Fire, 10)]
+            [(Nation::Air, 9), (Nation::Water, 8), (Nation::Earth, 9), (Nation::Fire, 10)]
         );
     }
 
@@ -1033,11 +1034,11 @@ mod tests {
 
     #[test]
     fn every_building_spare_must_be_below_the_smallest_nations_count() {
-        // Water and Earth both reach 7 kinds today (the shared Workshop, #369); spare = 7 would
-        // zero their target.
-        let e = error(&sign("kind = \"every_building\"\nspare = 7"));
-        assert!(e.contains("spare must be below the smallest nation's count (7)"), "{e}");
-        assert!(load(&sign("kind = \"every_building\"\nspare = 6")).is_ok());
+        // Water reaches the fewest kinds today, 8 (the shared Workshop, #369; the Healing Hut,
+        // #375); spare = 8 would zero its target.
+        let e = error(&sign("kind = \"every_building\"\nspare = 8"));
+        assert!(e.contains("spare must be below the smallest nation's count (8)"), "{e}");
+        assert!(load(&sign("kind = \"every_building\"\nspare = 7")).is_ok());
     }
 
     #[test]

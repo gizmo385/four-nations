@@ -298,6 +298,12 @@ glyph = "≈"
 ascii = "="
 fg = [120, 190, 230]
 
+# The Healing Hut (#375): hurt settlers rest and mend inside.
+[building.healing_hut]
+glyph = "✚"
+ascii = "+"
+fg = [180, 232, 220]
+
 # --- The endeavor (#236, #242) ---
 [building.harmony_gate]
 glyph = "⛩"
