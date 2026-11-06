@@ -831,3 +831,63 @@ fn a_loaded_unit_delivers_to_the_stockpile_the_rail_makes_nearer() {
     assert_eq!(w.stored_at(at(19, 1)), Some(Stack { item: wood, count: 4 }));
     assert_eq!(w.stored_at(at(13, 6)), None);
 }
+
+/// Idle (#337): nothing designated at all is `NoWork`, not a bare "it's idle" with no reason.
+#[test]
+fn idle_reason_says_no_work_with_nothing_designated() {
+    let (w, defs) = setup(Nation::Earth, &WOODS, &[at(3, 2)]);
+    assert_eq!(w.idle_reason(UnitId(0), &defs), Some(IdleReason::NoWork));
+    assert_eq!(w.idle_reason(UnitId(99), &defs), None, "no such unit");
+}
+
+/// A bend the unit's own nation can cast, but can't afford yet, reads `OutOfChi` rather than a
+/// bare `Unreachable`: `claim_job` itself would take it the moment chi regenerates.
+#[test]
+fn idle_reason_flags_out_of_chi_for_a_bend_the_unit_cannot_yet_afford() {
+    let (mut w, defs) = setup(Nation::Fire, &WOODS, &[at(3, 2)]);
+    let hearthflame = defs.ability_id("hearthflame").unwrap();
+    assert!(defs.ability(hearthflame).chi > 10.0, "the fixture needs headroom below the cost");
+    w.units[0].chi = 10.0;
+    let pos = w.units[0].pos;
+    w.designate_bend(hearthflame, pos, &defs).unwrap();
+    assert_eq!(w.idle_reason(UnitId(0), &defs), Some(IdleReason::OutOfChi));
+}
+
+/// A haul with nowhere to go because every stockpile tile already holds a different item reads
+/// `StockpileFull` (#337, #378's own gap in the balance harness).
+#[test]
+fn idle_reason_flags_a_full_stockpile_blocking_a_haul() {
+    let (mut w, defs) = setup(Nation::Earth, &WOODS, &[at(3, 2)]);
+    let wood = defs.item_id("wood").unwrap();
+    let stone = defs.item_id("stone").unwrap();
+    w.designate_stockpile(at(1, 2)).unwrap();
+    w.stored.insert(at(1, 2), Stack { item: stone, count: 1 });
+    w.ground.insert(at(5, 2), Stack { item: wood, count: 4 });
+    w.ensure_haul_job(at(5, 2));
+    assert_eq!(w.idle_reason(UnitId(0), &defs), Some(IdleReason::StockpileFull));
+}
+
+/// A harvest stranded on an island no unit can ever reach reads `Unreachable`.
+#[test]
+fn idle_reason_flags_an_unreachable_harvest() {
+    let rows = ["~~~~~~~~~", "~T~.....~", "~~~.....~", "~~~..T..~", "~~~~~~~~~"];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(3, 2)]);
+    w.designate_harvest(at(1, 1), &defs).unwrap();
+    assert_eq!(w.idle_reason(UnitId(0), &defs), Some(IdleReason::Unreachable));
+}
+
+/// `World::job_unreachable` (#337): `None` before the connectivity cache has ever been needed,
+/// then `true` only for the designation on the far side of water with no bank, `false` for an
+/// ordinary one in reach -- the same rows `unreachable_jobs_are_skipped_without_blocking_others`
+/// uses to pin `claim_job` itself.
+#[test]
+fn job_unreachable_names_a_stranded_designation_once_the_cache_is_warm() {
+    let rows = ["~~~~~~~~~", "~T~.....~", "~~~.....~", "~~~..T..~", "~~~~~~~~~"];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(3, 2)]);
+    assert_eq!(w.job_unreachable(at(1, 1)), None, "the cache hasn't been needed yet");
+    w.designate_harvest(at(1, 1), &defs).unwrap();
+    w.designate_harvest(at(5, 3), &defs).unwrap();
+    w.tick(&defs);
+    assert_eq!(w.job_unreachable(at(1, 1)), Some(true));
+    assert_eq!(w.job_unreachable(at(5, 3)), Some(false));
+}

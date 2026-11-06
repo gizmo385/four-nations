@@ -278,10 +278,14 @@ pub fn switch_tool(
 
 /// Applies `tool` to every tile in the rectangle `from`..=`to` (for `Build`, to every footprint
 /// `build_stamps` fits in it) through `Session::apply` and returns the notice to show, such as "designate harvest: 12 done, 3 skipped (nothing to
-/// harvest)". `repeating` is the Shift state (#81); `choice` is the Build tool's building.
+/// harvest), 2 unreachable". `repeating` is the Shift state (#81); `choice` is the Build tool's
+/// building.
 ///
 /// The sim decides what each tile accepts; a refusal is counted and its reason (the last one's)
-/// shown, even for a one-tile click, so a rejected bend or harvest says why.
+/// shown, even for a one-tile click, so a rejected bend or harvest says why. For `Harvest` and
+/// `Stockpile`, a designation that went through is also checked against `World::job_unreachable`
+/// (#337: "designating a job or stockpile no settler can reach says so in the notice"), so a tile
+/// on the wrong side of a river, wall or shore is called out rather than silently "done".
 pub fn apply_rect(
     session: &mut Session,
     tool: Tool,
@@ -307,12 +311,24 @@ pub fn apply_rect(
         (Tool::Build, Some(id)) => build_stamps(from, to, session.defs.building(id).footprint),
         _ => tiles_between(from, to).collect(),
     };
-    let (mut done, mut refused) = (0, 0);
+    // So `job_unreachable` below has an answer even for the very first designation in a fresh
+    // game, before any idle unit's own job search would otherwise have warmed the cache (#337).
+    if matches!(tool, Tool::Harvest | Tool::Stockpile) {
+        session.world.ensure_regions();
+    }
+    let (mut done, mut refused, mut unreachable) = (0, 0, 0);
     let mut last_error = None;
     for pos in targets {
         if let Some(command) = tool.command(pos, Here::at(session, pos), pick) {
             match session.apply(command) {
-                Ok(()) => done += 1,
+                Ok(()) => {
+                    done += 1;
+                    if matches!(tool, Tool::Harvest | Tool::Stockpile)
+                        && session.world.job_unreachable(pos) == Some(true)
+                    {
+                        unreachable += 1;
+                    }
+                }
                 Err(e) => {
                     refused += 1;
                     last_error = Some(e);
@@ -320,12 +336,14 @@ pub fn apply_rect(
             }
         }
     }
+    let suffix =
+        if unreachable > 0 { format!(", {unreachable} unreachable") } else { String::new() };
     match last_error {
         Some(e) => {
             let why = build::describe_error(session, e);
-            format!("{what}: {done} done, {refused} skipped ({why})")
+            format!("{what}: {done} done, {refused} skipped ({why}){suffix}")
         }
-        None => format!("{what}: {done} done, {refused} skipped"),
+        None => format!("{what}: {done} done, {refused} skipped{suffix}"),
     }
 }
 
@@ -646,6 +664,43 @@ mod tests {
         assert!(notice.ends_with(')'), "{notice}");
 
         assert_eq!(apply_rect(&mut s, Tool::Select, pos, to, false, None), "");
+    }
+
+    /// A harvest designated on an island nobody can reach says so in the notice (#337:
+    /// "designating a job or stockpile no settler can reach says so in the notice"), not just
+    /// "done" like one that will actually get worked.
+    #[test]
+    fn designating_an_unreachable_harvest_says_so_in_the_notice() {
+        use fn_sim::defs::BiomeId;
+        use fn_sim::{Defs, Grid, Nation, Terrain, Tile, World};
+
+        use crate::clock::Clock;
+
+        let defs = Defs::bundled();
+        let rows = ["~~~~~~~~~", "~T~.....~", "~~~.....~", "~~~~~~~~~"];
+        let map = Grid::from_fn(rows[0].len() as i32, rows.len() as i32, |p| {
+            let c = rows[p.y as usize].as_bytes()[p.x as usize];
+            Tile {
+                elevation: 100,
+                temperature: 128,
+                moisture: 128,
+                terrain: if c == b'~' { Terrain::Water } else { Terrain::Land },
+                biome: BiomeId(0),
+                resource: (c == b'T').then(|| defs.resource_id("oak_tree").unwrap()),
+                building: None,
+            }
+        });
+        let world = World::with_map(1, map, Nation::Earth, &[Pos::new(3, 2)], &defs);
+        let mut s = Session { world, defs, clock: Clock::default(), bend_choice: None };
+        let island = Pos::new(1, 1);
+        let notice = apply_rect(&mut s, Tool::Harvest, island, island, false, None);
+        assert!(notice.contains("1 done"), "{notice}");
+        assert!(notice.contains("1 unreachable"), "{notice}");
+
+        // An ordinary, reachable designation names no unreachable count at all.
+        let reachable = Pos::new(5, 1);
+        let notice = apply_rect(&mut s, Tool::Stockpile, reachable, reachable, false, None);
+        assert!(!notice.contains("unreachable"), "{notice}");
     }
 
     #[test]

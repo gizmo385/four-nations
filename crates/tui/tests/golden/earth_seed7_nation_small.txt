@@ -2,20 +2,20 @@
 │ Earth Kingdom · seed 7 · 6 people      22:40 ││ ▶ Running x1           22:40 │
 │                                              │├─ PEOPLE ───────────────── 6 ─┤
 │ IDLE 4                                       ││ Idle 4  Haul 1  Eat 1        │
-│ ▸ Tyro Idle                                  ││ Hungry 1                 [N] │
-│   Ping Idle                                  │├─ STORES ─────────────────────┤
-│   Song Idle                                  ││ Wood 20  Fruit 2             │
-│   Lin  Idle                                  │├─ RESEARCH ───────────────────┤
+│ ▸ Tyro Idle: stockpile full                  ││ Hungry 1                 [N] │
+│   Ping Idle: stockpile full                  │├─ STORES ─────────────────────┤
+│   Song Idle: stockpile full                  ││ Wood 20  Fruit 2             │
+│   Lin  Idle: stockpile full                  │├─ RESEARCH ───────────────────┤
 │ HAUL 1                                       ││ No target set        3.0/min │
 │   Oma  Fetching 1 Fruit from (92, 64)        ││ 10 pts banked                │
 │ EAT 1                                        │├─ ENDEAVOR ───────────── 0/9 ─┤
 │   Ming Foraging at (86, 65)  Hungry!         ││ Next: 10 more people     [G] │
+│                                              │├─ ALERTS ─────────────── [L] ─┤
+│                                              ││ 44 wood can't be stored:…    │
 │                                              │├─ CURSOR ────────── (94, 64) ─┤
-│                                              ││ Coast                        │
-│                                              ││ Plains (94, 64)              │
-│ STORES                                       ││ Elevation 152                │
-│ Wood 20  Fruit 2                             ││                              │
-│                                              ││                              │
+│ STORES                                       ││ Coast                        │
+│ Wood 20  Fruit 2                             ││ Plains (94, 64)              │
+│                                              ││ Elevation 152                │
 │ TRAITS                                       ││                              │
 │ Move speed x0.9  Carry capacity x1.3         ││                              │
 │ Earthworks x2.5  Water work x0.9             ││                              │

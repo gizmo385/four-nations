@@ -1,17 +1,22 @@
 //! The alert log: bend results (#72), tech completions (#23), deaths, the end-game endeavor's
-//! events (#235) and newcomers joining the settlement (#232) as one stream of lines.
+//! events (#235), newcomers joining the settlement (#232) and a stockpile that can't take any
+//! more of something (#337) as one stream of lines.
 //!
 //! Every line is kept in a bounded history (the terminal UI's message log). The newest ones also
 //! show as short-lived *toasts* in the side panel's Alerts section (ui.md: "a section with
 //! nothing to show hides itself"). A toast ages by the `dt` the caller passes to
 //! [`Alerts::update`], in real seconds, so this crate never reads a clock.
 
+use std::collections::BTreeSet;
+
+use fn_sim::Defs;
+use fn_sim::jobs::ItemId;
 use fn_sim::needs::DeathCause;
 use fn_sim::world::{Arrival, BendEvent, BendOutcome, SeasonEvent, SeasonEventKind, StrainEvent};
 
 use crate::endeavor;
 use crate::session::Session;
-use crate::view::food_in_stores;
+use crate::view::{food_in_stores, stuck_items};
 
 /// How many lines of history to keep; the oldest drop first.
 pub const MAX_HISTORY: usize = 1000;
@@ -29,6 +34,11 @@ pub enum Kind {
     Endeavor,
     /// A newcomer joined the settlement (#232).
     Arrival,
+    /// Something lying on the ground can't be stored because every stockpile able to take it is
+    /// already full (#337; the playtest evidence that made this the issue's highest-value fix:
+    /// a single filled stockpile left every chopped tree's wood on the ground with nothing to
+    /// say why).
+    Stockpile,
     /// The winter warning, a season change worth announcing (winter or spring), the first
     /// frost, or (Hard) a wild plant picked to death (#295, #296, #299).
     Season,
@@ -48,6 +58,7 @@ impl Kind {
             Self::Endeavor => 10.0,
             Self::Arrival => 8.0,
             Self::Season => 10.0,
+            Self::Stockpile => 10.0,
             // The agent strip (#319) already names the current action; the log (`L`) is where
             // this is meant to be read back, not a toast on top of the map.
             Self::Agent => 0.0,
@@ -63,6 +74,7 @@ impl Kind {
             Self::Endeavor => 3,
             Self::Arrival => 3,
             Self::Season => 3,
+            Self::Stockpile => 3,
             Self::Agent => 0,
         }
     }
@@ -88,10 +100,14 @@ impl Entry {
     /// `Bend` and `Agent`, since those two are either routine (a settlement that bends a lot
     /// finishes one most turns, #377) or, for `Agent`, never produced by [`Alerts::update`] in
     /// the first place (only [`Alerts::push_agent`], for `--watch` replay). A `Bend` that
-    /// *failed* is the one exception: still worth stopping for.
+    /// *failed* is the one exception: still worth stopping for. `Stockpile` always stops too
+    /// (#337): a filled stockpile left a 2026-11-05 playtest concluding wood was unobtainable,
+    /// so this is worth an agent's attention every time it fires (once per item going stuck,
+    /// `Alerts::update`, not every tick it stays that way).
     pub fn worth_stopping(&self) -> bool {
         match self.kind {
             Kind::Death | Kind::Arrival | Kind::Endeavor | Kind::Tech | Kind::Season => true,
+            Kind::Stockpile => true,
             Kind::Bend => self.failed,
             Kind::Agent => false,
         }
@@ -109,6 +125,11 @@ pub struct Alerts {
     seen: (usize, usize, usize, usize, usize, usize, usize),
     /// The tick of the last update, to notice a new world.
     last_tick: u64,
+    /// Items `stuck_items` found with nowhere to go, as of the last call (#337): not one of
+    /// `World`'s own monotonic event logs (it's a standing condition, not something that
+    /// happens once), so a fresh line is pushed only on the ones newly in this set, not every
+    /// call while it stays stuck.
+    full_items: BTreeSet<ItemId>,
 }
 
 impl Alerts {
@@ -186,6 +207,21 @@ impl Alerts {
         for ev in &strains[self.seen.6..] {
             fresh.push((ev.tick, Kind::Season, describe_strain_event(&session.defs, ev), false));
         }
+        // Not one of `World`'s own monotonic event logs above (#337: a standing condition, not
+        // something that happens once), so the line is for whichever items are newly stuck since
+        // the last call, not every item still stuck.
+        let stuck = stuck_items(session);
+        for &(item, count) in &stuck {
+            if !self.full_items.contains(&item) {
+                fresh.push((
+                    world.tick,
+                    Kind::Stockpile,
+                    describe_stockpile_full(&session.defs, item, count),
+                    false,
+                ));
+            }
+        }
+        self.full_items = stuck.into_iter().map(|(item, _)| item).collect();
         self.seen = counts;
         fresh.sort_by_key(|(tick, ..)| *tick);
         self.log.extend(fresh.into_iter().map(|(tick, kind, text, failed)| Entry {
@@ -237,6 +273,7 @@ impl Alerts {
             Kind::Endeavor,
             Kind::Arrival,
             Kind::Season,
+            Kind::Stockpile,
             Kind::Agent,
         ] {
             let of_kind: Vec<usize> = (0..self.log.len())
@@ -316,6 +353,14 @@ fn describe_season_event(session: &Session, ev: &SeasonEvent) -> Option<String> 
 fn describe_strain_event(defs: &fn_sim::Defs, ev: &StrainEvent) -> String {
     let name = defs.resource(ev.resource).name.to_lowercase();
     format!("A {name} at ({}, {}) was picked to death.", ev.pos.x, ev.pos.y)
+}
+
+/// "42 wood can't be stored: every stockpile is full" (#337): the lower-case name since the
+/// count in front reads better as a quantity than a label, and the count itself so the player
+/// sees there's really something piling up, not just a flag.
+fn describe_stockpile_full(defs: &Defs, item: ItemId, count: u32) -> String {
+    let name = defs.item(item).name.to_lowercase();
+    format!("{count} {name} can't be stored: every stockpile is full.")
 }
 
 #[cfg(test)]
@@ -626,5 +671,59 @@ mod tests {
             describe_strain_event(&defs, &ev),
             "A fruit tree at (90, 41) was picked to death."
         );
+    }
+
+    /// A stockpile tile already holding one item strands another dropped afterward (#337, the
+    /// 2026-11-05 playtest evidence: a filled stockpile left every chopped tree's wood on the
+    /// ground with nothing to say why). The first `update` after it goes stuck gets a line
+    /// naming the item and how much is stuck, worth stopping `end_turn` for; staying stuck
+    /// doesn't repeat it.
+    #[test]
+    fn a_full_stockpile_becomes_a_one_shot_alert_worth_stopping_for() {
+        use fn_sim::defs::BiomeId;
+        use fn_sim::world::Command;
+        use fn_sim::{Grid, Tile, World};
+        let defs = fn_sim::Defs::bundled();
+        let stone = defs.resource_id("stone").unwrap();
+        let oak = defs.resource_id("oak_tree").unwrap();
+        let (stone_item, wood_item) =
+            (defs.item_id("stone").unwrap(), defs.item_id("wood").unwrap());
+        let map = Grid::from_fn(10, 3, |p| Tile {
+            elevation: 100,
+            temperature: 128,
+            moisture: 128,
+            terrain: if p == Pos::new(3, 1) { Terrain::Mountain } else { Terrain::Land },
+            biome: BiomeId(0),
+            resource: match p {
+                q if q == Pos::new(3, 1) => Some(stone),
+                q if q == Pos::new(7, 1) => Some(oak),
+                _ => None,
+            },
+            building: None,
+        });
+        let world = World::with_map(1, map, Nation::Earth, &[Pos::new(0, 1)], &defs);
+        let mut s =
+            Session { world, defs, clock: crate::clock::Clock::default(), bend_choice: None };
+        s.apply(Command::DesignateStockpile { pos: Pos::new(1, 1) }).unwrap();
+        s.apply(Command::DesignateHarvest { pos: Pos::new(3, 1) }).unwrap();
+        run_until(&mut s, |s| s.world.stored_total(stone_item) > 0);
+        s.apply(Command::DesignateHarvest { pos: Pos::new(7, 1) }).unwrap();
+        run_until(&mut s, |s| s.world.ground_items().any(|(_, st)| st.item == wood_item));
+
+        let mut alerts = Alerts::default();
+        alerts.update(&s, 0.0);
+        assert_eq!(alerts.history().len(), 1, "{:?}", alerts.history());
+        let entry = &alerts.history()[0];
+        assert_eq!(entry.kind, Kind::Stockpile);
+        assert!(entry.text.contains("wood"), "{}", entry.text);
+        assert!(entry.text.contains("full"), "{}", entry.text);
+        assert!(entry.worth_stopping(), "worth an agent's attention (#337)");
+
+        // Staying stuck for another stretch of ticks doesn't add a second line.
+        for _ in 0..200 {
+            s.tick();
+            alerts.update(&s, 0.0);
+        }
+        assert_eq!(alerts.history().len(), 1);
     }
 }
