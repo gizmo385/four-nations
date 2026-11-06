@@ -1,7 +1,9 @@
 # Nation buildings: deeper build lists, and a use for bricks, metal and tools
 
-Status: **proposed** (#357 and #356, designed together). Owner decisions are listed at the end
-under "Open questions for the owner", and the follow-up issues under "Follow-up issues".
+Status: **decided** (#357 and #356, designed together). All five owner questions below are
+answered. The follow-ups that give bricks, metal and tools their use are closed (#369, #371,
+#373, #374, #375, #376); #398 (Metalbend on a stockpile, so the Deep Mine can be paid for) is
+still in progress. See "Open questions for the owner" and "Follow-up issues" for details.
 
 Two problems share one fix. With the whole tree researched, Fire can raise 9 kinds of building,
 Air 8, and Earth and Water only 6. (#357's "8, 7, 5, 4-5" count the same lists with one spare
@@ -14,8 +16,9 @@ need them. Each of the three items gets a job the player can see.
 
 1. **Brick stands in for stone.** Any building or Harmony Gate cost that asks for stone can be
    paid in brick, one for one, and the stone sign counts brick. The kiln turns 3 stone into 4
-   brick, so it becomes Fire's way to stretch stone, the gate's scarcest material. With nothing
-   to waste, the kiln's stock limit goes away.
+   brick, so it becomes Fire's way to stretch stone, the gate's scarcest material. The owner
+   asked for a use *in addition to* a limit, so the kiln's stock limit stays, raised from 20 to
+   about 60.
 2. **Tools are the fitting-out good every nation needs.** A shared **Workshop** (`carpentry`)
    makes tools from wood. Fire's forge makes them faster, from metal. Every branch's
    advanced buildings, and the gate's Arch, cost a few tools.
@@ -72,8 +75,10 @@ stands_for = "stone"   # may pay, one for one, any building or endeavor cost tha
 - **What it's worth.** The gate's 180 stone costs Fire 135 quarried stone, and the 200 sign
   costs 150. Earth's lead in stone is the tunnel bonus (5 to 8 an outcrop after #349), and
   Fire's is now the kiln. Air and Water have neither, which is their trade for other strengths.
-- **Stock limit.** Brick now does everything stone does for Fire, so the kiln's `stock_limit`
-  (20, #350) becomes 0, meaning no limit. The pause key (#351) remains the player's control.
+- **Stock limit.** Brick now does everything stone does for Fire, so stretching stone alone
+  would let the kiln run forever. **Decided (owner, 2026-11-05): the kiln's `stock_limit`
+  (20, #350) stays, raised to about 60** rather than removed, so brick is worth stretching
+  stone with but not hoarding without end. The pause key (#351) remains the player's control.
 
 ### Tools: everyone's fitting-out good
 
@@ -347,20 +352,24 @@ Filed without `ready`. The ones that wait on an owner answer are labelled `needs
    If only Fire makes them, tools can only be costs for Fire's own buildings, and Earth's and
    Water's new buildings use nothing from #356. *Recommended: a shared Workshop.* Tools become
    the one refined good everyone needs, the forge stays Fire's faster route, and the input is
-   the wood glut, not scarce stone.
+   the wood glut, not scarce stone. **Decided (owner, 2026-11-05): a shared Workshop; every
+   nation can make tools.**
 2. **Should brick pay for stone everywhere, the gate and the stone sign included?**
    *Recommended: yes, one for one, except as a recipe input.* It is the kiln's purpose and
    Fire's answer to the stone wall, and it cuts Fire's gate stone by a quarter. The alternative
    is bricks only in Fire's own building costs, which is a smaller sink that leaves the kiln a
-   side job.
+   side job. **Decided (owner, 2026-11-05): yes, one for one, everywhere, never as a recipe
+   input.**
 3. **Should Earth have renewable minerals (the Mine Shaft's stone, the Deep Mine's ore)?**
    materials.md keeps stone and ore finite, so that finding them is the game. *Recommended:
    yes, slow and labour-bound:* stone at half a quarrier's rate from tier 120, and ore only at
    the capstone, when the ore sign is usually met. The alternative is the Mine Shaft alone, or
-   neither (Earth gets 1 or 2 new kinds, not 3).
+   neither (Earth gets 1 or 2 new kinds, not 3). **Decided (owner, 2026-11-05): yes, Earth gets
+   the slow, worked Mine Shaft and Deep Mine.**
 4. **Air: a new building, or make its idle three work first?** *Recommended: no new Air building
    now.* Air sits at 9, within one of the others, and #203 (the windmill grinds grain) is worth
-   more than a fifth kind that does something. Consider raising #203 from p3.
+   more than a fifth kind that does something. Consider raising #203 from p3. **Decided (owner,
+   2026-11-05): no new Air building; #203 raised to p2 instead.**
 5. **Earth's Deep Mine can never be paid for (#376, #398). Let Metalbend work ore in a
    stockpile, or drop metal from the Deep Mine's cost?** Metalbend only bends a loose stack, and
    by the time Earth knows it all ore is stockpiled. **Decided (owner, 2026-11-06): Metalbend may
