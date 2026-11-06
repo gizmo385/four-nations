@@ -504,11 +504,15 @@ mod tests {
     #[test]
     fn b_again_cycles_through_what_research_has_unlocked() {
         // Fire's Inner Fire needs Dancing Dragon; research it the slow way, with the settlers
-        // kept fed so the passive trickle has time to pay for it.
+        // kept fed so the passive trickle has time to pay for it. Forging, a prereq on the way
+        // (through Smelting), also unlocks Weld (#363), so it comes along for the ride.
         let mut s = Session::new(3, Nation::Fire, 48, 32);
         let dragon = s.defs.tech_id("dancing_dragon").unwrap();
-        let (hearth, inner) =
-            (s.defs.ability_id("hearthflame").unwrap(), s.defs.ability_id("inner_fire").unwrap());
+        let (hearth, inner, weld) = (
+            s.defs.ability_id("hearthflame").unwrap(),
+            s.defs.ability_id("inner_fire").unwrap(),
+            s.defs.ability_id("weld").unwrap(),
+        );
         assert_eq!(bend_ability(&s), Some(hearth));
         s.apply(Command::SetResearch { tech: dragon }).unwrap();
         for _ in 0..200_000 {
@@ -518,7 +522,7 @@ mod tests {
             s.tick();
         }
         assert!(s.world.research().is_known(dragon), "researched");
-        assert_eq!(usable_abilities(&s), [hearth, inner]);
+        assert_eq!(usable_abilities(&s), [hearth, inner, weld]);
         assert!(Tool::Bend.hint(&s).contains("B: next ability"));
 
         // Picking the tool leaves the choice; B again moves on, wrapping round.
@@ -531,6 +535,8 @@ mod tests {
         cycle_ability(&mut s, Tool::Bend, Tool::Harvest);
         cycle_ability(&mut s, Tool::Harvest, Tool::Bend);
         assert_eq!(bend_ability(&s), Some(inner));
+        cycle_ability(&mut s, Tool::Bend, Tool::Bend);
+        assert_eq!(bend_ability(&s), Some(weld));
         cycle_ability(&mut s, Tool::Bend, Tool::Bend);
         assert_eq!(bend_ability(&s), Some(hearth));
     }

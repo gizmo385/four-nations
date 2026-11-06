@@ -88,6 +88,14 @@
 //! `Stride`) multiplies it by `multiplier` on top of everything else. It ends with its timer, not
 //! with distance covered; casting it again resets the timer. Unlike Inner Fire it does nothing
 //! to anyone nearby, so there is no interaction with heat or sleep.
+//!
+//! **Weld** (Fire, from `forging`) and **Lift** (Air, from `windmills`, #363) both add
+//! `work_seconds` x the ability's own magnitude to an ordinary build site's banked work
+//! (`World::add_build_work`), capped at the building's total. Neither the Harmony Gate (its
+//! stages are `gate.rs`'s own) nor a site whose work is already banked in full is a valid
+//! target (`World::build_target`). Work banked before the site's materials arrive is kept: there
+//! is no special case for an unsupplied site, since `run_build`'s own completion check already
+//! finishes a fully-worked site the moment its materials are too.
 
 use rand::seq::SliceRandom;
 
@@ -776,6 +784,8 @@ impl World {
                     Ok(())
                 }
             }
+            // An ordinary build site, not the gate, whose work isn't already done (#363).
+            Effect::Build { .. } => self.build_target(pos, defs),
             #[cfg(test)]
             Effect::Probe => {
                 if self.map[pos].terrain.is_walkable() {
@@ -934,6 +944,14 @@ impl World {
                 self.place_ground(pos, Stack { item: *metal, count: batches });
                 None
             }
+            // The magnitude scales how much work lands: banked straight onto the site's own
+            // progress, capped at the building's total (#363). Work banked before the
+            // materials arrive is kept; `run_build`'s own check finishes the building once both
+            // are done, so there is nothing more to do here even for an unsupplied site.
+            Effect::Build { work_seconds } => {
+                self.add_build_work(pos, work_seconds * magnitude, defs);
+                None
+            }
             #[cfg(test)]
             Effect::Probe => None,
         }
@@ -1032,6 +1050,8 @@ impl World {
 
 #[cfg(test)]
 mod air_tests;
+#[cfg(test)]
+mod build_tests;
 #[cfg(test)]
 mod earth_tests;
 #[cfg(test)]

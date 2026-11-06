@@ -180,6 +180,37 @@ impl World {
         self.map.get(pos)?.building.map(|b| b.id)
     }
 
+    /// Whether `pos` is an ordinary, unfinished build site: a valid target for Weld and Lift
+    /// (#363, `Effect::Build`). `Err` names why not: a finished building, the endeavor's gate
+    /// (its stages are `gate.rs`'s own), no site at all, or one whose work is already banked in
+    /// full (waiting only on materials).
+    pub(super) fn build_target(&self, pos: Pos, defs: &Defs) -> Result<(), &'static str> {
+        if self.building_at(pos).is_some() {
+            return Err("already built");
+        }
+        match self.site_at(pos) {
+            None => Err("needs a build site"),
+            Some((anchor, _)) if self.is_gate(anchor) => Err("the gate's stages aren't bent"),
+            Some((_, s)) if s.progress >= defs.building(s.building).work => {
+                Err("the site's work is already done")
+            }
+            Some(_) => Ok(()),
+        }
+    }
+
+    /// Adds `seconds` of work to the build site covering `pos`, capped at the building's own
+    /// total (`BuildingDef::work`): Weld and Lift (#363). A no-op if the site is gone (the bend's
+    /// target vanished between designation and completion; `validate_bend` catches that before
+    /// this runs in practice). Banked work survives until the site's materials are fully
+    /// delivered too; `run_build`'s own completion check finishes the building the moment both
+    /// are true, with no special case here.
+    pub(super) fn add_build_work(&mut self, pos: Pos, seconds: f32, defs: &Defs) {
+        let Some((anchor, site)) = self.site_at(pos) else { return };
+        let work = defs.building(site.building).work;
+        let Some(site) = self.sites.get_mut(&anchor) else { return };
+        site.progress = (site.progress + seconds).min(work);
+    }
+
     /// The footprint of the finished building or the build site covering `pos`, if any.
     pub fn footprint_at(&self, pos: Pos) -> Option<Footprint> {
         match self.map.get(pos)?.building {

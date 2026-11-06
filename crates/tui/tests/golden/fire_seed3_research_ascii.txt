@@ -14,7 +14,7 @@
 |                                                                                      || Press Enter to select        |
 |  o Stoneworking       * Forging           >* Smelting                                ||                              |
 |   Available   25 pts   Queued      60 pts   Queued     120 pts                       ||                              |
-|   Stone Outcrop, Bo~   Forge                Heating x1.2, Sme~                       ||                              |
+|   Stone Outcrop, Bo~   Forge, Weld          Heating x1.2, Sme~                       ||                              |
 |                                                                                      ||                              |
 |  o Farming                                                                           ||                              |
 |   Available   60 pts                                                                 ||                              |

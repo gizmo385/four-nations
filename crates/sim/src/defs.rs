@@ -549,6 +549,8 @@ mod tests {
             "air_scooter",
             "earth_tent",
             "air_shield",
+            "weld",
+            "lift",
         ] {
             let ability = format!("abilities = [\"{id}\"]\n");
             assert!(src.contains(&ability), "{id}'s unlock moved; update this helper");
