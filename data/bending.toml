@@ -255,3 +255,38 @@ radius = 3
 sleep_bonus = 1.0
 seek_tiles = 0
 cooks = false
+
+# --- #363 (Fire: Weld, Air: Lift) -----------------------------------------------------------
+
+# Fire, from `forging` (docs/design/bending.md, "More abilities and the route to mastery"): Fire
+# has nothing but Hearthflame to bend before Dancing Dragon, so a bender speeds a build site up
+# instead -- a kiln, a smelter, anything #357 adds later. Banked work survives until the site's
+# own materials arrive.
+[[ability]]
+id = "weld"
+nation = "fire"
+name = "Weld"
+verb = "Weld"
+description = "Lend a building site extra work. Banked work waits for the materials to arrive."
+chi = 30.0
+work = 6.0
+magnitude_modifier = "heating"   # scales work_seconds
+[ability.effect]
+kind = "build"
+work_seconds = 30.0
+
+# Air, from `windmills` (docs/design/bending.md, "More abilities and the route to mastery"): the
+# same lever as Weld, caught on the wind instead of the forge -- Air's weak backs build with the
+# wind the way Wind Carry hauls with it.
+[[ability]]
+id = "lift"
+nation = "air"
+name = "Lift"
+verb = "Lift"
+description = "Call the wind to speed a building site. Banked work waits for the materials."
+chi = 25.0
+work = 4.0
+magnitude_modifier = "power_generation"   # scales work_seconds
+[ability.effect]
+kind = "build"
+work_seconds = 30.0

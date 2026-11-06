@@ -230,8 +230,11 @@ prereqs = ["fire_making"]
 # smithing isn't one. It's gated behind this tech structurally instead: the forge is, and the
 # forge is where the job lives (`world/forge.rs` opens its craft job the moment one is built, the
 # way a study hall's seats open).
+# Ability: Weld (#363, docs/design/bending.md, "More abilities and the route to mastery"): Fire's
+# early second form, something to bend before Dancing Dragon besides Hearthflame.
 [tech.unlocks]
 buildings = ["forge"]
+abilities = ["weld"]
 
 [[tech]]
 id = "brickmaking"
@@ -408,8 +411,11 @@ nation = "air"
 cost = 120
 prereqs = ["gliders", "farming"]
 # Later: the windmill grinding grain into more food (issue #142).
+# Ability: Lift (#363, docs/design/bending.md, "More abilities and the route to mastery"): Air's
+# building and access role, the same lever as Fire's Weld.
 [tech.unlocks]
 buildings = ["windmill"]
+abilities = ["lift"]
 modifiers = { power_generation = 1.2 }
 
 [[tech]]

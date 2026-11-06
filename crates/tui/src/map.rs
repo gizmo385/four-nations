@@ -90,6 +90,8 @@ const HIGHLIGHTS: &[(&str, Shape)] = &[
     ("air_scooter", Shape::Target),
     ("earth_tent", Shape::Target),
     ("air_shield", Shape::Target),
+    ("weld", Shape::Target),
+    ("lift", Shape::Target),
 ];
 
 /// The highlight shape of ability `id`, if it has one.

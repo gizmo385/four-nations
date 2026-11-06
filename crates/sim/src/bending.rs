@@ -118,6 +118,13 @@ pub enum Effect {
     /// `ratio` is how many `ore` one unit of `metal` costs. The whole stack converts in one bend;
     /// any remainder that doesn't divide evenly by `ratio` stays behind as ore.
     Smelt { ore: ItemId, metal: ItemId, ratio: u32 },
+    /// Adds work to an ordinary build site (Fire's "Weld" and Air's "Lift", #363): not the
+    /// endeavor's gate, which `gate.rs` owns, and not one whose work is already done. The
+    /// magnitude scales `work_seconds`, banked straight onto the site's own progress, capped at
+    /// the building's `work`. Work banked before the site's materials arrive is kept: the site
+    /// finishes as soon as both are complete, through `run_build`'s own check, with no special
+    /// case here for an unsupplied site.
+    Build { work_seconds: f32 },
     /// Only tests can define one: a valid target is walkable ground, and completing does nothing
     /// but spend the chi.
     #[cfg(test)]
@@ -193,6 +200,9 @@ enum RawEffect {
         ore: String,
         metal: String,
         ratio: u32,
+    },
+    Build {
+        work_seconds: f32,
     },
     #[cfg(test)]
     Probe,
@@ -452,6 +462,12 @@ fn resolve_effect(
                 return err(&format!("unknown metal item {metal:?}"));
             };
             Effect::Smelt { ore: ItemId(ore_idx as u16), metal: ItemId(metal_idx as u16), ratio }
+        }
+        RawEffect::Build { work_seconds } => {
+            if !positive(work_seconds) {
+                return err("build work_seconds must be positive");
+            }
+            Effect::Build { work_seconds }
         }
         #[cfg(test)]
         RawEffect::Probe => Effect::Probe,
