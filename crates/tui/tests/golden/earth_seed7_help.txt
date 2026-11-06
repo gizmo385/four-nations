@@ -6,7 +6,7 @@
 │ UNITS                                                                                ││ Research: none set       [T] │
 │ Enter                  Select the unit under the cursor; again: the next one there.  ││ Gate 0/9 · 10 people     [G] │
 │                        In a tool: set a corner, then apply                           │├─ HERE ──────────── (94, 64) ─┤
-│ Esc                    Close the screen, a modal or the bar. In a tool: drop the     ││ Tyro                         │
+│ Esc                    Close the screen, a modal or the bar. In a tool: drop the     ││ Bai                          │
 │                        corner, then leave the tool. With nothing to close: the game  ││ Idle                         │
 │                        menu (Resume, Save as…, Quicksave, Load…, Quickload, Key      ││ Press Enter to select        │
 │                        help, Quit, #306, #312) — every save and load action, for a   ││                              │

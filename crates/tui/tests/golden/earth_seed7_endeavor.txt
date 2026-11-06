@@ -6,7 +6,7 @@
 │ Stage: not begun                                                                     ││ Research: none set       [T] │
 │                                                                                      ││ Gate 0/9 · 10 people     [G] │
 │ PEOPLE                                                                               │├─ HERE ──────────── (94, 64) ─┤
-│   Population                     ████░░░░░░      6/16                                ││ Tyro                         │
+│   Population                     ████░░░░░░      6/16                                ││ Bai                          │
 │   Spare beds and food draw newcomers                                                 ││ Idle                         │
 │   Everyone has a bed             ░░░░░░░░░░       0/6                                ││ Press Enter to select        │
 │   Build beds                                                                         ││                              │
@@ -29,7 +29,7 @@
 │                                                                                      ││                              │
 │ BENDING                                                                              ││                              │
 │   Bending masters (8 bends each) ░░░░░░░░░░       0/3                                ││                              │
-│   Closest: Tyro 0/8, Ping 0/8, Ming 0/8                                              ││                              │
+│   Closest: Bai 0/8, Ping 0/8, Fen 0/8                                                ││                              │
 │   Designate a bend (B) on a tile a bender can work - credit to whoever channels it   ││                              │
 │   Ancient scrolls read           ░░░░░░░░░░       0/3                                ││                              │
 │   Bring scrolls to a study hall                                                      ││                              │

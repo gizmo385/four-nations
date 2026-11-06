@@ -6,7 +6,7 @@
 ""~♠,,¥,,,●,●,♣,♣...≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈.♣,,.≈≈.≈≈.│ Research: none set       [T] │
 "~""┏────────────── ◆ MENU ◆ ──────────────┓≈≈≈.│ Gate 0/9 · 10 people     [G] │
 ~"",│ ▸ Resume                             │....├─ HERE ──────────── (94, 64) ─┤
-~",,│   Save as…                           │.≈.♣│ Tyro                         │
+~",,│   Save as…                           │.≈.♣│ Bai                          │
 τ",♣│   Quicksave                       F5 │...♣│ Idle                         │
 "♠,♣│   Load…                           F6 │,♣,♣│ Press Enter to select        │
 ""♣,│   Quickload                       F9 │,♣♣♣│                              │

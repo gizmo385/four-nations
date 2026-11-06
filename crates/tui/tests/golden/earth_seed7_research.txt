@@ -6,7 +6,7 @@
 │                                                                                      ││ Shelter ░░░░░░░░░░   0%      │
 │  ◆ Shelter            ◆ Carpentry          · Writing            · Earthen Walls      ││ Gate 0/9 · 10 people     [G] │
 │   Queued      25 pts   Queued      60 pts   Locked     120 pts   Locked     120 pts  │├─ HERE ──────────── (94, 64) ─┤
-│   Prerequisite for …   Construction x1.1…   Needs: Pottery       Needs: Earth Shap…  ││ Tyro                         │
+│   Prerequisite for …   Construction x1.1…   Needs: Pottery       Needs: Earth Shap…  ││ Bai                          │
 │                                                                                      ││ Idle                         │
 │  ◇ Fishing            · Herbalism          · Tunneling          · Seismic Sense      ││ Press Enter to select        │
 │   Available   25 pts   Locked     120 pts   Locked     120 pts   Locked     250 pts  ││                              │

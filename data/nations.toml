@@ -16,7 +16,14 @@ name = "Air Nomads"
 element = "air"
 color = [236, 196, 92]
 description = "Nomadic monks. Fast and light; can power turbines and mills with airbending."
-names = ["Gyatso", "Tashi", "Pasang", "Kunchen", "Jinpa", "Dorje", "Lhamo", "Sonam", "Yangchen", "Kelsang", "Pema", "Iio"]
+names = [
+  "Gyatso", "Tashi", "Pasang", "Kunchen", "Jinpa", "Dorje", "Lhamo", "Sonam", "Yangchen",
+  "Kelsang", "Pema", "Iio", "Choden", "Dawa", "Dechen", "Dolma", "Gyalpo", "Jampa", "Karma",
+  "Kunga", "Lobsang", "Losel", "Migmar", "Namgyal", "Ngawang", "Norbu", "Nyima", "Palden",
+  "Phuntsok", "Rinchen", "Samten", "Sherab", "Thinley", "Tsering", "Tsewang", "Urgyen", "Wangmo",
+  "Yeshe", "Zangmo", "Chime", "Dhondup", "Gelek", "Jigme", "Lhakpa", "Metok", "Pemba", "Sangye",
+  "Tsomo"
+]
 characters = ["air_monk", "air_elder", "air_acolyte"]
 starting_techs = ["orchards"]
 [nation.modifiers]
@@ -36,7 +43,13 @@ name = "Water Tribes"
 element = "water"
 color = [70, 130, 210]
 description = "Polar fishers and healers. Irrigate fields, heal the injured, travel by water."
-names = ["Kanna", "Pakku", "Hakoda", "Bato", "Yugoda", "Tho", "Kustaa", "Atuat", "Siku", "Nuka", "Malina", "Amaruq"]
+names = [
+  "Kanna", "Pakku", "Hakoda", "Bato", "Yugoda", "Tho", "Kustaa", "Atuat", "Siku", "Nuka", "Malina",
+  "Amaruq", "Aklak", "Anuk", "Apik", "Arnaq", "Aput", "Iluq", "Inuk", "Kallik", "Kanik", "Kiluk",
+  "Kimi", "Miki", "Naja", "Nanuq", "Nivi", "Oki", "Pana", "Qannik", "Saqiq", "Sila", "Taqqiq",
+  "Tulok", "Tupaq", "Uki", "Ujarak", "Aqqaluk", "Ivalu", "Kunik", "Luki", "Miqqia", "Natsiq",
+  "Pukiq", "Qilak", "Amka", "Tikaani", "Unaaq"
+]
 characters = ["water_hunter", "water_healer", "water_warrior"]
 starting_techs = ["fishing"]
 [nation.modifiers]
@@ -56,7 +69,12 @@ name = "Earth Kingdom"
 element = "earth"
 color = [90, 160, 80]
 description = "Stubborn builders. Earthworks, quarrying and walls are dramatically cheaper."
-names = ["Haru", "Tyro", "Oma", "Shu", "Ping", "Song", "Jin", "Kuei", "Ming", "Tao", "Lin", "Jang"]
+names = [
+  "Haru", "Tyro", "Oma", "Shu", "Ping", "Song", "Jin", "Kuei", "Ming", "Tao", "Lin", "Jang", "Bao",
+  "Chen", "Dai", "Fen", "Gang", "Hua", "Hao", "Kang", "Lei", "Mei", "Nuo", "Pei", "Qing", "Rong",
+  "Shan", "Tian", "Wei", "Xia", "Yan", "Zhen", "An", "Bai", "Cui", "Fang", "Guo", "Hong", "Jia",
+  "Kai", "Lan", "Bo", "Ning", "Qiu", "Ruo", "Yun", "Ting", "Wen"
+]
 characters = ["earth_farmer", "earth_guard", "earth_villager"]
 starting_techs = ["stoneworking"]
 [nation.modifiers]
@@ -76,7 +94,13 @@ name = "Fire Nation"
 element = "fire"
 color = [205, 70, 50]
 description = "Industrious and aggressive. Smelting, forging and heating need little fuel."
-names = ["Lu Ten", "Ilah", "Kuzon", "Shyu", "Ran", "Shaw", "Ursa", "Noriko", "Ikem", "Kiyi", "Jee", "Ming-Hua"]
+names = [
+  "Lu Ten", "Ilah", "Kuzon", "Shyu", "Ran", "Shaw", "Ursa", "Noriko", "Ikem", "Kiyi", "Jee",
+  "Ming-Hua", "Akio", "Daiki", "Emi", "Fumio", "Haruto", "Isamu", "Junko", "Kaito", "Kenji",
+  "Michi", "Nao", "Osamu", "Mitsu", "Kazu", "Saki", "Sora", "Taro", "Toshi", "Yori", "Yuki", "Chiyo",
+  "Goro", "Hana", "Hideo", "Kaori", "Kiyoshi", "Masa", "Natsu", "Riku", "Satsuki", "Shin", "Takeo",
+  "Tomo", "Yasu", "Aiko", "Eiji"
+]
 characters = ["fire_soldier", "fire_noble", "fire_smith"]
 starting_techs = ["fire_making"]
 [nation.modifiers]

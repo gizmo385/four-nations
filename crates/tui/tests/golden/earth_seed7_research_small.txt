@@ -6,7 +6,7 @@
 │                                              ││ Shelter ░░░░░░░░░░   0%      │
 │  · Earthen Walls      ▸· Metalbending        ││ Gate 0/9 · 10 people     [G] │
 │   Locked      120 pts   Locked      500 pts  │├─ HERE ──────────── (94, 64) ─┤
-│   Needs: Earth Shapi…   Needs: Seismic Sen…  ││ Tyro                         │
+│   Needs: Earth Shapi…   Needs: Seismic Sen…  ││ Bai                          │
 │                                              ││ Idle                         │
 │  · Seismic Sense                             ││ Press Enter to select        │
 │   Locked      250 pts                        ││                              │

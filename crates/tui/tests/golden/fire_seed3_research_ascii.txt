@@ -6,7 +6,7 @@
 |                                                                                      || Forging ..........   0%      |
 |  o Shelter            - Carpentry          - Writing            - Dancing Dragon     || Gate 0/9 - 10 people     [G] |
 |   Available   25 pts   Locked      60 pts   Locked     120 pts   Locked     250 pts  |+- HERE ------------ (97, 63) -+
-|   Prerequisite for ~   Needs: Shelter       Needs: Pottery       Needs: Smelting     || Jee                          |
+|   Prerequisite for ~   Needs: Shelter       Needs: Pottery       Needs: Smelting     || Fumio                        |
 |                                                                                      || Idle                         |
 |  o Fishing            - Herbalism          - Brickmaking        - Steam Engines      || Press Enter to select        |
 |   Available   25 pts   Locked     120 pts   Locked     120 pts   Locked     250 pts  ||                              |
