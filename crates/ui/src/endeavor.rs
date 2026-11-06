@@ -10,6 +10,7 @@ use fn_sim::world::{
 use fn_sim::{Defs, World};
 
 use crate::session::Session;
+use crate::tools::Tool;
 
 /// What the screen and the side panel say once the endeavor is Ready (the toast says it too).
 pub const READY_TEXT: &str = "Word of your settlement has reached the Avatar.";
@@ -179,16 +180,30 @@ fn masters_text(masters: &[String], closest: &[(String, u32, u32)]) -> Option<St
 }
 
 /// The hint for an unmet sign: the branch names the techs left once only one or two are, the
-/// buildings sign names the missing kinds the same way ("Not yet raised: Earth Wall, Rail"),
-/// and every other sign uses its data hint.
+/// buildings sign names the missing kinds the same way ("Not yet raised: Earth Wall, Rail"), the
+/// masters sign says how to start a bend (#382: the data's own hint, "Each finished bend counts
+/// for whoever channels it", explained credit but never how to begin one, which playtest agents
+/// read as bending being a rare, passive event), and every other sign uses its data hint.
 fn hint(sign: &SignDef, world: &World, defs: &Defs) -> Option<String> {
     match &sign.kind {
         SignKind::BranchComplete => branch_hint(&missing_techs(world, defs), sign.hint.as_deref()),
         SignKind::EveryBuilding { .. } => {
             building_hint(&missing_building_names(world, defs), sign.hint.as_deref())
         }
+        SignKind::Masters { .. } => Some(masters_hint()),
         _ => sign.hint.clone(),
     }
+}
+
+/// How to start a bend, naming the Bend tool's real key (`Tool::Bend::key`, the same source the
+/// key help reads, so this can't drift from it, and never names an F-key, which WSL terminals
+/// never deliver): "Designate a bend (B) on a tile a bender can work - credit to whoever
+/// channels it" (#382).
+fn masters_hint() -> String {
+    format!(
+        "Designate a bend ({}) on a tile a bender can work - credit to whoever channels it",
+        Tool::Bend.key()
+    )
 }
 
 /// The branch sign's hint, given the techs `left`: their names when there are one or two, else
@@ -248,11 +263,17 @@ pub fn missing(sign: &SignDef, p: &SignProgress, world: &World, defs: &Defs) -> 
             format!("{n} {}", items(list))
         }
         SignKind::Tally(Tally::ScrollsRead) => count(n, "more scroll read", "more scrolls read"),
+        // Also says how to start a bend (#382, `masters_hint`), so the side panel's own "Next:"
+        // line still says it once every earlier sign is met and this is the one left; the
+        // Endeavor screen's hint row carries the fuller wording.
         SignKind::Masters { .. } => {
             let label = count(n, "more master", "more masters");
+            let key = Tool::Bend.key();
             match closest_non_masters(world, defs).first() {
-                Some((name, bends, threshold)) => format!("{label} ({name} {bends}/{threshold})"),
-                None => label,
+                Some((name, bends, threshold)) => {
+                    format!("{label} ({name} {bends}/{threshold}) - bend ({key})")
+                }
+                None => format!("{label} - bend ({key})"),
             }
         }
     }
@@ -512,9 +533,11 @@ mod tests {
         assert_eq!(text("stone"), "200 stone");
         assert_eq!(text("ore"), "40 gold ore");
         // A fresh game: nobody has bent yet, so the closest is whoever is first, at 0/25
-        // (`EndeavorDef::master_threshold` reads the bundled sign).
+        // (`EndeavorDef::master_threshold` reads the bundled sign). The suffix names the real
+        // Bend tool key (#382), so a player reading only the side panel still learns how to
+        // start.
         let closest = &w.units[0].name;
-        assert_eq!(text("masters"), format!("3 more masters ({closest} 0/25)"));
+        assert_eq!(text("masters"), format!("3 more masters ({closest} 0/25) - bend (B)"));
         assert_eq!(text("scrolls"), "3 more scrolls read");
     }
 
@@ -606,5 +629,24 @@ mod tests {
         for other in v.groups.iter().flat_map(|g| &g.signs).filter(|r| r.id != "masters") {
             assert_eq!(other.closest, None);
         }
+    }
+
+    /// The masters sign's own hint says how to start a bend, naming the Bend tool's real key,
+    /// instead of only explaining credit (#382: playtest agents read the old hint, "Each
+    /// finished bend counts for whoever channels it", as bending being a rare, passive event).
+    #[test]
+    fn the_masters_sign_s_hint_says_how_to_start_a_bend() {
+        let s = session(Nation::Fire);
+        let v = screen_view(&s);
+        let row = v.groups.iter().flat_map(|g| &g.signs).find(|r| r.id == "masters").unwrap();
+        let hint = row.hint.as_deref().unwrap();
+        // Names the Bend tool's real key (`Tool::key`, the key help's own source), never an
+        // F-key: WSL terminals never deliver one.
+        let expected = format!(
+            "Designate a bend ({}) on a tile a bender can work - credit to whoever channels it",
+            Tool::Bend.key()
+        );
+        assert_eq!(hint, expected);
+        assert_eq!(Tool::Bend.key(), "B");
     }
 }

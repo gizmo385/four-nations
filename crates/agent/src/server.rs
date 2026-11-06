@@ -291,4 +291,24 @@ mod tests {
                 .any(|r| r["what"].as_str().unwrap().starts_with("Move the cursor"))
         );
     }
+
+    /// The key help in `briefing` names the Bend tool and what it's for, so a sandboxed racer
+    /// with no access to `docs/` or `data/` can still learn, from in-game knowledge alone, that
+    /// bends are something it designates rather than something that just happens (#382, #313).
+    #[test]
+    fn briefings_key_help_names_the_bend_tool_and_what_its_for() {
+        let mut t = tools();
+        let result = t.call("briefing", json!({})).unwrap();
+        let bend = result["help"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["what"].as_str().unwrap().starts_with("Bend tool"))
+            .expect("the key help lists the Bend tool");
+        assert_eq!(bend["keys"], "B");
+        assert!(
+            bend["what"].as_str().unwrap().contains("ability"),
+            "says what the tool is for: {bend}"
+        );
+    }
 }

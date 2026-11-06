@@ -1,6 +1,6 @@
 //! The alert log: bend results (#72), tech completions (#23), deaths, the end-game endeavor's
-//! events (#235), newcomers joining the settlement (#232) and a stockpile that can't take any
-//! more of something (#337) as one stream of lines.
+//! events (#235), newcomers joining the settlement (#232), a stockpile that can't take any more
+//! of something (#337) and a one-time nudge to try bending (#382) as one stream of lines.
 //!
 //! Every line is kept in a bounded history (the terminal UI's message log). The newest ones also
 //! show as short-lived *toasts* in the side panel's Alerts section (ui.md: "a section with
@@ -12,10 +12,13 @@ use std::collections::BTreeSet;
 use fn_sim::Defs;
 use fn_sim::jobs::ItemId;
 use fn_sim::needs::DeathCause;
-use fn_sim::world::{Arrival, BendEvent, BendOutcome, SeasonEvent, SeasonEventKind, StrainEvent};
+use fn_sim::world::{
+    Arrival, BendEvent, BendOutcome, SeasonEvent, SeasonEventKind, StrainEvent, TICKS_PER_SECOND,
+};
 
 use crate::endeavor;
 use crate::session::Session;
+use crate::tools::{Tool, usable_abilities};
 use crate::view::{food_in_stores, stuck_items};
 
 /// How many lines of history to keep; the oldest drop first.
@@ -46,6 +49,11 @@ pub enum Kind {
     /// world logged, so [`Alerts::push_agent`] adds it directly instead of coming from
     /// [`Alerts::update`]'s own counts.
     Agent,
+    /// The one-time nudge to designate a bend (#382): fires once, when the settlement has gone
+    /// [`BEND_TIP_AFTER_TICKS`] with chi to spare and nobody has ever designated one. A gentle
+    /// onboarding hint, not something wrong, so it never repeats and never stops `end_turn`
+    /// (`Entry::worth_stopping`).
+    BendTip,
 }
 
 impl Kind {
@@ -62,6 +70,7 @@ impl Kind {
             // The agent strip (#319) already names the current action; the log (`L`) is where
             // this is meant to be read back, not a toast on top of the map.
             Self::Agent => 0.0,
+            Self::BendTip => 10.0,
         }
     }
 
@@ -76,6 +85,9 @@ impl Kind {
             Self::Season => 3,
             Self::Stockpile => 3,
             Self::Agent => 0,
+            // Fires at most once a game, ever (`Alerts::update`), so there's never more than one
+            // to show at a time.
+            Self::BendTip => 1,
         }
     }
 }
@@ -97,19 +109,23 @@ pub struct Entry {
 
 impl Entry {
     /// Worth an agent stopping `Host::end_turn` (crates/tui/src/surface.rs) for: every kind but
-    /// `Bend` and `Agent`, since those two are either routine (a settlement that bends a lot
-    /// finishes one most turns, #377) or, for `Agent`, never produced by [`Alerts::update`] in
-    /// the first place (only [`Alerts::push_agent`], for `--watch` replay). A `Bend` that
-    /// *failed* is the one exception: still worth stopping for. `Stockpile` always stops too
-    /// (#337): a filled stockpile left a 2026-11-05 playtest concluding wood was unobtainable,
-    /// so this is worth an agent's attention every time it fires (once per item going stuck,
-    /// `Alerts::update`, not every tick it stays that way).
+    /// `Bend`, `Agent` and `BendTip`, since those are either routine (a settlement that bends a
+    /// lot finishes one most turns, #377), for `Agent`, never produced by [`Alerts::update`] in
+    /// the first place (only [`Alerts::push_agent`], for `--watch` replay), or, for `BendTip`,
+    /// a gentle onboarding nudge rather than something gone wrong: it fires at most once a game
+    /// (#382) and a racer or player who misses it loses nothing it can't recover from later, so
+    /// stopping every `end_turn` call made before it's finally noticed would cost far more than
+    /// it saves. A `Bend` that *failed* is the one exception: still worth stopping for.
+    /// `Stockpile` always stops too (#337): a filled stockpile left a 2026-11-05 playtest
+    /// concluding wood was unobtainable, so this is worth an agent's attention every time it
+    /// fires (once per item going stuck, `Alerts::update`, not every tick it stays that way).
     pub fn worth_stopping(&self) -> bool {
         match self.kind {
             Kind::Death | Kind::Arrival | Kind::Endeavor | Kind::Tech | Kind::Season => true,
             Kind::Stockpile => true,
             Kind::Bend => self.failed,
             Kind::Agent => false,
+            Kind::BendTip => false,
         }
     }
 }
@@ -130,6 +146,9 @@ pub struct Alerts {
     /// happens once), so a fresh line is pushed only on the ones newly in this set, not every
     /// call while it stays stuck.
     full_items: BTreeSet<ItemId>,
+    /// Whether the one-time bend tip (#382) has already fired, or is moot because a bend has
+    /// already been designated: either way, [`Alerts::update`] never checks for it again.
+    bend_tip_shown: bool,
 }
 
 impl Alerts {
@@ -222,6 +241,19 @@ impl Alerts {
             }
         }
         self.full_items = stuck.into_iter().map(|(item, _)| item).collect();
+        // The one-time bend tip (#382): also not one of `World`'s own monotonic logs, so this
+        // checks live state instead of a count. Moot once a bend has ever been designated
+        // (`events` -- finished or failed -- or a job still pending), whether or not it ever
+        // fires; either way `bend_tip_shown` stops the check for the rest of the game.
+        if !self.bend_tip_shown {
+            let ever_designated = !events.is_empty() || world.bend_designations().next().is_some();
+            if ever_designated {
+                self.bend_tip_shown = true;
+            } else if world.tick >= BEND_TIP_AFTER_TICKS && chi_to_spare(session) {
+                fresh.push((world.tick, Kind::BendTip, bend_tip_text(), false));
+                self.bend_tip_shown = true;
+            }
+        }
         self.seen = counts;
         fresh.sort_by_key(|(tick, ..)| *tick);
         self.log.extend(fresh.into_iter().map(|(tick, kind, text, failed)| Entry {
@@ -275,6 +307,7 @@ impl Alerts {
             Kind::Season,
             Kind::Stockpile,
             Kind::Agent,
+            Kind::BendTip,
         ] {
             let of_kind: Vec<usize> = (0..self.log.len())
                 .filter(|&i| self.log[i].kind == kind && live(&&self.log[i]))
@@ -361,6 +394,39 @@ fn describe_strain_event(defs: &fn_sim::Defs, ev: &StrainEvent) -> String {
 fn describe_stockpile_full(defs: &Defs, item: ItemId, count: u32) -> String {
     let name = defs.item(item).name.to_lowercase();
     format!("{count} {name} can't be stored: every stockpile is full.")
+}
+
+/// How long the settlement may go with chi to spare and no bend ever designated before the
+/// one-time tip fires (#382): 10 in-game minutes, long enough to clear the opening minutes
+/// (founding, assigning idle settlers) but short enough to catch a player before they've sunk
+/// real time not knowing a bend is something to designate -- the gap a 2026-11-05 playtest
+/// surfaced lasted hundreds of turns, since every unit starts at full chi (`World::new`) and so
+/// would otherwise trip this on turn one.
+const BEND_TIP_AFTER_TICKS: u64 = 10 * 60 * TICKS_PER_SECOND as u64;
+
+/// Whether anyone in the settlement, other than the Avatar (a guest, never the player's to
+/// bend), has chi enough right now to channel at least one ability the settlement can already
+/// use (`crate::tools::usable_abilities`): "chi to spare" tied to what a bend actually costs,
+/// not an arbitrary fraction of the meter. `false` with nothing usable at all, which shouldn't
+/// happen for a settlement's own nation (every nation's data defines a signature ability) but
+/// costs nothing to guard.
+fn chi_to_spare(session: &Session) -> bool {
+    let min_cost = usable_abilities(session)
+        .iter()
+        .map(|&id| session.defs.ability(id).chi)
+        .fold(f32::INFINITY, f32::min);
+    min_cost.is_finite() && session.world.units.iter().any(|u| !u.is_avatar() && u.chi >= min_cost)
+}
+
+/// The one-time bend tip's own line (#382), naming the Bend tool's real key
+/// (`Tool::Bend::key`, the key help's own source, so this can't drift from it and never names
+/// an F-key, which WSL terminals never deliver): "Chi to spare, no bend designated yet - press B
+/// on a tile a bender can work."
+fn bend_tip_text() -> String {
+    format!(
+        "Chi to spare, no bend designated yet - press {} on a tile a bender can work.",
+        Tool::Bend.key()
+    )
 }
 
 #[cfg(test)]
@@ -504,7 +570,7 @@ mod tests {
     /// arrival, a season event -- is worth stopping `end_turn` for; only `Agent` (never produced
     /// here, only by [`Alerts::push_agent`] for `--watch` replay) isn't.
     #[test]
-    fn every_kind_but_a_finished_bend_and_agent_is_worth_stopping() {
+    fn every_kind_but_a_finished_bend_agent_and_the_bend_tip_is_worth_stopping() {
         let worth_stopping = |kind: Kind, failed: bool| {
             Entry { tick: 0, kind, text: String::new(), left: 0.0, failed }.worth_stopping()
         };
@@ -516,6 +582,10 @@ mod tests {
         assert!(worth_stopping(Kind::Bend, true), "a failed bend");
         assert!(!worth_stopping(Kind::Bend, false), "a finished bend is routine");
         assert!(!worth_stopping(Kind::Agent, false));
+        // Gentle, not urgent (#382): an agent that misses it loses nothing it can't recover
+        // from by noticing the hint later, so it shouldn't cost every `end_turn` call made
+        // before that.
+        assert!(!worth_stopping(Kind::BendTip, false));
     }
 
     #[test]
@@ -725,5 +795,73 @@ mod tests {
             alerts.update(&s, 0.0);
         }
         assert_eq!(alerts.history().len(), 1);
+    }
+
+    /// Every unit starts at full chi (`World::new`), so there's always "chi to spare" from
+    /// turn one; only the elapsed time gates the bend tip (#382).
+    #[test]
+    fn chi_to_spare_is_true_from_the_start() {
+        let s = Session::new(7, Nation::Earth, 48, 32);
+        assert!(chi_to_spare(&s));
+    }
+
+    /// The bend tip fires once, naming the real Bend key, after chi has gone spare for
+    /// `BEND_TIP_AFTER_TICKS` with no bend ever designated (#382: the playtest evidence that
+    /// a settlement can run for hundreds of turns with nobody ever trying). It never repeats,
+    /// and it never stops `end_turn`.
+    #[test]
+    fn the_bend_tip_fires_once_after_a_while_with_nothing_designated() {
+        let mut s = Session::new(7, Nation::Earth, 48, 32);
+        let mut alerts = Alerts::default();
+        alerts.update(&s, 0.0);
+        assert!(alerts.history().is_empty(), "too soon: {:?}", alerts.history());
+
+        s.world.tick = BEND_TIP_AFTER_TICKS;
+        alerts.update(&s, 0.0);
+        assert_eq!(alerts.history().len(), 1, "{:?}", alerts.history());
+        let entry = &alerts.history()[0];
+        assert_eq!(entry.kind, Kind::BendTip);
+        assert_eq!(entry.text, bend_tip_text());
+        assert!(entry.text.contains(&format!("press {}", Tool::Bend.key())), "{}", entry.text);
+        assert!(!entry.worth_stopping(), "a gentle nudge, not something gone wrong");
+
+        // Doesn't repeat, however much more time passes.
+        s.world.tick += BEND_TIP_AFTER_TICKS;
+        alerts.update(&s, 0.0);
+        assert_eq!(alerts.history().len(), 1);
+    }
+
+    /// Once a bend is designated, however briefly, the tip never fires at all: the player has
+    /// already found the Bend tool, even if that one designation is cancelled before it
+    /// finishes. Fire's Hearthflame needs only an empty Land or Coast tile, the easiest target
+    /// to find on any map.
+    #[test]
+    fn the_bend_tip_never_fires_once_a_bend_is_designated() {
+        let mut s = Session::new(7, Nation::Fire, 48, 32);
+        let ability = ability_for_nation(&s.defs, Nation::Fire).unwrap();
+        let pos = (0..32)
+            .flat_map(|y| (0..48).map(move |x| Pos::new(x, y)))
+            .find(|&p| {
+                let t = &s.world.map[p];
+                matches!(t.terrain, Terrain::Land | Terrain::Coast)
+                    && t.resource.is_none()
+                    && t.building.is_none()
+            })
+            .expect("some open tile exists on a 48x32 map");
+        s.apply(Command::Bend { ability, pos }).unwrap();
+
+        let mut alerts = Alerts::default();
+        s.world.tick = BEND_TIP_AFTER_TICKS;
+        alerts.update(&s, 0.0);
+        assert!(alerts.history().is_empty(), "{:?}", alerts.history());
+
+        s.apply(Command::CancelBend { pos }).unwrap();
+        s.world.tick += BEND_TIP_AFTER_TICKS;
+        alerts.update(&s, 0.0);
+        assert!(
+            alerts.history().is_empty(),
+            "designating once is enough, even cancelled: {:?}",
+            alerts.history()
+        );
     }
 }

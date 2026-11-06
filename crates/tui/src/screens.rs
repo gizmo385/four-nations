@@ -70,6 +70,9 @@ pub(crate) fn kind_tone(kind: Kind) -> Tone {
         Kind::Stockpile => Tone::Warn,
         // A watched run's own entries (#319): plain text, like a human's own actions would read.
         Kind::Agent => Tone::Text,
+        // A gentle onboarding nudge (#382), not something gone wrong: the same tone as a
+        // routine bend, not a warning.
+        Kind::BendTip => Tone::Text,
     }
 }
 

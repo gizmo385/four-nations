@@ -12,11 +12,11 @@
 │   Ming Foraging at (86, 65)  Hungry!         ││ Next: 10 more people     [G] │
 │                                              │├─ ALERTS ─────────────── [L] ─┤
 │                                              ││ 44 wood can't be stored:…    │
-│                                              │├─ CURSOR ────────── (94, 64) ─┤
-│ STORES                                       ││ Coast                        │
-│ Wood 20  Fruit 2                             ││ Plains (94, 64)              │
-│                                              ││ Elevation 152                │
-│ TRAITS                                       ││                              │
+│                                              ││ Chi to spare, no bend…       │
+│ STORES                                       │├─ CURSOR ────────── (94, 64) ─┤
+│ Wood 20  Fruit 2                             ││ Coast                        │
+│                                              ││ Plains (94, 64)              │
+│ TRAITS                                       ││ Elevation 152                │
 │ Move speed x0.9  Carry capacity x1.3         ││                              │
 │ Earthworks x2.5  Water work x0.9             ││                              │
 │ Power generation x0.8  Construction x1.5     ││                              │

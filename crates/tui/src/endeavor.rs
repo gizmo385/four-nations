@@ -109,7 +109,8 @@ mod tests {
     }
 
     /// The masters sign carries its own "Closest" row (in plain text, not a warning) right
-    /// before its hint row (`docs/design/endgame.md`, "Showing mastery", #347).
+    /// before its hint row (`docs/design/endgame.md`, "Showing mastery", #347), whose hint names
+    /// the Bend tool's own key and says how to start (#382).
     #[test]
     fn the_masters_sign_carries_a_closest_row_before_its_hint() {
         let s = new_session(7, Nation::Fire);
@@ -120,7 +121,10 @@ mod tests {
         assert!(closest.plain().contains("Closest:"), "{:?}", closest.plain());
         assert_eq!(closest.left[0].1, Tone::Text);
         let hint = &rows[i + 2];
-        assert_eq!(hint.plain(), "  Each finished bend counts for whoever channels it");
+        assert_eq!(
+            hint.plain(),
+            "  Designate a bend (B) on a tile a bender can work - credit to whoever channels it"
+        );
         assert_eq!(hint.left[0].1, Tone::Warn);
     }
 
