@@ -218,6 +218,28 @@ fn the_existing_picking_job_works_a_planted_tree_by_hand() {
     });
 }
 
+/// Clearing a tree an orchard planted (`docs/design/clearing.md`, issue #411/#424) needs no new
+/// code in `tick_orchards`: it already drops a tree from `Orchard::trees` once its tile no
+/// longer holds the planted resource.
+#[test]
+fn clearing_a_planted_tree_drops_it_from_the_orchard_on_the_next_tick() {
+    let (mut w, defs) = setup(Nation::Air, 1, &[at(0, 0)]);
+    let def = orchard_def(&defs);
+    raise_orchard(&mut w, &defs, MID);
+    run(&mut w, &defs, secs(def.plant_seconds) + 4);
+    let trees = fruit_trees(&w, &defs);
+    assert_eq!(trees.len(), 1);
+    let tree = trees[0];
+    assert_eq!(w.orchard_trees(MID), Some(1));
+
+    // A sapling is resting, but a clear doesn't wait on that.
+    let job = w.designate_clear(tree, &defs).unwrap();
+    run_until(&mut w, &defs, 2000, |w| w.job(job).is_none());
+    assert!(w.map[tree].resource.is_none());
+    w.tick(&defs);
+    assert_eq!(w.orchard_trees(MID), Some(0), "tick_orchards drops the cleared tree on its own");
+}
+
 #[test]
 fn a_planted_tree_regrows_after_picking_faster_than_a_wild_one() {
     let (mut w, defs) = setup(Nation::Air, 2, &[at(0, 0)]);

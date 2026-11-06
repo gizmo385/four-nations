@@ -113,6 +113,9 @@ pub enum Task {
     Sow(JobId),
     /// Gathering a farm plot's ripe crop (`world/farm.rs`, #198).
     Reap(JobId),
+    /// Uprooting or chopping down the resource on a tile for good
+    /// (`docs/design/clearing.md`, issue #411/#424).
+    Clear(JobId),
     /// Carrying a stack to a stockpile tile.
     Deliver,
     Eat(FoodSource),
@@ -163,6 +166,9 @@ pub enum DesignateError {
     NoFarmPlot,
     /// The farm plot on that tile isn't empty: it's already sown, growing or ripe.
     PlotNotEmpty,
+    /// The resource on that tile is renewable but has no `[harvest.clear]`
+    /// (`docs/design/clearing.md`, issue #424): a fish spot, say.
+    CannotClear,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -237,6 +243,7 @@ impl World {
                 | JobKind::Attend { .. } => None,
                 JobKind::Craft { .. } => None,
                 JobKind::Sow { .. } | JobKind::Reap { .. } => None,
+                JobKind::Clear { .. } => None,
             })
             .chain(self.standing_harvest.iter().copied())
     }
@@ -366,6 +373,40 @@ impl World {
         Ok(())
     }
 
+    /// Marks the resource on `pos` for removal for good (`docs/design/clearing.md`, issue
+    /// #411/#424): a non-renewable's Clear job is its ordinary harvest, which already clears it;
+    /// a renewable needs a `[harvest.clear]` table, else it's refused (fish spots, on water
+    /// where nobody builds). A resting plant can still be cleared: only `ripe_harvest` (an
+    /// ordinary harvest) waits on that. Replaces any harvest designation and standing order on
+    /// the tile; a unit mid-harvest drops it, as on `cancel_harvest` (the job disappearing under
+    /// it, next tick it runs).
+    pub(super) fn designate_clear(
+        &mut self,
+        pos: Pos,
+        defs: &Defs,
+    ) -> Result<JobId, DesignateError> {
+        let h = self.harvestable(pos, defs)?;
+        if h.regrow.is_some() && h.clear.is_none() {
+            return Err(DesignateError::CannotClear);
+        }
+        if self.jobs.iter().any(|j| j.kind == JobKind::Clear { pos }) {
+            return Err(DesignateError::AlreadyDesignated);
+        }
+        self.jobs.retain(|j| j.kind != JobKind::Harvest { pos });
+        self.standing_harvest.remove(&pos);
+        Ok(self.add_job(JobKind::Clear { pos }))
+    }
+
+    /// Withdraws the Clear designation on `pos`. Work already done on it is lost.
+    pub(super) fn cancel_clear(&mut self, pos: Pos) -> Result<(), DesignateError> {
+        let before = self.jobs.len();
+        self.jobs.retain(|j| j.kind != JobKind::Clear { pos });
+        if self.jobs.len() == before {
+            return Err(DesignateError::NotDesignated);
+        }
+        Ok(())
+    }
+
     /// Marks a tile as stockpile. Anything lying on the ground gets hauled to it (or another
     /// stockpile tile).
     pub(super) fn designate_stockpile(&mut self, pos: Pos) -> Result<(), DesignateError> {
@@ -478,6 +519,17 @@ impl World {
         (self.can_work(h) && !self.resting.contains_key(&pos)).then_some(h)
     }
 
+    /// The harvest for the resource on `pos`, if a `JobKind::Clear` on it can be worked: it has
+    /// a harvest entry and the nation knows how, same as `ripe_harvest` except a resting plant
+    /// doesn't block a clear (`docs/design/clearing.md`: "a picked fruit tree can be uprooted at
+    /// once"). Whether it can actually be *cleared* at all (a renewable needs
+    /// `HarvestDef::clear`) is checked at designate time (`designate_clear`); `prune_jobs` drops
+    /// the job if the resource itself goes some other way, so this only asks the work question.
+    fn clearable_harvest<'d>(&self, pos: Pos, defs: &'d Defs) -> Option<&'d HarvestDef> {
+        let h = defs.harvest(self.map.get(pos)?.resource?)?;
+        self.can_work(h).then_some(h)
+    }
+
     /// Seconds of growth a resting resource on `pos` gains per second: the boost of any orchard
     /// tending it (`tend_rate`, #142), times the difficulty preset's season factor
     /// (`World::season_growth_factor`, `world/season.rs`, #295): identity (1.0) with `seasons`
@@ -579,6 +631,41 @@ impl World {
         count
     }
 
+    /// A `JobKind::Clear` on `pos` just finished (`run_clear`), uprooting or felling the
+    /// resource there for good (`docs/design/clearing.md`, issue #411/#424). `h` is the
+    /// resource's own harvest.
+    ///
+    /// Non-renewable (`h.clear` is `None`): the clear *is* the harvest -- `work_done` already
+    /// clears the tile and counts the tally -- so it drops exactly what chopping it would.
+    /// Renewable with `HarvestDef::clear` (the only other way a Clear job exists, by
+    /// `designate_clear`): drops the plant's ordinary ripe yield too, if it wasn't resting, then
+    /// the clear's own item (if any), and removes the resource along with everything that
+    /// tracked it on this tile.
+    fn clear_done(&mut self, i: usize, pos: Pos, h: &HarvestDef, defs: &Defs) {
+        let Some(c) = h.clear else {
+            let count = self.work_done(pos, h, defs);
+            self.place_ground(pos, Stack { item: h.item, count });
+            self.maybe_injure(i, pos, h, defs);
+            return;
+        };
+        if !self.resting.contains_key(&pos) {
+            let count = self.harvest_yield(pos, h);
+            self.tallies.count_harvest(h.item, count);
+            self.place_ground(pos, Stack { item: h.item, count });
+        }
+        if let Some(item) = c.item {
+            self.tallies.count_harvest(item, c.count);
+            self.place_ground(pos, Stack { item, count: c.count });
+        }
+        self.map[pos].resource = None;
+        self.resting.remove(&pos);
+        self.saplings.remove(&pos);
+        self.strain.remove(&pos);
+        self.standing_harvest.remove(&pos);
+        self.map_changed();
+        self.maybe_injure_at(i, pos, c.risk, None, defs);
+    }
+
     pub(super) fn carry_capacity(&self, i: usize, defs: &Defs) -> u32 {
         let m = self.modifiers_for(&self.units[i], defs).carry_capacity;
         ((defs.jobs.base_carry as f32 * m).round() as u32).max(1)
@@ -635,6 +722,9 @@ impl World {
                     }
                     JobKind::Reap { pos } => {
                         plots.get(&pos).is_some_and(|p| p.stage == PlotStage::Ripe)
+                    }
+                    JobKind::Clear { pos } => {
+                        map[pos].resource.is_some_and(|r| defs.harvest(r).is_some())
                     }
                 }
         });
@@ -1081,10 +1171,14 @@ impl World {
         Some((Task::Eat(source), route_from(flood.path_to(stand)?)))
     }
 
-    /// True if the resource on `pos` is spoken for: designated for harvest, or another unit is
+    /// True if the resource on `pos` is spoken for: designated for harvest or clear
+    /// (`docs/design/clearing.md`: hungry units never forage a Clear job, so an uprooted tree's
+    /// bonus yield isn't eaten out from under the unit doing the clearing), or another unit is
     /// already on its way to forage it.
     fn forage_taken(&self, pos: Pos, me: usize) -> bool {
-        self.jobs.iter().any(|j| j.kind == JobKind::Harvest { pos })
+        self.jobs
+            .iter()
+            .any(|j| matches!(j.kind, JobKind::Harvest { pos: p } | JobKind::Clear { pos: p } if p == pos))
             || self
                 .units
                 .iter()
@@ -1303,6 +1397,7 @@ impl World {
                         | JobKind::Craft { .. }
                         | JobKind::Sow { .. }
                         | JobKind::Reap { .. }
+                        | JobKind::Clear { .. }
                 )
             {
                 continue;
@@ -1311,6 +1406,12 @@ impl World {
                 JobKind::Harvest { pos } => self
                     .ripe_harvest(pos, defs)
                     .filter(|h| h.risk <= 0.0 || self.fit_for_heavy_work(&self.units[i], defs))
+                    .and_then(|_| self.stand_tile(&flood, pos)),
+                JobKind::Clear { pos } => self
+                    .clearable_harvest(pos, defs)
+                    .filter(|h| {
+                        h.clear_risk() <= 0.0 || self.fit_for_heavy_work(&self.units[i], defs)
+                    })
                     .and_then(|_| self.stand_tile(&flood, pos)),
                 JobKind::Sow { pos } => (self.plot_stage(pos) == Some(PlotStage::Empty))
                     .then(|| self.stand_building(&flood, pos, defs))
@@ -1386,6 +1487,7 @@ impl World {
             JobKind::Craft { .. } => Task::Craft(job.id),
             JobKind::Sow { .. } => Task::Sow(job.id),
             JobKind::Reap { .. } => Task::Reap(job.id),
+            JobKind::Clear { .. } => Task::Clear(job.id),
         };
         let u = &mut self.units[i];
         u.job_task = Some(task);
@@ -1428,6 +1530,7 @@ impl World {
                         | JobKind::Craft { .. }
                         | JobKind::Sow { .. }
                         | JobKind::Reap { .. }
+                        | JobKind::Clear { .. }
                 )
             {
                 continue;
@@ -1439,6 +1542,17 @@ impl World {
                         continue;
                     }
                     if h.risk > 0.0 && !self.fit_for_heavy_work(&self.units[i], defs) {
+                        too_hurt = true;
+                        continue;
+                    }
+                    return None;
+                }
+                JobKind::Clear { pos } => {
+                    let Some(h) = self.clearable_harvest(pos, defs) else { continue };
+                    if self.stand_tile(&flood, pos).is_none() {
+                        continue;
+                    }
+                    if h.clear_risk() > 0.0 && !self.fit_for_heavy_work(&self.units[i], defs) {
                         too_hurt = true;
                         continue;
                     }
@@ -1556,11 +1670,13 @@ impl World {
             | JobKind::Craft { .. }
             | JobKind::Sow { .. }
             | JobKind::Reap { .. }
+            | JobKind::Clear { .. }
                 if is_avatar =>
             {
                 false
             }
             JobKind::Harvest { pos } => self.ripe_harvest(pos, defs).is_some() && can_stand(pos),
+            JobKind::Clear { pos } => self.clearable_harvest(pos, defs).is_some() && can_stand(pos),
             JobKind::Haul { pos } => {
                 let item = self.ground[&pos].item;
                 in_here(pos)
@@ -1649,6 +1765,7 @@ impl World {
             Task::Craft(id) => self.run_craft(i, id, defs),
             Task::Sow(id) => self.run_sow(i, id, defs),
             Task::Reap(id) => self.run_reap(i, id, defs),
+            Task::Clear(id) => self.run_clear(i, id, defs),
             Task::Deliver => self.run_deliver(i, defs),
             // Need tasks never sit in the job slot.
             _ => self.finish_job(i),
@@ -1688,6 +1805,45 @@ impl World {
         let count = self.work_done(pos, h, defs);
         self.place_ground(pos, Stack { item: h.item, count });
         self.maybe_injure(i, pos, h, defs);
+        self.finish_job(i);
+    }
+
+    /// One tick of a unit clearing a tile (`docs/design/clearing.md`, issue #411/#424): walk to
+    /// it, work the clear's own `work` seconds (the harvest's, for a non-renewable; `clear.work`
+    /// for a renewable), then remove the resource for good (`clear_done`). Unlike `run_harvest`,
+    /// a resting resource never abandons the job: it can be cleared right away.
+    fn run_clear(&mut self, i: usize, id: JobId, defs: &Defs) {
+        let Some(idx) = self.job_index(id) else { return self.finish_job(i) };
+        let JobKind::Clear { pos } = self.jobs[idx].kind else { return self.finish_job(i) };
+        let Some(h) = self.map[pos].resource.and_then(|r| defs.harvest(r)) else {
+            // The resource is gone, so the job is moot.
+            self.jobs.remove(idx);
+            return self.finish_job(i);
+        };
+        if self.units[i].route.is_none() {
+            // Resuming after a need, or the claim's route was lost: plan from here.
+            let flood = self.flood_from(i);
+            match self.stand_tile(&flood, pos).and_then(|(_, s)| flood.path_to(s)) {
+                Some(path) => self.units[i].route = Some(route_from(path)),
+                None => return self.abandon_job(i, id, defs),
+            }
+        }
+        if !self.walk(i, defs) {
+            return;
+        }
+        // A renewable's clear has no modifier of its own (`data/jobs.toml`'s `[harvest.clear]`
+        // names none); a non-renewable's clear is its harvest, at the harvest's own rate.
+        let (work, rate) = match h.clear {
+            Some(c) => (c.work, 1.0),
+            None => (h.work, self.work_rate(i, h, defs)),
+        };
+        let job = &mut self.jobs[idx];
+        job.progress += rate / TICKS_PER_SECOND as f32;
+        if job.progress < work {
+            return;
+        }
+        self.jobs.remove(idx);
+        self.clear_done(i, pos, h, defs);
         self.finish_job(i);
     }
 
@@ -1821,7 +1977,8 @@ fn job_priority(kind: JobKind) -> u8 {
         | JobKind::Craft { .. }
         | JobKind::EndeavorTask { .. }
         | JobKind::Sow { .. }
-        | JobKind::Reap { .. } => 0,
+        | JobKind::Reap { .. }
+        | JobKind::Clear { .. } => 0,
     }
 }
 

@@ -133,6 +133,18 @@ name = "Ice"
 # `[tech.unlocks] jobs` in data/research.toml (issue #22): until the nation knows it, the
 # resource can't be designated, and hungry units won't forage it either.
 # A harvest whose item is a food can also be foraged by a hungry unit on its own.
+#
+# [harvest.clear] (docs/design/clearing.md, issue #411/#424): how the Clear designation removes
+# this resource for good instead of merely working it, for a renewable harvest (one with
+# `regrow`) that would otherwise leave the plant standing. Validated: only on a harvest with
+# `regrow`, `work` above 0, `item` known (and `count` only together with it). A renewable with no
+# `[harvest.clear]` (fish spots) can't be cleared at all. A non-renewable needs none of this: its
+# Clear job is just its ordinary harvest, which already removes it.
+# - work:  in-game seconds of work, at a flat rate of 1.0 (no modifier of its own).
+# - item:  optional. What the clear drops, beside the plant's own ripe yield if it isn't resting.
+# - count: how many of `item` it drops. Only together with `item`.
+# - risk:  optional, in [0, 1), default 0. Exactly `risk` above (the existing `harm.injury`
+#          stream), but with no modifier to scale it.
 
 [[harvest]]
 resource = "oak_tree"
@@ -217,6 +229,10 @@ work = 2.0
 regrow = 480.0
 strain = 1.0
 
+# Pulling up a cabbage patch (#411): quick, and nothing but its crop when ripe.
+[harvest.clear]
+work = 1.0
+
 [[harvest]]
 resource = "fruit_tree"
 verb = "Pick"
@@ -225,6 +241,15 @@ count = 2
 work = 4.0
 regrow = 360.0
 strain = 1.0
+
+# Uprooting (#411): a little wood, plus the fruit if it's ripe. 6s is between picking (4s) and
+# felling an oak (8s); 2 wood is half an oak's yield, for a smaller tree; the risk matches
+# chopping.
+[harvest.clear]
+work = 6.0
+item = "wood"
+count = 2
+risk = 0.01
 
 # Fishing is slow work, and the water-working nations are good at it.
 [[harvest]]

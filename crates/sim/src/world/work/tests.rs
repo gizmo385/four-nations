@@ -1055,3 +1055,166 @@ fn job_unreachable_names_a_stranded_designation_once_the_cache_is_warm() {
     assert_eq!(w.job_unreachable(at(1, 1)), Some(true));
     assert_eq!(w.job_unreachable(at(5, 3)), Some(false));
 }
+
+// ---- the Clear designation (docs/design/clearing.md, issue #411/#424) ----
+
+/// The total of `item` lying on the ground, wherever `place_ground` put it.
+fn ground_total(w: &World, item: ItemId) -> u32 {
+    w.ground_items().filter(|(_, s)| s.item == item).map(|(_, s)| s.count).sum()
+}
+
+#[test]
+fn clearing_a_ripe_fruit_tree_drops_wood_and_fruit_and_empties_the_tile() {
+    let rows = ["~~~~~~~~~", ".........", "....Y....", ".........", "........."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 3)]);
+    let (wood, fruit) = (defs.item_id("wood").unwrap(), defs.item_id("fruit").unwrap());
+    let pos = at(4, 2);
+    let job = w.designate_clear(pos, &defs).unwrap();
+    run_until(&mut w, &defs, 2000, |w| w.job(job).is_none());
+    assert!(w.map[pos].resource.is_none(), "the tree is gone for good");
+    assert!(!w.is_resting(pos));
+    assert_eq!(ground_total(&w, wood), 2);
+    assert_eq!(ground_total(&w, fruit), 2);
+    assert_eq!(w.tallies().harvested(wood), 2, "a clear's own drop counts in the tally too");
+    assert_eq!(w.tallies().harvested(fruit), 2);
+}
+
+#[test]
+fn clearing_a_resting_fruit_tree_drops_only_the_wood() {
+    let rows = ["~~~~~~~~~", ".........", "....Y....", ".........", "........."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 3)]);
+    let (wood, fruit) = (defs.item_id("wood").unwrap(), defs.item_id("fruit").unwrap());
+    let pos = at(4, 2);
+    // Picked once, so it rests: the fruit from this pick is already on the ground.
+    let pick = w.designate_harvest(pos, &defs).unwrap();
+    run_until(&mut w, &defs, 2000, |w| w.job(pick).is_none());
+    assert!(w.is_resting(pos));
+    assert_eq!(ground_total(&w, fruit), 2);
+
+    // A resting tree can be cleared at once (unlike a harvest), and gives no second helping of
+    // fruit since it isn't ripe.
+    let job = w.designate_clear(pos, &defs).unwrap();
+    w.tick(&defs);
+    assert_eq!(w.job(job).unwrap().claimed_by, Some(UnitId(0)), "claimable while resting");
+    run_until(&mut w, &defs, 2000, |w| w.job(job).is_none());
+    assert!(w.map[pos].resource.is_none());
+    assert_eq!(ground_total(&w, wood), 2);
+    assert_eq!(ground_total(&w, fruit), 2, "still only the first pick's fruit");
+}
+
+#[test]
+fn clearing_an_oak_yields_exactly_its_chop() {
+    let (mut w, defs) = setup(Nation::Earth, &WOODS, &[at(3, 2)]);
+    let wood = defs.item_id("wood").unwrap();
+    let pos = at(7, 2);
+    let job = w.designate_clear(pos, &defs).unwrap();
+    run_until(&mut w, &defs, 2000, |w| w.job(job).is_none());
+    assert!(w.map[pos].resource.is_none());
+    assert_eq!(ground_total(&w, wood), 4);
+    assert_eq!(w.tallies().harvested(wood), 4);
+    assert_eq!(w.tallies().harvested_items().count(), 1, "nothing else was dropped");
+}
+
+#[test]
+fn a_fish_spot_cannot_be_cleared() {
+    let rows = ["~~~~~~~~~", "~~~f~~~~~", ".........", ".........", "........."];
+    // Water starts with fishing, so this is refused for being unclearable, not unresearched.
+    let (mut w, defs) = setup(Nation::Water, &rows, &[at(3, 2)]);
+    let pos = at(3, 1);
+    assert_eq!(w.designate_clear(pos, &defs), Err(DesignateError::CannotClear));
+    let err = w.apply(Command::DesignateClear { pos }, &defs).unwrap_err();
+    assert_eq!(err.to_string(), "can't be cleared");
+    assert!(w.command_log().is_empty(), "a refused command isn't logged");
+}
+
+#[test]
+fn designating_clear_withdraws_a_harvest_designation_and_its_standing_order() {
+    let rows = ["~~~~~~~~~", ".........", "......c..", "........."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 3)]);
+    let pos = at(6, 2);
+    w.designate_repeating_harvest(pos, &defs).unwrap();
+    assert!(w.is_repeating_harvest(pos));
+    assert!(has_harvest_job(&w, pos));
+
+    let clear = w.designate_clear(pos, &defs).unwrap();
+    assert!(!w.is_repeating_harvest(pos));
+    assert!(!has_harvest_job(&w, pos));
+    assert!(w.jobs().iter().any(|j| j.id == clear && j.kind == JobKind::Clear { pos }));
+}
+
+#[test]
+fn designating_clear_on_a_tile_a_unit_is_harvesting_drops_the_harvest() {
+    let (mut w, defs) = setup(Nation::Earth, &WOODS, &[at(3, 2)]);
+    let pos = at(7, 2);
+    let harvest = w.designate_harvest(pos, &defs).unwrap();
+    w.tick(&defs);
+    assert_eq!(w.units[0].task(), Some(Task::Harvest(harvest)));
+
+    let clear = w.designate_clear(pos, &defs).unwrap();
+    w.tick(&defs);
+    assert!(w.job(harvest).is_none(), "the harvest is gone, as on CancelHarvest");
+    run_until(&mut w, &defs, 2000, |w| w.job(clear).is_none());
+    assert!(w.map[pos].resource.is_none());
+}
+
+#[test]
+fn clearing_twice_or_cancelling_with_nothing_designated_is_refused() {
+    let rows = ["~~~~~~~~~", ".........", "....Y....", ".........", "........."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 3)]);
+    let pos = at(4, 2);
+    w.designate_clear(pos, &defs).unwrap();
+    assert_eq!(w.designate_clear(pos, &defs), Err(DesignateError::AlreadyDesignated));
+    assert_eq!(w.cancel_clear(pos), Ok(()));
+    assert_eq!(w.cancel_clear(pos), Err(DesignateError::NotDesignated));
+    assert_eq!(w.jobs().len(), 0);
+}
+
+#[test]
+fn hungry_units_never_forage_a_tile_marked_for_clearing() {
+    // The clear itself drops the cabbage's own ripe yield once it finishes, legitimately
+    // edible off the ground afterwards; what's refused the whole time is *foraging* it (working
+    // the wild resource directly, bypassing the clear).
+    let rows = ["~~~~~~~~~", ".........", "......c..", ".........", "........."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 3)]);
+    let pos = at(6, 2);
+    w.designate_clear(pos, &defs).unwrap();
+    w.units[0].needs.hunger = 10.0;
+    for _ in 0..100 {
+        w.tick(&defs);
+        assert!(
+            !matches!(w.units[0].task(), Some(Task::Eat(FoodSource::Forage(_)))),
+            "forage is blocked while the tile is marked for clearing"
+        );
+    }
+}
+
+#[test]
+fn a_pending_clear_mark_survives_a_save_and_load() {
+    let rows = ["~~~~~~~~~", ".........", "......c..", ".........", "........."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 3)]);
+    let pos = at(6, 2);
+    w.designate_clear(pos, &defs).unwrap();
+    let text = w.save(&defs).unwrap();
+    let mut loaded = World::load(&text, &defs).unwrap();
+    assert_eq!(loaded.save(&defs).unwrap(), text);
+    assert!(loaded.jobs().iter().any(|j| j.kind == JobKind::Clear { pos }));
+    run_until(&mut loaded, &defs, 2000, |w| w.map[pos].resource.is_none());
+}
+
+#[test]
+fn a_replayed_command_log_reproduces_a_clear() {
+    let rows = ["~~~~~~~~~", ".........", "....Y....", ".........", "........."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 3)]);
+    let pos = at(4, 2);
+    w.apply(Command::DesignateClear { pos }, &defs).unwrap();
+    run_until(&mut w, &defs, 2000, |w| w.map[pos].resource.is_none());
+    assert!(w.tallies().harvested_items().count() > 0, "the clear should have dropped something");
+    let log = w.command_log().to_vec();
+
+    let (mut replayed, _) = setup(Nation::Earth, &rows, &[at(1, 3)]);
+    replayed.replay(&log, w.tick, &defs);
+    assert_eq!(replayed.map[pos].resource, w.map[pos].resource);
+    assert_eq!(replayed.ground_items().collect::<Vec<_>>(), w.ground_items().collect::<Vec<_>>());
+    assert_eq!(replayed.tallies(), w.tallies());
+    assert_eq!(replayed.command_log(), w.command_log());
+}
