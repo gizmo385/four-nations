@@ -405,6 +405,15 @@ impl World {
     /// Removes the haul job on `pos`, if any, releasing a unit that claimed it but hasn't
     /// walked there yet. Per `run_haul`, a claimed haul job's unit never has picked anything up:
     /// the pickup and the claim's release happen in the same step.
+    ///
+    /// A need (hunger, thirst, energy) can have pre-empted the haul before this ever runs
+    /// (`work.rs`'s "needs pre-empt jobs"): the claimant's `job_task` is set aside, not dropped,
+    /// and its `route` is doing double duty for the need task instead (#386). Clearing `route`
+    /// unconditionally here, as if the claimant were still walking the haul, stranded such a
+    /// unit mid-need with nothing left to walk toward: `need_task` stayed set, but `route` went
+    /// to `None`, so `walk` never returned true and the need was never met. Only `job_task` is
+    /// safe to clear unconditionally; `route` only if the unit isn't mid-need (`finish_need`
+    /// clears it once the need is actually done, same as any other interruption).
     fn take_haul_job(&mut self, pos: Pos) {
         let Some(idx) = self.jobs.iter().position(|j| j.kind == JobKind::Haul { pos }) else {
             return;
@@ -413,7 +422,9 @@ impl World {
         if let Some(unit_id) = job.claimed_by {
             if let Some(u) = self.units.iter_mut().find(|u| u.id == unit_id) {
                 u.job_task = None;
-                u.route = None;
+                if u.need_task.is_none() {
+                    u.route = None;
+                }
             }
             self.wake_idle();
         }
