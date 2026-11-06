@@ -1,6 +1,6 @@
 # Cartography: charting where the scrolls lie
 
-Status: **proposed** (#400). Follow-up work: #402 to #404.
+Status: **accepted** (#400). Follow-up work: #402 to #404.
 
 The "Ancient scrolls read" sign (3 scrolls, `data/endeavor.toml`) is the one sign players make
 no progress on. #380 fixes how scrolls *read* on screen: the legend, `inspect`, and why a marked
@@ -177,20 +177,20 @@ Keep these plain, with no advice or asides (the owner's 2026-11-06 note on text 
 
 The economy opening (`fn_sim::autoplay::Economy`, #352) researches the whole tree in file order,
 so it reaches `cartography`. It should also raise a Map Room and recover what's charted, and the
-balance harness should report the minute the scrolls sign is met. Target (question 3): on Normal,
+balance harness should report the minute the scrolls sign is met. Target (decision 3): on Normal,
 Small, seeds 1-8, the sign lands in year 2 to 3 for every nation wherever the survey above shows
 3 or more scrolls in reach. Tune `minutes` and `range`, not the ruins' density.
 
-## Open questions for the owner
+## Owner decisions (2026-11-06)
 
 1. **Should every nation be able to find lost ruins, or only Air?** *Decided by the owner
    2026-11-06:* every nation, through the Map Room. Air keeps a large head start (a Glide finds
    every ruin nearby at once, from a much cheaper tech).
-2. **One shared name, or a name per nation like the study hall?** Recommended: one shared name
+2. **One shared name, or a name per nation like the study hall?** *Decided:* one shared name
    ("Map Room") for now, with nation names and art later alongside #357's building pass.
-3. **When should the scrolls sign land?** Recommended: year 2 to 3 on Normal, which is after
+3. **When should the scrolls sign land?** *Decided:* year 2 to 3 on Normal, which is after
    `cartography` arrives (around year 2) plus a couple of charts and the walks out to them.
-4. **Should charts also mark surface scrolls on the map?** Recommended: no. They're already
+4. **Should charts also mark surface scrolls on the map?** *Decided:* no. They're already
    visible, and #380's list on the Endeavor screen covers "where are they". Charts only uncover
    what's hidden.
 
