@@ -263,6 +263,7 @@ impl World {
             unhappy_since: None,
             last_harm: None,
             exposed_alerted: false,
+            sick_until: None,
         });
         self.arrivals.push(Arrival { tick: self.tick, unit: id, name });
         true

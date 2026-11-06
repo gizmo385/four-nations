@@ -835,7 +835,7 @@ impl World {
         let plain = |(task, route)| (task, route, None);
         match need {
             Need::Energy => Some(self.plan_sleep(i, defs)),
-            Need::Thirst => self.plan_drink(i).map(plain),
+            Need::Thirst => self.plan_drink(i, defs).map(plain),
             Need::Hunger => self.plan_food(i, defs).map(plain),
         }
     }
@@ -972,16 +972,42 @@ impl World {
     /// The nearest tile beside water: `Flood::seek` (#293) checks the handful of tiles it
     /// actually visits on the way, nearest-cost-first, instead of a second pass over the whole
     /// map once a full flood is in hand -- every tile that pass would skip fails this check too.
-    fn plan_drink(&self, i: usize) -> Option<(Task, Vec<Pos>)> {
+    ///
+    /// While the difficulty preset's `harm` is above 0 (`docs/design/harm.md`, "Sickness: sea
+    /// water", issue #389), this prefers a spot beside fresh water (a river, lake or ford) over
+    /// one beside any water at all, as long as that spot is within `data/harm.toml`'s
+    /// `[sickness] fresh_detour` path tiles of the nearest spot of any kind; otherwise, or with
+    /// `harm` at 0, it keeps the nearest spot of any kind, sea or not, exactly as before #389.
+    fn plan_drink(&self, i: usize, defs: &Defs) -> Option<(Task, Vec<Pos>)> {
         let rules = self.rules_for(&self.units[i]);
-        let (flood, found) = Flood::seek(&self.map, self.units[i].pos, rules, |p, _| {
+        let pos = self.units[i].pos;
+        let (any_flood, any_found) = Flood::seek(&self.map, pos, rules, |p, _| {
             if !self.rules.passable(&self.map[p]) {
                 return None;
             }
             self.map.neighbors(p, true).any(|q| self.map[q].terrain.is_water()).then_some(((), ()))
         });
-        let (stand, ()) = found?;
-        Some((Task::Drink, route_from(flood.path_to(stand)?)))
+        let (any_stand, ()) = any_found?;
+        if self.knobs(defs).harm > 0.0 {
+            let is_fresh = |t: Terrain| matches!(t, Terrain::River | Terrain::Lake | Terrain::Ford);
+            let (fresh_flood, fresh_found) = Flood::seek(&self.map, pos, rules, |p, _| {
+                if !self.rules.passable(&self.map[p]) {
+                    return None;
+                }
+                self.map
+                    .neighbors(p, true)
+                    .any(|q| is_fresh(self.map[q].terrain))
+                    .then_some(((), ()))
+            });
+            if let Some((fresh_stand, ())) = fresh_found {
+                let any_cost = any_flood.cost(any_stand).unwrap_or(0);
+                let budget = any_cost + defs.harm.sickness.fresh_detour * STRAIGHT;
+                if fresh_flood.cost(fresh_stand).is_some_and(|c| c <= budget) {
+                    return Some((Task::Drink, route_from(fresh_flood.path_to(fresh_stand)?)));
+                }
+            }
+        }
+        Some((Task::Drink, route_from(any_flood.path_to(any_stand)?)))
     }
 
     /// Whether unit `i` won't eat `item` (the Avatar's `[avatar].refuses`, #237; "a canon touch
@@ -1162,7 +1188,12 @@ impl World {
             return;
         }
         match task {
-            Task::Drink => self.units[i].needs.drink(&defs.needs),
+            Task::Drink => {
+                self.units[i].needs.drink(&defs.needs);
+                // A drink at a spot whose only water is the sea may make the drinker sick
+                // (`docs/design/harm.md`, "Sickness: sea water", issue #389).
+                self.maybe_catch_sickness(i, defs);
+            }
             Task::Eat(source) => {
                 let item = self.food_item(i, source, defs).expect("checked above");
                 self.take_food(i, source, item, defs);

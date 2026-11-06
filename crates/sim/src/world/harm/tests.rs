@@ -1,4 +1,5 @@
-//! Exposure (issue #387): a unit asleep, on a cold tile, not sheltered.
+//! Exposure (issue #387): a unit asleep, on a cold tile, not sheltered. Sickness (issue #389):
+//! a drink taken where the only water nearby is the sea.
 
 use super::*;
 use crate::building::Building;
@@ -20,6 +21,30 @@ fn field(w: i32, h: i32, temperature: u8) -> TileMap {
         biome: BiomeId(0),
         resource: None,
         building: None,
+    })
+}
+
+/// A map from ASCII rows: `.` land, `~` sea, `r` river, `l` lake, `d` ford -- for sickness tests
+/// (issue #389), which care about *which* water terrain sits beside a drinking spot.
+fn terrain_map(rows: &[&str]) -> TileMap {
+    Grid::from_fn(rows[0].len() as i32, rows.len() as i32, |p| {
+        let c = rows[p.y as usize].as_bytes()[p.x as usize];
+        let terrain = match c {
+            b'~' => Terrain::Water,
+            b'r' => Terrain::River,
+            b'l' => Terrain::Lake,
+            b'd' => Terrain::Ford,
+            _ => Terrain::Land,
+        };
+        Tile {
+            elevation: 100,
+            temperature: 128,
+            moisture: 128,
+            terrain,
+            biome: BiomeId(0),
+            resource: None,
+            building: None,
+        }
     })
 }
 
@@ -203,4 +228,140 @@ fn no_difficulty_preset_behaves_exactly_as_before() {
     run_asleep(&mut w, &defs, 2_000);
     assert_eq!(w.units[0].needs.health, defs.needs.health.max);
     assert!(w.harm_events().is_empty());
+}
+
+// Sickness (issue #389): a drink at a spot whose only water is the sea.
+
+#[test]
+fn a_sea_only_spot_rolls_the_listed_chance() {
+    let defs = Defs::bundled();
+    let map = terrain_map(&["~~~", "~.~", "~~~"]);
+    let w = world(&defs, map, &[at(1, 1)]);
+    assert_eq!(w.sickness_chance(at(1, 1), &defs), Some(defs.harm.sickness.water[0].chance));
+}
+
+#[test]
+fn a_spot_with_any_fresh_water_neighbour_never_rolls() {
+    let defs = Defs::bundled();
+    let map = terrain_map(&["~~~", "r.~", "~~~"]);
+    let w = world(&defs, map, &[at(1, 1)]);
+    assert_eq!(w.sickness_chance(at(1, 1), &defs), None, "a river neighbour rules it safe");
+}
+
+#[test]
+fn a_spot_with_no_water_neighbour_never_rolls() {
+    let defs = Defs::bundled();
+    let w = world(&defs, field(3, 3, 128), &[at(1, 1)]);
+    assert_eq!(w.sickness_chance(at(1, 1), &defs), None);
+}
+
+/// Repeated independent rolls of the same sea-only spot, from the one progressing
+/// `harm.sickness` stream, land close to the configured chance. Each trial resets
+/// `sick_until` so the next roll isn't blocked by `maybe_catch_sickness`'s own
+/// no-stacking guard: this is testing the roll itself, not the "already sick" rule (covered
+/// separately below).
+#[test]
+fn seeded_sea_drinks_catch_sickness_near_the_configured_rate() {
+    let defs = Defs::bundled();
+    let map = terrain_map(&["~~~", "~.~", "~~~"]);
+    let mut w = world(&defs, map, &[at(1, 1)]);
+    w.difficulty = Some("normal".into());
+    let trials = 4_000;
+    let mut caught = 0u32;
+    for _ in 0..trials {
+        w.maybe_catch_sickness(0, &defs);
+        if w.units[0].sick_until.is_some() {
+            caught += 1;
+            w.units[0].sick_until = None;
+        }
+    }
+    let chance = f64::from(defs.harm.sickness.water[0].chance);
+    let expected = f64::from(trials) * chance;
+    // A generous band (about 5 standard deviations) around the binomial mean, loose enough to
+    // never flake, tight enough to catch a roll that silently always/never fires.
+    let sd = (f64::from(trials) * chance * (1.0 - chance)).sqrt();
+    let band = sd * 5.0;
+    assert!(
+        (f64::from(caught) - expected).abs() <= band,
+        "caught {caught} of {trials}, expected about {expected} (+/- {band})"
+    );
+}
+
+#[test]
+fn maybe_catch_sickness_never_stacks_or_resets_an_already_sick_unit() {
+    let defs = Defs::bundled();
+    let map = terrain_map(&["~~~", "~.~", "~~~"]);
+    let mut w = world(&defs, map, &[at(1, 1)]);
+    w.difficulty = Some("normal".into());
+    w.units[0].sick_until = Some(w.tick + 1);
+    for _ in 0..200 {
+        w.maybe_catch_sickness(0, &defs);
+    }
+    assert_eq!(w.units[0].sick_until, Some(w.tick + 1), "already sick: no reroll, no restart");
+}
+
+#[test]
+fn sandbox_or_harm_zero_never_catches_sickness() {
+    let defs = Defs::bundled();
+    let map = terrain_map(&["~~~", "~.~", "~~~"]);
+    for preset in [None, Some("sandbox".into())] {
+        let mut w = world(&defs, map.clone(), &[at(1, 1)]);
+        w.difficulty = preset;
+        for _ in 0..4_000 {
+            w.maybe_catch_sickness(0, &defs);
+        }
+        assert!(w.units[0].sick_until.is_none());
+        assert!(w.harm_events().is_empty());
+    }
+}
+
+/// A unit already sick (set directly, as if a drink had just caught it) loses health at
+/// `[sickness] damage_per_minute` with no natural regen, and recovers exactly at `sick_until`:
+/// health stops falling, regen resumes, and `HarmEventKind::Recovered` fires once.
+#[test]
+fn a_sick_unit_loses_health_with_no_regen_and_recovers_on_time() {
+    let defs = Defs::bundled();
+    let mut w = world(&defs, field(3, 1, 128), &[at(1, 0)]);
+    w.difficulty = Some("normal".into());
+    w.units[0].needs = Needs::full(&defs.needs);
+    let minutes = defs.harm.sickness.minutes;
+    let ticks = (minutes * 60.0 * TICKS_PER_SECOND as f32).round() as u64;
+    let harm_scale = w.knobs(&defs).harm;
+    w.units[0].sick_until = Some(w.tick + ticks);
+    for _ in 0..ticks {
+        w.tick(&defs);
+    }
+    let expected =
+        defs.needs.health.max - defs.harm.sickness.damage_per_minute * minutes * harm_scale;
+    let health = w.units[0].needs.health;
+    assert!((health - expected).abs() < 1.0, "health {health}, expected about {expected}");
+    assert!(w.units[0].sick_until.is_none(), "sickness should have run out by now");
+    assert_eq!(
+        w.harm_events().iter().filter(|e| e.kind == HarmEventKind::Recovered).count(),
+        1,
+        "recovery logs once"
+    );
+    // No regen resumes it past where sickness left it, while every need stays comfortable: a
+    // handful more ticks should leave health exactly where it was the instant sickness ended --
+    // or above it only because regen is now allowed again, never below.
+    let after_recovery = health;
+    for _ in 0..600 {
+        w.tick(&defs);
+    }
+    assert!(w.units[0].needs.health >= after_recovery, "regen should resume once recovered");
+}
+
+#[test]
+fn harm_zero_never_progresses_or_ends_a_sickness_caught_before_the_preset_changed() {
+    // A no-op difficulty preset still honours a sickness that was already set (an edge case:
+    // `maybe_catch_sickness` itself never sets one while `harm` is 0). Matches `apply_exposure`'s
+    // own guard.
+    let defs = Defs::bundled();
+    let mut w = world(&defs, field(3, 1, 128), &[at(1, 0)]);
+    w.units[0].needs = Needs::full(&defs.needs);
+    w.units[0].sick_until = Some(w.tick + 10);
+    for _ in 0..20 {
+        w.tick(&defs);
+    }
+    assert_eq!(w.units[0].needs.health, defs.needs.health.max);
 }
