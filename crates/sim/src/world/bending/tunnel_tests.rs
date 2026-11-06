@@ -1,5 +1,7 @@
 //! Bore Tunnel and mining inside mountains (#132): the tech that unlocks it, its targets, the
-//! tunnel it leaves, the richer yield of a vein beside one, and mining staying open to everyone.
+//! tunnel it leaves, the richer yield of a vein beside one, and mining staying open to every
+//! nation once it knows the tech that gates it (stoneworking for stone, prospecting for gold,
+//! #383) -- neither is gated by `tunneling` itself.
 
 use super::*;
 use crate::geom::Grid;
@@ -32,13 +34,16 @@ fn field(defs: &Defs) -> TileMap {
     })
 }
 
-/// An Earth world on `field`, with `tunneling` known when `tunnels` is set.
+/// An Earth world on `field`, with `tunneling` known when `tunnels` is set. `prospecting` is
+/// always granted: this module is about tunneling and mining yields, not the gold-mining gate
+/// (#383), which `mining_stays_open_to_every_nation_without_tunneling` checks on its own.
 fn world(nation: Nation, tunnels: bool, defs: &Defs) -> World {
     let mut w = World::with_map(1, field(defs), nation, &[at(2, 3)], defs);
+    w.research.grant(defs.tech_id("prospecting").unwrap());
     if tunnels {
         w.research.grant(tunneling(defs));
-        w.refresh_modifiers(defs);
     }
+    w.refresh_modifiers(defs);
     w
 }
 
@@ -206,7 +211,8 @@ fn mining_stays_open_to_every_nation_without_tunneling() {
     let vein_count = defs.harvest(defs.resource_id("gold_vein").unwrap()).unwrap().count;
     for nation in Nation::ALL {
         let mut w = world(nation, false, &defs);
-        // Stone is stoneworking's (a shared tech Earth starts with); gold needs nothing.
+        // Stone is stoneworking's (a shared tech Earth starts with); gold is prospecting's
+        // (granted by the `world` helper above, #383): neither is tunneling's.
         w.research.grant(defs.tech_id("stoneworking").unwrap());
         assert!(!w.research.is_known(tech));
         for pos in [at(4, 3), at(4, 5)] {

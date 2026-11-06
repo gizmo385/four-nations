@@ -159,12 +159,13 @@ fn a_water_settlement_researches_its_whole_tree_on_the_design_docs_pacing() {
     let mut play = Playtest::new(Nation::Water, &defs);
     let (minutes, at_hour) = play.run(Nation::Water);
 
-    // Every tech Water can see is known: 11 shared (fishing from the start) plus the branch.
+    // Every tech Water can see is known: 12 shared (fishing from the start, prospecting #383)
+    // plus the branch.
     for (id, t) in defs.techs_for(Nation::Water) {
         assert!(play.research.is_known(id), "{} was never researched", t.id);
     }
     let total: u32 = defs.techs_for(Nation::Water).map(|(_, t)| t.cost).sum();
-    assert_eq!(total, 2190, "the doc's ~2200 for the whole tree; update the doc if costs change");
+    assert_eq!(total, 2440, "the doc's ~2400 for the whole tree; update the doc if costs change");
 
     // "2-2.5 h: the whole starter tree for that nation", within 25%.
     let (low, high) = (120.0 * 0.75, 150.0 * 1.25);

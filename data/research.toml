@@ -122,6 +122,21 @@ prereqs = ["pottery"]
 modifiers = { study = 1.25 }
 
 [[tech]]
+id = "prospecting"
+name = "Prospecting"
+description = "Read the colour and weight of rock to know where gold hides."
+cost = 250
+prereqs = ["stoneworking"]
+# Gates gold mining the same way stoneworking gates stone (#383, docs/design/materials.md):
+# #379 found that gold_vein's density and yield couldn't move the ore sign's timing on their
+# own, because nothing delayed *when* mining could start. Placed here, near the end of the
+# shared tier (after writing, before cartography), so the ore sign lands in year 1 to 2 under
+# the economy opening (#352), which researches the whole visible tree in file order; every
+# nation, Earth included, needs it the same way every nation needs stoneworking for stone.
+[tech.unlocks]
+jobs = ["gold_vein", "gold_seam"]
+
+[[tech]]
 id = "cartography"
 name = "Cartography"
 description = "Map the lands around the settlement."
@@ -169,9 +184,10 @@ cost = 120
 prereqs = ["earth_shaping"]
 # Unlocks Bore Tunnel (#132, docs/design/research.md, "Tunneling"): a bend that turns a mountain
 # tile into a walkable tunnel. Minerals touching a tunnel yield their harvest's `tunnel_count`
-# (data/jobs.toml). Mining itself stays open to everyone: gold needs no tech, stone needs
-# stoneworking. Also unlocks the Mine Shaft (#373, docs/design/nation-buildings.md): a miner
-# cuts stone from the rock a shaft is built against, instead of walking out to a deposit.
+# (data/jobs.toml). `tunneling` itself gates neither mining job: stone needs stoneworking, gold
+# needs prospecting (#383), the same for every nation. Also unlocks the Mine Shaft (#373,
+# docs/design/nation-buildings.md): a miner cuts stone from the rock a shaft is built against,
+# instead of walking out to a deposit.
 [tech.unlocks]
 abilities = ["bore_tunnel"]
 buildings = ["mine_shaft"]

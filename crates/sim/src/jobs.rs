@@ -456,6 +456,13 @@ mod tests {
         let stone = defs.resource_id("stone").unwrap();
         let stoneworking = defs.tech_id("stoneworking").unwrap();
         assert_eq!(defs.harvest(stone).unwrap().unlocked_by, Some(stoneworking));
+        // Gold mining is prospecting's, the same way (#383): both its surface vein and the
+        // buried seam Seismic Sense uncovers.
+        let prospecting = defs.tech_id("prospecting").unwrap();
+        for resource in ["gold_vein", "gold_seam"] {
+            let id = defs.resource_id(resource).unwrap();
+            assert_eq!(defs.harvest(id).unwrap().unlocked_by, Some(prospecting), "{resource}");
+        }
         // Chopping needs no tech.
         let oak = defs.resource_id("oak_tree").unwrap();
         assert_eq!(defs.harvest(oak).unwrap().unlocked_by, None);

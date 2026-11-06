@@ -103,7 +103,7 @@ fn the_sense_uncovers_what_is_in_reach_and_it_can_be_mined() {
     let defs = Defs::bundled();
     let seam = defs.resource_id("gold_seam").unwrap();
     let h = defs.harvest(seam).unwrap();
-    let mut w = world(Nation::Earth, &["seismic_sense"], &defs);
+    let mut w = world(Nation::Earth, &["seismic_sense", "prospecting"], &defs);
     cast(&mut w, &defs, sense(&defs), at(3, 3));
     assert_eq!(w.map[at(6, 3)].resource, Some(seam), "in reach: uncovered");
     assert_eq!(w.map[at(25, 3)].resource, None, "out of reach: still buried");
