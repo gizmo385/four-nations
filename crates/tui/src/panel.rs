@@ -21,27 +21,32 @@
 //! the log entry. Spare height goes here first, up to [`ALERTS_SHOWN`] rows, before anything
 //! else in the panel grows.
 //!
-//! **Zone 3, Here** (named CURSOR until #418): Tool (just above Cursor: the active tool's name
-//! in its own tint, the Build tool's chosen building or the Bend abilities, then the last
-//! rectangle's result; hidden off a tool) and Cursor (what is under the keyboard cursor). The
-//! Build tool's full picker moved to its own modal (`U`, `crate::build`, #285); the panel names
-//! only the choice. The nation's modifiers moved to the Nation screen's Traits (`N`, #308). What
-//! `Enter` does next in a tool, and the tool's own hint, are the active tool banner's own lines
-//! (#307, `crate::banner`) and the status line's, not the panel's.
+//! **Zone 3, Here** (named CURSOR before #418): Tool (just above Here: the active tool's name in
+//! its own tint, the Build tool's chosen building or, for Bend, the current ability and its
+//! bender count, one row either way, then the last rectangle's result; hidden off a tool) and
+//! Here (what is under the keyboard cursor). A unit standing there shows its name, its task and,
+//! on the Select tool, `Enter: select`; the own-nation prefix shows only once the settlement has
+//! more than one nation (#248 "the transformation"), Carrying only with something to carry, and
+//! finished bends don't show at all -- they're the selection bar's own line now (`crate::bar`,
+//! `fn_ui::text::bends_line`). While the selection bar is open for that same unit, Here shows the
+//! tile instead (`fn_ui::inspect::tile_lines`), so nothing repeats. The Build tool's full picker
+//! moved to its own modal (`U`, `crate::build`, #285); the panel names only the choice. The
+//! nation's modifiers moved to the Nation screen's Traits (`N`, #308). What `Enter` does next in
+//! a tool, and the tool's own hint, are the active tool banner's own lines (#307, `crate::banner`)
+//! and the status line's, not the panel's.
 //!
 //! The panel is a fixed height, so a terminal too short for everything gives up rows in this
-//! order: alerts beyond the newest, the Tool section's result beyond two lines, then the Bend
-//! ability list down to the current ability. The header, the Settlement glance in full, every
-//! heading and three Cursor rows always stay.
+//! order: alerts beyond the newest, then the Tool section's result beyond two lines. The header,
+//! the Settlement glance in full, every heading and three Here rows always stay.
 
 use fn_sim::Pos;
 use fn_sim::building::BuildingId;
 use fn_sim::world::{CommandError, Unit};
 use fn_ui::build;
 use fn_ui::endeavor::EndeavorStatus;
-use fn_ui::inspect::{Hint, Line, tooltip_lines};
+use fn_ui::inspect::{Hint, Line, tile_lines, tooltip_lines};
 use fn_ui::text::describe_stack;
-use fn_ui::tools::{bend_ability, usable_abilities};
+use fn_ui::tools::bend_ability;
 use fn_ui::view::{
     Activity, SeasonView, SideView, activity_counts, food_in_stores, materials, need_flags,
     season_view, side_view,
@@ -111,11 +116,11 @@ const ALERTS_SHOWN: usize = 6;
 /// At most this many Materials rows show at once, even with room for more (#416,
 /// docs/design/side-panel-v2.md "Zone 1": "Spare height adds a second materials row").
 const MATERIALS_ROWS_MAX: usize = 2;
-/// At most this many lines a Cursor Detail wraps to (docs/design/side-panel.md: Cursor "gets the
-/// spare rows"), so a nation name plus a position ("Air Nomads - Foraging at (79, 75)") never
-/// silently loses its tail to [`crate::widgets::fit`]'s ellipsis instead of wrapping (#349 hit
-/// this once boulders gave foothill pathing a reason to differ from before).
-const CURSOR_DETAIL_LINES: usize = 2;
+/// At most this many lines a Here Detail wraps to (docs/design/side-panel.md: Cursor, now Here,
+/// "gets the spare rows"), so a nation name plus a position ("Air Nomads - Foraging at (79, 75)")
+/// never silently loses its tail to [`crate::widgets::fit`]'s ellipsis instead of wrapping (#349
+/// hit this once boulders gave foothill pathing a reason to differ from before).
+const HERE_DETAIL_LINES: usize = 2;
 /// A research bar is this many cells.
 const BAR_CELLS: usize = 10;
 
@@ -124,7 +129,7 @@ struct Section {
     title: String,
     right: String,
     rows: Vec<Row>,
-    /// Shown even with no rows (People, Endeavor, Tool, Cursor): their heading is still useful
+    /// Shown even with no rows (People, Endeavor, Tool, Here): their heading is still useful
     /// on its own (docs/design/side-panel.md "Sections, top to bottom").
     always: bool,
     /// The heading's title tone: `Tone::Heading` for every section but Tool, which wears the
@@ -182,10 +187,9 @@ struct Data {
     /// The Settlement glance's Gate row (#416, #235, #242): the signs met and the first missing
     /// one's short count; `None` with no endeavor in the data.
     gate: Option<Row>,
-    /// The Tool section's rows for the Build tool's chosen building (#111; its full picker moved
-    /// to the Build modal, #285), or every usable ability for the Bend tool (#248,
-    /// `bend_ability_rows`, the current one first so fitting can keep it alone); empty for every
-    /// other tool, or with nothing placeable or castable.
+    /// The Tool section's one row: the Build tool's chosen building (#111; its full picker moved
+    /// to the Build modal, #285), or the Bend tool's current ability and bender count (#418,
+    /// `bend_ability_rows`); empty for every other tool, or with nothing placeable or castable.
     picker: Vec<Row>,
     /// The Tool section's last result, wrapped to at most [`NOTICE_LINES`].
     notice: Vec<Row>,
@@ -411,35 +415,25 @@ fn picker_rows(
     vec![Row::text(name, name_tone), Row::pair("", Tone::Dim, right, right_tone)]
 }
 
-/// The Tool section's rows while the Bend tool is active (#248, docs/design/endgame.md "The
-/// transformation"): every ability someone in the settlement can cast, the one `B` would channel
-/// next marked, with how many could cast it ("Raise Earth: 14 benders", `World::caster_count`),
-/// the current ability first so fitting ("the Bend ability list down to the current ability",
-/// docs/design/side-panel.md) can drop everyone else and still leave it on screen. Empty off the
-/// Bend tool, which keeps the Build tool's `picker_rows` in its slot.
+/// The Tool section's one row while the Bend tool is active (#418, docs/design/side-panel-v2.md
+/// "Zone 3"): the current ability (the one `B` would channel next, or cycles to, #248) and how
+/// many in the settlement could cast it ("Hearthflame 20 benders", `World::caster_count`), the
+/// same shape the Build tool's `picker_rows` gives its one chosen building. `B` already cycles,
+/// and the active tool banner already says `B: next ability` (#307), so the rest of the list
+/// moved out rather than grow a row per ability learned. Empty off the Bend tool, or with
+/// nothing castable, which keeps the Build tool's `picker_rows` in the same slot.
 fn bend_ability_rows(session: &Session, marks: &Marks) -> Vec<Row> {
     let defs = &session.defs;
-    let current = bend_ability(session);
-    let mut abilities = usable_abilities(session);
-    if let Some(at) = current.and_then(|c| abilities.iter().position(|&id| id == c)) {
-        abilities.swap(0, at);
-    }
-    abilities
-        .into_iter()
-        .map(|id| {
-            let def = defs.ability(id);
-            let mark = if Some(id) == current { marks.pointer } else { " " };
-            let casters = session.world.caster_count(id, defs);
-            let word = if casters == 1 { "bender" } else { "benders" };
-            let name_tone = if Some(id) == current { Tone::Title } else { Tone::Text };
-            Row::pair(
-                format!("{mark}{}", def.name),
-                name_tone,
-                format!("{casters} {word}"),
-                Tone::Dim,
-            )
-        })
-        .collect()
+    let Some(current) = bend_ability(session) else { return Vec::new() };
+    let def = defs.ability(current);
+    let casters = session.world.caster_count(current, defs);
+    let word = if casters == 1 { "bender" } else { "benders" };
+    vec![Row::pair(
+        format!("{}{}", marks.pointer, def.name),
+        Tone::Title,
+        format!("{casters} {word}"),
+        Tone::Dim,
+    )]
 }
 
 /// Whether the building the Build tool would place fits the cursor's tile, or the reason it
@@ -458,7 +452,7 @@ fn placement_rows(
         None => vec![Row::text("Can build here", Tone::Ok)],
         Some(why) => {
             let why = build::describe_error(session, CommandError::Build(why));
-            wrap(&format!("Can't build here: {why}"), width, CURSOR_DETAIL_LINES, ellipsis)
+            wrap(&format!("Can't build here: {why}"), width, HERE_DETAIL_LINES, ellipsis)
                 .into_iter()
                 .map(|l| Row::text(l, Tone::Warn))
                 .collect()
@@ -466,12 +460,18 @@ fn placement_rows(
     }
 }
 
-/// The tile under the cursor: whether the Build tool's choice would fit there, then the
-/// tooltip, then anything else lying on it. What `Enter` does next in a tool is the active tool
-/// banner's own line now (#307, `crate::banner`), not repeated here.
+/// What is under the cursor: whether the Build tool's choice would fit there, then the tile's
+/// own tooltip, then anything else lying on it. What `Enter` does next in a tool is the active
+/// tool banner's own line now (#307, `crate::banner`), not repeated here.
 ///
-/// A Detail line wraps (at most [`CURSOR_DETAIL_LINES`]) instead of fitting with an ellipsis:
-/// the Cursor section is always last and "gets the spare rows" (docs/design/side-panel.md), so
+/// The unit standing there, if any, is the tooltip's own job (`fn_ui::inspect::tooltip_lines`)
+/// -- unless it's the very unit the selection bar already has open, in which case Here falls
+/// back to the tile's own lines instead (`fn_ui::inspect::tile_lines`, #418): the bar already
+/// names it, so Here naming it again would just repeat the name, the task and (while #226 keeps
+/// an occupant off the map) nothing else.
+///
+/// A Detail line wraps (at most [`HERE_DETAIL_LINES`]) instead of fitting with an ellipsis:
+/// the Here section is always last and "gets the spare rows" (docs/design/side-panel.md), so
 /// unlike every other section's rows, it can afford to grow rather than lose a tail a player (or
 /// an agent reading the panel, #320) might need.
 fn cursor_rows(
@@ -486,7 +486,13 @@ fn cursor_rows(
     if ui.tool == Tool::Build {
         rows.extend(placement_rows(session, pos, choice, width, ellipsis));
     }
-    let mut lines = tooltip_lines(session, ui.tool, pos).unwrap_or_default();
+    let unit_here = session.world.units_at(pos).next();
+    let selected_here = unit_here.is_some_and(|u| Some(u.id) == ui.selected);
+    let mut lines = if selected_here {
+        tile_lines(session, ui.tool, pos).unwrap_or_default()
+    } else {
+        tooltip_lines(session, ui.tool, pos).unwrap_or_default()
+    };
     // The tooltip names the top thing on the tile; the section lists what else is there.
     if let Some((_, stack)) = session.world.ground_items().find(|&(q, _)| q == pos) {
         lines.push(Line::Detail(format!(
@@ -494,17 +500,28 @@ fn cursor_rows(
             describe_stack(&session.defs, Some(stack))
         )));
     }
-    if let Some(stack) = session.world.stored_at(pos) {
-        lines.push(Line::Detail(format!("Stored: {}", describe_stack(&session.defs, Some(stack)))));
-    }
-    if session.world.stockpile_zones().any(|q| q == pos) {
-        lines.push(Line::Detail("Stockpile".into()));
+    // Stored and the zone itself merge into one line now (#418): "Stockpile: 9 Wood", or
+    // "Stockpile: empty" with nothing stored there yet. A plain tile's own tooltip already
+    // names this (`fn_ui::inspect::stockpile_line`), so this only still matters for a resource
+    // tile a stockpile zone sits under (`PathRules::resources_block` lets some nations zone
+    // over one), which returns before reaching that line.
+    let named_already =
+        lines.iter().any(|l| matches!(l, Line::Detail(d) if d.starts_with("Stockpile")));
+    if !named_already {
+        if let Some(stack) = session.world.stored_at(pos) {
+            lines.push(Line::Detail(format!(
+                "Stockpile: {}",
+                describe_stack(&session.defs, Some(stack))
+            )));
+        } else if session.world.stockpile_zones().any(|q| q == pos) {
+            lines.push(Line::Detail("Stockpile: empty".into()));
+        }
     }
     for line in lines {
         match line {
             Line::Title(s) => rows.push(Row::text(s, Tone::Strong)),
             Line::Detail(s) => rows.extend(
-                wrap(&s, width, CURSOR_DETAIL_LINES, ellipsis)
+                wrap(&s, width, HERE_DETAIL_LINES, ellipsis)
                     .into_iter()
                     .map(|l| Row::text(l, Tone::Text)),
             ),
@@ -533,9 +550,9 @@ fn gather(
     let view = side_view(session, ui.tool, &ui.notice, ui.choice, &ui.alerts);
     let ellipsis = marks.ellipsis;
     // Just the chosen building (#285 moved the rest of the picker to the Build modal); the Bend
-    // tool uses the same slot for every usable ability instead (#248). The tool's own hint
-    // (`UiState::tool_hint`) is the status line's and the active tool banner's now (#307), not a
-    // row here (docs/design/side-panel.md "Sections, top to bottom").
+    // tool uses the same slot for its current ability's one row instead (#248, #418). The tool's
+    // own hint (`UiState::tool_hint`) is the status line's and the active tool banner's now
+    // (#307), not a row here (docs/design/side-panel.md "Sections, top to bottom").
     let picker: Vec<Row> = if ui.tool == Tool::Bend {
         bend_ability_rows(session, marks)
     } else {
@@ -629,7 +646,7 @@ fn sections(d: &Data, k: Knobs, palette: &Palette) -> Vec<Section> {
     // The newest alerts are the last rows; a short panel keeps those.
     let skip = d.alerts.len().saturating_sub(k.alerts);
     let alerts = Section::new("ALERTS", "[L]", d.alerts.iter().skip(skip).cloned().collect());
-    // Just above Cursor, in the tool's own tint (docs/design/side-panel.md "Headings"). Select
+    // Just above Here, in the tool's own tint (docs/design/side-panel.md "Headings"). Select
     // mode has no tool to talk about.
     let tool = (d.view.tool != Tool::Select).then(|| {
         let mut rows: Vec<Row> = d.picker.iter().take(k.picker).cloned().collect();
@@ -641,9 +658,10 @@ fn sections(d: &Data, k: Knobs, palette: &Palette) -> Vec<Section> {
             .map_or(Tone::Heading, |t| Tone::Custom(palette.color(palette.tint_rgb(t))));
         Section::new(name, format!("[{}]", d.view.tool.key()), rows).always().tint(tone)
     });
-    let cursor = Section::new("CURSOR", d.cursor_pos.clone(), d.cursor.clone()).always();
+    // CURSOR until #418: HERE, keeping the coordinates on the heading.
+    let here = Section::new("HERE", d.cursor_pos.clone(), d.cursor.clone()).always();
     let all = [Some(settlement), Some(alerts), tool];
-    all.into_iter().flatten().chain([cursor]).filter(Section::visible).collect()
+    all.into_iter().flatten().chain([here]).filter(Section::visible).collect()
 }
 
 /// The rows the header and `sections` take: one row per heading, no blank rows between them
@@ -797,7 +815,7 @@ mod tests {
         assert_eq!(split[1].right.as_ref().unwrap().0, bed.cost);
     }
 
-    /// The Cursor section's placement line (#275): `Can build here` where the chosen building
+    /// The Here section's placement line (#275): `Can build here` where the chosen building
     /// fits, and `fn_ui::build::describe_error`'s reason where it doesn't; `None` with nothing
     /// chosen.
     #[test]
@@ -862,10 +880,10 @@ mod tests {
         assert!((0.0..=4.0).contains(&left), "{text}");
     }
 
-    /// The Cursor section lists a building's occupants last (#226, #229), "Mai, idle" until
+    /// The Here section lists a building's occupants last (#226, #229), "Mai, idle" until
     /// #227 gives them something to do; none off a building or on one with nobody inside.
     #[test]
-    fn the_cursor_section_lists_a_building_s_occupants_last() {
+    fn the_here_section_lists_a_building_s_occupants_last() {
         use fn_sim::Nation;
         use fn_sim::building::Building;
         use fn_sim::geom::Footprint;
@@ -902,5 +920,66 @@ mod tests {
         assert!(s.world.enter_building(0, at, &s.defs));
         let rows = cursor_rows(&s, &ui, None, 28, '…');
         assert_eq!(rows.last().map(Row::plain), Some(format!("{name}, idle")));
+    }
+
+    /// Once the selection bar is open for the unit under the cursor, Here shows the tile only,
+    /// not the unit again (#418): the bar already names it, its task and `Bends N of M`, so
+    /// repeating the name here is only noise. Moving the cursor off it, or deselecting, brings
+    /// the unit's own lines straight back.
+    #[test]
+    fn the_here_section_shows_the_tile_not_the_unit_once_its_bar_is_open() {
+        use fn_sim::Nation;
+        let s = Session::new(7, Nation::Earth, 48, 32);
+        let unit = s.world.units[0].clone();
+        let mut ui = UiState::new(&s, (120, 40));
+        ui.cursor = unit.pos;
+
+        let unselected = cursor_rows(&s, &ui, None, 28, '…');
+        assert_eq!(unselected.first().map(Row::plain), Some(unit.name.clone()), "{unselected:?}");
+
+        ui.select(Some(unit.id));
+        let selected = cursor_rows(&s, &ui, None, 28, '…');
+        assert_ne!(
+            selected.first().map(Row::plain),
+            Some(unit.name.clone()),
+            "the bar already names it: {selected:?}"
+        );
+
+        ui.select(None);
+        let deselected = cursor_rows(&s, &ui, None, 28, '…');
+        assert_eq!(deselected.first().map(Row::plain), Some(unit.name), "{deselected:?}");
+    }
+
+    /// A stockpile zone's own Here rows merge into one `Stockpile: ...` line (#418), not a
+    /// `Stored:` line plus a bare `Stockpile` row -- and not two `Stockpile:` lines either, the
+    /// tile's own tooltip (`fn_ui::inspect::stockpile_line`) already naming an empty zone the
+    /// same way.
+    #[test]
+    fn the_stockpile_and_stored_lines_merge_into_one() {
+        use fn_sim::Nation;
+        use fn_sim::world::Command;
+        let mut s = Session::new(7, Nation::Earth, 48, 32);
+        let pos = s
+            .world
+            .map
+            .iter()
+            .find(|(p, t)| {
+                t.terrain == fn_sim::Terrain::Land
+                    && t.resource.is_none()
+                    && !s.world.units.iter().any(|u| u.pos == *p)
+            })
+            .map(|(p, _)| p)
+            .unwrap();
+        s.apply(Command::DesignateStockpile { pos }).unwrap();
+        let mut ui = UiState::new(&s, (120, 40));
+        ui.cursor = pos;
+        let rows = cursor_rows(&s, &ui, None, 28, '…');
+        let stockpile_rows: Vec<_> =
+            rows.iter().filter(|r| r.plain().starts_with("Stockpile")).collect();
+        assert_eq!(
+            stockpile_rows.iter().map(|r| r.plain()).collect::<Vec<_>>(),
+            vec!["Stockpile: empty".to_owned()],
+            "{rows:?}"
+        );
     }
 }

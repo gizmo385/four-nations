@@ -121,7 +121,7 @@ fn the_smallest_terminal_draws_the_whole_screen() {
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, (80, 24)));
     assert!(!text.contains("too small"));
     assert!(text.contains("EARTH KINGDOM"), "{text}");
-    assert!(text.contains("CURSOR"), "{text}");
+    assert!(text.contains("HERE"), "{text}");
     assert_eq!(text.lines().count(), 24);
 }
 

@@ -5,11 +5,11 @@
 │   Needs: Writing        Needs: Earthen Wal…  ││ Food 0 · 0/head              │
 │                                              ││ Shelter ░░░░░░░░░░   0%      │
 │  · Earthen Walls      ▸· Metalbending        ││ Gate 0/9 · 10 people     [G] │
-│   Locked      120 pts   Locked      500 pts  │├─ CURSOR ────────── (94, 64) ─┤
+│   Locked      120 pts   Locked      500 pts  │├─ HERE ──────────── (94, 64) ─┤
 │   Needs: Earth Shapi…   Needs: Seismic Sen…  ││ Tyro                         │
-│                                              ││ Earth Kingdom - Idle         │
-│  · Seismic Sense                             ││ Carrying: nothing - Bends: 0 │
-│   Locked      250 pts                        ││ Press Enter to select        │
+│                                              ││ Idle                         │
+│  · Seismic Sense                             ││ Press Enter to select        │
+│   Locked      250 pts                        ││                              │
 │   Needs: Tunneling                           ││                              │
 │                                              ││                              │
 │                                              ││                              │

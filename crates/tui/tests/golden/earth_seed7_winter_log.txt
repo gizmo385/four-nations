@@ -11,7 +11,7 @@
 │                                                                                      ││ Winter. Wild plants rest,…   │
 │                                                                                      ││ First frost: 69 wild plants… │
 │                                                                                      ││ Chi to spare, no bend…       │
-│                                                                                      │├─ CURSOR ────────── (94, 64) ─┤
+│                                                                                      │├─ HERE ──────────── (94, 64) ─┤
 │                                                                                      ││ Coast                        │
 │                                                                                      ││ Plains (94, 64)              │
 │                                                                                      ││ Elevation 152                │

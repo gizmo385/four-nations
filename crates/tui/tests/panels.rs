@@ -422,7 +422,7 @@ fn the_people_row_is_one_line_and_a_starving_unit_flags_in_the_bad_tone() {
     let mut b = app(7, Nation::Earth, SMALL);
     push_to_twenty(&mut b);
     let frame = text(&mut b, SMALL);
-    assert!(frame.contains("People 20") && frame.contains("CURSOR"), "{frame}");
+    assert!(frame.contains("People 20") && frame.contains("HERE"), "{frame}");
 }
 
 #[test]
@@ -500,12 +500,12 @@ fn the_sections_come_in_ui_md_order() {
     // name, not the literal word "TOOL" (docs/design/side-panel.md "Headings"), but "BEND" also
     // names itself in the active tool banner's own row (#307) above the panel, so this looks for
     // its heading's own key bracket instead; the seed moved to the panel's bottom edge, after
-    // CURSOR, as "seed" (lower case).
-    let order: Vec<&str> = ["SETTLEMENT", "ALERTS", "[B]", "CURSOR", "seed"]
+    // HERE, as "seed" (lower case).
+    let order: Vec<&str> = ["SETTLEMENT", "ALERTS", "[B]", "HERE", "seed"]
         .into_iter()
         .filter(|s| frame.contains(s))
         .collect();
-    assert!(order.contains(&"SETTLEMENT") && order.contains(&"CURSOR"), "{frame}");
+    assert!(order.contains(&"SETTLEMENT") && order.contains(&"HERE"), "{frame}");
     for pair in order.windows(2) {
         // Compare by row: the map shares each row with the panel.
         let row = |s: &str| frame[..at(s)].matches('\n').count();
@@ -519,7 +519,7 @@ fn a_small_terminal_keeps_the_cursor_and_settlement_glance_with_every_section_on
         let mut a = bending_game_for(nation);
         run(&mut a, "b <enter>");
         let frame = text(&mut a, SMALL);
-        assert!(frame.contains("CURSOR"), "{nation:?}\n{frame}");
+        assert!(frame.contains("HERE"), "{nation:?}\n{frame}");
         assert!(frame.contains("Enter: bend"), "{nation:?}\n{frame}");
         assert!(frame.contains("SETTLEMENT"), "{nation:?}\n{frame}");
     }
@@ -546,7 +546,7 @@ fn every_heading_is_on_screen_at_80x24_with_a_tool_and_a_notice() {
     let frame = text(&mut a, SMALL);
     // Stores hides itself with nothing stockpiled yet (own test: `stores_appear_once_...`); it
     // isn't exercised here.
-    for heading in ["SETTLEMENT", "HARVEST", "CURSOR"] {
+    for heading in ["SETTLEMENT", "HARVEST", "HERE"] {
         assert!(frame.contains(heading), "{heading} in\n{frame}");
     }
 }
@@ -561,7 +561,7 @@ fn ascii_headings_start_with_a_plus_dash_and_name_their_section() {
     let frame = to_text(&render_app(&mut a, &p, SMALL));
     let headings: Vec<&str> = frame.lines().filter(|l| l.contains("+-")).collect();
     assert!(!headings.is_empty(), "{frame}");
-    for section in ["SETTLEMENT", "HARVEST", "CURSOR"] {
+    for section in ["SETTLEMENT", "HARVEST", "HERE"] {
         assert!(
             headings.iter().any(|l| l.contains("+-") && l.contains(section)),
             "{section} in\n{}",
@@ -1070,7 +1070,7 @@ fn every_settlement_glance_row_is_on_screen_at_80x24_with_everything_on() {
         "Research: none set", // the Research row, no target yet
         "Gate 0/9",           // the Gate row
         "HARVEST",            // the active tool
-        "CURSOR",
+        "HERE",
     ] {
         assert!(frame.contains(want), "{want:?} in\n{frame}");
     }

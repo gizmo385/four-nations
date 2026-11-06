@@ -7,7 +7,7 @@
 │ 00:04 Jee used Hearthflame at (25, 15) - bend 1 of 10                                ││ Gate 0/9 · 10 people     [G] │
 │ 00:09 Noriko used Hearthflame at (24, 19) - bend 2 of 10                             │├─ ALERTS ─────────────── [L] ─┤
 │ 00:09 Shyu used Hearthflame at (27, 16) - bend 2 of 10                               ││ Kuzon's Hearthflame failed:… │
-│ 00:09 Lu Ten used Hearthflame at (21, 17) - bend 2 of 10                             │├─ CURSOR ────────── (25, 16) ─┤
+│ 00:09 Lu Ten used Hearthflame at (21, 17) - bend 2 of 10                             │├─ HERE ──────────── (25, 16) ─┤
 │ 00:09 Kiyi used Hearthflame at (25, 19) - bend 2 of 10                               ││ Mountain                     │
 │                                                                                      ││ Plains (25, 16)              │
 │                                                                                      ││ Elevation 193                │
