@@ -25,7 +25,8 @@ small settlement of one of the four nations. Your people gather, build, eat, sle
 2. **Indirect control.** You designate work and the people do it, subject to their needs, as
    in the 2013 version, RimWorld, or Dwarf Fortress.
 3. **Survival pressure first, then growth.** Hunger, thirst and energy (and later, chi) keep
-   early decisions meaningful.
+   early decisions meaningful. Exposure, injury and sickness hurt without enemies, and herbs,
+   the Healing Hut and Healing Water answer them ([harm.md](harm.md), proposed).
 4. **Readable simulation.** You can hover anything and see why it's happening.
 
 ## One nation, no war (decided 2026-10-21)

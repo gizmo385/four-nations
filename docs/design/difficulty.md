@@ -120,7 +120,9 @@ campfire, a Hearthflame or an Inner Fire aura: anything `is_heated` already answ
 *cold*. A cold unit loses energy x1.5 and hunger x1.25. Asleep, it sleeps at x0.5 unless it's
 heated or in a bed with a `sleep_bonus` above 1 (the igloo), so Water's ice construction is
 winter shelter. Cold never damages health directly: it kills only through the needs it drains, which
-the player can see coming. Fire's `heating` modifier already widens its campfires, and Inner
+the player can see coming. ([harm.md](harm.md), proposed in #385, narrows this: a settler *asleep*
+in the open on cold land takes frostbite, and anyone awake still feels the cold only through
+needs.) Fire's `heating` modifier already widens its campfires, and Inner
 Fire already moves with its carrier, so Fire endures the cold best through data that already
 exists.
 
