@@ -1,6 +1,6 @@
 # Text voice: how the game talks
 
-Status: **proposed** (#401, from the owner's 2026-11-06 playtest notes). Applies to every string a
+Status: **accepted except one open question** (#401, from the owner's 2026-11-06 playtest notes). Applies to every string a
 player reads: the TUI, `fn_ui` view text, and the descriptions, names and hints in `data/*.toml`.
 It does not cover developer text (`fn_tui --help`, data validation errors, test messages, doc
 comments).
@@ -143,14 +143,19 @@ blocked by #401, and each must leave golden frames re-blessed with the diff revi
 Known overlaps: #381 rewords the standing harvest notice and #393 adds harm alerts. Whichever
 lands second follows this guide and rebases over the other.
 
-## Open questions for the owner
+## Owner decisions
 
-1. **Alerts without a trailing period?** Recommended: yes, every log line and toast is a fragment
-   with no period, matching most of today's lines. Flavour text keeps its period.
-2. **Should season changes keep any mood?** Recommended: no. "Winter has come" plus the effect.
-   The setting's colour lives in flavour text and art.
-3. **Canon name-drops in tech blurbs** (Ba Sing Se, Republic City)? Recommended: drop the
-   comparison form, keep canon nouns where they describe the thing itself (sky bison, the Sun
-   Warriors).
-4. **One set of keys per screen?** Recommended: the screen frame's footer is the one place a
-   screen's keys show, and the bottom bar on a screen shows only global keys. #406 does this.
+Answered 2026-11-06:
+
+1. **Alerts have no trailing period.** Every log line and toast is a fragment. Flavour text keeps
+   its period.
+2. **Season changes: still open.** Candidates, from plain to light mood:
+   - Plain: `Winter has come: wild plants stop growing`, `Spring has come`
+   - Light: `Winter sets in: wild plants stop growing`, `Spring thaw: wild plants grow again`
+   - Today: `Winter. Wild plants rest, and the cold tires people away from fires.`,
+     `Spring: the land wakes.`
+   Recommended: light. One evocative verb is fine as long as the line still states the effect.
+3. **No canon comparisons in tech blurbs** ("as in Ba Sing Se", "Republic City style"). Canon
+   nouns that describe the thing itself (sky bison, the Sun Warriors) stay.
+4. **One set of keys per screen.** The screen frame's footer is the one place a screen's keys
+   show, and the bottom bar on a screen shows only global keys. #406 does this.
