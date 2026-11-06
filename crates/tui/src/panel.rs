@@ -664,6 +664,10 @@ pub fn draw_panel(
     let head = header(&d.view, &marks);
     let notice_floor = d.notice.len().min(NOTICE_FLOOR);
     let picker_floor = usize::from(!d.picker.is_empty());
+    // Fitting gives up alerts beyond the newest, but never the newest itself while at least one
+    // is live (#415): the ALERTS heading on its own, with every row gone, would otherwise read as
+    // "no alerts" instead of "a live one that got clipped".
+    let alerts_floor = usize::from(!d.alerts.is_empty());
     let mut k = Knobs {
         units: d.activity_rows.len(),
         alerts: d.alerts.len().min(ALERTS_SHOWN),
@@ -677,7 +681,7 @@ pub fn draw_panel(
     while height(head.len(), &sections(&d, k, palette)) > usize::from(inner.height) {
         if k.endeavor {
             k.endeavor = false;
-        } else if k.alerts > 0 {
+        } else if k.alerts > alerts_floor {
             k.alerts -= 1;
         } else if k.research > 1 {
             k.research -= 1;
