@@ -30,12 +30,13 @@ fn difficulty_turns_on_the_season_section() {
     let out = fn_tui().args(["7", "earth", "--frame", "--difficulty", "normal"]).output().unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let text = String::from_utf8(out.stdout).unwrap();
-    assert!(text.contains("SPRING · Y1"), "{text}");
-    assert!(text.contains("Food in stores"), "{text}");
+    assert!(text.contains("Spring Y1"), "{text}");
+    assert!(text.contains("Food 0 · 0/head  mild"), "{text}");
 
     let out = fn_tui().args(["7", "earth", "--frame"]).output().unwrap();
     let text = String::from_utf8(out.stdout).unwrap();
-    assert!(!text.contains("Food in stores"), "no preset: seasons stay off:\n{text}");
+    assert!(!text.contains("Spring Y1"), "no preset: seasons stay off:\n{text}");
+    assert!(!text.contains("mild"), "no preset: no winter outlook word either:\n{text}");
 }
 
 #[test]

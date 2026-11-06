@@ -1,17 +1,17 @@
 ┏──────────────────────────────────── ◆ ENDEAVOR ◆ ────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
 │ The Harmony Gate                                                        0 of 9 signs ││ ▶ Running x1           00:00 │
-│ A great work with the Avatar. When every sign is met, word of the settlement reaches │├─ PEOPLE ───────────────── 6 ─┤
-│ Aang.                                                                                ││ Idle 6                   [N] │
-│                                                                                      │├─ RESEARCH ───────────────────┤
-│ Stage: not begun                                                                     ││ No target set        3.0/min │
-│                                                                                      ││ 0 pts banked                 │
-│ PEOPLE                                                                               │├─ ENDEAVOR ───────────── 0/9 ─┤
-│   Population                     ████░░░░░░      6/16                                ││ Next: 10 more people     [G] │
-│   Spare beds and food draw newcomers                                                 │├─ CURSOR ────────── (94, 64) ─┤
-│   Everyone has a bed             ░░░░░░░░░░       0/6                                ││ Tyro                         │
-│   Build beds                                                                         ││ Earth Kingdom - Idle         │
-│                                                                                      ││ Carrying: nothing - Bends: 0 │
-│ BUILDINGS                                                                            ││ Press Enter to select        │
+│ A great work with the Avatar. When every sign is met, word of the settlement reaches │├─ SETTLEMENT ─────────── [N] ─┤
+│ Aang.                                                                                ││ People 6              Idle 6 │
+│                                                                                      ││ Food 0 · 0/head              │
+│ Stage: not begun                                                                     ││ Research: none set       [T] │
+│                                                                                      ││ Gate 0/9 · 10 people     [G] │
+│ PEOPLE                                                                               │├─ CURSOR ────────── (94, 64) ─┤
+│   Population                     ████░░░░░░      6/16                                ││ Tyro                         │
+│   Spare beds and food draw newcomers                                                 ││ Earth Kingdom - Idle         │
+│   Everyone has a bed             ░░░░░░░░░░       0/6                                ││ Carrying: nothing - Bends: 0 │
+│   Build beds                                                                         ││ Press Enter to select        │
+│                                                                                      ││                              │
+│ BUILDINGS                                                                            ││                              │
 │   One of every building          ░░░░░░░░░░       0/8                                ││                              │
 │   Raise something new                                                                ││                              │
 │                                                                                      ││                              │

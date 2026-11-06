@@ -92,7 +92,7 @@ fn t_opens_the_screen_and_t_or_esc_close_it_with_the_side_panel_staying() {
     assert!(frame.contains("TIER 1"), "{frame}");
     // The side panel is all there: its header, a section and the status line.
     assert!(frame.contains("EARTH KINGDOM"), "{frame}");
-    assert!(frame.contains("PEOPLE"), "{frame}");
+    assert!(frame.contains("SETTLEMENT"), "{frame}");
     assert!(frame.lines().last().unwrap().contains("RESEARCH"), "the status line says so");
 
     run(&mut a, "t");

@@ -389,22 +389,11 @@ fn push_to_twenty(a: &mut App) {
     }
 }
 
-/// People's own rows, between its heading and the next one (docs/design/side-panel.md "People:
-/// counts, not names"): the activity-count rows, then the need-flags row if any.
-fn people_rows(frame: &str) -> usize {
-    frame
-        .lines()
-        .skip_while(|l| !l.contains("PEOPLE"))
-        .skip(1)
-        .take_while(|l| !l.contains('├') && !l.contains('┗'))
-        .count()
-}
-
-/// #310: with 20 settlers, the People section shows activity counts (not a line per settler),
-/// packed into at most [`fn_tui::panel`]'s own three rows plus one for need flags, at 120x40 and
-/// 80x24 alike; a starving one shows up as "Starving 1", in the bad tone.
+/// #416: the People row is always one line ("People N" left, "Idle N" right), whatever the
+/// settlement's size -- the activity breakdown (Haul, Craft, ...) moved to the Nation screen
+/// (`N`, #308). A starving unit still flags on its own row ("Starving 1"), in the bad tone.
 #[test]
-fn people_shows_activity_counts_in_at_most_the_docs_rows_with_a_starving_unit_in_the_bad_tone() {
+fn the_people_row_is_one_line_and_a_starving_unit_flags_in_the_bad_tone() {
     let mut a = app(7, Nation::Earth, SIZE);
     push_to_twenty(&mut a);
     a.session.world.units[0].needs.hunger = 0.0;
@@ -413,8 +402,7 @@ fn people_shows_activity_counts_in_at_most_the_docs_rows_with_a_starving_unit_in
     let p = Palette::new(&a.session.defs, a.session.world.nation, ColorDepth::TrueColor, false);
     let buf = render_app(&mut a, &p, SIZE);
     let frame = to_text(&buf);
-    assert!(people_rows(&frame) <= 4, "{}:\n{frame}", people_rows(&frame));
-    assert!(frame.contains("Idle"), "{frame}");
+    assert!(frame.contains("People 20") && frame.contains("Idle"), "{frame}");
     assert!(frame.contains("Starving 1"), "{frame}");
     assert!(frame.contains("[N]"), "{frame}");
     let row = frame.lines().position(|l| l.contains("Starving 1")).unwrap();
@@ -425,16 +413,14 @@ fn people_shows_activity_counts_in_at_most_the_docs_rows_with_a_starving_unit_in
     let mut b = app(7, Nation::Earth, SMALL);
     push_to_twenty(&mut b);
     let frame = text(&mut b, SMALL);
-    assert!(people_rows(&frame) <= 2, "{}:\n{frame}", people_rows(&frame));
-    assert!(frame.contains("CURSOR") && frame.contains("RESEARCH"), "{frame}");
+    assert!(frame.contains("People 20") && frame.contains("CURSOR"), "{frame}");
 }
 
 #[test]
 fn research_shows_the_target_bar_and_rate() {
     let mut a = app(7, Nation::Earth, SIZE);
     let frame = text(&mut a, SIZE);
-    assert!(frame.contains("RESEARCH") && frame.contains("No target set"), "{frame}");
-    assert!(frame.contains("3.0/min"), "{frame}");
+    assert!(frame.contains("Research: none set"), "{frame}");
 
     let tech = fn_ui::research::screen_view(&a.session)
         .columns
@@ -447,14 +433,14 @@ fn research_shows_the_target_bar_and_rate() {
     run(&mut a, "<tick 600>");
     let frame = text(&mut a, SIZE);
     assert!(frame.contains(&tech.name), "the target is named:\n{frame}");
-    assert!(frame.contains('%') && frame.contains("pts"), "{frame}");
+    assert!(frame.contains('%'), "{frame}");
     assert!(frame.contains('░') || frame.contains('█'), "with a bar:\n{frame}");
 }
 
 #[test]
-fn stores_appear_once_something_is_stockpiled_and_hide_before() {
+fn materials_appear_once_something_is_stockpiled() {
     let mut a = app(7, Nation::Earth, SIZE);
-    assert!(!text(&mut a, SIZE).contains("STORES"));
+    assert!(fn_ui::view::materials(&a.session).is_empty(), "a new game has stored nothing");
     let from = a.session.world.units[0].pos;
     let near: Vec<Pos> = a
         .session
@@ -485,13 +471,13 @@ fn stores_appear_once_something_is_stockpiled_and_hide_before() {
     }
     for _ in 0..40 {
         run(&mut a, "<tick 100>");
-        if !fn_ui::view::stores(&a.session).is_empty() {
+        if !fn_ui::view::materials(&a.session).is_empty() {
             break;
         }
     }
-    let (item, count) = fn_ui::view::stores(&a.session).remove(0);
+    let (item, count) = fn_ui::view::materials(&a.session).remove(0);
     let frame = text(&mut a, SIZE);
-    assert!(frame.contains("STORES") && frame.contains(&format!("{item} {count}")), "{frame}");
+    assert!(frame.contains(&format!("{item} {count}")), "{frame}");
 }
 
 #[test]
@@ -500,19 +486,17 @@ fn the_sections_come_in_ui_md_order() {
     run(&mut a, "b");
     let frame = text(&mut a, SIZE);
     let at = |s: &str| frame.find(s).unwrap_or_else(|| panic!("{s} in\n{frame}"));
-    // ENDEAVOR is the one section here that may give way on a tight panel (#242): this scene
-    // packs long task lines and several alerts, so it checks the order of whichever show up
-    // rather than demanding every one of them. Modifiers moved to the Nation screen's Traits
-    // (#308), so the panel no longer carries that section. The Tool section's heading is the
-    // tool's own name, not the literal word "TOOL" (docs/design/side-panel.md "Headings"), but
-    // "BEND" also names itself in the active tool banner's own row (#307) above the panel, so
-    // this looks for its heading's own key bracket instead; the seed moved to the panel's bottom
-    // edge, after CURSOR, as "seed" (lower case).
-    let order: Vec<&str> = ["PEOPLE", "RESEARCH", "ENDEAVOR", "ALERTS", "[B]", "CURSOR", "seed"]
+    // Zone 1 (SETTLEMENT, #416) is never trimmed, so it always shows; ALERTS may give way to
+    // nothing but its heading on a tight panel. The Tool section's heading is the tool's own
+    // name, not the literal word "TOOL" (docs/design/side-panel.md "Headings"), but "BEND" also
+    // names itself in the active tool banner's own row (#307) above the panel, so this looks for
+    // its heading's own key bracket instead; the seed moved to the panel's bottom edge, after
+    // CURSOR, as "seed" (lower case).
+    let order: Vec<&str> = ["SETTLEMENT", "ALERTS", "[B]", "CURSOR", "seed"]
         .into_iter()
         .filter(|s| frame.contains(s))
         .collect();
-    assert!(order.contains(&"RESEARCH") && order.contains(&"CURSOR"), "{frame}");
+    assert!(order.contains(&"SETTLEMENT") && order.contains(&"CURSOR"), "{frame}");
     for pair in order.windows(2) {
         // Compare by row: the map shares each row with the panel.
         let row = |s: &str| frame[..at(s)].matches('\n').count();
@@ -521,14 +505,14 @@ fn the_sections_come_in_ui_md_order() {
 }
 
 #[test]
-fn a_small_terminal_keeps_the_cursor_and_research_with_every_section_on() {
+fn a_small_terminal_keeps_the_cursor_and_settlement_glance_with_every_section_on() {
     for nation in Nation::ALL {
         let mut a = bending_game_for(nation);
         run(&mut a, "b <enter>");
         let frame = text(&mut a, SMALL);
         assert!(frame.contains("CURSOR"), "{nation:?}\n{frame}");
         assert!(frame.contains("Enter: bend"), "{nation:?}\n{frame}");
-        assert!(frame.contains("RESEARCH"), "{nation:?}\n{frame}");
+        assert!(frame.contains("SETTLEMENT"), "{nation:?}\n{frame}");
     }
 }
 
@@ -553,7 +537,7 @@ fn every_heading_is_on_screen_at_80x24_with_a_tool_and_a_notice() {
     let frame = text(&mut a, SMALL);
     // Stores hides itself with nothing stockpiled yet (own test: `stores_appear_once_...`); it
     // isn't exercised here.
-    for heading in ["PEOPLE", "RESEARCH", "ENDEAVOR", "HARVEST", "CURSOR"] {
+    for heading in ["SETTLEMENT", "HARVEST", "CURSOR"] {
         assert!(frame.contains(heading), "{heading} in\n{frame}");
     }
 }
@@ -568,7 +552,7 @@ fn ascii_headings_start_with_a_plus_dash_and_name_their_section() {
     let frame = to_text(&render_app(&mut a, &p, SMALL));
     let headings: Vec<&str> = frame.lines().filter(|l| l.contains("+-")).collect();
     assert!(!headings.is_empty(), "{frame}");
-    for section in ["PEOPLE", "RESEARCH", "ENDEAVOR", "HARVEST", "CURSOR"] {
+    for section in ["SETTLEMENT", "HARVEST", "CURSOR"] {
         assert!(
             headings.iter().any(|l| l.contains("+-") && l.contains(section)),
             "{section} in\n{}",
@@ -1028,10 +1012,39 @@ fn golden_frame_of_the_season_section_in_autumn_with_low_stores() {
     run(&mut a, &format!("<tick {}>", per_season * 2 + 1));
     assert_eq!(a.session.world.season(&a.session.defs).id, "autumn");
     let frame = text(&mut a, SMALL);
-    assert!(frame.contains("AUTUMN"), "{frame}");
-    assert!(frame.contains("Food in stores"), "{frame}");
-    assert!(frame.contains("Winter here"), "{frame}");
+    assert!(frame.contains("Autumn"), "{frame}");
+    assert!(frame.contains("Food 0 · 0/head"), "{frame}");
     golden("earth_seed7_autumn_low_stores", &frame);
+}
+
+/// #416's own acceptance criteria: at 80x24, with Season, the Gate (an endeavor is always in
+/// the bundled data), a need flag and a tool active, every row of the Settlement glance still
+/// shows.
+#[test]
+fn every_settlement_glance_row_is_on_screen_at_80x24_with_everything_on() {
+    let mut a = app(7, Nation::Earth, SMALL);
+    a.session.world.set_difficulty(Some("normal".to_owned()));
+    // The same warn-only formula `meters_wear_the_ok_warn_and_bad_tokens` uses: 80% of the low
+    // threshold flags the need (Hungry) without killing the settler (Starving).
+    a.session.world.units[0].needs.hunger = a.session.defs.needs.hunger.low * 0.8;
+    run(&mut a, "h");
+    let frame = text(&mut a, SMALL);
+    for want in [
+        "Spring Y1",  // the header's season, seasons on
+        "SETTLEMENT", // the one heading
+        "People 6",   // People, with Idle right-aligned
+        "Idle 6",
+        "Hungry 1",           // the need-flags row
+        "Food 0 · 0/head",    // the Food row
+        "mild",               // its winter outlook word
+        "Research: none set", // the Research row, no target yet
+        "Gate 0/9",           // the Gate row
+        "HARVEST",            // the active tool
+        "CURSOR",
+    ] {
+        assert!(frame.contains(want), "{want:?} in\n{frame}");
+    }
+    golden("earth_seed7_settlement_glance_80x24", &frame);
 }
 
 #[test]

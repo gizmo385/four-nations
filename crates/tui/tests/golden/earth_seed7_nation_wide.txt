@@ -1,22 +1,22 @@
 ┏───────────────────────────────────────────────────────────────────────────── ◆ NATION ◆ ─────────────────────────────────────────────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
 │ Earth Kingdom · seed 7 · 6 people                                                                                                                              22:40 ││ ▶ Running x1           22:40 │
-│                                                                                                                                                                      │├─ PEOPLE ───────────────── 6 ─┤
-│                                                        Hunger  Thirst  Energy  Health  Chi     Bends                                                                 ││ Idle 4  Haul 1  Eat 1        │
-│ IDLE 4                                                                                                                                                               ││ Hungry 1                 [N] │
-│ ▸ Tyro Idle: stockpile full                            ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                                   │├─ STORES ─────────────────────┤
-│   Ping Idle: stockpile full                            ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                                   ││ Wood 20  Fruit 2             │
-│   Song Idle: stockpile full                            ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                                   │├─ RESEARCH ───────────────────┤
-│   Lin  Idle: stockpile full                            ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                                   ││ No target set        3.0/min │
-│ HAUL 1                                                                                                                                                               ││ 10 pts banked                │
-│   Oma  Fetching 1 Fruit from (92, 64)                  ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                                   │├─ ENDEAVOR ───────────── 0/9 ─┤
-│ EAT 1                                                                                                                                                                ││ Next: 10 more people     [G] │
-│   Ming Foraging at (86, 65)                            ▰▰▱▱▱!  ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                                   │├─ ALERTS ─────────────── [L] ─┤
-│                                                                                                                                                                      ││ 44 wood can't be stored:…    │
-│                                                                                                                                                                      ││ Chi to spare, no bend…       │
-│                                                                                                                                                                      │├─ CURSOR ────────── (94, 64) ─┤
+│                                                                                                                                                                      │├─ SETTLEMENT ─────────── [N] ─┤
+│                                                        Hunger  Thirst  Energy  Health  Chi     Bends                                                                 ││ People 6              Idle 4 │
+│ IDLE 4                                                                                                                                                               ││ Hungry 1                     │
+│ ▸ Tyro Idle: stockpile full                            ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                                   ││ Food 2 · 0/head              │
+│   Ping Idle: stockpile full                            ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                                   ││ Wood 20                      │
+│   Song Idle: stockpile full                            ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                                   ││ Research: none set       [T] │
+│   Lin  Idle: stockpile full                            ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                                   ││ Gate 0/9 · 10 people     [G] │
+│ HAUL 1                                                                                                                                                               │├─ ALERTS ─────────────── [L] ─┤
+│   Oma  Fetching 1 Fruit from (92, 64)                  ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                                   ││ 44 wood can't be stored:…    │
+│ EAT 1                                                                                                                                                                ││ Chi to spare, no bend…       │
+│   Ming Foraging at (86, 65)                            ▰▰▱▱▱!  ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                                   │├─ CURSOR ────────── (94, 64) ─┤
 │                                                                                                                                                                      ││ Coast                        │
 │                                                                                                                                                                      ││ Plains (94, 64)              │
 │                                                                                                                                                                      ││ Elevation 152                │
+│                                                                                                                                                                      ││                              │
+│                                                                                                                                                                      ││                              │
+│                                                                                                                                                                      ││                              │
 │                                                                                                                                                                      ││                              │
 │                                                                                                                                                                      ││                              │
 │                                                                                                                                                                      ││                              │

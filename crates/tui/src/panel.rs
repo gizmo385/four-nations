@@ -1,36 +1,46 @@
-//! The Seal side panel (docs/design/side-panel.md, which revises docs/design/tui.md): a framed
-//! column with the nation's name on the top edge, the seed on the bottom edge, and sections in
-//! the doc's order, each a divider heading joined to the frame (`crate::widgets::heading_row`)
-//! plus a short, fixed shape, with no blank rows between them: the header (one row: run/pause,
-//! speed and the clock), People (activity counts and need flags, #310, not a line per settler --
-//! the roster is the Nation screen's, `N`, #308), Season (#299, under People: food per head and
-//! the band's winter effects; hidden with seasons off), Stores (at most two rows), Research
-//! (target, bar, rate; one row when short), Endeavor (the end game's progress, #235, #242, its
-//! count on the heading; hidden with no endeavor in the data), Alerts (one line each, newest
-//! last), Tool (just above Cursor: the active tool's name in its own tint, the Build tool's
-//! chosen building or the Bend abilities, then the last rectangle's result; hidden off a tool)
-//! and Cursor (what is under the keyboard cursor). The Build tool's full picker moved to its own
-//! modal (`U`, `crate::build`, #285); the panel names only the choice. The nation's modifiers
-//! moved to the Nation screen's Traits (`N`, #308). What `Enter` does next in a tool, and the
-//! tool's own hint, are the active tool banner's own lines (#307, `crate::banner`) and the status
-//! line's, not the panel's.
+//! The Seal side panel (docs/design/side-panel-v2.md, #416, which revises
+//! docs/design/side-panel.md): a framed column with the nation's name on the top edge, the seed
+//! on the bottom edge, and three zones, each a divider heading joined to the frame
+//! (`crate::widgets::heading_row`), with no blank rows between them.
 //!
-//! The panel is a fixed height, so a terminal that is too short for every section gives up rows
-//! in docs/design/side-panel.md's own order: Endeavor's one row, alerts beyond the newest,
-//! Research's second row, Stores' second row, People's group rows past the first (folded into
-//! `+N`), Season's "Winter here" line, the Tool section's result beyond two lines, then the Bend
-//! ability list down to the current ability. The header, every section's heading and three
-//! Cursor rows always stay.
+//! **Zone 1, the header and the Settlement glance (fixed; never trimmed but for its one optional
+//! row):** the header (run/pause and speed left, the season with its time left right while
+//! seasons are on, else the elapsed clock as before); one `SETTLEMENT` heading; People (the
+//! total and Idle, #310 -- the activity breakdown moved to the Nation screen, `N`, #308); need
+//! flags (hidden with nobody flagged); Food (the total, per head, and the winter outlook word);
+//! Materials (non-food items, packed, `+N` fold, a second row with spare height); Research
+//! (target, bar, percent, one row; "Research: none set" in Warn with no target); the Gate (the
+//! signs met and the first missing one's short count, #235, #242; hidden with no endeavor in the
+//! data). The only thing this zone ever grows into spare height is the Materials section's
+//! second row; nothing in it is ever given up first.
+//!
+//! **Zone 2, Alerts** (one line each, newest last; always shows at least its heading and the
+//! newest toast, #415).
+//!
+//! **Zone 3, Here** (named CURSOR until #418): Tool (just above Cursor: the active tool's name
+//! in its own tint, the Build tool's chosen building or the Bend abilities, then the last
+//! rectangle's result; hidden off a tool) and Cursor (what is under the keyboard cursor). The
+//! Build tool's full picker moved to its own modal (`U`, `crate::build`, #285); the panel names
+//! only the choice. The nation's modifiers moved to the Nation screen's Traits (`N`, #308). What
+//! `Enter` does next in a tool, and the tool's own hint, are the active tool banner's own lines
+//! (#307, `crate::banner`) and the status line's, not the panel's.
+//!
+//! The panel is a fixed height, so a terminal too short for everything gives up rows in this
+//! order: alerts beyond the newest, the Tool section's result beyond two lines, then the Bend
+//! ability list down to the current ability. The header, the Settlement glance in full, every
+//! heading and three Cursor rows always stay.
 
 use fn_sim::Pos;
 use fn_sim::building::BuildingId;
 use fn_sim::world::{CommandError, Unit};
 use fn_ui::build;
+use fn_ui::endeavor::EndeavorStatus;
 use fn_ui::inspect::{Hint, Line, tooltip_lines};
 use fn_ui::text::describe_stack;
 use fn_ui::tools::{bend_ability, usable_abilities};
 use fn_ui::view::{
-    SeasonView, SideView, activity_counts, need_flags, season_view, side_view, stores,
+    Activity, SeasonView, SideView, activity_counts, food_in_stores, materials, need_flags,
+    season_view, side_view,
 };
 use fn_ui::{Session, Tool};
 use ratatui::buffer::Buffer;
@@ -90,8 +100,9 @@ const NOTICE_FLOOR: usize = 2;
 const ALERT_LINES: usize = 1;
 /// At most this many alert rows show at once, even with room for more.
 const ALERTS_SHOWN: usize = 3;
-/// At most this many stores rows show at once, even with room for more.
-const STORES_SHOWN: usize = 2;
+/// At most this many Materials rows show at once, even with room for more (#416,
+/// docs/design/side-panel-v2.md "Zone 1": "Spare height adds a second materials row").
+const MATERIALS_ROWS_MAX: usize = 2;
 /// At most this many lines a Cursor Detail wraps to (docs/design/side-panel.md: Cursor "gets the
 /// spare rows"), so a nation name plus a position ("Air Nomads - Foraging at (79, 75)") never
 /// silently loses its tail to [`crate::widgets::fit`]'s ellipsis instead of wrapping (#349 hit
@@ -99,10 +110,6 @@ const STORES_SHOWN: usize = 2;
 const CURSOR_DETAIL_LINES: usize = 2;
 /// A research bar is this many cells.
 const BAR_CELLS: usize = 10;
-/// The People section never shows more activity-count rows than this, however wide the panel or
-/// however many distinct activities are in play (docs/design/side-panel.md "People: counts, not
-/// names": "The groups pack into at most three rows").
-const ACTIVITY_ROWS_MAX: usize = 3;
 
 /// A heading (`crate::widgets::heading_row`) and the rows under it.
 struct Section {
@@ -146,26 +153,27 @@ impl Section {
 /// Everything the sections show, computed once; the fitting loop picks how much of it to use.
 struct Data {
     view: SideView,
-    /// The People section's activity-count rows (#310, docs/design/side-panel.md "People:
-    /// counts, not names"), each paired with the settlers it and every row before it account
-    /// for, so fitting can say how many a dropped tail folds into (`+N`). At most
-    /// [`ACTIVITY_ROWS_MAX`] of them; never empty for a settlement with at least one unit (Idle
-    /// is the fallback group).
-    activity_rows: Vec<(Row, usize)>,
+    /// The Settlement glance's People row (#416): "People N" left, "Idle N" right.
+    people: Row,
     /// The need-flags row (#310): `None` when nobody is flagged, which hides the row.
     need_flags_row: Option<Row>,
-    /// The Season section (#299), under People; `None` with the chosen difficulty preset's
-    /// seasons off, which hides the whole section.
+    /// The chosen difficulty preset's season data (#299); `None` with seasons off, which drops
+    /// the header's season clock and the Food row's winter outlook word.
     season: Option<SeasonView>,
-    stores: Vec<Row>,
-    /// Research's full, two-row shape (target and rate, then the bar).
-    research: Vec<Row>,
-    /// Research's one-row shape, used once `Knobs::research` drops to 1
-    /// (docs/design/side-panel.md "Sections, top to bottom": `Masonry ██████░░░░ 68%`).
-    research_short: Row,
-    /// The Endeavor section's one row (#235, #242); empty with no endeavor in the data. The
-    /// heading carries the `met/total` count (`SideView::endeavor`'s own `count`).
-    endeavor: Vec<Row>,
+    /// The Settlement glance's Food row (#416): the total, per head, and (with seasons on) the
+    /// winter outlook word.
+    food: Row,
+    /// The Settlement glance's Materials rows (#416): non-food items packed into as few rows as
+    /// fit the panel's width, each paired with how many distinct kinds it and every row before
+    /// it account for, so a dropped tail folds into `+N` kinds. At most [`MATERIALS_ROWS_MAX`]
+    /// of them.
+    materials: Vec<(Row, usize)>,
+    /// The Settlement glance's Research row (#416): short shape (target, bar, percent), or
+    /// "Research: none set" in Warn with no target.
+    research: Row,
+    /// The Settlement glance's Gate row (#416, #235, #242): the signs met and the first missing
+    /// one's short count; `None` with no endeavor in the data.
+    gate: Option<Row>,
     /// The Tool section's rows for the Build tool's chosen building (#111; its full picker moved
     /// to the Build modal, #285), or every usable ability for the Bend tool (#248,
     /// `bend_ability_rows`, the current one first so fitting can keep it alone); empty for every
@@ -181,25 +189,17 @@ struct Data {
     repeating_label: Option<String>,
 }
 
-/// How much of each trimmable block to show.
+/// How much of each trimmable block to show. The Settlement glance (#416) isn't knobbed: it
+/// never gives up a row, and `materials` is the one thing it ever grows (`draw_panel`'s own
+/// growth pass, after the shrink loop below settles).
 #[derive(Clone, Copy)]
 struct Knobs {
-    /// How many of `Data::activity_rows` to show; the rest fold into `+N` (#310). Never 0 for a
-    /// live settlement: fitting only takes rows past the first.
-    units: usize,
     alerts: usize,
     picker: usize,
-    stores: usize,
-    /// 2 for Research's full shape, 1 for its short one (`Data::research_short`).
-    research: usize,
-    /// 2 rows (food, then "Winter here") or 1 (food alone); meaningless with `Data::season`
-    /// `None`.
-    season: usize,
     notice: usize,
-    /// Whether the Endeavor section's one row shows; its heading stays either way
-    /// (docs/design/side-panel.md "Sections, top to bottom": "When short, the heading alone
-    /// shows").
-    endeavor: bool,
+    /// How many of `Data::materials` to show, up to [`MATERIALS_ROWS_MAX`]; the rest fold into
+    /// `+N` kinds on the last shown row.
+    materials: usize,
 }
 
 /// The People section's header count (#248, docs/design/endgame.md "The transformation"): the
@@ -216,13 +216,33 @@ fn population_label(view: &SideView) -> String {
 /// The header (docs/design/side-panel.md "Sections, top to bottom"): one row, the run/pause mark,
 /// word and speed on the left, the clock on the right. The seed is the panel's own bottom edge
 /// now, and `Space + -` is the status line's and the key help's.
-fn header(view: &SideView, marks: &Marks) -> Vec<Row> {
-    let (icon, word, tone) = if view.paused {
-        (marks.pause, "Paused", Tone::Paused)
-    } else {
-        (marks.run, "Running", Tone::Running)
-    };
-    vec![Row::pair(format!("{icon} {word} x{}", view.speed), tone, view.clock.clone(), Tone::Text)]
+fn header(view: &SideView, season: Option<&SeasonView>, marks: &Marks) -> Vec<Row> {
+    let (icon, tone) =
+        if view.paused { (marks.pause, Tone::Paused) } else { (marks.run, Tone::Running) };
+    match season {
+        // Seasons on (owner decision 4, #414): the clock gives way to the season and its time
+        // left, which the header otherwise has no room for; the elapsed clock moves to the
+        // Nation screen's header line (`nation::draw`, already there) and the Esc menu
+        // (`crate::menu::draw`).
+        Some(s) => {
+            let left = if view.paused {
+                format!("{icon} Paused")
+            } else {
+                format!("{icon} x{}", view.speed)
+            };
+            let right = format!("{} {}", s.heading.replace(" · ", " "), s.left);
+            vec![Row::pair(left, tone, right, Tone::Text)]
+        }
+        None => {
+            let word = if view.paused { "Paused" } else { "Running" };
+            vec![Row::pair(
+                format!("{icon} {word} x{}", view.speed),
+                tone,
+                view.clock.clone(),
+                Tone::Text,
+            )]
+        }
+    }
 }
 
 /// A channelling unit's status in place of the plain task text ("Channelling Hearthflame 1.2s"):
@@ -236,33 +256,20 @@ pub fn channel_text(session: &Session, unit: &Unit) -> Option<String> {
     })
 }
 
-/// The People section's activity-count rows (#310, docs/design/side-panel.md "People: counts,
-/// not names"): `fn_ui::view::activity_counts` as "Label N" entries, packed into as few rows as
-/// fit `width`, each paired with the settlers it and every row before it account for (so a
-/// dropped tail's count is `total - last shown row's`).
-fn activity_rows(session: &Session, width: usize) -> Vec<(Row, usize)> {
-    let mut rows = Vec::new();
-    let mut line = String::new();
-    let mut line_total = 0usize;
-    let mut cumulative = 0usize;
-    for (activity, n) in activity_counts(session) {
-        let entry = format!("{} {n}", activity.label());
-        if !line.is_empty() && line.chars().count() + 2 + entry.chars().count() > width {
-            cumulative += line_total;
-            rows.push((Row::text(std::mem::take(&mut line), Tone::Text), cumulative));
-            line_total = 0;
-        }
-        if !line.is_empty() {
-            line.push_str("  ");
-        }
-        line.push_str(&entry);
-        line_total += n;
-    }
-    if !line.is_empty() {
-        cumulative += line_total;
-        rows.push((Row::text(line, Tone::Text), cumulative));
-    }
-    rows
+/// The Settlement glance's People row (#416, docs/design/side-panel-v2.md "Zone 1"): "People N"
+/// left, "Idle N" right; the activity breakdown (Haul, Craft, ...) moved to the Nation screen
+/// (`N`, #308), which already groups settlers the same way (`fn_ui::view::activity_counts`).
+fn people_row(session: &Session, view: &SideView) -> Row {
+    let idle = activity_counts(session)
+        .into_iter()
+        .find(|&(a, _)| a == Activity::Idle)
+        .map_or(0, |(_, n)| n);
+    Row::pair(
+        format!("People {}", population_label(view)),
+        Tone::Text,
+        format!("Idle {idle}"),
+        Tone::Text,
+    )
 }
 
 /// The tone a need-flag word wears (#310): the "bad" half of each `fn_ui::view::need_word` pair
@@ -291,58 +298,61 @@ fn need_flags_row(session: &Session) -> Option<Row> {
     Some(Row::spans(spans))
 }
 
-/// What the stockpiles hold, "Wood 12  Stone 4", packed into as few lines as fit `width`.
-fn store_rows(session: &Session, width: usize) -> Vec<Row> {
+/// The Settlement glance's Food row (#416, docs/design/side-panel-v2.md "Zone 1"): the total in
+/// stores, per head, and (with seasons on) the winter outlook word -- the climate band's winter
+/// effects, Warn-toned exactly when `season.food_warn` is (autumn or winter, below
+/// `winter_food_per_head`). With seasons off there is no outlook to show, same as today.
+fn food_row(session: &Session, view: &SideView, season: Option<&SeasonView>, marks: &Marks) -> Row {
+    let food = food_in_stores(session);
+    let per_head = food / (view.people as u32).max(1);
+    let base = format!("Food {food} {} {per_head}/head", marks.dot);
+    match season {
+        Some(s) if !s.outlook.is_empty() => {
+            let tone = if s.food_warn { Tone::Warn } else { Tone::Text };
+            Row::spans(vec![(format!("{base}  "), Tone::Text), (s.outlook.clone(), tone)])
+        }
+        _ => Row::text(base, Tone::Text),
+    }
+}
+
+/// The Settlement glance's Materials rows (#416): non-food items ("Wood 149  Stone 395",
+/// `fn_ui::view::materials`, in the item data's own order), packed into as few rows as fit
+/// `width`, each paired with how many distinct kinds it and every row before it account for, so
+/// a dropped tail folds into `+N` kinds (`sections`'s own job, since the fold has to land on
+/// whichever row fitting actually keeps).
+fn materials_rows(session: &Session, width: usize) -> Vec<(Row, usize)> {
     let mut rows = Vec::new();
     let mut line = String::new();
-    for (name, count) in stores(session) {
+    let mut kinds = 0usize;
+    let mut cumulative = 0usize;
+    for (name, count) in materials(session) {
         let entry = format!("{name} {count}");
         if !line.is_empty() && line.chars().count() + 2 + entry.chars().count() > width {
-            rows.push(Row::text(std::mem::take(&mut line), Tone::Text));
+            cumulative += kinds;
+            rows.push((Row::text(std::mem::take(&mut line), Tone::Text), cumulative));
+            kinds = 0;
         }
         if !line.is_empty() {
             line.push_str("  ");
         }
         line.push_str(&entry);
+        kinds += 1;
     }
     if !line.is_empty() {
-        rows.push(Row::text(line, Tone::Text));
+        cumulative += kinds;
+        rows.push((Row::text(line, Tone::Text), cumulative));
     }
     rows
 }
 
-/// The target and how far along it is, in two rows (docs/design/side-panel.md "Sections, top to
-/// bottom"): the tech and the rate, then the bar, the percentage and the points. With no target,
-/// the points banked.
-fn research_rows(view: &SideView, marks: &Marks) -> Vec<Row> {
-    let r = &view.research;
-    if r.frac == 0.0 && r.label == "No target set" {
-        return vec![
-            Row::pair(r.label.clone(), Tone::Dim, r.rate.clone(), Tone::Dim),
-            Row::text(r.pool.clone(), Tone::Dim),
-        ];
-    }
-    let label =
-        if r.more_queued > 0 { format!("{} +{}", r.label, r.more_queued) } else { r.label.clone() };
-    let (full, empty) = meter(r.frac, BAR_CELLS, marks.full, marks.empty);
-    vec![
-        Row::pair(label, Tone::Strong, r.rate.clone(), Tone::Dim),
-        Row::spans(vec![
-            (full, Tone::Accent),
-            (empty, Tone::Dim),
-            (format!(" {:>3.0}% ", r.frac * 100.0), Tone::Text),
-            (r.pool.clone(), Tone::Dim),
-        ]),
-    ]
-}
-
-/// Research's short, one-row shape (docs/design/side-panel.md "Sections, top to bottom"): the
+/// The Settlement glance's Research row (#416, docs/design/side-panel-v2.md "Zone 1"): the
 /// target's name, its bar and its percent, all on one row ("Masonry ██████░░░░ 68%"). With no
-/// target, the label and the points banked.
-fn research_row_short(view: &SideView, marks: &Marks) -> Row {
+/// target, "Research: none set" in Warn -- the state that most needs the player's attention, not
+/// a dim aside (unlike the old two-row shape's "No target set" / "N pts banked").
+fn research_row(view: &SideView, marks: &Marks) -> Row {
     let r = &view.research;
     if r.frac == 0.0 && r.label == "No target set" {
-        return Row::pair(r.label.clone(), Tone::Dim, r.pool.clone(), Tone::Dim);
+        return Row::pair("Research: none set", Tone::Warn, "[T]", Tone::Dim);
     }
     let (full, empty) = meter(r.frac, BAR_CELLS, marks.full, marks.empty);
     Row::spans(vec![
@@ -353,17 +363,20 @@ fn research_row_short(view: &SideView, marks: &Marks) -> Row {
     ])
 }
 
-/// The side panel's Endeavor section (#235, #242), under Research: the heading carries
-/// `met/total` (`EndeavorStatus::count`); the one row under it names the first missing sign
-/// (docs/design/side-panel.md "Sections, top to bottom": "only the first missing sign"), or, with
-/// nothing missing, the line the bar used to sit above (signs met, or the endeavor's own stage).
-/// Empty with no endeavor in the data, which hides the whole section.
-fn endeavor_rows(view: &SideView) -> Vec<Row> {
-    let Some(e) = &view.endeavor else { return Vec::new() };
-    vec![match e.next.first() {
-        Some(next) => Row::pair(format!("Next: {next}"), Tone::Warn, "[G]", Tone::Dim),
-        None => Row::pair(e.line.clone(), Tone::Dim, "[G]", Tone::Dim),
-    }]
+/// The Settlement glance's Gate row (#416, #235, #242): the signs met and, while any is still
+/// missing, the first one's short count (`SignDef::short`, "3 scrolls"); once nothing is
+/// missing, the line the old Endeavor section's bar used to sit above (signs met, Ready, or the
+/// endeavor's own stage). `None` with no endeavor in the data, which hides the row.
+fn gate_row(e: &EndeavorStatus, marks: &Marks) -> Row {
+    let dot = marks.dot;
+    match e.next.first() {
+        Some(next) => {
+            Row::pair(format!("Gate {} {dot} {next}", e.count), Tone::Warn, "[G]", Tone::Dim)
+        }
+        None => {
+            Row::pair(format!("Gate {} {dot} {}", e.count, e.line), Tone::Text, "[G]", Tone::Dim)
+        }
+    }
 }
 
 /// The Tool section's one row for the Build tool's current choice (#111, #285): its name marked
@@ -537,14 +550,19 @@ fn gather(
             wrap(&e.text, width, ALERT_LINES, ellipsis).into_iter().map(move |l| Row::text(l, tone))
         })
         .collect();
+    let season = season_view(session, winter_food_per_head);
+    let people = people_row(session, &view);
+    let food = food_row(session, &view, season.as_ref(), marks);
+    let research = research_row(&view, marks);
+    let gate = view.endeavor.as_ref().map(|e| gate_row(e, marks));
     Data {
-        activity_rows: activity_rows(session, width).into_iter().take(ACTIVITY_ROWS_MAX).collect(),
+        people,
         need_flags_row: need_flags_row(session),
-        season: season_view(session, winter_food_per_head),
-        stores: store_rows(session, width),
-        research: research_rows(&view, marks),
-        research_short: research_row_short(&view, marks),
-        endeavor: endeavor_rows(&view),
+        season,
+        food,
+        materials: materials_rows(session, width),
+        research,
+        gate,
         picker,
         notice,
         alerts,
@@ -553,6 +571,34 @@ fn gather(
         repeating_label: ui.repeating_label(),
         view,
     }
+}
+
+/// The Settlement glance's own rows (#416, docs/design/side-panel-v2.md "Zone 1"), in order:
+/// People, need flags (if any), Food, Materials (`k.materials` of them, the rest folded into
+/// `+N` kinds on the last one shown), Research, and the Gate (if the data has an endeavor).
+/// Never empty, so [`Section::visible`] always keeps the SETTLEMENT heading on screen.
+fn settlement_rows(d: &Data, k: Knobs) -> Vec<Row> {
+    let mut rows = vec![d.people.clone()];
+    if let Some(flags) = &d.need_flags_row {
+        rows.push(flags.clone());
+    }
+    rows.push(d.food.clone());
+    let shown = k.materials.min(d.materials.len());
+    rows.extend(d.materials.iter().take(shown).map(|(row, _)| row.clone()));
+    if shown < d.materials.len() {
+        let accounted = if shown == 0 { 0 } else { d.materials[shown - 1].1 };
+        let total = d.materials.last().map_or(0, |&(_, n)| n);
+        let dropped = total.saturating_sub(accounted);
+        match rows.last_mut() {
+            Some(last) => last.left.push((format!("  +{dropped}"), Tone::Dim)),
+            None => rows.push(Row::text(format!("+{dropped}"), Tone::Dim)),
+        }
+    }
+    rows.push(d.research.clone());
+    if let Some(gate) = &d.gate {
+        rows.push(gate.clone());
+    }
+    rows
 }
 
 /// The active tool's tint ([`crate::banner::tint`]'s own logic, over `Data` rather than
@@ -567,55 +613,11 @@ fn tool_tint(d: &Data) -> Option<Tint> {
 
 /// The sections as the knobs allow, in order, with the hidden ones left out.
 fn sections(d: &Data, k: Knobs, palette: &Palette) -> Vec<Section> {
-    let people = {
-        // At least one row always shows (`Knobs::units` never reaches 0): fitting only takes
-        // rows past the first (docs/design/side-panel.md "Fitting").
-        let shown = k.units.min(d.activity_rows.len()).max(1);
-        let mut rows: Vec<Row> =
-            d.activity_rows.iter().take(shown).map(|(row, _)| row.clone()).collect();
-        if shown < d.activity_rows.len() {
-            let accounted = d.activity_rows[shown - 1].1;
-            rows.push(Row::text(
-                format!("+{}", d.view.people.saturating_sub(accounted)),
-                Tone::Dim,
-            ));
-        }
-        if let Some(flags) = &d.need_flags_row {
-            rows.push(flags.clone());
-        }
-        // `[N]` sits at the right end of the last row, flags or not (docs/design/side-panel.md
-        // "People: counts, not names").
-        if let Some(last) = rows.last_mut() {
-            last.right = Some(("[N]".to_owned(), Tone::Dim));
-        }
-        Section::new("PEOPLE", population_label(&d.view), rows).always()
-    };
-    // Under People, shortened to fit the heading's own width (docs/design/side-panel.md "How it
-    // fits #299 and #306"); hidden with the chosen difficulty preset's seasons off
-    // (`Data::season` `None`).
-    let season = d.season.as_ref().map(|s| {
-        let mut rows = vec![Row::pair(
-            "Food in stores",
-            Tone::Dim,
-            s.food.clone(),
-            if s.food_warn { Tone::Warn } else { Tone::Text },
-        )];
-        if k.season >= 2 {
-            rows.push(Row::text(s.here.clone(), Tone::Dim));
-        }
-        Section::new(s.heading.clone(), s.left.clone(), rows)
-    });
-    let stores = Section::new("STORES", "", d.stores.iter().take(k.stores).cloned().collect());
-    let research_rows =
-        if k.research >= 2 { d.research.clone() } else { vec![d.research_short.clone()] };
-    let research = Section::new("RESEARCH", "", research_rows);
-    // The heading carries `met/total` either way; the one row under it (the first missing sign)
-    // is the one thing fitting gives up first (docs/design/side-panel.md "Sections, top to
-    // bottom": "When short, the heading alone shows").
-    let endeavor = d.view.endeavor.as_ref().map(|e| {
-        let rows: Vec<Row> = d.endeavor.iter().take(usize::from(k.endeavor)).cloned().collect();
-        Section::new("ENDEAVOR", e.count.clone(), rows).always()
-    });
+    // One `SETTLEMENT` heading, `[N]` on the right, replaces the old PEOPLE, season, STORES,
+    // RESEARCH and ENDEAVOR headings (#416): the zone never gives up a row, so it's always
+    // visible and never knobbed down past `settlement_rows`'s own growth (the Materials section's
+    // second row).
+    let settlement = Section::new("SETTLEMENT", "[N]", settlement_rows(d, k)).always();
     // The newest alerts are the last rows; a short panel keeps those.
     let skip = d.alerts.len().saturating_sub(k.alerts);
     let alerts = Section::new("ALERTS", "[L]", d.alerts.iter().skip(skip).cloned().collect());
@@ -632,7 +634,7 @@ fn sections(d: &Data, k: Knobs, palette: &Palette) -> Vec<Section> {
         Section::new(name, format!("[{}]", d.view.tool.key()), rows).always().tint(tone)
     });
     let cursor = Section::new("CURSOR", d.cursor_pos.clone(), d.cursor.clone()).always();
-    let all = [Some(people), season, Some(stores), Some(research), endeavor, Some(alerts), tool];
+    let all = [Some(settlement), Some(alerts), tool];
     all.into_iter().flatten().chain([cursor]).filter(Section::visible).collect()
 }
 
@@ -659,44 +661,42 @@ pub fn draw_panel(
     let footer = format!("seed {}", d.view.seed);
     draw_frame(buf, area, palette, &title, TitleAt::Centre, &footer);
 
-    // Fit: give up the least useful rows first, in docs/design/side-panel.md's own order, until
-    // the sections fit the panel.
-    let head = header(&d.view, &marks);
+    // Fit: the Settlement glance (#416) never gives up a row, so only Alerts and Here (the Tool
+    // result, then the Bend ability list) shrink here; the glance's own growth -- a second
+    // Materials row -- is a separate pass below, once this settles.
+    let head = header(&d.view, d.season.as_ref(), &marks);
     let notice_floor = d.notice.len().min(NOTICE_FLOOR);
     let picker_floor = usize::from(!d.picker.is_empty());
+    let materials_cap = d.materials.len().min(MATERIALS_ROWS_MAX);
     // Fitting gives up alerts beyond the newest, but never the newest itself while at least one
     // is live (#415): the ALERTS heading on its own, with every row gone, would otherwise read as
     // "no alerts" instead of "a live one that got clipped".
     let alerts_floor = usize::from(!d.alerts.is_empty());
     let mut k = Knobs {
-        units: d.activity_rows.len(),
         alerts: d.alerts.len().min(ALERTS_SHOWN),
         picker: d.picker.len(),
-        stores: d.stores.len().min(STORES_SHOWN),
-        research: 2,
-        season: 2,
         notice: d.notice.len(),
-        endeavor: true,
+        materials: materials_cap.min(1),
     };
     while height(head.len(), &sections(&d, k, palette)) > usize::from(inner.height) {
-        if k.endeavor {
-            k.endeavor = false;
-        } else if k.alerts > alerts_floor {
+        if k.alerts > alerts_floor {
             k.alerts -= 1;
-        } else if k.research > 1 {
-            k.research -= 1;
-        } else if k.stores > 1 {
-            k.stores -= 1;
-        } else if k.units > 1 {
-            k.units -= 1;
-        } else if k.season > 1 {
-            k.season -= 1;
         } else if k.notice > notice_floor {
             k.notice -= 1;
         } else if k.picker > picker_floor {
             k.picker -= 1;
         } else {
             break;
+        }
+    }
+    // Spare height adds the Materials section's second row before anything else in this zone
+    // grows (#416): the only growth `settlement_rows` ever has, since Alerts' and Here's own
+    // growth beyond today's caps are #417/#418.
+    if k.materials < materials_cap {
+        let mut grown = k;
+        grown.materials += 1;
+        if height(head.len(), &sections(&d, grown, palette)) <= usize::from(inner.height) {
+            k = grown;
         }
     }
 

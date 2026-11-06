@@ -151,6 +151,21 @@ pub fn stores(session: &Session) -> Vec<(String, u32)> {
     store_rows(session).into_iter().map(|r| (r.name, r.count)).collect()
 }
 
+/// Non-food items the stockpiles hold (#416, docs/design/side-panel-v2.md "Zone 1"'s Materials
+/// row): `stores`, minus every item with a `FoodDef` (the Food row already covers that, from
+/// `food_in_stores`). In the item data's own order; empty items are left out, same as `stores`.
+pub fn materials(session: &Session) -> Vec<(String, u32)> {
+    let (world, defs) = (&session.world, &session.defs);
+    defs.items
+        .iter()
+        .filter(|item| item.food.is_none())
+        .filter_map(|item| {
+            let count = world.stored_total(defs.item_id(&item.id)?);
+            (count > 0).then(|| (item.name.clone(), count))
+        })
+        .collect()
+}
+
 /// The population by nation (#248, the United City's mixed settlement, #240): each nation with
 /// at least one living unit, in `Nation::ALL`'s order, as (name, count). The Avatar (#237) has
 /// no nation of his own and isn't tallied.
@@ -349,9 +364,11 @@ pub struct SeasonView {
     /// `winter_food_per_head` threshold (presentation, not a sim rule, so the caller -- which
     /// reads `data/tui.toml` -- decides the number).
     pub food_warn: bool,
-    /// "Winter here: cold, frost": the climate band at the settlement's start (or the map's
-    /// centre, for a `World::new` with no embark site), the Season section's third row.
-    pub here: String,
+    /// The climate band's winter effects at the settlement's start (or the map's centre, for a
+    /// `World::new` with no embark site), lower case ("mild", "cold, frost"): the side panel's
+    /// Food row appends this as the winter outlook word (#416, docs/design/side-panel-v2.md
+    /// "Zone 1"), toned Warn exactly when `food_warn` is.
+    pub outlook: String,
 }
 
 /// `SeasonView` for `session`'s world, or `None` with seasons off. `winter_food_per_head` is the
@@ -372,16 +389,13 @@ pub fn season_view(session: &Session, winter_food_per_head: u32) -> Option<Seaso
     let food_warn = (is_autumn || season.winter) && per_head < winter_food_per_head;
     let start =
         world.start().unwrap_or_else(|| Pos::new(world.map.width() / 2, world.map.height() / 2));
-    let here = world
-        .climate_at(start, defs)
-        .map(|c| format!("Winter here: {}", climate_effects(c)))
-        .unwrap_or_default();
+    let outlook = world.climate_at(start, defs).map(climate_effects).unwrap_or_default();
     Some(SeasonView {
         heading: format!("{} · Y{year}", season.name),
         left: clock_left(world.season_left(defs)),
         food: format!("{food} · {per_head}/head"),
         food_warn,
-        here,
+        outlook,
     })
 }
 
@@ -630,6 +644,61 @@ mod tests {
         }
         assert_eq!(side_view(&s, Tool::Select, "", None, &Alerts::default()).stores, rows);
         assert_eq!(stores(&s).len(), rows.len());
+    }
+
+    /// `materials` (#416, the side panel's Materials row): `stores` minus every food item, same
+    /// order.
+    #[test]
+    fn materials_excludes_food_items_but_keeps_stores_own_order() {
+        use fn_sim::world::Command;
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        assert!(materials(&s).is_empty(), "a new game has stored nothing");
+        let from = s.world.units[0].pos;
+        let near: Vec<Pos> = s
+            .world
+            .map
+            .iter()
+            .filter(|(p, t)| {
+                (p.x - from.x).abs() < 12
+                    && (p.y - from.y).abs() < 8
+                    && t.resource.is_some_and(|r| s.defs.harvest(r).is_some())
+            })
+            .map(|(p, _)| p)
+            .collect();
+        for p in near {
+            let _ = s.apply(Command::DesignateHarvest { pos: p });
+        }
+        let mut zone: Vec<Pos> = s
+            .world
+            .map
+            .iter()
+            .filter(|(_, t)| t.terrain == fn_sim::Terrain::Land && t.resource.is_none())
+            .map(|(p, _)| p)
+            .collect();
+        zone.sort_by_key(|p| (p.x - from.x).pow(2) + (p.y - from.y).pow(2));
+        for pos in zone.into_iter().take(6) {
+            s.apply(Command::DesignateStockpile { pos }).unwrap();
+        }
+        for _ in 0..60 {
+            s.tick_n(100);
+            if !stores(&s).is_empty() {
+                break;
+            }
+        }
+        let all = stores(&s);
+        assert!(!all.is_empty(), "the settlers should have stored something");
+        let mats = materials(&s);
+        for (name, _) in &mats {
+            let item = s.defs.items.iter().find(|i| &i.name == name).unwrap();
+            assert!(item.food.is_none(), "{name} is food, should be left out");
+        }
+        let expected: Vec<(String, u32)> = all
+            .into_iter()
+            .filter(|(name, _)| {
+                s.defs.items.iter().find(|i| &i.name == name).unwrap().food.is_none()
+            })
+            .collect();
+        assert_eq!(mats, expected);
     }
 
     /// #337, #378's own gap in the balance harness: a single stockpile tile holds one item kind
@@ -969,7 +1038,7 @@ mod tests {
         assert!(v.left.ends_with(" left"), "{}", v.left);
         assert_eq!(food_in_stores(&s), 0, "nothing stockpiled yet");
         assert!(!v.food_warn, "spring never warns, however little is stored");
-        assert!(v.here.starts_with("Winter here: "), "{}", v.here);
+        assert!(!v.outlook.is_empty(), "{}", v.outlook);
 
         // Jump to autumn (index 2 of 4, the season right before winter): no food now warns.
         let season_ticks = (f64::from(s.defs.seasons.calendar.season_minutes)

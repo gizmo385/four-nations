@@ -83,7 +83,7 @@ fn n_opens_the_screen_and_n_or_esc_close_it_with_the_side_panel_staying() {
     assert!(frame.contains("STORES"), "{frame}");
     // The side panel is all there: its header, a section and the status line.
     assert!(frame.contains("EARTH KINGDOM"), "{frame}");
-    assert!(frame.contains("PEOPLE"), "{frame}");
+    assert!(frame.contains("SETTLEMENT"), "{frame}");
     assert!(frame.lines().last().unwrap().contains("NATION"), "the status line says so");
 
     run(&mut a, "n");

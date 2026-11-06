@@ -610,7 +610,7 @@ mod tests {
         let mut s = Session::new(7, Nation::Fire, 48, 32);
         // One sign a new game meets at once, so the first check (tick 10) logs it and Ready.
         let signs = "[endeavor]\nname = \"Gate\"\n[[sign]]\nid = \"p\"\ngroup = \"people\"\n\
-                     name = \"People\"\nkind = \"population\"\ntarget = 1\n";
+                     name = \"People\"\nshort = \"people\"\nkind = \"population\"\ntarget = 1\n";
         s.defs = s.defs.clone().with_endeavor(signs).unwrap();
         run_until(&mut s, |s| s.world.endeavor_events().len() == 2);
         let mut alerts = Alerts::default();

@@ -96,27 +96,41 @@ pub fn step(at: usize, dy: i32) -> usize {
 const NAME_FOOTER: &str = "Type a name  Enter save  Esc back";
 
 /// Draws the menu: the row list ([`draw_rows`]), or in its place the Save as… name prompt
-/// (`naming`, `Some` while [`crate::state::UiState::menu_name`] is).
+/// (`naming`, `Some` while [`crate::state::UiState::menu_name`] is). `clock`, while seasons are
+/// on, is the elapsed game clock (#416, owner decision 4 on #414): with the side panel's header
+/// showing the season instead, the menu is one of the two places it moved to (the Nation
+/// screen's header line, already there, is the other).
 pub fn draw(
     at: usize,
     naming: Option<&str>,
     has_quicksave: bool,
+    clock: Option<&str>,
     palette: &Palette,
     outer: Rect,
     buf: &mut Buffer,
 ) {
     match naming {
         Some(name) => draw_naming(name, palette, outer, buf),
-        None => draw_rows(at, has_quicksave, palette, outer, buf),
+        None => draw_rows(at, has_quicksave, clock, palette, outer, buf),
     }
 }
 
 /// The row list, the highlighted one reversed.
-fn draw_rows(at: usize, has_quicksave: bool, palette: &Palette, outer: Rect, buf: &mut Buffer) {
+fn draw_rows(
+    at: usize,
+    has_quicksave: bool,
+    clock: Option<&str>,
+    palette: &Palette,
+    outer: Rect,
+    buf: &mut Buffer,
+) {
     let marks = Marks::new(palette.ascii);
     let title = format!(" {0} MENU {0} ", marks.seal);
-    let footer = "Enter select  Esc resume";
-    let inner = modal::draw(buf, outer, SIZE, palette, &title, footer);
+    let footer = match clock {
+        Some(clock) => format!("Enter select  Esc resume  {}  {clock}", marks.dot),
+        None => "Enter select  Esc resume".to_owned(),
+    };
+    let inner = modal::draw(buf, outer, SIZE, palette, &title, &footer);
     let at = at.min(MenuRow::ALL.len() - 1);
     let mut p = Painter::new(buf, inner, palette);
     let mut reversed = None;

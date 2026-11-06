@@ -114,6 +114,32 @@ fn resume_or_esc_closes_the_menu_and_restores_the_pause() {
     assert!(a.session.clock.paused, "it was paused before the menu opened, so it stays");
 }
 
+/// #416, owner decision 4 on #414: with seasons on, the side panel's header shows the season
+/// instead of the elapsed clock, so the menu carries it in its own footer instead; with seasons
+/// off, the footer stays as it was. The side panel's own header keeps the elapsed clock either
+/// way with seasons off, so this checks the menu's footer line alone, not the whole frame.
+#[test]
+fn the_footer_carries_the_elapsed_clock_only_while_seasons_are_on() {
+    let footer_line = |frame: &str| {
+        frame
+            .lines()
+            .find(|l| l.contains("Enter select") && l.contains("Esc resume"))
+            .unwrap_or_else(|| panic!("no menu footer in\n{frame}"))
+            .to_owned()
+    };
+
+    let mut a = app(None);
+    run(&mut a, "<tick 600> <esc>");
+    let frame = text(&mut a, SIZE);
+    assert!(!footer_line(&frame).contains("01:00"), "seasons off: {}", footer_line(&frame));
+
+    let mut b = app(None);
+    b.session.world.set_difficulty(Some("normal".to_owned()));
+    run(&mut b, "<tick 600> <esc>");
+    let frame = text(&mut b, SIZE);
+    assert!(footer_line(&frame).contains("01:00"), "seasons on: {}", footer_line(&frame));
+}
+
 #[test]
 fn the_menu_captures_every_key_until_it_closes() {
     let mut a = app(None);

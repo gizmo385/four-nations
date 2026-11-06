@@ -1,16 +1,16 @@
 ┏───────────────────────────────────── ◆ SAVES ◆ ──────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
 │ ▸ junk  can't load: not a Four Nations save (1:1-1:4: Expected struct `Probe` but f… ││ ▶ Running x1           00:04 │
-│   save-1  Earth Kingdom, seed 7, 00:04 (tick 40)                                     │├─ PEOPLE ───────────────── 6 ─┤
-│                                                                                      ││ Idle 6                   [N] │
-│                                                                                      │├─ RESEARCH ───────────────────┤
-│                                                                                      ││ No target set        3.0/min │
-│                                                                                      ││ 0 pts banked                 │
-│                                                                                      │├─ ENDEAVOR ───────────── 0/9 ─┤
-│                                                                                      ││ Next: 10 more people     [G] │
+│   save-1  Earth Kingdom, seed 7, 00:04 (tick 40)                                     │├─ SETTLEMENT ─────────── [N] ─┤
+│                                                                                      ││ People 6              Idle 6 │
+│                                                                                      ││ Food 0 · 0/head              │
+│                                                                                      ││ Research: none set       [T] │
+│                                                                                      ││ Gate 0/9 · 10 people     [G] │
 │                                                                                      │├─ CURSOR ────────── (94, 64) ─┤
 │                                                                                      ││ Coast                        │
 │                                                                                      ││ Plains (94, 64)              │
 │                                                                                      ││ Elevation 152                │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
