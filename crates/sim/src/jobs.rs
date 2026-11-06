@@ -492,6 +492,12 @@ pub enum JobKind {
     /// or work a non-renewable's ordinary harvest, which already clears it
     /// (`docs/design/clearing.md`, issue #411/#424). Opened by `Command::DesignateClear`.
     Clear { pos: Pos },
+    /// Work a Map Room's seat (`data/buildings.toml`, `BuildingDef::chart`, issue #402,
+    /// docs/design/cartography.md): each finished chart uncovers the nearest lost ruin the
+    /// settlement hasn't found yet, among the ones `pos` is still in range of. Opened in sets of
+    /// `seats` when a Map Room finishes construction (`world/chart.rs`), mirroring a study
+    /// hall's `Study` job; never completes on its own.
+    Chart { pos: Pos },
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

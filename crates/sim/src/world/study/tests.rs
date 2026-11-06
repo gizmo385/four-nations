@@ -160,6 +160,7 @@ fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
         irrigation: None,
         healing: None,
         power: Some(PowerDef { radius, boost, boost_millis: (boost * 1000.0).round() as u32 }),
+        chart: None,
         uses_power: false,
         names: HashMap::new(),
         art: HashMap::new(),

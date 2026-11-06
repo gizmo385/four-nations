@@ -130,7 +130,8 @@ pub fn tech_depths(techs: &[TechDef]) -> Vec<usize> {
 /// research (#338): naming the tech it is a prereq for ("Prerequisite for Writing"), so the
 /// column never reads as a dead end while it's actually a stepping stone. Only a tech with
 /// neither -- truly nothing downstream wires up to yet, a content gap, not a display bug -- gets
-/// a plain "-" (e.g. `cartography`, whose map-reveal effect is still unbuilt).
+/// a plain "-" (e.g. `cartography` once did; #402 wired up its Map Room. `herbalism` still does
+/// for every nation but Water, whose own Healing Hut is the only thing that needs it).
 pub fn unlock_summary(defs: &Defs, nation: Nation, id: TechId, def: &TechDef) -> String {
     let mut parts: Vec<String> = def
         .unlocks
@@ -333,13 +334,25 @@ mod tests {
     }
 
     #[test]
-    fn a_tech_that_truly_unlocks_nothing_yet_is_a_dash() {
-        // Cartography's map-reveal effect is still unbuilt (data/research.toml's own "Later:"
-        // comment), and nothing in the tree requires it: a genuine content gap, not a display
-        // bug, so the dash is honest here.
+    fn cartography_no_longer_reads_as_a_dead_end() {
+        // #402 gave cartography its Map Room, closing the gap this test used to document.
         let defs = Defs::bundled();
         let cartography = defs.tech_id("cartography").unwrap();
-        assert_eq!(unlock_summary(&defs, Nation::Fire, cartography, defs.tech(cartography)), "-");
+        assert_eq!(
+            unlock_summary(&defs, Nation::Fire, cartography, defs.tech(cartography)),
+            "Map Room"
+        );
+    }
+
+    #[test]
+    fn a_tech_that_truly_unlocks_nothing_yet_is_a_dash() {
+        // Herbalism grants nothing on its own, and only Water's branch (Healing) needs it
+        // (`unlock_summary`'s dependents search only counts a shared or same-nation tech): for
+        // every other nation it's a genuine content gap, not a display bug, so the dash is
+        // honest here.
+        let defs = Defs::bundled();
+        let herbalism = defs.tech_id("herbalism").unwrap();
+        assert_eq!(unlock_summary(&defs, Nation::Fire, herbalism, defs.tech(herbalism)), "-");
     }
 
     #[test]

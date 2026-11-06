@@ -248,7 +248,9 @@ impl Activity {
             Some(Task::Build(_)) => Self::Build,
             Some(Task::Bend(_)) => Self::Bend,
             Some(Task::Craft(_)) => Self::Craft,
-            Some(Task::Study(_)) => Self::Study,
+            // Charting (#402) groups with studying until the Map Room gets its own panel row
+            // (#403): both are a seat worked at the same low priority.
+            Some(Task::Study(_) | Task::Chart(_)) => Self::Study,
             Some(Task::Endeavor(_) | Task::Attend(_) | Task::Rite) => Self::Gate,
             Some(Task::Eat(_) | Task::Drink) => Self::Eat,
             Some(Task::Sleep) => Self::Sleep,

@@ -1084,7 +1084,7 @@ mod tests {
         // Today's bundled counts, so a content change that moves these is visible in review.
         assert_eq!(
             reachable_counts(),
-            [(Nation::Air, 9), (Nation::Water, 9), (Nation::Earth, 9), (Nation::Fire, 10)]
+            [(Nation::Air, 10), (Nation::Water, 10), (Nation::Earth, 10), (Nation::Fire, 11)]
         );
     }
 
@@ -1106,12 +1106,12 @@ mod tests {
 
     #[test]
     fn every_building_spare_must_be_below_the_smallest_nations_count() {
-        // Air, Water and Earth are tied for fewest kinds today, 9 (the shared Workshop, #369;
-        // the Mine Shaft and Deep Mine for Earth, #373; the Healing Hut and Fishing Dock for
-        // Water, #375, #374); spare = 9 would zero every one of their targets.
-        let e = error(&sign("kind = \"every_building\"\nspare = 9"));
-        assert!(e.contains("spare must be below the smallest nation's count (9)"), "{e}");
-        assert!(load(&sign("kind = \"every_building\"\nspare = 8")).is_ok());
+        // Air, Water and Earth are tied for fewest kinds today, 10 (the shared Workshop, #369
+        // and Map Room, #402; the Mine Shaft and Deep Mine for Earth, #373; the Healing Hut and
+        // Fishing Dock for Water, #375, #374); spare = 10 would zero every one of their targets.
+        let e = error(&sign("kind = \"every_building\"\nspare = 10"));
+        assert!(e.contains("spare must be below the smallest nation's count (10)"), "{e}");
+        assert!(load(&sign("kind = \"every_building\"\nspare = 9")).is_ok());
     }
 
     #[test]

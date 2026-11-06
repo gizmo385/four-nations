@@ -745,7 +745,12 @@ impl World {
                 self.sites.remove(&pos);
                 self.jobs.remove(idx);
                 self.raise(footprint, building, def);
-                self.open_study_seats(pos, seats);
+                // A Map Room's seats open Chart jobs instead of Study ones (#402).
+                if def.chart.is_some() {
+                    self.open_chart_seats(pos, seats);
+                } else {
+                    self.open_study_seats(pos, seats);
+                }
                 self.open_craft_jobs(pos, def);
                 self.light_building_fire(pos, size, def);
                 self.finish_job(i);

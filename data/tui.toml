@@ -222,6 +222,12 @@ glyph = "Π"
 ascii = "H"
 fg = [196, 176, 236]
 
+# Cartography's Map Room (#402): shared, no nation name yet (#357's building pass later).
+[building.map_room]
+glyph = "⌖"
+ascii = "R"
+fg = [210, 190, 140]
+
 # --- Earth Kingdom ---
 [building.earth_wall]
 glyph = "▓"

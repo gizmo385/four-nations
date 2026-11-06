@@ -151,6 +151,26 @@ water = "elders_lodge"
 earth = "scroll_library"
 fire = "academy"
 
+# Unlocked by `cartography` (issue #402, docs/design/cartography.md): a settler holding its one
+# Chart job slowly uncovers the nearest lost ruin the settlement hasn't found yet. One seat on
+# purpose: a second scholar doubling the trickle would make the seat count the real balance
+# knob, not the room itself.
+[[building]]
+id = "map_room"
+name = "Map Room"
+verb = "Build"
+work = 40.0
+passable = false
+footprint = [2, 2]
+seats = 1
+[building.chart]
+finds = ["lost_ruins"]
+minutes = 6.0
+range = 60
+[[building.cost]]
+item = "wood"
+count = 12
+
 # --- Earth Kingdom ---
 # Unlocked by `earthen_walls` (data/research.toml). Nothing in the picker hides a nation's own
 # buildings from the others yet, so the other nations see this one locked behind a tech they
