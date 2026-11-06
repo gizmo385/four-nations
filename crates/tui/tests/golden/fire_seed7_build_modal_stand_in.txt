@@ -16,9 +16,9 @@
 "♠♠""♠♠♠.│   Forge             Locked  4 Stone (or brick) (0 in stores)       │""♠√√~√√♠│                              │
 "♠√♠♠♠♠..│   Brick Kiln        Locked                                         │♠♠♠τ~√√♠♠│                              │
 "♣♣~"♠♠.≈│   Smelter           Locked  Room for 1 inside, through the door    │♠♠♠~♠♠♠"♠│                              │
-..~."...≈│   Steam Engine      Locked                                         │"~~""""♠♠│                              │
-.≈≈...≈≈ƒ│   Lightning Station Locked  Requires Carpentry                     │~""♠¥"♠♠♠│                              │
-≈≈≈ƒ≈≈≈≈≈│   Farm Plot         Locked                                         │"""♠♠"""♠│                              │
+..~."...≈│   Steam Engine      Locked  Uses power                             │"~~""""♠♠│                              │
+.≈≈...≈≈ƒ│   Lightning Station Locked                                         │~""♠¥"♠♠♠│                              │
+≈≈≈ƒ≈≈≈≈≈│   Farm Plot         Locked  Requires Carpentry                     │"""♠♠"""♠│                              │
 ≈≈≈≈≈≈≈≈≈│ ▸ Workshop          Locked                                         │""¥"♠"♠"♠│                              │
 ≈≈≈≈≈≈≈≈≈│                                                                    │"""""""♠♠│                              │
 ≈≈≈≈≈≈≈≈≈│                                                                    │♠"""""""♠│                              │

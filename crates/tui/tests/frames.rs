@@ -866,6 +866,102 @@ fn golden_frame_of_a_fire_picker_row_with_a_stone_stand_in() {
     );
 }
 
+// ---------------------------------------------------------------------------------------------
+// Power (#428, #429): readouts in the Build modal and the Here section
+// ---------------------------------------------------------------------------------------------
+
+/// Stamps a finished `id` with its anchor at `at`, baking every tile's own `part` and `size`
+/// (`fn_sim::building::Building`), the way a construction site would once it finishes: for a
+/// test that needs a building already standing, not under construction.
+fn place_building(s: &mut Session, id: fn_sim::building::BuildingId, at: Pos) {
+    use fn_sim::building::Building;
+    use fn_sim::geom::Footprint;
+    let def = s.defs.building(id);
+    let (w, h) = def.footprint;
+    let passable = def.passable;
+    let foot = Footprint::new(at, w, h);
+    s.world.units.retain(|u| !foot.contains(u.pos));
+    for p in foot.tiles() {
+        let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
+        let b = Building { part, size: [w, h], ..Building::new(id, passable, false) };
+        s.world.map.get_mut(p).unwrap().building = Some(b);
+    }
+}
+
+/// No bundled building is a power source yet (#255, #204, #200), so every test here mutates
+/// Bed's def into one, the same approach `fn_sim::world::power::tests`'s `test_source` takes for
+/// the sim and `fn_ui::build`'s own detail test takes for the UI: Bed needs no tech and no
+/// nation (`BuildingDef::unlocked_by` is `None`), so the Build modal's picker never substitutes
+/// another choice. Water's `power_generation` is 1.0 (data/nations.toml), so the reach shown is
+/// always the bare radius.
+fn session_with_a_test_source(
+    seed: u64,
+    nation: Nation,
+    radius: u32,
+    boost: f32,
+) -> (Session, fn_sim::building::BuildingId) {
+    let mut s = Session::new(seed, nation, 48, 32);
+    let source = s.defs.building_id("bed").unwrap();
+    s.defs.buildings[source.0 as usize].power = Some(fn_sim::building::PowerDef {
+        radius,
+        boost,
+        boost_millis: (boost * 1000.0).round() as u32,
+    });
+    (s, source)
+}
+
+/// The Build modal's detail (#429, docs/design/late-tree.md "UI"): a source names its reach,
+/// already scaled for the nation's current `power_generation`, and what being powered buys
+/// (`fn_ui::build`'s own test covers a building that otherwise says "Nothing beyond shelter"
+/// losing that line); a consumer (the real Workshop, `uses_power = true` since #428) just says
+/// it uses power.
+#[test]
+fn the_build_modal_names_a_sources_reach_and_boost_and_a_consumers_uses_power() {
+    let (s, source) = session_with_a_test_source(7, Nation::Water, 3, 1.5);
+    let mut app = App::new(s, SIZE);
+    let rows = fn_ui::build::picker_rows(&app.session);
+    app.play(&keys::parse("u").unwrap());
+    app.ui.build_cursor = rows.iter().position(|r| r.id == source).unwrap();
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, true, SIZE));
+    assert!(text.contains("Powers buildings within 3 tiles"), "{text}");
+    assert!(text.contains("Powered work: 1.5x faster"), "{text}");
+
+    let workshop = app.session.defs.building_id("workshop").unwrap();
+    app.ui.build_cursor = rows.iter().position(|r| r.id == workshop).unwrap();
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, true, SIZE));
+    assert!(text.contains("Uses power"), "{text}");
+}
+
+/// The Here section (#429): a consumer names the source that actually powers it and the boost,
+/// or "Unpowered" out of reach; a source names its reach and how many buildings it's powering
+/// right now.
+#[test]
+fn the_here_section_names_a_powered_and_an_unpowered_workshop_and_the_source_itself() {
+    let (mut s, source) = session_with_a_test_source(7, Nation::Water, 3, 1.5);
+    let workshop = s.defs.building_id("workshop").unwrap();
+    let source_at = Pos::new(10, 10);
+    let powered_at = Pos::new(13, 10); // 3 tiles from the source's own tile: just in reach
+    let unpowered_at = Pos::new(25, 10); // far outside it
+    place_building(&mut s, source, source_at);
+    s.world.adopt_power_sources(&s.defs);
+    place_building(&mut s, workshop, powered_at);
+    place_building(&mut s, workshop, unpowered_at);
+
+    let mut app = App::new(s, SIZE);
+    app.ui.cursor = powered_at;
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, true, SIZE));
+    assert!(text.contains("Powered: Bed, 1.5x"), "{text}");
+
+    app.ui.cursor = unpowered_at;
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, true, SIZE));
+    assert!(text.contains("Unpowered"), "{text}");
+
+    app.ui.cursor = source_at;
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, true, SIZE));
+    assert!(text.contains("Reach: 3 tiles"), "{text}");
+    assert!(text.contains("Powering: 1 building"), "{text}");
+}
+
 /// The rectangle's tiles take the tool's hue (stronger than a designation's), the cursor keeps
 /// its own colour, and tiles outside the rectangle are untouched.
 #[test]
@@ -1153,6 +1249,54 @@ fn a_lit_flame_draws_over_the_resource_and_warms_its_reach_under_the_cursor() {
     let cold_cell = cell_at(&app, &buf, cold);
     assert_eq!(warm_cell.bg, p.tinted(ground_bg(&p, &app.session, warm), Tint::Warm));
     assert_eq!(cold_cell.bg, p.color(ground_bg(&p, &app.session, cold)));
+}
+
+/// A finished power source's reach tints `Tint::Powered`, the way a flame's does, while the
+/// cursor is on it; elsewhere it doesn't (#428, #429).
+#[test]
+fn a_finished_power_sources_reach_is_tinted_under_the_cursor() {
+    let (mut s, source) = session_with_a_test_source(7, Nation::Water, 3, 1.5);
+    let at = Pos::new(10, 10);
+    place_building(&mut s, source, at);
+    s.world.adopt_power_sources(&s.defs);
+
+    let mut app = App::new(s, SIZE);
+    let p = palette(&app.session, ColorDepth::TrueColor, false);
+    app.ui.cursor = Pos::new(at.x + 5, at.y); // elsewhere: no tint yet
+    let buf = frame(&mut app, ColorDepth::TrueColor, false, SIZE);
+    let edge = Pos::new(at.x + 3, at.y);
+    let cell = cell_at(&app, &buf, edge);
+    assert_eq!(cell.bg, p.color(ground_bg(&p, &app.session, edge)), "no tint off the source");
+
+    app.ui.cursor = at;
+    let buf = frame(&mut app, ColorDepth::TrueColor, false, SIZE);
+    let reached = Pos::new(at.x + 3, at.y);
+    let outside = Pos::new(at.x + 4, at.y);
+    let reached_cell = cell_at(&app, &buf, reached);
+    let outside_cell = cell_at(&app, &buf, outside);
+    assert_eq!(reached_cell.bg, p.tinted(ground_bg(&p, &app.session, reached), Tint::Powered));
+    assert_eq!(outside_cell.bg, p.color(ground_bg(&p, &app.session, outside)));
+}
+
+/// While the Build tool is about to place a power source, its hypothetical reach previews the
+/// same tint, whether or not the placement would be refused (#428, #429).
+#[test]
+fn placing_a_power_source_previews_its_reach() {
+    let (s, source) = session_with_a_test_source(7, Nation::Water, 3, 1.5);
+    let mut app = App::new(s, SIZE);
+    app.ui.cursor = Pos::new(20, 16);
+    app.ui.tool = Tool::Build;
+    app.ui.choice = Some(source);
+    let cursor = app.ui.cursor;
+
+    let p = palette(&app.session, ColorDepth::TrueColor, false);
+    let buf = frame(&mut app, ColorDepth::TrueColor, false, SIZE);
+    let reached = Pos::new(cursor.x + 3, cursor.y);
+    let outside = Pos::new(cursor.x + 4, cursor.y);
+    let reached_cell = cell_at(&app, &buf, reached);
+    let outside_cell = cell_at(&app, &buf, outside);
+    assert_eq!(reached_cell.bg, p.tinted(ground_bg(&p, &app.session, reached), Tint::Powered));
+    assert_eq!(outside_cell.bg, p.color(ground_bg(&p, &app.session, outside)));
 }
 
 /// A renewable resource that has been worked and is growing back draws dimmed.

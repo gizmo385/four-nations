@@ -8,7 +8,9 @@
 //!   the rectangle being dragged (#98), in its tool's hue > designation tint (harvest, a
 //!   harvest's standing order a shade greener, #277, a Clear mark in its own hue, #411/#426,
 //!   bend, build, stockpile) and the cast highlight share that tint > wet patch > an aura
-//!   carrier's own warmth > the warmth of the flame or aura under the cursor > terrain or biome.
+//!   carrier's own warmth > the warmth of the flame or aura under the cursor > the reach of a
+//!   power source under the cursor, or one the Build tool is placing (#428, #429) > terrain or
+//!   biome.
 //!
 //! A building or a site covers its whole footprint (#196, docs/design/buildings.md, "TUI"), so a
 //! 2x2 forge is a 2x2 block of its glyph, and so is its ghost.
@@ -179,6 +181,11 @@ pub struct Overlays {
     aura: BTreeSet<Pos>,
     /// The tiles warmed by the flame or aura under the cursor, if the cursor is on one.
     warmed: Option<(Pos, u32)>,
+    /// Every reach `Tint::Powered` tints this frame (issue #428, #429): the footprint and reach
+    /// of a finished power source under the cursor, plus one entry per ghost of a power source
+    /// the Build tool is about to place, whichever (or both) apply. More than one footprint can
+    /// show at once, the same as a drag's several stamps.
+    powered: Vec<(Footprint, u32)>,
     /// The front-middle footprint cell of every building with anyone inside (#226, #229),
     /// with how many: drawn as a digit (`+` above 9) in place of the building's own glyph there.
     occupants: BTreeMap<Pos, u32>,
@@ -239,6 +246,7 @@ impl Overlays {
                 .find(|f| f.pos == cursor)
                 .map(|f| (f.pos, f.radius))
                 .or_else(|| glows.iter().find(|g| g.pos == cursor).map(|g| (g.pos, g.radius))),
+            powered: power_reaches(session, ui, cursor, &ghosts),
             occupants: occupant_counts(world),
         }
     }
@@ -247,6 +255,36 @@ impl Overlays {
         // The same square reach as the sim's `HeatSource::warms`.
         self.warmed.is_some_and(|(c, r)| p.x.abs_diff(c.x).max(p.y.abs_diff(c.y)) <= r)
     }
+
+    /// Whether `p` falls within any reach gathered this frame (`powered`), the same "any tile of
+    /// the source's own footprint" shape `World::power_at` reads (`Footprint::distance`).
+    fn is_powered(&self, p: Pos) -> bool {
+        self.powered.iter().any(|&(f, r)| f.distance(p) <= r as i32)
+    }
+}
+
+/// Every reach `Tint::Powered` tints this frame (issue #428, #429): the finished power source
+/// under the cursor, if there is one, plus one entry per ghost of a power source the Build tool
+/// is about to place, whether or not the placement would be refused -- the preview is about
+/// where the reach would land, not whether it's allowed.
+fn power_reaches(
+    session: &Session,
+    ui: &UiState,
+    cursor: Pos,
+    ghosts: &[Placement],
+) -> Vec<(Footprint, u32)> {
+    let (world, defs) = (&session.world, &session.defs);
+    let mut reaches = Vec::new();
+    if let Some(power) = world.building_at(cursor).and_then(|b| defs.building(b).power)
+        && let Some(footprint) = world.footprint_at(cursor)
+    {
+        reaches.push((footprint, power.radius_for(world.modifiers().power_generation)));
+    }
+    if let Some(power) = ui.ghost_building(session).and_then(|b| defs.building(b).power) {
+        let reach = power.radius_for(world.modifiers().power_generation);
+        reaches.extend(ghosts.iter().map(|g| (g.footprint, reach)));
+    }
+    reaches
 }
 
 /// The ring tile below the middle of the bottom row, same side as `Footprint::entrance` but one
@@ -459,6 +497,9 @@ pub enum Mark {
     Wet,
     /// Warmth: an aura carrier's own, or the reach of the flame or aura under the cursor.
     Warm,
+    /// The reach of a finished power source under the cursor, or one the Build tool is about to
+    /// place (issue #428, #429).
+    Powered,
     /// The Avatar's own background: the nation's accent, not his tile's own (#237, #242).
     AvatarAccent,
 }
@@ -582,6 +623,9 @@ pub fn cell_look(
         // An aura carrier wears its own warmth, cursor or not; so does the reach of the flame or
         // aura under the cursor.
         marks.push(Mark::Warm);
+    }
+    if over.is_powered(pos) {
+        marks.push(Mark::Powered);
     }
     if over.avatar == Some(pos) {
         marks.push(Mark::AvatarAccent);
@@ -807,6 +851,8 @@ pub fn style_cell(look: &CellLook, defs: &Defs, palette: &Palette) -> TileCell {
         palette.tinted(base_bg, Tint::Wet)
     } else if look.marks.contains(&Mark::Warm) {
         palette.tinted(base_bg, Tint::Warm)
+    } else if look.marks.contains(&Mark::Powered) {
+        palette.tinted(base_bg, Tint::Powered)
     } else if look.marks.contains(&Mark::AvatarAccent) {
         // The Avatar's own background (#237, #242): the nation's accent, not his tile's own, so
         // he reads as a guest wherever he stands.

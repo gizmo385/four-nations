@@ -403,6 +403,9 @@ wet = [64, 46, 20]
 cursor = [250, 220, 60]
 # The tiles a lit flame warms, while the cursor is on it.
 warm = [150, 70, 24]
+# A power source's reach (#428, #429): the cursor on a finished source, or the Build tool
+# placing one, the way `warm` shows a flame's reach.
+powered = [70, 170, 210]
 flame = { glyph = "☼", ascii = "!", fg = [255, 150, 40] }
 # A young fruit tree from an orchard (#142), drawn in place of the resource's glyph until it
 # first ripens.
