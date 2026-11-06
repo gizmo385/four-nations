@@ -101,7 +101,7 @@ id = "building_kinds"             # unchanged: saves refer to signs by id
 group = "buildings"
 name = "One of every building"
 kind = "every_building"           # target: every non-endeavor building the nation can unlock
-spare = 1                         # today: Air 9, Water 7, Earth 9, Fire 10
+spare = 1                         # today: Air 9, Water 9, Earth 9, Fire 10
 hint = "Raise something new"
 
 [[sign]]

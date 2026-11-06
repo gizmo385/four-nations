@@ -893,7 +893,7 @@ fn link_unlocks(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(), 
 
 #[cfg(test)]
 mod tests {
-    use crate::defs::{Defs, DefsError};
+    use crate::defs::{Defs, DefsError, Terrain};
     use crate::nation::Nation;
 
     use super::{BuildingDef, BuildingsFile};
@@ -1076,8 +1076,28 @@ mod tests {
         assert!(o.max_trees > 0 && o.radius > 0 && o.tend_boost >= 1.0);
         assert!(o.plant_seconds > 0.0 && o.grow_seconds > 0.0);
         assert!(def.passable, "units walk through an orchard");
-        // Only the orchard plants.
-        assert_eq!(defs.buildings.iter().filter(|b| b.orchard.is_some()).count(), 1);
+        // Only the orchard and the Fishing Dock (#374) plant anything.
+        assert_eq!(defs.buildings.iter().filter(|b| b.orchard.is_some()).count(), 2);
+    }
+
+    /// #374: Water's orchard, on the water. The same mechanism as the Orchard, planting
+    /// `fish_spot` instead of `fruit_tree`, and solid (units don't walk through a dock the way
+    /// they do an orchard's canopy).
+    #[test]
+    fn the_fishing_dock_is_data() {
+        let defs = Defs::bundled();
+        let def = defs.building(defs.building_id("fishing_dock").unwrap());
+        let o = def.orchard.expect("a fishing dock plants");
+        assert_eq!(defs.resource(o.plants).id, "fish_spot");
+        assert_eq!(o.max_trees, 3);
+        assert!(o.radius > 0 && o.tend_boost > 1.0);
+        assert!(o.plant_seconds > 0.0 && o.grow_seconds > 0.0);
+        assert!(!def.passable, "a dock is solid");
+        assert_eq!(
+            def.beside.as_deref(),
+            Some(&[Terrain::Water, Terrain::River, Terrain::Lake][..])
+        );
+        assert_eq!(def.beside_word(), Some("water"));
     }
 
     #[test]

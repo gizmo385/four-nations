@@ -415,8 +415,10 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
         effects.push(format!("Rail: hauling runs {:.1}x faster along it", rail.speed));
     }
     if let Some(orchard) = &def.orchard {
-        let plants = &session.defs.resource(orchard.plants).name;
-        effects.push(format!("Tends up to {} {plants} trees nearby", orchard.max_trees));
+        // Pluralised from the resource's own name, so an orchard reads "fruit trees" and a
+        // Fishing Dock (#374) reads "fishing spots", not the fixed word "trees" either way.
+        let plants = session.defs.resource(orchard.plants).name.to_lowercase();
+        effects.push(format!("Tends up to {} {plants}s nearby", orchard.max_trees));
     }
     if let Some(farm) = &def.farm {
         let crop = &session.defs.item(farm.crop).name;
@@ -670,9 +672,20 @@ mod tests {
         let orchard = air.defs.building_id("orchard").unwrap();
         let orchard_detail = building_detail(&air, orchard);
         assert!(
-            orchard_detail.effects.iter().any(|e| e.starts_with("Tends up to")),
+            orchard_detail.effects.iter().any(|e| e == "Tends up to 6 fruit trees nearby"),
             "{:?}",
             orchard_detail
+        );
+
+        // The Fishing Dock (#374) is the same mechanism, planting fish spots instead of fruit
+        // trees: its detail line reads right for fish, not the fixed word "trees".
+        let water = session(Nation::Water);
+        let dock = water.defs.building_id("fishing_dock").unwrap();
+        let dock_detail = building_detail(&water, dock);
+        assert!(
+            dock_detail.effects.iter().any(|e| e == "Tends up to 3 fishing spots nearby"),
+            "{:?}",
+            dock_detail
         );
 
         let wall = earth.defs.building_id("earth_wall").unwrap();

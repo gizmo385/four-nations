@@ -357,7 +357,10 @@ description = "Canoes and ice skiffs carry people across the water."
 nation = "water"
 cost = 250
 prereqs = ["fishing", "ice_construction"]
-# No unlocks yet: crossing water tiles needs a movement rule (issue #127).
+# The Fishing Dock (issue #374): Water's orchard, on the water. Crossing water tiles itself
+# still needs a movement rule (issue #127).
+[tech.unlocks]
+buildings = ["fishing_dock"]
 
 [[tech]]
 id = "spirit_oasis"

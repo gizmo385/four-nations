@@ -369,3 +369,77 @@ fn a_save_from_before_orchards_planted_adopts_the_ones_it_already_has() {
     run(&mut w, &defs, secs(orchard_def(&defs).plant_seconds) + 5);
     assert_eq!(w.orchard_trees(MID), Some(1), "adopting twice doesn't reset it");
 }
+
+// --- Water's Fishing Dock (#374): the orchard, planting on water ------------------------------
+
+fn fishing_dock_def(defs: &Defs) -> OrchardDef {
+    defs.building(defs.building_id("fishing_dock").unwrap()).orchard.expect("the dock plants")
+}
+
+/// Puts a finished Fishing Dock on `anchor`, as if built, with its real 2x2 footprint.
+fn raise_fishing_dock(w: &mut World, defs: &Defs, anchor: Pos) {
+    let id = defs.building_id("fishing_dock").unwrap();
+    let def = defs.building(id);
+    w.raise(Footprint::new(anchor, 2, 2), id, def);
+    w.open_orchard(anchor, def.orchard.as_ref().unwrap());
+}
+
+fn fish_spots(w: &World, defs: &Defs) -> Vec<Pos> {
+    let fish = defs.resource_id("fish_spot").unwrap();
+    w.map.iter().filter(|(_, t)| t.resource == Some(fish)).map(|(p, _)| p).collect()
+}
+
+/// A small lake carved into the arena's land, far enough from the dock's own footprint (#374's
+/// `spacing`) not to be excluded by it, and shaped so one tile -- `(4, 6)` -- never touches land
+/// or coast, even though it is water, in reach, and otherwise exactly what a fish spot wants.
+fn carve_lake(w: &mut World) {
+    for y in 5..=7 {
+        for x in 3..=5 {
+            w.map[at(x, y)].terrain = Terrain::Water;
+        }
+    }
+}
+
+const LAKE_INTERIOR: Pos = Pos::new(4, 6);
+
+#[test]
+fn a_fishing_dock_plants_fish_spots_only_on_water_beside_the_shore_never_more_than_its_max() {
+    let (mut w, defs) = setup(Nation::Water, 11, &[at(0, 0)]);
+    let def = fishing_dock_def(&defs);
+    carve_lake(&mut w);
+    raise_fishing_dock(&mut w, &defs, MID);
+    assert!(fish_spots(&w, &defs).is_empty());
+
+    run(&mut w, &defs, secs(def.plant_seconds) * (def.max_trees as u64 + 3));
+    let spots = fish_spots(&w, &defs);
+    assert_eq!(spots.len() as u32, def.max_trees, "it tends no more than its maximum");
+    assert_eq!(w.orchard_trees(MID), Some(def.max_trees as usize));
+    for &p in &spots {
+        assert_eq!(w.map[p].terrain, Terrain::Water, "{p:?} is a water tile");
+        assert_ne!(p, LAKE_INTERIOR, "{p:?} never touches land or coast");
+    }
+}
+
+#[test]
+fn a_fishing_dock_never_plants_the_one_water_tile_that_does_not_touch_the_shore() {
+    let (mut w, defs) = setup(Nation::Water, 1, &[at(0, 0)]);
+    let def = fishing_dock_def(&defs);
+    carve_lake(&mut w);
+    raise_fishing_dock(&mut w, &defs, MID);
+    assert!(w.can_plant(at(3, 6), &def, &defs), "touches land at (2, 6)");
+    assert!(!w.can_plant(LAKE_INTERIOR, &def, &defs), "surrounded by water on every side");
+}
+
+#[test]
+fn fish_spots_a_dock_plants_are_picked_as_they_ripen_with_no_orders_from_us() {
+    let (mut w, defs) = setup(Nation::Water, 2, &[at(0, 0), at(1, 0)]);
+    let def = fishing_dock_def(&defs);
+    let fish = defs.item_id("fish").unwrap();
+    carve_lake(&mut w);
+    raise_fishing_dock(&mut w, &defs, MID);
+    w.designate_stockpile(at(0, 14)).unwrap();
+
+    let first_fish = def.plant_seconds + def.grow_seconds / def.tend_boost;
+    run_until(&mut w, &defs, secs(first_fish + 180.0), |w| w.stored_total(fish) > 0);
+    assert!(w.stored_total(fish) > 0, "fish spots are fished with no orders from us");
+}
