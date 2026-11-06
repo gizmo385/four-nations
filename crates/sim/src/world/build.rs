@@ -386,6 +386,36 @@ impl World {
         }
     }
 
+    /// Whether finishing a building on `footprint` would seal off ground that can reach `anchor`
+    /// today: `check_build`'s own checks are all about the footprint tiles themselves (is this
+    /// particular ground free to build on), never about what a solid building does to everything
+    /// *around* it. A footprint spanning the only way through a narrow place (a one-tile-wide gap
+    /// between mountains, say) walls off whatever is past it exactly as a mountain would, and
+    /// anyone caught beyond it when it finishes has no way back to eat, drink or sleep (#384: a
+    /// settler studying in the one spot a Study Hall's door reached, in a dead end a cabbage
+    /// patch (passable once harvested, not once it grew back) was the only way out of, starved
+    /// of thirst there once the hall itself sealed the other side).
+    ///
+    /// Floods from `anchor` twice, once on the real map and once on a clone with `footprint`'s
+    /// tiles made solid (the same way a finished building's `passable: false` would), and reports
+    /// whether anything outside the footprint that the first flood reached, the second doesn't.
+    /// `nearest_build_site` (`autoplay.rs`) filters every candidate through this so the opening
+    /// never builds a trap; a frontend's placement ghost (#230) could call it too, to warn a
+    /// human player the same way before they finish one themselves.
+    pub fn would_strand(&self, anchor: Pos, footprint: Footprint) -> bool {
+        let mut blocked = self.map.clone();
+        for p in footprint.tiles() {
+            if let Some(tile) = blocked.get_mut(p) {
+                tile.building = Some(Building::new(BuildingId(0), false, false));
+            }
+        }
+        let before = Flood::new(&self.map, anchor, &self.rules);
+        let after = Flood::new(&blocked, anchor, &self.rules);
+        self.map.iter().any(|(p, _)| {
+            !footprint.contains(p) && before.cost(p).is_some() && after.cost(p).is_none()
+        })
+    }
+
     /// Whether `pos` could hold a door: walkable the way a unit stepping through one needs
     /// (`entrance_blocker`'s own check). The frontends' placement ghost (#230) uses this to
     /// colour a footprint's own entrance tile without duplicating `rules`, which is private.
