@@ -68,7 +68,12 @@
 //! - keeps up to `people` bends designated within `DEPOSIT_RADIUS` tiles of the anchor
 //!   (`with_bending`'s own mechanism), so Earth's Bore Tunnel and Seismic Sense, once researched,
 //!   work the same ground the quarry and mine orders do. A bend that makes an item some unbuilt
-//!   building is short of (Cut Ice for the igloo, Metalbend for the Deep Mine) goes first (#376).
+//!   building is short of (Cut Ice for the igloo, Metalbend for the Deep Mine) goes first (#376);
+//! - keeps a one-shot harvest designated on every surface scroll and uncovered lost ruin within
+//!   `SCROLL_RADIUS` tiles (`recover_scrolls`, #404, `docs/design/cartography.md`): raising the
+//!   Map Room itself needs no extra code here, since `raise_buildings` already builds one of
+//!   every reachable building once its tech is known, and a Map Room's own Chart job is what
+//!   uncovers a buried ruin in the first place.
 //!
 //! Stateless and `Copy`, and deterministic for the reasons given above for `Opening`.
 
@@ -115,6 +120,13 @@ const BUILD_SEARCH_RADIUS: i32 = 30;
 /// `docs/design/materials.md` ("What the map holds") finds most of a seed's stone and ore only
 /// past 20 tiles.
 pub const DEPOSIT_RADIUS: i32 = 40;
+
+/// How far out `Economy` looks for a surface scroll or an uncovered lost ruin to recover
+/// (`recover_scrolls`, module doc; #404). `docs/design/cartography.md`'s own supply survey
+/// (`balance --supply`) measures scrolls in reach out to 90 tiles, calling that "the whole
+/// landmass the [default] site is on"; this reuses the same number so the opening never leaves
+/// something reachable sitting uncollected.
+pub const SCROLL_RADIUS: i32 = 90;
 
 /// People per farm plot `Economy` keeps tilled (module doc, "Economy").
 const PEOPLE_PER_FARM_PLOT: u32 = 3;
@@ -287,6 +299,7 @@ impl Economy {
         forage_wild_food(world, defs, anchor);
         gather_materials(world, defs, anchor, &self.build_material_items(world, defs, &deposits));
         self.quarry_and_mine(world, defs, anchor, &deposits);
+        recover_scrolls(world, defs, anchor);
         queue_next_known_tech(world, defs, self.research_plan(world.nation, defs).into_iter());
         self.raise_buildings(world, defs, anchor);
         if self.farms {
@@ -469,6 +482,24 @@ fn forage_wild_food(world: &mut World, defs: &Defs, anchor: Pos) {
 /// A one-shot harvest within `FORAGE_RADIUS` on any resource that yields one of `items`.
 fn gather_materials(world: &mut World, defs: &Defs, anchor: Pos, items: &[ItemId]) {
     let targets = nearby(anchor, FORAGE_RADIUS, world, defs, |t, defs| yields_any(t, defs, items));
+    for pos in targets {
+        let _ = world.apply(Command::DesignateHarvest { pos }, defs);
+    }
+}
+
+/// A one-shot harvest on every surface scroll (`ancient_scroll`, always visible) and every
+/// uncovered lost ruin (`lost_ruins`, buried until a Map Room's Chart job or Air's Glide
+/// uncovers one) within `SCROLL_RADIUS` tiles (module doc; #404). Both resources' harvests yield
+/// the `ancient_scroll` item (`data/jobs.toml`), so one item filter catches both without naming
+/// either resource: a later find that also yields scrolls needs no change here. Not a standing
+/// order: neither resource regrows. Reachability is left to the job itself (`run_harvest`'s own
+/// routing, same as `quarry_and_mine`): a ruin across water is still designated, same as an
+/// unreachable one still gets charted, so the player sees it listed rather than silently
+/// ignored.
+fn recover_scrolls(world: &mut World, defs: &Defs, anchor: Pos) {
+    let Some(scroll) = defs.item_id("ancient_scroll") else { return };
+    let items = [scroll];
+    let targets = nearby(anchor, SCROLL_RADIUS, world, defs, |t, defs| yields_any(t, defs, &items));
     for pos in targets {
         let _ = world.apply(Command::DesignateHarvest { pos }, defs);
     }

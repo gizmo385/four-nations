@@ -1,6 +1,6 @@
 # Cartography: charting where the scrolls lie
 
-Status: **accepted** (#400). Follow-up work: #402 (sim and data, done) to #404.
+Status: **accepted** (#400). Follow-up work: #402 (sim and data, done), #404 (balance, done) to #403.
 
 The "Ancient scrolls read" sign (3 scrolls, `data/endeavor.toml`) is the one sign players make
 no progress on. #380 fixes how scrolls *read* on screen: the legend, `inspect`, and why a marked
@@ -176,10 +176,32 @@ Keep these plain, with no advice or asides (the owner's 2026-11-06 note on text 
 ## Measuring it
 
 The economy opening (`fn_sim::autoplay::Economy`, #352) researches the whole tree in file order,
-so it reaches `cartography`. It should also raise a Map Room and recover what's charted, and the
-balance harness should report the minute the scrolls sign is met. Target (decision 3): on Normal,
-Small, seeds 1-8, the sign lands in year 2 to 3 for every nation wherever the survey above shows
-3 or more scrolls in reach. Tune `minutes` and `range`, not the ruins' density.
+so it reaches `cartography`, raises a Map Room (`raise_buildings` already builds one of every
+reachable building once its tech is known; no extra code needed) and designates a one-shot
+harvest on every surface scroll and uncovered lost ruin within reach (`recover_scrolls`, #404).
+`balance --economy` reports the minute the `scrolls` sign is met, or "none" if it never is.
+
+`range` moved from 60 to 100 (#404): with a Map Room sited up to `BUILD_SEARCH_RADIUS` (30) tiles
+from the anchor, 60 left some ruins within the settlement's own reach outside the room's own
+chart range; 100 covers the full 90-tile reach the supply survey above measures, plus that
+offset. `minutes` is unchanged.
+
+Re-run on Normal, Small, seeds 1-8, all four nations, 180 minutes (`balance --economy`): every
+seed whose site has 3 or more scrolls in reach by the measure above meets the sign except
+seed 6 (every nation) and seed 7 (Water only). Seeds 1, 4, 5 and 7 (Fire, Water, Earth, Air)
+land between minute 74.4 and 107.6, inside year 2 to 3 as targeted. Seeds 2, 3 and 8 land much
+earlier (minute 2.9 to 41.0): those sites carry enough *surface* scrolls on their own that no
+chart is needed at all, which `minutes` and `range` have no power to delay and shouldn't try
+to -- the opening recovers every reachable scroll it finds, not just charted ones.
+
+Seed 6's shortfall isn't a range or pace problem: tracing one run by hand (Fire, seed 6) found
+only one lost ruin (2 scrolls) ever flagged reachable by the Map Room's own walking flood, even
+with `range` raised past what the supply survey covers; the other ruins the survey counts as
+"reachable" are blocked by the settlement's own later buildings, which the survey's one-time,
+building-free snapshot can't see. The sign's true ceiling there is 2, under the 3 target. That
+same gap likely explains Water's seed 7. Filed as a follow-up (#445): the supply survey's
+reachability can read more optimistic than what a played-out settlement, buildings and all,
+actually keeps open.
 
 ## Owner decisions (2026-11-06)
 
@@ -198,8 +220,10 @@ Small, seeds 1-8, the sign lands in year 2 to 3 for every nation wherever the su
 
 Filed with #400 (none marked `ready`; triage decides):
 
-- #402 Sim and data: Map Room and the Chart job.
+- #402 Sim and data: Map Room and the Chart job. Done.
 - #403 TUI: charted ruins on the Endeavor scrolls sign, Map Room inspect, and the new hint
   (blocked by #402 and #380).
 - #404 Balance: the economy opening charts and recovers scrolls, the harness reports the scrolls
-  sign, then tune `minutes` and `range` (blocked by #402).
+  sign, then tune `minutes` and `range` (blocked by #402). Done; see "Measuring it" above.
+- #445 Follow-up from #404: the supply survey's reachability can overstate what a played-out
+  settlement, buildings and all, actually keeps open.
