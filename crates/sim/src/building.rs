@@ -48,6 +48,14 @@
 //!   for buildings that work a vein from inside the rock (Earth's Mine Shaft and Deep Mine) or
 //!   need open water alongside (a future Water building).
 //!
+//! - `power` makes a finished building a power source (issue #428, docs/design/late-tree.md):
+//!   work inside any `uses_power` building within its reach runs faster. `PowerDef::radius` is
+//!   scaled by the nation's `power_generation` modifier, the way `HeatDef::radius` is by
+//!   `heating`; `World::power_at` (`world/power.rs`) is the lookup, and two sources in reach of
+//!   one consumer don't stack. `uses_power = true` marks the consumer side: today the Workshop,
+//!   the Forge, the Brick Kiln, the Smelter, the Mine Shaft, the Deep Mine and the study hall.
+//!   Which buildings are sources is data, not this file's business (#255, #204, #200).
+//!
 //! Which tech must be known before a building may be designated is `Unlocks::buildings` in
 //! `data/research.toml`, resolved here into `BuildingDef::unlocked_by` (issue #22). A building no
 //! tech names is available from the start.
@@ -62,7 +70,7 @@ use crate::jobs::{ItemDef, ItemId};
 use crate::nation::{Modifiers, Nation};
 use crate::needs::NeedsSettings;
 use crate::path::STRAIGHT;
-use crate::research::{TechDef, TechId};
+use crate::research::{MAX_MULTIPLIER, TechDef, TechId};
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
@@ -261,6 +269,31 @@ pub struct IrrigationDef {
     pub growth_boost: f32,
 }
 
+/// A building that speeds up work in buildings nearby (`[building.power]`, issue #428,
+/// docs/design/late-tree.md): the Windmill, Wind Turbine, Tide Mill, Steam Engine and Lightning
+/// Station (#255, #204, #200, out of scope here) all set this. The lookup is `World::power_at`
+/// in `world/power.rs`, the third reader of the "best thing in reach, no stacking" pattern heat
+/// and irrigation already answer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PowerDef {
+    /// Tiles around it, Chebyshev, that count as in reach at a `power_generation` modifier of
+    /// 1.0. Scaled by the nation's, the same way `HeatDef::radius` is by `heating`
+    /// (`PowerDef::radius_for`).
+    pub radius: u32,
+    /// How many times faster work runs in a powered building: above 1.0, at most 4.0.
+    pub boost: f32,
+    /// `boost * 1000`, rounded at load, so `world/study.rs` can scale its integer millis-per-tick
+    /// rate without floating point (issue #428: the sim stays deterministic across platforms).
+    pub boost_millis: u32,
+}
+
+impl PowerDef {
+    /// The reach at a nation's `power_generation` modifier: rounded, and never less than 1.
+    pub fn radius_for(&self, power_generation: f32) -> u32 {
+        ((self.radius as f32 * power_generation).round() as u32).max(1)
+    }
+}
+
 /// A building units heal inside (`[building.healing]`, issue #375, narrowing #125, Water's
 /// Healing Hut). A settler whose health is below `seek_below` and whose needs are all
 /// comfortable (none at or below `low`, `Needs::any_low`) walks to the nearest one with a free
@@ -332,6 +365,13 @@ pub struct BuildingDef {
     /// Set if units heal here: Water's Healing Hut (issue #375). Needs a `capacity` above 0,
     /// the number of places a hurt settler heals in at once, each through its door.
     pub healing: Option<HealingDef>,
+    /// Set if this is a power source: work inside a `uses_power` building within its reach runs
+    /// faster (issue #428, `world/power.rs`).
+    pub power: Option<PowerDef>,
+    /// Whether this building's recipe batches (`world/forge.rs`) or study seats
+    /// (`world/study.rs`) run faster while a power source is in reach (issue #428). Has no
+    /// effect without a `recipe` or `seats`.
+    pub uses_power: bool,
     /// What each nation calls this building, if it varies (e.g. the study hall: Meditation
     /// Pavilion for Air). Empty when every nation uses the plain `name`. If set at all, every
     /// nation has an entry (`display_name` is the one place that matters).
@@ -471,6 +511,13 @@ struct RawHealing {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawPower {
+    radius: u32,
+    boost: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawBuilding {
     id: String,
     name: String,
@@ -496,6 +543,9 @@ struct RawBuilding {
     farm: Option<RawFarm>,
     irrigation: Option<RawIrrigation>,
     healing: Option<RawHealing>,
+    power: Option<RawPower>,
+    #[serde(default)]
+    uses_power: bool,
     #[serde(default)]
     names: HashMap<Nation, String>,
     #[serde(default)]
@@ -662,6 +712,10 @@ impl BuildingsFile {
                 None => None,
                 Some(h) => Some(resolve_healing(&b.id, h, needs)?),
             };
+            let power = match &b.power {
+                None => None,
+                Some(p) => Some(resolve_power(&b.id, p)?),
+            };
             for (nation, name) in &b.names {
                 if name.trim().is_empty() {
                     return err(format!(
@@ -693,6 +747,8 @@ impl BuildingsFile {
                 farm,
                 irrigation,
                 healing,
+                power,
+                uses_power: b.uses_power,
                 names: b.names,
                 art: b.art,
                 unlocked_by: None,
@@ -823,6 +879,24 @@ fn resolve_irrigation(building: &str, i: &RawIrrigation) -> Result<IrrigationDef
         return err("irrigation growth_boost must be at least 1.0");
     }
     Ok(IrrigationDef { radius: i.radius, growth_boost: i.growth_boost })
+}
+
+/// Checks a `[building.power]` (issue #428): `radius` must be at least 1 tile, and `boost` must
+/// be above 1.0 (otherwise it wouldn't be a power source at all) and at most
+/// `research::MAX_MULTIPLIER`, the same ceiling a tech's own modifier multiplier has.
+fn resolve_power(building: &str, p: &RawPower) -> Result<PowerDef, DefsError> {
+    let err = |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: {msg}")));
+    if p.radius == 0 {
+        return err("power needs radius >= 1");
+    }
+    if !(p.boost.is_finite() && p.boost > 1.0 && p.boost <= MAX_MULTIPLIER) {
+        return err(&format!("power boost must be in (1.0, {MAX_MULTIPLIER}]"));
+    }
+    Ok(PowerDef {
+        radius: p.radius,
+        boost: p.boost,
+        boost_millis: (p.boost * 1000.0).round() as u32,
+    })
 }
 
 /// Checks a `[building.healing]` (issue #375): `seek_below` and `stop_at` must sit inside the
@@ -1181,6 +1255,41 @@ mod tests {
         let bad = |from: &str, to: &str| resolve(&one("").replacen(from, to, 1)).unwrap_err().0;
         assert!(bad("radius = 3", "radius = 0").contains("radius > 0"));
         assert!(bad("growth_boost = 1.5", "growth_boost = 0.5").contains("growth_boost"));
+    }
+
+    #[test]
+    fn uses_power_is_set_on_every_consumer_and_no_bundled_building_is_a_source_yet() {
+        let defs = Defs::bundled();
+        for id in
+            ["workshop", "forge", "brick_kiln", "smelter", "mine_shaft", "deep_mine", "study_hall"]
+        {
+            let def = defs.building(defs.building_id(id).unwrap());
+            assert!(def.uses_power, "{id} should run faster when powered");
+        }
+        // Which buildings are sources is out of scope here (#255, #204, #200): none yet.
+        assert_eq!(defs.buildings.iter().filter(|b| b.power.is_some()).count(), 0);
+    }
+
+    #[test]
+    fn power_numbers_are_validated() {
+        let one = |extra: &str| {
+            format!(
+                "[[building]]\nid = \"mill\"\nname = \"Mill\"\nverb = \"Build\"\nwork = 1.0\n\
+                 passable = false\n[building.power]\nradius = 3\nboost = 1.5\n{extra}"
+            )
+        };
+        let def = &resolve(&one("")).unwrap()[0];
+        let power = def.power.expect("a mill is a power source");
+        assert_eq!(power.boost_millis, 1500);
+        let bad = |from: &str, to: &str| resolve(&one("").replacen(from, to, 1)).unwrap_err().0;
+        assert!(bad("radius = 3", "radius = 0").contains("radius >= 1"));
+        assert!(
+            bad("boost = 1.5", "boost = 1.0").contains("boost must be"),
+            "boost must be above 1.0"
+        );
+        assert!(bad("boost = 1.5", "boost = 0.5").contains("boost must be"));
+        assert!(bad("boost = 1.5", "boost = 5.0").contains("boost must be"));
+        resolve(&one("").replacen("boost = 1.5", "boost = 4.0", 1)).unwrap();
     }
 
     #[test]

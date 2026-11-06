@@ -37,6 +37,7 @@ mod injury;
 mod inside;
 mod orchard;
 mod population;
+mod power;
 mod season;
 mod strain;
 mod stride;
@@ -60,6 +61,7 @@ pub use gate::{EndeavorError, GateSite, GateTask};
 pub use harm::{HarmEvent, HarmEventKind, HarmKind};
 pub use heat::{Aura, Flame, Glow, HeatSource};
 pub use population::Arrival;
+pub use power::PowerAt;
 pub use season::{SeasonEvent, SeasonEventKind};
 pub use strain::StrainEvent;
 pub use stride::{STRIDE_LOOKAHEAD, Stride};
@@ -343,6 +345,11 @@ pub struct World {
     /// its own `IrrigationDef::radius`.
     #[serde(default)]
     irrigation_channels: BTreeSet<Pos>,
+    /// Finished power sources by tile (`power.rs`, #428): each speeds up `uses_power` buildings
+    /// within its own `PowerDef::radius`, scaled by `power_generation`. A save from before #428
+    /// loads with none; `World::load` adopts any already standing (`adopt_power_sources`).
+    #[serde(default)]
+    power_sources: BTreeSet<Pos>,
     /// Lifetime counts for the end-game signs: items harvested, scrolls read (`tally.rs`, #233).
     #[serde(default)]
     tallies: Tallies,
@@ -480,6 +487,7 @@ impl World {
             saplings: BTreeSet::new(),
             farm_plots: BTreeMap::new(),
             irrigation_channels: BTreeSet::new(),
+            power_sources: BTreeSet::new(),
             tallies: Tallies::default(),
             endeavor: EndeavorState::Dormant,
             endeavor_log: EndeavorLog::default(),

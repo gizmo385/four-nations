@@ -739,6 +739,9 @@ impl World {
                 if def.irrigation.is_some() {
                     self.open_irrigation_channel(pos);
                 }
+                if def.power.is_some() {
+                    self.open_power_source(pos);
+                }
                 self.sites.remove(&pos);
                 self.jobs.remove(idx);
                 self.raise(footprint, building, def);
