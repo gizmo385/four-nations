@@ -110,9 +110,18 @@ pub struct Unit {
     /// Other units treat it as taken (`work.rs`, issue #58).
     #[serde(default)]
     bed: Option<Pos>,
+    /// The healing building (its anchor) this unit is healing in or walking to, while its need
+    /// task is `Task::Healing` (issue #375). Other units treat it as claimed the same way `bed`
+    /// does.
+    #[serde(default)]
+    healing: Option<Pos>,
     /// Tick before which a failed attempt to act on a need isn't repeated (hunger, thirst,
     /// energy).
     need_retry_at: [u64; 3],
+    /// Tick before which a failed attempt to find a healing building isn't repeated (issue
+    /// #375): its own timer, since healing isn't one of the three needs `need_retry_at` covers.
+    #[serde(default)]
+    healing_retry_at: u64,
     /// Tick before which an idle unit doesn't look for a job again.
     claim_retry_at: u64,
     /// Progress toward the next step; a step happens when this reaches `BASE_TICKS_PER_STEP`.
@@ -611,7 +620,9 @@ impl World {
                 route: None,
                 work: 0.0,
                 bed: None,
+                healing: None,
                 need_retry_at: [0; 3],
+                healing_retry_at: 0,
                 claim_retry_at: 0,
                 move_progress: 0.0,
                 idle_until: 0,
@@ -767,7 +778,8 @@ impl World {
             } else {
                 1.0
             };
-            u.needs.tick_at_cold(
+            let healing = self.healing_bonus_for(&u, defs);
+            u.needs.tick_at_cold_healing(
                 &defs.needs,
                 TICKS_PER_SECOND,
                 u.is_sleeping(),
@@ -775,6 +787,7 @@ impl World {
                 need_decay,
                 cold_hunger,
                 cold_energy,
+                healing,
             );
             // The Avatar's regen multiplier is his own (`[avatar].modifiers.chi_regen`, #237),
             // never the settlement's; everyone else still reads the settlement's cached value,

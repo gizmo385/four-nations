@@ -182,10 +182,11 @@ pub enum Activity {
     Gate,
     Eat,
     Sleep,
+    Heal,
 }
 
 impl Activity {
-    pub const ALL: [Activity; 11] = [
+    pub const ALL: [Activity; 12] = [
         Self::Idle,
         Self::Haul,
         Self::Harvest,
@@ -197,6 +198,7 @@ impl Activity {
         Self::Gate,
         Self::Eat,
         Self::Sleep,
+        Self::Heal,
     ];
 
     /// The short verb the panel's own line and the Nation screen's heading show ("Idle 9"):
@@ -214,6 +216,7 @@ impl Activity {
             Self::Gate => "Gate",
             Self::Eat => "Eat",
             Self::Sleep => "Sleep",
+            Self::Heal => "Heal",
         }
     }
 
@@ -232,6 +235,7 @@ impl Activity {
             Some(Task::Endeavor(_) | Task::Attend(_) | Task::Rite) => Self::Gate,
             Some(Task::Eat(_) | Task::Drink) => Self::Eat,
             Some(Task::Sleep) => Self::Sleep,
+            Some(Task::Healing(_)) => Self::Heal,
         }
     }
 }
@@ -865,6 +869,7 @@ mod tests {
             (Some(Task::Eat(FoodSource::Carried)), Activity::Eat),
             (Some(Task::Drink), Activity::Eat),
             (Some(Task::Sleep), Activity::Sleep),
+            (Some(Task::Healing(fn_sim::Pos::new(0, 0))), Activity::Heal),
         ];
         for (task, want) in cases {
             assert_eq!(Activity::of(task), want, "{task:?}");

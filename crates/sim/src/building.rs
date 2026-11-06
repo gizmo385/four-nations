@@ -31,6 +31,13 @@
 //!   grow `growth_boost` times as fast, the same way an orchard tends trees nearby. Every number
 //!   is on `IrrigationDef`; the lookup is `World::irrigation_rate` in `world/farm.rs`.
 //!
+//! - `healing` makes it somewhere hurt settlers rest (issue #375, Water's Healing Hut): a unit
+//!   whose health is below `seek_below` and whose needs are all comfortable walks to the nearest
+//!   one with room and heals `regen_per_minute` times `modifier`, if named, until health reaches
+//!   `stop_at` or a need pre-empts it (`world/work.rs`'s `Task::Healing`). Needs a `capacity`,
+//!   the door it heals through, the same way a study hall's seats do. Every number is on
+//!   `HealingDef`.
+//!
 //! - `endeavor` marks the end game's great work (the Harmony Gate, #236): it is never designated
 //!   from the build picker. The Endeavor screen places it (`Command::BeginEndeavor`) and its
 //!   stages in `data/endeavor.toml` carry its cost and work instead (`world/gate.rs`).
@@ -53,6 +60,7 @@ use crate::defs::{DefsError, ResourceDef, ResourceId, Terrain};
 use crate::geom::{Footprint, Pos};
 use crate::jobs::{ItemDef, ItemId};
 use crate::nation::{Modifiers, Nation};
+use crate::needs::NeedsSettings;
 use crate::path::STRAIGHT;
 use crate::research::{TechDef, TechId};
 
@@ -253,6 +261,29 @@ pub struct IrrigationDef {
     pub growth_boost: f32,
 }
 
+/// A building units heal inside (`[building.healing]`, issue #375, narrowing #125, Water's
+/// Healing Hut). A settler whose health is below `seek_below` and whose needs are all
+/// comfortable (none at or below `low`, `Needs::any_low`) walks to the nearest one with a free
+/// place and rests there (`world/work.rs`'s `Task::Healing`, entered through the door like a
+/// study seat, so it needs a `capacity`), healing `regen_per_minute` times `modifier` until
+/// health reaches `stop_at` or a need pre-empts it. Data-driven on purpose, so a later source of
+/// harm (#385) can tune or add to what a healing building treats without reworking this.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HealingDef {
+    /// Health below which a hurt unit seeks this building out.
+    pub seek_below: f32,
+    /// Health regained per minute while resting here, before `modifier`. Always above
+    /// `data/needs.toml`'s passive `health.regen_per_minute`, or the building would heal no
+    /// faster than standing around.
+    pub regen_per_minute: f32,
+    /// Health this building heals up to, at or below `data/needs.toml`'s `health.max`; the unit
+    /// leaves once it gets there (passive regen can still carry it the rest of the way).
+    pub stop_at: f32,
+    /// Nation modifier (`Modifiers::get`) that scales `regen_per_minute`, if any (Water's
+    /// `water_work`).
+    pub modifier: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct BuildingDef {
     pub id: String,
@@ -298,6 +329,9 @@ pub struct BuildingDef {
     pub farm: Option<FarmDef>,
     /// Set if this speeds up farm plots nearby: the irrigation channel (issue #126).
     pub irrigation: Option<IrrigationDef>,
+    /// Set if units heal here: Water's Healing Hut (issue #375). Needs a `capacity` above 0,
+    /// the number of places a hurt settler heals in at once, each through its door.
+    pub healing: Option<HealingDef>,
     /// What each nation calls this building, if it varies (e.g. the study hall: Meditation
     /// Pavilion for Air). Empty when every nation uses the plain `name`. If set at all, every
     /// nation has an entry (`display_name` is the one place that matters).
@@ -428,6 +462,15 @@ struct RawIrrigation {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawHealing {
+    seek_below: f32,
+    regen_per_minute: f32,
+    stop_at: f32,
+    modifier: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawBuilding {
     id: String,
     name: String,
@@ -452,6 +495,7 @@ struct RawBuilding {
     recipe: Option<RawRecipe>,
     farm: Option<RawFarm>,
     irrigation: Option<RawIrrigation>,
+    healing: Option<RawHealing>,
     #[serde(default)]
     names: HashMap<Nation, String>,
     #[serde(default)]
@@ -477,6 +521,7 @@ impl BuildingsFile {
         items: &[ItemDef],
         techs: &[TechDef],
         resources: &[ResourceDef],
+        needs: &NeedsSettings,
     ) -> Result<Vec<BuildingDef>, DefsError> {
         let err = |msg: String| Err(DefsError(format!("buildings.toml: {msg}")));
         let mut buildings: Vec<BuildingDef> = Vec::new();
@@ -550,6 +595,12 @@ impl BuildingsFile {
                     b.id
                 ));
             }
+            if b.healing.is_some() && capacity == 0 {
+                return err(format!(
+                    "building {}: healing needs a capacity, the door a unit heals through",
+                    b.id
+                ));
+            }
             let bonus_ok = |x: f32| x.is_finite() && x >= 1.0;
             if let Some(bed) = &b.bed
                 && !(bonus_ok(bed.sleep_bonus) && bed.seek_tiles > 0)
@@ -607,6 +658,10 @@ impl BuildingsFile {
                 None => None,
                 Some(i) => Some(resolve_irrigation(&b.id, i)?),
             };
+            let healing = match &b.healing {
+                None => None,
+                Some(h) => Some(resolve_healing(&b.id, h, needs)?),
+            };
             for (nation, name) in &b.names {
                 if name.trim().is_empty() {
                     return err(format!(
@@ -637,6 +692,7 @@ impl BuildingsFile {
                 recipe,
                 farm,
                 irrigation,
+                healing,
                 names: b.names,
                 art: b.art,
                 unlocked_by: None,
@@ -767,6 +823,42 @@ fn resolve_irrigation(building: &str, i: &RawIrrigation) -> Result<IrrigationDef
         return err("irrigation growth_boost must be at least 1.0");
     }
     Ok(IrrigationDef { radius: i.radius, growth_boost: i.growth_boost })
+}
+
+/// Checks a `[building.healing]` (issue #375): `seek_below` and `stop_at` must sit inside the
+/// health meter in that order, `regen_per_minute` must beat the passive rate everyone already
+/// gets (`needs.health.regen_per_minute`), and `modifier`, if named, must be a real nation
+/// modifier.
+fn resolve_healing(
+    building: &str,
+    h: &RawHealing,
+    needs: &NeedsSettings,
+) -> Result<HealingDef, DefsError> {
+    let err = |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: {msg}")));
+    let max = needs.health.max;
+    if !(h.seek_below.is_finite() && h.seek_below > 0.0 && h.seek_below <= max) {
+        return err(&format!("healing seek_below must be in (0, {max}]"));
+    }
+    if !(h.stop_at.is_finite() && h.stop_at > h.seek_below && h.stop_at <= max) {
+        return err("healing stop_at must be above seek_below and at most health.max");
+    }
+    if !(h.regen_per_minute.is_finite() && h.regen_per_minute > needs.health.regen_per_minute) {
+        return err(&format!(
+            "healing regen_per_minute must be above needs.toml's base regen ({})",
+            needs.health.regen_per_minute
+        ));
+    }
+    if let Some(m) = &h.modifier
+        && !Modifiers::NAMES.contains(&m.as_str())
+    {
+        return err(&format!("healing has an unknown modifier {m:?}"));
+    }
+    Ok(HealingDef {
+        seek_below: h.seek_below,
+        regen_per_minute: h.regen_per_minute,
+        stop_at: h.stop_at,
+        modifier: h.modifier.clone(),
+    })
 }
 
 /// Resolves every tech's `unlocks.buildings` into `BuildingDef::unlocked_by`: the building must
@@ -1071,6 +1163,43 @@ mod tests {
         assert!(bad("growth_boost = 1.5", "growth_boost = 0.5").contains("growth_boost"));
     }
 
+    #[test]
+    fn the_healing_hut_is_data() {
+        let defs = Defs::bundled();
+        let def = defs.building(defs.building_id("healing_hut").unwrap());
+        let h = def.healing.as_ref().expect("the hut heals hurt settlers");
+        assert!(h.seek_below > 0.0 && h.seek_below <= defs.needs.health.max);
+        assert!(h.stop_at > h.seek_below && h.stop_at <= defs.needs.health.max);
+        assert!(h.regen_per_minute > defs.needs.health.regen_per_minute);
+        assert_eq!(h.modifier.as_deref(), Some("water_work"));
+        assert!(def.capacity > 0, "healing needs a door, like a study seat");
+        // Only the hut heals.
+        assert_eq!(defs.buildings.iter().filter(|b| b.healing.is_some()).count(), 1);
+    }
+
+    #[test]
+    fn healing_numbers_are_validated() {
+        let one = |extra: &str| {
+            format!(
+                "[[building]]\nid = \"hut\"\nname = \"Hut\"\nverb = \"Build\"\nwork = 1.0\n\
+                 passable = false\ncapacity = 2\n[building.healing]\nseek_below = 60.0\n\
+                 regen_per_minute = 8.0\nstop_at = 90.0\nmodifier = \"water_work\"\n{extra}"
+            )
+        };
+        resolve(&one("")).unwrap();
+        let bad = |from: &str, to: &str| resolve(&one("").replacen(from, to, 1)).unwrap_err().0;
+        assert!(bad("seek_below = 60.0", "seek_below = 0.0").contains("seek_below"));
+        assert!(bad("seek_below = 60.0", "seek_below = 150.0").contains("seek_below"));
+        assert!(bad("stop_at = 90.0", "stop_at = 40.0").contains("stop_at"));
+        assert!(bad("stop_at = 90.0", "stop_at = 150.0").contains("stop_at"));
+        assert!(
+            bad("regen_per_minute = 8.0", "regen_per_minute = 1.0").contains("regen_per_minute")
+        );
+        assert!(bad("modifier = \"water_work\"", "modifier = \"nope\"").contains("modifier"));
+        let no_capacity = one("").replacen("capacity = 2\n", "", 1);
+        assert!(resolve(&no_capacity).unwrap_err().0.contains("healing needs a capacity"));
+    }
+
     fn resolve(toml: &str) -> Result<Vec<BuildingDef>, DefsError> {
         let defs = Defs::bundled();
         // The bundled techs unlock the bundled buildings, which these small fixtures don't
@@ -1079,7 +1208,12 @@ mod tests {
         for t in &mut techs {
             t.unlocks.buildings.clear();
         }
-        toml::from_str::<BuildingsFile>(toml).unwrap().resolve(&defs.items, &techs, &defs.resources)
+        toml::from_str::<BuildingsFile>(toml).unwrap().resolve(
+            &defs.items,
+            &techs,
+            &defs.resources,
+            &defs.needs,
+        )
     }
 
     #[test]

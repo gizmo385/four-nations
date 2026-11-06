@@ -318,9 +318,10 @@ pub struct OccupantRow {
     pub id: UnitId,
     pub name: String,
     /// A short, lower-case word for what it's doing inside: "studying" while it holds a study
-    /// seat, "sleeping" once beds are places inside too (#227), "idle" with nothing claimed. A
-    /// need pre-empts a seat by sending the unit out the door first (`world/study.rs`), so an
-    /// occupant is never doing anything else while it's inside.
+    /// seat, "sleeping" once beds are places inside too (#227), "healing" while mending in a
+    /// healing building (#375), "idle" with nothing claimed. A need pre-empts a seat by sending
+    /// the unit out the door first (`world/study.rs`), so an occupant is never doing anything
+    /// else while it's inside.
     pub task: &'static str,
 }
 
@@ -336,6 +337,7 @@ fn occupant_task(unit: &Unit) -> &'static str {
     match unit.task() {
         Some(Task::Study(_)) => "studying",
         Some(Task::Sleep) => "sleeping",
+        Some(Task::Healing(_)) => "healing",
         _ => "idle",
     }
 }

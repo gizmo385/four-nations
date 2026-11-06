@@ -284,7 +284,7 @@ impl Defs {
         let (jobs, items, harvests) =
             parse::<JobsFile>("jobs.toml", jobs)?.resolve(&resources, &foods, &needs, &techs)?;
         let buildings = parse::<BuildingsFile>("buildings.toml", buildings)?
-            .resolve(&items, &techs, &resources)?;
+            .resolve(&items, &techs, &resources, &needs)?;
         let biomes = parse::<BiomeFile>("biomes.toml", biomes)?.biome;
         let (chi, abilities) = parse::<BendingFile>("bending.toml", bending)?
             .resolve(&biomes, &resources, &harvests, &items, &techs)?;

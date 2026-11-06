@@ -66,6 +66,13 @@
 #             (times `crop_growth`, the hook irrigation and terraces will multiply) before a Reap
 #             job (`reap_seconds` of work) gathers `harvest_count` of it and the plot is empty
 #             again.
+# - healing:  a place hurt settlers rest (issue #375, Water's Healing Hut). A unit whose health
+#             is below `seek_below` and whose needs are all comfortable (none at or below `low`,
+#             data/needs.toml) walks to the nearest one with a free place and heals
+#             `regen_per_minute` times `modifier` (optional, a nation modifier) until health
+#             reaches `stop_at` or a need pre-empts it. `regen_per_minute` must beat
+#             data/needs.toml's passive `health.regen_per_minute`, or it would do nothing; needs
+#             a `capacity`, the door it heals through, the same way a study hall's seats work.
 # - names:    what each nation calls this building, if it varies. Either all four nations or
 #             none; falls back to `name` for a building that omits it.
 # - art:      which sprite a graphical frontend draws it with for each nation, if it varies (the
@@ -554,3 +561,35 @@ output_count = 1
 work = 150.0
 modifier = "earthworks"
 input = []
+
+# --- Water: healing (issue #375) ---
+# Unlocked by `healing`: Water's pillar, narrowing #125. A hurt settler whose other needs are
+# comfortable walks in and rests, healing 8 health a minute (16 for Water, at `water_work`'s
+# 2.0) until it reaches 90, instead of the passive 2 everyone gets while comfortable
+# (data/needs.toml). 8 is above that passive rate (the point of the building); 90 leaves some
+# headroom for the passive rate to finish the job after a unit steps back out. Cost and work
+# sit with Water's other buildings (the igloo, 4 wood; the channel, 4 wood, 30 s): a little more
+# than either since it costs tools too, the first Water building to need them (`workshop`,
+# #369).
+[[building]]
+id = "healing_hut"
+name = "Healing Hut"
+verb = "Build"
+work = 60.0
+passable = false
+footprint = [2, 2]
+capacity = 2
+[[building.cost]]
+item = "wood"
+count = 10
+[[building.cost]]
+item = "stone"
+count = 4
+[[building.cost]]
+item = "tool"
+count = 1
+[building.healing]
+seek_below = 60.0
+regen_per_minute = 8.0
+stop_at = 90.0
+modifier = "water_work"

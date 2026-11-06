@@ -162,11 +162,12 @@ fn every_building_targets_are_computed_per_nation() {
         .map(|&n| (n, progress(&world(n, 1, &defs), &defs, "building_kinds").1))
         .collect();
     // Today's numbers (`docs/design/materials.md` section 6, raised by the shared Workshop
-    // (#369) and, for Earth, the Mine Shaft and Deep Mine (#373)): Air 9, Water 7, Earth 9 and
-    // Fire 10 reachable, minus the bundled sign's `spare = 1`.
+    // (#369), the Mine Shaft and Deep Mine for Earth (#373), and the Healing Hut for Water
+    // (#375)): Air 9, Water 8, Earth 9 and Fire 10 reachable, minus the bundled sign's
+    // `spare = 1`.
     assert_eq!(
         targets,
-        [(Nation::Air, 8), (Nation::Water, 6), (Nation::Earth, 8), (Nation::Fire, 9)]
+        [(Nation::Air, 8), (Nation::Water, 7), (Nation::Earth, 8), (Nation::Fire, 9)]
     );
 }
 

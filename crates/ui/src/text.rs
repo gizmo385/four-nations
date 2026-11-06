@@ -173,6 +173,12 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
         },
         Task::Drink => "Drinking".into(),
         Task::Sleep => "Sleeping".into(),
+        Task::Healing(anchor) => match world.building_at(anchor) {
+            Some(id) => {
+                format!("Healing in the {}", defs.building(id).display_name(world.nation_of(unit)))
+            }
+            None => "Healing".into(),
+        },
     }
 }
 
@@ -286,6 +292,48 @@ mod tests {
         let wood = defs.item_id("wood").unwrap();
         assert_eq!(describe_stack(&defs, Some(Stack { item: wood, count: 3 })), "3 Wood");
         assert_eq!(describe_stack(&defs, None), "nothing");
+    }
+
+    /// A hurt settler resting in the Healing Hut (#375) reads "Healing in the Healing Hut", the
+    /// building's own display name, not a bare "Healing".
+    #[test]
+    fn a_healing_unit_names_the_hut_it_heals_in() {
+        use fn_sim::Terrain;
+        use fn_sim::building::Building;
+        use fn_sim::geom::Footprint;
+
+        let mut s = Session::new(7, Nation::Water, 48, 32);
+        let hut = s.defs.building_id("healing_hut").unwrap();
+        let passable = s.defs.building(hut).passable;
+        let at = fn_sim::Pos::new(20, 20);
+        for dy in 0..2 {
+            for dx in 0..2 {
+                let t = s.world.map.get_mut(fn_sim::Pos::new(at.x + dx, at.y + dy)).unwrap();
+                t.terrain = Terrain::Land;
+                t.resource = None;
+            }
+        }
+        let foot = Footprint::new(at, 2, 2);
+        let door = foot.entrance();
+        s.world.units.retain(|u| !foot.contains(u.pos) && u.pos != door);
+        for p in foot.tiles() {
+            let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
+            let b = Building { part, size: [2, 2], ..Building::new(hut, passable, false) };
+            s.world.map.get_mut(p).unwrap().building = Some(b);
+        }
+        s.world.units[0].pos = door;
+        s.world.units[0].needs.health = 50.0;
+        for _ in 0..200 {
+            s.tick();
+            if s.world.units[0].is_healing() {
+                break;
+            }
+        }
+        assert!(s.world.units[0].is_healing(), "never made it inside");
+        assert_eq!(
+            describe_task(&s.world, &s.defs, &s.world.units[0]),
+            "Healing in the Healing Hut"
+        );
     }
 
     /// The selection bar's bends line (`docs/design/endgame.md`, "Mastery pacing"): below the

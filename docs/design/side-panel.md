@@ -117,6 +117,7 @@ one tick to the next. Sorting by count would make the line jitter.
 | Gate | Gate | `Endeavor`, `Attend`, `Rite` |
 | Eat | Eat | `Eat`, `Drink` |
 | Sleep | Sleep | `Sleep` |
+| Heal | Heal | `Healing` |
 
 The labels are short verbs because `Harvesting 3` doesn't fit beside two other groups in 28
 cells. The groups pack into at most three rows.
