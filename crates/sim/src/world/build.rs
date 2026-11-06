@@ -399,21 +399,58 @@ impl World {
     /// Floods from `anchor` twice, once on the real map and once on a clone with `footprint`'s
     /// tiles made solid (the same way a finished building's `passable: false` would), and reports
     /// whether anything outside the footprint that the first flood reached, the second doesn't.
-    /// `nearest_build_site` (`autoplay.rs`) filters every candidate through this so the opening
-    /// never builds a trap; a frontend's placement ghost (#230) could call it too, to warn a
-    /// human player the same way before they finish one themselves.
+    /// `nearest_build_site` (`autoplay.rs`) filters every candidate through this (and
+    /// `build_site_viable`, below) so the opening never builds a trap; a frontend's placement
+    /// ghost (#230) could call it too, to warn a human player the same way before they finish one
+    /// themselves.
+    ///
+    /// This alone isn't enough to tell a good site from a bad one: it only asks whether finishing
+    /// the building would cut off ground that can reach `anchor` *today*, so a tile nothing can
+    /// reach yet passes it vacuously (#395: a lone Coast tile ringed by Mountain on every side is
+    /// buildable ground by `check_build`'s own rules, and building there strands nothing, since
+    /// nothing reachable becomes unreachable; but no unit could ever walk there to finish it, or
+    /// use it once it somehow stood). `build_site_viable` is the other half.
     pub fn would_strand(&self, anchor: Pos, footprint: Footprint) -> bool {
+        self.would_strand_from(&Flood::new(&self.map, anchor, &self.rules), footprint)
+    }
+
+    /// `would_strand`, given a flood from `anchor` that's already been computed
+    /// (`flood_from_anchor`): `nearest_build_site` shares one across every candidate it tries for
+    /// the same anchor and step, instead of flooding the whole map again each time.
+    fn would_strand_from(&self, before: &Flood, footprint: Footprint) -> bool {
         let mut blocked = self.map.clone();
         for p in footprint.tiles() {
             if let Some(tile) = blocked.get_mut(p) {
                 tile.building = Some(Building::new(BuildingId(0), false, false));
             }
         }
-        let before = Flood::new(&self.map, anchor, &self.rules);
-        let after = Flood::new(&blocked, anchor, &self.rules);
+        let after = Flood::new(&blocked, before.origin(), &self.rules);
         self.map.iter().any(|(p, _)| {
             !footprint.contains(p) && before.cost(p).is_some() && after.cost(p).is_none()
         })
+    }
+
+    /// The flood from `anchor` under the rules units walk with: `nearest_build_site`'s own
+    /// reachability check and `would_strand_from`, shared across every candidate it tries for one
+    /// anchor instead of each flooding the whole map again (`would_strand_from`'s module doc).
+    pub(crate) fn flood_from_anchor(&self, anchor: Pos) -> Flood {
+        Flood::new(&self.map, anchor, &self.rules)
+    }
+
+    /// Whether building `footprint` right now would both be reachable at all from `before`'s own
+    /// anchor (any of its tiles) and not strand anything else reachable today
+    /// (`would_strand_from`). `nearest_build_site` (`autoplay.rs`) uses this instead of
+    /// `would_strand` alone: `would_strand`'s own module doc explains why that alone let #395
+    /// through. Only the footprint's own tiles are checked, not its ring too: `check_build`
+    /// already guarantees every one of them is free, buildable ground (no mountain, no
+    /// resource), so `before`'s flood already answers "can a unit walk onto this exact tile"
+    /// correctly for it, corner-cutting included; a ring tile being reachable is no guarantee
+    /// that stepping onto the footprint from it wouldn't itself be cut by that same rule (the
+    /// diagonal gap #395's own pocket turned out to be, with the settlement's anchor sitting
+    /// right across the corner from it).
+    pub(crate) fn build_site_viable(&self, before: &Flood, footprint: Footprint) -> bool {
+        footprint.tiles().any(|p| before.cost(p).is_some())
+            && !self.would_strand_from(before, footprint)
     }
 
     /// Whether `pos` could hold a door: walkable the way a unit stepping through one needs
