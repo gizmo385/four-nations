@@ -19,7 +19,8 @@
 #
 # The four effects landed as separate work (#68 to #71): the magnitude of `irrigate` scales
 # `wet_minutes`, that of `heat_source` scales `duration_minutes`, and that of `wind_carry` scales
-# `range`.
+# `range`. `reshape`'s magnitude (#364) scales `revert_minutes`, when that is set; a `reshape`
+# with no `revert_minutes` (Raise Earth, Bore Tunnel) is permanent and needs no magnitude at all.
 
 [chi]
 max = 100.0
@@ -290,3 +291,44 @@ magnitude_modifier = "power_generation"   # scales work_seconds
 [ability.effect]
 kind = "build"
 work_seconds = 30.0
+
+# --- #364 (Water: Draw Water, Cut Ice) ----------------------------------------------------------
+
+# Water, from `irrigation` (docs/design/bending.md, "More abilities and the route to mastery"):
+# pulls groundwater up into a pool on dry land, away from any river. The pool is a plain Ford
+# while it lasts (drinkable, and fresh water for Water the Land's own `source_range`), then
+# drains back into the ground on its own, through `reshape`'s `revert_minutes`.
+[[ability]]
+id = "draw_water"
+nation = "water"
+name = "Draw Water"
+verb = "Draw water"
+description = "Pull groundwater into a pool. It drains back into the ground after a while."
+chi = 30.0
+work = 8.0
+speed_modifier = "water_work"
+magnitude_modifier = "water_work"   # scales revert_minutes
+[ability.effect]
+kind = "reshape"
+from = ["land"]
+to = "ford"
+revert_minutes = 10.0
+
+# Water, from `ice_construction` (docs/design/bending.md, "More abilities and the route to
+# mastery"): freezes and cuts a river, lake or sea tile beside the bender into ice, Water's own
+# building material (the igloo's cost). The ice lands on the bender's own tile; nobody can stand
+# on the water to receive it.
+[[ability]]
+id = "cut_ice"
+nation = "water"
+name = "Cut Ice"
+verb = "Cut ice"
+description = "Freeze and cut the water beside you into blocks of ice."
+chi = 30.0
+work = 10.0
+speed_modifier = "water_work"
+[ability.effect]
+kind = "draw_item"
+from = ["river", "lake", "water"]
+item = "ice"
+count = 4

@@ -383,8 +383,8 @@ count = 15
 # --- Water Tribe ---
 
 # Unlocked by `ice_construction` (data/research.toml). A snug ice dome: cheaper and slower to put
-# up than a bed, and warmer to sleep in. There is no ice item yet, so it costs wood. The numbers
-# are provisional (issue #27); the bed's are the baseline.
+# up than a bed, and warmer to sleep in. Costs ice (#364), cut by the same tech's Cut Ice
+# ability, instead of wood; the bed's numbers are still the baseline.
 [[building]]
 id = "igloo"
 name = "Igloo"
@@ -395,7 +395,7 @@ passable = true
 sleep_bonus = 1.6
 seek_tiles = 30
 [[building.cost]]
-item = "wood"
+item = "ice"
 count = 4
 
 # --- The endeavor ---

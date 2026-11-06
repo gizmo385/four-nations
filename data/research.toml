@@ -306,8 +306,11 @@ cost = 60
 prereqs = ["farming"]
 # The irrigation channel (issue #126): farm plots within its reach grow faster
 # (`World::crop_growth_rate`, world/farm.rs).
+# Ability: Draw Water (#364, docs/design/bending.md, "More abilities and the route to mastery"):
+# a temporary pool on dry land, away from any river, that drains back into the ground on its own.
 [tech.unlocks]
 buildings = ["irrigation_channel"]
+abilities = ["draw_water"]
 modifiers = { water_work = 1.15 }
 
 [[tech]]
@@ -317,9 +320,12 @@ description = "Cut and bend ice into a cheap, sturdy building material."
 nation = "water"
 cost = 120
 prereqs = ["shelter"]
-# There is no ice item yet, so the igloo costs wood; ice blocks as a material are future work.
+# Ability: Cut Ice (#364, docs/design/bending.md, "More abilities and the route to mastery"):
+# freezes and cuts river, lake or sea water into Water's own building material. The igloo
+# costs it instead of wood.
 [tech.unlocks]
 buildings = ["igloo"]
+abilities = ["cut_ice"]
 
 [[tech]]
 id = "healing"
