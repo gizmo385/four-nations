@@ -16,7 +16,7 @@ const MARGIN: u16 = 2;
 
 /// The blank columns [`split`] leaves between the list and the detail pane, as the selection
 /// bar's own two columns do (`crate::bar`).
-const GAP: u16 = 2;
+pub const GAP: u16 = 2;
 
 /// The modal's box: centred in `area`, `target` sized if `area` has room for it with [`MARGIN`]
 /// to spare all round, shrunk to fit otherwise. Every size the frame draws at (80x24 and up,

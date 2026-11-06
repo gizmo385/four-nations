@@ -422,8 +422,12 @@ impl<'a> Painter<'a> {
             remaining -= n;
         }
         if let Some((text, tone)) = &row.right {
-            let rx = x + width as u16 - right_len as u16;
-            self.buf.set_stringn(rx, y, text, right_len, tone.style(self.palette));
+            // A value wider than the row is cut to fit rather than drawn starting left of `x`,
+            // over whatever sits there (a modal's border, say).
+            let shown = fit(text, width, self.marks.ellipsis);
+            let n = shown.chars().count();
+            let rx = x + (width - n) as u16;
+            self.buf.set_stringn(rx, y, &shown, n, tone.style(self.palette));
         }
         self.row += 1;
     }
@@ -443,6 +447,24 @@ impl<'a> Painter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A right-hand value wider than its row is cut to the row, never drawn left of it.
+    #[test]
+    fn a_value_wider_than_its_row_stays_inside_it() {
+        let s = crate::new_session(7, fn_sim::Nation::Earth);
+        let palette = Palette::new(
+            &s.defs,
+            fn_sim::Nation::Earth,
+            crate::color::ColorDepth::TrueColor,
+            false,
+        );
+        let mut buf = Buffer::empty(Rect::new(0, 0, 20, 1));
+        let mut p = Painter::new(&mut buf, Rect::new(5, 0, 10, 1), &palette);
+        p.row(&Row::pair("Name", Tone::Text, "10 Stone, 6 Wood", Tone::Text));
+        let line = crate::frame::to_text(&buf);
+        assert!(line.starts_with("     "), "drew left of the row: {line:?}");
+        assert_eq!(line.trim_end().chars().count(), 15, "{line:?}");
+    }
 
     #[test]
     fn wrap_breaks_at_spaces_cuts_long_words_and_marks_what_is_left_out() {
