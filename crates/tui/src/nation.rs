@@ -57,12 +57,13 @@ fn ordered_needs(unit: &UnitView) -> impl Iterator<Item = &NeedView> {
 
 /// The task column's width before the meters start (`fit` truncates anything longer): capped so
 /// the meters land just past the task text instead of stretching to the screen's far edge on a
-/// wide terminal, but never wider than `width` leaves room for once the name and the meters have
-/// theirs.
-const TASK_CAP: usize = 40;
+/// wide terminal, but never wider than `width` leaves room for once the name, the gap and the
+/// meters have theirs. The cap fits the longest everyday task whole ("Delivering 12 Ancient
+/// Scrolls to a stockpile").
+const TASK_CAP: usize = 46;
 
 fn task_width(name_width: usize, width: usize) -> usize {
-    width.saturating_sub(2 + name_width + 1 + METERS_WIDTH).min(TASK_CAP)
+    width.saturating_sub(2 + name_width + 1 + METER_GAP + METERS_WIDTH).min(TASK_CAP)
 }
 
 /// The need meters' own filled/empty glyphs, not [`Marks::full`]/[`Marks::empty`] (#325): a
@@ -83,7 +84,7 @@ fn name_width(view: &NationView) -> usize {
 /// naming each need in [`NEED_ORDER`]'s own order, aligned over its own meter. It is drawn once,
 /// outside the roster's scrolled window, so it stays visible no matter how far the roster scrolls.
 fn meter_header(name_width: usize, width: usize) -> Row {
-    let pad = " ".repeat(2 + name_width + 1 + task_width(name_width, width));
+    let pad = " ".repeat(2 + name_width + 1 + task_width(name_width, width) + METER_GAP);
     let mut spans = vec![(pad, Tone::Dim)];
     for (i, label) in NEED_ORDER.into_iter().chain(["Chi"]).enumerate() {
         if i > 0 {
@@ -164,6 +165,8 @@ fn wide_unit_row(
         (format!("{pointer} "), Tone::Title),
         (format!("{:<name_width$} ", unit.name), name_tone),
         (task, Tone::Text),
+        // A cut-short task's ellipsis would otherwise butt straight against the first meter.
+        (" ".repeat(METER_GAP), Tone::Dim),
     ];
     for (i, n) in ordered_needs(unit).enumerate() {
         if i > 0 {
