@@ -63,14 +63,25 @@ fn draw_modal(
             let rows = fn_ui::build::picker_rows(session);
             crate::build::draw(session, &rows, ui.build_cursor, palette, area, buf);
         }
-        Modal::Menu => crate::menu::draw(
-            ui.menu_cursor,
-            ui.menu_name.as_deref(),
-            ui.has_quicksave,
-            palette,
-            area,
-            buf,
-        ),
+        Modal::Menu => {
+            // The elapsed clock, while seasons are on (#416, owner decision 4 on #414): the
+            // side panel's header shows the season instead, so the menu is one of the two
+            // places the clock moved to.
+            let clock = session
+                .world
+                .knobs(&session.defs)
+                .seasons
+                .then(|| fn_ui::view::format_clock(session.world.tick));
+            crate::menu::draw(
+                ui.menu_cursor,
+                ui.menu_name.as_deref(),
+                ui.has_quicksave,
+                clock.as_deref(),
+                palette,
+                area,
+                buf,
+            )
+        }
     }
 }
 
