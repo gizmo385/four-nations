@@ -130,6 +130,47 @@ fn designating_releases_a_hauler_that_has_not_arrived_yet() {
     assert_eq!(w.units[0].task(), None, "released right away");
 }
 
+/// #386: a hauler whose claim gets taken over by Wind Carry while a need has already pre-empted
+/// it (hunger, thirst or energy, `work.rs`'s "needs pre-empt jobs") must not lose its need task's
+/// own route. Before the fix, `take_haul_job` cleared `route` unconditionally, as if the unit
+/// were still walking the haul -- but with a need in charge, `route` belongs to that instead
+/// (the haul's `job_task` is only set aside, not dropped). The unit was left with `need_task`
+/// still `Drink` and `route` suddenly `None`, which `walk` never reports as arrived, so it never
+/// drank and starved beside water with plenty to drink.
+#[test]
+fn designating_over_a_need_preempted_hauler_does_not_strand_its_route() {
+    let defs = Defs::bundled();
+    let wood = wood_item(&defs);
+    // A river at x=5 blocks nothing here (everyone stays east of it): it's only there to give
+    // the unit somewhere to drink, close enough that one tick after the need takes over still
+    // leaves a route in progress.
+    let mut w = world(&[at(9, 2)], 40, 5, Some(5), &defs);
+    w.apply(Command::DesignateStockpile { pos: at(14, 2) }, &defs).unwrap();
+    w.ground.insert(at(10, 2), Stack { item: wood, count: 5 });
+    w.ensure_haul_job(at(10, 2));
+    w.wake_idle();
+    run_until(&mut w, &defs, 50, |w| w.jobs().iter().any(|j| j.claimed_by.is_some()));
+    let job_id = w.jobs()[0].id;
+    assert_eq!(w.units[0].task(), Some(Task::Haul(job_id)), "unit 0 is on its way");
+
+    // Thirst alone drops to `low`: hunger and energy stay full, so only Drink pre-empts.
+    w.units[0].needs.thirst = defs.needs.thirst.low - 1.0;
+    w.tick(&defs);
+    assert_eq!(w.units[0].need_task, Some(Task::Drink), "thirst pre-empted the haul");
+    assert_eq!(w.units[0].job_task, Some(Task::Haul(job_id)), "the haul is only set aside");
+    assert!(w.units[0].route.is_some(), "a route to drink was planned");
+
+    // Wind Carry takes the haul's ground stack over mid-need.
+    w.apply(Command::Bend { ability: wind(&defs), pos: at(10, 2) }, &defs).unwrap();
+    assert_eq!(w.units[0].job_task, None, "the dead haul claim is dropped");
+    assert_eq!(w.units[0].need_task, Some(Task::Drink), "still mid-need");
+    assert!(w.units[0].route.is_some(), "the need's own route survives the haul's cancellation");
+
+    run_until(&mut w, &defs, 2000, |w| w.units[0].need_task.is_none());
+    assert!(w.units[0].needs.thirst > defs.needs.thirst.low, "it actually drank: {w:?}");
+    assert!(w.deaths.is_empty(), "nobody should have starved or dehydrated: {:?}", w.deaths);
+}
+
 #[test]
 fn cancelling_a_wind_carry_gives_the_haul_job_back() {
     let defs = Defs::bundled();
