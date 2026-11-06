@@ -64,9 +64,18 @@ impl ChiSettings {
 /// this enum is in `world/bending.rs` and nowhere else.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
-    /// Turn a tile of one terrain into another: Earth's "Raise Earth" (water into a ford) and
-    /// "Bore Tunnel" (a mountain into a tunnel, #132).
-    Reshape { from: Vec<Terrain>, to: Terrain },
+    /// Turn a tile of one terrain into another: Earth's "Raise Earth" (water into a ford),
+    /// "Bore Tunnel" (a mountain into a tunnel, #132) and Water's "Draw Water" (dry land into a
+    /// pool, #364). `revert_minutes`, if set, is the magnitude when set (scaled the same way as
+    /// `HeatSource::duration_minutes`): the tile reverts to whatever it was before after that
+    /// long, instead of staying `to` forever. A target that is already walkable (Draw Water's dry
+    /// land) needs no bank of passable ground beside it, since the bender can simply stand on it;
+    /// one that isn't (Raise Earth's water, Bore Tunnel's rock) does.
+    Reshape { from: Vec<Terrain>, to: Terrain, revert_minutes: Option<f32> },
+    /// Cuts `count` of `item` from a tile of one of `from` terrains beside passable ground
+    /// (Water's "Cut Ice", #364): the target itself (river, lake or sea) isn't walkable, so the
+    /// yield drops on the tile the bender actually stood on to reach it, not on the target.
+    DrawItem { from: Vec<Terrain>, item: ItemId, count: u32 },
     /// Wet a 3x3 patch near fresh water so wild food sprouts there (Water's "Water the Land").
     /// The magnitude (if any) scales `wet_minutes`.
     Irrigate {
@@ -159,6 +168,13 @@ enum RawEffect {
     Reshape {
         from: Vec<Terrain>,
         to: Terrain,
+        #[serde(default)]
+        revert_minutes: Option<f32>,
+    },
+    DrawItem {
+        from: Vec<Terrain>,
+        item: String,
+        count: u32,
     },
     Irrigate {
         source_range: u32,
@@ -330,14 +346,29 @@ fn resolve_effect(
 ) -> Result<Effect, DefsError> {
     let err = |msg: &str| Err(DefsError(format!("bending.toml: ability {ability}: {msg}")));
     Ok(match raw {
-        RawEffect::Reshape { from, to } => {
+        RawEffect::Reshape { from, to, revert_minutes } => {
             if from.is_empty() {
                 return err("reshape needs at least one `from` terrain");
             }
             if from.contains(&to) {
                 return err("reshape `to` can't also be a `from` terrain");
             }
-            Effect::Reshape { from, to }
+            if revert_minutes.is_some_and(|m| !positive(m)) {
+                return err("reshape revert_minutes must be positive");
+            }
+            Effect::Reshape { from, to, revert_minutes }
+        }
+        RawEffect::DrawItem { from, item, count } => {
+            if from.is_empty() {
+                return err("draw_item needs at least one `from` terrain");
+            }
+            if count == 0 {
+                return err("draw_item count must be at least 1");
+            }
+            let Some(idx) = items.iter().position(|i| i.id == item) else {
+                return err(&format!("unknown item {item:?}"));
+            };
+            Effect::DrawItem { from, item: ItemId(idx as u16), count }
         }
         RawEffect::Irrigate {
             source_range,

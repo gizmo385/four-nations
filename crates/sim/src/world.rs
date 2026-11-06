@@ -43,8 +43,8 @@ mod tally;
 mod work;
 
 pub use avatar::AvatarState;
-use bending::Patch;
 pub use bending::{BendChannel, BendError, BendEvent, BendOutcome, Moved};
+use bending::{Patch, Revert};
 use build::Site;
 pub use build::{Blocker, BuildError};
 pub use command::{Command, CommandError, Recorded};
@@ -286,6 +286,10 @@ pub struct World {
     bend_events: Vec<BendEvent>,
     /// Watered patches that haven't dried yet, in `(dries_at, centre)` order (Water the Land).
     patches: Vec<Patch>,
+    /// `Reshape`s waiting to revert, in `(at, pos)` order (Draw Water's temporary pool, #364). A
+    /// save from before #364 loads with none.
+    #[serde(default)]
+    reverts: Vec<Revert>,
     /// Tiles that sprouted lately and the tick their fallow time ends. Expired entries are
     /// dropped as time passes.
     fallow: BTreeMap<Pos, u64>,
@@ -424,6 +428,7 @@ impl World {
             regions: None,
             bend_events: Vec::new(),
             patches: Vec::new(),
+            reverts: Vec::new(),
             fallow: BTreeMap::new(),
             heat: BTreeMap::new(),
             auras: BTreeMap::new(),
@@ -691,6 +696,7 @@ impl World {
         self.tick_orchards(defs);
         self.tick_farms(defs);
         self.tick_irrigation(defs);
+        self.tick_reverts();
         self.tick_heat();
         self.tick_scooters();
         for i in 0..self.units.len() {

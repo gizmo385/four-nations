@@ -260,6 +260,8 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     // own retry timer, on `Unit`.
     "healing",
     "healing_retry_at",
+    // Draw Water's temporary pool (#364): `Reshape`s waiting to revert, on `World`.
+    "reverts",
 ];
 
 /// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239

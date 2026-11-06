@@ -96,6 +96,27 @@
 //! target (`World::build_target`). Work banked before the site's materials arrive is kept: there
 //! is no special case for an unsupplied site, since `run_build`'s own completion check already
 //! finishes a fully-worked site the moment its materials are too.
+//!
+//! **Draw Water** (Water, from `irrigation`, #364) shares Raise Earth's `Reshape` effect, but on
+//! dry land instead of water: an empty `Land` tile becomes a `Ford` too, except this one is
+//! temporary, through `Reshape`'s new `revert_minutes`. The old terrain and the tick it reverts
+//! at are kept in `reverts` (a `Vec<Revert>`, sorted the way `patches` is), and `tick_reverts`
+//! restores it, oldest-then-position first, marking the regions cache dirty and waking idle
+//! units exactly as the forward change does: nothing about reverting is special-cased, so a
+//! future `Reshape` whose `to` isn't walkable would strand nobody only if its own `from` wasn't
+//! either, which is Earth's call, not Water's. Since the target is already walkable `Land`,
+//! `validate_effect`'s `Reshape` arm skips the bank/chain rule entirely for it: the bender just
+//! stands where it's working, the way Water the Land or Hearthflame do, and a tile with a
+//! resource, a building, a ground stack or a stockpile on it is refused ("something is in the
+//! way") the same as an occupied target anywhere else. Raise Earth and Bore Tunnel are
+//! unaffected: their own targets are never walkable before the bend, so they still need the bank.
+//!
+//! **Cut Ice** (Water, from `ice_construction`, #364) is the new `DrawItem` effect: the target is
+//! a river, lake or sea tile beside passable ground, like Raise Earth's bank, but nothing about
+//! the target tile changes. Instead `count` of `item` (ice) appears on the tile the bender
+//! actually ended up standing on to reach it (`place_ground`, the same way a dead unit's load
+//! falls where it stood) -- the water tile itself can never hold a stack, since nobody can stand
+//! there to receive one.
 
 use rand::seq::SliceRandom;
 
@@ -184,6 +205,16 @@ pub struct BendChannel {
     pub remaining_secs: f32,
 }
 
+/// A `Reshape` with `revert_minutes` set (Draw Water, #364), waiting to turn back: the terrain
+/// `pos` had before the bend, and the tick it reverts at. Kept sorted by `(at, pos)`, like
+/// `patches`, so `tick_reverts` restores them in that order.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(super) struct Revert {
+    pos: Pos,
+    terrain: Terrain,
+    at: u64,
+}
+
 /// A watered 3x3 patch waiting to dry out.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(super) struct Patch {
@@ -247,6 +278,28 @@ fn scaled_range(range: u32, magnitude: f32) -> u32 {
 /// comes back if the bend is cancelled or fails.
 fn owns_ground_stack(effect: &Effect) -> bool {
     matches!(effect, Effect::WindCarry { .. } | Effect::Smelt { .. })
+}
+
+/// Why a `Reshape`'s target isn't one of `from`'s terrains, worded for whichever ability this
+/// is: Raise Earth's river or lake, Bore Tunnel's mountain (#132), or Draw Water's dry land
+/// (#364). `terrain` is the tile's actual terrain.
+fn reshape_mismatch(from: &[Terrain], terrain: Terrain) -> &'static str {
+    if terrain == Terrain::Ford {
+        return "already a ford";
+    }
+    if terrain == Terrain::Tunnel {
+        return "already a tunnel";
+    }
+    if from.contains(&Terrain::Mountain) {
+        return "needs a mountain tile";
+    }
+    if from.contains(&Terrain::Land) {
+        return "needs dry land";
+    }
+    match terrain {
+        Terrain::Water | Terrain::Coast => "the sea is out of reach",
+        _ => "needs a river or lake tile",
+    }
 }
 
 /// Queries and the designations behind `Command::Bend` and `Command::CancelBend`.
@@ -390,14 +443,16 @@ impl World {
     }
 
     /// Is a `Bend` job on `pos` for `ability` reachable right now, beyond `unit_can_bend`'s chi
-    /// and nation check (#304)? Only `Reshape` cares: a tile designated by chaining off a
-    /// still-pending neighbour (`validate_effect`) can't be worked until that neighbour has
-    /// actually become walkable ground, so a chained line or rectangle is worked in order, bank
-    /// outward, whoever claims it. Every other effect's target is ready as soon as it validates,
-    /// which claiming re-checks itself by trying to stand on it.
+    /// and nation check (#304)? Only a `Reshape` whose target isn't already walkable cares
+    /// (Raise Earth, Bore Tunnel): a tile designated by chaining off a still-pending neighbour
+    /// (`validate_effect`) can't be worked until that neighbour has actually become walkable
+    /// ground, so a chained line or rectangle is worked in order, bank outward, whoever claims
+    /// it. Draw Water's target (#364) is already walkable `Land`, so it needs no bank at all and
+    /// is always ready. Every other effect's target is ready as soon as it validates, which
+    /// claiming re-checks itself by trying to stand on it.
     pub(super) fn bend_ready(&self, ability: AbilityId, pos: Pos, defs: &Defs) -> bool {
         match &defs.ability(ability).effect {
-            Effect::Reshape { .. } => self.has_bank(pos),
+            Effect::Reshape { .. } if !self.walkable(pos) => self.has_bank(pos),
             _ => true,
         }
     }
@@ -665,19 +720,21 @@ impl World {
             Effect::Reshape { from, .. } => {
                 let tile = &self.map[pos];
                 if !from.contains(&tile.terrain) {
-                    // Raise Earth works water, Bore Tunnel (#132) works mountains.
-                    let rock = from.contains(&Terrain::Mountain);
-                    return Err(match tile.terrain {
-                        Terrain::Ford => "already a ford",
-                        Terrain::Tunnel => "already a tunnel",
-                        _ if rock => "needs a mountain tile",
-                        Terrain::Water | Terrain::Coast => "the sea is out of reach",
-                        _ => "needs a river or lake tile",
-                    });
+                    return Err(reshape_mismatch(from, tile.terrain));
                 }
-                // A fishing spot (or anything else) on the tile would be left on the new terrain.
-                if tile.resource.is_some() {
+                // A fishing spot, a building, a ground stack or a stockpile (or anything else) on
+                // the tile would be left on the new terrain, or lost under it.
+                if tile.resource.is_some()
+                    || tile.building.is_some()
+                    || self.ground.contains_key(&pos)
+                    || self.zones.contains(&pos)
+                {
                     return Err("something is in the way");
+                }
+                // Draw Water's land is already walkable (#364): the bender stands right on it,
+                // the way Water the Land or Hearthflame do, so there's no bank or chain to check.
+                if tile.terrain.is_walkable() {
+                    return Ok(());
                 }
                 if self.has_bank(pos) {
                     return Ok(());
@@ -695,6 +752,18 @@ impl World {
                     })
                 });
                 if chained { Ok(()) } else { Err("needs dry ground beside it") }
+            }
+            // A river, lake or sea tile beside passable ground, like Raise Earth's bank: nothing
+            // about the tile itself needs to be empty, since the bend doesn't touch it.
+            Effect::DrawItem { from, .. } => {
+                let tile = &self.map[pos];
+                if !from.contains(&tile.terrain) {
+                    Err("needs river, lake or sea")
+                } else if self.has_bank(pos) {
+                    Ok(())
+                } else {
+                    Err("needs dry ground beside it")
+                }
             }
             Effect::Irrigate { source_range, .. } => {
                 let range = *source_range as i32;
@@ -822,14 +891,30 @@ impl World {
             // the cached regions are stale and idle units should look for jobs that opened up.
             // Boring into a buried seam (#133) strikes it instead: the seam is uncovered and the
             // rock stays, so the miners have something to work from beside it.
-            Effect::Reshape { to, .. } => {
+            Effect::Reshape { to, revert_minutes, .. } => {
                 if self.uncover(pos) {
                     self.wake_idle();
                     return None;
                 }
+                if let Some(minutes) = revert_minutes {
+                    let was = self.map[pos].terrain;
+                    let at = self.tick + minutes_to_ticks(minutes * magnitude);
+                    let key = (at, pos);
+                    let i = self.reverts.partition_point(|r| (r.at, r.pos) <= key);
+                    self.reverts.insert(i, Revert { pos, terrain: was, at });
+                }
                 self.map[pos].terrain = *to;
                 self.map_changed();
                 self.wake_idle();
+                None
+            }
+            // The ice lands where the bender actually stood to reach the water (`place_ground`,
+            // the same spot a dead unit's carried load falls on): the target tile itself is never
+            // walkable, so nothing could land there to be hauled away.
+            Effect::DrawItem { item, count, .. } => {
+                if let Some(stand) = self.unit(caster).map(|u| u.pos) {
+                    self.place_ground(stand, Stack { item: *item, count: *count });
+                }
                 None
             }
             // The whole stack, ignoring carry capacity, to the nearest stockpile tile with room
@@ -994,6 +1079,28 @@ impl World {
     }
 }
 
+/// Timed `Reshape`s reverting (Draw Water, #364).
+impl World {
+    /// Restores every `Reshape` whose revert is due, oldest-then-position first (`reverts` is
+    /// kept sorted that way), marking the regions cache dirty and waking idle units exactly as
+    /// the forward change does: a tile's connectivity can change either way, so both directions
+    /// get the same treatment. A unit standing on the tile when it reverts is never stranded: the
+    /// only effect that reverts today (Draw Water) only ever moves between two walkable terrains
+    /// (`Land` and `Ford`), and nothing here assumes otherwise for one that didn't.
+    pub(super) fn tick_reverts(&mut self) {
+        let due = self.reverts.partition_point(|r| r.at <= self.tick);
+        if due == 0 {
+            return;
+        }
+        let ready: Vec<Revert> = self.reverts.drain(..due).collect();
+        for r in ready {
+            self.map[r.pos].terrain = r.terrain;
+        }
+        self.map_changed();
+        self.wake_idle();
+    }
+}
+
 /// Patches drying and sprouting.
 impl World {
     /// Dries every patch whose time is up, oldest first, and ends fallow times that have run out.
@@ -1063,6 +1170,10 @@ impl World {
 mod air_tests;
 #[cfg(test)]
 mod build_tests;
+#[cfg(test)]
+mod cut_ice_tests;
+#[cfg(test)]
+mod draw_water_tests;
 #[cfg(test)]
 mod earth_tests;
 #[cfg(test)]

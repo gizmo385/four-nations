@@ -90,6 +90,15 @@ id = "tool"
 icon = "tool"
 name = "Tool"
 
+# --- Water Tribe: ice (#364) ---
+# Water's own building material: Cut Ice (`Effect::DrawItem`, data/bending.toml) freezes and
+# cuts a river, lake or sea tile beside the bender into it. There's no harvest entry for it,
+# since it comes from bending, not a map resource. The igloo costs it instead of wood.
+[[item]]
+id = "ice"
+icon = "ice"
+name = "Ice"
+
 # What working a map resource yields. When the work finishes `count` of `item` drops beside the
 # resource, and the resource is cleared unless it regrows (see `regrow`).
 # - verb:     what the designation is called in the UI.
