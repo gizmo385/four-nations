@@ -25,6 +25,7 @@ use crate::rng::{self, SimRng};
 mod avatar;
 mod bending;
 mod build;
+mod chart;
 mod command;
 mod endeavor;
 mod farm;
@@ -50,6 +51,7 @@ pub use bending::{BendChannel, BendError, BendEvent, BendOutcome, Moved};
 use bending::{Patch, Revert};
 use build::Site;
 pub use build::{Blocker, BuildError};
+pub use chart::{ChartEvent, ChartEventKind};
 pub use command::{Command, CommandError, Recorded};
 use endeavor::EndeavorLog;
 pub use endeavor::{
@@ -294,6 +296,11 @@ pub struct World {
     /// existed loads with none.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     crafts: BTreeMap<Pos, CraftState>,
+    /// A Map Room's progress toward its next chart, by anchor (`world/chart.rs`, issue #402):
+    /// absent is the same as a fresh, zero chart. Empty (so unwritten) for every save from
+    /// before this existed, so neither changes a byte.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    charts: BTreeMap<Pos, f32>,
     /// Finished buildings' anchors, keyed `(y, x)` so iterating matches `buildings()`'s old
     /// row-major scan of the map. Maintained wherever a building finishes (`raise`, #292); not
     /// saved (`#[serde(skip)]`), so it's rebuilt by a map scan once after loading
@@ -404,6 +411,10 @@ pub struct World {
     /// existed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     harm_events: Vec<HarmEvent>,
+    /// Every finished Map Room chart, oldest first (`world/chart.rs`, issue #402), for a
+    /// frontend's alerts. Empty (so unwritten) for every save from before this existed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    chart_events: Vec<ChartEvent>,
     /// The id the next unit gets, whether it is a newcomer (`population.rs`, #232) or some
     /// future runtime spawn: always past every id a unit (living or dead) has ever had, so none
     /// is reused. A save from before this counter existed deserializes it as 0; `World::load`
@@ -472,6 +483,7 @@ impl World {
             stored: BTreeMap::new(),
             sites: BTreeMap::new(),
             crafts: BTreeMap::new(),
+            charts: BTreeMap::new(),
             building_index: BTreeMap::new(),
             rules: MoveRules::default(),
             cart_rules: defs.cart_rules(MoveRules::default()),
@@ -499,6 +511,7 @@ impl World {
             strain: BTreeMap::new(),
             strain_events: Vec::new(),
             harm_events: Vec::new(),
+            chart_events: Vec::new(),
             next_unit: 0,
             arrivals: Vec::new(),
             orchard_rng: orchard::new_rng(seed),

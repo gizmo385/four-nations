@@ -576,8 +576,9 @@ mod tests {
     }
 
     /// The bundled buildings without any `[building.orchard]` section (the Orchard's and the
-    /// Fishing Dock's, issue #374), for tests whose resources don't include the fruit tree or
-    /// fish spot either one plants.
+    /// Fishing Dock's, issue #374) or `[building.chart]` section (the Map Room's, issue #402),
+    /// for tests whose resources don't include the fruit tree, fish spot or lost ruins any of
+    /// those name.
     fn bare_buildings() -> String {
         let mut text = BUILDINGS.to_owned();
         while let Some(start) = text.find("[building.orchard]") {
@@ -585,6 +586,11 @@ mod tests {
                 + text[start..].find("auto_pick = true\n").unwrap()
                 + "auto_pick = true\n".len();
             text.replace_range(start..end, "");
+        }
+        while let Some(start) = text.find("[building.chart]") {
+            let rest = &text[start..];
+            let next = rest[1..].find("\n[").expect("chart is followed by another table");
+            text.replace_range(start..start + 1 + next, "");
         }
         text
     }

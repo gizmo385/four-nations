@@ -672,7 +672,8 @@ impl World {
     /// a building site, a stockpile zone, a ground stack or a bend designation stays buried, and
     /// so does one a unit is standing on or routed through, since a resource there would clash
     /// with whatever is already using the tile. A later reveal finds it once the tile clears.
-    fn uncover(&mut self, pos: Pos) -> bool {
+    /// `pub(super)` so a Map Room's Chart job (`world/chart.rs`, #402) can uncover too.
+    pub(super) fn uncover(&mut self, pos: Pos) -> bool {
         if !self.buried.contains_key(&pos) || !self.free_to_uncover(pos) {
             return false;
         }
@@ -682,7 +683,9 @@ impl World {
         true
     }
 
-    fn free_to_uncover(&self, p: Pos) -> bool {
+    /// `pub(super)` so `world/chart.rs` can filter candidates the same way `Effect::Reveal` and
+    /// Seismic Sense do.
+    pub(super) fn free_to_uncover(&self, p: Pos) -> bool {
         let tile = &self.map[p];
         tile.resource.is_none()
             && tile.building.is_none()

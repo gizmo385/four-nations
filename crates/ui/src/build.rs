@@ -336,6 +336,7 @@ impl OccupantRow {
 fn occupant_task(unit: &Unit) -> &'static str {
     match unit.task() {
         Some(Task::Study(_)) => "studying",
+        Some(Task::Chart(_)) => "charting",
         Some(Task::Sleep) => "sleeping",
         Some(Task::Healing(_)) => "healing",
         _ => "idle",

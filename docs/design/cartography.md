@@ -1,6 +1,6 @@
 # Cartography: charting where the scrolls lie
 
-Status: **accepted** (#400). Follow-up work: #402 to #404.
+Status: **accepted** (#400). Follow-up work: #402 (sim and data, done) to #404.
 
 The "Ancient scrolls read" sign (3 scrolls, `data/endeavor.toml`) is the one sign players make
 no progress on. #380 fixes how scrolls *read* on screen: the legend, `inspect`, and why a marked

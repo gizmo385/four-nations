@@ -56,6 +56,12 @@
 //!   the Forge, the Brick Kiln, the Smelter, the Mine Shaft, the Deep Mine and the study hall.
 //!   Which buildings are sources is data, not this file's business (#255, #204, #200).
 //!
+//! - `chart` makes a finished building the Map Room (issue #402, docs/design/cartography.md):
+//!   its `seats` become `JobKind::Chart` jobs instead of Study ones (`world/chart.rs`). A
+//!   settler holding one slowly uncovers the nearest lost ruin the settlement hasn't found yet,
+//!   among `finds` (buried resources, the same ids `Effect::Reveal` uses) within `range` tiles
+//!   (Chebyshev) of the room, after `minutes` of seated work at a `study` modifier of 1.0.
+//!
 //! Which tech must be known before a building may be designated is `Unlocks::buildings` in
 //! `data/research.toml`, resolved here into `BuildingDef::unlocked_by` (issue #22). A building no
 //! tech names is available from the start.
@@ -294,6 +300,18 @@ impl PowerDef {
     }
 }
 
+/// A building that charts the nearest lost ruin (`[building.chart]`, issue #402,
+/// docs/design/cartography.md): the Map Room. `world/chart.rs` runs it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChartDef {
+    /// Buried resources (`ResourceDef::buried`) a finished chart may uncover.
+    pub finds: Vec<ResourceId>,
+    /// In-game minutes of seated work per chart, at a `study` modifier of 1.0.
+    pub minutes: f32,
+    /// Tiles around the room, Chebyshev, a chart may uncover within.
+    pub range: u32,
+}
+
 /// A building units heal inside (`[building.healing]`, issue #375, narrowing #125, Water's
 /// Healing Hut). A settler whose health is below `seek_below` and whose needs are all
 /// comfortable (none at or below `low`, `Needs::any_low`) walks to the nearest one with a free
@@ -368,6 +386,9 @@ pub struct BuildingDef {
     /// Set if this is a power source: work inside a `uses_power` building within its reach runs
     /// faster (issue #428, `world/power.rs`).
     pub power: Option<PowerDef>,
+    /// Set if this is the Map Room (issue #402): its `seats` open `JobKind::Chart` jobs instead
+    /// of Study ones (`world/chart.rs`).
+    pub chart: Option<ChartDef>,
     /// Whether this building's recipe batches (`world/forge.rs`) or study seats
     /// (`world/study.rs`) run faster while a power source is in reach (issue #428). Has no
     /// effect without a `recipe` or `seats`.
@@ -518,6 +539,14 @@ struct RawPower {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawChart {
+    finds: Vec<String>,
+    minutes: f32,
+    range: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawBuilding {
     id: String,
     name: String,
@@ -544,6 +573,7 @@ struct RawBuilding {
     irrigation: Option<RawIrrigation>,
     healing: Option<RawHealing>,
     power: Option<RawPower>,
+    chart: Option<RawChart>,
     #[serde(default)]
     uses_power: bool,
     #[serde(default)]
@@ -651,6 +681,12 @@ impl BuildingsFile {
                     b.id
                 ));
             }
+            if b.chart.is_some() && capacity == 0 {
+                return err(format!(
+                    "building {}: chart needs a capacity, the door a scholar charts through",
+                    b.id
+                ));
+            }
             let bonus_ok = |x: f32| x.is_finite() && x >= 1.0;
             if let Some(bed) = &b.bed
                 && !(bonus_ok(bed.sleep_bonus) && bed.seek_tiles > 0)
@@ -716,6 +752,10 @@ impl BuildingsFile {
                 None => None,
                 Some(p) => Some(resolve_power(&b.id, p)?),
             };
+            let chart = match &b.chart {
+                None => None,
+                Some(c) => Some(resolve_chart(&b.id, c, resources)?),
+            };
             for (nation, name) in &b.names {
                 if name.trim().is_empty() {
                     return err(format!(
@@ -748,6 +788,7 @@ impl BuildingsFile {
                 irrigation,
                 healing,
                 power,
+                chart,
                 uses_power: b.uses_power,
                 names: b.names,
                 art: b.art,
@@ -897,6 +938,38 @@ fn resolve_power(building: &str, p: &RawPower) -> Result<PowerDef, DefsError> {
         boost: p.boost,
         boost_millis: (p.boost * 1000.0).round() as u32,
     })
+}
+
+/// Checks a `[building.chart]` (issue #402): every `finds` id must be a resource that is
+/// actually `buried` (the same rule `Effect::Reveal` uses), and `minutes` and `range` must be
+/// positive.
+fn resolve_chart(
+    building: &str,
+    c: &RawChart,
+    resources: &[ResourceDef],
+) -> Result<ChartDef, DefsError> {
+    let err =
+        |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: chart {msg}")));
+    if c.finds.is_empty() {
+        return err("needs at least one resource to find");
+    }
+    let mut finds = Vec::with_capacity(c.finds.len());
+    for n in &c.finds {
+        let Some(i) = resources.iter().position(|r| r.id == *n) else {
+            return err(&format!("unknown resource {n:?}"));
+        };
+        if !resources[i].buried {
+            return err(&format!("finds {n:?}, which is never buried"));
+        }
+        finds.push(ResourceId(i as u16));
+    }
+    if !(c.minutes.is_finite() && c.minutes > 0.0) {
+        return err("minutes must be a positive number");
+    }
+    if c.range == 0 {
+        return err("range must be at least 1");
+    }
+    Ok(ChartDef { finds, minutes: c.minutes, range: c.range })
 }
 
 /// Checks a `[building.healing]` (issue #375): `seek_below` and `stop_at` must sit inside the

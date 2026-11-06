@@ -142,7 +142,11 @@ name = "Cartography"
 description = "Map the lands around the settlement."
 cost = 250
 prereqs = ["writing"]
-# Later: reveals the region around the settlement; scrolls shown on the map
+# Unlocks the Map Room (issue #402, docs/design/cartography.md): a settler holding its Chart
+# job slowly uncovers the nearest lost ruin the settlement hasn't found yet, nearest reachable
+# one first.
+[tech.unlocks]
+buildings = ["map_room"]
 
 # ---------------------------------------------------------------------------------------------
 # Earth Kingdom: shaping the land

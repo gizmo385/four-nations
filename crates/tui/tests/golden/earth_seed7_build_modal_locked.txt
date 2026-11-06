@@ -12,13 +12,13 @@
 ♠♠♠♠"♠♠│   Bed                  5 Wood  Campfire                               │""♣√~√√√│ Earth Kingdom - Idle         │
 """♠♠♠♠│ ▸ Campfire             Locked  Footprint: 1x1                         │♠♠√♣√~√√│ Carrying: nothing - Bends: 0 │
 "♠♠♠♠♠♠│   Scroll Library 10 Wood, 2x2                                         │♠"√√√√~√│ Press Enter to select        │
-"♠"♠♠♠♠│   Earth Wall           Locked  3 Wood (0 in stores)                   │""♠♣√~√√│                              │
-"♠♠""♠♠│   Rail                 Locked                                         │"♠√√~√√♠│                              │
-"♠√♠♠♠♠│   Farm Plot            Locked  Keeps a fire: warms 2 tiles, sleeps    │♠♠τ~√√♠♠│                              │
-"♣♣~"♠♠│   Workshop             Locked  1.5x faster nearby                     │♠♠~♠♠♠"♠│                              │
-..~."..│   Mine Shaft           Locked                                         │~~""""♠♠│                              │
-.≈≈...≈│   Deep Mine            Locked  Requires Fire Making                   │""♠¥"♠♠♠│                              │
-≈≈≈ƒ≈≈≈│                                                                       │""♠♠"""♠│                              │
+"♠"♠♠♠♠│   Map Room             Locked  3 Wood (0 in stores)                   │""♠♣√~√√│                              │
+"♠♠""♠♠│   Earth Wall           Locked                                         │"♠√√~√√♠│                              │
+"♠√♠♠♠♠│   Rail                 Locked  Keeps a fire: warms 2 tiles, sleeps    │♠♠τ~√√♠♠│                              │
+"♣♣~"♠♠│   Farm Plot            Locked  1.5x faster nearby                     │♠♠~♠♠♠"♠│                              │
+..~."..│   Workshop             Locked                                         │~~""""♠♠│                              │
+.≈≈...≈│   Mine Shaft           Locked  Requires Fire Making                   │""♠¥"♠♠♠│                              │
+≈≈≈ƒ≈≈≈│   Deep Mine            Locked                                         │""♠♠"""♠│                              │
 ≈≈≈≈≈≈≈│                                                                       │"¥"♠"♠"♠│                              │
 ≈≈≈≈≈≈≈│                                                                       │""""""♠♠│                              │
 ≈≈≈≈≈≈≈│                                                                       │"""""""♠│                              │

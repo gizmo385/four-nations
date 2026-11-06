@@ -120,6 +120,7 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
                 JobKind::Craft { .. } => None,
                 JobKind::Sow { .. } | JobKind::Reap { .. } => None,
                 JobKind::Clear { .. } => None,
+                JobKind::Chart { .. } => None,
             });
             let stack = at.and_then(|p| world.ground_items().find(|(q, _)| *q == p));
             match (stack, at) {
@@ -150,6 +151,11 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
         Task::Study(id) => match world.job(id).map(|j| j.kind) {
             Some(JobKind::Study { pos }) => format!("Studying at ({}, {})", pos.x, pos.y),
             _ => "Studying".into(),
+        },
+        // Minimal text; a chart-progress display is client work for a later issue (#403).
+        Task::Chart(id) => match world.job(id).map(|j| j.kind) {
+            Some(JobKind::Chart { pos }) => format!("Charting at ({}, {})", pos.x, pos.y),
+            _ => "Charting".into(),
         },
         // Minimal text; a recipe display is client work for a later issue (#351).
         Task::Craft(id) => match world.job(id).map(|j| j.kind) {

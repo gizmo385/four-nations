@@ -116,6 +116,8 @@ pub enum Task {
     /// Uprooting or chopping down the resource on a tile for good
     /// (`docs/design/clearing.md`, issue #411/#424).
     Clear(JobId),
+    /// Holding a Map Room's seat (`world/chart.rs`, #402).
+    Chart(JobId),
     /// Carrying a stack to a stockpile tile.
     Deliver,
     Eat(FoodSource),
@@ -244,6 +246,7 @@ impl World {
                 JobKind::Craft { .. } => None,
                 JobKind::Sow { .. } | JobKind::Reap { .. } => None,
                 JobKind::Clear { .. } => None,
+                JobKind::Chart { .. } => None,
             })
             .chain(self.standing_harvest.iter().copied())
     }
@@ -726,6 +729,9 @@ impl World {
                     JobKind::Clear { pos } => {
                         map[pos].resource.is_some_and(|r| defs.harvest(r).is_some())
                     }
+                    // Same as a study seat: a Map Room's seat stays open for as long as the
+                    // building does (#402).
+                    JobKind::Chart { pos } => map[pos].building.is_some(),
                 }
         });
         // A standing order (#81) outlives its job (which disappears between harvests while the
@@ -1398,6 +1404,7 @@ impl World {
                         | JobKind::Sow { .. }
                         | JobKind::Reap { .. }
                         | JobKind::Clear { .. }
+                        | JobKind::Chart { .. }
                 )
             {
                 continue;
@@ -1447,6 +1454,12 @@ impl World {
                 JobKind::Study { pos } => (!self.research.queue().is_empty())
                     .then(|| self.stand_entrance(&flood, pos))
                     .flatten(),
+                // Not reachable at all with nothing left to chart within range (#402), the same
+                // way an empty research queue leaves a study seat unclaimed.
+                JobKind::Chart { pos } => self
+                    .chart_def_at(pos, defs)
+                    .filter(|def| self.chart_has_target(pos, def))
+                    .and_then(|_| self.stand_entrance(&flood, pos)),
                 JobKind::EndeavorTask { task } => self
                     .gate_task(task, defs)
                     .filter(|(def, _)| self.unit_can_raise(i, def))
@@ -1488,6 +1501,7 @@ impl World {
             JobKind::Sow { .. } => Task::Sow(job.id),
             JobKind::Reap { .. } => Task::Reap(job.id),
             JobKind::Clear { .. } => Task::Clear(job.id),
+            JobKind::Chart { .. } => Task::Chart(job.id),
         };
         let u = &mut self.units[i];
         u.job_task = Some(task);
@@ -1531,6 +1545,7 @@ impl World {
                         | JobKind::Sow { .. }
                         | JobKind::Reap { .. }
                         | JobKind::Clear { .. }
+                        | JobKind::Chart { .. }
                 )
             {
                 continue;
@@ -1608,6 +1623,15 @@ impl World {
                         return None;
                     }
                 }
+                JobKind::Chart { pos } => {
+                    if self
+                        .chart_def_at(pos, defs)
+                        .is_some_and(|def| self.chart_has_target(pos, def))
+                        && self.stand_entrance(&flood, pos).is_some()
+                    {
+                        return None;
+                    }
+                }
                 JobKind::EndeavorTask { task } => {
                     if let Some((def, anchor)) = self.gate_task(task, defs)
                         && self.unit_can_raise(i, def)
@@ -1671,6 +1695,7 @@ impl World {
             | JobKind::Sow { .. }
             | JobKind::Reap { .. }
             | JobKind::Clear { .. }
+            | JobKind::Chart { .. }
                 if is_avatar =>
             {
                 false
@@ -1705,6 +1730,10 @@ impl World {
             }
             JobKind::Reap { pos } => {
                 self.plot_stage(pos) == Some(PlotStage::Ripe) && can_stand_building(pos)
+            }
+            JobKind::Chart { pos } => {
+                self.chart_def_at(pos, defs).is_some_and(|def| self.chart_has_target(pos, def))
+                    && can_stand_building(pos)
             }
         })
     }
@@ -1766,6 +1795,7 @@ impl World {
             Task::Sow(id) => self.run_sow(i, id, defs),
             Task::Reap(id) => self.run_reap(i, id, defs),
             Task::Clear(id) => self.run_clear(i, id, defs),
+            Task::Chart(id) => self.run_chart(i, id, defs),
             Task::Deliver => self.run_deliver(i, defs),
             // Need tasks never sit in the job slot.
             _ => self.finish_job(i),
@@ -1968,7 +1998,7 @@ fn rules_for<'a>(_on_foot: &'a MoveRules, cart: &'a MoveRules, _u: &Unit) -> &'a
 /// first.
 fn job_priority(kind: JobKind) -> u8 {
     match kind {
-        JobKind::Study { .. } => 1,
+        JobKind::Study { .. } | JobKind::Chart { .. } => 1,
         JobKind::Attend { .. } => 2,
         JobKind::Harvest { .. }
         | JobKind::Haul { .. }
