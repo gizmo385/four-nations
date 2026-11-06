@@ -183,10 +183,9 @@ Small, seeds 1-8, the sign lands in year 2 to 3 for every nation wherever the su
 
 ## Open questions for the owner
 
-1. **Should every nation be able to find lost ruins, or only Air?** Recommended: every nation,
-   through the Map Room. Air keeps a large head start (a Glide finds every ruin nearby at once,
-   from a much cheaper tech). The alternative is a new buried find just for charts, which keeps ruins Air's own but
-   costs a resource, its art and a harvest.
+1. **Should every nation be able to find lost ruins, or only Air?** *Decided by the owner
+   2026-11-06:* every nation, through the Map Room. Air keeps a large head start (a Glide finds
+   every ruin nearby at once, from a much cheaper tech).
 2. **One shared name, or a name per nation like the study hall?** Recommended: one shared name
    ("Map Room") for now, with nation names and art later alongside #357's building pass.
 3. **When should the scrolls sign land?** Recommended: year 2 to 3 on Normal, which is after
