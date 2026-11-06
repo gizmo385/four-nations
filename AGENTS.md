@@ -61,6 +61,8 @@ gets in your way, stop and say so in the work item's Notes instead of working ar
   Verify with tests and `cargo run -p fn_tui -- SEED NATION --frame [--keys SCRIPT]`: it renders
   one frame to stdout and exits, no TTY needed. `--keys` plays a key script first (see
   `fn_tui --help`), so an agent can "play" a scripted session and check the resulting frame.
+- Player-facing text (TUI strings, `fn_ui` view text, descriptions and hints in `data/*.toml`)
+  follows docs/design/text-voice.md.
 - Visual changes: paste `--frame` output (or the sim's ASCII renderer,
   `cargo run -p fn_sim --bin mapgen -- SEED W H`) into the issue or PR when it helps the reviewer.
 
