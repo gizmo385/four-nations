@@ -1,8 +1,8 @@
 //! Harm: the rules every source of damage beyond neglect shares (`docs/design/harm.md`, issue
-//! #387), and the first source, exposure.
+//! #387), the first source, exposure, and the third, sickness from sea water (issue #389; the
+//! second, injury, is #388's own code).
 //!
-//! Three things every harm source will share (today just exposure; injury and sickness are
-//! later issues' own code):
+//! Three things every harm source shares:
 //! - A damage scale, the difficulty preset's `harm` knob (`Knobs::harm`: 0 off, Normal 1.0, Hard
 //!   1.5). 0 draws nothing at all, so a world with no difficulty preset, or Sandbox, plays
 //!   exactly as it did before this module existed.
@@ -11,24 +11,33 @@
 //!   applies is a different, older rule and isn't floored -- a death still needs an empty need
 //!   unless `harm_kills` is on.
 //! - No natural regen while harmed: `World::tick_needs` passes `regen_allowed: false` into
-//!   `Needs::tick_at_cold_healing` while the unit's tile is cold, on top of what this module
-//!   does on its own.
+//!   `Needs::tick_at_cold_healing` while the unit's tile is cold or sick, on top of what this
+//!   module does on its own.
 //!
 //! Exposure is a unit asleep on a cold tile (`World::is_cold`) not sheltered by a bed whose own
 //! `sleep_bonus` beats the cold -- a heat source (a campfire, Hearthflame, Inner Fire, an igloo,
 //! Earth Tent or Air Shield) already rules a tile out of `is_cold`, so this only ever matters
 //! for a plain bed or no shelter at all. It logs `HarmEventKind::SleepingRough` once per sleep,
 //! for the TUI follow-up (#393) to turn into an alert and a People flag.
+//!
+//! Sickness is a drink taken at a spot whose only water neighbours are the sea (`Terrain::Water`),
+//! never a river, lake or ford: `World::maybe_catch_sickness` rolls it the tick a `Task::Drink`
+//! completes, from its own stream (`rng::stream(seed, "harm.sickness")`, `World::sickness_rng`).
+//! `World::plan_drink` steers a thirsty unit around it first, toward fresh water within
+//! `data/harm.toml`'s `[sickness] fresh_detour` path tiles of the nearest drinking spot of any
+//! kind, while the preset's `harm` is above 0.
 
 use super::*;
 use crate::needs::DeathCause;
 
-/// What's harming a unit, for `Unit::last_harm` and `Death::weakened_by` (issue #387). More
-/// variants arrive with injury (#388) and sickness (#389).
+/// What's harming a unit, for `Unit::last_harm` and `Death::weakened_by` (issue #387). Injury
+/// (#388) is the remaining source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum HarmKind {
     /// Asleep, unsheltered, on cold land (`World::apply_exposure`).
     Exposure,
+    /// A sea-water drink that rolled sick (`World::apply_sickness`, issue #389).
+    Sickness,
 }
 
 impl HarmKind {
@@ -38,6 +47,7 @@ impl HarmKind {
     fn death_cause(self) -> DeathCause {
         match self {
             Self::Exposure => DeathCause::Exposure,
+            Self::Sickness => DeathCause::Sickness,
         }
     }
 }
@@ -57,6 +67,10 @@ pub enum HarmEventKind {
     /// Lay down to sleep rough (cold, unsheltered) and started taking exposure damage. Fires
     /// once per sleep (`World::apply_exposure`), not every tick it continues.
     SleepingRough,
+    /// A sea-water drink rolled sick (`World::maybe_catch_sickness`, issue #389).
+    FellSick,
+    /// Sickness ran out (`World::apply_sickness`'s own `sick_until`), issue #389.
+    Recovered,
 }
 
 /// In-game minutes a death within this long of the last harm names that harm as
@@ -65,6 +79,17 @@ pub enum HarmEventKind {
 /// for a careful colony: an injured, then sick, settler who still has about 10 minutes of
 /// hunger left once sickness runs out.
 const WEAKENED_BY_MINUTES: f32 = 10.0;
+
+/// The stream sickness rolls draw from (issue #389). A saved world that predates sickness loads
+/// with this seeded by 0 instead of the world seed, as `orchard_rng` does for #142; still
+/// deterministic.
+pub(super) fn default_sickness_rng() -> SimRng {
+    rng::stream(0, "harm.sickness")
+}
+
+pub(super) fn new_sickness_rng(seed: u64) -> SimRng {
+    rng::stream(seed, "harm.sickness")
+}
 
 impl World {
     /// Harm events, oldest first.
@@ -118,6 +143,90 @@ impl World {
             (u.needs.health - per_tick).max(floor)
         };
         u.last_harm = Some((HarmKind::Exposure, self.tick));
+    }
+
+    /// Whether `u` is sick right now (issue #389): used by `World::tick_needs` to hold off
+    /// natural regen on top of what `apply_sickness` itself does.
+    pub(super) fn is_sick(&self, u: &Unit) -> bool {
+        u.sick_until.is_some_and(|until| self.tick < until)
+    }
+
+    /// Applies this tick's sickness damage to `u`, and clears it (logging
+    /// `HarmEventKind::Recovered`) once `Unit::sick_until` is reached. A no-op for a unit that
+    /// isn't sick, and with the difficulty preset's `harm` at 0 (Sandbox, or no preset at all):
+    /// draws nothing, costs nothing, matches today exactly -- sickness can't be caught in the
+    /// first place while `harm` is 0 (`World::maybe_catch_sickness`), so this only ever sees
+    /// that case for a sickness caught before the preset changed under it.
+    pub(super) fn apply_sickness(&mut self, u: &mut Unit, defs: &Defs) {
+        let Some(until) = u.sick_until else { return };
+        let knobs = self.knobs(defs);
+        if knobs.harm <= 0.0 {
+            return;
+        }
+        if self.tick >= until {
+            u.sick_until = None;
+            self.harm_events.push(HarmEvent {
+                tick: self.tick,
+                unit: u.id,
+                pos: u.pos,
+                kind: HarmEventKind::Recovered,
+            });
+            return;
+        }
+        let per_tick =
+            defs.harm.sickness.damage_per_minute * knobs.harm / (60.0 * TICKS_PER_SECOND as f32);
+        let floor = defs.harm.settings.floor;
+        u.needs.health = if knobs.harm_kills {
+            (u.needs.health - per_tick).max(0.0)
+        } else {
+            (u.needs.health - per_tick).max(floor)
+        };
+        u.last_harm = Some((HarmKind::Sickness, self.tick));
+    }
+
+    /// The sickness chance a drink at `pos` rolls, or `None` if it shouldn't roll at all: `pos`
+    /// must have at least one water neighbour, and *every* water neighbour must be a terrain
+    /// `data/harm.toml`'s `[[sickness.water]]` lists (the sea; a river, lake or ford beside the
+    /// same spot rules it safe). The highest chance among the terrains present, when more than
+    /// one matches.
+    pub(super) fn sickness_chance(&self, pos: Pos, defs: &Defs) -> Option<f32> {
+        let mut chance: Option<f32> = None;
+        for q in self.map.neighbors(pos, true) {
+            let terrain = self.map[q].terrain;
+            if !terrain.is_water() {
+                continue;
+            }
+            let entry = defs.harm.sickness.water.iter().find(|w| w.terrain == terrain)?;
+            chance = Some(chance.map_or(entry.chance, |c: f32| c.max(entry.chance)));
+        }
+        chance
+    }
+
+    /// Rolls sickness for unit `i`'s drink just finished at its current position
+    /// (`World::consume`'s `Task::Drink`), from `World::sickness_rng`. A no-op with the
+    /// difficulty preset's `harm` at 0 (`World::plan_drink` and this both gate on it, so a
+    /// `difficulty == None` world draws nothing and matches today exactly), for a unit already
+    /// sick (sickness doesn't stack or restart its clock), or at a spot with no unlisted-safe
+    /// water neighbour that still isn't entirely sea (`World::sickness_chance`).
+    pub(super) fn maybe_catch_sickness(&mut self, i: usize, defs: &Defs) {
+        if self.knobs(defs).harm <= 0.0 || self.units[i].sick_until.is_some() {
+            return;
+        }
+        let Some(chance) = self.sickness_chance(self.units[i].pos, defs) else {
+            return;
+        };
+        if self.sickness_rng.random::<f32>() >= chance {
+            return;
+        }
+        let ticks = (defs.harm.sickness.minutes * 60.0 * TICKS_PER_SECOND as f32).round() as u64;
+        let u = &mut self.units[i];
+        u.sick_until = Some(self.tick + ticks);
+        self.harm_events.push(HarmEvent {
+            tick: self.tick,
+            unit: u.id,
+            pos: u.pos,
+            kind: HarmEventKind::FellSick,
+        });
     }
 
     /// What `Death::weakened_by` should say for a unit whose `last_harm` was `last_harm`, dying

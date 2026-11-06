@@ -20,6 +20,22 @@
 #                      Inner Fire, an igloo, Earth Tent or Air Shield -- already rules a tile out
 #                      of `is_cold`, so this only ever matters for a plain bed or no shelter at
 #                      all).
+#
+# [sickness] (issue #389, docs/design/harm.md "Sickness: sea water"):
+# - minutes:             how long a sickness lasts once caught, with no natural regen the whole
+#                        time (`World::apply_sickness`). Ends on its own at `Unit::sick_until`.
+# - damage_per_minute:   health lost a minute while sick, times the preset's `harm`.
+# - fresh_detour:        path tiles a thirsty unit's `plan_drink` will walk past the nearest
+#                        drinking spot of any kind to reach one beside fresh water (a river,
+#                        lake or ford) instead. Only while the preset's `harm` is above 0; a
+#                        `difficulty == None` world paths exactly as it did before this file
+#                        existed.
+#
+# [[sickness.water]]: a drink taken at a spot whose *only* water neighbours are terrains listed
+# here rolls the highest `chance` among them, from `rng::stream(seed, "harm.sickness")`, on a
+# hit setting `Unit::sick_until`. A spot with any unlisted (fresh) water neighbour never rolls.
+# Every `terrain` here must be one of `Terrain::is_water`'s own (sea, river, lake or ford).
+# - terrain, chance
 
 [settings]
 floor = 10.0
@@ -27,3 +43,12 @@ fit_for_heavy = 80.0
 
 [exposure]
 damage_per_minute = 4.0
+
+[sickness]
+minutes = 12.0
+damage_per_minute = 3.0
+fresh_detour = 15
+
+[[sickness.water]]
+terrain = "water"
+chance = 0.05

@@ -221,6 +221,9 @@ pub enum DeathCause {
     Exhaustion,
     /// Exposure: asleep, unsheltered, on cold land (`World::apply_exposure`).
     Exposure,
+    /// Sickness: a sea-water drink that rolled sick, never cured (`World::apply_sickness`, issue
+    /// #389).
+    Sickness,
 }
 
 /// A unit's current meters. Each is in `[0, max]`; `health` has its own max.

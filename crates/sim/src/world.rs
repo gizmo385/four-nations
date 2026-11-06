@@ -173,6 +173,13 @@ pub struct Unit {
     /// per night, not every tick it stays asleep in the cold.
     #[serde(default)]
     exposed_alerted: bool,
+    /// The tick a sickness caught from sea water ends (issue #389), or `None` if not sick.
+    /// Health falls `data/harm.toml`'s `[sickness] damage_per_minute` a minute with no natural
+    /// regen the whole time (`World::apply_sickness`); set by `World::maybe_catch_sickness` the
+    /// tick a `Task::Drink` completes at a sea-only spot. `None` for a save from before this
+    /// existed, and for anyone never sickened.
+    #[serde(default)]
+    sick_until: Option<u64>,
 }
 
 impl Unit {
@@ -414,6 +421,11 @@ pub struct World {
     /// does for #232.
     #[serde(default = "population::default_newcomer_rng")]
     newcomer_rng: SimRng,
+    /// Rolls sea-water sickness (`harm.sickness`, issue #389). A save from before #389 loads
+    /// this seeded by 0 instead of the world seed, as `orchard_rng` does for #142; still
+    /// deterministic.
+    #[serde(default = "harm::default_sickness_rng")]
+    sickness_rng: SimRng,
     rng: SimRng,
 }
 
@@ -478,6 +490,7 @@ impl World {
             sprout_rng: rng::stream(seed, "bending.sprout"),
             growth_rng: population::new_rng(seed),
             newcomer_rng: population::new_newcomer_rng(seed),
+            sickness_rng: harm::new_sickness_rng(seed),
             rng: rng::stream(seed, "world.units"),
         };
         world.bury(defs);
@@ -664,6 +677,7 @@ impl World {
                 unhappy_since: None,
                 last_harm: None,
                 exposed_alerted: false,
+                sick_until: None,
             });
         }
     }
@@ -811,6 +825,7 @@ impl World {
             } else {
                 1.0
             };
+            let sick = self.is_sick(&u);
             let healing = self.healing_bonus_for(&u, defs);
             u.needs.tick_at_cold_healing(
                 &defs.needs,
@@ -822,11 +837,12 @@ impl World {
                 cold_energy,
                 healing,
                 // No natural regen while cold, awake or asleep (`docs/design/harm.md`, "Rules
-                // every source shares", issue #387); `apply_exposure` below is the other half
-                // of what cold does.
-                !cold,
+                // every source shares", issue #387), nor while sick (issue #389);
+                // `apply_exposure`/`apply_sickness` below are the other half of what each does.
+                !cold && !sick,
             );
             self.apply_exposure(&mut u, cold, defs);
+            self.apply_sickness(&mut u, defs);
             // The Avatar's regen multiplier is his own (`[avatar].modifiers.chi_regen`, #237),
             // never the settlement's; everyone else still reads the settlement's cached value,
             // as before #237.

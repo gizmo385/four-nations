@@ -266,6 +266,10 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     // logged the sleeping-rough alert this sleep, on `Unit`.
     "last_harm",
     "exposed_alerted",
+    // Sickness from sea water (#389): when a unit's current sickness ends, on `Unit`, and the
+    // stream sickness rolls draw from, on `World`.
+    "sick_until",
+    "sickness_rng",
 ];
 
 /// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239

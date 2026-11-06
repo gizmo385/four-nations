@@ -5,13 +5,17 @@ use crate::geom::{Footprint, Grid};
 use crate::mapgen::Tile;
 
 /// A map from ASCII rows: `.` land, `~` water, `^` mountain, `T` oak tree, `s` stone, `c` cabbage,
-/// `Y` fruit tree, `f` fishing spot (on water).
+/// `Y` fruit tree, `f` fishing spot (on water), `r` river, `l` lake, `d` ford (shallow fresh
+/// water, issue #389's sickness tests).
 fn arena(defs: &Defs, rows: &[&str]) -> TileMap {
     Grid::from_fn(rows[0].len() as i32, rows.len() as i32, |p| {
         let c = rows[p.y as usize].as_bytes()[p.x as usize];
         let terrain = match c {
             b'~' | b'f' => Terrain::Water,
             b'^' => Terrain::Mountain,
+            b'r' => Terrain::River,
+            b'l' => Terrain::Lake,
+            b'd' => Terrain::Ford,
             _ => Terrain::Land,
         };
         let resource = match c {
@@ -351,6 +355,58 @@ fn thirsty_units_break_a_tied_distance_to_water_by_position() {
         w.units[0].route.as_ref().and_then(|r| r.first()),
         Some(&at(1, 3)),
         "(1,3) and (3,1) are both 2 tiles from water at the same cost; the lesser wins"
+    );
+}
+
+/// Issue #389: a thirsty unit prefers fresh water over the sea when it's within
+/// `data/harm.toml`'s `[sickness] fresh_detour` path tiles of the nearest drinking spot of any
+/// kind -- but only once the difficulty preset's `harm` is above 0. With no preset, `plan_drink`
+/// still just takes the nearest spot of any kind, sea or not, exactly as before #389.
+#[test]
+fn thirsty_units_detour_to_fresh_water_within_budget_once_harm_is_on() {
+    let rows = [".....~..........r...", "....................."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(0, 1)]);
+    w.difficulty = Some("normal".into());
+    w.units[0].needs.thirst = defs.needs.thirst.low;
+    w.tick(&defs);
+    assert_eq!(w.units[0].task(), Some(Task::Drink));
+    assert_eq!(
+        w.units[0].route.as_ref().and_then(|r| r.first()),
+        Some(&at(15, 1)),
+        "the river at (16,0) is within the 15-tile detour budget of the nearest sea spot"
+    );
+}
+
+#[test]
+fn thirsty_units_ignore_fresh_water_with_no_difficulty_preset() {
+    let rows = [".....~..........r...", "....................."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(0, 1)]);
+    assert!(w.difficulty().is_none());
+    w.units[0].needs.thirst = defs.needs.thirst.low;
+    w.tick(&defs);
+    assert_eq!(w.units[0].task(), Some(Task::Drink));
+    assert_eq!(
+        w.units[0].route.as_ref().and_then(|r| r.first()),
+        Some(&at(4, 1)),
+        "with harm off, plan_drink keeps the nearest spot of any kind, exactly as before #389"
+    );
+}
+
+#[test]
+fn thirsty_units_drink_the_sea_when_fresh_water_is_beyond_the_detour_budget() {
+    let rows = [
+        ".....~..................................r.....",
+        "...............................................",
+    ];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(0, 1)]);
+    w.difficulty = Some("normal".into());
+    w.units[0].needs.thirst = defs.needs.thirst.low;
+    w.tick(&defs);
+    assert_eq!(w.units[0].task(), Some(Task::Drink));
+    assert_eq!(
+        w.units[0].route.as_ref().and_then(|r| r.first()),
+        Some(&at(4, 1)),
+        "the river is 39 tiles off, well past the 15-tile budget over the 4-tile sea spot"
     );
 }
 
