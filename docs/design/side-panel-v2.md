@@ -1,6 +1,6 @@
 # Side panel v2: a glance, a feed, and what's under your hand
 
-Status: **proposed** (#414, from the owner's 2026-11-06 midgame/endgame playtest). It revises
+Status: **accepted** (#414; owner answers 2026-11-06, see "Decisions" below; from the owner's 2026-11-06 midgame/endgame playtest). It revises
 docs/design/side-panel.md (#302), which stays the record of why the roster left the panel and why
 headings are dividers. Everything that doc settled about the Nation screen (`N`), the tool banner
 and divider headings stands.
@@ -141,7 +141,10 @@ trimmed; the only growth is the second materials row.
 
 Why People loses the activity breakdown: at 20+ settlers the breakdown takes two or three rows and
 changes every tick, while the only number that asks for an action is Idle. The full breakdown
-stays one key away on the Nation screen, grouped the same way (owner question 1).
+stays one key away on the Nation screen, grouped the same way (decision 1).
+
+The elapsed game clock leaves the header while seasons are on (decision 4); it moves to the
+Nation screen's header line and the Esc menu.
 
 ### Zone 2: Alerts (always visible, grows first)
 
@@ -266,8 +269,12 @@ Warn state also has a word, not just a colour (`none set`, the need flag words).
   the same information in the panel's own rows, which the header already pays for.
 - **Keeping one heading per section and only tuning caps.** The caps are the problem: every new
   feature adds a heading and another row to argue about. One row per watched thing scales.
-- **Widening the panel.** Possible later (owner question 3). Most truncation today comes from long
-  alert text and coordinates, which zone 2 removes.
+
+## Width
+
+The panel is 36 columns on terminals at least 140 columns wide, 32 below that (decision 3, #423).
+Every row packs to the panel's real inner width, so the extra 4 cells go to longer alert and Here
+lines rather than padding. At 120x40, the size the mockups use, nothing changes.
 
 ## Follow-up issues
 
@@ -277,17 +284,13 @@ Warn state also has a word, not just a colour (`none set`, the need flag words).
 - **#417** Panel v2: alerts coalesce, routine events log-only, spare rows to alerts (blocked by
   #414).
 - **#418** Panel v2: the Here section (blocked by #414).
+- **#423** Panel v2: 36 columns on terminals 140+ wide (blocked by #414, #416).
 
-## Open questions for the owner
+## Decisions
 
-1. **Should People shrink to `People 20 / Idle 11`, with the full activity breakdown on `N`?**
-   *Recommended: yes.* Idle is the number you act on. The alternative keeps one packed row of
-   counts with a `+N` fold, which costs nothing extra but jitters at 20+ settlers.
-2. **Should routine successes (ability casts, buildings used) stop toasting and go to the log
-   only?** *Recommended: yes.* They are most of today's alert rows. The alternative keeps them
-   but coalesced.
-3. **Should the panel widen at large terminals** (say 36 columns from 140 columns wide)?
-   *Recommended: not now.* Revisit after #417 lands and alert text is shorter.
-4. **Is the elapsed game clock worth a place in the panel?** *Recommended: no.* With seasons on,
-   the header shows the season and its time left instead; the elapsed time moves to the Nation
-   screen's header line and the Esc menu. With seasons off it stays.
+The owner answered on 2026-11-06:
+
+1. **People shows `People 20` and `Idle 11` only**; the activity breakdown is the Nation screen's.
+2. **Routine successes (ability casts, buildings used) go to the log only**, never to toasts.
+3. **The panel widens to 36 columns from 140 columns wide** (#423).
+4. **The header shows the season and its time left**, not the elapsed clock, while seasons are on.
