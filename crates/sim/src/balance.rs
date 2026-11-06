@@ -195,6 +195,10 @@ pub struct EconomyConfig {
     /// Till farm plots and raise an orchard (`Economy::farms`)? `false` is materials.md's
     /// `--no-farms` check (owner question 2).
     pub farms: bool,
+    /// Research the nation's own branch before the shared tier (`Economy::branch_first`,
+    /// `docs/design/pacing.md`'s own `--branch-first`, #434): `false` is the default, unchanged
+    /// order.
+    pub branch_first: bool,
     pub width: i32,
     pub height: i32,
 }
@@ -221,6 +225,18 @@ pub struct EconomySeason {
     pub signs_met: Vec<String>,
 }
 
+/// One new thing to do, in minute order (`decision_events`, `docs/design/pacing.md`'s own
+/// decision timeline, #434): a tech completion that unlocks a building, ability or job (read
+/// from the tech's own `unlocks`, never a hard-coded list of techs), or a sign met for the first
+/// time. `label` names what happened (the tech's name, or `"<sign name> met"`), for printing;
+/// nothing here is keyed by id, since the timeline is read-only output, not state a caller looks
+/// things up in.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DecisionEvent {
+    pub minute: f32,
+    pub label: String,
+}
+
 /// What `run_economy` reports (module doc; #352).
 #[derive(Debug, Clone, PartialEq)]
 pub struct EconomyReport {
@@ -241,6 +257,27 @@ pub struct EconomyReport {
     /// (#376: are the Workshop, forge and kiln kept running, and what ore is left for the
     /// gate?). In item order.
     pub recipe_stores: Vec<(String, u32)>,
+    /// Every tech completed within `cfg.minutes`, in completion order (`Research::completions`):
+    /// `(tech id, completion minute)` (`docs/design/pacing.md`, "Measuring it"; #434).
+    pub techs: Vec<(String, f32)>,
+    /// Every decision event (`DecisionEvent`) in minute order, ties broken by `label`: each
+    /// tech completion from `techs` whose `unlocks` names a building, ability or job, plus each
+    /// sign from `sign_minutes` the first minute it was met (`docs/design/pacing.md`, "Measuring
+    /// it"; #434).
+    pub timeline: Vec<DecisionEvent>,
+    /// The start and end minute of the longest stretch with no decision event, from minute 30
+    /// to `ready_minute` (the latest minute every sign but `masters` and `scrolls` was met, or
+    /// `cfg.minutes` if one of them never was): `None` if `ready_minute` is 30 or earlier, so
+    /// there's no window to measure (`docs/design/pacing.md`, "Measuring it"; #434).
+    pub longest_gap: Option<(f32, f32)>,
+    /// How many of those same gaps are longer than 15 minutes (`docs/design/pacing.md`'s own
+    /// pacing target; #434).
+    pub gaps_over_15: u32,
+    /// The share of living units with no task (`Unit::task()` is `None`), sampled on every
+    /// `Opening::due` tick, per 15-minute window: `(window start minute, share)`, in order,
+    /// covering every window `cfg.minutes` reaches (`docs/design/pacing.md`, "Stores and idle
+    /// hands"; #434).
+    pub idle_share: Vec<(f32, f32)>,
 }
 
 /// Runs one `(preset, nation, seed)` with `autoplay::Economy` driving it (module doc), the same
@@ -259,6 +296,7 @@ pub fn run_economy(cfg: &EconomyConfig, defs: &Defs) -> EconomyReport {
     let mut world = World::found(survey, cfg.nation, start, PEOPLE, cfg.preset.clone(), defs)
         .expect("Survey::default_site always names a site World::found accepts");
     let economy = if cfg.farms { Economy::new(PEOPLE) } else { Economy::without_farms(PEOPLE) };
+    let economy = if cfg.branch_first { economy.with_branch_first() } else { economy };
 
     let stone_items = autoplay::sign_items(defs, "stone");
     let ore_items = autoplay::sign_items(defs, "ore");
@@ -267,6 +305,10 @@ pub fn run_economy(cfg: &EconomyConfig, defs: &Defs) -> EconomyReport {
     let reachable: Vec<BuildingId> =
         endeavor::reachable_buildings(cfg.nation, &defs.techs, &defs.buildings).collect();
     let mut first_built: Vec<Option<f32>> = vec![None; reachable.len()];
+    // One `(idle, total)` tally per 15-minute window (`idle_share`'s own module doc), grown as
+    // the run reaches a later window (`idle_window` below always moves forward with `tick`, so
+    // a window is only ever touched once reached).
+    let mut idle_windows: Vec<(u32, u32)> = Vec::new();
 
     let total_ticks = minutes_to_ticks(cfg.minutes);
     // `World::tick_season` only ever logs a `Changed` event at a later boundary (`World::tick`
@@ -291,6 +333,7 @@ pub fn run_economy(cfg: &EconomyConfig, defs: &Defs) -> EconomyReport {
                     }
                 }
             }
+            sample_idle_share(&world, &mut idle_windows);
         }
         world.tick(defs);
 
@@ -301,7 +344,7 @@ pub fn run_economy(cfg: &EconomyConfig, defs: &Defs) -> EconomyReport {
         }
     }
 
-    let sign_minutes = defs
+    let sign_minutes: Vec<(String, Option<f32>)> = defs
         .endeavor
         .signs
         .iter()
@@ -330,7 +373,129 @@ pub fn run_economy(cfg: &EconomyConfig, defs: &Defs) -> EconomyReport {
         .map(|item| (defs.item(item).id.clone(), world.stored_total(item)))
         .collect();
 
-    EconomyReport { seasons, sign_minutes, first_built, recipe_stores }
+    let techs: Vec<(String, f32)> = world
+        .research()
+        .completions()
+        .iter()
+        .map(|c| (defs.tech(c.tech).id.clone(), ticks_to_minutes(c.tick)))
+        .collect();
+    let timeline = decision_events(&world, defs, &sign_minutes);
+    let ready = ready_minute(&sign_minutes, cfg.minutes);
+    let gaps = decision_gaps(&timeline, ready);
+    let longest_gap = gaps.iter().copied().max_by(|a, b| (a.1 - a.0).total_cmp(&(b.1 - b.0)));
+    let gaps_over_15 = gaps.iter().filter(|&&(start, end)| end - start > 15.0).count() as u32;
+    let idle_share: Vec<(f32, f32)> = idle_windows
+        .iter()
+        .enumerate()
+        .map(|(window, &(idle, total))| {
+            let share = if total > 0 { idle as f32 / total as f32 } else { 0.0 };
+            (window as f32 * IDLE_WINDOW_MINUTES, share)
+        })
+        .collect();
+
+    EconomyReport {
+        seasons,
+        sign_minutes,
+        first_built,
+        recipe_stores,
+        techs,
+        timeline,
+        longest_gap,
+        gaps_over_15,
+        idle_share,
+    }
+}
+
+/// How wide an `idle_share` window is, in minutes (`EconomyReport::idle_share`'s own module doc;
+/// #434).
+const IDLE_WINDOW_MINUTES: f32 = 15.0;
+
+/// Tallies one `Opening::due` sample of every living unit's task into the window `world.tick`
+/// falls in, growing `windows` to cover it if this is the first sample to reach that far
+/// (`EconomyReport::idle_share`).
+fn sample_idle_share(world: &World, windows: &mut Vec<(u32, u32)>) {
+    let minute = ticks_to_minutes(world.tick);
+    let window = (minute / IDLE_WINDOW_MINUTES) as usize;
+    if windows.len() <= window {
+        windows.resize(window + 1, (0, 0));
+    }
+    let idle = world.units.iter().filter(|u| u.task().is_none()).count() as u32;
+    windows[window].0 += idle;
+    windows[window].1 += world.units.len() as u32;
+}
+
+/// The minute every sign but `masters` and `scrolls` was first met: the latest of their
+/// `sign_minutes`, or `total_minutes` (the run's own end) if any of them never was
+/// (`docs/design/pacing.md`, "Measuring it": "Ready, taken as every sign except masters and
+/// scrolls", #434).
+fn ready_minute(sign_minutes: &[(String, Option<f32>)], total_minutes: f32) -> f32 {
+    let mut ready = 0.0_f32;
+    for (id, minute) in sign_minutes {
+        if id == "masters" || id == "scrolls" {
+            continue;
+        }
+        match minute {
+            Some(m) => ready = ready.max(*m),
+            None => return total_minutes,
+        }
+    }
+    ready
+}
+
+/// Every decision event (`DecisionEvent`'s own module doc) in minute order, ties broken by
+/// label: each tech completion whose `unlocks` names a building, ability or job (read from the
+/// tech's own data, never a hard-coded list), plus each met sign from `sign_minutes`
+/// (`docs/design/pacing.md`, "Measuring it"; #434).
+fn decision_events(
+    world: &World,
+    defs: &Defs,
+    sign_minutes: &[(String, Option<f32>)],
+) -> Vec<DecisionEvent> {
+    let mut events: Vec<DecisionEvent> = world
+        .research()
+        .completions()
+        .iter()
+        .filter_map(|c| {
+            let tech = defs.tech(c.tech);
+            let unlocks_something = !tech.unlocks.buildings.is_empty()
+                || !tech.unlocks.jobs.is_empty()
+                || !tech.unlocks.abilities.is_empty();
+            unlocks_something.then(|| DecisionEvent {
+                minute: ticks_to_minutes(c.tick),
+                label: tech.name.clone(),
+            })
+        })
+        .collect();
+    for (id, minute) in sign_minutes {
+        let Some(minute) = minute else { continue };
+        let name = defs
+            .endeavor
+            .signs
+            .iter()
+            .find(|s| &s.id == id)
+            .map_or(id.as_str(), |s| s.name.as_str());
+        events.push(DecisionEvent { minute: *minute, label: format!("{name} met") });
+    }
+    events.sort_by(|a, b| a.minute.total_cmp(&b.minute).then_with(|| a.label.cmp(&b.label)));
+    events
+}
+
+/// The gaps between `timeline`'s events, from minute 30 to `ready`, with virtual boundary
+/// events at 30 and `ready` themselves so a stretch with no decision right after minute 30, or
+/// right before `ready`, counts as a gap too (`docs/design/pacing.md`, "Measuring it": "no gap
+/// longer than 15 minutes ... from minute 30 to Ready", #434). Empty if `ready <= 30.0`, so
+/// there's no window to measure. `timeline` is assumed sorted by minute (`decision_events`'s own
+/// contract).
+fn decision_gaps(timeline: &[DecisionEvent], ready: f32) -> Vec<(f32, f32)> {
+    if ready <= 30.0 {
+        return Vec::new();
+    }
+    let mut bounds: Vec<f32> = std::iter::once(30.0)
+        .chain(timeline.iter().map(|e| e.minute).filter(|&m| m > 30.0 && m < ready))
+        .chain(std::iter::once(ready))
+        .collect();
+    bounds.dedup();
+    bounds.windows(2).map(|w| (w[0], w[1])).collect()
 }
 
 /// One `EconomySeason` snapshot of `world` right now (`run_economy`).
@@ -462,6 +627,7 @@ mod tests {
             preset: Some("normal".to_owned()),
             minutes,
             farms,
+            branch_first: false,
             width: size.width,
             height: size.height,
         }
@@ -602,5 +768,102 @@ mod tests {
         let c = economy_cfg(Nation::Water, 20.0, false);
         let report = run_economy(&c, &defs);
         assert!(!report.seasons.is_empty());
+    }
+
+    /// #434's own acceptance criterion: `timeline` is in minute order, and every tech event in
+    /// it names a tech with a visible unlock (a building, ability or job), never one that only
+    /// changes a modifier (`decision_events`'s own rule).
+    #[test]
+    fn timeline_is_in_minute_order_and_every_tech_event_has_a_visible_unlock() {
+        let defs = Defs::bundled();
+        let c = economy_cfg(Nation::Earth, 90.0, true);
+        let report = run_economy(&c, &defs);
+        assert!(!report.timeline.is_empty(), "{report:?}");
+        assert!(
+            report.timeline.windows(2).all(|w| w[0].minute <= w[1].minute),
+            "expected the timeline in minute order: {:?}",
+            report.timeline
+        );
+        let tech_names: std::collections::BTreeSet<&str> =
+            defs.techs.iter().map(|t| t.name.as_str()).collect();
+        let visible: std::collections::BTreeSet<&str> = defs
+            .techs
+            .iter()
+            .filter(|t| {
+                !t.unlocks.buildings.is_empty()
+                    || !t.unlocks.jobs.is_empty()
+                    || !t.unlocks.abilities.is_empty()
+            })
+            .map(|t| t.name.as_str())
+            .collect();
+        for event in &report.timeline {
+            // A sign event's label ends in " met" and is never a tech's own name (no tech is
+            // named that way in `data/research.toml`).
+            if tech_names.contains(event.label.as_str()) {
+                assert!(
+                    visible.contains(event.label.as_str()),
+                    "tech event {event:?} names a tech with no visible unlock"
+                );
+            }
+        }
+    }
+
+    /// `techs` lists every completion `timeline` could possibly draw a tech event from, so a
+    /// caller never sees a tech in `timeline` that isn't also in `techs`.
+    #[test]
+    fn every_tech_event_in_the_timeline_is_also_in_techs() {
+        let defs = Defs::bundled();
+        let c = economy_cfg(Nation::Fire, 90.0, true);
+        let report = run_economy(&c, &defs);
+        let tech_names: std::collections::BTreeSet<&str> = report
+            .techs
+            .iter()
+            .map(|(id, _)| defs.tech(defs.tech_id(id).unwrap()).name.as_str())
+            .collect();
+        for event in &report.timeline {
+            if !event.label.ends_with(" met") {
+                assert!(
+                    tech_names.contains(event.label.as_str()),
+                    "timeline tech event {event:?} has no matching completion in techs"
+                );
+            }
+        }
+    }
+
+    /// `idle_share` samples every `Opening::due` tick (module doc; #434), so a 90-minute run
+    /// covers at least the first 15-minute window, and every share is a fraction.
+    #[test]
+    fn idle_share_covers_the_run_with_fractions_in_range() {
+        let defs = Defs::bundled();
+        let c = economy_cfg(Nation::Air, 90.0, true);
+        let report = run_economy(&c, &defs);
+        assert!(!report.idle_share.is_empty(), "{report:?}");
+        for &(start, share) in &report.idle_share {
+            assert!(start >= 0.0, "{report:?}");
+            assert!((0.0..=1.0).contains(&share), "{report:?}");
+        }
+    }
+
+    /// `--branch-first` (`EconomyConfig::branch_first`) is as deterministic as the default order
+    /// (module doc; #434), for the same reason `run_economy` already is.
+    #[test]
+    fn branch_first_is_also_deterministic() {
+        let defs = Defs::bundled();
+        let c = EconomyConfig { branch_first: true, ..economy_cfg(Nation::Earth, 60.0, true) };
+        assert_eq!(run_economy(&c, &defs), run_economy(&c, &defs));
+    }
+
+    /// `longest_gap`, when present, is a well-formed interval inside the measured window
+    /// (minute 30 to `ready_minute`, which is at most `cfg.minutes`): its start comes no earlier
+    /// than minute 30 and its end no later than the run's own length.
+    #[test]
+    fn longest_gap_is_a_well_formed_interval_when_present() {
+        let defs = Defs::bundled();
+        let c = economy_cfg(Nation::Water, 120.0, true);
+        let report = run_economy(&c, &defs);
+        if let Some((start, end)) = report.longest_gap {
+            assert!(start >= 30.0 && end <= 120.0 && start <= end, "{report:?}");
+        }
+        assert!(report.gaps_over_15 as usize <= report.timeline.len() + 1, "{report:?}");
     }
 }

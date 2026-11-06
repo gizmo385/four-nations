@@ -46,13 +46,20 @@
 //! ore, population, buildings, the nation's branch) rather than just surviving. One row per
 //! season reached, for every named `(nation, seed)`, then the minute each sign was first met, the
 //! minute each reachable building first stood, and what recipe items and ore are left in stores
-//! (#376).
+//! (#376); then (#434, `docs/design/pacing.md` "Measuring it") each tech's completion minute
+//! (`techs:`), the decision timeline (`timeline:`: every tech completion that unlocks a
+//! building, ability or job, plus each sign's first-met minute, in minute order), the longest
+//! gap between decisions from minute 30 to Ready and how many gaps are over 15 minutes, and the
+//! idle share (the fraction of units with no task) per 15-minute window. A trailing line per
+//! nation gives how many of its seeds keep that longest gap at 15 minutes or less.
 //!
 //!     cargo run -p fn_sim --bin balance -- --economy --seeds 7,42 --minutes 180
-//!         [--nations fire,earth,water,air] [--preset normal] [--no-farms]
+//!         [--nations fire,earth,water,air] [--preset normal] [--no-farms] [--branch-first]
 //!
 //! `--no-farms` tills no farm plots and raises no orchard (materials.md's own `--no-farms`,
-//! owner question 2's check).
+//! owner question 2's check). `--branch-first` (`fn_sim::autoplay::Economy::with_branch_first`)
+//! researches the nation's own branch before the shared tier, closer to how a person plays
+//! (pacing.md's own "a player who goes branch first" note); the default order is unchanged.
 
 use fn_sim::balance::{
     EconomyConfig, EconomyReport, PEOPLE, RunConfig, RunReport, run, run_economy,
@@ -383,6 +390,7 @@ fn run_economy_sweep(args: &[String]) {
     let mut nation_ids: Option<Vec<String>> = None;
     let mut preset = "normal".to_owned();
     let mut farms = true;
+    let mut branch_first = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -394,6 +402,7 @@ fn run_economy_sweep(args: &[String]) {
             }
             "--preset" => preset = value(args, &mut i),
             "--no-farms" => farms = false,
+            "--branch-first" => branch_first = true,
             other => economy_usage_error(&format!("unknown argument {other:?}")),
         }
         i += 1;
@@ -413,6 +422,10 @@ fn run_economy_sweep(args: &[String]) {
         "nation", "seed", "year", "minute", "stone", "ore", "wood", "food/h", "pop"
     );
     for &nation in &nations {
+        // How many of this nation's seeds keep the longest decision gap (minute 30 to Ready)
+        // at or under 15 minutes (`docs/design/pacing.md`'s own pacing target; #434's per-nation
+        // summary line).
+        let mut gap_ok = 0usize;
         for &seed in &seeds {
             let cfg = EconomyConfig {
                 seed,
@@ -420,6 +433,7 @@ fn run_economy_sweep(args: &[String]) {
                 preset: Some(preset.clone()),
                 minutes,
                 farms,
+                branch_first,
                 width: size.width,
                 height: size.height,
             };
@@ -439,7 +453,17 @@ fn run_economy_sweep(args: &[String]) {
                 );
             }
             print_sign_minutes(nation, seed, &report);
+            print_timeline(nation, seed, &report);
+            print_idle_share(nation, seed, &report);
+            if report.longest_gap.is_none_or(|(start, end)| end - start <= 15.0) {
+                gap_ok += 1;
+            }
         }
+        println!(
+            "{:<6} longest decision gap 15 min or less on {gap_ok}/{} seeds",
+            nation.as_str(),
+            seeds.len()
+        );
     }
 }
 
@@ -467,10 +491,50 @@ fn print_sign_minutes(nation: Nation, seed: u64, report: &EconomyReport) {
     println!("{:<6} {seed:>4} in stores at the end: {stores}", nation.as_str());
 }
 
+/// `techs:`, `timeline:` and the longest-gap line (module doc; #434, `docs/design/pacing.md`
+/// "Measuring it").
+fn print_timeline(nation: Nation, seed: u64, report: &EconomyReport) {
+    let techs = report
+        .techs
+        .iter()
+        .map(|(id, minute)| format!("{id}={minute:.1}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    println!("{:<6} {seed:>4} techs: {techs}", nation.as_str());
+    let timeline = report
+        .timeline
+        .iter()
+        .map(|e| format!("{}@{:.1}", e.label, e.minute))
+        .collect::<Vec<_>>()
+        .join(" | ");
+    println!("{:<6} {seed:>4} timeline: {timeline}", nation.as_str());
+    let gap = match report.longest_gap {
+        Some((start, end)) => format!("{start:.1}-{end:.1} ({:.1} min)", end - start),
+        None => "none".to_owned(),
+    };
+    println!(
+        "{:<6} {seed:>4} longest gap: {gap}, gaps over 15 min: {}",
+        nation.as_str(),
+        report.gaps_over_15
+    );
+}
+
+/// The idle line: the share of unit samples with no task, per 15-minute window (module doc;
+/// #434).
+fn print_idle_share(nation: Nation, seed: u64, report: &EconomyReport) {
+    let idle = report
+        .idle_share
+        .iter()
+        .map(|&(start, share)| format!("{start:.0}-{:.0}={:.0}%", start + 15.0, share * 100.0))
+        .collect::<Vec<_>>()
+        .join(" ");
+    println!("{:<6} {seed:>4} idle: {idle}", nation.as_str());
+}
+
 fn economy_usage_error(msg: &str) -> ! {
     eprintln!("{msg}");
     eprintln!(
-        "usage: balance --economy [--seeds 7,42] [--minutes 180] [--nations fire,earth,water,air] [--preset normal] [--no-farms]"
+        "usage: balance --economy [--seeds 7,42] [--minutes 180] [--nations fire,earth,water,air] [--preset normal] [--no-farms] [--branch-first]"
     );
     std::process::exit(1);
 }

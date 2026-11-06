@@ -88,6 +88,7 @@ fn the_economy_opening_is_deterministic_and_keeps_applying() {
         preset: Some("normal".to_owned()),
         minutes: 60.0,
         farms: true,
+        branch_first: false,
         width: size.width,
         height: size.height,
     };
