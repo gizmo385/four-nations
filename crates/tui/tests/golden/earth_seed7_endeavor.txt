@@ -32,9 +32,9 @@
 │   Closest: Bai 0/8, Ping 0/8, Fen 0/8                                                ││                              │
 │   Designate a bend (B) on a tile a bender can work - credit to whoever channels it   ││                              │
 │   Ancient scrolls read           ░░░░░░░░░░       0/3                                ││                              │
+│   Ancient Scroll - 44 tiles south-east - not marked                                  ││                              │
+│   Ancient Scroll - 46 tiles north-west - not marked                                  ││                              │
+│   Ancient Scroll - 47 tiles north-east - not marked                                  ││                              │
 │   Bring scrolls to a study hall                                                      ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
 ┗─ Arrows W S scroll  PgUp PgDn page  Esc/G close ─────────────────────────────────────┛┗─ seed 7 ─────────────────────┛
  ENDEAVOR  arrows/W S scroll  PgUp/PgDn page  Esc/G close  L log  ? keys  Space pause

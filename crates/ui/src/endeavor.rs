@@ -3,13 +3,14 @@
 //! for its events. Reads `World::endeavor_signs` and `World::endeavor` and words them; which signs
 //! there are, and when the endeavor is Ready, are the sim's.
 
-use fn_sim::endeavor::{SignDef, SignGroup, SignKind};
+use fn_sim::endeavor::{SignDef, SignGroup, SignKind, Tally};
 use fn_sim::world::{
     AvatarLeaveReason, EndeavorEvent, EndeavorEventKind, EndeavorState, SignProgress,
 };
-use fn_sim::{Defs, World};
+use fn_sim::{Defs, Pos, World};
 
 use crate::session::Session;
+use crate::text::compass_distance;
 use crate::tools::Tool;
 
 /// What the screen and the side panel say once the endeavor is Ready (the toast says it too).
@@ -55,6 +56,23 @@ pub struct SignRow {
     /// closest non-masters ("Master: Lu Ten. Closest: Jee 9/10, Shyu 8/10, Ikem 8/10",
     /// `docs/design/endgame.md`, "Showing mastery", #347). `None` for every other sign.
     pub closest: Option<String>,
+    /// The scrolls sign only, shown only while it isn't met: every scroll-yielding resource
+    /// still sitting on the map, nearest first (#380, "let a player find out where to look").
+    /// Empty for every other sign.
+    pub found: Vec<FoundScroll>,
+}
+
+/// One scroll-yielding resource still on the map, for the scrolls sign's own row
+/// (`found_scrolls`): where it is and why it isn't read yet.
+#[derive(Clone, PartialEq, Debug)]
+pub struct FoundScroll {
+    /// "Ancient Scroll", or "Lost Ruins (2)" when one harvest yields more than one.
+    pub name: String,
+    /// "34 tiles north-west" (`crate::text::compass_distance`), from the settlement's anchor.
+    pub distance: String,
+    /// "marked", "not marked" or "no settler can reach it" (`World::job_unreachable`, #337's
+    /// flag, reused rather than a new one).
+    pub status: String,
 }
 
 /// The side panel's Endeavor section.
@@ -179,6 +197,57 @@ fn masters_text(masters: &[String], closest: &[(String, u32, u32)]) -> Option<St
     }
 }
 
+/// How many found-but-unresolved scrolls the scrolls sign's row names: enough for every seed the
+/// supply survey measured (`docs/design/cartography.md`, up to 6 on a small map), without letting
+/// a very lucky one turn the row into a wall of text.
+const FOUND_SHOWN: usize = 6;
+
+/// Every scroll-yielding resource still sitting on the map, nearest the settlement's anchor
+/// first (`World::settlement_anchor`): `ancient_scroll` itself (always visible) and `lost_ruins`
+/// once something has uncovered one (Air's Glide, #197, or a Map Room's Chart, #402) -- both
+/// yield the same `ancient_scroll` item (`data/jobs.toml`), so one item filter catches both
+/// without naming either resource by id, the same trick `fn_sim::autoplay::recover_scrolls`
+/// plays. For each: its name (with a count when a harvest yields more than one), how far and
+/// which way from the settlement, and whether it's marked, not yet marked, or not reachable by
+/// any living settler (`World::job_unreachable`, #337's flag) -- the "why isn't one fetched" a
+/// 2026-11-05 playtest never got an answer to (#380). Empty without the `ancient_scroll` item in
+/// the data at all.
+fn found_scrolls(world: &World, defs: &Defs) -> Vec<FoundScroll> {
+    let Some(scroll_item) = defs.item_id("ancient_scroll") else { return Vec::new() };
+    let anchor = world.settlement_anchor();
+    let mut found: Vec<Pos> = world
+        .map
+        .iter()
+        .filter(|(_, t)| {
+            t.resource.and_then(|r| defs.harvest(r)).is_some_and(|h| h.item == scroll_item)
+        })
+        .map(|(p, _)| p)
+        .collect();
+    found.sort_by_key(|&p| anchor.chebyshev(p));
+    found
+        .into_iter()
+        .take(FOUND_SHOWN)
+        .map(|pos| {
+            // `found`'s own filter already guarantees a resource and a harvest here.
+            let resource = world.map.get(pos).and_then(|t| t.resource).expect("filtered above");
+            let h = defs.harvest(resource).expect("filtered above");
+            let name = if h.count > 1 {
+                format!("{} ({})", defs.resource(resource).name, h.count)
+            } else {
+                defs.resource(resource).name.clone()
+            };
+            let status = if world.job_unreachable(pos) == Some(true) {
+                "no settler can reach it"
+            } else if world.harvest_designations().any(|p| p == pos) {
+                "marked"
+            } else {
+                "not marked"
+            };
+            FoundScroll { name, distance: compass_distance(anchor, pos), status: status.to_owned() }
+        })
+        .collect()
+}
+
 /// The hint for an unmet sign: the branch names the techs left once only one or two are, the
 /// buildings sign names the missing kinds the same way ("Not yet raised: Earth Wall, Rail"), the
 /// masters sign says how to start a bend (#382: the data's own hint, "Each finished bend counts
@@ -277,6 +346,11 @@ pub fn screen_view(session: &Session) -> ScreenView {
         let closest = (!p.met && matches!(sign.kind, SignKind::Masters { .. }))
             .then(|| masters_line(world, defs))
             .flatten();
+        let found = if !p.met && matches!(sign.kind, SignKind::Tally(Tally::ScrollsRead)) {
+            found_scrolls(world, defs)
+        } else {
+            Vec::new()
+        };
         let row = SignRow {
             id: sign.id.clone(),
             name: sign_name(sign, world, defs),
@@ -285,6 +359,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
             value: format!("{}/{}", p.value, p.target),
             frac: frac(p),
             closest,
+            found,
         };
         let heading = heading(sign.group);
         match groups.last_mut() {
@@ -619,5 +694,61 @@ mod tests {
         );
         assert_eq!(hint, expected);
         assert_eq!(Tool::Bend.key(), "B");
+    }
+
+    /// The scrolls sign's own found-but-unresolved list (#380, "let a player find out where to
+    /// look"): nearest first, naming whether each is marked, not yet marked, or stranded where
+    /// no settler can reach it -- the "why isn't one fetched" a 2026-11-05 playtest never got.
+    #[test]
+    fn the_scrolls_sign_lists_found_scrolls_nearest_first_with_their_status() {
+        use fn_sim::defs::BiomeId;
+        use fn_sim::{Defs, Grid, Nation, Terrain, Tile, World};
+
+        use crate::clock::Clock;
+
+        let defs = Defs::bundled();
+        let scroll = defs.resource_id("ancient_scroll").unwrap();
+        // X: an island scroll, surrounded by water on every side, nobody can ever reach it.
+        // Y: an ordinary scroll on the settlement's own landmass, 5 tiles closer.
+        let rows = ["~~~~~~~~~~~", "~X~.......~", "~~~....Y..~", "~~~~~~~~~~~"];
+        let map = Grid::from_fn(rows[0].len() as i32, rows.len() as i32, |p| {
+            let c = rows[p.y as usize].as_bytes()[p.x as usize];
+            Tile {
+                elevation: 100,
+                temperature: 128,
+                moisture: 128,
+                terrain: if c == b'~' { Terrain::Water } else { Terrain::Land },
+                biome: BiomeId(0),
+                resource: (c == b'X' || c == b'Y').then_some(scroll),
+                building: None,
+            }
+        });
+        let world = World::with_map(1, map, Nation::Earth, &[Pos::new(5, 1)], &defs);
+        let mut s = Session { world, defs, clock: Clock::default(), bend_choice: None };
+        s.world.ensure_regions();
+
+        let found = found_scrolls(&s.world, &s.defs);
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert_eq!(found[0].name, "Ancient Scroll");
+        assert_eq!(found[0].distance, "2 tiles south-east");
+        assert_eq!(found[0].status, "not marked", "reachable and not yet marked");
+        assert_eq!(found[1].distance, "4 tiles west");
+        assert_eq!(found[1].status, "no settler can reach it");
+
+        // Marking the reachable one updates its own status to "marked"; the island's doesn't
+        // change, since marking it would never do anything.
+        s.apply(fn_sim::world::Command::DesignateHarvest { pos: Pos::new(7, 2) }).unwrap();
+        let found = found_scrolls(&s.world, &s.defs);
+        assert_eq!(found[0].status, "marked");
+        assert_eq!(found[1].status, "no settler can reach it");
+
+        // The Endeavor screen's own row carries the same list while the sign isn't met.
+        let v = screen_view(&s);
+        let row = v.groups.iter().flat_map(|g| &g.signs).find(|r| r.id == "scrolls").unwrap();
+        assert_eq!(row.found, found);
+        // Every other sign carries no found list at all.
+        for other in v.groups.iter().flat_map(|g| &g.signs).filter(|r| r.id != "scrolls") {
+            assert!(other.found.is_empty(), "{other:?}");
+        }
     }
 }

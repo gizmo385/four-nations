@@ -68,6 +68,13 @@ fn stockpile_line(world: &World, defs: &Defs, tile: Pos) -> Option<String> {
     })
 }
 
+/// Whether `h` yields the `ancient_scroll` item: `ancient_scroll` itself, always visible, and
+/// `lost_ruins` once something has uncovered it (Air's Glide, #197, or a Map Room's Chart,
+/// #402) -- both found by one item filter rather than naming either resource by id.
+fn is_scroll_harvest(defs: &Defs, h: &fn_sim::jobs::HarvestDef) -> bool {
+    defs.item_id("ancient_scroll") == Some(h.item)
+}
+
 /// "Lying here: 4 Wood (unreachable: every stockpile is full)" for an item stack waiting on the
 /// ground for a hauler (#337: a filled stockpile left a 2026-11-05 playtest's chopped wood on
 /// the ground with nothing to say why). The reason is only ever a full stockpile: `place_ground`
@@ -320,8 +327,21 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
             // A vein beside a tunnel (#132) is mined from inside the rock, for more.
             let count = world.harvest_yield(tile, h);
             let tunnel = if count > h.count { " from the tunnel" } else { "" };
+            // A scroll (or lost ruins, same `ancient_scroll` item, #197/#402) says whether a
+            // settler could ever reach it, whether it's marked yet or not (#380: a 2026-11-05
+            // playtest's own scroll sat marked and unreached for a year with nothing on screen
+            // to say why). Folded into this line rather than a line of its own, to stay inside
+            // the tooltip's 4-line budget; every other resource keeps the designated-only check
+            // below (#337), since reachability before marking matters less when it's common and
+            // renewable.
+            let scroll_reach =
+                if is_scroll_harvest(defs, h) && world.job_unreachable(tile) == Some(true) {
+                    " - no settler can reach it"
+                } else {
+                    ""
+                };
             lines.push(Line::Detail(format!(
-                "{}: {count} {item}{tunnel} - {:.0}s{suffix}",
+                "{}: {count} {item}{tunnel} - {:.0}s{suffix}{scroll_reach}",
                 h.verb, h.work
             )));
             lines.push(Line::Hint(if tool == Tool::Harvest {
@@ -334,9 +354,12 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
         // ripen) that no living settler could ever reach (#337: "inspect shows no designation
         // or 'unreachable' status on a tile, so a job can't be told apart from one that's just
         // waiting" -- a playtest's own scroll stayed marked for a year across a river nobody
-        // could cross). `None` from `job_unreachable` (the connectivity cache not warm yet)
-        // says nothing rather than guess.
-        if world.harvest_designations().any(|p| p == tile)
+        // could cross). Skipped for a scroll harvest, which already said so above whether it was
+        // marked or not (#380), so the two lines can't both show the same reachability. `None`
+        // from `job_unreachable` (the connectivity cache not warm yet) says nothing rather than
+        // guess.
+        if !is_scroll_harvest(defs, h)
+            && world.harvest_designations().any(|p| p == tile)
             && world.job_unreachable(tile) == Some(true)
         {
             lines.push(Line::Detail("Unreachable: no settler can reach it".to_owned()));
@@ -966,5 +989,63 @@ mod tests {
             lines.contains(&Line::Detail("Unreachable: no settler can reach it".to_owned())),
             "{lines:?}"
         );
+    }
+
+    /// A scroll on an island nobody can reach says so right on its own harvest line, whether or
+    /// not it has ever been marked (#380: a 2026-11-05 playtest's own scroll stayed marked and
+    /// unreached for a year with nothing on screen to say why): folded into the "Recover: ..."
+    /// line rather than the generic designated-only `Unreachable` line (#337), which this skips
+    /// for a scroll so the tooltip never says the same thing twice.
+    #[test]
+    fn an_unreachable_scroll_says_so_on_its_own_harvest_line_even_unmarked() {
+        let defs = Defs::bundled();
+        let scroll = defs.resource_id("ancient_scroll").unwrap();
+        let rows = ["~~~~~~~~~~~", "~X~.......~", "~~~....Y..~", "~~~~~~~~~~~"];
+        let map = Grid::from_fn(rows[0].len() as i32, rows.len() as i32, |p| {
+            let c = rows[p.y as usize].as_bytes()[p.x as usize];
+            Tile {
+                elevation: 100,
+                temperature: 128,
+                moisture: 128,
+                terrain: if c == b'~' { Terrain::Water } else { Terrain::Land },
+                biome: BiomeId(0),
+                resource: (c == b'X' || c == b'Y').then_some(scroll),
+                building: None,
+            }
+        });
+        let mut world = World::with_map(1, map, Nation::Earth, &[Pos::new(5, 1)], &defs);
+        let island = Pos::new(1, 1);
+        let reachable = Pos::new(7, 2);
+        // Marking the reachable scroll alone is enough to warm the connectivity cache (#337's
+        // own doc comment on `job_unreachable`): the island's own line below never gets marked
+        // at all.
+        world.apply(Command::DesignateHarvest { pos: reachable }, &defs).unwrap();
+        let mut s = custom_session(defs, world);
+        s.tick();
+        let lines = tooltip_lines(&s, Tool::Select, island).unwrap();
+        let harvest_line = lines
+            .iter()
+            .find_map(|l| match l {
+                Line::Detail(t) if t.starts_with("Recover") => Some(t.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("a Recover line in {lines:?}"));
+        assert!(harvest_line.ends_with(" - no settler can reach it"), "{harvest_line}");
+        // The generic designated-only line never doubles up with it.
+        assert!(
+            !lines.contains(&Line::Detail("Unreachable: no settler can reach it".to_owned())),
+            "{lines:?}"
+        );
+
+        // The reachable one, already marked, carries no such suffix.
+        let reachable_lines = tooltip_lines(&s, Tool::Select, reachable).unwrap();
+        let reachable_line = reachable_lines
+            .iter()
+            .find_map(|l| match l {
+                Line::Detail(t) if t.starts_with("Recover") => Some(t.clone()),
+                _ => None,
+            })
+            .unwrap();
+        assert!(!reachable_line.contains("no settler can reach it"), "{reachable_line}");
     }
 }
