@@ -8,7 +8,7 @@
 //! camera (`ui.view`) to line a `look` up with a `frame`, which only an internal test can read.
 
 use fn_sim::Nation;
-use fn_tui::layout::PANEL_WIDTH;
+use fn_tui::layout::panel_width;
 use fn_tui::surface::{ActionStep, Host};
 use serde_json::Value;
 
@@ -82,13 +82,13 @@ fn observation_leaves(h: &Host) -> Vec<String> {
 }
 
 /// `frame`'s own left side (the map, or a screen's overlay) and right side (the side panel,
-/// always [`PANEL_WIDTH`] columns, `layout::regions`'s own split), each joined on their own so
+/// [`panel_width`] columns wide, `layout::regions`'s own split), each joined on their own so
 /// a sentence [`fn_tui::widgets::wrap`] breaks across more than one row reads as one
 /// contiguous span again, rather than one broken up by the panel's own row in between every
 /// physical line of it.
 fn columns(frame: &str) -> (String, String) {
     let width = frame.lines().map(|l| l.chars().count()).max().unwrap_or(0);
-    let split_at = width.saturating_sub(usize::from(PANEL_WIDTH));
+    let split_at = width.saturating_sub(usize::from(panel_width(width as u16)));
     let mut left = String::new();
     let mut right = String::new();
     for line in frame.lines() {

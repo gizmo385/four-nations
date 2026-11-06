@@ -8,7 +8,7 @@ use fn_sim::{Nation, Pos, Terrain};
 use fn_tui::app::App;
 use fn_tui::color::{ColorDepth, Palette};
 use fn_tui::frame::{render_app, to_text};
-use fn_tui::layout::PANEL_WIDTH;
+use fn_tui::layout::panel_width;
 use fn_tui::state::{PINNED, Screen};
 use fn_tui::widgets::Tone;
 use fn_tui::{keys, new_session};
@@ -707,11 +707,11 @@ fn fold(s: &str) -> String {
 }
 
 /// `frame`'s left side only (the map or an overlay like the Log screen), folded
-/// (`layout::PANEL_WIDTH` is the side panel's own, fixed width): the side panel's unrelated text
+/// (`layout::panel_width` gives the side panel's own width): the side panel's unrelated text
 /// on the same physical row must never complete a phrase a wrapped alert line split in two.
 fn left_text(frame: &str) -> String {
     let width = frame.lines().map(|l| l.chars().count()).max().unwrap_or(0);
-    let split_at = width.saturating_sub(usize::from(PANEL_WIDTH));
+    let split_at = width.saturating_sub(usize::from(panel_width(width as u16)));
     let left: String = frame
         .lines()
         .map(|line| {

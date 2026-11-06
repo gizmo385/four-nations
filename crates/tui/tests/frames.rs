@@ -56,6 +56,18 @@ fn golden_frame_per_nation() {
     }
 }
 
+/// A 160x48 terminal, at least [`layout::WIDE_TERMINAL`] columns wide: the panel widens to 36
+/// columns (#423, docs/design/side-panel-v2.md "Width") and every row packs to the extra space,
+/// rather than padding.
+#[test]
+fn golden_frame_at_a_wide_terminal() {
+    const WIDE: (u16, u16) = (160, 48);
+    assert_eq!(layout::panel_width(WIDE.0), 36, "160 columns is past the 140 threshold");
+    let mut app = App::new(new_session(7, Nation::Earth), WIDE);
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, WIDE));
+    golden("earth_seed7_wide", &text);
+}
+
 #[test]
 fn golden_ascii_frame() {
     let mut app = App::new(new_session(7, Nation::Earth), SIZE);
