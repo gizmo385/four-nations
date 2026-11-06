@@ -166,7 +166,7 @@ seats = 1
 [building.chart]
 finds = ["lost_ruins"]
 minutes = 6.0
-range = 60
+range = 100
 [[building.cost]]
 item = "wood"
 count = 12
