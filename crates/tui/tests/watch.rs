@@ -598,6 +598,97 @@ fn watch_studio_feed_from_a_log_with_no_call_lines_is_synthetic() {
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("run_script play"), "{text}");
     assert!(text.contains("woke: need: Thirsty first shown"), "{text}");
-    assert!(text.contains("1 calls") || text.contains("1 runs"), "{text}");
+    // Exactly one call and one run here: both read singular (#501's triage comment).
+    assert!(text.contains("1 call ") && text.contains("1 run "), "{text}");
     golden("watch_studio_feed_160x45_play_log", &text);
+}
+
+// -------------------------------------------------------------------------------------------
+// The tab fallback and zoom (#501, docs/design/agent-studio.md "The tab fallback").
+// -------------------------------------------------------------------------------------------
+
+/// Below the studio's own threshold (160x45), the frame is three tabs instead of the split: the
+/// game tab (today's view, #501's "the default") with no `--keys`, the code pane full screen on
+/// `--keys 1`, and the feed full screen on `--keys 3`. Each strip ends with the sparkline and
+/// the `1[2]3` tab indicator (#501's acceptance criteria).
+#[test]
+fn watch_tab_fallback_frames_are_golden() {
+    let path = write_feed_log();
+
+    let game = fn_tui()
+        .args(["--watch", path.to_str().unwrap(), "--frame", "--at", "4", "--size", "110x34"])
+        .output()
+        .unwrap();
+    assert!(game.status.success(), "{}", String::from_utf8_lossy(&game.stderr));
+    let game_text = String::from_utf8(game.stdout).unwrap();
+    assert!(game_text.contains("1[2]3"), "{game_text}: the game tab is the default");
+    golden("watch_tabs_110x34_game", &game_text);
+
+    let code = fn_tui()
+        .args([
+            "--watch",
+            path.to_str().unwrap(),
+            "--frame",
+            "--at",
+            "4",
+            "--size",
+            "110x34",
+            "--keys",
+            "1",
+        ])
+        .output()
+        .unwrap();
+    assert!(code.status.success(), "{}", String::from_utf8_lossy(&code.stderr));
+    let code_text = String::from_utf8(code.stdout).unwrap();
+    assert!(code_text.contains("keep-fed.rhai"), "{code_text}");
+    assert!(code_text.contains("[1]23"), "{code_text}");
+    golden("watch_tabs_110x34_code", &code_text);
+
+    let feed = fn_tui()
+        .args([
+            "--watch",
+            path.to_str().unwrap(),
+            "--frame",
+            "--at",
+            "4",
+            "--size",
+            "110x34",
+            "--keys",
+            "3",
+        ])
+        .output()
+        .unwrap();
+    std::fs::remove_file(&path).ok();
+    assert!(feed.status.success(), "{}", String::from_utf8_lossy(&feed.stderr));
+    let feed_text = String::from_utf8(feed.stdout).unwrap();
+    assert!(feed_text.contains("AGENT ── "), "{feed_text}");
+    assert!(feed_text.contains("12[3]"), "{feed_text}");
+    golden("watch_tabs_110x34_feed", &feed_text);
+}
+
+/// At or above the threshold, the same digit zooms its pane full screen instead of switching a
+/// tab (#501's acceptance criteria: "there is one model, not two").
+#[test]
+fn watch_studio_zoomed_frame_is_golden() {
+    let path = write_studio_log();
+    let out = fn_tui()
+        .args([
+            "--watch",
+            path.to_str().unwrap(),
+            "--frame",
+            "--at",
+            "2",
+            "--size",
+            "160x45",
+            "--keys",
+            "1",
+        ])
+        .output()
+        .unwrap();
+    std::fs::remove_file(&path).ok();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("keep-fed.rhai"), "{text}");
+    assert!(text.contains("[1]23"), "{text}");
+    golden("watch_studio_160x45_zoomed_code", &text);
 }

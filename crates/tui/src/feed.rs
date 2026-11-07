@@ -167,12 +167,15 @@ impl Feed {
         Self::default()
     }
 
-    /// `AGENT ── N calls · M runs`: what's been replayed so far, counting whichever of a real
-    /// `call` line or a synthetic entry opened it (`Self::saw_call`'s own doc comment).
+    /// `AGENT ── N calls · M runs` (`1 call`/`1 run`, singular, #501): what's been replayed so
+    /// far, counting whichever of a real `call` line or a synthetic entry opened it
+    /// (`Self::saw_call`'s own doc comment).
     pub fn title(&self, ascii: bool) -> String {
         let dash = if ascii { "--" } else { "──" };
         let dot = if ascii { "-" } else { "·" };
-        format!("AGENT {dash} {} calls {dot} {} runs", self.calls, self.runs)
+        let call = if self.calls == 1 { "call" } else { "calls" };
+        let run = if self.runs == 1 { "run" } else { "runs" };
+        format!("AGENT {dash} {} {call} {dot} {} {run}", self.calls, self.runs)
     }
 
     /// A `call` line reaches the replay: nothing about any entry's own text (the module's own
@@ -454,7 +457,7 @@ mod tests {
         assert!(woke.contains("run_script keep-fed v3 · 45t"), "{woke}");
         assert!(woke.contains("→ woke: death: Ping died of thirst"), "{woke}");
         assert!(!woke.contains("turn 2/45"), "{woke}: the progress line should be gone");
-        assert!(feed.title(false).contains("1 runs"), "{}", feed.title(false));
+        assert!(feed.title(false).contains("1 run"), "{}", feed.title(false));
     }
 
     /// An ad hoc run (`version == 0`) is labelled with its tag alone -- never `v0` or
@@ -522,7 +525,7 @@ mod tests {
         let mut buf = Buffer::empty(Rect::new(0, 0, 60, 10));
         feed.render(&mut buf, Rect::new(0, 0, 60, 10), false, 1);
         assert!(!text(&buf).contains("end_turn"), "{}", text(&buf));
-        assert!(feed.title(false).contains("1 calls"), "{}", feed.title(false));
+        assert!(feed.title(false).contains("1 call"), "{}", feed.title(false));
     }
 
     /// `look`/`inspect`/`notes` entries read exactly as the design's own table shows, and a

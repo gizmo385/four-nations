@@ -1,0 +1,34 @@
+┌ AGENT ── 4 calls · 2 runs ─────────────────────────────────────────────────────────────────────────────────┐
+│▸ save_script keep-fed v1  new, 3 lines                                                                     │
+│▸ run_script keep-fed v1 · 3t → budget, 1 acts                                                              │
+│▸ save_script keep-fed v2  +2 −1                                                                            │
+│▸ run_script keep-fed v2 · 5t   turn 1/5 · 1 acts                                                           │
+│  · build Bed                                                                                               │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ AGENT earth  FOLLOW  turn 4  00:20  SCRIPT keep-fed v2  build Bed  x1 acts ▃▁▁▃▁ 1 12[3]

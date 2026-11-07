@@ -30,6 +30,7 @@ use crate::cli::{self, Args};
 use crate::color::{ColorDepth, Palette};
 use crate::feed::Feed;
 use crate::frame::render_shell;
+use crate::glyphs::StudioDef;
 use crate::keys;
 use crate::layout;
 use crate::shell::{Mode, Shell};
@@ -59,6 +60,53 @@ pub const PACES: [u32; 6] = [1, 2, 5, 10, 20, 40];
 /// How long an attention ghost (a `look`'s region or an `inspect`'s tile outline) stays on
 /// screen after the watcher reaches it, in real seconds.
 const GHOST_SECONDS: f32 = 1.5;
+
+/// How long the tab strip's "studio needs WxH" notice (#501, docs/design/agent-studio.md, "The
+/// tab fallback": "`0` does nothing [below the threshold], and the strip briefly says `studio
+/// needs 160x45`") stays up after `0` is pressed there, in real seconds.
+const SMALL_NOTICE_SECONDS: f32 = 2.0;
+
+/// Which of the studio's three panes is shown full screen: as a tab below `[studio] min_width` x
+/// `min_height`, or zoomed above it (#501, docs/design/agent-studio.md "The tab fallback": "there
+/// is one model, not two"). `Game` is the default -- "the same as today's view" -- for both.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pane {
+    Code,
+    Game,
+    Feed,
+}
+
+impl Pane {
+    /// The key that selects this pane (`1`/`2`/`3`), used both to read a key and to build the
+    /// tab strip's own `1[2]3` indicator.
+    fn digit(self) -> char {
+        match self {
+            Self::Code => '1',
+            Self::Game => '2',
+            Self::Feed => '3',
+        }
+    }
+}
+
+/// `1[2]3`: every pane's own digit, the shown one (`current`) bracketed (#501's acceptance
+/// criteria: "a `1[2]3` indicator on the right").
+fn tab_indicator(current: Pane) -> String {
+    [Pane::Code, Pane::Game, Pane::Feed]
+        .into_iter()
+        .map(|p| if p == current { format!("[{}]", p.digit()) } else { p.digit().to_string() })
+        .collect()
+}
+
+/// Which strip [`Watcher::draw_strip`] draws: the split's own game column
+/// ([`Self::Minimal`], #499/#500 -- no `SCRIPT`/action text, a wider sparkline, no tab
+/// indicator) or a full-screen pane's ([`Self::Tab`], #501 -- today's full text, the tab
+/// sparkline and the `1[2]3` indicator), whether that pane is a tab below the studio's own
+/// threshold or zoomed above it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StripMode {
+    Minimal,
+    Tab(Pane),
+}
 
 // ------------------------------------------------------------------------------------------
 // Reading the log
@@ -247,6 +295,28 @@ pub struct Watcher {
     /// as turns pass; `Self::turn`'s own entry always exists once anything has been replayed
     /// this turn.
     acts: Vec<u16>,
+    /// `data/tui.toml`'s `[studio]` thresholds and proportions, read once at construction
+    /// (`crate::glyphs::Glyphs::bundled`'s own copy, the same one every `Palette` carries) so
+    /// [`Self::key`] can tell the studio from the tab fallback without needing a `Palette` of
+    /// its own (#501).
+    studio: StudioDef,
+    /// Which pane is shown full screen: as a tab below the studio's own threshold, or zoomed
+    /// above it (#501, docs/design/agent-studio.md "The tab fallback"). Persists across resizes,
+    /// so crossing the threshold either way keeps the chosen pane.
+    tab: Pane,
+    /// Above the threshold only: whether [`Self::tab`] is shown full screen (`true`) instead of
+    /// the studio's own split (`false`, the default). Meaningless below the threshold, where
+    /// there is no split to zoom away from.
+    zoomed: bool,
+    /// The terminal size `--frame`/`Self::render` will draw at, set by [`Self::set_frame_size`]
+    /// ahead of [`Self::key`] so a `1`/`2`/`3`/`0` press can tell the studio from the tab
+    /// fallback before the next [`Self::render`] call confirms it (`Self::resize`'s own size
+    /// isn't it: `Self::render_studio` resizes the shell to the game column's own, smaller size).
+    frame_size: (u16, u16),
+    /// Real seconds left to show the tab strip's "studio needs WxH" notice
+    /// ([`SMALL_NOTICE_SECONDS`]), aged down by [`Self::advance`] the same way
+    /// [`Self::ghost`] is. Zero once it's gone.
+    small_notice_left: f32,
 }
 
 /// What the agent strip shows for a script run in progress or just woken, between the clock and
@@ -340,6 +410,11 @@ impl Watcher {
             code_pane: CodePane::new(),
             feed: Feed::new(),
             acts: vec![0],
+            studio: crate::glyphs::Glyphs::bundled().studio,
+            tab: Pane::Game,
+            zoomed: false,
+            frame_size: cli::DEFAULT_SIZE,
+            small_notice_left: 0.0,
         })
     }
 
@@ -422,6 +497,23 @@ impl Watcher {
         self.spectator.resize(width, height);
     }
 
+    /// Records the terminal size the next frame will draw at, ahead of time (#501): called by
+    /// `--watch --frame` before it plays `--keys` (which reaches [`Self::key`] before
+    /// [`Self::render`] ever runs) and by `run`'s own loop whenever the terminal resizes,
+    /// alongside [`Self::resize`]. Deliberately not [`Self::resize`] itself: that one also
+    /// resizes [`Self::shell`], which `Self::render_studio` calls at the game column's own,
+    /// smaller size -- a value [`Self::studio_fits`] must never see.
+    pub fn set_frame_size(&mut self, width: u16, height: u16) {
+        self.frame_size = (width, height);
+    }
+
+    /// Whether [`Self::frame_size`] is at or above `[studio] min_width` x `min_height`: the
+    /// studio's own split and zoom, rather than the tab fallback (#501, docs/design/
+    /// agent-studio.md "The tab fallback").
+    fn studio_fits(&self) -> bool {
+        self.studio.fits(self.frame_size.0, self.frame_size.1)
+    }
+
     // --------------------------------------------------------------------------------------
     // Free-look spectating (#330)
     // --------------------------------------------------------------------------------------
@@ -454,13 +546,53 @@ impl Watcher {
         }
     }
 
-    /// The agent studio's own keys (#499, docs/design/agent-studio.md "Keys"): right now just
-    /// `j`/`k`/`J`/`K`, scrolling the code pane. `true` if `key` was one of them, so both
-    /// `watch::run`'s own loop and the `--watch --frame --keys` path try it before the watcher's
-    /// own controls and free look -- "watcher keys win over free look" -- and can be
-    /// golden-tested without a terminal either way.
+    /// The agent studio's own keys (docs/design/agent-studio.md "Keys"): `1`/`2`/`3` zoom or tab
+    /// to a pane (#501), `0` returns to the split (or, below the threshold, flashes the "studio
+    /// needs WxH" notice), and `j`/`k`/`J`/`K` scroll the code pane (#499). `true` if `key` was
+    /// one of these, so both `watch::run`'s own loop and the `--watch --frame --keys` path try
+    /// it before the watcher's own controls and free look -- "watcher keys win over free look",
+    /// and digits are already refused for a free-look spectator (`input::spectator_allowed`,
+    /// #330), so claiming them here first changes nothing for one -- and every one of them can
+    /// be golden-tested without a terminal either way.
     pub fn key(&mut self, key: KeyEvent) -> bool {
+        match key.code {
+            KeyCode::Char('1') => return self.press_pane(Pane::Code),
+            KeyCode::Char('2') => return self.press_pane(Pane::Game),
+            KeyCode::Char('3') => return self.press_pane(Pane::Feed),
+            KeyCode::Char('0') => return self.press_zero(),
+            _ => {}
+        }
         self.code_pane.key(key)
+    }
+
+    /// `1`/`2`/`3` (#501, docs/design/agent-studio.md "The tab fallback"): at or above the
+    /// studio's own threshold, zooms `pane` full screen, or -- pressed again on the pane already
+    /// zoomed -- returns to the split; below it, just switches which tab is shown (there is no
+    /// split to zoom away from there).
+    fn press_pane(&mut self, pane: Pane) -> bool {
+        if self.studio_fits() {
+            if self.zoomed && self.tab == pane {
+                self.zoomed = false;
+            } else {
+                self.tab = pane;
+                self.zoomed = true;
+            }
+        } else {
+            self.tab = pane;
+        }
+        true
+    }
+
+    /// `0`: above the threshold, returns to the split, the same as pressing the zoomed pane's
+    /// own digit again; below it, there is no split to return to, so it does nothing but flash
+    /// the tab strip's "studio needs WxH" notice ([`SMALL_NOTICE_SECONDS`]).
+    fn press_zero(&mut self) -> bool {
+        if self.studio_fits() {
+            self.zoomed = false;
+        } else {
+            self.small_notice_left = SMALL_NOTICE_SECONDS;
+        }
+        true
     }
 
     /// `V` (the Follow/Free toggle) or [`Self::spectator_key`]: the one entry point for every
@@ -486,9 +618,11 @@ impl Watcher {
     /// the owner's "nothing happens while the agent is thinking and then everything happens very
     /// fast"). `Look` and `Inspect` (which took no game time) apply the moment they're reached,
     /// uncapped, since nothing paces them but the keys and ticks around them. Does nothing while
-    /// [`Self::toggle_pause`]d, except keep the attention ghost ageing.
+    /// [`Self::toggle_pause`]d, except keep the attention ghost (and the tab strip's own
+    /// "studio needs WxH" notice, #501) ageing.
     pub fn advance(&mut self, real_secs: f64) {
         self.age_ghost(real_secs);
+        self.small_notice_left = (self.small_notice_left - real_secs as f32).max(0.0);
         if self.paused || self.finished() {
             return;
         }
@@ -760,15 +894,24 @@ impl Watcher {
     // Drawing
     // --------------------------------------------------------------------------------------
 
-    /// The frame for this watcher's session: today's whole frame below `[studio] min_width` x
-    /// `min_height`, or the agent studio's split (#499, docs/design/agent-studio.md "Layout") at
-    /// or above it -- the code pane on the left, the game column (today's frame, at the studio's
-    /// own width, minus the feed's own bottom rows, #500) on the right, and the feed under it.
+    /// The frame for this watcher's session (#501, docs/design/agent-studio.md "The tab
+    /// fallback": "there is one model, not two"): at or above `[studio] min_width` x
+    /// `min_height`, the split (#499, "Layout" -- the code pane, the game column and the feed
+    /// under it) unless [`Self::zoomed`] has zoomed [`Self::tab`] full screen; below it, always
+    /// [`Self::tab`] full screen, as a tab. [`Self::set_frame_size`] records `size` first, so a
+    /// `1`/`2`/`3`/`0` played by `--keys` right before this call (which never resizes
+    /// [`Self::shell`] itself ahead of time) already knows which of the two it's choosing
+    /// between.
     pub fn render(&mut self, palette: &Palette, size: (u16, u16)) -> Buffer {
-        if palette.glyphs.studio.fits(size.0, size.1) {
-            self.render_studio(palette, size)
+        self.set_frame_size(size.0, size.1);
+        if self.studio_fits() {
+            if self.zoomed {
+                self.render_pane(self.tab, palette, size)
+            } else {
+                self.render_studio(palette, size)
+            }
         } else {
-            self.render_game(palette, size, false)
+            self.render_pane(self.tab, palette, size)
         }
     }
 
@@ -784,7 +927,7 @@ impl Watcher {
         let code_width = size.0 - game_width;
         let feed_height = Self::feed_height(palette, size.1);
         let game_height = size.1 - feed_height;
-        let game = self.render_game(palette, (game_width, game_height), true);
+        let game = self.render_game(palette, (game_width, game_height), StripMode::Minimal);
         let mut buf = Buffer::empty(Rect::new(0, 0, size.0, size.1));
         for y in 0..game_height {
             for x in 0..game_width {
@@ -799,15 +942,42 @@ impl Watcher {
         buf
     }
 
+    /// `pane` full screen over `size`, above the agent strip (#501, docs/design/agent-studio.md
+    /// "The tab fallback"): the game pane is [`Self::render_game`] at the whole frame's own
+    /// size, the way it always drew below the studio; the code and feed panes get the rest of
+    /// the frame above a strip row of their own, drawn the same shape
+    /// (`crate::studio::CodePane::render`/`crate::feed::Feed::render` already draw their own
+    /// border and header, the same ones the split shows).
+    fn render_pane(&mut self, pane: Pane, palette: &Palette, size: (u16, u16)) -> Buffer {
+        if pane == Pane::Game {
+            return self.render_game(palette, size, StripMode::Tab(pane));
+        }
+        self.resize(size.0, size.1);
+        let mut buf = Buffer::empty(Rect::new(0, 0, size.0, size.1));
+        let pane_height = size.1.saturating_sub(1);
+        let pane_area = Rect::new(0, 0, size.0, pane_height);
+        match pane {
+            Pane::Code => self.code_pane.render(&mut buf, pane_area, palette),
+            Pane::Feed => self.feed.render(&mut buf, pane_area, palette.ascii, self.turn),
+            Pane::Game => unreachable!("handled above"),
+        }
+        if size.1 > 0 {
+            let strip_area = Rect::new(0, pane_height, size.0, 1);
+            self.draw_strip(&mut buf, strip_area, StripMode::Tab(pane), palette);
+        }
+        buf
+    }
+
     /// The watch view at `size`: the agent strip over the bottom status row instead of the key
     /// hints, and an attention ghost outlined over the map, if one is live
     /// (docs/design/agent-play.md, "Watching"). In Follow this is the agent's own view, as
     /// always; in Free look (#330) it's the spectator's own `UiState` instead, with the agent's
     /// own cursor outlined on the map too, the same look an attention ghost wears, so a
-    /// spectator looking elsewhere can still see where the agent is pointing. `studio` drops
-    /// `SCRIPT name vN` and the action text from the strip (#499's acceptance criteria: the
-    /// studio's code header and feed carry them instead).
-    fn render_game(&mut self, palette: &Palette, size: (u16, u16), studio: bool) -> Buffer {
+    /// spectator looking elsewhere can still see where the agent is pointing. `mode` picks the
+    /// strip [`Self::draw_strip`] draws: [`StripMode::Minimal`] drops `SCRIPT name vN` and the
+    /// action text (#499's acceptance criteria: the studio's code header and feed carry them
+    /// instead), [`StripMode::Tab`] keeps them and adds the tab indicator (#501).
+    fn render_game(&mut self, palette: &Palette, size: (u16, u16), mode: StripMode) -> Buffer {
         self.resize(size.0, size.1);
         let mut buf = if self.follow {
             render_shell(&mut self.shell, palette, size)
@@ -815,7 +985,7 @@ impl Watcher {
             crate::frame::render(&self.app().session, &self.spectator, palette, size)
         };
         if let Some(regions) = layout::regions(Rect::new(0, 0, size.0, size.1)) {
-            self.draw_strip(&mut buf, regions.status, studio, palette);
+            self.draw_strip(&mut buf, regions.status, mode, palette);
             let view = if self.follow { self.app().ui.view } else { self.spectator.view };
             if let Some(ghost) = self.ghost {
                 draw_ghost(&view, ghost, regions.map, &mut buf);
@@ -829,16 +999,77 @@ impl Watcher {
         buf
     }
 
-    fn draw_strip(&self, buf: &mut Buffer, area: Rect, studio: bool, palette: &Palette) {
+    fn draw_strip(&self, buf: &mut Buffer, area: Rect, mode: StripMode, palette: &Palette) {
         let style = Style::new().add_modifier(Modifier::REVERSED);
         for x in area.left()..area.right() {
             buf[(x, area.y)].set_char(' ').set_style(style);
         }
-        let text = self.strip_text(studio);
-        buf.set_stringn(area.x, area.y, &text, usize::from(area.width), style);
-        if studio {
-            self.draw_sparkline(buf, area, palette, style); // #500
+        match mode {
+            StripMode::Minimal => {
+                let text = self.strip_text(true);
+                buf.set_stringn(area.x, area.y, &text, usize::from(area.width), style);
+                self.draw_sparkline(buf, area, palette, style); // #500
+            }
+            StripMode::Tab(pane) => self.draw_tab_strip(buf, area, pane, palette, style),
         }
+    }
+
+    /// The tab strip (#501, docs/design/agent-studio.md "The tab fallback"): today's agent strip
+    /// text, then `acts <bars> <peak>` over `[studio] spark_turns_tabs` turns (or, briefly after
+    /// `0` is pressed below the threshold, "studio needs WxH" in its place), then the `1[2]3`
+    /// tab indicator. The action text (`Self::strip_text`'s own, between `SCRIPT name vN` and
+    /// the pace) is cut first when the row is too narrow for all of it, since it's the part a
+    /// zoomed code or feed pane's own box already repeats nothing of; if even that doesn't fit,
+    /// the sparkline and indicator are dropped too rather than drawing something unreadable.
+    fn draw_tab_strip(
+        &self,
+        buf: &mut Buffer,
+        area: Rect,
+        pane: Pane,
+        palette: &Palette,
+        base: Style,
+    ) {
+        let width = usize::from(area.width);
+        let indicator = tab_indicator(pane);
+        let body = if self.small_notice_left > 0.0 {
+            format!("studio needs {}x{}", self.studio.min_width, self.studio.min_height)
+        } else {
+            self.sparkline_text(
+                palette.ascii,
+                self.studio.spark_turns_tabs,
+                self.studio.spark_floor,
+            )
+        };
+        let suffix = format!(" {body} {indicator}");
+
+        let full = self.strip_text(false);
+        let text = if (full.chars().count() + suffix.chars().count()) <= width {
+            format!("{full}{suffix}")
+        } else {
+            let bare = self.strip_text_no_action();
+            let with_suffix = format!("{bare}{suffix}");
+            if with_suffix.chars().count() <= width { with_suffix } else { bare }
+        };
+        buf.set_stringn(area.x, area.y, &text, width, base);
+    }
+
+    /// `acts <bars> <peak>` over the last `window_turns` turns (docs/design/agent-studio.md,
+    /// "The sparkline and the strip"), as plain text -- the tab strip's own
+    /// [`Self::draw_tab_strip`] draws it with no per-character styling, unlike
+    /// [`Self::draw_sparkline`]'s dimmed zero bars, since it's one more piece of a row that's
+    /// already being trimmed to fit rather than the split's own, roomier strip.
+    fn sparkline_text(&self, ascii: bool, window_turns: u16, floor: u16) -> String {
+        let window_len = usize::from(window_turns).min(self.acts.len());
+        let window = &self.acts[self.acts.len() - window_len..];
+        let levels = fn_ui::sparkline::levels(window, floor);
+        let ramp: [char; 8] = if ascii {
+            ['_', '.', ':', '-', '=', '+', '*', '#']
+        } else {
+            ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█']
+        };
+        let peak = fn_ui::sparkline::peak(window);
+        let bars: String = levels.iter().map(|&l| ramp[usize::from(l)]).collect();
+        format!("acts {bars} {peak}")
     }
 
     /// `acts <bars> <peak>` over the last `[studio] spark_turns` turns, the rightmost bar the
@@ -893,10 +1124,22 @@ impl Watcher {
     /// the action text are dropped: the code pane's own header and the feed (a later issue)
     /// carry them instead.
     fn strip_text(&self, studio: bool) -> String {
+        self.strip_text_impl(studio, studio)
+    }
+
+    /// `Self::strip_text(false)` with the action text dropped (#501, docs/design/agent-studio.md
+    /// "The tab fallback": "the action text is cut first when space runs short"), but
+    /// `SCRIPT name vN` kept -- unlike [`Self::strip_text`]'s own `studio` case, which drops
+    /// both.
+    fn strip_text_no_action(&self) -> String {
+        self.strip_text_impl(false, true)
+    }
+
+    fn strip_text_impl(&self, drop_script: bool, drop_action: bool) -> String {
         let clock = fn_ui::view::format_clock(self.app().session.world.tick);
         let behind = self.turns_behind();
         let script = match &self.script_strip {
-            Some(s) if !studio => format!("SCRIPT {}  ", s.label()),
+            Some(s) if !drop_script => format!("SCRIPT {}  ", s.label()),
             _ => String::new(),
         };
         let latest = match &self.script_strip {
@@ -916,7 +1159,7 @@ impl Watcher {
         } else {
             latest
         };
-        let action = if studio { String::new() } else { action };
+        let action = if drop_action { String::new() } else { action };
         let view = if self.follow { "FOLLOW" } else { "FREE" };
         format!(
             " AGENT {}  {view}  turn {}  {clock}  {script}{action}  x{}",
@@ -1620,11 +1863,12 @@ mod tests {
         assert_eq!(w.acts, vec![0]);
     }
 
-    /// The studio strip ends with `acts <bars> <peak>`, and it's gone below the studio's own
-    /// threshold, where the feed and the sparkline don't show at all (#500's acceptance
-    /// criteria).
+    /// The studio split's own strip ends with `acts <bars> <peak>` (#500) and nothing else; the
+    /// tab fallback's strip (#501, below the threshold here) carries the same sparkline plus a
+    /// `1[2]3` tab indicator the split never shows (there's nothing to tab between once every
+    /// pane is already on screen at once).
     #[test]
-    fn the_studio_strip_ends_with_the_sparkline_and_a_plain_frame_does_not_have_one() {
+    fn the_split_and_tab_strips_both_show_a_sparkline_but_only_tabs_get_an_indicator() {
         let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
         w.feed([LogLine::Keys { keys: "h".to_owned(), label: None, note: None }]);
         w.advance(1.0);
@@ -1632,9 +1876,11 @@ mod tests {
             Palette::new(&fn_sim::Defs::bundled(), Nation::Earth, ColorDepth::TrueColor, false);
         let studio_text = crate::frame::to_text(&w.render(&palette, (160, 45)));
         assert!(studio_text.contains("acts "), "{studio_text}");
+        assert!(!studio_text.contains("1[2]3"), "{studio_text}: the split has no tab indicator");
 
-        let plain_text = crate::frame::to_text(&w.render(&palette, (120, 40)));
-        assert!(!plain_text.contains("acts "), "{plain_text}");
+        let tab_text = crate::frame::to_text(&w.render(&palette, (120, 40)));
+        assert!(tab_text.contains("acts "), "{tab_text}");
+        assert!(tab_text.contains("1[2]3"), "{tab_text}: the game tab is the default");
     }
 
     /// The studio's feed box shows under the game pane, which gets what's left of the column
@@ -1649,6 +1895,134 @@ mod tests {
         let text = crate::frame::to_text(&w.render(&palette, (160, 45)));
         assert!(text.contains("AGENT ── "), "{text}: the feed's own box title should show");
         assert!(text.contains("run_script keep-fed v1"), "{text}");
+    }
+
+    // ----------------------------------------------------------------------------------------
+    // The tab fallback and zoom (#501, docs/design/agent-studio.md "The tab fallback")
+    // ----------------------------------------------------------------------------------------
+
+    fn digit(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)
+    }
+
+    /// Every studio digit (`0`/`1`/`2`/`3`) is claimed by `Watcher::key`, so `watch::run`'s own
+    /// loop and `--watch --frame --keys` never offer them to free look (which already refuses
+    /// them anyway, `input::spectator_allowed` -- this is the "win over free look" contract
+    /// itself, not just its effect).
+    #[test]
+    fn every_studio_digit_is_claimed_by_key() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        for c in ['0', '1', '2', '3'] {
+            assert!(w.key(digit(c)), "{c}");
+        }
+    }
+
+    /// Below the studio's own threshold, a digit just switches which tab is shown -- there's no
+    /// split to zoom away from, so nothing toggles even if the same digit is pressed twice.
+    #[test]
+    fn digits_switch_tabs_below_the_threshold_without_zooming() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.set_frame_size(110, 34);
+        assert!(w.key(digit('1')));
+        assert_eq!(w.tab, Pane::Code);
+        assert!(!w.zoomed, "there is no split to zoom away from below the threshold");
+
+        assert!(w.key(digit('1')));
+        assert_eq!(w.tab, Pane::Code, "the same digit again just stays on the same tab");
+    }
+
+    /// At or above the threshold, a digit zooms its pane full screen, and the same digit again
+    /// returns to the split (#501's acceptance criteria).
+    #[test]
+    fn digits_zoom_a_pane_above_the_threshold_and_the_same_digit_returns_to_the_split() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.set_frame_size(160, 45);
+        assert!(w.key(digit('1')));
+        assert_eq!(w.tab, Pane::Code);
+        assert!(w.zoomed);
+
+        assert!(w.key(digit('1')));
+        assert!(!w.zoomed, "the same digit again returns to the split");
+    }
+
+    /// `0` returns to the split above the threshold, the same as the zoomed pane's own digit;
+    /// below it, there is nothing for `0` to do but flash the "studio needs WxH" notice.
+    #[test]
+    fn zero_returns_to_the_split_above_the_threshold_and_flashes_a_notice_below_it() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.set_frame_size(160, 45);
+        w.key(digit('2'));
+        assert!(w.zoomed);
+        assert!(w.key(digit('0')));
+        assert!(!w.zoomed);
+        assert_eq!(w.small_notice_left, 0.0, "the notice is only for below the threshold");
+
+        w.set_frame_size(110, 34);
+        assert!(w.key(digit('0')));
+        assert!(w.small_notice_left > 0.0);
+    }
+
+    /// The tab strip shows "studio needs 160x45" while the notice is live, and it ages back out
+    /// (`Self::advance` ages it the same way an attention ghost ages).
+    #[test]
+    fn the_tab_strip_shows_the_notice_text_while_it_is_live() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.set_frame_size(110, 34);
+        w.key(digit('0'));
+        let palette =
+            Palette::new(&fn_sim::Defs::bundled(), Nation::Earth, ColorDepth::TrueColor, false);
+        let text = crate::frame::to_text(&w.render(&palette, (110, 34)));
+        assert!(text.contains("studio needs 160x45"), "{text}");
+
+        w.advance(10.0); // well past SMALL_NOTICE_SECONDS
+        let text = crate::frame::to_text(&w.render(&palette, (110, 34)));
+        assert!(!text.contains("studio needs"), "{text}");
+    }
+
+    /// Resizing across the threshold switches the studio for the tab fallback (or back), but
+    /// keeps the pane the owner chose (#501's acceptance criteria: "keeps the chosen zoom").
+    #[test]
+    fn resizing_across_the_threshold_keeps_the_chosen_pane() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.set_frame_size(160, 45);
+        w.key(digit('1')); // zoom the code pane
+        assert!(w.zoomed);
+        assert_eq!(w.tab, Pane::Code);
+
+        let palette =
+            Palette::new(&fn_sim::Defs::bundled(), Nation::Earth, ColorDepth::TrueColor, false);
+        let text = crate::frame::to_text(&w.render(&palette, (110, 34)));
+        assert_eq!(w.tab, Pane::Code, "the chosen pane survives the resize");
+        assert!(text.contains("no scripts replayed yet"), "{text}: the code tab should show");
+    }
+
+    /// The tab strip's action text is cut before its sparkline or tab indicator are, once the
+    /// row is too narrow for all three (#501's acceptance criteria).
+    #[test]
+    fn the_tab_strips_action_text_is_cut_first_when_the_row_is_narrow() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.feed([
+            LogLine::Keys {
+                keys: "h".to_owned(),
+                label: Some("harvest".into()),
+                note: Some("a very long note that will not fit on a narrow strip at all".into()),
+            },
+            LogLine::Turn { index: 0, tick: u64::from(10 * TICKS_PER_SECOND) },
+        ]);
+        w.advance(0.5);
+        assert!(matches!(w.current, Some(Current::Ticks { .. })), "should be mid-turn");
+
+        let palette =
+            Palette::new(&fn_sim::Defs::bundled(), Nation::Earth, ColorDepth::TrueColor, false);
+        // Both below the studio's own threshold (height 40 < 45): tabs either way.
+        let wide = crate::frame::to_text(&w.render(&palette, (150, 40)));
+        assert!(wide.contains("a very long note"), "{wide}");
+        assert!(wide.contains("acts "), "{wide}");
+
+        let narrow = crate::frame::to_text(&w.render(&palette, (90, 40)));
+        assert!(!narrow.contains("a very long note"), "{narrow}: the action should be cut first");
+        assert!(narrow.contains("acts "), "{narrow}: the sparkline should still fit");
+        assert!(narrow.contains("1[2]3"), "{narrow}");
     }
 
     // ----------------------------------------------------------------------------------------
