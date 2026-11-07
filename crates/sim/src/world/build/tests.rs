@@ -4,8 +4,14 @@ use crate::geom::Grid;
 use crate::mapgen::Tile;
 
 /// A map from ASCII rows: `.` land, `~` water, `,` coast, `^` mountain, `=` ford, `t` tunnel, `T`
-/// land with a resource on it.
-fn arena(rows: &[&str]) -> TileMap {
+/// land with a clearable resource on it (ancient scroll: no tech gate, no `regrow`, so
+/// `check_build` lets a footprint cover it, `docs/design/clearing.md`, issue #425); `Y` a fruit
+/// tree (renewable, clearable through `[harvest.clear]`); `F` a fish spot (renewable with no
+/// `[harvest.clear]`, and gated by a tech Earth hasn't researched -- can't be cleared, so it
+/// still refuses a footprint); `B` a gold vein (non-renewable, but gated by `prospecting`, which
+/// no nation starts with, Earth included -- same refusal, different reason).
+fn arena(rows: &[&str], defs: &Defs) -> TileMap {
+    let resource_of = |id: &str| defs.resource_id(id).expect("bundled");
     Grid::from_fn(rows[0].len() as i32, rows.len() as i32, |p| {
         let c = rows[p.y as usize].as_bytes()[p.x as usize];
         let terrain = match c {
@@ -16,7 +22,13 @@ fn arena(rows: &[&str]) -> TileMap {
             b't' => Terrain::Tunnel,
             _ => Terrain::Land,
         };
-        let resource = (c == b'T').then_some(crate::defs::ResourceId(0));
+        let resource = match c {
+            b'T' => Some(crate::defs::ResourceId(0)),
+            b'Y' => Some(resource_of("fruit_tree")),
+            b'F' => Some(resource_of("fish_spot")),
+            b'B' => Some(resource_of("gold_vein")),
+            _ => None,
+        };
         Tile {
             elevation: 100,
             temperature: 128,
@@ -39,7 +51,7 @@ fn setup(rows: &[&str], units: &[Pos]) -> (World, Defs) {
 
 fn setup_as(nation: Nation, rows: &[&str], units: &[Pos]) -> (World, Defs) {
     let defs = Defs::bundled();
-    let map = arena(rows);
+    let map = arena(rows, &defs);
     (World::with_map(1, map, nation, units, &defs), defs)
 }
 
@@ -282,7 +294,11 @@ fn one_blocked_tile_of_four_refuses_the_whole_footprint() {
         ("~", Blocker::Terrain),
         ("^", Blocker::Terrain),
         ("=", Blocker::Terrain),
-        ("T", Blocker::Resource),
+        // Issue #425: neither can be cleared (a fish spot has no `[harvest.clear]`; a gold
+        // vein's tech, prospecting, isn't known), so both still refuse the whole footprint,
+        // unlike a resource that build-over can clear.
+        ("F", Blocker::Resource),
+        ("B", Blocker::Resource),
     ] {
         let rows = blocked(c);
         let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
@@ -322,6 +338,102 @@ fn one_blocked_tile_of_four_refuses_the_whole_footprint() {
         w.designate_build(at(3, 2), hall, defs).unwrap();
     });
     blocks(Blocker::Stockpile, &|w, _| w.designate_stockpile(at(3, 2)).unwrap());
+}
+
+// --- Build over clearable resources (`docs/design/clearing.md`, issue #425) ---
+
+/// A 2x2 footprint over three trees is accepted, not refused, and queues a Clear on each; the
+/// Build job isn't claimed while any one of them still stands, and the site finishes once
+/// they're all gone.
+#[test]
+fn building_over_trees_queues_their_clear_and_waits_for_all_of_it() {
+    let rows = ["..........", "..TT......", "..T.......", ".........."];
+    let (mut w, mut defs) = setup(&rows, &[at(0, 0)]);
+    let wood = defs.item_id("wood").unwrap();
+    let hall = hall_2x2(&mut defs);
+    let anchor = at(2, 1);
+    let foot = Footprint::new(anchor, 2, 2);
+    w.designate_stockpile(at(0, 3)).unwrap();
+    w.stored.insert(at(0, 3), Stack { item: wood, count: defs.building(hall).cost[0].count });
+
+    assert_eq!(w.to_clear(anchor, hall, &defs).len(), 3, "three of the four tiles hold a tree");
+    let job = w.designate_build(anchor, hall, &defs).unwrap();
+    assert_eq!(w.build_sites().count(), 1, "accepted, not refused");
+    assert_eq!(w.clear_designations().count(), 3, "a Clear queued on each tree");
+
+    // Run until at most one tree is left: the Build job must still be untouched.
+    run_until(&mut w, &defs, 20_000, |w| {
+        foot.tiles().filter(|&p| w.map[p].resource.is_some()).count() <= 1
+    });
+    assert!(
+        w.job(job).is_some_and(|j| j.claimed_by.is_none() && j.progress == 0.0),
+        "the build waits while a tree still stands"
+    );
+
+    // Once the last one clears, the build runs and finishes.
+    run_until(&mut w, &defs, 10_000, |w| w.job(job).is_none());
+    assert_eq!(w.building_at(anchor), Some(hall));
+    assert!(foot.tiles().all(|p| w.map[p].resource.is_none()));
+}
+
+/// A building's door tile (outside its footprint) is cleared too, not just the footprint itself.
+#[test]
+fn a_door_tile_holding_a_fruit_tree_is_cleared_too() {
+    let rows = ["..........", "..........", "..........", "..Y......."];
+    let (mut w, mut defs) = setup(&rows, &[at(0, 0)]);
+    let hall = hall_2x2(&mut defs);
+    let anchor = at(2, 1);
+    let foot = Footprint::new(anchor, 2, 2);
+    let door = foot.entrance();
+    assert_eq!(door, at(2, 3));
+    assert_eq!(w.to_clear(anchor, hall, &defs), vec![door], "only the door needs clearing");
+
+    w.designate_build(anchor, hall, &defs).unwrap();
+    assert_eq!(w.clear_designations().collect::<Vec<_>>(), [door]);
+    let clear_job = w.jobs().iter().find(|j| j.kind == JobKind::Clear { pos: door }).unwrap().id;
+    run_until(&mut w, &defs, 2000, |w| w.job(clear_job).is_none());
+    assert!(w.map[door].resource.is_none(), "the door is clear");
+}
+
+/// Cancelling the site withdraws the Clear jobs it queued that no unit has started, but leaves
+/// one already under way alone (`docs/design/clearing.md`, issue #425).
+#[test]
+fn cancelling_a_site_withdraws_unstarted_clears_but_keeps_one_already_under_way() {
+    let rows = ["..........", "..TT......", "..........", ".........."];
+    let (mut w, mut defs) = setup(&rows, &[at(0, 0)]);
+    let hall = hall_2x2(&mut defs);
+    let anchor = at(2, 1);
+    w.designate_build(anchor, hall, &defs).unwrap();
+    let clears: Vec<Pos> = w.clear_designations().collect();
+    assert_eq!(clears.len(), 2);
+    // Simulate a unit already partway into clearing the first tile.
+    let idx = w.jobs.iter().position(|j| j.kind == JobKind::Clear { pos: clears[0] }).unwrap();
+    w.jobs[idx].progress = 1.0;
+
+    w.cancel_build(anchor, &defs).unwrap();
+    assert_eq!(w.build_sites().count(), 0);
+    assert_eq!(
+        w.clear_designations().collect::<Vec<_>>(),
+        [clears[0]],
+        "the started clear stays; the untouched one is withdrawn"
+    );
+}
+
+/// A site waiting on a clear round-trips through save and load.
+#[test]
+fn a_site_waiting_on_a_clear_survives_a_save_and_load() {
+    let rows = ["..........", "..TT......", "..........", ".........."];
+    let (mut w, mut defs) = setup(&rows, &[at(0, 0)]);
+    let hall = hall_2x2(&mut defs);
+    let anchor = at(2, 1);
+    w.designate_build(anchor, hall, &defs).unwrap();
+    assert_eq!(w.clear_designations().count(), 2);
+
+    let text = w.save(&defs).unwrap();
+    let loaded = World::load(&text, &defs).unwrap();
+    assert_eq!(loaded.build_sites().count(), 1);
+    assert_eq!(loaded.clear_designations().count(), 2);
+    assert_eq!(loaded.save(&defs).unwrap(), text, "and re-saves unchanged");
 }
 
 /// Issue #373: a building with a `beside` rule (Earth's Mine Shaft, `["mountain", "tunnel"]`)
@@ -430,7 +542,7 @@ fn a_tide_mill_is_refused_on_open_land_and_accepted_beside_water() {
 
 #[test]
 fn placement_checks_report_the_first_blocked_tile_row_major() {
-    let rows = ["..........", "...~T.....", "...T~.....", ".........."];
+    let rows = ["..........", "...~F.....", "...F~.....", ".........."];
     let (w, mut defs) = setup(&rows, &[at(0, 0)]);
     let hall = hall_2x2(&mut defs);
     let refused = |anchor| w.check_build(anchor, hall, &defs);
@@ -528,14 +640,14 @@ fn a_site_covers_and_cancels_from_every_tile_of_its_footprint() {
     for p in foot.tiles() {
         assert_eq!(w.footprint_at(p), Some(foot), "{p:?}");
         assert_eq!(w.build_site(p).map(|(id, ..)| id), Some(hall), "{p:?}");
-        assert_eq!(w.build_blocker(p), Some(Blocker::Site), "{p:?}");
+        assert_eq!(w.build_blocker(p, &defs), Some(Blocker::Site), "{p:?}");
     }
     assert_eq!(w.footprint_at(at(6, 1)), None);
     assert_eq!(w.cancel_build(at(6, 2), &defs), Err(BuildError::NotDesignated));
     w.cancel_build(at(5, 2), &defs).unwrap();
     assert!(w.job(job).is_none());
     assert_eq!(w.build_sites().count(), 0);
-    assert!(foot.tiles().all(|p| w.build_blocker(p).is_none()));
+    assert!(foot.tiles().all(|p| w.build_blocker(p, &defs).is_none()));
 }
 
 #[test]
@@ -557,7 +669,7 @@ fn finishing_a_site_bakes_the_building_onto_every_footprint_tile() {
         assert!(!b.passable);
         assert_eq!(w.building_at(p), Some(hall));
         assert_eq!(w.footprint_at(p), Some(foot));
-        assert_eq!(w.build_blocker(p), Some(Blocker::Building));
+        assert_eq!(w.build_blocker(p, &defs), Some(Blocker::Building));
     }
     assert_eq!(w.building_at(at(7, 2)), None);
     assert_eq!(w.buildings().collect::<Vec<_>>(), [(foot, hall)], "listed once");

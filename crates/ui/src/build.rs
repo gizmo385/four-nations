@@ -137,7 +137,7 @@ pub fn placement_at(session: &Session, anchor: Pos, building: BuildingId) -> Pla
         .tiles()
         .map(|p| {
             let blocker = world
-                .build_blocker(p)
+                .build_blocker(p, defs)
                 .or_else(|| world.door_owner(p, defs).is_some().then_some(Blocker::Entrance));
             (p, blocker)
         })
@@ -829,10 +829,18 @@ mod tests {
         let free = placement(&s, at, hall);
         assert_eq!(free.entrance, Some((door, true)));
 
-        // A resource on the door tile makes it unwalkable, so the ghost would mark it blocked,
-        // and the whole placement is refused for it.
+        // A clearable resource on the door tile makes it unwalkable for now, but build-over
+        // still accepts the placement and queues its clear (`docs/design/clearing.md`, issue
+        // #425), rather than refusing the whole thing the way it used to.
         let oak = s.defs.resource_id("oak_tree").unwrap();
         s.world.map.get_mut(door).unwrap().resource = Some(oak);
+        let clearable = placement(&s, at, hall);
+        assert_eq!(clearable.entrance, Some((door, false)));
+        assert!(clearable.ok(), "a clearable resource on the door no longer refuses it");
+
+        // One that can't be cleared at all (a fishing spot: no tech yet) still refuses it.
+        let fish = s.defs.resource_id("fish_spot").unwrap();
+        s.world.map.get_mut(door).unwrap().resource = Some(fish);
         let blocked = placement(&s, at, hall);
         assert_eq!(blocked.entrance, Some((door, false)));
         assert_eq!(
@@ -891,14 +899,17 @@ mod tests {
     #[test]
     fn a_refusal_names_what_is_in_the_way() {
         let (mut s, hall, at) = earth_with_2x2_hall();
-        let oak = s.defs.resource_id("oak_tree").unwrap();
+        // A fish spot, not an oak tree: build-over now clears a clearable resource like an oak
+        // instead of refusing it (`docs/design/clearing.md`, issue #425), so this names a
+        // resource that can't be cleared at all (no `[harvest.clear]`, nor the tech to fish yet).
+        let fish = s.defs.resource_id("fish_spot").unwrap();
         let tree = Pos::new(at.x + 1, at.y);
-        s.world.map.get_mut(tree).unwrap().resource = Some(oak);
+        s.world.map.get_mut(tree).unwrap().resource = Some(fish);
         let why = |s: &Session| {
             let e = s.world.check_build(at, hall, &s.defs).unwrap_err();
             describe_error(s, CommandError::Build(e))
         };
-        assert_eq!(why(&s), "an oak tree is in the way");
+        assert_eq!(why(&s), "a fishing spot is in the way");
         s.world.map.get_mut(tree).unwrap().resource = None;
         s.world.map.get_mut(tree).unwrap().terrain = Terrain::Ford;
         assert_eq!(why(&s), "on a ford");

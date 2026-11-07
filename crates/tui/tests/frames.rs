@@ -660,19 +660,24 @@ fn the_build_modal_captures_input_until_it_closes() {
     assert_eq!((app.ui.tool, app.ui.choice), (Tool::Select, None));
 }
 
-/// A placement the sim refuses (a resource in the way) puts `fn_ui::build::describe_error`'s
-/// reason in the Tool notice, as any other tool's refusal does.
+/// A placement the sim refuses (a resource that can't be cleared, `docs/design/clearing.md`,
+/// issue #425) puts `fn_ui::build::describe_error`'s reason in the Tool notice, as any other
+/// tool's refusal does. A clearable resource (every one wild on land, since Earth starts knowing
+/// every land harvest's tech) no longer refuses the placement at all, so this plants a fish spot
+/// by hand: renewable with no `[harvest.clear]`, and gated by a tech Earth hasn't researched.
 #[test]
 fn a_refused_build_names_its_blocker_in_the_notice() {
     let mut app = App::new(new_session(7, Nation::Earth), SIZE);
+    let fish_spot = app.session.defs.resource_id("fish_spot").unwrap();
     let tree = app
         .session
         .world
         .map
         .iter()
-        .find(|(_, t)| t.terrain == fn_sim::Terrain::Land && t.resource.is_some())
+        .find(|(_, t)| t.terrain == fn_sim::Terrain::Land && t.resource.is_none())
         .map(|(p, _)| p)
-        .expect("a resource on land");
+        .expect("free land");
+    app.session.world.map.get_mut(tree).unwrap().resource = Some(fish_spot);
     app.ui.cursor = tree;
     // u, Enter picks the highlighted building, then Enter sets the corner and Enter applies it.
     app.play(&keys::parse("u <enter> <enter> <enter>").unwrap());

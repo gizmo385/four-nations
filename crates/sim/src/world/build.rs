@@ -76,7 +76,10 @@ pub enum Blocker {
     /// The ground isn't `Land` or `Coast`: water, mountains and fords (which mapgen placed to
     /// keep landmasses connected, so nothing may close one) can't be built on.
     Terrain,
-    /// A tree, rock or other resource stands there.
+    /// A tree, rock or other resource stands there that can't be cleared out of the way
+    /// (`docs/design/clearing.md`, issue #425): a fish spot, or a resource whose harvest tech
+    /// isn't known yet. One that *can* be cleared no longer blocks placement; see
+    /// `World::to_clear`.
     Resource,
     /// A finished building stands there.
     Building,
@@ -100,7 +103,7 @@ impl std::fmt::Display for Blocker {
         match self {
             Self::OffMap => f.write_str("off the map"),
             Self::Terrain => f.write_str("can't build on this ground"),
-            Self::Resource => f.write_str("something is in the way"),
+            Self::Resource => f.write_str("can't be cleared"),
             Self::Building => f.write_str("a building is in the way"),
             Self::Site => f.write_str("already designated"),
             Self::Stockpile => f.write_str("a stockpile is in the way"),
@@ -317,12 +320,14 @@ impl World {
     }
 
     /// Why `pos` can't be part of a new building's footprint, if anything. Units standing there
-    /// don't count: they step aside.
-    pub fn build_blocker(&self, pos: Pos) -> Option<Blocker> {
+    /// don't count: they step aside. A resource that can be cleared (`World::clear_target`,
+    /// `docs/design/clearing.md`, issue #425) no longer blocks: build-over queues its Clear
+    /// instead (`World::to_clear`, `designate_build`).
+    pub fn build_blocker(&self, pos: Pos, defs: &Defs) -> Option<Blocker> {
         let Some(tile) = self.map.get(pos) else { return Some(Blocker::OffMap) };
         if !matches!(tile.terrain, Terrain::Land | Terrain::Coast) {
             Some(Blocker::Terrain)
-        } else if tile.resource.is_some() {
+        } else if tile.resource.is_some() && self.clear_target(pos, defs).is_err() {
             Some(Blocker::Resource)
         } else if tile.building.is_some() {
             Some(Blocker::Building)
@@ -366,7 +371,7 @@ impl World {
         let (w, h) = def.footprint;
         let foot = Footprint::new(anchor, w, h);
         foot.tiles()
-            .find_map(|at| self.build_blocker(at).map(|why| (at, why)))
+            .find_map(|at| self.build_blocker(at, defs).map(|why| (at, why)))
             .or_else(|| self.entrance_blocker(foot, def.capacity > 0, defs))
             .or_else(|| self.beside_blocker(foot, def))
     }
@@ -473,11 +478,24 @@ impl World {
         })
     }
 
+    /// Whether `pos` is the door of a pending build site (a `to_clear` tile,
+    /// `docs/design/clearing.md`, issue #425): `door_owner`'s own check, restricted to sites.
+    /// The orchard's `can_plant` treats a site like a finished building for spacing, but a
+    /// finished building's own door was never off limits to planting beside it (its footprint
+    /// already keeps a sapling off the door itself); this only closes the gap for a site, whose
+    /// door isn't part of its footprint.
+    pub(super) fn site_door(&self, pos: Pos, defs: &Defs) -> bool {
+        self.build_sites().any(|(f, b, _)| defs.building(b).capacity > 0 && f.entrance() == pos)
+    }
+
     /// Why `foot`'s door can't be placed, if anything (#226): it has a door (`has_door`, a
     /// capacity above 0) that isn't walkable, or the footprint would cover a door another finished
     /// building or site already has. Only buildings that can be entered have doors, so walls,
     /// beds and campfires pack freely, a vertical wall included. A unit standing on the door
-    /// doesn't block it, like anywhere else in the footprint.
+    /// doesn't block it, like anywhere else in the footprint. A door tile that is only unwalkable
+    /// because a clearable resource sits on it doesn't block either
+    /// (`docs/design/clearing.md`, issue #425): build-over queues its Clear along with the rest
+    /// (`World::to_clear`), and the door is walkable again once that finishes.
     fn entrance_blocker(
         &self,
         foot: Footprint,
@@ -485,13 +503,47 @@ impl World {
         defs: &Defs,
     ) -> Option<(Pos, Blocker)> {
         let entrance = foot.entrance();
-        if has_door && !self.door_walkable(entrance) {
+        if has_door && !self.door_walkable(entrance) && self.clear_target(entrance, defs).is_err() {
             return Some((entrance, Blocker::Entrance));
         }
         foot.tiles().find(|&p| self.door_owner(p, defs).is_some()).map(|p| (p, Blocker::Entrance))
     }
 
-    /// Designates a building with its anchor on `pos`: the whole footprint, or nothing.
+    /// The tiles placing `building` with its anchor on `anchor` would need cleared first
+    /// (`docs/design/clearing.md`, issue #425): every footprint tile whose resource can be
+    /// cleared (`World::clear_target`), row-major, then -- if the building has a door
+    /// (`capacity > 0`) -- its door tile (`Footprint::entrance`) last, if that one holds a
+    /// clearable resource too. Pure query: `designate_build` issues a `JobKind::Clear` on each,
+    /// and a frontend's ghost (#427) reads it to show which tiles go. `nearest_build_site`
+    /// (`autoplay.rs`) uses an empty result to keep choosing sites that need no clearing at all.
+    pub fn to_clear(&self, anchor: Pos, building: BuildingId, defs: &Defs) -> Vec<Pos> {
+        let def = defs.building(building);
+        let (w, h) = def.footprint;
+        let foot = Footprint::new(anchor, w, h);
+        let mut tiles: Vec<Pos> =
+            foot.tiles().filter(|&p| self.clear_target(p, defs).is_ok()).collect();
+        if def.capacity > 0 {
+            let door = foot.entrance();
+            if self.clear_target(door, defs).is_ok() {
+                tiles.push(door);
+            }
+        }
+        tiles
+    }
+
+    /// Is the Build job on the site anchored at `pos` claimable yet (`docs/design/clearing.md`,
+    /// issue #425): true once every one of its `to_clear` tiles has lost its resource (cleared,
+    /// by this site's own Clear jobs or any other way), false while any one still holds it. Like
+    /// `bend_ready`: anyone may claim the Clear jobs meanwhile, and the Build job just waits.
+    pub(super) fn site_ready(&self, pos: Pos, defs: &Defs) -> bool {
+        self.sites.get(&pos).is_some_and(|s| self.to_clear(pos, s.building, defs).is_empty())
+    }
+
+    /// Designates a building with its anchor on `pos`: the whole footprint, or nothing. On
+    /// success, also queues a Clear on every `to_clear` tile that doesn't already have one
+    /// (`docs/design/clearing.md`, issue #425): the site's Build job waits on them
+    /// (`site_ready`), but anyone may work the clears meanwhile. Only this command is logged; the
+    /// clears follow from it deterministically, so replay reproduces them.
     pub(super) fn designate_build(
         &mut self,
         pos: Pos,
@@ -507,13 +559,20 @@ impl World {
             pos,
             Site { building, delivered, stand_in_delivered, progress: 0.0, size: [w, h] },
         );
+        for p in self.to_clear(pos, building, defs) {
+            let _ = self.designate_clear(p, defs);
+        }
         Ok(self.add_job(JobKind::Build { pos }))
     }
 
     /// Withdraws the build designation covering `pos` (any tile of its footprint). Materials
     /// already delivered drop on the ground near its anchor for hauling; work done on the site
     /// is lost. Refunds exactly what was delivered: a cost entry paid partly in a stand-in item
-    /// (brick for stone, issue #371) drops that much brick, not stone.
+    /// (brick for stone, issue #371) drops that much brick, not stone. Also withdraws the Clear
+    /// jobs this site queued on its `to_clear` tiles that no unit has started yet (zero
+    /// progress, `docs/design/clearing.md`, issue #425): one the player marked by hand counts
+    /// too, since the player can mark it again and the rule stays simple. A clear already under
+    /// way is left alone.
     pub(super) fn cancel_build(&mut self, pos: Pos, defs: &Defs) -> Result<(), BuildError> {
         let Some((pos, _)) = self.site_at(pos) else { return Err(BuildError::NotDesignated) };
         if self.is_gate(pos) {
@@ -521,6 +580,9 @@ impl World {
         }
         let site = self.sites.remove(&pos).expect("just found");
         self.jobs.retain(|j| j.kind != JobKind::Build { pos });
+        for p in self.to_clear(pos, site.building, defs) {
+            self.jobs.retain(|j| !(j.kind == JobKind::Clear { pos: p } && j.progress == 0.0));
+        }
         let def = defs.building(site.building);
         for (idx, (cost, &count)) in def.cost.iter().zip(&site.delivered).enumerate() {
             let stand_in = site.stand_in_delivered.get(idx).copied().unwrap_or(0).min(count);

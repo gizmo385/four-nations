@@ -153,6 +153,46 @@ fn a_unit_inside_a_building_does_not_block_its_door_from_planting() {
     assert!(!w.can_plant(door, &def, &defs));
 }
 
+/// #425: `can_plant` treats a pending build site like a finished building, footprint and door
+/// both: not on it, not on its door, and not within `spacing` of either, so a sapling never ends
+/// up blocking the door the moment the site is cleared.
+#[test]
+fn an_orchard_never_plants_on_or_beside_a_pending_site_or_its_door() {
+    let (mut w, mut defs) = setup(Nation::Air, 7, &[at(0, 0)]);
+    let hall = defs.building_id("bed").unwrap();
+    {
+        let d = &mut defs.buildings[hall.0 as usize];
+        d.footprint = (2, 2);
+        d.bed = None;
+        d.passable = false;
+        d.capacity = 2;
+    }
+    let anchor = at(7, 5);
+    w.designate_build(anchor, hall, &defs).unwrap();
+    let foot = Footprint::new(anchor, 2, 2);
+    let door = foot.entrance();
+
+    let def = OrchardDef {
+        plants: defs.resource_id("fruit_tree").unwrap(),
+        radius: 10,
+        max_trees: 1,
+        plant_seconds: 1.0,
+        grow_seconds: 1.0,
+        tend_boost: 1.0,
+        spacing: 2,
+        auto_pick: false,
+    };
+    for p in foot.tiles() {
+        assert!(!w.can_plant(p, &def, &defs), "{p:?} is the site itself");
+    }
+    assert!(!w.can_plant(door, &def, &defs), "the door can't be planted on");
+    // Within `spacing` of the site or its door, not just on them.
+    assert!(!w.can_plant(at(foot.anchor.x - 1, foot.anchor.y), &def, &defs), "crowds the site");
+    assert!(!w.can_plant(at(door.x - 1, door.y), &def, &defs), "crowds the door");
+    // Clear of all of it, planting is fine again.
+    assert!(w.can_plant(at(door.x + 3, door.y + 3), &def, &defs));
+}
+
 #[test]
 fn planting_is_deterministic_per_seed_and_varies_between_seeds() {
     let grove = |seed: u64| {

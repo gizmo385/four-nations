@@ -435,7 +435,7 @@ fn ensure_stockpile(world: &mut World, defs: &Defs, anchor: Pos) {
     if world.stockpile_zones().next().is_some() {
         return;
     }
-    let candidates = open_tiles_near(world, anchor, BUILD_SEARCH_RADIUS);
+    let candidates = open_tiles_near(world, defs, anchor, BUILD_SEARCH_RADIUS);
     for pos in candidates.into_iter().take(STOCKPILE_TILES) {
         let _ = world.apply(Command::DesignateStockpile { pos }, defs);
     }
@@ -465,7 +465,7 @@ fn grow_stockpile(world: &mut World, defs: &Defs, anchor: Pos) {
     if !stranded {
         return;
     }
-    let candidates = open_tiles_near(world, anchor, BUILD_SEARCH_RADIUS);
+    let candidates = open_tiles_near(world, defs, anchor, BUILD_SEARCH_RADIUS);
     for pos in candidates.into_iter().take(STOCKPILE_TILES_PER_ITEM as usize) {
         let _ = world.apply(Command::DesignateStockpile { pos }, defs);
     }
@@ -663,11 +663,17 @@ fn building_count(world: &World, building: BuildingId) -> u32 {
 
 /// Open, buildable tiles (no resource, no building, not already a site or a stockpile) nearest
 /// `anchor`, squared distance first and then by position: the same tie-break
-/// `World::found`'s `lay_starting_stores` uses for the same kind of placement.
-fn open_tiles_near(world: &World, anchor: Pos, radius: i32) -> Vec<Pos> {
+/// `World::found`'s `lay_starting_stores` uses for the same kind of placement. For a stockpile,
+/// not a building: unlike `nearest_build_site`, any resource at all rules a tile out, even a
+/// clearable one (`docs/design/clearing.md`, issue #425) -- a stockpile tile never clears
+/// anything, so `build_blocker`'s build-over allowance doesn't apply here.
+fn open_tiles_near(world: &World, defs: &Defs, anchor: Pos, radius: i32) -> Vec<Pos> {
     let mut open: Vec<Pos> = (anchor.y - radius..=anchor.y + radius)
         .flat_map(|y| (anchor.x - radius..=anchor.x + radius).map(move |x| Pos::new(x, y)))
-        .filter(|&p| world.build_blocker(p).is_none())
+        .filter(|&p| {
+            world.build_blocker(p, defs).is_none()
+                && world.map.get(p).is_some_and(|t| t.resource.is_none())
+        })
         .collect();
     open.sort_by_key(|p| ((p.x - anchor.x).pow(2) + (p.y - anchor.y).pow(2), *p));
     open
@@ -696,6 +702,11 @@ fn positions_near(anchor: Pos, radius: i32) -> Vec<Pos> {
 /// `check_build` and `would_strand` both happy with it since neither asks whether anyone could
 /// ever walk there, and the bed then sat at 0 work forever, with no second one ever tried because
 /// `ensure_building` saw a site of that kind already standing).
+///
+/// Never builds over a resource (`World::to_clear` empty), even a clearable one
+/// (`docs/design/clearing.md`, issue #425): `check_build` alone now accepts those, but letting
+/// the opening build over trees is a separate tuning question, and this keeps its choices (and
+/// the balance harness's numbers) exactly as they were before build-over.
 fn nearest_build_site(
     world: &World,
     defs: &Defs,
@@ -707,6 +718,7 @@ fn nearest_build_site(
     let before = world.flood_from_anchor(anchor);
     let ok = |p: Pos| {
         world.check_build(p, building, defs).is_ok()
+            && world.to_clear(p, building, defs).is_empty()
             && world.build_site_viable(&before, Footprint::new(p, w, h))
     };
     if ok(anchor) {

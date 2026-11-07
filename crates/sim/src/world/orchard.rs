@@ -177,7 +177,10 @@ impl World {
     /// doesn't hold its entrance tile this way. A resource that spawns on water (Water's fishing
     /// spots, issue #374) skips the walkable check entirely -- the water is the point -- but
     /// still honours the resource's own mapgen `beside` rule (fish spots: coast or land), so
-    /// every one it plants stays within reach of the shore the same way a wild one would.
+    /// every one it plants stays within reach of the shore the same way a wild one would. A
+    /// pending build site is treated like a finished building here too
+    /// (`docs/design/clearing.md`, issue #425), door tile included: a sapling beside one, or on
+    /// its door, would block the door the moment the site was cleared.
     fn can_plant(&self, p: Pos, def: &OrchardDef, defs: &Defs) -> bool {
         let Some(tile) = self.map.get(p) else { return false };
         let plant = defs.resource(def.plants);
@@ -190,6 +193,7 @@ impl World {
                 self.map.neighbors(p, true).any(|q| ts.contains(&self.map[q].terrain))
             })
             || self.site_at(p).is_some()
+            || self.site_door(p, defs)
             || self.zones.contains(&p)
             || self.ground.contains_key(&p)
             || self.bend_designations().any(|(_, q)| q == p)
@@ -199,8 +203,12 @@ impl World {
             return false;
         }
         // A building counts too, the orchard's own included: a tree's canopy would hide its art.
+        // A pending site does too, footprint and door both.
         !square(p, def.spacing as i32 - 1).any(|q| {
-            q != p && self.map.get(q).is_some_and(|t| t.resource.is_some() || t.building.is_some())
+            q != p
+                && (self.map.get(q).is_some_and(|t| t.resource.is_some() || t.building.is_some())
+                    || self.site_at(q).is_some()
+                    || self.site_door(q, defs))
         })
     }
 }

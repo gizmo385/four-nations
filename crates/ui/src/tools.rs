@@ -1089,8 +1089,12 @@ mod tests {
     #[test]
     fn a_build_drag_stamps_footprints_side_by_side_and_skips_the_blocked_ones() {
         let (mut s, hall, c) = with_2x2_hall();
-        let oak = s.defs.resource_id("oak_tree").unwrap();
-        s.world.map.get_mut(Pos::new(c.x + 5, c.y + 1)).unwrap().resource = Some(oak);
+        // A fish spot, not an oak tree: an oak is clearable (no tech gate, no `regrow`), so
+        // build-over would queue its clear instead of skipping the stamp
+        // (`docs/design/clearing.md`, issue #425). A fish spot has no `[harvest.clear]` and
+        // Earth hasn't researched fishing, so it still can't be built over.
+        let fish = s.defs.resource_id("fish_spot").unwrap();
+        s.world.map.get_mut(Pos::new(c.x + 5, c.y + 1)).unwrap().resource = Some(fish);
         let notice = apply_rect(
             &mut s,
             Tool::Build,
@@ -1100,7 +1104,7 @@ mod tests {
             false,
             Some(hall),
         );
-        assert_eq!(notice, "build Bed: 2 done, 1 skipped (an oak tree is in the way)");
+        assert_eq!(notice, "build Bed: 2 done, 1 skipped (a fishing spot is in the way)");
         let anchors: Vec<Pos> = s.world.build_sites().map(|(f, _, _)| f.anchor).collect();
         assert_eq!(anchors, [c, Pos::new(c.x + 2, c.y)]);
     }

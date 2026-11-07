@@ -399,6 +399,24 @@ impl World {
         Ok(())
     }
 
+    /// Whether the resource on `pos`, if any, could be cleared right now: a known harvest (the
+    /// tech gate included), and not a renewable with nothing to offer a clear
+    /// (`HarvestDef::clear` is `None`, i.e. a fish spot). Shared by `designate_clear` (actually
+    /// marking it) and build-over (`World::build_blocker`/`to_clear`, `docs/design/clearing.md`,
+    /// issue #425): a footprint or door tile whose resource can't be cleared this way still
+    /// blocks a placement.
+    pub(super) fn clear_target<'d>(
+        &self,
+        pos: Pos,
+        defs: &'d Defs,
+    ) -> Result<&'d HarvestDef, DesignateError> {
+        let h = self.harvestable(pos, defs)?;
+        if h.regrow.is_some() && h.clear.is_none() {
+            return Err(DesignateError::CannotClear);
+        }
+        Ok(h)
+    }
+
     /// Marks the resource on `pos` for removal for good (`docs/design/clearing.md`, issue
     /// #411/#424): a non-renewable's Clear job is its ordinary harvest, which already clears it;
     /// a renewable needs a `[harvest.clear]` table, else it's refused (fish spots, on water
@@ -411,10 +429,7 @@ impl World {
         pos: Pos,
         defs: &Defs,
     ) -> Result<JobId, DesignateError> {
-        let h = self.harvestable(pos, defs)?;
-        if h.regrow.is_some() && h.clear.is_none() {
-            return Err(DesignateError::CannotClear);
-        }
+        self.clear_target(pos, defs)?;
         if self.jobs.iter().any(|j| j.kind == JobKind::Clear { pos }) {
             return Err(DesignateError::AlreadyDesignated);
         }
@@ -1546,9 +1561,13 @@ impl World {
                     && self.bend_ready(ability, pos, defs))
                 .then(|| self.stand_tile(&flood, pos))
                 .flatten(),
-                // Reachable as soon as the site itself is, whether or not its materials are yet:
-                // a unit will wait on those, as a resting harvest does.
-                JobKind::Build { pos } => self.stand_building(&flood, pos, defs),
+                // Reachable as soon as the site itself is and nothing it still needs cleared
+                // (`site_ready`, `docs/design/clearing.md`, issue #425), whether or not its
+                // materials are yet: a unit will wait on those, as a resting harvest does.
+                JobKind::Build { pos } => self
+                    .site_ready(pos, defs)
+                    .then(|| self.stand_building(&flood, pos, defs))
+                    .flatten(),
                 // Not reachable at all with nothing queued to study toward: nobody should claim
                 // a seat that would only idle there (#284). `run_study` leaves a seat it already
                 // holds the same way, once the queue empties. A seat is a place inside (#227), so
@@ -1714,7 +1733,9 @@ impl World {
                     }
                 }
                 JobKind::Build { pos } => {
-                    if self.stand_building(&flood, pos, defs).is_some() {
+                    if self.site_ready(pos, defs)
+                        && self.stand_building(&flood, pos, defs).is_some()
+                    {
                         return None;
                     }
                 }
@@ -1818,7 +1839,7 @@ impl World {
                     && self.bend_ready(ability, pos, defs)
                     && can_stand(pos)
             }
-            JobKind::Build { pos } => can_stand_building(pos),
+            JobKind::Build { pos } => self.site_ready(pos, defs) && can_stand_building(pos),
             JobKind::Study { pos } => !self.research.queue().is_empty() && can_stand_building(pos),
             JobKind::Craft { pos } => can_stand_building(pos),
             JobKind::EndeavorTask { task } => {
