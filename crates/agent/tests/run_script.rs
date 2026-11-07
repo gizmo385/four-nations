@@ -65,12 +65,9 @@ fn run_script_without_scripts_is_a_tool_error() {
 #[test]
 fn tools_call_run_script_round_trips_over_json_rpc() {
     let mut tools = Tools::new(host(), Writer::new(Vec::new())).unwrap().with_scripts(limits());
+    tools.call("save_script", json!({"name": "keep-fed", "code": SCRIPT})).unwrap();
     let mut out = Vec::new();
-    let script = [format!(
-        r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"run_script","arguments":{{"code":{:?},"turns":5,"note":"keep-fed"}}}}}}"#,
-        SCRIPT
-    )]
-    .join("\n");
+    let script = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"run_script","arguments":{"name":"keep-fed","turns":5}}}"#;
     server::serve(BufReader::new(script.as_bytes()), &mut out, &mut tools);
     let response: serde_json::Value =
         serde_json::from_str(String::from_utf8(out).unwrap().lines().next().unwrap()).unwrap();
@@ -102,8 +99,8 @@ fn fn_agent_keys_on_a_scripted_log_reproduces_the_same_frame_as_an_mcp_only_run(
     {
         let writer = Writer::create(&path).unwrap();
         let mut tools = Tools::new(host(), writer).unwrap().with_scripts(limits());
-        let result =
-            tools.call("run_script", json!({"code": SCRIPT, "turns": 5, "note": "scout"})).unwrap();
+        tools.call("save_script", json!({"name": "scout", "code": SCRIPT})).unwrap();
+        let result = tools.call("run_script", json!({"name": "scout", "turns": 5})).unwrap();
         assert_eq!(result["reason"], "done", "{result}");
     }
 

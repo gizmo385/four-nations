@@ -111,6 +111,11 @@ pub struct Request<'a> {
     /// and a plan"), as of this call: what the script's read-only `plan()` returns. Not an
     /// output -- only the `plan` tool changes it, between runs.
     pub plan: &'a serde_json::Value,
+    /// A probe (#527, decision #522): an inline `run_script {code}`, which can read (`observe`,
+    /// `look`, `plan()`, ...) but whose `act`, `keys` and `wait` (and so every porcelain helper
+    /// that acts or waits) fail with "probes can't act: put this in the governor, or in the
+    /// plan". `false` for a saved script run by name and for `fn_agent play`.
+    pub probe: bool,
 }
 
 /// Runs `request.code` against `host` for at most `limits.resolve_turns(request.turns)` turns,
@@ -123,11 +128,11 @@ pub struct Request<'a> {
 /// plumbing ([`bindings::register`]): every action is a normal `Host::act`/`Host::press_keys`
 /// call, logged exactly as a human's or an MCP agent's would be.
 pub fn run(host: &mut Host, request: Request<'_>, limits: &Limits) -> Outcome {
-    let Request { code, turns, note, version, wake_on, memory, plan } = request;
+    let Request { code, turns, note, version, wake_on, memory, plan, probe } = request;
     let max_turns = limits.resolve_turns(turns);
     let tag = note.filter(|n| !n.is_empty()).unwrap_or("script").to_owned();
     let before = host.observe();
-    let ctx = Context::new(host, tag, version, max_turns, wake_on.to_vec(), plan.clone());
+    let ctx = Context::new(host, tag, version, max_turns, wake_on.to_vec(), plan.clone(), probe);
 
     let (result, memory_out) = {
         // `prelude::engine()` raises the per-function expression depth above Rhai's debug-build
@@ -375,6 +380,7 @@ mod tests {
             wake_on: &[],
             memory: &memory,
             plan: &NO_PLAN,
+            probe: false,
         };
         run(host, request, &limits())
     }
@@ -559,6 +565,7 @@ mod tests {
             wake_on: &[],
             memory: &memory,
             plan: &NO_PLAN,
+            probe: false,
         };
         let out = run(&mut h, request, &limits());
         assert_eq!(out.reason, "done");
@@ -604,6 +611,7 @@ mod tests {
             wake_on: &[],
             memory: &memory,
             plan: &NO_PLAN,
+            probe: false,
         };
         let out = run(&mut h, request, &tiny);
         assert_eq!(out.log, vec!["b".to_owned(), "c".to_owned()]);
@@ -660,6 +668,7 @@ mod tests {
             wake_on: &[EventKind::Need, EventKind::Death, EventKind::Endeavor],
             memory: &memory,
             plan: &NO_PLAN,
+            probe: false,
         };
         let out = run(&mut h, request, &limits());
         assert_eq!(out.reason, "event");
@@ -683,6 +692,7 @@ mod tests {
             wake_on: &[EventKind::Death],
             memory: &memory,
             plan: &NO_PLAN,
+            probe: false,
         };
         let out = run(&mut h, request, &limits());
         assert_eq!(out.reason, "done", "{out:?}");
@@ -705,6 +715,7 @@ mod tests {
             wake_on: &[EventKind::Need],
             memory: &memory,
             plan: &NO_PLAN,
+            probe: false,
         };
         let out = run(&mut h, request, &limits());
         assert_eq!(out.reason, "event");
@@ -736,6 +747,7 @@ mod tests {
             wake_on: &[],
             memory: &memory,
             plan: &NO_PLAN,
+            probe: false,
         };
         let out = run(&mut h, request, &limits());
         let json = serde_json::to_string(&out).unwrap();
@@ -775,6 +787,7 @@ mod tests {
             wake_on: &[],
             memory: &empty,
             plan: &NO_PLAN,
+            probe: false,
         };
         let first = run(&mut h, request, &limits());
         assert_eq!(first.memory, serde_json::json!({"count": 1}));
@@ -786,6 +799,7 @@ mod tests {
             wake_on: &[],
             memory: &first.memory,
             plan: &NO_PLAN,
+            probe: false,
         };
         let second = run(&mut h, request, &limits());
         assert_eq!(second.memory, serde_json::json!({"count": 2}));
@@ -809,6 +823,7 @@ mod tests {
             wake_on: &[],
             memory: &previous,
             plan: &NO_PLAN,
+            probe: false,
         };
         let out = run(&mut h, request, &tiny);
         assert_eq!(out.reason, "error");
@@ -830,6 +845,7 @@ mod tests {
             wake_on: &[],
             memory: &previous,
             plan: &NO_PLAN,
+            probe: false,
         };
         let out = run(&mut h, request, &limits());
         assert_eq!(out.reason, "error");

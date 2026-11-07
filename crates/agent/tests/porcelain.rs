@@ -45,6 +45,7 @@ fn run_porcelain(host: &mut Host, code: &str, turns: u32) -> fn_agent::script::O
         wake_on: &[],
         memory: &memory,
         plan: &serde_json::json!({}),
+        probe: false,
     };
     run(host, request, &limits())
 }

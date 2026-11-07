@@ -78,7 +78,23 @@ pub(super) struct Context {
     /// The session's `plan` map as of this run's start (#524): `plan()` returns a fresh copy of
     /// it every call, so a script can't change it (only the `plan` tool does, between runs).
     plan: serde_json::Value,
+    /// Whether this run is a probe (#527, decision #522): an inline `run_script {code}`, which
+    /// looks but doesn't act. `act`, `keys` and `wait` then fail with [`PROBE_REFUSAL`] before
+    /// they touch the host, so no key is pressed and no turn passes; every porcelain helper that
+    /// acts or waits does so through one of those three and so fails the same way.
+    probe: bool,
 }
+
+/// The error a probe's `act`, `keys` or `wait` fails with (docs/design/agent-hillclimb.md,
+/// "Probes look, they don't act").
+pub(crate) const PROBE_REFUSAL: &str = "probes can't act: put this in the governor, or in the plan";
+
+/// What `sdk_reference` and `briefing` tell the model about probes (inline `run_script {code}`).
+pub(crate) const PROBE_NOTE: &str = "Inline run_script code is a read-only probe. It may call \
+    observe, look, inspect, cells, can_build, screen, events, plan, log, find, store, idle and \
+    need, and read memory. act, keys, wait, designate_near, build_near and wait_until fail with \
+    \"probes can't act: put this in the governor, or in the plan\": no key is pressed and no \
+    turn passes. Put every action in a script you save_script and run by name.";
 
 impl Context {
     pub(super) fn new(
@@ -88,6 +104,7 @@ impl Context {
         max_turns: u32,
         wake_on: Vec<EventKind>,
         plan: serde_json::Value,
+        probe: bool,
     ) -> Rc<Self> {
         let events_start = host.event_mark();
         Rc::new(Self {
@@ -103,6 +120,7 @@ impl Context {
             acts_failed: Cell::new(0),
             last_failure: RefCell::new(None),
             plan,
+            probe,
         })
     }
 
@@ -126,6 +144,12 @@ impl Context {
 
     pub(super) fn turns_used(&self) -> u32 {
         self.turns_used.get()
+    }
+
+    /// `Err(PROBE_REFUSAL)` when this run is a probe, checked first thing by every call that acts
+    /// or waits.
+    fn refuse_if_probe(&self) -> Result<(), Box<EvalAltResult>> {
+        if self.probe { Err(err_to_rhai(PROBE_REFUSAL.to_owned())) } else { Ok(()) }
     }
 
     fn bump_turns(&self) {
@@ -291,8 +315,15 @@ pub(super) fn register(engine: &mut Engine, ctx: &Rc<Context>) {
 /// Rust type names (`Box<EvalAltResult>` and the rest), not worth a script author's reading --
 /// [`plumbing_docs`]'s own prose says what each parameter actually means instead.
 pub(crate) fn plumbing_reference(host: &mut Host) -> Vec<serde_json::Value> {
-    let ctx =
-        Context::new(host, "sdk_reference".to_owned(), 0, 0, Vec::new(), serde_json::Value::Null);
+    let ctx = Context::new(
+        host,
+        "sdk_reference".to_owned(),
+        0,
+        0,
+        Vec::new(),
+        serde_json::Value::Null,
+        false,
+    );
     let mut engine = Engine::new();
     register(&mut engine, &ctx);
     let docs: std::collections::BTreeMap<&str, &str> = plumbing_docs().iter().copied().collect();
@@ -367,17 +398,19 @@ fn plumbing_docs() -> &'static [(&'static str, &'static str)] {
             "act",
             "act(steps) or act(steps, note) -> #{keys, label, notices, error, observe}: runs \
              named steps (designate, build, select, research, cursor, keys) in order, each \
-             lowered to the keys a player would press.",
+             lowered to the keys a player would press. Refused in a probe (inline run_script code): \
+             \"probes can't act\".",
         ),
         (
             "keys",
             "keys(script) or keys(script, note) -> #{pressed, refused}: a --keys token script, \
-             pressed directly.",
+             pressed directly. Refused in a probe (inline run_script code).",
         ),
         (
             "wait",
             "wait(turns) -> the last turn's own observation: runs at least 1 turn \
-             (end_turn(1), repeated), stopping the whole script early if a wake_on event lands.",
+             (end_turn(1), repeated), stopping the whole script early if a wake_on event lands. Refused in a probe \
+             (inline run_script code).",
         ),
         ("events", "events() -> [#{turn, kind, text}], every event since this run started."),
         (
@@ -402,6 +435,7 @@ fn do_act(
     steps: Dynamic,
     note: Option<&str>,
 ) -> Result<Dynamic, Box<EvalAltResult>> {
+    ctx.refuse_if_probe()?;
     let steps: Vec<ActionStep> = rhai::serde::from_dynamic(&steps)?;
     let note = Some(ctx.tag_note(note));
     let result = ctx.host().act(&steps, note);
@@ -424,6 +458,7 @@ fn act_failure(result: &ActResult) -> Option<String> {
 }
 
 fn do_keys(ctx: &Context, script: &str, note: Option<&str>) -> Result<Dynamic, Box<EvalAltResult>> {
+    ctx.refuse_if_probe()?;
     let note = Some(ctx.tag_note(note));
     let result = ctx.host().press_keys(script, None, note).map_err(err_to_rhai)?;
     ctx.record(keys_failure(script, &result));
@@ -446,6 +481,7 @@ fn keys_failure(script: &str, result: &PressResult) -> Option<String> {
 /// ends the script with reason `event` at the end of that turn"), stopping with [`Signal::Event`]
 /// right there rather than running the rest of `turns`.
 fn do_wait(ctx: &Context, turns: i64) -> Result<Dynamic, Box<EvalAltResult>> {
+    ctx.refuse_if_probe()?;
     let n = turns.max(1) as u32;
     let mut last = None;
     for _ in 0..n {

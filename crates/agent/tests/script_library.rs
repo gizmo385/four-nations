@@ -174,8 +174,11 @@ fn notes_append_grows_the_list_and_logs_each_line() {
 #[test]
 fn script_and_wake_lines_bracket_the_runs_own_keys_and_turn_lines_in_order() {
     let mut t = tools();
-    t.call("run_script", json!({"code": r#"keys("<right>"); wait(1);"#, "note": "scout"})).unwrap();
-    let lines = t.log().get_ref().clone();
+    t.call("save_script", json!({"name": "scout", "code": r#"keys("<right>"); wait(1);"#}))
+        .unwrap();
+    let saved = t.log().get_ref().len();
+    t.call("run_script", json!({"name": "scout"})).unwrap();
+    let lines = t.log().get_ref()[saved..].to_vec();
     let text = String::from_utf8(lines).unwrap();
     let types: Vec<String> = text
         .lines()
@@ -186,7 +189,7 @@ fn script_and_wake_lines_bracket_the_runs_own_keys_and_turn_lines_in_order() {
                 .to_owned()
         })
         .collect();
-    assert_eq!(types, vec!["header", "call", "script", "keys", "turn", "wake"], "{types:?}");
+    assert_eq!(types, vec!["call", "script", "keys", "turn", "wake"], "{types:?}");
 }
 
 /// `fn_agent serve --resume`'s own job (`Tools::resume`): a session that saved a script, ran it

@@ -210,7 +210,12 @@ fn run_script_tool() -> Value {
                          turns actually run, the clock span, a since_start diff (people, store \
                          deltas, event counts, deduplicated texts), act counts with the last \
                          failure, the script's own log tail, the resulting memory, and the \
-                         final `observe`.",
+                         final `observe`. Inline `code` is a read-only probe: it may call \
+                         observe, look, inspect, cells, can_build, screen, events, plan, log \
+                         and read memory, but act, keys, wait and the helpers that act or \
+                         wait (designate_near, build_near, wait_until) fail with \"probes \
+                         can't act: put this in the governor, or in the plan\" and press \
+                         nothing. Every action comes from a save_script'd script run by name.",
         "inputSchema": json!({
             "type": "object",
             "properties": {
@@ -279,7 +284,10 @@ fn sdk_reference_tool() -> Value {
                          each porcelain entry is #{name, params, doc}, doc straight from the \
                          function's own /// comment. action_steps names every shape act's own \
                          steps argument accepts (designate, build, select, research, cursor, \
-                         keys), each a #{step, fields, example}.",
+                         keys), each a #{step, fields, example}. Probes (inline run_script code) \
+                         may call only the reads -- observe, look, inspect, cells, can_build, \
+                         screen, events, plan, log, find, store, idle, need -- and never act, \
+                         keys, wait or the helpers built on them; those need a saved script.",
         "inputSchema": json!({"type": "object", "properties": {}}),
     })
 }
@@ -666,6 +674,7 @@ impl<W: std::io::Write> Tools<W> {
                     "plumbing": plumbing,
                     "porcelain": porcelain,
                     "action_steps": action_steps,
+                    "probes": script::bindings::PROBE_NOTE,
                     "plan": crate::plan::reference(),
                 }))
             }
@@ -717,6 +726,7 @@ impl<W: std::io::Write> Tools<W> {
     fn run_script(&mut self, arguments: Value) -> Result<Value, String> {
         let limits = self.require_scripts("run_script")?.clone();
         let a: RunScriptArgs = args("run_script", arguments)?;
+        let probe = a.name.is_none();
         let (tag, code, version) = match (a.name, a.code) {
             (Some(n), None) => {
                 let (code, version) = self
@@ -757,6 +767,7 @@ impl<W: std::io::Write> Tools<W> {
             wake_on: &wake_on,
             memory: &self.memory,
             plan: &self.plan,
+            probe,
         };
         let outcome = script::run(&mut self.host, request, &limits);
 
@@ -793,12 +804,16 @@ impl<W: std::io::Write> Tools<W> {
             .into_iter()
             .map(|r| json!({"group": r.group.title(), "keys": r.keys, "what": r.what}))
             .collect();
-        json!({
+        let mut briefing = json!({
             "seed": log.seed,
             "nation": log.nation.as_str(),
             "turn_seconds": self.host.turn_seconds(),
             "help": help,
-        })
+        });
+        if self.scripts.is_some() {
+            briefing["probes"] = json!(script::bindings::PROBE_NOTE);
+        }
+        briefing
     }
 
     /// Writes whatever of `host.log().lines()` isn't on disk yet (`Self::written`'s own count),
