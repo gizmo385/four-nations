@@ -1,9 +1,10 @@
 //! The plumbing layer (docs/design/agent-scripting.md, "The SDK", "Plumbing: 1:1 with `Host`"):
-//! [`register`] adds `observe`, `look`, `cells`, `inspect`, `screen`, `act`, `keys`, `wait`,
-//! `events`, `wake` and `log` to an [`Engine`], each exactly the [`Host`] call its name says
-//! (`events` and `wake` are from #478, `cells` from #480), with its result serialized to a Rhai
-//! map through `rhai::serde` -- nothing a plumbing call does reaches anything but `Host`'s own
-//! public methods, so a script can't do anything a human's keyboard or an MCP agent couldn't.
+//! [`register`] adds `observe`, `look`, `cells`, `inspect`, `screen`, `can_build`, `act`, `keys`,
+//! `wait`, `events`, `wake` and `log` to an [`Engine`], each exactly the [`Host`] call its name
+//! says (`events` and `wake` are from #478, `cells` from #480, `can_build` from #509), with its
+//! result serialized to a Rhai map through `rhai::serde` -- nothing a plumbing call does reaches
+//! anything but `Host`'s own public methods, so a script can't do anything a human's keyboard or
+//! an MCP agent couldn't.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -225,6 +226,15 @@ pub(super) fn register(engine: &mut Engine, ctx: &Rc<Context>) {
     });
 
     let c = ctx.clone();
+    engine.register_fn(
+        "can_build",
+        move |building: &str, x: i64, y: i64| -> Result<Dynamic, Box<EvalAltResult>> {
+            let view = c.host().can_build(building, x as i32, y as i32);
+            rhai::serde::to_dynamic(view)
+        },
+    );
+
+    let c = ctx.clone();
     engine.register_fn("act", move |steps: Dynamic| do_act(&c, steps, None));
     let c = ctx.clone();
     engine.register_fn("act", move |steps: Dynamic, note: &str| do_act(&c, steps, Some(note)));
@@ -329,6 +339,13 @@ fn plumbing_docs() -> &'static [(&'static str, &'static str)] {
             "screen",
             "screen(name) -> nation, research, endeavor, log, help or build, as data: the \
              same text that screen shows, without opening it.",
+        ),
+        (
+            "can_build",
+            "can_build(building, x, y) -> #{ok, reason}: whether building could be designated \
+             with its anchor (top-left tile) at (x, y), the same placement check a build \
+             step's own confirm uses. Read-only: presses no keys and changes nothing. Unknown \
+             or locked buildings give ok: false with a reason.",
         ),
         (
             "act",
@@ -469,6 +486,7 @@ mod tests {
             "cells(_, _, _, _)",
             "inspect(_, _)",
             "screen(_)",
+            "can_build(_, _, _)",
             "wait(_)",
             "events()",
             "wake(_)",

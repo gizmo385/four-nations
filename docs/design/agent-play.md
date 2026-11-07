@@ -120,7 +120,7 @@ MCP tools that read. They're free, change nothing, and take no game time:
 | Tool | Returns | Built from |
 |---|---|---|
 | `briefing` | The race's rules and goal text, turn length, limit, calls left, and the key help | `races.toml`, `input::help_rows` |
-| `observe` | Turn, clock, season, tool, notice, people (activity counts, need flags), research, stores, endeavor, cursor tile, and alerts since the last turn | `side_view`, `activity_counts`, `need_flags`, `tooltip_lines`, the `Alerts` history |
+| `observe` | Turn, clock, season, tool, notice, people (activity counts, need flags), research, stores, stockpile capacity, endeavor, cursor tile, and alerts since the last turn | `side_view`, `activity_counts`, `need_flags`, `stockpile_capacity`, `tooltip_lines`, the `Alerts` history |
 | `look {x,y,w,h}` | A map region, at most 64x40 | The TUI's per-cell look (below) |
 | `inspect {x,y}` | That tile's Cursor-section lines | `tooltip_lines`, as if the cursor were there |
 | `screen {name}` | `nation`, `research`, `endeavor`, `log`, `help` or `build`, as data | `nation_view`, `research::screen_view`, `endeavor::screen_view`, `help_rows`, `build::picker_rows` |
@@ -155,7 +155,8 @@ styles is a prerequisite.
  "tool": "Harvest", "notice": "Designated 9 tiles to harvest",
  "people": {"total": 6, "activity": {"Harvest": 4, "Idle": 2}, "needs": {}},
  "research": {"label": "Masonry", "pool": "", "rate": ""},
- "stores": [], "endeavor": {"met": 0, "of": 9, "next": ["10 people"]},
+ "stores": [], "stockpile": {"tiles": 4, "used": 1, "cap": 20},
+ "endeavor": {"met": 0, "of": 9, "next": ["10 people"]},
  "cursor": {"x": 91, "y": 63, "lines": ["Oak Tree", "Plains - Land (91, 63)", "Chop: 4 Wood - 8s"]},
  "alerts": []}
 ```

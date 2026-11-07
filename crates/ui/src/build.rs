@@ -285,6 +285,15 @@ pub fn describe_error(session: &Session, e: CommandError) -> String {
     }
 }
 
+/// `describe_error` for a bare [`BuildError`] (`Placement::refused`'s own type): the frontend-only
+/// word for why a `build` step -- or [`fn_tui::surface::Host::can_build`]'s own read-only probe
+/// of the very same check, #509 -- was refused. The agent surface's own parity lint (#320) bans
+/// the word `Command` from `crates/tui/src/surface.rs` outside a short allow-list, so this spares
+/// `Host::can_build` from spelling out `CommandError` itself to reuse `describe_error`.
+pub fn describe_build_error(session: &Session, e: BuildError) -> String {
+    describe_error(session, CommandError::Build(e))
+}
+
 /// What the tooltip says about a construction site.
 #[derive(Clone, PartialEq, Debug)]
 pub struct SiteReport {

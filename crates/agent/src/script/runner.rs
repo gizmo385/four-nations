@@ -377,6 +377,49 @@ mod tests {
         assert_eq!(out.script, "script", "no note given");
     }
 
+    /// `can_build` (#509) agrees with the real `build` step's own confirm: a script that scans
+    /// around the cursor for a spot `can_build` calls `ok` and then `act`s a `build` step right
+    /// there always gets it built, never "0 done" -- the two read the same
+    /// `fn_ui::build::placement_at` check, so there's nothing for them to disagree about between
+    /// the probe and the real step. Written as a plain script, not through `build_near` (a
+    /// follow-up, out of scope here), so it exercises `can_build` on its own.
+    #[test]
+    fn a_script_can_pick_a_spot_with_can_build_and_build_there() {
+        let script = r#"
+            let c = observe().cursor;
+            let found = ();
+            for dy in range(-15, 16) {
+                for dx in range(-15, 16) {
+                    let x = c.x + dx;
+                    let y = c.y + dy;
+                    if can_build("Bed", x, y).ok {
+                        found = #{x: x, y: y};
+                        break;
+                    }
+                }
+                if found != () {
+                    break;
+                }
+            }
+            if found == () {
+                #{found: false}
+            } else {
+                let r = act(
+                    [#{step: "build", building: "Bed", from: found, to: found}],
+                    "picked by can_build",
+                );
+                #{found: true, notice: r.notices[0].notice}
+            }
+        "#;
+        let mut h = host();
+        let out = run_default(&mut h, script, None, None);
+        assert_eq!(out.reason, "done", "{out:?}");
+        let value = out.value.expect("the script returns a map");
+        assert_eq!(value["found"], true, "{value}: no free spot found near the cursor");
+        let notice = value["notice"].as_str().expect("a notice string");
+        assert!(!notice.contains("0 done"), "{notice}");
+    }
+
     /// A runtime error stops `"error"`, with the message and a `"line:col"` Rhai could place.
     #[test]
     fn a_runtime_error_is_error_with_a_message_and_a_line() {

@@ -115,6 +115,28 @@ pub fn store_rows(session: &Session) -> Vec<StoreRow> {
         .collect()
 }
 
+/// How full the stockpiles are (#509): how many tiles are designated as a stockpile zone, how
+/// many of them currently hold something, and the per-tile cap every one shares
+/// (`defs.jobs.stockpile_stack`, the same number `fn_ui::inspect::stockpile_line`'s own "12/20
+/// Wood" divides by). A script reading `store(name)` alone can't tell "we're low" from "we're
+/// full and the haulers have stopped" (#485's own playtest note); this is the other half of that
+/// same question, read with `observe()`. `cap` is reported even with no zone designated at all
+/// (`tiles == 0`): it's a setting, not a fact about the world right now.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct StockpileCapacity {
+    pub tiles: u32,
+    pub used: u32,
+    pub cap: u32,
+}
+
+/// [`StockpileCapacity`] for `session`, right now.
+pub fn stockpile_capacity(session: &Session) -> StockpileCapacity {
+    let (world, defs) = (&session.world, &session.defs);
+    let tiles = world.stockpile_zones().count() as u32;
+    let used = world.stockpile_zones().filter(|&p| world.stored_at(p).is_some()).count() as u32;
+    StockpileCapacity { tiles, used, cap: defs.jobs.stockpile_stack }
+}
+
 /// Items lying on the ground with nowhere to go: every stockpile tile that could take them
 /// already holds a different item, at its own full stack (#337, #378's own gap in the balance
 /// harness -- `World::room_at`: a stockpile tile holds one item kind until it's emptied, so
@@ -664,6 +686,57 @@ mod tests {
         }
         assert_eq!(side_view(&s, Tool::Select, "", None, &Alerts::default()).stores, rows);
         assert_eq!(stores(&s).len(), rows.len());
+    }
+
+    #[test]
+    fn stockpile_capacity_counts_designated_tiles_and_how_many_hold_something() {
+        use fn_sim::world::Command;
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let empty = stockpile_capacity(&s);
+        assert_eq!((empty.tiles, empty.used), (0, 0), "no zone designated yet");
+        assert_eq!(empty.cap, s.defs.jobs.stockpile_stack, "cap is reported even with no zone");
+
+        let from = s.world.units[0].pos;
+        let mut zone: Vec<Pos> = s
+            .world
+            .map
+            .iter()
+            .filter(|(_, t)| t.terrain == fn_sim::Terrain::Land && t.resource.is_none())
+            .map(|(p, _)| p)
+            .collect();
+        zone.sort_by_key(|p| (p.x - from.x).pow(2) + (p.y - from.y).pow(2));
+        for pos in zone.into_iter().take(3) {
+            s.apply(Command::DesignateStockpile { pos }).unwrap();
+        }
+        let designated = stockpile_capacity(&s);
+        assert_eq!(designated.tiles, 3, "three zone tiles now designated");
+        assert_eq!(designated.used, 0, "nothing has reached them yet");
+
+        // Harvest what is near the settlers so there is something to haul into the zone.
+        let near: Vec<Pos> = s
+            .world
+            .map
+            .iter()
+            .filter(|(p, t)| {
+                (p.x - from.x).abs() < 12
+                    && (p.y - from.y).abs() < 8
+                    && t.resource.is_some_and(|r| s.defs.harvest(r).is_some())
+            })
+            .map(|(p, _)| p)
+            .collect();
+        for p in near {
+            let _ = s.apply(Command::DesignateHarvest { pos: p });
+        }
+        for _ in 0..40 {
+            s.tick_n(100);
+            if stockpile_capacity(&s).used > 0 {
+                break;
+            }
+        }
+        let filled = stockpile_capacity(&s);
+        assert!(filled.used > 0, "something should have reached a stockpile tile by now");
+        assert!(filled.used <= filled.tiles);
+        assert_eq!(filled.tiles, 3, "designating more never happened in this test");
     }
 
     /// `materials` (#416, the side panel's Materials row): `stores` minus every food item, same

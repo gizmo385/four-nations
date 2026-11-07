@@ -543,9 +543,9 @@ impl Host {
     // --------------------------------------------------------------------------------------
 
     /// Turn, clock, season, tool, notice, people (activity counts and need flags), research,
-    /// stores, endeavor, the cursor's own tile and alerts since the last turn: everything
-    /// `side_view` and the alert log already say, free, changing nothing and taking no game
-    /// time.
+    /// stores, stockpile capacity, endeavor, the cursor's own tile and alerts since the last
+    /// turn: everything `side_view`, `stockpile_capacity` and the alert log already say, free,
+    /// changing nothing and taking no game time.
     pub fn observe(&self) -> Observation {
         let app = self.app();
         let (session, ui) = (&app.session, &app.ui);
@@ -585,6 +585,7 @@ impl Host {
                 rate: String::new(),
             },
             stores: side.stores.into_iter().map(StoreView::from).collect(),
+            stockpile: fn_ui::view::stockpile_capacity(session).into(),
             endeavor: side.endeavor.map(|e| {
                 // The same text the Gate row carries (`panel::gate_row`, #416): `e.line` on its
                 // own ("Signs met - G: open", the Ready text, or the stage) only once nothing is
@@ -723,6 +724,40 @@ impl Host {
             }
         }
         out
+    }
+
+    /// Whether `building` could be designated with its anchor (top-left tile) at `(x, y)`
+    /// (#509): `#{ok, reason}`, read-only -- it presses no keys, writes no `keys` line in the
+    /// run log, and changes nothing in the world. Reuses the Build tool's own confirm check
+    /// (`fn_ui::build::placement_at`, `World::check_build`) rather than a second copy of it, so
+    /// this can never say a spot works when the real `build` step would refuse it, or the other
+    /// way round. `building` not in the Build modal's own list, or there but locked, gives
+    /// `ok: false` with a reason naming which, the same way [`Self::plan_build`] does for an
+    /// actual `build` step; a tile off the map does too.
+    pub fn can_build(&self, building: &str, x: i32, y: i32) -> CanBuildView {
+        let session = &self.app().session;
+        let rows = fn_ui::build::picker_rows(session);
+        let Some(row) = rows.iter().find(|r| r.name == building) else {
+            return CanBuildView {
+                ok: false,
+                reason: Some(format!("no such building {building:?} in the Build modal")),
+            };
+        };
+        if let Some(reason) = &row.requires {
+            return CanBuildView { ok: false, reason: Some(reason.clone()) };
+        }
+        let anchor = Pos::new(x, y);
+        if !self.in_bounds(anchor) {
+            return CanBuildView { ok: false, reason: Some(format!("({x},{y}) isn't on the map")) };
+        }
+        let placement = fn_ui::build::placement_at(session, anchor, row.id);
+        match placement.refused {
+            None => CanBuildView { ok: true, reason: None },
+            Some(err) => {
+                let reason = fn_ui::build::describe_build_error(session, err);
+                CanBuildView { ok: false, reason: Some(reason) }
+            }
+        }
     }
 
     /// `nation`, `research`, `endeavor`, `log`, `help` or `build`, as data: `nation_view`,
@@ -1732,6 +1767,10 @@ pub struct Observation {
     pub people: PeopleView,
     pub research: ResearchView,
     pub stores: Vec<StoreView>,
+    /// How full the stockpiles are (#509): `fn_ui::view::stockpile_capacity`, unrelated to any
+    /// one item -- it's the other half of "we're low" vs "we're full and the haulers have
+    /// stopped" that `stores`' own counts alone can't answer.
+    pub stockpile: StockpileView,
     pub endeavor: Option<EndeavorView>,
     pub cursor: CursorView,
     pub alerts: Vec<String>,
@@ -1769,12 +1808,37 @@ impl From<fn_ui::view::StoreRow> for StoreView {
     }
 }
 
+/// `fn_ui::view::StockpileCapacity`'s own JSON shape (#509): `tiles` designated as a stockpile
+/// zone, `used` of them currently holding something, and `cap`, the per-tile limit every one
+/// shares (`defs.jobs.stockpile_stack`, the same number a tile's own tooltip divides by).
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct StockpileView {
+    pub tiles: u32,
+    pub used: u32,
+    pub cap: u32,
+}
+
+impl From<fn_ui::view::StockpileCapacity> for StockpileView {
+    fn from(c: fn_ui::view::StockpileCapacity) -> Self {
+        Self { tiles: c.tiles, used: c.used, cap: c.cap }
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct EndeavorView {
     pub name: String,
     pub count: String,
     pub line: String,
     pub next: Vec<String>,
+}
+
+/// [`Host::can_build`]'s own result: whether a building would be designated there, and why not
+/// when it wouldn't.
+#[derive(Clone, Debug, Serialize)]
+pub struct CanBuildView {
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -2241,6 +2305,46 @@ mod tests {
         assert!(obs.alerts.is_empty());
     }
 
+    /// `observe().stockpile` (#509) is `fn_ui::view::stockpile_capacity`'s own numbers, straight
+    /// through: zero tiles designated on a fresh game, and `cap` matches the data regardless.
+    #[test]
+    fn observe_reports_stockpile_capacity_with_no_zone_designated_yet() {
+        let h = host(Nation::Earth);
+        let obs = h.observe();
+        assert_eq!((obs.stockpile.tiles, obs.stockpile.used), (0, 0));
+        assert_eq!(obs.stockpile.cap, h.app().session.defs.jobs.stockpile_stack);
+    }
+
+    /// Designating a stockpile tile through `act` (the same path a player's `p` key takes) is
+    /// reflected in the very next `observe().stockpile.tiles` -- an agent doesn't have to count
+    /// `cells()` marks itself to know how much room it just made.
+    #[test]
+    fn observe_reports_stockpile_capacity_after_designating_a_zone() {
+        let mut h = host(Nation::Water);
+        let at = Pos::new(30, 30);
+        let tile = h.app_mut().session.world.map.get_mut(at).unwrap();
+        tile.terrain = fn_sim::Terrain::Land;
+        tile.resource = None;
+        let steps = vec![ActionStep::Designate {
+            tool: DesignateTool::Stockpile,
+            from: Coord { x: at.x, y: at.y },
+            to: Coord { x: at.x, y: at.y },
+            standing: false,
+            teardown: false,
+            ability: None,
+        }];
+        let result = h.act(&steps, None);
+        assert!(result.error.is_none(), "{result:?}");
+        assert!(
+            result.notices[0].notice.starts_with("designate stockpile: 1 done"),
+            "{:?}",
+            result.notices
+        );
+        let obs = h.observe();
+        assert_eq!(obs.stockpile.tiles, 1);
+        assert_eq!(obs.stockpile.used, 0, "nothing stored on it yet");
+    }
+
     #[test]
     fn pressing_a_tool_key_changes_the_tool_and_is_logged() {
         let mut h = host(Nation::Earth);
@@ -2603,6 +2707,56 @@ mod tests {
         assert_eq!((view.x, view.y), (elsewhere.x, elsewhere.y));
         assert_eq!(h.app().ui.cursor, cursor_before, "inspect doesn't move the real cursor");
         assert_eq!(h.log.counts(), (0, 0, 1, 0));
+    }
+
+    /// `can_build` (#509) says a free land tile is fine, reuses the same `World::check_build`
+    /// a `build` step's own confirm does to refuse a blocked one with the player's own words,
+    /// names an unknown building and a locked one, and -- the acceptance criteria's own test --
+    /// changes nothing at all: no key pressed, no `keys` line, the same `observe` before and
+    /// after.
+    #[test]
+    fn can_build_judges_a_spot_the_same_way_a_build_step_would_and_touches_nothing() {
+        let mut h = host(Nation::Earth);
+        let at = Pos::new(30, 30);
+        let tile = h.app_mut().session.world.map.get_mut(at).unwrap();
+        tile.terrain = fn_sim::Terrain::Land;
+        tile.resource = None;
+
+        let before_obs = serde_json::to_value(h.observe()).unwrap();
+        let before_lines = h.log().lines().len();
+
+        let free = h.can_build("Bed", at.x, at.y);
+        assert!(free.ok, "{free:?}");
+        assert!(free.reason.is_none(), "{free:?}");
+
+        let unknown = h.can_build("Not A Real Building", at.x, at.y);
+        assert!(!unknown.ok);
+        assert!(unknown.reason.unwrap().contains("Not A Real Building"));
+
+        let rows = fn_ui::build::picker_rows(&h.app().session);
+        let locked = rows.iter().find(|r| r.locked()).expect("a new game has a locked building");
+        let locked_view = h.can_build(&locked.name, at.x, at.y);
+        assert!(!locked_view.ok);
+        assert_eq!(locked_view.reason, locked.requires.clone());
+
+        // On a stockpile zone, the same way `World::check_build` refuses it for a real `build`
+        // step (`fn_ui::build::describe_blocker`'s own words).
+        let water = water_tile(&h);
+        let on_water = h.can_build("Bed", water.x, water.y);
+        assert!(!on_water.ok);
+        assert_eq!(on_water.reason.as_deref(), Some("on water"));
+
+        assert_eq!(serde_json::to_value(h.observe()).unwrap(), before_obs, "nothing changed");
+        assert_eq!(h.log().lines().len(), before_lines, "no line was written");
+    }
+
+    #[test]
+    fn can_build_off_the_map_is_refused_with_a_reason() {
+        let h = host(Nation::Earth);
+        let (w, hh) = h.app().session.map_size();
+        let view = h.can_build("Bed", w, hh);
+        assert!(!view.ok);
+        assert!(view.reason.unwrap().contains("isn't on the map"));
     }
 
     #[test]

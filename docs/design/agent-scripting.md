@@ -127,6 +127,7 @@ deterministically.
 | `observe()` | `Host::observe` | A map, the same JSON as the tool |
 | `look(x, y, w, h)` / `inspect(x, y)` / `screen(name)` | the same | Script reads don't draw attention ghosts (they would outline the whole map every turn) |
 | `cells(x, y, w, h)` | **new** `Host::cells` over `cell_look` | `[#{x, y, thing, ground, marks}]`, so scripts don't parse `look`'s strings. Added to the map-cell equality test |
+| `can_build(building, x, y)` | **new** `Host::can_build` over `fn_ui::build::placement_at` | `#{ok, reason}`: whether `building` could be designated with its anchor at `(x, y)`, the same check a `build` step's own confirm uses (#509). Read-only: presses no keys, changes nothing |
 | `act(steps, note)` | `Host::act` | Returns `#{ok, label, notices, error}`. It already closes open screens first, the job rs-sdk's `dismissBlockingUI` does |
 | `keys(script, note)` | `Host::press_keys` | The same refused keys apply |
 | `wait(turns)` | `Host::end_turn(1)`, repeated | Returns `#{turns, events}`. At least 1 turn, so nothing shorter than the turn grid. Checks wake rules after every turn |

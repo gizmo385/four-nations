@@ -41,8 +41,9 @@ pub fn list() -> Vec<Value> {
         json!({
             "name": "observe",
             "description": "Turn, clock, season, tool, notice, people, research, stores, \
-                             endeavor, the cursor's own tile and alerts since the last turn. \
-                             Free: changes nothing and takes no game time.",
+                             stockpile capacity (tiles designated, how many hold something, and \
+                             the per-tile cap), endeavor, the cursor's own tile and alerts since \
+                             the last turn. Free: changes nothing and takes no game time.",
             "inputSchema": empty,
         }),
         json!({
@@ -271,8 +272,8 @@ fn sdk_reference_tool() -> Value {
     json!({
         "name": "sdk_reference",
         "description": "The run_script SDK, in two layers: plumbing (observe, look, cells, \
-                         inspect, screen, act, keys, wait, events, wake, log -- the same calls \
-                         every run_script uses) and porcelain (prelude.rhai's own find, \
+                         inspect, screen, can_build, act, keys, wait, events, wake, log -- the \
+                         same calls every run_script uses) and porcelain (prelude.rhai's own find, \
                          designate_near, build_near, wait_until, stalled, store, idle and need, \
                          loaded before every script). Each plumbing entry is #{signature, doc}; \
                          each porcelain entry is #{name, params, doc}, doc straight from the \

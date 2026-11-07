@@ -66,7 +66,7 @@ fn sdk_reference_names_the_plumbing_and_porcelain_layers() {
     }
     let plumbing_signatures: Vec<&str> =
         plumbing.iter().map(|e| e["signature"].as_str().unwrap()).collect();
-    for want in ["observe()", "cells(_, _, _, _)", "act(_)", "wait(_)"] {
+    for want in ["observe()", "cells(_, _, _, _)", "can_build(_, _, _)", "act(_)", "wait(_)"] {
         assert!(
             plumbing_signatures.contains(&want),
             "{want:?} missing from {plumbing_signatures:?}"
