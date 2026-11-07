@@ -1,6 +1,6 @@
 ---
 name: implementer
-description: Implements one well-specified GitHub issue in the four-nations repo end to end (claim, code, scoped checks, commit on a local branch for the integrator; or the PR flow when asked) and reports back. Use for issues labelled `ready` in area:sim, area:data or area:tooling. Prompt with just the issue number plus any batch context (which other issues are running in parallel).
+description: Implements one well-specified GitHub issue in the four-nations repo end to end (claim, code, scoped checks, commit on a local branch for the integrator; or the PR flow when asked) and reports back. Use for any `ready` implementation issue: area:sim, area:client (TUI and fn_ui), area:data or area:tooling. Design issues go to the designer. Prompt with just the issue number plus any batch context (which other issues are running in parallel).
 tools: Bash, Read, Edit, Write
 model: sonnet
 effort: high

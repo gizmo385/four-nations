@@ -82,7 +82,7 @@ parallel"):
 
 | Agent | Model | Use for |
 |---|---|---|
-| `implementer` | Sonnet | `ready` code, data and tooling issues; in batch mode, through a local commit |
+| `implementer` | Sonnet | `ready` implementation issues of any area (sim, client, data, tooling); in batch mode, through a local commit |
 | `designer` | Opus | `area:design` issues: design doc plus follow-up issues; owner questions become `decision` issues |
 | `integrator` | Sonnet | Batch mode: merges finished branches into local `main`, re-blesses goldens, runs the gate once |
 | `pr-shepherd` | Haiku | Getting an existing PR merged: auto-merge, CI watch, trivial rebases |
