@@ -3,8 +3,13 @@
     "allow": [
       "Bash(gh pr merge *)",
       "Bash(gh pr update-branch *)",
-      "Bash(gh pr checks *)"
+      "Bash(gh pr checks *)",
+      "Bash(scripts/cleanup-merged.sh)",
+      "Bash(scripts/cleanup-merged.sh *)"
     ]
+  },
+  "attribution": {
+    "sessionUrl": false
   },
   "hooks": {
     "PreToolUse": [
