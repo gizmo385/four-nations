@@ -1,6 +1,6 @@
 # Script-driven agent play: an SDK and a trampoline
 
-Status: **draft** (#472). Owner decisions are pending: see "Open questions for the owner".
+Status: **accepted** (#472). The owner took every recommendation on 2026-11-06: see "Owner decisions".
 
 Agent playtests today go through `fn_agent serve` ([agent-play.md](agent-play.md)). The model
 makes every decision itself, one MCP round trip at a time. A ~2 game-year Opus run (seed 7,
@@ -408,23 +408,15 @@ In dependency order. Decisions gate the first item of each chain.
 - **The model writing scripts with its own shell and files.** That's how rs-sdk works, but it
   hands the agent `docs/`, `data/` and a way to run the seed ahead.
 
-## Open questions for the owner
+## Owner decisions
 
-1. **Parity and races.** *Recommended:* scripted play keeps parity by construction (the same
-   reads, keys and turn grid) with no action cap. Playtests may script freely. Race presets get
-   `scripts = true/false` (default false), and scripted runs rank in their own bracket. The
-   alternatives are letting playtest scripts read internals (superhuman, which stops testing the
-   UI and duplicates the balance harness), or capping keys per turn everywhere. Decision #474.
-2. **Script language.** *Recommended:* Rhai embedded in `fn_agent`, which gives a sandbox and
-   deterministic re-runs by construction and nothing to install. The alternative is TypeScript
-   under Deno with all permissions denied: models write it more fluently, but it needs an
-   external tool and stubbed clocks. Decision #473.
-3. **Scenario starts.** *Recommended:* data presets whose prelude is `autoplay::Economy` for N
-   game minutes. They're deterministic and follow the current balance. The alternatives are
-   curated save files, which pin an exact state but go stale, or a stock Rhai prelude, which is
-   visible in the watcher but has to be written first. Decision #475.
-4. **What a scripted playtest agent may read.** *Recommended:* in-game knowledge plus its own
-   notes and scripts, carried from run to run (a player's own experience), but not `docs/` or
-   `data/`. The alternative is a generated player's guide from `data/`, like runebench's wiki
-   folder: it makes agents competent faster and cheaper, but tests less of what the screens
-   teach. Decision #476.
+All four answered on 2026-11-06, each as recommended:
+
+1. **Parity and races** (#474): parity by construction everywhere, with no action cap.
+   Playtests may script freely. Race presets get `scripts = true/false` (default false), and
+   scripted runs rank in their own bracket.
+2. **Script language** (#473): Rhai, embedded in `fn_agent`.
+3. **Scenario starts** (#475): presets in `data/scenarios.toml` whose prelude runs
+   `autoplay::Economy` for N game minutes.
+4. **What a scripted playtest agent may read** (#476): in-game knowledge plus its own notes and
+   scripts, carried from run to run, but not `docs/` or `data/`.
