@@ -6,32 +6,32 @@
 │ Stage: not begun                                                                     ││ Research: none set       [T] │
 │                                                                                      ││ Gate 0/9 · 10 people     [G] │
 │ PEOPLE                                                                               │├─ HERE ──────────── (94, 64) ─┤
-│   Population                     ████░░░░░░      6/16                                ││ Bai                          │
+│   Population                           ████░░░░░░      6/16                          ││ Bai                          │
 │   Spare beds and food draw newcomers                                                 ││ Idle                         │
-│   Everyone has a bed             ░░░░░░░░░░       0/6                                ││ Press Enter to select        │
+│   Everyone has a bed                   ░░░░░░░░░░       0/6                          ││ Press Enter to select        │
 │   Build beds                                                                         ││                              │
 │                                                                                      ││                              │
 │ BUILDINGS                                                                            ││                              │
-│   One of every building          ░░░░░░░░░░      0/10                                ││                              │
+│   One of every building                ░░░░░░░░░░      0/10                          ││                              │
 │   Raise something new                                                                ││                              │
 │                                                                                      ││                              │
 │ KNOWLEDGE                                                                            ││                              │
-│   Earth Kingdom branch           ░░░░░░░░░░       0/6                                ││                              │
+│   Earth Kingdom branch                 ░░░░░░░░░░       0/6                          ││                              │
 │   Research your branch                                                               ││                              │
 │                                                                                      ││                              │
 │ STORES AND HARVESTS                                                                  ││                              │
-│   Food in stores                 ░░░░░░░░░░     0/150                                ││                              │
+│   Food in stores                       ░░░░░░░░░░     0/150                          ││                              │
 │   Stockpile food                                                                     ││                              │
-│   Stone in stores                ░░░░░░░░░░     0/200                                ││                              │
+│   Stone in stores                      ░░░░░░░░░░     0/200                          ││                              │
 │   Quarry outcrops and foothill boulders (bricks count)                               ││                              │
-│   Ore mined                      ░░░░░░░░░░      0/40                                ││                              │
+│   Ore mined                            ░░░░░░░░░░      0/40                          ││                              │
 │   Mine gold veins ($); tunnels yield more                                            ││                              │
 │                                                                                      ││                              │
 │ BENDING                                                                              ││                              │
-│   Bending masters (8 bends each) ░░░░░░░░░░       0/3                                ││                              │
-│   Closest: Bai 0/8, Ping 0/8, Fen 0/8                                                ││                              │
+│   Bending masters (8 bends in 3 forms) ░░░░░░░░░░       0/3                          ││                              │
+│   Closest: Bai 0/8b 0/3f, Ping 0/8b 0/3f, Fen 0/8b 0/3f                              ││                              │
 │   Designate a bend (B) on a tile a bender can work - credit to whoever channels it   ││                              │
-│   Ancient scrolls read           ░░░░░░░░░░       0/3                                ││                              │
+│   Ancient scrolls read                 ░░░░░░░░░░       0/3                          ││                              │
 │   Ancient Scroll - 44 tiles south-east - not marked                                  ││                              │
 │   Ancient Scroll - 46 tiles north-west - not marked                                  ││                              │
 │   Ancient Scroll - 47 tiles north-east - not marked                                  ││                              │

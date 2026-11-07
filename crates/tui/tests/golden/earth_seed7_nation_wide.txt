@@ -1,16 +1,16 @@
 ┏─────────────────────────────────────────────────────────────────────────── ◆ NATION ◆ ───────────────────────────────────────────────────────────────────────────┓┏─────── ◆ EARTH KINGDOM ◆ ────────┓
 │ Earth Kingdom · seed 7 · 6 people                                                                                                                          22:40 ││ ▶ Running x1               22:40 │
 │                                                                                                                                                                  │├─ SETTLEMENT ─────────────── [N] ─┤
-│                                                        Hunger  Thirst  Energy  Health  Chi     Bends                                                             ││ People 6                  Idle 3 │
+│                                                        Hunger  Thirst  Energy  Health  Chi     Bends   Forms                                                     ││ People 6                  Idle 3 │
 │ IDLE 3                                                                                                                                                           ││ Hungry 1                         │
-│ ▸ Bai  Idle: stockpile full                            ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                               ││ Food 3 · 0/head                  │
-│   Fen  Idle: stockpile full                            ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                               ││ Wood 20                          │
-│   Shan Idle: stockpile full                            ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                               ││ Research: none set           [T] │
+│ ▸ Bai  Idle: stockpile full                            ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8     0/3                                                       ││ Food 3 · 0/head                  │
+│   Fen  Idle: stockpile full                            ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8     0/3                                                       ││ Wood 20                          │
+│   Shan Idle: stockpile full                            ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8     0/3                                                       ││ Research: none set           [T] │
 │ HAUL 2                                                                                                                                                           ││ Gate 0/9 · 10 people         [G] │
-│   Ping Fetching 1 Fruit from (81, 59)                  ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                               │├─ ALERTS ─────────────────── [L] ─┤
-│   Oma  Fetching 1 Fruit from (86, 64)                  ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                               ││ 28 wood can't be stored: every…  │
+│   Ping Fetching 1 Fruit from (81, 59)                  ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8     0/3                                                       │├─ ALERTS ─────────────────── [L] ─┤
+│   Oma  Fetching 1 Fruit from (86, 64)                  ▰▰▰▱▱   ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8     0/3                                                       ││ 28 wood can't be stored: every…  │
 │ EAT 1                                                                                                                                                            ││ Chi to spare, no bend designate… │
-│   Hong Foraging at (85, 64)                            ▰▰▱▱▱!  ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8                                                               │├─ HERE ──────────────── (94, 64) ─┤
+│   Hong Foraging at (85, 64)                            ▰▰▱▱▱!  ▰▰▰▱▱   ▰▰▱▱▱   ▰▰▰▰▰   ▰▰▰▰▰   0/8     0/3                                                       │├─ HERE ──────────────── (94, 64) ─┤
 │                                                                                                                                                                  ││ Coast                            │
 │                                                                                                                                                                  ││ Plains (94, 64)                  │
 │                                                                                                                                                                  ││ Elevation 152                    │

@@ -30,11 +30,11 @@ FFFF"FFFFF""FF"""""Y"FFF",,,,,,^^00,,.~~~~~~~~~~~~~~~~~~~.,c,.~~~~~.FFF"F""""""Y
 ~~~~~~~~~~~~~~~~~.YFF"F,T,T,,,,..~..T,..~~~~~~~~~~~~~..,,,..f..,..~..,,FFFFF"==F"FFFFFFF|                              |
 ~~~~~~~~~~~~~~~~~......,,,,,,Y,.~~~..,.~~~~~~~~~~~~~..,,,..~~.,,T..~.","TTFFFFFf==FFF===|                              |
 ~~~~~~~~~~~~~~~~~~~~~~....,,,,,.~~~~.,.~~~~~~~~~~~~~.,,,,.~...,,,,..="""F,,F"FFFFF===F".|                              |
-+- Bai - Earth Kingdom ----------------------------------------------------------------+|                              |
++- Bai - Earth Kingdom - Student ------------------------------------------------------+|                              |
 | Idle                                                         Health ########## 100%  ||                              |
 | Carrying: nothing                                            Hunger ########## 100%  ||                              |
 | At (94, 64)                                                  Thirst ########## 100%  ||                              |
-| Bends 0 of 8 to master                                       Energy ########## 100%  ||                              |
+| Student: 0 of 4 bends, 0 of 2 forms to adept                 Energy ########## 100%  ||                              |
 | [Esc] close  [Tab] next  [F] follow                          Chi    ########## 100%  ||                              |
 +--------------------------------------------------------------------------------------++- seed 7 ---------------------+
  SELECT  Enter next here  Tab/Shift+Tab units  F follow  Esc close  H X P B U tools  Space pause  L log  ? keys
