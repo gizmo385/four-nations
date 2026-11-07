@@ -400,6 +400,34 @@ fn a_fishing_dock_is_refused_on_open_land_and_a_temporary_ford_but_accepted_besi
     );
 }
 
+/// Issue #200: the Tide Mill has the same `beside` rule as the Fishing Dock, so it's refused
+/// on open land and accepted on the bank.
+#[test]
+fn a_tide_mill_is_refused_on_open_land_and_accepted_beside_water() {
+    let rows = [
+        "............",
+        "............",
+        "..~.........",
+        "............",
+        "............",
+        "............",
+        "............",
+    ];
+    let (w, mut defs) = setup(&rows, &[]);
+    let mill = defs.building_id("tide_mill").unwrap();
+    defs.buildings[mill.0 as usize].unlocked_by = None;
+
+    // Anchored at (0, 1): the footprint covers (0,1)-(1,2), and the sea tile at (2, 2) touches
+    // its ring (corners included).
+    assert_eq!(w.check_build(at(0, 1), mill, &defs), Ok(()));
+
+    // Anchored well away from the water: open land, refused for what it doesn't touch.
+    assert_eq!(
+        w.check_build(at(5, 4), mill, &defs),
+        Err(BuildError::CannotBuild { at: at(5, 4), why: Blocker::Beside("water") })
+    );
+}
+
 #[test]
 fn placement_checks_report_the_first_blocked_tile_row_major() {
     let rows = ["..........", "...~T.....", "...T~.....", ".........."];

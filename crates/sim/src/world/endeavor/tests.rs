@@ -191,11 +191,12 @@ fn every_building_targets_are_computed_per_nation() {
         .collect();
     // Today's numbers (`docs/design/materials.md` section 6, raised by the shared Workshop
     // (#369), Map Room (#402) and Herb Garden (#390), the Mine Shaft and Deep Mine for Earth
-    // (#373), and the Healing Hut and Fishing Dock for Water (#375, #374)): Air 11, Water 11,
-    // Earth 11 and Fire 12 reachable, minus the bundled sign's `spare = 1`.
+    // (#373), the Healing Hut and Fishing Dock for Water (#375, #374), and the Tide Mill for
+    // Water (#200)): Air 11, Water 12, Earth 11 and Fire 12 reachable, minus the bundled sign's
+    // `spare = 1`.
     assert_eq!(
         targets,
-        [(Nation::Air, 10), (Nation::Water, 10), (Nation::Earth, 10), (Nation::Fire, 11)]
+        [(Nation::Air, 10), (Nation::Water, 11), (Nation::Earth, 10), (Nation::Fire, 11)]
     );
 }
 

@@ -82,7 +82,7 @@
 #             way `heat`'s is by `heating` -- rounded, at least 1 tile -- and measured the same
 #             way, Chebyshev from every tile of the source's footprint. Two sources in reach of
 #             one consumer don't stack; the best `boost` applies. Which buildings are sources is
-#             #255 (Fire), #204 (Air) and #200 (Water); none are data yet.
+#             #255 (Fire), #204 (Air) and #200 (Water, `tide_mill`).
 # - uses_power: this building's recipe batches or study seats run at the best `boost` of any
 #             power source in reach of any tile of its own footprint, else at their plain rate.
 #             Set on `workshop`, `forge`, `brick_kiln`, `smelter`, `mine_shaft`, `deep_mine` and
@@ -703,4 +703,31 @@ reap_seconds = 6.0
 crop_growth = 1.0
 [[building.cost]]
 item = "wood"
+count = 2
+
+# --- Water: power (issue #200) ---
+# Unlocked by `tide_mills`: Water's first power source (docs/design/power.md, "The track, per
+# nation"), built on the bank the same way the Fishing Dock is (`beside`, #373). A reach of 4
+# tiles at Water's 1.0 `power_generation`, 5 once `tide_mills` raises it to 1.25 -- the same 5
+# every nation's first source reaches. Cost and work sit between the Fishing Dock (12 wood, 2
+# tools, 70 s) and the Healing Hut (10 wood, 4 stone, 1 tool, 60 s); #432 balances it further.
+[[building]]
+id = "tide_mill"
+name = "Tide Mill"
+verb = "Build"
+work = 100.0
+passable = false
+footprint = [2, 2]
+beside = ["water", "river", "lake"]
+[building.power]
+radius = 4
+boost = 1.5
+[[building.cost]]
+item = "wood"
+count = 14
+[[building.cost]]
+item = "stone"
+count = 6
+[[building.cost]]
+item = "tool"
 count = 2

@@ -429,11 +429,11 @@ Power (the steam engine, lightning station, a grid) is out of scope: #255.
 | `irrigation` | 60 | farming | irrigation channel (farm plots within reach grow faster, #126); water_work ×1.15 |
 | `ice_construction` | 120 | shelter | igloo (a cheap bed with better sleep; wood until there is an ice item); ice blocks as a material later |
 | `healing` | 120 | herbalism | Healing Hut (hurt settlers rest and mend, #375); healer job and ability: healing water still wait on #358 |
-| `tide_mills` | 250 | irrigation | push-and-pull tide mill on the coast (waits on a power system, #127); power_generation ×1.25 |
+| `tide_mills` | 250 | irrigation | Tide Mill (a power source built on the bank, #200); power_generation ×1.25 |
 | `water_travel` | 250 | fishing, ice_construction | canoes and ice skiffs; units can cross water tiles (#127) |
 | `spirit_oasis` | 500 | healing, tide_mills | spirit oasis (chi and mood regeneration, #127); water_work ×1.25 |
 
-`ice_construction` (#27) and `irrigation` (#126) unlock a concrete def so far; the rest stay
+`ice_construction` (#27), `irrigation` (#126) and `tide_mills` (#200) unlock a concrete def so far; the rest stay
 modifier-only or empty until the issues above add the mechanics they need. A headless playtest
 (`crates/sim/tests/research_water.rs`) following the pacing assumptions above researches the whole
 Water tree (2440 points, up from 2190 since #383 added the shared `prospecting` tech) in about

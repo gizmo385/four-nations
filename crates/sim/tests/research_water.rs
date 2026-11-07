@@ -10,10 +10,8 @@ const MINUTE: u64 = 600; // ticks
 
 /// Every Water branch tech either unlocks a concrete building, job or ability, or is listed
 /// here with the reason it doesn't. A tech that gains an unlock must leave this list.
-const NO_CONCRETE_UNLOCK: &[(&str, &str)] = &[
-    ("tide_mills", "modifier-only: no power or mill system yet (#127)"),
-    ("spirit_oasis", "modifier-only: needs chi and mood regeneration (#127)"),
-];
+const NO_CONCRETE_UNLOCK: &[(&str, &str)] =
+    &[("spirit_oasis", "modifier-only: needs chi and mood regeneration (#127)")];
 
 #[test]
 fn every_water_branch_tech_unlocks_something_or_says_why_not() {
@@ -94,6 +92,17 @@ fn water_travel_unlocks_the_fishing_dock() {
     let water_travel = defs.tech_id("water_travel").unwrap();
     assert_eq!(defs.building(dock).unlocked_by, Some(water_travel));
     assert!(defs.building(dock).orchard.is_some(), "the dock plants fish spots");
+}
+
+/// The Tide Mill (issue #200, docs/design/power.md): Water's first power source, built on the
+/// bank the same way the Fishing Dock is.
+#[test]
+fn tide_mills_unlocks_the_tide_mill() {
+    let defs = Defs::bundled();
+    let mill = defs.building_id("tide_mill").expect("tide_mill is data");
+    let tide_mills = defs.tech_id("tide_mills").unwrap();
+    assert_eq!(defs.building(mill).unlocked_by, Some(tide_mills));
+    assert!(defs.building(mill).power.is_some(), "the mill is a power source");
 }
 
 /// Plays the design doc's pacing assumptions for one settlement without the world around it: the

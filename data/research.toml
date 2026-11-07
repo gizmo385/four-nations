@@ -369,8 +369,10 @@ description = "Push and pull the tide to turn coastal mills."
 nation = "water"
 cost = 250
 prereqs = ["irrigation"]
-# Modifier-only for now: there is no power or mill system for a tide mill (issue #127).
+# The Tide Mill (issue #200, docs/design/power.md): Water's first power source, built on the
+# bank. Also raises `power_generation` to 1.25, which widens the mill's own reach to 5 tiles.
 [tech.unlocks]
+buildings = ["tide_mill"]
 modifiers = { power_generation = 1.25 }
 
 [[tech]]

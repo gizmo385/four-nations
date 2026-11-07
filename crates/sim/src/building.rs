@@ -1350,8 +1350,8 @@ mod tests {
             let def = defs.building(defs.building_id(id).unwrap());
             assert!(def.uses_power, "{id} should run faster when powered");
         }
-        // Fire's two sources (#255, docs/design/late-tree.md, "Power"); Air's and Water's are
-        // out of scope here (#204, #200).
+        // Fire's two sources (#255, docs/design/late-tree.md, "Power"); Air's is out of scope
+        // here (#204). Water's Tide Mill (#200) is checked below.
         let steam_engine = defs.building(defs.building_id("steam_engine").unwrap());
         let power = steam_engine.power.expect("the Steam Engine is a power source");
         assert_eq!((power.radius, power.boost_millis), (3, 1500));
@@ -1360,7 +1360,18 @@ mod tests {
         let power = lightning_station.power.expect("the Lightning Station is a power source");
         assert_eq!((power.radius, power.boost_millis), (4, 2000));
 
-        assert_eq!(defs.buildings.iter().filter(|b| b.power.is_some()).count(), 2);
+        assert_eq!(defs.buildings.iter().filter(|b| b.power.is_some()).count(), 3);
+    }
+
+    #[test]
+    fn the_tide_mill_is_waters_power_source_and_must_touch_water() {
+        let defs = Defs::bundled();
+        let tide_mill = defs.building(defs.building_id("tide_mill").unwrap());
+        let power = tide_mill.power.expect("the Tide Mill is a power source");
+        assert_eq!((power.radius, power.boost_millis), (4, 1500));
+        assert_eq!(tide_mill.beside_word(), Some("water"));
+        let tide_mills = defs.tech_id("tide_mills").unwrap();
+        assert_eq!(tide_mill.unlocked_by, Some(tide_mills));
     }
 
     #[test]

@@ -1016,10 +1016,11 @@ mod tests {
         );
     }
 
-    /// The bundled data's reachable count, per nation, before `spare` (today: Air 11, Water 11,
+    /// The bundled data's reachable count, per nation, before `spare` (today: Air 11, Water 12,
     /// Earth 11, Fire 12; `docs/design/materials.md` section 6, raised by the shared Workshop
     /// (#369) and Map Room (#402), the Mine Shaft and Deep Mine for Earth (#373), the Healing
-    /// Hut and Fishing Dock for Water (#375, #374), and the shared Herb Garden (#390)).
+    /// Hut and Fishing Dock for Water (#375, #374), the shared Herb Garden (#390), and the Tide
+    /// Mill for Water (#200)).
     fn reachable_counts() -> [(Nation, u32); 4] {
         let defs = Defs::bundled();
         Nation::ALL
@@ -1040,7 +1041,7 @@ mod tests {
         // Today's bundled counts, so a content change that moves these is visible in review.
         assert_eq!(
             reachable_counts(),
-            [(Nation::Air, 11), (Nation::Water, 11), (Nation::Earth, 11), (Nation::Fire, 12)]
+            [(Nation::Air, 11), (Nation::Water, 12), (Nation::Earth, 11), (Nation::Fire, 12)]
         );
     }
 

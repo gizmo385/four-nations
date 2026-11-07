@@ -425,6 +425,52 @@ fn a_powered_workshop_finishes_a_batch_faster_by_exactly_its_boost() {
     assert!((gap - expected_gap).abs() <= 2.0, "gap {gap}, expected close to {expected_gap}");
 }
 
+/// A finished Tide Mill (issue #200) in reach of a Workshop boosts its crafting by exactly the
+/// mill's 1.5x `boost`, the same mechanism `a_powered_workshop_finishes_a_batch_faster_by_
+/// exactly_its_boost` checks with a test-only source, now exercised through real data.
+#[test]
+fn a_tide_mill_speeds_up_a_workshop_in_its_reach_by_its_own_boost() {
+    let run = |with_mill: bool| {
+        let defs = Defs::bundled();
+        let anchor = at(4, 4);
+        let mut w = World::with_map(1, arena(&grid()), Nation::Water, &[at(1, 1)], &defs);
+        let workshop = defs.building_id("workshop").unwrap();
+        place_building(&mut w, &defs, workshop, anchor);
+        let recipe = defs.building(workshop).recipe.clone().unwrap();
+        for (n, input) in recipe.inputs.iter().enumerate() {
+            let zone = at(n as i32, 0);
+            w.designate_stockpile(zone).unwrap();
+            w.stored.insert(zone, Stack { item: input.item, count: input.count * 3 });
+        }
+        if with_mill {
+            let mill = defs.building_id("tide_mill").unwrap();
+            place_building(&mut w, &defs, mill, at(8, 8));
+            w.open_power_source(at(8, 8));
+        }
+        let ticks = run_until(&mut w, &defs, 6000, |w| {
+            w.ground_items().any(|(_, s)| s.item == recipe.output.item)
+        });
+        (ticks, recipe.work)
+    };
+
+    let (unpowered_ticks, work) = run(false);
+    let (powered_ticks, _) = run(true);
+
+    assert!(powered_ticks < unpowered_ticks, "the powered run finishes sooner");
+    let boost = defs_bundled_tide_mill_boost();
+    let expected_gap = (work - work / boost) * TICKS_PER_SECOND as f32;
+    let gap = (unpowered_ticks - powered_ticks) as f32;
+    assert!((gap - expected_gap).abs() <= 2.0, "gap {gap}, expected close to {expected_gap}");
+}
+
+/// The Tide Mill's `boost`, read from data instead of hard-coded, so this test keeps working if
+/// #432's balance pass changes it.
+fn defs_bundled_tide_mill_boost() -> f32 {
+    let defs = Defs::bundled();
+    let mill = defs.building_id("tide_mill").unwrap();
+    defs.building(mill).power.unwrap().boost
+}
+
 /// A plain grid of land, big enough for a 2x2 building and a stockpile tile.
 fn grid() -> [&'static str; 10] {
     [

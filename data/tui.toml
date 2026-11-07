@@ -328,6 +328,12 @@ glyph = "♆"
 ascii = "d"
 fg = [90, 170, 215]
 
+# The Tide Mill (#200): Water's power source, built on the bank.
+[building.tide_mill]
+glyph = "⚙"
+ascii = "M"
+fg = [140, 190, 220]
+
 # --- The endeavor (#236, #242) ---
 [building.harmony_gate]
 glyph = "⛩"
