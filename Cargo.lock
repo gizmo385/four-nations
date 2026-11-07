@@ -452,6 +452,7 @@ dependencies = [
  "rhai",
  "serde",
  "serde_json",
+ "signal-hook",
  "toml",
 ]
 

@@ -2,7 +2,7 @@
 //! (`fn_agent::...`) for the protocol and the sandboxing recipe.
 
 use std::io::{BufReader, Write, stdin, stdout};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use fn_agent::runlog::Writer;
@@ -11,6 +11,8 @@ use fn_agent::server;
 use fn_agent::tools::Tools;
 use fn_tui::surface::{DEFAULT_TURN_SECONDS, Host, LogLine, RunLogHeader};
 use fn_tui::{scenario, watch};
+use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
+use signal_hook::iterator::Signals;
 
 const USAGE: &str = "\
 usage: fn_agent serve --seed N --nation X [--start default|X,Y] [--difficulty ID]
@@ -161,7 +163,7 @@ fn serve_fresh(a: &ServeArgs) -> Result<(), String> {
     let host = host.with_turn_seconds(a.turn_seconds.unwrap_or(DEFAULT_TURN_SECONDS));
     let writer = Writer::create(Path::new(log)).map_err(|e| e.to_string())?;
     let tools = with_scripts(Tools::new(host, writer)?, a);
-    run_tools(tools)
+    run_tools(tools, Path::new(log))
 }
 
 /// Turns `run_script` on when `--scripts` was given (`Tools::with_scripts`), with the limits
@@ -192,7 +194,7 @@ fn serve_resume(a: &ServeArgs, path: &str) -> Result<(), String> {
     let writer =
         Writer::recreate_with(Path::new(path), &header, &kept).map_err(|e| e.to_string())?;
     let tools = with_scripts(Tools::resume(host, writer, &kept), a);
-    run_tools(tools)
+    run_tools(tools, Path::new(path))
 }
 
 /// Refuses `a` if any of `--seed`, `--nation`, `--difficulty`, `--turn` or `--start` it was
@@ -237,11 +239,70 @@ fn check_resume_args(header: &RunLogHeader, a: &ServeArgs) -> Result<(), String>
     Ok(())
 }
 
-fn run_tools<W: Write>(mut tools: Tools<W>) -> Result<(), String> {
+fn run_tools<W: Write>(mut tools: Tools<W>, log_path: &Path) -> Result<(), String> {
+    install_signal_end_handler(log_path.to_path_buf());
     let input = BufReader::new(stdin());
     let reason = server::serve(input, stdout(), &mut tools);
     tools.end(&reason)?;
     Ok(())
+}
+
+/// #329: Claude Code (and anything else driving `fn_agent serve` as an MCP server) stops it with
+/// a signal rather than closing stdin, so [`server::serve`]'s own loop -- blocked reading the
+/// next request -- never gets a chance to return and let [`run_tools`] write the run log's `end`
+/// line itself. This spawns a background thread that waits for SIGTERM, SIGINT or SIGHUP and,
+/// the moment one arrives, writes that line to `log_path` directly ([`write_end_for_signal`])
+/// and exits the whole process (there is nothing left worth returning to: the main thread is
+/// stuck in a blocking read that a signal alone won't interrupt). `scripts/agent-run.sh`'s own
+/// `finish_log` fallback (b134fc7) stays for a log an older build left without one, or one this
+/// handler couldn't flush in time, but normally has nothing left to do once this fires first.
+///
+/// Best-effort: if the signal handler itself can't be installed (an unsupported platform, say),
+/// this does nothing and `fn_agent serve` behaves exactly as it did before #329 -- the shell
+/// fallback is still there.
+fn install_signal_end_handler(log_path: PathBuf) {
+    let Ok(mut signals) = Signals::new([SIGTERM, SIGINT, SIGHUP]) else { return };
+    std::thread::spawn(move || {
+        if let Some(signal) = signals.forever().next() {
+            let _ = write_end_for_signal(&log_path, &signal_name(signal));
+            std::process::exit(128 + signal);
+        }
+    });
+}
+
+/// SIGTERM, SIGINT or SIGHUP's own name, for the run log's `end` line (`write_end_for_signal`)
+/// -- the three [`install_signal_end_handler`] watches for; anything else (not reachable through
+/// it today) falls back to the raw number.
+fn signal_name(signal: i32) -> String {
+    match signal {
+        SIGTERM => "SIGTERM".to_owned(),
+        SIGINT => "SIGINT".to_owned(),
+        SIGHUP => "SIGHUP".to_owned(),
+        other => format!("signal {other}"),
+    }
+}
+
+/// Appends `log_path`'s own `end` line (#327's shape) naming `signal`, with the world's own
+/// tick as of the last `turn` line already in the log (0 if there isn't one yet) -- the same
+/// tick `scripts/agent-run.sh`'s `finish_log` fallback computes, since neither it nor this can
+/// reach the live `Host` a signal interrupted mid-read. Does nothing if `log_path` already ends
+/// with an `end` line (a race with `run_tools`'s own clean shutdown, or a second signal), so a
+/// run never ends up with two.
+fn write_end_for_signal(log_path: &Path, signal: &str) -> Result<(), String> {
+    let (_, lines) = watch::read_file(log_path)?;
+    if matches!(lines.last(), Some(LogLine::End { .. })) {
+        return Ok(());
+    }
+    let tick = lines
+        .iter()
+        .rev()
+        .find_map(|l| match l {
+            LogLine::Turn { tick, .. } => Some(*tick),
+            _ => None,
+        })
+        .unwrap_or(0);
+    let mut writer = Writer::append(log_path).map_err(|e| e.to_string())?;
+    writer.write_end(tick, &format!("stopped by {signal}")).map_err(|e| e.to_string())
 }
 
 /// Prints the run at `LOG` as a full `fn_tui` command line: reads the same
@@ -424,5 +485,87 @@ mod tests {
             Err(e) => e,
         };
         assert!(err.contains("--log") && err.contains("--resume"), "{err}");
+    }
+
+    /// #329's own mapping from a signal `install_signal_end_handler` watches for to the name
+    /// `write_end_for_signal` writes into the log's `end` line.
+    #[test]
+    fn signal_name_names_the_three_signals_the_handler_watches_for() {
+        assert_eq!(signal_name(SIGTERM), "SIGTERM");
+        assert_eq!(signal_name(SIGINT), "SIGINT");
+        assert_eq!(signal_name(SIGHUP), "SIGHUP");
+    }
+
+    /// A unique scratch path per test (shared with `runlog`'s own tests' pattern), so parallel
+    /// tests in this module don't race on the same file.
+    fn scratch_log(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "fn_agent_main_test_{}_{}.jsonl",
+            std::process::id(),
+            name
+        ))
+    }
+
+    /// `write_end_for_signal` (the handler's own logic, #329's acceptance criteria: a test may
+    /// drive this directly rather than an actual signal) appends an `end` line naming the
+    /// signal, with the tick of the last `turn` line already in the log.
+    #[test]
+    fn write_end_for_signal_appends_an_end_line_naming_the_signal_and_the_last_turn() {
+        let path = scratch_log("writes_end");
+        let mut w = Writer::create(&path).unwrap();
+        w.write_header(&header()).unwrap();
+        w.write_line(&LogLine::Turn { index: 1, tick: 200 }).unwrap();
+        w.write_line(&LogLine::Turn { index: 2, tick: 400 }).unwrap();
+        drop(w);
+
+        write_end_for_signal(&path, "SIGTERM").unwrap();
+
+        let (_, lines) = watch::read_file(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(
+            lines.last(),
+            Some(&LogLine::End { tick: 400, reason: "stopped by SIGTERM".to_owned() })
+        );
+    }
+
+    /// A log with no `turn` line yet gets `tick: 0` -- the same default
+    /// `scripts/agent-run.sh`'s `finish_log` fallback uses.
+    #[test]
+    fn write_end_for_signal_defaults_to_tick_zero_with_no_turn_yet() {
+        let path = scratch_log("no_turns_yet");
+        let mut w = Writer::create(&path).unwrap();
+        w.write_header(&header()).unwrap();
+        drop(w);
+
+        write_end_for_signal(&path, "SIGINT").unwrap();
+
+        let (_, lines) = watch::read_file(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(
+            lines.last(),
+            Some(&LogLine::End { tick: 0, reason: "stopped by SIGINT".to_owned() })
+        );
+    }
+
+    /// A log that already ends with an `end` line (a race with `run_tools`'s own clean
+    /// shutdown, or a second signal) is left alone: never two `end` lines.
+    #[test]
+    fn write_end_for_signal_does_nothing_if_the_log_already_ended() {
+        let path = scratch_log("already_ended");
+        let mut w = Writer::create(&path).unwrap();
+        w.write_header(&header()).unwrap();
+        w.write_line(&LogLine::Turn { index: 1, tick: 200 }).unwrap();
+        w.write_end(200, "stdin closed").unwrap();
+        drop(w);
+
+        write_end_for_signal(&path, "SIGHUP").unwrap();
+
+        let (_, lines) = watch::read_file(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert_eq!(
+            lines.last(),
+            Some(&LogLine::End { tick: 200, reason: "stdin closed".to_owned() })
+        );
     }
 }

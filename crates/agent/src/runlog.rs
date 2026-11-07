@@ -56,6 +56,14 @@ impl Writer<BufWriter<File>> {
         Ok(Self::new(BufWriter::new(File::create(path)?)))
     }
 
+    /// Opens `path` for appending, writing nothing new to it (#329): the signal handler's own
+    /// way of adding one last `End` line to a log a live session is already writing, without
+    /// going through that session's own `Writer` (which the signal arrived in the middle of a
+    /// blocking stdin read, not holding onto).
+    pub fn append(path: &Path) -> io::Result<Self> {
+        Ok(Self::new(BufWriter::new(std::fs::OpenOptions::new().append(true).open(path)?)))
+    }
+
     /// Recreates `path` (truncating whatever was there) and writes `header` then every one of
     /// `lines`, in order: `fn_agent serve --resume`'s own way of dropping a finished run's `end`
     /// line (#327, #341) before it keeps appending to the same file, so a watcher or `fn_agent
@@ -135,6 +143,36 @@ mod tests {
                 LogLine::Header(header()),
                 LogLine::Turn { index: 1, tick: 200 },
                 LogLine::Turn { index: 2, tick: 400 },
+            ]
+        );
+    }
+
+    /// `append` adds to whatever's already on disk rather than truncating it (#329): the
+    /// signal handler's own way of adding one `end` line to a log a live session has already
+    /// written to, without disturbing anything that's there.
+    #[test]
+    fn append_adds_to_what_is_already_on_disk() {
+        let path = std::env::temp_dir()
+            .join(format!("fn_agent_runlog_append_test_{}.jsonl", std::process::id()));
+        {
+            let mut w = Writer::create(&path).unwrap();
+            w.write_header(&header()).unwrap();
+            w.write_line(&LogLine::Turn { index: 1, tick: 200 }).unwrap();
+        }
+        {
+            let mut w = Writer::append(&path).unwrap();
+            w.write_end(200, "stopped by SIGTERM").unwrap();
+        }
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        let lines: Vec<LogLine> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        assert_eq!(
+            lines,
+            vec![
+                LogLine::Header(header()),
+                LogLine::Turn { index: 1, tick: 200 },
+                LogLine::End { tick: 200, reason: "stopped by SIGTERM".to_owned() },
             ]
         );
     }
