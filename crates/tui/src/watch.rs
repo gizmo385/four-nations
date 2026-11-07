@@ -33,6 +33,7 @@ use crate::keys;
 use crate::layout;
 use crate::shell::{Mode, Shell};
 use crate::state::UiState;
+use crate::studio::CodePane;
 use crate::surface::{LogLine, RunLogHeader};
 
 /// Keys a second at pace x1: about a readable rate (docs/design/agent-play.md, "Watching": "the
@@ -232,6 +233,11 @@ pub struct Watcher {
     /// [`Self::turn`] when the current (or most recent) script run's `Script` line landed, so
     /// its `Wake` line can report how many turns it actually ran.
     script_turn_start: u32,
+    /// The agent studio's code pane (#499, docs/design/agent-studio.md): which revision of which
+    /// script is shown, fed and advanced alongside the replay. Drawn only at `[studio] min_width`
+    /// x `min_height` or above (`Self::render`); kept, and fed, regardless of size, so resizing
+    /// into the studio mid-replay shows the right revision right away.
+    code_pane: CodePane,
 }
 
 /// What the agent strip shows for a script run in progress or just woken, between the clock and
@@ -322,11 +328,15 @@ impl Watcher {
             follow: true,
             script_strip: None,
             script_turn_start: 0,
+            code_pane: CodePane::new(),
         })
     }
 
-    /// Queues more of the log to replay, oldest first.
+    /// Queues more of the log to replay, oldest first. The code pane scans every `Script` line
+    /// right away, whether or not it's been replayed yet (`CodePane::feed`'s own doc comment).
     pub fn feed(&mut self, events: impl IntoIterator<Item = LogLine>) {
+        let events: Vec<LogLine> = events.into_iter().collect();
+        self.code_pane.feed(&events);
         self.pending.extend(events);
     }
 
@@ -431,6 +441,15 @@ impl Watcher {
         if crate::spectate::key(&mut self.spectator, session, key) {
             self.follow = false;
         }
+    }
+
+    /// The agent studio's own keys (#499, docs/design/agent-studio.md "Keys"): right now just
+    /// `j`/`k`/`J`/`K`, scrolling the code pane. `true` if `key` was one of them, so both
+    /// `watch::run`'s own loop and the `--watch --frame --keys` path try it before the watcher's
+    /// own controls and free look -- "watcher keys win over free look" -- and can be
+    /// golden-tested without a terminal either way.
+    pub fn key(&mut self, key: KeyEvent) -> bool {
+        self.code_pane.key(key)
     }
 
     /// `V` (the Follow/Free toggle) or [`Self::spectator_key`]: the one entry point for every
@@ -619,7 +638,10 @@ impl Watcher {
             // #482: a run's own start -- `turns == 0` is `save_script`'s own "never run" marker
             // (`fn_agent::tools::Tools`'s own doc comment on its `"save_script"` dispatch arm),
             // which no `Wake` line will ever follow, so it leaves no strip or message either.
-            LogLine::Script { name, version, turns, .. } => {
+            LogLine::Script { name, version, code, turns, .. } => {
+                // #499: the code pane follows every `Script` line, saved-only ones (`turns: 0`)
+                // included, whether or not it ends up shown (`CodePane::on_script`'s own rule).
+                self.code_pane.on_script(&name, version, &code, turns);
                 if turns > 0 {
                     self.script_turn_start = self.turn;
                     let strip = ScriptStrip::Running { name, version };
@@ -632,6 +654,7 @@ impl Watcher {
             // own `wake(msg)`) when there is one, `reason` ("budget", "done", ...) otherwise.
             LogLine::Wake { reason, why, .. } => {
                 let turns_run = self.turn.saturating_sub(self.script_turn_start);
+                self.code_pane.on_wake(turns_run); // #499
                 let detail = why.unwrap_or(reason);
                 let tick = self.app().session.world.tick;
                 self.push_agent(
@@ -711,13 +734,42 @@ impl Watcher {
     // Drawing
     // --------------------------------------------------------------------------------------
 
-    /// The frame for this watcher's session, with the agent strip over the bottom status row
-    /// instead of the key hints, and an attention ghost outlined over the map, if one is live
+    /// The frame for this watcher's session: today's whole frame below `[studio] min_width` x
+    /// `min_height`, or the agent studio's split (#499, docs/design/agent-studio.md "Layout") at
+    /// or above it -- the code pane on the left, the game column (today's frame, at the studio's
+    /// own width) on the right. The feed (the game column's own bottom rows) is a later issue;
+    /// for now the game column is the whole right side.
+    pub fn render(&mut self, palette: &Palette, size: (u16, u16)) -> Buffer {
+        if palette.glyphs.studio.fits(size.0, size.1) {
+            self.render_studio(palette, size)
+        } else {
+            self.render_game(palette, size, false)
+        }
+    }
+
+    fn render_studio(&mut self, palette: &Palette, size: (u16, u16)) -> Buffer {
+        let game_width = palette.glyphs.studio.game_width(size.0);
+        let code_width = size.0 - game_width;
+        let game = self.render_game(palette, (game_width, size.1), true);
+        let mut buf = Buffer::empty(Rect::new(0, 0, size.0, size.1));
+        for y in 0..size.1 {
+            for x in 0..game_width {
+                buf[(code_width + x, y)] = game[(x, y)].clone();
+            }
+        }
+        self.code_pane.render(&mut buf, Rect::new(0, 0, code_width, size.1), palette);
+        buf
+    }
+
+    /// The watch view at `size`: the agent strip over the bottom status row instead of the key
+    /// hints, and an attention ghost outlined over the map, if one is live
     /// (docs/design/agent-play.md, "Watching"). In Follow this is the agent's own view, as
     /// always; in Free look (#330) it's the spectator's own `UiState` instead, with the agent's
     /// own cursor outlined on the map too, the same look an attention ghost wears, so a
-    /// spectator looking elsewhere can still see where the agent is pointing.
-    pub fn render(&mut self, palette: &Palette, size: (u16, u16)) -> Buffer {
+    /// spectator looking elsewhere can still see where the agent is pointing. `studio` drops
+    /// `SCRIPT name vN` and the action text from the strip (#499's acceptance criteria: the
+    /// studio's code header and feed carry them instead).
+    fn render_game(&mut self, palette: &Palette, size: (u16, u16), studio: bool) -> Buffer {
         self.resize(size.0, size.1);
         let mut buf = if self.follow {
             render_shell(&mut self.shell, palette, size)
@@ -725,7 +777,7 @@ impl Watcher {
             crate::frame::render(&self.app().session, &self.spectator, palette, size)
         };
         if let Some(regions) = layout::regions(Rect::new(0, 0, size.0, size.1)) {
-            self.draw_strip(&mut buf, regions.status);
+            self.draw_strip(&mut buf, regions.status, studio);
             let view = if self.follow { self.app().ui.view } else { self.spectator.view };
             if let Some(ghost) = self.ghost {
                 draw_ghost(&view, ghost, regions.map, &mut buf);
@@ -739,12 +791,12 @@ impl Watcher {
         buf
     }
 
-    fn draw_strip(&self, buf: &mut Buffer, area: Rect) {
+    fn draw_strip(&self, buf: &mut Buffer, area: Rect, studio: bool) {
         let style = Style::new().add_modifier(Modifier::REVERSED);
         for x in area.left()..area.right() {
             buf[(x, area.y)].set_char(' ').set_style(style);
         }
-        let text = self.strip_text();
+        let text = self.strip_text(studio);
         buf.set_stringn(area.x, area.y, &text, usize::from(area.width), style);
     }
 
@@ -757,13 +809,15 @@ impl Watcher {
     /// (#330) says which view is on, right after the nation. While a script is running, or has
     /// just woken, "SCRIPT keep-fed v3" lands right after the clock, and the action area reads
     /// "woke: death: Ping died of thirst" instead of the latest act until the next one (#482,
-    /// docs/design/agent-scripting.md's own mockup).
-    fn strip_text(&self) -> String {
+    /// docs/design/agent-scripting.md's own mockup). In the studio (#499), `SCRIPT name vN` and
+    /// the action text are dropped: the code pane's own header and the feed (a later issue)
+    /// carry them instead.
+    fn strip_text(&self, studio: bool) -> String {
         let clock = fn_ui::view::format_clock(self.app().session.world.tick);
         let behind = self.turns_behind();
         let script = match &self.script_strip {
-            Some(s) => format!("SCRIPT {}  ", s.label()),
-            None => String::new(),
+            Some(s) if !studio => format!("SCRIPT {}  ", s.label()),
+            _ => String::new(),
         };
         let latest = match &self.script_strip {
             Some(ScriptStrip::Woke { why, .. }) => format!("woke: {why}"),
@@ -782,6 +836,7 @@ impl Watcher {
         } else {
             latest
         };
+        let action = if studio { String::new() } else { action };
         let view = if self.follow { "FOLLOW" } else { "FREE" };
         format!(
             " AGENT {}  {view}  turn {}  {clock}  {script}{action}  x{}",
@@ -956,9 +1011,12 @@ pub fn run(
                         KeyCode::Char('.') => watcher.step_one(),
                         KeyCode::Char(']') => watcher.fast_forward_to_turn(watcher.turn() + 1),
                         KeyCode::Char('q' | 'Q') => quit = true,
-                        // Every other key is free look's: `V` (not an F-key, since the owner's
-                        // WSL terminal never sees those) toggles the view, and everything else
-                        // is the spectator's own, read-only (`Watcher::free_look_key`).
+                        // Studio keys (#499, `j`/`k`/`J`/`K` scrolling the code pane) win over
+                        // free look too; everything else is free look's: `V` (not an F-key,
+                        // since the owner's WSL terminal never sees those) toggles the view, and
+                        // everything else is the spectator's own, read-only
+                        // (`Watcher::free_look_key`).
+                        _ if watcher.key(key) => {}
                         _ => watcher.free_look_key(key),
                     }
                 }
@@ -1204,11 +1262,11 @@ mod tests {
             LogLine::Turn { index: 2, tick: 300 },
         ]);
         assert_eq!(w.turns_behind(), 3);
-        assert!(w.strip_text().contains("3 turns behind"), "{}", w.strip_text());
+        assert!(w.strip_text(false).contains("3 turns behind"), "{}", w.strip_text(false));
 
         w.fast_forward_to_turn(2);
         assert_eq!(w.turns_behind(), 1);
-        assert!(w.strip_text().contains("1 turn behind"), "{}", w.strip_text());
+        assert!(w.strip_text(false).contains("1 turn behind"), "{}", w.strip_text(false));
 
         w.fast_forward_to_turn(100);
         assert_eq!(w.turns_behind(), 0);
@@ -1225,10 +1283,10 @@ mod tests {
         ]);
         w.advance(1.0);
         assert!(matches!(w.current, Some(Current::Ticks { .. })), "mid-turn");
-        assert!(w.strip_text().contains("\"scout\""), "{}", w.strip_text());
+        assert!(w.strip_text(false).contains("\"scout\""), "{}", w.strip_text(false));
 
         w.feed([LogLine::Turn { index: 2, tick: 400 }]);
-        let strip = w.strip_text();
+        let strip = w.strip_text(false);
         assert!(strip.contains("\"scout\"") && strip.contains("1 turn behind"), "{strip}");
     }
 
@@ -1265,7 +1323,7 @@ mod tests {
     fn a_caught_up_watcher_reports_waiting() {
         let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
         w.advance(5.0);
-        assert!(w.strip_text().contains("waiting for agent (5 s)"), "{}", w.strip_text());
+        assert!(w.strip_text(false).contains("waiting for agent (5 s)"), "{}", w.strip_text(false));
     }
 
     /// `fast_forward_to_turn` stops at the requested turn, even with more log left to replay,
@@ -1355,7 +1413,7 @@ mod tests {
         let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
         w.feed([script("keep-fed", 3, 45)]);
         w.advance(1.0);
-        assert!(w.strip_text().contains("SCRIPT keep-fed v3"), "{}", w.strip_text());
+        assert!(w.strip_text(false).contains("SCRIPT keep-fed v3"), "{}", w.strip_text(false));
         let lines: Vec<&str> =
             w.app().ui.alerts.history().iter().map(|e| e.text.as_str()).collect();
         assert!(lines.iter().any(|l| l == &"Agent: ran keep-fed v3, 45 turns"), "{lines:?}");
@@ -1368,8 +1426,8 @@ mod tests {
         let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
         w.feed([script("scout", 0, 10)]);
         w.advance(1.0);
-        assert!(w.strip_text().contains("SCRIPT scout"), "{}", w.strip_text());
-        assert!(!w.strip_text().contains(" v0"), "{}", w.strip_text());
+        assert!(w.strip_text(false).contains("SCRIPT scout"), "{}", w.strip_text(false));
+        assert!(!w.strip_text(false).contains(" v0"), "{}", w.strip_text(false));
     }
 
     /// `save_script`'s own `Script` line (#480) carries `turns: 0`, since it was never run: no
@@ -1379,7 +1437,7 @@ mod tests {
         let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
         w.feed([script("keep-fed", 1, 0)]);
         w.advance(1.0);
-        assert!(!w.strip_text().contains("SCRIPT"), "{}", w.strip_text());
+        assert!(!w.strip_text(false).contains("SCRIPT"), "{}", w.strip_text(false));
         let lines: Vec<&str> =
             w.app().ui.alerts.history().iter().map(|e| e.text.as_str()).collect();
         assert!(lines.is_empty(), "{lines:?}");
@@ -1401,7 +1459,7 @@ mod tests {
         w.fast_forward_to_turn(u32::MAX);
         assert!(w.caught_up());
 
-        let text = w.strip_text();
+        let text = w.strip_text(false);
         assert!(text.contains("SCRIPT keep-fed v3"), "{text}");
         assert!(text.contains("woke: death: Ping died of thirst"), "{text}");
         let lines: Vec<&str> =
@@ -1428,7 +1486,7 @@ mod tests {
         let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
         w.feed([script("keep-fed", 1, 5), wake("budget", None)]);
         w.fast_forward_to_turn(u32::MAX);
-        assert!(w.strip_text().contains("woke: budget"), "{}", w.strip_text());
+        assert!(w.strip_text(false).contains("woke: budget"), "{}", w.strip_text(false));
     }
 
     /// Reads a script makes itself (between its own `Script` and `Wake` lines) draw no
@@ -1519,9 +1577,9 @@ mod tests {
     #[test]
     fn the_strip_says_which_view_is_on() {
         let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
-        assert!(w.strip_text().contains("FOLLOW"), "{}", w.strip_text());
+        assert!(w.strip_text(false).contains("FOLLOW"), "{}", w.strip_text(false));
         w.toggle_view();
-        assert!(w.strip_text().contains("FREE"), "{}", w.strip_text());
+        assert!(w.strip_text(false).contains("FREE"), "{}", w.strip_text(false));
     }
 
     /// The watcher's own controls -- Space, `+`/`-`, `.`, `]`, `q` -- are read directly by

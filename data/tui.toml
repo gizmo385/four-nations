@@ -461,3 +461,30 @@ river_lake_share = 0.5
 # Food per head below which, in autumn or winter, the Season section's food line warns: about
 # two winter meals each.
 winter_food_per_head = 4
+
+# The watcher's studio layout (docs/design/agent-studio.md): presentation only.
+[studio]
+min_width = 160          # below this (or min_height) the panes become tabs
+min_height = 45
+game_share = 0.6         # the game column's share of the width,
+game_min_width = 96      #   clamped to these
+game_max_width = 120
+feed_min_rows = 12       # the feed is max(feed_min_rows, height / 4) rows
+two_column_min = 56      # code characters per column before the pane splits in two
+spark_turns = 24         # sparkline window in the studio
+spark_turns_tabs = 10    # and in the tab strip
+spark_floor = 4          # acts per turn that fill a bar, at least
+
+# Rhai syntax colours for the studio's code pane, by fn_ui::code::Class.
+[code]
+keyword = [198, 120, 221]
+literal = [209, 154, 102]
+number = [209, 154, 102]
+string = [152, 195, 121]
+comment = [110, 118, 129]
+call = [97, 175, 239]
+op = [171, 178, 191]
+gutter = [92, 99, 112]
+added_bg = [30, 60, 34]    # mixed into the line's background
+added = [120, 200, 110]    # the ▌ marker
+removed = [224, 108, 117]  # the ▁ marker

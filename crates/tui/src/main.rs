@@ -126,7 +126,9 @@ fn print_watch_frame(args: &Args, path: &std::path::Path, depth: ColorDepth) -> 
     watcher.feed(events);
     watcher.fast_forward_to_turn(args.at.unwrap_or(u32::MAX));
     for step in &args.keys {
-        if let Step::Key(key) = step {
+        if let Step::Key(key) = step
+            && !watcher.key(*key)
+        {
             watcher.free_look_key(*key);
         }
     }

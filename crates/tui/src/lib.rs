@@ -35,6 +35,7 @@ pub mod screens;
 pub mod shell;
 pub mod spectate;
 pub mod state;
+pub mod studio;
 pub mod surface;
 pub mod title;
 pub mod watch;

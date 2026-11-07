@@ -143,6 +143,88 @@ pub struct Overlays {
     pub air_shield: OverlayGlyph,
 }
 
+/// The watcher's studio layout thresholds and proportions (`[studio]`,
+/// docs/design/agent-studio.md "Layout"): presentation only, not a sim rule.
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StudioDef {
+    /// Below this width (or `min_height`), the studio's three panes become tabs instead.
+    pub min_width: u16,
+    pub min_height: u16,
+    /// The game column's share of the terminal's width, before `game_min_width`/`game_max_width`
+    /// clamp it.
+    pub game_share: f64,
+    pub game_min_width: u16,
+    pub game_max_width: u16,
+    /// The agent feed's height: `max(feed_min_rows, height / 4)`.
+    pub feed_min_rows: u16,
+    /// How many code characters a column needs before the code pane splits into two
+    /// (newspaper order).
+    pub two_column_min: u16,
+    /// The sparkline's window, in turns, in the studio and in the tab strip.
+    pub spark_turns: u16,
+    pub spark_turns_tabs: u16,
+    /// Acts in a turn that fill the sparkline's bar, at least.
+    pub spark_floor: u16,
+}
+
+impl StudioDef {
+    /// The game column's width for a terminal `width` columns wide (docs/design/agent-studio.md,
+    /// "Layout"): `game_share` of it, clamped to `[game_min_width, game_max_width]`.
+    pub fn game_width(&self, width: u16) -> u16 {
+        let share = (f64::from(width) * self.game_share).round() as u16;
+        share.clamp(self.game_min_width, self.game_max_width).min(width)
+    }
+
+    /// Whether a `width` x `height` terminal is big enough for the studio layout rather than the
+    /// tab fallback.
+    pub fn fits(&self, width: u16, height: u16) -> bool {
+        width >= self.min_width && height >= self.min_height
+    }
+}
+
+/// Rhai syntax colours for the studio's code pane (`[code]`), by `fn_ui::code::Class`
+/// (docs/design/agent-studio.md, "Highlighting"). `Class::Plain` has no entry: it draws in the
+/// terminal's own default foreground.
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CodeColors {
+    pub keyword: Rgb8,
+    pub literal: Rgb8,
+    pub number: Rgb8,
+    pub string: Rgb8,
+    pub comment: Rgb8,
+    pub call: Rgb8,
+    pub op: Rgb8,
+    /// The gutter's line numbers.
+    pub gutter: Rgb8,
+    /// Mixed into an added line's own background.
+    pub added_bg: Rgb8,
+    /// The `▌` marker beside an added line.
+    pub added: Rgb8,
+    /// The `▁` marker on the line just above a deletion.
+    pub removed: Rgb8,
+}
+
+impl CodeColors {
+    /// The colour for `class`, or `None` for [`fn_ui::code::Class::Plain`] -- there's no
+    /// `[code]` entry for it (the table above), so plain text keeps the terminal's own default
+    /// foreground.
+    pub fn for_class(&self, class: fn_ui::code::Class) -> Option<Rgb8> {
+        use fn_ui::code::Class;
+        match class {
+            Class::Plain => None,
+            Class::Keyword => Some(self.keyword),
+            Class::Literal => Some(self.literal),
+            Class::Number => Some(self.number),
+            Class::String => Some(self.string),
+            Class::Comment => Some(self.comment),
+            Class::Call => Some(self.call),
+            Class::Op => Some(self.op),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Glyphs {
@@ -163,6 +245,8 @@ pub struct Glyphs {
     pub overlay: Overlays,
     pub embark: EmbarkGlyphDef,
     pub season: SeasonGlyphDef,
+    pub studio: StudioDef,
+    pub code: CodeColors,
 }
 
 /// The key of a terrain in `[terrain.*]`. `Land` has none: bare land draws as its biome. The
@@ -352,6 +436,39 @@ mod tests {
     fn unknown_keys_are_rejected() {
         let src = include_str!("../../../data/tui.toml").replace("lift = 0.4", "lyft = 0.4");
         assert!(Glyphs::from_toml(&src).is_err());
+    }
+
+    /// Every `fn_ui::code::Class` the studio's code pane highlights has its own colour in
+    /// `[code]`, except `Plain`, which has none by design (it draws in the terminal's default
+    /// foreground, docs/design/agent-studio.md "Highlighting").
+    #[test]
+    fn every_code_class_has_a_colour_except_plain() {
+        use fn_ui::code::Class;
+        let g = Glyphs::bundled();
+        for class in [
+            Class::Keyword,
+            Class::Literal,
+            Class::Number,
+            Class::String,
+            Class::Comment,
+            Class::Call,
+            Class::Op,
+        ] {
+            assert!(g.code.for_class(class).is_some(), "{class:?} should have a colour");
+        }
+        assert!(g.code.for_class(Class::Plain).is_none(), "Plain should have none");
+    }
+
+    /// The studio's game column clamps to `[game_min_width, game_max_width]` (#499's acceptance
+    /// criteria, the doc's own worked examples: 64+96 at 160, 80+120 at 200).
+    #[test]
+    fn studio_game_width_follows_the_share_and_clamps() {
+        let g = Glyphs::bundled();
+        assert_eq!(g.studio.game_width(160), 96);
+        assert_eq!(g.studio.game_width(200), 120);
+        assert!(g.studio.fits(160, 45));
+        assert!(!g.studio.fits(159, 45));
+        assert!(!g.studio.fits(160, 44));
     }
 
     /// `rail_track` has exactly one piece for every mask from 1 to 15 (#279): a lone tile

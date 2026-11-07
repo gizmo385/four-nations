@@ -468,6 +468,53 @@ impl Palette {
             Style::new().fg(self.color([0, 0, 0])).bg(self.cursor_bg())
         }
     }
+
+    /// The code pane's style for one span of `class` (docs/design/agent-studio.md,
+    /// "Highlighting"): its own colour from `[code]`, or no override for `Plain`. With no
+    /// colour, every class draws plain (the design's own "the code is plain text").
+    pub fn code_style(&self, class: fn_ui::code::Class) -> Style {
+        if self.mono() {
+            return Style::new();
+        }
+        match self.glyphs.code.for_class(class) {
+            Some(rgb) => Style::new().fg(self.color(rgb)),
+            None => Style::new(),
+        }
+    }
+
+    /// The code pane's gutter (line numbers): dimmed, apart from the code itself.
+    pub fn code_gutter_style(&self) -> Style {
+        if self.mono() {
+            return Style::new().add_modifier(Modifier::DIM);
+        }
+        Style::new().fg(self.color(self.glyphs.code.gutter))
+    }
+
+    /// The `▌`/`+` marker beside an added line.
+    pub fn code_added_style(&self) -> Style {
+        if self.mono() {
+            return Style::new();
+        }
+        Style::new().fg(self.color(self.glyphs.code.added))
+    }
+
+    /// The `▁`/`_` marker on the line just above a deletion.
+    pub fn code_removed_style(&self) -> Style {
+        if self.mono() {
+            return Style::new();
+        }
+        Style::new().fg(self.color(self.glyphs.code.removed))
+    }
+
+    /// The background tint an added line's row gets, mixed into the pane's own background
+    /// (`base`). With no colour, the row draws with no tint at all: the `▌` marker alone carries
+    /// the meaning.
+    pub fn code_added_bg(&self, base: Rgb8) -> Option<Color> {
+        if self.mono() {
+            return None;
+        }
+        Some(self.color(mix(base, self.glyphs.code.added_bg, 0.5)))
+    }
 }
 
 #[cfg(test)]
