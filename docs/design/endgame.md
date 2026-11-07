@@ -50,30 +50,37 @@ signature abilities, in a new combination, so the late game gets new decisions w
 rulebook. It also delivers the "neighbors and cultural exchange" direction research.md sketched,
 without trade or diplomacy screens, and with no war.
 
-## The road: ten signs
+## The road: nine signs
 
 The signs are a list in `data/endeavor.toml`. Every sign counts things the settlement does
 anyway, so the road rewards playing well rather than a separate grind. (The 2026-11-05 playtests
-stalled at 3 of 9 signs. docs/design/materials.md, #339, retunes stone and ore supply and
-proposes a computed building-kinds sign.)
+stalled at 3 of 9 signs. docs/design/materials.md, #339, retuned stone and ore supply, food and
+growth, and made the building-kinds sign computed. #355 re-measured the result on 2026-11-07:
+see "Pacing, as measured" below.)
 
 | Group | Sign (default target) | Counts | Depends on |
 |---|---|---|---|
 | People | Population **16** | Living units (the Avatar excluded) | Population growth (#232) |
 | People | Everyone has a bed | Beds ≥ population | #58 |
-| Buildings | **8** kinds of building raised | Distinct finished building ids | #64, #196 |
+| Buildings | **One of every building** your people can raise, less one spare | Distinct finished building ids, against a per-nation target computed from the nation's whole tree (`every_building`, `spare = 1`), so it grows as buildings land | #354 |
 | Knowledge | The nation's branch complete | Every tech with `nation = <own>` known | #19, #25–#28 |
 | Stores | **150** food in stores | Food items stored, summed | #3 |
-| Stores | **200** stone in stores | Stored | |
-| Harvests | **100** crops harvested from farm plots | Lifetime tally | #198 |
-| Harvests | **40** ore mined | Lifetime tally of `gold_ore` (later metal ore) | #132, #134 |
-| Bending | **3** bending masters | Units with at least 25 finished bends (out of reach: retune in "Mastery pacing", #340) | #67 |
+| Stores | **200** stone in stores | Stone and brick stored (a brick stands for one stone, #371) | #349 |
+| Harvests | **40** ore mined | Lifetime tally of `gold_ore` (later metal ore) | #132, #134, #349 |
+| Bending | **3** bending masters | Units at the master rank, against their own nation's thresholds in `data/bending.toml`'s `[mastery]` | #67, #344, #360 |
 | Bending | **3** ancient scrolls read | Lifetime tally | #24 |
+
+The "100 crops harvested" sign from the first draft never shipped: food in stores and the
+population sign already reward farming.
 
 - **Pacing target:** about 3.5 to 4 hours for a steady player. That's the research tree (~2 h)
   plus building out and growing to 16. The project itself adds about an hour. Tune with the
   targets first. Where the new decisions run out on the way (minute 60 to Ready) and how to fill
-  that stretch is in [pacing.md](pacing.md) (#412, proposed).
+  that stretch is in [pacing.md](pacing.md) (#412, proposed). **As measured on 2026-11-07
+  (#355):** where the economy opening reaches Ready it does so at minute 108 to 159 (median
+  minute 123), so a full game lands near 3 to 3.5 hours, just under the target. Most runs
+  don't reach Ready within 3 hours, though: "Pacing, as measured" below says which signs hold
+  them back.
 - **Latching.** The endeavor becomes **Ready** the first tick every sign is met at once. Stores
   that are eaten afterwards don't undo it. The toast reads "Word of your settlement has reached
   the Avatar. Choose a site for the Harmony Gate (G)."
@@ -96,6 +103,42 @@ proposes a computed building-kinds sign.)
   together, #235; TUI-only since the client was removed, #281).
 - **Readable simulation:** hovering a sign says what feeds it ("Ore mined: 34 of 40. Mine gold
   veins; tunnels yield more").
+
+### Pacing, as measured (#355, 2026-11-07)
+
+**The two agent playtests, re-run.** The 2026-11-05 playtests were played again on `main` at
+3127de9 through `fn_agent serve`, 20-second turns, Normal, Small, in 40-turn chunks
+(`cargo xtask agent-run --chunk-turns 40 --model sonnet`, #341's `--resume`). Each cost about
+$2.20.
+
+| | Seed 7 Earth | Seed 42 Fire |
+|---|---|---|
+| Turns played (clock) | 360 (120:00) | 380 (126:40) |
+| Signs met at the end | **7 of 9** (was 3) | **4 of 9** (was 3) |
+| Unmet | masters 1/3, scrolls 0/3 | kinds 9/11, branch 4/6, ore 24/40, masters 0/3, scrolls 0/3 |
+| Stone in stores (sign 200) | 384 | 218 (148 stone + 70 brick) |
+| Ore mined (sign 40) | 45 | 24 |
+| Food in stores, per head | 156, 9.2 | 200, 11.8 |
+| Wood in stores | 559 | 1320 |
+| Population, deaths | 17, 0 | 17, 0 |
+
+Earth's colony now meets every sign the economy can fill by year 2. Fire's is held back by
+research (its branch still had two techs to go) and by ore, which the agent only began mining in
+the last half hour. Neither agent found how to read a scroll (#403 makes that readable), the
+Fire agent couldn't tell which two buildings the kinds sign wanted (#515), and both still sat on
+far more wood than they could use. Nobody came close to dying.
+
+**The economy opening** (seeds 1-8, all nations, 180 minutes; the full table is in
+[materials.md](materials.md), "What the harness measured") reaches every sign on 7 of 32 runs, at
+minute 108 to 159. Air does it on 4 of 8 seeds, the others on 1 each. The signs that most often
+stay unmet at minute 180 are food (19 runs, mostly a harness gap, #513), ore (9: seeds 2 and 6,
+#440), masters (9, #340/#344) and stone (5: seeds 3 and 4, #512).
+
+**What that means for the 3.5 to 4 hour target.** A run that reaches Ready does so around
+minute 110 to 160, and the project adds about an hour, so a steady player lands at roughly 3 to
+3.5 hours: a little under the target, as materials.md predicted. Masters and scrolls, which the
+playtests show to be the last signs a person meets, push that back toward the target. The
+pacing line above stays as it is. pacing.md (#412) owns the gaps in the middle of that stretch.
 
 ## The Avatar
 
