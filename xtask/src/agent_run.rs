@@ -2,7 +2,10 @@
 //! `cargo xtask agent-run --interactive [options]`  chat with the agent here; watch elsewhere
 //! `cargo xtask agent-run --chunk-turns N [options]`  play as successive short claude sessions
 //! `cargo xtask agent-run --scripts [options]`  play by writing and running scripts (#484)
-//! `cargo xtask agent-run watch [RUN_DIR]`  watch (or replay) a run; default: the latest
+//! `cargo xtask agent-run watch [--no-build] [RUN_DIR]`  watch (or replay) a run; default: the
+//!                                      latest. Builds fn_tui first unless `target/release/fn_tui`
+//!                                      is already newer than everything under `crates/`, `data/`
+//!                                      and `Cargo.lock`, or `--no-build` is given (#510).
 //!
 //! Starts an agent run (docs/design/agent-play.md): a Claude Code session plays one game
 //! through `fn_agent serve` while you watch it in the normal TUI with `fn_tui --watch`. This is
@@ -64,7 +67,7 @@ use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
@@ -92,15 +95,26 @@ pub fn run(args: &[&str]) -> Result {
     let repo = crate::root();
 
     if args.first() == Some(&"watch") {
-        if args.len() > 2 {
+        let mut no_build = false;
+        let mut positional = Vec::new();
+        for a in &args[1..] {
+            if *a == "--no-build" {
+                no_build = true;
+            } else {
+                positional.push(*a);
+            }
+        }
+        if positional.len() > 1 {
             return Err(help());
         }
         let runs = runs_dir();
-        let dir = match args.get(1) {
+        let dir = match positional.first() {
             Some(d) => PathBuf::from(d),
             None => latest_run_dir(&runs)?,
         };
-        cargo_build_release(&repo, &["fn_tui"])?;
+        if !no_build {
+            build_fn_tui_if_stale(&repo)?;
+        }
         return watch_run(&repo, &dir, 20);
     }
 
@@ -111,7 +125,6 @@ pub fn run(args: &[&str]) -> Result {
         return Err(format!("{} (Claude Code) isn't on PATH", opts.claude_bin));
     }
 
-    say("building fn_agent and fn_tui (release)");
     cargo_build_release(&repo, &["fn_agent", "fn_tui"])?;
 
     let runs = runs_dir();
@@ -371,9 +384,17 @@ fn latest_run_dir(runs: &Path) -> Result<PathBuf> {
 /// `env!("CARGO")` xtask was invoked with): a test's own stub `cargo` ahead of it on `$PATH`
 /// turns this into a no-op, the same way `scripts/test-agent-run-otel.sh` stubbed it, so a test
 /// never waits on a real release build.
+///
+/// Not `-q`: when another cargo holds the target directory's build lock (a `ci` run, say),
+/// cargo prints "Blocking waiting for file lock", and silencing that made the command look hung
+/// (#510). The "building" line says so up front too.
 fn cargo_build_release(repo: &Path, pkgs: &[&str]) -> Result {
+    say(&format!(
+        "building {} (release); if another cargo holds the build lock this waits for it",
+        pkgs.join(" and ")
+    ));
     let mut cmd = Command::new("cargo");
-    cmd.args(["build", "-q", "--release"]);
+    cmd.args(["build", "--release"]);
     for p in pkgs {
         cmd.args(["-p", p]);
     }
@@ -383,6 +404,54 @@ fn cargo_build_release(repo: &Path, pkgs: &[&str]) -> Result {
         Ok(())
     } else {
         Err(format!("cargo build --release -p {} failed", pkgs.join(" -p ")))
+    }
+}
+
+/// Whether `target/release/fn_tui` has to be rebuilt: it's missing, or some input is newer.
+/// `newest_input` is `None` when there are no inputs to compare against (a built binary stands).
+fn build_is_stale(bin_mtime: Option<SystemTime>, newest_input: Option<SystemTime>) -> bool {
+    match (bin_mtime, newest_input) {
+        (None, _) => true,
+        (Some(_), None) => false,
+        (Some(bin), Some(input)) => input > bin,
+    }
+}
+
+/// The newest modification time of any file under `dir` (recursing), or `None` if there are
+/// none. Unreadable entries are skipped.
+fn newest_mtime(dir: &Path) -> Option<SystemTime> {
+    let mut newest: Option<SystemTime> = None;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&d) else { continue };
+        for e in entries.filter_map(|e| e.ok()) {
+            let Ok(meta) = e.metadata() else { continue };
+            if meta.is_dir() {
+                stack.push(e.path());
+            } else if let Ok(t) = meta.modified() {
+                newest = Some(newest.map_or(t, |n| n.max(t)));
+            }
+        }
+    }
+    newest
+}
+
+/// Builds fn_tui unless the existing release binary is newer than every file under `crates/`
+/// and `data/` (and `Cargo.lock`), so watching a live run never waits on an unrelated cargo
+/// command that holds the build lock (#510).
+fn build_fn_tui_if_stale(repo: &Path) -> Result {
+    let mtime = |p: PathBuf| p.metadata().and_then(|m| m.modified()).ok();
+    let bin_mtime = mtime(repo.join("target/release/fn_tui"));
+    let newest_input = ["crates", "data"]
+        .iter()
+        .filter_map(|d| newest_mtime(&repo.join(d)))
+        .chain(mtime(repo.join("Cargo.lock")))
+        .max();
+    if build_is_stale(bin_mtime, newest_input) {
+        cargo_build_release(repo, &["fn_tui"])
+    } else {
+        say("target/release/fn_tui is newer than crates/ and data/; skipping the build");
+        Ok(())
     }
 }
 
@@ -511,7 +580,7 @@ fn run_default(
     });
 
     say("agent running; quit the watcher to stop it");
-    cargo_build_release(repo, &["fn_tui"])?;
+    build_fn_tui_if_stale(repo)?;
     let watch_result = watch_run(repo, dir, opts.pace);
 
     if alive.load(Ordering::SeqCst) {
@@ -1600,6 +1669,35 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(value["mcpServers"]["four-nations"]["command"], "/bin/fn_agent");
         assert_eq!(value["mcpServers"]["four-nations"]["args"][0], "serve");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    // ----- the watch build skip (#510) -----
+
+    #[test]
+    fn build_is_stale_only_when_missing_or_an_input_is_newer() {
+        let t = |s: u64| Some(SystemTime::UNIX_EPOCH + Duration::from_secs(s));
+        assert!(build_is_stale(None, t(10)), "no binary: build");
+        assert!(build_is_stale(None, None), "no binary and no inputs: build");
+        assert!(build_is_stale(t(10), t(20)), "source newer than the binary: build");
+        assert!(!build_is_stale(t(20), t(10)), "binary newer than every input: skip");
+        assert!(!build_is_stale(t(10), t(10)), "same instant: skip");
+        assert!(!build_is_stale(t(10), None), "nothing to compare against: skip");
+    }
+
+    #[test]
+    fn newest_mtime_walks_nested_dirs() {
+        let dir = tempdir();
+        assert_eq!(newest_mtime(&dir), None);
+        fs::create_dir_all(dir.join("a/b")).unwrap();
+        let set = |p: PathBuf, secs: u64| {
+            let f = File::create(&p).unwrap();
+            f.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(secs)).unwrap();
+        };
+        set(dir.join("old.rs"), 100);
+        set(dir.join("a/b/new.rs"), 300);
+        set(dir.join("a/mid.rs"), 200);
+        assert_eq!(newest_mtime(&dir), Some(SystemTime::UNIX_EPOCH + Duration::from_secs(300)));
         fs::remove_dir_all(&dir).ok();
     }
 
