@@ -303,7 +303,13 @@ impl Host {
         }
         for line in lines {
             match line {
-                LogLine::Header(_) | LogLine::End { .. } => {}
+                // `Script`, `Wake` and `Note` are #479's own commentary (`LogLine`'s own doc
+                // comment): nothing a `Host` ever made, so nothing to replay back into one.
+                LogLine::Header(_)
+                | LogLine::End { .. }
+                | LogLine::Script { .. }
+                | LogLine::Wake { .. }
+                | LogLine::Note { .. } => {}
                 LogLine::Keys { keys, label, note } => {
                     host.press_keys(keys, label.clone(), note.clone())?;
                 }
@@ -1930,6 +1936,22 @@ pub struct RunLogHeader {
 /// one when its session ends (stdin closed, or an error), with the world's own tick at that
 /// moment and the reason, so `fn_tui --watch` can tell a run that's finished from one that's
 /// merely caught up with a live agent still thinking.
+///
+/// `Script`, `Wake` and `Note` (#479, docs/design/agent-scripting.md, "Memory across sessions")
+/// are `fn_agent`'s own commentary on a `run_script`/`notes` call: nothing a `Host` ever makes
+/// itself (`fn_agent::tools::Tools` writes them directly, around the `Keys`/`Turn` lines a
+/// script's own `act`/`keys`/`wait` calls produce), and nothing [`Host::resume`] or
+/// `crate::watch::to_keys_script` replay: a chunked `--resume` session reads them back to
+/// rebuild its script library, `memory` and lab notes (`fn_agent::tools::Tools::resume`), but
+/// the game itself is exactly the same seed, keys and turns with or without them.
+/// - `Script { name, version, code, turns, wake_on }`: a `run_script` call's own start -- `name`
+///   and `code` are the tag and source a `run_script {code}` ad hoc call used (`version == 0`,
+///   never saved) or a saved script's own name and code (`version >= 1`, `run_script {name}`).
+/// - `Wake { reason, why, turn, memory }`: that same call's own end -- `reason`/`why` as
+///   `fn_agent::script::Outcome`'s own fields, `turn` the world's turn count when it stopped,
+///   and `memory` the resulting `memory` map (always present, even unchanged). Always the next
+///   `Wake` after a `Script` line, since `run_script` calls never overlap.
+/// - `Note { text }`: one line appended by `notes {append}`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LogLine {
@@ -1939,6 +1961,9 @@ pub enum LogLine {
     Inspect { x: i32, y: i32 },
     Turn { index: u32, tick: u64 },
     End { tick: u64, reason: String },
+    Script { name: String, version: u32, code: String, turns: u32, wake_on: Vec<EventKind> },
+    Wake { reason: String, why: Option<String>, turn: u32, memory: serde_json::Value },
+    Note { text: String },
 }
 
 impl From<&LogEntry> for LogLine {

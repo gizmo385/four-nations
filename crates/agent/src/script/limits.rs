@@ -21,6 +21,10 @@ pub struct Limits {
     /// docs/design/agent-scripting.md, "`run_script`": "The default `wake_on` is `death`,
     /// `need` and `endeavor`").
     pub default_wake: Vec<EventKind>,
+    /// The `memory` map's own cap, in bytes of its JSON encoding (#479, docs/design/
+    /// agent-scripting.md, "The SDK": "8 KB cap"). A write that would exceed this fails the
+    /// script with a clear error instead of persisting (`runner::finalize_memory`).
+    pub memory_bytes: usize,
 }
 
 /// `data/agent.toml`'s own shape: just the one `[scripts]` table for now (#477); later issues
@@ -60,6 +64,7 @@ mod tests {
         assert!(l.max_operations > 0);
         assert!(l.log_tail > 0);
         assert!(!l.default_wake.is_empty());
+        assert!(l.memory_bytes > 0);
     }
 
     fn limits() -> Limits {
@@ -69,6 +74,7 @@ mod tests {
             max_operations: 1000,
             log_tail: 10,
             default_wake: vec![EventKind::Death, EventKind::Need, EventKind::Endeavor],
+            memory_bytes: 8192,
         }
     }
 

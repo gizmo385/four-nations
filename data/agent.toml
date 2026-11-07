@@ -28,3 +28,8 @@ log_tail = 30
 # kind (arrival, tech, season, stockpile, bend_failed) still shows in `events()` for the script
 # to notice and handle on its own.
 default_wake = ["death", "need", "endeavor"]
+
+# The `memory` map's own cap, in bytes of its JSON encoding (docs/design/agent-scripting.md,
+# "The SDK": "`memory` is a map that persists across runs in a session (8 KB cap)"). A write
+# that would exceed this fails the script with a clear error instead of growing without bound.
+memory_bytes = 8192

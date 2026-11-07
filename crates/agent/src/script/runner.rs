@@ -25,9 +25,13 @@ pub struct Outcome {
     /// need no further explaining than `reason` itself.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub why: Option<String>,
-    /// This run's own tag (`run_script`'s `note`, or `"script"` with none given) -- #477's
-    /// stand-in for the saved script identity and version #479 adds.
+    /// This run's own tag: the caller's `note` for an ad hoc `run_script {code}` call, or the
+    /// saved script's own name for `run_script {name}` (#479); `"script"` with neither given.
     pub script: String,
+    /// The saved script's own version being run (#479, `run_script {name}`), omitted for an ad
+    /// hoc `run_script {code}` call, which was never `save_script`d and so has none.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub version: u32,
     /// The script's own return value (`"done"` only, and only when it isn't `()`), as JSON
     /// through `rhai::serde`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -50,6 +54,16 @@ pub struct Outcome {
     /// `Limits::log_tail`.
     pub log: Vec<String>,
     pub observe: Observation,
+    /// The `memory` map this run leaves behind (#479, docs/design/agent-scripting.md, "The
+    /// SDK"): the caller's own `memory` as the script ended it, unless that write would exceed
+    /// `Limits::memory_bytes` -- then the caller's own `memory` unchanged, and `reason`/`why`
+    /// are overridden to `"error"` naming the cap (`finalize_memory`), whatever the script's
+    /// own code did. Always a JSON object, never `null`.
+    pub memory: serde_json::Value,
+}
+
+fn is_zero(v: &u32) -> bool {
+    *v == 0
 }
 
 /// [`Outcome::since_start`]: a diff between the `observe` taken right before this run's own
@@ -79,27 +93,38 @@ pub struct ActsSummary {
     pub last_failure: Option<String>,
 }
 
-/// Runs `code` against `host` for at most `limits.resolve_turns(turns)` turns, waking early on
-/// any of `wake_on`'s own [`EventKind`]s (docs/design/agent-scripting.md, "`run_script`"). Every
-/// `act`/`keys` step the script makes is tagged `[tag]` in the run log (`note`, or `"script"`
-/// with none given -- #477 has no saved script identity yet; #479 gives every saved script a
-/// real name and version to tag with instead). Never touches `host` beyond what `code` itself
-/// does through the plumbing ([`bindings::register`]): every action is a normal
-/// `Host::act`/`Host::press_keys` call, logged exactly as a human's or an MCP agent's would be.
-pub fn run(
-    host: &mut Host,
-    code: &str,
-    turns: Option<u32>,
-    note: Option<&str>,
-    wake_on: &[EventKind],
-    limits: &Limits,
-) -> Outcome {
+/// [`run`]'s own arguments, bundled so the function itself takes a readable few (`host` and
+/// `limits` stay their own parameters; everything specific to *this* call lives here): `code`
+/// to run, `turns` and `wake_on` as `run_script`'s own (optional) arguments, `note`/`version`
+/// as the run's own tag (plain for an ad hoc `run_script {code}` call, `0` version; the saved
+/// script's own name and version for `run_script {name}`, #479), and `memory` as this session's
+/// own persisted map going in.
+pub struct Request<'a> {
+    pub code: &'a str,
+    pub turns: Option<u32>,
+    pub note: Option<&'a str>,
+    pub version: u32,
+    pub wake_on: &'a [EventKind],
+    pub memory: &'a serde_json::Value,
+}
+
+/// Runs `request.code` against `host` for at most `limits.resolve_turns(request.turns)` turns,
+/// waking early on any of `request.wake_on`'s own [`EventKind`]s (docs/design/
+/// agent-scripting.md, "`run_script`"). Every `act`/`keys` step the script makes is tagged
+/// `[tag]` (or `[tag vN]` once `request.version` is nonzero, #479's own saved-script identity)
+/// in the run log (`request.note`, or `"script"` with none given). [`Outcome::memory`] is
+/// `request.memory` as the script leaves it, capped by `Limits::memory_bytes`
+/// (`finalize_memory`). Never touches `host` beyond what the code itself does through the
+/// plumbing ([`bindings::register`]): every action is a normal `Host::act`/`Host::press_keys`
+/// call, logged exactly as a human's or an MCP agent's would be.
+pub fn run(host: &mut Host, request: Request<'_>, limits: &Limits) -> Outcome {
+    let Request { code, turns, note, version, wake_on, memory } = request;
     let max_turns = limits.resolve_turns(turns);
     let tag = note.filter(|n| !n.is_empty()).unwrap_or("script").to_owned();
     let before = host.observe();
-    let ctx = Context::new(host, tag, max_turns, wake_on.to_vec());
+    let ctx = Context::new(host, tag, version, max_turns, wake_on.to_vec());
 
-    let result = {
+    let (result, memory_out) = {
         let mut engine = Engine::new();
         engine.set_max_operations(limits.max_operations);
 
@@ -111,7 +136,12 @@ pub fn run(
         bindings::register(&mut engine, &ctx);
 
         let mut scope = Scope::new();
-        engine.eval_with_scope::<Dynamic>(&mut scope, code)
+        let initial_memory =
+            rhai::serde::to_dynamic(memory).unwrap_or_else(|_| Dynamic::from_map(rhai::Map::new()));
+        scope.push_dynamic("memory", initial_memory);
+        let result = engine.eval_with_scope::<Dynamic>(&mut scope, code);
+        let memory_out = scope.get_mut("memory").map_or(Dynamic::UNIT, |d| d.clone());
+        (result, memory_out)
         // `engine` and `scope` -- and every clone of `ctx` they hold -- drop here, before
         // `Context::host` could be called again from outside a script (docs/design/
         // agent-scripting.md's own soundness note on `bindings::Context`).
@@ -126,11 +156,12 @@ pub fn run(
         last_failure: ctx.last_failure(),
     };
     let script = ctx.tag().to_owned();
+    let version = ctx.version();
     let observe = host.observe();
     let since_start = since_start(&before, &observe, &events);
     let clock = format!("{} -> {}", before.clock, observe.clock);
 
-    let (reason, why, value, line) = match result {
+    let (mut reason, mut why, mut value, line) = match result {
         Ok(value) => ("done", None, dynamic_to_json(value), None),
         Err(err) => {
             let (reason, why, line) = classify_error(&err);
@@ -138,7 +169,64 @@ pub fn run(
         }
     };
 
-    Outcome { reason, why, script, value, line, turns_run, clock, since_start, acts, log, observe }
+    let (memory, memory_error) = finalize_memory(memory_out, memory, limits.memory_bytes);
+    if let Some(msg) = memory_error {
+        reason = "error";
+        why = Some(msg);
+        value = None;
+    }
+
+    Outcome {
+        reason,
+        why,
+        script,
+        version,
+        value,
+        line,
+        turns_run,
+        clock,
+        since_start,
+        acts,
+        log,
+        observe,
+        memory,
+    }
+}
+
+/// [`Outcome::memory`] from the `memory` scope variable the script left behind, capped at
+/// `cap` bytes of JSON (docs/design/agent-scripting.md, "The SDK": "8 KB cap"): `Ok` with the
+/// new value when it's a map (or `()`, the same as never touching it) within the cap; `Err`
+/// with a clear, one-line reason otherwise -- an oversize write, or `memory` rebound to
+/// something that isn't a map at all -- in which case the caller keeps `previous` unchanged and
+/// fails the whole run (docs/design/agent-scripting.md's own "An oversize write fails the
+/// script with a clear error").
+fn finalize_memory(
+    dynamic: Dynamic,
+    previous: &serde_json::Value,
+    cap: usize,
+) -> (serde_json::Value, Option<String>) {
+    let parsed = if dynamic.is_unit() {
+        Ok(serde_json::json!({}))
+    } else if dynamic.is_map() {
+        rhai::serde::from_dynamic::<serde_json::Value>(&dynamic).map_err(|e| format!("memory: {e}"))
+    } else {
+        Err("memory must stay a map (#{...}), not a plain value".to_owned())
+    };
+    match parsed {
+        Ok(value) => {
+            let bytes = serde_json::to_string(&value).map_or(usize::MAX, |s| s.len());
+            if bytes > cap {
+                let msg = format!(
+                    "memory write exceeds the {cap}-byte cap ({bytes} bytes); keeping the \
+                     previous memory"
+                );
+                (previous.clone(), Some(msg))
+            } else {
+                (value, None)
+            }
+        }
+        Err(msg) => (previous.clone(), Some(msg)),
+    }
 }
 
 /// [`SinceStart`] from the two observations this run bracketed and the events it carried
@@ -233,6 +321,7 @@ mod tests {
             max_operations: 50_000,
             log_tail: 30,
             default_wake: vec![EventKind::Death, EventKind::Need, EventKind::Endeavor],
+            memory_bytes: 8192,
         }
     }
 
@@ -241,10 +330,18 @@ mod tests {
         Host::new(7, nation, None, None, None, false).unwrap().with_turn_seconds(10)
     }
 
-    /// `run` with no `wake_on` given (`&[]`): the common case for a test that isn't checking
-    /// wake-on-event behaviour itself.
+    /// An empty `memory` map, for a test that isn't checking memory behaviour itself.
+    fn no_memory() -> serde_json::Value {
+        serde_json::json!({})
+    }
+
+    /// `run` with no `wake_on` given (`&[]`), no saved-script version and no `memory`: the
+    /// common case for a test that isn't checking wake-on-event, saved-script or memory
+    /// behaviour itself.
     fn run_default(host: &mut Host, code: &str, turns: Option<u32>, note: Option<&str>) -> Outcome {
-        run(host, code, turns, note, &[], &limits())
+        let memory = no_memory();
+        let request = Request { code, turns, note, version: 0, wake_on: &[], memory: &memory };
+        run(host, request, &limits())
     }
 
     /// A script that returns a value stops `"done"`, with that value as JSON and the
@@ -369,6 +466,30 @@ mod tests {
         assert_eq!(note2.as_deref(), Some("[keep-fed]"));
     }
 
+    /// A nonzero `version` (`run_script {name}`, #479) suffixes every tagged note with `" vN"`
+    /// (docs/design/agent-scripting.md, "Determinism, replay and watching": "its note is
+    /// `[keep-fed v3]`"), while `Outcome::script` stays the plain name.
+    #[test]
+    fn a_nonzero_version_suffixes_the_tag_with_v_n() {
+        let mut h = host();
+        let memory = no_memory();
+        let request = Request {
+            code: r#"act([#{step: "cursor", x: 5, y: 5}], "scout");"#,
+            turns: None,
+            note: Some("keep-fed"),
+            version: 3,
+            wake_on: &[],
+            memory: &memory,
+        };
+        let out = run(&mut h, request, &limits());
+        assert_eq!(out.reason, "done");
+        assert_eq!(out.script, "keep-fed");
+        assert_eq!(out.version, 3);
+        let lines = h.log().lines();
+        let LogLine::Keys { note, .. } = &lines[0] else { panic!("{lines:?}") };
+        assert_eq!(note.as_deref(), Some("[keep-fed v3] scout"));
+    }
+
     /// With no `note` given, every step's own log line is still tagged, with the generic
     /// `"script"` stand-in for a saved script's real identity (#479).
     #[test]
@@ -395,7 +516,16 @@ mod tests {
     fn the_log_is_trimmed_to_log_tail_most_recent_lines() {
         let mut h = host();
         let tiny = Limits { log_tail: 2, ..limits() };
-        let out = run(&mut h, r#"log("a"); log("b"); log("c");"#, None, None, &[], &tiny);
+        let memory = no_memory();
+        let request = Request {
+            code: r#"log("a"); log("b"); log("c");"#,
+            turns: None,
+            note: None,
+            version: 0,
+            wake_on: &[],
+            memory: &memory,
+        };
+        let out = run(&mut h, request, &tiny);
         assert_eq!(out.log, vec!["b".to_owned(), "c".to_owned()]);
     }
 
@@ -441,14 +571,16 @@ mod tests {
     #[test]
     fn a_wake_on_event_during_wait_stops_the_script_with_reason_event() {
         let mut h = host().with_turn_seconds(600);
-        let out = run(
-            &mut h,
-            "loop { wait(1); }",
-            Some(50),
-            None,
-            &[EventKind::Need, EventKind::Death, EventKind::Endeavor],
-            &limits(),
-        );
+        let memory = no_memory();
+        let request = Request {
+            code: "loop { wait(1); }",
+            turns: Some(50),
+            note: None,
+            version: 0,
+            wake_on: &[EventKind::Need, EventKind::Death, EventKind::Endeavor],
+            memory: &memory,
+        };
+        let out = run(&mut h, request, &limits());
         assert_eq!(out.reason, "event");
         let why = out.why.expect("an event always says why");
         assert!(why.starts_with("need:"), "{why}");
@@ -461,14 +593,16 @@ mod tests {
     #[test]
     fn an_event_outside_wake_on_shows_in_events_but_never_stops_the_script() {
         let mut h = host().with_turn_seconds(600);
-        let out = run(
-            &mut h,
-            r#"wait(3); let seen = events(); log(`events: ${seen.len()}`); seen.len()"#,
-            Some(10),
-            None,
-            &[EventKind::Death],
-            &limits(),
-        );
+        let memory = no_memory();
+        let request = Request {
+            code: r#"wait(3); let seen = events(); log(`events: ${seen.len()}`); seen.len()"#,
+            turns: Some(10),
+            note: None,
+            version: 0,
+            wake_on: &[EventKind::Death],
+            memory: &memory,
+        };
+        let out = run(&mut h, request, &limits());
         assert_eq!(out.reason, "done", "{out:?}");
         // A need flag or two should have shown over 3 turns of 600 game seconds each; none of
         // them are `death`, so `wake_on` never fires, but `events()` still saw them.
@@ -480,17 +614,20 @@ mod tests {
     #[test]
     fn the_wake_report_has_every_field_the_design_doc_names() {
         let mut h = host().with_turn_seconds(600);
-        let out = run(
-            &mut h,
-            "loop { wait(1); }",
-            Some(50),
-            Some("keep-fed"),
-            &[EventKind::Need],
-            &limits(),
-        );
+        let memory = no_memory();
+        let request = Request {
+            code: "loop { wait(1); }",
+            turns: Some(50),
+            note: Some("keep-fed"),
+            version: 3,
+            wake_on: &[EventKind::Need],
+            memory: &memory,
+        };
+        let out = run(&mut h, request, &limits());
         assert_eq!(out.reason, "event");
         assert!(out.why.is_some());
         assert_eq!(out.script, "keep-fed");
+        assert_eq!(out.version, 3);
         assert!(out.turns_run > 0);
         assert!(out.clock.contains(" -> "), "{}", out.clock);
         assert!(!out.since_start.events.is_empty(), "{:?}", out.since_start);
@@ -498,6 +635,7 @@ mod tests {
         assert_eq!(out.acts.failed, 0);
         assert!(out.acts.last_failure.is_none());
         assert_eq!(out.observe.turn, out.turns_run);
+        assert_eq!(out.memory, serde_json::json!({}));
     }
 
     /// A 45-turn scripted run on seed 7 Earth stays well under the ~8 KB budget the design doc
@@ -506,8 +644,102 @@ mod tests {
     fn a_45_turn_run_on_seed_7_earth_stays_under_8kb() {
         let nation = fn_tui::cli::parse_nation("earth").unwrap();
         let mut h = Host::new(7, nation, None, None, None, false).unwrap();
-        let out = run(&mut h, "wait(45);", Some(45), None, &[], &limits());
+        let memory = no_memory();
+        let request = Request {
+            code: "wait(45);",
+            turns: Some(45),
+            note: None,
+            version: 0,
+            wake_on: &[],
+            memory: &memory,
+        };
+        let out = run(&mut h, request, &limits());
         let json = serde_json::to_string(&out).unwrap();
         assert!(json.len() < 8192, "wake report was {} bytes", json.len());
+    }
+
+    // ----------------------------------------------------------------------------------------
+    // Memory (#479, docs/design/agent-scripting.md, "The SDK")
+    // ----------------------------------------------------------------------------------------
+
+    /// A script sees whatever `memory` it was given, mutates it, and [`Outcome::memory`] is
+    /// that mutation -- feeding one run's own `memory` back into a second run's own call is how
+    /// a saved script keeps something between `run_script` calls in a session
+    /// (`fn_agent::tools::Tools`'s own job; this just proves the one `run` call that makes it
+    /// possible).
+    #[test]
+    fn a_script_reads_and_mutates_the_memory_it_was_given() {
+        let mut h = host();
+        let out =
+            run_default(&mut h, r#"let n = memory.count ?? 0; memory.count = n + 1;"#, None, None);
+        assert_eq!(out.reason, "done", "{out:?}");
+        assert_eq!(out.memory, serde_json::json!({"count": 1}));
+    }
+
+    /// Running the same script twice, each time with the previous run's own `memory`, keeps
+    /// accumulating: the session-level persistence `fn_agent::tools::Tools` is built on.
+    #[test]
+    fn memory_persists_across_two_separate_run_calls() {
+        let code = r#"let n = memory.count ?? 0; memory.count = n + 1;"#;
+        let mut h = host();
+        let empty = no_memory();
+        let request =
+            Request { code, turns: None, note: None, version: 0, wake_on: &[], memory: &empty };
+        let first = run(&mut h, request, &limits());
+        assert_eq!(first.memory, serde_json::json!({"count": 1}));
+        let request = Request {
+            code,
+            turns: None,
+            note: None,
+            version: 0,
+            wake_on: &[],
+            memory: &first.memory,
+        };
+        let second = run(&mut h, request, &limits());
+        assert_eq!(second.memory, serde_json::json!({"count": 2}));
+    }
+
+    /// A `memory` write that would exceed `Limits::memory_bytes` fails the whole run with a
+    /// clear error instead of growing without bound (docs/design/agent-scripting.md, "The
+    /// SDK": "An oversize write fails the script with a clear error"), and the caller's own
+    /// `memory` is left exactly as it was -- the write never happened as far as the session is
+    /// concerned.
+    #[test]
+    fn an_oversize_memory_write_fails_the_run_and_keeps_the_previous_memory() {
+        let tiny = Limits { memory_bytes: 16, ..limits() };
+        let mut h = host();
+        let previous = serde_json::json!({"camp": "ok"});
+        let request = Request {
+            code: r#"memory.blob = "this is far too long to fit in sixteen bytes";"#,
+            turns: None,
+            note: None,
+            version: 0,
+            wake_on: &[],
+            memory: &previous,
+        };
+        let out = run(&mut h, request, &tiny);
+        assert_eq!(out.reason, "error");
+        assert!(out.why.as_deref().unwrap().contains("cap"), "{:?}", out.why);
+        assert_eq!(out.memory, previous);
+    }
+
+    /// Rebinding `memory` to something that isn't a map at all is the same kind of failure: a
+    /// clear error, and the previous `memory` kept.
+    #[test]
+    fn rebinding_memory_to_a_non_map_fails_the_run_and_keeps_the_previous_memory() {
+        let mut h = host();
+        let previous = serde_json::json!({"camp": "ok"});
+        let request = Request {
+            code: "memory = 42;",
+            turns: None,
+            note: None,
+            version: 0,
+            wake_on: &[],
+            memory: &previous,
+        };
+        let out = run(&mut h, request, &limits());
+        assert_eq!(out.reason, "error");
+        assert!(out.why.as_deref().unwrap().contains("map"), "{:?}", out.why);
+        assert_eq!(out.memory, previous);
     }
 }

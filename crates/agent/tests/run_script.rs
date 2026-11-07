@@ -29,6 +29,7 @@ fn limits() -> Limits {
         max_operations: 500_000,
         log_tail: 30,
         default_wake: vec![EventKind::Death, EventKind::Need, EventKind::Endeavor],
+        memory_bytes: 8192,
     }
 }
 

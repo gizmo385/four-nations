@@ -191,7 +191,7 @@ fn serve_resume(a: &ServeArgs, path: &str) -> Result<(), String> {
         lines.into_iter().filter(|l| !matches!(l, LogLine::End { .. })).collect();
     let writer =
         Writer::recreate_with(Path::new(path), &header, &kept).map_err(|e| e.to_string())?;
-    let tools = with_scripts(Tools::resume(host, writer), a);
+    let tools = with_scripts(Tools::resume(host, writer, &kept), a);
     run_tools(tools)
 }
 

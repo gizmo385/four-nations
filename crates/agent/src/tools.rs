@@ -16,12 +16,12 @@
 //! module's other tools call, so granting it adds no capability a sandboxed racer wouldn't
 //! already have.
 
-use fn_tui::surface::{ActionStep, Host};
+use fn_tui::surface::{ActionStep, Host, LogLine};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::runlog::Writer;
-use crate::script::{self, Limits as ScriptLimits};
+use crate::script::{self, Library, Limits as ScriptLimits};
 
 /// Every tool's name, description and input schema, in the order `tools/list` returns them.
 pub fn list() -> Vec<Value> {
@@ -181,24 +181,38 @@ fn run_script_tool() -> Value {
                          same Host this server's other tools read and act through -- observe, \
                          look, inspect, screen, act(steps, note), keys(script, note), \
                          wait(turns) (at least 1, Host::end_turn(1) per turn), events() \
-                         (#{turn, kind, text} since this run started) and wake(msg). Stops and \
-                         returns once the script returns (`done`, with its own value), errors \
-                         (`error`, with message and line:col), calls `wake(msg)` (`asked`), a \
-                         `wake_on` event lands during a `wait` (`event`), uses up `turns` \
-                         (`budget`), or runs too many operations with no `wait` (`runaway`). \
-                         The result is the wake report: reason, why, the turns actually run, \
-                         the clock span, a since_start diff (people, store deltas, event \
-                         counts, deduplicated texts), act counts with the last failure, the \
-                         script's own log tail, and the final `observe`.",
+                         (#{turn, kind, text} since this run started) and wake(msg). Give \
+                         either `name` (a `save_script`d script's own latest version) or \
+                         `code` (an ad hoc, unsaved one), not both or neither. `memory` is a \
+                         map that persists across run_script calls in this session (#{...}, \
+                         read and written as a normal variable); a write over data/agent.toml's \
+                         own memory_bytes fails the whole run with a clear error and keeps the \
+                         memory from before. Stops and returns once the script returns \
+                         (`done`, with its own value), errors (`error`, with message and \
+                         line:col), calls `wake(msg)` (`asked`), a `wake_on` event lands \
+                         during a `wait` (`event`), uses up `turns` (`budget`), or runs too \
+                         many operations with no `wait` (`runaway`). The result is the wake \
+                         report: reason, why, script name and version (if run by name), the \
+                         turns actually run, the clock span, a since_start diff (people, store \
+                         deltas, event counts, deduplicated texts), act counts with the last \
+                         failure, the script's own log tail, the resulting memory, and the \
+                         final `observe`.",
         "inputSchema": json!({
             "type": "object",
             "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Runs this saved script's own latest version instead of \
+                                    inline code; give name or code, not both.",
+                },
                 "code": {"type": "string"},
                 "turns": {"type": "integer"},
                 "note": {
                     "type": "string",
-                    "description": "Tags every act/keys step this run makes in the log, e.g. \
-                                    \"[keep-fed]\"; defaults to \"script\" with none given.",
+                    "description": "An ad hoc (`code`) run's own tag for every act/keys step \
+                                    this run makes in the log, e.g. \"[keep-fed]\"; defaults \
+                                    to \"script\" with none given. Ignored for a `name` run, \
+                                    which is always tagged by its own name and version.",
                 },
                 "wake_on": {
                     "type": "array",
@@ -213,7 +227,51 @@ fn run_script_tool() -> Value {
                                     still shows in `events()` for the script to handle itself.",
                 },
             },
-            "required": ["code"],
+        }),
+    })
+}
+
+/// `save_script`'s own entry (#479, docs/design/agent-scripting.md's own "`save_script`"):
+/// stores `code` under `name` in this session's own library, bumping its version.
+fn save_script_tool() -> Value {
+    json!({
+        "name": "save_script",
+        "description": "Stores code under name in this session's own script library, bumping \
+                         its version (1 for a new name, one more otherwise, even if code is \
+                         unchanged). run_script {name} then runs this, and scripts {} lists \
+                         it. Logged (and so restored by --resume) only once it's actually run.",
+        "inputSchema": json!({
+            "type": "object",
+            "properties": {"name": {"type": "string"}, "code": {"type": "string"}},
+            "required": ["name", "code"],
+        }),
+    })
+}
+
+/// `scripts`'s own entry (#479): every saved script this session knows, with its version and
+/// its last `run_script` call's own outcome and turns run.
+fn scripts_tool() -> Value {
+    json!({
+        "name": "scripts",
+        "description": "Every script save_script has stored this session: name, version, and \
+                         its last run_script call's own outcome (null, reason \"done\"/\
+                         \"error\"/... until it's been run at least once) and turns run.",
+        "inputSchema": json!({"type": "object", "properties": {}}),
+    })
+}
+
+/// `notes`'s own entry (#479): the agent's own lab notes, read or appended one line at a time.
+fn notes_tool() -> Value {
+    json!({
+        "name": "notes",
+        "description": "Reads this session's own lab notes (one line per past finding -- a \
+                         script's own root cause, a fix, an SDK gap), or appends one more with \
+                         append. Always returns the full list, oldest first.",
+        "inputSchema": json!({
+            "type": "object",
+            "properties": {
+                "append": {"type": "string", "description": "One more line to add."},
+            },
         }),
     })
 }
@@ -264,12 +322,24 @@ struct EndTurnArgs {
     turns: Option<u32>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct RunScriptArgs {
-    code: String,
+    name: Option<String>,
+    code: Option<String>,
     turns: Option<u32>,
     note: Option<String>,
     wake_on: Option<Vec<fn_tui::surface::EventKind>>,
+}
+
+#[derive(Deserialize)]
+struct SaveScriptArgs {
+    name: String,
+    code: String,
+}
+
+#[derive(Deserialize, Default)]
+struct NotesArgs {
+    append: Option<String>,
 }
 
 /// Wraps a [`Host`] and the run log [`Writer`]: the one place `tools/call` dispatches to.
@@ -289,6 +359,14 @@ pub struct Tools<W: std::io::Write> {
     /// --scripts`); `None` keeps this session's tool list exactly what it was before #477, the
     /// sandboxed racer's whole surface (the crate's own doc comment).
     scripts: Option<ScriptLimits>,
+    /// `save_script`'s own library, `run_script {name}`'s own source (#479): empty for a fresh
+    /// session, rebuilt from the log by [`Self::resume`] otherwise.
+    library: Library,
+    /// `run_script`'s own `memory`, persisted across calls in this session (#479): always a
+    /// JSON object, `{}` for a fresh session.
+    memory: Value,
+    /// `notes`'s own lab notes, oldest first (#479): empty for a fresh session.
+    notes: Vec<String>,
 }
 
 impl<W: std::io::Write> Tools<W> {
@@ -296,16 +374,29 @@ impl<W: std::io::Write> Tools<W> {
     /// made against, so a later `fn_tui --watch` or `fn_agent keys` can tell.
     pub fn new(host: Host, mut log: Writer<W>) -> Result<Self, String> {
         log.write_header(&host.header()).map_err(|e| e.to_string())?;
-        Ok(Self { host, log, written: 0, scripts: None })
+        Ok(Self {
+            host,
+            log,
+            written: 0,
+            scripts: None,
+            library: Library::new(),
+            memory: json!({}),
+            notes: Vec::new(),
+        })
     }
 
     /// Wraps a [`Host`] built with [`fn_tui::surface::Host::resume`] and a `log` that's already
     /// had its header and every replayed line written (`fn_agent serve --resume`, #341):
     /// `written` starts at `host.log().lines().len()`, not 0, so [`Self::call`]'s first flush
-    /// appends only what's new instead of writing the replayed lines a second time.
-    pub fn resume(host: Host, log: Writer<W>) -> Self {
+    /// appends only what's new instead of writing the replayed lines a second time. `lines` are
+    /// that same log's own lines (`fn_tui::watch::read_file`, minus any `End`), replayed by
+    /// [`rebuild_session`] into this session's own script library, `memory` and lab notes
+    /// (#479, docs/design/agent-scripting.md, "Memory across sessions") -- the same state a
+    /// live session reached, not a fresh one.
+    pub fn resume(host: Host, log: Writer<W>, lines: &[LogLine]) -> Self {
         let written = host.log().lines().len();
-        Self { host, log, written, scripts: None }
+        let (library, memory, notes) = rebuild_session(lines);
+        Self { host, log, written, scripts: None, library, memory, notes }
     }
 
     /// Turns `run_script` on for this session (`fn_agent serve --scripts`), with `limits` as
@@ -315,12 +406,15 @@ impl<W: std::io::Write> Tools<W> {
         self
     }
 
-    /// This session's own tool list: [`list`], plus `run_script` once [`Self::with_scripts`]
-    /// has turned it on.
+    /// This session's own tool list: [`list`], plus `run_script`, `save_script`, `scripts` and
+    /// `notes` once [`Self::with_scripts`] has turned them on.
     pub fn list(&self) -> Vec<Value> {
         let mut tools = list();
         if self.scripts.is_some() {
             tools.push(run_script_tool());
+            tools.push(save_script_tool());
+            tools.push(scripts_tool());
+            tools.push(notes_tool());
         }
         tools
     }
@@ -382,25 +476,114 @@ impl<W: std::io::Write> Tools<W> {
                 let turns = a.turns.unwrap_or(1).max(1);
                 Ok(ok(&self.host.end_turn(turns)))
             }
-            "run_script" => {
-                let limits = self
-                    .scripts
-                    .as_ref()
-                    .ok_or("run_script: this session wasn't started with --scripts")?;
-                let a: RunScriptArgs = args(name, arguments)?;
-                let wake_on = a.wake_on.unwrap_or_else(|| limits.default_wake.clone());
-                let outcome = script::run(
-                    &mut self.host,
-                    &a.code,
-                    a.turns,
-                    a.note.as_deref(),
-                    &wake_on,
-                    limits,
-                );
-                Ok(ok(&outcome))
+            "run_script" => self.run_script(arguments),
+            "save_script" => {
+                self.require_scripts(name)?;
+                let a: SaveScriptArgs = args(name, arguments)?;
+                let version = self.library.save(&a.name, &a.code);
+                Ok(json!({"name": a.name, "version": version}))
+            }
+            "scripts" => {
+                self.require_scripts(name)?;
+                Ok(self.library.list())
+            }
+            "notes" => {
+                self.require_scripts(name)?;
+                let a: NotesArgs = args(name, arguments).unwrap_or_default();
+                if let Some(line) = a.append.filter(|l| !l.is_empty()) {
+                    self.log
+                        .write_line(&LogLine::Note { text: line.clone() })
+                        .map_err(|e| e.to_string())?;
+                    self.notes.push(line);
+                }
+                Ok(json!({"notes": self.notes}))
             }
             other => Err(format!("no such tool {other:?}; call tools/list")),
         }
+    }
+
+    /// `limits` once [`Self::with_scripts`] has turned the script tools on for this session, or
+    /// an ordinary tool error naming `tool` otherwise -- the guard every one of `run_script`,
+    /// `save_script`, `scripts` and `notes` shares.
+    fn require_scripts(&self, tool: &str) -> Result<&ScriptLimits, String> {
+        self.scripts
+            .as_ref()
+            .ok_or_else(|| format!("{tool}: this session wasn't started with --scripts"))
+    }
+
+    /// `run_script`'s own dispatch (#477, #479): resolves `arguments` into either a saved
+    /// script's own name and code (`run_script {name}`, from [`Self::library`]) or an ad hoc
+    /// one (`run_script {code}`, `version` 0), writes that run's own `Script` log line, runs it
+    /// (`script::run`), then writes the `Wake` line and updates [`Self::memory`] and (for a
+    /// named run) [`Self::library`]'s own last outcome -- in that order, so a watcher or a
+    /// resumed session reads `Script`, then the run's own `Keys`/`Turn` lines, then `Wake`,
+    /// exactly as they happened (docs/design/agent-scripting.md, "Determinism, replay and
+    /// watching").
+    fn run_script(&mut self, arguments: Value) -> Result<Value, String> {
+        let limits = self.require_scripts("run_script")?.clone();
+        let a: RunScriptArgs = args("run_script", arguments)?;
+        let (tag, code, version) = match (a.name, a.code) {
+            (Some(n), None) => {
+                let (code, version) = self
+                    .library
+                    .get(&n)
+                    .map(|(c, v)| (c.to_owned(), v))
+                    .ok_or_else(|| format!("run_script: no such saved script {n:?}"))?;
+                (n, code, version)
+            }
+            (None, Some(code)) => {
+                let tag = a.note.filter(|n| !n.is_empty()).unwrap_or_else(|| "script".to_owned());
+                (tag, code, 0)
+            }
+            _ => {
+                return Err(
+                    "run_script needs either name or code, but not both or neither".to_owned()
+                );
+            }
+        };
+        let wake_on = a.wake_on.unwrap_or_else(|| limits.default_wake.clone());
+        let turns = limits.resolve_turns(a.turns);
+
+        self.log
+            .write_line(&LogLine::Script {
+                name: tag.clone(),
+                version,
+                code: code.clone(),
+                turns,
+                wake_on: wake_on.clone(),
+            })
+            .map_err(|e| e.to_string())?;
+
+        let request = script::Request {
+            code: &code,
+            turns: Some(turns),
+            note: Some(&tag),
+            version,
+            wake_on: &wake_on,
+            memory: &self.memory,
+        };
+        let outcome = script::run(&mut self.host, request, &limits);
+
+        // The script's own `Keys`/`Turn` lines land between `Script` and `Wake`, not after:
+        // flushing here (rather than waiting for `Self::call`'s own flush) keeps the log in the
+        // order the run actually happened.
+        self.flush_new_lines()?;
+
+        self.memory = outcome.memory.clone();
+        if version > 0 {
+            self.library.record_run(&tag, outcome.reason, outcome.turns_run);
+        }
+
+        self.log
+            .write_line(&LogLine::Wake {
+                reason: outcome.reason.to_owned(),
+                why: outcome.why.clone(),
+                turn: outcome.observe.turn,
+                memory: outcome.memory.clone(),
+            })
+            .map_err(|e| e.to_string())?;
+
+        Ok(ok(&outcome))
     }
 
     /// Everything `briefing` returns except the goal text, the limit and calls left, which
@@ -432,4 +615,60 @@ impl<W: std::io::Write> Tools<W> {
         self.written = lines.len();
         Ok(())
     }
+}
+
+/// Rebuilds the script library, `memory` and lab notes a resumed session should start from, by
+/// replaying `lines`' own `Script`, `Turn`, `Wake` and `Note` lines in order (#479,
+/// `Tools::resume`, docs/design/agent-scripting.md, "Memory across sessions"):
+/// - A `Script` line with `version >= 1` is a `run_script {name}` call against a saved script;
+///   its own `name` and `code` go into the library (`Library::restore`) and it opens a pending
+///   run to close with the next `Wake` line. `version == 0` is an ad hoc `run_script {code}`
+///   call (never `save_script`d, so nothing to restore into the library) and opens no pending
+///   run.
+/// - Every `Turn` line while a run is pending counts toward that run's own turns run -- exactly
+///   what `fn_agent::script::Outcome::turns_run` counted live, since every turn a script runs
+///   is logged the same way (`fn_tui::surface::LogLine::Turn`).
+/// - The `Wake` line that follows closes whatever run is pending (`Library::record_run` with
+///   its own `reason` and the turns counted since the `Script` line), and its own `memory` is
+///   kept as the session's current one regardless -- `memory` is global, not per-script, so
+///   only the very last `Wake` line's value matters.
+/// - Every `Note` line's own `text`, oldest first.
+///
+/// A `save_script` call that's never actually run leaves no `Script` line, so a script saved
+/// but never run in a session that ends is not restored by this -- `save_script`'s own doc
+/// comment on `fn_agent::tools::save_script_tool`.
+fn rebuild_session(lines: &[LogLine]) -> (Library, Value, Vec<String>) {
+    let mut library = Library::new();
+    let mut memory = json!({});
+    let mut notes = Vec::new();
+    let mut pending: Option<String> = None;
+    let mut turns_run: u32 = 0;
+    for line in lines {
+        match line {
+            LogLine::Script { name, version, code, .. } => {
+                pending = if *version >= 1 {
+                    library.restore(name, *version, code);
+                    Some(name.clone())
+                } else {
+                    None
+                };
+                turns_run = 0;
+            }
+            LogLine::Turn { .. } => turns_run += 1,
+            LogLine::Wake { reason, memory: m, .. } => {
+                if let Some(name) = pending.take() {
+                    library.record_run(&name, reason, turns_run);
+                }
+                memory = m.clone();
+                turns_run = 0;
+            }
+            LogLine::Note { text } => notes.push(text.clone()),
+            LogLine::Header(_)
+            | LogLine::Keys { .. }
+            | LogLine::Look { .. }
+            | LogLine::Inspect { .. }
+            | LogLine::End { .. } => {}
+        }
+    }
+    (library, memory, notes)
 }

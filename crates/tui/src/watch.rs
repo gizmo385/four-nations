@@ -109,6 +109,8 @@ pub fn to_keys_script(header: &RunLogHeader, lines: &[LogLine]) -> String {
             // The end marker (#327) is a fact about the log, not a key anyone pressed: it
             // leaves nothing to replay.
             LogLine::End { .. } => {}
+            // #479's own commentary (`LogLine`'s own doc comment): not a key either.
+            LogLine::Script { .. } | LogLine::Wake { .. } | LogLine::Note { .. } => {}
         }
     }
     tokens.join(" ")
@@ -554,6 +556,11 @@ impl Watcher {
                 self.finished = Some(reason);
             }
             LogLine::Header(_) => return self.start_next(), // shouldn't recur; harmless if it did
+            // #479's own commentary (`LogLine`'s own doc comment): takes no game time and has
+            // no display of its own yet (#482), so skip straight to whatever's next.
+            LogLine::Script { .. } | LogLine::Wake { .. } | LogLine::Note { .. } => {
+                return self.start_next();
+            }
         }
         true
     }

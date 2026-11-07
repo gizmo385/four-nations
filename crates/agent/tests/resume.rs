@@ -39,7 +39,7 @@ fn resume_tools(path: &std::path::Path) -> Tools<std::io::BufWriter<std::fs::Fil
     let kept: Vec<LogLine> =
         lines.into_iter().filter(|l| !matches!(l, LogLine::End { .. })).collect();
     let writer = Writer::recreate_with(path, &header, &kept).unwrap();
-    Tools::resume(host, writer)
+    Tools::resume(host, writer, &kept)
 }
 
 #[test]

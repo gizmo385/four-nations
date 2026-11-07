@@ -14,12 +14,19 @@
 //! trampoline", "The wake report") let a script end its own run on something worth the model's
 //! attention, and give the model back a compact report instead of a turn-by-turn transcript.
 //!
-//! Out of scope here (left to #479-#480, docs/design/agent-scripting.md's own follow-up list):
-//! the saved script library and `memory`, and the porcelain prelude.
+//! [`library::Library`] is the saved script library `save_script`/`run_script {name}`/
+//! `scripts {}` share (#479); [`runner::run`]'s own `memory` parameter and `Outcome::memory`
+//! are the persisted map `fn_agent::tools::Tools` carries across `run_script` calls in a
+//! session, capped by `Limits::memory_bytes`.
+//!
+//! Out of scope here (left to #480, docs/design/agent-scripting.md's own follow-up list): the
+//! porcelain prelude.
 
 mod bindings;
+pub mod library;
 pub mod limits;
 pub mod runner;
 
+pub use library::Library;
 pub use limits::Limits;
-pub use runner::{Outcome, run};
+pub use runner::{Outcome, Request, run};

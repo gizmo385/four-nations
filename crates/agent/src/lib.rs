@@ -20,12 +20,15 @@
 //! the `--keys` script that reproduces its final frame with `fn_tui SEED NATION --frame --keys
 //! "..."`.
 //!
-//! `--scripts` (docs/design/agent-scripting.md) adds one more tool, `run_script`: instead of
-//! deciding every key itself, the model hands over a [`script`] written in embedded Rhai that
-//! plays the routine work and only comes back once something worth a decision happens. Every
-//! key a script presses is a normal `act`/`keys` call under the hood, logged the same way, so
+//! `--scripts` (docs/design/agent-scripting.md) adds `run_script`: instead of deciding every
+//! key itself, the model hands over a [`script`] written in embedded Rhai that plays the
+//! routine work and only comes back once something worth a decision happens. Every key a
+//! script presses is a normal `act`/`keys` call under the hood, logged the same way, so
 //! `fn_tui --watch` and `fn_agent keys` read a scripted run exactly as they read an MCP-only
-//! one.
+//! one. `save_script`, `scripts` and `notes` round this out with a session's own script
+//! library, `memory` and lab notes, logged as `Script`/`Wake`/`Note` lines
+//! (`fn_tui::surface::LogLine`) that `fn_agent serve --resume` reads back to restore them
+//! exactly, without changing what the game itself replays to (#479).
 //!
 //! ## Sandboxing a racer (docs/design/agent-play.md, "Enforcing and testing parity")
 //!

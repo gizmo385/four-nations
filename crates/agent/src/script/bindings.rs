@@ -54,9 +54,15 @@ pub(super) fn read_signal(token: &Dynamic) -> Option<Signal> {
 ///   `run_script` calls -- and so no two `Context`s -- ever exist concurrently.
 pub(super) struct Context {
     host: *mut Host,
-    /// `run_script`'s own tag for every `act`/`keys` step this run makes (the caller's `note`,
-    /// or `"script"` with none given, #477's stand-in for the saved script identity #479 adds).
+    /// This run's own plain name (the caller's `note`, or `"script"` with none given --
+    /// `run_script {name}`'s own saved name once #479 is in play, or `run_script {code}`'s own
+    /// `note`): [`Self::tag`] and `Outcome::script`'s own value, never version-suffixed.
     tag: String,
+    /// The saved script's own version being run (`run_script {name}`, #479), or `0` for an ad
+    /// hoc `run_script {code}` call that was never `save_script`d. [`Self::log_tag`] suffixes
+    /// `self.tag` with `" vN"` whenever this is nonzero (docs/design/agent-scripting.md,
+    /// "Determinism, replay and watching": "its note is `[keep-fed v3]`").
+    version: u32,
     log: RefCell<Vec<String>>,
     max_turns: u32,
     turns_used: Cell<u32>,
@@ -74,6 +80,7 @@ impl Context {
     pub(super) fn new(
         host: &mut Host,
         tag: String,
+        version: u32,
         max_turns: u32,
         wake_on: Vec<EventKind>,
     ) -> Rc<Self> {
@@ -81,6 +88,7 @@ impl Context {
         Rc::new(Self {
             host: std::ptr::from_mut(host),
             tag,
+            version,
             log: RefCell::new(Vec::new()),
             max_turns,
             turns_used: Cell::new(0),
@@ -118,19 +126,35 @@ impl Context {
         self.turns_used.set(self.turns_used.get() + 1);
     }
 
-    /// `note` tagged with [`Self::tag`] (docs/design/agent-scripting.md, "Determinism, replay
-    /// and watching": "Its label is the step and its note is `[keep-fed v3]` plus the script's
-    /// own note").
-    fn tag_note(&self, note: Option<&str>) -> String {
-        match note {
-            Some(n) if !n.is_empty() => format!("[{}] {n}", self.tag),
-            _ => format!("[{}]", self.tag),
+    /// [`Self::tag`] suffixed `" vN"` when [`Self::version`] is nonzero: a saved script's own
+    /// run is tagged by name and version, an ad hoc one by name alone.
+    fn log_tag(&self) -> String {
+        match self.version {
+            0 => self.tag.clone(),
+            v => format!("{} v{v}", self.tag),
         }
     }
 
-    /// `self.tag`, for [`crate::script::runner::run`]'s own wake report (`Outcome::script`).
+    /// `note` tagged with [`Self::log_tag`] (docs/design/agent-scripting.md, "Determinism,
+    /// replay and watching": "Its label is the step and its note is `[keep-fed v3]` plus the
+    /// script's own note").
+    fn tag_note(&self, note: Option<&str>) -> String {
+        let tag = self.log_tag();
+        match note {
+            Some(n) if !n.is_empty() => format!("[{tag}] {n}"),
+            _ => format!("[{tag}]"),
+        }
+    }
+
+    /// `self.tag`, for [`crate::script::runner::run`]'s own wake report (`Outcome::script`):
+    /// always the plain name, never version-suffixed (`Outcome::version` carries that).
     pub(super) fn tag(&self) -> &str {
         &self.tag
+    }
+
+    /// `self.version`, for [`crate::script::runner::run`]'s own wake report (`Outcome::version`).
+    pub(super) fn version(&self) -> u32 {
+        self.version
     }
 
     /// Every event since [`Self::events_start`], for the `events()` binding and
