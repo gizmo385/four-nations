@@ -379,7 +379,7 @@ A `tui.toml` test checks that every `Class` has a colour.
 
 ## Recording
 
-**Decided (#504): `fn_tui --watch LOG --record OUT.cast [--size WxH] [--pace N] [--fps N]`.**
+**Decided (#504), built (#503): `fn_tui --watch LOG --record OUT.cast [--size WxH] [--pace xN] [--fps N] [--ascii] [--color MODE]`.**
 
 - **It needs no terminal.** It drives the `Watcher` on a virtual clock (`advance(1 / fps)` per
   frame) and draws each frame through a ratatui `Terminal` over a `CrosstermBackend<Vec<u8>>`.
@@ -389,6 +389,12 @@ A `tui.toml` test checks that every `Class` has a colour.
 - **The same log gives a byte-identical `.cast`.** It runs faster than real time, works in CI,
   and agents can make one (they must never launch `fn_tui` interactively). A year at pace x10
   is about six minutes of video, which takes a few seconds to render.
+- **Defaults and details.** `--size 160x45` (the studio fits), `--fps 15` (1 to 60), and the
+  watcher's default pace (x1). The viewport is fixed to `--size` (no terminal is ever asked its
+  size), colour defaults to truecolor and ignores `NO_COLOR` and the other environment hints
+  (`--color never` turns it off), and the header has no timestamp, which is what keeps the file
+  byte-identical. The first event clears the screen and hides the cursor. Frames that change
+  nothing write no event. It is `crates/tui/src/record.rs`.
 - **Turning it into video is the user's step.** `agg OUT.cast OUT.gif`, or `asciinema play`.
   The doc and `--help` say so, and nothing here shells out.
 - **Alternatives:** an `asciinema rec -c "fn_tui --watch …"` wrapper script needs no Rust, but

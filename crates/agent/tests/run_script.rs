@@ -128,6 +128,8 @@ fn fn_agent_keys_on_a_scripted_log_reproduces_the_same_frame_as_an_mcp_only_run(
         watch: None,
         pace: None,
         at: None,
+        record: None,
+        fps: None,
     };
     let mut replay = fn_tui::shell::Shell::for_args(&args, fn_tui::cli::DEFAULT_SIZE, None, 0)
         .expect("a header built by this test's own Host always replays");

@@ -7,6 +7,7 @@
 //! fn_tui --scenario ID [--frame [--ticks N] [--keys SCRIPT] [--ansi]] [--ascii] [--color MODE]
 //!        [--fast]
 //! fn_tui --watch LOG [--pace xN] [--frame [--at TURN] [--keys SCRIPT] [--ascii] [--color MODE]]
+//! fn_tui --watch LOG --record OUT.cast [--size WxH] [--pace xN] [--fps N] [--ascii] [--color MODE]
 //! ```
 //!
 //! With no `SEED`/`NATION`, the game opens on the title screen (#280): New game, Continue, Load
@@ -37,6 +38,12 @@
 //! `--keys SCRIPT` (only with both too, #330, `crate::spectate`) plays free-look spectator keys
 //! -- never the game's own -- before the frame, so a golden test can check what free look shows
 //! without a terminal, the same way `--keys` lets `--frame` alone check the game.
+//!
+//! `--record OUT.cast` (#503, docs/design/agent-studio.md, "Recording"; `--watch` only, and not
+//! with `--frame`) renders the whole replay with no terminal into an asciicast v2 file, at
+//! `--size` (default 160x45, not `--frame`'s), `--pace` and `--fps` (default 15). `--color`
+//! defaults to truecolor there rather than being read from the environment, so the same log
+//! always gives the same file.
 
 use std::path::PathBuf;
 
@@ -44,6 +51,7 @@ use fn_sim::Nation;
 
 use crate::color::ColorDepth;
 use crate::keys::{self, Step};
+use crate::record;
 use crate::watch;
 
 pub const USAGE: &str = "\
@@ -56,7 +64,7 @@ With neither, fn_tui opens on the title screen: New game (pick a nation and a se
 
 options:
   --frame        print one frame to stdout and exit (no terminal needed)
-  --size WxH     the frame's size in cells, with --frame (default 120x40)
+  --size WxH     the frame's size in cells, with --frame (default 120x40) or --record
   --ticks N      run N ticks before the frame, with --frame (default 0)
   --keys SCRIPT  play a key script after those ticks, with --frame: tokens separated by
                  spaces, each a key (h, d, S), a named key (<enter> <esc> <space> <tab>
@@ -84,6 +92,12 @@ options:
   --pace xN      the watch pace to start at (1, 2, 5, 10, 20 or 40; default 1), with --watch
   --at TURN      with --watch --frame: the frame as of the end of that turn, instead of as far
                  as the log currently reaches
+  --record OUT.cast  with --watch: render the whole replay with no terminal into an asciicast
+                 v2 file (the same log gives a byte-identical file; it runs faster than real
+                 time). Takes --size WxH (default 160x45), --pace, --fps and --ascii. Turn it
+                 into a GIF with `agg OUT.cast OUT.gif`, or watch it with `asciinema play
+                 OUT.cast`; fn_tui doesn't run either
+  --fps N        frames per second of the recording, 1 to 60 (default 15), with --record
   --keys SCRIPT  with --watch --frame: plays free-look spectator keys (V toggles Follow/Free;
                  arrows/WASD move; N T G L ? open the Nation, Research, Endeavor, log and key
                  help screens; U browses the Build list) before the frame, so free look can be
@@ -147,6 +161,12 @@ pub struct Args {
     /// `--at TURN`, with `--watch --frame`: the frame as of the end of that turn. `None` is as
     /// far as the log currently reaches.
     pub at: Option<u32>,
+    /// `--record OUT.cast`, with `--watch` (#503): render the replay headless into an asciicast
+    /// v2 file instead of showing it. `size` is then the recording's (default
+    /// `record::DEFAULT_SIZE`, not `DEFAULT_SIZE`).
+    pub record: Option<PathBuf>,
+    /// `--fps N`, with `--record`: frames per virtual second. `None` is `record::DEFAULT_FPS`.
+    pub fps: Option<u32>,
 }
 
 pub fn parse_nation(s: &str) -> Option<Nation> {
@@ -198,7 +218,10 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         watch: None,
         pace: None,
         at: None,
+        record: None,
+        fps: None,
     };
+    let mut size_given = false;
     while let Some(arg) = args.next() {
         // `--flag=value` and `--flag value` both work.
         let (flag, inline) = match arg.split_once('=') {
@@ -216,6 +239,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                 let v = value("--size")?;
                 if let Some(wh) = parse_size(&v) {
                     out.size = wh;
+                    size_given = true;
                 } else if let Some(id) = parse_map_size_id(&v) {
                     out.map_size = Some(id);
                 } else {
@@ -246,6 +270,16 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                     return Err(format!("--pace wants one of {:?}, got {v:?}", watch::PACES));
                 }
                 out.pace = Some(n);
+            }
+            "--record" => out.record = Some(PathBuf::from(value("--record")?)),
+            "--fps" => {
+                let v = value("--fps")?;
+                let n: u32 =
+                    v.parse().map_err(|_| format!("--fps wants a whole number, got {v:?}"))?;
+                if !(1..=record::MAX_FPS).contains(&n) {
+                    return Err(format!("--fps wants 1 to {}, got {v:?}", record::MAX_FPS));
+                }
+                out.fps = Some(n);
             }
             "--at" => {
                 let v = value("--at")?;
@@ -339,8 +373,21 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     if out.at.is_some() && !(out.watch.is_some() && out.frame) {
         return Err("--at only means something with --watch --frame".to_owned());
     }
+    if out.record.is_some() {
+        if out.watch.is_none() {
+            return Err("--record only means something with --watch".to_owned());
+        }
+        if out.frame {
+            return Err("--record and --frame can't both be given".to_owned());
+        }
+        if !size_given {
+            out.size = record::DEFAULT_SIZE;
+        }
+    } else if out.fps.is_some() {
+        return Err("--fps only means something with --record".to_owned());
+    }
     for (flag, given) in [
-        ("--size", out.size != DEFAULT_SIZE),
+        ("--size", out.size != DEFAULT_SIZE && out.record.is_none()),
         ("--ticks", out.ticks > 0),
         ("--keys", keys_given),
         ("--ansi", out.ansi),
@@ -551,6 +598,33 @@ mod tests {
             ("--watch run.jsonl --pace x3", "--pace wants one of"),
             ("--at 3", "--at only means something"),
             ("--watch run.jsonl --at 3", "--at only means something"), // needs --frame too
+        ] {
+            let err = parse_str(args).unwrap_err();
+            assert!(err.contains(want), "{args:?}: {err}");
+        }
+    }
+
+    /// `--record` (#503) is a headless watch: its own size default, `--fps`, and nothing that
+    /// only makes sense for one frame or a live game.
+    #[test]
+    fn record_is_a_headless_watch() {
+        let a = parse_str("--watch run.jsonl --record out.cast").unwrap();
+        assert_eq!(a.record.as_deref(), Some(std::path::Path::new("out.cast")));
+        assert_eq!((a.size, a.fps, a.frame), (record::DEFAULT_SIZE, None, false));
+        let a = parse_str("--watch run.jsonl --record=out.cast --size 120x40 --pace x10 --fps 30")
+            .unwrap();
+        assert_eq!((a.size, a.pace, a.fps), (DEFAULT_SIZE, Some(10), Some(30)));
+        let a = parse_str("--watch run.jsonl --record out.cast --size 100x30 --ascii").unwrap();
+        assert!(a.ascii && a.size == (100, 30));
+        for (args, want) in [
+            ("--record out.cast", "--record only means something with --watch"),
+            ("--watch run.jsonl --record out.cast --frame", "can't both be given"),
+            ("--watch run.jsonl --record out.cast --keys d", "--keys only means something"),
+            ("--watch run.jsonl --record out.cast --at 3", "--at only means something"),
+            ("--watch run.jsonl --fps 30", "--fps only means something with --record"),
+            ("--watch run.jsonl --record out.cast --fps 0", "--fps wants 1 to"),
+            ("--watch run.jsonl --record out.cast --fps x", "whole number"),
+            ("--watch run.jsonl --record", "needs a value"),
         ] {
             let err = parse_str(args).unwrap_err();
             assert!(err.contains(want), "{args:?}: {err}");

@@ -141,6 +141,8 @@ impl Host {
             watch: None,
             pace: None,
             at: None,
+            record: None,
+            fps: None,
         };
         let shell = Shell::for_args(&args, cli::DEFAULT_SIZE, None, 0)?;
         let palette = Palette::new(shell.defs(), nation, ColorDepth::TrueColor, true);
@@ -2257,6 +2259,8 @@ mod tests {
             watch: None,
             pace: None,
             at: None,
+            record: None,
+            fps: None,
         };
         Shell::for_args(&args, cli::DEFAULT_SIZE, None, 0).unwrap()
     }
@@ -2830,6 +2834,8 @@ mod tests {
             watch: None,
             pace: None,
             at: None,
+            record: None,
+            fps: None,
         };
         let mut replay = Shell::for_args(&args, cli::DEFAULT_SIZE, None, 0).unwrap();
         replay.play(&steps);

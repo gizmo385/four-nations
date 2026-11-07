@@ -28,6 +28,7 @@ pub mod menu;
 pub mod modal;
 pub mod nation;
 pub mod panel;
+pub mod record;
 pub mod research;
 pub mod run;
 pub mod saves;

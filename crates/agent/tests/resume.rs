@@ -154,6 +154,8 @@ fn keys_reads_a_resumed_log_as_one_continuous_run() {
         watch: None,
         pace: None,
         at: None,
+        record: None,
+        fps: None,
     };
     let mut replay =
         fn_tui::shell::Shell::for_args(&args, fn_tui::cli::DEFAULT_SIZE, None, 0).unwrap();

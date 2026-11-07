@@ -692,3 +692,47 @@ fn watch_studio_zoomed_frame_is_golden() {
     assert!(text.contains("[1]23"), "{text}");
     golden("watch_studio_160x45_zoomed_code", &text);
 }
+
+/// `--record` (#503) through the real binary: no terminal (stdin and stdout are not ttys here),
+/// the same log gives a byte-identical file whatever the environment says about colour, the
+/// header's size is `--size`'s, and the studio's code pane is in the frames.
+#[test]
+fn record_writes_a_deterministic_asciicast() {
+    let path = write_studio_log();
+    let dir = std::env::temp_dir().join(format!("fn_tui_record_test_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (a, b) = (dir.join("a.cast"), dir.join("b.cast"));
+    let record = |out: &std::path::Path, no_color: bool| {
+        let mut cmd = fn_tui();
+        cmd.args(["--watch", path.to_str().unwrap(), "--record", out.to_str().unwrap()])
+            .args(["--size", "160x45", "--pace", "x40", "--fps", "10"]);
+        if no_color {
+            cmd.env("NO_COLOR", "1");
+        }
+        let out = cmd.output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert!(out.stdout.is_empty(), "the recorder prints nothing");
+    };
+    record(&a, false);
+    record(&b, true);
+    let (a_text, b_text) =
+        (std::fs::read_to_string(&a).unwrap(), std::fs::read_to_string(&b).unwrap());
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::remove_file(&path).ok();
+    assert_eq!(a_text, b_text, "NO_COLOR and the like must not change the file");
+
+    let header: serde_json::Value = serde_json::from_str(a_text.lines().next().unwrap()).unwrap();
+    assert_eq!((header["width"].as_u64(), header["height"].as_u64()), (Some(160), Some(45)));
+    assert!(a_text.contains("keep-fed.rhai"), "the studio's code pane is recorded");
+    assert!(a_text.lines().count() > 3);
+}
+
+#[test]
+fn record_says_what_is_wrong_with_the_log() {
+    let out = fn_tui()
+        .args(["--watch", "/nonexistent/run.jsonl", "--record", "/nonexistent/out.cast"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("can't read the run log"));
+}

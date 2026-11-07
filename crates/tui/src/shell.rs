@@ -228,6 +228,8 @@ impl Shell {
             watch: None,
             pace: None,
             at: None,
+            record: None,
+            fps: None,
         };
         let mut shell = Self::for_args_inner(&synthetic, screen, saves, 0)?;
         if let (Some(prelude), Mode::Game(app)) = (&scenario.prelude, &mut shell.mode) {

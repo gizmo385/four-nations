@@ -32,6 +32,24 @@ fn main() -> ExitCode {
     let saves = fn_ui::saves::default_save_dir();
 
     if let Some(path) = &args.watch {
+        if let Some(out) = &args.record {
+            // No terminal: this runs the same with stdout piped, in CI, or from an agent.
+            let options = fn_tui::record::Options {
+                size: args.size,
+                pace: args.pace,
+                fps: args.fps.unwrap_or(fn_tui::record::DEFAULT_FPS),
+                ascii: args.ascii,
+                // The environment is deliberately not read: the same log gives the same file.
+                depth: args.color.unwrap_or(ColorDepth::TrueColor),
+            };
+            return match fn_tui::record::record_file(path, out, &options) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("fn_tui: {e}");
+                    ExitCode::from(2)
+                }
+            };
+        }
         if args.frame {
             return match print_watch_frame(&args, path, depth) {
                 Ok(()) => ExitCode::SUCCESS,

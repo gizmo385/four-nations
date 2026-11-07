@@ -370,6 +370,8 @@ impl Watcher {
             watch: None,
             pace: None,
             at: None,
+            record: None,
+            fps: None,
         };
         let mut shell = Shell::for_args(&args, cli::DEFAULT_SIZE, None, 0)?;
         let digest = shell.defs().id_hash();
