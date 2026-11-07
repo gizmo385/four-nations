@@ -51,7 +51,8 @@ fn sdk_reference_without_scripts_is_a_tool_error() {
 /// with its own `#{signature, doc}`, and every porcelain call (`find`, `designate_near`,
 /// `build_near`, `wait_until`, `stalled`, `store`, `idle`, `need`) with its own
 /// `#{name, params, doc}` -- read back from the registered functions and the compiled
-/// `prelude.rhai`, not a hand-kept copy that could drift from either.
+/// `prelude.rhai`, not a hand-kept copy that could drift from either. It also names every
+/// `act` step shape (#508) as a `#{step, fields, example}`.
 #[test]
 fn sdk_reference_names_the_plumbing_and_porcelain_layers() {
     let mut tools = Tools::new(host(), Writer::new(Vec::new())).unwrap().with_scripts(limits());
@@ -82,6 +83,16 @@ fn sdk_reference_names_the_plumbing_and_porcelain_layers() {
     }
     for entry in porcelain {
         assert!(!entry["doc"].as_str().unwrap().is_empty(), "{entry}: no doc line");
+    }
+
+    let action_steps = result["action_steps"].as_array().expect("action_steps is a list");
+    let step_names: Vec<&str> = action_steps.iter().map(|e| e["step"].as_str().unwrap()).collect();
+    for want in ["designate", "build", "select", "research", "cursor", "keys"] {
+        assert!(step_names.contains(&want), "{want:?} missing from {step_names:?}");
+    }
+    for entry in action_steps {
+        assert!(!entry["fields"].as_str().unwrap().is_empty(), "{entry}: no fields");
+        assert!(!entry["example"].as_str().unwrap().is_empty(), "{entry}: no example");
     }
 }
 

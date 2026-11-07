@@ -64,6 +64,41 @@ fn build_near_places_a_bed_that_later_finishes() {
         "no Bed standing near the camp after 90 turns: {:?}",
         area.iter().map(|c| &c.thing).collect::<Vec<_>>()
     );
+    let tries = r["tries"].as_u64().expect("tries is a number");
+    assert!((1..=8).contains(&tries), "tries should be within the default max_tries: {r}");
+}
+
+/// A spot deep enough in the sea that every tile within `build_near`'s own 15-tile search box
+/// is water (#508): `free_origins` still calls every one of them "free" (it only looks at
+/// `thing`, never the ground), so `build_near` would otherwise burn one `act` per water tile in
+/// the whole box before giving up. It stops after the default 8 refused candidates instead,
+/// `tries` says so, and `msg` names the refusal every one of them actually shared.
+#[test]
+fn build_near_on_a_spot_surrounded_by_water_gives_up_after_max_tries() {
+    let mut h = host();
+    let code = r#"build_near("Bed", #{x: 30, y: 10})"#;
+    let out = run_porcelain(&mut h, code, 1);
+    assert_eq!(out.reason, "done", "{out:?}");
+    let r = out.value.expect("a result map");
+    assert_eq!(r["ok"], false, "{r}");
+    assert_eq!(r["tries"], 8, "{r}");
+    let msg = r["msg"].as_str().unwrap();
+    assert!(msg.contains("tried 8"), "{msg}");
+    assert!(msg.contains("most said:"), "{msg}");
+    assert!(msg.contains("on water"), "{msg}");
+}
+
+/// The optional third argument overrides the default 8-try limit.
+#[test]
+fn build_near_max_tries_overrides_the_default() {
+    let mut h = host();
+    let code = r#"build_near("Bed", #{x: 30, y: 10}, 3)"#;
+    let out = run_porcelain(&mut h, code, 1);
+    assert_eq!(out.reason, "done", "{out:?}");
+    let r = out.value.expect("a result map");
+    assert_eq!(r["ok"], false, "{r}");
+    assert_eq!(r["tries"], 3, "{r}");
+    assert!(r["msg"].as_str().unwrap().contains("tried 3"), "{r}");
 }
 
 /// `build_near` with a building `screen("build")` doesn't offer (or that's locked) fails
@@ -82,9 +117,11 @@ fn build_near_an_unknown_or_locked_building_fails_with_a_clear_message() {
     let unknown = &results[0];
     assert_eq!(unknown["ok"], false);
     assert!(unknown["msg"].as_str().unwrap().contains("Nonsense Hut"), "{unknown}");
+    assert_eq!(unknown["tries"], 0, "{unknown}");
     let locked = &results[1];
     assert_eq!(locked["ok"], false);
     assert!(locked["msg"].as_str().unwrap().contains("locked"), "{locked}");
+    assert_eq!(locked["tries"], 0, "{locked}");
 }
 
 /// `designate_near("harvest", "Wild Cabbage", camp, 15, false)` designates every Wild Cabbage

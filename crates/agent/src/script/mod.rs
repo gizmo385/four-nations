@@ -22,8 +22,10 @@
 //! [`prelude::SOURCE`] (#480) is the porcelain layer, written in Rhai on top of the plumbing:
 //! [`runner::run`] merges its compiled AST into every call ahead of the caller's own code, and
 //! `crate::tools`'s own `sdk_reference` tool reads [`prelude::reference`] and
-//! [`bindings::plumbing_reference`] back to describe both layers from the code itself.
+//! [`bindings::plumbing_reference`] back to describe both layers from the code itself, plus
+//! [`action_steps::reference`] (#508) for every shape `act`'s own `steps` argument accepts.
 
+pub(crate) mod action_steps;
 pub(crate) mod bindings;
 pub mod library;
 pub mod limits;

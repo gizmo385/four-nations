@@ -168,7 +168,10 @@ loop {
 ```
 
 `sdk_reference` is a new tool. It returns the plumbing signatures (from Rhai's
-`gen_fn_signatures`) and the prelude's doc comments, so the reference can't drift from the code.
+`gen_fn_signatures`) and the prelude's doc comments, so the reference can't drift from the
+code, plus (#508) every `act` step shape (`designate`, `build`, `select`, `research`, `cursor`,
+`keys`, docs/design/agent-play.md's own "Action" table) as a `#{step, fields, example}`,
+including `sow` (#333) and `bend`'s own `ability` field.
 
 ## The trampoline
 

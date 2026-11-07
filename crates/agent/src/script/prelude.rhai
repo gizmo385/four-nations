@@ -129,19 +129,56 @@ fn designate_near(tool, desc, near, radius, standing) {
     #{ok: done > 0, msg: msg, found: matches.len(), done: done}
 }
 
+/// The text inside the last `(...)` of a "<what>: N done, M skipped (reason)" notice
+/// (`fn_ui::tools::apply_rect`'s own shape, the same text a player's Tool section shows):
+/// `notice` unchanged if it carries no parentheses (an `act` step that failed to plan at all
+/// has no notice to begin with -- `build_near`'s own caller uses `r.error.reason` for that
+/// case instead).
+fn refusal_reason(notice) {
+    let open = notice.index_of("(");
+    if open < 0 {
+        return notice;
+    }
+    let close = notice.index_of(")", open);
+    if close < 0 {
+        return notice;
+    }
+    notice.sub_string(open + 1, close - open - 1)
+}
+
+/// `reasons`'s own most frequent key (`#{reason: count}`, `build_near`'s own tally): ties break
+/// on whichever `reasons.keys()` lists first (Rhai's own object map order, insertion order), so
+/// the first distinct reason seen among equally common ones wins. Never actually called with an
+/// empty map -- `build_near` only reaches this after at least one refused candidate.
+fn most_common_reason(reasons) {
+    let best = "";
+    let best_count = -1;
+    for key in reasons.keys() {
+        if reasons[key] > best_count {
+            best = key;
+            best_count = reasons[key];
+        }
+    }
+    best
+}
+
 /// Finds a free footprint for `building` (its size from `screen("build")`'s own rows) within
-/// 15 tiles of `near`, builds it there, and returns `#{ok, msg}` with the `build` step's own
-/// notice text. Tries every free candidate `free_origins` finds, nearest first, until one
-/// actually places something or none do (`act`'s own word on whether the ground takes it, not
-/// `free_origins`'s); `ok` is false with no candidate tried at all when `building` isn't a
-/// name `screen("build")` lists, or is locked.
-fn build_near(building, near) {
+/// 15 tiles of `near`, builds it there, and returns `#{ok, msg, tries}` with the `build` step's
+/// own notice text; `tries` is how many candidates were actually acted on. Tries free
+/// candidates `free_origins` finds, nearest first, until one actually places something or
+/// `max_tries` have been refused (#508: ground that reads "free" to `free_origins` but refuses
+/// every build -- water, say -- can otherwise burn one `act` per free tile in the whole search
+/// box before giving up). `ok` is false with `tries: 0` when `building` isn't a name
+/// `screen("build")` lists, or is locked, or no free footprint exists at all; otherwise, once
+/// refused `max_tries` times, `msg` names how many spots were tried and the most common
+/// refusal reason among them.
+fn build_near(building, near, max_tries) {
     let row = screen("build").rows.find(|r| r.name == building);
     if row == () {
-        return #{ok: false, msg: `build_near: no such building ${building}`};
+        return #{ok: false, msg: `build_near: no such building ${building}`, tries: 0};
     }
     if row.locked {
-        return #{ok: false, msg: `build_near: ${building} is locked`};
+        return #{ok: false, msg: `build_near: ${building} is locked`, tries: 0};
     }
     let size = row.size.split("x");
     let w = parse_int(size[0]);
@@ -151,20 +188,45 @@ fn build_near(building, near) {
         return #{
             ok: false,
             msg: `build_near: no free ${row.size} spot for ${building} within 15 of (${near.x},${near.y})`,
+            tries: 0,
         };
     }
     let note = `build ${building} near (${near.x},${near.y})`;
+    let tries = 0;
+    let reasons = #{};
     for o in origins {
+        if tries >= max_tries {
+            break;
+        }
+        tries += 1;
         let to = #{x: o.x + w - 1, y: o.y + h - 1};
         let r = act([#{step: "build", building: building, from: o, to: to}], note);
         if r.error == () && r.notices.len() > 0 && !r.notices[0].notice.contains("0 done,") {
-            return #{ok: true, msg: r.notices[0].notice};
+            return #{ok: true, msg: r.notices[0].notice, tries: tries};
+        }
+        let reason = if r.error != () {
+            r.error.reason
+        } else if r.notices.len() > 0 {
+            refusal_reason(r.notices[0].notice)
+        } else {
+            "refused"
+        };
+        if reasons.contains(reason) {
+            reasons[reason] += 1;
+        } else {
+            reasons[reason] = 1;
         }
     }
     #{
         ok: false,
-        msg: `build_near: every free spot for ${building} near (${near.x},${near.y}) was refused`,
+        msg: `build_near: tried ${tries} spot(s) near (${near.x},${near.y}); most said: ${most_common_reason(reasons)}`,
+        tries: tries,
     }
+}
+
+/// `build_near(building, near, 8)`: gives up after 8 refused candidates by default (#508).
+fn build_near(building, near) {
+    build_near(building, near, 8)
 }
 
 /// Waits until `cond` (a function pointer or closure taking no arguments, called with

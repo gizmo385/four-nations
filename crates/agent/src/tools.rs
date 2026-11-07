@@ -265,7 +265,8 @@ fn save_script_tool() -> Value {
 /// `sdk_reference`'s own entry (#480, docs/design/agent-scripting.md's own "The SDK"): the
 /// plumbing's own signatures and the porcelain layer's own `///` doc comments, both read back
 /// from the registered functions and the compiled `prelude.rhai` rather than kept by hand, so
-/// this can't say anything the code doesn't actually do.
+/// this can't say anything the code doesn't actually do. `action_steps` (#508) names every
+/// shape `act`'s own `steps` argument accepts.
 fn sdk_reference_tool() -> Value {
     json!({
         "name": "sdk_reference",
@@ -275,7 +276,9 @@ fn sdk_reference_tool() -> Value {
                          designate_near, build_near, wait_until, stalled, store, idle and need, \
                          loaded before every script). Each plumbing entry is #{signature, doc}; \
                          each porcelain entry is #{name, params, doc}, doc straight from the \
-                         function's own /// comment.",
+                         function's own /// comment. action_steps names every shape act's own \
+                         steps argument accepts (designate, build, select, research, cursor, \
+                         keys), each a #{step, fields, example}.",
         "inputSchema": json!({"type": "object", "properties": {}}),
     })
 }
@@ -608,7 +611,10 @@ impl<W: std::io::Write> Tools<W> {
                 self.require_scripts(name)?;
                 let plumbing = script::bindings::plumbing_reference(&mut self.host);
                 let porcelain = script::prelude::reference();
-                Ok(json!({"plumbing": plumbing, "porcelain": porcelain}))
+                let action_steps = script::action_steps::reference();
+                Ok(
+                    json!({"plumbing": plumbing, "porcelain": porcelain, "action_steps": action_steps}),
+                )
             }
             "notes" => {
                 self.require_scripts(name)?;
