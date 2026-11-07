@@ -86,14 +86,20 @@ pub fn list() -> Vec<Value> {
             "name": "act",
             "description": "Runs named steps in order, each lowered to the keys a player would \
                              press: designate {tool: harvest|cancel|clear|stockpile|bend, from, to, \
-                             standing?}, build {building, from, to}, select {x,y} or \
-                             {name}, research {tech}, cursor {x,y}, keys {script}. A step that \
-                             can't be planned (an unknown tech, a building the Build modal \
-                             doesn't offer, a tile off the map, ...) presses nothing and the \
-                             steps after it don't run. The result's `notices` carries each \
-                             designate or build step's own 'N done, M skipped: reason' text, so \
-                             a mostly-skipped rectangle (an impassable tile, say) is obvious \
-                             right away instead of only in a later `observe`.",
+                             standing?, teardown?}, build {building, from, to}, select {x,y} or \
+                             {name}, research {tech}, cursor {x,y}, keys {script}. `standing` \
+                             (harvest only) re-queues the designation when the resource ripens \
+                             again. `teardown` (cancel only) also withdraws a build site or a \
+                             stockpile tile; without it a cancel withdraws only job \
+                             designations (a harvest, a bend, a sow or a clear mark) and leaves \
+                             those alone. A step that can't be planned (an unknown tech, a \
+                             building the Build modal doesn't offer, a tile off the map, \
+                             standing or teardown on the wrong tool, ...) presses nothing and \
+                             the steps after it don't run. The result's `notices` carries each \
+                             designate or build step's own 'N done, M skipped: reason' text \
+                             (cancel's own breaks the done count out by kind instead), so a \
+                             mostly-skipped rectangle (an impassable tile, say) is obvious right \
+                             away instead of only in a later `observe`.",
             "inputSchema": json!({
                 "type": "object",
                 "properties": {
@@ -117,6 +123,7 @@ pub fn list() -> Vec<Value> {
                                 "from": coord,
                                 "to": coord,
                                 "standing": {"type": "boolean"},
+                                "teardown": {"type": "boolean"},
                                 "x": {"type": "integer"},
                                 "y": {"type": "integer"},
                                 "name": {"type": "string"},

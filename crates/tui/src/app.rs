@@ -113,10 +113,13 @@ impl App {
             // still goes straight to `pick_tool`.
             Action::PickTool(Tool::Build) => self.open_build_modal(),
             Action::PickTool(tool) => self.pick_tool(tool),
-            // Standing orders (#277) are Harvest's own toggle; `O` does nothing in any other
-            // tool, including Select.
+            // Standing orders (#277) are Harvest's own toggle, teardown (#335) is Cancel's;
+            // `O` does nothing in any other tool, including Select.
             Action::ToggleRepeat if self.ui.tool == Tool::Harvest => {
                 self.ui.repeating = !self.ui.repeating;
+            }
+            Action::ToggleRepeat if self.ui.tool == Tool::CancelHarvest => {
+                self.ui.teardown = !self.ui.teardown;
             }
             Action::ToggleRepeat => {}
             Action::Confirm => self.confirm(),
@@ -592,13 +595,15 @@ impl App {
             Some(corner) => {
                 // The shared logic also takes the Shift state (a repeating harvest): `O`
                 // (`Action::ToggleRepeat`) stands in for it here, since a terminal can't
-                // reliably report Shift+Enter (#277).
+                // reliably report Shift+Enter (#277). The same key, read as the Cancel tool's
+                // own teardown toggle instead (#335).
                 self.ui.notice = apply_rect(
                     &mut self.session,
                     self.ui.tool,
                     corner,
                     self.ui.cursor,
                     self.ui.repeating,
+                    self.ui.teardown,
                     self.ui.choice,
                 );
             }

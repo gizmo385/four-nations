@@ -197,8 +197,9 @@ struct Data {
     alerts: Vec<Row>,
     cursor: Vec<Row>,
     cursor_pos: String,
-    /// "Harvest · repeating" while the standing-order toggle is on (`UiState::repeating_label`,
-    /// #277); `None` the rest of the time.
+    /// "Harvest · repeating" while the standing-order toggle is on, "Cancel · teardown" while
+    /// the Cancel tool's own toggle is (`UiState::repeating_label`, #277/#335); `None` the rest
+    /// of the time.
     repeating_label: Option<String>,
 }
 
@@ -652,8 +653,8 @@ fn sections(d: &Data, k: Knobs, palette: &Palette) -> Vec<Section> {
     let tool = (d.view.tool != Tool::Select).then(|| {
         let mut rows: Vec<Row> = d.picker.iter().take(k.picker).cloned().collect();
         rows.extend(d.notice.iter().take(k.notice).cloned());
-        // "Harvest · repeating" while the standing-order toggle is on (#277), else just the
-        // tool's name.
+        // "Harvest · repeating" or "Cancel · teardown" while the tool's own `O` toggle is on
+        // (#277/#335), else just the tool's name.
         let name = d.repeating_label.clone().unwrap_or_else(|| d.view.tool.name().to_owned());
         let tone = tool_tint(d)
             .map_or(Tone::Heading, |t| Tone::Custom(palette.color(palette.tint_rgb(t))));

@@ -250,7 +250,8 @@ fn build_table() -> Vec<Binding> {
     }
     add(
         Group::Tools,
-        "Harvest tool: toggle a standing order (re-designates when the resource ripens again)",
+        "Harvest tool: toggle a standing order (re-designates when ripe again); Cancel tool: \
+         toggle withdrawing a build site or stockpile too (#335)",
         Key::ch('o'),
         Action::ToggleRepeat,
     );

@@ -773,8 +773,8 @@ impl Host {
     /// `UiState`.
     fn plan_step(&self, step: &ActionStep) -> Result<Vec<KeyEvent>, String> {
         match step {
-            ActionStep::Designate { tool, from, to, standing } => {
-                self.plan_designate(*tool, from.pos(), to.pos(), *standing)
+            ActionStep::Designate { tool, from, to, standing, teardown } => {
+                self.plan_designate(*tool, from.pos(), to.pos(), *standing, *teardown)
             }
             ActionStep::Build { building, from, to } => {
                 self.plan_build(building, from.pos(), to.pos())
@@ -795,14 +795,16 @@ impl Host {
     }
 
     /// `designate`: Esc to close any open screen or modal (the tool's letter and `o` wouldn't
-    /// reach the game otherwise), the tool's letter, `o` for a standing order, a cursor walk to
-    /// `from` (Shift for runs of 10), Enter, a walk to `to`, Enter.
+    /// reach the game otherwise), the tool's letter, `o` for a standing order or (#335) a
+    /// teardown cancel, a cursor walk to `from` (Shift for runs of 10), Enter, a walk to `to`,
+    /// Enter.
     fn plan_designate(
         &self,
         tool: DesignateTool,
         from: Pos,
         to: Pos,
         standing: bool,
+        teardown: bool,
     ) -> Result<Vec<KeyEvent>, String> {
         if !self.in_bounds(from) || !self.in_bounds(to) {
             return Err(format!(
@@ -813,11 +815,14 @@ impl Host {
         if standing && tool != DesignateTool::Harvest {
             return Err("standing orders are only for the harvest tool".into());
         }
+        if teardown && tool != DesignateTool::Cancel {
+            return Err("teardown is only for the cancel tool".into());
+        }
         let letter =
             tool.tool().letter().expect("every designate tool has a letter").to_ascii_lowercase();
         let mut keys = self.close_overlay_keys();
         keys.push(char_key(letter));
-        if standing {
+        if standing || teardown {
             keys.push(char_key('o'));
         }
         keys.extend(walk_keys(self.app().ui.cursor, from));
@@ -1013,14 +1018,19 @@ fn line_text(line: Line) -> Option<String> {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "step", rename_all = "snake_case")]
 pub enum ActionStep {
-    /// `{tool, from, to, standing?}`: a rectangle designation. `standing` (default `false`) is
-    /// only for `tool: "harvest"`; any other tool with it set fails to plan.
+    /// `{tool, from, to, standing?, teardown?}`: a rectangle designation. `standing` (default
+    /// `false`) is only for `tool: "harvest"`; `teardown` (#335, default `false`) is only for
+    /// `tool: "cancel"` -- without it, a cancel withdraws only job designations (a harvest, a
+    /// bend, a Sow or a Clear mark) and leaves a build site or a stockpile tile alone; with it,
+    /// those go too. Either flag set on the wrong tool fails to plan.
     Designate {
         tool: DesignateTool,
         from: Coord,
         to: Coord,
         #[serde(default)]
         standing: bool,
+        #[serde(default)]
+        teardown: bool,
     },
     /// `{building, from, to}`: the Build modal's own name for the building (as `look`'s legend
     /// and `screen {"nation"}` would show it), and the rectangle to place it over.
@@ -2255,6 +2265,7 @@ mod tests {
             from: Coord { x: from.x, y: from.y },
             to: Coord { x: to.x, y: to.y },
             standing: false,
+            teardown: false,
         }];
         let result = h.act(&steps, Some("wood for a bed".into()));
         assert!(result.error.is_none(), "{result:?}");
@@ -2279,6 +2290,7 @@ mod tests {
             from: Coord { x: from.x, y: from.y },
             to: Coord { x: to.x, y: to.y },
             standing: false,
+            teardown: false,
         }];
         let result = h.act(&steps, Some("make room for a bed".into()));
         assert!(result.error.is_none(), "{result:?}");
@@ -2308,12 +2320,14 @@ mod tests {
                 from: Coord { x: water.x, y: water.y },
                 to: Coord { x: water.x, y: water.y },
                 standing: false,
+                teardown: false,
             },
             ActionStep::Designate {
                 tool: DesignateTool::Harvest,
                 from: Coord { x: land_from.x, y: land_from.y },
                 to: Coord { x: land_to.x, y: land_to.y },
                 standing: false,
+                teardown: false,
             },
         ];
         let result = h.act(&steps, None);
@@ -2360,6 +2374,7 @@ mod tests {
             from: Coord { x: from.x, y: from.y },
             to: Coord { x: to.x, y: to.y },
             standing: true,
+            teardown: false,
         }];
         let result = h.act(&steps, None);
         assert!(result.error.is_none(), "{result:?}");
@@ -2377,11 +2392,51 @@ mod tests {
             from: Coord { x: cursor.x, y: cursor.y },
             to: Coord { x: cursor.x, y: cursor.y },
             standing: true,
+            teardown: false,
         }];
         let result = h.act(&steps, None);
         let err = result.error.unwrap();
         assert_eq!(err.step, 0);
         assert!(err.reason.contains("harvest"), "{}", err.reason);
+        assert!(result.keys.is_empty());
+        assert_eq!(h.observe().tool, "Select", "nothing was pressed");
+    }
+
+    /// #335: `designate {tool: cancel, teardown: true}` presses `o` after `x`, the same key the
+    /// standing-order toggle uses, which also withdraws a build site or a stockpile tile.
+    #[test]
+    fn act_designate_teardown_presses_o_after_the_cancel_tool_letter() {
+        let mut h = host(Nation::Fire);
+        let cursor = h.app().ui.cursor;
+        let steps = vec![ActionStep::Designate {
+            tool: DesignateTool::Cancel,
+            from: Coord { x: cursor.x, y: cursor.y },
+            to: Coord { x: cursor.x, y: cursor.y },
+            standing: false,
+            teardown: true,
+        }];
+        let result = h.act(&steps, None);
+        assert!(result.error.is_none(), "{result:?}");
+        assert_eq!(result.keys.join(" "), "x o <enter> <enter>");
+        assert!(h.app().ui.teardown);
+        assert_same_as_key_script(&mut h, Nation::Fire, &result.keys.join(" "));
+    }
+
+    #[test]
+    fn act_designate_refuses_teardown_outside_the_cancel_tool_and_presses_nothing() {
+        let mut h = host(Nation::Earth);
+        let cursor = h.app().ui.cursor;
+        let steps = vec![ActionStep::Designate {
+            tool: DesignateTool::Harvest,
+            from: Coord { x: cursor.x, y: cursor.y },
+            to: Coord { x: cursor.x, y: cursor.y },
+            standing: false,
+            teardown: true,
+        }];
+        let result = h.act(&steps, None);
+        let err = result.error.unwrap();
+        assert_eq!(err.step, 0);
+        assert!(err.reason.contains("cancel"), "{}", err.reason);
         assert!(result.keys.is_empty());
         assert_eq!(h.observe().tool, "Select", "nothing was pressed");
     }
@@ -2394,6 +2449,7 @@ mod tests {
             from: Coord { x: -1, y: 0 },
             to: Coord { x: 0, y: 0 },
             standing: false,
+            teardown: false,
         }];
         let result = h.act(&steps, None);
         let err = result.error.unwrap();

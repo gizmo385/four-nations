@@ -37,8 +37,8 @@ pub fn tint(ui: &UiState) -> Option<Tint> {
 }
 
 /// The badge: the tool's name, the Build tool's chosen building, the Bend ability it channels
-/// or the Clear tool's mode, and `· REPEATING` while the standing-order toggle (`O`, #277) is
-/// on.
+/// or the Clear tool's mode, `· REPEATING` while the standing-order toggle (`O`, #277) is on,
+/// and `· TEARDOWN` while the Cancel tool's own teardown toggle (`O`, #335) is on.
 fn badge(session: &Session, ui: &UiState) -> String {
     let mut s = ui.tool.name().to_uppercase();
     match ui.tool {
@@ -62,6 +62,9 @@ fn badge(session: &Session, ui: &UiState) -> String {
     if ui.tool == Tool::Harvest && ui.repeating {
         s.push_str(" · REPEATING");
     }
+    if ui.tool == Tool::CancelHarvest && ui.teardown {
+        s.push_str(" · TEARDOWN");
+    }
     s
 }
 
@@ -82,8 +85,10 @@ fn enter_hint(session: &Session, ui: &UiState) -> Option<String> {
 /// hint only show before a corner is set: mid-drag, `Enter` and `Esc` say enough on their own.
 fn segments(session: &Session, ui: &UiState) -> Vec<String> {
     let anchored = ui.anchor.is_some();
+    let toggled = (ui.tool == Tool::Harvest && ui.repeating)
+        || (ui.tool == Tool::CancelHarvest && ui.teardown);
     let mut segs = Vec::new();
-    if !anchored && !(ui.tool == Tool::Harvest && ui.repeating) {
+    if !anchored && !toggled {
         let brief = ui.tool.brief();
         if !brief.is_empty() {
             segs.push(brief.to_owned());
@@ -95,6 +100,7 @@ fn segments(session: &Session, ui: &UiState) -> Vec<String> {
     if !anchored {
         match ui.tool {
             Tool::Harvest if ui.repeating => segs.push("O: one-shot".to_owned()),
+            Tool::CancelHarvest if ui.teardown => segs.push("O: jobs only".to_owned()),
             Tool::Build => segs.push("U: pick another".to_owned()),
             Tool::Bend if usable_abilities(session).len() > 1 => {
                 segs.push("B: next ability".to_owned());

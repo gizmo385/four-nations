@@ -91,6 +91,12 @@ pub struct UiState {
     /// (`fn_ui::tools::Pick::repeating`). Resets whenever the tool changes (`set_tool`), and has
     /// no effect outside the Harvest tool.
     pub repeating: bool,
+    /// `O` while the Cancel tool is active (#335, `fn_ui::tools::Pick::teardown`): the next
+    /// rectangle applied also withdraws a build site or a stockpile tile, which a plain cancel
+    /// leaves alone so cancelling harvest jobs over a stockpiled area doesn't tear the
+    /// stockpile down by accident. The same `O` key as `repeating`, just read for a different
+    /// tool; the two never both apply at once. Resets whenever the tool changes (`set_tool`).
+    pub teardown: bool,
     /// The building the Build tool places, kept across tool changes so `U` returns to it
     /// (`fn_ui::tools::switch_tool`; the client keeps the same choice in its own `BuildChoice`
     /// resource, since it belongs to the frontend, not the `Session`).
@@ -159,6 +165,7 @@ impl UiState {
             bounds: (map.width(), map.height()),
             tool: Tool::Select,
             repeating: false,
+            teardown: false,
             choice: None,
             anchor: None,
             notice: String::new(),
@@ -229,41 +236,52 @@ impl UiState {
         self.follow();
     }
 
-    /// Switches to `tool`, dropping the corner, the last result and the standing-order toggle
-    /// (`O`, #277; it has no key of its own while leaving the tool, so leaving Harvest is the
-    /// only way back to a one-off harvest). The building choice is not a tool's own state
-    /// (`fn_ui::tools::switch_tool` resolves it): it outlives the switch, so coming back to
-    /// Build returns to it.
+    /// Switches to `tool`, dropping the corner, the last result and the `O` toggle (standing
+    /// order on Harvest, teardown on Cancel, #277/#335; it has no key of its own while leaving
+    /// the tool, so leaving the tool is the only way back to its plain behaviour). The building
+    /// choice is not a tool's own state (`fn_ui::tools::switch_tool` resolves it): it outlives
+    /// the switch, so coming back to Build returns to it.
     pub fn set_tool(&mut self, tool: Tool) {
         self.tool = tool;
         self.anchor = None;
         self.notice.clear();
         self.repeating = false;
+        self.teardown = false;
         // Entering a tool shows the banner (#307), which the view must keep the cursor clear
         // of, the same way selecting a unit does for the bar below.
         self.follow();
     }
 
-    /// "Harvest · repeating" while the standing-order toggle (`O`, #277) is on; `None` the rest
-    /// of the time, including outside the Harvest tool, where `O` does nothing. Shown in the
+    /// "Harvest · repeating" while the standing-order toggle (`O`, #277) is on, "Cancel ·
+    /// teardown" while the Cancel tool's own teardown toggle (`O`, #335) is on; `None` the rest
+    /// of the time, including outside those two tools, where `O` does nothing. Shown in the
     /// status line (`crate::draw::tool_status`) and the Tool section's heading
-    /// (`crate::panel::sections`), so the player can tell a standing order is coming without
-    /// looking at the map.
+    /// (`crate::panel::sections`), so the player can tell what the next rectangle will do
+    /// without looking at the map.
     pub fn repeating_label(&self) -> Option<String> {
-        (self.tool == Tool::Harvest && self.repeating)
-            .then(|| format!("{} · repeating", self.tool.name()))
+        if self.tool == Tool::Harvest && self.repeating {
+            return Some(format!("{} · repeating", self.tool.name()));
+        }
+        if self.tool == Tool::CancelHarvest && self.teardown {
+            return Some(format!("{} · teardown", self.tool.name()));
+        }
+        None
     }
 
     /// What the active tool's hint says: generic for most tools, as `fn_ui`'s own
     /// `Tool::hint` has it (it already names the ability for `Bend`, from the session's own
-    /// choice). The Harvest tool's own wording replaces `fn_ui`'s "hold Shift to repeat"
-    /// (#277: a terminal can't reliably report Shift+Enter, so `O` toggles it instead, and the
+    /// choice). The Harvest and Cancel tools' own wording replaces `fn_ui`'s (#277: a terminal
+    /// can't reliably report Shift+Enter, so `O` toggles their own modifier instead, and the
     /// Tool section's heading says when it's on). `Build`'s choice belongs to the frontend, not
     /// the `Session`, so it's named here too: the building it would place, or the tool's plain
     /// label with none placeable.
     pub fn tool_hint(&self, session: &Session) -> String {
         if self.tool == Tool::Harvest {
             return "designate harvest (chop, mine, gather); O: standing order".to_owned();
+        }
+        if self.tool == Tool::CancelHarvest {
+            return "cancel a harvest, bend, sow or clear mark; O: also a build site or stockpile"
+                .to_owned();
         }
         if self.tool != Tool::Build {
             return self.tool.hint(session);
@@ -606,6 +624,13 @@ mod tests {
         assert_eq!(
             ui.tool_hint(&session),
             "designate harvest (chop, mine, gather); O: standing order"
+        );
+        // The Cancel tool's own wording names `O` for its teardown toggle (#335), rather than
+        // `fn_ui`'s generic label.
+        ui.set_tool(Tool::CancelHarvest);
+        assert_eq!(
+            ui.tool_hint(&session),
+            "cancel a harvest, bend, sow or clear mark; O: also a build site or stockpile"
         );
 
         // With no choice yet it falls back to the first building the nation can place (Bed).

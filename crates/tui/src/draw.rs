@@ -115,8 +115,9 @@ const KEYS_MENU: &str = "Arrows/W S choose  Enter select  Esc resume";
 const KEYS_MENU_NAMING: &str = "Type a name  Enter save  Esc back";
 
 /// The status line in a tool: what `Enter` and `Esc` do now, "Harvest · repeating" while the
-/// standing-order toggle is on (#277), then what the tool does (for `B`, the nation's ability;
-/// for `U`, the building it would place).
+/// standing-order toggle is on (#277), or "Cancel · teardown" while the Cancel tool's own
+/// toggle is (#335), then what the tool does (for `B`, the nation's ability; for `U`, the
+/// building it would place).
 fn tool_status(session: &Session, ui: &UiState) -> String {
     let keys = match ui.rect_size() {
         None => "Enter set corner  Esc leave".to_owned(),

@@ -351,8 +351,7 @@ fn a_script_marks_fruit_trees_for_clearing_and_x_withdraws_them() {
 
     app.play(&keys::parse("x <left> <up> <enter> <right> <down> <enter>").unwrap());
     assert_eq!(app.ui.tool, Tool::CancelHarvest);
-    assert!(app.ui.notice.starts_with("cancel harvest"), "{}", app.ui.notice);
-    assert!(app.ui.notice.contains("4 done, 0 skipped"), "{}", app.ui.notice);
+    assert_eq!(app.ui.notice, "cancel: 4 clear marks, 0 skipped");
     assert_eq!(app.session.world.clear_designations().count(), 0);
     // Withdrawing the mark doesn't touch the resource itself: nothing was cleared yet.
     for pos in tiles_between(fruit_corners.0, fruit_corners.1) {
@@ -693,7 +692,11 @@ fn designating_changes_nothing_in_select_mode() {
 fn cancel_withdraws_what_the_rectangle_covers() {
     let app =
         play(&format!("{HARVEST_SCRIPT} x <up*4> <left*5> <enter> <down*4> <right*5> <enter>"));
-    assert!(app.ui.notice.starts_with("cancel harvest"), "{}", app.ui.notice);
+    assert!(
+        app.ui.notice.starts_with("cancel: ") && app.ui.notice.contains("harvest mark"),
+        "{}",
+        app.ui.notice
+    );
     assert_eq!(app.session.world.harvest_designations().count(), 0, "{}", app.ui.notice);
 }
 

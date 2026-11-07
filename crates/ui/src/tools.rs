@@ -3,17 +3,20 @@
 //! `Enter`s) into a rectangle; this turns the rectangle into `Command`s and a notice.
 //!
 //! Keys: `H` harvest (chop, quarry, gather, mine, whatever each tile's resource gives), `X` cancel
-//! harvest (also withdraws a build site, a stockpile tile, a Sow designation or a Clear mark),
-//! `E` clear the ground (docs/design/clearing.md, #411/#426: uproots a plant or works a
-//! resource's ordinary harvest, removing it for good), `P` stockpile, `B` the nation's bending
-//! ability (pressed again it cycles through the abilities the settlement can use), `U` the build
-//! tool (pressed again it cycles through the buildings the nation can place), `C` sow an empty
-//! farm plot (issue #198; a ripe one is reaped on its own, with no tool) and `Esc` back to
-//! selecting.
+//! (withdraws a harvest, a bend, a Sow designation or a Clear mark -- the job designations a
+//! rectangle usually means to drop). Held with `O` (`Pick::teardown`, #335: a cancel over a
+//! rectangle used to also sweep up every stockpile and build site it crossed, costing two
+//! playtests their stores), `X` also withdraws a build site or a stockpile tile; without it
+//! those are left alone. `E` clear the ground (docs/design/clearing.md, #411/#426: uproots a
+//! plant or works a resource's ordinary harvest, removing it for good), `P` stockpile, `B` the
+//! nation's bending ability (pressed again it cycles through the abilities the settlement can
+//! use), `U` the build tool (pressed again it cycles through the buildings the nation can
+//! place), `C` sow an empty farm plot (issue #198; a ripe one is reaped on its own, with no
+//! tool) and `Esc` back to selecting.
 
 use fn_sim::bending::AbilityId;
 use fn_sim::building::BuildingId;
-use fn_sim::world::Command;
+use fn_sim::world::{Command, CommandError};
 use fn_sim::{Defs, Nation, Pos};
 
 use crate::build;
@@ -53,6 +56,11 @@ pub struct Pick {
     pub repeating: bool,
     /// The building to place; `Build` issues nothing without one.
     pub building: Option<BuildingId>,
+    /// The Cancel tool's own `O` toggle (#335): without it, a rectangle cancel withdraws only
+    /// job designations (a harvest, a bend, a Sow or a Clear mark) and leaves a build site or a
+    /// stockpile tile alone, so cancelling harvest jobs over a stockpiled area doesn't tear the
+    /// stockpile (and the goods on it) down by accident. No effect on any other tool.
+    pub teardown: bool,
 }
 
 /// What the cancel tool can withdraw on a tile, other than a harvest designation.
@@ -66,6 +74,8 @@ pub struct Here {
     pub sowing: bool,
     /// The tile has a Clear mark on it (docs/design/clearing.md, #411/#426).
     pub clearing: bool,
+    /// The tile has a bend designated on it (`World::bend_designations`).
+    pub bend: bool,
 }
 
 impl Here {
@@ -77,6 +87,7 @@ impl Here {
             zone: world.stockpile_zones().any(|z| z == pos),
             sowing: world.sow_designations().any(|z| z == pos),
             clearing: world.clear_designations().any(|z| z == pos),
+            bend: world.bend_designations().any(|(_, p)| p == pos),
         }
     }
 }
@@ -143,7 +154,9 @@ impl Tool {
             // The client that read held Shift as a standing order is gone (#281); the TUI's
             // own `O` key stands in for it (#277, `fn_tui::state::UiState::tool_hint`).
             Self::Harvest => "designate harvest (chop, mine, gather)",
-            Self::CancelHarvest => "cancel harvest, build site, stockpile, sowing or clearing",
+            Self::CancelHarvest => {
+                "cancel a harvest, bend, sow or clear mark (O: also a build site or stockpile)"
+            }
             Self::Clear => "clear the ground",
             Self::Stockpile => "designate stockpile",
             Self::Bend => "channel the nation's ability",
@@ -163,7 +176,7 @@ impl Tool {
                 ""
             }
             Self::Harvest => "chop, mine, gather",
-            Self::CancelHarvest => "harvest, build site, stockpile, sowing or clearing",
+            Self::CancelHarvest => "harvest, bend, sow or clear mark (O: also stockpile/site)",
         }
     }
 
@@ -182,15 +195,19 @@ impl Tool {
     }
 
     /// The command this tool issues for one tile, if it issues any. `here` says what else is
-    /// designated on the tile: the cancel tool withdraws a build site, else a stockpile tile,
-    /// a Sow designation or a Clear mark, instead of a harvest.
+    /// designated on the tile. The cancel tool withdraws a job designation (a bend, a Sow mark,
+    /// a Clear mark, else a plain harvest) and leaves a build site or a stockpile tile alone,
+    /// unless `pick.teardown` (#335) is set, in which case those come first.
     pub fn command(self, pos: Pos, here: Here, pick: Pick) -> Option<Command> {
         match self {
             Self::Select => None,
             Self::Harvest if pick.repeating => Some(Command::DesignateRepeatingHarvest { pos }),
             Self::Harvest => Some(Command::DesignateHarvest { pos }),
-            Self::CancelHarvest if here.site => Some(Command::CancelBuild { pos }),
-            Self::CancelHarvest if here.zone => Some(Command::CancelStockpile { pos }),
+            Self::CancelHarvest if pick.teardown && here.site => Some(Command::CancelBuild { pos }),
+            Self::CancelHarvest if pick.teardown && here.zone => {
+                Some(Command::CancelStockpile { pos })
+            }
+            Self::CancelHarvest if here.bend => Some(Command::CancelBend { pos }),
             Self::CancelHarvest if here.sowing => Some(Command::CancelSow { pos }),
             Self::CancelHarvest if here.clearing => Some(Command::CancelClear { pos }),
             Self::CancelHarvest => Some(Command::CancelHarvest { pos }),
@@ -294,22 +311,78 @@ pub fn switch_tool(
     (Tool::Build, choice)
 }
 
+/// How many of each kind a Cancel rectangle withdrew (#335: "the cancel notice says what was
+/// removed, by kind"), so the notice can say "12 harvest marks, 1 stockpile" instead of a bare
+/// count that can't tell a dropped harvest job from a torn-down stockpile.
+#[derive(Default)]
+struct CancelTally {
+    harvest: u32,
+    bend: u32,
+    sow: u32,
+    clear: u32,
+    site: u32,
+    zone: u32,
+}
+
+impl CancelTally {
+    /// Counts one command a Cancel rectangle's tile issued and the sim accepted.
+    fn record(&mut self, command: Command) {
+        match command {
+            Command::CancelHarvest { .. } => self.harvest += 1,
+            Command::CancelBend { .. } => self.bend += 1,
+            Command::CancelSow { .. } => self.sow += 1,
+            Command::CancelClear { .. } => self.clear += 1,
+            Command::CancelBuild { .. } => self.site += 1,
+            Command::CancelStockpile { .. } => self.zone += 1,
+            _ => {}
+        }
+    }
+
+    /// "cancel: 12 harvest marks, 1 stockpile, 2 skipped (not designated)", in the same
+    /// "skipped (reason)" shape every other tool's notice has, but with the done count broken
+    /// out by kind instead of a single number that can't tell a harvest mark from a stockpile.
+    fn notice(&self, refused: u32, last_error: Option<CommandError>, session: &Session) -> String {
+        let mut kinds = Vec::new();
+        let mut push = |n: u32, one: &str, many: &str| {
+            if n > 0 {
+                kinds.push(format!("{n} {}", if n == 1 { one } else { many }));
+            }
+        };
+        push(self.harvest, "harvest mark", "harvest marks");
+        push(self.bend, "bend mark", "bend marks");
+        push(self.sow, "sow mark", "sow marks");
+        push(self.clear, "clear mark", "clear marks");
+        push(self.site, "build site", "build sites");
+        push(self.zone, "stockpile", "stockpiles");
+        let done = if kinds.is_empty() { "0 done".to_owned() } else { kinds.join(", ") };
+        match last_error {
+            Some(e) => {
+                let why = build::describe_error(session, e);
+                format!("cancel: {done}, {refused} skipped ({why})")
+            }
+            None => format!("cancel: {done}, {refused} skipped"),
+        }
+    }
+}
+
 /// Applies `tool` to every tile in the rectangle `from`..=`to` (for `Build`, to every footprint
 /// `build_stamps` fits in it) through `Session::apply` and returns the notice to show, such as "designate harvest: 12 done, 3 skipped (nothing to
-/// harvest), 2 unreachable". `repeating` is the Shift state (#81); `choice` is the Build tool's
-/// building.
+/// harvest), 2 unreachable". `repeating` is the Shift state (#81); `teardown` is the Cancel
+/// tool's own `O` toggle (#335, `Pick::teardown`); `choice` is the Build tool's building.
 ///
 /// The sim decides what each tile accepts; a refusal is counted and its reason (the last one's)
 /// shown, even for a one-tile click, so a rejected bend or harvest says why. For `Harvest` and
 /// `Stockpile`, a designation that went through is also checked against `World::job_unreachable`
 /// (#337: "designating a job or stockpile no settler can reach says so in the notice"), so a tile
-/// on the wrong side of a river, wall or shore is called out rather than silently "done".
+/// on the wrong side of a river, wall or shore is called out rather than silently "done". `Cancel`
+/// builds its own notice instead (`CancelTally::notice`), broken down by what it withdrew.
 pub fn apply_rect(
     session: &mut Session,
     tool: Tool,
     from: Pos,
     to: Pos,
     repeating: bool,
+    teardown: bool,
     choice: Option<BuildingId>,
 ) -> String {
     if tool == Tool::Select {
@@ -317,7 +390,7 @@ pub fn apply_rect(
     }
     let rows = build::picker_rows(session);
     let building = build::valid_choice(&rows, choice);
-    let pick = Pick { ability: bend_ability(session), repeating, building };
+    let pick = Pick { ability: bend_ability(session), repeating, building, teardown };
     let what = match (tool, building) {
         (Tool::Build, Some(id)) => {
             let name = rows.iter().find(|r| r.id == id).map_or("", |r| r.name.as_str());
@@ -338,12 +411,16 @@ pub fn apply_rect(
         session.world.ensure_regions();
     }
     let (mut done, mut refused, mut unreachable) = (0, 0, 0);
+    let mut tally = CancelTally::default();
     let mut last_error = None;
     for pos in targets {
         if let Some(command) = tool.command(pos, Here::at(session, pos), pick) {
             match session.apply(command) {
                 Ok(()) => {
                     done += 1;
+                    if tool == Tool::CancelHarvest {
+                        tally.record(command);
+                    }
                     if matches!(tool, Tool::Harvest | Tool::Stockpile)
                         && session.world.job_unreachable(pos) == Some(true)
                     {
@@ -356,6 +433,9 @@ pub fn apply_rect(
                 }
             }
         }
+    }
+    if tool == Tool::CancelHarvest {
+        return tally.notice(refused, last_error, session);
     }
     let suffix =
         if unreachable > 0 { format!(", {unreachable} unreachable") } else { String::new() };
@@ -435,15 +515,22 @@ mod tests {
     fn cancel_withdraws_a_clear_mark_where_there_is_one() {
         let pos = Pos::new(4, 4);
         let none = Pick::default();
+        let teardown = Pick { teardown: true, ..none };
         let clearing = Here { clearing: true, ..Here::default() };
         assert_eq!(
             Tool::CancelHarvest.command(pos, clearing, none),
             Some(Command::CancelClear { pos })
         );
-        // A build site comes first, as for a plain harvest or a Sow mark.
+        // A build site is left alone without the teardown toggle (#335): the clear mark still
+        // goes, same as any other job designation.
         let site = Here { site: true, clearing: true, ..Here::default() };
         assert_eq!(
             Tool::CancelHarvest.command(pos, site, none),
+            Some(Command::CancelClear { pos })
+        );
+        // With teardown on, the build site comes first.
+        assert_eq!(
+            Tool::CancelHarvest.command(pos, site, teardown),
             Some(Command::CancelBuild { pos })
         );
         // The Clear tool itself is unaffected by what else is on the tile.
@@ -454,15 +541,19 @@ mod tests {
     fn cancel_withdraws_a_sow_designation_where_there_is_one() {
         let pos = Pos::new(4, 4);
         let none = Pick::default();
+        let teardown = Pick { teardown: true, ..none };
         let sowing = Here { sowing: true, ..Here::default() };
         assert_eq!(
             Tool::CancelHarvest.command(pos, sowing, none),
             Some(Command::CancelSow { pos })
         );
-        // A build site or stockpile tile comes first, as for a plain harvest.
+        // A build site is left alone without the teardown toggle (#335): the sow mark still
+        // goes.
         let site = Here { site: true, sowing: true, ..Here::default() };
+        assert_eq!(Tool::CancelHarvest.command(pos, site, none), Some(Command::CancelSow { pos }));
+        // With teardown on, the build site comes first.
         assert_eq!(
-            Tool::CancelHarvest.command(pos, site, none),
+            Tool::CancelHarvest.command(pos, site, teardown),
             Some(Command::CancelBuild { pos })
         );
     }
@@ -472,37 +563,69 @@ mod tests {
         assert_eq!(Tool::Build.command(Pos::new(0, 0), Here::default(), Pick::default()), None);
     }
 
+    /// #335: a build site isn't a job designation, so a plain cancel leaves it alone and falls
+    /// back to a plain harvest cancel (refused as "not designated" once the sim sees there's no
+    /// harvest job either); only the teardown toggle withdraws it.
     #[test]
-    fn cancel_withdraws_a_build_site_where_there_is_one() {
+    fn cancel_withdraws_a_build_site_only_with_teardown_on() {
         let pos = Pos::new(4, 4);
         let none = Pick::default();
+        let teardown = Pick { teardown: true, ..none };
         let site = Here { site: true, ..Here::default() };
         assert_eq!(
             Tool::CancelHarvest.command(pos, site, none),
+            Some(Command::CancelHarvest { pos })
+        );
+        assert_eq!(
+            Tool::CancelHarvest.command(pos, site, teardown),
             Some(Command::CancelBuild { pos })
         );
         // Only the cancel tool does.
         assert_eq!(Tool::Harvest.command(pos, site, none), Some(Command::DesignateHarvest { pos }));
     }
 
+    /// #335: a stockpile tile isn't a job designation either, so the same teardown gate applies.
     #[test]
-    fn cancel_withdraws_a_stockpile_tile_where_there_is_one() {
+    fn cancel_withdraws_a_stockpile_tile_only_with_teardown_on() {
         let pos = Pos::new(4, 4);
         let none = Pick::default();
+        let teardown = Pick { teardown: true, ..none };
         let zone = Here { zone: true, ..Here::default() };
         assert_eq!(
             Tool::CancelHarvest.command(pos, zone, none),
+            Some(Command::CancelHarvest { pos })
+        );
+        assert_eq!(
+            Tool::CancelHarvest.command(pos, zone, teardown),
             Some(Command::CancelStockpile { pos })
         );
         assert_eq!(
             Tool::Stockpile.command(pos, zone, none),
             Some(Command::DesignateStockpile { pos })
         );
-        // A build site comes first.
+        // A build site comes first, with teardown on.
         let both = Here { site: true, zone: true, ..Here::default() };
         assert_eq!(
-            Tool::CancelHarvest.command(pos, both, none),
+            Tool::CancelHarvest.command(pos, both, teardown),
             Some(Command::CancelBuild { pos })
+        );
+    }
+
+    /// #335: a bend designation is a job like a harvest's, so a plain cancel withdraws it too.
+    #[test]
+    fn cancel_withdraws_a_bend_designation_where_there_is_one() {
+        let pos = Pos::new(4, 4);
+        let none = Pick::default();
+        let bending = Here { bend: true, ..Here::default() };
+        assert_eq!(
+            Tool::CancelHarvest.command(pos, bending, none),
+            Some(Command::CancelBend { pos })
+        );
+        // A bend comes first (an arbitrary tie-break; a tile never actually carries both).
+        let sowing = Here { bend: true, sowing: true, ..Here::default() };
+        assert_eq!(
+            Tool::CancelHarvest.command(pos, sowing, none),
+            Some(Command::CancelBend { pos })
         );
     }
 
@@ -703,22 +826,29 @@ mod tests {
         let mut s = Session::new(7, Nation::Earth, 64, 64);
         let pos = free_tile(&s);
         let to = Pos::new(pos.x + 1, pos.y);
-        let notice = apply_rect(&mut s, Tool::Stockpile, pos, to, false, None);
+        let notice = apply_rect(&mut s, Tool::Stockpile, pos, to, false, false, None);
         assert!(notice.starts_with("designate stockpile: "), "{notice}");
         let done = s.world.stockpile_zones().count();
         assert!(done >= 1);
         assert!(notice.contains(&format!("{done} done, {} skipped", 2 - done)), "{notice}");
 
         // Off the map: all refused, with the sim's reason.
-        let notice =
-            apply_rect(&mut s, Tool::Harvest, Pos::new(-2, -2), Pos::new(-2, -2), false, None);
+        let notice = apply_rect(
+            &mut s,
+            Tool::Harvest,
+            Pos::new(-2, -2),
+            Pos::new(-2, -2),
+            false,
+            false,
+            None,
+        );
         assert!(
             notice.starts_with("designate harvest (chop, mine, gather): 0 done, 1 skipped ("),
             "{notice}"
         );
         assert!(notice.ends_with(')'), "{notice}");
 
-        assert_eq!(apply_rect(&mut s, Tool::Select, pos, to, false, None), "");
+        assert_eq!(apply_rect(&mut s, Tool::Select, pos, to, false, false, None), "");
     }
 
     /// A harvest designated on an island nobody can reach says so in the notice (#337:
@@ -748,13 +878,13 @@ mod tests {
         let world = World::with_map(1, map, Nation::Earth, &[Pos::new(3, 2)], &defs);
         let mut s = Session { world, defs, clock: Clock::default(), bend_choice: None };
         let island = Pos::new(1, 1);
-        let notice = apply_rect(&mut s, Tool::Harvest, island, island, false, None);
+        let notice = apply_rect(&mut s, Tool::Harvest, island, island, false, false, None);
         assert!(notice.contains("1 done"), "{notice}");
         assert!(notice.contains("1 unreachable"), "{notice}");
 
         // An ordinary, reachable designation names no unreachable count at all.
         let reachable = Pos::new(5, 1);
-        let notice = apply_rect(&mut s, Tool::Stockpile, reachable, reachable, false, None);
+        let notice = apply_rect(&mut s, Tool::Stockpile, reachable, reachable, false, false, None);
         assert!(!notice.contains("unreachable"), "{notice}");
     }
 
@@ -786,7 +916,7 @@ mod tests {
         let world = World::with_map(1, map, Nation::Earth, &[Pos::new(3, 2)], &defs);
         let mut s = Session { world, defs, clock: Clock::default(), bend_choice: None };
         let island = Pos::new(1, 1);
-        let notice = apply_rect(&mut s, Tool::Harvest, island, island, false, None);
+        let notice = apply_rect(&mut s, Tool::Harvest, island, island, false, false, None);
         assert!(notice.contains("1 done"), "{notice}");
         assert!(notice.contains("1 unreachable"), "{notice}");
     }
@@ -828,7 +958,7 @@ mod tests {
         let world = World::with_map(1, map, Nation::Earth, &[Pos::new(0, 1)], &defs);
         let mut s = Session { world, defs, clock: Clock::default(), bend_choice: None };
 
-        let notice = apply_rect(&mut s, Tool::Clear, fruit_pos, fish_pos, false, None);
+        let notice = apply_rect(&mut s, Tool::Clear, fruit_pos, fish_pos, false, false, None);
         assert_eq!(notice, "clear: 1 marked, 1 skipped (can't be cleared)", "{notice}");
         assert_eq!(s.world.clear_designations().collect::<Vec<_>>(), [fruit_pos]);
     }
@@ -858,7 +988,8 @@ mod tests {
         let mut s = Session { world, defs, clock: Clock::default(), bend_choice: None };
         s.bend_choice = Some(s.defs.ability_id("raise_earth").unwrap());
 
-        let notice = apply_rect(&mut s, Tool::Bend, Pos::new(3, 1), Pos::new(6, 1), false, None);
+        let notice =
+            apply_rect(&mut s, Tool::Bend, Pos::new(3, 1), Pos::new(6, 1), false, false, None);
         assert_eq!(notice, "channel the nation's ability: 4 done, 0 skipped", "{notice}");
         for x in 3..=6 {
             let pos = Pos::new(x, 1);
@@ -875,12 +1006,12 @@ mod tests {
         s.bend_choice = Some(s.defs.ability_id("hearthflame").unwrap());
         let pos = free_tile(&s);
 
-        let first = apply_rect(&mut s, Tool::Bend, pos, pos, false, None);
+        let first = apply_rect(&mut s, Tool::Bend, pos, pos, false, false, None);
         assert_eq!(first, "channel the nation's ability: 1 done, 0 skipped", "{first}");
         s.tick_n(2000);
         assert!(s.world.flames().iter().any(|f| f.pos == pos), "the flame should be lit by now");
 
-        let second = apply_rect(&mut s, Tool::Bend, pos, pos, false, None);
+        let second = apply_rect(&mut s, Tool::Bend, pos, pos, false, false, None);
         assert_eq!(
             second,
             "channel the nation's ability: 0 done, 1 skipped \
@@ -889,29 +1020,39 @@ mod tests {
         );
     }
 
+    /// #335: a plain cancel leaves a build site alone (it isn't a job designation); the
+    /// teardown toggle withdraws it.
     #[test]
-    fn the_build_tool_names_the_building_and_cancel_withdraws_the_site() {
+    fn the_build_tool_names_the_building_and_cancel_withdraws_the_site_with_teardown_on() {
         let mut s = Session::new(7, Nation::Earth, 64, 64);
         let bed = s.defs.building_id("bed").unwrap();
         let pos = free_tile(&s);
-        let notice = apply_rect(&mut s, Tool::Build, pos, pos, false, Some(bed));
+        let notice = apply_rect(&mut s, Tool::Build, pos, pos, false, false, Some(bed));
         assert_eq!(notice, "build Bed: 1 done, 0 skipped");
         assert!(s.world.build_site(pos).is_some());
-        let notice = apply_rect(&mut s, Tool::CancelHarvest, pos, pos, false, None);
-        assert!(notice.ends_with("1 done, 0 skipped"), "{notice}");
+        let notice = apply_rect(&mut s, Tool::CancelHarvest, pos, pos, false, false, None);
+        assert_eq!(notice, "cancel: 0 done, 1 skipped (not designated)");
+        assert!(s.world.build_site(pos).is_some(), "left alone without teardown");
+        let notice = apply_rect(&mut s, Tool::CancelHarvest, pos, pos, false, true, None);
+        assert_eq!(notice, "cancel: 1 build site, 0 skipped");
         assert!(s.world.build_site(pos).is_none());
     }
 
+    /// #335: a plain cancel over a rectangle keeps a stockpile zone (and the goods on it) in
+    /// place; the teardown toggle clears it, as it used to unconditionally.
     #[test]
-    fn cancel_drags_over_a_stockpile_and_clears_it() {
+    fn cancel_drags_over_a_stockpile_and_clears_it_only_with_teardown_on() {
         let mut s = Session::new(7, Nation::Earth, 64, 64);
         let pos = free_tile(&s);
         let to = Pos::new(pos.x + 1, pos.y);
-        apply_rect(&mut s, Tool::Stockpile, pos, to, false, None);
+        apply_rect(&mut s, Tool::Stockpile, pos, to, false, false, None);
         let zones: Vec<Pos> = s.world.stockpile_zones().collect();
         assert!(!zones.is_empty());
-        let notice = apply_rect(&mut s, Tool::CancelHarvest, pos, to, false, None);
-        assert!(notice.contains(&format!("{} done", zones.len())), "{notice}");
+        let notice = apply_rect(&mut s, Tool::CancelHarvest, pos, to, false, false, None);
+        assert!(notice.starts_with("cancel: 0 done"), "{notice}");
+        assert_eq!(s.world.stockpile_zones().count(), zones.len(), "left alone without teardown");
+        let notice = apply_rect(&mut s, Tool::CancelHarvest, pos, to, false, true, None);
+        assert!(notice.contains(&format!("{} stockpile", zones.len())), "{notice}");
         assert_eq!(s.world.stockpile_zones().count(), 0);
     }
 
@@ -922,7 +1063,7 @@ mod tests {
         let pos = free_tile(&s);
         // Earth hasn't learned fire making: the locked choice falls back, so the tool still
         // builds something rather than failing on the tech gate.
-        let notice = apply_rect(&mut s, Tool::Build, pos, pos, false, Some(campfire));
+        let notice = apply_rect(&mut s, Tool::Build, pos, pos, false, false, Some(campfire));
         assert!(notice.ends_with("1 done, 0 skipped"), "{notice}");
         assert_ne!(s.world.build_site(pos).map(|(b, _, _)| b), Some(campfire));
     }
@@ -950,8 +1091,15 @@ mod tests {
         let (mut s, hall, c) = with_2x2_hall();
         let oak = s.defs.resource_id("oak_tree").unwrap();
         s.world.map.get_mut(Pos::new(c.x + 5, c.y + 1)).unwrap().resource = Some(oak);
-        let notice =
-            apply_rect(&mut s, Tool::Build, c, Pos::new(c.x + 5, c.y + 1), false, Some(hall));
+        let notice = apply_rect(
+            &mut s,
+            Tool::Build,
+            c,
+            Pos::new(c.x + 5, c.y + 1),
+            false,
+            false,
+            Some(hall),
+        );
         assert_eq!(notice, "build Bed: 2 done, 1 skipped (an oak tree is in the way)");
         let anchors: Vec<Pos> = s.world.build_sites().map(|(f, _, _)| f.anchor).collect();
         assert_eq!(anchors, [c, Pos::new(c.x + 2, c.y)]);
@@ -979,12 +1127,70 @@ mod tests {
     #[test]
     fn a_2x2_site_is_cancelled_from_any_of_its_tiles() {
         let (mut s, hall, c) = with_2x2_hall();
-        apply_rect(&mut s, Tool::Build, c, c, false, Some(hall));
+        apply_rect(&mut s, Tool::Build, c, c, false, false, Some(hall));
         let corner = Pos::new(c.x + 1, c.y + 1);
         assert_eq!(Here::at(&s, corner), Here::at(&s, c));
         assert!(Here::at(&s, corner).site);
-        let notice = apply_rect(&mut s, Tool::CancelHarvest, corner, corner, false, None);
-        assert!(notice.ends_with("1 done, 0 skipped"), "{notice}");
+        // Needs the teardown toggle (#335): a build site isn't a job designation.
+        let notice = apply_rect(&mut s, Tool::CancelHarvest, corner, corner, false, true, None);
+        assert_eq!(notice, "cancel: 1 build site, 0 skipped");
         assert_eq!(s.world.build_sites().count(), 0);
+    }
+
+    /// #335: the acceptance criteria's own scenario -- a plain cancel over a rectangle that
+    /// covers both a stockpile already holding goods and a tile still marked for harvest keeps
+    /// the stockpile and its goods in place, withdraws the harvest mark, and the notice names
+    /// both by kind.
+    #[test]
+    fn a_plain_cancel_over_a_stockpile_and_harvest_marks_keeps_the_stockpile_and_its_goods() {
+        use fn_sim::defs::BiomeId;
+        use fn_sim::{Defs, Grid, Nation, Terrain, Tile, World};
+
+        use crate::clock::Clock;
+
+        let defs = Defs::bundled();
+        let oak = defs.resource_id("oak_tree").unwrap();
+        // A settler at (0,0), a tree to chop at (2,0), the stockpile at (4,0) right next to a
+        // second tree at (5,0): the rectangle below cancels exactly those last two tiles.
+        let rows = ["L.T..T..", "........", "........"];
+        let map = Grid::from_fn(rows[0].len() as i32, rows.len() as i32, |p| {
+            let c = rows[p.y as usize].as_bytes()[p.x as usize];
+            Tile {
+                elevation: 100,
+                temperature: 128,
+                moisture: 128,
+                terrain: Terrain::Land,
+                biome: BiomeId(0),
+                resource: (c == b'T').then_some(oak),
+                building: None,
+            }
+        });
+        let world = World::with_map(1, map, Nation::Earth, &[Pos::new(0, 0)], &defs);
+        let mut s = Session { world, defs, clock: Clock::default(), bend_choice: None };
+
+        let (stockpile, second_tree) = (Pos::new(4, 0), Pos::new(5, 0));
+        apply_rect(&mut s, Tool::Stockpile, stockpile, stockpile, false, false, None);
+        apply_rect(&mut s, Tool::Harvest, Pos::new(2, 0), Pos::new(2, 0), false, false, None);
+
+        // Run until the first tree is chopped and hauled to the stockpile.
+        for _ in 0..20_000 {
+            if s.world.stored_at(stockpile).is_some() {
+                break;
+            }
+            s.tick();
+        }
+        let stored = s.world.stored_at(stockpile).expect("the first tree's wood made it there");
+        assert!(stored.count > 0);
+
+        apply_rect(&mut s, Tool::Harvest, second_tree, second_tree, false, false, None);
+        assert!(s.world.harvest_designations().any(|p| p == second_tree));
+
+        let notice =
+            apply_rect(&mut s, Tool::CancelHarvest, stockpile, second_tree, false, false, None);
+        assert_eq!(notice, "cancel: 1 harvest mark, 1 skipped (not designated)", "{notice}");
+        assert!(!s.world.harvest_designations().any(|p| p == second_tree), "{notice}");
+        // The stockpile, and the wood already on it, are untouched.
+        assert!(s.world.stockpile_zones().any(|z| z == stockpile), "{notice}");
+        assert_eq!(s.world.stored_at(stockpile), Some(stored), "{notice}");
     }
 }
