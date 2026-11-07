@@ -450,13 +450,14 @@ No bloodbending. It's a dark art that doesn't fit peaceful progress.
 | `gliders` | 60 | carpentry | glider staffs; move_speed ×1.15; ability: glide (spot lost ruins from the air, #197) |
 | `windmills` | 120 | gliders, farming | windmill (grinds grain for more food); power_generation ×1.2 |
 | `air_scooter` | 250 | gliders, meditation | ability: air scooter (a temporary speed burst on the rider, docs/design/bending.md, "Air Nomads: Air Scooter", #143); move_speed ×1.2 |
-| `wind_turbines` | 250 | windmills | wind turbine powers workshops; power_generation ×1.25 |
+| `wind_turbines` | 250 | windmills | Wind Turbine (Air's power source, built anywhere, #204); power_generation ×1.25 |
 | `sky_bison` | 500 | meditation, air_scooter | bison stable; bison haul and fast travel; carry_capacity ×1.3 |
 
 The buildings (`orchard`, `windmill`, `wind_turbine`, `bison_stable`) exist in
-`data/buildings.toml` and are gated by their techs (#28). The orchard works (#142, below). The
-other three are structures only: what they do needs grain (#203), power (#204) and bison (#205)
-systems, and their costs are placeholders.
+`data/buildings.toml` and are gated by their techs (#28). The orchard works (#142, below), and
+the wind turbine is Air's power source (#204). The other two are structures only: the windmill
+is decided as a power source too (decision #465) but not yet data (#488), and the bison stable
+waits on its own system (#205); their costs are placeholders.
 `meditation` is modifier-only by design. No branch cost or multiplier changed in #28; the
 playtest in `crates/sim/tests/research_air.rs` has an Air settlement with a Meditation Pavilion
 (two scholars) finish the whole Air tree, shared tier included, in about 94 minutes (meditation's
@@ -574,8 +575,7 @@ would waste a ripe crop for nothing.
 
 **Which crop.** Cabbage, the one food every nation already knows (wild cabbage needs no tech
 either). `[building.farm]`'s `crop` names the item a plot yields, so a second farm-like
-building (the windmill's grain, #203) is a new building with its own `crop`, not a choice the
-player makes per plot.
+building would be a new building with its own `crop`, not a choice the player makes per plot.
 
 **The `crop_growth` hook.** `World::crop_growth_rate(pos, defs)` is the one thing `tick_farms`
 reads to know how fast a growing plot's clock counts down: the plot's own `crop_growth` (1.0),

@@ -81,8 +81,8 @@
 #             is for a `power_generation` modifier of 1.0 (data/nations.toml), scaled the same
 #             way `heat`'s is by `heating` -- rounded, at least 1 tile -- and measured the same
 #             way, Chebyshev from every tile of the source's footprint. Two sources in reach of
-#             one consumer don't stack; the best `boost` applies. Which buildings are sources is
-#             #255 (Fire), #204 (Air) and #200 (Water, `tide_mill`).
+#             one consumer don't stack; the best `boost` applies. Which buildings are sources:
+#             #255 (Fire), #200 (Water, `tide_mill`) and #204 (Air, `wind_turbine`).
 # - uses_power: this building's recipe batches or study seats run at the best `boost` of any
 #             power source in reach of any tile of its own footprint, else at their plain rate.
 #             Set on `workshop`, `forge`, `brick_kiln`, `smelter`, `mine_shaft`, `deep_mine` and
@@ -207,11 +207,11 @@ count = 2
 
 # --- Air Nomads ---
 # The Air branch's buildings (issue #28), each unlocked by its tech in data/research.toml. They
-# do what their section says. The orchard plants and tends fruit trees (issue #142); the rest are
-# structures only so far, because what they do (grinding grain, turning wind into power, housing
-# bison) needs systems that don't exist yet (issues #203, #204, #205). Costs scale with the
-# tech's tier and use the items that exist today; they are starting values for a balance pass,
-# not a design target.
+# do what their section says. The orchard plants and tends fruit trees (issue #142); the wind
+# turbine is Air's power source (#204, below). The windmill and the bison stable are still
+# structures only, waiting on systems that don't exist yet (issues #488, #205). Costs scale with
+# the tech's tier and use the items that exist today; they are starting values for a balance
+# pass, not a design target.
 
 # The orchard's balance (#142): 8 wood and 45 s of building is about twice a bed's cost, paid back
 # by the first fruit it yields. A full orchard (4 trees, docs/design/materials.md section 4,
@@ -253,12 +253,20 @@ count = 10
 item = "stone"
 count = 4
 
+# Unlocked by `wind_turbines`: Air's second power source (docs/design/late-tree.md, "The
+# sources"; docs/design/power.md, "The track, per nation"), a 1x1 that builds anywhere. A reach
+# of 3 tiles at Air's 2.0 `power_generation`, 9 once `windmills`' and `wind_turbines`' own
+# modifiers (x1.2, x1.25) stack onto it -- the strongest reach of any nation's source, so one
+# turbine covers a whole settlement core.
 [[building]]
 id = "wind_turbine"
 name = "Wind Turbine"
 verb = "Build"
 work = 110.0
 passable = false
+[building.power]
+radius = 3
+boost = 1.5
 [[building.cost]]
 item = "wood"
 count = 12

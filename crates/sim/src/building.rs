@@ -1350,8 +1350,8 @@ mod tests {
             let def = defs.building(defs.building_id(id).unwrap());
             assert!(def.uses_power, "{id} should run faster when powered");
         }
-        // Fire's two sources (#255, docs/design/late-tree.md, "Power"); Air's is out of scope
-        // here (#204). Water's Tide Mill (#200) is checked below.
+        // Fire's two sources (#255, docs/design/late-tree.md, "Power"); Water's Tide Mill (#200)
+        // and Air's Wind Turbine (#204) are checked below.
         let steam_engine = defs.building(defs.building_id("steam_engine").unwrap());
         let power = steam_engine.power.expect("the Steam Engine is a power source");
         assert_eq!((power.radius, power.boost_millis), (3, 1500));
@@ -1360,7 +1360,7 @@ mod tests {
         let power = lightning_station.power.expect("the Lightning Station is a power source");
         assert_eq!((power.radius, power.boost_millis), (4, 2000));
 
-        assert_eq!(defs.buildings.iter().filter(|b| b.power.is_some()).count(), 3);
+        assert_eq!(defs.buildings.iter().filter(|b| b.power.is_some()).count(), 4);
     }
 
     #[test]
@@ -1372,6 +1372,19 @@ mod tests {
         assert_eq!(tide_mill.beside_word(), Some("water"));
         let tide_mills = defs.tech_id("tide_mills").unwrap();
         assert_eq!(tide_mill.unlocked_by, Some(tide_mills));
+    }
+
+    /// The Wind Turbine (issue #204, docs/design/late-tree.md, "The sources"): Air's second
+    /// power source, builds anywhere (no `beside` rule, unlike the Tide Mill).
+    #[test]
+    fn the_wind_turbine_is_airs_power_source_and_builds_anywhere() {
+        let defs = Defs::bundled();
+        let wind_turbine = defs.building(defs.building_id("wind_turbine").unwrap());
+        let power = wind_turbine.power.expect("the Wind Turbine is a power source");
+        assert_eq!((power.radius, power.boost_millis), (3, 1500));
+        assert_eq!(wind_turbine.beside_word(), None);
+        let wind_turbines = defs.tech_id("wind_turbines").unwrap();
+        assert_eq!(wind_turbine.unlocked_by, Some(wind_turbines));
     }
 
     #[test]

@@ -117,6 +117,47 @@ fn researching_a_power_generation_tech_grows_the_reach() {
     assert_eq!(w.power_at(edge, &defs).map(|p| p.boost), Some(1.5), "now in reach");
 }
 
+/// The Wind Turbine (issue #204), on real data: once Air knows `windmills` and `wind_turbines`,
+/// `power_generation` is 2.0 (base) * 1.2 * 1.25 = 3.0, so the turbine's radius of 3 reaches 9
+/// tiles (docs/design/late-tree.md, "The sources"). A Workshop within that reach runs at the
+/// turbine's 1.5x `boost`; one just outside doesn't.
+#[test]
+fn a_wind_turbine_powers_a_workshop_within_9_tiles_but_not_at_10() {
+    let defs = Defs::bundled();
+    let mut w = World::with_map(1, arena(24), Nation::Air, &[at(0, 0)], &defs);
+    assert_eq!(w.modifiers().power_generation, 2.0);
+
+    w.grant_tech(defs.tech_id("gliders").unwrap());
+    w.grant_tech(defs.tech_id("farming").unwrap());
+    let wind_turbines = defs.tech_id("wind_turbines").unwrap();
+    w.apply(Command::SetResearch { tech: wind_turbines }, &defs).unwrap();
+    // The queue is `windmills` then `wind_turbines`: `add_toward_target`'s cap tracks only the
+    // tech at the front, so each needs its own bank-and-tick, the way natural passive income
+    // would pay for one before moving to the next.
+    for _ in 0..4 {
+        if w.research().is_known(wind_turbines) {
+            break;
+        }
+        w.research.bank_for_test(300_000);
+        w.tick(&defs);
+    }
+    assert!(w.research().is_known(wind_turbines));
+    assert_eq!(w.modifiers().power_generation, 3.0);
+
+    let turbine = defs.building_id("wind_turbine").unwrap();
+    let workshop_footprint = crate::geom::Footprint::new(at(0, 0), 2, 2);
+
+    // Nearest workshop tile is (1, 0): a turbine 10 tiles east sits 9 away (within the reach of
+    // 9), one 11 tiles east sits 10 away (just outside it).
+    raise_source(&mut w, &defs, turbine, at(10, 0));
+    assert_eq!(w.power_boost(workshop_footprint, &defs), 1.5, "9 tiles away: in reach");
+
+    w.power_sources.remove(&at(10, 0));
+    w.map[at(10, 0)].building = None;
+    raise_source(&mut w, &defs, turbine, at(11, 0));
+    assert_eq!(w.power_boost(workshop_footprint, &defs), 1.0, "10 tiles away: out of reach");
+}
+
 #[test]
 fn a_save_from_before_power_sources_adopts_the_one_it_already_has() {
     let mut defs = Defs::bundled();

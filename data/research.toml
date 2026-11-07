@@ -447,7 +447,7 @@ description = "Catch the wind to grind grain into more food."
 nation = "air"
 cost = 120
 prereqs = ["gliders", "farming"]
-# Later: the windmill grinding grain into more food (issue #142).
+# The windmill as Air's small, early power source (#488, decision #465): not yet data.
 # Ability: Lift (#363, docs/design/bending.md, "More abilities and the route to mastery"): Air's
 # building and access role, the same lever as Fire's Weld.
 [tech.unlocks]
@@ -475,7 +475,9 @@ description = "Airbenders spin turbines that power workshops."
 nation = "air"
 cost = 250
 prereqs = ["windmills"]
-# Later: the turbine powering workshops (no power system yet, issue #142).
+# The Wind Turbine (issue #204, docs/design/power.md): Air's second power source, a 1x1 that
+# builds anywhere. Also raises `power_generation` to 1.25, which stacks with `windmills`' 1.2 to
+# widen the turbine's own reach to 9 tiles, the strongest of any nation's source.
 [tech.unlocks]
 buildings = ["wind_turbine"]
 modifiers = { power_generation = 1.25 }
