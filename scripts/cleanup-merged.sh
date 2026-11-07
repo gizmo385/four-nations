@@ -12,14 +12,33 @@
 # squashes with `git commit -C`, which keeps the subject), or, for `issue/N`, when main
 # has a `#N:` commit after the branch point and the issue isn't labelled `in-progress`.
 # Everything else is kept and reported. Never touches main or the main checkout.
+#
+# A worktree with no commits ahead of main is usually just-created (an agent hasn't
+# committed yet), not actually merged, so it's kept while its directory is younger
+# than FRESH_MINUTES. Pass --include-fresh to remove those too.
+#
+# Manual check (never run --apply against the real repo; use a throwaway one):
+#   d=$(mktemp -d); cd "$d" && git init -q && git commit -q --allow-empty -m init \
+#     && git branch -M main && mkdir -p .claude/worktrees \
+#     && git worktree add -q .claude/worktrees/fresh -b worktree-agent-fresh main \
+#     && git worktree add -q .claude/worktrees/old -b worktree-agent-old main \
+#     && touch -d "3 hours ago" .claude/worktrees/old \
+#     && /path/to/scripts/cleanup-merged.sh
+#   Expect: KEEP ... fresh [...]: fresh (created 0m ago) and
+#           REMOVE ... old [...]: no commits ahead of main
 set -euo pipefail
 
+FRESH_MINUTES=120
+
 apply=0
-case "${1:-}" in
-  --apply) apply=1 ;;
-  "") ;;
-  *) echo "usage: $0 [--apply]" >&2; exit 2 ;;
-esac
+include_fresh=0
+for arg in "$@"; do
+  case "$arg" in
+    --apply) apply=1 ;;
+    --include-fresh) include_fresh=1 ;;
+    *) echo "usage: $0 [--apply] [--include-fresh]" >&2; exit 2 ;;
+  esac
+done
 
 if [[ "$(git rev-parse --git-dir)" != "$(git rev-parse --git-common-dir)" ]]; then
   echo "run this from the main checkout, not a worktree" >&2
@@ -53,6 +72,13 @@ on_main() {
   fi
 }
 
+# Prints DIR's age in whole minutes, from its mtime, or nothing if unreadable.
+age_minutes() {
+  local dir=$1 modified
+  modified=$(stat -c %Y "$dir" 2>/dev/null) || return
+  echo $(( ($(date +%s) - modified) / 60 ))
+}
+
 # Prints the PIDs of processes whose working directory is inside DIR.
 procs_in() {
   local dir=$1 p
@@ -78,6 +104,12 @@ while read -r wt branch; do
   pids=$(procs_in "$wt" | tr '\n' ' ')
   if [[ -n $pids ]]; then
     echo "KEEP   $name [$branch]: processes running inside (${pids% })"; kept=$((kept + 1)); continue
+  fi
+  if [[ $include_fresh == 0 && $(git rev-list --count "main..$branch") == 0 ]]; then
+    age=$(age_minutes "$wt")
+    if [[ -n $age && $age -lt $FRESH_MINUTES ]]; then
+      echo "KEEP   $name [$branch]: fresh (created ${age}m ago)"; kept=$((kept + 1)); continue
+    fi
   fi
   why=$(on_main "$branch")
   if [[ -z $why ]]; then
