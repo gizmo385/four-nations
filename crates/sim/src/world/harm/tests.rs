@@ -365,3 +365,100 @@ fn harm_zero_never_progresses_or_ends_a_sickness_caught_before_the_preset_change
     }
     assert_eq!(w.units[0].needs.health, defs.needs.health.max);
 }
+
+// Remedies (issue #390, docs/design/harm.md "Healing: a job for each feature"): a hurt or
+// sick unit with no need below `low` fetches a remedy (herbs, to start) from stores and takes
+// it like a meal.
+
+/// A unit at `pos` with `health`, every other need full, not sick, on a flat temperate map wide
+/// enough to reach `herbs_at`, with `count` herbs stocked there.
+fn remedy_world(defs: &Defs, pos: Pos, health: f32, herbs_at: Pos, count: u32) -> World {
+    let w_tiles = (pos.x.max(herbs_at.x) + 1).max(3);
+    let mut w = world(defs, field(w_tiles, 1, 128), &[pos]);
+    w.difficulty = Some("normal".into());
+    w.units[0].needs = Needs { health, ..Needs::full(&defs.needs) };
+    let herbs = defs.item_id("herbs").expect("herbs is a jobs.toml item");
+    w.stored.insert(herbs_at, Stack { item: herbs, count });
+    w
+}
+
+/// Runs `w` up to `limit` ticks, stopping (and returning the tick count) the moment `done`
+/// holds, so a lingering passive regen afterward never confounds a check of the exact moment a
+/// remedy landed. Panics if `done` never holds.
+fn run_until(w: &mut World, defs: &Defs, limit: u64, mut done: impl FnMut(&World) -> bool) -> u64 {
+    for n in 0..limit {
+        if done(w) {
+            return n;
+        }
+        w.tick(defs);
+    }
+    panic!("not done after {limit} ticks");
+}
+
+#[test]
+fn a_hurt_unit_with_herbs_in_stores_takes_one_and_gains_20() {
+    let defs = Defs::bundled();
+    let remedy = defs.harm.remedies[0];
+    let herbs_at = at(4, 0);
+    let mut w = remedy_world(&defs, at(0, 0), 50.0, herbs_at, 1);
+    run_until(&mut w, &defs, 600, |w| !w.stored.contains_key(&herbs_at));
+    // Close to 50 + the remedy's own 20, not exactly it: the walk there was comfortable too, so
+    // a little ordinary passive regen (`data/needs.toml`'s own `health.regen_per_minute`) rode
+    // along before the remedy's own jump landed.
+    let health = w.units[0].needs.health;
+    assert!((health - (50.0 + remedy.health)).abs() < 1.0, "{health}");
+}
+
+#[test]
+fn a_sick_unit_is_cured() {
+    let defs = Defs::bundled();
+    let herbs_at = at(4, 0);
+    let mut w = remedy_world(&defs, at(0, 0), defs.needs.health.max, herbs_at, 1);
+    w.units[0].sick_until = Some(w.tick + 10_000);
+    run_until(&mut w, &defs, 600, |w| w.units[0].sick_until.is_none());
+    assert_eq!(w.units[0].needs.health, defs.needs.health.max, "already full, capped at max");
+}
+
+#[test]
+fn a_hungry_hurt_unit_eats_first() {
+    let defs = Defs::bundled();
+    let remedy = defs.harm.remedies[0];
+    let cabbage = defs.item_id("cabbage").expect("cabbage is a food item");
+    let herbs = defs.item_id("herbs").expect("herbs is a jobs.toml item");
+    let (cabbage_at, herbs_at) = (at(3, 0), at(5, 0));
+    let mut w = world(&defs, field(6, 1, 128), &[at(0, 0)]);
+    w.difficulty = Some("normal".into());
+    w.units[0].needs = Needs { hunger: 5.0, health: 50.0, ..Needs::full(&defs.needs) };
+    w.stored.insert(cabbage_at, Stack { item: cabbage, count: 5 });
+    w.stored.insert(herbs_at, Stack { item: herbs, count: 1 });
+    // One tick in, the unit has set off to eat, not to fetch herbs: hunger outranks a remedy
+    // (`consider_needs`'s own urgent-need loop runs first).
+    w.tick(&defs);
+    assert!(matches!(w.units[0].task(), Some(Task::Eat(_))), "{:?}", w.units[0].task());
+    let hunger_met = defs.needs.hunger.low;
+    run_until(&mut w, &defs, 600, |w| w.units[0].needs.hunger > hunger_met);
+    assert!(w.stored.contains_key(&herbs_at), "herbs are untouched while still hungry");
+    run_until(&mut w, &defs, 600, |w| !w.stored.contains_key(&herbs_at));
+    let health = w.units[0].needs.health;
+    assert!((health - (50.0 + remedy.health)).abs() < 1.0, "healed once fed: {health}");
+}
+
+#[test]
+fn no_herb_taking_with_harm_zero() {
+    let defs = Defs::bundled();
+    let herbs_at = at(4, 0);
+    let mut w = remedy_world(&defs, at(0, 0), 50.0, herbs_at, 1);
+    w.difficulty = Some("sandbox".into());
+    let before = w.units[0].needs.health;
+    for _ in 0..600 {
+        w.tick(&defs);
+    }
+    // Ordinary passive regen still runs (it isn't gated on harm); only the remedy's own jump,
+    // far bigger over a minute, is what's being ruled out here.
+    assert!(
+        w.units[0].needs.health < before + defs.harm.remedies[0].health,
+        "{}",
+        w.units[0].needs.health
+    );
+    assert_eq!(w.stored.get(&herbs_at).map(|s| s.count), Some(1), "the herb is never fetched");
+}

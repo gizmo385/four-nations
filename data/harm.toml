@@ -41,6 +41,15 @@
 # hit setting `Unit::sick_until`. A spot with any unlisted (fresh) water neighbour never rolls.
 # Every `terrain` here must be one of `Terrain::is_water`'s own (sea, river, lake or ford).
 # - terrain, chance
+#
+# [[remedy]] (issue #390, docs/design/harm.md "Healing: a job for each feature"): a unit whose
+# needs are all comfortable (`Needs::any_low`) and that is sick, or hurt below `seek_below`,
+# fetches `item` from stores and takes it like a meal (`data/jobs.toml`'s `eat_seconds`,
+# `World::plan_remedy`/`take_remedy`), gaining `health` (not scaled by the preset's `harm`: a
+# cure's own strength, unlike harm's, doesn't change with difficulty). Only while the preset's
+# `harm` is above 0, the same as every other harm rule; `item` must be a known item (`data/
+# jobs.toml`).
+# - item, health, cures_sickness (ends `Unit::sick_until` on the spot), seek_below
 
 [settings]
 floor = 10.0
@@ -60,3 +69,9 @@ fresh_detour = 15
 [[sickness.water]]
 terrain = "water"
 chance = 0.05
+
+[[remedy]]
+item = "herbs"
+health = 20.0
+cures_sickness = true
+seek_below = 60.0

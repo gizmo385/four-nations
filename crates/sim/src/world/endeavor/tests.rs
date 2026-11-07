@@ -122,11 +122,11 @@ fn a_building_over_several_tiles_counts_once() {
 fn every_building_counts_only_kinds_distinct_and_finished() {
     let defs = Defs::bundled();
     let mut w = world(Nation::Earth, 1, &defs);
-    // Earth reaches 10 kinds today (4 shared, the Map Room, earth_wall, rail, the shared
-    // Workshop, the Mine Shaft and the Deep Mine); spare = 1 makes the target 9
+    // Earth reaches 11 kinds today (4 shared, the Herb Garden, the Map Room, earth_wall, rail,
+    // the shared Workshop, the Mine Shaft and the Deep Mine); spare = 1 makes the target 10
     // (`docs/design/materials.md` section 6, #272, #354; the Workshop, #369; the mines, #373;
-    // the Map Room, #402).
-    assert_eq!(progress(&w, &defs, "building_kinds"), (0, 9, false));
+    // the Map Room, #402; the Herb Garden, #390).
+    assert_eq!(progress(&w, &defs, "building_kinds"), (0, 10, false));
     put(&mut w, &defs, "bed", at(3, 3));
     put(&mut w, &defs, "bed", at(4, 3));
     put(&mut w, &defs, "campfire", at(5, 3));
@@ -163,12 +163,12 @@ fn every_building_targets_are_computed_per_nation() {
         .map(|&n| (n, progress(&world(n, 1, &defs), &defs, "building_kinds").1))
         .collect();
     // Today's numbers (`docs/design/materials.md` section 6, raised by the shared Workshop
-    // (#369) and Map Room (#402), the Mine Shaft and Deep Mine for Earth (#373), and the
-    // Healing Hut and Fishing Dock for Water (#375, #374)): Air 10, Water 10, Earth 10 and Fire
-    // 11 reachable, minus the bundled sign's `spare = 1`.
+    // (#369), Map Room (#402) and Herb Garden (#390), the Mine Shaft and Deep Mine for Earth
+    // (#373), and the Healing Hut and Fishing Dock for Water (#375, #374)): Air 11, Water 11,
+    // Earth 11 and Fire 12 reachable, minus the bundled sign's `spare = 1`.
     assert_eq!(
         targets,
-        [(Nation::Air, 9), (Nation::Water, 9), (Nation::Earth, 9), (Nation::Fire, 10)]
+        [(Nation::Air, 10), (Nation::Water, 10), (Nation::Earth, 10), (Nation::Fire, 11)]
     );
 }
 
@@ -225,12 +225,13 @@ fn adding_a_building_to_one_nations_branch_raises_only_that_nations_target() {
 fn a_save_with_the_sign_already_met_keeps_it_met() {
     let defs = Defs::bundled();
     let mut w = world(Nation::Fire, 1, &defs);
-    // Fire's target is 10: raise 10 of its 11 reachable kinds, skipping the lightning station.
+    // Fire's target is 11: raise 11 of its 12 reachable kinds, skipping the lightning station.
     let kinds = [
         "bed",
         "campfire",
         "study_hall",
         "farm_plot",
+        "herb_garden",
         "forge",
         "brick_kiln",
         "smelter",
@@ -242,7 +243,7 @@ fn a_save_with_the_sign_already_met_keeps_it_met() {
         put(&mut w, &defs, building, at(i as i32, 1));
     }
     run(&mut w, &defs, 10);
-    assert_eq!(progress(&w, &defs, "building_kinds"), (10, 10, true));
+    assert_eq!(progress(&w, &defs, "building_kinds"), (11, 11, true));
     assert!(
         w.endeavor_events()
             .iter()
@@ -251,7 +252,7 @@ fn a_save_with_the_sign_already_met_keeps_it_met() {
 
     let saved = w.save(&defs).expect("world saves");
     let w2 = World::load(&saved, &defs).expect("world loads");
-    assert_eq!(progress(&w2, &defs, "building_kinds"), (10, 10, true));
+    assert_eq!(progress(&w2, &defs, "building_kinds"), (11, 11, true));
     assert_eq!(w2.endeavor_events(), w.endeavor_events());
 }
 

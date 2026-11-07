@@ -191,6 +191,12 @@ glyph = "❄"
 ascii = "i"
 fg = [210, 232, 248]
 
+# Herbalism's cure (#390): not a food, so it keeps its own glyph rather than the foods' shared %.
+[item.herbs]
+glyph = "✤"
+ascii = "h"
+fg = [150, 205, 100]
+
 # Foods share the glyph and take the food's own colour.
 [item.fish]
 glyph = "%"
@@ -335,6 +341,13 @@ fg = [240, 214, 120]
 glyph = "≡"
 ascii = "~"
 fg = [180, 150, 70]
+
+# Herbalism's own plot (#390): tilled soil, same as a farm plot, but a greener tint so an empty
+# one still reads apart from a cabbage plot; growing or ripe override it exactly as above.
+[building.herb_garden]
+glyph = "≡"
+ascii = "~"
+fg = [120, 170, 80]
 
 # --- Carpentry (shared tier, #369) ---
 # Unlocked by `carpentry`: every nation's way to make tools from wood.

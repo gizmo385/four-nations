@@ -63,6 +63,7 @@ use crate::defs::Terrain;
 use crate::endeavor::TaskWho;
 use crate::flood::Flood;
 use crate::geom::Footprint;
+use crate::harm::RemedyDef;
 use crate::jobs::{HarvestDef, ItemId, JobKind};
 use crate::path::{DIAGONAL, MoveRules, STRAIGHT};
 use crate::research::MILLIS_PER_POINT;
@@ -126,6 +127,9 @@ pub enum Task {
     /// Resting at a healing building's anchor (`BuildingDef::healing`, issue #375), walking to
     /// one or inside it.
     Healing(Pos),
+    /// Fetching a remedy (herbs, to start) from the stockpile tile `Pos` and taking it like a
+    /// meal (`data/harm.toml`'s `[[remedy]]`, issue #390, `World::plan_remedy`/`take_remedy`).
+    Remedy(Pos),
 }
 
 /// Why a unit with nothing to do (`Unit::task` is `None`) has nothing to do (#337): read from
@@ -919,12 +923,31 @@ impl World {
                 }
             }
         }
-        // Nothing urgent (issue #375): a hurt unit rests at the nearest healing building with
-        // room, the lowest priority there is. It only ever starts once every real need is
-        // comfortably above `low` (`Needs::any_low`), the same gate the passive regen uses, so a
-        // need that's merely on retry cooldown (the loop above skipped it, but it's still `<=
-        // low`) still rules healing out.
-        if self.tick >= self.units[i].healing_retry_at && !self.units[i].needs.any_low(n) {
+        // Nothing urgent (issue #375): a hurt or sick unit fetches a remedy from stores if one
+        // fits (issue #390), else rests at the nearest healing building with room; either is the
+        // lowest priority there is, and both only ever start once every real need is comfortably
+        // above `low` (`Needs::any_low`), the same gate the passive regen uses, so a need that's
+        // merely on retry cooldown (the loop above skipped it, but it's still `<= low`) rules
+        // both out. A remedy is tried first: it's a short errand, not a trip to rest, so it
+        // doesn't compete with the healing building for the same unit.
+        if self.units[i].needs.any_low(n) {
+            return;
+        }
+        if self.tick >= self.units[i].remedy_retry_at {
+            match self.plan_remedy(i, defs) {
+                Some((task, route)) => {
+                    let u = &mut self.units[i];
+                    u.need_task = Some(task);
+                    u.route = Some(route);
+                    u.work = 0.0;
+                    return;
+                }
+                None => {
+                    self.units[i].remedy_retry_at = self.tick + self.retry_ticks(defs);
+                }
+            }
+        }
+        if self.tick >= self.units[i].healing_retry_at {
             match self.plan_healing(i, defs) {
                 Some((route, anchor)) => {
                     let u = &mut self.units[i];
@@ -1084,6 +1107,32 @@ impl World {
         Some((rate, healing.stop_at))
     }
 
+    /// The remedy unit `i` qualifies for right now (issue #390, docs/design/harm.md "Healing: a
+    /// job for each feature"): sick with one that `cures_sickness`, or hurt below one's own
+    /// `seek_below`, whichever `data/harm.toml` lists first. `None` with the difficulty preset's
+    /// `harm` at 0 (nothing qualifies, matching every other harm rule) or nothing fits.
+    fn remedy_for<'d>(&self, i: usize, defs: &'d Defs) -> Option<&'d RemedyDef> {
+        if self.knobs(defs).harm <= 0.0 {
+            return None;
+        }
+        let u = &self.units[i];
+        let (sick, health) = (self.is_sick(u), u.needs.health);
+        defs.harm.remedies.iter().find(|r| (r.cures_sickness && sick) || health < r.seek_below)
+    }
+
+    /// Where to fetch a remedy (issue #390): the nearest stockpile tile holding one unit `i`
+    /// qualifies for (`remedy_for`), and the route there. `None` with nothing to qualify for, or
+    /// none in stores anywhere reachable.
+    fn plan_remedy(&self, i: usize, defs: &Defs) -> Option<(Task, Vec<Pos>)> {
+        let remedy = self.remedy_for(i, defs)?;
+        let rules = self.rules_for(&self.units[i]);
+        let (flood, found) = Flood::seek(&self.map, self.units[i].pos, rules, |p, _| {
+            self.stored.get(&p).filter(|s| s.item == remedy.item).map(|_| ((), ()))
+        });
+        let (stand, ()) = found?;
+        Some((Task::Remedy(stand), route_from(flood.path_to(stand)?)))
+    }
+
     /// The nearest tile beside water: `Flood::seek` (#293) checks the handful of tiles it
     /// actually visits on the way, nearest-cost-first, instead of a second pass over the whole
     /// map once a full flood is in hand -- every tile that pass would skip fails this check too.
@@ -1237,7 +1286,7 @@ impl World {
                     self.enter_building(i, anchor, defs);
                 }
             }
-            Task::Drink | Task::Eat(_) => {
+            Task::Drink | Task::Eat(_) | Task::Remedy(_) => {
                 if self.walk(i, defs) {
                     self.consume(i, task, defs);
                 }
@@ -1300,6 +1349,13 @@ impl World {
                 };
                 s.eat_seconds + forage
             }
+            Task::Remedy(pos) => {
+                if self.stored_at(pos).is_none() {
+                    // Someone got there first. Look again next tick.
+                    return self.finish_need(i);
+                }
+                s.eat_seconds
+            }
             _ => return self.finish_need(i),
         };
         self.units[i].work += 1.0 / TICKS_PER_SECOND as f32;
@@ -1322,9 +1378,36 @@ impl World {
                 let cooked = self.is_cooking(self.units[i].pos);
                 self.units[i].needs.eat(food, cooked, &defs.needs);
             }
+            Task::Remedy(pos) => self.take_remedy(i, pos, defs),
             _ => {}
         }
         self.finish_need(i);
+    }
+
+    /// Takes one remedy from the stockpile tile `pos` (issue #390): raises unit `i`'s health by
+    /// the matching `RemedyDef::health`, and ends its sickness if the remedy `cures_sickness`.
+    /// A no-op (beyond the removal) if `pos` no longer holds a known remedy item -- unreachable
+    /// in practice, since `consume` already checked it's there the same tick.
+    fn take_remedy(&mut self, i: usize, pos: Pos, defs: &Defs) {
+        let Some(item) = self.stored_at(pos).map(|s| s.item) else { return };
+        let Some(remedy) = defs.harm.remedies.iter().find(|r| r.item == item).copied() else {
+            return;
+        };
+        let mut s = self.stored.remove(&pos);
+        if let Some(stack) = &mut s {
+            stack.count -= 1;
+            if stack.count == 0 {
+                s = None;
+            }
+        }
+        if let Some(s) = s {
+            self.stored.insert(pos, s);
+        }
+        let u = &mut self.units[i];
+        u.needs.heal(remedy.health, &defs.needs);
+        if remedy.cures_sickness {
+            u.sick_until = None;
+        }
     }
 
     /// Removes one `item` from `source`; for a wild resource, clears it and drops the rest of

@@ -405,6 +405,13 @@ impl Needs {
     pub fn drink(&mut self, s: &NeedsSettings) {
         self.thirst = (self.thirst + s.general.drink_thirst).min(s.max());
     }
+
+    /// Gains `amount` health, capped at `s.health.max` (issue #390: taking a remedy, herbs to
+    /// start, like a meal). Unlike regen or eating, this is never blocked by being cold or sick
+    /// (`World::take_remedy` is what's happening in the first place).
+    pub fn heal(&mut self, amount: f32, s: &NeedsSettings) {
+        self.health = (self.health + amount).min(s.health.max);
+    }
 }
 
 #[cfg(test)]

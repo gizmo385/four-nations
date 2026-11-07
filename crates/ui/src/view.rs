@@ -254,7 +254,10 @@ impl Activity {
             Some(Task::Endeavor(_) | Task::Attend(_) | Task::Rite) => Self::Gate,
             Some(Task::Eat(_) | Task::Drink) => Self::Eat,
             Some(Task::Sleep) => Self::Sleep,
-            Some(Task::Healing(_)) => Self::Heal,
+            // Taking a remedy (issue #390) heals, like resting in a healing building: it groups
+            // with Heal, not Eat, even though it runs through the same walk-then-consume code
+            // Drink and Eat do.
+            Some(Task::Healing(_) | Task::Remedy(_)) => Self::Heal,
         }
     }
 }
@@ -947,6 +950,7 @@ mod tests {
             (Some(Task::Drink), Activity::Eat),
             (Some(Task::Sleep), Activity::Sleep),
             (Some(Task::Healing(fn_sim::Pos::new(0, 0))), Activity::Heal),
+            (Some(Task::Remedy(fn_sim::Pos::new(0, 0))), Activity::Heal),
         ];
         for (task, want) in cases {
             assert_eq!(Activity::of(task), want, "{task:?}");

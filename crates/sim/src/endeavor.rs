@@ -1060,10 +1060,10 @@ mod tests {
         );
     }
 
-    /// The bundled data's reachable count, per nation, before `spare` (today: Air 9, Water 9,
-    /// Earth 9, Fire 10; `docs/design/materials.md` section 6, raised by the shared Workshop
-    /// (#369), the Mine Shaft and Deep Mine for Earth (#373), and the Healing Hut and Fishing
-    /// Dock for Water (#375, #374)).
+    /// The bundled data's reachable count, per nation, before `spare` (today: Air 11, Water 11,
+    /// Earth 11, Fire 12; `docs/design/materials.md` section 6, raised by the shared Workshop
+    /// (#369) and Map Room (#402), the Mine Shaft and Deep Mine for Earth (#373), the Healing
+    /// Hut and Fishing Dock for Water (#375, #374), and the shared Herb Garden (#390)).
     fn reachable_counts() -> [(Nation, u32); 4] {
         let defs = Defs::bundled();
         Nation::ALL
@@ -1084,7 +1084,7 @@ mod tests {
         // Today's bundled counts, so a content change that moves these is visible in review.
         assert_eq!(
             reachable_counts(),
-            [(Nation::Air, 10), (Nation::Water, 10), (Nation::Earth, 10), (Nation::Fire, 11)]
+            [(Nation::Air, 11), (Nation::Water, 11), (Nation::Earth, 11), (Nation::Fire, 12)]
         );
     }
 
@@ -1106,12 +1106,13 @@ mod tests {
 
     #[test]
     fn every_building_spare_must_be_below_the_smallest_nations_count() {
-        // Air, Water and Earth are tied for fewest kinds today, 10 (the shared Workshop, #369
-        // and Map Room, #402; the Mine Shaft and Deep Mine for Earth, #373; the Healing Hut and
-        // Fishing Dock for Water, #375, #374); spare = 10 would zero every one of their targets.
-        let e = error(&sign("kind = \"every_building\"\nspare = 10"));
-        assert!(e.contains("spare must be below the smallest nation's count (10)"), "{e}");
-        assert!(load(&sign("kind = \"every_building\"\nspare = 9")).is_ok());
+        // Air, Water and Earth are tied for fewest kinds today, 11 (the shared Workshop, #369,
+        // Map Room, #402 and Herb Garden, #390; the Mine Shaft and Deep Mine for Earth, #373;
+        // the Healing Hut and Fishing Dock for Water, #375, #374); spare = 11 would zero every
+        // one of their targets.
+        let e = error(&sign("kind = \"every_building\"\nspare = 11"));
+        assert!(e.contains("spare must be below the smallest nation's count (11)"), "{e}");
+        assert!(load(&sign("kind = \"every_building\"\nspare = 10")).is_ok());
     }
 
     #[test]

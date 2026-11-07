@@ -1279,8 +1279,19 @@ mod tests {
         assert!(f.sow_seconds > 0.0 && f.grow_seconds > 0.0 && f.reap_seconds > 0.0);
         assert_eq!(f.crop_growth, 1.0);
         assert!(def.passable, "units walk through a farm plot");
-        // Only the farm plot grows a crop.
-        assert_eq!(defs.buildings.iter().filter(|b| b.farm.is_some()).count(), 1);
+        // The farm plot and the Herb Garden (issue #390) grow a crop; nothing else does.
+        assert_eq!(defs.buildings.iter().filter(|b| b.farm.is_some()).count(), 2);
+    }
+
+    #[test]
+    fn the_herb_garden_is_data() {
+        let defs = Defs::bundled();
+        let def = defs.building(defs.building_id("herb_garden").unwrap());
+        let f = def.farm.expect("the Herb Garden grows herbs");
+        assert_eq!(defs.item(f.crop).id, "herbs");
+        assert!(f.harvest_count > 0);
+        assert!(f.sow_seconds > 0.0 && f.grow_seconds > 0.0 && f.reap_seconds > 0.0);
+        assert!(def.passable, "units walk through an herb garden, like a farm plot");
     }
 
     #[test]

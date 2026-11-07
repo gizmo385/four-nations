@@ -130,8 +130,10 @@ pub fn tech_depths(techs: &[TechDef]) -> Vec<usize> {
 /// research (#338): naming the tech it is a prereq for ("Prerequisite for Writing"), so the
 /// column never reads as a dead end while it's actually a stepping stone. Only a tech with
 /// neither -- truly nothing downstream wires up to yet, a content gap, not a display bug -- gets
-/// a plain "-" (e.g. `cartography` once did; #402 wired up its Map Room. `herbalism` still does
-/// for every nation but Water, whose own Healing Hut is the only thing that needs it).
+/// a plain "-" (`cartography` once did; #402 wired up its Map Room. `herbalism` once did too,
+/// for every nation but Water; #390's Herb Garden wired that up as well. No bundled tech reads
+/// this way today, which is the point: the dash is a prompt to close a real gap, not a steady
+/// state, so a unit test builds a `TechDef` of its own to exercise it).
 pub fn unlock_summary(defs: &Defs, nation: Nation, id: TechId, def: &TechDef) -> String {
     let mut parts: Vec<String> = def
         .unlocks
@@ -345,14 +347,28 @@ mod tests {
     }
 
     #[test]
-    fn a_tech_that_truly_unlocks_nothing_yet_is_a_dash() {
-        // Herbalism grants nothing on its own, and only Water's branch (Healing) needs it
-        // (`unlock_summary`'s dependents search only counts a shared or same-nation tech): for
-        // every other nation it's a genuine content gap, not a display bug, so the dash is
-        // honest here.
+    fn herbalism_no_longer_reads_as_a_dead_end() {
+        // #390 gave herbalism its Herb Garden, closing the gap the test below used to document
+        // for herbalism specifically (every nation now sees it unlock something directly, not
+        // just Water's own Healing branch).
         let defs = Defs::bundled();
         let herbalism = defs.tech_id("herbalism").unwrap();
-        assert_eq!(unlock_summary(&defs, Nation::Fire, herbalism, defs.tech(herbalism)), "-");
+        assert_eq!(
+            unlock_summary(&defs, Nation::Fire, herbalism, defs.tech(herbalism)),
+            "Herb Garden"
+        );
+    }
+
+    #[test]
+    fn a_tech_that_truly_unlocks_nothing_yet_is_a_dash() {
+        // No bundled tech has this shape today (every one either unlocks something directly or
+        // is a prereq for something that does); a `TechDef` built here, under an id no real
+        // tech names as a prereq, exercises the dash branch on its own rather than leaning on
+        // content staying sparse.
+        let defs = Defs::bundled();
+        let id = TechId(defs.techs.len() as u16 + 1);
+        let nothing = def(None, 1, &[]);
+        assert_eq!(unlock_summary(&defs, Nation::Fire, id, &nothing), "-");
     }
 
     #[test]

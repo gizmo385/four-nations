@@ -233,6 +233,10 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
             }
             None => "Healing".into(),
         },
+        Task::Remedy(pos) => match world.stored_at(pos) {
+            Some(s) => format!("Taking {}", defs.item(s.item).name.to_lowercase()),
+            None => "Taking a remedy".into(),
+        },
     }
 }
 

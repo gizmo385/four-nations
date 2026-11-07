@@ -678,3 +678,29 @@ grow_seconds = 300.0
 tend_boost = 1.25
 spacing = 2
 auto_pick = true
+
+# --- Herbalism (shared tier) ---
+# Appended last, for the same reason the Farming section above is: `BuildingId` is this file's
+# position.
+
+# Unlocked by `herbalism` (data/research.toml, shared tier): tilled soil sown with herbs instead
+# of cabbage, the same way as the farm plot above -- sow, grow, reap -- just a different crop
+# (issue #390, docs/design/harm.md "Healing: a job for each feature"). A hurt or sick settler
+# fetches a grown herb from stores on its own, like a meal (`[[remedy]]`, data/harm.toml). Cost
+# and work match the farm plot exactly; only the crop and its timing differ.
+[[building]]
+id = "herb_garden"
+name = "Herb Garden"
+verb = "Till"
+work = 10.0
+passable = true
+[building.farm]
+crop = "herbs"
+harvest_count = 2
+sow_seconds = 6.0
+grow_seconds = 300.0
+reap_seconds = 6.0
+crop_growth = 1.0
+[[building.cost]]
+item = "wood"
+count = 2

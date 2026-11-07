@@ -99,6 +99,17 @@ id = "ice"
 icon = "ice"
 name = "Ice"
 
+# --- Herbalism (shared, #390) ---
+# Grown in an Herb Garden (`[building.farm]`, data/buildings.toml), not foraged: no harvest entry
+# here, so a hungry unit never eats one on its own, the way it would a wild cabbage. Not a food
+# (data/needs.toml has no `[[food]]` entry for it): `[[remedy]]` in data/harm.toml is what gives
+# it a job -- a hurt or sick settler fetches one from stores and takes it like a meal
+# (`World::plan_remedy`, docs/design/harm.md "Healing: a job for each feature").
+[[item]]
+id = "herbs"
+icon = "herbs"
+name = "Herbs"
+
 # What working a map resource yields. When the work finishes `count` of `item` drops beside the
 # resource, and the resource is cleared unless it regrows (see `regrow`).
 # - verb:     what the designation is called in the UI.

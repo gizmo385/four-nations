@@ -109,7 +109,12 @@ name = "Herbalism"
 description = "Know which plants soothe and which ones heal."
 cost = 120
 prereqs = ["farming"]
-# Later: buildings = ["herb_garden"], jobs = ["herbalist"]
+# The Herb Garden (issue #390, docs/design/harm.md "Healing: a job for each feature"): grows
+# herbs the way a farm plot grows cabbage; a hurt or sick settler fetches one from stores on its
+# own, like a meal (`[[remedy]]`, data/harm.toml, `World::plan_remedy`).
+[tech.unlocks]
+buildings = ["herb_garden"]
+# Later: jobs = ["herbalist"]
 
 [[tech]]
 id = "writing"

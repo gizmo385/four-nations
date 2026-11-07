@@ -1,8 +1,9 @@
 //! Harm settings shared by every source of damage beyond neglect (`data/harm.toml`,
-//! `docs/design/harm.md`, issues #387, #388 and #389): the floor harm respects unless the
+//! `docs/design/harm.md`, issues #387, #388, #389 and #390): the floor harm respects unless the
 //! difficulty preset's `harm_kills` is on, the health below which a unit is too hurt for heavy
-//! work (`fit_for_heavy`, `World::fit_for_heavy_work`), exposure's own rate, injury's own damage
-//! and sickness's own rate and terrains (`world/harm.rs`, `world/injury.rs`).
+//! work (`fit_for_heavy`, `World::fit_for_heavy_work`), exposure's own rate, injury's own damage,
+//! sickness's own rate and terrains, and the remedies (herbs) that cure them
+//! (`world/harm.rs`, `world/injury.rs`).
 //!
 //! Read by `Defs::with_harm`, the way `seasons.toml` is read by `with_seasons`: a separate step
 //! from `from_toml`, so data without one (most tests) simply has `HarmDef::default`. Nothing acts
@@ -12,6 +13,7 @@
 use serde::Deserialize;
 
 use crate::defs::{DefsError, Terrain};
+use crate::jobs::ItemId;
 
 /// `[settings]` of `data/harm.toml`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -66,6 +68,22 @@ pub struct SicknessDef {
     pub water: Vec<SicknessWaterDef>,
 }
 
+/// One entry of `[[remedy]]` (issue #390, docs/design/harm.md "Healing: a job for each
+/// feature"): a unit whose needs are all comfortable, that is sick, or hurt below `seek_below`,
+/// fetches `item` from stores and takes it like a meal (`World::plan_remedy`/`take_remedy`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RemedyDef {
+    /// What's fetched and taken; must be a known item (`data/jobs.toml`).
+    pub item: ItemId,
+    /// Health gained on the spot, not scaled by the preset's `harm`: a cure's own strength,
+    /// unlike harm's, doesn't change with difficulty.
+    pub health: f32,
+    /// Whether taking this remedy ends `Unit::sick_until` on the spot.
+    pub cures_sickness: bool,
+    /// Health below which a unit seeks this remedy out, whether sick or not.
+    pub seek_below: f32,
+}
+
 /// Everything in `data/harm.toml`, resolved and validated. A default (unloaded) value matches
 /// the bundled starting values; nothing reads it unless a difficulty preset's `harm` knob is
 /// above 0, and the bundled data is always loaded by `Defs::bundled` before any preset can be
@@ -76,6 +94,7 @@ pub struct HarmDef {
     pub exposure: ExposureDef,
     pub injury: InjuryDef,
     pub sickness: SicknessDef,
+    pub remedies: Vec<RemedyDef>,
 }
 
 impl Default for HarmDef {
@@ -90,6 +109,7 @@ impl Default for HarmDef {
                 fresh_detour: 15,
                 water: vec![SicknessWaterDef { terrain: Terrain::Water, chance: 0.05 }],
             },
+            remedies: Vec::new(),
         }
     }
 }
@@ -101,6 +121,8 @@ struct HarmFile {
     exposure: RawExposure,
     injury: RawInjury,
     sickness: RawSickness,
+    #[serde(default, rename = "remedy")]
+    remedies: Vec<RawRemedy>,
 }
 
 #[derive(Deserialize)]
@@ -138,8 +160,20 @@ struct RawSicknessWater {
     chance: f32,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawRemedy {
+    item: String,
+    health: f32,
+    cures_sickness: bool,
+    seek_below: f32,
+}
+
 impl HarmFile {
-    fn resolve(self) -> Result<HarmDef, DefsError> {
+    /// `item_ids` are `data/jobs.toml`'s own, in the order `Defs::item_id` resolves against, so
+    /// `[[remedy]] item` can be checked and linked the same way `with_difficulty` links
+    /// `starting_stores.item`.
+    fn resolve(self, item_ids: &[&str]) -> Result<HarmDef, DefsError> {
         let err = |msg: String| Err(DefsError(format!("harm.toml: {msg}")));
         let s = &self.settings;
         if !(s.floor.is_finite() && s.floor >= 0.0) {
@@ -179,6 +213,24 @@ impl HarmFile {
             }
             water.push(SicknessWaterDef { terrain: w.terrain, chance: w.chance });
         }
+        let mut remedies = Vec::with_capacity(self.remedies.len());
+        for r in &self.remedies {
+            let Some(idx) = item_ids.iter().position(|i| *i == r.item.as_str()) else {
+                return err(format!("remedy: unknown item {:?}", r.item));
+            };
+            if !(r.health.is_finite() && r.health > 0.0) {
+                return err(format!("remedy {:?}: health must be a positive number", r.item));
+            }
+            if !(r.seek_below.is_finite() && r.seek_below > 0.0) {
+                return err(format!("remedy {:?}: seek_below must be a positive number", r.item));
+            }
+            remedies.push(RemedyDef {
+                item: ItemId(idx as u16),
+                health: r.health,
+                cures_sickness: r.cures_sickness,
+                seek_below: r.seek_below,
+            });
+        }
         Ok(HarmDef {
             settings: HarmSettings { floor: s.floor, fit_for_heavy: s.fit_for_heavy },
             exposure: ExposureDef { damage_per_minute: e.damage_per_minute },
@@ -189,6 +241,7 @@ impl HarmFile {
                 fresh_detour: k.fresh_detour,
                 water,
             },
+            remedies,
         })
     }
 }
@@ -199,9 +252,10 @@ impl crate::defs::Defs {
     /// (most tests) simply has `HarmDef::default`, and nothing acts on it unless a difficulty
     /// preset's `harm` knob is above 0.
     pub fn with_harm(mut self, harm: &str) -> Result<Self, DefsError> {
+        let item_ids: Vec<&str> = self.items.iter().map(|i| i.id.as_str()).collect();
         self.harm = toml::from_str::<HarmFile>(harm)
             .map_err(|e| DefsError(format!("harm.toml: {e}")))?
-            .resolve()?;
+            .resolve(&item_ids)?;
         Ok(self)
     }
 }
@@ -241,6 +295,7 @@ mod tests {
         assert_eq!(defs.harm.sickness.water.len(), 1);
         assert_eq!(defs.harm.sickness.water[0].terrain, crate::defs::Terrain::Water);
         assert_eq!(defs.harm.sickness.water[0].chance, 0.05);
+        assert!(defs.harm.remedies.is_empty());
     }
 
     #[test]
@@ -255,6 +310,12 @@ mod tests {
         assert_eq!(defs.harm.sickness.fresh_detour, 15);
         assert_eq!(defs.harm.sickness.water[0].terrain, crate::defs::Terrain::Water);
         assert_eq!(defs.harm.sickness.water[0].chance, 0.05);
+        assert_eq!(defs.harm.remedies.len(), 1);
+        let herbs = defs.item_id("herbs").expect("herbs is a jobs.toml item");
+        assert_eq!(defs.harm.remedies[0].item, herbs);
+        assert_eq!(defs.harm.remedies[0].health, 20.0);
+        assert!(defs.harm.remedies[0].cures_sickness);
+        assert_eq!(defs.harm.remedies[0].seek_below, 60.0);
     }
 
     #[test]
@@ -330,5 +391,26 @@ mod tests {
             .replace("[[sickness.water]]\nterrain = \"water\"\nchance = 0.05\n", "water = []\n");
         let err = defs_without_harm().with_harm(&bad).unwrap_err();
         assert!(err.0.contains("sickness.water"), "{err}");
+    }
+
+    #[test]
+    fn remedy_item_must_be_known() {
+        let bad = HARM.replacen(r#"item = "herbs""#, r#"item = "nope""#, 1);
+        let err = defs_without_harm().with_harm(&bad).unwrap_err();
+        assert!(err.0.contains("unknown item"), "{err}");
+    }
+
+    #[test]
+    fn non_positive_remedy_health_is_rejected() {
+        let bad = HARM.replacen("health = 20.0", "health = 0.0", 1);
+        let err = defs_without_harm().with_harm(&bad).unwrap_err();
+        assert!(err.0.contains("health"), "{err}");
+    }
+
+    #[test]
+    fn non_positive_remedy_seek_below_is_rejected() {
+        let bad = HARM.replacen("seek_below = 60.0", "seek_below = 0.0", 1);
+        let err = defs_without_harm().with_harm(&bad).unwrap_err();
+        assert!(err.0.contains("seek_below"), "{err}");
     }
 }

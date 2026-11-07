@@ -274,6 +274,8 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     "sickness_rng",
     // Power reach (#428): which tiles are finished power sources.
     "power_sources",
+    // Remedies (#390): a unit's own retry timer for finding one in stores.
+    "remedy_retry_at",
 ];
 
 /// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239

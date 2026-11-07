@@ -185,6 +185,11 @@ pub struct Unit {
     /// existed, and for anyone never sickened.
     #[serde(default)]
     sick_until: Option<u64>,
+    /// Tick before which a failed attempt to find a remedy in stores isn't repeated (issue
+    /// #390): its own timer, parallel to `healing_retry_at`, since taking a remedy isn't one of
+    /// the three needs `need_retry_at` covers either.
+    #[serde(default)]
+    remedy_retry_at: u64,
 }
 
 impl Unit {
@@ -714,6 +719,7 @@ impl World {
                 last_harm: None,
                 exposed_alerted: false,
                 sick_until: None,
+                remedy_retry_at: 0,
             });
         }
     }

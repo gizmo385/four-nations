@@ -122,6 +122,7 @@ impl World {
             last_harm: None,
             exposed_alerted: false,
             sick_until: None,
+            remedy_retry_at: 0,
         });
     }
 
