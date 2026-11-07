@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use fn_sim::Nation;
-use fn_tui::surface::Host;
+use fn_tui::surface::{Host, LogLine};
 
 fn fn_tui() -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_fn_tui"));
@@ -139,4 +139,99 @@ fn watch_frame_keys_plays_free_look_spectator_keys() {
     // The replay itself -- the turn and the agent strip's own action -- is unaffected: both say
     // the same turn, whichever view is on.
     assert!(follow_text.contains("turn 1") && free_text.contains("turn 1"));
+}
+
+/// A run log wrapping one act and a turn in a scripted run (`Script` before, `Wake` after, the
+/// shape `fn_agent`'s `run_script` actually writes, docs/design/agent-scripting.md's own
+/// "Determinism, replay and watching"), to a fresh temp file.
+fn write_scripted_log() -> std::path::PathBuf {
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    let mut h = Host::new(7, Nation::Earth, None, None, None, false).unwrap().with_turn_seconds(5);
+    h.press_keys(
+        "h <right*3> <enter> <down*2> <enter>",
+        Some("designate stockpile 3x3 at (62,40)".into()),
+        Some("store by camp".into()),
+    )
+    .unwrap();
+    h.end_turn(1);
+
+    let mut lines = vec![LogLine::Header(h.header())];
+    lines.push(LogLine::Script {
+        name: "keep-fed".into(),
+        version: 3,
+        code: String::new(),
+        turns: 45,
+        wake_on: Vec::new(),
+    });
+    lines.extend(h.log().lines());
+    lines.push(LogLine::Wake {
+        reason: "event".into(),
+        why: Some("death: Ping died of thirst".into()),
+        turn: h.observe().turn,
+        memory: serde_json::json!({}),
+    });
+    let text =
+        lines.iter().map(|l| serde_json::to_string(l).unwrap()).collect::<Vec<_>>().join("\n")
+            + "\n";
+
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir()
+        .join(format!("fn_tui_watch_scripted_binary_test_{}_{n}.jsonl", std::process::id()));
+    let mut f = std::fs::File::create(&path).unwrap();
+    f.write_all(text.as_bytes()).unwrap();
+    path
+}
+
+/// #482's acceptance criteria, end to end: the agent strip shows `SCRIPT name vN` while the
+/// script's own act is running, and `woke: <why>` after its `Wake` line, until the (nonexistent,
+/// here) next act.
+#[test]
+fn watch_frame_shows_the_running_script_then_what_it_woke_on() {
+    let path = write_scripted_log();
+
+    // `--at 1` stops right as the script's own turn finishes, before its `Wake` line: the strip
+    // names the running script, not yet why it stopped.
+    let running = fn_tui()
+        .args(["--watch", path.to_str().unwrap(), "--frame", "--at", "1", "--size", "110x30"])
+        .output()
+        .unwrap();
+    assert!(running.status.success(), "{}", String::from_utf8_lossy(&running.stderr));
+    let running_text = String::from_utf8(running.stdout).unwrap();
+    assert!(running_text.contains("SCRIPT keep-fed v3"), "{running_text}");
+    assert!(!running_text.contains("woke:"), "{running_text}");
+
+    // With no `--at`, the replay reaches the end of the log: the `Wake` line too.
+    let woke = fn_tui()
+        .args(["--watch", path.to_str().unwrap(), "--frame", "--size", "110x30"])
+        .output()
+        .unwrap();
+    std::fs::remove_file(&path).ok();
+    assert!(woke.status.success(), "{}", String::from_utf8_lossy(&woke.stderr));
+    let woke_text = String::from_utf8(woke.stdout).unwrap();
+    assert!(woke_text.contains("SCRIPT keep-fed v3"), "{woke_text}");
+    assert!(woke_text.contains("woke: death: Ping died of thirst"), "{woke_text}");
+}
+
+/// #482's acceptance criteria: the message log (`L`) gets an Agent entry for the script's own
+/// start and its wake, in the exact words the issue gives.
+#[test]
+fn watch_frame_message_log_has_an_entry_for_the_script_start_and_its_wake() {
+    let path = write_scripted_log();
+    let out = fn_tui()
+        .args([
+            "--watch",
+            path.to_str().unwrap(),
+            "--frame",
+            "--size",
+            "110x30",
+            "--keys",
+            "l", // opens the message log for the free-look spectator (#330), never the agent.
+        ])
+        .output()
+        .unwrap();
+    std::fs::remove_file(&path).ok();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("ran keep-fed v3, 45 turns"), "{text}");
+    assert!(text.contains("woke after 1 turn: death: Ping died of thirst"), "{text}");
 }

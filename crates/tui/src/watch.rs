@@ -221,6 +221,37 @@ pub struct Watcher {
     /// switches to Free the moment any spectator action does anything at all, since otherwise
     /// its effect would never show.
     follow: bool,
+    /// What a script run (#482) shows on the strip: `Running` between its `Script` line and
+    /// its `Wake` line, `Woke` from then until the next act (docs/design/agent-scripting.md,
+    /// "Determinism, replay and watching": "the strip says why until the next act"). `None`
+    /// outside any script run.
+    script_strip: Option<ScriptStrip>,
+    /// [`Self::turn`] when the current (or most recent) script run's `Script` line landed, so
+    /// its `Wake` line can report how many turns it actually ran.
+    script_turn_start: u32,
+}
+
+/// What the agent strip shows for a script run in progress or just woken, between the clock and
+/// the action (#482, docs/design/agent-scripting.md's own mockup: `SCRIPT keep-fed v3`).
+#[derive(Clone, Debug, PartialEq)]
+enum ScriptStrip {
+    /// Between the run's `Script` line and its `Wake` line: reads made in here draw no
+    /// attention ghosts (the acceptance criteria's own "MCP reads still do").
+    Running { name: String, version: u32 },
+    /// From the run's `Wake` line until the next act: the strip's action area shows `why`
+    /// instead of the latest act, until a `Keys` line clears this back to `None`.
+    Woke { name: String, version: u32, why: String },
+}
+
+impl ScriptStrip {
+    /// `"keep-fed v3"` for a saved script's own run, or just `"keep-fed"` for an ad hoc one
+    /// (`version` 0, never saved -- `run_script`'s own doc comment on `ScriptLimits`).
+    fn label(&self) -> String {
+        let (name, version) = match self {
+            Self::Running { name, version } | Self::Woke { name, version, .. } => (name, *version),
+        };
+        if version > 0 { format!("{name} v{version}") } else { name.clone() }
+    }
 }
 
 impl Watcher {
@@ -286,6 +317,8 @@ impl Watcher {
             last_action: None,
             spectator,
             follow: true,
+            script_strip: None,
+            script_turn_start: 0,
         })
     }
 
@@ -306,6 +339,18 @@ impl Watcher {
             Mode::Game(app) => app,
             _ => unreachable!("Watcher::new always builds a game"),
         }
+    }
+
+    /// Logs one more Agent line (docs/design/agent-play.md, "The message log (`L`) gains an
+    /// Agent entry for every act") to both [`Self::app`]'s own `Alerts` (what Follow draws, and
+    /// what a script's own `keys("l")` would open into) and [`Self::spectator`]'s separate one
+    /// (#330: its own `UiState`, so a human can only ever actually open the message log through
+    /// free-look -- Follow never forwards a real key to the game). Pushing to both never
+    /// touches `Session` or its command log, so it can't violate the hard constraint
+    /// `tests::spectating_never_changes_the_replay` proves.
+    fn push_agent(&mut self, tick: u64, text: String) {
+        self.app_mut().ui.alerts.push_agent(tick, text.clone());
+        self.spectator.alerts.push_agent(tick, text);
     }
 
     pub fn turn(&self) -> u32 {
@@ -526,22 +571,34 @@ impl Watcher {
                 if keys.is_empty() {
                     return self.start_next();
                 }
+                // The `Woke` text stays on the strip only until the next act (#482,
+                // docs/design/agent-scripting.md's own "the strip says why until the next
+                // act"); a script run still mid-flight (`Running`) isn't touched, since its
+                // own acts don't end it.
+                if matches!(self.script_strip, Some(ScriptStrip::Woke { .. })) {
+                    self.script_strip = None;
+                }
                 let action = CurrentAction { label, note, keys, pressed: 0 };
                 self.last_action = Some(describe_action_line(&action));
                 self.current = Some(Current::Keys(action));
             }
             LogLine::Look { x, y, w, h } => {
-                self.ghost = Some(Ghost { x, y, w, h, left: GHOST_SECONDS });
+                // A read a script made itself draws no attention ghost -- the strip already
+                // says `SCRIPT name vN` is why things are happening, so a ghost on every one of
+                // a script's own reads would just be noise (#482's acceptance criteria: "Reads
+                // made by a script draw no attention ghosts, while MCP reads still do").
+                if !matches!(self.script_strip, Some(ScriptStrip::Running { .. })) {
+                    self.ghost = Some(Ghost { x, y, w, h, left: GHOST_SECONDS });
+                }
                 let tick = self.app().session.world.tick;
-                self.app_mut()
-                    .ui
-                    .alerts
-                    .push_agent(tick, format!("Agent looked at ({x}, {y}) {w}x{h}"));
+                self.push_agent(tick, format!("Agent looked at ({x}, {y}) {w}x{h}"));
             }
             LogLine::Inspect { x, y } => {
-                self.ghost = Some(Ghost { x, y, w: 1, h: 1, left: GHOST_SECONDS });
+                if !matches!(self.script_strip, Some(ScriptStrip::Running { .. })) {
+                    self.ghost = Some(Ghost { x, y, w: 1, h: 1, left: GHOST_SECONDS });
+                }
                 let tick = self.app().session.world.tick;
-                self.app_mut().ui.alerts.push_agent(tick, format!("Agent inspected ({x}, {y})"));
+                self.push_agent(tick, format!("Agent inspected ({x}, {y})"));
             }
             LogLine::Turn { .. } => {
                 let ticks = self.turn_seconds * TICKS_PER_SECOND;
@@ -552,15 +609,43 @@ impl Watcher {
             // time either.
             LogLine::End { reason, .. } => {
                 let tick = self.app().session.world.tick;
-                self.app_mut().ui.alerts.push_agent(tick, format!("Run finished: {reason}"));
+                self.push_agent(tick, format!("Run finished: {reason}"));
                 self.finished = Some(reason);
             }
             LogLine::Header(_) => return self.start_next(), // shouldn't recur; harmless if it did
-            // #479's own commentary (`LogLine`'s own doc comment): takes no game time and has
-            // no display of its own yet (#482), so skip straight to whatever's next.
-            LogLine::Script { .. } | LogLine::Wake { .. } | LogLine::Note { .. } => {
-                return self.start_next();
+            // #482: a run's own start -- `turns == 0` is `save_script`'s own "never run" marker
+            // (`fn_agent::tools::Tools`'s own doc comment on its `"save_script"` dispatch arm),
+            // which no `Wake` line will ever follow, so it leaves no strip or message either.
+            LogLine::Script { name, version, turns, .. } => {
+                if turns > 0 {
+                    self.script_turn_start = self.turn;
+                    let strip = ScriptStrip::Running { name, version };
+                    let tick = self.app().session.world.tick;
+                    self.push_agent(tick, format!("Agent: ran {}, {turns} turns", strip.label()));
+                    self.script_strip = Some(strip);
+                }
             }
+            // #482: that run's own end -- `why` (an event's own kind and text, or a script's
+            // own `wake(msg)`) when there is one, `reason` ("budget", "done", ...) otherwise.
+            LogLine::Wake { reason, why, .. } => {
+                let turns_run = self.turn.saturating_sub(self.script_turn_start);
+                let detail = why.unwrap_or(reason);
+                let tick = self.app().session.world.tick;
+                self.push_agent(
+                    tick,
+                    format!(
+                        "Agent: woke after {turns_run} turn{}: {detail}",
+                        if turns_run == 1 { "" } else { "s" }
+                    ),
+                );
+                if let Some(ScriptStrip::Running { name, version }) = self.script_strip.take() {
+                    self.script_strip = Some(ScriptStrip::Woke { name, version, why: detail });
+                }
+            }
+            // `notes {append}`'s own commentary: no display of its own (out of this issue's
+            // scope -- "Showing script source in the watcher" is explicitly out, and a note is
+            // read the same way).
+            LogLine::Note { .. } => {}
         }
         true
     }
@@ -584,7 +669,7 @@ impl Watcher {
             };
             let script = keys.iter().map(|&k| crate::surface::key_token(k)).collect::<Vec<_>>();
             let tick = self.app().session.world.tick;
-            self.app_mut().ui.alerts.push_agent(tick, describe_act(&label, &note, &script));
+            self.push_agent(tick, describe_act(&label, &note, &script));
         }
     }
 
@@ -662,23 +747,37 @@ impl Watcher {
     /// behind" ([`Self::turns_behind`], #328), "waiting for agent (12 s)" shows once the watcher
     /// has caught up, and "run finished" once the log's own `End` line has been replayed (#327):
     /// a finished run never says "waiting" for a wait that will never end. `FOLLOW`/`FREE`
-    /// (#330) says which view is on, right after the nation.
+    /// (#330) says which view is on, right after the nation. While a script is running, or has
+    /// just woken, "SCRIPT keep-fed v3" lands right after the clock, and the action area reads
+    /// "woke: death: Ping died of thirst" instead of the latest act until the next one (#482,
+    /// docs/design/agent-scripting.md's own mockup).
     fn strip_text(&self) -> String {
         let clock = fn_ui::view::format_clock(self.app().session.world.tick);
         let behind = self.turns_behind();
-        let latest = self.last_action.clone().unwrap_or_default();
+        let script = match &self.script_strip {
+            Some(s) => format!("SCRIPT {}  ", s.label()),
+            None => String::new(),
+        };
+        let latest = match &self.script_strip {
+            Some(ScriptStrip::Woke { why, .. }) => format!("woke: {why}"),
+            _ => self.last_action.clone().unwrap_or_default(),
+        };
+        let woke = matches!(self.script_strip, Some(ScriptStrip::Woke { .. }));
         let action = if self.finished() {
             "run finished".to_owned()
         } else if behind > 0 {
             format!("{latest}  {behind} turn{} behind", if behind == 1 { "" } else { "s" })
-        } else if self.current.is_none() && self.caught_up() {
+        } else if !woke && self.current.is_none() && self.caught_up() {
+            // A freshly woken script still has something to say (`latest`'s own "woke: ...")
+            // even once the watcher has caught up with the log: it never says "waiting for
+            // agent" over that, since the agent just finished talking (#482).
             format!("waiting for agent ({} s)", self.waiting_secs.round() as u64)
         } else {
             latest
         };
         let view = if self.follow { "FOLLOW" } else { "FREE" };
         format!(
-            " AGENT {}  {view}  turn {}  {clock}  {action}  x{}",
+            " AGENT {}  {view}  turn {}  {clock}  {script}{action}  x{}",
             self.nation_label,
             self.turn,
             self.pace()
@@ -1219,6 +1318,133 @@ mod tests {
     }
 
     // ----------------------------------------------------------------------------------------
+    // Script and wake lines (#482)
+    // ----------------------------------------------------------------------------------------
+
+    fn wake(reason: &str, why: Option<&str>) -> LogLine {
+        LogLine::Wake {
+            reason: reason.to_owned(),
+            why: why.map(str::to_owned),
+            turn: 0,
+            memory: serde_json::json!({}),
+        }
+    }
+
+    fn script(name: &str, version: u32, turns: u32) -> LogLine {
+        LogLine::Script {
+            name: name.to_owned(),
+            version,
+            code: String::new(),
+            turns,
+            wake_on: Vec::new(),
+        }
+    }
+
+    /// A running script's `Script` line puts `SCRIPT name vN` on the strip (between the clock
+    /// and the action, docs/design/agent-scripting.md's own mockup) and logs an `Agent: ran
+    /// ..., N turns` line right away.
+    #[test]
+    fn a_script_line_shows_on_the_strip_and_logs_its_own_start() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.feed([script("keep-fed", 3, 45)]);
+        w.advance(1.0);
+        assert!(w.strip_text().contains("SCRIPT keep-fed v3"), "{}", w.strip_text());
+        let lines: Vec<&str> =
+            w.app().ui.alerts.history().iter().map(|e| e.text.as_str()).collect();
+        assert!(lines.iter().any(|l| l == &"Agent: ran keep-fed v3, 45 turns"), "{lines:?}");
+    }
+
+    /// An ad hoc `run_script {code}` call (`version` 0, never saved) shows its own tag with no
+    /// `vN` suffix, since there is no saved version to name.
+    #[test]
+    fn an_ad_hoc_script_has_no_version_suffix() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.feed([script("scout", 0, 10)]);
+        w.advance(1.0);
+        assert!(w.strip_text().contains("SCRIPT scout"), "{}", w.strip_text());
+        assert!(!w.strip_text().contains(" v0"), "{}", w.strip_text());
+    }
+
+    /// `save_script`'s own `Script` line (#480) carries `turns: 0`, since it was never run: no
+    /// strip and no "ran" message, as nothing here is actually running.
+    #[test]
+    fn a_save_only_script_line_shows_nothing() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.feed([script("keep-fed", 1, 0)]);
+        w.advance(1.0);
+        assert!(!w.strip_text().contains("SCRIPT"), "{}", w.strip_text());
+        let lines: Vec<&str> =
+            w.app().ui.alerts.history().iter().map(|e| e.text.as_str()).collect();
+        assert!(lines.is_empty(), "{lines:?}");
+    }
+
+    /// A `Wake` line counts the turns the script actually ran (not its requested budget), logs
+    /// `Agent: woke after N turns: <why>`, and keeps the script's own label on the strip while
+    /// swapping the action area for "woke: <why>" (docs/design/agent-scripting.md's own
+    /// mockup), until the next act clears both.
+    #[test]
+    fn a_wake_line_reports_turns_run_and_holds_the_strip_until_the_next_act() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.feed([
+            script("keep-fed", 3, 45),
+            LogLine::Turn { index: 0, tick: 100 },
+            LogLine::Turn { index: 1, tick: 200 },
+            wake("event", Some("death: Ping died of thirst")),
+        ]);
+        w.fast_forward_to_turn(u32::MAX);
+        assert!(w.caught_up());
+
+        let text = w.strip_text();
+        assert!(text.contains("SCRIPT keep-fed v3"), "{text}");
+        assert!(text.contains("woke: death: Ping died of thirst"), "{text}");
+        let lines: Vec<&str> =
+            w.app().ui.alerts.history().iter().map(|e| e.text.as_str()).collect();
+        assert!(
+            lines.iter().any(|l| l == &"Agent: woke after 2 turns: death: Ping died of thirst"),
+            "{lines:?}"
+        );
+
+        // The next act clears the woke text (and the script label) back off the strip -- not
+        // `strip_text` itself, since this act is alone in the log and so is immediately caught
+        // up again once it's pressed ("waiting for agent", the same as any other finished act
+        // with nothing queued after it).
+        w.feed([LogLine::Keys { keys: "h".to_owned(), label: Some("harvest".into()), note: None }]);
+        w.advance(1.0);
+        assert_eq!(w.script_strip, None, "the next act should have cleared the woke state");
+        assert!(w.last_action.as_deref().unwrap_or("").contains("harvest"));
+    }
+
+    /// With no `why` (a plain `"budget"`/`"done"` wake), the strip and the message fall back to
+    /// `reason` itself.
+    #[test]
+    fn a_wake_with_no_why_falls_back_to_the_reason() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.feed([script("keep-fed", 1, 5), wake("budget", None)]);
+        w.fast_forward_to_turn(u32::MAX);
+        assert!(w.strip_text().contains("woke: budget"), "{}", w.strip_text());
+    }
+
+    /// Reads a script makes itself (between its own `Script` and `Wake` lines) draw no
+    /// attention ghost, while an ordinary `Look`/`Inspect` (an MCP read, outside any script)
+    /// still does (#482's acceptance criteria).
+    #[test]
+    fn reads_inside_a_running_script_draw_no_ghost_but_mcp_reads_still_do() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.feed([script("keep-fed", 1, 5), LogLine::Look { x: 5, y: 5, w: 3, h: 3 }]);
+        w.advance(1.0);
+        assert_eq!(w.ghost, None, "a script's own read shouldn't draw a ghost");
+
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.feed([LogLine::Inspect { x: 9, y: 9 }]);
+        w.advance(1.0);
+        assert_eq!(
+            w.ghost,
+            Some(Ghost { x: 9, y: 9, w: 1, h: 1, left: GHOST_SECONDS }),
+            "an MCP read still draws one"
+        );
+    }
+
+    // ----------------------------------------------------------------------------------------
     // Free-look spectating (#330)
     // ----------------------------------------------------------------------------------------
 
@@ -1365,13 +1591,34 @@ mod tests {
         .map(|(code, mods)| KeyEvent::new(code, mods))
         .collect();
 
+        // Wraps the whole run as if a script made it (#482): the spectator must still never
+        // touch the replay with `Script`/`Wake` lines (and the strip they drive) in the mix,
+        // not only with the plain `Keys`/`Turn`/`Look`/`Inspect` lines above.
+        let scripted_lines = || {
+            let mut lines = vec![LogLine::Script {
+                name: "keep-fed".into(),
+                version: 3,
+                code: String::new(),
+                turns: 45,
+                wake_on: Vec::new(),
+            }];
+            lines.extend(h.log().lines());
+            lines.push(LogLine::Wake {
+                reason: "done".to_owned(),
+                why: None,
+                turn: 0,
+                memory: serde_json::json!({}),
+            });
+            lines
+        };
+
         let mut plain = Watcher::new(&h.header()).unwrap();
-        plain.feed(h.log().lines());
+        plain.feed(scripted_lines());
         plain.fast_forward_to_turn(u32::MAX);
         assert!(plain.caught_up());
 
         let mut spied = Watcher::new(&h.header()).unwrap();
-        spied.feed(h.log().lines());
+        spied.feed(scripted_lines());
         let mut guard = 0;
         while !spied.caught_up() {
             for &key in &spectator_keys {
