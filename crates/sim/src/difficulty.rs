@@ -247,7 +247,7 @@ mod tests {
         }
         let normal = defs.difficulty.preset("normal").unwrap();
         assert!(normal.seasons);
-        assert_eq!(normal.newcomer_food, 10);
+        assert_eq!(normal.newcomer_food, 15);
         assert!(!normal.starting_stores.is_empty());
         let hard = defs.difficulty.preset("hard").unwrap();
         assert!(hard.strain_kills);

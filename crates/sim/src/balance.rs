@@ -278,6 +278,10 @@ pub struct EconomyReport {
     /// covering every window `cfg.minutes` reaches (`docs/design/pacing.md`, "Stores and idle
     /// hands"; #434).
     pub idle_share: Vec<(f32, f32)>,
+    /// The minute of the first death, if anyone died before `cfg.minutes` ran out
+    /// (`docs/design/materials.md` section 4, owner question 2's `--no-farms` check).
+    pub first_death_minute: Option<f32>,
+    pub deaths: u32,
 }
 
 /// Runs one `(preset, nation, seed)` with `autoplay::Economy` driving it (module doc), the same
@@ -403,6 +407,8 @@ pub fn run_economy(cfg: &EconomyConfig, defs: &Defs) -> EconomyReport {
         longest_gap,
         gaps_over_15,
         idle_share,
+        first_death_minute: world.deaths.first().map(|d| ticks_to_minutes(d.tick)),
+        deaths: world.deaths.len() as u32,
     }
 }
 

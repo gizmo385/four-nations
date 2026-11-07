@@ -180,7 +180,10 @@ hint = "Bring scrolls to a study hall"
 [[stage]]
 id = "foundation"
 name = "Foundation"
-cost = [{ item = "stone", count = 80 }, { item = "wood", count = 40 }]
+# wood 40 -> 60 (docs/design/materials.md section 5, #353): the gate is wood's own sink, now
+# that chopping yields less and farms and orchards no longer leave a crafter idle for lack of
+# other work.
+cost = [{ item = "stone", count = 80 }, { item = "wood", count = 60 }]
 work = 600.0
 
 [[stage]]
@@ -222,8 +225,9 @@ work = 60.0
 [[stage]]
 id = "arch"
 name = "The Arch"
+# wood 60 -> 90 (docs/design/materials.md section 5, #353): see the foundation stage above.
 cost = [
-    { item = "wood", count = 60 },
+    { item = "wood", count = 90 },
     { item = "gold_ore", count = 20 },
     { item = "tool", count = 6 },
 ]

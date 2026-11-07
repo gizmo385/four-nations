@@ -682,9 +682,9 @@ mod tests {
 
         // Only allowed on a harvest with `regrow`.
         let no_regrow = JOBS.replacen(
-            "resource = \"oak_tree\"\nverb = \"Chop\"\nitem = \"wood\"\ncount = 4\nwork = 8.0\n\
+            "resource = \"oak_tree\"\nverb = \"Chop\"\nitem = \"wood\"\ncount = 3\nwork = 8.0\n\
              risk = 0.01\n",
-            "resource = \"oak_tree\"\nverb = \"Chop\"\nitem = \"wood\"\ncount = 4\nwork = 8.0\n\
+            "resource = \"oak_tree\"\nverb = \"Chop\"\nitem = \"wood\"\ncount = 3\nwork = 8.0\n\
              risk = 0.01\n\n[harvest.clear]\nwork = 1.0\n",
             1,
         );

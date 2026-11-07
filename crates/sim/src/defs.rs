@@ -785,7 +785,7 @@ mod tests {
         assert!(bad("resource = \"cabbage\"", "resource = \"nope\"").contains("nope"));
         assert!(bad("id = \"fruit\"", "id = \"fish\"").contains("duplicate"));
         assert!(bad("drink_thirst = 50.0", "drnk = 50.0").contains("drnk"));
-        assert!(bad("arrival_minutes = 15.0", "arrival_minutes = 0.0").contains("arrival_minutes"));
+        assert!(bad("arrival_minutes = 10.0", "arrival_minutes = 0.0").contains("arrival_minutes"));
         assert!(
             bad("food_per_newcomer = 30", "food_per_newcomer = 0").contains("food_per_newcomer")
         );
@@ -823,7 +823,7 @@ mod tests {
         assert!(bad("resource = \"oak_tree\"", "resource = \"oak\"").contains("oak"));
         assert!(bad("item = \"wood\"", "item = \"plank\"").contains("plank"));
         assert!(bad("modifier = \"earthworks\"", "modifier = \"earthwork\"").contains("earthwork"));
-        assert!(bad("count = 4", "count = 0").contains("count"));
+        assert!(bad("count = 3", "count = 0").contains("count"));
         assert!(bad("id = \"wood\"", "id = \"fish\"").contains("duplicate"));
         assert!(bad("sleep_until = 90.0", "sleep_until = 20.0").contains("sleep_until"));
         assert!(bad("base_carry = 5", "base_carry = 0").contains("base_carry"));

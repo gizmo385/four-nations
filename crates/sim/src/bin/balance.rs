@@ -475,6 +475,8 @@ fn print_sign_minutes(nation: Nation, seed: u64, report: &EconomyReport) {
         .collect::<Vec<_>>()
         .join(" ");
     println!("{:<6} {seed:>4} signs: {signs}", nation.as_str());
+    let first_death = report.first_death_minute.map_or("none".to_owned(), |m| format!("{m:.1}"));
+    println!("{:<6} {seed:>4} deaths: {} (first @ {first_death})", nation.as_str(), report.deaths);
     let built = report
         .first_built
         .iter()

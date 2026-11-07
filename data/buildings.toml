@@ -214,10 +214,10 @@ count = 2
 # not a design target.
 
 # The orchard's balance (#142): 8 wood and 45 s of building is about twice a bed's cost, paid back
-# by the first fruit it yields. A full orchard (6 trees) bears 2 fruit per tree every 240 s (360 s
-# regrow at 1.5x), about 3 fruit a minute against 0.33 from a wild tree, enough raw food for a
-# couple of dozen settlers: Air's starting tech, paying for its weak labour. Planting is slow on
-# purpose (one sapling every 90 s), so the grove fills in over nine minutes. See
+# by the first fruit it yields. A full orchard (4 trees, docs/design/materials.md section 4,
+# #353) bears 2 fruit per tree every 288 s (360 s regrow at 1.25x), about 25 fruit a season
+# instead of 45: still Air's easy food (pillar 1), just not a bottomless one. Planting is slow on
+# purpose (one sapling every 90 s), so the grove fills in over six minutes. See
 # docs/design/research.md, "The orchard".
 [[building]]
 id = "orchard"
@@ -229,10 +229,10 @@ footprint = [2, 2]
 [building.orchard]
 plants = "fruit_tree"
 radius = 4
-max_trees = 6
+max_trees = 4
 plant_seconds = 90.0
 grow_seconds = 480.0
-tend_boost = 1.5
+tend_boost = 1.25
 spacing = 2
 auto_pick = true
 [[building.cost]]
@@ -477,10 +477,11 @@ seek_tiles = 20
 # Unlocked by `farming` (data/research.toml, shared tier): tilled soil any nation can sow.
 # Empty until a Sow job plants it, then cabbage grows for `grow_seconds` (scaled by
 # `crop_growth`, the hook irrigation and terraces will multiply, docs/design/research.md, "Farm
-# plots") before a Reap job gathers it and it's empty again. One plot nets 3 cabbage every
-# 6 + 240 + 6 = 252 s (about six times a wild tree's 1 cabbage per 480 s), for two short stints
-# of a farmer's time rather than a wild forage's one. Cost and work are a bed's (5 wood, 20 s)
-# halved, since it's only a marked plot of ground, pending a balance pass.
+# plots") before a Reap job gathers it and it's empty again. One plot nets 2 cabbage every
+# 6 + 300 + 6 = 312 s, about 6 a season instead of 11 (docs/design/materials.md section 4, #353):
+# a settler eats about 2 a season, so one plot still feeds 3-4 people in summer, but no longer
+# bypasses the wild-food tuning (#301) as badly as 11 did. Cost and work are a bed's (5 wood,
+# 20 s) halved, since it's only a marked plot of ground, pending a balance pass.
 [[building]]
 id = "farm_plot"
 name = "Farm Plot"
@@ -489,9 +490,9 @@ work = 10.0
 passable = true
 [building.farm]
 crop = "cabbage"
-harvest_count = 3
+harvest_count = 2
 sow_seconds = 6.0
-grow_seconds = 240.0
+grow_seconds = 300.0
 reap_seconds = 6.0
 crop_growth = 1.0
 [[building.cost]]

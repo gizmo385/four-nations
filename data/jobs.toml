@@ -157,11 +157,13 @@ name = "Herbs"
 # - risk:  optional, in [0, 1), default 0. Exactly `risk` above (the existing `harm.injury`
 #          stream), but with no modifier to scale it.
 
+# count lowered 4 -> 3 by #353 (docs/design/materials.md section 5): wood piled into the
+# thousands with nothing to spend it on; a smaller yield keeps wood easy without it being free.
 [[harvest]]
 resource = "oak_tree"
 verb = "Chop"
 item = "wood"
-count = 4
+count = 3
 work = 8.0
 risk = 0.01
 
@@ -169,7 +171,7 @@ risk = 0.01
 resource = "fir_tree"
 verb = "Chop"
 item = "wood"
-count = 4
+count = 3
 work = 8.0
 risk = 0.01
 

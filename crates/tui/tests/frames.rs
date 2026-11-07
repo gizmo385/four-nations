@@ -1436,6 +1436,15 @@ fn a_farm_plot_shows_its_growing_and_ripe_glyphs() {
     }
     assert_eq!(app.session.world.plot_stage(plot), Some(fn_sim::world::PlotStage::Growing));
     assert!(empty(&app), "no unit should be standing on the plot between jobs");
+    // Move every settler well clear of the plot before it ripens: with nothing else designated
+    // in this scene, an idle unit's own wandering can otherwise cross the plot's tile at the
+    // exact moment it ripens (pure chance, no job claimed), leaving no tick where it reads
+    // Ripe and empty. Parking everyone far away keeps the Ripe reading (and the glyph it draws)
+    // deterministic without racing a settler's foraging.
+    let far = Pos::new(1, app.session.world.map.height() - 2);
+    for unit in &mut app.session.world.units {
+        unit.pos = far;
+    }
     for ascii in [false, true] {
         let p = palette(&app.session, ColorDepth::TrueColor, ascii);
         let buf = frame(&mut app, ColorDepth::TrueColor, ascii, SIZE);

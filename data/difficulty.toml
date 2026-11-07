@@ -67,7 +67,10 @@ harm_kills = false
 need_decay = 1.0
 regrow = 1.0
 research_cost = 1.0
-newcomer_food = 10
+# 15 instead of 10 (docs/design/materials.md section 4, #353): the climb to 16 people now
+# spends about 150 food, so a growing settlement is a real draw on the leaner farms above, not
+# a formality.
+newcomer_food = 15
 starting_stores = [
     { item = "fruit", count = 15 },
     { item = "wood", count = 10 },

@@ -69,15 +69,15 @@ fn chop_a_tree_and_haul_the_wood_to_the_stockpile() {
     let job = w.designate_harvest(at(7, 2), &defs).unwrap();
     w.tick(&defs);
     assert_eq!(w.job(job).unwrap().claimed_by, Some(UnitId(0)));
-    run_until(&mut w, &defs, 3000, |w| w.stored_total(wood) == 4);
+    run_until(&mut w, &defs, 3000, |w| w.stored_total(wood) == 3);
     assert!(w.map[at(7, 2)].resource.is_none(), "the tree is gone");
     assert!(w.jobs().is_empty());
     assert_eq!(w.ground_items().count(), 0);
     // The harvest tally (#233) counts the tree's whole yield, and nothing else.
-    assert_eq!(w.tallies().harvested(wood), 4);
+    assert_eq!(w.tallies().harvested(wood), 3);
     assert_eq!(w.tallies().harvested_items().count(), 1);
     let stacks: Vec<_> = [at(1, 2), at(1, 3)].iter().filter_map(|&p| w.stored_at(p)).collect();
-    assert_eq!(stacks, [Stack { item: wood, count: 4 }]);
+    assert_eq!(stacks, [Stack { item: wood, count: 3 }]);
     assert_eq!(w.units[0].carrying, None);
     assert_eq!(w.units[0].task(), None);
 }
@@ -95,9 +95,9 @@ fn wood_waits_on_the_ground_until_a_stockpile_exists() {
     assert_eq!(w.jobs().len(), 1);
     assert_eq!(w.jobs()[0].claimed_by, None);
     let on_ground: Vec<_> = w.ground_items().collect();
-    assert_eq!(on_ground, [(at(7, 2), Stack { item: wood, count: 4 })]);
+    assert_eq!(on_ground, [(at(7, 2), Stack { item: wood, count: 3 })]);
     w.designate_stockpile(at(2, 2)).unwrap();
-    run_until(&mut w, &defs, 3000, |w| w.stored_total(wood) == 4);
+    run_until(&mut w, &defs, 3000, |w| w.stored_total(wood) == 3);
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn cancelling_a_stockpile_drops_what_it_held_on_the_ground_there() {
     let wood = defs.item_id("wood").unwrap();
     w.designate_stockpile(at(1, 2)).unwrap();
     w.designate_harvest(at(7, 2), &defs).unwrap();
-    run_until(&mut w, &defs, 3000, |w| w.stored_total(wood) == 4);
+    run_until(&mut w, &defs, 3000, |w| w.stored_total(wood) == 3);
     assert_eq!(w.cancel_stockpile(at(5, 5)), Err(DesignateError::NotDesignated));
 
     assert_eq!(w.cancel_stockpile(at(1, 2)), Ok(()));
@@ -114,14 +114,14 @@ fn cancelling_a_stockpile_drops_what_it_held_on_the_ground_there() {
     assert_eq!(w.stored_total(wood), 0);
     // Nothing is lost: the stack lies on the tile it was stored on, with a haul queued.
     let on_ground: Vec<_> = w.ground_items().collect();
-    assert_eq!(on_ground, [(at(1, 2), Stack { item: wood, count: 4 })]);
+    assert_eq!(on_ground, [(at(1, 2), Stack { item: wood, count: 3 })]);
     assert!(w.jobs().iter().any(|j| j.kind == JobKind::Haul { pos: at(1, 2) }));
     assert_eq!(w.cancel_stockpile(at(1, 2)), Err(DesignateError::NotDesignated));
 
     // With another zone, normal hauling stores it there.
     w.designate_stockpile(at(2, 3)).unwrap();
     run_until(&mut w, &defs, 3000, |w| w.stored_at(at(2, 3)).is_some());
-    assert_eq!(w.stored_at(at(2, 3)), Some(Stack { item: wood, count: 4 }));
+    assert_eq!(w.stored_at(at(2, 3)), Some(Stack { item: wood, count: 3 }));
     assert_eq!(w.ground_items().count(), 0);
 }
 
@@ -310,7 +310,7 @@ fn a_low_need_pauses_the_job_and_it_resumes_where_it_left_off() {
     assert!(resumed >= before && resumed < before + 1.0, "no work done while drinking");
     run_until(&mut w, &defs, 2000, |w| w.job(job).is_none());
     assert!(w.map[at(4, 2)].resource.is_none());
-    assert_eq!(w.ground_items().next().map(|(_, s)| s.count), Some(4));
+    assert_eq!(w.ground_items().next().map(|(_, s)| s.count), Some(3));
 }
 
 /// #226: a unit inside a building isn't drawn out gradually like a walk; the tick a need turns
@@ -1110,8 +1110,8 @@ fn clearing_an_oak_yields_exactly_its_chop() {
     let job = w.designate_clear(pos, &defs).unwrap();
     run_until(&mut w, &defs, 2000, |w| w.job(job).is_none());
     assert!(w.map[pos].resource.is_none());
-    assert_eq!(ground_total(&w, wood), 4);
-    assert_eq!(w.tallies().harvested(wood), 4);
+    assert_eq!(ground_total(&w, wood), 3);
+    assert_eq!(w.tallies().harvested(wood), 3);
     assert_eq!(w.tallies().harvested_items().count(), 1, "nothing else was dropped");
 }
 

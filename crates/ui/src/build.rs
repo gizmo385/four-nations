@@ -685,7 +685,7 @@ mod tests {
         let orchard = air.defs.building_id("orchard").unwrap();
         let orchard_detail = building_detail(&air, orchard);
         assert!(
-            orchard_detail.effects.iter().any(|e| e == "Tends up to 6 fruit trees nearby"),
+            orchard_detail.effects.iter().any(|e| e == "Tends up to 4 fruit trees nearby"),
             "{:?}",
             orchard_detail
         );

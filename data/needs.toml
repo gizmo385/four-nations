@@ -45,9 +45,11 @@ regen_per_minute = 2.0
 
 # Population growth (#232, docs/design/endgame.md "Population growth"): every arrival_minutes,
 # if a bed nobody owns is free and food_per_newcomer food items are in stores, one newcomer
-# walks in from the nearest map edge.
+# walks in from the nearest map edge. 10 instead of 15 (docs/design/materials.md section 4,
+# #353): 6 -> 16 people in about 7 seasons instead of 10, so growth draws down the leaner food
+# supply above instead of outrunning it over 2.5 years with nothing to spend it on.
 [growth]
-arrival_minutes = 15.0
+arrival_minutes = 10.0
 food_per_newcomer = 30
 # Once the Harmony Gate is complete, each newcomer's nation is drawn weighted: own_weight for
 # the settlement's own nation, other_weight for each of the other three (docs/design/endgame.md,

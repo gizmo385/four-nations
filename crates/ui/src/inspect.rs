@@ -75,7 +75,7 @@ fn is_scroll_harvest(defs: &Defs, h: &fn_sim::jobs::HarvestDef) -> bool {
     defs.item_id("ancient_scroll") == Some(h.item)
 }
 
-/// "Lying here: 4 Wood (unreachable: every stockpile is full)" for an item stack waiting on the
+/// "Lying here: 3 Wood (unreachable: every stockpile is full)" for an item stack waiting on the
 /// ground for a hauler (#337: a filled stockpile left a 2026-11-05 playtest's chopped wood on
 /// the ground with nothing to say why). The reason is only ever a full stockpile: `place_ground`
 /// never drops a stack somewhere no one could reach in the first place. `None` with nothing
@@ -950,7 +950,7 @@ mod tests {
                 _ => None,
             })
             .unwrap_or_else(|| panic!("a ground-stack line in {lines:?}"));
-        assert!(line.starts_with("Lying here: 4 Wood"), "{line}");
+        assert!(line.starts_with("Lying here: 3 Wood"), "{line}");
         assert!(line.ends_with("(unreachable: every stockpile is full)"), "{line}");
     }
 
