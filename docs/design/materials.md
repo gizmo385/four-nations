@@ -1,7 +1,9 @@
 # Materials balance: stone, ore, food and wood against the Harmony Gate
 
-Status: **proposed** (#339, which folds in #272). The owner decisions are listed at the end under
-"Open questions for the owner", and the follow-up issues are listed under "Follow-up issues".
+Status: **accepted** (#339, which folds in #272). The owner answered all four questions on
+2026-11-05; the answers are recorded at the end under "Owner decisions". The follow-up issues are
+listed under "Follow-up issues", and #355 measured the result on 2026-11-07 ("What the harness
+measured", after section 7).
 
 Two agent playtests on 2026-11-05 (seed 7 Earth and seed 42 Fire, Normal, about two in-game
 years each) both stalled at 3 of 9 Harmony Gate signs. The owner's own play matches. Stone and
@@ -339,6 +341,51 @@ the project's hour and the total is about 3 to 3.5 hours: just under endgame.md'
 and closer to it once masters (#344) and scrolls are counted. The final follow-up re-runs both
 agent playtests and records what they found in endgame.md.
 
+### What the harness measured (#355, 2026-11-07)
+
+`cargo run --release -p fn_sim --bin balance -- --economy --seeds 1-8 --minutes 180 --nations N
+--preset normal`, plus the same with `--no-farms`, on `main` at 3127de9 (every follow-up above
+merged). Counts are out of 8 seeds. "Ready" here is the latest sign's first-met minute: a lower
+bound, since a stores sign can dip again before the rest are met.
+
+| | Target | Earth | Fire | Water | Air |
+|---|---|---|---|---|---|
+| Stone sign by minute 120 | 7 of 8 | **8** | 6 | 6 | **7** |
+| Ore sign by minute 120 | 7 of 8 | 6 | 6 | 5 | 6 |
+| Food per head entering winter 2 (minute 105), in 3-8 | 3 to 8 | 3 (median 3.5) | 4 (3.3) | 5 (5.0) | 2 (**11.0**) |
+| Wood at minute 120 under 300 | under 300 | 4 (median 253) | 6 (100) | 6 (130) | 6 (92) |
+| Population at minute 120, 14 or more | 14+ | 7 (median 16) | 6 (17) | 6 (18) | **8** (18) |
+| Deaths by minute 180, with farms | 0 | 0 | 0 | 4 (seed 3) | 0 |
+| Deaths by minute 120, `--no-farms` | at least one | 0 | 0 | 0 | 0 |
+| Every sign met by minute 180 (Ready) | | 1 (145) | 1 (129) | 1 (159) | 4 (108-123) |
+
+Where the misses come from, and where each is tracked:
+
+- **Ore on seeds 2 and 6, every nation** (and Water on seed 7, #397). Seed 2 has no stone
+  outcrop or gold vein within 40 tiles of the default site, and seed 6 has 9 ore in veins.
+  #396 closed, but the sign is still missed there. #440's caravans are the planned answer
+  (its targets ask for ore by minute 150 on seeds 2 and 6).
+- **Stone on seeds 3 and 4, Fire and Water** (Air too on seed 4): stores stop at 40 stone and
+  wood falls to 0 from about minute 45, with plenty of trees and boulders in reach. Likely the
+  stranding in #490; checked by #512.
+- **Wood over 300** on seeds 2, 4 and 6: the stone- and ore-poor sites, where idle hands have
+  nothing else to do (the same finding as #353's). #489 decides how the harness treats hard
+  sites.
+- **Air's food per head** runs 4 to 20 entering winter 2, more than twice the band's top on most
+  seeds: #514.
+- **Water on seed 3** loses 4 settlers with farms (#487, now #490). The `--no-farms` check never
+  loses anyone, so the "close calls" half of owner decision 2 isn't met yet (#486).
+- **The food sign** is met by minute 180 on only 2 (Earth), 1 (Fire), 3 (Water) and 6 (Air)
+  of 8 seeds, because the economy opening builds a bed ahead of every arrival with no ceiling and
+  growth spends each surplus on a newcomer. That's a harness gap before it's a balance one: #513.
+- **Masters** is unmet by minute 180 on 9 of 32 runs, and scrolls on 5 (#340, #344, #443).
+  Across all 32 runs the unmet signs at minute 180 are food 19, ore 9, masters 9, then stone,
+  population, building kinds and scrolls 5 each, and branch 1.
+
+Stone, population, wood and food for the three non-Air nations now sit at or near their targets
+on every seed that isn't one of the known hard sites. Section 1's correctness problem is fixed:
+every nation mines 40 ore wherever 40 ore is in reach, except Water on seed 7 (#397).
+
 ## Fit with other work
 
 - **#340, #343, #344 (bending mastery):** these are separate, and this doc doesn't touch chi or the
@@ -372,7 +419,21 @@ Filed without `ready`. Issues that wait on an owner answer are labelled `needs-o
 | #355 | Balance check: re-run the playtests and update the endgame pacing (closes out #339 and #272) | #349, #350, #353, #354 | |
 | #356 | Fire: give bricks and metal a use. Designed with #357 in [nation-buildings.md](nation-buildings.md) | none | |
 
-## Open questions for the owner
+## Owner decisions
+
+The owner answered all four questions on 2026-11-05 (#339's comments). The recommendations as
+written are kept below each answer.
+
+1. **Kiln control: a stock limit plus a designed use for bricks, metal and tools** (#350, and
+   #356 at p1). The pause key (#351) is parked.
+2. **Normal gives close calls (b):** a colony that grows without farming loses someone by year 2,
+   and one that farms never does. Real risk belongs to Hard. (#353; the `--no-farms` half isn't
+   met yet, #486.)
+3. **The building-kinds sign is computed per nation, with one spare kind** (#354). A designer
+   task was filed to add buildings so the nations' counts are closer together (#357).
+4. **Raise supply and keep the shared 200 stone and 40 ore targets** (#349).
+
+### The questions as asked
 
 1. **Brick Kiln control: a stock limit, a pause key, or both?** A stock limit in data
    (section 3) fixes the drain with no player action, while a pause key gives direct control and
