@@ -12,6 +12,10 @@
 #   --seed N           map seed (default 7)
 #   --nation X         earth, fire, water or air (default earth)
 #   --difficulty ID    a data/difficulty.toml preset (default normal)
+#   --scenario ID      a data/scenarios.toml preset (#481) instead of --seed/--nation/
+#                      --difficulty, run through its own prelude first -- for testing the
+#                      midgame or late game without paying an agent to play the opening first.
+#                      Can't be combined with --seed, --nation or --difficulty.
 #   --turns N          how many turns the prompt asks for (default 40)
 #   --turn-secs S      game seconds per end_turn (default: fn_agent's own, 20)
 #   --pace N           watch pace to start at: 1, 2, 5, 10, 20 or 40 (default 20: a turn's ticks
@@ -50,14 +54,23 @@
 #                      prompt (restored with save_script and notes) -- the "own notes and
 #                      scripts, carried between runs" #476 settled on, for playing a fresh game
 #                      (a new seed, say) with what the last one learned.
+#   --max-usd N        caps the run's own spend at N dollars (only with --chunk-turns or
+#                      --scripts; #485). Enforced, not just watched: every `claude -p` call gets
+#                      `--max-budget-usd` for whatever's left of the cap, and cost.json's own
+#                      running total (now written by --chunk-turns too, not just --scripts) is
+#                      checked before each chunk starts, so a run stops rather than overshoot.
+#                      One chunk can still land a little over if the model spends past its own
+#                      mid-session budget check; the run stops at the next chunk boundary either
+#                      way.
 #
 # Each run gets its own folder under $FN_AGENT_RUNS (default ~/fn-agent-runs), outside the repo,
 # so the agent can't read docs/ or data/. The agent gets only fn_agent's tools: that's the "in-game
 # knowledge only" rule (#313), and it's enforced by these claude flags, not by the game. In the
 # default mode, quitting the watcher stops the agent too. The agent's own output goes to
-# agent.log in the run folder. A --scripts run also gets cost.json (round trips and tokens
-# summed from every chunk's own `claude -p --output-format json`, with a USD total) and
-# sdk-gaps.md (the notes' own "SDK gap" lines, for the owner to file).
+# agent.log in the run folder. A --chunk-turns or --scripts run also gets cost.json (round
+# trips and tokens summed from every chunk's own `claude -p --output-format json`, with a USD
+# total; #485); a --scripts run also gets sdk-gaps.md (the notes' own "SDK gap" lines, for the
+# owner to file).
 #
 # Every `claude` call this script makes is tagged with OTEL_RESOURCE_ATTRIBUTES
 # (four_nations.run/.seed/.nation/.difficulty/.mode, plus .chunk on chunked runs; #494), kept
@@ -89,12 +102,14 @@ if [[ "${1:-}" == "watch" ]]; then
 fi
 
 seed=7 nation=earth difficulty=normal turns=40 turn_secs="" pace=20 model="" prompt="" interactive=0
-chunk_turns=0 prompt_given=0 scripts=0 chunk_calls=30 carry_dir=""
+chunk_turns=0 prompt_given=0 scripts=0 chunk_calls=30 carry_dir="" max_usd="" scenario=""
+seed_given=0 nation_given=0 difficulty_given=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --seed) seed="$2"; shift 2 ;;
-    --nation) nation="$2"; shift 2 ;;
-    --difficulty) difficulty="$2"; shift 2 ;;
+    --seed) seed="$2"; seed_given=1; shift 2 ;;
+    --nation) nation="$2"; nation_given=1; shift 2 ;;
+    --difficulty) difficulty="$2"; difficulty_given=1; shift 2 ;;
+    --scenario) scenario="$2"; shift 2 ;;
     --turns) turns="$2"; shift 2 ;;
     --turn-secs) turn_secs="$2"; shift 2 ;;
     --pace) pace="$2"; shift 2 ;;
@@ -105,11 +120,16 @@ while [[ $# -gt 0 ]]; do
     --scripts) scripts=1; shift ;;
     --chunk-calls) chunk_calls="$2"; shift 2 ;;
     --carry) carry_dir="$2"; shift 2 ;;
+    --max-usd) max_usd="$2"; shift 2 ;;
     -h | --help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
     *) say "unknown option $1 (see --help)"; exit 2 ;;
   esac
 done
 command -v claude > /dev/null || { say "claude (Claude Code) isn't on PATH"; exit 1; }
+if [[ -n "$scenario" && ( "$seed_given" == 1 || "$nation_given" == 1 || "$difficulty_given" == 1 ) ]]; then
+  say "--scenario can't be combined with --seed, --nation or --difficulty"
+  exit 2
+fi
 if [[ "$chunk_turns" != 0 && "$interactive" == 1 ]]; then
   say "--interactive and --chunk-turns can't be combined"
   exit 2
@@ -126,11 +146,22 @@ if [[ -n "$carry_dir" && "$scripts" != 1 ]]; then
   say "--carry only applies with --scripts"
   exit 2
 fi
+if [[ -n "$max_usd" ]]; then
+  [[ "$max_usd" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { say "--max-usd wants a plain number, got '$max_usd'"; exit 2; }
+  if [[ "$scripts" != 1 && "$chunk_turns" == 0 ]]; then
+    say "--max-usd only applies with --chunk-turns or --scripts"
+    exit 2
+  fi
+fi
 
 say "building fn_agent and fn_tui (release)"
 cargo build -q --release -p fn_agent -p fn_tui --manifest-path "$repo/Cargo.toml"
 
-dir="$runs/$(date +%Y%m%d-%H%M%S)-$nation-$seed-$difficulty"
+if [[ -n "$scenario" ]]; then
+  dir="$runs/$(date +%Y%m%d-%H%M%S)-scenario-$scenario"
+else
+  dir="$runs/$(date +%Y%m%d-%H%M%S)-$nation-$seed-$difficulty"
+fi
 mkdir -p "$dir"
 
 write_mcp_config() {
@@ -142,7 +173,11 @@ open(path, "w").write(json.dumps(config, indent=2) + "\n")
 EOF
 }
 
-serve_args=(serve --seed "$seed" --nation "$nation" --difficulty "$difficulty" --log "$dir/run.jsonl")
+if [[ -n "$scenario" ]]; then
+  serve_args=(serve --scenario "$scenario" --log "$dir/run.jsonl")
+else
+  serve_args=(serve --seed "$seed" --nation "$nation" --difficulty "$difficulty" --log "$dir/run.jsonl")
+fi
 [[ -n "$turn_secs" ]] && serve_args+=(--turn "$turn_secs")
 [[ "$scripts" == 1 ]] && serve_args+=(--scripts)
 write_mcp_config "${serve_args[@]}"
@@ -221,9 +256,13 @@ otel_encode() {
 otel_attrs() {
   local mode="$1" chunk="${2:-}" attrs
   attrs="four_nations.run=$(otel_encode "$(basename "$dir")")"
-  attrs+=",four_nations.seed=$(otel_encode "$seed")"
-  attrs+=",four_nations.nation=$(otel_encode "$nation")"
-  attrs+=",four_nations.difficulty=$(otel_encode "$difficulty")"
+  if [[ -n "$scenario" ]]; then
+    attrs+=",four_nations.scenario=$(otel_encode "$scenario")"
+  else
+    attrs+=",four_nations.seed=$(otel_encode "$seed")"
+    attrs+=",four_nations.nation=$(otel_encode "$nation")"
+    attrs+=",four_nations.difficulty=$(otel_encode "$difficulty")"
+  fi
   attrs+=",four_nations.mode=$(otel_encode "$mode")"
   [[ -n "$chunk" ]] && attrs+=",four_nations.chunk=$chunk"
   if [[ -n "${OTEL_RESOURCE_ATTRIBUTES:-}" ]]; then
@@ -410,6 +449,51 @@ with open(cost_path, "w") as f:
 PY
 }
 
+# Extracts a `claude -p --output-format json` call's own `result` text (its final report),
+# read from the file `update_cost` also reads, so a chunked loop needs only one place to parse
+# that JSON. Empty (not an error) with no result yet, or if `claude` never wrote valid JSON.
+chunk_result() {
+  python3 -c '
+import json, sys
+try:
+    print(json.load(open(sys.argv[1])).get("result", ""))
+except (FileNotFoundError, json.JSONDecodeError):
+    pass
+' "$1"
+}
+
+# The USD `dir/cost.json` has recorded so far (0 with no file yet, before the run's first
+# chunk has finished): `--max-usd`'s own running total, read fresh each time rather than kept
+# in a shell variable, since `update_cost` is what actually advances it.
+cost_so_far() {
+  python3 -c '
+import json, sys
+try:
+    print(json.load(open(sys.argv[1])).get("usd", 0.0))
+except (FileNotFoundError, json.JSONDecodeError):
+    print(0.0)
+' "$1/cost.json"
+}
+
+# `--max-usd N`'s own remaining budget for the next `claude -p` call: N minus `cost_so_far`,
+# floored at 0. Only meaningful (and only called) once `--max-usd` is actually set.
+budget_remaining() {
+  local spent
+  spent="$(cost_so_far "$1")"
+  python3 -c "print(max(0.0, float('$max_usd') - float('$spent')))"
+}
+
+# True (exit 0) once `dir/cost.json`'s own running total has already reached `--max-usd`'s cap,
+# so a chunked loop can stop before starting another chunk rather than only noticing afterwards
+# (#485: "enforced, not watched"). One chunk can still land a little over the cap if the model
+# spends past its own `--max-budget-usd` mid-session; this is what stops the *next* one.
+budget_exhausted() {
+  local spent
+  [[ -n "$max_usd" ]] || return 1
+  spent="$(cost_so_far "$1")"
+  python3 -c "import sys; sys.exit(0 if float('$spent') >= float('$max_usd') else 1)"
+}
+
 # `dir/sdk-gaps.md` (#484): every lab note whose text mentions an "SDK gap" (the convention
 # `default_script_prompt` asks for), pulled from the finished run's own log, for the owner to
 # turn into issues.
@@ -444,7 +528,7 @@ PY
 # turns each, every one but the first resuming `run.jsonl` (`fn_agent serve --resume`, #341)
 # instead of starting a fresh game, so no single session's context grows past one chunk's worth.
 run_chunked() {
-  local target="$turns" size="$chunk_turns" n=1 report="" done_turns remaining this_chunk
+  local target="$turns" size="$chunk_turns" n=1 report="" done_turns turns_left this_chunk
   # Generous: the exact chunk count, plus headroom for a chunk that undershoots (an agent error,
   # say) and needs another attempt, so a stuck run still gives up instead of looping forever.
   local max_chunks=$(( (target + size - 1) / size + 5 ))
@@ -459,8 +543,12 @@ run_chunked() {
       say "giving up after $max_chunks chunks (only reached turn $done_turns of $target); see $dir/agent.log"
       break
     fi
-    remaining=$(( target - done_turns ))
-    this_chunk=$(( remaining < size ? remaining : size ))
+    if budget_exhausted "$dir"; then
+      say "stopping: hit the \$$max_usd cap (\$$(cost_so_far "$dir") spent so far, turn $done_turns of $target)"
+      break
+    fi
+    turns_left=$(( target - done_turns ))
+    this_chunk=$(( turns_left < size ? turns_left : size ))
 
     if (( n == 1 )); then
       write_mcp_config "${serve_args[@]}"
@@ -477,11 +565,18 @@ run_chunked() {
       this_prompt="$(handoff_prompt "$this_chunk" "$done_turns" "$report")"
     fi
 
+    local call_args=("${claude_args[@]}")
+    [[ -n "$max_usd" ]] && call_args+=(--max-budget-usd "$(budget_remaining "$dir")")
+
     say "chunk $n: turns $((done_turns + 1))-$((done_turns + this_chunk)) of $target"
-    report="$(OTEL_RESOURCE_ATTRIBUTES="$(otel_attrs mcp-chunked "$n")" \
-      claude -p "$this_prompt" "${claude_args[@]}" 2>> "$dir/agent.log")" ||
-      report="(this chunk's session ended without a report; see $dir/agent.log)"
+    local chunk_json="$dir/chunk-$n.json"
+    OTEL_RESOURCE_ATTRIBUTES="$(otel_attrs mcp-chunked "$n")" \
+      claude -p "$this_prompt" "${call_args[@]}" --output-format json > "$chunk_json" \
+      2>> "$dir/agent.log" || true
+    report="$(chunk_result "$chunk_json")"
+    [[ -n "$report" ]] || report="(this chunk's session ended without a report; see $dir/agent.log)"
     printf '\n--- chunk %s report ---\n%s\n' "$n" "$report" >> "$dir/agent.log"
+    update_cost "$dir" "$chunk_json"
     finish_log "chunk $n finished"
     n=$(( n + 1 ))
   done
@@ -511,6 +606,10 @@ run_scripts_chunked() {
       say "giving up after $max_chunks chunks (only reached turn $done_turns of $target); see $dir/agent.log"
       break
     fi
+    if budget_exhausted "$dir"; then
+      say "stopping: hit the \$$max_usd cap (\$$(cost_so_far "$dir") spent so far, turn $done_turns of $target)"
+      break
+    fi
 
     if (( n == 1 )); then
       write_mcp_config "${serve_args[@]}"
@@ -531,18 +630,15 @@ run_scripts_chunked() {
       this_prompt="$(scripts_handoff_prompt "$target" "$done_turns" "$calls" "$listing")"
     fi
 
+    local call_args=("${claude_args[@]}")
+    [[ -n "$max_usd" ]] && call_args+=(--max-budget-usd "$(budget_remaining "$dir")")
+
     say "chunk $n: about $calls tool calls, past turn $done_turns of $target so far"
     chunk_json="$dir/chunk-$n.json"
     OTEL_RESOURCE_ATTRIBUTES="$(otel_attrs scripts "$n")" \
-      claude -p "$this_prompt" "${claude_args[@]}" --output-format json > "$chunk_json" \
+      claude -p "$this_prompt" "${call_args[@]}" --output-format json > "$chunk_json" \
       2>> "$dir/agent.log" || true
-    result="$(python3 -c '
-import json, sys
-try:
-    print(json.load(open(sys.argv[1])).get("result", ""))
-except (FileNotFoundError, json.JSONDecodeError):
-    pass
-' "$chunk_json")"
+    result="$(chunk_result "$chunk_json")"
     [[ -n "$result" ]] || result="(this chunk's session ended without a report; see $dir/agent.log)"
     printf '\n--- chunk %s report ---\n%s\n' "$n" "$result" >> "$dir/agent.log"
     update_cost "$dir" "$chunk_json"

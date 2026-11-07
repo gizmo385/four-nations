@@ -339,27 +339,52 @@ JSON wake report. This is how:
 
 ## Cost model
 
-Calibration: the Opus run read ~30M context tokens for $9–10.50, about $0.33 per million
-including output. Cost is roughly the sum, over round trips, of the context size at that
-moment. The scripted figures below are **estimates** to be measured (#485).
+Calibration: an early, uncapped single-session Opus run (the one the opening paragraph cites)
+read ~30M context tokens for $9–10.50, about $0.33 per million including output. Cost is roughly
+the sum, over round trips, of the context size at that moment.
 
-| Per game year | MCP, one session | MCP, chunked (#341) | Scripted, chunked at 30 round trips | `fn_agent play` |
-|---|---|---|---|---|
-| Round trips | ~130 | ~130 | ~60–80 in year one (orienting, debugging), ~30–50 after | 0, plus ~5 per wake triaged |
-| Average context | ~110k | ~30k | ~55k (larger per step: script text and reports) | none |
-| Context tokens read | ~15M | ~4M | ~2–4M | ~0 |
-| Opus | ~$5 | ~$1.3 | ~$0.7–1.3 | ~$0 |
+**Measured (#485), 2026-11-07.** One game year (180 turns, `data/agent.toml`'s own cap) on seed
+7, Earth, Normal, `--chunk-turns 30` or `--chunk-calls 30`, each on Sonnet and Opus, plus one
+`--scripts` run on the `earth-year-two` scenario (Sonnet). `scripts/agent-run.sh --max-usd 5`
+capped every run; none hit it. Figures are from each run's own `cost.json`.
 
-- **During play, scripted runs cost about 1.5–2x less than chunked MCP runs.** The gap grows in
-  the late game. There, `end_turn` stops on every arrival, tech and stockpile alert of a large
-  settlement, while a script handles those itself. Scenario starts skip the opening in both
-  modes.
+| Per game year | MCP, chunked (Sonnet) | MCP, chunked (Opus) | Scripted (Sonnet) | Scripted (Opus) | Scripted, `earth-year-two` (Sonnet) |
+|---|---|---|---|---|---|
+| Round trips | 132 | 162 | 53 | 87 | 39 |
+| Turns played | 195 | 180 | 317 | 180 | 180 |
+| Context tokens read | 3.1M | 4.8M | 1.2M | 2.7M | 1.1M |
+| Average context | ~23k | ~30k | ~22k | ~31k | ~29k |
+| USD | $0.97 | $3.00 | $0.48 | $2.12 | $0.39 |
+| Population | 6 → 11 | 6 → 11 | 6 → 16 | 6 → 12 | 12 → 18 |
+| Deaths | 0 | 0 | 0 | 0 | 0 |
+
+- **During play, scripted runs cost about half of chunked MCP runs on the same model**: $0.48 vs
+  $0.97 on Sonnet, $2.12 vs $3.00 on Opus. Both `--scripts` runs also overshot their 180-turn
+  target in a single `run_script` call once their script was going well (195 and 317 turns) --
+  cost tracks round trips and decisions, not the turn count asked for, so the scripted Sonnet run
+  actually bought 1.76 game-years for $0.48, not one.
+- **The scenario run was the cheapest of all** ($0.39, 39 round trips), despite being `--scripts`
+  on the same model as the next-cheapest row: it starts a year in, with a settlement already
+  past the opening's many small early decisions, confirming "scenario starts skip the opening in
+  both modes" without needing a from-scratch run to compare against.
+- **Opus costs 3–4x Sonnet for the same mode**: 3.1x for MCP-chunked, 4.4x for scripted. Neither
+  Opus run played obviously better: same or lower population growth, same zero deaths, and
+  neither cleared more of the Harmony Gate's signs than its Sonnet counterpart.
 - **The big change is in re-runs.** Once a library is proven, re-running it after a balance
-  change costs CPU seconds, and tokens are spent only on surprises.
+  change costs CPU seconds, and tokens are spent only on surprises. One `fn_agent play --script
+  crates/agent/scripts/settle.rhai` re-run of the full year after a throwaway balance change
+  (`cabbage` harvest `regrow`, 480s → 4800s, reverted after) still finished with `reason:
+  "budget"` and no deaths -- it didn't wake, so this re-run's own triage cost was $0. That's the
+  regression-playtest story working as designed, not evidence the balance change itself was
+  harmless (the change was never meant to go anywhere; `settle.rhai`'s own standing-harvest and
+  bed orders have enough slack that a single harvest's regrow time wasn't the thing to break it).
 - **Model tiers.** Scripted play needs a model that writes and debugs code from error messages.
-  Sonnet-class models do that well, so Sonnet becomes the default tier for scripted playtests.
-  Opus is for design-critique runs. Haiku-class is viable for triaging wakes of a proven library
-  ("same script again, longer budget"), but not for writing scripts.
+  Measured: Sonnet did that well in every run above, at roughly a quarter to a third of Opus's
+  own cost for no worse an outcome, so Sonnet stays the default tier for scripted playtests.
+  Opus is for design-critique runs, where judgment matters more than cost, not for routine
+  playtesting. Haiku-class triaging of a proven library's wakes wasn't measured this round
+  (#485's budget went to the five playtest runs and the `fn_agent play` re-run instead); that
+  stays an open question for a follow-up.
 
 ## Relation to existing work
 
