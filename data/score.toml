@@ -1,0 +1,38 @@
+# The run score (docs/design/agent-hillclimb.md "Part 1: the score"; issue #523, owner decisions
+# #519 and #520). Read by fn_sim::score, by fn_agent and by the balance harness, never by the game
+# rules, and loaded on its own (`ScoreDef::bundled`), not into `Defs`: it is not part of the data
+# digest (`Defs::id_hash`), so changing a weight never invalidates a run log, and old logs rescore
+# under new weights.
+#
+# score = 1000 × progress × care, where both are in 0..=1.
+#
+# [progress]: milestones in data/endeavor.toml order -- every sign, then "ready", then every stage.
+# - late_credit:    a milestone first met at the horizon earns this much of one met at turn 0
+#                   (linear in between): credit = 1 - (1 - late_credit) × t / horizon. In 0..=1.
+# - partial_credit: a sign not met at the horizon (never met, or met once and since slipped, unless
+#                   the endeavor latched Ready) earns this × min(1, value/target). In 0..=1.
+# - default_weight: the weight of every milestone not listed below. Above 0.
+# [[progress.weight]]: per-milestone overrides by id (a sign id, "ready" or a stage id), e.g.
+#   { id = "scrolls", weight = 0.5 }. Must name a milestone that exists (`ScoreDef::check`); a
+#   weight of 0 takes it out of the score (its row is still reported).
+#
+# [care]: care = max(0, 1 - death × deaths - close_call × close_calls - suffering × share), where
+# share = person-minutes with any severe flag / all person-minutes (`World::care()`, #533). The
+# close-call thresholds are health levels and live in data/harm.toml `[care]`, beside the tally.
+# - death:      deducted per `World::deaths` entry within the horizon.
+# - close_call: deducted per close call (`CareTally::close_calls`, including `AvatarLeft`).
+# - suffering:  × the share of person-time with any severe flag. Never the per-flag sum: flags
+#               overlap, and a settler showing two is one settler suffering.
+# - severe:     the flags the scorecard breaks the suffering down into (labels only; the share
+#               itself is `severe_any_minutes`). Any of starving, parched, exhausted, dying.
+
+[progress]
+late_credit = 0.6
+partial_credit = 0.5
+default_weight = 1.0
+
+[care]
+death = 0.15
+close_call = 0.03
+suffering = 2.0
+severe = ["starving", "parched", "exhausted", "dying"]
