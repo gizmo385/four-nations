@@ -3,6 +3,7 @@
 //! for its events. Reads `World::endeavor_signs` and `World::endeavor` and words them; which signs
 //! there are, and when the endeavor is Ready, are the sim's.
 
+use fn_sim::bending::Rank;
 use fn_sim::endeavor::{SignDef, SignGroup, SignKind, Tally};
 use fn_sim::world::{
     AvatarLeaveReason, EndeavorEvent, EndeavorEventKind, EndeavorState, SignProgress,
@@ -259,7 +260,7 @@ fn hint(sign: &SignDef, world: &World, defs: &Defs) -> Option<String> {
         SignKind::EveryBuilding { .. } => {
             building_hint(&missing_building_names(world, defs), sign.hint.as_deref())
         }
-        SignKind::Masters { .. } => Some(masters_hint()),
+        SignKind::Masters => Some(masters_hint()),
         _ => sign.hint.clone(),
     }
 }
@@ -310,7 +311,7 @@ pub fn missing(sign: &SignDef, p: &SignProgress) -> String {
 fn sign_name(sign: &SignDef, world: &World, defs: &Defs) -> String {
     match &sign.kind {
         SignKind::BranchComplete => format!("{} branch", defs.nation(world.nation).name),
-        SignKind::Masters { .. } => {
+        SignKind::Masters => {
             let threshold = defs
                 .endeavor
                 .master_threshold(world.nation)
@@ -343,7 +344,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
     let total = signs.len();
     let mut groups: Vec<GroupView> = Vec::new();
     for (sign, p) in &signs {
-        let closest = (!p.met && matches!(sign.kind, SignKind::Masters { .. }))
+        let closest = (!p.met && matches!(sign.kind, SignKind::Masters))
             .then(|| masters_line(world, defs))
             .flatten();
         let found = if !p.met && matches!(sign.kind, SignKind::Tally(Tally::ScrollsRead)) {
@@ -452,8 +453,12 @@ pub fn describe_event(defs: &Defs, ev: &EndeavorEvent) -> String {
             let name = defs.endeavor.avatar.as_ref().map_or("The Avatar", |a| a.name.as_str());
             format!("{name} gives his farewell and flies off on Appa.")
         }
-        // The masters sign's own toast (#347): fires once per unit, `World::note_mastery`.
-        EndeavorEventKind::Mastered { name, .. } => format!("{name} is now a bending master"),
+        // A settler's rank-up toast (#347, #360): fires once per rank, `World::note_rank_up`.
+        EndeavorEventKind::RankUp { name, rank, .. } => match rank {
+            Rank::Adept => format!("{name} is now an adept bender"),
+            Rank::Master => format!("{name} is now a bending master"),
+            Rank::Novice => unreachable!("nobody ranks up to Novice"),
+        },
     }
 }
 
@@ -635,11 +640,21 @@ mod tests {
             describe_event(&defs, &farewell),
             "Aang gives his farewell and flies off on Appa."
         );
-        let mastered = EndeavorEvent {
+        let adept = EndeavorEvent {
             tick: 10,
-            kind: EndeavorEventKind::Mastered {
+            kind: EndeavorEventKind::RankUp {
                 unit: fn_sim::world::UnitId(0),
                 name: "Jee".into(),
+                rank: Rank::Adept,
+            },
+        };
+        assert_eq!(describe_event(&defs, &adept), "Jee is now an adept bender");
+        let mastered = EndeavorEvent {
+            tick: 10,
+            kind: EndeavorEventKind::RankUp {
+                unit: fn_sim::world::UnitId(0),
+                name: "Jee".into(),
+                rank: Rank::Master,
             },
         };
         assert_eq!(describe_event(&defs, &mastered), "Jee is now a bending master");

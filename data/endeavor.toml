@@ -13,7 +13,7 @@
 # - id:         unique; saves refer to signs by id, so renaming one forgets that it was met.
 # - group:      people, buildings, knowledge, stores, harvests or bending.
 # - name:       the sign's label. For `masters`, the UI appends "(N bends each)" itself from
-#               `bends`/`bends_per_nation`, so the number here can't drift from the data
+#               data/bending.toml's `[mastery]`, so the number here can't drift from the data
 #               (`fn_ui::endeavor::sign_name`, #344); write the label without one.
 # - short:      a short noun for a count ("people", "scrolls"): the side panel's compact Gate row
 #               (#416, docs/design/side-panel-v2.md "Zone 1", `Gate 8/9 · 3 scrolls [G]`),
@@ -28,9 +28,9 @@
 #     branch_complete every tech of the settlement's own nation known (no target);
 #     stored          `items` in stockpiles, summed; `food = true` adds every edible item;
 #     tally           a lifetime count: `tally = "harvested"` with `items`, or "scrolls_read";
-#     masters         units with at least `bends` finished bends, against their own nation's
-#                      threshold; `bends_per_nation = { air = .., .. }` overrides `bends` for the
-#                      nations named, the way `per_nation` overrides `target` (#344).
+#     masters         units at the bending master rank, against their own nation's thresholds
+#                      (`World::rank_of`, data/bending.toml's `[mastery]`, #344, #360); no
+#                      `bends`/`bends_per_nation` here any more, since the numbers moved there.
 # - target:     the number to reach (at least 1). `per_nation = { air = 150 }` overrides it for
 #               the nations named; the rest use `target`. Neither applies to a computed kind
 #               (`beds_for_all`, `every_building`, `branch_complete`).
@@ -159,8 +159,6 @@ group = "bending"
 name = "Bending masters"
 short = "masters"
 kind = "masters"
-bends = 10
-bends_per_nation = { earth = 8, water = 8, air = 16 }
 target = 3
 hint = "Each finished bend counts for whoever channels it"
 

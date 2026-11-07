@@ -7,7 +7,7 @@
 
 use serde::Deserialize;
 
-use crate::bending::{AbilityDef, AbilityId, BendingFile, ChiSettings};
+use crate::bending::{AbilityDef, AbilityId, BendingFile, ChiSettings, MasteryDef};
 use crate::building::{BuildingDef, BuildingId, BuildingsFile};
 use crate::difficulty::DifficultyDef;
 use crate::embark::EmbarkDef;
@@ -142,6 +142,8 @@ pub struct Defs {
     pub chi: ChiSettings,
     /// Bending abilities, in file order; indexed by `AbilityId`.
     pub abilities: Vec<AbilityDef>,
+    /// The route from novice to master (data/bending.toml's `[mastery]`, #360).
+    pub mastery: MasteryDef,
     /// The end-game endeavor's signs and stages (data/endeavor.toml). Empty unless loaded with
     /// `with_endeavor`, which `bundled` does.
     pub endeavor: EndeavorDef,
@@ -261,6 +263,7 @@ impl Defs {
             &self.techs,
             &self.abilities,
             self.chi.max,
+            &self.mastery,
         )?;
         Ok(self)
     }
@@ -292,7 +295,7 @@ impl Defs {
         let buildings = parse::<BuildingsFile>("buildings.toml", buildings)?
             .resolve(&items, &techs, &resources, &needs)?;
         let biomes = parse::<BiomeFile>("biomes.toml", biomes)?.biome;
-        let (chi, abilities) = parse::<BendingFile>("bending.toml", bending)?
+        let (chi, abilities, mastery) = parse::<BendingFile>("bending.toml", bending)?
             .resolve(&biomes, &resources, &harvests, &items, &techs)?;
         let mut harvest_by_resource = vec![None; resources.len()];
         for (i, h) in harvests.iter().enumerate() {
@@ -312,6 +315,7 @@ impl Defs {
             buildings,
             chi,
             abilities,
+            mastery,
             endeavor: EndeavorDef::default(),
             embark: EmbarkDef::default(),
             difficulty: DifficultyDef::default(),

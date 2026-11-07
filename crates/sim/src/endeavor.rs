@@ -25,7 +25,7 @@
 
 use serde::Deserialize;
 
-use crate::bending::{AbilityDef, AbilityId};
+use crate::bending::{AbilityDef, AbilityId, MasteryDef};
 use crate::building::{BuildingDef, BuildingId, CostItem};
 use crate::defs::DefsError;
 use crate::jobs::{ItemDef, ItemId};
@@ -51,6 +51,19 @@ pub struct EndeavorDef {
     /// Aang, the guest who appears once the foundation stage is done (`[avatar]`). `None` for
     /// data with no `[avatar]` section (most tests): then he never arrives.
     pub avatar: Option<AvatarDef>,
+    /// A copy of `data/bending.toml`'s `[mastery]` master-bends numbers, kept only if a `masters`
+    /// sign is actually in `signs`, so `master_threshold` doesn't need the whole bending data at
+    /// every call (#360): the numbers themselves live in, and are validated by,
+    /// `MasteryDef`/`bending.toml`; this is just the "is there a masters sign at all" gate the
+    /// per-bend alert line (`fn_ui::alerts`) still needs.
+    master_bends: Option<MasterBends>,
+}
+
+/// See `EndeavorDef::master_bends`.
+#[derive(Debug, Clone, PartialEq)]
+struct MasterBends {
+    bends: u32,
+    per_nation: [Option<u32>; 4],
 }
 
 impl EndeavorDef {
@@ -59,30 +72,20 @@ impl EndeavorDef {
         self.stages.iter().enumerate().find(|(_, s)| s.id == id)
     }
 
-    /// How many finished bends make a unit of `nation` a bending master, from the `masters` sign
-    /// in `data/endeavor.toml` (`docs/design/endgame.md`, "Mastery pacing"), or `None` when the
-    /// data has no such sign. Every frontend reads mastery through this one helper, never the
-    /// sign's `bends` directly, so there's one place that answers "is this unit a master".
-    /// `bends_per_nation` overrides `bends` for the nations named, the way `SignDef::target_for`
-    /// reads `per_nation`.
+    /// How many finished bends make a unit of `nation` a bending master
+    /// (`data/bending.toml`'s `[mastery]`, #360), or `None` when the data has no `masters` sign
+    /// at all. Every frontend reads this plain bends threshold through this one helper, never a
+    /// sign's own field directly; `World::rank_of` is what actually judges mastery once forms
+    /// are counted too.
     pub fn master_threshold(&self, nation: Nation) -> Option<u32> {
-        self.signs.iter().find_map(|s| match &s.kind {
-            SignKind::Masters { bends, bends_per_nation } => {
-                Some(masters_threshold_for(*bends, bends_per_nation, nation))
-            }
-            _ => None,
-        })
+        self.master_bends.as_ref().map(|m| masters_threshold_for(m.bends, &m.per_nation, nation))
     }
 }
 
-/// A `Masters` sign's threshold for `nation`: `bends_per_nation`'s override, or the flat `bends`.
-/// Shared by `EndeavorDef::master_threshold` and `World::sign_progress`'s own count, so a unit's
-/// mastery is always judged against its own nation's number, never a single sign-wide one.
-pub(crate) fn masters_threshold_for(
-    bends: u32,
-    bends_per_nation: &[Option<u32>; 4],
-    nation: Nation,
-) -> u32 {
+/// A nation's own bends threshold: `bends_per_nation`'s override, or the flat `bends`. Shared by
+/// `EndeavorDef::master_threshold` and anything else that reads a per-nation override the same
+/// way `SignDef::target_for` reads `per_nation`.
+fn masters_threshold_for(bends: u32, bends_per_nation: &[Option<u32>; 4], nation: Nation) -> u32 {
     let i = Nation::ALL.iter().position(|&n| n == nation).expect("every nation is in ALL");
     bends_per_nation[i].unwrap_or(bends)
 }
@@ -208,10 +211,9 @@ pub enum SignKind {
     Stored { items: Vec<ItemId> },
     /// A lifetime tally (`World::tallies`).
     Tally(Tally),
-    /// Units with at least `bends` finished bends, against their own nation's threshold:
-    /// `bends_per_nation` overrides `bends` for the nations named, indexed like `Nation::ALL`
-    /// (`SignDef::per_nation`'s pattern).
-    Masters { bends: u32, bends_per_nation: [Option<u32>; 4] },
+    /// Units at the bending master rank, against their own nation's thresholds
+    /// (`World::rank_of`, `data/bending.toml`'s `[mastery]`, #360).
+    Masters,
 }
 
 /// Which lifetime tally a `SignKind::Tally` reads. Crops harvested from farm plots joins this
@@ -432,12 +434,6 @@ struct RawSign {
     /// `tally`: which tally.
     #[serde(default)]
     tally: Option<RawTally>,
-    /// `masters`: the finished bends that make a master.
-    #[serde(default)]
-    bends: Option<u32>,
-    /// `masters`: per-nation overrides of `bends`, the way `per_nation` overrides `target`.
-    #[serde(default)]
-    bends_per_nation: Option<PerNation>,
     /// `every_building`: kinds the player may skip; defaults to 0.
     #[serde(default)]
     spare: Option<u32>,
@@ -454,6 +450,7 @@ impl EndeavorFile {
         techs: &[TechDef],
         abilities: &[AbilityDef],
         chi_max: f32,
+        mastery: &MasteryDef,
     ) -> Result<EndeavorDef, DefsError> {
         if self.endeavor.name.trim().is_empty() {
             return Err(DefsError("endeavor: name must not be empty".into()));
@@ -532,7 +529,12 @@ impl EndeavorFile {
                     .into(),
             ));
         }
-        Ok(EndeavorDef { name, description, signs, building, stages, avatar })
+        let master_bends =
+            signs.iter().any(|s| s.kind == SignKind::Masters).then_some(MasterBends {
+                bends: mastery.master_bends,
+                per_nation: mastery.master_bends_per_nation,
+            });
+        Ok(EndeavorDef { name, description, signs, building, stages, avatar, master_bends })
     }
 }
 
@@ -743,8 +745,6 @@ impl RawSign {
         allowed(self.per_nation.is_some(), !computed, "per_nation")?;
         allowed(self.food.is_some(), k == RawKind::Stored, "food")?;
         allowed(self.tally.is_some(), k == RawKind::Tally, "tally")?;
-        allowed(self.bends.is_some(), k == RawKind::Masters, "bends")?;
-        allowed(self.bends_per_nation.is_some(), k == RawKind::Masters, "bends_per_nation")?;
         allowed(self.spare.is_some(), k == RawKind::EveryBuilding, "spare")?;
         let takes_items = k == RawKind::Stored
             || (k == RawKind::Tally && self.tally == Some(RawTally::Harvested));
@@ -803,17 +803,7 @@ impl RawSign {
                     SignKind::Tally(Tally::Harvested(listed))
                 }
             },
-            RawKind::Masters => match self.bends {
-                Some(b) if b >= 1 => {
-                    let bp = self.bends_per_nation.unwrap_or_default();
-                    let bends_per_nation = [bp.air, bp.water, bp.earth, bp.fire];
-                    if bends_per_nation.contains(&Some(0)) {
-                        return Err(err("bends_per_nation values must be at least 1"));
-                    }
-                    SignKind::Masters { bends: b, bends_per_nation }
-                }
-                _ => return Err(err("masters needs bends >= 1")),
-            },
+            RawKind::Masters => SignKind::Masters,
         };
         Ok(SignDef {
             group: self.group,
@@ -867,7 +857,7 @@ mod tests {
         assert!(has(|k| matches!(k, SignKind::Stored { .. })));
         assert!(has(|k| matches!(k, SignKind::Tally(Tally::Harvested(_)))));
         assert!(has(|k| matches!(k, SignKind::Tally(Tally::ScrollsRead))));
-        assert!(has(|k| matches!(k, SignKind::Masters { .. })));
+        assert!(has(|k| *k == SignKind::Masters));
     }
 
     #[test]
@@ -903,53 +893,21 @@ mod tests {
         assert_eq!(e.signs[1].target_for(Nation::Fire), None);
     }
 
-    /// `master_threshold` reads the `masters` sign's one `bends` value for a nation with no
-    /// override, and `None` when the data has no such sign at all (`docs/design/endgame.md`,
-    /// "Mastery pacing").
+    /// `master_threshold` reads `data/bending.toml`'s bundled `[mastery]` numbers for a `masters`
+    /// sign with no bends fields of its own (#360), and `None` when the data has no such sign at
+    /// all (`docs/design/endgame.md`, "Mastery pacing").
     #[test]
-    fn master_threshold_reads_the_masters_sign_or_none_without_one() {
+    fn master_threshold_reads_the_bundled_mastery_or_none_without_a_masters_sign() {
         let e = load(
             "[[sign]]\nid = \"masters\"\ngroup = \"bending\"\nname = \"M\"\nshort = \"m\"\n\
-             kind = \"masters\"\nbends = 10\ntarget = 3\n",
-        )
-        .unwrap();
-        assert_eq!(e.master_threshold(Nation::Fire), Some(10));
-        assert_eq!(e.master_threshold(Nation::Air), Some(10));
-        assert_eq!(load("").unwrap().master_threshold(Nation::Fire), None);
-    }
-
-    /// `bends_per_nation` overrides `bends` for the nations named, the way `per_nation`
-    /// overrides `target` (#344).
-    #[test]
-    fn master_threshold_reads_bends_per_nation_overrides() {
-        let e = load(
-            "[[sign]]\nid = \"masters\"\ngroup = \"bending\"\nname = \"M\"\nshort = \"m\"\n\
-             kind = \"masters\"\nbends = 10\nbends_per_nation = { earth = 8, water = 8, air = 16 }\n\
-             target = 3\n",
+             kind = \"masters\"\ntarget = 3\n",
         )
         .unwrap();
         assert_eq!(e.master_threshold(Nation::Fire), Some(10));
         assert_eq!(e.master_threshold(Nation::Earth), Some(8));
         assert_eq!(e.master_threshold(Nation::Water), Some(8));
         assert_eq!(e.master_threshold(Nation::Air), Some(16));
-    }
-
-    #[test]
-    fn bends_per_nation_is_validated_like_per_nation() {
-        assert!(
-            error(&sign(
-                "kind = \"masters\"\nbends = 10\ntarget = 3\nbends_per_nation = { earth = 0 }"
-            ))
-            .contains("bends_per_nation values must be at least 1")
-        );
-        let e = error(&sign(
-            "kind = \"masters\"\nbends = 10\ntarget = 3\nbends_per_nation = { mars = 2 }",
-        ));
-        assert!(e.contains("mars"), "{e}");
-        assert!(
-            error(&sign("kind = \"population\"\ntarget = 3\nbends_per_nation = { air = 2 }"))
-                .contains("bends_per_nation doesn't apply")
-        );
+        assert_eq!(load("").unwrap().master_threshold(Nation::Fire), None);
     }
 
     #[test]
@@ -1044,12 +1002,10 @@ mod tests {
             "kind = \"tally\"\ntally = \"scrolls_read\"\nitems = [\"stone\"]\ntarget = 3",
         ));
         assert!(e.contains("items doesn't apply"), "{e}");
-        assert!(error(&sign("kind = \"masters\"\ntarget = 3")).contains("bends >= 1"));
-        assert!(error(&sign("kind = \"masters\"\ntarget = 3\nbends = 0")).contains("bends >= 1"));
-        assert!(
-            error(&sign("kind = \"population\"\ntarget = 3\nbends = 4"))
-                .contains("bends doesn't apply")
-        );
+        // `bends`/`bends_per_nation` moved to `data/bending.toml`'s `[mastery]` (#360): a sign
+        // naming either, on any kind, is simply an unknown field now.
+        assert!(error(&sign("kind = \"masters\"\ntarget = 3\nbends = 10")).contains("bends"));
+        assert!(load(&sign("kind = \"masters\"\ntarget = 3")).is_ok(), "masters needs no fields");
         assert!(
             error(&sign("kind = \"population\"\ntarget = 3\ntally = \"scrolls_read\""))
                 .contains("tally doesn't apply")

@@ -16,6 +16,7 @@
 
 use std::collections::BTreeSet;
 
+use crate::bending::Rank;
 use crate::building::BuildingId;
 use crate::endeavor::{self, SignDef, SignKind, Tally};
 use crate::jobs::ItemId;
@@ -79,12 +80,14 @@ pub enum EndeavorEventKind {
     /// The Avatar's farewell: he leaves the settlement for good, `AvatarDef::farewell_minutes`
     /// after the Harmony Rite completed (`world/avatar.rs`, #238).
     AvatarFarewell,
-    /// This unit's finished bends first reached its own nation's mastery threshold
-    /// (`EndeavorDef::master_threshold`, `docs/design/endgame.md`, "Showing mastery", #347),
-    /// named here (not just by id) the way `Death` and `Arrival` carry their own name, so the
-    /// toast reads correctly even if the unit later dies. Fires exactly once per unit
-    /// (`Unit::mastered`, `world/bending.rs`).
-    Mastered { unit: UnitId, name: String },
+    /// This unit's bends and forms first reached `rank` (`World::rank_of`,
+    /// `docs/design/bending.md`, "The route: novice, adept, master", #360), named here (not
+    /// just by id) the way `Death` and `Arrival` carry their own name, so the toast reads
+    /// correctly even if the unit later dies. Fires once per rank reached, at Adept and at
+    /// Master (never at Novice, the rank everyone starts at); `Unit`'s own `rank_credited` is
+    /// what makes this once-only, so a save/load, or `[mastery]` retuned later, never refires
+    /// it for a rank already reached.
+    RankUp { unit: UnitId, name: String, rank: Rank },
 }
 
 /// Why the Avatar left (`world/avatar.rs`, #237): named for the client's toast ("Aang has gone
@@ -150,18 +153,11 @@ impl World {
                 (items.iter().map(|&i| self.tallies.harvested(i)).sum(), None)
             }
             SignKind::Tally(Tally::ScrollsRead) => (self.tallies.scrolls_read(), None),
-            SignKind::Masters { bends, bends_per_nation } => {
+            SignKind::Masters => {
                 let count = self
                     .units
                     .iter()
-                    .filter(|u| {
-                        let threshold = endeavor::masters_threshold_for(
-                            *bends,
-                            bends_per_nation,
-                            self.nation_of(u),
-                        );
-                        u.bends >= threshold
-                    })
+                    .filter(|u| self.rank_of(u, defs).rank == Rank::Master)
                     .count() as u32;
                 (count, None)
             }
@@ -217,25 +213,23 @@ impl World {
         self.endeavor_log.events.push(EndeavorEvent { tick: self.tick, kind });
     }
 
-    /// Checks whether unit `i`'s bend just finished has brought it to its own nation's mastery
-    /// threshold (`EndeavorDef::master_threshold`) for the first time, and if so marks it and
-    /// logs `EndeavorEventKind::Mastered` (`world/bending.rs::run_bend`, #347). Does nothing
-    /// without a masters sign in the data, or once this unit has already been credited: `Unit`'s
-    /// own `mastered` flag, not a recomputed comparison, is what makes this a once-only event, so
-    /// a save/load or a later threshold change never refires it.
-    pub(super) fn note_mastery(&mut self, i: usize, defs: &Defs) {
-        if self.units[i].mastered {
+    /// Checks whether unit `i`'s bend just finished has raised its rank (`World::rank_of`) past
+    /// `rank_credited`, and if so logs `EndeavorEventKind::RankUp` for the new rank
+    /// (`world/bending.rs::run_bend`, `world/gate.rs::run_gate_task`, #360). Independent of
+    /// whether the data even has a `masters` sign: `[mastery]` is foundational, not tied to any
+    /// one endeavor. `Unit::rank_credited`, not a recomputed comparison, is what makes this a
+    /// once-per-rank event, so a save/load or `[mastery]` retuned later never refires it for a
+    /// rank already reached (though it also means a save from before `bends_by` existed, once
+    /// its forms catch back up, fires again for whichever rank it re-earns).
+    pub(super) fn note_rank_up(&mut self, i: usize, defs: &Defs) {
+        let progress = self.rank_of(&self.units[i], defs);
+        if progress.rank <= self.units[i].rank_credited {
             return;
         }
-        let nation = self.nation_of(&self.units[i]);
-        let Some(threshold) = defs.endeavor.master_threshold(nation) else { return };
-        if self.units[i].bends < threshold {
-            return;
-        }
-        self.units[i].mastered = true;
+        self.units[i].rank_credited = progress.rank;
         let unit = self.units[i].id;
         let name = self.units[i].name.clone();
-        self.endeavor_event(EndeavorEventKind::Mastered { unit, name });
+        self.endeavor_event(EndeavorEventKind::RankUp { unit, name, rank: progress.rank });
     }
 }
 

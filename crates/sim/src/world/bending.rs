@@ -135,7 +135,7 @@
 use rand::seq::SliceRandom;
 
 use super::work::route_from;
-use crate::bending::{AbilityDef, Effect};
+use crate::bending::{AbilityDef, Effect, Rank};
 use crate::defs::{BiomeId, ResourceId, Terrain};
 use crate::jobs::{ItemId, JobKind};
 
@@ -502,8 +502,48 @@ impl World {
     }
 }
 
+/// `World::rank_of`'s answer (#360): a unit's rank right now, the bends and forms behind it, and
+/// what the next rank needs. `next` is `None` once at Master, since there's no rank above it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MasteryProgress {
+    pub rank: Rank,
+    pub bends: u32,
+    pub forms: u32,
+    /// The rank, bends and forms the next rank needs, or `None` already at Master.
+    pub next: Option<(Rank, u32, u32)>,
+}
+
 /// Doing it.
 impl World {
+    /// `unit`'s bending rank right now (`docs/design/bending.md`, "The route: novice, adept,
+    /// master", #360): computed live from its own finished bends and forms against its own
+    /// nation's thresholds (`nation_of`, so a United City newcomer or the Avatar's own unit --
+    /// though the Avatar never casts anything rank-gated -- is judged by its own nation's
+    /// numbers, never the settlement's). Never cached: ranks only rise as bends and forms do, so
+    /// recomputing it is always correct, even after `[mastery]` is retuned or a save from before
+    /// `bends_by` existed loads with none.
+    pub fn rank_of(&self, unit: &Unit, defs: &Defs) -> MasteryProgress {
+        let nation = self.nation_of(unit);
+        let bends = unit.bends();
+        let forms = unit.forms();
+        let m = &defs.mastery;
+        let master_bends = m.master_bends_for(nation);
+        let adept_bends = m.adept_bends_for(nation);
+        let rank = if bends >= master_bends && forms >= m.master_forms {
+            Rank::Master
+        } else if bends >= adept_bends && forms >= m.adept_forms {
+            Rank::Adept
+        } else {
+            Rank::Novice
+        };
+        let next = match rank {
+            Rank::Novice => Some((Rank::Adept, adept_bends, m.adept_forms)),
+            Rank::Adept => Some((Rank::Master, master_bends, m.master_forms)),
+            Rank::Master => None,
+        };
+        MasteryProgress { rank, bends, forms, next }
+    }
+
     /// Whether `unit` is allowed to use `ability` at all, whatever its chi (`unit_can_bend` adds
     /// that check). The Avatar (#237) may claim any ability his own `[avatar]` list names,
     /// whatever his "nation" (he has none) and whatever the settlement's. Otherwise (#239): a
@@ -523,21 +563,48 @@ impl World {
         if unit_nation != def.nation {
             return false;
         }
-        match def.unlocked_by {
+        let tech_known = match def.unlocked_by {
             None => true,
             Some(tech) => unit_nation == self.nation && self.research.is_known(tech),
+        };
+        tech_known && self.meets_rank(unit, def, defs)
+    }
+
+    /// Whether `unit`'s own rank (`rank_of`) is at least `def.rank`, if it names one (#360):
+    /// always true for a signature or any other ability with no rank gate. Like a signature
+    /// ability, this needs no home-settlement check (`can_cast`'s `unlocked_by` match does for a
+    /// branch ability): rank is purely the caster's own, so a United City newcomer is judged
+    /// against their own nation's thresholds, never the settlement's.
+    fn meets_rank(&self, unit: &Unit, def: &AbilityDef, defs: &Defs) -> bool {
+        match def.rank {
+            None => true,
+            Some(required) => self.rank_of(unit, defs).rank >= required,
         }
     }
 
-    /// Whether unit `i` may take a bend job for `ability` right now: its chi covers the cost,
-    /// `can_cast` allows it, and (Inner Fire's restoke rule, #359) its own aura, if it has one
-    /// from a prior cast, isn't still too fresh to recast. The aura check is per-unit because the
-    /// aura belongs to a unit, not a tile (`validate_effect`'s `HeatAura` arm is the
-    /// settlement-wide feasibility half of the same rule).
+    /// What `unit` pays for `def`'s bend right now: `master_chi` of the ability's own `chi` once
+    /// the unit's rank is Master (#360), or the full cost otherwise. Shared by `unit_can_bend`'s
+    /// claim check and `apply_bend`'s actual spend, so a unit can never claim at one rate and pay
+    /// another.
+    fn chi_cost(&self, unit: &Unit, def: &AbilityDef, defs: &Defs) -> f32 {
+        if self.rank_of(unit, defs).rank == Rank::Master {
+            def.chi * defs.mastery.master_chi
+        } else {
+            def.chi
+        }
+    }
+
+    /// Whether unit `i` may take a bend job for `ability` right now: its chi covers the cost
+    /// (a master's own discount, #360), `can_cast` allows it, and (Inner Fire's restoke rule,
+    /// #359) its own aura, if it has one from a prior cast, isn't still too fresh to recast. The
+    /// aura check is per-unit because the aura belongs to a unit, not a tile (`validate_effect`'s
+    /// `HeatAura` arm is the settlement-wide feasibility half of the same rule).
     pub(super) fn unit_can_bend(&self, i: usize, ability: AbilityId, defs: &Defs) -> bool {
         let def = defs.ability(ability);
         let u = &self.units[i];
-        u.chi >= def.chi && self.can_cast(u, ability, defs) && self.unit_can_restoke(u.id, def)
+        u.chi >= self.chi_cost(u, def, defs)
+            && self.can_cast(u, ability, defs)
+            && self.unit_can_restoke(u.id, def)
     }
 
     /// Whether `unit` is clear to carry a fresh cast of `def`'s effect right now: always true
@@ -601,7 +668,8 @@ impl World {
             Ok(()) => {
                 moved = self.apply_bend(i, ability, def, pos, defs);
                 self.units[i].bends += 1;
-                self.note_mastery(i, defs);
+                *self.units[i].bends_by.entry(ability).or_insert(0) += 1;
+                self.note_rank_up(i, defs);
                 BendOutcome::Done
             }
             Err(why) => {
@@ -709,8 +777,8 @@ impl World {
             .copied()
     }
 
-    /// Spends the chi and takes effect. The target was just validated. Returns the stack Wind
-    /// Carry moved, if that is what it was.
+    /// Spends the chi (a master's own discount, #360) and takes effect. The target was just
+    /// validated. Returns the stack Wind Carry moved, if that is what it was.
     fn apply_bend(
         &mut self,
         i: usize,
@@ -719,8 +787,9 @@ impl World {
         pos: Pos,
         defs: &Defs,
     ) -> Option<Moved> {
+        let cost = self.chi_cost(&self.units[i], def, defs);
         let u = &mut self.units[i];
-        u.chi = (u.chi - def.chi).max(0.0);
+        u.chi = (u.chi - cost).max(0.0);
         let magnitude = self.bend_magnitude(def);
         let caster = self.units[i].id;
         self.apply_effect(&def.effect, ability, caster, pos, magnitude, defs)
@@ -1221,6 +1290,8 @@ mod fire_tests;
 mod glide_tests;
 #[cfg(test)]
 mod metalbend_tests;
+#[cfg(test)]
+mod rank_tests;
 #[cfg(test)]
 mod scooter_tests;
 #[cfg(test)]

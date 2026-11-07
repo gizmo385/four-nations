@@ -1,4 +1,5 @@
 use super::*;
+use crate::bending::{AbilityId, Rank};
 use crate::building::Building;
 use crate::defs::{BiomeId, Terrain};
 use crate::geom::Grid;
@@ -54,6 +55,32 @@ fn sign<'d>(w: &World, defs: &'d Defs, id: &str) -> SignProgress<'d> {
 fn progress(w: &World, defs: &Defs, id: &str) -> (u32, u32, bool) {
     let p = sign(w, defs, id);
     (p.value, p.target, p.met)
+}
+
+/// Gives unit `i` `bends` finished bends, spread over the first `forms` of its own nation's
+/// abilities (`nation_of`), so a mastery test can set bends and forms at once without going
+/// through a real bend. `forms` must be 0, or at most that nation's own ability count.
+fn give_bends(w: &mut World, defs: &Defs, i: usize, bends: u32, forms: u32) {
+    w.units[i].bends = bends;
+    w.units[i].bends_by.clear();
+    if forms == 0 {
+        return;
+    }
+    let nation = w.nation_of(&w.units[i]);
+    let ids: Vec<AbilityId> = defs
+        .abilities
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| a.nation == nation)
+        .take(forms as usize)
+        .map(|(idx, _)| AbilityId(idx as u16))
+        .collect();
+    assert_eq!(ids.len(), forms as usize, "{nation:?} needs at least {forms} abilities");
+    let per = (bends / forms).max(1);
+    for (n, &id) in ids.iter().enumerate() {
+        let share = if n + 1 == ids.len() { bends - per * (forms - 1) } else { per };
+        w.units[i].bends_by.insert(id, share);
+    }
 }
 
 fn run(w: &mut World, defs: &Defs, ticks: u64) {
@@ -335,82 +362,120 @@ fn tallies_feed_the_ore_and_scroll_signs() {
     assert_eq!(progress(&w, &defs, "scrolls"), (2, 3, false));
 }
 
-/// Air's own mastery threshold (the bundled `bends_per_nation`, 16; the flat `bends` is 10).
+/// Air's own mastery threshold (the bundled `master_bends_per_nation`, 16 bends in 3 forms; the
+/// flat `master_bends` is 10) and the `masters` sign's own count of units at that rank (#360).
 #[test]
-fn masters_are_units_with_enough_finished_bends() {
+fn masters_are_units_with_enough_finished_bends_and_forms() {
     let defs = Defs::bundled();
     let mut w = world(Nation::Air, 4, &defs);
-    for (u, bends) in w.units.iter_mut().zip([16, 40, 15, 0]) {
-        u.bends = bends;
+    for (i, (bends, forms)) in [(16, 3), (40, 3), (15, 3), (0, 0)].into_iter().enumerate() {
+        give_bends(&mut w, &defs, i, bends, forms);
     }
     assert_eq!(progress(&w, &defs, "masters"), (2, 3, false));
-    w.units[2].bends = 16;
+    give_bends(&mut w, &defs, 2, 16, 3);
     assert_eq!(progress(&w, &defs, "masters"), (3, 3, true));
 }
 
+/// A unit with enough bends but too few forms is never a master (#360): one ability spammed
+/// over and over doesn't count, however many times.
+#[test]
+fn enough_bends_in_too_few_forms_is_not_a_master() {
+    let defs = Defs::bundled();
+    let mut w = world(Nation::Fire, 1, &defs);
+    give_bends(&mut w, &defs, 0, 100, 1);
+    assert_eq!(progress(&w, &defs, "masters"), (0, 3, false));
+}
+
 /// A United City newcomer (#240) is judged against their own nation's threshold, not the
-/// settlement's: an Air settler in a Fire settlement masters at 16 bends, not 10.
+/// settlement's: an Air settler in a Fire settlement masters at 16 bends in 3 forms, not 10.
 #[test]
 fn a_newcomers_own_nation_sets_their_mastery_threshold() {
     let defs = Defs::bundled();
     let mut w = world(Nation::Fire, 1, &defs);
     w.units[0].nation = Some(Nation::Air);
-    w.units[0].bends = 10;
+    give_bends(&mut w, &defs, 0, 10, 3);
     assert_eq!(progress(&w, &defs, "masters"), (0, 3, false), "10 masters Fire, not Air");
-    w.units[0].bends = 16;
+    give_bends(&mut w, &defs, 0, 16, 3);
     assert_eq!(progress(&w, &defs, "masters"), (1, 3, false));
 }
 
-/// `World::note_mastery` fires `EndeavorEventKind::Mastered` the first tick a unit's bends reach
-/// its own nation's threshold, never again for that unit, and a save/load in between doesn't
-/// refire it either (#347).
+/// `World::note_rank_up` fires `EndeavorEventKind::RankUp` the first tick a unit's bends and
+/// forms reach its own nation's adept, then master, thresholds, never again for a rank already
+/// reached, and a save/load in between doesn't refire either (#347, #360).
 #[test]
-fn note_mastery_fires_once_per_unit_and_a_save_load_does_not_refire_it() {
+fn note_rank_up_fires_once_per_rank_and_a_save_load_does_not_refire_it() {
     let defs = Defs::bundled();
     let mut w = world(Nation::Fire, 2, &defs);
-    w.units[0].bends = 9;
-    w.note_mastery(0, &defs);
-    assert!(w.endeavor_events().is_empty(), "not at the threshold yet");
-
-    w.units[0].bends = 10;
-    w.note_mastery(0, &defs);
     let id = w.units[0].id;
     let name = w.units[0].name.clone();
+
+    give_bends(&mut w, &defs, 0, 4, 2);
+    w.note_rank_up(0, &defs);
+    assert!(w.endeavor_events().is_empty(), "below the adept threshold (5 bends, 2 forms)");
+
+    give_bends(&mut w, &defs, 0, 5, 2);
+    w.note_rank_up(0, &defs);
     assert_eq!(
         w.endeavor_events(),
         [EndeavorEvent {
             tick: w.tick,
-            kind: EndeavorEventKind::Mastered { unit: id, name: name.clone() },
+            kind: EndeavorEventKind::RankUp { unit: id, name: name.clone(), rank: Rank::Adept },
         }]
+    );
+
+    // More bends, still adept: no refire.
+    w.units[0].bends += 1;
+    w.note_rank_up(0, &defs);
+    assert_eq!(w.endeavor_events().len(), 1);
+
+    // Reaching master (10 bends, 3 forms) fires a second event.
+    give_bends(&mut w, &defs, 0, 10, 3);
+    w.note_rank_up(0, &defs);
+    assert_eq!(
+        w.endeavor_events()[1],
+        EndeavorEvent {
+            tick: w.tick,
+            kind: EndeavorEventKind::RankUp { unit: id, name: name.clone(), rank: Rank::Master },
+        }
     );
 
     // Calling again (more bends, still master) doesn't refire it.
     w.units[0].bends += 1;
-    w.note_mastery(0, &defs);
-    assert_eq!(w.endeavor_events().len(), 1);
+    w.note_rank_up(0, &defs);
+    assert_eq!(w.endeavor_events().len(), 2);
 
     // Neither does a save/load round trip.
     let saved = w.save(&defs).expect("world saves");
     let mut w2 = World::load(&saved, &defs).expect("world loads");
     w2.units[0].bends += 1;
-    w2.note_mastery(0, &defs);
-    assert_eq!(w2.endeavor_events().len(), 1, "already credited before the save");
+    w2.note_rank_up(0, &defs);
+    assert_eq!(w2.endeavor_events().len(), 2, "already credited before the save");
 
-    // The second unit still gets its own event once it reaches the threshold.
-    w2.units[1].bends = 10;
-    w2.note_mastery(1, &defs);
-    assert_eq!(w2.endeavor_events().len(), 2);
+    // The second unit, jumping straight to master, still gets its own event.
+    let id2 = w2.units[1].id;
+    let name2 = w2.units[1].name.clone();
+    give_bends(&mut w2, &defs, 1, 10, 3);
+    w2.note_rank_up(1, &defs);
+    assert_eq!(
+        w2.endeavor_events()[2],
+        EndeavorEvent {
+            tick: w2.tick,
+            kind: EndeavorEventKind::RankUp { unit: id2, name: name2, rank: Rank::Master },
+        }
+    );
 }
 
-/// Without a masters sign in the data, `note_mastery` never fires (`EndeavorDef::master_threshold`
-/// is `None`).
+/// `[mastery]` is foundational data, not tied to any one endeavor: `note_rank_up` fires even
+/// without a `masters` sign in the data at all (unlike `EndeavorDef::master_threshold`, which
+/// still reads `None` then, #360).
 #[test]
-fn note_mastery_does_nothing_without_a_masters_sign() {
+fn note_rank_up_fires_even_without_a_masters_sign() {
     let defs = Defs::bundled().with_endeavor("[endeavor]\nname = \"Gate\"\n").unwrap();
     let mut w = world(Nation::Fire, 1, &defs);
-    w.units[0].bends = 1000;
-    w.note_mastery(0, &defs);
-    assert!(w.endeavor_events().is_empty());
+    assert_eq!(defs.endeavor.master_threshold(Nation::Fire), None);
+    give_bends(&mut w, &defs, 0, 10, 3);
+    w.note_rank_up(0, &defs);
+    assert_eq!(w.endeavor_events().len(), 1);
 }
 
 const STONE_SIGNS: &str = "

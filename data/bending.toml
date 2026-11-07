@@ -12,6 +12,9 @@
 #   time, like a harvest's `modifier`.
 # - `magnitude_modifier` (optional): a nation modifier that scales the effect's one documented
 #   magnitude (named per kind below).
+# - `rank` (optional): "adept" or "master" (never "novice", which needs no gate). Checked by
+#   `can_cast` next to the tech `unlocks.abilities` gates below (#360). A signature ability
+#   needs neither a tech nor a rank.
 # - `[ability.effect]`: `kind` picks one variant of the effect enum in crates/sim/src/bending.rs;
 #   unknown keys are rejected. Terrain, biome and resource ids must exist.
 # - An ability is available from the start unless a tech lists it under `unlocks.abilities` in
@@ -21,11 +24,48 @@
 # `wet_minutes`, that of `heat_source` scales `duration_minutes`, and that of `wind_carry` scales
 # `range`. `reshape`'s magnitude (#364) scales `revert_minutes`, when that is set; a `reshape`
 # with no `revert_minutes` (Raise Earth, Bore Tunnel) is permanent and needs no magnitude at all.
+#
+# `[mastery]`: the route from novice to master (docs/design/bending.md, "The route: novice,
+# adept, master", #360). A master is `master_bends` finished bends (overridden per nation by
+# `master_bends_per_nation`, #344's numbers, unchanged) in at least `master_forms` different
+# abilities ("forms": an ability a settler has finished at least one bend of). An adept is
+# `adept_share` of its own nation's master-bends threshold (rounded up), in at least
+# `adept_forms`. `master_chi` is the share of an ability's own `chi` a master pays for any bend
+# (0.8: 80%). `[mastery.titles.<nation>]` names what that nation's settlers are called at each
+# rank; every nation needs one.
 
 [chi]
 max = 100.0
 regen_per_minute = 2.0         # awake
 sleep_regen_per_minute = 8.0   # asleep: rest restores chi
+
+[mastery]
+master_bends = 10
+master_bends_per_nation = { earth = 8, water = 8, air = 16 }
+master_forms = 3
+adept_share = 0.5
+adept_forms = 2
+master_chi = 0.8
+
+[mastery.titles.fire]
+novice = "Student"
+adept = "Firebender"
+master = "Firebending Master"
+
+[mastery.titles.earth]
+novice = "Student"
+adept = "Earthbender"
+master = "Earthbending Master"
+
+[mastery.titles.water]
+novice = "Student"
+adept = "Waterbender"
+master = "Waterbending Master"
+
+[mastery.titles.air]
+novice = "Initiate"
+adept = "Airbender"
+master = "Airbending Master"
 
 # Earth: turns a river or lake tile beside dry ground into a permanent, walkable ford.
 [[ability]]

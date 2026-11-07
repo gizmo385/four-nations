@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use rand::RngExt;
 use rand::seq::SliceRandom;
 
-use crate::bending::AbilityId;
+use crate::bending::{AbilityId, Rank};
 use crate::building::BuildingDef;
 use crate::defs::{Defs, ResourceId};
 use crate::difficulty::Knobs;
@@ -47,7 +47,7 @@ mod tally;
 mod work;
 
 pub use avatar::AvatarState;
-pub use bending::{BendChannel, BendError, BendEvent, BendOutcome, Moved};
+pub use bending::{BendChannel, BendError, BendEvent, BendOutcome, MasteryProgress, Moved};
 use bending::{Patch, Revert};
 use build::Site;
 pub use build::{Blocker, BuildError};
@@ -144,13 +144,20 @@ pub struct Unit {
     /// (`docs/design/endgame.md`, #233). Read it through `bends()`.
     #[serde(default)]
     bends: u32,
-    /// Whether this unit has already been credited with the mastery toast and event
-    /// (`EndeavorEventKind::Mastered`, `docs/design/endgame.md`, "Showing mastery", #347). Set
-    /// once `bends` first reaches `EndeavorDef::master_threshold` for this unit's own nation, so
-    /// a save/load, or the threshold changing later, never refires the event for a unit that was
-    /// already a master.
+    /// Finished bends per ability, for the mastery rank's "forms" (an ability this unit has
+    /// finished at least one bend of; `docs/design/bending.md`, "The route: novice, adept,
+    /// master", #360). `Unit::forms` reads the count. `#[serde(default)]` so a save from before
+    /// this landed loads with none: such a unit needs to diversify before its already-high
+    /// `bends` counts toward a rank again.
     #[serde(default)]
-    mastered: bool,
+    bends_by: BTreeMap<AbilityId, u32>,
+    /// The highest rank this unit has already been credited with the toast and event for
+    /// (`EndeavorEventKind::RankUp`, #360). `#[serde(default)]` (to `Rank::Novice`, everyone's
+    /// starting rank) so a save from before this landed never refires an event for a rank it
+    /// can't recall reaching; a unit already at Master when saved re-earns the toast once its
+    /// `bends_by` (empty on load) catches back up.
+    #[serde(default)]
+    rank_credited: Rank,
     /// The building this unit stepped inside, if any: its anchor (docs/design/buildings.md,
     /// "Units inside buildings", #226). While set, `pos` stays on the entrance tile, so floods,
     /// regions and paths need no change; everything that asks "who is standing on the map here"
@@ -196,6 +203,17 @@ impl Unit {
     /// How many bends this unit has finished over its life. Failed bends don't count.
     pub fn bends(&self) -> u32 {
         self.bends
+    }
+
+    /// How many distinct abilities this unit has finished at least one bend of ("forms",
+    /// `docs/design/bending.md`, "The route: novice, adept, master", #360).
+    pub fn forms(&self) -> u32 {
+        self.bends_by.len() as u32
+    }
+
+    /// Finished bends of `ability` this unit has. 0 if it has never finished one.
+    pub fn bends_of(&self, ability: AbilityId) -> u32 {
+        self.bends_by.get(&ability).copied().unwrap_or(0)
     }
 
     /// The building this unit is inside, if any (#226).
@@ -712,7 +730,8 @@ impl World {
                 idle_until: 0,
                 wander_left: 0,
                 bends: 0,
-                mastered: false,
+                bends_by: BTreeMap::new(),
+                rank_credited: Rank::Novice,
                 inside: None,
                 guest: None,
                 unhappy_since: None,

@@ -285,3 +285,59 @@ fn an_ability_has_at_most_one_tech() {
     let twice = tech("a").replace("['probe']", "['probe','probe']");
     assert!(err_of(load(PROBE, &twice)).contains("listed twice"));
 }
+
+/// `[mastery]`'s own numbers are validated (#360): zero or out-of-range fields are rejected, and
+/// `adept_forms` can't ask for more forms than `master_forms` does.
+#[test]
+fn mastery_rejects_bad_numbers() {
+    let bad = |from: &str, to: &str| err_of(tweaked(from, to));
+    assert!(bad("master_bends = 10", "master_bends = 0").contains("master_bends"));
+    assert!(
+        bad("earth = 8, water = 8, air = 16", "earth = 0, water = 8, air = 16")
+            .contains("master_bends_per_nation")
+    );
+    assert!(bad("master_forms = 3", "master_forms = 0").contains("master_forms"));
+    assert!(bad("adept_forms = 2", "adept_forms = 0").contains("adept_forms"));
+    assert!(bad("adept_forms = 2", "adept_forms = 4").contains("adept_forms"));
+    assert!(bad("adept_share = 0.5", "adept_share = 0.0").contains("adept_share"));
+    assert!(bad("adept_share = 0.5", "adept_share = 1.5").contains("adept_share"));
+    assert!(bad("master_chi = 0.8", "master_chi = 0.0").contains("master_chi"));
+    assert!(bad("master_chi = 0.8", "master_chi = 1.5").contains("master_chi"));
+}
+
+/// `master_forms` can never ask for more forms than the smallest nation's own ability count
+/// (#360): the bundled Fire and Water both have exactly 3.
+#[test]
+fn master_forms_cannot_exceed_a_nations_own_ability_count() {
+    let e = err_of(tweaked("master_forms = 3", "master_forms = 4"));
+    assert!(e.contains("master_forms (4)") && e.contains("has abilities (3)"), "{e}");
+}
+
+/// `[mastery.titles]` must cover every nation, and name no other (#360).
+#[test]
+fn mastery_titles_must_cover_every_nation_and_no_other() {
+    let missing = err_of(tweaked("[mastery.titles.air]", "[mastery.titles.mars]"));
+    assert!(missing.contains("air") || missing.contains("mars"), "{missing}");
+}
+
+/// `[[ability]]`'s optional `rank` is `adept` or `master`; `novice` (everyone's rank already, so
+/// it gates nothing) is rejected, and the other two resolve onto `AbilityDef::rank` (#360).
+#[test]
+fn ability_rank_is_adept_or_master_never_novice() {
+    use crate::bending::Rank;
+
+    let novice = ability("rank='novice'\n[ability.effect]\nkind='probe'");
+    assert!(err_of(load(&novice, "")).contains("rank must be adept or master"));
+
+    let adept = ability("rank='adept'\n[ability.effect]\nkind='probe'");
+    let defs = load(&adept, "").unwrap();
+    assert_eq!(defs.ability(defs.ability_id("x").unwrap()).rank, Some(Rank::Adept));
+
+    let master = ability("rank='master'\n[ability.effect]\nkind='probe'");
+    let defs = load(&master, "").unwrap();
+    assert_eq!(defs.ability(defs.ability_id("x").unwrap()).rank, Some(Rank::Master));
+
+    // Most abilities, including every signature, name no rank at all.
+    let defs = load(PROBE, "").unwrap();
+    assert_eq!(defs.ability(defs.ability_id("probe").unwrap()).rank, None);
+}

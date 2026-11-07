@@ -10,6 +10,8 @@
 //! `data/research.toml`, resolved here into `AbilityDef::unlocked_by`. An ability no tech unlocks
 //! is available from the start, which is what makes it a nation's signature ability.
 
+use std::collections::BTreeMap;
+
 use serde::Deserialize;
 
 use crate::defs::{BiomeDef, BiomeId, DefsError, ResourceDef, ResourceId, Terrain};
@@ -17,6 +19,22 @@ use crate::jobs::{HarvestDef, ItemDef, ItemId};
 use crate::nation::{Modifiers, Nation};
 use crate::research::{TechDef, TechId};
 use crate::world::TICKS_PER_SECOND;
+
+/// A settler's bending rank (`docs/design/bending.md`, "The route: novice, adept, master",
+/// #360): computed live from finished bends and forms (`World::rank_of`), never stored, so
+/// retuning `[mastery]` or a save from before this landed is read consistently. Ordered
+/// `Novice < Adept < Master` so a rank-gated ability (`AbilityDef::rank`) can be checked with
+/// `>=`.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Deserialize, serde::Serialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Rank {
+    #[default]
+    Novice,
+    Adept,
+    Master,
+}
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
@@ -57,6 +75,165 @@ impl ChiSettings {
         };
         let per_tick = per_minute * multiplier / (60.0 * TICKS_PER_SECOND as f32);
         (chi + per_tick).min(max)
+    }
+}
+
+/// `[mastery]` in `data/bending.toml`: the route from novice to master
+/// (`docs/design/bending.md`, "The route: novice, adept, master", #360). A master is
+/// `master_bends_for` finished bends in at least `master_forms` different abilities ("forms": an
+/// ability a unit has finished at least one bend of, `Unit::forms`); an adept is
+/// `adept_bends_for` bends (`adept_share` of the master count, rounded up) in at least
+/// `adept_forms`. `World::rank_of` is the one place that reads these to answer a unit's rank.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MasteryDef {
+    /// The flat bends threshold for a master, overridden per nation by `master_bends_per_nation`
+    /// (#344's numbers, moved here unchanged).
+    pub master_bends: u32,
+    /// Overrides `master_bends` for the nations named, indexed like `Nation::ALL`.
+    pub master_bends_per_nation: [Option<u32>; 4],
+    /// Distinct abilities a master must have finished at least one bend of.
+    pub master_forms: u32,
+    /// The share of a nation's master bends an adept needs, in `(0, 1]`.
+    pub adept_share: f32,
+    /// Distinct abilities an adept must have finished at least one bend of.
+    pub adept_forms: u32,
+    /// What a master pays for a bend, as a share of the ability's own `chi` in `(0, 1]` (0.8:
+    /// 80%).
+    pub master_chi: f32,
+    /// What each rank is called, per nation, indexed like `Nation::ALL`.
+    pub titles: [NationTitles; 4],
+}
+
+/// `[mastery.titles.<nation>]`: what a settler of that nation is called at each rank.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NationTitles {
+    pub novice: String,
+    pub adept: String,
+    pub master: String,
+}
+
+impl MasteryDef {
+    /// `nation`'s own index into `Nation::ALL`, which every per-nation array here (and
+    /// `endeavor.rs`'s `bends_per_nation`/`per_nation`) is ordered by.
+    fn index(nation: Nation) -> usize {
+        Nation::ALL.iter().position(|&n| n == nation).expect("every nation is in ALL")
+    }
+
+    /// The finished bends that make a unit of `nation` a master: `master_bends_per_nation`'s
+    /// override, or the flat `master_bends`.
+    pub fn master_bends_for(&self, nation: Nation) -> u32 {
+        self.master_bends_per_nation[Self::index(nation)].unwrap_or(self.master_bends)
+    }
+
+    /// The finished bends that make a unit of `nation` an adept: `adept_share` of its own
+    /// master threshold, rounded up so an adept is always strictly easier than a master.
+    pub fn adept_bends_for(&self, nation: Nation) -> u32 {
+        (self.master_bends_for(nation) as f32 * self.adept_share).ceil() as u32
+    }
+
+    /// What a unit of `nation` at `rank` is called.
+    pub fn title(&self, nation: Nation, rank: Rank) -> &str {
+        let t = &self.titles[Self::index(nation)];
+        match rank {
+            Rank::Novice => &t.novice,
+            Rank::Adept => &t.adept,
+            Rank::Master => &t.master,
+        }
+    }
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct PerNationBends {
+    air: Option<u32>,
+    water: Option<u32>,
+    earth: Option<u32>,
+    fire: Option<u32>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawTitles {
+    novice: String,
+    adept: String,
+    master: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawMastery {
+    master_bends: u32,
+    #[serde(default)]
+    master_bends_per_nation: PerNationBends,
+    master_forms: u32,
+    adept_share: f32,
+    adept_forms: u32,
+    master_chi: f32,
+    titles: BTreeMap<String, RawTitles>,
+}
+
+impl RawMastery {
+    fn resolve(self, abilities: &[AbilityDef]) -> Result<MasteryDef, DefsError> {
+        let err = |msg: String| DefsError(format!("bending.toml: mastery: {msg}"));
+        if self.master_bends == 0 {
+            return Err(err("master_bends must be at least 1".into()));
+        }
+        let p = self.master_bends_per_nation;
+        let master_bends_per_nation = [p.air, p.water, p.earth, p.fire];
+        if master_bends_per_nation.contains(&Some(0)) {
+            return Err(err("master_bends_per_nation values must be at least 1".into()));
+        }
+        if self.master_forms == 0 {
+            return Err(err("master_forms must be at least 1".into()));
+        }
+        if self.adept_forms == 0 || self.adept_forms > self.master_forms {
+            return Err(
+                err("adept_forms must be at least 1, and no more than master_forms".into()),
+            );
+        }
+        if !is_share(self.adept_share) {
+            return Err(err("adept_share must be a share in (0, 1]".into()));
+        }
+        if !is_share(self.master_chi) {
+            return Err(err("master_chi must be a share in (0, 1]".into()));
+        }
+        // Skipped when the data defines no abilities at all: tests of other tables (biomes,
+        // resources) reuse the bundled `[chi]`/`[mastery]` with none, and bending itself is moot
+        // without any.
+        if !abilities.is_empty() {
+            for n in Nation::ALL {
+                let count = abilities.iter().filter(|a| a.nation == n).count() as u32;
+                if self.master_forms > count {
+                    return Err(err(format!(
+                        "master_forms ({}) is more than {} has abilities ({count})",
+                        self.master_forms,
+                        n.as_str()
+                    )));
+                }
+            }
+        }
+        let mut titles = self.titles;
+        let mut resolved = Vec::with_capacity(Nation::ALL.len());
+        for n in Nation::ALL {
+            let Some(t) = titles.remove(n.as_str()) else {
+                return Err(err(format!("titles is missing {:?}", n.as_str())));
+            };
+            resolved.push(NationTitles { novice: t.novice, adept: t.adept, master: t.master });
+        }
+        if let Some(unknown) = titles.keys().next() {
+            return Err(err(format!("titles: unknown nation {unknown:?}")));
+        }
+        let titles: [NationTitles; 4] =
+            resolved.try_into().expect("one title per nation, just checked");
+        Ok(MasteryDef {
+            master_bends: self.master_bends,
+            master_bends_per_nation,
+            master_forms: self.master_forms,
+            adept_share: self.adept_share,
+            adept_forms: self.adept_forms,
+            master_chi: self.master_chi,
+            titles,
+        })
     }
 }
 
@@ -160,6 +337,10 @@ pub struct AbilityDef {
     pub effect: Effect,
     /// The tech that unlocks this ability, or `None` if it is available from the start.
     pub unlocked_by: Option<TechId>,
+    /// The rank (`Adept` or `Master`, never `Novice`) a caster needs, checked by `can_cast`
+    /// next to `unlocked_by` (#360). `None` for most abilities, including every signature
+    /// (which needs neither a tech nor a rank).
+    pub rank: Option<Rank>,
 }
 
 #[derive(Deserialize)]
@@ -237,6 +418,8 @@ struct RawAbility {
     work: f32,
     speed_modifier: Option<String>,
     magnitude_modifier: Option<String>,
+    #[serde(default)]
+    rank: Option<Rank>,
     effect: RawEffect,
 }
 
@@ -246,6 +429,7 @@ pub(crate) struct BendingFile {
     chi: ChiSettings,
     #[serde(default)]
     ability: Vec<RawAbility>,
+    mastery: RawMastery,
 }
 
 fn positive(v: f32) -> bool {
@@ -278,7 +462,7 @@ impl BendingFile {
         harvests: &[HarvestDef],
         items: &[ItemDef],
         techs: &[TechDef],
-    ) -> Result<(ChiSettings, Vec<AbilityDef>), DefsError> {
+    ) -> Result<(ChiSettings, Vec<AbilityDef>, MasteryDef), DefsError> {
         let err = |msg: String| DefsError(format!("bending.toml: {msg}"));
         let c = self.chi;
         if !positive(c.max) {
@@ -316,6 +500,9 @@ impl BendingFile {
             }
             modifier(a, "speed_modifier", &raw.speed_modifier)?;
             modifier(a, "magnitude_modifier", &raw.magnitude_modifier)?;
+            if raw.rank == Some(Rank::Novice) {
+                return Err(err(format!("ability {a}: rank must be adept or master")));
+            }
             let effect = resolve_effect(a, raw.effect, biomes, resources, harvests, items)?;
             abilities.push(AbilityDef {
                 id: raw.id,
@@ -329,10 +516,12 @@ impl BendingFile {
                 magnitude_modifier: raw.magnitude_modifier,
                 effect,
                 unlocked_by: None,
+                rank: raw.rank,
             });
         }
         link_unlocks(&mut abilities, techs)?;
-        Ok((c, abilities))
+        let mastery = self.mastery.resolve(&abilities)?;
+        Ok((c, abilities, mastery))
     }
 }
 

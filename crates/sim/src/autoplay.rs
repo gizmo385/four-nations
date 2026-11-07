@@ -31,11 +31,12 @@
 //!
 //! **Bending** (`Opening::with_bending`, #343, `docs/design/endgame.md`, "Mastery pacing") is
 //! off by default. When on, `step` also keeps up to `bend_slots` bends designated within
-//! `FORAGE_RADIUS` tiles of the anchor: for every empty slot, the cheapest ability (by chi) the
-//! settlement can cast (`World::check_ability`) that has a valid target nearby (nearest tile
-//! first, `World::apply`'s own validation deciding), so chi never sits idle. This is generic
-//! over `data/bending.toml`, with no `if nation == ..`: the `balance` harness's mastery mode is
-//! what exercises it.
+//! `FORAGE_RADIUS` tiles of the anchor: for every empty slot, the ability the settlement can
+//! cast (`World::check_ability`) least often so far that has a valid target nearby (nearest tile
+//! first, `World::apply`'s own validation deciding; ties go to the cheapest by chi), so chi
+//! never sits idle and a settler picks up a mix of forms rather than one ability spammed forever
+//! (`keep_bends_designated`, #360). This is generic over `data/bending.toml`, with no
+//! `if nation == ..`: the `balance` harness's mastery mode is what exercises it.
 //!
 //! **`Opening::with_full_research`** (#352) swaps `RESEARCH_PLAN` for the settlement's whole
 //! visible tech tree, in file order (`Defs::techs_for`: the shared tier, then the nation's own
@@ -558,12 +559,15 @@ fn queue_next_known_tech(world: &mut World, defs: &Defs, plan: impl Iterator<Ite
 }
 
 /// Keeps up to `slots` bends designated within `radius` tiles of `anchor` (module doc,
-/// "Bending"): while fewer than `slots` are pending, designates the cheapest ability (lowest
-/// `AbilityDef::chi`, though any ability whose output is in `wanted` goes first: `Economy`'s
-/// `wanted_items`, #376) the settlement can cast right now (`World::check_ability`) that has a
-/// valid target among those tiles, nearest first, leaving `World::apply`'s own validation to
-/// decide what counts as valid. Stops for this step once nothing can be added, so a nation with
-/// no ability available, or no target anywhere nearby, is left alone rather than looping.
+/// "Bending"): while fewer than `slots` are pending, designates the ability the settlement can
+/// cast right now (`World::check_ability`) that has a valid target among those tiles, nearest
+/// first, leaving `World::apply`'s own validation to decide what counts as valid. Any ability
+/// whose output is in `wanted` goes first (`Economy`'s `wanted_items`, #376); failing that, the
+/// one cast least often so far, settlement-wide (`Unit::bends_of`, summed): this is what gives a
+/// settler a mix of forms instead of one ability spammed forever (#360, `docs/design/bending.md`,
+/// "The route: novice, adept, master"), tied by the cheapest `AbilityDef::chi`. Stops for this
+/// step once nothing can be added, so a nation with no ability available, or no target anywhere
+/// nearby, is left alone rather than looping.
 fn keep_bends_designated(
     world: &mut World,
     defs: &Defs,
@@ -584,9 +588,11 @@ fn keep_bends_designated(
         Effect::Smelt { metal, .. } => wanted.contains(metal),
         _ => false,
     };
+    let cast_so_far = |a: AbilityId| world.units.iter().map(|u| u.bends_of(a)).sum::<u32>();
     abilities.sort_by(|&a, &b| {
         makes_wanted(b)
             .cmp(&makes_wanted(a))
+            .then(cast_so_far(a).cmp(&cast_so_far(b)))
             .then(defs.ability(a).chi.total_cmp(&defs.ability(b).chi))
     });
     let positions = positions_near(anchor, radius);

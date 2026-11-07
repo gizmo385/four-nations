@@ -556,7 +556,7 @@ impl World {
         let u = &mut self.units[i];
         u.chi = (u.chi - def.chi).max(0.0);
         u.bends += 1;
-        self.note_mastery(i, defs);
+        self.note_rank_up(i, defs);
         self.gate_mut().expect("checked above").tasks[usize::from(task)].done = true;
         self.gate_progressed(defs);
     }
