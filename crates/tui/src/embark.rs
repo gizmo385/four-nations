@@ -738,12 +738,16 @@ fn draw_panel(
     );
     let mut p = Painter::new(buf, inner, palette);
 
-    p.row(&Row::pair(
-        format!("Seed {}", screen.seed),
-        Tone::Dim,
-        defs.nation(screen.nation).name.clone(),
-        Tone::Text,
-    ));
+    let seed_text = format!("Seed {}", screen.seed);
+    let nation_name = defs.nation(screen.nation).name.clone();
+    if seed_text.chars().count() + 1 + nation_name.chars().count() <= usize::from(inner.width) {
+        p.row(&Row::pair(seed_text, Tone::Dim, nation_name, Tone::Text));
+    } else {
+        // A random seed runs to 20 digits. Sharing the row would cut the seed, and the seed is
+        // what a player copies to replay a map, so the nation gets its own row instead.
+        p.row(&Row::text(seed_text, Tone::Dim));
+        p.row(&Row::text(nation_name, Tone::Text));
+    }
     // A line under the seed (#298, docs/design/difficulty.md "Embark"): the chosen preset, and
     // the size/survey mode already shown on the seed step.
     let preset_name = screen
@@ -778,10 +782,13 @@ fn draw_panel(
     if let Some(problem) = report.problem {
         p.row(&Row::text(format!("{} OUTLOOK", marks.bullet), Tone::Title));
         let cross = if palette.ascii { "x" } else { "✗" };
-        p.row(&Row::text(
-            format!("{cross} Can't settle: {}.", problem_text(problem, screen.tile_terrain())),
-            Tone::Bad,
-        ));
+        // Wrapped like the outlook reasons below: the reason is the whole point of this line,
+        // and the longer ones ("the landmass is too small to live on") don't fit one row.
+        let refusal =
+            format!("{cross} Can't settle: {}.", problem_text(problem, screen.tile_terrain()));
+        for line in wrap(&refusal, usize::from(inner.width), 3, marks.ellipsis) {
+            p.row(&Row::text(line, Tone::Bad));
+        }
         return;
     }
 
@@ -1046,5 +1053,46 @@ mod tests {
                 let _ = block_look(kind, &defs, &palette);
             }
         }
+    }
+
+    #[test]
+    fn the_panel_shows_a_long_seed_and_a_long_refusal_in_full() {
+        // The owner's screenshot (2026-11-06): a 20-digit seed cut to "Seed 179402856118478…"
+        // and the refusal cut to "Can't settle: the landmass is…" in the 36-column panel.
+        let defs = defs();
+        let seed = 17_940_285_611_847_812_345;
+        let screen = EmbarkScreen::new(
+            seed,
+            Nation::Air,
+            large(),
+            SurveyMode::Exact,
+            Some("normal".into()),
+            (200, 50),
+            &defs,
+        );
+        let mut report =
+            screen.survey.report(screen.cursor, screen.mode, screen.difficulty(), &defs);
+        report.problem = Some(SiteProblem::TooSmall);
+        let palette = Palette::new(&defs, Nation::Air, crate::color::ColorDepth::Never, false);
+        let area = Rect::new(0, 0, 36, 20);
+        let mut buf = Buffer::empty(area);
+        draw_panel(&screen, &defs, &palette, &report, area, &mut buf);
+        let rows: Vec<String> = (0..area.height)
+            .map(|y| (0..area.width).map(|x| buf[(x, y)].symbol()).collect::<String>())
+            .collect();
+        let text = rows
+            .iter()
+            .map(|r| r.trim_matches(|c: char| c == ' ' || c == '│'))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(text.contains(&format!("Seed {seed}")), "seed cut off:\n{}", rows.join("\n"));
+        assert!(text.contains("Air Nomads"), "nation missing:\n{}", rows.join("\n"));
+        assert!(
+            text.contains("Can't settle: the landmass is too small to live on."),
+            "refusal cut off:\n{}",
+            rows.join("\n")
+        );
+        assert!(!text.contains('…'), "something is still cut off:\n{}", rows.join("\n"));
     }
 }
