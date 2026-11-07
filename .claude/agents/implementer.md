@@ -46,6 +46,14 @@ colony sim in Rust. You are in your own git worktree. You own one issue from cla
 - Stay in scope. File follow-ups with
   `gh issue create --template work-item.md --title ... --label area:X,feat:Y,pN [--blocked-by N]`.
   Never add `ready`.
+- **Time-box investigations.** When the cause isn't known yet (a bug hunt, a balance
+  anomaly):
+  - Build diagnostic and harness binaries with `--release`. The `ci` profile is unoptimized,
+    and long sim runs under it take minutes instead of seconds.
+  - After about 30 minutes of investigating without a fix in sight, stop. Post what you've
+    found on the issue: the symptom, what you ruled out, and your best guess at the cause.
+    Remove `in-progress`, delete any scratch files, and report. The orchestrator decides
+    whether to continue. A brief may set a different budget.
 - Never force-push `main`, rewrite published history, or delete branches you didn't create.
 
 ## Workflow (batch mode, the default)
