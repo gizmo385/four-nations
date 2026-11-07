@@ -92,21 +92,28 @@ pub fn list() -> Vec<Value> {
         json!({
             "name": "act",
             "description": "Runs named steps in order, each lowered to the keys a player would \
-                             press: designate {tool: harvest|cancel|clear|stockpile|bend, from, to, \
-                             standing?, teardown?}, build {building, from, to}, select {x,y} or \
-                             {name}, research {tech}, cursor {x,y}, keys {script}. `standing` \
-                             (harvest only) re-queues the designation when the resource ripens \
-                             again. `teardown` (cancel only) also withdraws a build site or a \
-                             stockpile tile; without it a cancel withdraws only job \
-                             designations (a harvest, a bend, a sow or a clear mark) and leaves \
-                             those alone. A step that can't be planned (an unknown tech, a \
-                             building the Build modal doesn't offer, a tile off the map, \
-                             standing or teardown on the wrong tool, ...) presses nothing and \
-                             the steps after it don't run. The result's `notices` carries each \
-                             designate or build step's own 'N done, M skipped: reason' text \
-                             (cancel's own breaks the done count out by kind instead), so a \
-                             mostly-skipped rectangle (an impassable tile, say) is obvious right \
-                             away instead of only in a later `observe`.",
+                             press: designate {tool: harvest|cancel|clear|stockpile|bend|sow, \
+                             from, to, standing?, teardown?, ability?}, build {building, from, \
+                             to}, select {x,y} or {name}, research {tech}, cursor {x,y}, keys \
+                             {script}. `standing` (harvest only) re-queues the designation when \
+                             the resource ripens again. `teardown` (cancel only) also withdraws \
+                             a build site or a stockpile tile; without it a cancel withdraws \
+                             only job designations (a harvest, a bend, a sow or a clear mark) \
+                             and leaves those alone. `ability` (bend only) is the ability's own \
+                             name as the Bend tool's own banner shows it (e.g. \"Bore Tunnel\"); \
+                             it's lowered to however many presses of the bend key move it there \
+                             from whichever ability is active now, so a repeated designate with \
+                             the same ability never presses a key at all. A step that can't be \
+                             planned (an unknown tech, a building the Build modal doesn't \
+                             offer, a tile off the map, standing or teardown on the wrong \
+                             tool, an ability that's unknown, locked or not for the bend tool, \
+                             ...) presses nothing and the steps after it don't run. The \
+                             result's `notices` carries each designate or build step's own \
+                             'N done, M skipped: reason' text (cancel's own breaks the done \
+                             count out by kind instead, and a sow names a plot that's already \
+                             sown or marked instead of the misleading 'not a farm plot'), so a \
+                             mostly-skipped rectangle (an impassable tile, say) is obvious \
+                             right away instead of only in a later `observe`.",
             "inputSchema": json!({
                 "type": "object",
                 "properties": {
@@ -124,13 +131,16 @@ pub fn list() -> Vec<Value> {
                                 },
                                 "tool": {
                                     "type": "string",
-                                    "enum": ["harvest", "cancel", "clear", "stockpile", "bend"],
+                                    "enum": [
+                                        "harvest", "cancel", "clear", "stockpile", "bend", "sow",
+                                    ],
                                 },
                                 "building": {"type": "string"},
                                 "from": coord,
                                 "to": coord,
                                 "standing": {"type": "boolean"},
                                 "teardown": {"type": "boolean"},
+                                "ability": {"type": "string"},
                                 "x": {"type": "integer"},
                                 "y": {"type": "integer"},
                                 "name": {"type": "string"},

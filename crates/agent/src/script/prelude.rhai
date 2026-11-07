@@ -83,12 +83,12 @@ fn find(desc, near, radius) {
 }
 
 /// Designates every tile `find(desc, near, radius)` turns up for `tool` (`"harvest"`,
-/// `"cancel"`, `"clear"`, `"stockpile"` or `"bend"`), each its own 1x1 rectangle, in one `act`
-/// call: `#{ok, msg, found, done}`. `found` is how many tiles matched `desc` at all; `done` is
-/// how many of those the designation actually took (short of `found` when some are out of
-/// reach or already designated, say). `ok` is `done > 0`. `standing` is `act`'s own rule: only
-/// `"harvest"` takes it, and only there does a `true` re-queue the designation once the
-/// resource ripens again.
+/// `"cancel"`, `"clear"`, `"stockpile"`, `"bend"` or `"sow"`), each its own 1x1 rectangle, in
+/// one `act` call: `#{ok, msg, found, done}`. `found` is how many tiles matched `desc` at all;
+/// `done` is how many of those the designation actually took (short of `found` when some are
+/// out of reach or already designated, say). `ok` is `done > 0`. `standing` is `act`'s own
+/// rule: only `"harvest"` takes it, and only there does a `true` re-queue the designation once
+/// the resource ripens again.
 fn designate_near(tool, desc, near, radius, standing) {
     let matches = find(desc, near, radius);
     if matches.len() == 0 {

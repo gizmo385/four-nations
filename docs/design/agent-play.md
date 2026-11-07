@@ -170,7 +170,7 @@ resulting `observe`. No game time passes. A step is one of:
 
 | Step | Lowered to |
 |---|---|
-| `designate {tool, from, to, standing?, teardown?}` with tool `harvest`, `cancel`, `clear`, `stockpile` or `bend` | Esc to Select mode if needed, the tool's letter, `o` for a standing order (`harvest` only) or (#335) to also withdraw a build site or stockpile tile (`cancel` only; without it `cancel` withdraws only job designations and leaves those alone), a cursor walk to `from` (Shift for runs of 10), `Enter`, a walk to `to`, `Enter` |
+| `designate {tool, from, to, standing?, teardown?, ability?}` with tool `harvest`, `cancel`, `clear`, `stockpile`, `bend` or (#333) `sow` | Esc to Select mode if needed, the tool's letter (for `bend` with an `ability`: the bend key as many times as moves it from whichever ability is active now to that one, wrapping through the ones the settlement can currently use, #333), `o` for a standing order (`harvest` only) or (#335) to also withdraw a build site or stockpile tile (`cancel` only; without it `cancel` withdraws only job designations and leaves those alone), a cursor walk to `from` (Shift for runs of 10), `Enter`, a walk to `to`, `Enter` |
 | `build {building, from, to}` | `u`, the Build modal's navigation to `building`, `Enter`, then as `designate` |
 | `select {x,y}` or `select {name}` | A cursor walk and `Enter` (again, until that unit is selected), or `N`, row navigation and `Enter` |
 | `research {tech}` | `t`, arrow navigation to the tech, `Enter`, `Esc` |
@@ -178,13 +178,15 @@ resulting `observe`. No game time passes. A step is one of:
 | `keys {script}` | The script as written, in `--keys` syntax, without `<tick>` |
 
 The planner reads `UiState` (the cursor, open screen and tool) to plan keys. If the plan can't
-be made (an unknown tech, a building the modal doesn't offer, a tile off the map), the step
-fails with the reason and nothing is pressed. `note` is the agent's one-line reason (80
-characters at most), shown to watchers and logged, and it never affects the game. The result's
-`notices` carries each `designate` or `build` step's own notice (the "N done, M skipped:
-reason" text a player sees in the Tool section), one entry per step that left one, so a
-mostly-skipped rectangle is obvious right away instead of only in a later `observe` -- and
-never masked by a later step in the same call overwriting the one live UI notice.
+be made (an unknown tech, a building the modal doesn't offer, a tile off the map, an `ability`
+that's unknown, not yet usable or named outside the `bend` tool), the step fails with the
+reason and nothing is pressed. `note` is the agent's one-line reason (80 characters at most),
+shown to watchers and logged, and it never affects the game. The result's `notices` carries
+each `designate` or `build` step's own notice (the "N done, M skipped: reason" text a player
+sees in the Tool section -- a `sow` re-designating a plot that's already sown or marked says
+so, rather than "not a farm plot"), one entry per step that left one, so a mostly-skipped
+rectangle is obvious right away instead of only in a later `observe` -- and never masked by a
+later step in the same call overwriting the one live UI notice.
 
 **Refused keys:** `Space`, `+`, `-`, `.` (the host owns time), and `R`, `1`-`4`, `q`, `F5`,
 `F6` and `F9`, plus the Esc menu's Save, Load and Quit (no saves, no new maps, no quitting

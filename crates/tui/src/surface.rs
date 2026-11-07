@@ -23,9 +23,12 @@
 //! cursor steps and tracking modal state: [`Host::act`] plans each [`ActionStep`] from `UiState`
 //! (the cursor, the open screen or modal, and the active tool) and presses exactly the keys a
 //! player would, closing any open screen or modal first where the step needs the plain map, and
-//! leaving the active tool's own key to switch tools (it already does that unconditionally). A
+//! leaving the active tool's own key to switch tools (it already does that unconditionally,
+//! except `designate {tool: "bend", ability}`, #333: that presses the bend key however many
+//! times moves it from whatever ability is active now to the one named, including zero). A
 //! step whose plan can't be made (an unknown tech, a building the Build modal doesn't offer, a
-//! tile off the map, ...) presses nothing and the steps after it don't run either.
+//! tile off the map, an unknown or locked bend ability, ...) presses nothing and the steps
+//! after it don't run either.
 //!
 //! **A run log** ([`RunLog`]) remembers every key actually pressed and every turn run, in order,
 //! so it can be replayed with `Shell::play` (a seed plus keys is the whole game, as a key script
@@ -911,9 +914,15 @@ impl Host {
     /// `UiState`.
     fn plan_step(&self, step: &ActionStep) -> Result<Vec<KeyEvent>, String> {
         match step {
-            ActionStep::Designate { tool, from, to, standing, teardown } => {
-                self.plan_designate(*tool, from.pos(), to.pos(), *standing, *teardown)
-            }
+            ActionStep::Designate { tool, from, to, standing, teardown, ability } => self
+                .plan_designate(
+                    *tool,
+                    from.pos(),
+                    to.pos(),
+                    *standing,
+                    *teardown,
+                    ability.as_deref(),
+                ),
             ActionStep::Build { building, from, to } => {
                 self.plan_build(building, from.pos(), to.pos())
             }
@@ -933,9 +942,10 @@ impl Host {
     }
 
     /// `designate`: Esc to close any open screen or modal (the tool's letter and `o` wouldn't
-    /// reach the game otherwise), the tool's letter, `o` for a standing order or (#335) a
-    /// teardown cancel, a cursor walk to `from` (Shift for runs of 10), Enter, a walk to `to`,
-    /// Enter.
+    /// reach the game otherwise), the tool's letter (or, for `tool: "bend"` with an `ability`,
+    /// however many `B` presses that ability needs, [`Self::bend_ability_keys`]), `o` for a
+    /// standing order or (#335) a teardown cancel, a cursor walk to `from` (Shift for runs of
+    /// 10), Enter, a walk to `to`, Enter.
     fn plan_designate(
         &self,
         tool: DesignateTool,
@@ -943,6 +953,7 @@ impl Host {
         to: Pos,
         standing: bool,
         teardown: bool,
+        ability: Option<&str>,
     ) -> Result<Vec<KeyEvent>, String> {
         if !self.in_bounds(from) || !self.in_bounds(to) {
             return Err(format!(
@@ -956,10 +967,21 @@ impl Host {
         if teardown && tool != DesignateTool::Cancel {
             return Err("teardown is only for the cancel tool".into());
         }
-        let letter =
-            tool.tool().letter().expect("every designate tool has a letter").to_ascii_lowercase();
+        if ability.is_some() && tool != DesignateTool::Bend {
+            return Err("ability is only for the bend tool".into());
+        }
         let mut keys = self.close_overlay_keys();
-        keys.push(char_key(letter));
+        match ability {
+            Some(name) => keys.extend(self.bend_ability_keys(name)?),
+            None => {
+                let letter = tool
+                    .tool()
+                    .letter()
+                    .expect("every designate tool has a letter")
+                    .to_ascii_lowercase();
+                keys.push(char_key(letter));
+            }
+        }
         if standing || teardown {
             keys.push(char_key('o'));
         }
@@ -968,6 +990,38 @@ impl Host {
         keys.extend(walk_keys(from, to));
         keys.push(enter_key());
         Ok(keys)
+    }
+
+    /// How many `B` presses move the Bend tool from whatever ability is active now to `name`
+    /// (the ability's own display name, as the Bend tool's banner shows it, e.g. "Bore Tunnel"),
+    /// for `plan_designate`'s own `tool: "bend"` with an `ability` (#333): one press switches
+    /// into the Bend tool without changing which ability is chosen
+    /// (`fn_ui::tools::cycle_ability`'s own rule), so that press is only included if the Bend
+    /// tool isn't already active; every press after that moves on to the next ability
+    /// `fn_ui::tools::usable_abilities` lists, wrapping, so the count is exactly the distance (in
+    /// that order) from the one active now. An unknown name, or one the settlement can't use yet
+    /// (not researched, or the wrong rank), is a planning error: nothing is pressed for it, same
+    /// as any other step that can't be planned.
+    fn bend_ability_keys(&self, name: &str) -> Result<Vec<KeyEvent>, String> {
+        let session = &self.app().session;
+        let id = session
+            .defs
+            .abilities
+            .iter()
+            .position(|a| a.name == name)
+            .map(|i| fn_sim::bending::AbilityId(i as u16))
+            .ok_or_else(|| format!("no such ability {name:?}"))?;
+        let usable = fn_ui::tools::usable_abilities(session);
+        let target = usable
+            .iter()
+            .position(|&a| a == id)
+            .ok_or_else(|| format!("{name} isn't usable yet"))?;
+        let start = fn_ui::tools::bend_ability(session)
+            .and_then(|a| usable.iter().position(|&u| u == a))
+            .unwrap_or(0);
+        let distance = (target + usable.len() - start) % usable.len();
+        let switch = usize::from(self.app().ui.tool != Tool::Bend);
+        Ok(std::iter::repeat_n(char_key('b'), switch + distance).collect())
     }
 
     /// `build`: as `plan_designate`, but `u` and the Build modal's own navigation (arrows/`W`/
@@ -1256,11 +1310,17 @@ fn line_text(line: Line) -> Option<String> {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "step", rename_all = "snake_case")]
 pub enum ActionStep {
-    /// `{tool, from, to, standing?, teardown?}`: a rectangle designation. `standing` (default
-    /// `false`) is only for `tool: "harvest"`; `teardown` (#335, default `false`) is only for
-    /// `tool: "cancel"` -- without it, a cancel withdraws only job designations (a harvest, a
-    /// bend, a Sow or a Clear mark) and leaves a build site or a stockpile tile alone; with it,
-    /// those go too. Either flag set on the wrong tool fails to plan.
+    /// `{tool, from, to, standing?, teardown?, ability?}`: a rectangle designation. `standing`
+    /// (default `false`) is only for `tool: "harvest"`; `teardown` (#335, default `false`) is
+    /// only for `tool: "cancel"` -- without it, a cancel withdraws only job designations (a
+    /// harvest, a bend, a Sow or a Clear mark) and leaves a build site or a stockpile tile
+    /// alone; with it, those go too. `ability` (#333) is only for `tool: "bend"`: the ability's
+    /// own name (as the Bend tool's own banner shows it, e.g. "Bore Tunnel"), lowered to however
+    /// many `B` presses move the Bend tool from whatever ability is active now to that one
+    /// (wrapping through every ability the settlement can currently use, `B`'s own order); with
+    /// none given, the Bend tool is picked (or kept) without changing which ability is active.
+    /// Any of these three flags set on the wrong tool, or an `ability` that's unknown or not yet
+    /// usable, fails to plan.
     Designate {
         tool: DesignateTool,
         from: Coord,
@@ -1269,6 +1329,8 @@ pub enum ActionStep {
         standing: bool,
         #[serde(default)]
         teardown: bool,
+        #[serde(default)]
+        ability: Option<String>,
     },
     /// `{building, from, to}`: the Build modal's own name for the building (as `look`'s legend
     /// and `screen {"nation"}` would show it), and the rectangle to place it over.
@@ -1317,6 +1379,8 @@ pub enum DesignateTool {
     Clear,
     Stockpile,
     Bend,
+    /// Sow an empty farm plot (issue #198, #333): `c` plus the rectangle.
+    Sow,
 }
 
 impl DesignateTool {
@@ -1327,6 +1391,7 @@ impl DesignateTool {
             Self::Clear => Tool::Clear,
             Self::Stockpile => Tool::Stockpile,
             Self::Bend => Tool::Bend,
+            Self::Sow => Tool::Sow,
         }
     }
 
@@ -1337,6 +1402,7 @@ impl DesignateTool {
             Self::Clear => "clear",
             Self::Stockpile => "stockpile",
             Self::Bend => "bend",
+            Self::Sow => "sow",
         }
     }
 }
@@ -2660,6 +2726,7 @@ mod tests {
             to: Coord { x: to.x, y: to.y },
             standing: false,
             teardown: false,
+            ability: None,
         }];
         let result = h.act(&steps, Some("wood for a bed".into()));
         assert!(result.error.is_none(), "{result:?}");
@@ -2685,6 +2752,7 @@ mod tests {
             to: Coord { x: to.x, y: to.y },
             standing: false,
             teardown: false,
+            ability: None,
         }];
         let result = h.act(&steps, Some("make room for a bed".into()));
         assert!(result.error.is_none(), "{result:?}");
@@ -2715,6 +2783,7 @@ mod tests {
                 to: Coord { x: water.x, y: water.y },
                 standing: false,
                 teardown: false,
+                ability: None,
             },
             ActionStep::Designate {
                 tool: DesignateTool::Harvest,
@@ -2722,6 +2791,7 @@ mod tests {
                 to: Coord { x: land_to.x, y: land_to.y },
                 standing: false,
                 teardown: false,
+                ability: None,
             },
         ];
         let result = h.act(&steps, None);
@@ -2769,6 +2839,7 @@ mod tests {
             to: Coord { x: to.x, y: to.y },
             standing: true,
             teardown: false,
+            ability: None,
         }];
         let result = h.act(&steps, None);
         assert!(result.error.is_none(), "{result:?}");
@@ -2787,6 +2858,7 @@ mod tests {
             to: Coord { x: cursor.x, y: cursor.y },
             standing: true,
             teardown: false,
+            ability: None,
         }];
         let result = h.act(&steps, None);
         let err = result.error.unwrap();
@@ -2808,6 +2880,7 @@ mod tests {
             to: Coord { x: cursor.x, y: cursor.y },
             standing: false,
             teardown: true,
+            ability: None,
         }];
         let result = h.act(&steps, None);
         assert!(result.error.is_none(), "{result:?}");
@@ -2826,6 +2899,7 @@ mod tests {
             to: Coord { x: cursor.x, y: cursor.y },
             standing: false,
             teardown: true,
+            ability: None,
         }];
         let result = h.act(&steps, None);
         let err = result.error.unwrap();
@@ -2844,10 +2918,211 @@ mod tests {
             to: Coord { x: 0, y: 0 },
             standing: false,
             teardown: false,
+            ability: None,
         }];
         let result = h.act(&steps, None);
         let err = result.error.unwrap();
         assert!(err.reason.contains("isn't on the map"), "{}", err.reason);
+        assert!(result.keys.is_empty());
+        assert_eq!(h.observe().tool, "Select");
+    }
+
+    /// Plants a bare, empty farm plot (#333) right on `h`'s cursor tile, bypassing the build
+    /// queue (`World::adopt_farm_plots` registers it as a plot the way a loaded save's would):
+    /// a farm plot's tests in `world/farm/tests.rs` do the same, for the same reason -- `act`'s
+    /// own `designate {tool: sow}` doesn't need a finished build site, just a plot to sow.
+    fn farm_plot_tile(h: &mut Host) -> Pos {
+        let pos = h.app().ui.cursor;
+        let farm = h.app().session.defs.building_id("farm_plot").expect("bundled data has one");
+        let tile = h.app_mut().session.world.map.get_mut(pos).expect("the cursor is on the map");
+        tile.resource = None;
+        tile.building = Some(fn_sim::building::Building::new(farm, true, false));
+        let defs = h.app().session.defs.clone();
+        h.app_mut().session.world.adopt_farm_plots(&defs);
+        pos
+    }
+
+    /// `designate {tool: sow}` (#333, issue #198) lowers to `c` plus the rectangle, exactly as
+    /// every other designate tool, and the sim opens a Sow job for the plot. No
+    /// `assert_same_as_key_script` here: the plot is planted straight onto `h`'s own world
+    /// (`farm_plot_tile`), not through any key a fresh game's own replay could reach, so the two
+    /// can't be compared frame for frame the way every other designate test here is.
+    #[test]
+    fn act_designate_sow_round_trips_with_its_key_script_and_sows_the_plot() {
+        let mut h = host(Nation::Earth);
+        let pos = farm_plot_tile(&mut h);
+        let steps = vec![ActionStep::Designate {
+            tool: DesignateTool::Sow,
+            from: Coord { x: pos.x, y: pos.y },
+            to: Coord { x: pos.x, y: pos.y },
+            standing: false,
+            teardown: false,
+            ability: None,
+        }];
+        let result = h.act(&steps, None);
+        assert!(result.error.is_none(), "{result:?}");
+        assert_eq!(h.observe().tool, "Sow");
+        assert_eq!(result.keys.join(" "), "c <enter> <enter>");
+        assert!(h.app().session.world.sow_designations().any(|p| p == pos));
+    }
+
+    /// #333's own bug report: re-designating a plot that's already marked for sowing, or
+    /// already sown and growing, used to be indistinguishable from one that's "not a farm plot"
+    /// at all. The notice now names which it actually is.
+    #[test]
+    fn act_designate_sow_names_an_already_marked_or_sown_plot_instead_of_not_a_farm_plot() {
+        let mut h = host(Nation::Earth);
+        let pos = farm_plot_tile(&mut h);
+        let step = |pos: Pos| {
+            vec![ActionStep::Designate {
+                tool: DesignateTool::Sow,
+                from: Coord { x: pos.x, y: pos.y },
+                to: Coord { x: pos.x, y: pos.y },
+                standing: false,
+                teardown: false,
+                ability: None,
+            }]
+        };
+        let first = h.act(&step(pos), None);
+        assert!(first.error.is_none(), "{first:?}");
+        assert_eq!(first.notices[0].notice, "sow an empty farm plot: 1 done, 0 skipped");
+
+        // Already marked: a Sow job is pending, but the plot itself is still empty.
+        let marked = h.act(&step(pos), None);
+        assert_eq!(
+            marked.notices[0].notice,
+            "sow an empty farm plot: 0 done, 1 skipped (already designated)"
+        );
+        assert!(!marked.notices[0].notice.contains("not a farm plot"), "{marked:?}");
+
+        // Run until the plot is actually sown and growing.
+        for _ in 0..5_000 {
+            if h.app().session.world.plot_stage(pos) == Some(fn_sim::world::PlotStage::Growing) {
+                break;
+            }
+            h.end_turn(1);
+        }
+        assert_eq!(
+            h.app().session.world.plot_stage(pos),
+            Some(fn_sim::world::PlotStage::Growing),
+            "the plot should have been sown by now"
+        );
+
+        // Already sown: growing, not empty.
+        let sown = h.act(&step(pos), None);
+        assert_eq!(
+            sown.notices[0].notice,
+            "sow an empty farm plot: 0 done, 1 skipped (already sown)"
+        );
+        assert!(!sown.notices[0].notice.contains("not a farm plot"), "{sown:?}");
+    }
+
+    /// `designate {tool: bend, ability}` (#333) lowers to however many `B` presses move the
+    /// Bend tool from whatever ability is active now to the one named -- including a different
+    /// one than the last `designate {tool: bend}` call picked, and including none at all when
+    /// it's already the active one. A Fire settlement with an Earth newcomer (`Unit::nation`,
+    /// #248's own trick) can use two abilities with no research at all, so this doesn't need to
+    /// wait on one.
+    #[test]
+    fn act_designate_bend_ability_presses_the_right_number_of_bend_keys_from_whatever_was_active_last()
+     {
+        let mut h = host(Nation::Fire);
+        h.app_mut().session.world.units[1].nation = Some(Nation::Earth);
+        let hearth = ability_for_nation(&h.app().session.defs, Nation::Fire).unwrap();
+        let raise_earth = ability_for_nation(&h.app().session.defs, Nation::Earth).unwrap();
+        assert_eq!(
+            fn_ui::tools::usable_abilities(&h.app().session),
+            [raise_earth, hearth],
+            "data order, not which nation founded it"
+        );
+        assert_eq!(
+            fn_ui::tools::bend_ability(&h.app().session),
+            Some(raise_earth),
+            "the first usable, with no choice yet"
+        );
+        let pos = h.app().ui.cursor;
+        let step = |ability: &str| {
+            vec![ActionStep::Designate {
+                tool: DesignateTool::Bend,
+                from: Coord { x: pos.x, y: pos.y },
+                to: Coord { x: pos.x, y: pos.y },
+                standing: false,
+                teardown: false,
+                ability: Some(ability.to_owned()),
+            }]
+        };
+
+        // Nothing is active yet (the tool itself isn't Bend): one press switches the tool, one
+        // more cycles past Raise Earth onto Hearthflame.
+        let to_hearth = h.act(&step(&h.app().session.defs.ability(hearth).name.clone()), None);
+        assert!(to_hearth.error.is_none(), "{to_hearth:?}");
+        assert_eq!(to_hearth.keys, ["b", "b", "<enter>", "<enter>"]);
+        assert_eq!(fn_ui::tools::bend_ability(&h.app().session), Some(hearth));
+
+        // The Bend tool is already active and on Hearthflame: one press cycles back round to
+        // Raise Earth, a different ability than the one just used.
+        let to_raise = h.act(&step(&h.app().session.defs.ability(raise_earth).name.clone()), None);
+        assert!(to_raise.error.is_none(), "{to_raise:?}");
+        assert_eq!(to_raise.keys, ["b", "<enter>", "<enter>"]);
+        assert_eq!(fn_ui::tools::bend_ability(&h.app().session), Some(raise_earth));
+
+        // Asking for the ability that's already active presses no bend key at all.
+        let repeat = h.act(&step(&h.app().session.defs.ability(raise_earth).name.clone()), None);
+        assert!(repeat.error.is_none(), "{repeat:?}");
+        assert_eq!(repeat.keys, ["<enter>", "<enter>"]);
+        assert_eq!(fn_ui::tools::bend_ability(&h.app().session), Some(raise_earth));
+    }
+
+    #[test]
+    fn act_designate_bend_refuses_an_unknown_or_locked_ability_and_presses_nothing() {
+        let mut h = host(Nation::Fire);
+        let cursor = h.app().ui.cursor;
+        let steps = vec![ActionStep::Designate {
+            tool: DesignateTool::Bend,
+            from: Coord { x: cursor.x, y: cursor.y },
+            to: Coord { x: cursor.x, y: cursor.y },
+            standing: false,
+            teardown: false,
+            ability: Some("Not A Real Ability".into()),
+        }];
+        let result = h.act(&steps, None);
+        let err = result.error.unwrap();
+        assert!(err.reason.contains("no such ability"), "{}", err.reason);
+        assert!(result.keys.is_empty());
+        assert_eq!(h.observe().tool, "Select");
+
+        // Inner Fire is a real ability, but Fire alone hasn't researched it yet.
+        let steps = vec![ActionStep::Designate {
+            tool: DesignateTool::Bend,
+            from: Coord { x: cursor.x, y: cursor.y },
+            to: Coord { x: cursor.x, y: cursor.y },
+            standing: false,
+            teardown: false,
+            ability: Some("Inner Fire".into()),
+        }];
+        let result = h.act(&steps, None);
+        let err = result.error.unwrap();
+        assert!(err.reason.contains("isn't usable yet"), "{}", err.reason);
+        assert!(result.keys.is_empty());
+        assert_eq!(h.observe().tool, "Select");
+    }
+
+    #[test]
+    fn act_designate_refuses_an_ability_outside_the_bend_tool_and_presses_nothing() {
+        let mut h = host(Nation::Earth);
+        let cursor = h.app().ui.cursor;
+        let steps = vec![ActionStep::Designate {
+            tool: DesignateTool::Harvest,
+            from: Coord { x: cursor.x, y: cursor.y },
+            to: Coord { x: cursor.x, y: cursor.y },
+            standing: false,
+            teardown: false,
+            ability: Some("Hearthflame".into()),
+        }];
+        let result = h.act(&steps, None);
+        let err = result.error.unwrap();
+        assert_eq!(err.step, 0);
+        assert!(err.reason.contains("ability"), "{}", err.reason);
         assert!(result.keys.is_empty());
         assert_eq!(h.observe().tool, "Select");
     }

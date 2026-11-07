@@ -109,7 +109,7 @@ impl std::fmt::Display for CommandError {
             Self::Designate(DesignateError::NotDesignated) => f.write_str("not designated"),
             Self::Designate(DesignateError::CannotStockpile) => f.write_str("can't stockpile here"),
             Self::Designate(DesignateError::NoFarmPlot) => f.write_str("not a farm plot"),
-            Self::Designate(DesignateError::PlotNotEmpty) => f.write_str("plot isn't empty"),
+            Self::Designate(DesignateError::PlotNotEmpty) => f.write_str("already sown"),
             Self::Designate(DesignateError::CannotClear) => f.write_str("can't be cleared"),
             Self::Research(e) => e.fmt(f),
             Self::Bend(e) => e.fmt(f),
