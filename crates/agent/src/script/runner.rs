@@ -1,12 +1,13 @@
 //! [`run`]: the one entry point `run_script` calls (docs/design/agent-scripting.md,
 //! "`run_script`", "The wake report"). Builds a fresh, sandboxed `rhai::Engine` over `host` for
-//! exactly one call, runs `code`, and reports the wake report: why it stopped, the turns it ran,
-//! a diff of the world since it started, act counts and the final `observe`.
+//! exactly one call, merges `code` with the porcelain prelude (`super::prelude::SOURCE`, #480)
+//! and runs it, and reports the wake report: why it stopped, the turns it ran, a diff of the
+//! world since it started, act counts and the final `observe`.
 
 use std::collections::BTreeMap;
 
 use fn_tui::surface::{Event, EventKind, Host, Observation};
-use rhai::{Dynamic, Engine, EvalAltResult, Scope};
+use rhai::{Dynamic, EvalAltResult, Scope};
 use serde::Serialize;
 
 use super::bindings::{self, Context, Signal};
@@ -125,7 +126,11 @@ pub fn run(host: &mut Host, request: Request<'_>, limits: &Limits) -> Outcome {
     let ctx = Context::new(host, tag, version, max_turns, wake_on.to_vec());
 
     let (result, memory_out) = {
-        let mut engine = Engine::new();
+        // `prelude::engine()` raises the per-function expression depth above Rhai's debug-build
+        // default (16 levels, #480): the porcelain layer's own nested loops and string
+        // interpolation need more than that, well short of anything resembling a runaway
+        // script -- `set_max_operations` below is what actually guards against those.
+        let mut engine = super::prelude::engine();
         engine.set_max_operations(limits.max_operations);
 
         let print_ctx = ctx.clone();
@@ -139,7 +144,22 @@ pub fn run(host: &mut Host, request: Request<'_>, limits: &Limits) -> Outcome {
         let initial_memory =
             rhai::serde::to_dynamic(memory).unwrap_or_else(|_| Dynamic::from_map(rhai::Map::new()));
         scope.push_dynamic("memory", initial_memory);
-        let result = engine.eval_with_scope::<Dynamic>(&mut scope, code);
+        // The porcelain layer (#480): compiled separately from `code` and merged in, rather
+        // than textually prepended, so a parse or runtime error in the caller's own code keeps
+        // the caller's own line:col (each AST's positions were computed against its own source,
+        // starting at line 1, before the merge) and `prelude.rhai` need not parse again for
+        // every script's own mistakes. `AST::merge` appends `code`'s own top-level statements
+        // after `prelude.rhai`'s own (none: it is nothing but function definitions), so the
+        // merged program's return value is exactly `code`'s own, as if the prelude had never
+        // been there.
+        let prelude_ast = engine
+            .compile(super::prelude::SOURCE)
+            .expect("bundled prelude.rhai must compile (script::prelude::tests)");
+        let result =
+            engine.compile(code).map_err(Box::<EvalAltResult>::from).and_then(|user_ast| {
+                let ast = prelude_ast.merge(&user_ast);
+                engine.eval_ast_with_scope::<Dynamic>(&mut scope, &ast)
+            });
         let memory_out = scope.get_mut("memory").map_or(Dynamic::UNIT, |d| d.clone());
         (result, memory_out)
         // `engine` and `scope` -- and every clone of `ctx` they hold -- drop here, before

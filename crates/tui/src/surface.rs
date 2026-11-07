@@ -688,6 +688,37 @@ impl Host {
         MapView { x, y, w, h, things, ground, legend, marks }
     }
 
+    /// A map region, at most [`MAX_LOOK`], as one `#{x, y, thing, ground, marks}` per on-map
+    /// cell (#480, docs/design/agent-scripting.md, "Plumbing: 1:1 with `Host`"): `thing` and
+    /// `ground` are the same descriptions [`Host::look`]'s own legend would decode its glyph
+    /// to, and `marks` the same kind names, so a script can read a region without parsing a
+    /// legend first -- the porcelain layer's own `find` is built on this. Unlike [`Host::look`],
+    /// this takes no `&mut self` and logs nothing: it draws no attention ghost (docs/design/
+    /// agent-scripting.md, "Plumbing": "script reads don't draw attention ghosts"), since the
+    /// porcelain calls it once per loop iteration and a per-call ghost would outline the whole
+    /// search area every turn. A cell off the map is simply missing from the result, not a
+    /// blank entry.
+    pub fn cells(&self, x: i32, y: i32, w: u16, h: u16) -> Vec<CellView> {
+        let (w, h) = (w.clamp(1, MAX_LOOK.0), h.clamp(1, MAX_LOOK.1));
+        let app = self.app();
+        let (session, ui) = (&app.session, &app.ui);
+        let over = Overlays::gather(session, ui);
+        let mut out = Vec::with_capacity((w as usize) * (h as usize));
+        for row in 0..h {
+            for col in 0..w {
+                let pos = Pos::new(x + i32::from(col), y + i32::from(row));
+                let Some(cell) = cell_look(session, ui, &self.palette, &over, pos) else {
+                    continue;
+                };
+                let thing = describe_thing(session, &cell.thing, pos);
+                let ground = describe_ground(session, cell.ground);
+                let marks = cell.marks.iter().map(describe_mark).collect();
+                out.push(CellView { x: pos.x, y: pos.y, thing, ground, marks });
+            }
+        }
+        out
+    }
+
     /// `nation`, `research`, `endeavor`, `log`, `help` or `build`, as data: `nation_view`,
     /// `research::screen_view`, `endeavor::screen_view`, `input::help_rows` or
     /// `fn_ui::build::picker_rows`, reachable in the TUI the same way (`N`, `T`, `G`, `L`, `?`,
@@ -1687,6 +1718,17 @@ pub struct MarkView {
     pub x: i32,
     pub y: i32,
     pub kinds: Vec<String>,
+}
+
+/// One on-map cell, from [`Host::cells`]: the same `thing` and `ground` text [`Host::look`]'s
+/// own legend would decode its glyph to, and the same mark kind names.
+#[derive(Clone, Debug, Serialize)]
+pub struct CellView {
+    pub x: i32,
+    pub y: i32,
+    pub thing: String,
+    pub ground: String,
+    pub marks: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -3201,6 +3243,49 @@ mod tests {
                     "{nation:?}: {:?} at ({},{}) should change the mono-palette look",
                     mark.kinds, pos.x, pos.y,
                 );
+            }
+        }
+    }
+
+    /// `Host::cells` (#480) reports, for every on-map cell in a region, exactly the `thing` and
+    /// `ground` text `Host::look`'s own legend would decode its glyph to, and the same marks:
+    /// one more "says the same thing" check alongside this section's existing two, so a script
+    /// reading `cells()` never learns anything `look()` wouldn't also say.
+    #[test]
+    fn cells_reports_exactly_what_looks_legend_would_decode_to() {
+        for nation in Nation::ALL {
+            let mut h = mid_game(nation);
+            h.frame(80, 24);
+            let (origin, (vw, vh)) = (h.app().ui.view, h.app().ui.viewport());
+            let look = h.look(origin.x, origin.y, vw as u16, vh as u16);
+            let cells = h.cells(origin.x, origin.y, vw as u16, vh as u16);
+            assert_eq!(cells.len(), (vw as usize) * (vh as usize), "{nation:?}");
+            for cell in &cells {
+                let row = (cell.y - origin.y) as usize;
+                let col = (cell.x - origin.x) as usize;
+                let thing_ch = look.things[row].chars().nth(col).unwrap();
+                let ground_ch = look.ground[row].chars().nth(col).unwrap();
+                assert_eq!(
+                    look.legend[&thing_ch.to_string()],
+                    cell.thing,
+                    "{nation:?} thing at ({},{})",
+                    cell.x,
+                    cell.y
+                );
+                assert_eq!(
+                    look.legend[&ground_ch.to_string()],
+                    cell.ground,
+                    "{nation:?} ground at ({},{})",
+                    cell.x,
+                    cell.y
+                );
+                let want_marks: Vec<String> = look
+                    .marks
+                    .iter()
+                    .find(|m| m.x == cell.x && m.y == cell.y)
+                    .map(|m| m.kinds.clone())
+                    .unwrap_or_default();
+                assert_eq!(cell.marks, want_marks, "{nation:?} marks at ({},{})", cell.x, cell.y);
             }
         }
     }

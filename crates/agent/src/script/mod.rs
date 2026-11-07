@@ -19,12 +19,15 @@
 //! are the persisted map `fn_agent::tools::Tools` carries across `run_script` calls in a
 //! session, capped by `Limits::memory_bytes`.
 //!
-//! Out of scope here (left to #480, docs/design/agent-scripting.md's own follow-up list): the
-//! porcelain prelude.
+//! [`prelude::SOURCE`] (#480) is the porcelain layer, written in Rhai on top of the plumbing:
+//! [`runner::run`] merges its compiled AST into every call ahead of the caller's own code, and
+//! `crate::tools`'s own `sdk_reference` tool reads [`prelude::reference`] and
+//! [`bindings::plumbing_reference`] back to describe both layers from the code itself.
 
-mod bindings;
+pub(crate) mod bindings;
 pub mod library;
 pub mod limits;
+pub mod prelude;
 pub mod runner;
 
 pub use library::Library;

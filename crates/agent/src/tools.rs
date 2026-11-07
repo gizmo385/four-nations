@@ -239,12 +239,31 @@ fn save_script_tool() -> Value {
         "description": "Stores code under name in this session's own script library, bumping \
                          its version (1 for a new name, one more otherwise, even if code is \
                          unchanged). run_script {name} then runs this, and scripts {} lists \
-                         it. Logged (and so restored by --resume) only once it's actually run.",
+                         it. Logged right away (#480), so a script that's saved but never run \
+                         in this session is still restored by --resume.",
         "inputSchema": json!({
             "type": "object",
             "properties": {"name": {"type": "string"}, "code": {"type": "string"}},
             "required": ["name", "code"],
         }),
+    })
+}
+
+/// `sdk_reference`'s own entry (#480, docs/design/agent-scripting.md's own "The SDK"): the
+/// plumbing's own signatures and the porcelain layer's own `///` doc comments, both read back
+/// from the registered functions and the compiled `prelude.rhai` rather than kept by hand, so
+/// this can't say anything the code doesn't actually do.
+fn sdk_reference_tool() -> Value {
+    json!({
+        "name": "sdk_reference",
+        "description": "The run_script SDK, in two layers: plumbing (observe, look, cells, \
+                         inspect, screen, act, keys, wait, events, wake, log -- the same calls \
+                         every run_script uses) and porcelain (prelude.rhai's own find, \
+                         designate_near, build_near, wait_until, stalled, store, idle and need, \
+                         loaded before every script). Each plumbing entry is #{signature, doc}; \
+                         each porcelain entry is #{name, params, doc}, doc straight from the \
+                         function's own /// comment.",
+        "inputSchema": json!({"type": "object", "properties": {}}),
     })
 }
 
@@ -406,8 +425,8 @@ impl<W: std::io::Write> Tools<W> {
         self
     }
 
-    /// This session's own tool list: [`list`], plus `run_script`, `save_script`, `scripts` and
-    /// `notes` once [`Self::with_scripts`] has turned them on.
+    /// This session's own tool list: [`list`], plus `run_script`, `save_script`, `scripts`,
+    /// `notes` and `sdk_reference` once [`Self::with_scripts`] has turned them on.
     pub fn list(&self) -> Vec<Value> {
         let mut tools = list();
         if self.scripts.is_some() {
@@ -415,6 +434,7 @@ impl<W: std::io::Write> Tools<W> {
             tools.push(save_script_tool());
             tools.push(scripts_tool());
             tools.push(notes_tool());
+            tools.push(sdk_reference_tool());
         }
         tools
     }
@@ -481,11 +501,30 @@ impl<W: std::io::Write> Tools<W> {
                 self.require_scripts(name)?;
                 let a: SaveScriptArgs = args(name, arguments)?;
                 let version = self.library.save(&a.name, &a.code);
+                // Logged right away (#480, this module's own doc comment on `save_script_tool`
+                // and `rebuild_session`): `turns: 0` is this line's own "never run" marker --
+                // `resolve_turns` always clamps a real `run_script` call's own `turns` to at
+                // least 1, so a save-only line can never be mistaken for one.
+                self.log
+                    .write_line(&LogLine::Script {
+                        name: a.name.clone(),
+                        version,
+                        code: a.code.clone(),
+                        turns: 0,
+                        wake_on: Vec::new(),
+                    })
+                    .map_err(|e| e.to_string())?;
                 Ok(json!({"name": a.name, "version": version}))
             }
             "scripts" => {
                 self.require_scripts(name)?;
                 Ok(self.library.list())
+            }
+            "sdk_reference" => {
+                self.require_scripts(name)?;
+                let plumbing = script::bindings::plumbing_reference(&mut self.host);
+                let porcelain = script::prelude::reference();
+                Ok(json!({"plumbing": plumbing, "porcelain": porcelain}))
             }
             "notes" => {
                 self.require_scripts(name)?;
@@ -618,13 +657,16 @@ impl<W: std::io::Write> Tools<W> {
 }
 
 /// Rebuilds the script library, `memory` and lab notes a resumed session should start from, by
-/// replaying `lines`' own `Script`, `Turn`, `Wake` and `Note` lines in order (#479,
+/// replaying `lines`' own `Script`, `Turn`, `Wake` and `Note` lines in order (#479, #480,
 /// `Tools::resume`, docs/design/agent-scripting.md, "Memory across sessions"):
-/// - A `Script` line with `version >= 1` is a `run_script {name}` call against a saved script;
-///   its own `name` and `code` go into the library (`Library::restore`) and it opens a pending
-///   run to close with the next `Wake` line. `version == 0` is an ad hoc `run_script {code}`
-///   call (never `save_script`d, so nothing to restore into the library) and opens no pending
-///   run.
+/// - Any `Script` line with `version >= 1` restores its own `name` and `code` into the library
+///   (`Library::restore`) -- whether it came from `save_script` (`turns == 0`, this dispatch's
+///   own "never run" marker, `Self::dispatch`'s own `"save_script"` arm) or from `run_script
+///   {name}` (`turns >= 1`: `ScriptLimits::resolve_turns` always clamps to at least 1, so the
+///   two can never be confused). Only the latter also opens a pending run to close with the
+///   next `Wake` line -- a save-only line never gets one, since no `Wake` line ever follows it.
+///   `version == 0` is an ad hoc `run_script {code}` call (never `save_script`d, so nothing to
+///   restore into the library either) and opens no pending run.
 /// - Every `Turn` line while a run is pending counts toward that run's own turns run -- exactly
 ///   what `fn_agent::script::Outcome::turns_run` counted live, since every turn a script runs
 ///   is logged the same way (`fn_tui::surface::LogLine::Turn`).
@@ -633,10 +675,6 @@ impl<W: std::io::Write> Tools<W> {
 ///   kept as the session's current one regardless -- `memory` is global, not per-script, so
 ///   only the very last `Wake` line's value matters.
 /// - Every `Note` line's own `text`, oldest first.
-///
-/// A `save_script` call that's never actually run leaves no `Script` line, so a script saved
-/// but never run in a session that ends is not restored by this -- `save_script`'s own doc
-/// comment on `fn_agent::tools::save_script_tool`.
 fn rebuild_session(lines: &[LogLine]) -> (Library, Value, Vec<String>) {
     let mut library = Library::new();
     let mut memory = json!({});
@@ -645,13 +683,11 @@ fn rebuild_session(lines: &[LogLine]) -> (Library, Value, Vec<String>) {
     let mut turns_run: u32 = 0;
     for line in lines {
         match line {
-            LogLine::Script { name, version, code, .. } => {
-                pending = if *version >= 1 {
+            LogLine::Script { name, version, code, turns, .. } => {
+                if *version >= 1 {
                     library.restore(name, *version, code);
-                    Some(name.clone())
-                } else {
-                    None
-                };
+                }
+                pending = if *version >= 1 && *turns >= 1 { Some(name.clone()) } else { None };
                 turns_run = 0;
             }
             LogLine::Turn { .. } => turns_run += 1,

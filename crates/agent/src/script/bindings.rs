@@ -1,9 +1,9 @@
 //! The plumbing layer (docs/design/agent-scripting.md, "The SDK", "Plumbing: 1:1 with `Host`"):
-//! [`register`] adds `observe`, `look`, `inspect`, `screen`, `act`, `keys`, `wait`, `events`,
-//! `wake` and `log` to an [`Engine`], each exactly the [`Host`] call its name says (`events` and
-//! `wake` are new, #478), with its result serialized to a Rhai map through `rhai::serde` --
-//! nothing a plumbing call does reaches anything but `Host`'s own public methods, so a script
-//! can't do anything a human's keyboard or an MCP agent couldn't.
+//! [`register`] adds `observe`, `look`, `cells`, `inspect`, `screen`, `act`, `keys`, `wait`,
+//! `events`, `wake` and `log` to an [`Engine`], each exactly the [`Host`] call its name says
+//! (`events` and `wake` are from #478, `cells` from #480), with its result serialized to a Rhai
+//! map through `rhai::serde` -- nothing a plumbing call does reaches anything but `Host`'s own
+//! public methods, so a script can't do anything a human's keyboard or an MCP agent couldn't.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -210,6 +210,15 @@ pub(super) fn register(engine: &mut Engine, ctx: &Rc<Context>) {
     });
 
     let c = ctx.clone();
+    engine.register_fn(
+        "cells",
+        move |x: i64, y: i64, w: i64, h: i64| -> Result<Dynamic, Box<EvalAltResult>> {
+            let view = c.host().cells(x as i32, y as i32, clamp_u16(w), clamp_u16(h));
+            rhai::serde::to_dynamic(view)
+        },
+    );
+
+    let c = ctx.clone();
     engine.register_fn("screen", move |name: &str| -> Result<Dynamic, Box<EvalAltResult>> {
         let view = c.host().screen(name).map_err(err_to_rhai)?;
         rhai::serde::to_dynamic(view)
@@ -243,6 +252,108 @@ pub(super) fn register(engine: &mut Engine, ctx: &Rc<Context>) {
     engine.register_fn("log", move |msg: &str| {
         c.push_log(msg.to_owned());
     });
+}
+
+/// `sdk_reference`'s own plumbing half (#480, `crate::tools`): one `#{signature, doc}` per
+/// function [`register`] adds, in the order `Engine::gen_fn_signatures` lists them --
+/// `host`'s own state is untouched (a throwaway [`Context`] and [`Engine`] are built, registered
+/// against and dropped, with nothing ever actually called) -- so the signatures themselves can
+/// never drift from the real plumbing, even though [`plumbing_docs`]'s own prose next to each
+/// one is this module's own hand-kept text (a native `register_fn` carries no doc comment the
+/// way a script-defined function's `///` can, unlike [`crate::script::prelude::reference`]'s).
+/// `-> Type` and every parameter's own `: Type` are dropped from `gen_fn_signatures`' own
+/// signature text (`simplify_signature`): with no named parameters registered, they're raw
+/// Rust type names (`Box<EvalAltResult>` and the rest), not worth a script author's reading --
+/// [`plumbing_docs`]'s own prose says what each parameter actually means instead.
+pub(crate) fn plumbing_reference(host: &mut Host) -> Vec<serde_json::Value> {
+    let ctx = Context::new(host, "sdk_reference".to_owned(), 0, 0, Vec::new());
+    let mut engine = Engine::new();
+    register(&mut engine, &ctx);
+    let docs: std::collections::BTreeMap<&str, &str> = plumbing_docs().iter().copied().collect();
+    engine
+        .gen_fn_signatures(false)
+        .into_iter()
+        .map(|sig| {
+            let signature = simplify_signature(&sig);
+            let name = signature.split('(').next().unwrap_or(&signature);
+            let doc = docs.get(name).copied().unwrap_or("");
+            serde_json::json!({"signature": signature, "doc": doc})
+        })
+        .collect()
+}
+
+/// `"act(_: Dynamic, _: string) -> Result<...>"` to `"act(_, _)"`: drops `gen_fn_signatures`'
+/// own `-> Type` suffix and every parameter's `: Type` in turn, keeping just the name and how
+/// many parameters it takes -- `plumbing_docs`'s own prose is the readable half.
+fn simplify_signature(sig: &str) -> String {
+    let head = sig.split(" -> ").next().unwrap_or(sig);
+    let Some(open) = head.find('(') else { return head.to_owned() };
+    let name = &head[..open];
+    let inner = head[open + 1..].trim_end_matches(')');
+    let params: Vec<&str> = if inner.trim().is_empty() {
+        Vec::new()
+    } else {
+        inner.split(',').map(|p| p.split(':').next().unwrap_or(p).trim()).collect()
+    };
+    format!("{name}({})", params.join(", "))
+}
+
+/// One line per plumbing function [`register`] adds, keyed by its own Rhai name: kept by hand
+/// (see [`plumbing_reference`]'s own doc comment for why), and checked against `register`'s
+/// actual names by `every_registered_function_has_a_plumbing_doc_line` below, so the two can't
+/// quietly drift apart -- add a line here in the same commit that adds a new `register_fn` call.
+fn plumbing_docs() -> &'static [(&'static str, &'static str)] {
+    &[
+        (
+            "observe",
+            "observe() -> turn, clock, season, tool, notice, people, research, stores, \
+             endeavor, the cursor's own tile and alerts since the last turn. Free: changes \
+             nothing and takes no game time.",
+        ),
+        (
+            "look",
+            "look(x, y, w, h) -> #{x, y, w, h, things, ground, legend, marks}: a map region, \
+             at most 64x40, as the same text --ascii draws there.",
+        ),
+        (
+            "cells",
+            "cells(x, y, w, h) -> [#{x, y, thing, ground, marks}], one entry per on-map cell: \
+             the same thing and ground description look()'s own legend would decode its glyph \
+             to, without needing the legend.",
+        ),
+        (
+            "inspect",
+            "inspect(x, y) -> that tile's Cursor-section lines, as if the cursor sat there.",
+        ),
+        (
+            "screen",
+            "screen(name) -> nation, research, endeavor, log, help or build, as data: the \
+             same text that screen shows, without opening it.",
+        ),
+        (
+            "act",
+            "act(steps) or act(steps, note) -> #{keys, label, notices, error, observe}: runs \
+             named steps (designate, build, select, research, cursor, keys) in order, each \
+             lowered to the keys a player would press.",
+        ),
+        (
+            "keys",
+            "keys(script) or keys(script, note) -> #{pressed, refused}: a --keys token script, \
+             pressed directly.",
+        ),
+        (
+            "wait",
+            "wait(turns) -> the last turn's own observation: runs at least 1 turn \
+             (end_turn(1), repeated), stopping the whole script early if a wake_on event lands.",
+        ),
+        ("events", "events() -> [#{turn, kind, text}], every event since this run started."),
+        (
+            "wake",
+            "wake(msg) -> never returns normally: ends the whole script right there with \
+             reason \"asked\" and msg.",
+        ),
+        ("log", "log(msg) -> (); the script's own log line, kept in the wake report's log tail."),
+    ]
 }
 
 fn do_act(
@@ -317,4 +428,74 @@ fn err_to_rhai(e: String) -> Box<EvalAltResult> {
 
 fn clamp_u16(n: i64) -> u16 {
     n.clamp(0, i64::from(u16::MAX)) as u16
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn host() -> Host {
+        let nation = fn_tui::cli::parse_nation("earth").unwrap();
+        Host::new(7, nation, None, None, None, false).unwrap()
+    }
+
+    /// Every function [`register`] adds shows up in [`plumbing_reference`] with a non-empty
+    /// doc line: the moment a new `register_fn` call lands with no matching
+    /// [`plumbing_docs`] entry, this fails rather than `sdk_reference` quietly serving a blank
+    /// line for it.
+    #[test]
+    fn every_registered_plumbing_function_has_a_non_empty_doc_line() {
+        let mut h = host();
+        let reference = plumbing_reference(&mut h);
+        assert!(!reference.is_empty());
+        for entry in &reference {
+            let doc = entry["doc"].as_str().unwrap();
+            assert!(!doc.is_empty(), "{}: no doc line for {entry}", entry["signature"]);
+        }
+    }
+
+    /// [`plumbing_reference`] names every plumbing call the design doc lists, each with its own
+    /// arity (`observe` takes none, `look`/`cells` take four, and so on) -- not just a plain
+    /// list of names, so a signature with the wrong parameter count would show up as a mismatch
+    /// too.
+    #[test]
+    fn plumbing_reference_lists_every_plumbing_call_the_design_doc_names() {
+        let mut h = host();
+        let reference = plumbing_reference(&mut h);
+        let signatures: Vec<&str> =
+            reference.iter().map(|e| e["signature"].as_str().unwrap()).collect();
+        for want in [
+            "observe()",
+            "cells(_, _, _, _)",
+            "inspect(_, _)",
+            "screen(_)",
+            "wait(_)",
+            "events()",
+            "wake(_)",
+            "log(_)",
+        ] {
+            assert!(signatures.contains(&want), "{want:?} missing from {signatures:?}");
+        }
+        // `look` and `act`/`keys` are each registered twice (with and without a trailing
+        // `note`), so both arities should show up rather than just one.
+        assert!(signatures.contains(&"look(_, _, _, _)"));
+        assert!(signatures.contains(&"act(_)"));
+        assert!(signatures.contains(&"act(_, _)"));
+        assert!(signatures.contains(&"keys(_)"));
+        assert!(signatures.contains(&"keys(_, _)"));
+    }
+
+    /// [`plumbing_reference`] never actually runs anything against `host`: building its own
+    /// throwaway [`Context`] and [`Engine`] touches only [`Context::new`]'s own read
+    /// (`Host::event_mark`), so the turn, the log and everything else are exactly what they
+    /// were before the call.
+    #[test]
+    fn plumbing_reference_does_not_touch_the_host_it_was_given() {
+        let mut h = host();
+        let before = h.observe();
+        plumbing_reference(&mut h);
+        let after = h.observe();
+        assert_eq!(before.turn, after.turn);
+        assert_eq!(h.log().lines().len(), 0, "{:?}", h.log().lines());
+    }
 }

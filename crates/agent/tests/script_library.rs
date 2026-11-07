@@ -1,9 +1,11 @@
-//! The saved script library, `memory` and lab notes end-to-end (#479, docs/design/
+//! The saved script library, `memory` and lab notes end-to-end (#479, #480, docs/design/
 //! agent-scripting.md, "Memory across sessions"): `save_script`/`scripts`/`notes` through
 //! [`Tools::call`] exactly as `run_script` is, `memory` persisting across `run_script` calls in
 //! a session, the run log's own `Script`/`Wake`/`Note` lines (ignored by replay, so a
 //! `--resume` session can read them back to rebuild its library, `memory` and notes without
-//! changing what the game itself replays to).
+//! changing what the game itself replays to) -- including a `save_script` that was never
+//! actually run (#480: `save_script` logs its own `Script` line right away, not only once
+//! `run_script {name}` first runs it).
 
 use fn_agent::runlog::Writer;
 use fn_agent::script::Limits;
@@ -51,6 +53,25 @@ fn save_script_bumps_its_version_and_scripts_lists_it_unrun() {
     assert_eq!(scripts[0]["name"], "keep-fed");
     assert_eq!(scripts[0]["version"], 2);
     assert!(scripts[0]["last_outcome"].is_null());
+}
+
+/// `save_script` logs its own `Script` line right away (#480), with `turns: 0` as this line's
+/// own "never run" marker -- distinct from any real `run_script {name}` call's own `Script`
+/// line, since `ScriptLimits::resolve_turns` always clamps a run's own `turns` to at least 1.
+#[test]
+fn save_script_logs_a_script_line_with_no_turns() {
+    let mut t = tools();
+    t.call("save_script", json!({"name": "keep-fed", "code": "1;"})).unwrap();
+    let log = String::from_utf8(t.log().get_ref().clone()).unwrap();
+    let lines: Vec<LogLine> = log.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let LogLine::Script { name, version, turns, .. } =
+        lines.iter().find(|l| matches!(l, LogLine::Script { .. })).expect("a Script line")
+    else {
+        unreachable!()
+    };
+    assert_eq!(name, "keep-fed");
+    assert_eq!(*version, 1);
+    assert_eq!(*turns, 0, "a save-only Script line carries no turns");
 }
 
 /// `run_script {name}` runs a saved script's own latest version, tags its log lines
@@ -201,6 +222,49 @@ fn a_resumed_session_restores_the_same_scripts_notes_and_memory() {
     // through a no-op script and comparing to what the original session's last run reported.
     let readback = resumed.call("run_script", json!({"code": "memory"})).unwrap();
     assert_eq!(readback["value"], json!({"camp": 1}));
+}
+
+/// A script that's `save_script`d but never actually `run_script`d in a session is still
+/// restored by `--resume` (#480's own gap left by #479): `scripts {}` shows it with its own
+/// name and version, and no outcome, exactly as a live session's own `scripts {}` would.
+#[test]
+fn a_saved_but_never_run_script_is_restored_by_resume() {
+    let path = std::env::temp_dir().join(format!(
+        "fn_agent_script_library_save_only_resume_test_{}.jsonl",
+        std::process::id()
+    ));
+
+    let want_scripts = {
+        let writer = Writer::create(&path).unwrap();
+        let mut t = Tools::new(host(), writer).unwrap().with_scripts(limits());
+        t.call("save_script", json!({"name": "keep-fed", "code": r#"wait(1);"#})).unwrap();
+        t.end("stdin closed").unwrap();
+        t.call("scripts", json!({})).unwrap()
+    };
+
+    let (header, lines) = watch::read_file(&path).unwrap();
+    assert!(
+        lines.iter().any(|l| matches!(l, LogLine::Script { .. })),
+        "save_script should have logged a Script line even though it was never run: {lines:?}"
+    );
+
+    let host = Host::resume(&header, &lines).unwrap();
+    let kept: Vec<LogLine> =
+        lines.into_iter().filter(|l| !matches!(l, LogLine::End { .. })).collect();
+    let writer = Writer::recreate_with(&path, &header, &kept).unwrap();
+    let mut resumed = Tools::resume(host, writer, &kept).with_scripts(limits());
+    std::fs::remove_file(&path).ok();
+
+    let got_scripts = resumed.call("scripts", json!({})).unwrap();
+    assert_eq!(got_scripts, want_scripts);
+    assert_eq!(got_scripts["scripts"][0]["name"], "keep-fed");
+    assert_eq!(got_scripts["scripts"][0]["version"], 1);
+    assert!(got_scripts["scripts"][0]["last_outcome"].is_null(), "{got_scripts}");
+
+    // The resumed session's own library really has the code, not just the bookkeeping:
+    // `run_script {name}` can run it.
+    let ran = resumed.call("run_script", json!({"name": "keep-fed"})).unwrap();
+    assert_eq!(ran["reason"], "done", "{ran}");
 }
 
 /// `Script`, `Wake` and `Note` lines are #479's own commentary, never replayed
