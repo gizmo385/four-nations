@@ -58,6 +58,14 @@
 # agent.log in the run folder. A --scripts run also gets cost.json (round trips and tokens
 # summed from every chunk's own `claude -p --output-format json`, with a USD total) and
 # sdk-gaps.md (the notes' own "SDK gap" lines, for the owner to file).
+#
+# Every `claude` call this script makes is tagged with OTEL_RESOURCE_ATTRIBUTES
+# (four_nations.run/.seed/.nation/.difficulty/.mode, plus .chunk on chunked runs; #494), kept
+# alongside anything already in your own OTEL_RESOURCE_ATTRIBUTES rather than replacing it. That
+# only tags the process: this script never turns telemetry on by itself. To see these attributes
+# in Claude Code's own OpenTelemetry metrics and events, set CLAUDE_CODE_ENABLE_TELEMETRY=1 and
+# point Claude Code's own exporter settings (e.g. OTEL_METRICS_EXPORTER, OTEL_LOGS_EXPORTER,
+# OTEL_EXPORTER_OTLP_ENDPOINT) at a collector yourself.
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 runs="${FN_AGENT_RUNS:-$HOME/fn-agent-runs}"
@@ -197,6 +205,33 @@ claude_args=(--strict-mcp-config --mcp-config "$dir/mcp.json"
   --allowedTools "mcp__four-nations__*"
   --disallowedTools "Bash,Read,Edit,Write,Glob,Grep,WebFetch,WebSearch,NotebookEdit,Agent")
 [[ -n "$model" ]] && claude_args+=(--model "$model")
+
+# Percent-encodes one OTEL_RESOURCE_ATTRIBUTES value per the OTel spec (comma-separated
+# `key=value`; a raw space or comma in a value would break that, so this just encodes anything
+# outside the unreserved set rather than trying to special-case the two).
+otel_encode() {
+  python3 -c 'import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$1"
+}
+
+# The OTEL_RESOURCE_ATTRIBUTES value for one `claude` call (#494): `mode` is
+# interactive|mcp|mcp-chunked|scripts, `chunk` is this call's 1-based chunk number (omitted
+# outside --chunk-turns/--scripts). Appends to whatever's already in the caller's own
+# OTEL_RESOURCE_ATTRIBUTES rather than replacing it, so this script's own tags coexist with any
+# the caller already set.
+otel_attrs() {
+  local mode="$1" chunk="${2:-}" attrs
+  attrs="four_nations.run=$(otel_encode "$(basename "$dir")")"
+  attrs+=",four_nations.seed=$(otel_encode "$seed")"
+  attrs+=",four_nations.nation=$(otel_encode "$nation")"
+  attrs+=",four_nations.difficulty=$(otel_encode "$difficulty")"
+  attrs+=",four_nations.mode=$(otel_encode "$mode")"
+  [[ -n "$chunk" ]] && attrs+=",four_nations.chunk=$chunk"
+  if [[ -n "${OTEL_RESOURCE_ATTRIBUTES:-}" ]]; then
+    printf '%s,%s' "$OTEL_RESOURCE_ATTRIBUTES" "$attrs"
+  else
+    printf '%s' "$attrs"
+  fi
+}
 
 # Claude Code stops its MCP servers with a signal when it exits, so fn_agent rarely gets to
 # write the log's `end` line itself. This writes it once claude has exited, so the watcher shows
@@ -443,7 +478,8 @@ run_chunked() {
     fi
 
     say "chunk $n: turns $((done_turns + 1))-$((done_turns + this_chunk)) of $target"
-    report="$(claude -p "$this_prompt" "${claude_args[@]}" 2>> "$dir/agent.log")" ||
+    report="$(OTEL_RESOURCE_ATTRIBUTES="$(otel_attrs mcp-chunked "$n")" \
+      claude -p "$this_prompt" "${claude_args[@]}" 2>> "$dir/agent.log")" ||
       report="(this chunk's session ended without a report; see $dir/agent.log)"
     printf '\n--- chunk %s report ---\n%s\n' "$n" "$report" >> "$dir/agent.log"
     finish_log "chunk $n finished"
@@ -497,7 +533,8 @@ run_scripts_chunked() {
 
     say "chunk $n: about $calls tool calls, past turn $done_turns of $target so far"
     chunk_json="$dir/chunk-$n.json"
-    claude -p "$this_prompt" "${claude_args[@]}" --output-format json > "$chunk_json" \
+    OTEL_RESOURCE_ATTRIBUTES="$(otel_attrs scripts "$n")" \
+      claude -p "$this_prompt" "${claude_args[@]}" --output-format json > "$chunk_json" \
       2>> "$dir/agent.log" || true
     result="$(python3 -c '
 import json, sys
@@ -535,13 +572,13 @@ fi
 if [[ "$interactive" == 1 ]]; then
   say "watch it from another terminal with: $repo/scripts/agent-run.sh watch $dir"
   say "suggested first message: $prompt"
-  claude "${claude_args[@]}" || true
+  OTEL_RESOURCE_ATTRIBUTES="$(otel_attrs interactive)" claude "${claude_args[@]}" || true
   finish_log "agent session closed"
   exit
 fi
 
 (
-  claude -p "$prompt" "${claude_args[@]}" || true
+  OTEL_RESOURCE_ATTRIBUTES="$(otel_attrs mcp)" claude -p "$prompt" "${claude_args[@]}" || true
   finish_log "agent finished"
 ) > "$dir/agent.log" 2>&1 &
 agent=$!
