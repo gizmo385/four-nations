@@ -27,7 +27,8 @@ branch was committed in its own worktree under `.claude/worktrees/`.
    - several commits: `git commit -F msg`, where `msg` is the issue's subject (`#N: what
      changed`), a body summarising the branch's commits (`git log --reverse --format='- %s%n%b'
      main..BRANCH`, tidied up), then `Fixes #N` (or `Refs #N` for a design branch) and the
-     Co-Authored-By trailer, once.
+     Co-Authored-By trailer, **once**. The branch's commits usually carry it already, so strip
+     their trailers from the summary.
 
    Conflicts during the squash:
    - A conflict in a golden file (`*/tests/golden/*`): `git checkout --theirs -- FILE`. The
@@ -49,9 +50,12 @@ branch was committed in its own worktree under `.claude/worktrees/`.
      `git log $start..HEAD`). Don't revert anything. Report the test, the output excerpt and
      the branch, and stop. The orchestrator decides whether to hand it back or revert.
 5. **Clean up each merged branch.**
-   - Kill leftover processes in its worktree:
-     `for p in $(pgrep -u $USER); do [[ $(readlink /proc/$p/cwd) == *WORKTREE* ]] && kill $p; done`.
-   - Remove the worktree: `git worktree unlock W; git worktree remove --force W`.
+   - Look for leftover processes in its worktree first (read-only):
+     `for p in $(pgrep -u $USER); do [[ $(readlink /proc/$p/cwd) == *WORKTREE* ]] && ps -o pid=,args= -p $p; done`.
+     Usually there are none. If there are, `kill` those PIDs. If the kill is refused or needs
+     permission, report the PIDs instead of working around it.
+   - Remove the worktree: `git worktree unlock W 2>/dev/null; git worktree remove --force W`.
+     The unlock prints "is not locked" for a worktree that isn't locked, which is fine.
    - Delete the branch: `git branch -D BRANCH`. Its work is squashed onto `main` (so `-d` would
      refuse), and the agent that made it is done.
    - Clear the label: `gh issue edit N --remove-label in-progress`.
