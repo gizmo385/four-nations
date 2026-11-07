@@ -333,7 +333,7 @@ Watcher keys win over free look (#330). Free look passes every other key to the 
 | `1` `2` `3` | Zoom or tab: code, game, feed | Digits are the game's nation switch, which free look already refuses (`input::spectator_allowed`), so they're free |
 | `0` | Back to the studio split | Same reason |
 | `j` `k` / `J` `K` | Scroll the code pane a line / half a pane | Not bound anywhere in the game (`input::build_table`) |
-| `{` `}` | Previous / next revision of the shown script (#502) | The owner suggested `[`/`]`, but `]` already jumps to the end of the next turn. See Q2 |
+| `{` `}` | Previous / next revision of the shown script (#502) | The owner suggested `[`/`]`, but `]` already jumps to the end of the next turn. Decided in #505 |
 
 No F-keys (WSL never delivers them). Every studio key goes through one new
 `Watcher::key(KeyEvent) -> bool`, called by both `watch::run`'s loop and the
@@ -379,7 +379,7 @@ A `tui.toml` test checks that every `Class` has a colour.
 
 ## Recording
 
-**Recommended (Q1): `fn_tui --watch LOG --record OUT.cast [--size WxH] [--pace N] [--fps N]`.**
+**Decided (#504): `fn_tui --watch LOG --record OUT.cast [--size WxH] [--pace N] [--fps N]`.**
 
 - **It needs no terminal.** It drives the `Watcher` on a virtual clock (`advance(1 / fps)` per
   frame) and draws each frame through a ratatui `Terminal` over a `CrosstermBackend<Vec<u8>>`.
@@ -444,13 +444,10 @@ In dependency order:
 - #503 `fn_tui --watch --record`: a deterministic asciicast of a replay (blocked by #501 and
   decision #504)
 
-## Open questions for the owner
+## Owner decisions
 
-1. **Recording: build `--record`, or leave recording to asciinema?** (#504) **Recommended:**
-   build `--record`. It's deterministic, headless, faster than real time, and agents can use it.
-   The alternative is a documented `asciinema rec` wrapper and no Rust, at the cost of real-time
-   recording that only a human can run.
-2. **Revision stepping keys.** (#505) `]` already means "jump to the end of the next turn".
-   **Recommended:** `{`/`}` for revisions (the same physical keys with Shift), with `]` left
-   alone. The alternative is to move the next-turn jump elsewhere (to `>`, say) and give `[`/`]`
-   to revisions as first suggested.
+Answered 2026-11-07:
+
+1. **Recording** (#504): build `fn_tui --watch LOG --record OUT.cast`, as in [Recording](#recording).
+2. **Revision stepping keys** (#505): `{`/`}` for revisions, and `]` keeps "jump to the end of the
+   next turn".
