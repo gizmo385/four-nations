@@ -228,6 +228,11 @@ pub enum DeathCause {
     Sickness,
 }
 
+/// Health has no `low` in the data; it reads as a warning at half of full, and as Dying (bad) at
+/// half of that. `fn_ui::view` colours the People row by it and `World::care` counts severe time
+/// by it (issue #533), so both read this one number.
+pub const HEALTH_LOW: f32 = 0.5;
+
 /// A unit's current meters. Each is in `[0, max]`; `health` has its own max.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Needs {

@@ -223,6 +223,8 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     "orchard_rng",
     // End-game counts (#233): the world's lifetime tallies, and each unit's finished bends.
     "tallies",
+    // Care tallies (#533): suffering and close calls, on `World`.
+    "care",
     "bends",
     // The endeavor (#234): its state, and the signs met and events so far.
     "endeavor",

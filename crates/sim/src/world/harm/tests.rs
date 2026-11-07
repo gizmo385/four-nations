@@ -104,6 +104,23 @@ fn a_rough_sleeper_on_cold_land_loses_health_and_logs_once() {
 }
 
 #[test]
+fn a_rough_sleeper_in_the_cold_accrues_cold_minutes_only_with_harm_on() {
+    let defs = Defs::bundled();
+    let mut w = sleeping_world(&defs, 0, at(2, 0), "normal");
+    for _ in 0..600 {
+        w.tick(&defs);
+    }
+    assert_eq!(w.care().cold_minutes(), 1.0, "a minute of exposure for the one sleeper (#533)");
+    assert_eq!(w.care().person_minutes(), 1.0);
+
+    let mut sandbox = sleeping_world(&defs, 0, at(2, 0), "sandbox");
+    for _ in 0..600 {
+        sandbox.tick(&defs);
+    }
+    assert_eq!(sandbox.care().cold_minutes(), 0.0, "with harm off, nothing is exposed");
+}
+
+#[test]
 fn a_sleeper_in_a_bed_takes_no_exposure_damage() {
     let defs = Defs::bundled();
     let pos = at(2, 0);

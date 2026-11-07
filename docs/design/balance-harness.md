@@ -168,7 +168,8 @@ compute identical numbers.
 |---|---|
 | `person_minutes` | minutes lived, summed over settlers (the denominator) |
 | `depleted_minutes[need]` | person-minutes with hunger, thirst or energy at 0 (taking damage) |
-| `severe_minutes[flag]` | person-minutes per severe flag: Starving, Parched, Exhausted (below half the need's `low`) and Dying, the People row's Bad statuses. #517's "suffering" share sums these |
+| `severe_minutes[flag]` | person-minutes per severe flag: Starving, Parched, Exhausted (below half the need's `low`) and Dying, the People row's Bad statuses. A settler showing two flags counts in both, so this is a breakdown, not a total |
+| `severe_any_minutes` | person-minutes with at least one severe flag; #517's "suffering" share is this ÷ `person_minutes` |
 | `cold_minutes` | person-minutes sleeping rough in the cold (exposure applying) |
 | `close_calls` | episodes of a settler entering Dying (health below `close_call_health`, 25) who lives; re-arms once back above `rearm_health` (50). The Avatar leaving unfed (`AvatarLeft`) also counts once |
 | `lowest_health` | the lowest health any settler reached |

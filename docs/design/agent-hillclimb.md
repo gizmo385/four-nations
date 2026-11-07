@@ -125,8 +125,8 @@ track can't reach the stages, but every run on that track has the same ceiling.
   their health recovers above 50%. The Avatar leaving unfed (`AvatarLeft`) also counts once.
   Both thresholds live in `data/harm.toml` `[care]`, because the count is kept on `World` (#533),
   shared with the balance harness (balance-harness.md, "4. The care measure").
-- **Suffering:** person-minutes with any severe flag ÷ all person-minutes, from
-  `World::care()` (#533). "Severe" means below half a need's `low` (`data/needs.toml`): the same Bad status
+- **Suffering:** person-minutes with any severe flag ÷ all person-minutes
+  (`severe_any_minutes() / person_minutes()`), from `World::care()` (#533). "Severe" means below half a need's `low` (`data/needs.toml`): the same Bad status
   the People row shows as Starving, Parched or Exhausted, plus Dying. Because it's a share, a
   growing colony isn't penalised for having more people.
 - **Not scored, reported:** mild flags (Hungry, Thirsty, Tired, Hurt), which every settler passes

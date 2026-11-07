@@ -122,15 +122,16 @@ impl World {
     /// event once per sleep. A no-op with the difficulty preset's `harm` at 0 (Sandbox, or no
     /// preset at all): draws nothing, costs nothing, matches today exactly. `cold` is the
     /// caller's own `World::is_cold`-equivalent check for `u.pos`, computed once per unit
-    /// alongside the needs tick it already does that for.
-    pub(super) fn apply_exposure(&mut self, u: &mut Unit, cold: bool, defs: &Defs) {
+    /// alongside the needs tick it already does that for. Returns whether `u` was exposed (took
+    /// damage) this tick, for `World::care`'s `cold_minutes`.
+    pub(super) fn apply_exposure(&mut self, u: &mut Unit, cold: bool, defs: &Defs) -> bool {
         let knobs = self.knobs(defs);
         let (harm_scale, kills) = (knobs.harm, knobs.harm_kills);
         let exposed =
             harm_scale > 0.0 && cold && u.is_sleeping() && self.bed_sleep_bonus(u, defs) <= 1.0;
         if !exposed {
             u.exposed_alerted = false;
-            return;
+            return false;
         }
         if !u.exposed_alerted {
             u.exposed_alerted = true;
@@ -150,6 +151,7 @@ impl World {
             (u.needs.health - per_tick).max(floor)
         };
         u.last_harm = Some((HarmKind::Exposure, self.tick));
+        true
     }
 
     /// Whether `u` is sick right now (issue #389): used by `World::tick_needs` to hold off

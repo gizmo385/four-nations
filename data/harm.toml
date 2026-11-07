@@ -50,6 +50,15 @@
 # `harm` is above 0, the same as every other harm rule; `item` must be a known item (`data/
 # jobs.toml`).
 # - item, health, cures_sickness (ends `Unit::sick_until` on the spot), seek_below
+#
+# [care] (issue #533, decision #520, docs/design/balance-harness.md "4. The care measure"): the
+# health thresholds `World::care`'s close calls are counted by (`world/care.rs`). Absolute health,
+# like `floor`. Nothing here changes how the world plays; it only decides what gets counted.
+# - close_call_health: a settler whose health falls below this has entered a close call; it counts
+#                      once they are back at or above it, still alive (one who dies in the dip
+#                      adds none, since the death already counts).
+# - rearm_health:      the close call re-arms once that settler's health is above this, so the
+#                      next dip counts again. Must be greater than `close_call_health`.
 
 [settings]
 floor = 10.0
@@ -75,3 +84,7 @@ item = "herbs"
 health = 20.0
 cures_sickness = true
 seek_below = 60.0
+
+[care]
+close_call_health = 25.0
+rearm_health = 50.0

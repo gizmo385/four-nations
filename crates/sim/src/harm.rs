@@ -84,6 +84,17 @@ pub struct RemedyDef {
     pub seek_below: f32,
 }
 
+/// `[care]` of `data/harm.toml` (issue #533, decision #520): the health thresholds `World::care`'s
+/// close calls are counted by (`world/care.rs`). Absolute health, like `[settings] floor`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CareDef {
+    /// A settler whose health falls below this has entered a close call; it counts once they are
+    /// back at or above it, still alive.
+    pub close_call_health: f32,
+    /// A settler's close call re-arms (the next dip counts again) once health is above this.
+    pub rearm_health: f32,
+}
+
 /// Everything in `data/harm.toml`, resolved and validated. A default (unloaded) value matches
 /// the bundled starting values; nothing reads it unless a difficulty preset's `harm` knob is
 /// above 0, and the bundled data is always loaded by `Defs::bundled` before any preset can be
@@ -95,6 +106,7 @@ pub struct HarmDef {
     pub injury: InjuryDef,
     pub sickness: SicknessDef,
     pub remedies: Vec<RemedyDef>,
+    pub care: CareDef,
 }
 
 impl Default for HarmDef {
@@ -110,6 +122,7 @@ impl Default for HarmDef {
                 water: vec![SicknessWaterDef { terrain: Terrain::Water, chance: 0.05 }],
             },
             remedies: Vec::new(),
+            care: CareDef { close_call_health: 25.0, rearm_health: 50.0 },
         }
     }
 }
@@ -123,6 +136,14 @@ struct HarmFile {
     sickness: RawSickness,
     #[serde(default, rename = "remedy")]
     remedies: Vec<RawRemedy>,
+    care: RawCare,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawCare {
+    close_call_health: f32,
+    rearm_health: f32,
 }
 
 #[derive(Deserialize)]
@@ -213,6 +234,13 @@ impl HarmFile {
             }
             water.push(SicknessWaterDef { terrain: w.terrain, chance: w.chance });
         }
+        let c = &self.care;
+        if !(c.close_call_health.is_finite() && c.close_call_health > 0.0) {
+            return err("care.close_call_health must be a positive number".into());
+        }
+        if !(c.rearm_health.is_finite() && c.rearm_health > c.close_call_health) {
+            return err("care.rearm_health must be greater than care.close_call_health".into());
+        }
         let mut remedies = Vec::with_capacity(self.remedies.len());
         for r in &self.remedies {
             let Some(idx) = item_ids.iter().position(|i| *i == r.item.as_str()) else {
@@ -242,6 +270,7 @@ impl HarmFile {
                 water,
             },
             remedies,
+            care: CareDef { close_call_health: c.close_call_health, rearm_health: c.rearm_health },
         })
     }
 }
@@ -296,6 +325,7 @@ mod tests {
         assert_eq!(defs.harm.sickness.water[0].terrain, crate::defs::Terrain::Water);
         assert_eq!(defs.harm.sickness.water[0].chance, 0.05);
         assert!(defs.harm.remedies.is_empty());
+        assert_eq!(defs.harm.care, CareDef { close_call_health: 25.0, rearm_health: 50.0 });
     }
 
     #[test]

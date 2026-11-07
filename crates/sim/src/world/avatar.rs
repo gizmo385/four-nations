@@ -133,6 +133,7 @@ impl World {
         let returns_at = self.tick + minutes_to_ticks(avatar.return_minutes);
         let u = self.units.remove(i);
         self.release(&u);
+        self.care.count_avatar_left();
         self.avatar = AvatarState::Away { returns_at };
         self.endeavor_event(EndeavorEventKind::AvatarLeft(reason));
     }

@@ -189,6 +189,7 @@ fn he_leaves_when_unfed_and_comes_back() {
             EndeavorEventKind::AvatarLeft(AvatarLeaveReason::Hungry)
         ]
     );
+    assert_eq!(w.care().close_calls(), 1, "his leaving counts as one close call (#533, #520)");
     run_until(&mut w, &defs, 2_000, |w| avatar_unit(w).is_some());
     assert_eq!(w.avatar, AvatarState::Present);
     assert_eq!(avatar_unit(&w).unwrap().needs.hunger, defs.needs.max());

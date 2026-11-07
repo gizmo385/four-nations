@@ -25,6 +25,7 @@ use crate::rng::{self, SimRng};
 mod avatar;
 mod bending;
 mod build;
+mod care;
 mod chart;
 mod command;
 mod endeavor;
@@ -51,6 +52,7 @@ pub use bending::{BendChannel, BendError, BendEvent, BendOutcome, MasteryProgres
 use bending::{Patch, Revert};
 use build::Site;
 pub use build::{Blocker, BuildError};
+pub use care::{CareNeed, CareTally, Severe};
 pub use chart::{ChartEvent, ChartEventKind};
 pub use command::{Command, CommandError, Recorded};
 use endeavor::EndeavorLog;
@@ -383,6 +385,10 @@ pub struct World {
     /// Lifetime counts for the end-game signs: items harvested, scrolls read (`tally.rs`, #233).
     #[serde(default)]
     tallies: Tallies,
+    /// Time spent suffering and near-deaths, for the agent run score and the balance harness
+    /// (`care.rs`, #533). A save from before #533 loads with zeros.
+    #[serde(default)]
+    care: CareTally,
     /// Where the end game stands (`endeavor.rs`, #234): Dormant until every sign is met at once.
     #[serde(default)]
     endeavor: EndeavorState,
@@ -524,6 +530,7 @@ impl World {
             irrigation_channels: BTreeSet::new(),
             power_sources: BTreeSet::new(),
             tallies: Tallies::default(),
+            care: CareTally::default(),
             endeavor: EndeavorState::Dormant,
             endeavor_log: EndeavorLog::default(),
             avatar: AvatarState::default(),
@@ -671,6 +678,11 @@ impl World {
     /// What the settlement has done over the whole game (`tally.rs`).
     pub fn tallies(&self) -> &Tallies {
         &self.tallies
+    }
+
+    /// How well the settlement has cared for its people over the whole game (`care.rs`, #533).
+    pub fn care(&self) -> &CareTally {
+        &self.care
     }
 
     pub fn research(&self) -> &Research {
@@ -902,7 +914,7 @@ impl World {
                 // `apply_exposure`/`apply_sickness` below are the other half of what each does.
                 !cold && !sick,
             );
-            self.apply_exposure(&mut u, cold, defs);
+            let exposed = self.apply_exposure(&mut u, cold, defs);
             self.apply_sickness(&mut u, defs);
             // The Avatar's regen multiplier is his own (`[avatar].modifiers.chi_regen`, #237),
             // never the settlement's; everyone else still reads the settlement's cached value,
@@ -914,6 +926,7 @@ impl World {
             };
             let chi_max = self.chi_max_for(&u, defs);
             u.chi = defs.chi.regen(u.chi, u.is_sleeping(), chi_regen, rest, chi_max);
+            self.care.observe(&u, exposed, defs);
             if u.needs.is_dead() {
                 if u.is_avatar() {
                     // The Avatar never dies (docs/design/endgame.md, "Needs and leaving"); his

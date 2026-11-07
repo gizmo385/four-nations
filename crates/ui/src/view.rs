@@ -472,7 +472,7 @@ pub fn need_status(frac: f32, low: f32) -> Status {
 }
 
 /// Health has no `low` in the data; it reads as a warning at half.
-pub const HEALTH_LOW: f32 = 0.5;
+pub use fn_sim::needs::HEALTH_LOW;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct NeedView {
