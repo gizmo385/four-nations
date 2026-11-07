@@ -72,6 +72,33 @@ impl Track {
     }
 }
 
+/// A revision's own diff summary against its predecessor (`CodePane::feed_diff`), for the
+/// agent feed's `save_script` entry (docs/design/agent-studio.md, "What the feed shows").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScriptDiff {
+    /// The first revision of a script (saved or ad hoc): nothing to diff against.
+    New {
+        lines: usize,
+    },
+    Changed {
+        added: usize,
+        deleted: usize,
+    },
+}
+
+impl ScriptDiff {
+    /// `new, N lines`, or `+A -D` (`−` without `--ascii`).
+    pub fn text(&self, ascii: bool) -> String {
+        let minus = if ascii { '-' } else { '−' };
+        match self {
+            Self::New { lines } => {
+                format!("new, {lines} line{}", if *lines == 1 { "" } else { "s" })
+            }
+            Self::Changed { added, deleted } => format!("+{added} {minus}{deleted}"),
+        }
+    }
+}
+
 /// Which revision the pane currently shows, and what its run is doing
 /// (docs/design/agent-studio.md, "The header").
 #[derive(Clone, Debug, PartialEq)]
@@ -133,11 +160,13 @@ impl CodePane {
     }
 
     /// A `Script` line reaches the replay (`crate::watch::Watcher::start_next`): updates which
-    /// revision the pane shows, the same rule [`Self::feed`]'s own doc comment explains.
-    pub fn on_script(&mut self, name: &str, version: u32, code: &str, turns: u32) {
+    /// revision the pane shows, the same rule [`Self::feed`]'s own doc comment explains. Returns
+    /// the revision number `name`/`version`/`code` scanned as, for a caller (`crate::feed::Feed`,
+    /// docs/design/agent-studio.md "The agent feed") that needs to know it too.
+    pub fn on_script(&mut self, name: &str, version: u32, code: &str, turns: u32) -> u32 {
         let number = self.tracks.entry(name.to_owned()).or_default().scan(version, code);
         if turns == 0 && self.has_run {
-            return;
+            return number;
         }
         let changed = self.shown.as_ref().map(Shown::key) != Some((name, number));
         self.shown = Some(if turns > 0 {
@@ -149,6 +178,22 @@ impl CodePane {
         if changed {
             self.want_autoscroll = true;
         }
+        number
+    }
+
+    /// The feed's own diff summary for `name`'s revision `number` (docs/design/agent-studio.md,
+    /// "What the feed shows": the `save_script` row), reusing the same [`Track`] [`Self::feed`]
+    /// and [`Self::on_script`] already scanned -- the feed never keeps its own copy of any
+    /// script's source. `number <= 1` has no previous revision to diff against, so it's
+    /// [`ScriptDiff::New`], with the revision's own line count instead.
+    pub fn feed_diff(&self, name: &str, number: u32) -> ScriptDiff {
+        let code = self.tracks.get(name).and_then(|t| t.code(number)).unwrap_or("");
+        if number <= 1 {
+            return ScriptDiff::New { lines: code.lines().count() };
+        }
+        let old = self.tracks.get(name).and_then(|t| t.previous(number)).unwrap_or("");
+        let (_, added, deleted) = code::line_diff(old, code);
+        ScriptDiff::Changed { added, deleted }
     }
 
     /// A `Wake` line reaches the replay: the running revision's header switches from `run Nt` to

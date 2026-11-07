@@ -17,6 +17,7 @@ pub mod color;
 pub mod draw;
 pub mod embark;
 pub mod endeavor;
+pub mod feed;
 pub mod frame;
 pub mod glyphs;
 pub mod input;

@@ -433,3 +433,171 @@ fn watch_studio_splits_into_two_columns_when_the_script_does_not_fit() {
     assert!(text.contains("let v59 = 59;"), "{text}");
     golden("watch_studio_250x45_two_columns", &text);
 }
+
+// -------------------------------------------------------------------------------------------
+// The agent feed and the acts sparkline (#500, docs/design/agent-studio.md).
+// -------------------------------------------------------------------------------------------
+
+fn write_lines(lines: &[LogLine], prefix: &str) -> std::path::PathBuf {
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    let text =
+        lines.iter().map(|l| serde_json::to_string(l).unwrap()).collect::<Vec<_>>().join("\n")
+            + "\n";
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path =
+        std::env::temp_dir().join(format!("fn_tui_{prefix}_{}_{n}.jsonl", std::process::id()));
+    std::fs::File::create(&path).unwrap().write_all(text.as_bytes()).unwrap();
+    path
+}
+
+fn call(tool: &str, summary: &str) -> LogLine {
+    LogLine::Call { tool: tool.to_owned(), summary: summary.to_owned() }
+}
+
+/// A run log with real `call` lines (#497) ahead of a `save_script`/`run_script` pair, twice:
+/// `keep-fed` saved as v1 then run for 3 turns (waking on budget), then saved as v2 and run
+/// again for up to 5 turns, this time waking on an event mid-run -- the shape #500's acceptance
+/// criteria wants ("a generated log with `call` lines, mid-run and just after a wake").
+fn write_feed_log() -> std::path::PathBuf {
+    let mut h = Host::new(7, Nation::Earth, None, None, None, false).unwrap().with_turn_seconds(5);
+    h.press_keys(
+        "h <right*3> <enter> <down*2> <enter>",
+        Some("harvest".into()),
+        Some("wood".into()),
+    )
+    .unwrap();
+    h.end_turn(3);
+    let run1_lines = h.log().lines();
+    h.press_keys("p <right*2> <enter> <down*2> <enter>", Some("build Bed".into()), None).unwrap();
+    h.end_turn(1);
+    let all_lines = h.log().lines();
+    let run2_lines = all_lines[run1_lines.len()..].to_vec();
+
+    let mut lines = vec![LogLine::Header(h.header())];
+    lines.push(call("save_script", ""));
+    lines.push(LogLine::Script {
+        name: "keep-fed".into(),
+        version: 1,
+        code: KEEP_FED_V1.into(),
+        turns: 0,
+        wake_on: Vec::new(),
+    });
+    lines.push(call("run_script", "keep-fed 3t"));
+    lines.push(LogLine::Script {
+        name: "keep-fed".into(),
+        version: 1,
+        code: KEEP_FED_V1.into(),
+        turns: 3,
+        wake_on: Vec::new(),
+    });
+    lines.extend(run1_lines);
+    lines.push(LogLine::Wake {
+        reason: "budget".into(),
+        why: None,
+        turn: 3,
+        memory: serde_json::json!({}),
+    });
+    lines.push(call("save_script", ""));
+    lines.push(LogLine::Script {
+        name: "keep-fed".into(),
+        version: 2,
+        code: KEEP_FED_V2.into(),
+        turns: 0,
+        wake_on: Vec::new(),
+    });
+    lines.push(call("run_script", "keep-fed 5t"));
+    lines.push(LogLine::Script {
+        name: "keep-fed".into(),
+        version: 2,
+        code: KEEP_FED_V2.into(),
+        turns: 5,
+        wake_on: Vec::new(),
+    });
+    lines.extend(run2_lines);
+    lines.push(LogLine::Wake {
+        reason: "event".into(),
+        why: Some("death: Ping died of thirst".into()),
+        turn: 4,
+        memory: serde_json::json!({}),
+    });
+    write_lines(&lines, "feed")
+}
+
+/// Mid the second run, the feed's own box shows the running entry's progress (`turn i/N · k
+/// acts`) and its latest act, and the strip ends with the acts sparkline.
+#[test]
+fn watch_studio_feed_shows_a_running_entry_and_the_sparkline() {
+    let path = write_feed_log();
+    let out = fn_tui()
+        .args(["--watch", path.to_str().unwrap(), "--frame", "--at", "4", "--size", "160x45"])
+        .output()
+        .unwrap();
+    std::fs::remove_file(&path).ok();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("AGENT"), "{text}");
+    assert!(text.contains("calls") && text.contains("runs"), "{text}");
+    assert!(text.contains("save_script keep-fed v1"), "{text}");
+    assert!(text.contains("run_script keep-fed v1"), "{text}");
+    assert!(text.contains("budget"), "{text}");
+    assert!(text.contains("run_script keep-fed v2"), "{text}");
+    assert!(text.contains("acts "), "{text}");
+    golden("watch_studio_feed_160x45_running", &text);
+}
+
+/// Right after the second run's `Wake`, its entry reads a single `→ woke: ...` line, not the
+/// progress line, and the strip is no longer waiting on anything.
+#[test]
+fn watch_studio_feed_shows_the_wake_outcome() {
+    let path = write_feed_log();
+    let out = fn_tui()
+        .args(["--watch", path.to_str().unwrap(), "--frame", "--size", "160x45"])
+        .output()
+        .unwrap();
+    std::fs::remove_file(&path).ok();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("run_script keep-fed v2"), "{text}");
+    assert!(text.contains("woke: death: Ping died of thirst"), "{text}");
+    golden("watch_studio_feed_160x45_woken", &text);
+}
+
+/// A log with no `call` lines at all (`fn_agent play`, which wraps its whole run in one
+/// `Script`/`Wake` pair and writes no `call` lines of its own) gets the exact same entry, opened
+/// by the structural lines themselves: `run_script play · Nt → woke: ...` (docs/design/
+/// agent-studio.md's own example).
+#[test]
+fn watch_studio_feed_from_a_log_with_no_call_lines_is_synthetic() {
+    let mut h = Host::new(7, Nation::Fire, None, None, None, false).unwrap().with_turn_seconds(5);
+    h.press_keys("h <right*3> <enter> <down*2> <enter>", Some("harvest".into()), None).unwrap();
+    h.end_turn(1);
+
+    let mut lines = vec![LogLine::Header(h.header())];
+    lines.push(LogLine::Script {
+        name: "play".into(),
+        version: 0,
+        code: "designate_near(\"harvest\", \"Wild Cabbage\", observe().cursor, 15, true);".into(),
+        turns: 1,
+        wake_on: Vec::new(),
+    });
+    lines.extend(h.log().lines());
+    lines.push(LogLine::Wake {
+        reason: "event".into(),
+        why: Some("need: Thirsty first shown".into()),
+        turn: 1,
+        memory: serde_json::json!({}),
+    });
+    let path = write_lines(&lines, "feed_play");
+
+    let out = fn_tui()
+        .args(["--watch", path.to_str().unwrap(), "--frame", "--size", "160x45"])
+        .output()
+        .unwrap();
+    std::fs::remove_file(&path).ok();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("run_script play"), "{text}");
+    assert!(text.contains("woke: need: Thirsty first shown"), "{text}");
+    assert!(text.contains("1 calls") || text.contains("1 runs"), "{text}");
+    golden("watch_studio_feed_160x45_play_log", &text);
+}

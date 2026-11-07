@@ -28,6 +28,7 @@ use ratatui::style::{Modifier, Style};
 use crate::app::App;
 use crate::cli::{self, Args};
 use crate::color::{ColorDepth, Palette};
+use crate::feed::Feed;
 use crate::frame::render_shell;
 use crate::keys;
 use crate::layout;
@@ -238,6 +239,14 @@ pub struct Watcher {
     /// x `min_height` or above (`Self::render`); kept, and fed, regardless of size, so resizing
     /// into the studio mid-replay shows the right revision right away.
     code_pane: CodePane,
+    /// The agent studio's feed (#500, docs/design/agent-studio.md "The agent feed"): fed
+    /// alongside `Self::code_pane`, drawn only in the studio for the same reason.
+    feed: Feed,
+    /// Acts (replayed `Keys` lines) per turn, indexed by turn number, for the studio strip's
+    /// sparkline (#500, docs/design/agent-studio.md "The sparkline and the strip"). Grown lazily
+    /// as turns pass; `Self::turn`'s own entry always exists once anything has been replayed
+    /// this turn.
+    acts: Vec<u16>,
 }
 
 /// What the agent strip shows for a script run in progress or just woken, between the clock and
@@ -329,6 +338,8 @@ impl Watcher {
             script_strip: None,
             script_turn_start: 0,
             code_pane: CodePane::new(),
+            feed: Feed::new(),
+            acts: vec![0],
         })
     }
 
@@ -581,8 +592,8 @@ impl Watcher {
     fn start_next(&mut self) -> bool {
         let Some(entry) = self.pending.pop_front() else { return false };
         match entry {
-            LogLine::Keys { keys, label, note } => {
-                let Ok(steps) = keys::parse(&keys) else { return self.start_next() };
+            LogLine::Keys { keys: raw_keys, label, note } => {
+                let Ok(steps) = keys::parse(&raw_keys) else { return self.start_next() };
                 let keys = steps
                     .into_iter()
                     .filter_map(|s| match s {
@@ -593,6 +604,11 @@ impl Watcher {
                 if keys.is_empty() {
                     return self.start_next();
                 }
+                // #500: one `keys` line counts as one act, toward both the studio feed's own
+                // running progress (`k acts`) and the strip's own sparkline -- once it's
+                // replayed, not once every one of its keys has actually been pressed.
+                self.feed.on_keys(label.as_deref(), note.as_deref(), &raw_keys, self.turn);
+                self.acts[self.turn as usize] += 1;
                 // The `Woke` text stays on the strip only until the next act (#482,
                 // docs/design/agent-scripting.md's own "the strip says why until the next
                 // act"); a script run still mid-flight (`Running`) isn't touched, since its
@@ -612,6 +628,7 @@ impl Watcher {
                 if !matches!(self.script_strip, Some(ScriptStrip::Running { .. })) {
                     self.ghost = Some(Ghost { x, y, w, h, left: GHOST_SECONDS });
                 }
+                self.feed.on_look(x, y, w, h, self.turn); // #500
                 let tick = self.app().session.world.tick;
                 self.push_agent(tick, format!("Agent looked at ({x}, {y}) {w}x{h}"));
             }
@@ -619,10 +636,12 @@ impl Watcher {
                 if !matches!(self.script_strip, Some(ScriptStrip::Running { .. })) {
                     self.ghost = Some(Ghost { x, y, w: 1, h: 1, left: GHOST_SECONDS });
                 }
+                self.feed.on_inspect(x, y, self.turn); // #500
                 let tick = self.app().session.world.tick;
                 self.push_agent(tick, format!("Agent inspected ({x}, {y})"));
             }
             LogLine::Turn { .. } => {
+                self.feed.on_turn(self.turn); // #500
                 let ticks = self.turn_seconds * TICKS_PER_SECOND;
                 self.current = Some(Current::Ticks { remaining: ticks });
             }
@@ -641,7 +660,12 @@ impl Watcher {
             LogLine::Script { name, version, code, turns, .. } => {
                 // #499: the code pane follows every `Script` line, saved-only ones (`turns: 0`)
                 // included, whether or not it ends up shown (`CodePane::on_script`'s own rule).
-                self.code_pane.on_script(&name, version, &code, turns);
+                let number = self.code_pane.on_script(&name, version, &code, turns);
+                // #500: the feed's own entry is labelled with the `Script` line's own `version`
+                // (0 for an ad hoc run -- `crate::feed::Run`'s own doc comment), not `number`
+                // (`CodePane`'s revision ordinal), which `diff` alone needs to look up.
+                let diff = self.code_pane.feed_diff(&name, number);
+                self.feed.on_script(&name, version, turns, diff, self.turn);
                 if turns > 0 {
                     self.script_turn_start = self.turn;
                     let strip = ScriptStrip::Running { name, version };
@@ -655,6 +679,7 @@ impl Watcher {
             LogLine::Wake { reason, why, .. } => {
                 let turns_run = self.turn.saturating_sub(self.script_turn_start);
                 self.code_pane.on_wake(turns_run); // #499
+                self.feed.on_wake(&reason, why.as_deref()); // #500
                 let detail = why.unwrap_or(reason);
                 let tick = self.app().session.world.tick;
                 self.push_agent(
@@ -668,14 +693,14 @@ impl Watcher {
                     self.script_strip = Some(ScriptStrip::Woke { name, version, why: detail });
                 }
             }
-            // `notes {append}`'s own commentary: no display of its own (out of this issue's
-            // scope -- "Showing script source in the watcher" is explicitly out, and a note is
-            // read the same way).
-            LogLine::Note { .. } => {}
-            // #497: logged ahead of the call it announces, for the agent feed (a later issue,
-            // docs/design/agent-studio.md's own "The agent feed") to show. The watcher itself
-            // does nothing with it yet.
-            LogLine::Call { .. } => {}
+            // `notes {append}`'s own commentary: no display of its own in the message log (out
+            // of this issue's scope -- "Showing script source in the watcher" is explicitly
+            // out, and a note is read the same way), but the feed gets its own entry (#500).
+            LogLine::Note { text } => self.feed.on_note(&text, self.turn),
+            // #497: logged ahead of the call it announces, so the feed (#500,
+            // docs/design/agent-studio.md's own "The agent feed") sees it before that same
+            // call's own structural lines.
+            LogLine::Call { .. } => self.feed.on_call(),
         }
         true
     }
@@ -718,6 +743,7 @@ impl Watcher {
         if *remaining == 0 {
             self.current = None;
             self.turn += 1;
+            self.acts.push(0); // #500: `Self::acts`' own invariant, `acts.len() == turn + 1`.
         }
     }
 
@@ -737,8 +763,7 @@ impl Watcher {
     /// The frame for this watcher's session: today's whole frame below `[studio] min_width` x
     /// `min_height`, or the agent studio's split (#499, docs/design/agent-studio.md "Layout") at
     /// or above it -- the code pane on the left, the game column (today's frame, at the studio's
-    /// own width) on the right. The feed (the game column's own bottom rows) is a later issue;
-    /// for now the game column is the whole right side.
+    /// own width, minus the feed's own bottom rows, #500) on the right, and the feed under it.
     pub fn render(&mut self, palette: &Palette, size: (u16, u16)) -> Buffer {
         if palette.glyphs.studio.fits(size.0, size.1) {
             self.render_studio(palette, size)
@@ -747,15 +772,28 @@ impl Watcher {
         }
     }
 
+    /// The game column's own bottom rows the feed takes (#500, docs/design/agent-studio.md
+    /// "Layout": "the bottom `max(feed_min_rows, H / 4)` rows"), out of a studio `height` rows
+    /// tall; the game pane (its own strip included) gets the rest.
+    fn feed_height(palette: &Palette, height: u16) -> u16 {
+        palette.glyphs.studio.feed_min_rows.max(height / 4).min(height)
+    }
+
     fn render_studio(&mut self, palette: &Palette, size: (u16, u16)) -> Buffer {
         let game_width = palette.glyphs.studio.game_width(size.0);
         let code_width = size.0 - game_width;
-        let game = self.render_game(palette, (game_width, size.1), true);
+        let feed_height = Self::feed_height(palette, size.1);
+        let game_height = size.1 - feed_height;
+        let game = self.render_game(palette, (game_width, game_height), true);
         let mut buf = Buffer::empty(Rect::new(0, 0, size.0, size.1));
-        for y in 0..size.1 {
+        for y in 0..game_height {
             for x in 0..game_width {
                 buf[(code_width + x, y)] = game[(x, y)].clone();
             }
+        }
+        if feed_height > 0 {
+            let feed_area = Rect::new(code_width, game_height, game_width, feed_height);
+            self.feed.render(&mut buf, feed_area, palette.ascii, self.turn);
         }
         self.code_pane.render(&mut buf, Rect::new(0, 0, code_width, size.1), palette);
         buf
@@ -777,7 +815,7 @@ impl Watcher {
             crate::frame::render(&self.app().session, &self.spectator, palette, size)
         };
         if let Some(regions) = layout::regions(Rect::new(0, 0, size.0, size.1)) {
-            self.draw_strip(&mut buf, regions.status, studio);
+            self.draw_strip(&mut buf, regions.status, studio, palette);
             let view = if self.follow { self.app().ui.view } else { self.spectator.view };
             if let Some(ghost) = self.ghost {
                 draw_ghost(&view, ghost, regions.map, &mut buf);
@@ -791,13 +829,55 @@ impl Watcher {
         buf
     }
 
-    fn draw_strip(&self, buf: &mut Buffer, area: Rect, studio: bool) {
+    fn draw_strip(&self, buf: &mut Buffer, area: Rect, studio: bool, palette: &Palette) {
         let style = Style::new().add_modifier(Modifier::REVERSED);
         for x in area.left()..area.right() {
             buf[(x, area.y)].set_char(' ').set_style(style);
         }
         let text = self.strip_text(studio);
         buf.set_stringn(area.x, area.y, &text, usize::from(area.width), style);
+        if studio {
+            self.draw_sparkline(buf, area, palette, style); // #500
+        }
+    }
+
+    /// `acts <bars> <peak>` over the last `[studio] spark_turns` turns, the rightmost bar the
+    /// turn in progress, right-aligned onto the strip's own row (docs/design/agent-studio.md,
+    /// "The sparkline and the strip"). A no-op if the strip isn't wide enough to fit it rather
+    /// than drawing something truncated and unreadable.
+    fn draw_sparkline(&self, buf: &mut Buffer, area: Rect, palette: &Palette, base: Style) {
+        let studio = &palette.glyphs.studio;
+        let window_len = usize::from(studio.spark_turns).min(self.acts.len());
+        let window = &self.acts[self.acts.len() - window_len..];
+        let levels = fn_ui::sparkline::levels(window, studio.spark_floor);
+        let ramp: [char; 8] = if palette.ascii {
+            ['_', '.', ':', '-', '=', '+', '*', '#']
+        } else {
+            ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█']
+        };
+        let peak = fn_ui::sparkline::peak(window);
+        let prefix = "acts ";
+        let suffix = format!(" {peak}");
+        let total = 1 + prefix.chars().count() + levels.len() + suffix.chars().count();
+        if usize::from(area.width) < total {
+            return;
+        }
+        let mut x = area.right() - total as u16;
+        buf[(x, area.y)].set_char(' ').set_style(base);
+        x += 1;
+        for c in prefix.chars() {
+            buf[(x, area.y)].set_char(c).set_style(base);
+            x += 1;
+        }
+        for &level in &levels {
+            let style = if level == 0 { base.add_modifier(Modifier::DIM) } else { base };
+            buf[(x, area.y)].set_char(ramp[usize::from(level)]).set_style(style);
+            x += 1;
+        }
+        for c in suffix.chars() {
+            buf[(x, area.y)].set_char(c).set_style(base);
+            x += 1;
+        }
     }
 
     /// " AGENT earth  FOLLOW  turn 6  02:00  designate harvest 6x4 at (86,60) "wood for two
@@ -1507,6 +1587,68 @@ mod tests {
             Some(Ghost { x: 9, y: 9, w: 1, h: 1, left: GHOST_SECONDS }),
             "an MCP read still draws one"
         );
+    }
+
+    // ----------------------------------------------------------------------------------------
+    // The agent feed and the acts sparkline (#500)
+    // ----------------------------------------------------------------------------------------
+
+    /// Each replayed `Keys` line counts one act toward its own turn, and a `Turn` line starts a
+    /// fresh entry at zero -- `Self::acts`' own invariant (docs/design/agent-studio.md, "The
+    /// sparkline and the strip": "Each replayed `keys` line counts one toward the current
+    /// turn").
+    #[test]
+    fn acts_count_once_per_replayed_keys_line_and_a_new_turn_starts_at_zero() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.feed([
+            LogLine::Keys { keys: "h".to_owned(), label: None, note: None },
+            LogLine::Keys { keys: "<right*3>".to_owned(), label: None, note: None },
+            LogLine::Turn { index: 0, tick: u64::from(10 * TICKS_PER_SECOND) },
+            LogLine::Keys { keys: "x".to_owned(), label: None, note: None },
+        ]);
+        w.fast_forward_to_turn(1);
+        w.step_one(); // starts the final `Keys` line, queued but not reached by the turn alone
+        assert_eq!(w.acts, vec![2, 1], "two acts in turn 0, one so far in turn 1");
+    }
+
+    /// `Look`/`Inspect` don't count as acts: only `Keys` lines do.
+    #[test]
+    fn reads_do_not_count_as_acts() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.feed([LogLine::Look { x: 1, y: 1, w: 1, h: 1 }, LogLine::Inspect { x: 2, y: 2 }]);
+        w.advance(1.0);
+        assert_eq!(w.acts, vec![0]);
+    }
+
+    /// The studio strip ends with `acts <bars> <peak>`, and it's gone below the studio's own
+    /// threshold, where the feed and the sparkline don't show at all (#500's acceptance
+    /// criteria).
+    #[test]
+    fn the_studio_strip_ends_with_the_sparkline_and_a_plain_frame_does_not_have_one() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.feed([LogLine::Keys { keys: "h".to_owned(), label: None, note: None }]);
+        w.advance(1.0);
+        let palette =
+            Palette::new(&fn_sim::Defs::bundled(), Nation::Earth, ColorDepth::TrueColor, false);
+        let studio_text = crate::frame::to_text(&w.render(&palette, (160, 45)));
+        assert!(studio_text.contains("acts "), "{studio_text}");
+
+        let plain_text = crate::frame::to_text(&w.render(&palette, (120, 40)));
+        assert!(!plain_text.contains("acts "), "{plain_text}");
+    }
+
+    /// The studio's feed box shows under the game pane, which gets what's left of the column
+    /// (docs/design/agent-studio.md, "Layout": "the bottom `max(feed_min_rows, H / 4)` rows").
+    #[test]
+    fn the_studio_splits_the_game_column_with_the_feed_below_it() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.feed([script("keep-fed", 1, 5)]);
+        w.advance(1.0);
+        let palette =
+            Palette::new(&fn_sim::Defs::bundled(), Nation::Earth, ColorDepth::TrueColor, false);
+        let text = crate::frame::to_text(&w.render(&palette, (160, 45)));
+        assert!(text.contains("AGENT ── "), "{text}: the feed's own box title should show");
+        assert!(text.contains("run_script keep-fed v1"), "{text}");
     }
 
     // ----------------------------------------------------------------------------------------

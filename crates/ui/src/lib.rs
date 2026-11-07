@@ -27,6 +27,7 @@ pub mod inspect;
 pub mod research;
 pub mod saves;
 pub mod session;
+pub mod sparkline;
 pub mod text;
 pub mod theme;
 pub mod tools;
