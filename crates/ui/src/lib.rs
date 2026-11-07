@@ -21,6 +21,7 @@
 pub mod alerts;
 pub mod build;
 pub mod clock;
+pub mod code;
 pub mod endeavor;
 pub mod inspect;
 pub mod research;
