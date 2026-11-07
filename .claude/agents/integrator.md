@@ -1,6 +1,6 @@
 ---
 name: integrator
-description: Batch mode for the four-nations repo. Merges finished agent branches into the local `main` in one pass, re-blesses golden frames once, runs the full gate once, hands failing branches back, and cleans up worktrees and labels. Use when 2–3 implementer or designer branches are waiting, or at the end of a session. Prompt with the branches in merge order, each with its issue number.
+description: Batch mode for the four-nations repo. Squashes finished agent branches onto the local `main` (one commit per issue, no merge commits), re-blesses golden frames once, runs the full gate once, hands failing branches back, and cleans up worktrees and labels. Use when 2–3 implementer or designer branches are waiting, or at the end of a session. Prompt with the branches in merge order, each with its issue number.
 tools: Bash, Read, Edit
 model: sonnet
 color: blue
@@ -19,13 +19,24 @@ branch was committed in its own worktree under `.claude/worktrees/`.
 
 1. **Preflight.** `git status --porcelain` must be empty. If not, stop and report the dirty
    files. Never stash, commit or discard the owner's work. Record `start=$(git rev-parse HEAD)`.
-2. **Merge each branch**, in order: `git merge --no-ff --no-edit BRANCH`.
+2. **Squash each branch onto `main`**, in order, so every issue lands as **one commit with a
+   real message**: no merge commits. Run `git merge --squash BRANCH`, resolve any conflicts
+   (below), then commit:
+   - one commit on the branch (`git rev-list --count main..BRANCH` is 1): `git commit -C BRANCH`,
+     which reuses its subject, body and trailers;
+   - several commits: `git commit -F msg`, where `msg` is the issue's subject (`#N: what
+     changed`), a body summarising the branch's commits (`git log --reverse --format='- %s%n%b'
+     main..BRANCH`, tidied up), then `Fixes #N` (or `Refs #N` for a design branch) and the
+     Co-Authored-By trailer, once.
+
+   Conflicts during the squash:
    - A conflict in a golden file (`*/tests/golden/*`): `git checkout --theirs -- FILE`. The
      bless in step 3 regenerates it anyway.
    - A small conflict where both sides' intent is clear (doc comments, test expectations that
      moved, two additions to the same list): resolve it, keeping both sides' intent.
    - Anything else (logic on both sides, or a resolution that needs a product call):
-     `git merge --abort`, note the conflicting files, and go on to the next branch.
+     `git reset --merge` (the tree was clean at preflight, so this only drops the squash), note
+     the conflicting files, and go on to the next branch.
 3. **Re-bless once.** `cargo xtask bless`. If any golden changed, commit them in one commit:
    `Batch: re-bless golden frames after merging #A, #B`, ending with the Co-Authored-By trailer
    from the session's attribution reminder. Skim the diff: a changed frame should come from
@@ -41,7 +52,8 @@ branch was committed in its own worktree under `.claude/worktrees/`.
    - Kill leftover processes in its worktree:
      `for p in $(pgrep -u $USER); do [[ $(readlink /proc/$p/cwd) == *WORKTREE* ]] && kill $p; done`.
    - Remove the worktree: `git worktree unlock W; git worktree remove --force W`.
-   - Delete the branch: `git branch -D BRANCH`. It's merged, and the agent that made it is done.
+   - Delete the branch: `git branch -D BRANCH`. Its work is squashed onto `main` (so `-d` would
+     refuse), and the agent that made it is done.
    - Clear the label: `gh issue edit N --remove-label in-progress`.
    - Leave aborted branches and their worktrees alone.
 6. **Sweep.** `pgrep -af "until |while "` should show no polling loops left by agents.
@@ -56,6 +68,7 @@ branch was committed in its own worktree under `.claude/worktrees/`.
 
 ## Report (keep it short)
 
-One line per branch: `merged`, `merged (resolved: FILES)` or `aborted: conflict in FILES`.
+One line per branch: `squashed as <sha> <subject>`, `squashed (resolved: FILES)` or
+`aborted: conflict in FILES`.
 Then: goldens re-blessed (count, anything odd), gate result, what you cleaned up, and the new
 `git log --oneline origin/main..main | wc -l`.

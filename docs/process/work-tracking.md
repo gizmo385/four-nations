@@ -154,7 +154,8 @@ batch.
 4. **Don't commit golden changes.** Golden frames are generated output in batch mode. If you
    ran `cargo xtask bless` to look at a frame, put the files back before committing
    (`git checkout -- '*tests/golden*'`), and paste the frame into your report instead.
-5. Commit with `Fixes #N` in the body. Don't push and don't open a PR. Leave `in-progress` on;
+5. Commit with `Fixes #N` in the body. Write the message for `main`'s history: the integrator
+   squashes your branch into one commit that reuses it. Don't push and don't open a PR. Leave `in-progress` on;
    the integrator clears it after the merge.
 6. Report the branch, the commit, what changed and how you checked it.
 
@@ -163,7 +164,9 @@ waiting, or at the end of a session:
 
 1. Stop if the main checkout has uncommitted changes. It never stashes or commits the owner's
    work.
-2. Merge each branch with `git merge --no-ff`, in the order given. On a conflict in a golden
+2. Squash each branch onto `main` (`git merge --squash`, then one commit that reuses the
+   branch's message, `#N: ...` with `Fixes #N`), in the order given. History stays linear, one
+   commit per issue, with no merge commits. On a conflict in a golden
    file, take either side. Resolve small conflicts that keep both sides' intent (doc comments,
    test expectations). For anything else, abort that merge and hand the branch back.
 3. `cargo xtask bless`, and commit any golden changes as one batch commit.
