@@ -1,7 +1,7 @@
 # Scoring agent runs, and hill-climbing one strategy
 
-Status: **proposed** (#517, #518). The owner's calls are under "Open questions for the owner",
-and the follow-up work is under "Follow-up issues".
+Status: **accepted** (#517, #518). The owner took every recommendation on 2026-11-07: see
+"Owner decisions". The follow-up work is under "Follow-up issues".
 
 The owner (2026-11-07): "The quality of a run isn't *just* how many of the signs that it's
 finished, but also how many turns its taken to do that and how well its taken care of its
@@ -34,7 +34,7 @@ cheap enough to repeat.
 5. **One strategy means one governor script plus a plan.** A new `plan` tool holds the model's
    intent as data (goal, sign order, research queue, build queue, targets). The governor, a
    saved script, reads the plan every loop. Most wakes then become a plan edit, not a new
-   script. Inline one-off code becomes read-only (probes look, they don't act; Q4).
+   script. Inline one-off code becomes read-only (probes look, they don't act; #522).
 6. **Hill-climb on the clean score.** After each attempt, the final governor and plan replay
    **from turn 0 with no model** (`fn_agent play --horizon`) on the track's training seeds, at
    no token cost. The best mean clean score is the champion. The next attempt starts from the
@@ -123,8 +123,10 @@ track can't reach the stages, but every run on that track has the same ceiling.
   one of 21: each one is a person.
 - **Close calls:** a settler entering Dying (health below 25%) who then lives counts once until
   their health recovers above 50%. The Avatar leaving unfed (`AvatarLeft`) also counts once.
-- **Suffering:** person-turns with any severe flag ÷ all person-turns, sampled at the end of
-  each turn. "Severe" means below half a need's `low` (`data/needs.toml`): the same Bad status
+  Both thresholds live in `data/harm.toml` `[care]`, because the count is kept on `World` (#533),
+  shared with the balance harness (balance-harness.md, "4. The care measure").
+- **Suffering:** person-minutes with any severe flag ÷ all person-minutes, from
+  `World::care()` (#533). "Severe" means below half a need's `low` (`data/needs.toml`): the same Bad status
   the People row shows as Starving, Parched or Exhausted, plus Dying. Because it's a share, a
   growing colony isn't penalised for having more people.
 - **Not scored, reported:** mild flags (Hungry, Thirsty, Tired, Hurt), which every settler passes
@@ -213,15 +215,15 @@ Idle count, the Endeavor screen, the alerts) or the agent's own actions.
 
 ### Where it's computed
 
-- **`fn_sim::score`** (new): `ScoreDef` (from `data/score.toml`), `CareTracker::sample(&World,
-  &Defs)` once per turn grid, and `Scorecard::compute(&World, &Defs, &CareTracker, &ScoreDef,
-  horizon)`. It's pure, deterministic and reads no clock. Everything except suffering and close
-  calls is already in `World`'s history (`endeavor_events`, `deaths`, `endeavor_signs` at the
-  horizon), so the tracker is small. `data/score.toml` is loaded on its own, not into `Defs`, so
+- **`fn_sim::score`** (new): `ScoreDef` (from `data/score.toml`) and
+  `Scorecard::compute(&World, &Defs, &ScoreDef, horizon)`. It's pure, deterministic and reads no
+  clock. Suffering and close calls come from `World::care()`, the tally #533 adds for this score
+  and the balance harness alike, so there's no separate tracker here. Everything else is already
+  in `World`'s history (`endeavor_events`, `deaths`, `endeavor_signs` at the horizon). `data/score.toml` is loaded on its own, not into `Defs`, so
   `Defs::id_hash` (the run log's data digest) never changes when a weight does: old logs rescore
   under new weights.
-- **`fn_agent score LOG`** replays the log (as `Host::resume` does) and samples the tracker
-  after every `Turn` line through a new `surface::referee` read. That's the privileged module
+- **`fn_agent score LOG`** replays the log (as `Host::resume` does) and computes the scorecard
+  at the horizon through a new `surface::referee` read. That's the privileged module
   agent-play.md planned (#318), on the parity lint's allow-list and never reachable from a tool
   handler. `--append` writes a `score` commentary line to the log, which replay ignores.
 - **`balance --economy --score`** prints the same scorecard per run, which is where par comes
@@ -240,8 +242,8 @@ default_weight = 1.0    # every sign, Ready and every stage, unless listed below
 [care]
 death = 0.15
 close_call = 0.03
-close_call_health = 0.25   # entering below this is a close call; recovering above 0.5 re-arms
-suffering = 2.0            # × the share of person-turns with a severe flag
+suffering = 2.0            # × the share of person-minutes with a severe flag
+# close-call thresholds live in data/harm.toml [care], beside World::care() (#533)
 severe = ["starving", "parched", "exhausted", "dying"]
 ```
 
@@ -257,8 +259,8 @@ could rank by score later, but this doc doesn't propose it.
 ### Fit with the balance harness (#489)
 
 #489 wants to tell "careful never dies" from "careless has close calls" (harm.md, #394). The
-close-call and suffering definitions above are that measure. `CareTracker` takes a `World`, not
-a `Host`, so `balance` can sample it every 200 ticks with no agent in the loop. This doc only
+close-call and suffering definitions above are that measure. They're counted once, on `World`
+(#533), so `balance` reads the same numbers with no agent in the loop. This doc only
 fixes the definitions and the module boundary. How the harness turns them into verdicts is
 #489's.
 
@@ -330,7 +332,7 @@ governor builds it. "Food is falling after frost" is raising `targets.food_per_h
 writes code only when the governor can't do something at all. That change is a revision, and the
 studio's code pane already shows revisions as diffs (agent-studio.md).
 
-**Probes look, they don't act** (Q4). Inline `run_script {code}` keeps every read (`observe`,
+**Probes look, they don't act** (#522). Inline `run_script {code}` keeps every read (`observe`,
 `look`, `cells`, `can_build`, `screen`, `log`) but refuses `act`, `keys` and `wait`, with the
 error "probes can't act: put this in the governor, or in the plan". Surveys like `[findwater]`
 stay cheap, and every action comes from a versioned script the climb can keep.
@@ -404,7 +406,7 @@ measured.)*
 balance change, that re-scores the current champion for free: the regression loop
 agent-scripting.md promised, now with a number.
 
-### Fairness: lookahead and held-out seeds (Q3)
+### Fairness: lookahead and held-out seeds (#521)
 
 Climbing on one seed teaches the map (where the water is, which outcrop is reachable) as much as
 the game. Three layers keep that honest:
@@ -471,8 +473,7 @@ Today's strip at the end of the evidence run (`fn_tui --watch run.jsonl --frame 
 
 In dependency order. Decisions gate the items noted.
 
-- #523 `fn_sim::score`: `data/score.toml`, `CareTracker`, `Scorecard` (blocked by decisions
-  #519, #520)
+- #523 `fn_sim::score`: `data/score.toml`, `Scorecard` (blocked by #533, the shared care tally)
 - #525 `fn_agent score LOG`: replay, `surface::referee`, scorecard text and JSON, the `score`
   log line (#523)
 - #526 `balance --economy --score`: the scorecard per run, and par for `fn_agent score` (#523)
@@ -488,21 +489,17 @@ In dependency order. Decisions gate the items noted.
   rule (#524, #523, decision #522)
 - #532 Watch: the `score` line as a card, plus attempt and best on the strip (#525, #530)
 
-## Open questions for the owner
+## Owner decisions
 
-1. **The score's shape and weights** (#519). *Recommended:* 1000 × progress × care, as above:
-   14 milestones of weight 1, a late credit of 0.6, a partial credit of 0.5, deaths 0.15, close
-   calls 0.03, suffering 2.0, at a 540-turn horizon. Alternatives are a lexicographic rank, or an
-   additive sum with separate speed and care terms.
-2. **What counts as care** (#520). *Recommended:* deaths, close calls (Dying, or the Avatar
-   leaving unfed) and severe-need time. Mild flags, harm events and food security are reported
-   but not scored. Alternatives: also score every harm event, or also score low food per head
-   entering winter.
-3. **What the climb selects on** (#521). *Recommended:* the mean clean score over three training
-   seeds, with the model playing one of them and three held-out seeds shown to the owner only.
-   Alternatives are a single seed (cheapest, overfits the map) or a fresh seed every attempt
-   (most general, but attempts stop being comparable).
-4. **How hard to push toward one strategy, beyond the plan tool** (#522). *Recommended:*
-   read-only probes, with churn reported on the scorecard. Alternatives are the prompt alone
-   (softest), or a hard cap of three saved scripts (strictest). Every option keeps the plan tool,
-   because clean evaluation needs it.
+The owner took every recommendation on 2026-11-07.
+
+1. **The score's shape and weights** (#519): 1000 × progress × care, as above. 14 milestones of
+   weight 1, a late credit of 0.6, a partial credit of 0.5, deaths 0.15, close calls 0.03,
+   suffering 2.0, at a 540-turn horizon.
+2. **What counts as care** (#520): deaths, close calls (Dying, or the Avatar leaving unfed) and
+   severe-need time. Mild flags, harm events and food security are reported but not scored.
+   The tallies are kept on `World` by #533, shared with the balance harness.
+3. **What the climb selects on** (#521): the mean clean score over three training seeds, with
+   the model playing one of them and three held-out seeds shown to the owner only.
+4. **How hard to push toward one strategy** (#522): the plan tool, plus read-only inline probes,
+   with churn reported on the scorecard.

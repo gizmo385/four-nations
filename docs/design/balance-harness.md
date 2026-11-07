@@ -1,7 +1,8 @@
 # Balance harness: a verdict, not a sweep
 
-Status: **proposed** (#489). The owner's calls are under "Open questions for the owner", and the
-follow-up work is under "Follow-up issues".
+Status: **accepted** (#489). The owner took every recommendation on 2026-11-07 as a starting
+default, to retune once the harness has run for a while: see "Owner decisions". The follow-up work
+is under "Follow-up issues".
 
 The owner (2026-11-06): judging balance with `balance --economy --seeds 1-8`, one scripted
 opening per nation checked against median bands, is blunt. This doc proposes a harness whose
@@ -167,11 +168,14 @@ compute identical numbers.
 |---|---|
 | `person_minutes` | minutes lived, summed over settlers (the denominator) |
 | `depleted_minutes[need]` | person-minutes with hunger, thirst or energy at 0 (taking damage) |
+| `severe_minutes[flag]` | person-minutes per severe flag: Starving, Parched, Exhausted (below half the need's `low`) and Dying, the People row's Bad statuses. #517's "suffering" share sums these |
 | `cold_minutes` | person-minutes sleeping rough in the cold (exposure applying) |
-| `close_calls` | episodes of a settler's health dropping below `close_call_health` (30); re-arms once it's back above `rearm_health` (60) |
+| `close_calls` | episodes of a settler entering Dying (health below `close_call_health`, 25) who lives; re-arms once back above `rearm_health` (50). The Avatar leaving unfed (`AvatarLeft`) also counts once |
 | `lowest_health` | the lowest health any settler reached |
 
-Deaths (`World::deaths`, with `weakened_by`) and harm events already exist and aren't duplicated.
+The close-call thresholds and the severe flags follow the owner's #520 answer, so #517's score
+and this harness count the same episodes. Deaths (`World::deaths`, with `weakened_by`) and harm
+events already exist and aren't duplicated.
 The thresholds go in `data/harm.toml` `[care]`. Consumers derive rates: **depleted minutes per
 person-hour** and **close calls per 10 person-hours**. Rates per person-hour are what keep a tiny,
 safe colony from scoring well on care alone; whether care trades against progress is #517's
@@ -330,35 +334,30 @@ Filed without `ready`. The issues that wait on an owner answer are blocked by it
 | #533 | Sim: care tallies on `World` (shared with #517) | |
 | #534 | Harness: `RunRecord`, site profile, probe, detectors and autopsies in `fn_sim::balance` | #533 |
 | #535 | Harness: `balance trace` for a flagged run (probe rows and an ASCII crop) | #534 |
-| #536 | Autoplay: play styles as data (`steady`, `careless`, `branch_first`, `idle`) | #513, #544 |
-| #537 | Harness: `fn_harness` crate, `data/harness.toml` targets and the verdict | #534, #536, #543, #544, #546 |
+| #536 | Autoplay: play styles as data (`steady`, `careless`, `branch_first`, `idle`) | #513 |
+| #537 | Harness: `fn_harness` crate, `data/harness.toml` targets and the verdict | #534, #536 |
 | #538 | Harness: baseline, `--against` and the jitter run | #537 |
-| #539 | xtask: `cargo xtask balance` tiers | #537, #538, #545 |
-| #540 | Harness: a script-player style (`fn_agent play --script`) | #537, #544 |
+| #539 | xtask: `cargo xtask balance` tiers | #537, #538 |
+| #540 | Harness: a script-player style (`fn_agent play --script`) | #537 |
 | #541 | Harness: the first verdict, re-classifying the open symptom issues | #539, #535 |
 | #542 | Balance harness: new failures on seeds 18, 19, 27 and 30 | |
 
-## Open questions for the owner
+## Owner decisions
 
-1. **What share of runs must pass, and what makes a site hard?** *Recommended: 85% of valid runs
-   on feasible sites (about today's 7 of 8), and a site is hard for a sign when its reachable
-   supply is below the sign's need.* A stricter 95% would flag nearly every target on 30-run
-   samples. A looser hard-site cut (below 1.5x the need) would excuse more misses. For stone the
-   supply has to count brick and other nation sources, or the cut flags sites that pass anyway
-   (38 of 44 stone-poor runs met the sign by minute 120). Filed as #543.
-2. **Which play styles count toward the verdict?** *Recommended: `steady` gates every target;
+The owner took every recommendation on 2026-11-07, as starting defaults that `data/harness.toml`
+can retune per target once the harness has a track record.
+
+1. **What share of runs must pass, and what makes a site hard** (#543): 85% of valid runs on
+   feasible sites, and a site is hard for a sign when its reachable supply (counting brick and
+   other nation sources for stone) is below the sign's need.
+2. **Which play styles count toward the verdict** (#544): `steady` gates every target;
    `careless` and `branch_first` gate only the targets that name them; scripted agents are shown
-   but don't gate.* The alternative, averaging over several styles, blurs which player missed.
-   Filed as #544.
-3. **What's the cost budget?** *Recommended: CI unchanged (no sweep, under 10 s); the quick tier
-   at about 2 minutes on every balance change; the full tier at about 15 minutes before a design's
-   numbers are accepted.* Putting the quick tier in CI would add about 2 minutes of release build
-   and run to every push. Filed as #545.
-4. **Are hard sites part of the game, or should the default site avoid them?** *Recommended: keep
-   them, judged against a softer bar and warned about in the embark outlook.* 15 of 32 default
-   sites are short of ore, so "hard" is common, not rare. The alternative is a `default_site` that
-   prefers sites with every sign's supply in reach, which makes the harness simpler and the maps
-   more alike. Filed as #546.
+   but don't gate.
+3. **The cost budget** (#545): CI unchanged; the quick tier (about 2 minutes) by hand on every
+   balance change, pasted into the commit; the full tier (about 15 minutes) before a design's
+   numbers are accepted.
+4. **Hard sites** (#546): they stay in the game, judged against a softer bar, and the embark
+   outlook warns about them.
 
 ## Not chosen
 
