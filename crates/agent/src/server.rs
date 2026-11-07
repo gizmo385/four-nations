@@ -13,7 +13,7 @@ use std::io::{BufRead, Write};
 
 use serde_json::{Value, json};
 
-use crate::tools::{self, Tools};
+use crate::tools::Tools;
 
 const PARSE_ERROR: i64 = -32700;
 const METHOD_NOT_FOUND: i64 = -32601;
@@ -71,7 +71,7 @@ fn dispatch<W: std::io::Write>(
             "capabilities": {"tools": {}},
             "serverInfo": {"name": "fn_agent", "version": env!("CARGO_PKG_VERSION")},
         })),
-        "tools/list" => Ok(json!({"tools": tools::list()})),
+        "tools/list" => Ok(json!({"tools": tools.list()})),
         "tools/call" => {
             let name = params
                 .get("name")

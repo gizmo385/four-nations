@@ -9,12 +9,19 @@
 //! no web) -- that is a setting of whatever runs the agent (an MCP client's tool allow-list, for
 //! instance), and nothing in this crate or in a test can enforce it. See the crate's own doc
 //! comment for the harness recipe.
+//!
+//! `run_script` ([`Tools::with_scripts`], `--scripts`) is the one addition
+//! docs/design/agent-scripting.md makes: it still only reaches `Host` through
+//! [`crate::script::run`], which is itself built from the same `act`/`keys`/`end_turn` this
+//! module's other tools call, so granting it adds no capability a sandboxed racer wouldn't
+//! already have.
 
 use fn_tui::surface::{ActionStep, Host};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::runlog::Writer;
+use crate::script::{self, Limits as ScriptLimits};
 
 /// Every tool's name, description and input schema, in the order `tools/list` returns them.
 pub fn list() -> Vec<Value> {
@@ -163,6 +170,38 @@ pub fn list() -> Vec<Value> {
     ]
 }
 
+/// `run_script`'s own entry, added to [`Tools::list`] only once [`Tools::with_scripts`] has
+/// turned it on (`fn_agent serve --scripts`, docs/design/agent-scripting.md's own "`run_script`"):
+/// not in [`list`] itself, since a sandboxed racer with no `--scripts` flag should never even
+/// see it offered.
+fn run_script_tool() -> Value {
+    json!({
+        "name": "run_script",
+        "description": "Runs code (embedded Rhai: no import, no clock, no RNG) against the \
+                         same Host this server's other tools read and act through -- observe, \
+                         look, inspect, screen, act(steps, note), keys(script, note), \
+                         wait(turns) (at least 1, Host::end_turn(1) per turn) and log(msg). \
+                         Stops and returns once the script returns (`done`, with its own value), \
+                         errors (`error`, with message and line:col), uses up `turns` \
+                         (`budget`), or runs too many operations with no `wait` (`runaway`). \
+                         The result always carries the turns actually run, the script's own \
+                         log tail, and the final `observe`.",
+        "inputSchema": json!({
+            "type": "object",
+            "properties": {
+                "code": {"type": "string"},
+                "turns": {"type": "integer"},
+                "note": {
+                    "type": "string",
+                    "description": "Tags every act/keys step this run makes in the log, e.g. \
+                                    \"[keep-fed]\"; defaults to \"script\" with none given.",
+                },
+            },
+            "required": ["code"],
+        }),
+    })
+}
+
 /// Deserializes `arguments` into `T`, naming the tool in any error so a bad call says which
 /// field it got wrong.
 fn args<T: for<'de> Deserialize<'de>>(tool: &str, arguments: Value) -> Result<T, String> {
@@ -209,6 +248,13 @@ struct EndTurnArgs {
     turns: Option<u32>,
 }
 
+#[derive(Deserialize)]
+struct RunScriptArgs {
+    code: String,
+    turns: Option<u32>,
+    note: Option<String>,
+}
+
 /// Wraps a [`Host`] and the run log [`Writer`]: the one place `tools/call` dispatches to.
 ///
 /// Logging doesn't duplicate [`Host`]'s own bookkeeping: `Host` already keeps a `RunLog` of
@@ -222,6 +268,10 @@ pub struct Tools<W: std::io::Write> {
     log: Writer<W>,
     /// How many of `host.log().lines()` are already flushed to `log`.
     written: usize,
+    /// `Some` once [`Self::with_scripts`] has turned `run_script` on (`fn_agent serve
+    /// --scripts`); `None` keeps this session's tool list exactly what it was before #477, the
+    /// sandboxed racer's whole surface (the crate's own doc comment).
+    scripts: Option<ScriptLimits>,
 }
 
 impl<W: std::io::Write> Tools<W> {
@@ -229,7 +279,7 @@ impl<W: std::io::Write> Tools<W> {
     /// made against, so a later `fn_tui --watch` or `fn_agent keys` can tell.
     pub fn new(host: Host, mut log: Writer<W>) -> Result<Self, String> {
         log.write_header(&host.header()).map_err(|e| e.to_string())?;
-        Ok(Self { host, log, written: 0 })
+        Ok(Self { host, log, written: 0, scripts: None })
     }
 
     /// Wraps a [`Host`] built with [`fn_tui::surface::Host::resume`] and a `log` that's already
@@ -238,7 +288,24 @@ impl<W: std::io::Write> Tools<W> {
     /// appends only what's new instead of writing the replayed lines a second time.
     pub fn resume(host: Host, log: Writer<W>) -> Self {
         let written = host.log().lines().len();
-        Self { host, log, written }
+        Self { host, log, written, scripts: None }
+    }
+
+    /// Turns `run_script` on for this session (`fn_agent serve --scripts`), with `limits` as
+    /// `data/agent.toml`'s `[scripts]` table.
+    pub fn with_scripts(mut self, limits: ScriptLimits) -> Self {
+        self.scripts = Some(limits);
+        self
+    }
+
+    /// This session's own tool list: [`list`], plus `run_script` once [`Self::with_scripts`]
+    /// has turned it on.
+    pub fn list(&self) -> Vec<Value> {
+        let mut tools = list();
+        if self.scripts.is_some() {
+            tools.push(run_script_tool());
+        }
+        tools
     }
 
     /// The run log written so far, for a test to read back (`Writer::get_ref`).
@@ -297,6 +364,14 @@ impl<W: std::io::Write> Tools<W> {
                 let a: EndTurnArgs = args(name, arguments).unwrap_or_default();
                 let turns = a.turns.unwrap_or(1).max(1);
                 Ok(ok(&self.host.end_turn(turns)))
+            }
+            "run_script" => {
+                let limits =
+                    self.scripts.ok_or("run_script: this session wasn't started with --scripts")?;
+                let a: RunScriptArgs = args(name, arguments)?;
+                let outcome =
+                    script::run(&mut self.host, &a.code, a.turns, a.note.as_deref(), &limits);
+                Ok(ok(&outcome))
             }
             other => Err(format!("no such tool {other:?}; call tools/list")),
         }

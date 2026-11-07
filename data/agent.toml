@@ -1,0 +1,23 @@
+# Limits for fn_agent's embedded script runner (docs/design/agent-scripting.md, "The
+# trampoline"). Read by fn_agent only -- fn_sim never reads this file, the same as
+# data/tui.toml is fn_tui's own.
+
+[scripts]
+# A `run_script` call's own turn budget (20 game seconds each by default) when the caller
+# doesn't give one: enough to see whether a new script does anything sane without costing much
+# turn budget if it's wrong.
+default_turns = 15
+
+# No `run_script` call may ask for more turns than this, whatever `turns` it's given (one game
+# year at the default turn length): a proven script still has to come back and let a wake
+# report check in.
+max_turns = 180
+
+# `Engine::set_max_operations`: a script loop with no `wait` runs away, and this many Rhai
+# operations stops it deterministically, before it burns CPU for nothing ("runaway",
+# docs/design/agent-scripting.md, "`run_script`").
+max_operations = 500000
+
+# How many of the script's own `log`/`print`/`debug` lines a `run_script` result keeps, most
+# recent last.
+log_tail = 30

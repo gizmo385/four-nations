@@ -5,7 +5,7 @@
 //!
 //! ```text
 //! fn_agent serve --seed N --nation X [--start default|X,Y] [--difficulty ID] [--turn SECS]
-//!                --log PATH
+//!                [--scripts] --log PATH
 //! fn_agent keys LOG
 //! ```
 //!
@@ -19,6 +19,13 @@
 //! exited; `fn_agent keys LOG` reads a finished (or still growing) log the same way and prints
 //! the `--keys` script that reproduces its final frame with `fn_tui SEED NATION --frame --keys
 //! "..."`.
+//!
+//! `--scripts` (docs/design/agent-scripting.md) adds one more tool, `run_script`: instead of
+//! deciding every key itself, the model hands over a [`script`] written in embedded Rhai that
+//! plays the routine work and only comes back once something worth a decision happens. Every
+//! key a script presses is a normal `act`/`keys` call under the hood, logged the same way, so
+//! `fn_tui --watch` and `fn_agent keys` read a scripted run exactly as they read an MCP-only
+//! one.
 //!
 //! ## Sandboxing a racer (docs/design/agent-play.md, "Enforcing and testing parity")
 //!
@@ -46,5 +53,6 @@
 //! amount of testing inside this repository can prove an operator followed it.
 
 pub mod runlog;
+pub mod script;
 pub mod server;
 pub mod tools;

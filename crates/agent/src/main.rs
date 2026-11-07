@@ -6,6 +6,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use fn_agent::runlog::Writer;
+use fn_agent::script::Limits as ScriptLimits;
 use fn_agent::server;
 use fn_agent::tools::Tools;
 use fn_tui::surface::{DEFAULT_TURN_SECONDS, Host, LogLine, RunLogHeader};
@@ -13,9 +14,9 @@ use fn_tui::watch;
 
 const USAGE: &str = "\
 usage: fn_agent serve --seed N --nation X [--start default|X,Y] [--difficulty ID]
-                       [--turn SECS] --log PATH
+                       [--turn SECS] [--scripts] --log PATH
        fn_agent serve --resume LOG [--seed N] [--nation X] [--start default|X,Y]
-                       [--difficulty ID] [--turn SECS]
+                       [--difficulty ID] [--turn SECS] [--scripts]
        fn_agent keys LOG
 
 serve speaks MCP (JSON-RPC 2.0) over stdin and stdout: initialize, tools/list and tools/call. It
@@ -28,6 +29,9 @@ into it (so the resumed session picks up exactly where the last one left off), a
 appending to LOG from there -- for playing a long run as a chain of short, cheap sessions instead
 of one that re-reads a growing log every turn. Any of --seed, --nation, --start, --difficulty or
 --turn given alongside --resume must match LOG's own header, or serve refuses to start.
+
+--scripts (docs/design/agent-scripting.md) adds the run_script tool: a sandboxed Rhai runner
+over the same Host, with limits from data/agent.toml's [scripts] table.
 
 keys prints the run at LOG as a --keys script (fn_tui SEED NATION --frame --keys \"...\").";
 
@@ -58,6 +62,7 @@ struct ServeArgs {
     turn_seconds: Option<u32>,
     log: Option<String>,
     resume: Option<String>,
+    scripts: bool,
 }
 
 fn parse_serve_args(args: Vec<String>) -> Result<ServeArgs, String> {
@@ -70,6 +75,7 @@ fn parse_serve_args(args: Vec<String>) -> Result<ServeArgs, String> {
         turn_seconds: None,
         log: None,
         resume: None,
+        scripts: false,
     };
     let mut it = args.into_iter();
     while let Some(flag) = it.next() {
@@ -89,6 +95,7 @@ fn parse_serve_args(args: Vec<String>) -> Result<ServeArgs, String> {
             "--turn" => a.turn_seconds = Some(value()?.parse::<u32>().map_err(|e| e.to_string())?),
             "--log" => a.log = Some(value()?),
             "--resume" => a.resume = Some(value()?),
+            "--scripts" => a.scripts = true,
             other => return Err(format!("unknown flag {other:?}")),
         }
     }
@@ -123,8 +130,14 @@ fn serve_fresh(a: &ServeArgs) -> Result<(), String> {
     let host = Host::new(seed, nation, None, a.difficulty.clone(), a.start, false)?
         .with_turn_seconds(a.turn_seconds.unwrap_or(DEFAULT_TURN_SECONDS));
     let writer = Writer::create(Path::new(log)).map_err(|e| e.to_string())?;
-    let tools = Tools::new(host, writer)?;
+    let tools = with_scripts(Tools::new(host, writer)?, a);
     run_tools(tools)
+}
+
+/// Turns `run_script` on when `--scripts` was given (`Tools::with_scripts`), with the limits
+/// `data/agent.toml` ships.
+fn with_scripts<W: Write>(tools: Tools<W>, a: &ServeArgs) -> Tools<W> {
+    if a.scripts { tools.with_scripts(ScriptLimits::bundled()) } else { tools }
 }
 
 /// `--resume LOG`: rebuilds `LOG`'s own session (`Host::resume`) from its header and lines,
@@ -148,7 +161,7 @@ fn serve_resume(a: &ServeArgs, path: &str) -> Result<(), String> {
         lines.into_iter().filter(|l| !matches!(l, LogLine::End { .. })).collect();
     let writer =
         Writer::recreate_with(Path::new(path), &header, &kept).map_err(|e| e.to_string())?;
-    let tools = Tools::resume(host, writer);
+    let tools = with_scripts(Tools::resume(host, writer), a);
     run_tools(tools)
 }
 
@@ -240,6 +253,7 @@ mod tests {
             turn_seconds: None,
             log: None,
             resume: Some(path.to_owned()),
+            scripts: false,
         }
     }
 
