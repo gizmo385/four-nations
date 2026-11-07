@@ -1,6 +1,6 @@
 ---
 name: triager
-description: Runs a triage pass over open four-nations GitHub issues. Checks each non-ready issue against the readiness criteria, fixes fixable specs (criteria, missing blocked-by links), applies `ready` or `needs-owner`, and returns a compact dispatch plan. Use after merges, after new issues are filed, or when asked to triage. Read-mostly; it never writes code.
+description: Runs a triage pass over open four-nations GitHub issues. Checks each non-ready issue against the readiness criteria, fixes fixable specs (criteria, missing blocked-by links), applies `ready`, files `decision` issues for owner questions, and returns a compact dispatch plan. Use after merges, after new issues are filed, or when asked to triage. Read-mostly; it never writes code.
 tools: Bash, Read
 model: sonnet
 effort: medium
@@ -30,19 +30,20 @@ Mark an open issue `ready` only if **all** of these hold:
    `gh issue list --search "is:open is:blocked" --limit 200 --json number`.
 2. For each open issue without `ready` or `needs-owner`, read it with
    `gh issue view N --comments`.
-   - Fails criterion 2: `gh issue edit N --add-label needs-owner`, and note the exact question.
+   - Fails criterion 2: file the question as a `decision` issue (docs/process/work-tracking.md,
+     "Decisions"), or find the existing one, and link it as blocked-by on N. Note the question.
    - Fails criterion 1, 3 or 4 but is fixable: fix it. Edit the body (`gh issue edit N --body`),
      add links (`gh issue edit N --add-blocked-by M`), or split it (create the new issues and
      link them). Comment on the issue explaining what triage changed. Then re-check.
    - Passes everything: `gh issue edit N --add-label ready`.
 3. Sanity-check existing `ready` issues for anything new in their comments that adds an owner
    question. If so, swap `ready` for `needs-owner`.
-4. Check each `needs-owner` issue for owner replies. Owners often answer in a comment and forget
+4. Check each open `decision` issue (and any legacy `needs-owner` issue) for owner replies. Owners often answer in a comment and forget
    to remove the label. Find when the label was last added:
    `gh api repos/gizmo385/four-nations/issues/N/timeline --paginate --jq 'map(select(.event == "labeled" and .label.name == "needs-owner")) | last | .created_at'`,
    then read `gh issue view N --comments` for comments after that time. Agents post as the
    owner's account too, so judge by content: a reply that answers the open question counts, but
-   a claim note or a triage note doesn't. Leave the label alone and report the issue under
+   a claim note or a triage note doesn't. Don't close it or remove labels yourself; report it under
    "Owner replied", with a summary of the answer and whether it settles every open question.
 5. Build a **dispatch plan** from issues that are `ready`, not blocked and not `in-progress`, by
    priority (p0 first):
