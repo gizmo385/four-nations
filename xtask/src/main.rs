@@ -21,6 +21,13 @@
 //!                               staged, unstaged and untracked), including their dependents (a
 //!                               change in fn_sim also tests fn_ui and fn_tui, since both depend
 //!                               on it).
+//!     cargo xtask agent-run [options]
+//!                               starts an agent run (docs/design/agent-play.md): a Claude Code
+//!                               session plays the game through `fn_agent serve` while you watch
+//!                               it with `fn_tui --watch`. `scripts/agent-run.sh` is a thin
+//!                               wrapper around this. See `cargo xtask agent-run --help` for
+//!                               every option, or `cargo xtask agent-run watch [RUN_DIR]` to
+//!                               watch or replay a run.
 //!
 //! `root()` finds the repo root at runtime with `git rev-parse --show-toplevel`, so an `xtask`
 //! binary built from one worktree's `target/` still works when run from another (a shared
@@ -30,6 +37,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+mod agent_run;
 mod lint;
 
 type Result<T = ()> = std::result::Result<T, String>;
@@ -94,6 +102,7 @@ fn dispatch(args: &[&str]) -> Result {
             }
             check(&crates, fast)
         }
+        Some("agent-run") => agent_run::run(&args[1..]),
         _ => Err(help()),
     }
 }
