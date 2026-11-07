@@ -307,13 +307,15 @@ impl Host {
         }
         for line in lines {
             match line {
-                // `Script`, `Wake` and `Note` are #479's own commentary (`LogLine`'s own doc
-                // comment): nothing a `Host` ever made, so nothing to replay back into one.
+                // `Script`, `Wake`, `Note` and `Call` are #479/#497's own commentary (`LogLine`'s
+                // own doc comment): nothing a `Host` ever made, so nothing to replay back into
+                // one.
                 LogLine::Header(_)
                 | LogLine::End { .. }
                 | LogLine::Script { .. }
                 | LogLine::Wake { .. }
-                | LogLine::Note { .. } => {}
+                | LogLine::Note { .. }
+                | LogLine::Call { .. } => {}
                 LogLine::Keys { keys, label, note } => {
                     host.press_keys(keys, label.clone(), note.clone())?;
                 }
@@ -2060,13 +2062,14 @@ pub struct RunLogHeader {
 /// moment and the reason, so `fn_tui --watch` can tell a run that's finished from one that's
 /// merely caught up with a live agent still thinking.
 ///
-/// `Script`, `Wake` and `Note` (#479, docs/design/agent-scripting.md, "Memory across sessions")
-/// are `fn_agent`'s own commentary on a `run_script`/`notes` call: nothing a `Host` ever makes
-/// itself (`fn_agent::tools::Tools` writes them directly, around the `Keys`/`Turn` lines a
-/// script's own `act`/`keys`/`wait` calls produce), and nothing [`Host::resume`] or
-/// `crate::watch::to_keys_script` replay: a chunked `--resume` session reads them back to
-/// rebuild its script library, `memory` and lab notes (`fn_agent::tools::Tools::resume`), but
-/// the game itself is exactly the same seed, keys and turns with or without them.
+/// `Script`, `Wake`, `Note` and `Call` (#479, #497, docs/design/agent-scripting.md, "Memory
+/// across sessions"; docs/design/agent-studio.md, "A new log line: `call`") are `fn_agent`'s own
+/// commentary on an MCP `tools/call`: nothing a `Host` ever makes itself (`fn_agent::tools::Tools`
+/// writes them directly, around the `Keys`/`Turn` lines a script's own `act`/`keys`/`wait` calls
+/// produce), and nothing [`Host::resume`] or `crate::watch::to_keys_script` replay: a chunked
+/// `--resume` session reads `Script`, `Wake` and `Note` back to rebuild its script library,
+/// `memory` and lab notes (`fn_agent::tools::Tools::resume`), but the game itself is exactly the
+/// same seed, keys and turns with or without any of these four.
 /// - `Script { name, version, code, turns, wake_on }`: a `run_script` call's own start -- `name`
 ///   and `code` are the tag and source a `run_script {code}` ad hoc call used (`version == 0`,
 ///   never saved) or a saved script's own name and code (`version >= 1`, `run_script {name}`).
@@ -2075,6 +2078,13 @@ pub struct RunLogHeader {
 ///   and `memory` the resulting `memory` map (always present, even unchanged). Always the next
 ///   `Wake` after a `Script` line, since `run_script` calls never overlap.
 /// - `Note { text }`: one line appended by `notes {append}`.
+/// - `Call { tool, summary }`: written by `fn_agent::tools::Tools::call` just before it dispatches
+///   `tool`'s own request, so it always comes ahead of that same call's own `Keys`/`Look`/
+///   `Inspect`/`Script`/`Wake`/`Note` lines -- a live watcher sees "started" the moment a call
+///   lands, not only once its result (and a `run_script`'s own lines) are in. `summary` is built
+///   from the arguments alone (never a result, and never `run_script`'s own code), capped at 60
+///   characters; empty for a tool whose arguments say nothing worth summarizing (`observe`,
+///   `briefing`, `inspect`, `save_script`, `scripts`, `sdk_reference`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LogLine {
@@ -2087,6 +2097,7 @@ pub enum LogLine {
     Script { name: String, version: u32, code: String, turns: u32, wake_on: Vec<EventKind> },
     Wake { reason: String, why: Option<String>, turn: u32, memory: serde_json::Value },
     Note { text: String },
+    Call { tool: String, summary: String },
 }
 
 impl From<&LogEntry> for LogLine {

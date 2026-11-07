@@ -231,29 +231,39 @@ mod tests {
         let turn: Value = serde_json::from_str(turn_text).unwrap();
         assert_eq!(turn["turn"], 1);
 
-        // The log holds the header (written at `Tools::new`), the act's keys and label, and the
-        // turn, in order -- the one schema `fn_tui::surface::{RunLogHeader, LogLine}` defines
-        // (#324), which is also what `Host::log` itself would have recorded for the same calls.
+        // The log holds the header (written at `Tools::new`), then each call's own `call` line
+        // (#497) right before that call's own lines: the act's `call`, then its keys and label,
+        // then `end_turn`'s own `call`, then the turn -- the one schema
+        // `fn_tui::surface::{RunLogHeader, LogLine}` defines (#324), which is also what
+        // `Host::log` itself would have recorded for the same calls (plus the `call` lines
+        // `Tools::call` adds on top).
         let log_lines: Vec<Value> = String::from_utf8(t.log().get_ref().clone())
             .unwrap()
             .lines()
             .map(|l| serde_json::from_str(l).unwrap())
             .collect();
-        assert_eq!(log_lines.len(), 3, "{log_lines:?}");
+        assert_eq!(log_lines.len(), 5, "{log_lines:?}");
         assert_eq!(log_lines[0]["type"], "header");
         assert_eq!(log_lines[0]["seed"], 7);
         assert_eq!(log_lines[0]["nation"], "earth");
-        assert_eq!(log_lines[1]["type"], "keys");
-        assert_eq!(log_lines[1]["label"], "cursor (5,5)");
-        assert_eq!(log_lines[1]["note"], "scout the east");
-        assert!(log_lines[1]["keys"].as_str().unwrap().contains("<up>"));
-        assert_eq!(log_lines[2]["type"], "turn");
-        assert_eq!(log_lines[2]["index"], 1);
+        assert_eq!(log_lines[1]["type"], "call");
+        assert_eq!(log_lines[1]["tool"], "act");
+        assert_eq!(log_lines[1]["summary"], "1 steps \"scout the east\"");
+        assert_eq!(log_lines[2]["type"], "keys");
+        assert_eq!(log_lines[2]["label"], "cursor (5,5)");
+        assert_eq!(log_lines[2]["note"], "scout the east");
+        assert!(log_lines[2]["keys"].as_str().unwrap().contains("<up>"));
+        assert_eq!(log_lines[3]["type"], "call");
+        assert_eq!(log_lines[3]["tool"], "end_turn");
+        assert_eq!(log_lines[3]["summary"], "1");
+        assert_eq!(log_lines[4]["type"], "turn");
+        assert_eq!(log_lines[4]["index"], 1);
     }
 
     /// `look` and `inspect` are logged too (a watcher's attention ghosts, #319), as `LogLine`'s
     /// own `look`/`inspect` lines; every other read (`observe`, `screen`, `frame`) changes
-    /// nothing and logs nothing, the same as `Host::log` itself only tracks those two.
+    /// nothing and logs nothing of its own, the same as `Host::log` itself only tracks those two
+    /// -- but every one of the four calls still gets its own `call` line (#497) right before it.
     #[test]
     fn look_and_inspect_are_logged_but_other_reads_are_not() {
         let mut t = tools();
@@ -266,12 +276,25 @@ mod tests {
             .lines()
             .map(|l| serde_json::from_str(l).unwrap())
             .collect();
-        // The header, then exactly the look and the inspect: observe and screen add nothing.
-        assert_eq!(log_lines.len(), 3, "{log_lines:?}");
-        assert_eq!(log_lines[1]["type"], "look");
-        assert_eq!(log_lines[1]["w"], 4);
-        assert_eq!(log_lines[2]["type"], "inspect");
-        assert_eq!(log_lines[2]["x"], 1);
+        // The header, then a `call` line per call, with `look` and `inspect` also getting their
+        // own line right after (`observe` and `screen` add nothing after their own `call`).
+        assert_eq!(log_lines.len(), 7, "{log_lines:?}");
+        assert_eq!(log_lines[1]["type"], "call");
+        assert_eq!(log_lines[1]["tool"], "look");
+        assert_eq!(log_lines[1]["summary"], "(0,0) 4x4");
+        assert_eq!(log_lines[2]["type"], "look");
+        assert_eq!(log_lines[2]["w"], 4);
+        assert_eq!(log_lines[3]["type"], "call");
+        assert_eq!(log_lines[3]["tool"], "inspect");
+        assert_eq!(log_lines[3]["summary"], "");
+        assert_eq!(log_lines[4]["type"], "inspect");
+        assert_eq!(log_lines[4]["x"], 1);
+        assert_eq!(log_lines[5]["type"], "call");
+        assert_eq!(log_lines[5]["tool"], "observe");
+        assert_eq!(log_lines[5]["summary"], "");
+        assert_eq!(log_lines[6]["type"], "call");
+        assert_eq!(log_lines[6]["tool"], "screen");
+        assert_eq!(log_lines[6]["summary"], "help");
     }
 
     /// `briefing` is in-game knowledge only: the seed, the nation, the turn length and the key

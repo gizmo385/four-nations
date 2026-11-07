@@ -318,6 +318,62 @@ fn ok<T: serde::Serialize>(value: &T) -> Value {
     serde_json::to_value(value).expect("every tool result serializes")
 }
 
+/// The longest a [`LogLine::Call`]'s own `summary` is ever allowed to run (#497,
+/// docs/design/agent-studio.md, "A new log line: `call`").
+const CALL_SUMMARY_MAX: usize = 60;
+
+/// `Tools::call`'s own `summary`, built from `tool`'s raw `arguments` alone (docs/design/
+/// agent-studio.md, "A new log line: `call`"): never a result (nothing is known yet -- this
+/// runs before `Tools::dispatch`), never wall-clock time, and never a `run_script`'s own code.
+/// Most tools have nothing worth summarizing and get `""` (`observe`, `briefing`, `inspect`,
+/// `save_script`, `scripts`, `sdk_reference`, and anything unrecognised). A malformed or missing
+/// argument just falls back to this same empty shape rather than erroring -- `Tools::dispatch`
+/// still reports the real error right after this line is written.
+fn call_summary(tool: &str, arguments: &Value) -> String {
+    let get_str = |key: &str| arguments.get(key).and_then(Value::as_str);
+    let get_i64 = |key: &str| arguments.get(key).and_then(Value::as_i64);
+    let get_u64 = |key: &str| arguments.get(key).and_then(Value::as_u64);
+    let summary = match tool {
+        "look" => format!(
+            "({},{}) {}x{}",
+            get_i64("x").unwrap_or_default(),
+            get_i64("y").unwrap_or_default(),
+            get_u64("w").unwrap_or_default(),
+            get_u64("h").unwrap_or_default(),
+        ),
+        "act" => {
+            let steps = arguments.get("steps").and_then(Value::as_array).map_or(0, Vec::len);
+            match get_str("note").filter(|n| !n.is_empty()) {
+                Some(note) => format!("{steps} steps {note:?}"),
+                None => format!("{steps} steps"),
+            }
+        }
+        "run_script" => {
+            let label = get_str("name").map_or_else(|| "ad hoc".to_owned(), str::to_owned);
+            match get_u64("turns") {
+                Some(turns) => format!("{label} {turns}t"),
+                None => label,
+            }
+        }
+        "end_turn" => get_u64("turns").unwrap_or(1).max(1).to_string(),
+        "screen" => get_str("name").unwrap_or_default().to_owned(),
+        "frame" => {
+            let (default_w, default_h) = fn_tui::cli::DEFAULT_SIZE;
+            format!(
+                "{}x{}",
+                get_u64("w").map_or(default_w, |w| w as u16),
+                get_u64("h").map_or(default_h, |h| h as u16),
+            )
+        }
+        "notes" => match get_str("append").filter(|a| !a.is_empty()) {
+            Some(_) => "append".to_owned(),
+            None => String::new(),
+        },
+        _ => String::new(),
+    };
+    summary.chars().take(CALL_SUMMARY_MAX).collect()
+}
+
 #[derive(Deserialize)]
 struct LookArgs {
     x: i32,
@@ -470,7 +526,18 @@ impl<W: std::io::Write> Tools<W> {
     /// log write that failed). A step `act` couldn't plan is not one of these: it's
     /// `Host::act`'s own `error` field in the result, so the steps before it still show as
     /// having run.
+    ///
+    /// Writes this call's own [`LogLine::Call`] line (#497, docs/design/agent-studio.md, "A new
+    /// log line: `call`") before [`Self::dispatch`] runs it, so it always comes ahead of that
+    /// same call's own `Keys`/`Look`/`Inspect`/`Script`/`Wake`/`Note` lines -- a live watcher
+    /// sees "started" the moment the call lands, not only once `run_script`'s own lines flush at
+    /// the end of the run. Written even for a call that goes on to fail (a bad argument, an
+    /// unknown tool): that's acceptable, the design doc's own call.
     pub fn call(&mut self, name: &str, arguments: Value) -> Result<Value, String> {
+        let summary = call_summary(name, &arguments);
+        self.log
+            .write_line(&LogLine::Call { tool: name.to_owned(), summary })
+            .map_err(|e| e.to_string())?;
         let result = self.dispatch(name, arguments)?;
         self.flush_new_lines()?;
         Ok(result)
@@ -720,8 +787,138 @@ fn rebuild_session(lines: &[LogLine]) -> (Library, Value, Vec<String>) {
             | LogLine::Keys { .. }
             | LogLine::Look { .. }
             | LogLine::Inspect { .. }
-            | LogLine::End { .. } => {}
+            | LogLine::End { .. }
+            | LogLine::Call { .. } => {}
         }
     }
     (library, memory, notes)
+}
+
+#[cfg(test)]
+mod call_summary_tests {
+    use serde_json::json;
+
+    use super::{CALL_SUMMARY_MAX, call_summary};
+
+    #[test]
+    fn briefing_has_no_summary() {
+        assert_eq!(call_summary("briefing", &json!({})), "");
+    }
+
+    #[test]
+    fn observe_has_no_summary() {
+        assert_eq!(call_summary("observe", &json!({})), "");
+    }
+
+    #[test]
+    fn look_names_the_region() {
+        assert_eq!(call_summary("look", &json!({"x": 80, "y": 60, "w": 6, "h": 4})), "(80,60) 6x4");
+    }
+
+    #[test]
+    fn inspect_has_no_summary() {
+        assert_eq!(call_summary("inspect", &json!({"x": 1, "y": 2})), "");
+    }
+
+    #[test]
+    fn screen_names_the_screen() {
+        assert_eq!(call_summary("screen", &json!({"name": "build"})), "build");
+    }
+
+    #[test]
+    fn frame_names_the_size_it_was_given() {
+        assert_eq!(call_summary("frame", &json!({"w": 100, "h": 30})), "100x30");
+    }
+
+    #[test]
+    fn frame_with_no_size_falls_back_to_the_default() {
+        let (w, h) = fn_tui::cli::DEFAULT_SIZE;
+        assert_eq!(call_summary("frame", &json!({})), format!("{w}x{h}"));
+    }
+
+    #[test]
+    fn act_counts_steps_and_quotes_the_note() {
+        let args = json!({
+            "steps": [
+                {"step": "cursor", "x": 1, "y": 1},
+                {"step": "cursor", "x": 2, "y": 2},
+            ],
+            "note": "wood for two beds",
+        });
+        assert_eq!(call_summary("act", &args), "2 steps \"wood for two beds\"");
+    }
+
+    #[test]
+    fn act_with_no_note_just_counts_steps() {
+        let args = json!({"steps": [{"step": "cursor", "x": 1, "y": 1}]});
+        assert_eq!(call_summary("act", &args), "1 steps");
+    }
+
+    #[test]
+    fn end_turn_names_the_turn_count() {
+        assert_eq!(call_summary("end_turn", &json!({"turns": 5})), "5");
+    }
+
+    #[test]
+    fn end_turn_with_no_turns_given_defaults_to_one() {
+        assert_eq!(call_summary("end_turn", &json!({})), "1");
+    }
+
+    #[test]
+    fn run_script_by_name_names_it_and_the_turns() {
+        let args = json!({"name": "keep-fed", "turns": 45});
+        assert_eq!(call_summary("run_script", &args), "keep-fed 45t");
+    }
+
+    #[test]
+    fn run_script_ad_hoc_never_shows_the_code() {
+        let args = json!({"code": "wait(1);", "turns": 3});
+        let summary = call_summary("run_script", &args);
+        assert_eq!(summary, "ad hoc 3t");
+        assert!(!summary.contains("wait"));
+    }
+
+    #[test]
+    fn run_script_with_no_turns_given_names_only_the_script() {
+        assert_eq!(call_summary("run_script", &json!({"name": "keep-fed"})), "keep-fed");
+    }
+
+    #[test]
+    fn save_script_has_no_summary() {
+        let args = json!({"name": "keep-fed", "code": "wait(1);"});
+        assert_eq!(call_summary("save_script", &args), "");
+    }
+
+    #[test]
+    fn scripts_has_no_summary() {
+        assert_eq!(call_summary("scripts", &json!({})), "");
+    }
+
+    #[test]
+    fn sdk_reference_has_no_summary() {
+        assert_eq!(call_summary("sdk_reference", &json!({})), "");
+    }
+
+    #[test]
+    fn notes_append_shows_only_the_word_append_never_the_text() {
+        let args = json!({"append": "thirst wakes me too late"});
+        assert_eq!(call_summary("notes", &args), "append");
+    }
+
+    #[test]
+    fn notes_with_no_append_has_no_summary() {
+        assert_eq!(call_summary("notes", &json!({})), "");
+    }
+
+    #[test]
+    fn an_unknown_tool_has_no_summary() {
+        assert_eq!(call_summary("bogus", &json!({"anything": "goes"})), "");
+    }
+
+    #[test]
+    fn a_long_summary_is_capped_at_sixty_characters() {
+        let args = json!({"steps": [], "note": "a".repeat(100)});
+        let summary = call_summary("act", &args);
+        assert_eq!(summary.chars().count(), CALL_SUMMARY_MAX);
+    }
 }

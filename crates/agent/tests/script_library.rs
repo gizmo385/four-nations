@@ -185,7 +185,7 @@ fn script_and_wake_lines_bracket_the_runs_own_keys_and_turn_lines_in_order() {
                 .to_owned()
         })
         .collect();
-    assert_eq!(types, vec!["header", "script", "keys", "turn", "wake"], "{types:?}");
+    assert_eq!(types, vec!["header", "call", "script", "keys", "turn", "wake"], "{types:?}");
 }
 
 /// `fn_agent serve --resume`'s own job (`Tools::resume`): a session that saved a script, ran it

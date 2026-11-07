@@ -85,10 +85,11 @@ fn sdk_reference_names_the_plumbing_and_porcelain_layers() {
     }
 }
 
-/// `sdk_reference` changes nothing and logs nothing: calling it mid-session leaves the world
-/// and the run log exactly as they were, the same as any other read-only tool.
+/// `sdk_reference` changes nothing in the world and leaves no line of its own beyond the `call`
+/// every tool gets (#497): calling it mid-session leaves the world and the run log otherwise
+/// exactly as they were, the same as any other read-only tool.
 #[test]
-fn sdk_reference_changes_nothing_and_logs_nothing() {
+fn sdk_reference_changes_nothing_and_logs_nothing_of_its_own() {
     let mut tools = Tools::new(host(), Writer::new(Vec::new())).unwrap().with_scripts(limits());
     let before = tools.call("observe", json!({})).unwrap();
     tools.call("sdk_reference", json!({})).unwrap();

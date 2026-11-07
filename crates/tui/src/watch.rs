@@ -109,8 +109,11 @@ pub fn to_keys_script(header: &RunLogHeader, lines: &[LogLine]) -> String {
             // The end marker (#327) is a fact about the log, not a key anyone pressed: it
             // leaves nothing to replay.
             LogLine::End { .. } => {}
-            // #479's own commentary (`LogLine`'s own doc comment): not a key either.
-            LogLine::Script { .. } | LogLine::Wake { .. } | LogLine::Note { .. } => {}
+            // #479/#497's own commentary (`LogLine`'s own doc comment): not a key either.
+            LogLine::Script { .. }
+            | LogLine::Wake { .. }
+            | LogLine::Note { .. }
+            | LogLine::Call { .. } => {}
         }
     }
     tokens.join(" ")
@@ -646,6 +649,10 @@ impl Watcher {
             // scope -- "Showing script source in the watcher" is explicitly out, and a note is
             // read the same way).
             LogLine::Note { .. } => {}
+            // #497: logged ahead of the call it announces, for the agent feed (a later issue,
+            // docs/design/agent-studio.md's own "The agent feed") to show. The watcher itself
+            // does nothing with it yet.
+            LogLine::Call { .. } => {}
         }
         true
     }
