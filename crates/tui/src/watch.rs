@@ -163,7 +163,8 @@ pub fn to_keys_script(header: &RunLogHeader, lines: &[LogLine]) -> String {
             LogLine::Script { .. }
             | LogLine::Wake { .. }
             | LogLine::Note { .. }
-            | LogLine::Call { .. } => {}
+            | LogLine::Call { .. }
+            | LogLine::Plan { .. } => {}
         }
     }
     tokens.join(" ")
@@ -835,6 +836,9 @@ impl Watcher {
             // docs/design/agent-studio.md's own "The agent feed") sees it before that same
             // call's own structural lines.
             LogLine::Call { .. } => self.feed.on_call(),
+            // #524: the agent's plan is `fn_agent --resume`'s to restore; nothing to show or
+            // replay here.
+            LogLine::Plan { .. } => {}
         }
         true
     }

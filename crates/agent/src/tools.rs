@@ -312,6 +312,34 @@ fn notes_tool() -> Value {
     })
 }
 
+/// `plan`'s own entry (#524, docs/design/agent-hillclimb.md, "Within a run: a governor and a
+/// plan"): the model's intent as data, which scripts read with `plan()`.
+fn plan_tool() -> Value {
+    json!({
+        "name": "plan",
+        "description": "The plan: your intent held as data (a JSON map), read by scripts with \
+                         plan() so a standing governor script can act on it. With neither \
+                         argument, returns the current plan. `set` (an object) replaces it; \
+                         `merge` (an object) shallow-merges top-level keys, a null value \
+                         removing a key. Capped at data/agent.toml's own plan_bytes: a bigger \
+                         plan is an error and leaves the plan as it was. Logged on every \
+                         change and restored by --resume. Keys are yours; the conventional \
+                         ones (goal, order, research, build, targets) are in sdk_reference. A \
+                         running script sees the plan as of when it started, so re-run the \
+                         governor after an edit that matters now.",
+        "inputSchema": json!({
+            "type": "object",
+            "properties": {
+                "set": {"type": "object", "description": "Replaces the whole plan."},
+                "merge": {
+                    "type": "object",
+                    "description": "Top-level keys to replace or add; null removes a key.",
+                },
+            },
+        }),
+    })
+}
+
 /// Deserializes `arguments` into `T`, naming the tool in any error so a bad call says which
 /// field it got wrong.
 fn args<T: for<'de> Deserialize<'de>>(tool: &str, arguments: Value) -> Result<T, String> {
@@ -368,6 +396,16 @@ fn call_summary(tool: &str, arguments: &Value) -> String {
                 get_u64("w").map_or(default_w, |w| w as u16),
                 get_u64("h").map_or(default_h, |h| h as u16),
             )
+        }
+        // Only which half of the tool was used, never the plan itself.
+        "plan" => {
+            if arguments.get("set").is_some() {
+                "set".to_owned()
+            } else if arguments.get("merge").is_some() {
+                "merge".to_owned()
+            } else {
+                String::new()
+            }
         }
         "notes" => match get_str("append").filter(|a| !a.is_empty()) {
             Some(_) => "append".to_owned(),
@@ -430,6 +468,12 @@ struct SaveScriptArgs {
 }
 
 #[derive(Deserialize, Default)]
+struct PlanArgs {
+    set: Option<Value>,
+    merge: Option<Value>,
+}
+
+#[derive(Deserialize, Default)]
 struct NotesArgs {
     append: Option<String>,
 }
@@ -459,6 +503,9 @@ pub struct Tools<W: std::io::Write> {
     memory: Value,
     /// `notes`'s own lab notes, oldest first (#479): empty for a fresh session.
     notes: Vec<String>,
+    /// The `plan` tool's map (#524): always a JSON object, `{}` for a fresh session, the latest
+    /// `Plan` log line's for a resumed one.
+    plan: Value,
 }
 
 impl<W: std::io::Write> Tools<W> {
@@ -474,6 +521,7 @@ impl<W: std::io::Write> Tools<W> {
             library: Library::new(),
             memory: json!({}),
             notes: Vec::new(),
+            plan: json!({}),
         })
     }
 
@@ -482,13 +530,13 @@ impl<W: std::io::Write> Tools<W> {
     /// `written` starts at `host.log().lines().len()`, not 0, so [`Self::call`]'s first flush
     /// appends only what's new instead of writing the replayed lines a second time. `lines` are
     /// that same log's own lines (`fn_tui::watch::read_file`, minus any `End`), replayed by
-    /// [`rebuild_session`] into this session's own script library, `memory` and lab notes
+    /// [`rebuild_session`] into this session's own script library, `memory`, lab notes and plan
     /// (#479, docs/design/agent-scripting.md, "Memory across sessions") -- the same state a
     /// live session reached, not a fresh one.
     pub fn resume(host: Host, log: Writer<W>, lines: &[LogLine]) -> Self {
         let written = host.log().lines().len();
-        let (library, memory, notes) = rebuild_session(lines);
-        Self { host, log, written, scripts: None, library, memory, notes }
+        let (library, memory, notes, plan) = rebuild_session(lines);
+        Self { host, log, written, scripts: None, library, memory, notes, plan }
     }
 
     /// Turns `run_script` on for this session (`fn_agent serve --scripts`), with `limits` as
@@ -507,6 +555,7 @@ impl<W: std::io::Write> Tools<W> {
             tools.push(save_script_tool());
             tools.push(scripts_tool());
             tools.push(notes_tool());
+            tools.push(plan_tool());
             tools.push(sdk_reference_tool());
         }
         tools
@@ -613,9 +662,25 @@ impl<W: std::io::Write> Tools<W> {
                 let plumbing = script::bindings::plumbing_reference(&mut self.host);
                 let porcelain = script::prelude::reference();
                 let action_steps = script::action_steps::reference();
-                Ok(
-                    json!({"plumbing": plumbing, "porcelain": porcelain, "action_steps": action_steps}),
-                )
+                Ok(json!({
+                    "plumbing": plumbing,
+                    "porcelain": porcelain,
+                    "action_steps": action_steps,
+                    "plan": crate::plan::reference(),
+                }))
+            }
+            "plan" => {
+                let cap = self.require_scripts(name)?.plan_bytes;
+                let a: PlanArgs = args(name, arguments)?;
+                let changes = a.set.is_some() || a.merge.is_some();
+                let next = crate::plan::apply(&self.plan, a.set, a.merge, cap)?;
+                if changes {
+                    self.log
+                        .write_line(&LogLine::Plan { plan: next.clone() })
+                        .map_err(|e| e.to_string())?;
+                    self.plan = next;
+                }
+                Ok(json!({"plan": self.plan}))
             }
             "notes" => {
                 self.require_scripts(name)?;
@@ -634,7 +699,7 @@ impl<W: std::io::Write> Tools<W> {
 
     /// `limits` once [`Self::with_scripts`] has turned the script tools on for this session, or
     /// an ordinary tool error naming `tool` otherwise -- the guard every one of `run_script`,
-    /// `save_script`, `scripts` and `notes` shares.
+    /// `save_script`, `scripts`, `notes` and `plan` shares.
     fn require_scripts(&self, tool: &str) -> Result<&ScriptLimits, String> {
         self.scripts
             .as_ref()
@@ -691,6 +756,7 @@ impl<W: std::io::Write> Tools<W> {
             version,
             wake_on: &wake_on,
             memory: &self.memory,
+            plan: &self.plan,
         };
         let outcome = script::run(&mut self.host, request, &limits);
 
@@ -766,10 +832,13 @@ impl<W: std::io::Write> Tools<W> {
 ///   kept as the session's current one regardless -- `memory` is global, not per-script, so
 ///   only the very last `Wake` line's value matters.
 /// - Every `Note` line's own `text`, oldest first.
-fn rebuild_session(lines: &[LogLine]) -> (Library, Value, Vec<String>) {
+/// - The latest `Plan` line's own `plan` (#524), `{}` with none: like `memory` it is global, so
+///   only the last one matters.
+fn rebuild_session(lines: &[LogLine]) -> (Library, Value, Vec<String>, Value) {
     let mut library = Library::new();
     let mut memory = json!({});
     let mut notes = Vec::new();
+    let mut plan = json!({});
     let mut pending: Option<String> = None;
     let mut turns_run: u32 = 0;
     for line in lines {
@@ -790,6 +859,7 @@ fn rebuild_session(lines: &[LogLine]) -> (Library, Value, Vec<String>) {
                 turns_run = 0;
             }
             LogLine::Note { text } => notes.push(text.clone()),
+            LogLine::Plan { plan: p } => plan = p.clone(),
             LogLine::Header(_)
             | LogLine::Keys { .. }
             | LogLine::Look { .. }
@@ -798,7 +868,7 @@ fn rebuild_session(lines: &[LogLine]) -> (Library, Value, Vec<String>) {
             | LogLine::Call { .. } => {}
         }
     }
-    (library, memory, notes)
+    (library, memory, notes, plan)
 }
 
 #[cfg(test)]
@@ -915,6 +985,13 @@ mod call_summary_tests {
     #[test]
     fn notes_with_no_append_has_no_summary() {
         assert_eq!(call_summary("notes", &json!({})), "");
+    }
+
+    #[test]
+    fn plan_names_the_half_used_and_never_the_plan() {
+        assert_eq!(call_summary("plan", &json!({"set": {"goal": "secret"}})), "set");
+        assert_eq!(call_summary("plan", &json!({"merge": {"goal": "secret"}})), "merge");
+        assert_eq!(call_summary("plan", &json!({})), "");
     }
 
     #[test]

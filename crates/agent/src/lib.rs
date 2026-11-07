@@ -29,6 +29,8 @@
 //! library, `memory` and lab notes, logged as `Script`/`Wake`/`Note` lines
 //! (`fn_tui::surface::LogLine`) that `fn_agent serve --resume` reads back to restore them
 //! exactly, without changing what the game itself replays to (#479).
+//! `plan {set?, merge?}` (#524) holds the model's intent as data, read by scripts with `plan()`,
+//! logged as a `Plan` line on every change and restored by `--resume` the same way.
 //!
 //! ## Sandboxing a racer (docs/design/agent-play.md, "Enforcing and testing parity")
 //!
@@ -55,6 +57,7 @@
 //! This is a statement about how you deploy the agent, same as "don't give it a shell" is: no
 //! amount of testing inside this repository can prove an operator followed it.
 
+pub mod plan;
 pub mod runlog;
 pub mod script;
 pub mod server;

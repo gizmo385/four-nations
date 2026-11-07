@@ -33,3 +33,9 @@ default_wake = ["death", "need", "endeavor"]
 # "The SDK": "`memory` is a map that persists across runs in a session (8 KB cap)"). A write
 # that would exceed this fails the script with a clear error instead of growing without bound.
 memory_bytes = 8192
+
+# The `plan` tool's own cap, in bytes of the plan's JSON encoding (docs/design/agent-hillclimb.md,
+# "Within a run: a governor and a plan"). The plan is the model's intent held as data, read by
+# scripts through `plan()`; a `set` or `merge` that would exceed this fails with a clear error and
+# leaves the plan as it was.
+plan_bytes = 8192

@@ -107,6 +107,10 @@ pub struct Request<'a> {
     pub version: u32,
     pub wake_on: &'a [EventKind],
     pub memory: &'a serde_json::Value,
+    /// The session's `plan` map (#524, docs/design/agent-hillclimb.md, "Within a run: a governor
+    /// and a plan"), as of this call: what the script's read-only `plan()` returns. Not an
+    /// output -- only the `plan` tool changes it, between runs.
+    pub plan: &'a serde_json::Value,
 }
 
 /// Runs `request.code` against `host` for at most `limits.resolve_turns(request.turns)` turns,
@@ -119,11 +123,11 @@ pub struct Request<'a> {
 /// plumbing ([`bindings::register`]): every action is a normal `Host::act`/`Host::press_keys`
 /// call, logged exactly as a human's or an MCP agent's would be.
 pub fn run(host: &mut Host, request: Request<'_>, limits: &Limits) -> Outcome {
-    let Request { code, turns, note, version, wake_on, memory } = request;
+    let Request { code, turns, note, version, wake_on, memory, plan } = request;
     let max_turns = limits.resolve_turns(turns);
     let tag = note.filter(|n| !n.is_empty()).unwrap_or("script").to_owned();
     let before = host.observe();
-    let ctx = Context::new(host, tag, version, max_turns, wake_on.to_vec());
+    let ctx = Context::new(host, tag, version, max_turns, wake_on.to_vec(), plan.clone());
 
     let (result, memory_out) = {
         // `prelude::engine()` raises the per-function expression depth above Rhai's debug-build
@@ -342,6 +346,7 @@ mod tests {
             log_tail: 30,
             default_wake: vec![EventKind::Death, EventKind::Need, EventKind::Endeavor],
             memory_bytes: 8192,
+            plan_bytes: 8192,
         }
     }
 
@@ -349,6 +354,8 @@ mod tests {
         let nation = fn_tui::cli::parse_nation("earth").unwrap();
         Host::new(7, nation, None, None, None, false).unwrap().with_turn_seconds(10)
     }
+
+    static NO_PLAN: serde_json::Value = serde_json::Value::Null;
 
     /// An empty `memory` map, for a test that isn't checking memory behaviour itself.
     fn no_memory() -> serde_json::Value {
@@ -360,7 +367,15 @@ mod tests {
     /// behaviour itself.
     fn run_default(host: &mut Host, code: &str, turns: Option<u32>, note: Option<&str>) -> Outcome {
         let memory = no_memory();
-        let request = Request { code, turns, note, version: 0, wake_on: &[], memory: &memory };
+        let request = Request {
+            code,
+            turns,
+            note,
+            version: 0,
+            wake_on: &[],
+            memory: &memory,
+            plan: &NO_PLAN,
+        };
         run(host, request, &limits())
     }
 
@@ -543,6 +558,7 @@ mod tests {
             version: 3,
             wake_on: &[],
             memory: &memory,
+            plan: &NO_PLAN,
         };
         let out = run(&mut h, request, &limits());
         assert_eq!(out.reason, "done");
@@ -587,6 +603,7 @@ mod tests {
             version: 0,
             wake_on: &[],
             memory: &memory,
+            plan: &NO_PLAN,
         };
         let out = run(&mut h, request, &tiny);
         assert_eq!(out.log, vec!["b".to_owned(), "c".to_owned()]);
@@ -642,6 +659,7 @@ mod tests {
             version: 0,
             wake_on: &[EventKind::Need, EventKind::Death, EventKind::Endeavor],
             memory: &memory,
+            plan: &NO_PLAN,
         };
         let out = run(&mut h, request, &limits());
         assert_eq!(out.reason, "event");
@@ -664,6 +682,7 @@ mod tests {
             version: 0,
             wake_on: &[EventKind::Death],
             memory: &memory,
+            plan: &NO_PLAN,
         };
         let out = run(&mut h, request, &limits());
         assert_eq!(out.reason, "done", "{out:?}");
@@ -685,6 +704,7 @@ mod tests {
             version: 3,
             wake_on: &[EventKind::Need],
             memory: &memory,
+            plan: &NO_PLAN,
         };
         let out = run(&mut h, request, &limits());
         assert_eq!(out.reason, "event");
@@ -715,6 +735,7 @@ mod tests {
             version: 0,
             wake_on: &[],
             memory: &memory,
+            plan: &NO_PLAN,
         };
         let out = run(&mut h, request, &limits());
         let json = serde_json::to_string(&out).unwrap();
@@ -746,8 +767,15 @@ mod tests {
         let code = r#"let n = memory.count ?? 0; memory.count = n + 1;"#;
         let mut h = host();
         let empty = no_memory();
-        let request =
-            Request { code, turns: None, note: None, version: 0, wake_on: &[], memory: &empty };
+        let request = Request {
+            code,
+            turns: None,
+            note: None,
+            version: 0,
+            wake_on: &[],
+            memory: &empty,
+            plan: &NO_PLAN,
+        };
         let first = run(&mut h, request, &limits());
         assert_eq!(first.memory, serde_json::json!({"count": 1}));
         let request = Request {
@@ -757,6 +785,7 @@ mod tests {
             version: 0,
             wake_on: &[],
             memory: &first.memory,
+            plan: &NO_PLAN,
         };
         let second = run(&mut h, request, &limits());
         assert_eq!(second.memory, serde_json::json!({"count": 2}));
@@ -779,6 +808,7 @@ mod tests {
             version: 0,
             wake_on: &[],
             memory: &previous,
+            plan: &NO_PLAN,
         };
         let out = run(&mut h, request, &tiny);
         assert_eq!(out.reason, "error");
@@ -799,6 +829,7 @@ mod tests {
             version: 0,
             wake_on: &[],
             memory: &previous,
+            plan: &NO_PLAN,
         };
         let out = run(&mut h, request, &limits());
         assert_eq!(out.reason, "error");

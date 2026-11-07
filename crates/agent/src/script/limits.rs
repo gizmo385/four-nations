@@ -25,6 +25,16 @@ pub struct Limits {
     /// agent-scripting.md, "The SDK": "8 KB cap"). A write that would exceed this fails the
     /// script with a clear error instead of persisting (`runner::finalize_memory`).
     pub memory_bytes: usize,
+    /// The `plan` tool's own cap, in bytes of the plan's JSON encoding (#524,
+    /// docs/design/agent-hillclimb.md, "Within a run: a governor and a plan": "capped at 8 KB
+    /// like `memory`"). A `set` or `merge` that would exceed it is a tool error and changes
+    /// nothing.
+    #[serde(default = "default_plan_bytes")]
+    pub plan_bytes: usize,
+}
+
+fn default_plan_bytes() -> usize {
+    8192
 }
 
 /// `data/agent.toml`'s own shape: just the one `[scripts]` table for now (#477); later issues
@@ -65,6 +75,7 @@ mod tests {
         assert!(l.log_tail > 0);
         assert!(!l.default_wake.is_empty());
         assert!(l.memory_bytes > 0);
+        assert!(l.plan_bytes > 0);
     }
 
     fn limits() -> Limits {
@@ -75,6 +86,7 @@ mod tests {
             log_tail: 10,
             default_wake: vec![EventKind::Death, EventKind::Need, EventKind::Endeavor],
             memory_bytes: 8192,
+            plan_bytes: 8192,
         }
     }
 

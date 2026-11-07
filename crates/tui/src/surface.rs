@@ -315,7 +315,8 @@ impl Host {
                 | LogLine::Script { .. }
                 | LogLine::Wake { .. }
                 | LogLine::Note { .. }
-                | LogLine::Call { .. } => {}
+                | LogLine::Call { .. }
+                | LogLine::Plan { .. } => {}
                 LogLine::Keys { keys, label, note } => {
                     host.press_keys(keys, label.clone(), note.clone())?;
                 }
@@ -2149,6 +2150,10 @@ pub struct RunLogHeader {
 ///   from the arguments alone (never a result, and never `run_script`'s own code), capped at 60
 ///   characters; empty for a tool whose arguments say nothing worth summarizing (`observe`,
 ///   `briefing`, `inspect`, `save_script`, `scripts`, `sdk_reference`).
+/// - `Plan { plan }`: written by `fn_agent`'s `plan {set?, merge?}` tool after each change (#524,
+///   docs/design/agent-hillclimb.md, "Within a run: a governor and a plan"): `plan` is the whole
+///   plan map after the change. A `--resume` session restores the latest one; replay, `verify` and
+///   `--watch` ignore it, like the other commentary lines.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LogLine {
@@ -2162,6 +2167,7 @@ pub enum LogLine {
     Wake { reason: String, why: Option<String>, turn: u32, memory: serde_json::Value },
     Note { text: String },
     Call { tool: String, summary: String },
+    Plan { plan: serde_json::Value },
 }
 
 impl From<&LogEntry> for LogLine {

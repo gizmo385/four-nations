@@ -75,6 +75,9 @@ pub(super) struct Context {
     acts_ok: Cell<u32>,
     acts_failed: Cell<u32>,
     last_failure: RefCell<Option<String>>,
+    /// The session's `plan` map as of this run's start (#524): `plan()` returns a fresh copy of
+    /// it every call, so a script can't change it (only the `plan` tool does, between runs).
+    plan: serde_json::Value,
 }
 
 impl Context {
@@ -84,6 +87,7 @@ impl Context {
         version: u32,
         max_turns: u32,
         wake_on: Vec<EventKind>,
+        plan: serde_json::Value,
     ) -> Rc<Self> {
         let events_start = host.event_mark();
         Rc::new(Self {
@@ -98,6 +102,7 @@ impl Context {
             acts_ok: Cell::new(0),
             acts_failed: Cell::new(0),
             last_failure: RefCell::new(None),
+            plan,
         })
     }
 
@@ -259,6 +264,16 @@ pub(super) fn register(engine: &mut Engine, ctx: &Rc<Context>) {
     });
 
     let c = ctx.clone();
+    engine.register_fn("plan", move || -> Result<Dynamic, Box<EvalAltResult>> {
+        // Always a map, even for a session that never set a plan.
+        if c.plan.is_object() {
+            rhai::serde::to_dynamic(&c.plan)
+        } else {
+            Ok(Dynamic::from_map(rhai::Map::new()))
+        }
+    });
+
+    let c = ctx.clone();
     engine.register_fn("log", move |msg: &str| {
         c.push_log(msg.to_owned());
     });
@@ -276,7 +291,8 @@ pub(super) fn register(engine: &mut Engine, ctx: &Rc<Context>) {
 /// Rust type names (`Box<EvalAltResult>` and the rest), not worth a script author's reading --
 /// [`plumbing_docs`]'s own prose says what each parameter actually means instead.
 pub(crate) fn plumbing_reference(host: &mut Host) -> Vec<serde_json::Value> {
-    let ctx = Context::new(host, "sdk_reference".to_owned(), 0, 0, Vec::new());
+    let ctx =
+        Context::new(host, "sdk_reference".to_owned(), 0, 0, Vec::new(), serde_json::Value::Null);
     let mut engine = Engine::new();
     register(&mut engine, &ctx);
     let docs: std::collections::BTreeMap<&str, &str> = plumbing_docs().iter().copied().collect();
@@ -368,6 +384,14 @@ fn plumbing_docs() -> &'static [(&'static str, &'static str)] {
             "wake",
             "wake(msg) -> never returns normally: ends the whole script right there with \
              reason \"asked\" and msg.",
+        ),
+        (
+            "plan",
+            "plan() -> #{...}: the plan map the plan tool holds (the model's intent as data: \
+             goal, order, research, build, targets), as it stood when this run started. \
+             Read-only: changing the returned map changes nothing, and `{}` when no plan is \
+             set. Edit it with the plan tool between runs; a long-running governor that wants \
+             a fresh plan returns or wakes so it's re-run.",
         ),
         ("log", "log(msg) -> (); the script's own log line, kept in the wake report's log tail."),
     ]
@@ -489,6 +513,7 @@ mod tests {
             "can_build(_, _, _)",
             "wait(_)",
             "events()",
+            "plan()",
             "wake(_)",
             "log(_)",
         ] {

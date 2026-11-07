@@ -463,6 +463,7 @@ fn play(args: Vec<String>) -> Result<ExitCode, String> {
         version: 0,
         wake_on: &wake_on,
         memory: &memory,
+        plan: &serde_json::json!({}),
     };
     let outcome = script::run(&mut host, request, &limits);
 

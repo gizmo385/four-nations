@@ -202,7 +202,8 @@ lab notes. The briefing teaches confidence-based budgets in game terms: 3–5 tu
 script, a season (45 turns) for one that worked once, and a year for a proven one.
 
 All limits go in `data/agent.toml` `[scripts]`: `default_turns`, `max_turns`, `max_operations`,
-`log_tail`, `memory_bytes` and `default_wake`. Like `tui.toml`, the sim never reads this file.
+`log_tail`, `memory_bytes`, `plan_bytes` (the `plan` tool's cap, see agent-hillclimb.md) and
+`default_wake`. Like `tui.toml`, the sim never reads this file.
 
 ### The wake report
 

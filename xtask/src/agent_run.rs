@@ -36,9 +36,9 @@
 //!                      --interactive or --chunk-turns.
 //!   --chunk-calls N    with --scripts, ends a session after about N tool calls (default 30) and
 //!                      resumes with `--resume`.
-//!   --carry DIR        with --scripts, saves the run's final script library and lab notes to
-//!                      DIR, and loads whatever's already there into the first session's own
-//!                      prompt.
+//!   --carry DIR        with --scripts, saves the run's final script library, lab notes and
+//!                      plan to DIR, and loads whatever's already there into the first
+//!                      session's own prompt.
 //!   --max-usd N        caps the run's own spend at N dollars (only with --chunk-turns or
 //!                      --scripts; #485). Enforced, not just watched.
 //!   --claude-bin PATH  the `claude` binary to run (default: $FN_AGENT_CLAUDE_BIN, else
@@ -768,6 +768,9 @@ enum LogLine {
     Note {
         text: String,
     },
+    Plan {
+        plan: serde_json::Value,
+    },
     #[serde(other)]
     Other,
 }
@@ -841,14 +844,20 @@ struct Handoff {
     scripts: BTreeMap<String, ScriptEntry>,
     #[serde(default)]
     notes: Vec<String>,
+    /// The `plan` tool's latest map (#524); absent when none was ever set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    plan: Option<serde_json::Value>,
 }
 
-/// Replays `lines`' own `script`/`turn`/`wake`/`note` lines (the same ones
-/// `fn_agent::tools::rebuild_session` reads on `--resume`) into a script library (by name) and a
-/// list of lab notes, in log order.
-fn parse_library(lines: &[LogLine]) -> (BTreeMap<String, ScriptEntry>, Vec<String>) {
+/// Replays `lines`' own `script`/`turn`/`wake`/`note`/`plan` lines (the same ones
+/// `fn_agent::tools::rebuild_session` reads on `--resume`) into a script library (by name), a
+/// list of lab notes in log order, and the latest non-empty plan (#524).
+fn parse_library(
+    lines: &[LogLine],
+) -> (BTreeMap<String, ScriptEntry>, Vec<String>, Option<serde_json::Value>) {
     let mut scripts: BTreeMap<String, ScriptEntry> = BTreeMap::new();
     let mut notes = Vec::new();
+    let mut plan = None;
     let mut pending: Option<String> = None;
     let mut turns_run: u32 = 0;
     for line in lines {
@@ -874,10 +883,13 @@ fn parse_library(lines: &[LogLine]) -> (BTreeMap<String, ScriptEntry>, Vec<Strin
                 turns_run = 0;
             }
             LogLine::Note { text } => notes.push(text.clone()),
+            LogLine::Plan { plan: p } => {
+                plan = p.as_object().is_some_and(|m| !m.is_empty()).then(|| p.clone());
+            }
             _ => {}
         }
     }
-    (scripts, notes)
+    (scripts, notes, plan)
 }
 
 /// A short, human-readable summary (names, versions, last outcome; no code) for a resumed
@@ -885,7 +897,7 @@ fn parse_library(lines: &[LogLine]) -> (BTreeMap<String, ScriptEntry>, Vec<Strin
 /// this is only orientation text, not a restore payload.
 fn library_notes_listing(log: &Path) -> Result<String> {
     let lines = read_log_lines(log).map_err(|e| e.to_string())?;
-    let (scripts, notes) = parse_library(&lines);
+    let (scripts, notes, _plan) = parse_library(&lines);
     let mut out = Vec::new();
     if scripts.is_empty() {
         out.push("Scripts: none saved yet.".to_string());
@@ -917,11 +929,11 @@ fn library_notes_listing(log: &Path) -> Result<String> {
 fn carry_save(log: &Path, carry_dir: &Path) -> Result {
     fs::create_dir_all(carry_dir).map_err(|e| e.to_string())?;
     let lines = read_log_lines(log).unwrap_or_default();
-    let (scripts, notes) = parse_library(&lines);
-    let handoff = Handoff { scripts, notes };
+    let (scripts, notes, plan) = parse_library(&lines);
+    let handoff = Handoff { scripts, notes, plan };
     let text = serde_json::to_string(&handoff).map_err(|e| e.to_string())?;
     fs::write(carry_dir.join("handoff.json"), text).map_err(|e| e.to_string())?;
-    say(&format!("carried scripts and notes to {}/handoff.json", carry_dir.display()));
+    say(&format!("carried scripts, notes and plan to {}/handoff.json", carry_dir.display()));
     Ok(())
 }
 
@@ -936,7 +948,7 @@ fn carry_block(carry_dir: &Path) -> Result<Option<String>> {
         return Ok(None);
     }
     let data: Handoff = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-    if data.scripts.is_empty() && data.notes.is_empty() {
+    if data.scripts.is_empty() && data.notes.is_empty() && data.plan.is_none() {
         return Ok(None);
     }
     let mut out = vec![
@@ -955,6 +967,12 @@ fn carry_block(carry_dir: &Path) -> Result<Option<String>> {
         out.push(format!(
             "\nYour lab notes from before (call notes to add them back):\n{}",
             data.notes.iter().map(|n| format!("- {n}")).collect::<Vec<_>>().join("\n")
+        ));
+    }
+    if let Some(plan) = &data.plan {
+        out.push(format!(
+            "\nYour plan from before: call plan with set = this exact JSON to restore it, then \
+             revise it for this settlement.\n```\n{plan}\n```"
         ));
     }
     Ok(Some(out.join("\n")))
@@ -1535,6 +1553,47 @@ mod tests {
         assert!(block.contains("Script `haul_wood` (version 2)"));
         assert!(block.contains("run()"));
         assert!(block.contains("going well"));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn carry_save_then_carry_block_round_trips_the_latest_plan() {
+        let dir = tempdir();
+        let log = dir.join("run.jsonl");
+        write_lines(
+            &log,
+            &[
+                r#"{"type":"plan","plan":{"goal":"old"}}"#,
+                r#"{"type":"plan","plan":{"goal":"nine signs","order":["beds","stone"]}}"#,
+            ],
+        );
+        let carry_dir = dir.join("carry");
+        carry_save(&log, &carry_dir).unwrap();
+        let saved = fs::read_to_string(carry_dir.join("handoff.json")).unwrap();
+        let handoff: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        assert_eq!(
+            handoff["plan"],
+            serde_json::json!({"goal":"nine signs","order":["beds","stone"]})
+        );
+        let block = carry_block(&carry_dir).unwrap().expect("a plan alone is worth carrying");
+        assert!(block.contains("call plan with set"));
+        assert!(block.contains(r#""order":["beds","stone"]"#));
+        assert!(!block.contains("old"));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn carry_with_no_plan_set_has_no_plan_block() {
+        let dir = tempdir();
+        let log = dir.join("run.jsonl");
+        write_lines(
+            &log,
+            &[r#"{"type":"note","text":"going well"}"#, r#"{"type":"plan","plan":{}}"#],
+        );
+        let carry_dir = dir.join("carry");
+        carry_save(&log, &carry_dir).unwrap();
+        let block = carry_block(&carry_dir).unwrap().unwrap();
+        assert!(!block.contains("call plan"));
         fs::remove_dir_all(&dir).ok();
     }
 

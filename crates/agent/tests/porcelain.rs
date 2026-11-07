@@ -29,6 +29,7 @@ fn limits() -> Limits {
         log_tail: 30,
         default_wake: vec![EventKind::Death, EventKind::Need, EventKind::Endeavor],
         memory_bytes: 8192,
+        plan_bytes: 8192,
     }
 }
 
@@ -36,8 +37,15 @@ fn limits() -> Limits {
 /// calls, like `stalled`'s, still stop it): the common shape every test below shares.
 fn run_porcelain(host: &mut Host, code: &str, turns: u32) -> fn_agent::script::Outcome {
     let memory = serde_json::json!({});
-    let request =
-        Request { code, turns: Some(turns), note: None, version: 0, wake_on: &[], memory: &memory };
+    let request = Request {
+        code,
+        turns: Some(turns),
+        note: None,
+        version: 0,
+        wake_on: &[],
+        memory: &memory,
+        plan: &serde_json::json!({}),
+    };
     run(host, request, &limits())
 }
 
