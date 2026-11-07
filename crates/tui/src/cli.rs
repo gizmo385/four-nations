@@ -4,6 +4,8 @@
 //! fn_tui [SEED NATION] [--frame [--size WxH] [--ticks N] [--keys SCRIPT] [--ansi]] [--ascii]
 //!        [--color MODE] [--embark | --start X,Y] [--size small|medium|large] [--rough]
 //!        [--difficulty ID] [--fast]
+//! fn_tui --scenario ID [--frame [--ticks N] [--keys SCRIPT] [--ansi]] [--ascii] [--color MODE]
+//!        [--fast]
 //! fn_tui --watch LOG [--pace xN] [--frame [--at TURN] [--keys SCRIPT] [--ascii] [--color MODE]]
 //! ```
 //!
@@ -19,6 +21,11 @@
 //! docs/design/difficulty.md) is a `data/difficulty.toml` preset's id: it needs `SEED NATION`
 //! too, and applies to `--embark`, `--start` and the plain path alike (checked against the
 //! bundled data in `Shell::for_args`, since parsing alone has no `Defs` to check against).
+//!
+//! `--scenario ID` (#481, docs/design/agent-scripting.md, "Scenario starts") replaces `SEED
+//! NATION` (and `--embark`/`--start`/`--size small|medium|large`/`--rough`/`--difficulty`, which
+//! the preset already sets) with a `data/scenarios.toml` preset's own start, run through a
+//! prelude first if it names one -- the same world `fn_agent serve --scenario ID` starts.
 //!
 //! `--watch LOG` (#319, docs/design/agent-play.md, "Watching") replaces the whole `SEED NATION`
 //! path: the log's own header says the seed, nation and every other starting argument, so none
@@ -68,6 +75,10 @@ options:
                  NATION: applies to --embark, --start and the plain SEED NATION path alike
   --fast         adds x10, x20 and x50 to the +/- speed ladder (a host setting, not a balance
                  change: docs/design/agent-play.md, Speed). Works alone or with SEED NATION
+  --scenario ID  start a data/scenarios.toml preset instead of SEED NATION (docs/design/
+                 agent-scripting.md, Scenario starts): the same world fn_agent serve --scenario
+                 ID starts. Works alone or with --frame, --ticks, --keys, --ascii, --ansi,
+                 --color and --fast
   --watch LOG    follow or replay an agent run log in the normal TUI (docs/design/agent-play.md,
                  Watching). Takes the place of SEED NATION; the log's own header says those
   --pace xN      the watch pace to start at (1, 2, 5, 10, 20 or 40; default 1), with --watch
@@ -123,6 +134,10 @@ pub struct Args {
     /// `--fast` (#321): adds x10, x20 and x50 to the `+`/`-` speed ladder. A host setting, not
     /// an agent capability (`crate::surface::Host` never reads it).
     pub fast: bool,
+    /// `--scenario ID` (#481): a `data/scenarios.toml` preset's id, in place of `SEED NATION`
+    /// (and `--embark`, `--start`, `--size small/medium/large`, `--rough` and `--difficulty`,
+    /// which the preset already sets).
+    pub scenario: Option<String>,
     /// `--watch LOG` (#319): follow or replay a run log instead of playing, in place of
     /// `SEED NATION`.
     pub watch: Option<PathBuf>,
@@ -179,6 +194,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         rough: false,
         difficulty: None,
         fast: false,
+        scenario: None,
         watch: None,
         pace: None,
         at: None,
@@ -218,6 +234,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             "--rough" => out.rough = true,
             "--difficulty" => out.difficulty = Some(value("--difficulty")?),
             "--fast" => out.fast = true,
+            "--scenario" => out.scenario = Some(value("--scenario")?),
             "--watch" => out.watch = Some(PathBuf::from(value("--watch")?)),
             "--pace" => {
                 let v = value("--pace")?;
@@ -278,6 +295,27 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         }
         (Some(_), None) => return Err("missing NATION".to_owned()),
         (None, Some(_)) => return Err("missing SEED".to_owned()),
+    }
+    if out.scenario.is_some() {
+        if out.seed.is_some() || out.nation.is_some() {
+            return Err("--scenario takes the place of SEED NATION; the preset's own data says \
+                         those"
+                .to_owned());
+        }
+        if out.embark
+            || out.start.is_some()
+            || out.rough
+            || out.map_size.is_some()
+            || out.difficulty.is_some()
+        {
+            return Err("--scenario can't be combined with --embark, --start, --size \
+                         small/medium/large, --rough or --difficulty: the preset already sets \
+                         them"
+                .to_owned());
+        }
+        if out.watch.is_some() {
+            return Err("--scenario can't be combined with --watch".to_owned());
+        }
     }
     if out.watch.is_some() {
         if out.seed.is_some() || out.nation.is_some() {
@@ -449,6 +487,45 @@ mod tests {
         assert_eq!(a.at, Some(7));
 
         assert!(parse_str("--watch=run.jsonl").unwrap().watch.is_some(), "the = form too");
+    }
+
+    /// `--scenario ID` takes the place of `SEED NATION` (#481), and can't be combined with
+    /// anything else that would also pick a seed, nation, map size, difficulty or site -- but
+    /// works fine with `--frame`, `--ticks`, `--keys` and `--fast`.
+    #[test]
+    fn scenario_takes_the_place_of_seed_nation() {
+        let a = parse_str("--scenario earth-year-two").unwrap();
+        assert_eq!(a.scenario.as_deref(), Some("earth-year-two"));
+        assert_eq!((a.seed, a.nation), (None, None));
+
+        assert!(
+            parse_str("7 earth --scenario earth-year-two")
+                .unwrap_err()
+                .contains("takes the place of SEED NATION")
+        );
+        assert!(
+            parse_str("--scenario earth-year-two --embark")
+                .unwrap_err()
+                .contains("can't be combined with")
+        );
+        assert!(
+            parse_str("--scenario earth-year-two --start 5,5")
+                .unwrap_err()
+                .contains("can't be combined with")
+        );
+        assert!(
+            parse_str("--scenario earth-year-two --difficulty hard")
+                .unwrap_err()
+                .contains("can't be combined with")
+        );
+        assert!(
+            parse_str("--scenario earth-year-two --watch run.jsonl")
+                .unwrap_err()
+                .contains("can't be combined with --watch")
+        );
+
+        let a = parse_str("--scenario earth-year-two --frame --ticks 5 --keys d --fast").unwrap();
+        assert!(a.frame && a.fast && a.ticks == 5 && !a.keys.is_empty());
     }
 
     /// `--keys` works with `--watch --frame` too (#330's acceptance criteria): free-look

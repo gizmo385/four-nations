@@ -244,11 +244,12 @@ impl Watcher {
             rough: header.rough,
             difficulty: header.difficulty.clone(),
             fast: false,
+            scenario: None,
             watch: None,
             pace: None,
             at: None,
         };
-        let shell = Shell::for_args(&args, cli::DEFAULT_SIZE, None, 0)?;
+        let mut shell = Shell::for_args(&args, cli::DEFAULT_SIZE, None, 0)?;
         let digest = shell.defs().id_hash();
         if digest != header.data_digest {
             return Err(format!(
@@ -256,6 +257,12 @@ impl Watcher {
                  {digest:#x}); it can't be replayed",
                 header.data_digest
             ));
+        }
+        // `header.prelude` (#481): run it again, exactly as the live `Host` that wrote this log
+        // did, before `Self::feed` replays anything -- the logged lines only ever cover turn 0
+        // on.
+        if let (Some(prelude), Mode::Game(app)) = (header.prelude, &mut shell.mode) {
+            crate::surface::prelude::run(app, &prelude);
         }
         let spectator = match &shell.mode {
             Mode::Game(app) => UiState::new(&app.session, cli::DEFAULT_SIZE),
@@ -876,6 +883,7 @@ mod tests {
             rough: false,
             data_digest: fn_sim::Defs::bundled().id_hash(),
             crate_version: env!("CARGO_PKG_VERSION").to_owned(),
+            prelude: None,
         }
     }
 

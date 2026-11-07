@@ -121,6 +121,7 @@ impl Host {
             rough,
             difficulty,
             fast: false,
+            scenario: None,
             watch: None,
             pace: None,
             at: None,
@@ -139,6 +140,7 @@ impl Host {
             rough,
             data_digest,
             crate_version: env!("CARGO_PKG_VERSION").to_owned(),
+            prelude: None,
         };
         Ok(Self {
             shell,
@@ -158,6 +160,42 @@ impl Host {
         self.header.turn_seconds = self.turn_seconds;
         self.header.ticks_per_turn = self.turn_seconds * TICKS_PER_SECOND;
         self
+    }
+
+    /// Runs `prelude` before anyone plays (#481, docs/design/agent-scripting.md, "Scenario
+    /// starts"): the deterministic autoplay opening it names, fast-forwarded `prelude.minutes`
+    /// game minutes, directly against this session's own world (`prelude::run`). Turn 0 starts
+    /// right after, and nothing the prelude logged shows in the first `observe`
+    /// (`Self::alerts_since_turn` is reset to skip it) -- a player who starts the same scenario
+    /// sees exactly the same screen a fresh `Host::new` never built up to. `Self::header` keeps
+    /// `prelude` from here on, so `--watch`, `--resume` and `fn_agent keys` can run it again.
+    pub fn with_prelude(mut self, prelude: Prelude) -> Self {
+        prelude::run(self.app_mut(), &prelude);
+        self.alerts_since_turn = self.app().ui.alerts.history().len();
+        self.header.prelude = Some(prelude);
+        self
+    }
+
+    /// A new agent session from a `data/scenarios.toml` preset (`crate::scenario::find`, #481,
+    /// docs/design/agent-scripting.md, "Scenario starts"): the same as [`Self::new`] with the
+    /// preset's own seed, nation, map size, difficulty and site, plus [`Self::with_prelude`] if
+    /// it names one. `fn_agent serve --scenario ID` and `fn_tui --scenario ID` both go through
+    /// this (or `crate::shell::Shell`'s own copy of it), so they start the same world.
+    pub fn from_scenario(id: &str) -> Result<Self, String> {
+        let scenario = crate::scenario::find(id)?;
+        let site = scenario.start()?;
+        let host = Self::new(
+            scenario.seed,
+            scenario.nation,
+            scenario.map_size.clone(),
+            scenario.difficulty.clone(),
+            site,
+            false,
+        )?;
+        Ok(match scenario.prelude {
+            Some(prelude) => host.with_prelude(prelude),
+            None => host,
+        })
     }
 
     /// The run log so far: every key pressed and every turn run, in order.
@@ -218,6 +256,10 @@ impl Host {
     /// `Host` was built against. Every other error here is `Self::press_keys`'s own (a line that
     /// somehow doesn't parse as a key script) -- it shouldn't happen to a log this crate wrote
     /// itself, but a corrupted or hand-edited log should fail loudly rather than desync.
+    ///
+    /// If `header` names a `prelude` (#481), it runs again right after `Self::new`, exactly as
+    /// the live `Host` that wrote it did, before any of `lines` replays: `lines` only ever holds
+    /// what happened from turn 0 on.
     pub fn resume(header: &RunLogHeader, lines: &[LogLine]) -> Result<Self, String> {
         let mut host = Self::new(
             header.seed,
@@ -235,6 +277,9 @@ impl Host {
                  {digest:#x}); it can't be resumed",
                 header.data_digest
             ));
+        }
+        if let Some(prelude) = header.prelude {
+            host = host.with_prelude(prelude);
         }
         for line in lines {
             match line {
@@ -985,6 +1030,84 @@ impl Host {
     }
 }
 
+// ------------------------------------------------------------------------------------------
+// Scenario starts (#481, docs/design/agent-scripting.md, "Scenario starts")
+// ------------------------------------------------------------------------------------------
+
+/// A scenario preset's prelude (`crate::scenario::Scenario`): a deterministic autoplay opening,
+/// run for `minutes` game minutes before anyone plays. Carried on [`RunLogHeader`] so `--watch`,
+/// `--resume` and `fn_agent keys` can rebuild the same start a live [`Host::with_prelude`] ran.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Prelude {
+    pub opening: PreludeOpening,
+    /// Game minutes the opening runs for, before turn 0.
+    pub minutes: f32,
+}
+
+/// Which `fn_sim::autoplay` opening a [`Prelude`] runs.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreludeOpening {
+    /// `fn_sim::autoplay::Economy`: plays toward the Harmony Gate (research, stone and ore,
+    /// buildings, farms, bending) -- the only kind a bundled `data/scenarios.toml` preset uses
+    /// today.
+    Economy,
+    /// The plainer `fn_sim::autoplay::Opening`: beds, a campfire and a short research queue.
+    Opening,
+}
+
+/// Runs a scenario's prelude directly on a session's own [`fn_sim::World`] (module doc,
+/// "Scenario starts"): the one span outside [`Host::end_turn`] this file lets touch `World`
+/// directly, allow-listed by the parity lint (#320) the same way `end_turn` and a future
+/// `referee` module are, since it's the other place that applies `Command`s and runs ticks --
+/// before an agent, or a player, ever gets to see the game. [`Host::with_prelude`] calls this,
+/// and so does `crate::shell::Shell`'s own `--scenario` path, so a human and an agent reach
+/// exactly the same start.
+pub(crate) mod prelude {
+    use fn_sim::autoplay::{Economy, Opening};
+    use fn_sim::world::TICKS_PER_SECOND;
+    use fn_ui::{STARTING_UNITS, Session};
+
+    use super::{App, Prelude, PreludeOpening};
+
+    /// More than every `fn_ui::alerts::Kind::toast_seconds` (10, today): the `dt` `Self::run`
+    /// ages every alert by right after the prelude, so whatever it logged is already expired as
+    /// a toast the instant it becomes history -- a scenario's prelude is the settlement's past,
+    /// not something anyone just watched happen.
+    const CATCH_UP_DT: f32 = 15.0;
+
+    /// Issues `prelude`'s opening every `Opening::due` tick, for `prelude.minutes` game minutes,
+    /// directly against `app.session`'s own world -- the same loop `fn_sim::balance` and
+    /// `tests/balance.rs` drive by hand -- with the same fixed starting headcount every new
+    /// game gets (`fn_ui::STARTING_UNITS`). Settles once at the end (`App::settle`, with
+    /// `CATCH_UP_DT`): without it, the first real `end_turn` or frame would be the first time
+    /// `ui.alerts` ever saw the world, and would read the whole prelude's backlog as alerts
+    /// that just happened -- including ones `end_turn`'s own early-stop treats as worth
+    /// stopping for.
+    pub(crate) fn run(app: &mut App, prelude: &Prelude) {
+        let total_ticks = (prelude.minutes * 60.0 * TICKS_PER_SECOND as f32).round() as u64;
+        for tick in 0..total_ticks {
+            if Opening::due(tick) {
+                step(&mut app.session, prelude.opening);
+            }
+            app.session.world.tick(&app.session.defs);
+        }
+        app.settle(CATCH_UP_DT);
+    }
+
+    fn step(session: &mut Session, opening: PreludeOpening) {
+        match opening {
+            PreludeOpening::Economy => {
+                Economy::new(STARTING_UNITS).step(&mut session.world, &session.defs);
+            }
+            PreludeOpening::Opening => {
+                Opening::new(STARTING_UNITS).step(&mut session.world, &session.defs);
+            }
+        }
+    }
+}
+
 /// The first of `now`'s need words that isn't already in `seen` ([`Host::end_turn`]'s own doc
 /// comment, #331): the thing that stops an `end_turn` call, if anything does. Every word in
 /// `now` is folded into `seen` regardless, so a flag that clears and later shows again within
@@ -1662,6 +1785,13 @@ pub struct RunLogHeader {
     /// `env!("CARGO_PKG_VERSION")` at the time this run was made: the other half of "replays only
     /// hold for the same code and data".
     pub crate_version: String,
+    /// The scenario prelude this run started with, if any (`Host::with_prelude`, #481,
+    /// docs/design/agent-scripting.md, "Scenario starts"): `--watch`, `--resume` and `fn_agent
+    /// keys` run it again, before replaying anything else, so turn 0 starts from the same state
+    /// a live `Host::from_scenario` reached. `#[serde(default)]` so a run log written before
+    /// #481 still parses.
+    #[serde(default)]
+    pub prelude: Option<Prelude>,
 }
 
 /// One line of a run log file, after the first ([`RunLogHeader`]'s own line): the JSON shape
@@ -1768,6 +1898,7 @@ mod tests {
             rough: false,
             difficulty: None,
             fast: false,
+            scenario: None,
             watch: None,
             pace: None,
             at: None,
@@ -2167,6 +2298,7 @@ mod tests {
             rough: false,
             difficulty: None,
             fast: false,
+            scenario: None,
             watch: None,
             pace: None,
             at: None,
@@ -2712,6 +2844,7 @@ mod tests {
                 rough: false,
                 data_digest: h.data_digest(),
                 crate_version: env!("CARGO_PKG_VERSION").to_owned(),
+                prelude: None,
             }
         );
 

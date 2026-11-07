@@ -149,6 +149,9 @@ impl Shell {
         saves: Option<PathBuf>,
         seed_hint: u64,
     ) -> Result<Self, String> {
+        if let Some(id) = &args.scenario {
+            return Self::for_scenario(id, screen, saves);
+        }
         let (Some(seed), Some(nation)) = (args.seed, args.nation) else {
             return Ok(Self::new_title(screen, saves, seed_hint));
         };
@@ -195,6 +198,42 @@ impl Shell {
         } else {
             Ok(Self::new_embark(seed, nation, size, mode, difficulty, screen, saves))
         }
+    }
+
+    /// `--scenario ID` (#481, docs/design/agent-scripting.md, "Scenario starts"): the preset's
+    /// own seed, nation, map size, difficulty and site, run through [`Self::for_args_inner`]
+    /// exactly as if they had been typed on the command line (a synthetic `Args`, the same way
+    /// `crate::surface::Host::new` already builds one), then its prelude if it names one
+    /// (`crate::surface::prelude::run`) -- so `fn_tui --scenario ID` and `fn_agent serve
+    /// --scenario ID` (`Host::from_scenario`) start exactly the same world.
+    fn for_scenario(id: &str, screen: (u16, u16), saves: Option<PathBuf>) -> Result<Self, String> {
+        let scenario = crate::scenario::find(id)?;
+        let synthetic = crate::cli::Args {
+            seed: Some(scenario.seed),
+            nation: Some(scenario.nation),
+            frame: false,
+            size: crate::cli::DEFAULT_SIZE,
+            ticks: 0,
+            keys: Vec::new(),
+            ascii: false,
+            ansi: false,
+            color: None,
+            embark: false,
+            start: scenario.start()?,
+            map_size: scenario.map_size.clone(),
+            rough: false,
+            difficulty: scenario.difficulty.clone(),
+            fast: false,
+            scenario: None,
+            watch: None,
+            pace: None,
+            at: None,
+        };
+        let mut shell = Self::for_args_inner(&synthetic, screen, saves, 0)?;
+        if let (Some(prelude), Mode::Game(app)) = (&scenario.prelude, &mut shell.mode) {
+            crate::surface::prelude::run(app, prelude);
+        }
+        Ok(shell)
     }
 
     /// The bundled game data: a game loads its own copy, but the title screen (which has no

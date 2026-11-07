@@ -1,0 +1,60 @@
+# Scenario starts (docs/design/agent-scripting.md, "Scenario starts", #481): a normal start plus
+# an optional prelude -- a deterministic autoplay opening, fast-forwarded `prelude.minutes` game
+# minutes before anyone plays -- so testing the midgame or late game doesn't mean playing the
+# early game first. Read by `fn_agent` and `fn_tui` (`fn_tui::scenario`), never by `fn_sim`:
+# a scenario only ever drives the same `Command`s a fresh game's own opening would.
+#
+# [[scenario]]
+# - id, name, brief:  the preset's id (`fn_tui --scenario ID`, `fn_agent serve --scenario ID`),
+#                      its label and a one-line description.
+# - seed, nation, map_size, difficulty: as `fn_tui`'s own CLI flags.
+# - site:              "default" (the plain SEED NATION path, centred on the map) or "X,Y" (a
+#                      founded game at that site), the same vocabulary `fn_agent serve --start`
+#                      already uses.
+# - prelude:           optional. `opening` is "economy" (`fn_sim::autoplay::Economy`) or
+#                      "opening" (the plainer `fn_sim::autoplay::Opening`); `minutes` is how many
+#                      game minutes it runs before turn 0.
+
+[[scenario]]
+id = "air-year-two"
+name = "Air, year two"
+brief = "A settlement a year in, with its first buildings standing."
+seed = 7
+nation = "air"
+map_size = "small"
+difficulty = "normal"
+site = "default"
+prelude = { opening = "economy", minutes = 60 }
+
+[[scenario]]
+id = "water-year-two"
+name = "Water, year two"
+brief = "A settlement a year in, with its first buildings standing."
+seed = 7
+nation = "water"
+map_size = "small"
+difficulty = "normal"
+site = "default"
+prelude = { opening = "economy", minutes = 60 }
+
+[[scenario]]
+id = "earth-year-two"
+name = "Earth, year two"
+brief = "A settlement a year in, with its first buildings standing."
+seed = 7
+nation = "earth"
+map_size = "small"
+difficulty = "normal"
+site = "default"
+prelude = { opening = "economy", minutes = 60 }
+
+[[scenario]]
+id = "fire-year-two"
+name = "Fire, year two"
+brief = "A settlement a year in, with its first buildings standing."
+seed = 7
+nation = "fire"
+map_size = "small"
+difficulty = "normal"
+site = "default"
+prelude = { opening = "economy", minutes = 60 }

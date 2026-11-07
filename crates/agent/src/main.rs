@@ -10,11 +10,12 @@ use fn_agent::script::Limits as ScriptLimits;
 use fn_agent::server;
 use fn_agent::tools::Tools;
 use fn_tui::surface::{DEFAULT_TURN_SECONDS, Host, LogLine, RunLogHeader};
-use fn_tui::watch;
+use fn_tui::{scenario, watch};
 
 const USAGE: &str = "\
 usage: fn_agent serve --seed N --nation X [--start default|X,Y] [--difficulty ID]
                        [--turn SECS] [--scripts] --log PATH
+       fn_agent serve --scenario ID [--turn SECS] [--scripts] --log PATH
        fn_agent serve --resume LOG [--seed N] [--nation X] [--start default|X,Y]
                        [--difficulty ID] [--turn SECS] [--scripts]
        fn_agent keys LOG
@@ -24,6 +25,11 @@ writes --log PATH as it goes; watch it live (or replay it after) with
     fn_tui --watch PATH
 in another terminal.
 
+--scenario ID (docs/design/agent-scripting.md, \"Scenario starts\") starts a data/scenarios.toml
+preset instead of --seed/--nation/--start/--difficulty, run through its own prelude first if it
+names one -- the same world fn_tui --scenario ID starts. Can't be combined with --seed, --nation,
+--start, --difficulty or --resume.
+
 --resume LOG rebuilds the session LOG's own header describes, replays LOG's keys and turns back
 into it (so the resumed session picks up exactly where the last one left off), and keeps
 appending to LOG from there -- for playing a long run as a chain of short, cheap sessions instead
@@ -31,9 +37,11 @@ of one that re-reads a growing log every turn. Any of --seed, --nation, --start,
 --turn given alongside --resume must match LOG's own header, or serve refuses to start.
 
 --scripts (docs/design/agent-scripting.md) adds the run_script tool: a sandboxed Rhai runner
-over the same Host, with limits from data/agent.toml's [scripts] table.
+over the same Host, with limits from data/agent.toml's [scripts] table. Works with --scenario
+too: the runner sees whatever world the prelude left, the same as any other start.
 
-keys prints the run at LOG as a --keys script (fn_tui SEED NATION --frame --keys \"...\").";
+keys prints the run at LOG as a --keys script, as a full fn_tui command line: --scenario ID when
+the log's own header matches a bundled preset, else SEED NATION --start ... --difficulty ....";
 
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
@@ -59,6 +67,9 @@ struct ServeArgs {
     start_given: bool,
     start: Option<(i32, i32)>,
     difficulty: Option<String>,
+    /// `--scenario ID` (#481): a `data/scenarios.toml` preset's id, in place of `--seed`,
+    /// `--nation`, `--start` and `--difficulty`.
+    scenario: Option<String>,
     turn_seconds: Option<u32>,
     log: Option<String>,
     resume: Option<String>,
@@ -72,6 +83,7 @@ fn parse_serve_args(args: Vec<String>) -> Result<ServeArgs, String> {
         start_given: false,
         start: None,
         difficulty: None,
+        scenario: None,
         turn_seconds: None,
         log: None,
         resume: None,
@@ -92,12 +104,24 @@ fn parse_serve_args(args: Vec<String>) -> Result<ServeArgs, String> {
                 };
             }
             "--difficulty" => a.difficulty = Some(value()?),
+            "--scenario" => a.scenario = Some(value()?),
             "--turn" => a.turn_seconds = Some(value()?.parse::<u32>().map_err(|e| e.to_string())?),
             "--log" => a.log = Some(value()?),
             "--resume" => a.resume = Some(value()?),
             "--scripts" => a.scripts = true,
             other => return Err(format!("unknown flag {other:?}")),
         }
+    }
+    if a.scenario.is_some()
+        && (a.seed.is_some()
+            || a.nation.is_some()
+            || a.start_given
+            || a.difficulty.is_some()
+            || a.resume.is_some())
+    {
+        return Err("--scenario can't be combined with --seed, --nation, --start, \
+                     --difficulty or --resume: the preset already sets them"
+            .to_owned());
     }
     Ok(a)
 }
@@ -122,13 +146,19 @@ fn serve(args: Vec<String>) -> Result<(), String> {
 }
 
 fn serve_fresh(a: &ServeArgs) -> Result<(), String> {
-    let nation_str = a.nation.as_deref().ok_or("--nation is required")?;
-    let nation = fn_tui::cli::parse_nation(nation_str)
-        .ok_or_else(|| format!("unknown nation {nation_str:?} (air, water, earth or fire)"))?;
-    let seed = a.seed.ok_or("--seed is required")?;
     let log = a.log.as_deref().ok_or("--log is required")?;
-    let host = Host::new(seed, nation, None, a.difficulty.clone(), a.start, false)?
-        .with_turn_seconds(a.turn_seconds.unwrap_or(DEFAULT_TURN_SECONDS));
+    let host = match &a.scenario {
+        Some(id) => Host::from_scenario(id)?,
+        None => {
+            let nation_str = a.nation.as_deref().ok_or("--nation is required")?;
+            let nation = fn_tui::cli::parse_nation(nation_str).ok_or_else(|| {
+                format!("unknown nation {nation_str:?} (air, water, earth or fire)")
+            })?;
+            let seed = a.seed.ok_or("--seed is required")?;
+            Host::new(seed, nation, None, a.difficulty.clone(), a.start, false)?
+        }
+    };
+    let host = host.with_turn_seconds(a.turn_seconds.unwrap_or(DEFAULT_TURN_SECONDS));
     let writer = Writer::create(Path::new(log)).map_err(|e| e.to_string())?;
     let tools = with_scripts(Tools::new(host, writer)?, a);
     run_tools(tools)
@@ -214,14 +244,36 @@ fn run_tools<W: Write>(mut tools: Tools<W>) -> Result<(), String> {
     Ok(())
 }
 
-/// Prints the run at `LOG` as a `--keys` script (`fn_tui SEED NATION --frame --keys "..."`):
-/// reads the same `fn_tui::surface::RunLogHeader`/`LogLine` schema `fn_tui --watch` does (#324),
-/// so a log `fn_agent serve` is still writing reads back here exactly as it would there.
+/// Prints the run at `LOG` as a full `fn_tui` command line: reads the same
+/// `fn_tui::surface::RunLogHeader`/`LogLine` schema `fn_tui --watch` does (#324), so a log
+/// `fn_agent serve` is still writing reads back here exactly as it would there.
 fn keys(args: Vec<String>) -> Result<(), String> {
     let path = args.into_iter().next().ok_or("fn_agent keys needs a LOG path")?;
     let (header, lines) = watch::read_file(Path::new(&path))?;
-    println!("{}", watch::to_keys_script(&header, &lines));
+    let script = watch::to_keys_script(&header, &lines);
+    println!("{}", command_line(&header, &script));
     Ok(())
+}
+
+/// The `fn_tui` invocation that replays `header`'s run: `--scenario ID` when `header`'s own
+/// seed, nation, map size, difficulty, site and prelude exactly match a bundled preset
+/// (`fn_tui::scenario::id_for`, #481), else `SEED NATION` plus whatever `--start` and
+/// `--difficulty` the header itself says -- either way followed by `--frame --keys "..."`.
+fn command_line(header: &RunLogHeader, script: &str) -> String {
+    let start = match scenario::id_for(header) {
+        Some(id) => format!("--scenario {id}"),
+        None => {
+            let mut s = format!("{} {}", header.seed, header.nation.as_str());
+            if let Some((x, y)) = header.site {
+                s.push_str(&format!(" --start {x},{y}"));
+            }
+            if let Some(d) = &header.difficulty {
+                s.push_str(&format!(" --difficulty {d}"));
+            }
+            s
+        }
+    };
+    format!("fn_tui {start} --frame --keys \"{script}\"")
 }
 
 #[cfg(test)]
@@ -240,6 +292,7 @@ mod tests {
             rough: false,
             data_digest: 42,
             crate_version: "0.1.0".into(),
+            prelude: None,
         }
     }
 
@@ -250,6 +303,7 @@ mod tests {
             start_given: false,
             start: None,
             difficulty: None,
+            scenario: None,
             turn_seconds: None,
             log: None,
             resume: Some(path.to_owned()),
@@ -306,6 +360,57 @@ mod tests {
             ..resume_args("run.jsonl")
         };
         check_resume_args(&h, &args).unwrap();
+    }
+
+    /// `--scenario` can't be combined with anything that would also pick a seed, nation, site,
+    /// difficulty or a different session to resume (#481).
+    #[test]
+    fn scenario_cant_be_combined_with_seed_nation_start_difficulty_or_resume() {
+        let base = vec!["--scenario".to_owned(), "earth-year-two".to_owned()];
+        for extra in [
+            vec!["--seed".to_owned(), "7".to_owned()],
+            vec!["--nation".to_owned(), "earth".to_owned()],
+            vec!["--start".to_owned(), "default".to_owned()],
+            vec!["--difficulty".to_owned(), "hard".to_owned()],
+            vec!["--resume".to_owned(), "run.jsonl".to_owned()],
+        ] {
+            let mut args = base.clone();
+            args.extend(extra);
+            let err = match parse_serve_args(args) {
+                Ok(_) => panic!("should have been refused"),
+                Err(e) => e,
+            };
+            assert!(err.contains("can't be combined with"), "{err}");
+        }
+        // Alone (plus --turn and --log), it's fine.
+        let a = parse_serve_args(vec![
+            "--scenario".to_owned(),
+            "earth-year-two".to_owned(),
+            "--turn".to_owned(),
+            "10".to_owned(),
+            "--log".to_owned(),
+            "run.jsonl".to_owned(),
+        ])
+        .unwrap();
+        assert_eq!(a.scenario.as_deref(), Some("earth-year-two"));
+    }
+
+    /// `fn_agent keys`' own command line names `--scenario ID` when the log's header matches a
+    /// bundled preset exactly (#481), falling back to `SEED NATION` otherwise.
+    #[test]
+    fn keys_command_line_names_a_matching_scenario() {
+        let scenario = &scenario::bundled()[0];
+        let scenario_header = Host::from_scenario(&scenario.id).unwrap().header();
+        let line = command_line(&scenario_header, "h <tick 10>");
+        assert!(line.contains(&format!("--scenario {}", scenario.id)), "{line}");
+        assert!(line.contains("--frame --keys \"h <tick 10>\""), "{line}");
+
+        let plain = header();
+        let line = command_line(&plain, "h <tick 10>");
+        assert!(line.contains("7 earth"), "{line}");
+        assert!(line.contains("--start 5,5"), "{line}");
+        assert!(line.contains("--difficulty normal"), "{line}");
+        assert!(!line.contains("--scenario"), "{line}");
     }
 
     /// `--log` given alongside `--resume` must name the same file; a different one is almost

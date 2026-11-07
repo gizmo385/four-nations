@@ -8,10 +8,12 @@
 //! the same length, with newlines kept too, so line numbers and brace matching both still work)
 //! -- that's what keeps a doc comment mentioning `App::run_ticks`, or a format string's `{}`,
 //! from tripping the scan or its brace matching. What's left is searched for the patterns below
-//! outside a short allow-list of spans: the `end_turn` function and a `referee` module (#318,
-//! not written yet) in `surface.rs`, and `#[cfg(test)]` code everywhere -- the parity tests
-//! themselves (`Host::act` round trips, #316) read `World` directly to compare command logs and
-//! frames, which is the point of them, not a leak.
+//! outside a short allow-list of spans in `surface.rs`: the `end_turn` function, a `referee`
+//! module (#318, not written yet) and a `prelude` module (#481, `crate::surface::prelude::run`,
+//! which issues a scenario's prelude before an agent -- or a player -- ever gets to see the
+//! game) -- plus `#[cfg(test)]` code everywhere -- the parity tests themselves (`Host::act`
+//! round trips, #316) read `World` directly to compare command logs and frames, which is the
+//! point of them, not a leak.
 //!
 //! `crates/agent/src/`'s MCP tool handlers get a narrower rule: the word `referee` shouldn't
 //! appear in their code at all, since #317/#318 are both deferred and no tool should read the
@@ -35,7 +37,7 @@ pub fn check(root: &Path) -> Result<(), String> {
         .map_err(|e| format!("reading {}: {e}", surface_path.display()))?;
     for (line, pattern) in check_surface(&surface_src) {
         problems.push(format!(
-            "{}:{line}: `{pattern}` outside `end_turn`, `referee` and tests (#320)",
+            "{}:{line}: `{pattern}` outside `end_turn`, `referee`, `prelude` and tests (#320)",
             surface_path.display()
         ));
     }
@@ -74,11 +76,12 @@ fn walk_rs_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
 }
 
 /// Every forbidden pattern's line number and text in `src`, outside `fn end_turn`, `mod
-/// referee` and `#[cfg(test)]` code.
+/// referee`, `mod prelude` (#481) and `#[cfg(test)]` code.
 fn check_surface(src: &str) -> Vec<(usize, &'static str)> {
     let mut code = blank_non_code(src);
     mask_blocks(&mut code, "mod tests");
     mask_blocks(&mut code, "mod referee");
+    mask_blocks(&mut code, "mod prelude");
     mask_blocks(&mut code, "fn end_turn");
     find_forbidden(&code)
 }
@@ -295,6 +298,15 @@ mod tests {
     #[test]
     fn a_referee_module_may_read_world() {
         let src = "mod referee {\n    fn judge(w: &World) -> bool {\n        w.world.tick > 0\n    }\n}\n";
+        assert_eq!(check_surface(src), Vec::new());
+    }
+
+    /// `mod prelude` (#481) gets the same allowance as `end_turn` and `referee`: it's the one
+    /// other place that applies `Command`s and runs ticks before an agent -- or a player --
+    /// ever sees the game (a scenario's prelude, docs/design/agent-scripting.md).
+    #[test]
+    fn a_prelude_module_may_read_world() {
+        let src = "pub(crate) mod prelude {\n    pub(crate) fn run(app: &mut App) {\n        app.session.world.tick(&app.session.defs);\n    }\n}\n";
         assert_eq!(check_surface(src), Vec::new());
     }
 

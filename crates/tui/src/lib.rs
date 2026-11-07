@@ -30,6 +30,7 @@ pub mod panel;
 pub mod research;
 pub mod run;
 pub mod saves;
+pub mod scenario;
 pub mod screens;
 pub mod shell;
 pub mod spectate;

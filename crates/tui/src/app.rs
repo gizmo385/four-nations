@@ -752,7 +752,11 @@ impl App {
 
     /// After ticks ran: turns what the world logged into alerts (the toasts age by `dt` real
     /// seconds), closes the bar on a unit that died and moves the cursor with a followed one.
-    fn settle(&mut self, dt: f32) {
+    ///
+    /// `pub(crate)` so `crate::surface`'s scenario prelude (#481) can catch `ui.alerts` up to
+    /// the end of a prelude it ran directly against `self.session`, without `run_ticks` -- the
+    /// one call every other path here already makes through it.
+    pub(crate) fn settle(&mut self, dt: f32) {
         self.ui.alerts.update(&self.session, dt);
         self.ui.track(&self.session);
         self.dirty = true;

@@ -119,6 +119,7 @@ fn fn_agent_keys_on_a_scripted_log_reproduces_the_same_frame_as_an_mcp_only_run(
         rough: false,
         difficulty: None,
         fast: false,
+        scenario: None,
         watch: None,
         pace: None,
         at: None,

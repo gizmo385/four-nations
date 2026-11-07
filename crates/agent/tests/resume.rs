@@ -150,6 +150,7 @@ fn keys_reads_a_resumed_log_as_one_continuous_run() {
         rough: false,
         difficulty: None,
         fast: false,
+        scenario: None,
         watch: None,
         pace: None,
         at: None,
