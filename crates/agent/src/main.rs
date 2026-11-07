@@ -6,10 +6,10 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use fn_agent::runlog::Writer;
-use fn_agent::script::Limits as ScriptLimits;
+use fn_agent::script::{self, Limits as ScriptLimits};
 use fn_agent::server;
 use fn_agent::tools::Tools;
-use fn_tui::surface::{DEFAULT_TURN_SECONDS, Host, LogLine, RunLogHeader};
+use fn_tui::surface::{DEFAULT_TURN_SECONDS, EventKind, Host, LogLine, RunLogHeader};
 use fn_tui::{scenario, watch};
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
@@ -20,6 +20,9 @@ usage: fn_agent serve --seed N --nation X [--start default|X,Y] [--difficulty ID
        fn_agent serve --scenario ID [--turn SECS] [--scripts] --log PATH
        fn_agent serve --resume LOG [--seed N] [--nation X] [--start default|X,Y]
                        [--difficulty ID] [--turn SECS] [--scripts]
+       fn_agent play --script FILE [--scenario ID | --seed N --nation X
+                      [--start default|X,Y] [--difficulty ID]] --turns N [--turn SECS]
+                      [--wake-on LIST] --log PATH
        fn_agent keys LOG
 
 serve speaks MCP (JSON-RPC 2.0) over stdin and stdout: initialize, tools/list and tools/call. It
@@ -42,18 +45,28 @@ of one that re-reads a growing log every turn. Any of --seed, --nation, --start,
 over the same Host, with limits from data/agent.toml's [scripts] table. Works with --scenario
 too: the runner sees whatever world the prelude left, the same as any other start.
 
+play (docs/design/agent-scripting.md, \"Headless play\") runs FILE's own code against a fresh
+Host through the same plumbing and porcelain run_script uses, with no model: one run_script call
+as a batch job. It stops at the first wake (an error, wake(msg), or a --wake-on event during a
+wait) or once --turns runs out, writes --log PATH the same way serve does, and prints the wake
+report as JSON on stdout. It exits 0 for done or budget, nonzero for anything else (error,
+runaway, asked or event), so a shell loop (scripts/agent-run.sh, say) can tell which runs need a
+look. --wake-on is a comma-separated list from death, arrival, tech, endeavor, season, stockpile,
+bend_failed, need (data/agent.toml's own default_wake with none given).
+
 keys prints the run at LOG as a --keys script, as a full fn_tui command line: --scenario ID when
 the log's own header matches a bundled preset, else SEED NATION --start ... --difficulty ....";
 
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
     let result = match args.next().as_deref() {
-        Some("serve") => serve(args.collect()),
-        Some("keys") => keys(args.collect()),
+        Some("serve") => serve(args.collect()).map(|()| ExitCode::SUCCESS),
+        Some("keys") => keys(args.collect()).map(|()| ExitCode::SUCCESS),
+        Some("play") => play(args.collect()),
         _ => Err(USAGE.to_owned()),
     };
     match result {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(e) => {
             eprintln!("fn_agent: {e}");
             ExitCode::FAILURE
@@ -303,6 +316,181 @@ fn write_end_for_signal(log_path: &Path, signal: &str) -> Result<(), String> {
         .unwrap_or(0);
     let mut writer = Writer::append(log_path).map_err(|e| e.to_string())?;
     writer.write_end(tick, &format!("stopped by {signal}")).map_err(|e| e.to_string())
+}
+
+// -------------------------------------------------------------------------------------------
+// play (#483, docs/design/agent-scripting.md, "Headless play")
+// -------------------------------------------------------------------------------------------
+
+#[derive(Debug)]
+struct PlayArgs {
+    script: Option<String>,
+    seed: Option<u64>,
+    nation: Option<String>,
+    start_given: bool,
+    start: Option<(i32, i32)>,
+    difficulty: Option<String>,
+    scenario: Option<String>,
+    turn_seconds: Option<u32>,
+    turns: Option<u32>,
+    wake_on: Option<Vec<EventKind>>,
+    log: Option<String>,
+}
+
+fn parse_play_args(args: Vec<String>) -> Result<PlayArgs, String> {
+    let mut a = PlayArgs {
+        script: None,
+        seed: None,
+        nation: None,
+        start_given: false,
+        start: None,
+        difficulty: None,
+        scenario: None,
+        turn_seconds: None,
+        turns: None,
+        wake_on: None,
+        log: None,
+    };
+    let mut it = args.into_iter();
+    while let Some(flag) = it.next() {
+        let mut value = || it.next().ok_or_else(|| format!("{flag} needs a value"));
+        match flag.as_str() {
+            "--script" => a.script = Some(value()?),
+            "--seed" => a.seed = Some(value()?.parse::<u64>().map_err(|e| e.to_string())?),
+            "--nation" => a.nation = Some(value()?),
+            "--start" => {
+                let v = value()?;
+                a.start_given = true;
+                a.start = match v.as_str() {
+                    "default" => None,
+                    other => Some(parse_pos(other)?),
+                };
+            }
+            "--difficulty" => a.difficulty = Some(value()?),
+            "--scenario" => a.scenario = Some(value()?),
+            "--turn" => a.turn_seconds = Some(value()?.parse::<u32>().map_err(|e| e.to_string())?),
+            "--turns" => a.turns = Some(value()?.parse::<u32>().map_err(|e| e.to_string())?),
+            "--wake-on" => {
+                let v = value()?;
+                let kinds: Result<Vec<EventKind>, String> =
+                    v.split(',').map(|s| parse_event_kind(s.trim())).collect();
+                a.wake_on = Some(kinds?);
+            }
+            "--log" => a.log = Some(value()?),
+            other => return Err(format!("unknown flag {other:?}")),
+        }
+    }
+    if a.scenario.is_some()
+        && (a.seed.is_some() || a.nation.is_some() || a.start_given || a.difficulty.is_some())
+    {
+        return Err("--scenario can't be combined with --seed, --nation, --start or \
+                     --difficulty: the preset already sets them"
+            .to_owned());
+    }
+    Ok(a)
+}
+
+/// `--wake-on`'s own vocabulary: the same word [`EventKind::as_str`] gives back, so a list a
+/// caller types and a wake report's own `since_start.events` keys read the same way.
+fn parse_event_kind(s: &str) -> Result<EventKind, String> {
+    match s {
+        "death" => Ok(EventKind::Death),
+        "arrival" => Ok(EventKind::Arrival),
+        "tech" => Ok(EventKind::Tech),
+        "endeavor" => Ok(EventKind::Endeavor),
+        "season" => Ok(EventKind::Season),
+        "stockpile" => Ok(EventKind::Stockpile),
+        "bend_failed" => Ok(EventKind::BendFailed),
+        "need" => Ok(EventKind::Need),
+        other => Err(format!(
+            "unknown --wake-on kind {other:?} (want death, arrival, tech, endeavor, season, \
+             stockpile, bend_failed or need)"
+        )),
+    }
+}
+
+/// `fn_agent play`: runs `--script FILE`'s own code through [`script::run`] against a fresh
+/// [`Host`], exactly as one `run_script` call would, with no model and no MCP loop. Writes
+/// `--log PATH` the same shape `serve` does (a `Header` line, the run's own `Script` line, every
+/// `Keys`/`Turn` line the script's own `act`/`keys`/`wait` calls made, a `Wake` line, then an
+/// `End` line) and prints the wake report as JSON on stdout. The caller's own exit code comes
+/// from `outcome.reason`, not from whether this function could even start the run: a bad flag,
+/// an unreadable script file or a log that couldn't be created is `Err`, reported the same way
+/// every other subcommand's own usage mistake is (`main`'s `eprintln!("fn_agent: {e}")`).
+fn play(args: Vec<String>) -> Result<ExitCode, String> {
+    let a = parse_play_args(args)?;
+    let script_path = a.script.as_deref().ok_or("--script is required")?;
+    let turns = a.turns.ok_or("--turns is required")?;
+    let log_path = a.log.as_deref().ok_or("--log is required")?;
+    let code = std::fs::read_to_string(script_path)
+        .map_err(|e| format!("can't read --script {script_path:?}: {e}"))?;
+
+    let host = match &a.scenario {
+        Some(id) => Host::from_scenario(id)?,
+        None => {
+            let nation_str = a.nation.as_deref().ok_or("--nation is required")?;
+            let nation = fn_tui::cli::parse_nation(nation_str).ok_or_else(|| {
+                format!("unknown nation {nation_str:?} (air, water, earth or fire)")
+            })?;
+            let seed = a.seed.ok_or("--seed is required")?;
+            Host::new(seed, nation, None, a.difficulty.clone(), a.start, false)?
+        }
+    };
+    let mut host = host.with_turn_seconds(a.turn_seconds.unwrap_or(DEFAULT_TURN_SECONDS));
+
+    let mut writer = Writer::create(Path::new(log_path)).map_err(|e| e.to_string())?;
+    writer.write_header(&host.header()).map_err(|e| e.to_string())?;
+
+    let limits = ScriptLimits::bundled();
+    let wake_on = a.wake_on.unwrap_or_else(|| limits.default_wake.clone());
+    let tag = "play".to_owned();
+
+    writer
+        .write_line(&LogLine::Script {
+            name: tag.clone(),
+            version: 0,
+            code: code.clone(),
+            turns,
+            wake_on: wake_on.clone(),
+        })
+        .map_err(|e| e.to_string())?;
+
+    let memory = serde_json::json!({});
+    let request = script::Request {
+        code: &code,
+        turns: Some(turns),
+        note: Some(&tag),
+        version: 0,
+        wake_on: &wake_on,
+        memory: &memory,
+    };
+    let outcome = script::run(&mut host, request, &limits);
+
+    // The script's own `Keys`/`Turn` lines, made while it ran: a fresh `Host` writes nothing to
+    // its own `RunLog` before this call, so every one of them is new.
+    for line in &host.log().lines() {
+        writer.write_line(line).map_err(|e| e.to_string())?;
+    }
+
+    writer
+        .write_line(&LogLine::Wake {
+            reason: outcome.reason.to_owned(),
+            why: outcome.why.clone(),
+            turn: outcome.observe.turn,
+            memory: outcome.memory.clone(),
+        })
+        .map_err(|e| e.to_string())?;
+    writer.write_end(host.tick(), "script finished").map_err(|e| e.to_string())?;
+
+    println!("{}", serde_json::to_string(&outcome).map_err(|e| e.to_string())?);
+
+    // "done" and "budget" are a clean stop; everything else ("error", "runaway", "asked" or
+    // "event") is the script asking for a look, the shell-loop signal the acceptance criteria
+    // names (docs/design/agent-scripting.md, "Headless play").
+    Ok(match outcome.reason {
+        "done" | "budget" => ExitCode::SUCCESS,
+        _ => ExitCode::FAILURE,
+    })
 }
 
 /// Prints the run at `LOG` as a full `fn_tui` command line: reads the same
@@ -567,5 +755,120 @@ mod tests {
             lines.last(),
             Some(&LogLine::End { tick: 200, reason: "stdin closed".to_owned() })
         );
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // play (#483)
+    // -----------------------------------------------------------------------------------------
+
+    fn play_args(extra: &[&str]) -> Vec<String> {
+        let mut v = vec![
+            "--script".to_owned(),
+            "lib.rhai".to_owned(),
+            "--seed".to_owned(),
+            "7".to_owned(),
+            "--nation".to_owned(),
+            "earth".to_owned(),
+            "--turns".to_owned(),
+            "10".to_owned(),
+            "--log".to_owned(),
+            "run.jsonl".to_owned(),
+        ];
+        v.extend(extra.iter().map(|s| (*s).to_owned()));
+        v
+    }
+
+    /// Every flag `play` takes (`--script`, `--seed`, `--nation`, `--start`, `--difficulty`,
+    /// `--turn`, `--turns`, `--wake-on`, `--log`) parses into [`PlayArgs`].
+    #[test]
+    fn parse_play_args_reads_every_flag() {
+        let a = parse_play_args(play_args(&[
+            "--start",
+            "5,5",
+            "--difficulty",
+            "hard",
+            "--turn",
+            "30",
+            "--wake-on",
+            "death,need",
+        ]))
+        .unwrap();
+        assert_eq!(a.script.as_deref(), Some("lib.rhai"));
+        assert_eq!(a.seed, Some(7));
+        assert_eq!(a.nation.as_deref(), Some("earth"));
+        assert_eq!(a.start, Some((5, 5)));
+        assert_eq!(a.difficulty.as_deref(), Some("hard"));
+        assert_eq!(a.turn_seconds, Some(30));
+        assert_eq!(a.turns, Some(10));
+        assert_eq!(a.wake_on, Some(vec![EventKind::Death, EventKind::Need]));
+        assert_eq!(a.log.as_deref(), Some("run.jsonl"));
+    }
+
+    /// `--wake-on` wants a known event-kind word, comma-separated; an unknown one is refused
+    /// naming it, not silently dropped.
+    #[test]
+    fn parse_play_args_refuses_an_unknown_wake_on_kind() {
+        let err = parse_play_args(play_args(&["--wake-on", "death,nope"])).unwrap_err();
+        assert!(err.contains("nope"), "{err}");
+    }
+
+    /// `--scenario` can't be combined with `--seed`, `--nation`, `--start` or `--difficulty`,
+    /// the same rule `serve` enforces (its own preset already sets them).
+    #[test]
+    fn parse_play_args_refuses_scenario_combined_with_seed_or_nation() {
+        let args = vec![
+            "--script".to_owned(),
+            "lib.rhai".to_owned(),
+            "--scenario".to_owned(),
+            "earth-year-two".to_owned(),
+            "--seed".to_owned(),
+            "7".to_owned(),
+            "--turns".to_owned(),
+            "10".to_owned(),
+            "--log".to_owned(),
+            "run.jsonl".to_owned(),
+        ];
+        let err = parse_play_args(args).unwrap_err();
+        assert!(err.contains("can't be combined with"), "{err}");
+    }
+
+    /// `play` refuses to start at all without `--script`, `--turns` or `--log`, before it ever
+    /// touches a `Host` or opens a file.
+    #[test]
+    fn play_refuses_to_start_without_script_turns_or_log() {
+        let base = |missing: &str| -> Vec<String> {
+            play_args(&[]).into_iter().filter(|a| a != missing).collect()
+        };
+        for (flag, value) in [("--script", "lib.rhai"), ("--turns", "10"), ("--log", "run.jsonl")] {
+            let mut args = base(flag);
+            // Dropping the flag alone would leave its value as a stray positional; drop both.
+            if let Some(pos) = args.iter().position(|a| a == value) {
+                args.remove(pos);
+            }
+            let err = match play(args) {
+                Ok(_) => panic!("{flag} missing should have been refused"),
+                Err(e) => e,
+            };
+            assert!(err.contains(flag), "{flag}: {err}");
+        }
+    }
+
+    /// `--wake-on`'s own vocabulary round-trips: every word [`EventKind::as_str`] gives back
+    /// parses back to the same kind.
+    #[test]
+    fn parse_event_kind_round_trips_every_event_kind_word() {
+        for kind in [
+            EventKind::Death,
+            EventKind::Arrival,
+            EventKind::Tech,
+            EventKind::Endeavor,
+            EventKind::Season,
+            EventKind::Stockpile,
+            EventKind::BendFailed,
+            EventKind::Need,
+        ] {
+            assert_eq!(parse_event_kind(kind.as_str()), Ok(kind));
+        }
+        assert!(parse_event_kind("nope").is_err());
     }
 }
