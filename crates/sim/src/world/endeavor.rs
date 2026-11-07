@@ -86,8 +86,13 @@ pub enum EndeavorEventKind {
     /// correctly even if the unit later dies. Fires once per rank reached, at Adept and at
     /// Master (never at Novice, the rank everyone starts at); `Unit`'s own `rank_credited` is
     /// what makes this once-only, so a save/load, or `[mastery]` retuned later, never refires
-    /// it for a rank already reached.
-    RankUp { unit: UnitId, name: String, rank: Rank },
+    /// it for a rank already reached. `title` is what this unit's own nation called it at
+    /// `rank` at the moment it was earned (`data/bending.toml`'s `[mastery.titles]`), resolved
+    /// and stored here rather than this unit's nation: looking the title up again later would
+    /// need `World::nation_of`, which needs the unit still alive, exactly the gap `name` is
+    /// already carried directly to avoid (#361, docs/design/bending.md "Seeing it": "Jee is now
+    /// a Firebender").
+    RankUp { unit: UnitId, name: String, rank: Rank, title: String },
 }
 
 /// Why the Avatar left (`world/avatar.rs`, #237): named for the client's toast ("Aang has gone
@@ -229,7 +234,9 @@ impl World {
         self.units[i].rank_credited = progress.rank;
         let unit = self.units[i].id;
         let name = self.units[i].name.clone();
-        self.endeavor_event(EndeavorEventKind::RankUp { unit, name, rank: progress.rank });
+        let nation = self.nation_of(&self.units[i]);
+        let title = defs.mastery.title(nation, progress.rank).to_owned();
+        self.endeavor_event(EndeavorEventKind::RankUp { unit, name, rank: progress.rank, title });
     }
 }
 

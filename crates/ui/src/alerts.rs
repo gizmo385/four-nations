@@ -416,8 +416,10 @@ pub fn describe_arrival(a: &Arrival) -> String {
 
 /// "Haru used Raise Earth at (5, 3) - bend 9 of 10" (the bender's own count toward mastery,
 /// `docs/design/endgame.md`, "Showing mastery", #347; the suffix drops once the data has no
-/// masters sign), or "Haru's Raise Earth failed: needs dry ground beside it" (a failed bend
-/// never counts, so it never carries one).
+/// masters sign), carrying ", a new form" when this was the first bend of this ability this
+/// unit ever finished (`Unit::bends_of`, docs/design/bending.md "Seeing it", #361: "Jee welded
+/// the kiln: bend 9 of 10, a new form"), or "Haru's Raise Earth failed: needs dry ground beside
+/// it" (a failed bend never counts, so it never carries either).
 pub fn describe_bend_event(session: &Session, ev: &BendEvent) -> String {
     let def = session.defs.ability(ev.ability);
     let unit = session.world.unit(ev.unit);
@@ -427,10 +429,12 @@ pub fn describe_bend_event(session: &Session, ev: &BendEvent) -> String {
             let line = format!("{who} used {} at ({}, {})", def.name, ev.pos.x, ev.pos.y);
             let threshold = unit
                 .and_then(|u| session.defs.endeavor.master_threshold(session.world.nation_of(u)));
-            match threshold {
+            let new_form = unit.is_some_and(|u| u.bends_of(ev.ability) == 1);
+            let line = match threshold {
                 Some(t) => format!("{line} - bend {} of {t}", unit.map_or(0, |u| u.bends())),
                 None => line,
-            }
+            };
+            if new_form { format!("{line}, a new form") } else { line }
         }
         BendOutcome::Failed(why) => format!("{who}'s {} failed: {why}", def.name),
     }
@@ -612,6 +616,42 @@ mod tests {
         };
         let line = describe_bend_event(&s, &done);
         assert!(!line.contains(" - bend "), "{line}");
+    }
+
+    /// A unit's first-ever finished bend of an ability carries ", a new form"
+    /// (`Unit::bends_of`, docs/design/bending.md "Seeing it", #361); its second, of the same
+    /// ability but a fresh tile (so Hearthflame's own restoke rule, #359, never enters into
+    /// it), doesn't, since the form was already counted. One starting unit, so there's no doubt
+    /// which of them claims each designation.
+    #[test]
+    fn a_units_first_bend_of_an_ability_notes_a_new_form() {
+        use fn_sim::defs::BiomeId;
+        use fn_sim::{Grid, Terrain, Tile, World};
+
+        let defs = Defs::bundled();
+        let map = Grid::from_fn(6, 3, |_| Tile {
+            elevation: 100,
+            temperature: 128,
+            moisture: 128,
+            terrain: Terrain::Land,
+            biome: BiomeId(0),
+            resource: None,
+            building: None,
+        });
+        let world = World::with_map(1, map, Nation::Fire, &[Pos::new(0, 1)], &defs);
+        let mut s =
+            Session { world, defs, clock: crate::clock::Clock::default(), bend_choice: None };
+        let ability = ability_for_nation(&s.defs, Nation::Fire).unwrap();
+
+        s.apply(Command::Bend { ability, pos: Pos::new(1, 1) }).unwrap();
+        run_until(&mut s, |s| !s.world.bend_events().is_empty());
+        let first = describe_bend_event(&s, &s.world.bend_events()[0]);
+        assert!(first.ends_with(", a new form"), "{first}");
+
+        s.apply(Command::Bend { ability, pos: Pos::new(4, 1) }).unwrap();
+        run_until(&mut s, |s| s.world.bend_events().len() > 1);
+        let second = describe_bend_event(&s, &s.world.bend_events()[1]);
+        assert!(!second.contains("new form"), "{second}");
     }
 
     /// A finished bend lands in the log (`alerts.history()`), but never as a toast (#417: a

@@ -301,6 +301,15 @@ impl Palette {
         mix(defs.nation(nation).color, [255; 3], self.glyphs.unit.lift)
     }
 
+    /// A bending master's own colour, in sRGB, whatever its nation (#360, #361,
+    /// `World::rank_of`): `nation`'s own accent lifted further toward white than
+    /// `unit_rgb_for`'s own `lift` (`UnitLook::master_lift`, `data/tui.toml`), so a master
+    /// stands out from its own nation's rank and file at a glance, on top of the bold weight
+    /// every unit already draws in.
+    pub fn master_rgb_for(&self, defs: &Defs, nation: Nation) -> Rgb8 {
+        mix(defs.nation(nation).color, [255; 3], self.glyphs.unit.master_lift)
+    }
+
     /// The tint's sRGB colour.
     pub fn tint_rgb(&self, tint: Tint) -> Rgb8 {
         let o = &self.glyphs.overlay;

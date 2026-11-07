@@ -160,8 +160,8 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
 /// the settlement has more than one nation (#248, "the transformation") -- on a single-nation
 /// game it's the same word on every unit, worth nothing. Carrying shows only with something to
 /// carry ("nothing" says nothing worth a row); finished bends moved to the selection bar's own
-/// line instead (#418, `fn_ui::text::bends_line`), since a unit under the cursor can be selected
-/// and show both at once.
+/// line instead (#418, `fn_ui::text::mastery_line`), since a unit under the cursor can be
+/// selected and show both at once.
 fn unit_lines(session: &Session, tool: Tool, unit: &Unit) -> Lines {
     let (world, defs) = (&session.world, &session.defs);
     let mut lines = Lines::new();
@@ -453,7 +453,7 @@ mod tests {
     }
 
     /// Carrying something shows a row for it; finished bends moved to the selection bar's own
-    /// line instead (#418, `fn_ui::text::bends_line`), so the tooltip never mentions them.
+    /// line instead (#418, `fn_ui::text::mastery_line`), so the tooltip never mentions them.
     #[test]
     fn a_unit_s_tooltip_shows_carrying_but_not_its_finished_bends() {
         use fn_sim::world::{BendOutcome, Command};

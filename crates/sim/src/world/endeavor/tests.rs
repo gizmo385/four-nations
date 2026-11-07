@@ -420,7 +420,12 @@ fn note_rank_up_fires_once_per_rank_and_a_save_load_does_not_refire_it() {
         w.endeavor_events(),
         [EndeavorEvent {
             tick: w.tick,
-            kind: EndeavorEventKind::RankUp { unit: id, name: name.clone(), rank: Rank::Adept },
+            kind: EndeavorEventKind::RankUp {
+                unit: id,
+                name: name.clone(),
+                rank: Rank::Adept,
+                title: "Firebender".to_owned(),
+            },
         }]
     );
 
@@ -436,7 +441,12 @@ fn note_rank_up_fires_once_per_rank_and_a_save_load_does_not_refire_it() {
         w.endeavor_events()[1],
         EndeavorEvent {
             tick: w.tick,
-            kind: EndeavorEventKind::RankUp { unit: id, name: name.clone(), rank: Rank::Master },
+            kind: EndeavorEventKind::RankUp {
+                unit: id,
+                name: name.clone(),
+                rank: Rank::Master,
+                title: "Firebending Master".to_owned(),
+            },
         }
     );
 
@@ -461,7 +471,12 @@ fn note_rank_up_fires_once_per_rank_and_a_save_load_does_not_refire_it() {
         w2.endeavor_events()[2],
         EndeavorEvent {
             tick: w2.tick,
-            kind: EndeavorEventKind::RankUp { unit: id2, name: name2, rank: Rank::Master },
+            kind: EndeavorEventKind::RankUp {
+                unit: id2,
+                name: name2,
+                rank: Rank::Master,
+                title: "Firebending Master".to_owned(),
+            },
         }
     );
 }

@@ -134,59 +134,87 @@ fn missing_building_names<'d>(world: &World, defs: &'d Defs) -> Vec<&'d str> {
 /// How many of the closest non-masters the masters sign's own line names.
 const MASTERS_SHOWN: usize = 3;
 
-/// Non-master units with their own bends and nation's mastery threshold
-/// (`fn_sim::endeavor::EndeavorDef::master_threshold`), closest to mastery first (a tie keeps
-/// each unit's order in `World::units`). Guests (the Avatar) never count. Empty without a
-/// masters sign in the data, or once every counted unit has already mastered.
-fn closest_non_masters(world: &World, defs: &Defs) -> Vec<(String, u32, u32)> {
-    let mut rest: Vec<(String, u32, u32)> = world
+/// Whether the data has a masters sign at all: `EndeavorDef::master_threshold`'s `Option`-ness
+/// doesn't depend on which nation it's asked for, only on whether `data/endeavor.toml` has one,
+/// so one check at the settlement's own nation answers it for every unit.
+fn has_masters_sign(world: &World, defs: &Defs) -> bool {
+    defs.endeavor.master_threshold(world.nation).is_some()
+}
+
+/// Non-master units with their own bends and forms against their own nation's Master
+/// thresholds (`fn_sim::bending::MasteryDef::master_bends_for`/`master_forms`, `World::rank_of`),
+/// closest to mastery first by bends (a tie keeps each unit's order in `World::units`). Guests
+/// (the Avatar) never count. Empty without a masters sign in the data, or once every counted
+/// unit has already mastered.
+fn closest_non_masters(world: &World, defs: &Defs) -> Vec<(String, u32, u32, u32, u32)> {
+    if !has_masters_sign(world, defs) {
+        return Vec::new();
+    }
+    let mut rest: Vec<(String, u32, u32, u32, u32)> = world
         .units
         .iter()
         .filter(|u| !u.is_avatar())
         .filter_map(|u| {
-            let threshold = defs.endeavor.master_threshold(world.nation_of(u))?;
-            (u.bends() < threshold).then(|| (u.name.clone(), u.bends(), threshold))
+            let progress = world.rank_of(u, defs);
+            (progress.rank != Rank::Master).then(|| {
+                let nation = world.nation_of(u);
+                (
+                    u.name.clone(),
+                    progress.bends,
+                    defs.mastery.master_bends_for(nation),
+                    progress.forms,
+                    defs.mastery.master_forms,
+                )
+            })
         })
         .collect();
-    rest.sort_by_key(|&(_, bends, _)| std::cmp::Reverse(bends));
+    rest.sort_by_key(|&(_, bends, ..)| std::cmp::Reverse(bends));
     rest
 }
 
-/// Names of units that have already reached their own nation's mastery threshold, alphabetical.
+/// Names of units that have already reached `Rank::Master` (`World::rank_of`), alphabetical.
+/// Empty without a masters sign in the data.
 fn current_masters(world: &World, defs: &Defs) -> Vec<String> {
+    if !has_masters_sign(world, defs) {
+        return Vec::new();
+    }
     let mut masters: Vec<String> = world
         .units
         .iter()
         .filter(|u| !u.is_avatar())
-        .filter_map(|u| {
-            let threshold = defs.endeavor.master_threshold(world.nation_of(u))?;
-            (u.bends() >= threshold).then(|| u.name.clone())
-        })
+        .filter(|u| world.rank_of(u, defs).rank == Rank::Master)
+        .map(|u| u.name.clone())
         .collect();
     masters.sort();
     masters
 }
 
-/// The masters sign's own line: who has already mastered and the closest non-masters ("Master:
-/// Lu Ten. Closest: Jee 9/10, Shyu 8/10, Ikem 8/10"). `None` with nobody to name (no masters
-/// sign, or no units at all).
+/// The masters sign's own line: who has already mastered and the closest non-masters, forms
+/// included (#361, docs/design/bending.md "Seeing it": "its 'Closest' line shows forms too").
+/// `None` with nobody to name (no masters sign, or no units at all).
 fn masters_line(world: &World, defs: &Defs) -> Option<String> {
     masters_text(&current_masters(world, defs), &closest_non_masters(world, defs))
 }
 
 /// Pure text assembly for `masters_line`, split out so it can be tested against literal data
 /// without simulating real bends: `masters` (already alphabetical) and `closest` (already
-/// closest-first, as `closest_non_masters` returns them).
-fn masters_text(masters: &[String], closest: &[(String, u32, u32)]) -> Option<String> {
+/// closest-first, as `closest_non_masters` returns them: name, bends, bend target, forms, form
+/// target).
+fn masters_text(masters: &[String], closest: &[(String, u32, u32, u32, u32)]) -> Option<String> {
     let master_part = (!masters.is_empty()).then(|| {
         let label = if masters.len() == 1 { "Master" } else { "Masters" };
         format!("{label}: {}.", masters.join(", "))
     });
     let closest_part = (!closest.is_empty()).then(|| {
+        // Terse ("9/10b 2/3f"), not "9/10 bends (2/3 forms)": the heading right above already
+        // says "bends"/"forms" in full, and three names of a real settlement's own (not the
+        // short test ones here) would otherwise overflow the row and truncate the third.
         let names: Vec<String> = closest
             .iter()
             .take(MASTERS_SHOWN)
-            .map(|(name, bends, threshold)| format!("{name} {bends}/{threshold}"))
+            .map(|(name, bends, bend_t, forms, form_t)| {
+                format!("{name} {bends}/{bend_t}b {forms}/{form_t}f")
+            })
             .collect();
         format!("Closest: {}", names.join(", "))
     });
@@ -306,8 +334,10 @@ pub fn missing(sign: &SignDef, p: &SignProgress) -> String {
 }
 
 /// A sign's label: its data name, except that the branch sign names the nation's branch, and the
-/// masters sign composes its own threshold ("Bending masters (10 bends each)") so the label
-/// can't drift from the settlement's own number (`EndeavorDef::master_threshold`, #344).
+/// masters sign composes its own threshold and form count ("Bending masters (10 bends in 3
+/// forms)", docs/design/bending.md "Seeing it", #361) so the label can't drift from the
+/// settlement's own numbers (`EndeavorDef::master_threshold`, #344; `MasteryDef::master_forms`,
+/// #360).
 fn sign_name(sign: &SignDef, world: &World, defs: &Defs) -> String {
     match &sign.kind {
         SignKind::BranchComplete => format!("{} branch", defs.nation(world.nation).name),
@@ -316,7 +346,8 @@ fn sign_name(sign: &SignDef, world: &World, defs: &Defs) -> String {
                 .endeavor
                 .master_threshold(world.nation)
                 .expect("this sign is the masters sign");
-            format!("{} ({threshold} bends each)", sign.name)
+            let forms = defs.mastery.master_forms;
+            format!("{} ({threshold} bends in {forms} forms)", sign.name)
         }
         _ => sign.name.clone(),
     }
@@ -453,12 +484,18 @@ pub fn describe_event(defs: &Defs, ev: &EndeavorEvent) -> String {
             let name = defs.endeavor.avatar.as_ref().map_or("The Avatar", |a| a.name.as_str());
             format!("{name} gives his farewell and flies off on Appa.")
         }
-        // A settler's rank-up toast (#347, #360): fires once per rank, `World::note_rank_up`.
-        EndeavorEventKind::RankUp { name, rank, .. } => match rank {
-            Rank::Adept => format!("{name} is now an adept bender"),
-            Rank::Master => format!("{name} is now a bending master"),
-            Rank::Novice => unreachable!("nobody ranks up to Novice"),
-        },
+        // A settler's rank-up toast (#347, #360, #361): fires once per rank,
+        // `World::note_rank_up`, naming this nation's own title for the rank ("Jee is now a
+        // Firebender.", "Lu Ten has become a Firebending Master.", docs/design/bending.md
+        // "Seeing it") rather than a generic "adept bender"/"bending master".
+        EndeavorEventKind::RankUp { name, rank, title, .. } => {
+            let article = crate::text::article(title);
+            match rank {
+                Rank::Adept => format!("{name} is now {article} {title}."),
+                Rank::Master => format!("{name} has become {article} {title}."),
+                Rank::Novice => unreachable!("nobody ranks up to Novice"),
+            }
+        }
     }
 }
 
@@ -578,7 +615,8 @@ mod tests {
     }
 
     /// `closest_non_masters` and `current_masters` on a fresh game: nobody has bent yet, so
-    /// everyone is a non-master at 0/10 (Fire's own threshold), and nobody is a master.
+    /// everyone is a non-master at 0/10 bends, 0/3 forms (Fire's own thresholds), and nobody is
+    /// a master.
     #[test]
     fn mastery_helpers_read_a_fresh_games_units() {
         let s = session(Nation::Fire);
@@ -586,7 +624,10 @@ mod tests {
         assert!(current_masters(w, d).is_empty());
         let closest = closest_non_masters(w, d);
         assert_eq!(closest.len(), w.units.len());
-        assert!(closest.iter().all(|(_, bends, threshold)| (*bends, *threshold) == (0, 10)));
+        assert!(
+            closest.iter().all(|&(_, bends, bend_t, forms, form_t)| (bends, bend_t, forms, form_t)
+                == (0, 10, 0, 3))
+        );
         let mut names: Vec<&str> = closest.iter().map(|(n, ..)| n.as_str()).collect();
         names.sort();
         let mut unit_names: Vec<&str> = w.units.iter().map(|u| u.name.as_str()).collect();
@@ -594,23 +635,26 @@ mod tests {
         assert_eq!(names, unit_names);
     }
 
-    /// `masters_text`'s own assembly, from literal data (#347): no need to simulate real bends
-    /// to cover every shape of the line.
+    /// `masters_text`'s own assembly, from literal data (#347, #361): no need to simulate real
+    /// bends to cover every shape of the line.
     #[test]
     fn masters_text_covers_every_shape_of_the_line() {
-        let jee = ("Jee".to_owned(), 9, 10);
-        let shyu = ("Shyu".to_owned(), 8, 10);
-        let ikem = ("Ikem".to_owned(), 8, 10);
-        let extra = ("Zei".to_owned(), 1, 10);
+        let jee = ("Jee".to_owned(), 9, 10, 2, 3);
+        let shyu = ("Shyu".to_owned(), 8, 10, 3, 3);
+        let ikem = ("Ikem".to_owned(), 8, 10, 1, 3);
+        let extra = ("Zei".to_owned(), 1, 10, 1, 3);
         assert_eq!(masters_text(&[], &[]), None);
         assert_eq!(
             masters_text(&[], &[jee.clone(), shyu.clone(), ikem.clone(), extra.clone()]),
-            Some("Closest: Jee 9/10, Shyu 8/10, Ikem 8/10".to_owned()),
+            Some("Closest: Jee 9/10b 2/3f, Shyu 8/10b 3/3f, Ikem 8/10b 1/3f".to_owned()),
             "only the closest three show"
         );
         assert_eq!(
             masters_text(&["Lu Ten".to_owned()], &[jee.clone(), shyu.clone(), ikem.clone()]),
-            Some("Master: Lu Ten. Closest: Jee 9/10, Shyu 8/10, Ikem 8/10".to_owned())
+            Some(
+                "Master: Lu Ten. Closest: Jee 9/10b 2/3f, Shyu 8/10b 3/3f, Ikem 8/10b 1/3f"
+                    .to_owned()
+            )
         );
         assert_eq!(
             masters_text(&["Jee".to_owned(), "Lu Ten".to_owned()], &[]),
@@ -646,23 +690,40 @@ mod tests {
                 unit: fn_sim::world::UnitId(0),
                 name: "Jee".into(),
                 rank: Rank::Adept,
+                title: "Firebender".into(),
             },
         };
-        assert_eq!(describe_event(&defs, &adept), "Jee is now an adept bender");
+        assert_eq!(describe_event(&defs, &adept), "Jee is now a Firebender.");
         let mastered = EndeavorEvent {
             tick: 10,
             kind: EndeavorEventKind::RankUp {
                 unit: fn_sim::world::UnitId(0),
-                name: "Jee".into(),
+                name: "Lu Ten".into(),
                 rank: Rank::Master,
+                title: "Firebending Master".into(),
             },
         };
-        assert_eq!(describe_event(&defs, &mastered), "Jee is now a bending master");
+        assert_eq!(describe_event(&defs, &mastered), "Lu Ten has become a Firebending Master.");
+        let earthbender = EndeavorEvent {
+            tick: 10,
+            kind: EndeavorEventKind::RankUp {
+                unit: fn_sim::world::UnitId(0),
+                name: "Haru".into(),
+                rank: Rank::Adept,
+                title: "Earthbender".into(),
+            },
+        };
+        assert_eq!(
+            describe_event(&defs, &earthbender),
+            "Haru is now an Earthbender.",
+            "an Earthbender, not a: article picks by the title's own first letter"
+        );
     }
 
     /// The masters sign's row composes its label from the settlement's own nation threshold
-    /// (`EndeavorDef::master_threshold`, #344), so the data's bare name never drifts from it:
-    /// Fire's 10, Earth's and Water's 8, Air's 16.
+    /// (`EndeavorDef::master_threshold`, #344) and the shared form count
+    /// (`MasteryDef::master_forms`, #360, #361), so the data's bare name never drifts from
+    /// either: Fire's 10, Earth's and Water's 8, Air's 16, all in 3 forms.
     #[test]
     fn the_masters_sign_names_its_own_nations_threshold() {
         let thresholds =
@@ -671,7 +732,7 @@ mod tests {
             let s = session(nation);
             let v = screen_view(&s);
             let row = v.groups.iter().flat_map(|g| &g.signs).find(|r| r.id == "masters").unwrap();
-            assert_eq!(row.name, format!("Bending masters ({bends} bends each)"));
+            assert_eq!(row.name, format!("Bending masters ({bends} bends in 3 forms)"));
         }
     }
 

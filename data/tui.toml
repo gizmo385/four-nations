@@ -394,11 +394,15 @@ fg = [255, 230, 150]
 glyph = ["│", "─", "└", "│", "│", "┌", "├", "─", "┘", "─", "┴", "┐", "┤", "┬", "┼"]
 ascii = ["|", "-", "+", "|", "|", "+", "+", "-", "+", "-", "+", "+", "+", "+", "+"]
 
-# Units draw in their nation's `color` (data/nations.toml), mixed toward white by `lift`.
+# Units draw in their nation's `color` (data/nations.toml), mixed toward white by `lift`. Every
+# unit already draws bold (crate::map::thing_look); a bending master (#360, #361,
+# docs/design/bending.md "Seeing it") stands out further still, mixed closer to white yet by
+# `master_lift`, so the player can spot one at a glance.
 [unit]
 glyph = "☺"
 ascii = "@"
 lift = 0.4
+master_lift = 0.75
 
 # The Avatar (#237, #242): always `@` in white, on the nation's accent instead of the tile's own
 # background, so he reads as a guest apart from every nation's own units.

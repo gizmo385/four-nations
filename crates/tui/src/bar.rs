@@ -5,7 +5,6 @@
 //! colour. Chi is in the accent and never warns: it can't hurt the unit.
 
 use fn_ui::Session;
-use fn_ui::text::bends_line;
 use fn_ui::view::{Status, UnitView, unit_view};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -76,8 +75,8 @@ fn key_hints(following: bool, width: usize) -> Row {
 /// marks the moment the Avatar holds the Harmony Rite (#242): the task line wears its own look,
 /// bold on the nation's accent, so the Avatar State reads apart from anything else he could be
 /// doing. A fourth row names the settler's progress toward bending mastery
-/// (`docs/design/endgame.md`, "Mastery pacing", #346); when the task wraps to two lines there's
-/// no room for it, the same as any other overflow here.
+/// (`docs/design/bending.md`, "Seeing it", #346, #361, `view.mastery_line`); when the task wraps
+/// to two lines there's no room for it, the same as any other overflow here.
 pub fn detail_rows(view: &UnitView, width: usize, ellipsis: char, avatar_rite: bool) -> Vec<Row> {
     let task_tone = if avatar_rite { Tone::Avatar } else { Tone::Text };
     let mut rows: Vec<Row> =
@@ -88,8 +87,16 @@ pub fn detail_rows(view: &UnitView, width: usize, ellipsis: char, avatar_rite: b
         None => format!("At ({}, {})", view.tile.x, view.tile.y),
     };
     rows.push(Row::text(where_, Tone::Dim));
-    rows.push(Row::text(bends_line(view.bends, view.master_threshold), Tone::Text));
+    rows.push(Row::text(view.mastery_line.clone(), Tone::Text));
     rows
+}
+
+/// The bar's own border title: the settler's name, nation and rank ("Jee - Fire Nation -
+/// Firebender", `docs/design/bending.md` "Seeing it", #361) -- `view.rank_title` is the same
+/// title the fourth row's own line names itself by (`detail_rows`), so the two can't drift
+/// apart.
+fn bar_title(view: &UnitView, marks: &Marks) -> String {
+    format!(" {} {} {} {} {} ", view.name, marks.dot, view.nation, marks.dot, view.rank_title)
 }
 
 /// Draws the bar for the selected unit into `area` (see [`bar_area`]). Draws nothing without one.
@@ -108,7 +115,7 @@ pub fn draw_bar(session: &Session, ui: &UiState, palette: &Palette, area: Rect, 
     // task line.
     let avatar_rite = unit.is_avatar() && unit.task() == Some(fn_sim::world::Task::Rite);
     let marks = Marks::new(palette.ascii);
-    let title = format!(" {} {} {} ", view.name, marks.dot, view.nation);
+    let title = bar_title(&view, &marks);
     draw_frame(buf, area, palette, &title, TitleAt::Left, "");
 
     let inner = Rect::new(area.x + 2, area.y + 1, area.width - 4, ROWS);
@@ -175,6 +182,17 @@ mod tests {
         assert!(rows[4].plain().starts_with("Chi"));
     }
 
+    /// The border names the settler, its nation and its rank's own title, in that order
+    /// (`docs/design/bending.md` "Seeing it", #361).
+    #[test]
+    fn the_bar_title_names_the_settler_nation_and_rank() {
+        let s = Session::new(7, Nation::Fire, 48, 32);
+        let view = unit_view(&s, &s.world.units[0]);
+        let marks = Marks::new(true);
+        let title = bar_title(&view, &marks);
+        assert_eq!(title, format!(" {} - Fire Nation - Student ", view.name));
+    }
+
     #[test]
     fn the_details_say_the_task_what_is_carried_and_the_tile() {
         let s = Session::new(7, Nation::Earth, 48, 32);
@@ -184,21 +202,20 @@ mod tests {
         assert_eq!(text[0], view.task);
         assert_eq!(text[1], "Carrying: nothing");
         assert_eq!(text[2], format!("At ({}, {})", view.tile.x, view.tile.y));
-        // The fourth row is the bends-toward-mastery line (`fn_ui::text::bends_line`,
-        // docs/design/endgame.md "Mastery pacing", #346); its own forms are fn_ui's.
-        assert_eq!(text[3], bends_line(view.bends, view.master_threshold));
+        // The fourth row is the mastery line, verbatim (`fn_ui::text::mastery_line`,
+        // docs/design/bending.md "Seeing it", #346, #361).
+        assert_eq!(text[3], view.mastery_line);
     }
 
-    /// Once a settler's bends meet the threshold, the fourth row reads `fn_ui::text::bends_line`'s
-    /// master form ("Bending master - 12 bends") instead of "Bends n of target to master".
+    /// Whatever `fn_ui` composed for the mastery line lands on the fourth row unchanged: the
+    /// wording itself is `fn_ui::text::mastery_line`'s own job, tested there.
     #[test]
-    fn the_fourth_row_reads_bending_master_once_the_threshold_is_met() {
+    fn the_fourth_row_carries_the_views_own_mastery_line() {
         let s = Session::new(7, Nation::Fire, 48, 32);
         let mut view = unit_view(&s, &s.world.units[0]);
-        view.bends = 12;
-        view.master_threshold = Some(10);
+        view.mastery_line = "Master: 12 bends in 4 forms. Bends cost 80% chi".to_owned();
         let rows = detail_rows(&view, 40, '…', false);
-        assert_eq!(rows[3].plain(), "Bending master - 12 bends");
+        assert_eq!(rows[3].plain(), "Master: 12 bends in 4 forms. Bends cost 80% chi");
     }
 
     /// The Harmony Rite's Avatar State (#238, #242) marks the task line apart: bold, on the

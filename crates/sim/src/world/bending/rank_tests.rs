@@ -209,6 +209,32 @@ fn a_rank_gated_ability_is_refused_below_its_rank_and_allowed_at_or_above_it() {
     assert!(w.can_cast(&w.units[0], master_probe, &defs), "and its own");
 }
 
+/// Designating a rank-gated ability is refused with `BendError::NeedsRank` while nobody living
+/// here holds the rank (#361): without this, the job would still be added (`check_ability` only
+/// checks nation and tech) and sit forever unclaimable. `check_ability` alone still says it's
+/// fine (nation and tech are both OK), the one `usable_abilities` (#248, fn_ui) reads, so the
+/// ability stays listed and cyclable even while nobody can claim it yet. Once someone reaches
+/// the rank, the same designation goes through.
+#[test]
+fn designating_a_rank_gated_ability_is_refused_while_nobody_holds_the_rank() {
+    let defs = probe_rank_defs();
+    let mut w = World::with_map(1, arena(5, 5), Nation::Earth, &[at(0, 0)], &defs);
+    let master_probe = id(&defs, "master_probe");
+    let pos = w.units[0].pos;
+
+    assert!(w.check_ability(master_probe, &defs).is_ok(), "nation and tech are both fine");
+    let err = w.apply(Command::Bend { ability: master_probe, pos }, &defs).unwrap_err();
+    assert_eq!(
+        err,
+        CommandError::Bend(BendError::NeedsRank { ability: master_probe, rank: Rank::Master })
+    );
+
+    give(&mut w, &defs, 0, 8, 3);
+    assert_eq!(w.rank_of(&w.units[0], &defs).rank, Rank::Master);
+    w.apply(Command::Bend { ability: master_probe, pos }, &defs)
+        .expect("a master living here may designate it now");
+}
+
 /// A master pays `master_chi` of an ability's own chi, checked when claiming and spent on
 /// completion, not the full cost (#360).
 #[test]

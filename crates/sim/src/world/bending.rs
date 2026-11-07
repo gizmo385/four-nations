@@ -151,6 +151,15 @@ pub enum BendError {
     /// The ability belongs to another nation, and nobody living here (the settlement's own
     /// nation, a guest, or #240's newcomers) can cast it.
     WrongNation,
+    /// The ability needs a rank (`AbilityDef::rank`, #360) nobody living here holds yet (the
+    /// Avatar aside, if it's one of his own): unlike `WrongNation`, the right nation is here,
+    /// just not anyone ranked for it. Without this check a rank-gated ability would still
+    /// designate (nation and tech are all `check_ability` looks at), just sit forever
+    /// unclaimable, so #361's bend picker ("Causeway needs an Earthbending Master") needs the
+    /// settlement to know up front. `ability` and `rank` are carried (not just the rank alone,
+    /// `Locked`'s own pattern) so a frontend with `Defs` can name both the ability and this
+    /// nation's own title for the rank.
+    NeedsRank { ability: AbilityId, rank: Rank },
     /// The tile can't take this ability, and why ("needs fresh water within 4 tiles").
     InvalidTarget(&'static str),
     /// A bend is already designated on that tile.
@@ -165,6 +174,7 @@ impl std::fmt::Display for BendError {
             Self::UnknownAbility => f.write_str("no such ability"),
             Self::Locked { .. } => f.write_str("not researched yet"),
             Self::WrongNation => f.write_str("nobody here can cast this"),
+            Self::NeedsRank { .. } => f.write_str("nobody here holds the rank for this"),
             Self::InvalidTarget(why) => f.write_str(why),
             Self::AlreadyDesignated => f.write_str("already designated"),
             Self::NotDesignated => f.write_str("not designated"),
@@ -407,6 +417,34 @@ impl World {
         }
     }
 
+    /// Can `ability` actually be *designated* right now, given its rank gate (#360, #361),
+    /// beyond `check_ability`'s nation and tech checks: most abilities have no `rank` at all,
+    /// which this always lets through. Deliberately not folded into `check_ability`, which
+    /// `usable_abilities` (#248) also reads to decide what the Bend tool cycles through and the
+    /// picker lists: a rank-gated ability stays listed and cyclable even while nobody holds the
+    /// rank (docs/design/bending.md "Seeing it", "it stays listed while nobody does"), it's only
+    /// *designating* it that this refuses, so the job never sits forever unclaimable
+    /// (`unit_can_bend`'s own `meets_rank` is what a claim re-checks, and would always fail the
+    /// same way). The Avatar counts only through his own `[avatar]` list, matching `can_cast`.
+    fn check_rank(
+        &self,
+        ability: AbilityId,
+        def: &AbilityDef,
+        defs: &Defs,
+    ) -> Result<(), BendError> {
+        let Some(rank) = def.rank else { return Ok(()) };
+        let avatar_can =
+            defs.endeavor.avatar.as_ref().is_some_and(|a| a.abilities.contains(&ability))
+                && self.units.iter().any(Unit::is_avatar);
+        if avatar_can
+            || self.units.iter().any(|u| !u.is_avatar() && self.rank_of(u, defs).rank >= rank)
+        {
+            Ok(())
+        } else {
+            Err(BendError::NeedsRank { ability, rank })
+        }
+    }
+
     /// Designates `ability` on `pos`.
     pub(super) fn designate_bend(
         &mut self,
@@ -415,10 +453,11 @@ impl World {
         defs: &Defs,
     ) -> Result<JobId, BendError> {
         self.check_ability(ability, defs)?;
+        let def = defs.ability(ability);
+        self.check_rank(ability, def, defs)?;
         if self.bend_designations().any(|(_, p)| p == pos) {
             return Err(BendError::AlreadyDesignated);
         }
-        let def = defs.ability(ability);
         self.validate_bend(def, pos, defs).map_err(BendError::InvalidTarget)?;
         let id = self.add_job(JobKind::Bend { ability, pos });
         // Wind Carry and Metalbend take over the tile's haul job (validation just confirmed a

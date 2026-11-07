@@ -1,7 +1,8 @@
 //! How things in the world read in English: what a unit is doing, what a stack holds.
 
+use fn_sim::bending::Rank;
 use fn_sim::jobs::{JobKind, Stack};
-use fn_sim::world::{FoodSource, IdleReason, Task, Unit};
+use fn_sim::world::{FoodSource, IdleReason, MasteryProgress, Task, Unit};
 use fn_sim::{Defs, Pos, World};
 
 /// "3 Wood", or "nothing".
@@ -61,25 +62,85 @@ fn describe_craft(world: &World, defs: &Defs, unit: &Unit, pos: Pos) -> String {
     )
 }
 
-/// The selection bar's bends line (`docs/design/endgame.md`, "Mastery pacing", #346): "Bends 7
-/// of 10 to master" below the threshold, "Bending master - 12 bends" once it's met, or just
-/// "Bends 7" when the data has no masters sign at all (`threshold` is `None`,
-/// `fn_sim::endeavor::EndeavorDef::master_threshold`).
-pub fn bends_line(bends: u32, threshold: Option<u32>) -> String {
-    match threshold {
-        Some(t) if bends >= t => format!("Bending master - {bends} bends"),
-        Some(t) => format!("Bends {bends} of {t} to master"),
-        None => format!("Bends {bends}"),
+/// The selection bar's fourth row (`docs/design/bending.md`, "Seeing it", #361): progress toward
+/// the *next* rank ("Firebender: 9 of 10 bends, 2 of 3 forms to master"), reading `progress`'s
+/// own `next` (`World::rank_of`'s "what the next rank needs"); once there's no rank left to
+/// reach, the master's own line ("Master: 12 bends in 4 forms. Bends cost 80% chi") -- deliberately
+/// the bare word "Master", not this nation's own title, since the border already carries that
+/// (`title`, used only for the rank the settler holds right now, including a novice's). A novice
+/// reads the same shape as an adept, just naming "adept" as the goal instead of "master": the
+/// mockup only shows the two upper ranks, but the wording generalises.
+pub fn mastery_line(progress: MasteryProgress, title: &str, master_chi: f32) -> String {
+    match progress.next {
+        Some((next_rank, bends, forms)) => {
+            let goal = match next_rank {
+                Rank::Adept => "adept",
+                Rank::Master => "master",
+                Rank::Novice => unreachable!("nobody's next rank is novice"),
+            };
+            format!(
+                "{title}: {} of {bends} bends, {} of {forms} forms to {goal}",
+                progress.bends, progress.forms
+            )
+        }
+        None => format!(
+            "Master: {} bends in {} forms. Bends cost {:.0}% chi",
+            progress.bends,
+            progress.forms,
+            master_chi * 100.0
+        ),
     }
 }
 
-/// The Nation screen's Bends column (`docs/design/endgame.md`, "Mastery pacing", #346): "7/10"
-/// below the threshold, "12 *" once it's met, or the bare count with no masters sign.
-pub fn bends_cell(bends: u32, threshold: Option<u32>) -> String {
-    match threshold {
-        Some(t) if bends >= t => format!("{bends} *"),
-        Some(t) => format!("{bends}/{t}"),
-        None => bends.to_string(),
+/// The Nation screen's Bends and Forms columns (`docs/design/bending.md`, "Seeing it", #346,
+/// #361): "9/10" and "2/3" against this nation's own Master thresholds (`master_bends`,
+/// `master_forms`, `fn_sim::bending::MasteryDef::master_bends_for`/`master_forms`) below
+/// mastery, or "{n} *" in both once `progress.rank` is `Rank::Master` -- unlike the selection
+/// bar's own line, every row compares to the *same* pair, since a table's columns need one
+/// consistent meaning down the whole list, not each settler's own next rank.
+pub fn mastery_cells(
+    progress: MasteryProgress,
+    master_bends: u32,
+    master_forms: u32,
+) -> (String, String) {
+    if progress.rank == Rank::Master {
+        (format!("{} *", progress.bends), format!("{} *", progress.forms))
+    } else {
+        (format!("{}/{master_bends}", progress.bends), format!("{}/{master_forms}", progress.forms))
+    }
+}
+
+/// "a" or "an" by `word`'s first letter (A, E, I, O or U reads "an"): good enough for every
+/// title in `data/bending.toml`'s `[mastery.titles]` ("a Firebender", "an Earthbender", "an
+/// Airbending Master"), which is the only place this is used (#361). Not a real pronunciation
+/// check -- content stays within what this covers.
+pub fn article(word: &str) -> &'static str {
+    match word.chars().next().map(|c| c.to_ascii_lowercase()) {
+        Some('a' | 'e' | 'i' | 'o' | 'u') => "an",
+        _ => "a",
+    }
+}
+
+/// The bend picker's own count of who could cast a rank-gated ability right now (#361,
+/// `docs/design/bending.md` "Seeing it"): "2 adepts", "no master", or, for an ability with no
+/// rank at all, the plain "{n} bender(s)" #248 already gave it. `count` is `World::caster_count`,
+/// which already reads `can_cast`'s own rank check, so a rank-gated ability's count here already
+/// means "holds the rank", not merely "of the right nation".
+pub fn caster_label(rank: Option<Rank>, count: usize) -> String {
+    match rank {
+        None => format!("{count} {}", if count == 1 { "bender" } else { "benders" }),
+        Some(rank) => {
+            let word = match rank {
+                Rank::Adept => "adept",
+                Rank::Master => "master",
+                Rank::Novice => unreachable!("no ability is gated on novice"),
+            };
+            if count == 0 {
+                format!("no {word}")
+            } else {
+                format!("{count} {word}{}", if count == 1 { "" } else { "s" })
+            }
+        }
     }
 }
 
@@ -412,22 +473,73 @@ mod tests {
         assert_eq!(compass_distance(home, fn_sim::Pos::new(84, 60)), "34 tiles south-east");
     }
 
-    /// The selection bar's bends line (`docs/design/endgame.md`, "Mastery pacing"): below the
-    /// threshold, once it's met, and with no masters sign at all.
+    /// The selection bar's fourth row (`docs/design/bending.md` "Seeing it"): an adept's own
+    /// progress to master, a master's own line, and a novice's progress to adept.
     #[test]
-    fn the_bends_line_reads_the_three_mockup_forms() {
-        assert_eq!(bends_line(7, Some(10)), "Bends 7 of 10 to master");
-        assert_eq!(bends_line(12, Some(10)), "Bending master - 12 bends");
-        assert_eq!(bends_line(10, Some(10)), "Bending master - 10 bends", "exactly met counts");
-        assert_eq!(bends_line(7, None), "Bends 7");
+    fn the_mastery_line_reads_the_mockups_two_forms_and_generalises_to_a_novice() {
+        let adept = MasteryProgress {
+            rank: Rank::Adept,
+            bends: 9,
+            forms: 2,
+            next: Some((Rank::Master, 10, 3)),
+        };
+        assert_eq!(
+            mastery_line(adept, "Firebender", 0.8),
+            "Firebender: 9 of 10 bends, 2 of 3 forms to master"
+        );
+        let master = MasteryProgress { rank: Rank::Master, bends: 12, forms: 4, next: None };
+        assert_eq!(
+            mastery_line(master, "Firebending Master", 0.8),
+            "Master: 12 bends in 4 forms. Bends cost 80% chi"
+        );
+        let novice = MasteryProgress {
+            rank: Rank::Novice,
+            bends: 2,
+            forms: 1,
+            next: Some((Rank::Adept, 5, 2)),
+        };
+        assert_eq!(
+            mastery_line(novice, "Student", 0.8),
+            "Student: 2 of 5 bends, 1 of 2 forms to adept"
+        );
     }
 
-    /// The Nation screen's Bends column, same three cases as the line.
+    /// The Nation screen's Bends and Forms columns, below and at mastery.
     #[test]
-    fn the_bends_cell_reads_the_three_mockup_forms() {
-        assert_eq!(bends_cell(7, Some(10)), "7/10");
-        assert_eq!(bends_cell(12, Some(10)), "12 *");
-        assert_eq!(bends_cell(10, Some(10)), "10 *", "exactly met counts");
-        assert_eq!(bends_cell(7, None), "7");
+    fn the_mastery_cells_read_below_and_at_mastery() {
+        let adept = MasteryProgress {
+            rank: Rank::Adept,
+            bends: 9,
+            forms: 2,
+            next: Some((Rank::Master, 10, 3)),
+        };
+        assert_eq!(mastery_cells(adept, 10, 3), ("9/10".to_owned(), "2/3".to_owned()));
+        let master = MasteryProgress { rank: Rank::Master, bends: 12, forms: 4, next: None };
+        assert_eq!(mastery_cells(master, 10, 3), ("12 *".to_owned(), "4 *".to_owned()));
+    }
+
+    /// `article` by first letter, covering every title in `data/bending.toml`.
+    #[test]
+    fn article_picks_a_or_an_by_first_letter() {
+        for title in ["Student", "Firebender", "Firebending Master", "Waterbender"] {
+            assert_eq!(article(title), "a", "{title}");
+        }
+        for title in ["Initiate", "Airbender", "Airbending Master", "Earthbender"] {
+            assert_eq!(article(title), "an", "{title}");
+        }
+    }
+
+    /// The bend picker's own count: plain benders with no rank gate, and "no"/"n adept(s)"/
+    /// "n master(s)" for a rank-gated one, singular and plural.
+    #[test]
+    fn caster_label_reads_rank_and_plain_benders() {
+        assert_eq!(caster_label(None, 1), "1 bender");
+        assert_eq!(caster_label(None, 2), "2 benders");
+        assert_eq!(caster_label(Some(Rank::Adept), 0), "no adept");
+        assert_eq!(caster_label(Some(Rank::Adept), 1), "1 adept");
+        assert_eq!(caster_label(Some(Rank::Adept), 2), "2 adepts");
+        assert_eq!(caster_label(Some(Rank::Master), 0), "no master");
+        assert_eq!(caster_label(Some(Rank::Master), 1), "1 master");
+        assert_eq!(caster_label(Some(Rank::Master), 3), "3 masters");
     }
 }

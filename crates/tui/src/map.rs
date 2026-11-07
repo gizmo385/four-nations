@@ -145,6 +145,10 @@ pub struct Overlays {
     /// draws there (#248): where more than one unit shares a tile, the selected one wins if
     /// it's among them, else whichever `World::units` lists last.
     units: BTreeMap<Pos, Nation>,
+    /// Tiles with a unit holding `Rank::Master` standing on it (#360, #361, `World::rank_of`),
+    /// the subset of `units` drawn in a brighter shade apart from its own nation's rank and
+    /// file (`thing_look`). The Avatar never counts: he draws as `@` regardless.
+    masters: BTreeSet<Pos>,
     /// Where the selected unit stands: it draws in reverse video.
     selected: Option<Pos>,
     /// Where the Avatar stands, if he is here (#237, #242): he draws as `@` in white on the
@@ -194,7 +198,7 @@ pub struct Overlays {
 impl Overlays {
     pub fn gather(session: &Session, ui: &UiState) -> Self {
         let cursor = ui.cursor;
-        let world = &session.world;
+        let (world, defs) = (&session.world, &session.defs);
         let flames = world.flames();
         let glows = world.glows();
         let ghosts = ui.ghosts(session);
@@ -215,6 +219,13 @@ impl Overlays {
                 }
                 units
             },
+            masters: world
+                .units
+                .iter()
+                .filter(|u| u.inside().is_none() && !u.is_avatar())
+                .filter(|u| world.rank_of(u, defs).rank == fn_sim::bending::Rank::Master)
+                .map(|u| u.pos)
+                .collect(),
             selected: ui.selected_unit(session).map(|u| u.pos),
             avatar: world
                 .units
@@ -415,10 +426,13 @@ pub enum Thing {
     Avatar {
         selected: bool,
     },
-    /// A settler or bender of `nation`; `selected` if it's the panel's own unit.
+    /// A settler or bender of `nation`; `selected` if it's the panel's own unit. `master` is
+    /// whether it currently holds `Rank::Master` (#360, #361, `World::rank_of`): drawn in a
+    /// brighter shade of its own nation's colour (`thing_look`), so it stands out at a glance.
     Unit {
         nation: Nation,
         selected: bool,
+        master: bool,
     },
     /// The Build tool's ghost for `building` (#212): green if it fits here, red if something is
     /// in the way. Without colour a blocked ghost falls through to the next case instead
@@ -536,7 +550,11 @@ pub fn cell_look(
     let thing = if over.avatar == Some(pos) {
         Thing::Avatar { selected: over.selected == Some(pos) }
     } else if let Some(&nation) = over.units.get(&pos) {
-        Thing::Unit { nation, selected: over.selected == Some(pos) }
+        Thing::Unit {
+            nation,
+            selected: over.selected == Some(pos),
+            master: over.masters.contains(&pos),
+        }
     } else if let Some(&(b, free)) =
         over.ghost.get(&pos).filter(|&&(_, free)| free || !palette.mono())
     {
@@ -667,15 +685,21 @@ fn thing_look(
             }
             (g.avatar.glyph(ascii), g.avatar.fg)
         }
-        Thing::Unit { nation, selected } => {
+        Thing::Unit { nation, selected, master } => {
             mods |= Modifier::BOLD;
             if *selected {
                 // The selected unit stands out from the others, whatever the colour depth.
                 mods |= Modifier::REVERSED;
             }
             // A newcomer draws in its own nation's colour (#248), not necessarily the
-            // settlement's own.
-            (g.unit.glyph(ascii), palette.unit_rgb_for(defs, *nation))
+            // settlement's own. A bending master (#360, #361) draws brighter still, on top of
+            // the bold weight every unit already wears, so it stands out at a glance.
+            let fg = if *master {
+                palette.master_rgb_for(defs, *nation)
+            } else {
+                palette.unit_rgb_for(defs, *nation)
+            };
+            (g.unit.glyph(ascii), fg)
         }
         Thing::Ghost { building, .. } => {
             let look = &g.building[&defs.building(*building).id];
@@ -960,6 +984,24 @@ mod tests {
             Some(palette.color(palette.unit_rgb_for(&s.defs, Nation::Earth)))
         );
         assert_ne!(home_cell.style.fg, newcomer_cell.style.fg);
+    }
+
+    /// A bending master draws brighter than an ordinary unit of the same nation (#360, #361,
+    /// `World::rank_of`): `thing_look`'s own `master` branch, lifted further toward white
+    /// (`Palette::master_rgb_for`, `data/tui.toml`'s `master_lift`) than `unit_rgb_for`'s.
+    #[test]
+    fn a_master_draws_brighter_than_an_ordinary_unit() {
+        use fn_sim::Nation;
+        let defs = fn_sim::Defs::bundled();
+        let palette = Palette::new(&defs, Nation::Fire, ColorDepth::TrueColor, false);
+        let base_bg = [0, 0, 0];
+        let plain = Thing::Unit { nation: Nation::Fire, selected: false, master: false };
+        let master = Thing::Unit { nation: Nation::Fire, selected: false, master: true };
+        let (_, plain_fg, _) = thing_look(&plain, &defs, &palette, base_bg);
+        let (_, master_fg, _) = thing_look(&master, &defs, &palette, base_bg);
+        assert_eq!(plain_fg, palette.unit_rgb_for(&defs, Nation::Fire));
+        assert_eq!(master_fg, palette.master_rgb_for(&defs, Nation::Fire));
+        assert_ne!(plain_fg, master_fg, "a master stands out from the rank and file");
     }
 
     #[test]

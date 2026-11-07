@@ -36,6 +36,10 @@ pub struct UnitLook {
     pub ascii: char,
     /// How far the nation colour is mixed toward white, in `[0, 1]`.
     pub lift: f32,
+    /// The same, for a bending master (#360, #361, `World::rank_of`): mixed further toward
+    /// white, on top of the modifier every unit already wears (`Modifier::BOLD`), so a master
+    /// stands out at a glance, styled from here rather than hard-coded.
+    pub master_lift: f32,
 }
 
 impl UnitLook {

@@ -28,7 +28,7 @@
 //! on the Select tool, `Enter: select`; the own-nation prefix shows only once the settlement has
 //! more than one nation (#248 "the transformation"), Carrying only with something to carry, and
 //! finished bends don't show at all -- they're the selection bar's own line now (`crate::bar`,
-//! `fn_ui::text::bends_line`). While the selection bar is open for that same unit, Here shows the
+//! `fn_ui::text::mastery_line`). While the selection bar is open for that same unit, Here shows the
 //! tile instead (`fn_ui::inspect::tile_lines`), so nothing repeats. The Build tool's full picker
 //! moved to its own modal (`U`, `crate::build`, #285); the panel names only the choice. The
 //! nation's modifiers moved to the Nation screen's Traits (`N`, #308). What `Enter` does next in
@@ -45,7 +45,7 @@ use fn_sim::world::{CommandError, Unit};
 use fn_ui::build;
 use fn_ui::endeavor::EndeavorStatus;
 use fn_ui::inspect::{Hint, Line, tile_lines, tooltip_lines};
-use fn_ui::text::describe_stack;
+use fn_ui::text::{caster_label, describe_stack};
 use fn_ui::tools::bend_ability;
 use fn_ui::view::{
     Activity, SeasonView, SideView, activity_counts, food_in_stores, materials, need_flags,
@@ -419,21 +419,24 @@ fn picker_rows(
 
 /// The Tool section's one row while the Bend tool is active (#418, docs/design/side-panel-v2.md
 /// "Zone 3"): the current ability (the one `B` would channel next, or cycles to, #248) and how
-/// many in the settlement could cast it ("Hearthflame 20 benders", `World::caster_count`), the
-/// same shape the Build tool's `picker_rows` gives its one chosen building. `B` already cycles,
-/// and the active tool banner already says `B: next ability` (#307), so the rest of the list
-/// moved out rather than grow a row per ability learned. Empty off the Bend tool, or with
-/// nothing castable, which keeps the Build tool's `picker_rows` in the same slot.
+/// many in the settlement could cast it ("Hearthflame 20 benders", `World::caster_count`), or,
+/// for a rank-gated ability, how many hold the rank itself ("2 adepts", "no master",
+/// `fn_ui::text::caster_label`, docs/design/bending.md "Seeing it", #361) -- it stays listed
+/// here even while nobody holds the rank (`usable_abilities` only gates on nation and tech, not
+/// rank), so the player can see what's coming and cycle to it with `B`. The same shape the
+/// Build tool's `picker_rows` gives its one chosen building. `B` already cycles, and the active
+/// tool banner already says `B: next ability` (#307), so the rest of the list moved out rather
+/// than grow a row per ability learned. Empty off the Bend tool, or with nothing castable, which
+/// keeps the Build tool's `picker_rows` in the same slot.
 fn bend_ability_rows(session: &Session, marks: &Marks) -> Vec<Row> {
     let defs = &session.defs;
     let Some(current) = bend_ability(session) else { return Vec::new() };
     let def = defs.ability(current);
     let casters = session.world.caster_count(current, defs);
-    let word = if casters == 1 { "bender" } else { "benders" };
     vec![Row::pair(
         format!("{}{}", marks.pointer, def.name),
         Tone::Title,
-        format!("{casters} {word}"),
+        caster_label(def.rank, casters),
         Tone::Dim,
     )]
 }

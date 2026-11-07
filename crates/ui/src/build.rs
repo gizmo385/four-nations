@@ -16,7 +16,9 @@
 use fn_sim::building::{BuildingDef, BuildingId};
 use fn_sim::geom::Footprint;
 use fn_sim::jobs::ItemId;
-use fn_sim::world::{Blocker, BuildError, CommandError, DesignateError, Task, Unit, UnitId};
+use fn_sim::world::{
+    BendError, Blocker, BuildError, CommandError, DesignateError, Task, Unit, UnitId,
+};
 use fn_sim::{Pos, Terrain};
 
 use crate::session::Session;
@@ -262,6 +264,9 @@ pub fn next_choice(rows: &[PickerRow], current: Option<BuildingId>) -> Option<Bu
 
 /// A refused command's reason for the HUD notice. The sim's own text for a tech gate is "not
 /// researched yet"; a frontend knows the tech's name, so it says which ("requires Fire Making").
+/// A rank gate's own text is just as generic ("nobody here holds the rank for this"); a frontend
+/// knows the ability's nation and `data/bending.toml`'s own titles, so it names which rank
+/// ("needs an Earthbending Master", docs/design/bending.md "Seeing it", #361).
 pub fn describe_error(session: &Session, e: CommandError) -> String {
     match e {
         CommandError::Build(BuildError::NotResearched(t))
@@ -270,6 +275,11 @@ pub fn describe_error(session: &Session, e: CommandError) -> String {
         }
         CommandError::Build(BuildError::CannotBuild { at, why }) => {
             describe_blocker(session, at, why)
+        }
+        CommandError::Bend(BendError::NeedsRank { ability, rank }) => {
+            let nation = session.defs.ability(ability).nation;
+            let title = session.defs.mastery.title(nation, rank);
+            format!("needs {} {title}", crate::text::article(title))
         }
         other => other.to_string(),
     }
@@ -631,6 +641,26 @@ mod tests {
             why: fn_sim::world::Blocker::OffMap,
         });
         assert_eq!(describe_error(&earth, off), "off the map");
+    }
+
+    /// A rank-gated designation names the ability's own nation's title for the rank (#361,
+    /// docs/design/bending.md "Seeing it": "Causeway needs an Earthbending Master"), not the
+    /// sim's own generic text.
+    #[test]
+    fn a_rank_gated_designation_names_the_nations_own_title() {
+        use fn_sim::bending::Rank;
+
+        let fire = session(Nation::Fire);
+        let hearthflame = fire.defs.ability_id("hearthflame").unwrap();
+        let err =
+            CommandError::Bend(BendError::NeedsRank { ability: hearthflame, rank: Rank::Master });
+        assert_eq!(describe_error(&fire, err), "needs a Firebending Master");
+
+        let earth = session(Nation::Earth);
+        let raise_earth = earth.defs.ability_id("raise_earth").unwrap();
+        let err =
+            CommandError::Bend(BendError::NeedsRank { ability: raise_earth, rank: Rank::Master });
+        assert_eq!(describe_error(&earth, err), "needs an Earthbending Master");
     }
 
     #[test]

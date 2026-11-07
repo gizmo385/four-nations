@@ -484,13 +484,18 @@ pub struct UnitView {
     /// Chi, as a fraction of `data/bending.toml`'s `chi.max`. Not a `NeedView`: chi never hurts
     /// the unit, so it has no "low" threshold or warning colour (docs/design/bending.md).
     pub chi_frac: f32,
-    /// Finished bends over this unit's life (`Unit::bends`), toward the bending-masters sign
-    /// (`docs/design/endgame.md`, "Mastery pacing", #346).
-    pub bends: u32,
-    /// How many bends make this unit a master, `EndeavorDef::master_threshold` for its own
-    /// nation, or `None` when the data has no masters sign (`crate::text::bends_line`,
-    /// `crate::text::bends_cell`).
-    pub master_threshold: Option<u32>,
+    /// What this nation calls a settler at its rank right now (`World::rank_of`,
+    /// `data/bending.toml`'s `[mastery.titles]`, #360/#361): the selection bar's border
+    /// ("Jee - Fire Nation - Firebender") and its progress line (`mastery_line`) share this, so
+    /// the two can't drift apart.
+    pub rank_title: String,
+    /// The selection bar's fourth row (`crate::text::mastery_line`, #361): progress to the next
+    /// rank, or the master's own line.
+    pub mastery_line: String,
+    /// The Nation screen's Bends and Forms columns (`crate::text::mastery_cells`, #346, #361):
+    /// "9/10" and "2/3" below mastery, "12 *" and "4 *" once mastered.
+    pub bends_cell: String,
+    pub forms_cell: String,
 }
 
 pub fn unit_view(session: &Session, unit: &Unit) -> UnitView {
@@ -511,6 +516,14 @@ pub fn unit_view(session: &Session, unit: &Unit) -> UnitView {
     } else {
         (unit.name.clone(), host)
     };
+    let progress = session.world.rank_of(unit, defs);
+    let rank_title = defs.mastery.title(own_nation, progress.rank).to_owned();
+    let mastery_line = crate::text::mastery_line(progress, &rank_title, defs.mastery.master_chi);
+    let (bends_cell, forms_cell) = crate::text::mastery_cells(
+        progress,
+        defs.mastery.master_bends_for(own_nation),
+        defs.mastery.master_forms,
+    );
     UnitView {
         id: unit.id,
         name,
@@ -529,8 +542,10 @@ pub fn unit_view(session: &Session, unit: &Unit) -> UnitView {
             meter("Energy", unit.needs.energy, s.max(), low(s.energy)),
         ],
         chi_frac: (unit.chi / defs.chi.max).clamp(0.0, 1.0),
-        bends: unit.bends(),
-        master_threshold: defs.endeavor.master_threshold(own_nation),
+        rank_title,
+        mastery_line,
+        bends_cell,
+        forms_cell,
     }
 }
 
@@ -856,19 +871,18 @@ mod tests {
         assert_eq!(v.inside, None, "standing outside names no building");
     }
 
-    /// `unit_view` plumbs `Unit::bends` and the masters sign's threshold through unchanged
-    /// (`docs/design/endgame.md`, "Mastery pacing", #346): a fresh unit has no bends yet, and the
-    /// bundled data's masters sign gives it a threshold.
+    /// `unit_view` plumbs `World::rank_of` and `data/bending.toml`'s titles through
+    /// (`docs/design/bending.md` "Seeing it", #360/#361): a fresh unit is a novice, of Water's
+    /// own title, and its cells read against Water's own bundled threshold (8, from
+    /// `bends_per_nation`).
     #[test]
-    fn unit_view_carries_bends_and_the_master_threshold() {
+    fn unit_view_carries_rank_title_and_mastery_cells() {
         let s = Session::new(7, Nation::Water, 64, 64);
         let v = unit_view(&s, &s.world.units[0]);
-        assert_eq!(v.bends, 0);
-        assert_eq!(
-            v.master_threshold,
-            Some(8),
-            "Water's own threshold, the bundled bends_per_nation"
-        );
+        assert_eq!(v.rank_title, "Student");
+        assert_eq!(v.bends_cell, "0/8");
+        assert_eq!(v.forms_cell, "0/3");
+        assert!(v.mastery_line.starts_with("Student: 0 of"), "{}", v.mastery_line);
     }
 
     /// A unit that stepped inside a building (#226, #229) names it in `inside`, in place of its
