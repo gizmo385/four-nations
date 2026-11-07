@@ -83,7 +83,10 @@ pub fn list() -> Vec<Value> {
         }),
         json!({
             "name": "frame",
-            "description": "The rendered frame as ASCII text: the parity escape hatch.",
+            "description": "The rendered frame as ASCII text: the parity escape hatch. w/h \
+                             (default 120x40) are clamped up to the smallest the renderer \
+                             supports (80x24) instead of rendering that too-small notice; \
+                             `clamped` names the size actually used when either was raised.",
             "inputSchema": json!({
                 "type": "object",
                 "properties": {"w": {"type": "integer"}, "h": {"type": "integer"}},
@@ -495,7 +498,11 @@ impl<W: std::io::Write> Tools<W> {
                     a.w.unwrap_or(fn_tui::cli::DEFAULT_SIZE.0),
                     a.h.unwrap_or(fn_tui::cli::DEFAULT_SIZE.1),
                 );
-                Ok(json!({ "frame": self.host.frame(w, h) }))
+                let (used_w, used_h) = fn_tui::surface::Host::clamp_frame_size(w, h);
+                let frame = self.host.frame(w, h);
+                let clamped =
+                    ((used_w, used_h) != (w, h)).then(|| json!({"w": used_w, "h": used_h}));
+                Ok(json!({ "frame": frame, "clamped": clamped }))
             }
             "act" => {
                 let a: ActArgs = args(name, arguments)?;

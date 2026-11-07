@@ -51,6 +51,7 @@ use crate::color::{ColorDepth, Palette};
 use crate::frame::{render_shell, to_text};
 use crate::input::{self, Action};
 use crate::keys::{self, Step};
+use crate::layout;
 use crate::map::{CellLook, Ground, Mark, Overlays, Thing, cell_look, style_cell};
 use crate::menu::MenuRow;
 use crate::panel::hint_text;
@@ -844,11 +845,20 @@ impl Host {
 
     /// The rendered frame as ASCII text (`frame::render_shell`, `--ascii`): the parity escape
     /// hatch (docs/design/agent-play.md, "Frames and keys"). Resizes the view, as `--frame`
-    /// does; changes nothing else and takes no game time.
+    /// does; changes nothing else and takes no game time. `w`/`h` are clamped up to
+    /// [`layout::MIN_WIDTH`]/[`layout::MIN_HEIGHT`] first (#334), so a size the renderer can't
+    /// lay out ever renders the game at the smallest size it does support instead of just
+    /// `draw::too_small_text`'s own one-line notice -- [`Self::frame_size`] tells a caller when
+    /// that happened.
     pub fn frame(&mut self, w: u16, h: u16) -> String {
-        let size = (w.max(1), h.max(1));
-        let buf = render_shell(&mut self.shell, &self.palette, size);
+        let buf = render_shell(&mut self.shell, &self.palette, Self::clamp_frame_size(w, h));
         to_text(&buf)
+    }
+
+    /// The size [`Self::frame`] actually renders at for a `w`/`h` request: both clamped up to
+    /// the renderer's own minimum ([`layout::MIN_WIDTH`]/[`layout::MIN_HEIGHT`]).
+    pub fn clamp_frame_size(w: u16, h: u16) -> (u16, u16) {
+        (w.max(layout::MIN_WIDTH), h.max(layout::MIN_HEIGHT))
     }
 
     // --------------------------------------------------------------------------------------
@@ -865,9 +875,12 @@ impl Host {
     /// `ActResult::notices` carries each `designate` or `build` step's own notice (#327: the "N
     /// done, M skipped: reason" text a player sees in the Tool section), so a mostly-skipped
     /// rectangle is as visible to an agent as it is to a player, even in a call with several
-    /// steps -- a tool switch clears `UiState::notice` first (`UiState::set_tool`), so the step
-    /// right after a designate or build always reads that step's own, not a stale one from
-    /// before it.
+    /// steps. Only a `designate` or `build` step is ever recorded: a `confirm` always
+    /// overwrites `UiState::notice` with that step's own fresh result (never a stale one,
+    /// whatever ran before it), but every other step kind (`select`, `research`, `cursor`,
+    /// `keys`) never touches `UiState::notice` at all, so reading it after one of those would
+    /// only ever surface whatever an earlier designate or build call (in this `act` or a
+    /// previous one) left there (#334) -- not this step's own notice, since it set none.
     pub fn act(&mut self, steps: &[ActionStep], note: Option<String>) -> ActResult {
         let mut pressed = Vec::new();
         let mut labels = Vec::new();
@@ -884,9 +897,11 @@ impl Host {
                         pressed.push(key);
                     }
                     labels.push(step_label(step));
-                    let notice = self.app().ui.notice.clone();
-                    if !notice.is_empty() {
-                        notices.push(StepNotice { step: index, notice });
+                    if matches!(step, ActionStep::Designate { .. } | ActionStep::Build { .. }) {
+                        let notice = self.app().ui.notice.clone();
+                        if !notice.is_empty() {
+                            notices.push(StepNotice { step: index, notice });
+                        }
                     }
                 }
                 Err(reason) => {
@@ -2192,6 +2207,20 @@ mod tests {
         assert_eq!(h.observe().turn, 0);
     }
 
+    /// `frame` clamps a size below the renderer's own minimum up to it (#334) instead of
+    /// rendering `draw::too_small_text`'s one-line notice: an `h: 2` request still draws the
+    /// whole game, at 80x24 (`layout::MIN_WIDTH`/`MIN_HEIGHT`).
+    #[test]
+    fn frame_clamps_a_too_small_size_up_to_the_renderers_minimum_instead_of_rendering_a_notice() {
+        let mut h = host(Nation::Earth);
+        assert_eq!(Host::clamp_frame_size(80, 2), (layout::MIN_WIDTH, layout::MIN_HEIGHT));
+        assert_eq!(Host::clamp_frame_size(1, 1), (layout::MIN_WIDTH, layout::MIN_HEIGHT));
+        assert_eq!(Host::clamp_frame_size(120, 40), (120, 40), "big enough: untouched");
+        let text = h.frame(80, 2);
+        assert!(!text.contains("Terminal too small"), "{text}");
+        assert_eq!(text, h.frame(layout::MIN_WIDTH, layout::MIN_HEIGHT));
+    }
+
     #[test]
     fn observe_reports_the_people_and_the_tool() {
         let h = host(Nation::Earth);
@@ -2813,6 +2842,72 @@ mod tests {
         // own -- the first step's failure would otherwise have gone unseen, #327's own bug.
         assert_eq!(h.observe().notice, result.notices[1].notice);
         assert_ne!(h.observe().notice, result.notices[0].notice);
+    }
+
+    /// A step that sets no notice of its own (`cursor`, here) right after a `designate` doesn't
+    /// inherit that designate's own text (#334's own bug: a step that isn't `designate` or
+    /// `build` never touches `UiState::notice`, so reading it blindly just replays whatever an
+    /// earlier step -- in this `act` call or an entirely separate one -- left there).
+    #[test]
+    fn act_never_reports_a_later_steps_notice_as_a_stale_carryover_from_an_earlier_one() {
+        let mut h = host(Nation::Earth);
+        let water = water_tile(&h);
+        let steps = vec![
+            ActionStep::Designate {
+                tool: DesignateTool::Stockpile,
+                from: Coord { x: water.x, y: water.y },
+                to: Coord { x: water.x, y: water.y },
+                standing: false,
+                teardown: false,
+                ability: None,
+            },
+            ActionStep::Cursor { x: water.x, y: water.y },
+        ];
+        let result = h.act(&steps, None);
+        assert!(result.error.is_none(), "{result:?}");
+        // Only the designate step (index 0) left a notice; the cursor step (index 1) set none
+        // and must not show up at all, not even with the designate's own stale text.
+        assert_eq!(result.notices.len(), 1, "{:?}", result.notices);
+        assert_eq!(result.notices[0].step, 0);
+        assert!(
+            result.notices[0].notice.starts_with("designate stockpile: 0 done, 1 skipped"),
+            "{}",
+            result.notices[0].notice
+        );
+    }
+
+    /// The same, across two separate `act` calls: a `research` step in a call of its own must
+    /// not surface an unrelated designate's notice left over from an earlier call (the exact
+    /// shape #334 was filed from: a `research Fishing` step reporting a stockpile designate's
+    /// "N done, M skipped" text).
+    #[test]
+    fn act_does_not_carry_a_stale_notice_across_separate_act_calls() {
+        let mut h = host(Nation::Fire);
+        let water = water_tile(&h);
+        let designate = vec![ActionStep::Designate {
+            tool: DesignateTool::Stockpile,
+            from: Coord { x: water.x, y: water.y },
+            to: Coord { x: water.x, y: water.y },
+            standing: false,
+            teardown: false,
+            ability: None,
+        }];
+        let first = h.act(&designate, None);
+        assert!(first.error.is_none(), "{first:?}");
+        assert_eq!(first.notices.len(), 1, "{:?}", first.notices);
+
+        let view = fn_ui::research::screen_view(&h.app().session);
+        let tech = view
+            .columns
+            .iter()
+            .flatten()
+            .find(|c| c.state == fn_ui::research::TechState::Available)
+            .expect("a new game always has something researchable")
+            .name
+            .clone();
+        let research = h.act(&[ActionStep::Research { tech }], None);
+        assert!(research.error.is_none(), "{research:?}");
+        assert!(research.notices.is_empty(), "{:?}", research.notices);
     }
 
     /// A water tile, for a designate that the sim refuses (#327's own stockpile-on-water bug).
