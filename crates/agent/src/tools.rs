@@ -180,12 +180,16 @@ fn run_script_tool() -> Value {
         "description": "Runs code (embedded Rhai: no import, no clock, no RNG) against the \
                          same Host this server's other tools read and act through -- observe, \
                          look, inspect, screen, act(steps, note), keys(script, note), \
-                         wait(turns) (at least 1, Host::end_turn(1) per turn) and log(msg). \
-                         Stops and returns once the script returns (`done`, with its own value), \
-                         errors (`error`, with message and line:col), uses up `turns` \
+                         wait(turns) (at least 1, Host::end_turn(1) per turn), events() \
+                         (#{turn, kind, text} since this run started) and wake(msg). Stops and \
+                         returns once the script returns (`done`, with its own value), errors \
+                         (`error`, with message and line:col), calls `wake(msg)` (`asked`), a \
+                         `wake_on` event lands during a `wait` (`event`), uses up `turns` \
                          (`budget`), or runs too many operations with no `wait` (`runaway`). \
-                         The result always carries the turns actually run, the script's own \
-                         log tail, and the final `observe`.",
+                         The result is the wake report: reason, why, the turns actually run, \
+                         the clock span, a since_start diff (people, store deltas, event \
+                         counts, deduplicated texts), act counts with the last failure, the \
+                         script's own log tail, and the final `observe`.",
         "inputSchema": json!({
             "type": "object",
             "properties": {
@@ -195,6 +199,18 @@ fn run_script_tool() -> Value {
                     "type": "string",
                     "description": "Tags every act/keys step this run makes in the log, e.g. \
                                     \"[keep-fed]\"; defaults to \"script\" with none given.",
+                },
+                "wake_on": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["death", "arrival", "tech", "endeavor", "season", "stockpile",
+                                  "bend_failed", "need"],
+                    },
+                    "description": "Which events a `wait` stops the whole script for \
+                                    (`\"event\"`); defaults to data/agent.toml's own \
+                                    `default_wake` (death, need, endeavor). Every other kind \
+                                    still shows in `events()` for the script to handle itself.",
                 },
             },
             "required": ["code"],
@@ -253,6 +269,7 @@ struct RunScriptArgs {
     code: String,
     turns: Option<u32>,
     note: Option<String>,
+    wake_on: Option<Vec<fn_tui::surface::EventKind>>,
 }
 
 /// Wraps a [`Host`] and the run log [`Writer`]: the one place `tools/call` dispatches to.
@@ -366,11 +383,20 @@ impl<W: std::io::Write> Tools<W> {
                 Ok(ok(&self.host.end_turn(turns)))
             }
             "run_script" => {
-                let limits =
-                    self.scripts.ok_or("run_script: this session wasn't started with --scripts")?;
+                let limits = self
+                    .scripts
+                    .as_ref()
+                    .ok_or("run_script: this session wasn't started with --scripts")?;
                 let a: RunScriptArgs = args(name, arguments)?;
-                let outcome =
-                    script::run(&mut self.host, &a.code, a.turns, a.note.as_deref(), &limits);
+                let wake_on = a.wake_on.unwrap_or_else(|| limits.default_wake.clone());
+                let outcome = script::run(
+                    &mut self.host,
+                    &a.code,
+                    a.turns,
+                    a.note.as_deref(),
+                    &wake_on,
+                    limits,
+                );
                 Ok(ok(&outcome))
             }
             other => Err(format!("no such tool {other:?}; call tools/list")),

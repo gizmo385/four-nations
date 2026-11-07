@@ -9,7 +9,7 @@ use fn_agent::runlog::Writer;
 use fn_agent::script::Limits;
 use fn_agent::server;
 use fn_agent::tools::Tools;
-use fn_tui::surface::{ActionStep, Host};
+use fn_tui::surface::{ActionStep, EventKind, Host};
 use fn_tui::watch;
 use serde_json::json;
 
@@ -23,7 +23,13 @@ const SCRIPT: &str = r#"
 "#;
 
 fn limits() -> Limits {
-    Limits { default_turns: 15, max_turns: 180, max_operations: 500_000, log_tail: 30 }
+    Limits {
+        default_turns: 15,
+        max_turns: 180,
+        max_operations: 500_000,
+        log_tail: 30,
+        default_wake: vec![EventKind::Death, EventKind::Need, EventKind::Endeavor],
+    }
 }
 
 fn host() -> Host {

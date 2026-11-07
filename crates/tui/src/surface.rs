@@ -36,6 +36,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fn_sim::world::TICKS_PER_SECOND;
 use fn_sim::{Nation, Pos};
+use fn_ui::alerts::{Entry as AlertEntry, Kind as AlertKind};
 use fn_ui::inspect::Line;
 use fn_ui::view::{activity_counts, nation_view, need_flags, season_view, side_view};
 use fn_ui::{Session, Tool};
@@ -80,6 +81,17 @@ pub struct Host {
     /// How many lines of `ui.alerts.history()` already belong to a turn `observe` has reported:
     /// an `observe` between turns, or right after one, reports exactly what's new since then.
     alerts_since_turn: usize,
+    /// The persistent event log [`Self::end_turn`] grows every turn it runs: the same alert
+    /// kinds that are worth stopping for, mapped to [`EventKind`], plus a need flag the first
+    /// time it's ever shown this whole session ([`Self::needs_ever_seen`]). Never rotated or
+    /// cleared, so [`Self::events_since`] can always answer "since mark M" for the life of this
+    /// `Host` (#478, docs/design/agent-scripting.md, "The trampoline": `events()`).
+    events: Vec<Event>,
+    /// Every need-flag word [`Self::end_turn`] has ever seen shown, across every call this
+    /// session has made (not reset per call, unlike `end_turn`'s own local early-stop `seen`):
+    /// the set [`Self::end_turn`] checks before adding a [`EventKind::Need`] event, so a flag
+    /// already up when this `Host` was built is never "first shown" again later.
+    needs_ever_seen: BTreeSet<String>,
     log: RunLog,
     /// [`Self::new`]'s own arguments, kept only so [`Self::header`] can describe how to rebuild
     /// this session (a watcher, #319, or `fn_agent verify`, #317/#318, start from a header, not
@@ -142,16 +154,24 @@ impl Host {
             crate_version: env!("CARGO_PKG_VERSION").to_owned(),
             prelude: None,
         };
-        Ok(Self {
+        let mut host = Self {
             shell,
             palette,
             turn_seconds: DEFAULT_TURN_SECONDS,
             turn: 0,
             alerts_since_turn: 0,
+            events: Vec::new(),
+            needs_ever_seen: BTreeSet::new(),
             log: RunLog::new(seed, nation),
             header,
             char_pool: CharPool::default(),
-        })
+        };
+        // Seeds `needs_ever_seen` from whatever's already flagged the moment this session
+        // exists, the same way `end_turn`'s own local `seen` is seeded at the start of a call:
+        // a flag already up before any turn has run is never "first shown" later.
+        host.needs_ever_seen =
+            need_flags(&host.app().session).into_iter().map(|(w, _)| w).collect();
+        Ok(host)
     }
 
     /// Sets how many game seconds one `end_turn` turn covers (20 by default); at least one.
@@ -454,12 +474,35 @@ impl Host {
                 let fresh = &history[before_alerts..after_alerts];
                 let worth: Vec<&str> =
                     fresh.iter().filter(|e| e.worth_stopping()).map(|e| e.text.as_str()).collect();
-                if !worth.is_empty() {
+                let new_events: Vec<Event> = fresh
+                    .iter()
+                    .filter_map(|entry| {
+                        event_kind_for_alert(entry).map(|kind| Event {
+                            turn: self.turn,
+                            kind,
+                            text: entry.text.clone(),
+                        })
+                    })
+                    .collect();
+                let stop_now = !worth.is_empty();
+                if stop_now {
                     stopped = Some(format!("new alert: {}", worth.join("; ")));
+                }
+                self.events.extend(new_events);
+                if stop_now {
                     break;
                 }
             }
             let now_needs = need_flags(&self.app().session);
+            for (word, _) in &now_needs {
+                if self.needs_ever_seen.insert(word.clone()) {
+                    self.events.push(Event {
+                        turn: self.turn,
+                        kind: EventKind::Need,
+                        text: format!("need flag: {word} first shown"),
+                    });
+                }
+            }
             if let Some(flag) = first_new_flag(&mut seen, now_needs) {
                 stopped = Some(format!("need flag: {flag} first shown"));
                 break;
@@ -468,6 +511,19 @@ impl Host {
         let mut obs = self.observe();
         obs.stopped = stopped;
         obs
+    }
+
+    /// The persistent event log's own current length (`Self::events`): a script run's starting
+    /// mark (docs/design/agent-scripting.md, "`run_script`": `events()`), captured once when
+    /// the run begins so [`Self::events_since`] can later answer "since the script started".
+    pub fn event_mark(&self) -> usize {
+        self.events.len()
+    }
+
+    /// Every event [`Self::end_turn`] has logged since `mark` (`Self::event_mark`), oldest
+    /// first: the same categories `Self::end_turn`'s own doc comment stops for, turn-tagged.
+    pub fn events_since(&self, mark: usize) -> Vec<Event> {
+        self.events[mark.min(self.events.len())..].to_vec()
     }
 
     // --------------------------------------------------------------------------------------
@@ -1121,6 +1177,28 @@ fn first_new_flag(seen: &mut BTreeSet<String>, now: Vec<(String, usize)>) -> Opt
     flag
 }
 
+/// `entry`'s own [`EventKind`], or `None` for a kind [`Host`]'s persistent event log never
+/// carries: reusing [`AlertEntry::worth_stopping`] as the single source of truth for "worth an
+/// agent's attention" means a finished `Bend`, `Agent` (`--watch` replay only) and `BendTip`
+/// (a gentle, one-time onboarding nudge, #382) are all `None` here exactly because they're
+/// `false` there -- the only `Bend` this ever sees `true` for is a failed one (`worth_stopping`'s
+/// own doc comment), so it alone becomes [`EventKind::BendFailed`].
+fn event_kind_for_alert(entry: &AlertEntry) -> Option<EventKind> {
+    if !entry.worth_stopping() {
+        return None;
+    }
+    match entry.kind {
+        AlertKind::Death => Some(EventKind::Death),
+        AlertKind::Arrival => Some(EventKind::Arrival),
+        AlertKind::Tech => Some(EventKind::Tech),
+        AlertKind::Endeavor => Some(EventKind::Endeavor),
+        AlertKind::Season => Some(EventKind::Season),
+        AlertKind::Stockpile => Some(EventKind::Stockpile),
+        AlertKind::Bend => Some(EventKind::BendFailed),
+        AlertKind::Agent | AlertKind::BendTip => None,
+    }
+}
+
 /// One line of a tooltip as plain text (`fn_ui::inspect::Line`): a hint with no words
 /// (`Hint::ApplyTool`, already implied by the tool banner) leaves nothing out of the lines
 /// `panel::hint_text` would skip too.
@@ -1475,6 +1553,54 @@ impl CharPool {
 // Reads, as data (serde-serializable, built only from fn_ui's view models, the map's cell
 // look and the renderer, #315's acceptance criteria)
 // ------------------------------------------------------------------------------------------
+
+/// What one [`Event`] is about: the same categories [`Host::end_turn`]'s own doc comment names
+/// as worth stopping for -- every [`fn_ui::alerts::Kind`] `Entry::worth_stopping` ever answers
+/// `true` for, mapped 1:1 except `Bend`, which only ever reaches here failed (a finished one
+/// is routine and never worth stopping, #377) and so becomes [`Self::BendFailed`] -- plus
+/// [`Self::Need`], a need flag shown for the first time this session, which isn't an alert at
+/// all. docs/design/agent-scripting.md, "`run_script`": "Event kinds are the alert kinds plus
+/// needs".
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventKind {
+    Death,
+    Arrival,
+    Tech,
+    Endeavor,
+    Season,
+    Stockpile,
+    BendFailed,
+    Need,
+}
+
+impl EventKind {
+    /// The same word [`EventKind`]'s own `snake_case` serde form uses (`"death"`, `"need"`,
+    /// ...): for building the wake report's own `since_start.events` counts without a JSON
+    /// round trip.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Death => "death",
+            Self::Arrival => "arrival",
+            Self::Tech => "tech",
+            Self::Endeavor => "endeavor",
+            Self::Season => "season",
+            Self::Stockpile => "stockpile",
+            Self::BendFailed => "bend_failed",
+            Self::Need => "need",
+        }
+    }
+}
+
+/// One line of [`Host`]'s own persistent event log (`Host::events_since`): what `end_turn`
+/// stopped for, or would have, turn-tagged -- not reset or rotated for the life of a `Host`, so
+/// a script's own `events()` can always say "since the script started" (#478).
+#[derive(Clone, Debug, Serialize)]
+pub struct Event {
+    pub turn: u32,
+    pub kind: EventKind,
+    pub text: String,
+}
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Observation {
@@ -2160,6 +2286,75 @@ mod tests {
         assert!(obs.turn >= 1 && obs.turn < 20, "{}", obs.turn);
         let stopped = obs.stopped.expect("a failed bend is worth an agent's attention");
         assert!(stopped.starts_with("new alert:") && stopped.contains("failed"), "{stopped}");
+    }
+
+    /// The persistent event log (#478, `Host::events_since`) carries a failed bend as
+    /// [`EventKind::BendFailed`], but never a merely finished one: the same "worth stopping"
+    /// line `end_turn`'s own doc comment draws, reused by [`event_kind_for_alert`].
+    #[test]
+    fn events_since_carries_a_failed_bend_but_not_a_finished_one() {
+        let mut h = host(Nation::Fire).with_turn_seconds(5);
+        let ability = ability_for_nation(&h.app().session.defs, Nation::Fire).unwrap();
+        let positions: Vec<_> = h.app().session.world.units.iter().map(|u| u.pos).collect();
+        for pos in positions {
+            h.app_mut().session.apply(Command::Bend { ability, pos }).unwrap();
+        }
+        let mark = h.event_mark();
+        h.end_turn(30);
+        let finished_events = h.events_since(mark);
+        assert!(finished_events.is_empty(), "a finished bend is routine: {finished_events:?}");
+
+        let pos = h.app().session.world.units[0].pos;
+        h.app_mut().session.apply(Command::Bend { ability, pos }).unwrap();
+        h.app_mut().session.world.map[pos].terrain = Terrain::Mountain;
+        h.app_mut().session.world.map_changed();
+        let mark = h.event_mark();
+        h.end_turn(20);
+        let events = h.events_since(mark);
+        assert_eq!(events.len(), 1, "{events:?}");
+        assert_eq!(events[0].kind, EventKind::BendFailed);
+        assert!(events[0].text.contains("failed"), "{}", events[0].text);
+    }
+
+    /// A need flag shown for the first time this session becomes an [`EventKind::Need`] event,
+    /// once -- not every turn it stays up, and not again later once it's cleared and flickers
+    /// back (#478's own persistent tracking, `Host::needs_ever_seen`).
+    #[test]
+    fn events_since_carries_a_need_flag_first_shown_but_not_its_repeats() {
+        let mut h = host(Nation::Earth).with_turn_seconds(1);
+        let hungry = h.app().session.defs.needs.hunger.low - 1.0;
+        h.app_mut().session.world.units[0].needs.hunger = hungry;
+        let mark = h.event_mark();
+        h.end_turn(5);
+        let events = h.events_since(mark);
+        let needs: Vec<_> = events.iter().filter(|e| e.kind == EventKind::Need).collect();
+        assert_eq!(needs.len(), 1, "{events:?}");
+        assert!(needs[0].text.contains("first shown"), "{}", needs[0].text);
+
+        // Feeding the unit clears the flag, then it flickers back: still only counted once,
+        // ever, for the life of this `Host`.
+        h.app_mut().session.world.units[0].needs.hunger = 1.0;
+        h.app_mut().session.world.units[0].needs.hunger = hungry;
+        let mark = h.event_mark();
+        h.end_turn(5);
+        let repeats: Vec<_> =
+            h.events_since(mark).into_iter().filter(|e| e.kind == EventKind::Need).collect();
+        assert!(repeats.is_empty(), "a flag shown before never counts as new again: {repeats:?}");
+    }
+
+    /// `event_mark` lets a later caller read only what's new since it was taken, the same way a
+    /// script's own `events()` only ever sees what happened since it started (#478).
+    #[test]
+    fn event_mark_only_sees_events_from_after_it_was_taken() {
+        let mut h = host(Nation::Earth).with_turn_seconds(1);
+        let hungry = h.app().session.defs.needs.hunger.low - 1.0;
+        let before_mark = h.event_mark();
+        h.app_mut().session.world.units[0].needs.hunger = hungry;
+        h.end_turn(5);
+        assert!(!h.events_since(before_mark).is_empty(), "the need flag shows from this mark");
+
+        let after_mark = h.event_mark();
+        assert!(h.events_since(after_mark).is_empty(), "nothing new yet from this later mark");
     }
 
     /// `Host::look`'s "blank tile" entry ("-", [`describe_thing`]'s `Thing::Ground` case) names

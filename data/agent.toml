@@ -21,3 +21,10 @@ max_operations = 500000
 # How many of the script's own `log`/`print`/`debug` lines a `run_script` result keeps, most
 # recent last.
 log_tail = 30
+
+# `run_script`'s own `wake_on` when the caller doesn't give one (docs/design/agent-scripting.md,
+# "`run_script`"): a death, a need flag first shown, or an endeavor event lands during a `wait`
+# ends the script right there with reason "event", rather than running on. Every other event
+# kind (arrival, tech, season, stockpile, bend_failed) still shows in `events()` for the script
+# to notice and handle on its own.
+default_wake = ["death", "need", "endeavor"]

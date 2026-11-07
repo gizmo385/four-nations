@@ -2,10 +2,11 @@
 //! read by `fn_agent` only, never by `fn_sim` -- the same as `data/tui.toml` is `fn_tui`'s own
 //! (`fn_tui::glyphs::Glyphs::bundled`).
 
+use fn_tui::surface::EventKind;
 use serde::Deserialize;
 
 /// Limits on one `run_script` call, from `data/agent.toml`'s `[scripts]` table.
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct Limits {
     /// A `run_script` call's own turn budget when the caller doesn't give one.
     pub default_turns: u32,
@@ -16,6 +17,10 @@ pub struct Limits {
     pub max_operations: u64,
     /// How many of the script's own log lines a result keeps, most recent last.
     pub log_tail: usize,
+    /// `run_script`'s own `wake_on` when the caller doesn't give one (#478,
+    /// docs/design/agent-scripting.md, "`run_script`": "The default `wake_on` is `death`,
+    /// `need` and `endeavor`").
+    pub default_wake: Vec<EventKind>,
 }
 
 /// `data/agent.toml`'s own shape: just the one `[scripts]` table for now (#477); later issues
@@ -54,10 +59,17 @@ mod tests {
         assert!(l.default_turns <= l.max_turns);
         assert!(l.max_operations > 0);
         assert!(l.log_tail > 0);
+        assert!(!l.default_wake.is_empty());
     }
 
     fn limits() -> Limits {
-        Limits { default_turns: 15, max_turns: 180, max_operations: 1000, log_tail: 10 }
+        Limits {
+            default_turns: 15,
+            max_turns: 180,
+            max_operations: 1000,
+            log_tail: 10,
+            default_wake: vec![EventKind::Death, EventKind::Need, EventKind::Endeavor],
+        }
     }
 
     #[test]
