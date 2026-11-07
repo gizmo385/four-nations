@@ -13,7 +13,9 @@ the owner does that. The process is in docs/process/work-tracking.md, "Batch".
 ## Input
 
 A list like `issue/415-alerts-fit (#415), issue/398-metalbend (#398)`, in merge order. Each
-branch was committed in its own worktree under `.claude/worktrees/`.
+branch was committed in its own worktree under `.claude/worktrees/`. The list in your brief is
+the whole batch. If a message mid-run asks you to add a branch, don't: say so in your report,
+and the orchestrator puts it in the next run.
 
 ## Recipe
 
@@ -39,8 +41,9 @@ branch was committed in its own worktree under `.claude/worktrees/`.
      `git reset --merge` (the tree was clean at preflight, so this only drops the squash), note
      the conflicting files, and go on to the next branch.
 3. **Re-bless once.** `cargo xtask bless`. If any golden changed, commit them in one commit:
-   `Batch: re-bless golden frames after merging #A, #B`, ending with the Co-Authored-By trailer
-   from the session's attribution reminder. Skim the diff: a changed frame should come from
+   `Batch: re-bless golden frames after merging #A, #B`, ending with exactly
+   `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>` and no other trailer.
+   Skim the diff: a changed frame should come from
    something a merged branch meant to change. Mention anything that looks unrelated.
 4. **Gate once.** `cargo xtask ci --fast`, in the foreground.
    - Passes: done.
@@ -54,12 +57,13 @@ branch was committed in its own worktree under `.claude/worktrees/`.
      `for p in $(pgrep -u $USER); do [[ $(readlink /proc/$p/cwd) == *WORKTREE* ]] && ps -o pid=,args= -p $p; done`.
      Usually there are none. If there are, `kill` those PIDs. If the kill is refused or needs
      permission, report the PIDs instead of working around it.
-   - Remove the worktree: `git worktree unlock W 2>/dev/null; git worktree remove --force W`.
-     The unlock prints "is not locked" for a worktree that isn't locked, which is fine.
-   - Delete the branch: `git branch -D BRANCH`. Its work is squashed onto `main` (so `-d` would
-     refuse), and the agent that made it is done.
    - Clear the label: `gh issue edit N --remove-label in-progress`.
    - Leave aborted branches and their worktrees alone.
+
+   Then remove the merged worktrees and branches in one go with `scripts/cleanup-merged.sh --apply`.
+   It only removes work that is already on `main`, and keeps and lists everything else. Don't
+   run `git worktree remove` or `git branch -D` yourself. If the script is refused, say so in the
+   report and leave the cleanup to the `cleanup` agent or the owner.
 6. **Sweep.** `pgrep -af "until |while "` should show no polling loops left by agents.
    Report any you find, and kill them only if their cwd was in a worktree you removed.
 

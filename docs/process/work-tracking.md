@@ -85,6 +85,7 @@ parallel"):
 | `implementer` | Sonnet | `ready` implementation issues of any area (sim, client, data, tooling); in batch mode, through a local commit |
 | `designer` | Opus | `area:design` issues: design doc plus follow-up issues; owner questions become `decision` issues |
 | `integrator` | Sonnet | Batch mode: merges finished branches into local `main`, re-blesses goldens, runs the gate once |
+| `cleanup` | Haiku | Removes worktrees and branches already merged into `main`, via `scripts/cleanup-merged.sh` |
 | `pr-shepherd` | Haiku | Getting an existing PR merged: auto-merge, CI watch, trivial rebases |
 | `triager` | Sonnet | The triage pass above; returns a dispatch plan |
 
@@ -145,22 +146,28 @@ batch.
 
 **Agents (implementer, designer):**
 
-1. Claim as usual, with `Flow: batch` in the claim comment.
+1. Claim as usual, with `Flow: batch` in the claim comment. Check blockers with
+   `scripts/open-blockers.sh N`. It counts a blocker as done once its commit is on the local
+   `main`, so merged work doesn't need a push before the work it unblocks can start.
 2. Branch from the **local** `main`, never `origin/main`: `git switch -C issue/N-slug main`
    (it can be ahead of `origin`). Then `scripts/warm-target.sh`.
-3. Check only what you touched: `cargo xtask check` (fmt, clippy for the workspace, and tests
+3. Before the final check, rebase onto the local `main` if it moved (`git rebase main`, in your
+   own worktree), so the integrator gets a branch that is already current. Agents can't rebase
+   each other's worktrees.
+4. Check only what you touched: `cargo xtask check` (fmt, clippy for the workspace, and tests
    for the crates you changed and the crates that depend on them, with golden comparisons
    skipped). Run it once when you're done.
-4. **Don't commit golden changes.** Golden frames are generated output in batch mode. If you
+5. **Don't commit golden changes.** Golden frames are generated output in batch mode. If you
    ran `cargo xtask bless` to look at a frame, put the files back before committing
    (`git checkout -- '*tests/golden*'`), and paste the frame into your report instead.
-5. Commit with `Fixes #N` in the body. Write the message for `main`'s history: the integrator
+6. Commit with `Fixes #N` in the body. Write the message for `main`'s history: the integrator
    squashes your branch into one commit that reuses it. Don't push and don't open a PR. Leave `in-progress` on;
    the integrator clears it after the merge.
-6. Report the branch, the commit, what changed and how you checked it.
+7. Report the branch, the commit, what changed and how you checked it.
 
 **Integrator** (`.claude/agents/integrator.md`), run by the orchestrator when 2–3 branches are
-waiting, or at the end of a session:
+waiting, or at the end of a session. Its brief lists the whole batch. Branches that finish
+mid-run go to the next run, not into a message to the running one:
 
 1. Stop if the main checkout has uncommitted changes. It never stashes or commits the owner's
    work.
@@ -172,8 +179,13 @@ waiting, or at the end of a session:
 3. `cargo xtask bless`, and commit any golden changes as one batch commit.
 4. `cargo xtask ci --fast` once. If it fails, find the branch responsible and hand it back,
    or fix a trivial failure (fmt, a stale expectation) itself.
-5. Remove the merged worktrees and their branches, clear `in-progress`, and sweep for leftover
-   processes.
+5. Clear `in-progress`, remove the merged worktrees and branches with
+   `scripts/cleanup-merged.sh --apply`, and sweep for leftover processes.
+
+**Cleanup** (`.claude/agents/cleanup.md`) runs the same script on its own: a dry run, then
+`--apply`. It only removes worktrees and branches whose work is already on `main`, and it keeps
+and reports anything with uncommitted changes, running processes or unmerged commits. Use it
+at a pause or when `git worktree list` gets long.
 
 The owner pushes `main`, and GitHub closes the issues from `Fixes #N`. An issue stays open with
 `in-progress` cleared between the local merge and the push.

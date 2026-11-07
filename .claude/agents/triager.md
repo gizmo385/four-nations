@@ -27,7 +27,10 @@ Mark an open issue `ready` only if **all** of these hold:
 ## Steps
 
 1. `gh issue list --state open --limit 200 --json number,title,labels` and, for blocked status,
-   `gh issue list --search "is:open is:blocked" --limit 200 --json number`.
+   `gh issue list --search "is:open is:blocked" --limit 200 --json number`. GitHub's blocked
+   status lags unpushed batch merges, so before putting a blocked issue in the dispatch plan,
+   check it with `scripts/open-blockers.sh N`. That counts blockers already merged into the
+   local `main` as done.
 2. For each open issue without `ready` or `needs-owner`, read it with
    `gh issue view N --comments`.
    - Fails criterion 2: file the question as a `decision` issue (docs/process/work-tracking.md,

@@ -45,8 +45,8 @@ opinionated design doc plus implementable follow-up issues.
    `gh issue create --template work-item.md --title ... --label area:X,feat:Y,pN --body ...`,
    each with Why / Acceptance criteria / Out of scope. Use `--blocked-by` for dependencies.
    Don't add `ready`; triage decides. List the issue numbers in the doc.
-4. Commits: subject `#N: ...`, ending with
-   `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>`.
+4. Commits: subject `#N: ...`, ending with exactly
+   `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>` and no other trailer.
    `cargo xtask ci --fast` must pass.
 5. File each open owner question as its own `decision` issue (docs/process/work-tracking.md,
    "Decisions"): options, trade-offs, your recommendation marked **Recommended**, a link to the

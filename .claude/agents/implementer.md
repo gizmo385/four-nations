@@ -52,21 +52,28 @@ colony sim in Rust. You are in your own git worktree. You own one issue from cla
 
 Use this unless the orchestrator's brief says "PR mode".
 
-1. `gh issue view N --comments`. If it's labelled `in-progress`, stop and report. If it's blocked
-   (`gh api repos/gizmo385/four-nations/issues/N/dependencies/blocked_by`), has `needs-owner`, or
-   an open `decision` blocks it, stop and report.
+1. `gh issue view N --comments`. If it's labelled `in-progress` or `needs-owner`, stop and
+   report. Then `scripts/open-blockers.sh N`. It prints each blocker that is still open, and
+   counts one as done when its commit is already on the local `main`: merged batch work stays
+   open on GitHub until the owner pushes. If it prints anything, stop and report those issues.
 2. Claim: `gh issue edit N --add-label in-progress`, then
    `gh issue comment N --body "Claimed by implementer agent. Flow: batch, branch issue/N-slug"`.
 3. Branch from the **local** `main` (it can be ahead of `origin`): `git switch -C issue/N-slug main`,
    then `scripts/warm-target.sh` before your first build.
 4. Implement against the acceptance criteria, with tests for new sim behaviour. Commit subjects
    start with `#N: `, the last commit's body has `Fixes #N`, and every commit message ends with
-   `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>`.
-5. `cargo xtask check` must pass. Run it once when you're done. Run the full
+   exactly `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>` and no other
+   trailer.
+5. Before your final check, catch up with the local `main`. Other agents' work lands there
+   while you work. If `git rev-list --count HEAD..main` isn't 0, run `git rebase main` in your
+   own worktree. Resolve small conflicts yourself, keeping both sides' intent. If a conflict
+   needs a product call, run `git rebase --abort` and report it. Squash to one commit if the
+   rebase left several.
+6. `cargo xtask check` must pass. Run it once, after the rebase. Run the full
    `cargo xtask ci --fast` only if your change crosses crates in a way `check` can't see.
-6. Don't commit golden changes. If you blessed to look at a frame, restore them first:
+7. Don't commit golden changes. If you blessed to look at a frame, restore them first:
    `git checkout -- '*tests/golden*'`.
-7. Don't push and don't open a PR. Leave `in-progress` on; the integrator clears it after the
+8. Don't push and don't open a PR. Leave `in-progress` on; the integrator clears it after the
    merge. If you stop unfinished, remove `in-progress` and leave a handoff comment.
 
 ## Workflow (PR mode, only when the brief says so)
