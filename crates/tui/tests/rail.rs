@@ -7,7 +7,7 @@ use fn_sim::world::Command;
 use fn_sim::{Nation, Pos, Terrain};
 use fn_tui::app::App;
 use fn_tui::color::{ColorDepth, Palette};
-use fn_tui::frame::{render_app, to_text};
+use fn_tui::frame::render_app;
 use fn_tui::new_session;
 use ratatui::buffer::{Buffer, Cell};
 
@@ -57,20 +57,6 @@ fn cell_at<'b>(app: &App, buf: &'b Buffer, pos: Pos) -> &'b Cell {
     let (x, y) = (pos.x - app.ui.view.x, pos.y - app.ui.view.y);
     assert!(x >= 0 && y >= 0 && x < i32::from(map.width) && y < i32::from(map.height), "{pos:?}");
     &buf[(map.x + x as u16, map.y + y as u16)]
-}
-
-fn golden(name: &str, actual: &str) {
-    // FN_GOLDEN=skip (cargo xtask ci --fast --no-goldens): every golden comparison is a
-    // no-op that passes, so agents can run the gate without caring whether goldens are stale.
-    if std::env::var("FN_GOLDEN").ok().as_deref() == Some("skip") {
-        return;
-    }
-    let path = format!("{}/tests/golden/{name}.txt", env!("CARGO_MANIFEST_DIR"));
-    if std::env::var_os("FN_BLESS").is_some() {
-        std::fs::write(&path, actual).unwrap();
-    }
-    let expected = std::fs::read_to_string(&path).expect("golden missing; run with FN_BLESS=1");
-    assert_eq!(actual, expected, "{name}: the frame changed; rebless with FN_BLESS=1 and review");
 }
 
 /// A ring of rail with a straight run, two corners and a three-way junction (#279), laid out
@@ -124,8 +110,6 @@ fn a_rail_line_joins_into_one_track_with_corners_and_a_junction() {
     assert_eq!(glyph_at(&mut app, true, Pos::new(at.x, at.y)), "|");
     assert_eq!(glyph_at(&mut app, true, Pos::new(at.x, at.y + 1)), "+");
     assert_eq!(glyph_at(&mut app, true, Pos::new(at.x + 1, at.y + 1)), "+");
-
-    golden("earth_seed7_rail", &to_text(&frame(&mut app, false)));
 }
 
 /// A lone rail tile, with no rail neighbour, keeps the rail building's own glyph (#279) rather

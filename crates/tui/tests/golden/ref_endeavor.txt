@@ -1,14 +1,14 @@
 ┏──────────────────────────────────── ◆ ENDEAVOR ◆ ────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
-│ The Harmony Gate                                                        0 of 9 signs ││ ▶ Running x1           00:00 │
+│ The Harmony Gate                                                        0 of 9 signs ││ ‖ Paused x1            00:00 │
 │ A great work with the Avatar. When every sign is met, word of the settlement reaches │├─ SETTLEMENT ─────────── [N] ─┤
-│ Aang.                                                                                ││ People 6              Idle 6 │
+│ Aang.                                                                                ││ People 2              Idle 2 │
 │                                                                                      ││ Food 0 · 0/head              │
 │ Stage: not begun                                                                     ││ Research: none set       [T] │
-│                                                                                      ││ Gate 0/9 · 10 people     [G] │
-│ PEOPLE                                                                               │├─ HERE ──────────── (94, 64) ─┤
-│   Population                           ████░░░░░░      6/16                          ││ Bai                          │
+│                                                                                      ││ Gate 0/9 · 14 people     [G] │
+│ PEOPLE                                                                               │├─ HERE ──────────── (64, 28) ─┤
+│   Population                           █░░░░░░░░░      2/16                          ││ Juni                         │
 │   Spare beds and food draw newcomers                                                 ││ Idle                         │
-│   Everyone has a bed                   ░░░░░░░░░░       0/6                          ││ Press Enter to select        │
+│   Everyone has a bed                   ░░░░░░░░░░       0/2                          ││ Press Enter to select        │
 │   Build beds                                                                         ││                              │
 │                                                                                      ││                              │
 │ BUILDINGS                                                                            ││                              │
@@ -29,12 +29,12 @@
 │                                                                                      ││                              │
 │ BENDING                                                                              ││                              │
 │   Bending masters (8 bends in 3 forms) ░░░░░░░░░░       0/3                          ││                              │
-│   Closest: Bai 0/8b 0/3f, Ping 0/8b 0/3f, Fen 0/8b 0/3f                              ││                              │
+│   Closest: Juni 0/8b 0/3f, Shen 0/8b 0/3f                                            ││                              │
 │   Designate a bend (B) on a tile a bender can work - credit to whoever channels it   ││                              │
 │   Ancient scrolls read                 ░░░░░░░░░░       0/3                          ││                              │
-│   Ancient Scroll - 44 tiles south-east - not marked                                  ││                              │
-│   Ancient Scroll - 46 tiles north-west - not marked                                  ││                              │
-│   Ancient Scroll - 47 tiles north-east - not marked                                  ││                              │
 │   Bring scrolls to a study hall                                                      ││                              │
-┗─ Arrows W S scroll  PgUp PgDn page  Esc/G close ─────────────────────────────────────┛┗─ seed 7 ─────────────────────┛
- ENDEAVOR  arrows/W S scroll  PgUp/PgDn page  Esc/G close  L log  ? keys  Space pause
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+│                                                                                      ││                              │
+┗─ Arrows W S scroll  PgUp PgDn page  Esc/G close ─────────────────────────────────────┛┗─ seed 1 ─────────────────────┛
+ ENDEAVOR  arrows/W S scroll  PgUp/PgDn page  Esc/G close  L log  ? keys  Space pause                            PAUSED

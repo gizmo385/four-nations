@@ -1,5 +1,7 @@
-//! Frames through the public API: golden text frames (rewrite them with `FN_BLESS=1 cargo test -p
-//! fn_tui` and review the diff) and the colour of particular cells.
+//! Frames through the public API: `contains`-style checks on the text of a frame and the colour
+//! of particular cells. The whole-frame goldens are a handful of reference screens on a fixed
+//! hand-built world, in `reference_goldens.rs` (#455); nothing here compares a whole frame to a
+//! file.
 //!
 //! Colours are checked cell by cell here and not in colour goldens, which would churn on every
 //! palette tweak.
@@ -31,105 +33,120 @@ fn frame(app: &mut App, depth: ColorDepth, ascii: bool, size: (u16, u16)) -> Buf
     render_app(app, &p, size)
 }
 
-fn golden(name: &str, actual: &str) {
-    // FN_GOLDEN=skip (cargo xtask ci --fast --no-goldens): every golden comparison is a
-    // no-op that passes, so agents can run the gate without caring whether goldens are stale.
-    if std::env::var("FN_GOLDEN").ok().as_deref() == Some("skip") {
-        return;
-    }
-    let path = format!("{}/tests/golden/{name}.txt", env!("CARGO_MANIFEST_DIR"));
-    if std::env::var_os("FN_BLESS").is_some() {
-        std::fs::write(&path, actual).unwrap();
-    }
-    let expected = std::fs::read_to_string(&path).expect("golden missing; run with FN_BLESS=1");
-    assert_eq!(actual, expected, "{name}: the frame changed; see the module docs to rebless");
-}
-
 // ---------------------------------------------------------------------------------------------
-// Golden frames
+// The first frame
 // ---------------------------------------------------------------------------------------------
 
-/// One seed per nation, each from the first frame of a new game.
+/// One seed per nation, each from the first frame of a new game: the nation's own heading, the
+/// Settlement glance of a fresh start, the first settler under the cursor and the map's seed in
+/// the panel's bottom border.
 #[test]
-fn golden_frame_per_nation() {
-    for (seed, nation) in
-        [(1, Nation::Air), (2, Nation::Water), (7, Nation::Earth), (3, Nation::Fire)]
-    {
+fn each_nations_first_frame_names_the_nation_and_the_fresh_start() {
+    for (seed, nation, heading) in [
+        (1, Nation::Air, "◆ AIR NOMADS ◆"),
+        (2, Nation::Water, "◆ WATER TRIBES ◆"),
+        (7, Nation::Earth, "◆ EARTH KINGDOM ◆"),
+        (3, Nation::Fire, "◆ FIRE NATION ◆"),
+    ] {
         let mut app = App::new(new_session(seed, nation), SIZE);
         let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
-        golden(&format!("{}_seed{seed}", nation.as_str()), &text);
+        assert!(text.contains(heading), "{heading} in\n{text}");
+        assert!(text.contains(&format!("seed {seed} ")), "seed {seed} in\n{text}");
+        for want in [
+            "Running x1",
+            "SETTLEMENT",
+            "People 6",
+            "Food 0 · 0/head",
+            "Research: none set",
+            "Gate 0/9",
+            "HERE",
+            "Press Enter to select",
+            "pause  T research",
+        ] {
+            assert!(text.contains(want), "{want:?} in\n{text}");
+        }
+        let first = &app.session.world.units[0].name;
+        assert!(text.contains(first.as_str()), "the first settler {first:?} in\n{text}");
     }
 }
 
 /// A 160x48 terminal, at least [`layout::WIDE_TERMINAL`] columns wide: the panel widens to 36
-/// columns (#423, docs/design/side-panel-v2.md "Width") and every row packs to the extra space,
-/// rather than padding.
+/// columns (#423, docs/design/side-panel-v2.md "Width"). The whole frame is the reference golden
+/// `ref_game_wide`; this checks the width itself.
 #[test]
-fn golden_frame_at_a_wide_terminal() {
+fn a_wide_terminal_draws_a_36_column_panel() {
     const WIDE: (u16, u16) = (160, 48);
     assert_eq!(layout::panel_width(WIDE.0), 36, "160 columns is past the 140 threshold");
     let mut app = App::new(new_session(7, Nation::Earth), WIDE);
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, WIDE));
-    golden("earth_seed7_wide", &text);
+    let top = text.lines().find(|l| l.contains('┏') && l.contains("EARTH KINGDOM")).unwrap();
+    let panel: Vec<char> = top.chars().skip_while(|&c| c != '┏').collect();
+    assert_eq!(panel.len(), 36, "the panel's top border spans 36 columns:\n{top}");
+    assert!(text.lines().all(|l| l.chars().count() <= 160), "no row overflows");
 }
 
 #[test]
-fn golden_ascii_frame() {
+fn the_ascii_frame_is_ascii_and_keeps_its_headings() {
     let mut app = App::new(new_session(7, Nation::Earth), SIZE);
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, true, SIZE));
     assert!(text.is_ascii(), "the ASCII frame must be ASCII:\n{text}");
-    golden("earth_seed7_ascii", &text);
+    for want in ["EARTH KINGDOM", "+- SETTLEMENT -", "+- HERE -", "People 6", "seed 7"] {
+        assert!(text.contains(want), "{want:?} in\n{text}");
+    }
 }
 
 /// The active tool banner (#307) at the smallest terminal, for Select (none), Harvest and
 /// Build: obvious at a glance, and the difference is the signal (no banner in Select).
 #[test]
-fn golden_frames_of_the_active_tool_banner_for_select_harvest_and_build() {
+fn the_active_tool_banner_differs_for_select_harvest_and_build() {
     const TINY: (u16, u16) = (80, 24);
     let mut select = App::new(new_session(7, Nation::Earth), TINY);
     assert_eq!(select.ui.tool, Tool::Select);
-    golden(
-        "earth_seed7_banner_select",
-        &to_text(&frame(&mut select, ColorDepth::TrueColor, false, TINY)),
-    );
+    let select = to_text(&frame(&mut select, ColorDepth::TrueColor, false, TINY));
+    assert!(select.contains("Press Enter to select"), "{select}");
+    assert!(!select.contains("HARVEST ─") && !select.contains("BUILD ─"), "{select}");
 
     let mut harvest = App::new(new_session(7, Nation::Earth), TINY);
     harvest.play(&keys::parse("h").unwrap());
-    golden(
-        "earth_seed7_banner_harvest",
-        &to_text(&frame(&mut harvest, ColorDepth::TrueColor, false, TINY)),
-    );
+    let harvest = to_text(&frame(&mut harvest, ColorDepth::TrueColor, false, TINY));
+    assert!(harvest.contains("├─ HARVEST ──"), "{harvest}");
+    assert!(harvest.contains("━ HARVEST ━ chop, mine, gather"), "the banner:\n{harvest}");
+    assert!(harvest.contains("HARVEST  Enter set corner  Esc leave"), "the bar:\n{harvest}");
+    assert!(!harvest.contains("Press Enter to select"), "{harvest}");
 
     let mut build = App::new(new_session(7, Nation::Earth), TINY);
     build.play(&keys::parse("u <enter>").unwrap());
     assert_eq!(build.ui.tool, Tool::Build);
-    golden(
-        "earth_seed7_banner_build",
-        &to_text(&frame(&mut build, ColorDepth::TrueColor, false, TINY)),
-    );
+    let build = to_text(&frame(&mut build, ColorDepth::TrueColor, false, TINY));
+    assert!(build.contains("├─ BUILD ──"), "{build}");
+    assert!(build.contains("▸Bed"), "the chosen building:\n{build}");
+    assert!(build.contains("━ BUILD Bed ━ Enter: build 1x1"), "the banner:\n{build}");
+    assert!(build.contains("BUILD  Enter set corner  Esc leave"), "the bar:\n{build}");
 }
 
-/// Paused, with a few designations and the cursor moved: the status badge, the Cursor section on
-/// a tree, and the same map at another scroll.
+/// Paused, with a few designations and the cursor moved: the status badge on the panel and the
+/// bar, and the Cursor section naming the tile the cursor is on now.
 #[test]
-fn golden_paused_with_designations_and_a_moved_cursor() {
+fn paused_with_a_moved_cursor_shows_the_badge_and_the_new_tile() {
     let mut app = App::new(new_session(7, Nation::Earth), SIZE);
     designate_around_the_settlers(&mut app.session);
     app.act(fn_tui::input::Action::TogglePause);
     app.act(fn_tui::input::Action::Move { dx: 1, dy: 1, tiles: 10 });
-    golden("earth_seed7_paused", &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)));
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
+    let c = app.ui.cursor;
+    assert!(text.contains("‖ Paused x1"), "{text}");
+    assert!(text.contains("PAUSED"), "{text}");
+    assert!(text.contains(&format!("({}, {})", c.x, c.y)), "the cursor's tile in\n{text}");
 }
 
 #[test]
-fn golden_too_small_frame() {
-    for size in [(79, 24), (80, 23), (60, 10)] {
+fn a_terminal_below_the_minimum_shows_only_the_notice() {
+    for size in [(79, 24), (80, 23), (60, 10), (60, 20)] {
         let mut app = App::new(new_session(7, Nation::Earth), size);
         let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, size));
         assert_eq!(text.lines().next(), Some("Terminal too small (80x24 needed)"));
         assert_eq!(text.lines().filter(|l| !l.is_empty()).count(), 1, "only the notice:\n{text}");
     }
-    let mut app = App::new(new_session(7, Nation::Earth), (60, 20));
-    golden("too_small", &to_text(&frame(&mut app, ColorDepth::TrueColor, false, (60, 20))));
 }
 
 #[test]
@@ -771,21 +788,24 @@ fn the_command_log_of_a_script_replays_into_the_same_frame() {
     assert_eq!(to_ansi(&played), to_ansi(&replayed));
 }
 
-/// Mid-drag: the corner is set, the cursor has moved, and the Cursor section shows the size.
+/// Mid-drag: the Harvest tool is active and the Cursor section names the tile the cursor has
+/// moved to; the corner itself is colour only (`rectangles_are_tinted...` checks the cells).
 #[test]
-fn golden_frame_of_a_rectangle_being_dragged() {
+fn mid_drag_the_tool_heading_and_the_cursor_section_show() {
     let mut app = play("h <left*6> <up*3> <enter> <right*4> <down*2>");
-    golden("earth_seed7_dragging", &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)));
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
+    let c = app.ui.cursor;
+    assert!(text.contains("├─ HARVEST ──"), "{text}");
+    assert!(text.contains(&format!("({}, {})", c.x, c.y)), "the cursor's tile in\n{text}");
 }
 
 /// After the second `Enter`: the designations stay and the Tool section reports.
 #[test]
-fn golden_frame_after_the_rectangle_is_applied() {
+fn after_the_rectangle_is_applied_the_tool_section_reports_it() {
     let mut app = play(HARVEST_SCRIPT);
-    golden(
-        "earth_seed7_designated",
-        &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)),
-    );
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
+    assert!(text.contains("designate harvest (chop,"), "{text}");
+    assert!(text.contains("done,") && text.contains("skipped (nothing to harvest)"), "{text}");
 }
 
 /// Harvests up to `n` of the workable resources nearest the first settler, so there is wood
@@ -830,7 +850,7 @@ fn free_tile_near(s: &Session, near: Pos, avoid: &[Pos]) -> Pos {
 /// designate it under the cursor. With wood coming in from a harvest designated the ordinary
 /// way, ticking finishes it.
 #[test]
-fn golden_frame_of_a_build_site_then_the_finished_building() {
+fn a_build_site_then_the_finished_building_read_in_the_here_section() {
     let mut app = App::new(new_session(7, Nation::Earth), SIZE);
     let trees = harvest_resources_near_the_settlers(&mut app.session, 3);
     let bed = app.session.defs.building_id("bed").unwrap();
@@ -841,40 +861,46 @@ fn golden_frame_of_a_build_site_then_the_finished_building() {
     app.play(&keys::parse("u <enter> <enter> <enter>").unwrap());
     assert_eq!((app.ui.tool, app.ui.choice), (Tool::Build, Some(bed)));
     assert!(app.session.world.build_site(site).is_some(), "a site should be designated");
-    golden(
-        "earth_seed7_build_site",
-        &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)),
-    );
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
+    assert!(text.contains("├─ BUILD ──"), "{text}");
+    assert!(text.contains("build Bed: 1 done, 0 skipped"), "{text}");
+    assert!(text.contains("Bed (under construction)"), "{text}");
+    assert!(text.contains("Materials: 0/5 Wood"), "{text}");
+    assert!(text.contains("Work: 0/20s"), "{text}");
+    assert!(text.contains("Press X for the Cancel tool"), "{text}");
 
     app.play(&keys::parse("<tick 9000>").unwrap());
     assert!(app.session.world.building_at(site).is_some(), "the bed should finish building");
-    golden("earth_seed7_built", &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)));
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
+    assert!(!text.contains("under construction"), "{text}");
+    assert!(text.contains("Built ("), "{text}");
+    assert!(text.contains("Can't build here: a bed is"), "{text}");
 }
 
-/// Golden frames of the Build modal itself (#285): a placeable building highlighted, then a
-/// locked one, so the reviewer can see both the list and the detail pane (the tech it still
-/// needs) at a glance.
+/// The Build modal itself (#285): a placeable building highlighted, then a locked one, so the
+/// reviewer can see both the list and the detail pane (the tech it still needs) at a glance.
 #[test]
-fn golden_frame_of_the_build_modal() {
+fn the_build_modal_lists_buildings_and_details_the_locked_ones() {
     let mut app = play("u");
-    golden(
-        "earth_seed7_build_modal",
-        &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)),
-    );
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
+    assert!(text.contains("◆ BUILD ◆"), "{text}");
+    assert!(text.contains("▸ Bed                  5 Wood"), "the first row is chosen:\n{text}");
+    assert!(text.contains("Campfire             Locked"), "{text}");
+    assert!(text.contains("Footprint: 1x1"), "the detail pane:\n{text}");
+    assert!(text.contains("Arrows/W S choose  Enter build  Esc close"), "{text}");
 
     let rows = fn_ui::build::picker_rows(&app.session);
     let locked = rows.iter().position(|r| r.locked()).expect("Earth has a locked building");
     app.play(&keys::parse(&format!("<down*{locked}>")).unwrap());
-    golden(
-        "earth_seed7_build_modal_locked",
-        &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)),
-    );
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
+    assert!(text.contains(&format!("▸ {}", rows[locked].name)), "the pointer moved:\n{text}");
+    assert!(text.contains("Requires "), "the locked building names the tech it needs:\n{text}");
 }
 
 /// A Fire picker row whose stone cost names brick as a stand-in (issue #371): "N Stone (or
-/// brick)". Only Fire can ever raise a brick kiln, so this is Fire's own golden, not Earth's.
+/// brick)". Only Fire can ever raise a brick kiln, so this is Fire's own check, not Earth's.
 #[test]
-fn golden_frame_of_a_fire_picker_row_with_a_stone_stand_in() {
+fn a_fire_picker_row_with_a_stone_stand_in_names_brick_on_screen() {
     let mut app = App::new(new_session(7, Nation::Fire), SIZE);
     app.play(&keys::parse("u").unwrap());
     let rows = fn_ui::build::picker_rows(&app.session);
@@ -885,10 +911,9 @@ fn golden_frame_of_a_fire_picker_row_with_a_stone_stand_in() {
         "the workshop's stone cost should name brick: {}",
         rows[workshop].cost
     );
-    golden(
-        "fire_seed7_build_modal_stand_in",
-        &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)),
-    );
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
+    assert!(text.contains("◆ FIRE NATION ◆"), "{text}");
+    assert!(text.contains("Stone (or brick)"), "the detail pane names the stand-in:\n{text}");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1546,28 +1571,6 @@ fn a_bend_flashes_the_nations_accent_right_after_it_lands_then_fades() {
     assert_ne!(cell.bg, p.tinted(ground_bg(&p, &app.session, pos), Tint::Bend));
 }
 
-/// A channel in progress, then the highlight right after completion, then an aura carrier: three
-/// golden frames of the moment of a bend (#278).
-#[test]
-fn golden_frame_of_a_cast_highlight() {
-    let mut s = Session::new(1, Nation::Fire, 48, 32);
-    let pos = s.world.units[0].pos;
-    let ability = fn_ui::tools::ability_for_nation(&s.defs, Nation::Fire).unwrap();
-    s.apply(Command::Bend { ability, pos }).unwrap();
-    for _ in 0..20_000 {
-        s.tick();
-        if !s.world.bend_events().is_empty() {
-            break;
-        }
-    }
-    let mut app = App::new(s, SIZE);
-    app.ui.cursor = Pos::new(pos.x, if pos.y > 0 { pos.y - 1 } else { 1 });
-    golden(
-        "fire_seed1_cast_highlight",
-        &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)),
-    );
-}
-
 /// A unit carrying Inner Fire's aura wears a warm background wherever it stands, cursor or not;
 /// with the cursor on it, its reach is tinted too, the way a lit flame's is.
 #[test]
@@ -1616,31 +1619,4 @@ fn an_aura_carrier_wears_a_warm_background_and_warms_its_reach_under_the_cursor(
     let cold_cell = cell_at(&app, &buf, cold);
     assert_eq!(warm_cell.bg, p.tinted(ground_bg(&p, &app.session, warm), Tint::Warm));
     assert_eq!(cold_cell.bg, p.color(ground_bg(&p, &app.session, cold)));
-}
-
-#[test]
-fn golden_frame_of_an_aura_carrier() {
-    let mut s = Session::new(3, Nation::Fire, 48, 32);
-    let dragon = s.defs.tech_id("dancing_dragon").unwrap();
-    s.apply(Command::SetResearch { tech: dragon }).unwrap();
-    for _ in 0..200_000 {
-        if s.world.research().is_known(dragon) {
-            break;
-        }
-        s.tick();
-    }
-    let inner = s.defs.ability_id("inner_fire").unwrap();
-    let start = s.world.units[0].pos;
-    s.apply(Command::Bend { ability: inner, pos: start }).unwrap();
-    for _ in 0..20_000 {
-        s.tick();
-        if !s.world.glows().is_empty() {
-            break;
-        }
-    }
-    s.tick_n(20);
-    let carrier = s.world.glows()[0].pos;
-    let mut app = App::new(s, SIZE);
-    app.ui.cursor = carrier;
-    golden("fire_seed3_aura", &to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE)));
 }

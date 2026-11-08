@@ -75,20 +75,6 @@ fn ground_bg(p: &Palette, app: &App, pos: Pos) -> [u8; 3] {
     }
 }
 
-fn golden(name: &str, actual: &str) {
-    // FN_GOLDEN=skip (cargo xtask ci --fast --no-goldens): every golden comparison is a
-    // no-op that passes, so agents can run the gate without caring whether goldens are stale.
-    if std::env::var("FN_GOLDEN").ok().as_deref() == Some("skip") {
-        return;
-    }
-    let path = format!("{}/tests/golden/{name}.txt", env!("CARGO_MANIFEST_DIR"));
-    if std::env::var_os("FN_BLESS").is_some() {
-        std::fs::write(&path, actual).unwrap();
-    }
-    let expected = std::fs::read_to_string(&path).expect("golden missing; run with FN_BLESS=1");
-    assert_eq!(actual, expected, "{name}: the frame changed; rebless with FN_BLESS=1 and review");
-}
-
 /// The side panel's HERE section (CURSOR before #418), below its heading (which names the tile).
 fn cursor_section(app: &mut App) -> String {
     let text = to_text(&frame(app, ColorDepth::TrueColor, false));
@@ -107,7 +93,6 @@ fn a_2x2_building_and_a_2x2_site_are_blocks_of_their_glyph() {
     bake(&mut app, bed, at, (2, 2));
     let site = Pos::new(at.x + 3, at.y);
     app.session.apply(Command::DesignateBuild { pos: site, building: bed }).unwrap();
-    golden("earth_seed7_footprints", &to_text(&frame(&mut app, ColorDepth::TrueColor, false)));
 
     for ascii in [false, true] {
         let p = palette(&app, ColorDepth::TrueColor, ascii);
@@ -166,7 +151,6 @@ fn u_opens_the_modal_enter_picks_the_build_tool_and_its_ghost_is_green_where_it_
     let text = to_text(&buf);
     let status = text.lines().last().unwrap();
     assert!(status.contains("build Bed"), "{status}");
-    golden("earth_seed7_ghost", &text);
 }
 
 #[test]
@@ -271,7 +255,6 @@ fn the_ghost_marks_its_own_door_amber_when_free() {
     let want = p.door(ground_bg(&p, &app, door), true);
     assert_eq!(cell_at(&app, &buf, door).bg, want);
     assert_ne!(want, p.ghost(ground_bg(&p, &app, door), true), "amber, not the ghost's green");
-    golden("earth_seed7_door_free", &to_text(&buf));
 
     let mono = frame(&mut app, ColorDepth::Never, false);
     assert!(cell_at(&app, &mono, door).modifier.contains(Modifier::REVERSED | Modifier::BOLD));
@@ -297,7 +280,6 @@ fn covering_another_buildings_door_is_red_and_the_cursor_names_whose_it_is() {
     let buf = frame(&mut app, ColorDepth::TrueColor, false);
     let want = p.ghost(ground_bg(&p, &app, door), false);
     assert_eq!(cell_at(&app, &buf, door).bg, want);
-    golden("earth_seed7_door_blocked", &to_text(&buf));
 
     // The Cursor section shows the refusal; the panel is narrow (32 columns) and truncates a
     // long reason, so the full wording ("would block <name>'s door") is checked straight from

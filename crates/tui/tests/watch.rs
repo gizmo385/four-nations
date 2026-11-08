@@ -240,20 +240,6 @@ fn watch_frame_message_log_has_an_entry_for_the_script_start_and_its_wake() {
 // The agent studio (#499, docs/design/agent-studio.md): the 160x45 layout and the code pane.
 // -------------------------------------------------------------------------------------------
 
-fn golden(name: &str, actual: &str) {
-    // FN_GOLDEN=skip (cargo xtask ci --fast --no-goldens): every golden comparison is a
-    // no-op that passes, so agents can run the gate without caring whether goldens are stale.
-    if std::env::var("FN_GOLDEN").ok().as_deref() == Some("skip") {
-        return;
-    }
-    let path = format!("{}/tests/golden/{name}.txt", env!("CARGO_MANIFEST_DIR"));
-    if std::env::var_os("FN_BLESS").is_some() {
-        std::fs::write(&path, actual).unwrap();
-    }
-    let expected = std::fs::read_to_string(&path).expect("golden missing; run with FN_BLESS=1");
-    assert_eq!(actual, expected, "{name}: the frame changed; rebless with FN_BLESS=1 and review");
-}
-
 const KEEP_FED_V1: &str = "// keep-fed v1\nlet camp = observe().cursor;\nlog(\"starting\");\n";
 const KEEP_FED_V2: &str = "// keep-fed v2: a wake of my own\nlet camp = observe().cursor;\nlog(\"starting\");\nwake(\"done\");\n";
 
@@ -348,8 +334,10 @@ fn watch_studio_frame_shows_the_code_pane_beside_the_game() {
     assert!(after_text.contains("+2 −1") || after_text.contains("+2 -1"), "{after_text}");
     assert!(after_text.contains("wake(\"done\")"), "{after_text}");
 
-    golden("watch_studio_160x45_rev1", &before_text);
-    golden("watch_studio_160x45_rev2", &after_text);
+    // The strip's own sparkline and the game column's Settlement glance ride beside the pane.
+    assert!(before_text.contains("AGENT earth  FOLLOW  turn 2"), "{before_text}");
+    assert!(before_text.contains("◆ EARTH KINGDOM ◆"), "{before_text}");
+    assert!(after_text.contains("AGENT earth  FOLLOW  turn 5"), "{after_text}");
 }
 
 /// Below the studio's own threshold, the frame is exactly today's: no code pane, the strip keeps
@@ -371,7 +359,7 @@ fn below_the_studio_threshold_the_frame_is_unchanged() {
 /// An `--ansi` frame of the studio, to pin the highlight and diff colours
 /// (docs/design/agent-studio.md, "Testing").
 #[test]
-fn watch_studio_ansi_frame_is_golden() {
+fn watch_studio_ansi_frame_pins_the_highlight_and_diff_colours() {
     let path = write_studio_log();
     let out = fn_tui()
         .args([
@@ -389,7 +377,21 @@ fn watch_studio_ansi_frame_is_golden() {
     std::fs::remove_file(&path).ok();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let text = String::from_utf8(out.stdout).unwrap();
-    golden("watch_studio_160x45_ansi", &text);
+    // Rev 2 of `keep-fed`, in truecolor: the Rhai classes and the diff gutter, cell by cell
+    // (data/tui.toml's own `code` and `diff` colours).
+    for (what, want) in [
+        ("a keyword", "\x1b[0;38;2;198;120;221;49mlet"),
+        ("a call", "\x1b[0;38;2;97;175;239;49mobserve"),
+        ("a string", "\x1b[0;38;2;152;195;121;49m\"starting\""),
+        ("an added line's gutter bar", "\x1b[0;38;2;120;200;110;49m▌"),
+        (
+            "an added line's comment, on the added-line background",
+            "\x1b[0;38;2;110;118;129;48;2;24;40;30m// keep-fed v2",
+        ),
+        ("a line number", "\x1b[0;38;2;92;99;112;49m1"),
+    ] {
+        assert!(text.contains(want), "{what}: {want:?} in\n{text}");
+    }
 }
 
 /// A script with more lines than a single column holds, at a terminal wide enough for the code
@@ -431,7 +433,9 @@ fn watch_studio_splits_into_two_columns_when_the_script_does_not_fit() {
     // column, line 60 only reachable through the second column.
     assert!(text.contains("let v0 = 0;"), "{text}");
     assert!(text.contains("let v59 = 59;"), "{text}");
-    golden("watch_studio_250x45_two_columns", &text);
+    // Newspaper order: the second column starts where the first leaves off, on the same rows.
+    let first = text.lines().find(|l| l.contains("1▌ let v0 = 0;")).expect("line 1");
+    assert!(first.contains("44▌ let v43 = 43;"), "the second column's first row:\n{first}");
 }
 
 // -------------------------------------------------------------------------------------------
@@ -542,7 +546,9 @@ fn watch_studio_feed_shows_a_running_entry_and_the_sparkline() {
     assert!(text.contains("budget"), "{text}");
     assert!(text.contains("run_script keep-fed v2"), "{text}");
     assert!(text.contains("acts "), "{text}");
-    golden("watch_studio_feed_160x45_running", &text);
+    assert!(text.contains("run_script keep-fed v1 · 3t → budget, 1 acts"), "{text}");
+    assert!(text.contains("run_script keep-fed v2 · 5t   turn 1/5 · 1 acts"), "{text}");
+    assert!(text.contains("acts ▃▁▁▃▁ 1"), "the strip's sparkline and its peak:\n{text}");
 }
 
 /// Right after the second run's `Wake`, its entry reads a single `→ woke: ...` line, not the
@@ -559,7 +565,8 @@ fn watch_studio_feed_shows_the_wake_outcome() {
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("run_script keep-fed v2"), "{text}");
     assert!(text.contains("woke: death: Ping died of thirst"), "{text}");
-    golden("watch_studio_feed_160x45_woken", &text);
+    assert!(text.contains("run_script keep-fed v1 · 3t → budget, 1 acts"), "{text}");
+    assert!(!text.contains("turn 1/5"), "a woken entry drops its progress:\n{text}");
 }
 
 /// A log with no `call` lines at all (`fn_agent play`, which wraps its whole run in one
@@ -600,7 +607,8 @@ fn watch_studio_feed_from_a_log_with_no_call_lines_is_synthetic() {
     assert!(text.contains("woke: need: Thirsty first shown"), "{text}");
     // Exactly one call and one run here: both read singular (#501's triage comment).
     assert!(text.contains("1 call ") && text.contains("1 run "), "{text}");
-    golden("watch_studio_feed_160x45_play_log", &text);
+    assert!(text.contains("run_script play · 1t → woke: need: Thirsty first shown"), "{text}");
+    assert!(text.contains("AGENT fire  FOLLOW  turn 1"), "{text}");
 }
 
 // -------------------------------------------------------------------------------------------
@@ -612,7 +620,7 @@ fn watch_studio_feed_from_a_log_with_no_call_lines_is_synthetic() {
 /// `--keys 1`, and the feed full screen on `--keys 3`. Each strip ends with the sparkline and
 /// the `1[2]3` tab indicator (#501's acceptance criteria).
 #[test]
-fn watch_tab_fallback_frames_are_golden() {
+fn watch_tab_fallback_frames_show_one_pane_each() {
     let path = write_feed_log();
 
     let game = fn_tui()
@@ -622,7 +630,9 @@ fn watch_tab_fallback_frames_are_golden() {
     assert!(game.status.success(), "{}", String::from_utf8_lossy(&game.stderr));
     let game_text = String::from_utf8(game.stdout).unwrap();
     assert!(game_text.contains("1[2]3"), "{game_text}: the game tab is the default");
-    golden("watch_tabs_110x34_game", &game_text);
+    assert!(game_text.contains("◆ EARTH KINGDOM ◆"), "the game tab draws the map:\n{game_text}");
+    assert!(!game_text.contains("keep-fed.rhai"), "no code pane in the game tab:\n{game_text}");
+    assert!(game_text.contains("SCRIPT keep-fed v2"), "{game_text}");
 
     let code = fn_tui()
         .args([
@@ -642,7 +652,9 @@ fn watch_tab_fallback_frames_are_golden() {
     let code_text = String::from_utf8(code.stdout).unwrap();
     assert!(code_text.contains("keep-fed.rhai"), "{code_text}");
     assert!(code_text.contains("[1]23"), "{code_text}");
-    golden("watch_tabs_110x34_code", &code_text);
+    assert!(code_text.contains("rev 2/2 ── run 5t ── +2 −1"), "{code_text}");
+    assert!(code_text.contains("1▌ // keep-fed v2: a wake of my own"), "{code_text}");
+    assert!(!code_text.contains("◆ EARTH KINGDOM ◆"), "the code tab is full screen:\n{code_text}");
 
     let feed = fn_tui()
         .args([
@@ -663,13 +675,16 @@ fn watch_tab_fallback_frames_are_golden() {
     let feed_text = String::from_utf8(feed.stdout).unwrap();
     assert!(feed_text.contains("AGENT ── "), "{feed_text}");
     assert!(feed_text.contains("12[3]"), "{feed_text}");
-    golden("watch_tabs_110x34_feed", &feed_text);
+    assert!(feed_text.contains("4 calls · 2 runs"), "{feed_text}");
+    assert!(feed_text.contains("save_script keep-fed v2  +2 −1"), "{feed_text}");
+    assert!(feed_text.contains("run_script keep-fed v2 · 5t   turn 1/5 · 1 acts"), "{feed_text}");
+    assert!(!feed_text.contains("◆ EARTH KINGDOM ◆"), "the feed tab is full screen:\n{feed_text}");
 }
 
 /// At or above the threshold, the same digit zooms its pane full screen instead of switching a
 /// tab (#501's acceptance criteria: "there is one model, not two").
 #[test]
-fn watch_studio_zoomed_frame_is_golden() {
+fn watch_studio_zoomed_frame_is_the_pane_full_screen() {
     let path = write_studio_log();
     let out = fn_tui()
         .args([
@@ -690,7 +705,9 @@ fn watch_studio_zoomed_frame_is_golden() {
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("keep-fed.rhai"), "{text}");
     assert!(text.contains("[1]23"), "{text}");
-    golden("watch_studio_160x45_zoomed_code", &text);
+    assert!(text.contains("rev 1/2 ── run 3t ── new"), "{text}");
+    assert!(text.contains("1▌ // keep-fed v1"), "{text}");
+    assert!(!text.contains("◆ EARTH KINGDOM ◆"), "the zoomed pane takes the whole screen:\n{text}");
 }
 
 /// `--record` (#503) through the real binary: no terminal (stdin and stdout are not ttys here),

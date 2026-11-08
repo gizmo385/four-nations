@@ -41,7 +41,8 @@ panel's own **Modifiers** section moved to the Nation screen's Traits (#308).
    a session replays exactly, whatever the frame rate was.
 6. **Headless by construction.** Rendering is a pure function into a ratatui `Buffer`.
    `fn_tui --frame` prints one frame to stdout, after an optional scripted key sequence, and
-   exits. Golden-frame tests use the same `FN_BLESS=1` convention as the mapgen goldens.
+   exits. The few reference goldens use the same `FN_BLESS=1` convention as the mapgen goldens
+   (see "Verifying headlessly" for what they are for).
 
 ## Crates
 
@@ -421,12 +422,28 @@ panel's header and Cursor section already make the MVP playable to watch.
 - **Pure render.** `fn_tui::draw(&Session, &UiState, &Palette, &mut Buffer)` draws the whole
   frame. `UiState` is the cursor, view, mode, selection and open screen. Nothing in it touches
   the terminal.
-- **Golden frames.** `crates/tui/tests/golden/*.txt` hold frames as plain text, one row per
-  line with trailing spaces trimmed. `FN_BLESS=1 cargo test -p fn_tui` rewrites them, as with
-  `fn_sim`'s mapgen goldens. They cover a fixed seed per nation, a selected unit, a rectangle
-  being dragged, `--ascii`, and the "too small" frame. Colours are checked by unit tests on
-  particular cells ("this cell has the harvest tint"), not by colour goldens, which would churn
-  on every palette tweak.
+- **Reference goldens (#455).** `crates/tui/tests/golden/ref_*.txt` hold ten frames as plain
+  text, one row per line with trailing spaces trimmed: the title screen, embark, the game at
+  80x24 and at 160x48 (past the 140-column wide threshold), the build list, research, the Nation
+  screen, the endeavor screen, the game menu and the key help. They are **review artifacts**:
+  a reader looks at a screen as a player would and judges the design, in a diff a reviewer can
+  read. They are **not the regression net**. That job belongs to the layout properties
+  (`layout_properties.rs`: no row is wider than the terminal, every box closes, the
+  headings are spelled out, a cut line ends in an ellipsis, at a matrix of sizes) and to `contains`-style assertions beside each feature, which say what a
+  screen has to show and nothing else. A new screen or feature gets those, not a golden.
+  Colours are checked by unit tests on particular cells ("this cell has the harvest tint"), not
+  by colour goldens, which would churn on every palette tweak.
+
+  The reference screens are decoupled from content on purpose. The game screens draw a small
+  hand-built world (`tests/reference_goldens.rs`: a stretch of plains, two trees, a pond with a
+  fishing spot, two beds), with the two settlers' names written into the test and the clock
+  paused, so nothing ticks; embark surveys the same map through `Survey::from_map`. Changing the
+  settler-name pool in `data/nations.toml`, mapgen or a balance rate (needs, jobs, research
+  trickle, seasons) changes none of them, and a test in that file proves it. What does change
+  one is the TUI itself, or a number a screen prints on purpose (a building's cost in the build
+  list, a tech's price, the endeavor's targets). Rewrite them with `FN_BLESS=1 cargo test -p
+  fn_tui --test reference_goldens` and review the diff. `fn_sim`'s own goldens (mapgen ASCII, the
+  embark report) stay: they test mapgen on purpose.
 - **`--frame` for agents.** `cargo run -p fn_tui -- SEED NATION --frame [--size 120x40]
   [--keys SCRIPT] [--ticks N] [--ascii] [--ansi]` builds the session, plays the script, renders
   one frame to stdout and exits. It never enters raw mode or the alternate screen, and it needs
@@ -511,7 +528,7 @@ The designation tools and key scripts. Where it differs from the proposal above:
   directly, so the clock (and real time) never matters.
 - **Tests.** A script designates a rectangle and `harvest_designations()` matches what the sim
   accepts tile by tile; the script's command log replayed into a fresh world (`World::replay`)
-  draws the same frame; two golden frames show a rectangle mid-drag and after it is applied.
+  draws the same frame; `contains` checks cover a rectangle mid-drag and after it is applied.
 
 ## What #99 built
 
@@ -632,7 +649,7 @@ A title screen, so `fn_tui` with no `SEED` is a whole way to start instead of an
   the game resumes. Only `main` (a `SystemTime` hint for a fresh default seed) and `run` (the
   terminal's size) touch anything `fn_sim`/`fn_ui`'s determinism forbids elsewhere in the crate;
   `Shell` and `TitleScreen` take both as plain arguments, so they stay as testable as `App` is.
-- **Goldens.** New: `title_menu` (fresh, nothing to continue) and `title_nation_picker` (Air
+- **Goldens.** (Replaced by #455's reference goldens; see "Verifying headlessly".) New: `title_menu` (fresh, nothing to continue) and `title_nation_picker` (Air
   Nomads, cursor on the first nation). The seed field isn't golden: its default comes from the
   hint `main` reads from the wall clock, so only non-golden tests cover it.
 

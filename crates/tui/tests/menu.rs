@@ -1,7 +1,7 @@
 //! The game menu (`Esc`, #306, #312): opens only once nothing else is left for `Esc` to close,
 //! pauses the clock while it's open, and reaches every save/load action — Save as…, Quicksave,
-//! Load…, Quickload — plus Key help and Quit without a function key.
-//! Golden frames are rewritten with `FN_BLESS=1 cargo test -p fn_tui` (review the diff).
+//! Load…, Quickload — plus Key help and Quit without a function key. The one reference golden
+//! lives in `reference_goldens.rs` now (#455).
 
 use std::path::PathBuf;
 
@@ -46,20 +46,6 @@ fn run(app: &mut App, script: &str) {
 fn text(app: &mut App, size: (u16, u16)) -> String {
     let p = Palette::new(&app.session.defs, app.session.world.nation, ColorDepth::TrueColor, false);
     to_text(&render_app(app, &p, size))
-}
-
-fn golden(name: &str, actual: &str) {
-    // FN_GOLDEN=skip (cargo xtask ci --fast --no-goldens): every golden comparison is a
-    // no-op that passes, so agents can run the gate without caring whether goldens are stale.
-    if std::env::var("FN_GOLDEN").ok().as_deref() == Some("skip") {
-        return;
-    }
-    let path = format!("{}/tests/golden/{name}.txt", env!("CARGO_MANIFEST_DIR"));
-    if std::env::var_os("FN_BLESS").is_some() {
-        std::fs::write(&path, actual).unwrap();
-    }
-    let expected = std::fs::read_to_string(&path).expect("golden missing; run with FN_BLESS=1");
-    assert_eq!(actual, expected, "{name}: the frame changed; rebless with FN_BLESS=1 and review");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -333,12 +319,4 @@ fn quickload_is_greyed_out_and_fails_gracefully_with_no_quicksave_yet() {
     run(&mut a, "<down*4> <enter> y");
     assert!(a.ui.status.contains("no quicksave yet"), "{}", a.ui.status);
     assert_eq!(a.ui.modal, None, "the menu still closes after the failed attempt");
-}
-
-#[test]
-fn golden_frame_of_the_game_menu() {
-    let mut a = App::new(new_session(7, Nation::Earth), (80, 24));
-    run(&mut a, "<esc>");
-    assert_eq!(a.ui.modal, Some(Modal::Menu));
-    golden("earth_seed7_menu", &text(&mut a, (80, 24)));
 }

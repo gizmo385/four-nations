@@ -1,6 +1,6 @@
 //! The saves screen (`F6`, #276): every named slot from `fn_ui::saves`, newest first, through a
-//! temp save directory so the suite never touches the real one. Golden frames are rewritten with
-//! `FN_BLESS=1 cargo test -p fn_tui` (review the diff).
+//! temp save directory so the suite never touches the real one. All `contains`-style checks; the
+//! reference goldens are in `reference_goldens.rs` (#455).
 
 use std::path::PathBuf;
 
@@ -49,20 +49,6 @@ fn palette(app: &App, ascii: bool) -> Palette {
 fn text(app: &mut App, size: (u16, u16)) -> String {
     let p = palette(app, false);
     to_text(&render_app(app, &p, size))
-}
-
-fn golden(name: &str, actual: &str) {
-    // FN_GOLDEN=skip (cargo xtask ci --fast --no-goldens): every golden comparison is a
-    // no-op that passes, so agents can run the gate without caring whether goldens are stale.
-    if std::env::var("FN_GOLDEN").ok().as_deref() == Some("skip") {
-        return;
-    }
-    let path = format!("{}/tests/golden/{name}.txt", env!("CARGO_MANIFEST_DIR"));
-    if std::env::var_os("FN_BLESS").is_some() {
-        std::fs::write(&path, actual).unwrap();
-    }
-    let expected = std::fs::read_to_string(&path).expect("golden missing; run with FN_BLESS=1");
-    assert_eq!(actual, expected, "{name}: the frame changed; rebless with FN_BLESS=1 and review");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -281,15 +267,19 @@ fn shift_s_without_a_save_directory_says_so() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Golden frame
+// A loadable and an unloadable slot, side by side
 // ---------------------------------------------------------------------------------------------
 
+/// The Saves screen lists an unloadable file with the reason it can't load beside a loadable
+/// slot with its nation, seed and clock; the unloadable one sorts first and takes the pointer.
 #[test]
-fn golden_saves_screen_with_a_loadable_and_an_unloadable_slot() {
-    let tmp = TempDir::new("golden");
+fn the_saves_screen_lists_a_loadable_and_an_unloadable_slot() {
+    let tmp = TempDir::new("slots");
     let mut a = app(Some(tmp.0.clone()));
     run(&mut a, "<tick 40> <f6> n");
     std::fs::write(tmp.0.join("junk.ron"), "not a save").unwrap();
     run(&mut a, "<f6> <f6>"); // closes, then re-reads the directory (now with junk.ron too)
-    golden("earth_seed7_saves", &text(&mut a, SIZE));
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("▸ junk  can't load: not a Four Nations save"), "{frame}");
+    assert!(frame.contains("save-1  Earth Kingdom, seed 7, 00:04 (tick 40)"), "{frame}");
 }

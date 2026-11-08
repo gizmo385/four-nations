@@ -1,12 +1,12 @@
 ┏──────────────────────────────────── ◆ RESEARCH ◆ ────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
-│ TIER 1               TIER 2               TIER 3               TIER 4               ▸││ ▶ Running x1           00:00 │
-│  ◇ Fire Making        · Pottery           ▸◆ Masonry            · Cartography        │├─ SETTLEMENT ─────────── [N] ─┤
-│   Available   25 pts   Locked      60 pts   Queued     120 pts   Locked     250 pts  ││ People 6              Idle 6 │
-│   Campfire             Needs: Fire Making   Construction x1.15   Needs: Writing      ││ Food 0 · 0/head              │
-│                                                                                      ││ Shelter ░░░░░░░░░░   0%      │
-│  ◆ Shelter            ◆ Carpentry          · Writing            · Earthen Walls      ││ Gate 0/9 · 10 people     [G] │
-│   Queued      25 pts   Queued      60 pts   Locked     120 pts   Locked     120 pts  │├─ HERE ──────────── (94, 64) ─┤
-│   Prerequisite for …   Construction x1.1…   Needs: Pottery       Needs: Earth Shap…  ││ Bai                          │
+│ TIER 1               TIER 2               TIER 3               TIER 4               ▸││ ‖ Paused x1            00:00 │
+│ ▸◇ Fire Making        · Pottery            · Masonry            · Cartography        │├─ SETTLEMENT ─────────── [N] ─┤
+│   Available   25 pts   Locked      60 pts   Locked     120 pts   Locked     250 pts  ││ People 2              Idle 2 │
+│   Campfire             Needs: Fire Making   Needs: Carpentry     Needs: Writing      ││ Food 0 · 0/head              │
+│                                                                                      ││ Research: none set       [T] │
+│  ◇ Shelter            · Carpentry          · Writing            · Earthen Walls      ││ Gate 0/9 · 14 people     [G] │
+│   Available   25 pts   Locked      60 pts   Locked     120 pts   Locked     120 pts  │├─ HERE ──────────── (64, 28) ─┤
+│   Prerequisite for …   Needs: Shelter       Needs: Pottery       Needs: Earth Shap…  ││ Juni                         │
 │                                                                                      ││ Idle                         │
 │  ◇ Fishing            · Herbalism          · Tunneling          · Seismic Sense      ││ Press Enter to select        │
 │   Available   25 pts   Locked     120 pts   Locked     120 pts   Locked     250 pts  ││                              │
@@ -33,8 +33,8 @@
 │                                                                                      ││                              │
 │                                                                                      ││                              │
 │ ──────────────────────────────────────────────────────────────────────────────────── ││                              │
-│ Masonry                                                              Queued  120 pts ││                              │
-│ Dress stone and mortar it into lasting walls.                                        ││                              │
-│ Unlocks: Construction x1.15   Needs: Carpentry                                       ││                              │
-┗─ Arrows WASD choose  Enter target  Esc/T close ──────────────────────────────────────┛┗─ seed 7 ─────────────────────┛
- RESEARCH  arrows/WASD choose  Enter set target  Esc/T close  L log  ? keys
+│ Fire Making                                                        Available  25 pts ││                              │
+│ Keep a flame alive: cook food and stay warm.                                         ││                              │
+│ Unlocks: Campfire                                                                    ││                              │
+┗─ Arrows WASD choose  Enter target  Esc/T close ──────────────────────────────────────┛┗─ seed 1 ─────────────────────┛
+ RESEARCH  arrows/WASD choose  Enter set target  Esc/T close  L log  ? keys                                      PAUSED

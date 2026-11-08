@@ -1,6 +1,6 @@
 //! The research screen (#100): `T` opens the tech tree over the map, the arrows and WASD move
-//! between cards, and `Enter` issues `Command::SetResearch`. Golden frames are rewritten with
-//! `FN_BLESS=1 cargo test -p fn_tui` (review the diff).
+//! between cards, and `Enter` issues `Command::SetResearch`. The one reference golden lives in
+//! `reference_goldens.rs` now (#455).
 
 use fn_sim::Nation;
 use fn_sim::research::TechId;
@@ -32,20 +32,6 @@ fn palette(app: &App, ascii: bool) -> Palette {
 fn text(app: &mut App, size: (u16, u16)) -> String {
     let p = palette(app, false);
     to_text(&render_app(app, &p, size))
-}
-
-fn golden(name: &str, actual: &str) {
-    // FN_GOLDEN=skip (cargo xtask ci --fast --no-goldens): every golden comparison is a
-    // no-op that passes, so agents can run the gate without caring whether goldens are stale.
-    if std::env::var("FN_GOLDEN").ok().as_deref() == Some("skip") {
-        return;
-    }
-    let path = format!("{}/tests/golden/{name}.txt", env!("CARGO_MANIFEST_DIR"));
-    if std::env::var_os("FN_BLESS").is_some() {
-        std::fs::write(&path, actual).unwrap();
-    }
-    let expected = std::fs::read_to_string(&path).expect("golden missing; run with FN_BLESS=1");
-    assert_eq!(actual, expected, "{name}: the frame changed; rebless with FN_BLESS=1 and review");
 }
 
 fn tech(app: &App, id: &str) -> TechId {
@@ -410,33 +396,13 @@ fn a_finished_tech_becomes_known_on_the_screen() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Golden frames
+// ASCII
 // ---------------------------------------------------------------------------------------------
 
-/// An Earth Kingdom game aiming at Masonry: its prereq chain is queued behind it.
-fn with_a_target(size: (u16, u16)) -> App {
-    let mut a = app(7, Nation::Earth, size);
-    run(&mut a, "t");
-    go_to(&mut a, "masonry");
-    run(&mut a, "<enter>");
-    a
-}
-
+/// Another nation's tree, in ASCII: `a_narrow_terminal_scrolls_across_the_tree_with_the_cursor`
+/// already covers the smallest terminal's own scrolling.
 #[test]
-fn golden_research_with_a_target() {
-    let mut a = with_a_target(SIZE);
-    golden("earth_seed7_research", &text(&mut a, SIZE));
-}
-
-#[test]
-fn golden_research_on_the_smallest_terminal_scrolled_to_the_deep_end() {
-    let mut a = with_a_target(SMALL);
-    run(&mut a, "<right*3> <down>");
-    golden("earth_seed7_research_small", &text(&mut a, SMALL));
-}
-
-#[test]
-fn golden_research_another_nation_in_ascii() {
+fn another_nations_tree_renders_in_ascii() {
     let mut a = app(3, Nation::Fire, SIZE);
     run(&mut a, "t");
     go_to(&mut a, "smelting");
@@ -444,7 +410,7 @@ fn golden_research_another_nation_in_ascii() {
     let p = palette(&a, true);
     let frame = to_text(&render_app(&mut a, &p, SIZE));
     assert!(frame.is_ascii(), "the ASCII frame must be ASCII:\n{frame}");
-    golden("fire_seed3_research_ascii", &frame);
+    assert!(frame.contains("Smelting"), "{frame}");
 }
 
 #[test]

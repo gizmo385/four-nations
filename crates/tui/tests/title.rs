@@ -1,6 +1,7 @@
-//! The title screen through the public API (#280): golden frames for the menu and the nation
-//! picker (rewrite with `FN_BLESS=1 cargo test -p fn_tui`, and say so in the PR), and the shell's
-//! own switch between the title screen, a game, and back.
+//! The title screen through the public API (#280): the one reference golden (the fresh menu)
+//! lives in `reference_goldens.rs` now (#455); this keeps the `contains`-style checks for the
+//! nation picker and the seed step, and the shell's own switch between the title screen, a game,
+//! and back.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fn_sim::Nation;
@@ -9,20 +10,6 @@ use fn_tui::frame::{render_shell, to_text};
 use fn_tui::shell::Shell;
 
 const SIZE: (u16, u16) = (120, 40);
-
-fn golden(name: &str, actual: &str) {
-    // FN_GOLDEN=skip (cargo xtask ci --fast --no-goldens): every golden comparison is a
-    // no-op that passes, so agents can run the gate without caring whether goldens are stale.
-    if std::env::var("FN_GOLDEN").ok().as_deref() == Some("skip") {
-        return;
-    }
-    let path = format!("{}/tests/golden/{name}.txt", env!("CARGO_MANIFEST_DIR"));
-    if std::env::var_os("FN_BLESS").is_some() {
-        std::fs::write(&path, actual).unwrap();
-    }
-    let expected = std::fs::read_to_string(&path).expect("golden missing; run with FN_BLESS=1");
-    assert_eq!(actual, expected, "{name}: the frame changed; see the module docs to rebless");
-}
 
 fn frame(shell: &mut Shell) -> String {
     let p = Palette::new(shell.defs(), shell.nation(), ColorDepth::TrueColor, false);
@@ -34,32 +21,34 @@ fn press(shell: &mut Shell, code: KeyCode) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Golden frames
+// The nation picker and the seed step
 // ---------------------------------------------------------------------------------------------
 
-/// With no saves to continue, the fresh title screen: New game, Load, Quit.
+/// The nation picker, on the first nation (Air Nomads): its own blurb under the roster, the
+/// pointer on its row.
 #[test]
-fn golden_title_screen() {
-    let mut shell = Shell::new_title(SIZE, None, 1);
-    golden("title_menu", &frame(&mut shell));
-}
-
-/// The nation picker, on the first nation (Air Nomads), its blurb in its own colours.
-#[test]
-fn golden_nation_picker() {
+fn the_nation_picker_shows_the_pointed_nations_blurb() {
     let mut shell = Shell::new_title(SIZE, None, 1);
     press(&mut shell, KeyCode::Enter);
-    golden("title_nation_picker", &frame(&mut shell));
+    let text = frame(&mut shell);
+    assert!(text.contains("▸ 1. Air Nomads"), "{text}");
+    assert!(text.contains("Nomadic monks. Fast and light; can power turbines and mills"), "{text}");
 }
 
-/// The seed step's Size and Survey rows (#290), with the highlighted row's hint below the
-/// three, on the Survey row.
+/// The seed step's Size and Survey rows (#290), with the highlighted row's hint below the three,
+/// on the Survey row.
 #[test]
-fn golden_seed_step() {
+fn the_seed_step_shows_the_highlighted_rows_hint() {
     let mut shell = Shell::new_title(SIZE, None, 7);
     let to_seed = fn_tui::keys::parse("<enter> <enter> <down> <down>").unwrap();
     shell.play(&to_seed);
-    golden("title_seed_step", &frame(&mut shell));
+    let text = frame(&mut shell);
+    assert!(text.contains("Seed: 7") && text.contains("Size: Small"), "{text}");
+    assert!(text.contains("▸ Survey: Exact"), "the pointer is on Survey:\n{text}");
+    assert!(
+        text.contains("Exact: you'll see exactly what's at every site."),
+        "its own hint is below it:\n{text}"
+    );
 }
 
 // ---------------------------------------------------------------------------------------------

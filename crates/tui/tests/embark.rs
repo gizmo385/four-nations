@@ -1,6 +1,9 @@
-//! The embark screen (#290, docs/design/embark.md): golden frames for the overview, a region
-//! and the site zoom, a refused site and a rough survey, plus the keys that move between them.
-//! Rewrite goldens with `FN_BLESS=1 cargo test -p fn_tui` and review the diff.
+//! The embark screen (#290, docs/design/embark.md): the keys that move between the overview, a
+//! region and the site zoom, a refused site and a rough survey. The one reference golden (the
+//! plain overview) lives in `reference_goldens.rs` now (#455); the rest of these scenarios keep
+//! `contains`-style checks for whatever only they show, and the layout properties
+//! (`layout_properties.rs`, #454) cover the structural side (every box closes, nothing overflows)
+//! at every size.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fn_sim::embark::{MapSizeDef, SurveyMode};
@@ -8,20 +11,6 @@ use fn_sim::{Defs, Nation};
 use fn_tui::color::{ColorDepth, Palette};
 use fn_tui::frame::{render_shell, to_text};
 use fn_tui::shell::{Mode, Shell};
-
-fn golden(name: &str, actual: &str) {
-    // FN_GOLDEN=skip (cargo xtask ci --fast --no-goldens): every golden comparison is a
-    // no-op that passes, so agents can run the gate without caring whether goldens are stale.
-    if std::env::var("FN_GOLDEN").ok().as_deref() == Some("skip") {
-        return;
-    }
-    let path = format!("{}/tests/golden/{name}.txt", env!("CARGO_MANIFEST_DIR"));
-    if std::env::var_os("FN_BLESS").is_some() {
-        std::fs::write(&path, actual).unwrap();
-    }
-    let expected = std::fs::read_to_string(&path).expect("golden missing; run with FN_BLESS=1");
-    assert_eq!(actual, expected, "{name}: the frame changed; rebless with FN_BLESS=1 and review");
-}
 
 fn size(id: &str) -> MapSizeDef {
     Defs::bundled().embark.map_size(id).unwrap().clone()
@@ -47,30 +36,19 @@ fn frame(shell: &mut Shell, size: (u16, u16)) -> String {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Golden frames
+// Zoom and refusal
 // ---------------------------------------------------------------------------------------------
 
+/// Three zooms in (6 -> 4 -> 2 -> 1) leaves the site zoom, not the overview; the layout
+/// properties' own `embark_site` case covers the frame's structure at every size.
 #[test]
-fn golden_embark_overview() {
-    let mut shell = embark(7, Nation::Earth, size("small"), SurveyMode::Exact, (120, 40));
-    golden("earth_seed7_embark", &frame(&mut shell, (120, 40)));
-}
-
-#[test]
-fn golden_embark_overview_small_terminal() {
-    let mut shell = embark(7, Nation::Earth, size("small"), SurveyMode::Exact, (80, 24));
-    golden("earth_seed7_embark_small", &frame(&mut shell, (80, 24)));
-}
-
-#[test]
-fn golden_embark_site() {
+fn three_zooms_in_reach_the_site_zoom() {
     let mut shell = embark(7, Nation::Earth, size("small"), SurveyMode::Exact, (120, 40));
     for _ in 0..3 {
         press(&mut shell, KeyCode::Enter); // 6 -> 4 -> 2 -> 1
     }
     let Mode::Embark(screen) = &shell.mode else { panic!("expected embark") };
     assert!(!screen.is_overview());
-    golden("earth_seed7_embark_site", &frame(&mut shell, (120, 40)));
 }
 
 /// `Enter` at the closest zoom asks before settling, and the question is on screen: the
@@ -89,29 +67,35 @@ fn the_settle_prompt_is_drawn_and_y_starts_the_game() {
     assert!(!matches!(shell.mode, Mode::Embark(_)), "y settles and leaves embark");
 }
 
-/// The cursor on the map's forced-sea border: refused ("open water"), tinted in the `bad` tone.
+/// The cursor on the map's forced-sea border is refused, naming "open water".
 #[test]
-fn golden_embark_refused() {
+fn the_forced_sea_border_is_refused_as_open_water() {
     let mut shell = embark(7, Nation::Earth, size("small"), SurveyMode::Exact, (120, 40));
     for _ in 0..50 {
         press(&mut shell, KeyCode::Left);
     }
-    golden("earth_seed7_embark_refused", &frame(&mut shell, (120, 40)));
+    let text = frame(&mut shell, (120, 40));
+    assert!(text.contains("Can't settle: open water."), "{text}");
 }
 
+/// A large map's overview names its own size and the zoom ratio it starts from.
 #[test]
-fn golden_embark_large_overview() {
+fn a_large_overview_names_its_size_and_its_own_zoom_ratio() {
     let mut shell = embark(7, Nation::Earth, size("large"), SurveyMode::Exact, (80, 24));
-    golden("earth_seed7_embark_large", &frame(&mut shell, (80, 24)));
+    let text = frame(&mut shell, (80, 24));
+    assert!(text.contains("Large · Exact"), "{text}");
+    assert!(text.contains("Zoom 1:12"), "{text}");
 }
 
 /// A rough survey's ladder stops at 1:2: two zooms in from the overview (6, 4, 2) lands there.
 #[test]
-fn golden_embark_rough() {
+fn a_rough_surveys_ladder_stops_at_one_to_two() {
     let mut shell = embark(7, Nation::Earth, size("small"), SurveyMode::Rough, (120, 40));
     press(&mut shell, KeyCode::Enter);
     press(&mut shell, KeyCode::Enter);
-    golden("earth_seed7_embark_rough", &frame(&mut shell, (120, 40)));
+    let text = frame(&mut shell, (120, 40));
+    assert!(text.contains("Small · Rough"), "{text}");
+    assert!(text.contains("Zoom 1:2"), "{text}");
 }
 
 // ---------------------------------------------------------------------------------------------

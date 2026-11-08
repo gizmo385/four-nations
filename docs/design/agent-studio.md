@@ -254,7 +254,7 @@ fill that entry in:
 - **Data:** `acts: Vec<u16>` indexed by the watcher's turn. Each replayed `keys` line adds one to
   the current turn when its first key is pressed. Script acts and MCP acts count the same, and
   reads don't count. The rightmost bar is the turn in progress. `--frame --at N` fills it in the
-  same way, so it's golden-testable.
+  same way, so it's testable without a terminal.
 - **Window:** the last `spark_turns` turns (24 in the studio, which is 8 game minutes at
   20-second turns; 10 in tabs).
 - **Scale:** each bar is `n / max(window peak, spark_floor)`. With `spark_floor = 4`, a quiet
@@ -337,7 +337,7 @@ Watcher keys win over free look (#330). Free look passes every other key to the 
 
 No F-keys (WSL never delivers them). Every studio key goes through one new
 `Watcher::key(KeyEvent) -> bool`, called by both `watch::run`'s loop and the
-`--watch --frame --keys` path, so all of them can be golden-tested without a terminal.
+`--watch --frame --keys` path, so all of them can be tested without a terminal.
 
 **Revision stepping** pins the pane to the chosen revision. The header shows
 `rev 2/9 · pinned`, and the diff is still against that revision's predecessor. While a pane is
@@ -407,10 +407,12 @@ A `tui.toml` test checks that every `Class` has a colour.
 - `fn_ui::code`: unit tests for the lexer (classes, multi-line comments and strings, `${}`
   inside backticks, the fixture scripts) and for `line_diff` (identical, pure add, pure delete,
   change, empty, the cell cap).
-- **Golden frames** (`crates/tui/tests/watch.rs`, logs generated in the test so a data change
+- **Frame checks** (`crates/tui/tests/watch.rs`, logs generated in the test so a data change
   doesn't break a checked-in log): `--watch --frame --size 160x45 --at N` for the studio, two
   revisions apart; `--size 110x34` with `--keys 1`, nothing, and `--keys 3` for the tabs; one
-  `--ansi` frame to pin the highlight and diff colours.
+  `--ansi` frame to pin the highlight and diff colours. They are `contains`-style assertions,
+  not whole-frame goldens (#455): the frames sit on a generated map, which mapgen would ripple
+  through.
 - A replay test checks that the code pane at turn N shows the revision whose `script` line was
   the last one replayed.
 - `fn_agent`: a served session's log has exactly one `call` line per `tools/call`, written ahead

@@ -398,7 +398,13 @@ fn edge_distance(width: i32, height: i32, p: Pos) -> i32 {
 impl Survey {
     /// Generates `cfg`'s map and hides its buried resources, exactly as `World::bury` does.
     pub fn new(cfg: &MapGenConfig, defs: &Defs) -> Self {
-        let mut surface = mapgen::generate(cfg, defs);
+        Self::from_map(cfg, mapgen::generate(cfg, defs), defs)
+    }
+
+    /// A survey of a map built some other way (a test's hand-built world, #455), hiding its
+    /// buried resources the way [`Survey::new`] does. `cfg` is only what `report` and
+    /// `into_parts` carry along; the map isn't regenerated from it.
+    pub fn from_map(cfg: &MapGenConfig, mut surface: TileMap, defs: &Defs) -> Self {
         let found: Vec<(Pos, ResourceId)> = surface
             .iter()
             .filter_map(|(p, t)| t.resource.filter(|&r| defs.resource(r).buried).map(|r| (p, r)))

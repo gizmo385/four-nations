@@ -341,9 +341,9 @@ fn bless() -> Result {
 
 /// Every `(package, [test-file stems])` pair under `crates/*/tests` with at least one file that
 /// references `FN_BLESS` -- the convention every golden-comparison helper follows (see e.g.
-/// `crates/sim/tests/mapgen.rs`'s `fn golden` or `crates/tui/tests/frames.rs`'s). A whole test
-/// file runs even if only one of its tests is a golden comparison (several non-`golden_`-named
-/// tests in `crates/tui/tests/footprints.rs` call its `golden` helper too), so nothing is missed
+/// `crates/sim/tests/mapgen.rs`'s `fn golden` or `crates/tui/tests/reference_goldens.rs`'s). A whole test
+/// file runs even if only one of its tests is a golden comparison (it keeps every test of the
+/// file, not just the `reference_*` ones, which is cheap), so nothing is missed
 /// and nothing goes stale.
 fn golden_test_targets(root: &Path) -> Result<Vec<(String, Vec<String>)>> {
     let mut out = Vec::new();

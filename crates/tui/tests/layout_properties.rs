@@ -17,8 +17,9 @@
 //! The title screen and the embark screens (`fn_tui::shell::Shell`, not `fn_tui::app::App`) get
 //! their own, smaller matrix below, for the same four properties.
 //!
-//! Golden frames still exist for what only exact content can catch (colour, exact wording);
-//! `FN_BLESS=1 cargo test -p fn_tui` rewrites those, not anything here.
+//! Whole-frame goldens are a handful of reference screens on a fixed hand-built world
+//! (`reference_goldens.rs`, #455), kept for a reviewer to look at; this file and the
+//! `contains`-style checks beside each feature are the regression net.
 
 use std::path::PathBuf;
 

@@ -137,3 +137,17 @@ fn golden_seed_7_three_sites_with_seasons() {
     let expected = std::fs::read_to_string(&path).expect("golden missing; run with FN_BLESS=1");
     assert_eq!(actual, expected, "embark report output changed; see module docs");
 }
+
+/// `Survey::from_map` (#455: a hand-built map for the TUI's reference goldens) surveys a map
+/// exactly as `Survey::new` surveys the one it generates: the same surface with the buried
+/// resources off it, and so the same default site.
+#[test]
+fn from_map_surveys_a_supplied_map_like_new_surveys_a_generated_one() {
+    let defs = Defs::bundled();
+    let size = defs.embark.map_size("small").unwrap().clone();
+    let cfg = Survey::config(SEED, &size);
+    let generated = Survey::new(&cfg, &defs);
+    let supplied = Survey::from_map(&cfg, fn_sim::mapgen::generate(&cfg, &defs), &defs);
+    assert_eq!(generated.map(), supplied.map());
+    assert_eq!(generated.default_site(&defs), supplied.default_site(&defs));
+}

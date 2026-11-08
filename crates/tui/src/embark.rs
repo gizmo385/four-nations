@@ -87,6 +87,23 @@ impl EmbarkScreen {
     ) -> Self {
         let cfg = Survey::config(seed, &size);
         let survey = Survey::new(&cfg, defs);
+        Self::with_survey(survey, seed, nation, size, mode, difficulty, screen, defs)
+    }
+
+    /// [`Self::new`] over a survey the caller built (a test's hand-built map, #455) instead of
+    /// one generated from `seed`: the seed is only what the screen shows and what settling
+    /// carries on.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_survey(
+        survey: Survey,
+        seed: u64,
+        nation: Nation,
+        size: MapSizeDef,
+        mode: SurveyMode,
+        difficulty: Option<String>,
+        screen: (u16, u16),
+        defs: &Defs,
+    ) -> Self {
         let cursor = survey.default_site(defs);
         let glyphs = crate::glyphs::Glyphs::bundled().embark;
         let mut s = Self {

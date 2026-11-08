@@ -1,12 +1,12 @@
 ┏──────────────────────────────────── ◆ KEY HELP ◆ ────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
-│ CURSOR AND VIEW                                                                      ││ ▶ Running x1           00:00 │
+│ CURSOR AND VIEW                                                                      ││ ‖ Paused x1            00:00 │
 │ Arrows W A S D         Move the cursor 1 tile (Shift: 10)                            │├─ SETTLEMENT ─────────── [N] ─┤
-│ Ctrl+Arrows PgUp PgDn  Jump the view a quarter screen                                ││ People 6              Idle 6 │
+│ Ctrl+Arrows PgUp PgDn  Jump the view a quarter screen                                ││ People 2              Idle 2 │
 │                                                                                      ││ Food 0 · 0/head              │
 │ UNITS                                                                                ││ Research: none set       [T] │
-│ Enter                  Select the unit under the cursor; again: the next one there.  ││ Gate 0/9 · 10 people     [G] │
-│                        In a tool: set a corner, then apply                           │├─ HERE ──────────── (94, 64) ─┤
-│ Esc                    Close the screen, a modal or the bar. In a tool: drop the     ││ Bai                          │
+│ Enter                  Select the unit under the cursor; again: the next one there.  ││ Gate 0/9 · 14 people     [G] │
+│                        In a tool: set a corner, then apply                           │├─ HERE ──────────── (64, 28) ─┤
+│ Esc                    Close the screen, a modal or the bar. In a tool: drop the     ││ Juni                         │
 │                        corner, then leave the tool. With nothing to close: the game  ││ Idle                         │
 │                        menu (Resume, Save as…, Quicksave, Load…, Quickload, Key      ││ Press Enter to select        │
 │                        help, Quit, #306, #312) — every save and load action, for a   ││                              │
@@ -36,5 +36,5 @@
 │                                                                                      ││                              │
 │ SCREENS AND GAME                                                                     ││                              │
 │ T                      Research: arrows W A S D choose a tech, Enter sets it as the  ││                              │
-┗─ Arrows W S scroll  PgUp PgDn page  Esc close  L log ────────────────────────────────┛┗─ seed 7 ─────────────────────┛
- KEYS  arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause
+┗─ Arrows W S scroll  PgUp PgDn page  Esc close  L log ────────────────────────────────┛┗─ seed 1 ─────────────────────┛
+ KEYS  arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause                                  PAUSED

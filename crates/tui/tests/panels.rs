@@ -1,6 +1,6 @@
 //! The panels (#99): selecting units and the selection bar, the side panel's sections, alerts, the
-//! message log, key help, and the new-map and nation prompts. Golden frames are rewritten with
-//! `FN_BLESS=1 cargo test -p fn_tui` (review the diff).
+//! message log, key help, and the new-map and nation prompts. Whole-frame goldens live in
+//! `reference_goldens.rs` now (#455); everything here is `contains`-style assertions.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fn_sim::world::Command;
@@ -32,20 +32,6 @@ fn text(app: &mut App, size: (u16, u16)) -> String {
     to_text(&render_app(app, &p, size))
 }
 
-fn golden(name: &str, actual: &str) {
-    // FN_GOLDEN=skip (cargo xtask ci --fast --no-goldens): every golden comparison is a
-    // no-op that passes, so agents can run the gate without caring whether goldens are stale.
-    if std::env::var("FN_GOLDEN").ok().as_deref() == Some("skip") {
-        return;
-    }
-    let path = format!("{}/tests/golden/{name}.txt", env!("CARGO_MANIFEST_DIR"));
-    if std::env::var_os("FN_BLESS").is_some() {
-        std::fs::write(&path, actual).unwrap();
-    }
-    let expected = std::fs::read_to_string(&path).expect("golden missing; run with FN_BLESS=1");
-    assert_eq!(actual, expected, "{name}: the frame changed; rebless with FN_BLESS=1 and review");
-}
-
 /// The unit ids in the order of the world's list.
 fn ids(app: &App) -> Vec<fn_sim::world::UnitId> {
     app.session.world.units.iter().map(|u| u.id).collect()
@@ -56,7 +42,7 @@ fn ids(app: &App) -> Vec<fn_sim::world::UnitId> {
 /// log-only now, so the tests that need a live toast have to earn one with a failure).
 ///
 /// Seed 3 because it has enough fuel around the start for a log long enough to scroll (seed 1
-/// did until #225 reshuffled the map; the log golden is named for the seed).
+/// did until #225 reshuffled the map).
 fn bending_game() -> App {
     let mut s = Session::new(3, Nation::Fire, 48, 32);
     let ability = ability_for_nation(&s.defs, Nation::Fire).unwrap();
@@ -263,25 +249,10 @@ fn a_channelling_unit_names_the_ability_and_the_time_left_in_the_bar_and_the_peo
     a.ui.select(Some(id));
     let frame = text(&mut a, SIZE);
     assert!(frame.contains("Channelling Hearthflame"), "{frame}");
-}
-
-/// A channel in progress, the bar open on the bender.
-#[test]
-fn golden_frame_of_a_channel_in_progress() {
-    let mut s = Session::new(1, Nation::Fire, 48, 32);
-    let pos = s.world.units[0].pos;
-    let id = s.world.units[0].id;
-    let ability = ability_for_nation(&s.defs, Nation::Fire).unwrap();
-    s.apply(Command::Bend { ability, pos }).unwrap();
-    for _ in 0..2000 {
-        s.tick();
-        if s.world.bend_channels(&s.defs).iter().any(|c| c.unit == id) {
-            break;
-        }
-    }
-    let mut a = App::new(s, SIZE);
-    a.ui.select(Some(id));
-    golden("fire_seed1_channelling", &text(&mut a, SIZE));
+    // The bar's own header and rows, as the deleted channelling golden showed them.
+    assert!(frame.contains("Fire Nation · Student"), "{frame}");
+    assert!(frame.contains("Chi    ██████████"), "{frame}");
+    assert!(frame.contains("[Esc] close  [Tab] next  [F] follow"), "{frame}");
 }
 
 #[test]
@@ -371,22 +342,39 @@ fn the_cursor_section_offers_enter_over_a_unit() {
     assert!(!text(&mut a, SIZE).contains("Press Enter to select"), "not in a tool");
 }
 
+/// A selected unit's bar: the title, the task, where it stands, the five meters and the key
+/// hints under them. A tired unit (energy low) shows its Energy meter short of full.
 #[test]
-fn golden_frame_with_a_selected_unit() {
+fn a_selected_unit_opens_the_bar_with_its_title_meters_and_hints() {
     let mut a = app(7, Nation::Earth, SIZE);
     a.session.world.units[0].needs.energy = a.session.defs.needs.max() * 0.1;
     run(&mut a, "<tick 200> <tab>");
-    golden("earth_seed7_selected", &text(&mut a, SIZE));
+    let frame = text(&mut a, SIZE);
+    let u = &a.session.world.units[0];
+    assert!(frame.contains(&format!("{} · Earth Kingdom · Student", u.name)), "{frame}");
+    assert!(frame.contains("Carrying: nothing"), "{frame}");
+    assert!(frame.contains(&format!("At ({}, {})", u.pos.x, u.pos.y)), "{frame}");
+    for meter in ["Health", "Hunger", "Thirst", "Energy", "Chi"] {
+        assert!(frame.contains(meter), "{meter} in\n{frame}");
+    }
+    assert!(
+        !frame.contains("Energy ██████████ 100%"),
+        "the tired unit's Energy is short:\n{frame}"
+    );
+    assert!(frame.contains("Student: 0 of "), "{frame}");
 }
 
+/// The same bar in ASCII: pure ASCII, with `#` for the meter cells and `-` for the frame.
 #[test]
-fn golden_ascii_frame_with_a_selected_unit() {
+fn an_ascii_selected_unit_bar_is_pure_ascii() {
     let mut a = app(7, Nation::Earth, SIZE);
     run(&mut a, "<tab>");
     let p = Palette::new(&a.session.defs, Nation::Earth, ColorDepth::Never, true);
     let frame = to_text(&render_app(&mut a, &p, SIZE));
     assert!(frame.is_ascii(), "{frame}");
-    golden("earth_seed7_selected_ascii", &frame);
+    assert!(frame.contains("Health ########## 100%"), "{frame}");
+    assert!(frame.contains("[Esc] close  [Tab] next  [F] follow"), "{frame}");
+    assert!(frame.contains("+- "), "{frame}");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -776,11 +764,20 @@ fn the_log_scrolls_with_the_arrows_ws_and_the_page_keys_and_sticks_to_the_end() 
     assert_eq!(a.ui.screen, None);
 }
 
+/// The message log screen: its heading and scroll hints, the newest line (the log opens
+/// pinned to the end), and the Alerts section of the side panel beside it.
 #[test]
-fn golden_frame_of_the_message_log() {
+fn the_message_log_screen_shows_its_heading_hints_and_newest_line() {
     let mut a = bending_game();
     run(&mut a, "l");
-    golden("fire_seed3_log", &text(&mut a, SIZE));
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("◆ MESSAGE LOG ◆"), "{frame}");
+    assert!(frame.contains("Arrows W S scroll  PgUp PgDn page  Esc close"), "{frame}");
+    assert!(frame.contains(" LOG  arrows/W S scroll"), "{frame}");
+    let newest = a.ui.alerts.history().last().expect("the bending game has a log").text.clone();
+    let newest: String = newest.chars().take(30).collect();
+    assert!(frame.contains(&newest), "the newest line ({newest:?}) in\n{frame}");
+    assert!(frame.contains("ALERTS"), "{frame}");
 }
 
 #[test]
@@ -856,20 +853,48 @@ fn the_help_scrolls_on_a_small_terminal_and_stops_at_its_ends() {
     assert!(!bottom.contains("CURSOR AND VIEW"));
 }
 
+/// The key help screen: its heading and footer, and its first sections (the last row is
+/// covered by `the_help_scrolls_on_a_small_terminal_and_stops_at_its_ends`).
 #[test]
-fn golden_frame_of_the_key_help() {
+fn the_key_help_screen_lists_its_sections_and_keys() {
     let mut a = app(7, Nation::Earth, SIZE);
     run(&mut a, "?");
-    golden("earth_seed7_help", &text(&mut a, SIZE));
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("◆ KEY HELP ◆"), "{frame}");
+    for want in [
+        "CURSOR AND VIEW",
+        "UNITS",
+        "DESIGNATING",
+        "Harvest tool: designate harvest (chop, mine, gather)",
+    ] {
+        assert!(frame.contains(want), "{want:?} in\n{frame}");
+    }
+    assert!(frame.contains("Arrows W S scroll  PgUp PgDn page  Esc close"), "{frame}");
+    assert!(frame.contains(" KEYS  arrows/W S scroll"), "{frame}");
 }
 
 /// `G` opens the Endeavor screen (#242): the same screen for every nation, since the signs and
 /// stages are shared; the gate's own per-nation roof is on the map, not this screen.
 #[test]
-fn golden_frame_of_the_endeavor_screen() {
+fn the_endeavor_screen_lists_the_gates_groups_and_signs() {
     let mut a = app(7, Nation::Earth, SIZE);
     run(&mut a, "g");
-    golden("earth_seed7_endeavor", &text(&mut a, SIZE));
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("◆ ENDEAVOR ◆"), "{frame}");
+    for want in [
+        "The Harmony Gate",
+        "0 of 9 signs",
+        "Stage: not begun",
+        "PEOPLE",
+        "Population",
+        "BUILDINGS",
+        "KNOWLEDGE",
+        "STORES AND HARVESTS",
+        "BENDING",
+        "Arrows W S scroll  PgUp PgDn page  Esc/G close",
+    ] {
+        assert!(frame.contains(want), "{want:?} in\n{frame}");
+    }
 }
 
 /// `G` toggles the screen like every other screen key, closes it the same as `Esc`, and gives
@@ -1038,7 +1063,7 @@ fn season_ticks(a: &App) -> u64 {
 }
 
 #[test]
-fn golden_frame_of_the_season_section_in_autumn_with_low_stores() {
+fn the_season_section_in_autumn_warns_about_low_stores() {
     let mut a = app(7, Nation::Earth, SMALL);
     a.session.world.set_difficulty(Some("normal".to_owned()));
     let per_season = season_ticks(&a);
@@ -1049,7 +1074,6 @@ fn golden_frame_of_the_season_section_in_autumn_with_low_stores() {
     let frame = text(&mut a, SMALL);
     assert!(frame.contains("Autumn"), "{frame}");
     assert!(frame.contains("Food 0 · 0/head"), "{frame}");
-    golden("earth_seed7_autumn_low_stores", &frame);
 }
 
 /// #416's own acceptance criteria: at 80x24, with Season, the Gate (an endeavor is always in
@@ -1079,11 +1103,10 @@ fn every_settlement_glance_row_is_on_screen_at_80x24_with_everything_on() {
     ] {
         assert!(frame.contains(want), "{want:?} in\n{frame}");
     }
-    golden("earth_seed7_settlement_glance_80x24", &frame);
 }
 
 #[test]
-fn golden_frame_of_a_tired_plants_hover() {
+fn a_tired_plants_hover_names_its_strain() {
     let mut a = app(7, Nation::Earth, SIZE);
     a.session.world.set_difficulty(Some("normal".to_owned()));
     let from = a.session.world.units[0].pos;
@@ -1114,11 +1137,10 @@ fn golden_frame_of_a_tired_plants_hover() {
     let frame = text(&mut a, SIZE);
     assert!(frame.contains("ripe in"), "{frame}");
     assert!(frame.contains("Tired (strain"), "{frame}");
-    golden("earth_seed7_tired_plant", &frame);
 }
 
 #[test]
-fn golden_frame_of_the_alert_log_through_a_winter() {
+fn the_alert_log_carries_the_winter_notices() {
     let mut a = app(7, Nation::Earth, SIZE);
     a.session.world.set_difficulty(Some("normal".to_owned()));
     let per_season = season_ticks(&a);
@@ -1128,5 +1150,4 @@ fn golden_frame_of_the_alert_log_through_a_winter() {
     assert!(frame.contains("Winter in 3 minutes"), "{frame}");
     assert!(frame.contains("Winter. Wild plants rest"), "{frame}");
     assert!(frame.contains("First frost"), "{frame}");
-    golden("earth_seed7_winter_log", &frame);
 }
