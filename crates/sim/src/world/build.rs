@@ -297,6 +297,14 @@ impl World {
             if let Some(to) = self.nearest_outside(at, foot) {
                 self.units[i].pos = to;
             }
+            // A need task lives on this route (`walk` only reports arriving on one), and where
+            // it was going to be met -- the tile beside the water, the food, the bed -- is
+            // under the building or no longer where the unit stands. Dropping only the route
+            // would leave the task held forever (#563: a drinker starved beside water, `walk`
+            // never arriving), so the need is dropped with it and planned afresh next tick.
+            if self.units[i].need_task.is_some() {
+                self.finish_need(i);
+            }
             self.units[i].route = None;
             self.units[i].move_progress = 0.0;
         }

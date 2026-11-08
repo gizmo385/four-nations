@@ -341,6 +341,54 @@ fn a_need_steps_a_unit_out_of_a_building_the_tick_it_becomes_urgent() {
     assert!(w.occupants(anchor).next().is_none());
 }
 
+/// A drinker standing at the water's edge, mid-drink: the shore is row 1, the unit starts on it.
+fn mid_drink() -> (World, Defs) {
+    let rows = ["~~~~~~~~~~", "..........", "..........", "..........", ".........."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(4, 1)]);
+    w.units[0].needs.thirst = defs.needs.thirst.low;
+    w.tick(&defs);
+    assert_eq!(w.units[0].task(), Some(Task::Drink));
+    // Past the walk, a few ticks into the drink itself.
+    run_until(&mut w, &defs, 200, |w| w.units[0].work > 0.0);
+    assert!(w.units[0].work < defs.jobs.drink_seconds, "still drinking: {w:?}");
+    (w, defs)
+}
+
+/// #563: a solid building finishing on the tile a unit is drinking from moved the unit off it and
+/// dropped its route, but kept the Drink task. `walk` only reports arriving on a route, so the
+/// task was held forever: the settler stood beside the water with thirst falling to 0 until she
+/// died, hunger falling with it. The need is dropped with the route and planned again.
+#[test]
+fn a_building_finished_under_a_drinker_does_not_hold_the_drink_forever() {
+    let (mut w, mut defs) = mid_drink();
+    let hall = defs.building_id("bed").unwrap();
+    {
+        let d = &mut defs.buildings[hall.0 as usize];
+        d.footprint = (2, 2);
+        d.bed = None;
+        d.passable = false;
+        d.capacity = 1;
+    }
+    let spot = w.units[0].pos;
+    w.raise(Footprint::new(spot, 2, 2), hall, defs.building(hall));
+    assert_ne!(w.units[0].pos, spot, "the building moved her off its tiles");
+
+    let before = w.units[0].needs.thirst;
+    run_until(&mut w, &defs, 500, |w| w.units[0].needs.thirst > before + 20.0);
+    assert!(w.deaths.is_empty());
+}
+
+/// #563's backstop, and #386's signature: whatever clears the route under a need task, the task
+/// is not held with nothing left to walk. It is let go and planned afresh.
+#[test]
+fn a_need_task_that_loses_its_route_is_planned_again() {
+    let (mut w, defs) = mid_drink();
+    w.units[0].route = None;
+    let before = w.units[0].needs.thirst;
+    run_until(&mut w, &defs, 500, |w| w.units[0].needs.thirst > before + 20.0);
+    assert!(w.deaths.is_empty());
+}
+
 /// #293: `plan_drink` now finds the nearest tile beside water through `Flood::seek`, checking
 /// only the tiles it actually visits instead of scanning the whole map for one. This pins that a
 /// tied walking cost still breaks the same way as a full scan would: by position.

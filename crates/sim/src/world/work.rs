@@ -824,7 +824,7 @@ impl World {
         rules_for(&self.rules, &self.cart_rules, u)
     }
 
-    fn finish_need(&mut self, i: usize) {
+    pub(super) fn finish_need(&mut self, i: usize) {
         // Whatever bed or healing building held the entrance for it (#227, a bed bigger than
         // 1x1; #375, the Healing Hut) is done with, so a unit left inside steps back out: waking
         // normally, reaching `stop_at`, or a hungrier need cutting it short (`run_need`'s
@@ -1302,6 +1302,13 @@ impl World {
                 }
             }
             Task::Drink | Task::Eat(_) | Task::Remedy(_) => {
+                // `consider_needs` always plans these with a route, and `walk` reports arriving
+                // only on one. With none left, something cleared it under the task (#386, #563),
+                // and nothing would ever set it again: let the need go and plan it afresh
+                // rather than hold the task, and the unit, until the meter runs out.
+                if self.units[i].route.is_none() {
+                    return self.finish_need(i);
+                }
                 if self.walk(i, defs) {
                     self.consume(i, task, defs);
                 }
