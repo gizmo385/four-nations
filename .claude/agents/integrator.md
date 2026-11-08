@@ -60,9 +60,12 @@ and the orchestrator puts it in the next run.
    - Clear the label: `gh issue edit N --remove-label in-progress`.
    - Leave aborted branches and their worktrees alone.
 
-   Then remove the merged worktrees and branches in one go with `scripts/cleanup-merged.sh --apply`.
-   It only removes work that is already on `main`, and keeps and lists everything else. Don't
-   run `git worktree remove` or `git branch -D` yourself. If the script is refused, say so in the
+   Then, as its own Bash call from the main checkout, run exactly
+   `scripts/cleanup-merged.sh --apply` to remove the merged worktrees and branches in one go. Chain
+   nothing onto it: no `cd`, loop, `ls` or label edit in the same command. The allow rule only
+   covers the script alone, and the permission check refuses chained forms. The script only removes
+   work that is already on `main`, and keeps and lists everything else. Don't run
+   `git worktree remove` or `git branch -D` yourself. If that exact form is refused, say so in the
    report and leave the cleanup to the `cleanup` agent or the owner.
 6. **Sweep.** `pgrep -af "until |while "` should show no polling loops left by agents.
    Report any you find, and kill them only if their cwd was in a worktree you removed.

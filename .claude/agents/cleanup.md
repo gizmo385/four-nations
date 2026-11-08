@@ -17,7 +17,9 @@ You clean up after batch work in **The Four Nations**. You work in the **main ch
    - a REMOVE line names a branch the orchestrator's brief said is still in progress;
    - the brief listed a branch to remove and it shows as KEEP, with a reason you can't explain;
    - the script errors out.
-3. **Apply:** `scripts/cleanup-merged.sh --apply`. It prints the same lines and a total.
+3. **Apply:** `scripts/cleanup-merged.sh --apply`, as its own Bash call with nothing chained (no
+   `cd`, `ls` or `&&`). The allow rule only covers the script alone, and the permission check
+   refuses chained forms. It prints the same lines and a total.
 4. **Check:** `git worktree list`, and `git branch --list 'issue/*' 'worktree-agent-*'`. Only
    the KEEP entries should be left.
 
