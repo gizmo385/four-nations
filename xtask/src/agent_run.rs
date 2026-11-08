@@ -13,13 +13,14 @@
 //! that execs this.
 //!
 //! Options:
-//!   --seed N           map seed (default 7)
-//!   --nation X         earth, fire, water or air (default earth)
+//!   --seed N           map seed (default: random, 1..=99999)
+//!   --nation X         earth, fire, water or air (default: random)
 //!   --difficulty ID    a data/difficulty.toml preset (default normal)
 //!   --scenario ID      a data/scenarios.toml preset (#481) instead of --seed/--nation/
 //!                      --difficulty, run through its own prelude first -- for testing the
 //!                      midgame or late game without paying an agent to play the opening first.
 //!                      Can't be combined with --seed, --nation or --difficulty.
+//!                      (A scenario fixes its own seed and nation, so nothing is random.)
 //!   --turns N          how many turns the prompt asks for (default 40)
 //!   --turn-secs S      game seconds per end_turn (default: fn_agent's own, 20)
 //!   --pace N           watch pace to start at: 1, 2, 5, 10, 20 or 40 (default 20)
@@ -44,6 +45,13 @@
 //!   --claude-bin PATH  the `claude` binary to run (default: $FN_AGENT_CLAUDE_BIN, else
 //!                      `claude` resolved on PATH) -- tests point this at a stub; the real
 //!                      `claude` CLI is never invoked by a test.
+//!
+//! Seed and nation are random when you don't give them, so casual runs cover more ground (#549):
+//! the picks are printed at start-up, marked "(random)", and land in the run folder's name, the
+//! log header (`fn_agent serve --seed/--nation`) and the OTel attributes. To replay or compare,
+//! pin them: `--seed 7 --nation earth` (the old defaults). The difficulty is never random: it stays
+//! `normal`, the level the balance targets are set on. `agent-run watch` and `--scenario` runs
+//! are unaffected.
 //!
 //! Each run gets its own folder under $FN_AGENT_RUNS (default ~/fn-agent-runs), outside the
 //! repo, so the agent can't read docs/ or data/. The agent gets only fn_agent's tools: that's
@@ -125,6 +133,10 @@ pub fn run(args: &[&str]) -> Result {
         return Err(format!("{} (Claude Code) isn't on PATH", opts.claude_bin));
     }
 
+    if let Some(line) = start_line(&opts) {
+        say(&line);
+    }
+
     cargo_build_release(&repo, &["fn_agent", "fn_tui"])?;
 
     let runs = runs_dir();
@@ -201,15 +213,75 @@ struct Opts {
     claude_bin: String,
 }
 
+/// The nations `--nation` can name, and so the ones a random pick chooses between.
+const NATIONS: [&str; 4] = ["earth", "fire", "water", "air"];
+
+/// Random seeds are 1..=99999: short enough to type back in.
+const MAX_RANDOM_SEED: u64 = 99_999;
+
+/// A source of random numbers, injectable so tests stay deterministic.
+type Entropy<'a> = &'a mut dyn FnMut() -> u64;
+
+/// The real source: std only, no new crate. Hashes the wall clock, the pid and a per-process
+/// counter (so two draws in the same nanosecond still differ). xtask isn't `fn_sim`, so its
+/// determinism rules don't apply here.
+fn system_entropy() -> u64 {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    use std::sync::atomic::AtomicU64;
+    static DRAWS: AtomicU64 = AtomicU64::new(0);
+    let nanos = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or_default();
+    let mut h = DefaultHasher::new();
+    nanos.hash(&mut h);
+    std::process::id().hash(&mut h);
+    DRAWS.fetch_add(1, Ordering::Relaxed).hash(&mut h);
+    h.finish()
+}
+
+fn random_seed(entropy: Entropy) -> u64 {
+    1 + entropy() % MAX_RANDOM_SEED
+}
+
+fn random_nation(entropy: Entropy) -> String {
+    NATIONS[(entropy() % NATIONS.len() as u64) as usize].to_string()
+}
+
+/// The start-up line naming the game's seed and nation, marking each that was picked at random;
+/// `None` for a scenario, which fixes its own.
+fn start_line(o: &Opts) -> Option<String> {
+    if o.scenario.is_some() {
+        return None;
+    }
+    let mark = |given: bool| if given { "" } else { " (random)" };
+    let mut line = format!(
+        "seed {}{}, nation {}{}",
+        o.seed,
+        mark(o.seed_given),
+        o.nation,
+        mark(o.nation_given)
+    );
+    if !(o.seed_given && o.nation_given) {
+        line.push_str(&format!("; pin it with --seed {} --nation {}", o.seed, o.nation));
+    }
+    Some(line)
+}
+
 fn take_value<'a>(args: &[&'a str], i: &mut usize, flag: &str) -> Result<&'a str> {
     *i += 1;
     args.get(*i).copied().ok_or_else(|| format!("{flag} needs a value"))
 }
 
 fn parse_args(args: &[&str]) -> Result<Opts> {
+    parse_args_with(args, &mut system_entropy)
+}
+
+/// `parse_args` with the random source for an unset `--seed`/`--nation` passed in.
+fn parse_args_with(args: &[&str], entropy: Entropy) -> Result<Opts> {
     let mut o = Opts {
-        seed: 7,
-        nation: "earth".to_string(),
+        seed: 0,
+        nation: String::new(),
         difficulty: "normal".to_string(),
         scenario: None,
         turns: 40,
@@ -286,6 +358,16 @@ fn parse_args(args: &[&str]) -> Result<Opts> {
             other => return Err(format!("unknown option {other} (see --help)")),
         }
         i += 1;
+    }
+    // A scenario fixes its own seed and nation, so there's nothing to pick (and the
+    // placeholders are never read).
+    if o.scenario.is_none() {
+        if !o.seed_given {
+            o.seed = random_seed(entropy);
+        }
+        if !o.nation_given {
+            o.nation = random_nation(entropy);
+        }
     }
     Ok(o)
 }
@@ -1300,9 +1382,8 @@ mod tests {
 
     #[test]
     fn defaults_match_the_old_script() {
+        // Everything but the seed and nation (#549: those are random now, see below).
         let o = parse_args(&[]).unwrap();
-        assert_eq!(o.seed, 7);
-        assert_eq!(o.nation, "earth");
         assert_eq!(o.difficulty, "normal");
         assert_eq!(o.turns, 40);
         assert_eq!(o.pace, 20);
@@ -1311,6 +1392,94 @@ mod tests {
         assert!(!o.scripts);
         assert_eq!(o.chunk_turns, 0);
         assert!(o.max_usd.is_none());
+    }
+
+    /// A random source that yields `vals` in order, then zeros.
+    fn fixed<const N: usize>(vals: [u64; N]) -> impl FnMut() -> u64 {
+        let mut it = vals.into_iter();
+        move || it.next().unwrap_or(0)
+    }
+
+    #[test]
+    fn unset_seed_and_nation_are_random_and_marked() {
+        let o = parse_args_with(&[], &mut fixed([48_212, 1])).unwrap();
+        assert_eq!(o.seed, 48_213);
+        assert_eq!(o.nation, "fire");
+        assert!(!o.seed_given && !o.nation_given);
+        assert_eq!(o.difficulty, "normal");
+        let line = start_line(&o).unwrap();
+        assert!(line.starts_with("seed 48213 (random), nation fire (random)"), "{line}");
+        assert!(line.contains("--seed 48213 --nation fire"), "{line}");
+    }
+
+    #[test]
+    fn random_picks_cover_the_range_and_all_four_nations() {
+        // The ends of the seed range, and each nation index.
+        assert_eq!(random_seed(&mut fixed([0])), 1);
+        assert_eq!(random_seed(&mut fixed([MAX_RANDOM_SEED - 1])), MAX_RANDOM_SEED);
+        assert_eq!(random_seed(&mut fixed([MAX_RANDOM_SEED])), 1);
+        let nations: Vec<String> = (0..4).map(|i| random_nation(&mut fixed([i]))).collect();
+        assert_eq!(nations, ["earth", "fire", "water", "air"]);
+    }
+
+    #[test]
+    fn explicit_seed_and_nation_win_and_draw_nothing() {
+        let mut draws = 0;
+        let mut counting = || {
+            draws += 1;
+            5
+        };
+        let o = parse_args_with(&["--seed", "7", "--nation", "earth"], &mut counting).unwrap();
+        assert_eq!((o.seed, o.nation.as_str()), (7, "earth"));
+        assert_eq!(draws, 0);
+        assert_eq!(start_line(&o).unwrap(), "seed 7, nation earth");
+        // One given, one random.
+        let o = parse_args_with(&["--nation", "air"], &mut fixed([9])).unwrap();
+        assert_eq!((o.seed, o.nation.as_str()), (10, "air"));
+        assert_eq!(
+            start_line(&o).unwrap().split(';').next().unwrap(),
+            "seed 10 (random), nation air"
+        );
+    }
+
+    #[test]
+    fn scenario_runs_pick_nothing_at_random() {
+        let mut draws = 0;
+        let mut counting = || {
+            draws += 1;
+            5
+        };
+        let o = parse_args_with(&["--scenario", "earth-year-two"], &mut counting).unwrap();
+        assert_eq!(draws, 0);
+        assert!(validate(&o).is_ok());
+        assert!(start_line(&o).is_none());
+    }
+
+    #[test]
+    fn random_picks_reach_the_run_folder_serve_args_and_otel_attributes() {
+        let o = parse_args_with(&["--difficulty", "hard"], &mut fixed([48_212, 1])).unwrap();
+        let runs = std::env::temp_dir().join(format!("fn-agent-run-549-{}", std::process::id()));
+        let dir = make_run_dir(&runs, &o).unwrap();
+        let name = dir.file_name().unwrap().to_str().unwrap().to_string();
+        assert!(name.ends_with("-fire-48213-hard"), "{name}");
+        let _ = fs::remove_dir_all(&runs);
+
+        let serve = serve_args(&o, Path::new("/x/run.jsonl"));
+        let pair = |flag: &str| {
+            let at = serve.iter().position(|a| a == flag).unwrap();
+            serve[at + 1].clone()
+        };
+        assert_eq!(pair("--seed"), "48213");
+        assert_eq!(pair("--nation"), "fire");
+
+        let attrs = otel_attrs(&o, &dir, "interactive", None);
+        assert!(attrs.contains("four_nations.seed=48213,four_nations.nation=fire"), "{attrs}");
+    }
+
+    #[test]
+    fn system_entropy_varies_between_draws() {
+        let draws: std::collections::HashSet<u64> = (0..16).map(|_| system_entropy()).collect();
+        assert!(draws.len() > 1);
     }
 
     #[test]
