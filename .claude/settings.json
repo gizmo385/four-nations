@@ -4,6 +4,7 @@
       "Bash(gh pr merge *)",
       "Bash(gh pr update-branch *)",
       "Bash(gh pr checks *)",
+      "Bash(gh issue edit *)",
       "Bash(scripts/cleanup-merged.sh)",
       "Bash(scripts/cleanup-merged.sh *)"
     ]
