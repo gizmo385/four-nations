@@ -390,6 +390,19 @@ what `fn_agent score LOG --horizon TURNS --json` prints for that log, built by r
 the scorecard costs about as much CPU again as the run. The exit is nonzero only when
 `stopped_by` is set.
 
+As built (#561): the model hears about stops two ways. The ledger text in the attempt prompt marks
+a stopped clean run with `*` and adds one line per attempt (reason, how many train seeds, the turn
+range, the first one's `why`), and says that a stopped run coasts, so an early stop costs most of
+the score; held-out seeds never appear in it. And during an attempt `fn_agent serve --trial-seeds
+LIST --trial-turns N` offers `test_governor`: the saved governor and the current plan played from
+turn 0 on a train seed (the play seed by default), for up to the horizon, in a world of its own
+built from the live game's header with the seed swapped. It scores the way `play --horizon` does,
+so the stop reason, turn and score are the clean evaluation's own. The live game, its log and its
+replay are untouched (the only trace is the `call` line). The result is one short JSON object. It
+is bounded to 6 calls per attempt, counted from the log's `call` lines so chunked sessions share
+the count; a full 540-turn test took 4 s to 9 s in the release build. The harness hands over the
+track's train seeds only.
+
 **The attempt loop** (`cargo xtask agent-run --track water-3h --attempts 5`):
 
 1. **Attempt 1** is a normal `--scripts` run on `play_seed` to the horizon, with the governor and

@@ -39,14 +39,20 @@ const GOVERNOR: &str = "governor";
 // The ledger and the champion, as files
 // -------------------------------------------------------------------------------------------
 
-/// One seed's clean score. `stopped` is why the script stopped giving orders, if it did (the
-/// score is still read at the horizon).
+/// One seed's clean score. `stopped` is the reason the script stopped giving orders, if it did
+/// (the score is still read at the horizon); `stopped_turn` and `stopped_why` say when and why
+/// (#561). A ledger written before #561 has only `stopped`, and reads back with the other two
+/// empty.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct SeedScore {
     seed: u64,
     score: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     stopped: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stopped_turn: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stopped_why: Option<String>,
 }
 
 /// An attempt's ledger row.
@@ -222,7 +228,48 @@ fn scores_cell(scores: &[SeedScore]) -> String {
     if scores.is_empty() {
         return "-".to_owned();
     }
-    scores.iter().map(|s| format!("{:.0}", s.score)).collect::<Vec<_>>().join(" / ")
+    // A `*` marks a clean run whose script was stopped: its score is a coast, not a strategy.
+    let cell =
+        |s: &SeedScore| format!("{:.0}{}", s.score, if s.stopped.is_some() { "*" } else { "" });
+    scores.iter().map(cell).collect::<Vec<_>>().join(" / ")
+}
+
+/// The longest a stop's `why` runs in a ledger line.
+const WHY_MAX: usize = 100;
+
+/// One short line per attempt whose clean runs on the train seeds were stopped (#561): the
+/// reason(s), how many seeds, the turn range, and the first one's `why`. Reads `clean` only, so
+/// no held-out seed's stop can reach a line (the prompt's ledger text is built from these).
+fn stop_lines(rows: &[Row]) -> Vec<String> {
+    let mut lines = Vec::new();
+    for r in rows {
+        let stopped: Vec<&SeedScore> = r.clean.iter().filter(|s| s.stopped.is_some()).collect();
+        let Some(first) = stopped.first() else { continue };
+        let mut reasons: Vec<&str> = stopped.iter().filter_map(|s| s.stopped.as_deref()).collect();
+        reasons.sort_unstable();
+        reasons.dedup();
+        let turns: Vec<u32> = stopped.iter().filter_map(|s| s.stopped_turn).collect();
+        let at = match (turns.iter().min(), turns.iter().max()) {
+            (Some(lo), Some(hi)) if lo == hi => format!(" at turn {lo}"),
+            (Some(lo), Some(hi)) => format!(" at turns {lo}-{hi}"),
+            _ => String::new(),
+        };
+        let why = first.stopped_why.as_deref().map(|w| {
+            let w = w.split_whitespace().collect::<Vec<_>>().join(" ");
+            let cut: String = w.chars().take(WHY_MAX).collect();
+            let dots = if w.chars().count() > WHY_MAX { "..." } else { "" };
+            format!("; first (seed {}): \"{cut}{dots}\"", first.seed)
+        });
+        lines.push(format!(
+            "attempt {}: {} stopped {} of {} clean runs{at}{}",
+            r.attempt,
+            reasons.join("/"),
+            stopped.len(),
+            r.clean.len(),
+            why.unwrap_or_default(),
+        ));
+    }
+    lines
 }
 
 /// The ledger as a table. With `owner` it has the held-out columns and each attempt's cost; the
@@ -285,9 +332,36 @@ fn ledger_text(ledger: &Ledger, owner: bool) -> String {
             .collect();
         let _ = writeln!(out, " {}", line.join("  ").trim_end());
     }
+    let any_stop = ledger
+        .rows
+        .iter()
+        .flat_map(|r| r.clean.iter().chain(&r.held_out))
+        .any(|s| s.stopped.is_some());
+    if any_stop {
+        let _ = writeln!(
+            out,
+            " * the governor stopped (an error or a runaway) and the colony coasted with no \
+             orders from that turn on"
+        );
+    }
+    for line in stop_lines(&ledger.rows) {
+        let _ = writeln!(out, " {line}");
+    }
     out
 }
 
+/// What every attempt's prompt says about the clean run and `test_governor` (#561).
+fn clean_run_rules() -> &'static str {
+    "How the clean run ends matters. If the governor stops (an error, or a runaway: too many \
+     operations with no wait), it stays stopped: from that turn the colony coasts to the end \
+     with no orders at all, so a stop early in the run costs most of the score. `test_governor` \
+     plays your saved governor and the current plan from turn 0 on one of the evaluation maps, \
+     on a separate copy of the world (this game is not touched), and tells you the stop reason, \
+     turn and score the clean run will get. It takes a few seconds to half a minute and the number of \
+     tests per attempt is limited. Run it on the final governor before you finish, most of all \
+     after a change: a governor that has only run on this built-up settlement can fail from an \
+     empty start."
+}
 // -------------------------------------------------------------------------------------------
 // The attempt's prompt
 // -------------------------------------------------------------------------------------------
@@ -315,8 +389,9 @@ fn attempt_prompt(
          no one at the keys, on several different maps, and the scores are averaged. A governor \
          that only works on the map you can see scores badly there, so improve the governor and \
          the plan, not just this settlement.\n\n\
-         The ledger so far (clean scores per map; the mean is what has to go up):\n{ledger}\n\
-         The best strategy's scorecard on your map:\n{scorecard}\n\
+         The ledger so far (clean scores per map, `*` for a stopped governor; the mean is what \
+         has to go up):\n{ledger}\n\
+         The best strategy's scorecard on your map:\n{scorecard}\n\n{rules}\n\n\
          Your one job this attempt: raise the clean score by improving the governor and the \
          plan. The governor is already loaded, so run it from the start instead of building one \
          up. Watch what surprises it and fix that in the plan or the governor, and save the \
@@ -329,6 +404,7 @@ fn attempt_prompt(
         best = champion.attempt,
         ledger = ledger_text(ledger, false),
         scorecard = scorecard.trim_end(),
+        rules = clean_run_rules(),
         base = default_script_prompt(total, calls),
     )
 }
@@ -492,7 +568,12 @@ impl Campaign<'_> {
                     self.opts.chunk_calls,
                 ))
             }
-            None => None,
+            // No champion yet: the plain scripted prompt, with what a clean run is up against.
+            None => Some(format!(
+                "{}\n\n{}",
+                clean_run_rules(),
+                default_script_prompt(track.horizon_turns, self.opts.chunk_calls)
+            )),
         };
         let o = attempt_opts(
             self.opts,
@@ -620,6 +701,8 @@ fn attempt_opts(
     o.prelude = track.prelude.as_ref().map(|p| format!("{}:{}", p.opening, p.minutes));
     o.carry_in = carry_in;
     o.first_prompt = first_prompt;
+    // The train seeds only: a held-out seed never reaches the model's side of the harness.
+    o.trial = Some((track.train_seeds.clone(), track.horizon_turns));
     o
 }
 
@@ -632,6 +715,8 @@ fn seed_scores(table: &Table, role: Role) -> Vec<SeedScore> {
             seed: r.seed,
             score: r.score,
             stopped: r.stopped.as_ref().map(|s| s.reason.clone()),
+            stopped_turn: r.stopped.as_ref().map(|s| u32::try_from(s.turn).unwrap_or(u32::MAX)),
+            stopped_why: r.stopped.as_ref().and_then(|s| s.why.clone()),
         })
         .collect()
 }
@@ -693,7 +778,15 @@ mod tests {
     }
 
     fn seeds(xs: &[(u64, f64)]) -> Vec<SeedScore> {
-        xs.iter().map(|&(seed, score)| SeedScore { seed, score, stopped: None }).collect()
+        xs.iter()
+            .map(|&(seed, score)| SeedScore {
+                seed,
+                score,
+                stopped: None,
+                stopped_turn: None,
+                stopped_why: None,
+            })
+            .collect()
     }
 
     fn ledger() -> Ledger {
@@ -765,6 +858,119 @@ mod tests {
         for needle in ["7771", "7772", "held-out"] {
             assert!(!p.contains(needle), "{needle:?} in\n{p}");
         }
+    }
+
+    fn stopped(seed: u64, score: f64, reason: &str, turn: u32, why: Option<&str>) -> SeedScore {
+        SeedScore {
+            seed,
+            score,
+            stopped: Some(reason.to_owned()),
+            stopped_turn: Some(turn),
+            stopped_why: why.map(str::to_owned),
+        }
+    }
+
+    /// A ledger whose attempt 1 had both train runs stopped and both held-out runs stopped for a
+    /// reason, turn and why that appear nowhere else.
+    fn stopped_ledger() -> Ledger {
+        let mut l = ledger();
+        l.rows[0].clean = vec![
+            stopped(1, 101.0, "runaway", 171, Some("a loop with no wait?")),
+            stopped(2, 51.0, "runaway", 195, None),
+        ];
+        l.rows[0].held_out = vec![
+            stopped(3, 77.0, "error", 4242, Some("HELDOUT_WHY secret")),
+            stopped(4, 78.0, "error", 4243, Some("HELDOUT_WHY secret")),
+        ];
+        l
+    }
+
+    #[test]
+    fn the_ledger_text_says_why_clean_runs_stopped_in_one_line_per_attempt() {
+        let t = ledger_text(&stopped_ledger(), false);
+        assert!(t.contains("101* / 51*"), "{t}");
+        assert!(t.contains("coasted with no orders"), "{t}");
+        let line = t.lines().find(|l| l.contains("attempt 1: ")).expect(&t);
+        assert_eq!(
+            line.trim(),
+            "attempt 1: runaway stopped 2 of 2 clean runs at turns 171-195; first (seed 1): \
+             \"a loop with no wait?\""
+        );
+        assert_eq!(t.lines().filter(|l| l.contains("attempt ")).count(), 1, "{t}");
+        // An attempt whose runs were not stopped has no line, and no star.
+        assert!(!ledger_text(&ledger(), false).contains('*'));
+    }
+
+    #[test]
+    fn a_stop_line_handles_one_turn_mixed_reasons_long_whys_and_old_ledgers() {
+        let mut row = ledger().rows.remove(0);
+        row.clean = vec![
+            stopped(1, 1.0, "error", 1, Some(&format!("line one\n{}", "x".repeat(300)))),
+            stopped(2, 1.0, "runaway", 1, None),
+        ];
+        let line = stop_lines(&[row.clone()]).remove(0);
+        assert!(
+            line.contains("error/runaway stopped 2 of 2") && line.contains("at turn 1;"),
+            "{line}"
+        );
+        assert!(line.contains("line one xxx") && line.ends_with("...\""), "{line}");
+        assert!(line.chars().count() < 220, "{line}");
+        // Written before #561: the reason only.
+        let old: SeedScore =
+            serde_json::from_str(r#"{"seed": 7, "score": 10.5, "stopped": "runaway"}"#).unwrap();
+        assert_eq!((old.stopped_turn, old.stopped_why.clone()), (None, None));
+        row.clean = vec![old];
+        assert_eq!(stop_lines(&[row]), ["attempt 1: runaway stopped 1 of 1 clean runs"]);
+        // And a score with no stop at all still reads.
+        let bare: SeedScore = serde_json::from_str(r#"{"seed": 7, "score": 10.5}"#).unwrap();
+        assert!(bare.stopped.is_none());
+    }
+
+    #[test]
+    fn the_stop_details_round_trip_through_the_ledger_file() {
+        let l = stopped_ledger();
+        let text = serde_json::to_string(&l).unwrap();
+        assert!(text.contains("\"stopped_turn\":171"));
+        assert_eq!(serde_json::from_str::<Ledger>(&text).unwrap(), l);
+    }
+
+    /// A held-out seed's stop reason, turn and why never reach the prompt; the owner's table marks
+    /// the stop but gives no held-out detail either.
+    #[test]
+    fn held_out_stops_never_reach_the_prompt() {
+        let l = stopped_ledger();
+        let c =
+            Champion { attempt: 1, train_mean: 76.0, governor_version: Some(9), plan_revision: 6 };
+        let p = attempt_prompt(&l, 3, &c, "card\n", 5, 30);
+        for needle in ["HELDOUT_WHY", "4242", "4243", "error stopped", "78", "77"] {
+            assert!(!p.contains(needle), "{needle:?} in\n{p}");
+        }
+        assert!(p.contains("runaway stopped 2 of 2 clean runs at turns 171-195"), "{p}");
+        // The owner's table marks held-out stops with a star too.
+        let owner = ledger_text(&l, true);
+        assert!(owner.contains("77* / 78*") && owner.contains("101* / 51*"), "{owner}");
+        assert!(!owner.contains("HELDOUT_WHY"), "{owner}");
+    }
+
+    #[test]
+    fn the_prompt_says_a_stopped_clean_run_coasts_and_names_the_test_tool() {
+        let c =
+            Champion { attempt: 1, train_mean: 76.0, governor_version: Some(9), plan_revision: 6 };
+        let p = attempt_prompt(&ledger(), 3, &c, "card\n", 5, 30);
+        assert!(p.contains("coasts to the end with no orders at all"), "{p}");
+        assert!(p.contains("costs most of the score") && p.contains("test_governor"), "{p}");
+        assert!(p.contains("from turn 0") && p.contains("this game is not touched"), "{p}");
+    }
+
+    #[test]
+    fn attempt_options_hand_the_tool_the_train_seeds_and_nothing_else() {
+        let t = track();
+        let base = parse_args_with(&["--chunk-calls", "7"], &mut || 1).unwrap();
+        let o = attempt_opts(&base, &t, None, None, None);
+        assert_eq!(o.trial, Some((vec![1, 2], 5)));
+        let args = serve_args(&o, Path::new("/a/run.jsonl")).join(" ");
+        assert!(args.contains("--trial-seeds 1,2 --trial-turns 5"), "{args}");
+        assert!(!args.contains('3') && !args.contains('4'), "{args}");
     }
 
     #[test]

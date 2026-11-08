@@ -243,6 +243,9 @@ struct Opts {
     prelude: Option<String>,
     carry_in: Option<PathBuf>,
     first_prompt: Option<String>,
+    /// The track's train seeds and horizon (#561): `fn_agent serve --trial-seeds/--trial-turns`,
+    /// which turns on the `test_governor` tool. Never a held-out seed.
+    trial: Option<(Vec<u64>, u32)>,
 }
 
 /// The nations `--nation` can name, and so the ones a random pick chooses between.
@@ -341,6 +344,7 @@ fn parse_args_with(args: &[&str], entropy: Entropy) -> Result<Opts> {
         prelude: None,
         carry_in: None,
         first_prompt: None,
+        trial: None,
     };
 
     let mut i = 0;
@@ -1290,7 +1294,26 @@ fn serve_args(o: &Opts, log: &Path) -> Vec<String> {
         args.push("--carry-in".to_string());
         args.push(carry_in.display().to_string());
     }
+    args.extend(trial_args(o));
     args
+}
+
+/// `--trial-seeds LIST --trial-turns N` for a run that offers `test_governor` (#561), else
+/// nothing. A resumed chunk needs them again: `serve --resume` rebuilds the game from the log's
+/// header but not the tool.
+fn trial_args(o: &Opts) -> Vec<String> {
+    match &o.trial {
+        Some((seeds, turns)) if o.scripts => {
+            let seeds: Vec<String> = seeds.iter().map(u64::to_string).collect();
+            vec![
+                "--trial-seeds".to_string(),
+                seeds.join(","),
+                "--trial-turns".to_string(),
+                turns.to_string(),
+            ]
+        }
+        _ => Vec::new(),
+    }
 }
 
 fn resume_args(log: &Path, with_scripts: bool) -> Vec<String> {
@@ -1937,7 +1960,9 @@ fn run_scripts_chunked(
         if n == 1 {
             write_mcp_config(&mcp_config, agent_bin, &serve_args(o, &log))?;
         } else {
-            write_mcp_config(&mcp_config, agent_bin, &resume_args(&log, true))?;
+            let mut args = resume_args(&log, true);
+            args.extend(trial_args(o));
+            write_mcp_config(&mcp_config, agent_bin, &args)?;
         }
 
         let this_prompt = if let Some(p) = &o.prompt {

@@ -22,6 +22,7 @@ use serde_json::{Value, json};
 
 use crate::runlog::Writer;
 use crate::script::{self, Library, Limits as ScriptLimits};
+use crate::trial::{self, Trial};
 
 /// Every tool's name, description and input schema, in the order `tools/list` returns them.
 pub fn list() -> Vec<Value> {
@@ -414,6 +415,12 @@ fn call_summary(tool: &str, arguments: &Value) -> String {
             }
         }
         "end_turn" => get_u64("turns").unwrap_or(1).max(1).to_string(),
+        "test_governor" => match (get_u64("seed"), get_u64("turns")) {
+            (Some(seed), Some(turns)) => format!("seed {seed} {turns}t"),
+            (Some(seed), None) => format!("seed {seed}"),
+            (None, Some(turns)) => format!("{turns}t"),
+            (None, None) => String::new(),
+        },
         "screen" => get_str("name").unwrap_or_default().to_owned(),
         "frame" => {
             let (default_w, default_h) = fn_tui::cli::DEFAULT_SIZE;
@@ -507,6 +514,12 @@ struct ScriptsArgs {
 }
 
 #[derive(Deserialize, Default)]
+struct TestGovernorArgs {
+    seed: Option<u64>,
+    turns: Option<u32>,
+}
+
+#[derive(Deserialize, Default)]
 struct NotesArgs {
     append: Option<String>,
 }
@@ -539,6 +552,12 @@ pub struct Tools<W: std::io::Write> {
     /// The `plan` tool's map (#524): always a JSON object, `{}` for a fresh session, the latest
     /// `Plan` log line's for a resumed one.
     plan: Value,
+    /// `Some` once [`Self::with_trial`] has turned `test_governor` on (#561): the train seeds and
+    /// horizon a test may use.
+    trial: Option<Trial>,
+    /// How many `test_governor` calls this attempt has made, rejected ones included: the log's
+    /// own `call` lines when resumed, so a chunked attempt shares one count.
+    trial_calls: u32,
 }
 
 impl<W: std::io::Write> Tools<W> {
@@ -555,6 +574,8 @@ impl<W: std::io::Write> Tools<W> {
             memory: json!({}),
             notes: Vec::new(),
             plan: json!({}),
+            trial: None,
+            trial_calls: 0,
         })
     }
 
@@ -569,7 +590,22 @@ impl<W: std::io::Write> Tools<W> {
     pub fn resume(host: Host, log: Writer<W>, lines: &[LogLine]) -> Self {
         let written = host.log().lines().len();
         let (library, memory, notes, plan) = rebuild_session(lines);
-        Self { host, log, written, scripts: None, library, memory, notes, plan }
+        let trial_calls = lines
+            .iter()
+            .filter(|l| matches!(l, LogLine::Call { tool, .. } if tool == trial::TOOL))
+            .count() as u32;
+        Self {
+            host,
+            log,
+            written,
+            scripts: None,
+            library,
+            memory,
+            notes,
+            plan,
+            trial: None,
+            trial_calls,
+        }
     }
 
     /// Preloads a fresh session with the handoff JSON `handoff` (`fn_agent serve --carry-in`,
@@ -597,8 +633,16 @@ impl<W: std::io::Write> Tools<W> {
         self
     }
 
+    /// Turns `test_governor` on (`fn_agent serve --trial-seeds`, #561): a clean test of the
+    /// current governor and plan on one of `trial`'s train seeds. Needs [`Self::with_scripts`].
+    pub fn with_trial(mut self, trial: Trial) -> Self {
+        self.trial = Some(trial);
+        self
+    }
+
     /// This session's own tool list: [`list`], plus `run_script`, `save_script`, `scripts`,
-    /// `notes` and `sdk_reference` once [`Self::with_scripts`] has turned them on.
+    /// `notes` and `sdk_reference` once [`Self::with_scripts`] has turned them on, and
+    /// `test_governor` once [`Self::with_trial`] has.
     pub fn list(&self) -> Vec<Value> {
         let mut tools = list();
         if self.scripts.is_some() {
@@ -608,6 +652,9 @@ impl<W: std::io::Write> Tools<W> {
             tools.push(notes_tool());
             tools.push(plan_tool());
             tools.push(sdk_reference_tool());
+            if let Some(t) = &self.trial {
+                tools.push(trial::tool(t));
+            }
         }
         tools
     }
@@ -742,6 +789,7 @@ impl<W: std::io::Write> Tools<W> {
                 }
                 Ok(json!({"plan": self.plan}))
             }
+            "test_governor" => self.test_governor(arguments),
             "notes" => {
                 self.require_scripts(name)?;
                 let a: NotesArgs = args(name, arguments).unwrap_or_default();
@@ -842,6 +890,49 @@ impl<W: std::io::Write> Tools<W> {
             .map_err(|e| e.to_string())?;
 
         Ok(ok(&outcome))
+    }
+
+    /// `test_governor` (#561, [`crate::trial`]): the saved `governor` and the plan as they are
+    /// now, played from turn 0 on a world of their own. Reads `self.library`, `self.plan` and the
+    /// live game's header, and writes nothing back to any of them.
+    fn test_governor(&mut self, arguments: Value) -> Result<Value, String> {
+        let limits = self.require_scripts(trial::TOOL)?.clone();
+        let Some(t) = self.trial.clone() else {
+            return Err(format!("{}: this session has no evaluation maps to test on", trial::TOOL));
+        };
+        self.trial_calls += 1;
+        let a: TestGovernorArgs = args(trial::TOOL, arguments)?;
+        if self.trial_calls > trial::MAX_RUNS {
+            return Err(format!(
+                "{}: all {} tests for this attempt are used",
+                trial::TOOL,
+                trial::MAX_RUNS
+            ));
+        }
+        let seed = a.seed.unwrap_or_else(|| {
+            let live = self.host.log().seed;
+            if t.seeds.contains(&live) { live } else { t.seeds[0] }
+        });
+        if !t.seeds.contains(&seed) {
+            let maps: Vec<String> = t.seeds.iter().map(u64::to_string).collect();
+            return Err(format!(
+                "{}: seed {seed} isn't an evaluation map (they are {})",
+                trial::TOOL,
+                maps.join(", ")
+            ));
+        }
+        let turns = a.turns.unwrap_or(t.turns).clamp(1, t.turns);
+        let Some((code, _)) = self.library.get(crate::scorecard::GOVERNOR) else {
+            return Err(format!(
+                "{}: no script named \"{}\" is saved; save_script one first",
+                trial::TOOL,
+                crate::scorecard::GOVERNOR
+            ));
+        };
+        let code = code.to_owned();
+        let header = self.host.header();
+        let verdict = trial::run(&header, seed, &code, &self.plan, turns, &limits)?;
+        Ok(verdict.json(trial::MAX_RUNS - self.trial_calls))
     }
 
     /// Everything `briefing` returns except the goal text, the limit and calls left, which

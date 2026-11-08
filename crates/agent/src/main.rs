@@ -10,6 +10,7 @@ use fn_agent::scorecard;
 use fn_agent::script::{self, Limits as ScriptLimits};
 use fn_agent::server;
 use fn_agent::tools::Tools;
+use fn_agent::trial::Trial;
 use fn_tui::surface::{
     DEFAULT_TURN_SECONDS, EventKind, Host, LogLine, Prelude, PreludeOpening, RunLogHeader,
 };
@@ -20,10 +21,11 @@ use signal_hook::iterator::Signals;
 const USAGE: &str = "\
 usage: fn_agent serve --seed N --nation X [--start default|X,Y] [--difficulty ID]
                        [--map-size ID] [--prelude OPENING:MINUTES] [--turn SECS] [--scripts]
-                       [--carry-in FILE] --log PATH
+                       [--carry-in FILE] [--trial-seeds LIST --trial-turns N] --log PATH
        fn_agent serve --scenario ID [--turn SECS] [--scripts] --log PATH
        fn_agent serve --resume LOG [--seed N] [--nation X] [--start default|X,Y]
                        [--difficulty ID] [--turn SECS] [--scripts]
+                       [--trial-seeds LIST --trial-turns N]
        fn_agent play --script FILE [--scenario ID | --seed N --nation X
                       [--start default|X,Y] [--difficulty ID]] --turns N [--turn SECS]
                       [--wake-on LIST] [--plan FILE] --log PATH
@@ -54,6 +56,12 @@ plan, as `cargo xtask agent-run --carry` writes), written to the log as script, 
 lines before the first call, so the library, lab notes and plan are in place with no retyping.
 --map-size and --prelude take what `play` takes, so a track's start can be played as well as
 evaluated. None of the three combine with --resume or --scenario.
+
+--trial-seeds LIST --trial-turns N (#561; needs --scripts, and works with --resume) adds the
+test_governor tool: a clean test of the saved governor and the plan from turn 0, on a copy of the
+world of its own, on one of the LIST seeds (comma-separated; the harness passes a track's train
+seeds and nothing else) for up to N turns. It reports the stop reason, turn and score the clean
+evaluation (play --horizon) would, and is limited to a few calls per attempt.
 
 --scripts (docs/design/agent-scripting.md) adds the run_script tool: a sandboxed Rhai runner
 over the same Host, with limits from data/agent.toml's [scripts] table. Works with --scenario
@@ -131,6 +139,10 @@ struct ServeArgs {
     log: Option<String>,
     resume: Option<String>,
     scripts: bool,
+    /// `--trial-seeds LIST` and `--trial-turns N` (#561): `test_governor`'s train seeds and
+    /// horizon; given together or not at all.
+    trial_seeds: Option<Vec<u64>>,
+    trial_turns: Option<u32>,
 }
 
 fn parse_serve_args(args: Vec<String>) -> Result<ServeArgs, String> {
@@ -148,6 +160,8 @@ fn parse_serve_args(args: Vec<String>) -> Result<ServeArgs, String> {
         log: None,
         resume: None,
         scripts: false,
+        trial_seeds: None,
+        trial_turns: None,
     };
     let mut it = args.into_iter();
     while let Some(flag) = it.next() {
@@ -172,8 +186,29 @@ fn parse_serve_args(args: Vec<String>) -> Result<ServeArgs, String> {
             "--log" => a.log = Some(value()?),
             "--resume" => a.resume = Some(value()?),
             "--scripts" => a.scripts = true,
+            "--trial-seeds" => {
+                let v = value()?;
+                let seeds: Result<Vec<u64>, _> = v.split(',').map(|s| s.trim().parse()).collect();
+                a.trial_seeds =
+                    Some(seeds.map_err(|e| {
+                        format!("--trial-seeds wants seeds like 7,42, got {v:?}: {e}")
+                    })?);
+            }
+            "--trial-turns" => {
+                a.trial_turns = Some(
+                    value()?
+                        .parse::<u32>()
+                        .map_err(|e| format!("--trial-turns wants a turn count: {e}"))?,
+                );
+            }
             other => return Err(format!("unknown flag {other:?}")),
         }
+    }
+    if a.trial_seeds.is_some() != a.trial_turns.is_some() {
+        return Err("--trial-seeds and --trial-turns go together".to_owned());
+    }
+    if a.trial_seeds.is_some() && !a.scripts {
+        return Err("--trial-seeds needs --scripts: it tests the saved governor".to_owned());
     }
     if a.scenario.is_some()
         && (a.seed.is_some()
@@ -244,7 +279,7 @@ fn serve_fresh(a: &ServeArgs) -> Result<(), String> {
     };
     let host = host.with_turn_seconds(a.turn_seconds.unwrap_or(DEFAULT_TURN_SECONDS));
     let writer = Writer::create(Path::new(log)).map_err(|e| e.to_string())?;
-    let mut tools = with_scripts(Tools::new(host, writer)?, a);
+    let mut tools = with_scripts(Tools::new(host, writer)?, a)?;
     if let Some(path) = &a.carry_in {
         let handoff = std::fs::read_to_string(path)
             .map_err(|e| format!("can't read --carry-in {path:?}: {e}"))?;
@@ -254,9 +289,16 @@ fn serve_fresh(a: &ServeArgs) -> Result<(), String> {
 }
 
 /// Turns `run_script` on when `--scripts` was given (`Tools::with_scripts`), with the limits
-/// `data/agent.toml` ships.
-fn with_scripts<W: Write>(tools: Tools<W>, a: &ServeArgs) -> Tools<W> {
-    if a.scripts { tools.with_scripts(ScriptLimits::bundled()) } else { tools }
+/// `data/agent.toml` ships, and `test_governor` with it when `--trial-seeds` was (#561).
+fn with_scripts<W: Write>(tools: Tools<W>, a: &ServeArgs) -> Result<Tools<W>, String> {
+    if !a.scripts {
+        return Ok(tools);
+    }
+    let tools = tools.with_scripts(ScriptLimits::bundled());
+    match (&a.trial_seeds, a.trial_turns) {
+        (Some(seeds), Some(turns)) => Ok(tools.with_trial(Trial::new(seeds.clone(), turns)?)),
+        _ => Ok(tools),
+    }
 }
 
 /// `--resume LOG`: rebuilds `LOG`'s own session (`Host::resume`) from its header and lines,
@@ -279,7 +321,7 @@ fn serve_resume(a: &ServeArgs, path: &str) -> Result<(), String> {
     check_resume_args(&header, a)?;
     let host = Host::resume(&header, &lines)?;
     let writer = Writer::append(Path::new(path)).map_err(|e| e.to_string())?;
-    let tools = with_scripts(Tools::resume(host, writer, &lines), a);
+    let tools = with_scripts(Tools::resume(host, writer, &lines), a)?;
     run_tools(tools, Path::new(path))
 }
 
@@ -821,11 +863,36 @@ mod tests {
             log: None,
             resume: Some(path.to_owned()),
             scripts: false,
+            trial_seeds: None,
+            trial_turns: None,
         }
     }
 
     fn serve_flags(args: &[&str]) -> Result<ServeArgs, String> {
         parse_serve_args(args.iter().map(|s| (*s).to_owned()).collect())
+    }
+
+    /// `--trial-seeds` and `--trial-turns` (#561) come as a pair, need `--scripts`, and work on a
+    /// fresh session and a resumed one alike (a chunked attempt keeps the tool).
+    #[test]
+    fn trial_flags_come_as_a_pair_with_scripts() {
+        let a = serve_flags(&[
+            "--resume",
+            "r.jsonl",
+            "--scripts",
+            "--trial-seeds",
+            "7633, 7,42",
+            "--trial-turns",
+            "540",
+        ])
+        .unwrap();
+        assert_eq!((a.trial_seeds, a.trial_turns), (Some(vec![7633, 7, 42]), Some(540)));
+        let lone = serve_flags(&["--scripts", "--trial-seeds", "7"]).unwrap_err();
+        assert!(lone.contains("go together"), "{lone}");
+        let no_scripts = serve_flags(&["--trial-seeds", "7", "--trial-turns", "5"]).unwrap_err();
+        assert!(no_scripts.contains("--scripts"), "{no_scripts}");
+        let bad = serve_flags(&["--scripts", "--trial-seeds", "7,x", "--trial-turns", "5"]);
+        assert!(bad.unwrap_err().contains("--trial-seeds"));
     }
 
     /// `--carry-in`, `--map-size` and `--prelude` (#530) belong to a fresh session: `--carry-in`

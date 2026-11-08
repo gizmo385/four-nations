@@ -62,7 +62,7 @@ if [ -n "$log" ]; then
   printf '{"type":"note","text":"lab note from attempt %s, call %d"}\n' "$attempt" "$next" >> "$log"
   if [ -z "$STUB_NO_GOVERNOR" ]; then
     score=$(echo "$STUB_SCORES" | cut -d, -f"$attempt")
-    printf '{"type":"script","name":"governor","version":%d,"code":"// SCORE=%s","turns":0,"wake_on":[]}\n' "$next" "$score" >> "$log"
+    printf '{"type":"script","name":"governor","version":%d,"code":"// SCORE=%s%s","turns":0,"wake_on":[]}\n' "$next" "$score" "${STUB_STOP:+ STOP=$STUB_STOP}" >> "$log"
     printf '{"type":"plan","plan":{"goal":"attempt %s","call":%d}}\n' "$attempt" "$next" >> "$log"
   fi
 fi
@@ -114,7 +114,19 @@ play)
   done
   s=$(grep -o 'SCORE=[0-9]*' "$script" | tail -1 | cut -d= -f2)
   echo "SCORE=$s seed $seed" > "$logf"
-  printf '{"scorecard":{"score":%d.0,"progress":0.5,"care":0.9},"stopped_by":null}\n' "$(( ${s:-0} + seed ))"
+  # `STOP=reason:turn` in the governor: the script is stopped on every seed, and the held-out
+  # seed reports a different reason, turn and why that must never reach a prompt.
+  stop=$(grep -o 'STOP=[a-z]*:[0-9]*' "$script" | tail -1 | cut -d= -f2)
+  by=null
+  if [ -n "$stop" ]; then
+    if [ "$seed" = 9001 ]; then
+      by='{"reason":"error","why":"HELDOUT_WHY","turn":4242}'
+    else
+      by="{\"reason\":\"${stop%%:*}\",\"why\":\"a loop with no wait?\",\"turn\":${stop##*:}}"
+    fi
+  fi
+  printf '{"scorecard":{"score":%d.0,"progress":0.5,"care":0.9},"stopped_by":%s}\n' "$(( ${s:-0} + seed ))" "$by"
+  [ "$by" = null ] || exit 1
   ;;
 *)
   echo "stub fn_agent: no $cmd" >&2
@@ -155,6 +167,8 @@ struct Fixture {
     runs_dir: PathBuf,
     prompts: PathBuf,
     fn_agent_log: PathBuf,
+    /// Extra environment for the stubs (`STUB_STOP`).
+    extra_env: Vec<(String, String)>,
 }
 
 impl Fixture {
@@ -172,6 +186,7 @@ impl Fixture {
             runs_dir: tmp.join("runs"),
             prompts: tmp.join("prompts"),
             fn_agent_log: tmp.join("fn_agent.log"),
+            extra_env: Vec::new(),
             tmp,
         }
     }
@@ -199,6 +214,8 @@ impl Fixture {
             .env("STUB_PROMPTS", &self.prompts)
             .env("STUB_FN_AGENT_LOG", &self.fn_agent_log)
             .env_remove("STUB_NO_GOVERNOR")
+            .env_remove("STUB_STOP")
+            .envs(self.extra_env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
             .env_remove("OTEL_RESOURCE_ATTRIBUTES")
             .output()
             .unwrap()
@@ -612,4 +629,75 @@ fn campaign_flags_are_checked() {
     refused(&["--track", "nope", "--attempts", "1"], "unknown track");
     refused(&["--attempts", "2"], "--track or --resume");
     assert!(!fx.runs_dir.exists() || fs::read_dir(&fx.runs_dir).unwrap().next().is_none());
+}
+
+/// A clean run whose governor was stopped (#561): the ledger keeps the reason, turn and why, the
+/// next prompt says so for the train seeds (and that a stop means coasting), the owner's table
+/// marks it, and a held-out run's stop shows up nowhere the model reads. Every chunk of an
+/// attempt, resumed ones too, offers `test_governor` on the train seeds only.
+#[test]
+fn stopped_clean_runs_are_reported_to_the_model_and_marked_for_the_owner() {
+    let mut fx = Fixture::new("stopped");
+    fx.extra_env.push(("STUB_STOP".to_owned(), "runaway:1".to_owned()));
+    let out = fx.campaign("100,200", &["--attempts", "2"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let dir = fx.campaign_dir();
+
+    let rows = rows(&dir);
+    let first = &rows[0]["clean"][0];
+    assert_eq!(first["stopped"], "runaway");
+    assert_eq!(first["stopped_turn"], 1);
+    assert_eq!(first["stopped_why"], "a loop with no wait?");
+    assert_eq!(rows[0]["held_out"][0]["stopped_turn"], 4242, "the owner's ledger keeps it");
+
+    let second = fx.prompt("prompt-2-0");
+    assert!(
+        second.contains(
+            "runaway stopped 2 of 2 clean runs at turn 1; first (seed 7): \"a loop with no wait?\""
+        ),
+        "{second}"
+    );
+    assert!(second.contains("107* / 141*"), "{second}");
+    assert!(second.contains("coasts to the end with no orders"), "{second}");
+    // The first attempt's prompt has no ledger but does say what a stop costs.
+    let first_prompt = fx.prompt("prompt-1-0");
+    assert!(first_prompt.contains("test_governor") && first_prompt.contains("coasts"));
+
+    for (name, text) in &fx.prompts() {
+        for hidden in ["HELDOUT_WHY", "4242", "9001", "9101", "9201"] {
+            assert!(!text.contains(hidden), "{hidden:?} leaked into {name}:\n{text}");
+        }
+    }
+    let table = stdout(&out);
+    assert!(table.contains("107* / 141*") && table.contains("9101*"), "{table}");
+
+    // The tool is offered on every chunk, on the train seeds only.
+    let first_mcp = fs::read_to_string(dir.join("attempt-1/first-mcp.json")).unwrap();
+    let last_mcp = fs::read_to_string(dir.join("attempt-1/mcp.json")).unwrap();
+    assert!(last_mcp.contains("--resume"), "the last chunk is a resumed one: {last_mcp}");
+    for mcp in [&first_mcp, &last_mcp] {
+        assert!(mcp.contains("\"--trial-seeds\"") && mcp.contains("\"7,41\""), "{mcp}");
+        assert!(mcp.contains("\"--trial-turns\"") && !mcp.contains("9001"), "{mcp}");
+    }
+}
+
+/// A ledger written before #561 (`stopped` is the reason alone) resumes, and its stops read
+/// without a turn or a why.
+#[test]
+fn an_old_ledger_with_only_stop_reasons_still_resumes() {
+    let fx = Fixture::new("oldledger");
+    let out = fx.campaign("100", &["--attempts", "1"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let dir = fx.campaign_dir();
+    let mut ledger = json(&dir.join("ledger.json"));
+    for seed in ledger["rows"][0]["clean"].as_array_mut().unwrap() {
+        seed["stopped"] = Value::String("runaway".to_owned());
+    }
+    fs::write(dir.join("ledger.json"), serde_json::to_string_pretty(&ledger).unwrap()).unwrap();
+
+    let out = fx.resume("100,200", &dir, &["--attempts", "1", "--model", "stub"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let p = fx.prompt("prompt-2-0");
+    assert!(p.contains("attempt 1: runaway stopped 2 of 2 clean runs\n"), "{p}");
+    assert_eq!(rows(&dir).len(), 2);
 }

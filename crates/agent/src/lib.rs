@@ -75,3 +75,4 @@ pub mod scorecard;
 pub mod script;
 pub mod server;
 pub mod tools;
+pub mod trial;
