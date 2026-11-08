@@ -33,7 +33,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::Result;
@@ -58,7 +58,7 @@ fn help() -> String {
 // -------------------------------------------------------------------------------------------
 
 /// One `[[track]]`: a start family scored at a fixed horizon (see `data/tracks.toml`).
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Track {
     pub(crate) id: String,
@@ -76,7 +76,7 @@ pub(crate) struct Track {
 }
 
 /// A track's optional prelude, as `data/scenarios.toml` writes one.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TrackPrelude {
     /// `"economy"` or `"opening"`.
@@ -137,7 +137,7 @@ impl Track {
     }
 
     /// The `--start` value: `Some("X,Y")` for a founded site, `None` for the default start.
-    fn site_flag(&self) -> Result<Option<&str>> {
+    pub(crate) fn site_flag(&self) -> Result<Option<&str>> {
         if self.site == "default" {
             return Ok(None);
         }

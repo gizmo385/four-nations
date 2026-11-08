@@ -19,7 +19,8 @@ use signal_hook::iterator::Signals;
 
 const USAGE: &str = "\
 usage: fn_agent serve --seed N --nation X [--start default|X,Y] [--difficulty ID]
-                       [--turn SECS] [--scripts] --log PATH
+                       [--map-size ID] [--prelude OPENING:MINUTES] [--turn SECS] [--scripts]
+                       [--carry-in FILE] --log PATH
        fn_agent serve --scenario ID [--turn SECS] [--scripts] --log PATH
        fn_agent serve --resume LOG [--seed N] [--nation X] [--start default|X,Y]
                        [--difficulty ID] [--turn SECS] [--scripts]
@@ -46,6 +47,13 @@ into it (so the resumed session picks up exactly where the last one left off), a
 appending to LOG from there -- for playing a long run as a chain of short, cheap sessions instead
 of one that re-reads a growing log every turn. Any of --seed, --nation, --start, --difficulty or
 --turn given alongside --resume must match LOG's own header, or serve refuses to start.
+
+--carry-in FILE (docs/design/agent-hillclimb.md, \"The attempt loop\"; needs --scripts) starts a
+fresh session with a strategy already loaded: FILE is a handoff (JSON with scripts, notes and
+plan, as `cargo xtask agent-run --carry` writes), written to the log as script, note and plan
+lines before the first call, so the library, lab notes and plan are in place with no retyping.
+--map-size and --prelude take what `play` takes, so a track's start can be played as well as
+evaluated. None of the three combine with --resume or --scenario.
 
 --scripts (docs/design/agent-scripting.md) adds the run_script tool: a sandboxed Rhai runner
 over the same Host, with limits from data/agent.toml's [scripts] table. Works with --scenario
@@ -101,6 +109,7 @@ fn main() -> ExitCode {
     }
 }
 
+#[derive(Debug)]
 struct ServeArgs {
     seed: Option<u64>,
     nation: Option<String>,
@@ -109,6 +118,12 @@ struct ServeArgs {
     start_given: bool,
     start: Option<(i32, i32)>,
     difficulty: Option<String>,
+    /// `--map-size ID` (#530): as `play --map-size`, read with `--start X,Y` only.
+    map_size: Option<String>,
+    /// `--prelude OPENING:MINUTES` (#530): as `play --prelude`.
+    prelude: Option<Prelude>,
+    /// `--carry-in FILE` (#530): a handoff to preload (`fn_agent::carry`).
+    carry_in: Option<String>,
     /// `--scenario ID` (#481): a `data/scenarios.toml` preset's id, in place of `--seed`,
     /// `--nation`, `--start` and `--difficulty`.
     scenario: Option<String>,
@@ -125,6 +140,9 @@ fn parse_serve_args(args: Vec<String>) -> Result<ServeArgs, String> {
         start_given: false,
         start: None,
         difficulty: None,
+        map_size: None,
+        prelude: None,
+        carry_in: None,
         scenario: None,
         turn_seconds: None,
         log: None,
@@ -146,6 +164,9 @@ fn parse_serve_args(args: Vec<String>) -> Result<ServeArgs, String> {
                 };
             }
             "--difficulty" => a.difficulty = Some(value()?),
+            "--map-size" => a.map_size = Some(value()?),
+            "--prelude" => a.prelude = Some(parse_prelude(&value()?)?),
+            "--carry-in" => a.carry_in = Some(value()?),
             "--scenario" => a.scenario = Some(value()?),
             "--turn" => a.turn_seconds = Some(value()?.parse::<u32>().map_err(|e| e.to_string())?),
             "--log" => a.log = Some(value()?),
@@ -164,6 +185,22 @@ fn parse_serve_args(args: Vec<String>) -> Result<ServeArgs, String> {
         return Err("--scenario can't be combined with --seed, --nation, --start, \
                      --difficulty or --resume: the preset already sets them"
             .to_owned());
+    }
+    let fresh_only = [
+        ("--map-size", a.map_size.is_some()),
+        ("--prelude", a.prelude.is_some()),
+        ("--carry-in", a.carry_in.is_some()),
+    ];
+    for (flag, given) in fresh_only {
+        if given && (a.scenario.is_some() || a.resume.is_some()) {
+            return Err(format!(
+                "{flag} starts a fresh session of its own: it can't be combined with --scenario \
+                 or --resume"
+            ));
+        }
+    }
+    if a.carry_in.is_some() && !a.scripts {
+        return Err("--carry-in needs --scripts: it preloads the script library".to_owned());
     }
     Ok(a)
 }
@@ -197,12 +234,22 @@ fn serve_fresh(a: &ServeArgs) -> Result<(), String> {
                 format!("unknown nation {nation_str:?} (air, water, earth or fire)")
             })?;
             let seed = a.seed.ok_or("--seed is required")?;
-            Host::new(seed, nation, None, a.difficulty.clone(), a.start, false)?
+            let host =
+                Host::new(seed, nation, a.map_size.clone(), a.difficulty.clone(), a.start, false)?;
+            match a.prelude {
+                Some(prelude) => host.with_prelude(prelude),
+                None => host,
+            }
         }
     };
     let host = host.with_turn_seconds(a.turn_seconds.unwrap_or(DEFAULT_TURN_SECONDS));
     let writer = Writer::create(Path::new(log)).map_err(|e| e.to_string())?;
-    let tools = with_scripts(Tools::new(host, writer)?, a);
+    let mut tools = with_scripts(Tools::new(host, writer)?, a);
+    if let Some(path) = &a.carry_in {
+        let handoff = std::fs::read_to_string(path)
+            .map_err(|e| format!("can't read --carry-in {path:?}: {e}"))?;
+        tools.carry_in(&handoff)?;
+    }
     run_tools(tools, Path::new(log))
 }
 
@@ -766,11 +813,55 @@ mod tests {
             start_given: false,
             start: None,
             difficulty: None,
+            map_size: None,
+            prelude: None,
+            carry_in: None,
             scenario: None,
             turn_seconds: None,
             log: None,
             resume: Some(path.to_owned()),
             scripts: false,
+        }
+    }
+
+    fn serve_flags(args: &[&str]) -> Result<ServeArgs, String> {
+        parse_serve_args(args.iter().map(|s| (*s).to_owned()).collect())
+    }
+
+    /// `--carry-in`, `--map-size` and `--prelude` (#530) belong to a fresh session: `--carry-in`
+    /// needs `--scripts`, and none combine with `--resume` or `--scenario`.
+    #[test]
+    fn carry_in_map_size_and_prelude_are_for_fresh_scripted_sessions() {
+        let a = serve_flags(&[
+            "--seed",
+            "7",
+            "--nation",
+            "water",
+            "--scripts",
+            "--carry-in",
+            "h.json",
+            "--map-size",
+            "small",
+            "--prelude",
+            "economy:60",
+            "--log",
+            "l.jsonl",
+        ])
+        .unwrap();
+        assert_eq!(a.carry_in.as_deref(), Some("h.json"));
+        assert_eq!(a.map_size.as_deref(), Some("small"));
+        assert!(a.prelude.is_some());
+        let no_scripts = serve_flags(&["--seed", "7", "--carry-in", "h.json"]).unwrap_err();
+        assert!(no_scripts.contains("--scripts"), "{no_scripts}");
+        for flags in [["--carry-in", "h.json"], ["--map-size", "small"], ["--prelude", "economy:5"]]
+        {
+            for other in [["--resume", "r.jsonl"], ["--scenario", "earth-year-two"]] {
+                let mut all = vec!["--scripts"];
+                all.extend(flags);
+                all.extend(other);
+                let err = serve_flags(&all).unwrap_err();
+                assert!(err.contains(flags[0]) && err.contains("fresh"), "{all:?}: {err}");
+            }
         }
     }
 

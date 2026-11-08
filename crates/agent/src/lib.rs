@@ -5,7 +5,8 @@
 //!
 //! ```text
 //! fn_agent serve --seed N --nation X [--start default|X,Y] [--difficulty ID] [--turn SECS]
-//!                [--scripts] --log PATH
+//!                [--map-size ID] [--prelude OPENING:MINUTES] [--scripts] [--carry-in FILE]
+//!                --log PATH
 //! fn_agent keys LOG
 //! fn_agent score LOG [--horizon TURNS] [--json] [--append]
 //! ```
@@ -30,6 +31,8 @@
 //! library, `memory` and lab notes, logged as `Script`/`Wake`/`Note` lines
 //! (`fn_tui::surface::LogLine`) that `fn_agent serve --resume` reads back to restore them
 //! exactly, without changing what the game itself replays to (#479).
+//! `--carry-in FILE` (#530, [`carry`]) starts a fresh scripted session with a handoff's scripts,
+//! notes and plan already in place, written to the log as ordinary lines.
 //! `plan {set?, merge?}` (#524) holds the model's intent as data, read by scripts with `plan()`,
 //! logged as a `Plan` line on every change and restored by `--resume` the same way.
 //!
@@ -64,6 +67,7 @@
 //! This is a statement about how you deploy the agent, same as "don't give it a shell" is: no
 //! amount of testing inside this repository can prove an operator followed it.
 
+pub mod carry;
 pub mod clean;
 pub mod plan;
 pub mod runlog;

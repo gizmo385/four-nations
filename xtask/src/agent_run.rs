@@ -2,6 +2,8 @@
 //! `cargo xtask agent-run --interactive [options]`  chat with the agent here; watch elsewhere
 //! `cargo xtask agent-run --chunk-turns N [options]`  play as successive short claude sessions
 //! `cargo xtask agent-run --scripts [options]`  play by writing and running scripts (#484)
+//! `cargo xtask agent-run --track ID --attempts N [options]`  hill-climb a track (#530)
+//! `cargo xtask agent-run --resume CAMPAIGN_DIR [--attempts N] [options]`  continue a campaign
 //! `cargo xtask agent-run watch [options] [RUN_DIR]`  watch (or replay) a run; default: the
 //!                                      latest. `watch --help` lists its options and keys,
 //!                                      `watch --list` the recent runs (#510, #553).
@@ -43,6 +45,26 @@
 //!                      session's own prompt.
 //!   --max-usd N        caps the run's own spend at N dollars (only with --chunk-turns or
 //!                      --scripts; #485). Enforced, not just watched.
+//!   --track ID         a hill-climbing campaign (docs/design/agent-hillclimb.md, "The attempt
+//!                      loop"; #530) on a `data/tracks.toml` track: --attempts N scripted runs
+//!                      (--scripts is implied) on the track's play_seed to its horizon, each
+//!                      scored, then cleanly evaluated on the train and held-out seeds. The
+//!                      attempt whose mean train score beats the champion's becomes the champion;
+//!                      later attempts start with the champion's scripts, plan and notes
+//!                      preloaded (`fn_agent serve --carry-in`). The campaign folder holds
+//!                      attempt-K/ run folders, ledger.json and champion/handoff.json, and the
+//!                      ledger (held-out columns included, for you only) is printed at the end.
+//!                      The track sets the start, so --seed, --nation, --difficulty, --scenario,
+//!                      --turns, --turn-secs, --prompt, --carry and --interactive don't apply.
+//!                      --model, --max-usd and --chunk-calls do, per attempt; --max-usd also caps
+//!                      the whole invocation's spend, and the loop stops once it is spent.
+//!   --attempts N       how many attempts to play (required with --track; default 1 with --resume)
+//!   --resume DIR       continues the campaign in DIR: the track, ledger.json and champion are
+//!                      read from the folder, new attempts are numbered after the last one, and
+//!                      --attempts means N more, --max-usd this invocation's cap. Refused for a
+//!                      folder with no ledger, or whose track's horizon or seeds no longer match
+//!                      the tracks file (those scores wouldn't be comparable).
+//!   --tracks FILE      a tracks file other than data/tracks.toml (for tests)
 //!   --claude-bin PATH  the `claude` binary to run (default: $FN_AGENT_CLAUDE_BIN, else
 //!                      `claude` resolved on PATH) -- tests point this at a stub; the real
 //!                      `claude` CLI is never invoked by a test.
@@ -82,6 +104,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::Result;
 
+mod campaign;
+
 fn say(msg: &str) {
     eprintln!("agent-run: {msg}");
 }
@@ -116,6 +140,10 @@ pub fn run(args: &[&str]) -> Result {
 
     if !claude_available(&opts.claude_bin) {
         return Err(format!("{} (Claude Code) isn't on PATH", opts.claude_bin));
+    }
+
+    if opts.track.is_some() || opts.resume_dir.is_some() {
+        return campaign::run(&repo, &opts);
     }
 
     if let Some(line) = start_line(&opts) {
@@ -175,7 +203,7 @@ pub fn run(args: &[&str]) -> Result {
 // Options
 // -------------------------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Opts {
     seed: u64,
     nation: String,
@@ -198,6 +226,22 @@ struct Opts {
     claude_bin: String,
     /// `-h`/`--help` was given: print the usage on stdout and exit 0 (#553).
     help: bool,
+    /// `--track ID` (#530): a hill-climbing campaign on this `data/tracks.toml` track.
+    track: Option<String>,
+    /// `--attempts N` (#530): attempts to play, for `--track` and `--resume`.
+    attempts: Option<u32>,
+    /// `--resume DIR` (#530): continue the campaign in this folder.
+    resume_dir: Option<PathBuf>,
+    /// `--tracks FILE` (#530): a tracks file other than `data/tracks.toml`.
+    tracks_file: Option<PathBuf>,
+    /// A campaign attempt's own run, which the track sets up rather than the flags above
+    /// (#530): `fn_agent serve --map-size`, `--start`, `--prelude`, `--carry-in`, and the
+    /// first chunk's prompt (`--prompt` replaces every chunk's).
+    map_size: Option<String>,
+    site: Option<String>,
+    prelude: Option<String>,
+    carry_in: Option<PathBuf>,
+    first_prompt: Option<String>,
 }
 
 /// The nations `--nation` can name, and so the ones a random pick chooses between.
@@ -287,6 +331,15 @@ fn parse_args_with(args: &[&str], entropy: Entropy) -> Result<Opts> {
         difficulty_given: false,
         claude_bin: std::env::var("FN_AGENT_CLAUDE_BIN").unwrap_or_else(|_| "claude".to_string()),
         help: false,
+        track: None,
+        attempts: None,
+        resume_dir: None,
+        tracks_file: None,
+        map_size: None,
+        site: None,
+        prelude: None,
+        carry_in: None,
+        first_prompt: None,
     };
 
     let mut i = 0;
@@ -341,6 +394,22 @@ fn parse_args_with(args: &[&str], entropy: Entropy) -> Result<Opts> {
                 }
                 o.max_usd = Some(v.parse().expect("validated by is_plain_number"));
             }
+            "--track" => o.track = Some(take_value(args, &mut i, "--track")?.to_string()),
+            "--attempts" => {
+                let v = take_value(args, &mut i, "--attempts")?;
+                let n: u32 =
+                    v.parse().map_err(|_| format!("--attempts wants a whole number, got {v:?}"))?;
+                if n == 0 {
+                    return Err("--attempts wants at least 1".into());
+                }
+                o.attempts = Some(n);
+            }
+            "--resume" => {
+                o.resume_dir = Some(PathBuf::from(take_value(args, &mut i, "--resume")?));
+            }
+            "--tracks" => {
+                o.tracks_file = Some(PathBuf::from(take_value(args, &mut i, "--tracks")?));
+            }
             "--claude-bin" => o.claude_bin = take_value(args, &mut i, "--claude-bin")?.to_string(),
             "-h" | "--help" => {
                 o.help = true;
@@ -352,7 +421,7 @@ fn parse_args_with(args: &[&str], entropy: Entropy) -> Result<Opts> {
     }
     // A scenario fixes its own seed and nation, so there's nothing to pick (and the
     // placeholders are never read).
-    if o.scenario.is_none() {
+    if o.scenario.is_none() && o.track.is_none() && o.resume_dir.is_none() {
         if !o.seed_given {
             o.seed = random_seed(entropy);
         }
@@ -376,6 +445,12 @@ fn is_plain_number(s: &str) -> bool {
 }
 
 fn validate(o: &Opts) -> Result {
+    if o.track.is_some() || o.resume_dir.is_some() {
+        return validate_campaign(o);
+    }
+    if o.attempts.is_some() || o.tracks_file.is_some() {
+        return Err("--attempts and --tracks only apply with --track or --resume".into());
+    }
     if o.scenario.is_some() && (o.seed_given || o.nation_given || o.difficulty_given) {
         return Err("--scenario can't be combined with --seed, --nation or --difficulty".into());
     }
@@ -395,6 +470,38 @@ fn validate(o: &Opts) -> Result {
     }
     if o.max_usd.is_some() && !o.scripts && o.chunk_turns == 0 {
         return Err("--max-usd only applies with --chunk-turns or --scripts".into());
+    }
+    Ok(())
+}
+
+/// What a campaign (`--track`, `--resume`) can't be combined with: the track fixes the start
+/// and the run is always `--scripts`, chunked by `--chunk-calls`.
+fn validate_campaign(o: &Opts) -> Result {
+    let mode = if o.track.is_some() { "--track" } else { "--resume" };
+    if o.track.is_some() && o.resume_dir.is_some() {
+        return Err("--track starts a campaign and --resume continues one: pick one".into());
+    }
+    if o.track.is_some() && o.attempts.is_none() {
+        return Err("--track needs --attempts N (how many attempts to play)".into());
+    }
+    let clashes = [
+        ("--seed", o.seed_given),
+        ("--nation", o.nation_given),
+        ("--difficulty", o.difficulty_given),
+        ("--scenario", o.scenario.is_some()),
+        ("--turn-secs", o.turn_secs.is_some()),
+        ("--prompt", o.prompt.is_some()),
+        ("--carry", o.carry_dir.is_some()),
+        ("--interactive", o.interactive),
+        ("--chunk-turns", o.chunk_turns != 0),
+    ];
+    for (flag, given) in clashes {
+        if given {
+            return Err(format!(
+                "{flag} can't be combined with {mode}: the track sets the start and every \
+                 attempt is a --scripts run"
+            ));
+        }
     }
     Ok(())
 }
@@ -1103,6 +1210,20 @@ fn serve_args(o: &Opts, log: &Path) -> Vec<String> {
     if o.scripts {
         args.push("--scripts".to_string());
     }
+    for (flag, value) in [("--map-size", &o.map_size), ("--prelude", &o.prelude)] {
+        if let Some(v) = value {
+            args.push(flag.to_string());
+            args.push(v.clone());
+        }
+    }
+    if let Some(site) = &o.site {
+        args.push("--start".to_string());
+        args.push(site.clone());
+    }
+    if let Some(carry_in) = &o.carry_in {
+        args.push("--carry-in".to_string());
+        args.push(carry_in.display().to_string());
+    }
     args
 }
 
@@ -1343,7 +1464,7 @@ pub(crate) struct ScriptEntry {
     last_turns_run: Option<u32>,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub(crate) struct Handoff {
     #[serde(default)]
     pub(crate) scripts: BTreeMap<String, ScriptEntry>,
@@ -1755,6 +1876,8 @@ fn run_scripts_chunked(
 
         let this_prompt = if let Some(p) = &o.prompt {
             p.clone()
+        } else if n == 1 && o.first_prompt.is_some() {
+            o.first_prompt.clone().unwrap_or_default()
         } else if n == 1 {
             let base = default_script_prompt(target, calls);
             match &o.carry_dir {

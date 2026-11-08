@@ -436,6 +436,30 @@ horizon as usual and flagged in the table, not failed. `fn_agent play` gained `-
 `--prelude OPENING:MINUTES` so a track's whole start can be passed on its command line; the
 reusable core is `agent_eval::evaluate`, for the attempt loop (#530).
 
+As built (#530): `cargo xtask agent-run --track ID --attempts N [--model M] [--max-usd X]
+[--chunk-calls C]` makes a campaign folder under `$FN_AGENT_RUNS` (`DATE-campaign-ID`) with
+`attempt-K/` run folders (each a `--scripts` run of the track's whole start, played to the
+horizon, with `eval/seed-N.jsonl` and its own `handoff.json` beside the usual files),
+`ledger.json` and `champion/` (`handoff.json`, `meta.json` and `scorecard.txt`, the champion's
+clean run on `play_seed`). After each attempt it runs `fn_agent score --append`, evaluates the
+final `governor` and plan, writes the champion if the train mean is strictly higher (a tie keeps
+the champion), and only then appends the ledger row, so an attempt with no row is one a crash
+cut short: it isn't counted and its folder is never reused. An attempt that never saved a
+`governor` gets a row with dashes and isn't kept. The ledger row's plan revision counts plan
+edits across the campaign (a preloaded plan isn't an edit); its governor version is the saved
+script's own, which carries on from the champion's. `serve --carry-in FILE` (with `--scripts`,
+a fresh session only) writes the handoff's scripts, notes and plan as log lines before the first
+call, and `serve` gained `--map-size` and `--prelude` so a track with a site or a prelude is
+played as it is evaluated. The later attempts' first prompt is the script prompt
+(`default_script_prompt`) under a block with the ledger's train columns, the champion's
+scorecard and the one ask; held-out numbers appear only in `ledger.json` and the table printed
+at the end. `--max-usd` is a per-attempt `--max-budget-usd` of what's left of the invocation's
+cap, and the loop stops once it is spent. `agent-run --resume DIR [--attempts N]` reads the
+ledger (which holds the track as it began), refuses a folder with no ledger or a tracks file
+whose entry differs in anything but its label, and numbers new attempts after every row and
+every `attempt-K` folder. `--tracks FILE` swaps the tracks file, for tests. Still to do: the
+`attempt` and `champion` fields of the `score` line (the watcher issue).
+
 ### Fairness: lookahead and held-out seeds (#521)
 
 Climbing on one seed teaches the map (where the water is, which outcrop is reachable) as much as

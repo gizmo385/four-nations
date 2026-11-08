@@ -552,6 +552,24 @@ impl<W: std::io::Write> Tools<W> {
         Self { host, log, written, scripts: None, library, memory, notes, plan }
     }
 
+    /// Preloads a fresh session with the handoff JSON `handoff` (`fn_agent serve --carry-in`,
+    /// #530, [`crate::carry::lines`]): writes its `script`, `note` and `plan` lines to the log
+    /// and puts the scripts, notes and plan they describe into this session's library, lab notes
+    /// and plan, as if the model had made those calls. Call it before the first tool call;
+    /// needs `--scripts`.
+    pub fn carry_in(&mut self, handoff: &str) -> Result<(), String> {
+        let cap = self.require_scripts("--carry-in")?.plan_bytes;
+        let lines = crate::carry::lines(handoff, cap)?;
+        for line in &lines {
+            self.log.write_line(line).map_err(|e| e.to_string())?;
+        }
+        let (library, _memory, notes, plan) = rebuild_session(&lines);
+        self.library = library;
+        self.notes = notes;
+        self.plan = plan;
+        Ok(())
+    }
+
     /// Turns `run_script` on for this session (`fn_agent serve --scripts`), with `limits` as
     /// `data/agent.toml`'s `[scripts]` table.
     pub fn with_scripts(mut self, limits: ScriptLimits) -> Self {
