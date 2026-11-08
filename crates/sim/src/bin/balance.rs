@@ -60,12 +60,24 @@
 //! owner question 2's check). `--branch-first` (`fn_sim::autoplay::Economy::with_branch_first`)
 //! researches the nation's own branch before the shared tier, closer to how a person plays
 //! (pacing.md's own "a player who goes branch first" note); the default order is unchanged.
+//!
+//! `--score` (#526, `docs/design/agent-hillclimb.md`) scores each run with
+//! `fn_sim::score::Scorecard::compute` at the end of the run and prints a `score:` line per
+//! `(nation, seed)`: the score, progress, care, deaths, close calls and the suffering share.
+//! `--horizon-minutes M` sets the run's length (and so the horizon) in place of `--minutes`;
+//! with neither, the horizon is the run's own length. The same scoring gives a track's par
+//! (`fn_sim::balance::par`).
+//!
+//!     cargo run -p fn_sim --bin balance -- --economy --score --seeds 7 --nations water
+//!         [--horizon-minutes 180]
 
 use fn_sim::balance::{
     EconomyConfig, EconomyReport, PEOPLE, RunConfig, RunReport, run, run_economy,
+    run_economy_scored,
 };
 use fn_sim::defs::ResourceId;
 use fn_sim::embark::Survey;
+use fn_sim::score::{ScoreDef, Scorecard};
 use fn_sim::{Defs, Nation};
 
 fn main() {
@@ -391,12 +403,21 @@ fn run_economy_sweep(args: &[String]) {
     let mut preset = "normal".to_owned();
     let mut farms = true;
     let mut branch_first = false;
+    let mut score = false;
+    let mut horizon_minutes: Option<f32> = None;
 
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--seeds" => seeds = parse_seeds(&value(args, &mut i)),
             "--minutes" => minutes = value(args, &mut i).parse().expect("--minutes needs a number"),
+            "--score" => score = true,
+            "--horizon-minutes" => {
+                horizon_minutes =
+                    Some(value(args, &mut i).parse().unwrap_or_else(|_| {
+                        economy_usage_error("--horizon-minutes needs a number")
+                    }))
+            }
             "--nations" => {
                 nation_ids = Some(value(args, &mut i).split(',').map(str::to_owned).collect())
             }
@@ -407,6 +428,14 @@ fn run_economy_sweep(args: &[String]) {
         }
         i += 1;
     }
+
+    if horizon_minutes.is_some() && !score {
+        economy_usage_error("--horizon-minutes only goes with --score");
+    }
+    if let Some(horizon) = horizon_minutes {
+        minutes = horizon;
+    }
+    let score_def = score.then(ScoreDef::bundled);
 
     let defs = Defs::bundled();
     let size = defs.embark.map_size("small").expect("bundled data always has a small map size");
@@ -437,7 +466,13 @@ fn run_economy_sweep(args: &[String]) {
                 width: size.width,
                 height: size.height,
             };
-            let report = run_economy(&cfg, &defs);
+            let (report, card) = match &score_def {
+                Some(score_def) => {
+                    let (report, card) = run_economy_scored(&cfg, &defs, score_def);
+                    (report, Some(card))
+                }
+                None => (run_economy(&cfg, &defs), None),
+            };
             for season in &report.seasons {
                 println!(
                     "{:<6} {seed:>4} {:>4} {:>7.1}  {:>6} {:>6} {:>6} {:>6.1} {:>4}  {}",
@@ -455,6 +490,9 @@ fn run_economy_sweep(args: &[String]) {
             print_sign_minutes(nation, seed, &report);
             print_timeline(nation, seed, &report);
             print_idle_share(nation, seed, &report);
+            if let Some(card) = &card {
+                print_score(nation, seed, card);
+            }
             if report.longest_gap.is_none_or(|(start, end)| end - start <= 15.0) {
                 gap_ok += 1;
             }
@@ -521,6 +559,21 @@ fn print_timeline(nation: Nation, seed: u64, report: &EconomyReport) {
     );
 }
 
+/// The `score:` line (module doc; #526): the run's `Scorecard` in one row.
+fn print_score(nation: Nation, seed: u64, card: &Scorecard) {
+    let c = &card.care;
+    println!(
+        "{:<6} {seed:>4} score: {:.1} (progress {:.3} x care {:.2}) deaths {} close calls {} suffering {:.1}%",
+        nation.as_str(),
+        card.score,
+        card.progress,
+        c.value,
+        c.deaths,
+        c.close_calls,
+        c.suffering * 100.0,
+    );
+}
+
 /// The idle line: the share of unit samples with no task, per 15-minute window (module doc;
 /// #434).
 fn print_idle_share(nation: Nation, seed: u64, report: &EconomyReport) {
@@ -536,7 +589,7 @@ fn print_idle_share(nation: Nation, seed: u64, report: &EconomyReport) {
 fn economy_usage_error(msg: &str) -> ! {
     eprintln!("{msg}");
     eprintln!(
-        "usage: balance --economy [--seeds 7,42] [--minutes 180] [--nations fire,earth,water,air] [--preset normal] [--no-farms] [--branch-first]"
+        "usage: balance --economy [--seeds 7,42] [--minutes 180] [--nations fire,earth,water,air] [--preset normal] [--no-farms] [--branch-first] [--score [--horizon-minutes M]]"
     );
     std::process::exit(1);
 }

@@ -35,6 +35,7 @@ use crate::geom::Pos;
 use crate::jobs::ItemId;
 use crate::mapgen::MapGenConfig;
 use crate::nation::Nation;
+use crate::score::{ScoreDef, Scorecard};
 use crate::world::{
     EndeavorEventKind, FoodSource, SeasonEventKind, TICKS_PER_SECOND, Task, UnitId, World,
 };
@@ -289,6 +290,24 @@ pub struct EconomyReport {
 /// `cfg.minutes`, reporting a season at a time. Draws no randomness beyond `World`'s own seeded
 /// streams, so the same `cfg` and `defs` always produce an equal `EconomyReport`.
 pub fn run_economy(cfg: &EconomyConfig, defs: &Defs) -> EconomyReport {
+    run_economy_world(cfg, defs).0
+}
+
+/// `run_economy`, scored (#526): the same run, plus the `Scorecard` of the world as it stands at
+/// the end of `cfg.minutes`, with that end as the horizon (`score` module doc, "Compute at the
+/// horizon"). The care tally comes from `World::care()`, so a run that kills or starves settlers
+/// scores for it.
+pub fn run_economy_scored(
+    cfg: &EconomyConfig,
+    defs: &Defs,
+    score: &ScoreDef,
+) -> (EconomyReport, Scorecard) {
+    let (report, world) = run_economy_world(cfg, defs);
+    let card = Scorecard::compute(&world, defs, score, minutes_to_ticks(cfg.minutes));
+    (report, card)
+}
+
+fn run_economy_world(cfg: &EconomyConfig, defs: &Defs) -> (EconomyReport, World) {
     let map_cfg = MapGenConfig {
         seed: cfg.seed,
         width: cfg.width,
@@ -397,7 +416,7 @@ pub fn run_economy(cfg: &EconomyConfig, defs: &Defs) -> EconomyReport {
         })
         .collect();
 
-    EconomyReport {
+    let report = EconomyReport {
         seasons,
         sign_minutes,
         first_built,
@@ -409,7 +428,8 @@ pub fn run_economy(cfg: &EconomyConfig, defs: &Defs) -> EconomyReport {
         idle_share,
         first_death_minute: world.deaths.first().map(|d| ticks_to_minutes(d.tick)),
         deaths: world.deaths.len() as u32,
-    }
+    };
+    (report, world)
 }
 
 /// How wide an `idle_share` window is, in minutes (`EconomyReport::idle_share`'s own module doc;
@@ -531,6 +551,100 @@ fn economy_season(
         population,
         signs_met,
     }
+}
+
+/// Which `autoplay` opening a [`ParPrelude`] runs: the same two a scenario's prelude can name
+/// (`fn_tui::surface::PreludeOpening`, which `fn_sim` can't depend on).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParOpening {
+    /// `autoplay::Economy`.
+    Economy,
+    /// The plainer `autoplay::Opening`.
+    Opening,
+}
+
+/// A scenario prelude (`docs/design/agent-scripting.md`, "Scenario starts"): `opening`, run for
+/// `minutes` game minutes before turn 0.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ParPrelude {
+    pub opening: ParOpening,
+    pub minutes: f32,
+}
+
+/// A track's start and horizon (`par`; `docs/design/agent-hillclimb.md`, "Tracks: what is
+/// comparable"): the fields of a run log's header that decide the start, plus how long to score.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParTrack {
+    pub seed: u64,
+    pub nation: Nation,
+    /// A `data/difficulty.toml` preset id, or `None` for identity.
+    pub preset: Option<String>,
+    /// A `data/embark.toml` map size id (`None` is `"small"`). Read only with a `site`, as in
+    /// the TUI: with no site the game starts on the default-size map, at the centre.
+    pub map_size: Option<String>,
+    /// The chosen settlement site, or `None` for the default start.
+    pub site: Option<(i32, i32)>,
+    pub prelude: Option<ParPrelude>,
+    /// Turns after the prelude to score at.
+    pub horizon_turns: u64,
+    /// Game seconds per turn (a run log header's `turn_seconds`; 20 by default).
+    pub turn_seconds: u32,
+}
+
+/// The par for `track` (#526, `docs/design/agent-hillclimb.md`, "Tracks: what is comparable"):
+/// what `autoplay::Economy` scores from the same start at the same horizon, so a run's score
+/// reads against a yardstick. Par is privileged (the opening reads `World`), context only, and
+/// selection never uses it.
+///
+/// The start mirrors the TUI's (`fn_tui::shell::Shell::for_args`): `World::found` on the
+/// `map_size` map at `site` if one is named, else `World::new` on the default map. A prelude
+/// runs first for its own opening and minutes; `Economy` plays from there to the horizon.
+/// `horizon_turns` count from turn 0, after the prelude, but the scorecard's ticks are the
+/// world's own, so the horizon is `prelude ticks + horizon_turns × turn ticks` and a milestone
+/// met in the prelude carries its absolute tick.
+///
+/// Errors on an unknown preset or map size, or a site `World::found` refuses. Deterministic:
+/// the same `track` and `defs` always give an equal `Scorecard`.
+pub fn par(track: &ParTrack, defs: &Defs, score: &ScoreDef) -> Result<Scorecard, String> {
+    if let Some(id) = &track.preset
+        && defs.difficulty.preset(id).is_none()
+    {
+        return Err(format!("unknown difficulty preset {id:?}"));
+    }
+    let mut world = match track.site {
+        None => {
+            let cfg = MapGenConfig { seed: track.seed, ..MapGenConfig::default() };
+            let mut world = World::new(&cfg, track.nation, PEOPLE, defs);
+            world.set_difficulty(track.preset.clone());
+            world
+        }
+        Some((x, y)) => {
+            let id = track.map_size.as_deref().unwrap_or("small");
+            let size =
+                defs.embark.map_size(id).ok_or_else(|| format!("unknown map size {id:?}"))?;
+            let survey = Survey::new(&Survey::config(track.seed, size), defs);
+            World::found(survey, track.nation, Pos::new(x, y), PEOPLE, track.preset.clone(), defs)
+                .map_err(|p| format!("can't start at ({x}, {y}): {p:?}"))?
+        }
+    };
+
+    let prelude_ticks = track.prelude.map_or(0, |p| minutes_to_ticks(p.minutes));
+    let turn_ticks = u64::from(track.turn_seconds.max(1)) * u64::from(TICKS_PER_SECOND);
+    let horizon = prelude_ticks + track.horizon_turns * turn_ticks;
+    let economy = Economy::new(PEOPLE);
+    let plain = Opening::new(PEOPLE);
+    for tick in 0..horizon {
+        if Opening::due(tick) {
+            match track.prelude {
+                Some(ParPrelude { opening: ParOpening::Opening, .. }) if tick < prelude_ticks => {
+                    plain.step(&mut world, defs)
+                }
+                _ => economy.step(&mut world, defs),
+            }
+        }
+        world.tick(defs);
+    }
+    Ok(Scorecard::compute(&world, defs, score, horizon))
 }
 
 fn minutes_to_ticks(minutes: f32) -> u64 {
@@ -871,5 +985,71 @@ mod tests {
             assert!(start >= 30.0 && end <= 120.0 && start <= end, "{report:?}");
         }
         assert!(report.gaps_over_15 as usize <= report.timeline.len() + 1, "{report:?}");
+    }
+
+    /// Seed 7, Earth, Normal, the small map's default site, 90 turns (30 game minutes).
+    fn par_track() -> (ParTrack, Defs) {
+        let defs = Defs::bundled();
+        let size = defs.embark.map_size("small").unwrap();
+        let survey = Survey::new(&Survey::config(7, size), &defs);
+        let site = survey.default_site(&defs);
+        let track = ParTrack {
+            seed: 7,
+            nation: Nation::Earth,
+            preset: Some("normal".to_owned()),
+            map_size: Some("small".to_owned()),
+            site: Some((site.x, site.y)),
+            prelude: None,
+            horizon_turns: 90,
+            turn_seconds: 20,
+        };
+        (track, defs)
+    }
+
+    /// Par for one small fixed case is pinned, so a scoring or opening change shows up as a
+    /// diff here (#526). Re-pin the numbers when one is meant: they print on failure.
+    #[test]
+    fn par_for_a_small_fixed_case_is_pinned() {
+        let (track, defs) = par_track();
+        let card = par(&track, &defs, &ScoreDef::bundled()).unwrap();
+        assert!(!card.past_horizon);
+        assert_eq!(card.horizon_ticks, 90 * 200);
+        let got = (
+            (card.score * 1000.0).round() / 1000.0,
+            (card.progress * 1e4).round() / 1e4,
+            card.care.deaths,
+            card.care.close_calls,
+        );
+        assert_eq!(got, (165.375, 0.1654, 0, 0), "{card:#?}");
+    }
+
+    /// `par` is the same run `run_economy_scored` makes for the same start and length.
+    #[test]
+    fn par_matches_the_economy_run_scored_at_the_same_horizon() {
+        let (track, defs) = par_track();
+        let size = defs.embark.map_size("small").unwrap();
+        let cfg = EconomyConfig {
+            seed: 7,
+            nation: Nation::Earth,
+            preset: Some("normal".to_owned()),
+            minutes: 30.0,
+            farms: true,
+            branch_first: false,
+            width: size.width,
+            height: size.height,
+        };
+        let score = ScoreDef::bundled();
+        let (_, scored) = run_economy_scored(&cfg, &defs, &score);
+        assert_eq!(par(&track, &defs, &score).unwrap(), scored);
+    }
+
+    #[test]
+    fn par_refuses_an_unknown_preset_or_map_size() {
+        let (track, defs) = par_track();
+        let score = ScoreDef::bundled();
+        let bad = ParTrack { preset: Some("nope".to_owned()), ..track.clone() };
+        assert!(par(&bad, &defs, &score).unwrap_err().contains("preset"));
+        let bad = ParTrack { map_size: Some("nope".to_owned()), ..track };
+        assert!(par(&bad, &defs, &score).unwrap_err().contains("map size"));
     }
 }
