@@ -415,15 +415,42 @@ impl World {
     /// buildable ground by `check_build`'s own rules, and building there strands nothing, since
     /// nothing reachable becomes unreachable; but no unit could ever walk there to finish it, or
     /// use it once it somehow stood). `build_site_viable` is the other half.
-    pub fn would_strand(&self, anchor: Pos, footprint: Footprint) -> bool {
-        self.would_strand_from(&Flood::new(&self.map, anchor, &self.rules), footprint)
+    ///
+    /// Solid buildings still waiting to be finished (`map_with_pending_walls`) count as already
+    /// standing, on both sides of the comparison: two sites that are each harmless alone can seal
+    /// a corridor together, and the second one's check would otherwise never see the first.
+    pub fn would_strand(&self, anchor: Pos, footprint: Footprint, defs: &Defs) -> bool {
+        self.would_strand_from(&self.flood_from_anchor(anchor, defs), footprint, defs)
+    }
+
+    /// The map as it will be once every pending build site of a solid building is finished
+    /// (`would_strand`'s baseline): each such footprint made solid the way a finished building's
+    /// `passable: false` would. A passable building (a bed, a campfire) changes nothing.
+    fn map_with_pending_walls(&self, defs: &Defs) -> TileMap {
+        let mut map = self.map.clone();
+        for (foot, building, _) in self.build_sites() {
+            if defs.building(building).passable {
+                continue;
+            }
+            for p in foot.tiles() {
+                if let Some(tile) = map.get_mut(p) {
+                    tile.building = Some(Building::new(BuildingId(0), false, false));
+                }
+            }
+        }
+        map
     }
 
     /// `would_strand`, given a flood from `anchor` that's already been computed
     /// (`flood_from_anchor`): `nearest_build_site` shares one across every candidate it tries for
     /// the same anchor and step, instead of flooding the whole map again each time.
-    fn would_strand_from(&self, before: &Flood, footprint: Footprint) -> bool {
-        let mut blocked = self.map.clone();
+    fn would_strand_from(&self, before: &Flood, footprint: Footprint, defs: &Defs) -> bool {
+        self.would_strand_on(&self.map_with_pending_walls(defs), before, footprint)
+    }
+
+    /// `would_strand_from` on an explicit baseline `map`, which `before` was flooded from.
+    fn would_strand_on(&self, map: &TileMap, before: &Flood, footprint: Footprint) -> bool {
+        let mut blocked = map.clone();
         for p in footprint.tiles() {
             if let Some(tile) = blocked.get_mut(p) {
                 tile.building = Some(Building::new(BuildingId(0), false, false));
@@ -438,8 +465,8 @@ impl World {
     /// The flood from `anchor` under the rules units walk with: `nearest_build_site`'s own
     /// reachability check and `would_strand_from`, shared across every candidate it tries for one
     /// anchor instead of each flooding the whole map again (`would_strand_from`'s module doc).
-    pub(crate) fn flood_from_anchor(&self, anchor: Pos) -> Flood {
-        Flood::new(&self.map, anchor, &self.rules)
+    pub(crate) fn flood_from_anchor(&self, anchor: Pos, defs: &Defs) -> Flood {
+        Flood::new(&self.map_with_pending_walls(defs), anchor, &self.rules)
     }
 
     /// Whether building `footprint` right now would both be reachable at all from `before`'s own
@@ -453,9 +480,76 @@ impl World {
     /// that stepping onto the footprint from it wouldn't itself be cut by that same rule (the
     /// diagonal gap #395's own pocket turned out to be, with the settlement's anchor sitting
     /// right across the corner from it).
-    pub(crate) fn build_site_viable(&self, before: &Flood, footprint: Footprint) -> bool {
+    pub(crate) fn build_site_viable(
+        &self,
+        before: &Flood,
+        footprint: Footprint,
+        defs: &Defs,
+    ) -> bool {
         footprint.tiles().any(|p| before.cost(p).is_some())
-            && !self.would_strand_from(before, footprint)
+            && !self.would_strand_from(before, footprint, defs)
+    }
+
+    /// Whether a resource appearing on `at` (a sprout, a sapling, a ruin uncovered) would cut
+    /// ground off for good (#490). A resource blocks movement for as long as it stands, and a
+    /// renewable one is never taken off the map, so one growing in the only way through a narrow
+    /// place walls off whatever is past it exactly as a finished solid building would
+    /// (`would_strand`), and nobody beyond it can get back to food, water or a bed.
+    ///
+    /// Unlike `would_strand` this doesn't ask about the settlement's anchor: it asks whether any
+    /// two stretches of ground that `at` joins today would be left apart, wherever they are, so a
+    /// pocket the anchor itself is in counts. A tile that isn't walkable now strands nothing.
+    /// Open ground answers from the eight tiles around `at` alone (`ring_stays_joined`); only a
+    /// tile in a gap pays for the floods. Reads the live map: a pending solid site isn't counted
+    /// (unlike in `would_strand`).
+    pub fn would_cut_off(&self, at: Pos) -> bool {
+        let walkable = |p: Pos| self.map.get(p).is_some_and(|t| self.rules.passable(t));
+        if !walkable(at) || self.ring_stays_joined(at) {
+            return false;
+        }
+        let foot = Footprint::single(at);
+        let mut floods: Vec<Flood> = Vec::new();
+        for n in self.map.neighbors(at, false).filter(|&n| walkable(n)) {
+            if floods.iter().any(|f| f.cost(n).is_some()) {
+                continue;
+            }
+            let before = Flood::new(&self.map, n, &self.rules);
+            if self.would_strand_on(&self.map, &before, foot) {
+                return true;
+            }
+            floods.push(before);
+        }
+        false
+    }
+
+    /// Whether the walkable tiles around `at` stay joined to one another without going through
+    /// it: they form one unbroken run round its ring of eight (so a unit can walk round `at`),
+    /// or there is at most one to join. A step between two ring neighbours is always an
+    /// orthogonal one, so the run is a real path. A diagonal neighbour only matters next to the
+    /// two orthogonal ones it touches, which a unit needs to step on or off it anyway.
+    fn ring_stays_joined(&self, at: Pos) -> bool {
+        const RING: [(i32, i32); 8] =
+            [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)];
+        let open = RING.map(|(dx, dy)| {
+            self.map.get(Pos::new(at.x + dx, at.y + dy)).is_some_and(|t| self.rules.passable(t))
+        });
+        // Even indices are the orthogonal neighbours.
+        if (0..8).step_by(2).filter(|&i| open[i]).count() <= 1 {
+            return true;
+        }
+        let Some(start) = (0..8).find(|&i| !open[i]) else { return true };
+        let (mut runs, mut in_run, mut orthogonal) = (0, false, false);
+        for k in 1..=8 {
+            let i = (start + k) % 8;
+            if open[i] {
+                in_run = true;
+                orthogonal |= i % 2 == 0;
+            } else {
+                runs += usize::from(in_run && orthogonal);
+                (in_run, orthogonal) = (false, false);
+            }
+        }
+        runs <= 1
     }
 
     /// Whether `pos` could hold a door: walkable the way a unit stepping through one needs

@@ -41,8 +41,10 @@
 //! **Water the Land** (#69) leaves a `Patch` behind: a 3x3 area that stays wet for a while. When
 //! `tick_irrigation` finds a patch dry (patches dry in `(tick, centre)` order) up to `sprouts` of
 //! its empty, fertile, non-fallow tiles grow the sprout resource, picked with the `bending.sprout`
-//! stream. A tile that sprouted is fallow for a while and can't sprout again. The patch carries
-//! the effect's numbers with it, so drying never has to look at the ability again.
+//! stream. A tile that sprouted is fallow for a while and can't sprout again. A tile that holds a
+//! building or a site, or whose sprout would seal ground off for good (`World::would_cut_off`,
+//! #490: a cabbage blocks movement for as long as it stands), is skipped. The patch carries the
+//! effect's numbers with it, so drying never has to look at the ability again.
 //!
 //! **Hearthflame** (#70) lights a `HeatSource` on an empty Land or Coast tile for
 //! `duration_minutes` x the `heating` modifier; bending a lit tile again restokes it, resetting
@@ -778,7 +780,8 @@ impl World {
     /// rarely) can have been built or walked over since the map was made: one under a building,
     /// a building site, a stockpile zone, a ground stack or a bend designation stays buried, and
     /// so does one a unit is standing on or routed through, since a resource there would clash
-    /// with whatever is already using the tile. A later reveal finds it once the tile clears.
+    /// with whatever is already using the tile, and so does one that would seal ground off for
+    /// good (`would_cut_off`, #490). A later reveal finds it once the tile clears.
     /// `pub(super)` so a Map Room's Chart job (`world/chart.rs`, #402) can uncover too.
     pub(super) fn uncover(&mut self, pos: Pos) -> bool {
         if !self.buried.contains_key(&pos) || !self.free_to_uncover(pos) {
@@ -804,6 +807,9 @@ impl World {
                 .units
                 .iter()
                 .any(|u| u.pos == p || u.route.as_ref().is_some_and(|r| r.contains(&p)))
+            // A ruin in the one way through a narrow place stays buried rather than wall off
+            // what is beyond it (#490); rock a seam is bored out of isn't walkable, so it passes.
+            && !self.would_cut_off(p)
     }
 
     /// The nearest stockpile tile within `reach` tiles of `pos` (Chebyshev) that has room for
@@ -1279,13 +1285,23 @@ impl World {
             return false;
         }
         candidates.shuffle(&mut self.sprout_rng);
-        candidates.truncate(patch.sprouts as usize);
-        for &p in &candidates {
+        // A resource blocks movement for good, so each sprout is checked against the map as the
+        // ones before it left it: a tile that would seal ground off (`would_cut_off`, #490) is
+        // skipped (and not left fallow), and the next candidate takes its place.
+        let mut grown = 0;
+        for p in candidates {
+            if grown == patch.sprouts as usize {
+                break;
+            }
+            if self.would_cut_off(p) {
+                continue;
+            }
             self.map[p].resource = Some(patch.resource);
             self.resting.remove(&p);
             self.fallow.insert(p, self.tick + patch.fallow_ticks);
+            grown += 1;
         }
-        true
+        grown > 0
     }
 
     /// Can `p` take a sprout of this patch's resource: empty, fertile, not fallow, and not in
@@ -1301,8 +1317,13 @@ impl World {
                 .terrains
                 .as_ref()
                 .is_none_or(|t| t.contains(&tile.terrain));
+        // Nothing built or about to be: a sprout on a bed's tile would make it solid (#490, the
+        // Water seed 3 settlement of #487), and one on a site's door would block the door.
         terrain_ok
             && tile.resource.is_none()
+            && tile.building.is_none()
+            && self.site_at(p).is_none()
+            && !self.site_door(p, defs)
             && patch.biomes.contains(&tile.biome)
             && !self.fallow.contains_key(&p)
             && !self.zones.contains(&p)
@@ -1337,6 +1358,8 @@ mod scooter_tests;
 mod seismic_tests;
 #[cfg(test)]
 mod shelter_tests;
+#[cfg(test)]
+mod strand_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

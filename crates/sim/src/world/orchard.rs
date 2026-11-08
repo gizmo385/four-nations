@@ -161,12 +161,17 @@ impl World {
     /// Where the orchard on `pos` plants next: a random one of the tiles in reach that
     /// `can_plant` allows, or `None` if there is none.
     fn pick_planting_site(&mut self, pos: Pos, def: &OrchardDef, defs: &Defs) -> Option<Pos> {
-        let sites: Vec<Pos> =
+        let mut sites: Vec<Pos> =
             square(pos, def.radius as i32).filter(|&p| self.can_plant(p, def, defs)).collect();
-        if sites.is_empty() {
-            return None;
+        // A tree blocks movement for good, so one that would seal ground off (`would_cut_off`,
+        // #490) is passed over for another. The first draw is the same one it always was.
+        while !sites.is_empty() {
+            let site = sites.swap_remove(self.orchard_rng.random_range(0..sites.len()));
+            if !self.would_cut_off(site) {
+                return Some(site);
+            }
         }
-        Some(sites[self.orchard_rng.random_range(0..sites.len())])
+        None
     }
 
     /// Can `p` take a new tree: terrain the tree spawns on in mapgen (fruit trees: land; biome is

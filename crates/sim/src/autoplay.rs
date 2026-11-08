@@ -715,11 +715,11 @@ fn nearest_build_site(
     radius: i32,
 ) -> Option<Pos> {
     let (w, h) = defs.building(building).footprint;
-    let before = world.flood_from_anchor(anchor);
+    let before = world.flood_from_anchor(anchor, defs);
     let ok = |p: Pos| {
         world.check_build(p, building, defs).is_ok()
             && world.to_clear(p, building, defs).is_empty()
-            && world.build_site_viable(&before, Footprint::new(p, w, h))
+            && world.build_site_viable(&before, Footprint::new(p, w, h), defs)
     };
     if ok(anchor) {
         return Some(anchor);
@@ -824,7 +824,7 @@ mod tests {
 
         // A study hall anchored right at the top strands the three rows below it: a real trap,
         // and (unlike the production code) what the old, unchecked pick would have been.
-        assert!(world.would_strand(anchor, Footprint::new(anchor, 2, 2)));
+        assert!(world.would_strand(anchor, Footprint::new(anchor, 2, 2), &defs));
         assert_eq!(
             nearest_build_site(&world, &defs, anchor, study_hall, 5),
             None,
@@ -874,7 +874,7 @@ mod tests {
         // too (it was never reachable from `anchor` to begin with, so building there strands
         // nothing): exactly the gap `build_site_viable` has to close.
         assert_eq!(world.check_build(pocket, bed, &defs), Ok(()));
-        assert!(!world.would_strand(anchor, Footprint::new(pocket, 1, 1)));
+        assert!(!world.would_strand(anchor, Footprint::new(pocket, 1, 1), &defs));
         assert_eq!(
             nearest_build_site(&world, &defs, anchor, bed, 5),
             None,

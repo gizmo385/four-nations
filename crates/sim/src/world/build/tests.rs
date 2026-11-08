@@ -904,7 +904,10 @@ fn a_building_across_the_only_corridor_strands_the_far_end() {
     let (fw, fh) = defs.building(study_hall).footprint;
     assert_eq!((fw, fh), (2, 2));
     let anchor = at(0, 2);
-    assert!(w.would_strand(anchor, Footprint::new(at(3, 2), fw, fh)), "walls off columns 5-7");
+    assert!(
+        w.would_strand(anchor, Footprint::new(at(3, 2), fw, fh), &defs),
+        "walls off columns 5-7"
+    );
 }
 
 /// The same building at the corridor's dead end strands nothing, since there is no ground past
@@ -917,7 +920,7 @@ fn a_building_at_the_corridor_s_dead_end_strands_nothing() {
     let study_hall = defs.building_id("study_hall").unwrap();
     let (fw, fh) = defs.building(study_hall).footprint;
     let anchor = at(0, 2);
-    assert!(!w.would_strand(anchor, Footprint::new(at(6, 2), fw, fh)));
+    assert!(!w.would_strand(anchor, Footprint::new(at(6, 2), fw, fh), &defs));
 }
 
 /// A footprint the flood never even reaches (an island with no path from `anchor` at all)
@@ -929,5 +932,44 @@ fn a_footprint_already_unreachable_from_anchor_strands_nothing() {
     let study_hall = defs.building_id("study_hall").unwrap();
     let (fw, fh) = defs.building(study_hall).footprint;
     let anchor = at(0, 0);
-    assert!(!w.would_strand(anchor, Footprint::new(at(4, 0), fw, fh)));
+    assert!(!w.would_strand(anchor, Footprint::new(at(4, 0), fw, fh), &defs));
+}
+
+/// #490: two solid sites that are each harmless alone can seal a corridor together. Here a
+/// four-wide corridor takes a 2x2 study hall in its top half or its bottom half and still leaves
+/// a two-wide way through; the second hall, with the first still a pending site, would close it.
+/// `would_strand` counts pending solid sites as already standing, so it sees that.
+#[test]
+fn two_pending_sites_that_together_seal_a_corridor_are_caught() {
+    let rows = ["^^^^^^^^", "........", "........", "........", "........", "^^^^^^^^"];
+    let (mut w, defs) = setup(&rows, &[]);
+    let hall = defs.building_id("study_hall").unwrap();
+    let (fw, fh) = defs.building(hall).footprint;
+    let (anchor, top, bottom) = (at(0, 1), at(3, 1), at(3, 3));
+    assert!(!w.would_strand(anchor, Footprint::new(top, fw, fh), &defs));
+    assert!(!w.would_strand(anchor, Footprint::new(bottom, fw, fh), &defs));
+
+    w.designate_build(top, hall, &defs).unwrap();
+    assert!(
+        w.would_strand(anchor, Footprint::new(bottom, fw, fh), &defs),
+        "the top hall is as good as built"
+    );
+    // Staggered, with a gap between the two halls, and the way stays open.
+    assert!(!w.would_strand(anchor, Footprint::new(at(6, 3), fw, fh), &defs));
+}
+
+/// A resting renewable (a harvested cabbage patch) still stands on its tile and still blocks
+/// movement, so every flood already counts it as solid. Pinned because #487 guessed the
+/// opposite: nothing in the sim makes a resting plant walkable.
+#[test]
+fn a_resting_renewable_resource_blocks_movement_like_a_ripe_one() {
+    let (mut w, defs) = setup(&["........"], &[at(0, 0)]);
+    let cabbage = defs.resource_id("cabbage").unwrap();
+    w.map[at(4, 0)].resource = Some(cabbage);
+    w.resting.insert(at(4, 0), 100.0);
+    w.map_changed();
+    assert!(w.is_resting(at(4, 0)));
+    let flood = w.flood_from_anchor(at(0, 0), &defs);
+    assert!(flood.cost(at(3, 0)).is_some());
+    assert!(flood.cost(at(7, 0)).is_none());
 }

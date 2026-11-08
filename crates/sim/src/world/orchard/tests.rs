@@ -505,3 +505,30 @@ fn fish_spots_a_dock_plants_are_picked_as_they_ripen_with_no_orders_from_us() {
     run_until(&mut w, &defs, secs(first_fish + 180.0), |w| w.stored_total(fish) > 0);
     assert!(w.stored_total(fish) > 0, "fish spots are fished with no orders from us");
 }
+
+/// #490: a tree blocks movement for good, so an orchard never plants one in the only way through
+/// a narrow place (here a one-tile corridor, every tile in reach of which would seal off the
+/// ground past it), though it plants freely once the ground is wide enough to walk round it.
+#[test]
+fn an_orchard_never_plants_a_tree_that_seals_off_ground() {
+    let defs = Defs::bundled();
+    let def = orchard_def(&defs);
+    let mut map = arena(SIZE);
+    for p in map.positions().collect::<Vec<_>>() {
+        if p.y != 7 {
+            map[p].terrain = Terrain::Mountain;
+        }
+    }
+    let mut w = World::with_map(7, map, Nation::Air, &[at(0, 7)], &defs);
+    raise_orchard(&mut w, &defs, MID);
+    run(&mut w, &defs, secs(def.plant_seconds) * (def.max_trees as u64 + 2));
+    assert!(fruit_trees(&w, &defs).is_empty(), "{:?}", fruit_trees(&w, &defs));
+
+    // Open the rows either side of the corridor and it plants as it always did.
+    for p in w.map.positions().collect::<Vec<_>>() {
+        w.map[p].terrain = Terrain::Land;
+    }
+    w.map_changed();
+    run(&mut w, &defs, secs(def.plant_seconds) * (def.max_trees as u64 + 2));
+    assert_eq!(fruit_trees(&w, &defs).len() as u32, def.max_trees);
+}
