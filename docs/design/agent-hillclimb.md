@@ -379,6 +379,17 @@ horizon and is scored there, so a crash costs score instead of making the run in
 evidence run's 528 turns replayed in 23 s, so six seeds take about 2.5 minutes of CPU and no
 tokens.
 
+As built (#528): the loop is `fn_agent::clean::run`. `--horizon` counts turns and can't be
+combined with `--turns` or `--wake-on`; `--plan FILE` (a JSON object within `plan_bytes`) also
+works with `--turns`, and is written to the log as a `plan` line. A `done` or `asked` run that
+used no turn is followed by one forced `end_turn`. After an `error` or `runaway` the rest coasts
+one turn at a time. The log has a `script` line and a `wake` line per run. The stdout JSON is the
+last run's report (its `observe` is refreshed to the horizon) plus `turns`, `restarts` (script
+starts after the first), `stopped_by` (`{reason, why, turn}` or `null`) and `scorecard`: exactly
+what `fn_agent score LOG --horizon TURNS --json` prints for that log, built by replaying it, so
+the scorecard costs about as much CPU again as the run. The exit is nonzero only when
+`stopped_by` is set.
+
 **The attempt loop** (`cargo xtask agent-run --track water-3h --attempts 5`):
 
 1. **Attempt 1** is a normal `--scripts` run on `play_seed` to the horizon, with the governor and

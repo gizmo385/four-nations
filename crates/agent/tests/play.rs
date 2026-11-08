@@ -342,3 +342,243 @@ fn watch_replays_a_play_log_to_the_same_final_frame() {
         |s: &str| s.lines().take(usize::from(SIZE.1) - 1).collect::<Vec<_>>().join("\n");
     assert_eq!(trim_strip(&got), trim_strip(&want));
 }
+
+// ---------------------------------------------------------------------------------------------
+// --horizon and --plan (#528, docs/design/agent-hillclimb.md, "Across runs: attempts and a
+// champion"): a clean evaluation of a strategy to a fixed horizon.
+// ---------------------------------------------------------------------------------------------
+
+/// Runs `fn_agent play --horizon` on seed 7, Earth, with `extra` flags after the common ones;
+/// returns the process output, the log's bytes and the log's path.
+fn play_horizon(
+    name: &str,
+    script: &std::path::Path,
+    horizon: u32,
+    extra: &[&str],
+) -> (std::process::Output, Vec<u8>, std::path::PathBuf) {
+    let log = temp_path(&format!("{name}.jsonl"));
+    let out = fn_agent()
+        .args([
+            "play",
+            "--script",
+            script.to_str().unwrap(),
+            "--seed",
+            "7",
+            "--nation",
+            "earth",
+            "--horizon",
+            &horizon.to_string(),
+            "--log",
+            log.to_str().unwrap(),
+        ])
+        .args(extra)
+        .output()
+        .unwrap();
+    let bytes = std::fs::read(&log).unwrap_or_default();
+    (out, bytes, log)
+}
+
+fn report(out: &std::process::Output) -> serde_json::Value {
+    serde_json::from_slice(&out.stdout)
+        .unwrap_or_else(|e| panic!("{e}: {}", String::from_utf8_lossy(&out.stderr)))
+}
+
+/// The log's `Turn` count and its `Wake` reasons, in order.
+fn turns_and_wakes(log: &std::path::Path) -> (usize, Vec<String>) {
+    let (_, lines) = watch::read_file(log).unwrap();
+    let turns = lines.iter().filter(|l| matches!(l, fn_tui::surface::LogLine::Turn { .. })).count();
+    let wakes = lines
+        .iter()
+        .filter_map(|l| match l {
+            fn_tui::surface::LogLine::Wake { reason, .. } => Some(reason.clone()),
+            _ => None,
+        })
+        .collect();
+    (turns, wakes)
+}
+
+/// A script that returns at once still reaches the horizon, without spinning: each empty run is
+/// followed by one forced turn, and every stop has its `wake` line.
+#[test]
+fn horizon_a_script_that_returns_at_once_reaches_the_horizon() {
+    let script = temp_script("h_done.rhai", "1 + 1");
+    let (out, _, log) = play_horizon("h_done", &script, 10, &[]);
+    std::fs::remove_file(&script).ok();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let r = report(&out);
+    assert_eq!(r["turns"], 10, "{r}");
+    assert_eq!(r["restarts"], 9, "{r}");
+    assert_eq!(r["stopped_by"], serde_json::Value::Null);
+    assert_eq!(r["scorecard"]["horizon"], 10);
+    assert_eq!(r["scorecard"]["played"], 10);
+    assert_eq!(r["observe"]["turn"], 10);
+    let (turns, wakes) = turns_and_wakes(&log);
+    std::fs::remove_file(&log).ok();
+    assert_eq!(turns, 10);
+    assert_eq!(wakes, vec!["done"; 10]);
+}
+
+/// `wake()` restarts the script with its `memory` kept, and a script that waits runs again from
+/// where it stopped, not from turn 0. The last run is cut by the horizon (`budget`).
+#[test]
+fn horizon_restarts_on_done_and_asked_keeping_memory() {
+    let script = temp_script(
+        "h_memory.rhai",
+        "memory.runs = (memory.runs ?? 0) + 1; wait(3); if memory.runs == 2 { wake(\"again\"); }",
+    );
+    let (out, _, log) = play_horizon("h_memory", &script, 10, &[]);
+    std::fs::remove_file(&script).ok();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let r = report(&out);
+    // Turns 0-3, 3-6, 6-9 run to the end; the fourth run has one turn left and hits the budget.
+    assert_eq!(r["restarts"], 3, "{r}");
+    assert_eq!(r["reason"], "budget", "{r}");
+    assert_eq!(r["memory"]["runs"], 4, "{r}");
+    let (_, wakes) = turns_and_wakes(&log);
+    std::fs::remove_file(&log).ok();
+    assert_eq!(wakes, vec!["done", "asked", "done", "budget"]);
+}
+
+/// An erroring script stops the orders, not the clock: the rest of the horizon coasts, the first
+/// error is `stopped_by`, and the exit is nonzero.
+#[test]
+fn horizon_an_erroring_script_coasts_to_the_horizon() {
+    let script = temp_script("h_error.rhai", "wait(2); let x = 1 / 0;");
+    let (out, _, log) = play_horizon("h_error", &script, 8, &[]);
+    std::fs::remove_file(&script).ok();
+    assert!(!out.status.success());
+    let r = report(&out);
+    assert_eq!(r["turns"], 8, "{r}");
+    assert_eq!(r["restarts"], 0, "{r}");
+    assert_eq!(r["stopped_by"]["reason"], "error", "{r}");
+    assert_eq!(r["stopped_by"]["turn"], 2, "{r}");
+    assert_eq!(r["scorecard"]["played"], 8, "{r}");
+    let (turns, wakes) = turns_and_wakes(&log);
+    std::fs::remove_file(&log).ok();
+    assert_eq!(turns, 8);
+    assert_eq!(wakes, vec!["error"]);
+}
+
+/// A loop with no `wait` is a `runaway`; it coasts the same way.
+#[test]
+fn horizon_a_runaway_script_coasts_to_the_horizon() {
+    let script = temp_script("h_runaway.rhai", "loop { let x = 1; }");
+    let (out, _, log) = play_horizon("h_runaway", &script, 5, &[]);
+    std::fs::remove_file(&script).ok();
+    std::fs::remove_file(&log).ok();
+    assert!(!out.status.success());
+    let r = report(&out);
+    assert_eq!(r["turns"], 5, "{r}");
+    assert_eq!(r["stopped_by"]["reason"], "runaway", "{r}");
+    assert_eq!(r["stopped_by"]["turn"], 0, "{r}");
+}
+
+/// Event wakes are ignored: the run that `--wake-on need` stopped early in the `--turns` test
+/// above goes on to the horizon.
+#[test]
+fn horizon_ignores_event_wakes() {
+    let script = temp_script("h_events.rhai", "loop { wait(1); }");
+    let (out, _, log) = play_horizon("h_events", &script, 6, &["--turn", "600"]);
+    std::fs::remove_file(&script).ok();
+    std::fs::remove_file(&log).ok();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let r = report(&out);
+    assert_eq!(r["reason"], "budget", "{r}");
+    assert_eq!(r["turns_run"], 6, "{r}");
+    assert_eq!(r["restarts"], 0, "{r}");
+}
+
+/// `--plan FILE` is what `plan()` returns, and the log carries it as a `plan` line. Two runs of
+/// the same script, plan and seed write the same log and report the same score; the stdout
+/// scorecard is what `fn_agent score LOG --horizon N --json` prints for the log.
+#[test]
+fn horizon_with_a_plan_is_deterministic_and_matches_fn_agent_score() {
+    let script =
+        temp_script("h_plan.rhai", "memory.goal = plan().goal; for i in 0..plan().n { wait(1); }");
+    let plan = temp_script("h_plan.json", r#"{"goal": "stay alive", "n": 4}"#);
+    let plan_arg = plan.to_str().unwrap();
+    let (out1, log1, path1) = play_horizon("h_plan_a", &script, 30, &["--plan", plan_arg]);
+    let (out2, log2, path2) = play_horizon("h_plan_b", &script, 30, &["--plan", plan_arg]);
+    std::fs::remove_file(&script).ok();
+    std::fs::remove_file(&plan).ok();
+    assert!(out1.status.success(), "{}", String::from_utf8_lossy(&out1.stderr));
+    assert_eq!(out1.stdout, out2.stdout, "the report should be identical both times");
+
+    let digest = |bytes: &[u8]| -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        bytes.hash(&mut hasher);
+        hasher.finish()
+    };
+    assert_eq!(digest(&log1), digest(&log2), "the run log digest should be stable");
+
+    let r = report(&out1);
+    assert_eq!(r["memory"]["goal"], "stay alive", "{r}");
+    // Runs of 4 turns: 0-4 ... 24-28 (7 runs), then a last one cut to 2 turns by the horizon.
+    assert_eq!(r["restarts"], 7, "{r}");
+    let (_, lines) = watch::read_file(&path1).unwrap();
+    assert!(
+        lines.iter().any(|l| matches!(l, fn_tui::surface::LogLine::Plan { plan }
+            if plan["goal"] == "stay alive")),
+        "the log should carry the plan"
+    );
+
+    let scored = fn_agent()
+        .args(["score", path1.to_str().unwrap(), "--horizon", "30", "--json"])
+        .output()
+        .unwrap();
+    assert!(scored.status.success(), "{}", String::from_utf8_lossy(&scored.stderr));
+    let scored: serde_json::Value = serde_json::from_slice(&scored.stdout).unwrap();
+    assert_eq!(r["scorecard"], scored);
+    assert_eq!(r["scorecard"]["horizon"], 30);
+    std::fs::remove_file(&path1).ok();
+    std::fs::remove_file(&path2).ok();
+}
+
+/// `--plan` also works with `--turns`, and a plan that isn't a JSON object is refused before
+/// anything runs.
+#[test]
+fn plan_flag_works_with_turns_and_refuses_a_bad_file() {
+    let script = temp_script("p_turns.rhai", "memory.n = plan().n; 1");
+    let plan = temp_script("p_turns.json", r#"{"n": 3}"#);
+    let log = temp_path("p_turns.jsonl");
+    let args = |plan: &std::path::Path| {
+        vec![
+            "play".to_owned(),
+            "--script".to_owned(),
+            script.to_str().unwrap().to_owned(),
+            "--seed".to_owned(),
+            "7".to_owned(),
+            "--nation".to_owned(),
+            "earth".to_owned(),
+            "--turns".to_owned(),
+            "5".to_owned(),
+            "--plan".to_owned(),
+            plan.to_str().unwrap().to_owned(),
+            "--log".to_owned(),
+            log.to_str().unwrap().to_owned(),
+        ]
+    };
+    let out = fn_agent().args(args(&plan)).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(report(&out)["memory"]["n"], 3);
+
+    let bad = temp_script("p_bad.json", "[1, 2]");
+    let out = fn_agent().args(args(&bad)).output().unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("--plan"), "{:?}", out.stderr);
+    for p in [&script, &plan, &bad, &log] {
+        std::fs::remove_file(p).ok();
+    }
+}
+
+/// `--horizon` and `--turns` are different modes; asking for both is a usage error.
+#[test]
+fn horizon_with_turns_is_a_usage_error() {
+    let script = temp_script("h_both.rhai", "1");
+    let (out, _, log) = play_horizon("h_both", &script, 5, &["--turns", "5"]);
+    std::fs::remove_file(&script).ok();
+    std::fs::remove_file(&log).ok();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("--horizon"));
+}

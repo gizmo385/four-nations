@@ -23,7 +23,9 @@ usage: fn_agent serve --seed N --nation X [--start default|X,Y] [--difficulty ID
                        [--difficulty ID] [--turn SECS] [--scripts]
        fn_agent play --script FILE [--scenario ID | --seed N --nation X
                       [--start default|X,Y] [--difficulty ID]] --turns N [--turn SECS]
-                      [--wake-on LIST] --log PATH
+                      [--wake-on LIST] [--plan FILE] --log PATH
+       fn_agent play --script FILE [--plan FILE] --horizon TURNS [start flags as above]
+                      [--turn SECS] --log PATH
        fn_agent keys LOG
        fn_agent score LOG [--horizon TURNS] [--json] [--append]
 
@@ -54,7 +56,18 @@ wait) or once --turns runs out, writes --log PATH the same way serve does, and p
 report as JSON on stdout. It exits 0 for done or budget, nonzero for anything else (error,
 runaway, asked or event), so a shell loop (scripts/agent-run.sh, say) can tell which runs need a
 look. --wake-on is a comma-separated list from death, arrival, tech, endeavor, season, stockpile,
-bend_failed, need (data/agent.toml's own default_wake with none given).
+bend_failed, need (data/agent.toml's own default_wake with none given). --plan FILE (a JSON
+object, within data/agent.toml's plan_bytes) is the plan that plan() returns, as the plan tool would
+have set it.
+
+play --horizon TURNS (docs/design/agent-hillclimb.md, \"Across runs: attempts and a champion\") is
+the clean evaluation of a strategy: instead of stopping at the first wake it runs to exactly TURNS
+turns, with no model. Event wakes are ignored. When the script returns or calls wake() it runs again
+with its memory kept (one end_turn is forced first if the run used no turn, so it can't spin). After
+an error or a runaway the remaining turns run with no orders. The log has a wake line per stop. The
+JSON on stdout is the last run's report plus restarts, stopped_by (the first error or runaway, or
+null) and scorecard (what `fn_agent score LOG --horizon TURNS --json` prints for the log). It exits
+0 unless a script stopped_by an error or a runaway. Can't be combined with --turns or --wake-on.
 
 score replays LOG up to --horizon TURNS (the log's own last turn by default; it stops there even if
 the log goes on) and prints its scorecard (docs/design/agent-hillclimb.md, \"The scorecard\"): the
@@ -341,6 +354,10 @@ struct PlayArgs {
     scenario: Option<String>,
     turn_seconds: Option<u32>,
     turns: Option<u32>,
+    /// `--horizon TURNS` (#528): the clean evaluation, run to exactly this many turns.
+    horizon: Option<u32>,
+    /// `--plan FILE` (#528): the plan `plan()` returns.
+    plan: Option<String>,
     wake_on: Option<Vec<EventKind>>,
     log: Option<String>,
 }
@@ -356,6 +373,8 @@ fn parse_play_args(args: Vec<String>) -> Result<PlayArgs, String> {
         scenario: None,
         turn_seconds: None,
         turns: None,
+        horizon: None,
+        plan: None,
         wake_on: None,
         log: None,
     };
@@ -378,6 +397,13 @@ fn parse_play_args(args: Vec<String>) -> Result<PlayArgs, String> {
             "--scenario" => a.scenario = Some(value()?),
             "--turn" => a.turn_seconds = Some(value()?.parse::<u32>().map_err(|e| e.to_string())?),
             "--turns" => a.turns = Some(value()?.parse::<u32>().map_err(|e| e.to_string())?),
+            "--horizon" => {
+                let v = value()?;
+                a.horizon = Some(
+                    v.parse::<u32>().map_err(|e| format!("--horizon wants a turn count: {e}"))?,
+                );
+            }
+            "--plan" => a.plan = Some(value()?),
             "--wake-on" => {
                 let v = value()?;
                 let kinds: Result<Vec<EventKind>, String> =
@@ -387,6 +413,14 @@ fn parse_play_args(args: Vec<String>) -> Result<PlayArgs, String> {
             "--log" => a.log = Some(value()?),
             other => return Err(format!("unknown flag {other:?}")),
         }
+    }
+    if a.horizon.is_some() && (a.turns.is_some() || a.wake_on.is_some()) {
+        return Err("--horizon runs to a fixed turn and ignores event wakes: it can't be \
+                     combined with --turns or --wake-on"
+            .to_owned());
+    }
+    if a.horizon == Some(0) {
+        return Err("--horizon wants at least one turn".to_owned());
     }
     if a.scenario.is_some()
         && (a.seed.is_some() || a.nation.is_some() || a.start_given || a.difficulty.is_some())
@@ -428,7 +462,9 @@ fn parse_event_kind(s: &str) -> Result<EventKind, String> {
 fn play(args: Vec<String>) -> Result<ExitCode, String> {
     let a = parse_play_args(args)?;
     let script_path = a.script.as_deref().ok_or("--script is required")?;
-    let turns = a.turns.ok_or("--turns is required")?;
+    if a.turns.is_none() && a.horizon.is_none() {
+        return Err("--turns (or --horizon) is required".to_owned());
+    }
     let log_path = a.log.as_deref().ok_or("--log is required")?;
     let code = std::fs::read_to_string(script_path)
         .map_err(|e| format!("can't read --script {script_path:?}: {e}"))?;
@@ -450,8 +486,30 @@ fn play(args: Vec<String>) -> Result<ExitCode, String> {
     writer.write_header(&host.header()).map_err(|e| e.to_string())?;
 
     let limits = ScriptLimits::bundled();
-    let wake_on = a.wake_on.unwrap_or_else(|| limits.default_wake.clone());
     let tag = "play".to_owned();
+
+    let plan = match &a.plan {
+        Some(path) => read_plan(path, limits.plan_bytes)?,
+        None => serde_json::json!({}),
+    };
+    if a.plan.is_some() {
+        writer.write_line(&LogLine::Plan { plan: plan.clone() }).map_err(|e| e.to_string())?;
+    }
+
+    if let Some(horizon) = a.horizon {
+        return play_to_horizon(
+            &mut host,
+            &mut writer,
+            &code,
+            &tag,
+            &plan,
+            horizon,
+            &limits,
+            log_path,
+        );
+    }
+    let turns = a.turns.expect("checked above: --turns or --horizon");
+    let wake_on = a.wake_on.unwrap_or_else(|| limits.default_wake.clone());
 
     writer
         .write_line(&LogLine::Script {
@@ -471,7 +529,7 @@ fn play(args: Vec<String>) -> Result<ExitCode, String> {
         version: 0,
         wake_on: &wake_on,
         memory: &memory,
-        plan: &serde_json::json!({}),
+        plan: &plan,
         probe: false,
     };
     let outcome = script::run(&mut host, request, &limits);
@@ -501,6 +559,58 @@ fn play(args: Vec<String>) -> Result<ExitCode, String> {
         "done" | "budget" => ExitCode::SUCCESS,
         _ => ExitCode::FAILURE,
     })
+}
+
+/// `--plan FILE`: a JSON object within `cap` bytes, checked the way the `plan` tool checks a `set`.
+fn read_plan(path: &str, cap: usize) -> Result<serde_json::Value, String> {
+    let text =
+        std::fs::read_to_string(path).map_err(|e| format!("can't read --plan {path:?}: {e}"))?;
+    let value: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("--plan {path:?} isn't JSON: {e}"))?;
+    fn_agent::plan::apply(&serde_json::json!({}), Some(value), None, cap)
+        .map_err(|e| format!("--plan {path:?}: {e}"))
+}
+
+/// `play --horizon TURNS` (#528): [`fn_agent::clean::run`], then the log's `End` line and the
+/// report on stdout -- the last script run's own report plus `restarts`, `stopped_by` and the
+/// `scorecard` at the horizon. The scorecard is `fn_agent score LOG --horizon TURNS --json` on
+/// the log just written, so the two can never disagree.
+#[allow(clippy::too_many_arguments)]
+fn play_to_horizon(
+    host: &mut Host,
+    writer: &mut Writer<std::io::BufWriter<std::fs::File>>,
+    code: &str,
+    tag: &str,
+    plan: &serde_json::Value,
+    horizon: u32,
+    limits: &ScriptLimits,
+    log_path: &str,
+) -> Result<ExitCode, String> {
+    let run = fn_agent::clean::run(host, code, tag, plan, horizon, limits, |line| {
+        writer.write_line(line).map_err(|e| e.to_string())
+    })?;
+    writer.write_end(host.tick(), "horizon reached").map_err(|e| e.to_string())?;
+
+    let (header, lines) = watch::read_file(Path::new(log_path))?;
+    let report = scorecard::build(&header, &lines, Some(horizon))?;
+
+    let mut out = serde_json::to_value(&run.last).map_err(|e| e.to_string())?;
+    let fields = out.as_object_mut().expect("an Outcome serializes as an object");
+    // The last run's own `observe` predates any forced or coasting turn after it.
+    fields.insert(
+        "observe".to_owned(),
+        serde_json::to_value(host.observe()).map_err(|e| e.to_string())?,
+    );
+    fields.insert("turns".to_owned(), run.turns.into());
+    fields.insert("restarts".to_owned(), run.restarts.into());
+    fields.insert(
+        "stopped_by".to_owned(),
+        run.stopped_by.as_ref().map_or(serde_json::Value::Null, fn_agent::clean::StoppedBy::json),
+    );
+    fields.insert("scorecard".to_owned(), report.json());
+    println!("{}", serde_json::to_string(&out).map_err(|e| e.to_string())?);
+
+    Ok(if run.stopped_by.is_some() { ExitCode::FAILURE } else { ExitCode::SUCCESS })
 }
 
 // -------------------------------------------------------------------------------------------
@@ -964,6 +1074,34 @@ mod tests {
             };
             assert!(err.contains(flag), "{flag}: {err}");
         }
+    }
+
+    /// `--horizon` and `--plan` (#528) parse; `--horizon` stands in for `--turns` and can't be
+    /// combined with it or with `--wake-on`.
+    #[test]
+    fn parse_play_args_reads_horizon_and_plan() {
+        let without_turns: Vec<String> = {
+            let mut v = play_args(&[]);
+            let at = v.iter().position(|a| a == "--turns").unwrap();
+            v.drain(at..at + 2);
+            v
+        };
+        let mut args = without_turns.clone();
+        args.extend(["--horizon", "540", "--plan", "plan.json"].map(str::to_owned));
+        let a = parse_play_args(args).unwrap();
+        assert_eq!((a.horizon, a.turns), (Some(540), None));
+        assert_eq!(a.plan.as_deref(), Some("plan.json"));
+
+        for clash in [["--turns", "5"], ["--wake-on", "death"]] {
+            let mut args = without_turns.clone();
+            args.extend(["--horizon", "540"].map(str::to_owned));
+            args.extend(clash.map(str::to_owned));
+            let err = parse_play_args(args).unwrap_err();
+            assert!(err.contains("--horizon"), "{err}");
+        }
+        let mut args = without_turns;
+        args.extend(["--horizon", "0"].map(str::to_owned));
+        assert!(parse_play_args(args).is_err());
     }
 
     /// `--wake-on`'s own vocabulary round-trips: every word [`EventKind::as_str`] gives back

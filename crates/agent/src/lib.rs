@@ -64,6 +64,7 @@
 //! This is a statement about how you deploy the agent, same as "don't give it a shell" is: no
 //! amount of testing inside this repository can prove an operator followed it.
 
+pub mod clean;
 pub mod plan;
 pub mod runlog;
 pub mod scorecard;
