@@ -229,7 +229,7 @@ fn sdk_reference_documents_the_plan() {
         assert!(r["plan"]["keys"][key].is_string(), "{key} missing from {}", r["plan"]["keys"]);
     }
     let frame = r["plan"]["governor"]["frame"].as_str().unwrap();
-    assert!(frame.contains("let p = plan();") && frame.contains("sign_duty(p.order)"), "{frame}");
+    assert!(frame.contains("let p = plan();") && frame.contains("fn beds_duty("), "{frame}");
     let signatures: Vec<&str> = r["plumbing"]
         .as_array()
         .unwrap()
@@ -237,4 +237,41 @@ fn sdk_reference_documents_the_plan() {
         .map(|e| e["signature"].as_str().unwrap())
         .collect();
     assert!(signatures.contains(&"plan()"), "{signatures:?}");
+}
+
+/// #557: the example governor `sdk_reference` shows is a real, runnable script: saved and run
+/// against a plan it reads, it runs its turns to the budget and its duties act.
+#[test]
+fn the_example_governor_runs_under_run_script() {
+    let mut t = tools();
+    let reference = t.call("sdk_reference", json!({})).unwrap();
+    let frame = reference["plan"]["governor"]["frame"].as_str().unwrap().to_owned();
+    let plan = json!({"research": [], "targets": {"beds_ahead": 2}, "build": []});
+    t.call("plan", json!({"set": plan})).unwrap();
+    t.call("save_script", json!({"name": "governor", "code": frame})).unwrap();
+    let r = t.call("run_script", json!({"name": "governor", "turns": 3})).unwrap();
+    assert_eq!(r["reason"], "budget", "{r}");
+    assert!(r["acts"]["ok"].as_u64().unwrap() > 0, "it did its duties: {r}");
+    assert!(r["turns_run"].as_u64().unwrap() >= 3, "{r}");
+}
+
+/// #557: the layout rules reach `sdk_reference` and the `save_script` tool description.
+#[test]
+fn layout_rules_reach_sdk_reference_and_save_script() {
+    let mut t = tools();
+    let r = t.call("sdk_reference", json!({})).unwrap();
+    let layout = r["plan"]["governor"]["layout"].as_str().unwrap();
+    let tool = t.list().into_iter().find(|t| t["name"] == "save_script").unwrap();
+    let description = tool["description"].as_str().unwrap();
+    for text in [layout, description] {
+        for phrase in [
+            "one statement per line",
+            "4-space indent",
+            "under 80 characters",
+            "own named fn",
+            "change only what needs changing",
+        ] {
+            assert!(text.contains(phrase), "missing {phrase:?} in: {text}");
+        }
+    }
 }

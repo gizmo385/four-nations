@@ -302,3 +302,21 @@ fn a_scripted_log_resumes_to_the_same_frame_with_its_script_wake_and_note_lines_
     let size = (100, 40);
     assert_eq!(with_commentary.frame(size.0, size.1), without_commentary.frame(size.0, size.1));
 }
+
+/// #557: `save_script` adds a one-line hint when the code has lines over the threshold, and
+/// still saves; clean code gets no hint at all.
+#[test]
+fn save_script_hints_at_long_lines_but_always_saves() {
+    let mut t = tools();
+    let clean = t.call("save_script", json!({"name": "g", "code": "let a = 1;\n"})).unwrap();
+    assert!(clean.get("hint").is_none(), "{clean}");
+
+    let long = format!("let a = 1;\nlet b = \"{}\";\n", "x".repeat(120));
+    let saved = t.call("save_script", json!({"name": "g", "code": long})).unwrap();
+    assert_eq!(saved["version"], 2, "{saved}");
+    let hint = saved["hint"].as_str().unwrap();
+    assert!(hint.contains("1 line over 100 characters"), "{hint}");
+    assert!(hint.contains("longest 131"), "{hint}");
+    assert!(!hint.contains('\n'), "{hint}");
+    assert_eq!(t.call("scripts", json!({})).unwrap()["scripts"][0]["version"], 2);
+}

@@ -31,6 +31,7 @@ pub mod library;
 pub mod limits;
 pub mod prelude;
 pub mod runner;
+pub mod style;
 
 pub use library::Library;
 pub use limits::Limits;

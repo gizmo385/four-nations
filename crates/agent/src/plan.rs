@@ -2,7 +2,7 @@
 //! and a plan"): the plan is the model's intent held as data, a JSON map scripts read through
 //! `plan()`. `memory` is what scripts remember; the plan is what the model wants. [`apply`] is
 //! the one place a `set` or `merge` is checked and combined; [`reference`] is the convention and
-//! the governor frame `sdk_reference` shows.
+//! the governor example `sdk_reference` shows.
 
 use serde_json::{Map, Value, json};
 
@@ -64,28 +64,13 @@ fn kind(value: &Value) -> &'static str {
     }
 }
 
-/// The governor frame from docs/design/agent-hillclimb.md: a shape, not a strategy. The helper
-/// functions it calls are the agent's own, written and kept in the same script.
-pub const GOVERNOR_FRAME: &str = r#"// governor: one loop of duties. Intent lives in plan(); this is the how.
-let camp = memory.camp ?? observe().cursor;
-memory.camp = camp;
-loop {
-    let p = plan();
-    let g = observe();
-    if g.research.label.contains("none set") {
-        for t in p.research { if act([#{step: "research", tech: t}], "plan").ok { break; } }
-    }
-    food_duty(p.targets, camp);          // helpers the agent writes and keeps in this script
-    beds_duty(p.targets, camp);
-    build_queue_duty(p.build, camp);     // one entry at a time, retried until it stands
-    sign_duty(p.order);                  // the first unmet sign in the plan's order
-    if idle() > p.targets.max_idle { wake(`${idle()} idle: the plan has no work for them`); }
-    wait(3);
-}
-"#;
+/// The governor example `sdk_reference` shows (#557, docs/design/agent-hillclimb.md): a small,
+/// runnable governor in the layout [`crate::script::style::LAYOUT_RULES`] asks for. A shape, not
+/// a strategy; the agent adds duties (stockpile, the build queue, signs) the same way.
+pub use crate::script::style::EXAMPLE_GOVERNOR as GOVERNOR_FRAME;
 
 /// `sdk_reference`'s `plan` section: what the tool does, the conventional keys, and the governor
-/// frame. The keys are the agent's own to extend; the convention is what the scorecard and the
+/// example. The keys are the agent's own to extend; the convention is what the scorecard and the
 /// studio display.
 pub fn reference() -> Value {
     json!({
@@ -115,6 +100,7 @@ pub fn reference() -> Value {
                            targets.food_per_head. Write code only when the governor can't do \
                            something at all. Re-run the governor after a plan edit: a running \
                            script sees the plan as of its start.",
+            "layout": crate::script::style::LAYOUT_RULES,
             "frame": GOVERNOR_FRAME,
         },
     })

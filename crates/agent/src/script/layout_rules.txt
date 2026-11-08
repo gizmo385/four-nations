@@ -1,0 +1,1 @@
+Write scripts a person can follow in a narrow code pane: one statement per line, 4-space indent, lines under 80 characters (break long map literals across lines), and each governor duty in its own named fn, or under a one-line comment saying what it does and why. When you revise, change only what needs changing, so the diff stays small.

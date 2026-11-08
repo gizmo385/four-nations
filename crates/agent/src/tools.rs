@@ -255,11 +255,16 @@ fn run_script_tool() -> Value {
 fn save_script_tool() -> Value {
     json!({
         "name": "save_script",
-        "description": "Stores code under name in this session's own script library, bumping \
-                         its version (1 for a new name, one more otherwise, even if code is \
-                         unchanged). run_script {name} then runs this, and scripts {} lists \
-                         it. Logged right away (#480), so a script that's saved but never run \
-                         in this session is still restored by --resume.",
+        "description": format!(
+            "Stores code under name in this session's own script library, bumping its \
+             version (1 for a new name, one more otherwise, even if code is unchanged). \
+             run_script {{name}} then runs this, and scripts {{}} lists it. Logged right \
+             away (#480), so a script that's saved but never run in this session is still \
+             restored by --resume. Layout (#557): {} A save never fails over layout; the \
+             result carries a \"hint\" when lines pass {} characters.",
+            script::style::LAYOUT_RULES,
+            script::style::LONG_LINE_HINT_THRESHOLD,
+        ),
         "inputSchema": json!({
             "type": "object",
             "properties": {"name": {"type": "string"}, "code": {"type": "string"}},
@@ -659,7 +664,11 @@ impl<W: std::io::Write> Tools<W> {
                         wake_on: Vec::new(),
                     })
                     .map_err(|e| e.to_string())?;
-                Ok(json!({"name": a.name, "version": version}))
+                let mut saved = json!({"name": a.name, "version": version});
+                if let Some(hint) = script::style::long_line_hint(&a.code) {
+                    saved["hint"] = json!(hint);
+                }
+                Ok(saved)
             }
             "scripts" => {
                 self.require_scripts(name)?;

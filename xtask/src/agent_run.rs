@@ -1152,6 +1152,14 @@ fn handoff_prompt(n: u32, done_turns: u32, report: &str) -> String {
     )
 }
 
+/// The layout rules every script-mode prompt carries (#557): the same file `fn_agent`'s
+/// `save_script` tool description is built from (`crates/agent/src/script/style.rs`'s
+/// `LAYOUT_RULES`), so the two can't drift apart. Any other script-mode prompt (an attempt
+/// prompt, say) adds it by calling this.
+fn script_style_passage() -> &'static str {
+    include_str!("../../crates/agent/src/script/layout_rules.txt").trim()
+}
+
 /// `--scripts`' own first prompt (docs/design/agent-scripting.md, "The trampoline"; #531,
 /// docs/design/agent-hillclimb.md, "Within a run: a governor and a plan").
 fn default_script_prompt(total: u32, calls: u32) -> String {
@@ -1167,12 +1175,13 @@ fn default_script_prompt(total: u32, calls: u32) -> String {
          starting another one, and only when it can't do something at all. Start it small, run \
          it with run_script for just 3-5 turns to see what it does, then for a season, and \
          once that goes well, for a year. Use inline run_script code only to look (it is \
-         read-only: observe, look, cells and the like), never to act. Keep everyone alive and \
+         read-only: observe, look, cells and the like), never to act. {style} Keep everyone alive and \
          grow the settlement, toward about {total} turns in all. After every run_script call, \
          use notes to record what you learned so it survives into the next stretch, and a line \
          starting \"SDK gap:\" for anything you wished the tools could do. This session is one \
          chunk of that: after roughly {calls} tool calls, stop and summarise how it went so the \
-         next session can carry on."
+         next session can carry on.",
+        style = script_style_passage(),
     )
 }
 
@@ -1187,8 +1196,9 @@ fn scripts_handoff_prompt(total: u32, done_turns: u32, calls: u32, listing: &str
          runs the whole settlement from plan(): change what you want with the plan tool, and \
          revise the governor with save_script (don't replace it or start another) only when it \
          can't do something at all. Use inline run_script code only to look; it is read-only. \
-         Record what you learn in notes (and any SDK gap), and let time pass with run_script. \
-         After roughly {calls} more tool calls, stop and summarise how it went."
+         {style} Record what you learn in notes (and any SDK gap), and let time pass with \
+         run_script. After roughly {calls} more tool calls, stop and summarise how it went.",
+        style = script_style_passage(),
     )
 }
 
@@ -2197,6 +2207,19 @@ mod tests {
                 let hit =
                     prompt.contains(phrase) || prompt.contains(&phrase.replace("revise", "Revise"));
                 assert!(hit, "missing {phrase:?} in: {prompt}");
+            }
+        }
+        // #557: the layout rules reach both, as one shared passage.
+        for prompt in [&first, &handoff] {
+            assert!(prompt.contains(script_style_passage()), "{prompt}");
+            for phrase in [
+                "one statement per line",
+                "4-space indent",
+                "under 80 characters",
+                "own named fn",
+                "change only what needs changing",
+            ] {
+                assert!(prompt.contains(phrase), "missing {phrase:?} in: {prompt}");
             }
         }
         assert!(first.contains("how the run is scored"), "{first}");
