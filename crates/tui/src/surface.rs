@@ -287,6 +287,17 @@ impl Host {
     /// the live `Host` that wrote it did, before any of `lines` replays: `lines` only ever holds
     /// what happened from turn 0 on.
     pub fn resume(header: &RunLogHeader, lines: &[LogLine]) -> Result<Self, String> {
+        let mut host = Self::rebuild(header)?;
+        for line in lines {
+            host.replay_line(line)?;
+        }
+        Ok(host)
+    }
+
+    /// `Self::resume`'s first half: the session `header` describes, at turn 0 (its prelude, if
+    /// any, already run), after the data digest check. [`referee::score`] starts from it too and
+    /// replays the same way, but stops at a horizon.
+    fn rebuild(header: &RunLogHeader) -> Result<Self, String> {
         let mut host = Self::new(
             header.seed,
             header.nation,
@@ -307,33 +318,37 @@ impl Host {
         if let Some(prelude) = header.prelude {
             host = host.with_prelude(prelude);
         }
-        for line in lines {
-            match line {
-                // `Script`, `Wake`, `Note` and `Call` are #479/#497's own commentary (`LogLine`'s
-                // own doc comment): nothing a `Host` ever made, so nothing to replay back into
-                // one.
-                LogLine::Header(_)
-                | LogLine::End { .. }
-                | LogLine::Script { .. }
-                | LogLine::Wake { .. }
-                | LogLine::Note { .. }
-                | LogLine::Call { .. }
-                | LogLine::Plan { .. } => {}
-                LogLine::Keys { keys, label, note } => {
-                    host.press_keys(keys, label.clone(), note.clone())?;
-                }
-                LogLine::Look { x, y, w, h } => {
-                    host.look(*x, *y, *w, *h);
-                }
-                LogLine::Inspect { x, y } => {
-                    host.inspect(*x, *y);
-                }
-                LogLine::Turn { .. } => {
-                    host.end_turn(1);
-                }
+        Ok(host)
+    }
+
+    /// Replays one log line into this host: `Self::resume`'s loop body.
+    fn replay_line(&mut self, line: &LogLine) -> Result<(), String> {
+        match line {
+            // `Script`, `Wake`, `Note`, `Call`, `Plan` and `Score` are #479/#497's own
+            // commentary (`LogLine`'s own doc comment): nothing a `Host` ever made, so nothing
+            // to replay back into one.
+            LogLine::Header(_)
+            | LogLine::End { .. }
+            | LogLine::Script { .. }
+            | LogLine::Wake { .. }
+            | LogLine::Note { .. }
+            | LogLine::Call { .. }
+            | LogLine::Plan { .. }
+            | LogLine::Score { .. } => {}
+            LogLine::Keys { keys, label, note } => {
+                self.press_keys(keys, label.clone(), note.clone())?;
+            }
+            LogLine::Look { x, y, w, h } => {
+                self.look(*x, *y, *w, *h);
+            }
+            LogLine::Inspect { x, y } => {
+                self.inspect(*x, *y);
+            }
+            LogLine::Turn { .. } => {
+                self.end_turn(1);
             }
         }
-        Ok(host)
+        Ok(())
     }
 
     /// `Host::new` never leaves embark or the title screen open (a bad site or difficulty is an
@@ -2152,6 +2167,8 @@ pub struct RunLogHeader {
 ///   from the arguments alone (never a result, and never `run_script`'s own code), capped at 60
 ///   characters; empty for a tool whose arguments say nothing worth summarizing (`observe`,
 ///   `briefing`, `inspect`, `save_script`, `scripts`, `sdk_reference`).
+/// - `Score { score, progress, care, horizon, attempt?, champion? }`: written by `fn_agent score
+///   --append` (#525) after a run, the scorecard's top block; ignored like the other commentary.
 /// - `Plan { plan }`: written by `fn_agent`'s `plan {set?, merge?}` tool after each change (#524,
 ///   docs/design/agent-hillclimb.md, "Within a run: a governor and a plan"): `plan` is the whole
 ///   plan map after the change. A `--resume` session restores the latest one; replay, `verify` and
@@ -2160,16 +2177,65 @@ pub struct RunLogHeader {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LogLine {
     Header(RunLogHeader),
-    Keys { keys: String, label: Option<String>, note: Option<String> },
-    Look { x: i32, y: i32, w: u16, h: u16 },
-    Inspect { x: i32, y: i32 },
-    Turn { index: u32, tick: u64 },
-    End { tick: u64, reason: String },
-    Script { name: String, version: u32, code: String, turns: u32, wake_on: Vec<EventKind> },
-    Wake { reason: String, why: Option<String>, turn: u32, memory: serde_json::Value },
-    Note { text: String },
-    Call { tool: String, summary: String },
-    Plan { plan: serde_json::Value },
+    Keys {
+        keys: String,
+        label: Option<String>,
+        note: Option<String>,
+    },
+    Look {
+        x: i32,
+        y: i32,
+        w: u16,
+        h: u16,
+    },
+    Inspect {
+        x: i32,
+        y: i32,
+    },
+    Turn {
+        index: u32,
+        tick: u64,
+    },
+    End {
+        tick: u64,
+        reason: String,
+    },
+    Script {
+        name: String,
+        version: u32,
+        code: String,
+        turns: u32,
+        wake_on: Vec<EventKind>,
+    },
+    Wake {
+        reason: String,
+        why: Option<String>,
+        turn: u32,
+        memory: serde_json::Value,
+    },
+    Note {
+        text: String,
+    },
+    Call {
+        tool: String,
+        summary: String,
+    },
+    Plan {
+        plan: serde_json::Value,
+    },
+    /// `fn_agent score --append` (#525): the run's score at its horizon, a commentary line like
+    /// the others (replay, `verify`, `keys`, `--resume` and `--watch` all ignore it, so the final
+    /// digest is unchanged). `attempt` and `champion` are the campaign runner's to fill in.
+    Score {
+        score: f64,
+        progress: f64,
+        care: f64,
+        horizon: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        attempt: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        champion: Option<bool>,
+    },
 }
 
 impl From<&LogEntry> for LogLine {
@@ -2221,6 +2287,299 @@ pub(crate) fn key_token(key: KeyEvent) -> String {
 
 fn named_token(name: &str, shift: bool) -> String {
     if shift { format!("<s-{name}>") } else { format!("<{name}>") }
+}
+
+// ------------------------------------------------------------------------------------------
+// Referee
+// ------------------------------------------------------------------------------------------
+
+/// The privileged read agent-play.md planned (#318) and `fn_agent score` uses (#525,
+/// docs/design/agent-hillclimb.md, "Where it's computed"): replay a run log to a horizon and
+/// score the world it reached with `fn_sim::score::Scorecard::compute`.
+///
+/// This is the one place outside `end_turn` and `prelude` that reads `World` directly, which the
+/// parity lint allows by name (`xtask/src/lint.rs`) -- and the lint refuses the word `referee` in
+/// every `crates/agent/src/` file but `scorecard.rs`, the `fn_agent score` command, so no MCP
+/// tool handler can reach any of this. A score is for the end of an attempt, not a number the
+/// agent plays live (the doc's "Parity: when the agent sees it"), and `observe` carries none of
+/// it (`crates/agent/tests/scorecard.rs` checks).
+///
+/// It never touches a live game: [`score`] builds its own `Host` from a log's header, so it can
+/// run beside an attempt, or long after it.
+pub mod referee {
+    use fn_sim::score::{ScoreDef, Scorecard};
+    use fn_sim::world::{SeasonEventKind, TICKS_PER_SECOND};
+    use fn_ui::view::{Status, need_word, unit_view};
+
+    use super::{Host, LogLine, RunLogHeader};
+
+    /// The score module itself, so a caller can name `Scorecard`, `ScoreDef` and the rest
+    /// without a `fn_sim` dependency of its own.
+    pub use fn_sim::score;
+
+    /// The People row's Warn words, which `fn_ui::view::need_word` gives a need below its `low`
+    /// and above half of it: the mild flags `[Reported::mild]` is indexed by. The severe words
+    /// (Starving, Parched, Exhausted, Dying) are what the care half scores.
+    pub const MILD_WORDS: [&str; 4] = ["Hungry", "Thirsty", "Tired", "Hurt"];
+
+    /// How wide an idle-share window is, in minutes: the balance harness's own
+    /// (`fn_sim::balance`'s `IDLE_WINDOW_MINUTES`), so a run's idle share lines up with par's.
+    pub const IDLE_WINDOW_MINUTES: u64 = 15;
+
+    /// What replaying a log to its horizon found.
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct Replay {
+        /// `Scorecard::compute` on the world at the horizon (`past_horizon` is always false).
+        pub card: Scorecard,
+        /// Game seconds one turn covers (the log header's).
+        pub turn_seconds: u32,
+        pub ticks_per_turn: u32,
+        /// The world's tick before the first turn: 0, or the end of a scenario's prelude.
+        pub start_tick: u64,
+        /// The horizon in turns: the caller's, or the log's own last turn.
+        pub horizon_turns: u32,
+        /// Turns replayed: `horizon_turns`, or fewer if the log stopped sooner.
+        pub played_turns: u32,
+        /// How many `Turn` lines the whole log has, past the horizon too.
+        pub log_turns: u32,
+        /// How many of the log's lines were replayed (the horizon cuts the rest off), so a
+        /// caller reading the same lines (script churn) cuts at the same place.
+        pub lines_used: usize,
+        /// The `End` line's reason, if the log has one.
+        pub end_reason: Option<String>,
+        /// Reported-only values, sampled once per `Turn` line while replaying.
+        pub reported: Reported,
+    }
+
+    impl Replay {
+        /// The turn at whose end `tick` was first seen: 0 for the start, else the turn that
+        /// ran it.
+        pub fn turn_of(&self, tick: u64) -> u32 {
+            let ticks = u64::from(self.ticks_per_turn.max(1));
+            (tick.saturating_sub(self.start_tick)).div_ceil(ticks) as u32
+        }
+    }
+
+    /// The values the scorecard reports but doesn't score. Sampled at the end of every replayed
+    /// turn (a 20 s slice), so they are as fine as a player looking once a turn.
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct Reported {
+        /// Settler-turns sampled: the denominator of `mild`.
+        pub settler_samples: u64,
+        /// Settler-turns showing each of [`MILD_WORDS`] (the Avatar is left out, as in care).
+        pub mild: [u64; 4],
+        /// `World::harm_events` up to the horizon.
+        pub harm_events: u32,
+        /// Food in stores per head as each winter began (to the nearest turn), in order.
+        pub winter_food: Vec<WinterFood>,
+        /// Idle units over all units, per [`IDLE_WINDOW_MINUTES`] of game time, from minute 0.
+        pub idle_windows: Vec<IdleWindow>,
+        /// Research is idle from here to the horizon: nothing queued at the end of the last
+        /// sampled turn, and at every turn since. `None` while research is still going.
+        pub research_idle: Option<ResearchIdle>,
+    }
+
+    impl Reported {
+        /// The share (0..=1) of settler-turns showing `MILD_WORDS[i]`.
+        pub fn mild_share(&self, i: usize) -> f64 {
+            if self.settler_samples == 0 {
+                0.0
+            } else {
+                self.mild[i] as f64 / self.settler_samples as f64
+            }
+        }
+    }
+
+    /// Food in stores as a winter began.
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub struct WinterFood {
+        pub year: u64,
+        /// The turn whose end first showed the new season.
+        pub turn: u32,
+        pub food: u32,
+        /// Everyone alive, the Avatar too (the balance harness's own divisor).
+        pub people: u32,
+    }
+
+    impl WinterFood {
+        pub fn per_head(&self) -> f64 {
+            if self.people == 0 { 0.0 } else { f64::from(self.food) / f64::from(self.people) }
+        }
+    }
+
+    /// One 15-minute window's idle tally.
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub struct IdleWindow {
+        pub idle: u32,
+        pub total: u32,
+    }
+
+    impl IdleWindow {
+        pub fn share(&self) -> f64 {
+            if self.total == 0 { 0.0 } else { f64::from(self.idle) / f64::from(self.total) }
+        }
+    }
+
+    /// Research went idle.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct ResearchIdle {
+        pub from_turn: u32,
+        /// Every tech the nation can learn was known when it went idle.
+        pub tree_done: bool,
+    }
+
+    /// Replays `lines` (a log made against `header`) into a fresh `Host`, the way
+    /// `Host::resume` does, but stops before the first `Turn` line past `horizon` turns
+    /// (`None`: the log's own last turn, so everything is replayed), then scores the world with
+    /// `score` at that horizon.
+    ///
+    /// A horizon past the log's end scores the run at the turns it reached, against the full
+    /// horizon: the same as running to its end and stopping. Errors are `Host::resume`'s (a
+    /// log made against different data, a line that won't replay) or a score file that doesn't
+    /// fit the bundled endeavor.
+    pub fn score(
+        header: &RunLogHeader,
+        lines: &[LogLine],
+        horizon: Option<u32>,
+        score: &ScoreDef,
+    ) -> Result<Replay, String> {
+        let mut host = Host::rebuild(header)?;
+        score.check(host.shell.defs()).map_err(|e| e.to_string())?;
+        let log_turns = lines.iter().filter(|l| matches!(l, LogLine::Turn { .. })).count() as u32;
+        let horizon_turns = horizon.unwrap_or(log_turns);
+        let ticks_per_turn = host.ticks_per_turn();
+        let start_tick = host.tick();
+
+        let mut sampler = Sampler::default();
+        let mut played = 0u32;
+        let mut used = 0usize;
+        for line in lines {
+            let is_turn = matches!(line, LogLine::Turn { .. });
+            if is_turn && played >= horizon_turns {
+                break;
+            }
+            host.replay_line(line)?;
+            used += 1;
+            if is_turn {
+                played += 1;
+                sampler.sample(&host, played, u64::from(ticks_per_turn));
+            }
+        }
+
+        let horizon_ticks = start_tick + u64::from(horizon_turns) * u64::from(ticks_per_turn);
+        let session = &host.app().session;
+        let card = Scorecard::compute(&session.world, &session.defs, score, horizon_ticks);
+        if card.past_horizon {
+            return Err(format!(
+                "replayed to tick {} but the horizon is tick {horizon_ticks}",
+                card.world_tick
+            ));
+        }
+        let harm_events =
+            session.world.harm_events().iter().filter(|e| e.tick <= horizon_ticks).count() as u32;
+        let end_reason = lines.iter().rev().find_map(|l| match l {
+            LogLine::End { reason, .. } => Some(reason.clone()),
+            _ => None,
+        });
+        Ok(Replay {
+            card,
+            turn_seconds: header.turn_seconds,
+            ticks_per_turn,
+            start_tick,
+            horizon_turns,
+            played_turns: played,
+            log_turns,
+            lines_used: used,
+            end_reason,
+            reported: Reported {
+                settler_samples: sampler.settler_samples,
+                mild: sampler.mild,
+                harm_events,
+                winter_food: sampler.winter_food,
+                idle_windows: sampler.idle,
+                research_idle: sampler.research_idle,
+            },
+        })
+    }
+
+    /// Scores a live `host` as it stands, with its horizon at the tick it has reached: what
+    /// [`score`] finds by replaying the log `host` has written (`horizon: None`). For tests that
+    /// hold a run's two paths against each other; a live game is scored the same way the
+    /// balance harness scores one, by `Scorecard::compute`.
+    pub fn live(host: &Host, score: &ScoreDef) -> Scorecard {
+        let session = &host.app().session;
+        Scorecard::compute(&session.world, &session.defs, score, session.world.tick)
+    }
+
+    /// The per-turn samples behind [`Reported`].
+    #[derive(Default)]
+    struct Sampler {
+        settler_samples: u64,
+        mild: [u64; 4],
+        /// How many of `World::season_events` earlier turns already looked at.
+        seasons_seen: usize,
+        winter_food: Vec<WinterFood>,
+        idle: Vec<IdleWindow>,
+        research_idle: Option<ResearchIdle>,
+    }
+
+    impl Sampler {
+        /// Looks at the world at the end of turn `turn`; `turn_ticks` is one turn's ticks.
+        fn sample(&mut self, host: &Host, turn: u32, turn_ticks: u64) {
+            let session = &host.app().session;
+            let (world, defs) = (&session.world, &session.defs);
+
+            for unit in world.units.iter().filter(|u| !u.is_avatar()) {
+                self.settler_samples += 1;
+                for need in unit_view(session, unit).needs {
+                    if need.status == Status::Warn
+                        && let Some(word) = need_word(need.label, need.status)
+                        && let Some(i) = MILD_WORDS.iter().position(|&w| w == word)
+                    {
+                        self.mild[i] += 1;
+                    }
+                }
+            }
+
+            let events = world.season_events();
+            for ev in &events[self.seasons_seen.min(events.len())..] {
+                if let SeasonEventKind::Changed { season } = ev.kind
+                    && defs.seasons.seasons[season].winter
+                {
+                    self.winter_food.push(WinterFood {
+                        year: world.year(defs),
+                        turn,
+                        food: world.stored_food(defs),
+                        people: world.units.len() as u32,
+                    });
+                }
+            }
+            self.seasons_seen = events.len();
+
+            // The window the turn just run fell in, by the world's own clock (a prelude's ticks
+            // count, as they do in the balance harness).
+            let started = world.tick.saturating_sub(turn_ticks);
+            let minute = started / u64::from(TICKS_PER_SECOND) / 60;
+            let window = (minute / IDLE_WINDOW_MINUTES) as usize;
+            if self.idle.len() <= window {
+                self.idle.resize(window + 1, IdleWindow { idle: 0, total: 0 });
+            }
+            let idle = world.units.iter().filter(|u| u.task().is_none()).count() as u32;
+            self.idle[window].idle += idle;
+            self.idle[window].total += world.units.len() as u32;
+
+            let research = world.research();
+            if research.queue().is_empty() {
+                if self.research_idle.is_none() {
+                    let tree_done =
+                        defs.techs_for(world.nation).all(|(id, _)| research.is_known(id));
+                    self.research_idle = Some(ResearchIdle { from_turn: turn, tree_done });
+                }
+            } else {
+                self.research_idle = None;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -3835,5 +4194,73 @@ mod tests {
                 assert_eq!(cell.marks, want_marks, "{nation:?} marks at ({},{})", cell.x, cell.y);
             }
         }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // referee (#525)
+    // ---------------------------------------------------------------------------------------
+
+    /// A host on the "normal" preset (seasons on) playing 60-second turns, and its log after
+    /// `turns` of them.
+    fn played_with_seasons(turns: u32) -> (Host, RunLogHeader, Vec<LogLine>) {
+        let mut h = Host::new(7, Nation::Water, None, Some("normal".into()), None, false)
+            .unwrap()
+            .with_turn_seconds(60);
+        for _ in 0..turns {
+            h.end_turn(1);
+        }
+        let (header, lines) = (h.header(), h.log().lines());
+        (h, header, lines)
+    }
+
+    /// Replaying a log to its end scores exactly the live world (`Scorecard::compute` on the
+    /// host that wrote it) and samples the winter's food as it begins. (The horizon's cut has its
+    /// own, cheaper test in `crates/agent/tests/scorecard.rs`: this one pays for 48 game
+    /// minutes twice.)
+    #[test]
+    fn referee_scores_a_replay_like_the_live_world_and_samples_winter_food() {
+        use referee::score::ScoreDef;
+
+        let def = ScoreDef::bundled();
+        // Spring, summer and autumn are 15 minutes each: winter starts at turn 45.
+        let (live, header, lines) = played_with_seasons(48);
+        let want = referee::live(&live, &def);
+
+        let all = referee::score(&header, &lines, None, &def).unwrap();
+        assert_eq!(all.card, want);
+        assert_eq!((all.played_turns, all.horizon_turns, all.log_turns), (48, 48, 48));
+        assert_eq!(all.lines_used, lines.len());
+        assert_eq!(all.reported.winter_food.len(), 1, "{:?}", all.reported.winter_food);
+        let winter = all.reported.winter_food[0];
+        assert!((45..=46).contains(&winter.turn), "winter began at turn {}", winter.turn);
+        assert!(winter.people > 0 && winter.per_head() >= 0.0);
+        assert_eq!(all.reported.idle_windows.len(), 4, "48 minutes is four 15-minute windows");
+        assert!(all.reported.settler_samples > 0);
+    }
+
+    /// `Score` lines (and the other commentary) never change what a replay builds: a host
+    /// resumed from a log with one is the same as one without.
+    #[test]
+    fn a_score_line_is_ignored_by_resume() {
+        let mut h = host(Nation::Earth);
+        h.end_turn(3);
+        let (header, mut lines) = (h.header(), h.log().lines());
+        let plain = Host::resume(&header, &lines).unwrap();
+        lines.push(LogLine::Score {
+            score: 1.0,
+            progress: 0.5,
+            care: 1.0,
+            horizon: 3,
+            attempt: Some(2),
+            champion: None,
+        });
+        let scored = Host::resume(&header, &lines).unwrap();
+        assert_eq!(scored.log(), plain.log());
+        assert_eq!(scored.tick(), plain.tick());
+        // And the line round-trips, with its optional fields left off when empty.
+        let text = serde_json::to_string(lines.last().unwrap()).unwrap();
+        assert!(text.contains("\"type\":\"score\"") && text.contains("\"attempt\":2"));
+        assert!(!text.contains("champion"));
+        assert_eq!(serde_json::from_str::<LogLine>(&text).unwrap(), *lines.last().unwrap());
     }
 }

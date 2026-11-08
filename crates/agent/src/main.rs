@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use fn_agent::runlog::Writer;
+use fn_agent::scorecard;
 use fn_agent::script::{self, Limits as ScriptLimits};
 use fn_agent::server;
 use fn_agent::tools::Tools;
@@ -24,6 +25,7 @@ usage: fn_agent serve --seed N --nation X [--start default|X,Y] [--difficulty ID
                       [--start default|X,Y] [--difficulty ID]] --turns N [--turn SECS]
                       [--wake-on LIST] --log PATH
        fn_agent keys LOG
+       fn_agent score LOG [--horizon TURNS] [--json] [--append]
 
 serve speaks MCP (JSON-RPC 2.0) over stdin and stdout: initialize, tools/list and tools/call. It
 writes --log PATH as it goes; watch it live (or replay it after) with
@@ -54,6 +56,12 @@ runaway, asked or event), so a shell loop (scripts/agent-run.sh, say) can tell w
 look. --wake-on is a comma-separated list from death, arrival, tech, endeavor, season, stockpile,
 bend_failed, need (data/agent.toml's own default_wake with none given).
 
+score replays LOG up to --horizon TURNS (the log's own last turn by default; it stops there even if
+the log goes on) and prints its scorecard (docs/design/agent-hillclimb.md, \"The scorecard\"): the
+score, progress by milestone, care, and diagnostics (idle share, research, script churn). --json
+prints the same fields as JSON. --append adds a `score` line to LOG, which replay, keys, --resume
+and --watch all ignore. A log made against different data is refused.
+
 keys prints the run at LOG as a --keys script, as a full fn_tui command line: --scenario ID when
 the log's own header matches a bundled preset, else SEED NATION --start ... --difficulty ....";
 
@@ -63,6 +71,7 @@ fn main() -> ExitCode {
         Some("serve") => serve(args.collect()).map(|()| ExitCode::SUCCESS),
         Some("keys") => keys(args.collect()).map(|()| ExitCode::SUCCESS),
         Some("play") => play(args.collect()),
+        Some("score") => score(args.collect()).map(|()| ExitCode::SUCCESS),
         _ => Err(USAGE.to_owned()),
     };
     match result {
@@ -493,6 +502,60 @@ fn play(args: Vec<String>) -> Result<ExitCode, String> {
         "done" | "budget" => ExitCode::SUCCESS,
         _ => ExitCode::FAILURE,
     })
+}
+
+// -------------------------------------------------------------------------------------------
+// score (#525, docs/design/agent-hillclimb.md, "The scorecard")
+// -------------------------------------------------------------------------------------------
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct ScoreArgs {
+    log: Option<String>,
+    horizon: Option<u32>,
+    json: bool,
+    append: bool,
+}
+
+fn parse_score_args(args: Vec<String>) -> Result<ScoreArgs, String> {
+    let mut a = ScoreArgs::default();
+    let mut it = args.into_iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--horizon" => {
+                let v = it.next().ok_or("--horizon needs a value")?;
+                a.horizon = Some(
+                    v.parse::<u32>().map_err(|e| format!("--horizon wants a turn count: {e}"))?,
+                );
+            }
+            "--json" => a.json = true,
+            "--append" => a.append = true,
+            flag if flag.starts_with("--") => return Err(format!("unknown flag {flag:?}")),
+            path if a.log.is_none() => a.log = Some(path.to_owned()),
+            extra => return Err(format!("unexpected argument {extra:?}")),
+        }
+    }
+    Ok(a)
+}
+
+/// `fn_agent score LOG`: replays the log to its horizon and prints the scorecard
+/// (`fn_agent::scorecard`), as text or `--json`. With `--append` it then adds a `score` line to
+/// the log (after anything already there, an `end` line included): the line every reader of the
+/// log ignores when replaying.
+fn score(args: Vec<String>) -> Result<(), String> {
+    let a = parse_score_args(args)?;
+    let path = a.log.ok_or("fn_agent score needs a LOG path")?;
+    let (header, lines) = watch::read_file(Path::new(&path))?;
+    let report = scorecard::build(&header, &lines, a.horizon)?;
+    if a.json {
+        println!("{}", serde_json::to_string_pretty(&report.json()).map_err(|e| e.to_string())?);
+    } else {
+        print!("{}", report.text());
+    }
+    if a.append {
+        let mut writer = Writer::append(Path::new(&path)).map_err(|e| e.to_string())?;
+        writer.write_line(&report.score_line()).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 /// Prints the run at `LOG` as a full `fn_tui` command line: reads the same

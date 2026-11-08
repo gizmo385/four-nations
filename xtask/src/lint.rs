@@ -9,15 +9,17 @@
 //! -- that's what keeps a doc comment mentioning `App::run_ticks`, or a format string's `{}`,
 //! from tripping the scan or its brace matching. What's left is searched for the patterns below
 //! outside a short allow-list of spans in `surface.rs`: the `end_turn` function, a `referee`
-//! module (#318, not written yet) and a `prelude` module (#481, `crate::surface::prelude::run`,
+//! module (#318, #525: replaying a log to score it) and a `prelude` module (#481, `crate::surface::prelude::run`,
 //! which issues a scenario's prelude before an agent -- or a player -- ever gets to see the
 //! game) -- plus `#[cfg(test)]` code everywhere -- the parity tests themselves (`Host::act`
 //! round trips, #316) read `World` directly to compare command logs and frames, which is the
 //! point of them, not a leak.
 //!
 //! `crates/agent/src/`'s MCP tool handlers get a narrower rule: the word `referee` shouldn't
-//! appear in their code at all, since #317/#318 are both deferred and no tool should read the
-//! privileged, goal-judging `referee` once it exists.
+//! appear in their code at all, since no tool should read the privileged, goal-judging
+//! `referee` (#318, and since #525 the scorer `fn_agent score` replays a log through). The one
+//! file that may name it is `scorecard.rs` (`REFEREE_USERS`), the `score` command's own module,
+//! which no tool handler calls into.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -26,6 +28,11 @@ use std::path::{Path, PathBuf};
 /// without going through `Shell::key`; `run_ticks`/`tick_n` would run time the host doesn't own;
 /// `.world` would read `World` directly instead of an `fn_ui` view model.
 const FORBIDDEN: &[&str] = &[".apply(", "run_ticks", "tick_n", ".world", "Command"];
+
+/// The `crates/agent/src/` files allowed to name `referee` (#525): the `fn_agent score` command,
+/// which replays a finished log. Every other file there is an MCP tool handler or one of its
+/// supports, and must not.
+const REFEREE_USERS: &[&str] = &["scorecard.rs"];
 
 /// Runs every parity-lint check, relative to the workspace `root`; one combined error listing
 /// every violation, or `Ok(())`.
@@ -46,6 +53,9 @@ pub fn check(root: &Path) -> Result<(), String> {
     for path in walk_rs_files(&agent_dir)? {
         let src =
             fs::read_to_string(&path).map_err(|e| format!("reading {}: {e}", path.display()))?;
+        if may_use_referee(&path) {
+            continue;
+        }
         for line in check_agent_referee(&src) {
             problems.push(format!(
                 "{}:{line}: `referee` in an MCP tool handler (#320)",
@@ -59,6 +69,11 @@ pub fn check(root: &Path) -> Result<(), String> {
     } else {
         Err(format!("agent-surface parity lint failed:\n{}", problems.join("\n")))
     }
+}
+
+/// Whether `path` is one of [`REFEREE_USERS`].
+fn may_use_referee(path: &Path) -> bool {
+    path.file_name().and_then(|n| n.to_str()).is_some_and(|n| REFEREE_USERS.contains(&n))
 }
 
 fn walk_rs_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
@@ -334,6 +349,17 @@ mod tests {
     fn a_lifetime_quote_does_not_confuse_the_scanner() {
         let src = "fn name(self) -> &'static str {\n    \"Harvest\"\n}\n\nfn leaky(&self) -> u64 {\n    self.app().session.world.tick\n}\n";
         assert_eq!(check_surface(src), vec![(6, ".world")]);
+    }
+
+    /// `scorecard.rs` (#525) is the only agent file allowed to name `referee`: a tool handler
+    /// (`tools.rs`, `server.rs`, anything under `script/`) is not.
+    #[test]
+    fn only_the_score_command_may_name_the_referee() {
+        assert!(may_use_referee(Path::new("crates/agent/src/scorecard.rs")));
+        for handler in ["tools.rs", "server.rs", "script/bindings.rs", "main.rs", "plan.rs"] {
+            let path = Path::new("crates/agent/src").join(handler);
+            assert!(!may_use_referee(&path), "{handler} must not name the referee");
+        }
     }
 
     #[test]

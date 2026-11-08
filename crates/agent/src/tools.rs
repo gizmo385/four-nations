@@ -880,7 +880,8 @@ fn rebuild_session(lines: &[LogLine]) -> (Library, Value, Vec<String>, Value) {
             | LogLine::Look { .. }
             | LogLine::Inspect { .. }
             | LogLine::End { .. }
-            | LogLine::Call { .. } => {}
+            | LogLine::Call { .. }
+            | LogLine::Score { .. } => {}
         }
     }
     (library, memory, notes, plan)

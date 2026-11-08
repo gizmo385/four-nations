@@ -164,7 +164,8 @@ pub fn to_keys_script(header: &RunLogHeader, lines: &[LogLine]) -> String {
             | LogLine::Wake { .. }
             | LogLine::Note { .. }
             | LogLine::Call { .. }
-            | LogLine::Plan { .. } => {}
+            | LogLine::Plan { .. }
+            | LogLine::Score { .. } => {}
         }
     }
     tokens.join(" ")
@@ -841,6 +842,9 @@ impl Watcher {
             // #524: the agent's plan is `fn_agent --resume`'s to restore; nothing to show or
             // replay here.
             LogLine::Plan { .. } => {}
+            // #525: the scorecard line `fn_agent score --append` adds; a watcher card for it is
+            // #532's.
+            LogLine::Score { .. } => {}
         }
         true
     }

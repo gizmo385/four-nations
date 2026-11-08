@@ -7,6 +7,7 @@
 //! fn_agent serve --seed N --nation X [--start default|X,Y] [--difficulty ID] [--turn SECS]
 //!                [--scripts] --log PATH
 //! fn_agent keys LOG
+//! fn_agent score LOG [--horizon TURNS] [--json] [--append]
 //! ```
 //!
 //! `serve` wraps a [`fn_tui::surface::Host`] (the same one `fn_tui`'s own `--frame` and `--keys`
@@ -31,6 +32,12 @@
 //! exactly, without changing what the game itself replays to (#479).
 //! `plan {set?, merge?}` (#524) holds the model's intent as data, read by scripts with `plan()`,
 //! logged as a `Plan` line on every change and restored by `--resume` the same way.
+//!
+//! `fn_agent score LOG` (#525, docs/design/agent-hillclimb.md, "The scorecard") replays a finished
+//! log to a horizon and prints its [`scorecard`]: progress, care and the diagnostics a climb can
+//! act on. It reads the world through `fn_tui::surface::referee`, which no MCP tool handler may
+//! name (the parity lint, `xtask/src/lint.rs`), so a score is for the end of an attempt and
+//! `observe` carries none of it.
 //!
 //! ## Sandboxing a racer (docs/design/agent-play.md, "Enforcing and testing parity")
 //!
@@ -59,6 +66,7 @@
 
 pub mod plan;
 pub mod runlog;
+pub mod scorecard;
 pub mod script;
 pub mod server;
 pub mod tools;

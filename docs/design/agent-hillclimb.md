@@ -226,6 +226,14 @@ Idle count, the Endeavor screen, the alerts) or the agent's own actions.
   at the horizon through a new `surface::referee` read. That's the privileged module
   agent-play.md planned (#318), on the parity lint's allow-list and never reachable from a tool
   handler. `--append` writes a `score` commentary line to the log, which replay ignores.
+  As built (#525): `--horizon` counts turns and defaults to the log's last turn. The replay stops
+  before the first `Turn` line past it, so the world is never past the horizon; a horizon past
+  the log's end scores the turns it reached against the full horizon. The reported-only values
+  (mild flags, food per head as each winter begins, idle share, research idle) are sampled at the
+  end of every replayed turn, so they are exact to one 20-second turn. Script churn is counted
+  from the log's `script`, `wake`, `turn`, `keys` and `plan` lines. `par` is `null` until #526.
+  The scorer lives in `fn_tui::surface::referee` and is named only in
+  `crates/agent/src/scorecard.rs`; the parity lint rejects the word in every other agent file.
 - **`balance --economy --score`** prints the same scorecard per run, which is where par comes
   from.
 
