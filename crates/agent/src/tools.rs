@@ -302,10 +302,23 @@ fn sdk_reference_tool() -> Value {
 fn scripts_tool() -> Value {
     json!({
         "name": "scripts",
-        "description": "Every script save_script has stored this session: name, version, and \
-                         its last run_script call's own outcome (null, reason \"done\"/\
-                         \"error\"/... until it's been run at least once) and turns run.",
-        "inputSchema": json!({"type": "object", "properties": {}}),
+        "description": "Every script save_script has stored this session (or --carry-in \
+                         preloaded): name, version, line count, and its last run_script call's \
+                         own outcome (null, reason \"done\"/\"error\"/... until it's been run \
+                         at least once) and turns run. Sources are left out of the list: \
+                         scripts {name} returns that one script's current source too, so you \
+                         can read the governor you were handed and revise it with save_script \
+                         instead of rewriting it. An unknown name is an error that lists the \
+                         saved ones.",
+        "inputSchema": json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "One saved script to read, with its source.",
+                },
+            },
+        }),
     })
 }
 
@@ -420,6 +433,8 @@ fn call_summary(tool: &str, arguments: &Value) -> String {
                 String::new()
             }
         }
+        // The name read, never the source (that's in the result, not the one-line summary).
+        "scripts" => get_str("name").unwrap_or_default().to_owned(),
         "notes" => match get_str("append").filter(|a| !a.is_empty()) {
             Some(_) => "append".to_owned(),
             None => String::new(),
@@ -484,6 +499,11 @@ struct SaveScriptArgs {
 struct PlanArgs {
     set: Option<Value>,
     merge: Option<Value>,
+}
+
+#[derive(Deserialize, Default)]
+struct ScriptsArgs {
+    name: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -690,7 +710,11 @@ impl<W: std::io::Write> Tools<W> {
             }
             "scripts" => {
                 self.require_scripts(name)?;
-                Ok(self.library.list())
+                let a: ScriptsArgs = args(name, arguments).unwrap_or_default();
+                match a.name {
+                    Some(script) => self.library.read(&script),
+                    None => Ok(self.library.list()),
+                }
             }
             "sdk_reference" => {
                 self.require_scripts(name)?;

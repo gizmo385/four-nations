@@ -427,6 +427,14 @@ fn prompts_carry_the_train_ledger_and_never_the_held_out_scores() {
         second.contains("raise the clean score by improving the governor and the plan"),
         "{second}"
     );
+    assert!(
+        second.contains("scripts {\"name\": \"governor\"}"),
+        "it says how to read the governor: {second}"
+    );
+    assert!(
+        second.contains("Revise the governor you read") && second.contains("small diff"),
+        "it asks for a revision, not a rewrite: {second}"
+    );
     assert!(second.contains("207 / 241"), "the champion's train row is in it: {second}");
     assert!(second.contains("stub scorecard for"), "the champion's scorecard is in it: {second}");
     assert!(second.contains("You're playing The Four Nations"), "built on the script prompt");

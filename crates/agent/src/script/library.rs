@@ -83,10 +83,33 @@ impl Library {
                     "version": e.version,
                     "last_outcome": e.last_outcome,
                     "last_turns_run": e.last_turns_run,
+                    "lines": e.code.lines().count(),
                 })
             })
             .collect();
         json!({ "scripts": scripts })
+    }
+
+    /// `scripts {name}`'s own result (#560): that one script's list entry plus its current
+    /// `source`, so a model can revise it instead of rewriting it. An unknown name is an `Err`
+    /// naming the scripts that do exist.
+    pub fn read(&self, name: &str) -> Result<Value, String> {
+        let Some(e) = self.scripts.get(name) else {
+            let known: Vec<&str> = self.scripts.keys().map(String::as_str).collect();
+            return Err(if known.is_empty() {
+                format!("scripts: no script named {name:?}; none are saved yet")
+            } else {
+                format!("scripts: no script named {name:?}; saved: {}", known.join(", "))
+            });
+        };
+        Ok(json!({
+            "name": name,
+            "version": e.version,
+            "last_outcome": e.last_outcome,
+            "last_turns_run": e.last_turns_run,
+            "lines": e.code.lines().count(),
+            "source": e.code,
+        }))
     }
 }
 
@@ -137,6 +160,26 @@ mod tests {
         let after = lib.list();
         assert_eq!(after["scripts"][0]["last_outcome"], "event");
         assert_eq!(after["scripts"][0]["last_turns_run"], 23);
+    }
+
+    /// `read` returns a saved script's own source with its list fields, and names the saved
+    /// scripts when the name is unknown.
+    #[test]
+    fn read_returns_the_source_or_names_what_exists() {
+        let mut lib = Library::new();
+        assert!(lib.read("nope").unwrap_err().contains("none are saved"));
+        lib.save("governor", "a;\nb;\n");
+        lib.save("aux", "c;");
+        lib.record_run("governor", "done", 4);
+        let got = lib.read("governor").unwrap();
+        assert_eq!(got["source"], "a;\nb;\n");
+        assert_eq!(got["version"], 1);
+        assert_eq!(got["lines"], 2);
+        assert_eq!(got["last_outcome"], "done");
+        let err = lib.read("gov").unwrap_err();
+        assert!(err.contains("\"gov\"") && err.contains("aux, governor"), "{err}");
+        // The list never carries sources.
+        assert!(lib.list()["scripts"][0].get("source").is_none());
     }
 
     /// Recording a run against a name nobody saved is a harmless no-op (an ad hoc

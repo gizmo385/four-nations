@@ -197,7 +197,9 @@ listed in `events()` for the script to handle. `turns` defaults to 15 and is cap
 game year). A headless year takes seconds: a release build ran 69 early-game turns in 1.2 s.
 
 `save_script {name, code}` stores a script and bumps its version. `scripts {}` lists the saved
-scripts with their versions and last outcomes. `notes {append?}` reads or appends the agent's own
+scripts with their versions, line counts and last outcomes; `scripts {name}` adds that one script's
+source (#560: the list leaves sources out, since a governor is 3-5 KB, so only a named read pays
+for one). `notes {append?}` reads or appends the agent's own
 lab notes. The briefing teaches confidence-based budgets in game terms: 3–5 turns for a new
 script, a season (45 turns) for one that worked once, and a year for a proven one.
 

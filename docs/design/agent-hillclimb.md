@@ -450,7 +450,9 @@ edits across the campaign (a preloaded plan isn't an edit); its governor version
 script's own, which carries on from the champion's. `serve --carry-in FILE` (with `--scripts`,
 a fresh session only) writes the handoff's scripts, notes and plan as log lines before the first
 call, and `serve` gained `--map-size` and `--prelude` so a track with a site or a prelude is
-played as it is evaluated. The later attempts' first prompt is the script prompt
+played as it is evaluated. The carried-in governor is readable with `scripts {name}` (#560);
+the first attempt of the campaign wrote a v21 from scratch because it couldn't read v16, so the
+prompt asks for a small revision saved under the same name. The later attempts' first prompt is the script prompt
 (`default_script_prompt`) under a block with the ledger's train columns, the champion's
 scorecard and the one ask; held-out numbers appear only in `ledger.json` and the table printed
 at the end. `--max-usd` is a per-attempt `--max-budget-usd` of what's left of the invocation's

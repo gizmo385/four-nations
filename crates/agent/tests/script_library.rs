@@ -320,3 +320,50 @@ fn save_script_hints_at_long_lines_but_always_saves() {
     assert!(!hint.contains('\n'), "{hint}");
     assert_eq!(t.call("scripts", json!({})).unwrap()["scripts"][0]["version"], 2);
 }
+
+/// `scripts {name}` returns a saved script's current source (#560), after a re-save the new
+/// one, with a one-line call summary naming the script and never the source; the plain list
+/// stays source-free; an unknown name is an error naming what exists; and a `--resume` session
+/// reads the same source back.
+#[test]
+fn scripts_with_a_name_reads_the_source() {
+    let mut t = tools();
+    let code = "// keep fed\nlet f = observe();\nwait(1);\n";
+    t.call("save_script", json!({"name": "governor", "code": "old;"})).unwrap();
+    t.call("save_script", json!({"name": "governor", "code": code})).unwrap();
+    t.call("save_script", json!({"name": "aux", "code": "wait(2);"})).unwrap();
+
+    let got = t.call("scripts", json!({"name": "governor"})).unwrap();
+    assert_eq!(got["source"], code);
+    assert_eq!(got["version"], 2);
+    assert_eq!(got["lines"], 3);
+    let listed = t.call("scripts", json!({})).unwrap();
+    assert!(!listed.to_string().contains("keep fed"), "the list carries no source: {listed}");
+    assert_eq!(listed["scripts"][1]["lines"], 3);
+
+    let err = t.call("scripts", json!({"name": "govenor"})).unwrap_err();
+    assert!(err.contains("govenor") && err.contains("aux, governor"), "{err}");
+
+    // Logged like any call, the name only.
+    let log = String::from_utf8(t.log().get_ref().clone()).unwrap();
+    let lines: Vec<LogLine> = log.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    assert!(lines.iter().any(|l| matches!(
+        l,
+        LogLine::Call { tool, summary } if tool == "scripts" && summary == "governor"
+    )));
+    assert!(!log.contains("\"summary\":\"// keep fed"));
+
+    // A resumed session restores the latest source, not the first.
+    let resumed_lines: Vec<LogLine> = lines.into_iter().skip(1).collect();
+    let mut resumed =
+        Tools::resume(host(), Writer::new(Vec::new()), &resumed_lines).with_scripts(limits());
+    assert_eq!(resumed.call("scripts", json!({"name": "governor"})).unwrap()["source"], code);
+}
+
+/// Without `--scripts`, `scripts {name}` is refused like the rest of the script tools.
+#[test]
+fn reading_a_script_needs_scripts() {
+    let mut plain = Tools::new(host(), Writer::new(Vec::new())).unwrap();
+    let err = plain.call("scripts", json!({"name": "governor"})).unwrap_err();
+    assert!(err.contains("--scripts"), "{err}");
+}

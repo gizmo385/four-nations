@@ -308,7 +308,8 @@ fn attempt_prompt(
     format!(
         "This is attempt {attempt} of a hill-climbing campaign on \"{name}\". Your governor, plan \
          and lab notes from the best attempt so far (attempt {best}) are already loaded: scripts, \
-         plan and notes show them, so nothing needs retyping.\n\n\
+         plan and notes show them, so nothing needs retyping. Read the governor's source with \
+         scripts {{\"name\": \"{governor}\"}} before you change anything.\n\n\
          Each attempt is scored twice. The played score is this run's. The clean score is the one \
          that decides: after the run, your final governor and plan are replayed from turn 0 with \
          no one at the keys, on several different maps, and the scores are averaged. A governor \
@@ -319,8 +320,12 @@ fn attempt_prompt(
          Your one job this attempt: raise the clean score by improving the governor and the \
          plan. The governor is already loaded, so run it from the start instead of building one \
          up. Watch what surprises it and fix that in the plan or the governor, and save the \
-         governor when you change it. The notes say what earlier attempts learned.\n\n{base}",
+         governor when you change it. Revise the governor you read: keep its structure, change \
+         only the lines that need it (a small diff against the saved version), and save it under \
+         the same name. Don't rewrite it from scratch; a rewrite throws away what earlier \
+         attempts got working. The notes say what earlier attempts learned.\n\n{base}",
         name = t.name,
+        governor = GOVERNOR,
         best = champion.attempt,
         ledger = ledger_text(ledger, false),
         scorecard = scorecard.trim_end(),

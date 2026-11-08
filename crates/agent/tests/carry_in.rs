@@ -87,3 +87,21 @@ fn carry_in_needs_scripts_and_a_handoff() {
     assert!(t.carry_in("[1, 2]").unwrap_err().contains("handoff"));
     assert_eq!(log_lines(&t).len(), 1, "a refused handoff writes nothing");
 }
+
+/// A carried-in script reads back exactly as handed over, at the version it was carried at
+/// (#560), and a `--resume` of the log reads the same source.
+#[test]
+fn a_carried_in_script_can_be_read_back() {
+    let mut t = Tools::new(host(), Writer::new(Vec::new())).unwrap().with_scripts(limits());
+    t.carry_in(HANDOFF).unwrap();
+    let got = t.call("scripts", json!({"name": "governor"})).unwrap();
+    assert_eq!(got["source"], "let p = plan(); wait(p.pause); \"ok\"");
+    assert_eq!(got["version"], 9);
+    assert!(t.call("scripts", json!({"name": "nope"})).unwrap_err().contains("governor"));
+
+    let lines = log_lines(&t);
+    let mut rebuilt =
+        Tools::resume(host(), Writer::new(Vec::new()), &lines[1..]).with_scripts(limits());
+    let again = rebuilt.call("scripts", json!({"name": "governor"})).unwrap();
+    assert_eq!(again["source"], got["source"]);
+}
