@@ -856,8 +856,20 @@ impl World {
         }
         self.units[i].move_progress -= BASE_TICKS_PER_STEP;
         let pos = self.units[i].pos;
-        let options: Vec<Pos> =
-            self.map.neighbors(pos, false).filter(|&q| self.walkable(q)).collect();
+        // Steps only onto ground the unit could walk onto anywhere else (`MoveRules`): a finished
+        // solid building is a wall to the pathfinder and to the wanderer alike (#559: settlers
+        // used to idle their way onto a study hall's tiles and stand there walled in by trees).
+        // A unit that already stands on a tile it couldn't walk onto (a building finished under
+        // its route) steps off it if it can; if every neighbour is blocked too, it falls back to
+        // any ground that isn't a tree or rock, so it works its way back out through the
+        // building's own tiles rather than stay in a pocket for good.
+        let rules = self.rules_for(&self.units[i]);
+        let step_ok = |q: Pos| self.map.get(q).is_some_and(|t| rules.passable(t));
+        let mut options: Vec<Pos> =
+            self.map.neighbors(pos, false).filter(|&q| step_ok(q)).collect();
+        if options.is_empty() && !self.map.get(pos).is_some_and(|t| rules.passable(t)) {
+            options = self.map.neighbors(pos, false).filter(|&q| self.walkable(q)).collect();
+        }
         if options.is_empty() {
             self.units[i].wander_left = 0;
         } else {
