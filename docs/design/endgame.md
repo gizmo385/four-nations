@@ -76,7 +76,7 @@ population sign already reward farming.
 - **Pacing target:** about 3.5 to 4 hours for a steady player. That's the research tree (~2 h)
   plus building out and growing to 16. The project itself adds about an hour. Tune with the
   targets first. Where the new decisions run out on the way (minute 60 to Ready) and how to fill
-  that stretch is in [pacing.md](pacing.md) (#412, proposed). **As measured on 2026-11-07
+  that stretch is in [pacing.md](pacing.md) (#412, accepted). **As measured on 2026-11-07
   (#355):** where the economy opening reaches Ready it does so at minute 108 to 159 (median
   minute 123), so a full game lands near 3 to 3.5 hours, just under the target. Most runs
   don't reach Ready within 3 hours, though: "Pacing, as measured" below says which signs hold

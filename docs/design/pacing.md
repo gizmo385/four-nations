@@ -1,7 +1,8 @@
 # Midgame pacing: the long wait from minute 60 to the Harmony Gate
 
-Status: **proposed** (#412). The owner's calls are under "Open questions for the owner", and the
-follow-up work is under "Follow-up issues".
+Status: **accepted** (#412). The owner answered on 2026-11-06 and 2026-11-08, recorded under
+"Owner decisions". The follow-up work is under "Follow-up issues". The harness numbers below
+predate #353, #490 and #513, and need a fresh measure before anyone tunes against them.
 
 The owner's playtest (2026-11-06): "the midgame and end game felt like they really lagged." This
 is about pacing, not frame rate. The middle of the game has too few new decisions, and the total
@@ -32,8 +33,8 @@ the gaps measured below, and this doc only points at them.
 5. **After the gate, the same loop, wider.** United City caravans come from all four nations, and
    their requests grow. The population milestones carry on. The Spirit Portal stays the sequel,
    with its own design issue when the owner wants it.
-6. **Time controls are the owner's call** (question 1). The recommendation is a "skip to news" key
-   (`]`) that runs fast until something happens, rather than a higher top speed.
+6. **Time controls stay as they are** (owner, #461). Content carries the whole pacing load, with
+   no fast-forward safety valve.
 
 ## What the harness shows
 
@@ -338,29 +339,22 @@ The **Spirit Portal** (endgame.md, concept B) is the real sequel. It needs spiri
 resource, so it's a separate design issue when the owner wants it (question 4). It isn't filed
 here.
 
-## 5. Time controls (owner call)
+## 5. Time controls: unchanged
 
-The ladder is x1, x2, x3 and x5, and x10 to x50 are a host setting (`--fast`, #321). The
-options:
+**Decided (owner, #461): neither.** The ladder stays x1, x2, x3 and x5, and x10 to x50 stay a
+host setting (`--fast`, #321). The options weighed were a "skip to news" key (`]`, run fast until
+an alert, sign, newcomer, caravan or tech) and x10 on the normal ladder. #441, the follow-up that
+would have built skip to news, is closed as not planned.
 
-| Option | What it does | For | Against |
-|---|---|---|---|
-| **A. Skip to news (`]`)** | Runs at the fastest the machine allows (up to x50) until something happens: an alert, a sign or chapter met, a newcomer, a caravan, a tech finished or a death. One season at most. Any key stops it | It aims at the wait itself. The busy parts of the game stay at playable speeds. `]` already means "fast-forward to the next turn" in the watcher | One more mode. It needs a stop list in `fn_ui` that's kept in step with the alerts |
-| B. Raise the normal top speed to x10 | Adds x10 to the ladder | Trivial | A colony at x10 is hard to read, and the waits shrink but don't go away |
-| C. Neither | Fix the content and leave time alone | Nothing to build | The last stretch before a sign is still a wait |
+What this means for the rest of the doc:
 
-**Recommended: A.** It's a frontend feature in `fn_ui`'s clock with no sim change, and it's
-deterministic, because the sim ticks the same and only the wall-clock pace changes. It isn't an
-F-key, so it works on WSL. The panel's header shows it:
-
-```
-""F"",,T,,,,T,,,,,TT^^^oT,,T,T,T,c,.~~~~~~..,,TT,,,.~~~~~.."""F"""F"+----- * EARTH KINGDOM * ------+
-"FF""",,,,,,,,,,,,c,,^^^,T,,T,,,,,..~~~~~~~..,,,T,,.~..~~~.",""""""F| >> To news x50         52:40 |
-F""FF"F,,,,,,,,,,,,,,^^$0T,=T,,,,,.~~~~~~~f~..,,,T,.....~..",c""F"""+- PEOPLE ---------------- 11 -+
-```
-
-*(Edited from `fn_tui 7 earth --frame --ascii --size 100x30 --ticks 3000`.)* The bottom bar
-reads `SKIPPING  any key stop`.
+- **The gaps have to close by content.** The 15-minute target (see "Measuring it") is the only
+  pacing check. Nothing papers over a gap the levers leave.
+- **The tail after the last decision matters more.** With no skip, the stretch between the last
+  sign and Ready is felt at x5. #440 reports it alongside the longest gap.
+- **A gap #440 can't close becomes a content issue**, for #413's follow-ups if it's research, or
+  a new caravan or request kind if it's the economy. It doesn't reopen time controls. Revisiting
+  that is a new `decision` issue, after a playtest with draw, caravans and the chapter in.
 
 ## How this fits work in flight
 
@@ -401,35 +395,29 @@ chapter have landed):
 
 ## Follow-up issues
 
-Filed without `ready`. The issues that wait on an owner answer are labelled `needs-owner`.
+Filed without `ready`; triage decides. The `needs-owner` labels on #435, #437, #439 and #442 are
+still on, because work-tracking.md leaves removing them to the owner.
 
-| # | Issue | Blocked by | Owner question |
+| # | Issue | Blocked by | Owner decision |
 |---|---|---|---|
 | #434 | Balance harness: decision timeline, gaps, idle share, `--branch-first` | none | |
-| #435 | Growth: a draw meter that spare beds, warm beds and food variety fill | #353 | 2 |
+| #435 | Growth: a draw meter that spare beds, warm beds and food variety fill | #353 | #462 |
 | #436 | TUI: when the next newcomer is due, and what draw is missing | #435 | |
-| #437 | Caravans: `data/trade.toml`, the camp, deals, requests and events | none | 3 |
-| #438 | TUI: the Traders screen (`M`), the camp glyph and caravan alerts | #437 | 3 |
-| #439 | Endeavor: the "Known on the road" chapter, which opens the caravans | #437 | 3 |
+| #437 | Caravans: `data/trade.toml`, the camp, deals, requests and events | none | #463, #551 |
+| #438 | TUI: the Traders screen (`M`), the camp glyph and caravan alerts | #437 | #463 |
+| #439 | Endeavor: the "Known on the road" chapter, which opens the caravans | #437 | #463 |
 | #440 | Balance: the economy opening takes caravan deals, and the pacing targets are checked | #434, #435, #437, #439 | |
-| #441 | TUI: skip to news (`]`) | none | 1 |
-| #442 | United City: caravans from all four nations, bigger requests, population milestones | #437 | 4 |
+| #441 | TUI: skip to news (`]`): closed, not planned | none | #461 |
+| #442 | United City: caravans from all four nations, bigger requests, population milestones | #437 | #464 |
 
-## Open questions for the owner
+## Owner decisions
 
-1. **Time controls: skip to news, a faster top speed, or neither?** *Recommended: skip to news
-   (`]`),* which runs fast until an alert, sign, newcomer, caravan or tech, for at most one
-   season. It aims at the wait without making busy moments unreadable. x10 on the normal ladder
-   is the cheap alternative.
-2. **Should a passive player grow slower than #353's clock?** *Recommended: yes, with draw from
-   60% to 140% of #353's 10 minutes.* A settlement that only builds beds grows at about today's
-   pace (one per 17 minutes), and one that stores three foods and keeps its beds warm grows about
-   twice as fast. The alternative is a floor of 100%, so draw only ever speeds growth up. That's
-   gentler, but the passive game then gets shorter, not fuller.
-3. **Caravans from the other nations before the gate, opened by one chapter?** *Recommended:
-   yes.* Visitors trade but never stay, which sets up the United City without spending its
-   payoff. The alternatives are caravans from minute 0 with no chapter (simpler, but nothing marks
-   the change), or no visitors until the gate (purer, but then the midgame has no sink).
-4. **After the gate: the lighter loop now, the Spirit Portal later?** *Recommended: yes.* The
-   United City reuses caravans and population milestones, with bigger requests. The Spirit Portal
-   gets its own design issue after a playtest of the loop shows whether it's needed.
+Each answer is recorded on its `decision` issue.
+
+| # | Question | Recommended | Owner's answer | Effect |
+|---|---|---|---|---|
+| #461 | Time controls: skip to news, x10 on the ladder, or neither? | Skip to news (`]`) | **Neither** | Section 5. #441 closed as not planned |
+| #462 | Should a passive player grow slower than #353's clock? | Yes, draw 60% to 140% | **Yes, 60% to 140%** | Section 1 as written |
+| #463 | Caravans before the gate, opened by one chapter? | Yes, "Known on the road" | **Yes, opened by "Known on the road"** | Sections 2 and 3 as written |
+| #464 | After the gate: the midgame loop now, the Spirit Portal later? | Yes | **Yes** | Section 4 as written. The Spirit Portal waits for a playtest of the United City loop |
+| #551 | May caravans sell food, given Normal's lean-food decision? | Small lots | **Small lots**: at most about 10 food a visit, paid in stone | Adds to section 2, whose schema doesn't show it yet. #437 carries it, and #440 sets the exact size |
