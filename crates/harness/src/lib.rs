@@ -7,7 +7,8 @@
 //! - `runner`: which runs a panel needs, the runs on threads, the records as JSON.
 //! - `verdict`, `report`: every run into a bucket, every target into pass, fail or no data, and
 //!   the text the binary prints.
-//! - `cli`, `legacy`: the subcommands (`verdict`, and the older `sweep`, `supply`, `mastery`,
+//! - `trace` (#535): one run's per-minute probe rows and an ASCII crop of its map.
+//! - `cli`, `legacy`: the subcommands (`verdict`, `trace`, and the older `sweep`, `supply`, `mastery`,
 //!   `economy`).
 
 pub mod cli;
@@ -17,6 +18,7 @@ pub mod metric;
 pub mod report;
 pub mod runner;
 pub mod style;
+pub mod trace;
 pub mod verdict;
 
 #[cfg(test)]

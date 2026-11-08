@@ -33,7 +33,7 @@ mod site;
 
 pub use autopsy::Autopsy;
 pub use probe::{Detectors, Flag, FlagClass, Occupation, Probe, Raised, Sample, Watch};
-pub use record::{CareSummary, RunRecord, RunSpec, run as run_record};
+pub use record::{CareSummary, Minute, RunRecord, RunSpec, run as run_record, run_observed};
 pub use site::{BORE_LIMIT, OPEN_RADIUS, SiteProfile};
 
 use crate::autoplay::{Economy, Opening, Player};

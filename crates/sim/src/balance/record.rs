@@ -21,7 +21,7 @@ use crate::nation::Nation;
 use crate::world::{CareNeed, EndeavorEventKind, SeasonEventKind, Severe, World};
 
 use super::autopsy::Autopsy;
-use super::probe::{Detectors, Probe, Raised, Watch};
+use super::probe::{Detectors, Probe, Raised, Sample, Watch};
 use super::site::SiteProfile;
 use super::{
     DecisionEvent, EconomyReport, EconomySeason, IDLE_WINDOW_MINUTES, PEOPLE, decision_events,
@@ -161,8 +161,33 @@ pub fn run(spec: &RunSpec, defs: &Defs) -> RunRecord {
     run_world(spec, defs).0
 }
 
+/// One probe minute of a run, as [`run_observed`] hands it to an observer: the world as the
+/// minute found it (before the player acts on it), the sample the detectors just read and the
+/// watch with that sample taken in.
+#[derive(Clone, Copy)]
+pub struct Minute<'a> {
+    pub world: &'a World,
+    pub sample: &'a Sample,
+    pub watch: &'a Watch,
+}
+
+/// [`run`], calling `observe` once per probe minute, in order, from minute 0. This is how a trace
+/// (`balance trace`, #535) reads a run: the observer sees the world and cannot change it, so the
+/// record is exactly the one `run` returns for the same spec.
+pub fn run_observed(spec: &RunSpec, defs: &Defs, observe: &mut dyn FnMut(Minute<'_>)) -> RunRecord {
+    run_world_observed(spec, defs, observe).0
+}
+
 /// `run`, and the world as the run left it, for the scored runs (`run_economy_scored`).
 pub(super) fn run_world(spec: &RunSpec, defs: &Defs) -> (RunRecord, World) {
+    run_world_observed(spec, defs, &mut |_| {})
+}
+
+fn run_world_observed(
+    spec: &RunSpec,
+    defs: &Defs,
+    observe: &mut dyn FnMut(Minute<'_>),
+) -> (RunRecord, World) {
     let map_cfg = MapGenConfig {
         seed: spec.seed,
         width: spec.width,
@@ -203,7 +228,9 @@ pub(super) fn run_world(spec: &RunSpec, defs: &Defs) -> (RunRecord, World) {
     )];
     for tick in 0..total_ticks {
         if Opening::due(tick) {
-            watch.observe(&probe.sample(&world, defs));
+            let sample = probe.sample(&world, defs);
+            watch.observe(&sample);
+            observe(Minute { world: &world, sample: &sample, watch: &watch });
             spec.player.step(&mut world, defs);
             if first_built.iter().any(Option::is_none) {
                 let standing: BTreeSet<BuildingId> = world.buildings().map(|(_, b)| b).collect();

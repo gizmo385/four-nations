@@ -303,9 +303,19 @@ text above was loose:
 - **Outliers** need `OUTLIERS_NEED` (2) other nations that met the standard bar on the seed.
 - **Sensitivity pairs** are `[[pair]]` entries: `higher` must read above `lower` on at least
   `share` (25%) of the paired runs, neither flagged, or the report says it can't fail.
-- **`balance trace` isn't built yet (#535).** The report prints the command it will take, in the
-  syntax #535 gives (`balance trace --seed S --nation N [--style ID] [--preset P] --from M --to M
-  --map-at M`), for every flagged run and outlier.
+- **`balance trace` (#535)** takes the syntax the report prints (`balance trace --seed S --nation
+  N [--style ID] [--preset P] --from M --to M [--map-at M]`, and `--radius R` for the crop). It
+  plays the same run `balance verdict` does through `fn_sim::balance::run_observed`, which calls
+  an observer at every probe minute with the world, the sample and the watch and changes nothing
+  (a watched run's record equals an unwatched one). Rows: population, idle settlers by reason,
+  stores, each settler's lowest need and the flags raised so far; then the autopsy of any death in
+  the window. The crop is `mapgen::tile_glyph` over the live map with settlers (1-9, then
+  letters), stockpiles (`P`), buildings (`#` blocks walking, `|` doesn't) marked, and a legend
+  that also says, per settler, whether it can walk to water, a stockpile and home. Resources
+  block walking, so they stay on the map with their own glyphs: they are the walls of a pocket.
+  The doc's worked case (water 3) no longer shows a pocket: #490 removed it. With #490 reverted,
+  the crop at minute 140 lists five settlers by the workshop and farm plots east of the stockpile
+  who can't walk to a stockpile or home, and the window shows the deaths at 129 and 132.
 - **The targets from materials.md are in section 7, "Measuring it"** (`materials.md#7-measuring-it`),
   where its minute targets live; section 6 only sets the stone and ore signs.
 - **Not targets yet:** the walk per meal (a path-length median `run` computes, which `balance

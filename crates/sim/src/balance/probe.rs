@@ -179,6 +179,12 @@ pub enum Occupation {
 }
 
 impl Occupation {
+    /// What `unit` is doing in `world` right now (`None` if there is no such unit).
+    pub fn read(world: &World, unit: UnitId, defs: &Defs) -> Option<Self> {
+        let task = world.unit(unit)?.task();
+        Some(Self::of(task, world.idle_reason(unit, defs)))
+    }
+
     fn of(task: Option<Task>, reason: Option<IdleReason>) -> Self {
         match (task, reason) {
             (Some(_), _) => Self::Busy,

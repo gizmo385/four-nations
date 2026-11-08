@@ -4,6 +4,7 @@
 //! ```text
 //! balance verdict [--seeds 1-32] [--styles ..] [--presets ..] [--nations ..]
 //!                 [--threads 4] [--label NAME] [--out DIR] [--minutes M]
+//! balance trace --seed S --nation N [--style ID] [--preset P] --from M --to M [--map-at M]
 //! balance sweep | supply | mastery | economy ...      (the older modes, `legacy`)
 //! ```
 //!
@@ -21,6 +22,7 @@ use crate::config::{Config, parse_seeds};
 use crate::legacy;
 use crate::report::{self, Header};
 use crate::runner::{self, Filter};
+use crate::trace;
 use crate::verdict;
 
 type Handler = fn(&[String]) -> ExitCode;
@@ -28,6 +30,7 @@ type Handler = fn(&[String]) -> ExitCode;
 /// Every subcommand: name, one-line summary, handler.
 const COMMANDS: &[(&str, &str, Handler)] = &[
     ("verdict", "run the panel and judge it against data/harness.toml's targets", cmd_verdict),
+    ("trace", "rerun one run: per-minute probe rows and an ASCII crop of its map", trace::cmd),
     ("sweep", "the no-input and opening sweep over presets, nations and seeds", |a| {
         legacy::run_sweep(a);
         ExitCode::SUCCESS

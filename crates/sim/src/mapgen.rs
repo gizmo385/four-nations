@@ -405,22 +405,27 @@ fn within(marked: &Grid<bool>, p: Pos, spacing: u32) -> bool {
         .any(|dy| (-r..=r).any(|dx| marked.get(Pos::new(p.x + dx, p.y + dy)).is_some_and(|&m| m)))
 }
 
+/// The glyph `to_ascii` draws for one tile: its resource's, else its terrain's, else (plain
+/// land) its biome's.
+pub fn tile_glyph(t: &Tile, defs: &Defs) -> char {
+    match (t.resource, t.terrain) {
+        (Some(r), _) => defs.resource(r).glyph,
+        (None, Terrain::Water) => '~',
+        (None, Terrain::Lake) => '-',
+        (None, Terrain::River) => '=',
+        (None, Terrain::Ford) => '+',
+        (None, Terrain::Coast) => '.',
+        (None, Terrain::Mountain) => '^',
+        (None, Terrain::Tunnel) => '_',
+        (None, Terrain::Land) => defs.biome(t.biome).glyph,
+    }
+}
+
 /// Renders the map as text: one glyph per tile, rows separated by newlines.
 pub fn to_ascii(map: &TileMap, defs: &Defs) -> String {
     let mut out = String::with_capacity(((map.width() + 1) * map.height()) as usize);
     for (p, t) in map.iter() {
-        let glyph = match (t.resource, t.terrain) {
-            (Some(r), _) => defs.resource(r).glyph,
-            (None, Terrain::Water) => '~',
-            (None, Terrain::Lake) => '-',
-            (None, Terrain::River) => '=',
-            (None, Terrain::Ford) => '+',
-            (None, Terrain::Coast) => '.',
-            (None, Terrain::Mountain) => '^',
-            (None, Terrain::Tunnel) => '_',
-            (None, Terrain::Land) => defs.biome(t.biome).glyph,
-        };
-        out.push(glyph);
+        out.push(tile_glyph(t, defs));
         if p.x == map.width() - 1 {
             out.push('\n');
         }
