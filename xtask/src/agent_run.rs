@@ -2,15 +2,16 @@
 //! `cargo xtask agent-run --interactive [options]`  chat with the agent here; watch elsewhere
 //! `cargo xtask agent-run --chunk-turns N [options]`  play as successive short claude sessions
 //! `cargo xtask agent-run --scripts [options]`  play by writing and running scripts (#484)
-//! `cargo xtask agent-run watch [--no-build] [RUN_DIR]`  watch (or replay) a run; default: the
-//!                                      latest. Builds fn_tui first unless `target/release/fn_tui`
-//!                                      is already newer than everything under `crates/`, `data/`
-//!                                      and `Cargo.lock`, or `--no-build` is given (#510).
+//! `cargo xtask agent-run watch [options] [RUN_DIR]`  watch (or replay) a run; default: the
+//!                                      latest. `watch --help` lists its options and keys,
+//!                                      `watch --list` the recent runs (#510, #553).
 //!
 //! Starts an agent run (docs/design/agent-play.md): a Claude Code session plays one game
 //! through `fn_agent serve` while you watch it in the normal TUI with `fn_tui --watch`. This is
 //! #507's rewrite of the old `scripts/agent-run.sh`, which stays on disk only as a thin wrapper
 //! that execs this.
+//!
+//! `agent-run --help` prints this text and exits 0, as does `watch --help` for watch's own.
 //!
 //! Options:
 //!   --seed N           map seed (default: random, 1..=99999)
@@ -75,7 +76,7 @@ use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
@@ -103,30 +104,14 @@ pub fn run(args: &[&str]) -> Result {
     let repo = crate::root();
 
     if args.first() == Some(&"watch") {
-        let mut no_build = false;
-        let mut positional = Vec::new();
-        for a in &args[1..] {
-            if *a == "--no-build" {
-                no_build = true;
-            } else {
-                positional.push(*a);
-            }
-        }
-        if positional.len() > 1 {
-            return Err(help());
-        }
-        let runs = runs_dir();
-        let dir = match positional.first() {
-            Some(d) => PathBuf::from(d),
-            None => latest_run_dir(&runs)?,
-        };
-        if !no_build {
-            build_fn_tui_if_stale(&repo)?;
-        }
-        return watch_run(&repo, &dir, 20);
+        return run_watch(&repo, &args[1..]);
     }
 
     let opts = parse_args(args)?;
+    if opts.help {
+        println!("{}", help());
+        return Ok(());
+    }
     validate(&opts)?;
 
     if !claude_available(&opts.claude_bin) {
@@ -211,6 +196,8 @@ struct Opts {
     nation_given: bool,
     difficulty_given: bool,
     claude_bin: String,
+    /// `-h`/`--help` was given: print the usage on stdout and exit 0 (#553).
+    help: bool,
 }
 
 /// The nations `--nation` can name, and so the ones a random pick chooses between.
@@ -299,6 +286,7 @@ fn parse_args_with(args: &[&str], entropy: Entropy) -> Result<Opts> {
         nation_given: false,
         difficulty_given: false,
         claude_bin: std::env::var("FN_AGENT_CLAUDE_BIN").unwrap_or_else(|_| "claude".to_string()),
+        help: false,
     };
 
     let mut i = 0;
@@ -354,7 +342,10 @@ fn parse_args_with(args: &[&str], entropy: Entropy) -> Result<Opts> {
                 o.max_usd = Some(v.parse().expect("validated by is_plain_number"));
             }
             "--claude-bin" => o.claude_bin = take_value(args, &mut i, "--claude-bin")?.to_string(),
-            "-h" | "--help" => return Err(help()),
+            "-h" | "--help" => {
+                o.help = true;
+                return Ok(o);
+            }
             other => return Err(format!("unknown option {other} (see --help)")),
         }
         i += 1;
@@ -447,7 +438,8 @@ fn make_run_dir(runs: &Path, o: &Opts) -> Result<PathBuf> {
     Ok(dir)
 }
 
-fn latest_run_dir(runs: &Path) -> Result<PathBuf> {
+/// Every run folder under `runs`, newest first (by modification time).
+fn run_dirs_newest(runs: &Path) -> Result<Vec<PathBuf>> {
     let entries = fs::read_dir(runs).map_err(|e| format!("no runs in {}: {e}", runs.display()))?;
     let mut dirs: Vec<(std::time::SystemTime, PathBuf)> = entries
         .filter_map(|e| e.ok())
@@ -455,7 +447,14 @@ fn latest_run_dir(runs: &Path) -> Result<PathBuf> {
         .filter_map(|e| e.metadata().ok().and_then(|m| m.modified().ok()).map(|t| (t, e.path())))
         .collect();
     dirs.sort_by_key(|(t, _)| std::cmp::Reverse(*t));
-    dirs.into_iter().next().map(|(_, p)| p).ok_or_else(|| format!("no runs in {}", runs.display()))
+    Ok(dirs.into_iter().map(|(_, p)| p).collect())
+}
+
+fn latest_run_dir(runs: &Path) -> Result<PathBuf> {
+    run_dirs_newest(runs)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("no runs in {}", runs.display()))
 }
 
 // -------------------------------------------------------------------------------------------
@@ -537,11 +536,319 @@ fn build_fn_tui_if_stale(repo: &Path) -> Result {
     }
 }
 
-fn watch_run(repo: &Path, dir: &Path, pace: u32) -> Result {
+// -------------------------------------------------------------------------------------------
+// `agent-run watch` (#510, #553)
+// -------------------------------------------------------------------------------------------
+
+/// `cargo xtask agent-run watch --help`. The keys are the ones `fn_tui --watch` handles
+/// (crates/tui/src/watch.rs: `run`'s key match, `Watcher::key`, `Studio::key`, and free look's
+/// `spectate::key`); the pace ladder and the studio threshold are `watch::PACES` and `[studio]`
+/// in data/tui.toml, which a test below checks this text against.
+const WATCH_HELP: &str = "\
+usage: cargo xtask agent-run watch [options] [RUN_DIR]
+       cargo xtask agent-run watch --list
+
+Watches a run in the terminal (`fn_tui --watch`): a live one while the agent plays, or a
+finished one replayed from its log. Never starts an agent.
+
+RUN_DIR   a run folder (the one holding run.jsonl). A bare folder name with no path is looked
+          for under the runs folder. Default: the newest folder under $FN_AGENT_RUNS (else
+          ~/fn-agent-runs); the folder opened is printed. A folder with no log yet is a run
+          just starting, so this waits (up to a minute) for the log; a folder that doesn't
+          exist fails at once.
+
+options:
+  --list           list the newest runs (folder, nation, seed or scenario, turns, score if the
+                   log has one) and exit; builds and opens nothing
+  --no-build       don't build fn_tui first. Without it, a release fn_tui is built unless
+                   target/release/fn_tui is newer than everything under crates/, data/ and
+                   Cargo.lock
+  --pace N         the pace to start at: 1, 2, 5, 10, 20 or 40, or xN (default 20; fn_tui's own
+                   default is 1)
+  --record OUT.cast  don't open the TUI: render the whole replay into an asciicast v2 file (the
+                   same log gives a byte-identical file; it runs faster than real time). Turn
+                   it into a GIF with `agg OUT.cast OUT.gif`
+  --size WxH       the recording's size in cells (default 160x45), with --record
+  --fps N          the recording's frames per second, 1 to 60 (default 15), with --record
+  --ascii          draw with the ASCII glyph set
+  --color MODE     truecolor, 256, 16 or never (default: from NO_COLOR, COLORTERM, WT_SESSION
+                   and TERM; truecolor with --record)
+  -h, --help       this text
+
+Other fn_tui --watch flags (--frame, --at, --keys, --ansi) print one frame instead of opening
+the watcher, so they are not passed on: run fn_tui --watch LOG --frame directly for those.
+
+keys inside the watcher:
+  space          pause or resume the replay
+  + or =         faster, one step up the pace ladder (1, 2, 5, 10, 20, 40)
+  - or _         slower, one step down it
+  .              step: finish the act in progress, or start the next one, ignoring the pace
+  ]              skip ahead to the end of the next turn
+  v              switch between Follow (the agent's own view) and Free look
+  1  2  3        zoom the code, game or feed pane; again to return to the split. Below the
+                 studio size these switch the tab instead
+  0              back to the split (below the studio size, only flashes a reminder)
+  j  k           scroll the code pane a line down or up; J  K half a pane
+  q              quit (a run started by `agent-run` stops its agent too; `watch` never does)
+
+free look (any of these switch to it from Follow; read-only, the replay never changes):
+  arrows, WASD   move the cursor (Shift: 10 tiles); Ctrl+arrows or PageUp/PageDown jump
+  Tab, Shift+Tab cycle through units; F follows the selected one; Enter selects
+  N  T  G  L  ?  open the Nation, Research, Endeavor, message log and key help screens
+  U              browse the Build list (browse only)
+
+The studio (the code pane beside the game and the activity feed) needs a terminal of at least
+160x45; smaller terminals show the three panes as tabs, 1 2 3 picking the tab.";
+
+/// The pace ladder `fn_tui --pace` accepts (`watch::PACES` in crates/tui/src/watch.rs; a test
+/// reads that source to make sure this copy hasn't drifted).
+const WATCH_PACES: [u32; 6] = [1, 2, 5, 10, 20, 40];
+
+/// `fn_tui --fps` accepts 1 to this (`record::MAX_FPS`).
+const WATCH_MAX_FPS: u32 = 60;
+
+/// The pace `agent-run watch` starts at when not told.
+const DEFAULT_WATCH_PACE: u32 = 20;
+
+/// How many runs `watch --list` shows.
+const LIST_LIMIT: usize = 20;
+
+/// How long a watch waits for a run's log to appear, in half seconds.
+const LOG_WAIT_TRIES: u32 = 120;
+
+/// What `agent-run watch` was asked to do.
+#[derive(Debug, Clone, PartialEq)]
+enum WatchCmd {
+    Help,
+    List,
+    Watch(WatchOpts),
+}
+
+/// `agent-run watch`'s options, and (via [`WatchOpts::live`]) what a live run's own watcher uses.
+#[derive(Debug, Clone, PartialEq)]
+struct WatchOpts {
+    no_build: bool,
+    pace: u32,
+    record: Option<PathBuf>,
+    fps: Option<u32>,
+    size: Option<String>,
+    ascii: bool,
+    color: Option<String>,
+    dir: Option<String>,
+}
+
+impl WatchOpts {
+    /// The watcher a live run opens: just its pace.
+    fn live(pace: u32) -> Self {
+        WatchOpts {
+            no_build: false,
+            pace,
+            record: None,
+            fps: None,
+            size: None,
+            ascii: false,
+            color: None,
+            dir: None,
+        }
+    }
+}
+
+fn watch_hint(msg: &str) -> String {
+    format!("{msg} (see `cargo xtask agent-run watch --help`)")
+}
+
+/// Parses what follows `agent-run watch`. Pure: no filesystem, no processes. The values are
+/// checked the way `fn_tui` checks them, so a bad one fails here at once instead of after the
+/// build.
+fn parse_watch(args: &[&str]) -> Result<WatchCmd> {
+    if args.iter().any(|a| matches!(*a, "-h" | "--help")) {
+        return Ok(WatchCmd::Help);
+    }
+    let mut o = WatchOpts::live(DEFAULT_WATCH_PACE);
+    let mut list = false;
+    let mut i = 0;
+    while i < args.len() {
+        // `--flag=value` and `--flag value` both work, as in fn_tui.
+        let (flag, inline) = match args[i].split_once('=') {
+            Some((f, v)) if f.starts_with("--") => (f, Some(v)),
+            _ => (args[i], None),
+        };
+        let mut value = |name: &str| -> Result<String> {
+            if let Some(v) = inline {
+                return Ok(v.to_string());
+            }
+            i += 1;
+            match args.get(i) {
+                Some(v) if !v.starts_with("--") => Ok(v.to_string()),
+                _ => Err(watch_hint(&format!("{name} needs a value"))),
+            }
+        };
+        match flag {
+            "--list" => list = true,
+            "--no-build" => o.no_build = true,
+            "--ascii" => o.ascii = true,
+            "--pace" => {
+                let v = value("--pace")?;
+                o.pace = v
+                    .trim_start_matches(['x', 'X'])
+                    .parse()
+                    .ok()
+                    .filter(|n| WATCH_PACES.contains(n))
+                    .ok_or_else(|| {
+                        watch_hint(&format!("--pace wants one of {WATCH_PACES:?}, got {v:?}"))
+                    })?;
+            }
+            "--record" => o.record = Some(PathBuf::from(value("--record")?)),
+            "--fps" => {
+                let v = value("--fps")?;
+                o.fps =
+                    Some(v.parse().ok().filter(|n| (1..=WATCH_MAX_FPS).contains(n)).ok_or_else(
+                        || watch_hint(&format!("--fps wants 1 to {WATCH_MAX_FPS}, got {v:?}")),
+                    )?);
+            }
+            "--size" => {
+                let v = value("--size")?;
+                let ok = v.split_once(['x', 'X']).is_some_and(|(w, h)| {
+                    w.parse::<u16>().is_ok_and(|w| w > 0) && h.parse::<u16>().is_ok_and(|h| h > 0)
+                });
+                if !ok {
+                    return Err(watch_hint(&format!(
+                        "--size wants WxH (such as 160x45), got {v:?}"
+                    )));
+                }
+                o.size = Some(v);
+            }
+            "--color" => {
+                let v = value("--color")?;
+                if !["truecolor", "256", "16", "never"].contains(&v.as_str()) {
+                    return Err(watch_hint(&format!(
+                        "--color wants truecolor, 256, 16 or never, got {v:?}"
+                    )));
+                }
+                o.color = Some(v);
+            }
+            f if f.starts_with('-') && f.len() > 1 => {
+                return Err(watch_hint(&format!("unknown option {f} for watch")));
+            }
+            dir => {
+                if let Some(first) = &o.dir {
+                    return Err(watch_hint(&format!(
+                        "watch takes one RUN_DIR, got {first:?} and {dir:?}"
+                    )));
+                }
+                o.dir = Some(dir.to_string());
+            }
+        }
+        i += 1;
+    }
+    if list {
+        if o != WatchOpts::live(DEFAULT_WATCH_PACE) {
+            return Err(watch_hint("--list can't be combined with other options or a RUN_DIR"));
+        }
+        return Ok(WatchCmd::List);
+    }
+    if o.record.is_none() {
+        if o.fps.is_some() {
+            return Err(watch_hint("--fps only means something with --record"));
+        }
+        if o.size.is_some() {
+            return Err(watch_hint("--size only means something with --record"));
+        }
+    }
+    Ok(WatchCmd::Watch(o))
+}
+
+/// Which run folder `o` names: the RUN_DIR as a path, else (a bare name) a folder of that name
+/// under `runs`, else the newest folder under `runs`. Checked now, before any build: a missing
+/// path or a plain file is an error naming it. The `bool` is whether it is the "latest" default.
+fn resolve_watch_dir(o: &WatchOpts, runs: &Path) -> Result<(PathBuf, bool)> {
+    let Some(given) = &o.dir else { return Ok((latest_run_dir(runs)?, true)) };
+    let mut path = PathBuf::from(given);
+    if !path.exists() && path.components().count() == 1 && runs.join(given).is_dir() {
+        path = runs.join(given);
+    }
+    if !path.exists() {
+        return Err(format!(
+            "no run folder at {} (`cargo xtask agent-run watch --list` shows the recent ones)",
+            path.display()
+        ));
+    }
+    if !path.is_dir() {
+        return Err(format!(
+            "{} isn't a directory; RUN_DIR is the folder holding run.jsonl",
+            path.display()
+        ));
+    }
+    Ok((path, false))
+}
+
+/// The `fn_tui` command line (after the program name) that opens `log` the way `o` asks.
+fn fn_tui_args(log: &Path, o: &WatchOpts) -> Vec<String> {
+    let mut args = vec![
+        "--watch".to_string(),
+        log.display().to_string(),
+        "--pace".to_string(),
+        o.pace.to_string(),
+    ];
+    if let Some(out) = &o.record {
+        args.push("--record".to_string());
+        args.push(out.display().to_string());
+    }
+    if let Some(fps) = o.fps {
+        args.push("--fps".to_string());
+        args.push(fps.to_string());
+    }
+    if let Some(size) = &o.size {
+        args.push("--size".to_string());
+        args.push(size.clone());
+    }
+    if o.ascii {
+        args.push("--ascii".to_string());
+    }
+    if let Some(color) = &o.color {
+        args.push("--color".to_string());
+        args.push(color.clone());
+    }
+    args
+}
+
+fn run_watch(repo: &Path, args: &[&str]) -> Result {
+    let opts = match parse_watch(args)? {
+        WatchCmd::Help => {
+            println!("{WATCH_HELP}");
+            return Ok(());
+        }
+        WatchCmd::List => {
+            let runs = runs_dir();
+            println!("{}", format_run_list(&runs, &list_runs(&runs, LIST_LIMIT)));
+            return Ok(());
+        }
+        WatchCmd::Watch(o) => o,
+    };
+    let runs = runs_dir();
+    let (dir, latest) = resolve_watch_dir(&opts, &runs)?;
+    say(&format!("watching {}{}", dir.display(), if latest { " (the latest run)" } else { "" }));
+    if !opts.no_build {
+        build_fn_tui_if_stale(repo)?;
+    }
+    watch_run(repo, &dir, &opts)
+}
+
+fn watch_run(repo: &Path, dir: &Path, o: &WatchOpts) -> Result {
     let log = dir.join("run.jsonl");
+    let has_log = || log.is_file() && log.metadata().map(|m| m.len() > 0).unwrap_or(false);
+    if !has_log() {
+        say(&format!(
+            "no log in {} yet: waiting up to {} seconds for the run to start writing it \
+             (Ctrl-C to stop)",
+            dir.display(),
+            LOG_WAIT_TRIES / 2
+        ));
+    }
+    let started = Instant::now();
     let mut tries = 0;
-    while !(log.is_file() && log.metadata().map(|m| m.len() > 0).unwrap_or(false)) {
-        if tries >= 120 {
+    while !has_log() {
+        if tries >= LOG_WAIT_TRIES {
             return Err(format!(
                 "no log at {} yet (did the agent start? see {}/agent.log)",
                 log.display(),
@@ -550,16 +857,109 @@ fn watch_run(repo: &Path, dir: &Path, pace: u32) -> Result {
         }
         thread::sleep(Duration::from_millis(500));
         tries += 1;
+        if tries % 20 == 0 && !has_log() {
+            say(&format!("still waiting for {} ({}s)", log.display(), started.elapsed().as_secs()));
+        }
     }
     let bin = repo.join("target/release/fn_tui");
-    Command::new(bin)
-        .arg("--watch")
-        .arg(&log)
-        .arg("--pace")
-        .arg(pace.to_string())
-        .status()
-        .map_err(|e| e.to_string())?;
+    Command::new(bin).args(fn_tui_args(&log, o)).status().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+// -------------------------------------------------------------------------------------------
+// `agent-run watch --list` (#553)
+// -------------------------------------------------------------------------------------------
+
+/// One line of `watch --list`: what a run folder's log says about it.
+#[derive(Debug, Clone, PartialEq)]
+struct RunRow {
+    name: String,
+    nation: String,
+    /// `seed 7633`, or `scenario earth-year-two`.
+    start: String,
+    turns: u32,
+    score: Option<f64>,
+}
+
+/// Reads `dir`'s `run.jsonl` for its header, turn count and last score. Parses only the three
+/// kinds of line it needs: a long run's log is mostly script code. A folder with no log (or an
+/// unreadable one) still gets a row, with dashes.
+fn run_row(dir: &Path) -> RunRow {
+    #[derive(Deserialize)]
+    struct Head {
+        seed: u64,
+        nation: String,
+        #[serde(default)]
+        prelude: Option<serde_json::Value>,
+    }
+    #[derive(Deserialize)]
+    struct Score {
+        score: f64,
+    }
+    let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let mut row = RunRow {
+        name: name.clone(),
+        nation: "-".to_string(),
+        start: "-".to_string(),
+        turns: 0,
+        score: None,
+    };
+    let Ok(text) = fs::read_to_string(dir.join("run.jsonl")) else { return row };
+    for line in text.lines() {
+        if line.starts_with(r#"{"type":"header""#) {
+            if let Ok(h) = serde_json::from_str::<Head>(line) {
+                row.nation = h.nation;
+                // The header only says a scenario's prelude ran; the folder name has its id.
+                let scenario = name.split_once("-scenario-").map(|(_, id)| id);
+                row.start = match (h.prelude, scenario) {
+                    (Some(_), Some(id)) => format!("scenario {id}"),
+                    _ => format!("seed {}", h.seed),
+                };
+            }
+        } else if line.starts_with(r#"{"type":"turn""#) {
+            if let Ok(LogLine::Turn { index, .. }) = serde_json::from_str::<LogLine>(line) {
+                row.turns = row.turns.max(index);
+            }
+        } else if line.starts_with(r#"{"type":"score""#)
+            && let Ok(s) = serde_json::from_str::<Score>(line)
+        {
+            row.score = Some(s.score);
+        }
+    }
+    row
+}
+
+/// The newest `limit` runs under `runs`, newest first. A missing or empty folder is no rows.
+fn list_runs(runs: &Path, limit: usize) -> Vec<RunRow> {
+    run_dirs_newest(runs).unwrap_or_default().iter().take(limit).map(|d| run_row(d)).collect()
+}
+
+fn format_run_list(runs: &Path, rows: &[RunRow]) -> String {
+    if rows.is_empty() {
+        return format!("no runs in {}", runs.display());
+    }
+    let width = |f: fn(&RunRow) -> usize, head: &str| {
+        rows.iter().map(f).chain([head.len()]).max().unwrap_or(0)
+    };
+    let name_w = width(|r| r.name.len(), "RUN");
+    let nation_w = width(|r| r.nation.len(), "NATION");
+    let start_w = width(|r| r.start.len(), "START");
+    let mut out = vec![format!(
+        "{:name_w$}  {:nation_w$}  {:start_w$}  {:>5}  SCORE",
+        "RUN", "NATION", "START", "TURNS"
+    )];
+    for r in rows {
+        let score = r.score.map_or("-".to_string(), |s| format!("{s:.1}"));
+        out.push(format!(
+            "{:name_w$}  {:nation_w$}  {:start_w$}  {:>5}  {score}",
+            r.name, r.nation, r.start, r.turns
+        ));
+    }
+    out.push(format!(
+        "newest first, in {}; watch one with: cargo xtask agent-run watch NAME",
+        runs.display()
+    ));
+    out.join("\n")
 }
 
 fn base_claude_args(mcp_config: &Path, model: Option<&str>) -> Vec<String> {
@@ -663,7 +1063,7 @@ fn run_default(
 
     say("agent running; quit the watcher to stop it");
     build_fn_tui_if_stale(repo)?;
-    let watch_result = watch_run(repo, dir, opts.pace);
+    let watch_result = watch_run(repo, dir, &WatchOpts::live(opts.pace));
 
     if alive.load(Ordering::SeqCst) {
         say("stopping the agent");
@@ -1538,9 +1938,15 @@ mod tests {
     }
 
     #[test]
-    fn help_flag_prints_usage_text() {
-        let err = parse_args(&["--help"]).unwrap_err();
-        assert!(err.contains("cargo xtask agent-run"));
+    fn help_flag_prints_usage_text_and_succeeds() {
+        // `--help` is a request, not an error (#553): stdout and exit 0, wherever it appears.
+        for args in [&["--help"][..], &["-h"], &["--seed", "7", "--help"]] {
+            assert!(parse_args(args).unwrap().help, "{args:?}");
+            assert!(run(args).is_ok(), "{args:?}");
+        }
+        let text = help();
+        assert!(text.contains("cargo xtask agent-run"));
+        assert!(text.contains("watch --help"), "the top-level help points at watch's own");
     }
 
     /// Exercised without ever spawning a process (real or stub): a bogus name is never found, a
@@ -2019,6 +2425,322 @@ mod tests {
         set(dir.join("a/mid.rs"), 200);
         assert_eq!(newest_mtime(&dir), Some(SystemTime::UNIX_EPOCH + Duration::from_secs(300)));
         fs::remove_dir_all(&dir).ok();
+    }
+
+    // ----- agent-run watch (#553) -----
+
+    fn watch_opts(args: &[&str]) -> WatchOpts {
+        match parse_watch(args).unwrap() {
+            WatchCmd::Watch(o) => o,
+            other => panic!("expected a watch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn watch_help_is_a_request_wherever_it_appears() {
+        for args in [&["--help"][..], &["-h"], &["--bogus", "--help"], &["somewhere", "-h"]] {
+            assert_eq!(parse_watch(args).unwrap(), WatchCmd::Help, "{args:?}");
+        }
+        // And running it succeeds without a repo to build in or a TUI to open.
+        assert!(run_watch(Path::new("/nonexistent"), &["--help"]).is_ok());
+        assert!(run(&["watch", "-h"]).is_ok());
+    }
+
+    #[test]
+    fn watch_help_names_every_part_of_the_issue() {
+        for want in [
+            "usage: cargo xtask agent-run watch",
+            "RUN_DIR",
+            "--list",
+            "--no-build",
+            "--pace",
+            "--record",
+            "--size",
+            "--fps",
+            "--ascii",
+            "--color",
+            "160x45",
+            "space",
+            "+ or =",
+            "- or _",
+            "  .  ",
+            "  ]  ",
+            "  v  ",
+            "1  2  3",
+            "  0  ",
+            "j  k",
+            "  q  ",
+            "free look",
+            "fn-agent-runs",
+        ] {
+            assert!(WATCH_HELP.contains(want), "watch --help should mention {want:?}");
+        }
+    }
+
+    /// The help's facts come from `fn_tui`: its pace ladder, its keys and the studio's size.
+    /// Reading the sources keeps this copy from drifting.
+    #[test]
+    fn watch_help_matches_what_fn_tui_does() {
+        let watch_rs = include_str!("../../crates/tui/src/watch.rs");
+        let ladder = WATCH_PACES.map(|p| p.to_string()).join(", ");
+        assert!(
+            watch_rs
+                .contains(&format!("pub const PACES: [u32; {}] = [{ladder}];", WATCH_PACES.len())),
+            "WATCH_PACES must match watch::PACES"
+        );
+        for handler in [
+            "KeyCode::Char(' ') => watcher.toggle_pause()",
+            "KeyCode::Char('+' | '=') => watcher.faster()",
+            "KeyCode::Char('-' | '_') => watcher.slower()",
+            "KeyCode::Char('.') => watcher.step_one()",
+            "KeyCode::Char(']') => watcher.fast_forward_to_turn(watcher.turn() + 1)",
+            "KeyCode::Char('q' | 'Q') => quit = true",
+            "KeyCode::Char('v' | 'V') => self.toggle_view()",
+            "KeyCode::Char('1') => return self.press_pane(Pane::Code)",
+            "KeyCode::Char('2') => return self.press_pane(Pane::Game)",
+            "KeyCode::Char('3') => return self.press_pane(Pane::Feed)",
+            "KeyCode::Char('0') => return self.press_zero()",
+        ] {
+            assert!(watch_rs.contains(handler), "watch.rs no longer has {handler:?}");
+        }
+        let studio_rs = include_str!("../../crates/tui/src/studio.rs");
+        for scroll in ["'j'", "'k'", "'J'", "'K'"] {
+            assert!(studio_rs.contains(&format!("KeyCode::Char({scroll}) => self.scroll_by")));
+        }
+        let tui_toml = include_str!("../../data/tui.toml");
+        assert!(tui_toml.contains("min_width = 160"), "the studio threshold moved");
+        assert!(tui_toml.contains("min_height = 45"), "the studio threshold moved");
+        let cli_rs = include_str!("../../crates/tui/src/cli.rs");
+        assert!(cli_rs.contains("(1..=record::MAX_FPS)"));
+        assert!(
+            include_str!("../../crates/tui/src/record.rs")
+                .contains(&format!("pub const MAX_FPS: u32 = {WATCH_MAX_FPS};"))
+        );
+    }
+
+    #[test]
+    fn watch_defaults() {
+        let o = watch_opts(&[]);
+        assert_eq!(o, WatchOpts::live(20));
+        assert_eq!(o.dir, None);
+        assert!(!o.no_build);
+        assert!(watch_opts(&["--no-build", "some/dir"]).no_build);
+        assert_eq!(watch_opts(&["some/dir"]).dir.as_deref(), Some("some/dir"));
+    }
+
+    #[test]
+    fn watch_pace_takes_what_fn_tui_takes() {
+        for (arg, want) in [("1", 1), ("2", 2), ("5", 5), ("10", 10), ("20", 20), ("40", 40)] {
+            assert_eq!(watch_opts(&["--pace", arg]).pace, want);
+            assert_eq!(watch_opts(&["--pace", &format!("x{arg}")]).pace, want, "the xN form");
+        }
+        assert_eq!(watch_opts(&["--pace=5"]).pace, 5, "the = form");
+        for bad in ["3", "0", "fast", "x", "-1", "100"] {
+            let err = parse_watch(&["--pace", bad]).unwrap_err();
+            assert!(err.contains("--pace wants one of"), "{bad}: {err}");
+            assert!(err.contains("watch --help"), "{err}");
+        }
+        assert!(parse_watch(&["--pace"]).unwrap_err().contains("--pace needs a value"));
+    }
+
+    #[test]
+    fn watch_unknown_flags_fail_naming_the_flag() {
+        for flag in ["--bogus", "-x", "--frame", "--keys", "--at", "--ansi"] {
+            let err = parse_watch(&[flag]).unwrap_err();
+            assert!(err.contains(flag), "{err}");
+            assert!(err.contains("watch --help"), "{err}");
+        }
+        // A typo'd flag is not mistaken for a run folder.
+        assert!(parse_watch(&["--no-bild", "dir"]).unwrap_err().contains("--no-bild"));
+    }
+
+    #[test]
+    fn watch_takes_one_run_dir() {
+        let err = parse_watch(&["a", "b"]).unwrap_err();
+        assert!(err.contains("one RUN_DIR") && err.contains("\"a\"") && err.contains("\"b\""));
+    }
+
+    #[test]
+    fn watch_record_options_pass_through_to_fn_tui() {
+        let o = watch_opts(&[
+            "run1", "--pace", "x10", "--record", "out.cast", "--fps", "30", "--size", "100x30",
+            "--ascii", "--color", "never",
+        ]);
+        let args = fn_tui_args(Path::new("/r/run1/run.jsonl"), &o);
+        assert_eq!(
+            args,
+            [
+                "--watch",
+                "/r/run1/run.jsonl",
+                "--pace",
+                "10",
+                "--record",
+                "out.cast",
+                "--fps",
+                "30",
+                "--size",
+                "100x30",
+                "--ascii",
+                "--color",
+                "never"
+            ]
+        );
+        // Plain: the log and the pace, 20 unless told.
+        let plain = fn_tui_args(Path::new("/r/run.jsonl"), &watch_opts(&[]));
+        assert_eq!(plain, ["--watch", "/r/run.jsonl", "--pace", "20"]);
+    }
+
+    #[test]
+    fn watch_flags_that_only_mean_something_with_record_say_so() {
+        assert!(parse_watch(&["--fps", "30"]).unwrap_err().contains("--fps only means"));
+        assert!(parse_watch(&["--size", "80x24"]).unwrap_err().contains("--size only means"));
+        assert!(parse_watch(&["--record", "o.cast", "--fps", "30"]).is_ok());
+        for bad in ["0", "61", "x", "-3"] {
+            assert!(parse_watch(&["--record", "o.cast", "--fps", bad]).is_err(), "{bad}");
+        }
+        for bad in ["small", "80", "0x24", "80x0", "axb"] {
+            assert!(parse_watch(&["--record", "o.cast", "--size", bad]).is_err(), "{bad}");
+        }
+        assert!(parse_watch(&["--color", "mauve"]).unwrap_err().contains("--color wants"));
+    }
+
+    #[test]
+    fn watch_list_stands_alone() {
+        assert_eq!(parse_watch(&["--list"]).unwrap(), WatchCmd::List);
+        for extra in [&["--pace", "5"][..], &["--no-build"], &["dir"], &["--record", "o.cast"]] {
+            let mut args = vec!["--list"];
+            args.extend(extra);
+            let err = parse_watch(&args).unwrap_err();
+            assert!(err.contains("--list can't be combined"), "{args:?}: {err}");
+        }
+    }
+
+    #[test]
+    fn a_bad_watch_fails_before_any_build() {
+        // The repo doesn't exist, so a build (or a launch) would fail with a different message:
+        // these errors can only come from the arguments, ahead of both.
+        let repo = Path::new("/nonexistent/repo");
+        let err = run_watch(repo, &["--bogus"]).unwrap_err();
+        assert!(err.contains("--bogus"), "{err}");
+        let err = run_watch(repo, &["/nonexistent/run-folder"]).unwrap_err();
+        assert!(err.contains("/nonexistent/run-folder"), "{err}");
+    }
+
+    #[test]
+    fn resolve_watch_dir_checks_the_folder_up_front() {
+        let runs = tempdir();
+        let with_dir = |d: &str| WatchOpts { dir: Some(d.to_string()), ..WatchOpts::live(20) };
+
+        // Nothing there: names the path.
+        let missing = runs.join("nope");
+        let err = resolve_watch_dir(&with_dir(missing.to_str().unwrap()), &runs).unwrap_err();
+        assert!(err.contains(missing.to_str().unwrap()), "{err}");
+
+        // A file is not a run folder.
+        let file = runs.join("file.txt");
+        fs::write(&file, "x").unwrap();
+        let err = resolve_watch_dir(&with_dir(file.to_str().unwrap()), &runs).unwrap_err();
+        assert!(err.contains(file.to_str().unwrap()) && err.contains("isn't a directory"), "{err}");
+
+        // A folder with no log yet is a run just starting: accepted (the wait comes later).
+        let fresh = runs.join("20261108-120000-fire-7-normal");
+        fs::create_dir_all(&fresh).unwrap();
+        let (dir, latest) = resolve_watch_dir(&with_dir(fresh.to_str().unwrap()), &runs).unwrap();
+        assert_eq!((dir.as_path(), latest), (fresh.as_path(), false));
+
+        // A bare name is looked for under the runs folder; one that isn't there still fails.
+        let (dir, _) =
+            resolve_watch_dir(&with_dir("20261108-120000-fire-7-normal"), &runs).unwrap();
+        assert_eq!(dir, fresh);
+        assert!(resolve_watch_dir(&with_dir("no-such-run"), &runs).is_err());
+
+        // No RUN_DIR: the newest, and it says so.
+        let (dir, latest) = resolve_watch_dir(&WatchOpts::live(20), &runs).unwrap();
+        assert!(latest);
+        assert!(dir.is_dir());
+        fs::remove_dir_all(&runs).ok();
+    }
+
+    fn write_run(runs: &Path, name: &str, lines: &[&str], age_secs: u64) -> PathBuf {
+        let dir = runs.join(name);
+        fs::create_dir_all(&dir).unwrap();
+        if !lines.is_empty() {
+            fs::write(dir.join("run.jsonl"), lines.join("\n") + "\n").unwrap();
+        }
+        let when = SystemTime::now() - Duration::from_secs(age_secs);
+        File::open(&dir).unwrap().set_modified(when).unwrap();
+        dir
+    }
+
+    const HEADER: &str = r#"{"type":"header","seed":7633,"nation":"water","turn_seconds":20,"ticks_per_turn":200,"map_size":null,"difficulty":"normal","site":null,"rough":false,"data_digest":1,"crate_version":"0.1.0","prelude":null}"#;
+    const SCENARIO_HEADER: &str = r#"{"type":"header","seed":7,"nation":"earth","turn_seconds":20,"ticks_per_turn":200,"map_size":"small","difficulty":"normal","site":null,"rough":false,"data_digest":1,"crate_version":"0.1.0","prelude":{"opening":"economy","minutes":60.0}}"#;
+    const TURN_1: &str = r#"{"type":"turn","index":1,"tick":200}"#;
+    const TURN_2: &str = r#"{"type":"turn","index":2,"tick":400}"#;
+    const END: &str = r#"{"type":"end","tick":400,"reason":"agent finished"}"#;
+    const SCORE: &str = r#"{"type":"score","score":41.25,"progress":30.0,"care":0.9,"horizon":2}"#;
+
+    #[test]
+    fn list_runs_summarises_each_run_newest_first() {
+        let runs = tempdir();
+        write_run(
+            &runs,
+            "20261101-000000-water-7633-normal",
+            &[HEADER, TURN_1, TURN_2, END, SCORE],
+            300,
+        );
+        write_run(
+            &runs,
+            "20261102-000000-scenario-earth-year-two",
+            &[SCENARIO_HEADER, TURN_1],
+            200,
+        );
+        write_run(&runs, "20261103-000000-fire-9-normal", &[], 100);
+        // A file in the runs folder is not a run.
+        fs::write(runs.join("notes.txt"), "x").unwrap();
+
+        let rows = list_runs(&runs, 20);
+        let names: Vec<&str> = rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "20261103-000000-fire-9-normal",
+                "20261102-000000-scenario-earth-year-two",
+                "20261101-000000-water-7633-normal"
+            ]
+        );
+        assert_eq!(rows[0].nation, "-", "no log yet");
+        assert_eq!(rows[0].turns, 0);
+        assert_eq!(rows[1].nation, "earth");
+        assert_eq!(rows[1].start, "scenario earth-year-two");
+        assert_eq!(rows[1].turns, 1);
+        assert_eq!(rows[1].score, None);
+        assert_eq!(rows[2].nation, "water");
+        assert_eq!(rows[2].start, "seed 7633");
+        assert_eq!(rows[2].turns, 2);
+        assert_eq!(rows[2].score, Some(41.25));
+
+        assert_eq!(list_runs(&runs, 2).len(), 2, "the limit applies");
+
+        let text = format_run_list(&runs, &rows);
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(lines[0].starts_with("RUN") && lines[0].ends_with("SCORE"), "{text}");
+        assert!(lines[1].contains("fire-9-normal"), "{text}");
+        assert!(lines[3].contains("water") && lines[3].contains("seed 7633"), "{text}");
+        assert!(lines[3].ends_with("41.2") || lines[3].ends_with("41.3"), "{text}");
+        assert!(text.contains("agent-run watch NAME"), "{text}");
+        fs::remove_dir_all(&runs).ok();
+    }
+
+    #[test]
+    fn list_with_no_runs_says_so() {
+        let runs = tempdir();
+        assert_eq!(
+            format_run_list(&runs, &list_runs(&runs, 20)),
+            format!("no runs in {}", runs.display())
+        );
+        let gone = runs.join("gone");
+        assert!(list_runs(&gone, 20).is_empty(), "a missing runs folder is no runs, not an error");
+        fs::remove_dir_all(&runs).ok();
     }
 
     // ----- helpers -----
