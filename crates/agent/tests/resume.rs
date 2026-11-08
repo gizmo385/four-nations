@@ -31,15 +31,13 @@ fn fresh_host() -> Host {
 
 /// `fn_agent serve --resume PATH`'s own steps, over the public API a test can reach (the private
 /// `serve_resume` in `main.rs` does exactly this): read `path`, rebuild and validate the `Host`,
-/// drop the `end` line and rewrite the file with what's kept, then wrap it all in a resumed
-/// `Tools`.
+/// then wrap it all in a resumed `Tools` that appends to the same file (an `end` line left by the
+/// last session stays where it is, #511).
 fn resume_tools(path: &std::path::Path) -> Tools<std::io::BufWriter<std::fs::File>> {
     let (header, lines) = watch::read_file(path).unwrap();
     let host = Host::resume(&header, &lines).unwrap();
-    let kept: Vec<LogLine> =
-        lines.into_iter().filter(|l| !matches!(l, LogLine::End { .. })).collect();
-    let writer = Writer::recreate_with(path, &header, &kept).unwrap();
-    Tools::resume(host, writer, &kept)
+    let writer = Writer::append(path).unwrap();
+    Tools::resume(host, writer, &lines)
 }
 
 #[test]
@@ -84,9 +82,10 @@ fn a_resumed_session_continues_the_same_log_as_one_unbroken_session() {
     let (header, lines) = watch::read_file(&path).unwrap();
     std::fs::remove_file(&path).ok();
 
-    // The `end` line from the middle is gone; there's exactly one, and it's the last line.
+    // The log is append-only (#511): the first session's `end` stays mid-log, and the second
+    // session's is the last line.
     let end_count = lines.iter().filter(|l| matches!(l, LogLine::End { .. })).count();
-    assert_eq!(end_count, 1, "{lines:?}");
+    assert_eq!(end_count, 2, "{lines:?}");
     assert!(matches!(lines.last(), Some(LogLine::End { .. })));
 
     // `fn_tui --watch` and `fn_agent keys` read it as one continuous run: replaying the whole
@@ -94,7 +93,7 @@ fn a_resumed_session_continues_the_same_log_as_one_unbroken_session() {
     let mut watcher = watch::Watcher::new(&header).unwrap();
     watcher.feed(lines);
     watcher.fast_forward_to_turn(u32::MAX);
-    assert!(watcher.finished(), "the watcher should reach the (single, final) end marker");
+    assert!(watcher.finished(), "the watcher should reach the final end marker");
 
     let palette = fn_tui::color::Palette::new(
         watcher.defs(),

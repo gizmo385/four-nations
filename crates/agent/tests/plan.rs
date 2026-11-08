@@ -183,10 +183,8 @@ fn a_resumed_session_restores_the_latest_plan() {
 
     let (header, lines) = watch::read_file(&path).unwrap();
     let host = Host::resume(&header, &lines).unwrap();
-    let kept: Vec<LogLine> =
-        lines.into_iter().filter(|l| !matches!(l, LogLine::End { .. })).collect();
-    let writer = Writer::recreate_with(&path, &header, &kept).unwrap();
-    let mut resumed = Tools::resume(host, writer, &kept).with_scripts(limits());
+    let writer = Writer::append(&path).unwrap();
+    let mut resumed = Tools::resume(host, writer, &lines).with_scripts(limits());
     std::fs::remove_file(&path).ok();
 
     let want = json!({"goal": "new", "research": ["farming"], "targets": {"max_idle": 2}});

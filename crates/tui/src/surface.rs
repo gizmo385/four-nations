@@ -2154,10 +2154,13 @@ pub struct RunLogHeader {
 /// `keys` is the pressed keys as a `--keys` script (`key_token`'s syntax, parsed back by
 /// `crate::keys::parse`), not the raw [`KeyEvent`]s, since those have no `serde` of their own
 /// and a script is what a human watching -- or re-running `fn_agent keys` -- wants to read
-/// anyway. `End` (#327) is the last line a finished run's log ever gets: `fn_agent serve` writes
-/// one when its session ends (stdin closed, or an error), with the world's own tick at that
+/// anyway. `End` (#327) is the line a session of a run ends with: `fn_agent serve` writes one
+/// when its session ends (stdin closed, a signal, or an error), with the world's own tick at that
 /// moment and the reason, so `fn_tui --watch` can tell a run that's finished from one that's
-/// merely caught up with a live agent still thinking.
+/// merely caught up with a live agent still thinking. A log is append-only (#511) and
+/// `serve --resume` adds to it after the last session's `End`, so an `End` means "the run is
+/// over" only while nothing but a `Score` comes after it ([`run_end_reason`]); with more behind
+/// it, it is ignored like the commentary lines.
 ///
 /// `Script`, `Wake`, `Note` and `Call` (#479, #497, docs/design/agent-scripting.md, "Memory
 /// across sessions"; docs/design/agent-studio.md, "A new log line: `call`") are `fn_agent`'s own
@@ -2251,6 +2254,25 @@ pub enum LogLine {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         champion: Option<bool>,
     },
+}
+
+impl LogLine {
+    /// Whether this line is commentary written after a run is over (`fn_agent score --append`'s
+    /// `Score`), which doesn't make a run's `End` before it any less its last.
+    pub fn follows_the_end(&self) -> bool {
+        matches!(self, LogLine::Score { .. })
+    }
+}
+
+/// The reason of `lines`' `End` line, if it is the one that ended the run (#511): the last line
+/// that isn't a `Score` appended afterwards. A run log is append-only, so a resumed session
+/// writes more after the `End` the last one left; such a mid-log `End` only says a session
+/// stopped, and is not the run's end.
+pub fn run_end_reason(lines: &[LogLine]) -> Option<&str> {
+    match lines.iter().rfind(|l| !l.follows_the_end()) {
+        Some(LogLine::End { reason, .. }) => Some(reason),
+        _ => None,
+    }
 }
 
 impl From<&LogEntry> for LogLine {
@@ -2494,10 +2516,7 @@ pub mod referee {
         }
         let harm_events =
             session.world.harm_events().iter().filter(|e| e.tick <= horizon_ticks).count() as u32;
-        let end_reason = lines.iter().rev().find_map(|l| match l {
-            LogLine::End { reason, .. } => Some(reason.clone()),
-            _ => None,
-        });
+        let end_reason = super::run_end_reason(lines).map(str::to_owned);
         Ok(Replay {
             card,
             turn_seconds: header.turn_seconds,
@@ -2924,6 +2943,26 @@ mod tests {
     /// run and none of them stop it (#377): routine `Bend` alerts never counted toward
     /// `Observation::stopped`, only a death, an arrival, an endeavor event, a finished tech, a
     /// season event or a *failed* bend do.
+    /// #511: only an `End` with nothing but a `Score` after it is the run's end.
+    #[test]
+    fn run_end_reason_is_the_last_end_unless_the_log_went_on() {
+        let end = |reason: &str| LogLine::End { tick: 0, reason: reason.to_owned() };
+        let turn = LogLine::Turn { index: 1, tick: 200 };
+        let score = LogLine::Score {
+            score: 1.0,
+            progress: 1.0,
+            care: 1.0,
+            horizon: 1,
+            attempt: None,
+            champion: None,
+        };
+        assert_eq!(run_end_reason(&[]), None);
+        assert_eq!(run_end_reason(&[turn.clone(), end("a")]), Some("a"));
+        assert_eq!(run_end_reason(&[turn.clone(), end("a"), score.clone()]), Some("a"));
+        assert_eq!(run_end_reason(&[end("a"), turn.clone()]), None, "a resumed session went on");
+        assert_eq!(run_end_reason(&[end("a"), turn, end("b"), score]), Some("b"));
+    }
+
     #[test]
     fn end_turn_runs_every_turn_despite_several_finished_bends() {
         let mut h = host(Nation::Fire).with_turn_seconds(5);

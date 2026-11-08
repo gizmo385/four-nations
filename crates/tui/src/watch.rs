@@ -177,17 +177,35 @@ pub fn to_keys_script(header: &RunLogHeader, lines: &[LogLine]) -> String {
 pub struct LogTail {
     file: File,
     buf: String,
+    /// How many bytes of the file this tail has read so far (#511), to notice the file being
+    /// replaced by a shorter one underneath it.
+    offset: u64,
 }
 
 impl LogTail {
     pub fn open(path: &Path) -> io::Result<Self> {
-        Ok(Self { file: File::open(path)?, buf: String::new() })
+        Ok(Self { file: File::open(path)?, buf: String::new(), offset: 0 })
     }
 
-    /// The whole lines that have landed since the last call (empty if none have).
+    /// The whole lines that have landed since the last call (empty if none have). A run log is
+    /// append-only (#511); if the file turns out shorter than what this has already read, it was
+    /// rewritten underneath the tail and reading on from the old offset would start mid-line, so
+    /// this fails with an error saying so instead.
     pub fn poll(&mut self) -> io::Result<Vec<String>> {
+        let len = self.file.metadata()?.len();
+        if len < self.offset {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "the log was rewritten (it is {len} bytes now, {} had been read); a run log \
+                     should only ever be appended to",
+                    self.offset
+                ),
+            ));
+        }
         let mut chunk = String::new();
         self.file.read_to_string(&mut chunk)?;
+        self.offset += chunk.len() as u64;
         self.buf.push_str(&chunk);
         let mut lines = Vec::new();
         while let Some(i) = self.buf.find('\n') {
@@ -259,8 +277,9 @@ pub struct Watcher {
     /// mid-press): a live log's "waiting for agent (N s)".
     waiting_secs: f64,
     nation_label: String,
-    /// The log's `End` line's own reason, once replayed (#327): a finished run's strip reads
-    /// "run finished" instead of counting up a wait that will never end.
+    /// The log's `End` line's own reason, once replayed as its last line so far (#327, #511): a
+    /// finished run's strip reads "run finished" instead of counting up a wait that will never
+    /// end. Cleared again if the log grows past it (a resumed session).
     finished: Option<String>,
     /// The latest act's strip text (its label and note), kept on the strip while that act's turn
     /// plays out, so the agent's note stays readable for longer than its keys take to press.
@@ -427,6 +446,11 @@ impl Watcher {
     pub fn feed(&mut self, events: impl IntoIterator<Item = LogLine>) {
         let events: Vec<LogLine> = events.into_iter().collect();
         self.code_pane.feed(&events);
+        // A log that grows past its `End` line (#511) was only between sessions: the run isn't
+        // over after all.
+        if events.iter().any(|e| !e.follows_the_end()) {
+            self.finished = None;
+        }
         self.pending.extend(events);
     }
 
@@ -466,8 +490,9 @@ impl Watcher {
         self.pending.is_empty() && self.current.is_none()
     }
 
-    /// Whether the log's `End` line (#327) has been replayed: the run is over for good, not
-    /// merely caught up with a live agent that might still write more.
+    /// Whether the log's `End` line (#327) has been replayed as its last line: the run is over,
+    /// not merely caught up with a live agent that might still write more (though a resumed
+    /// session appending to the log un-finishes it, #511).
     pub fn finished(&self) -> bool {
         self.finished.is_some()
     }
@@ -783,13 +808,17 @@ impl Watcher {
                 let ticks = self.turn_seconds * TICKS_PER_SECOND;
                 self.current = Some(Current::Ticks { remaining: ticks });
             }
-            // The run is over (#327): nothing left to replay, ever, however much more of the
-            // log there might be. Logged once, like `Look`/`Inspect`, since it takes no game
-            // time either.
+            // The run is over (#327) -- if nothing but a `Score` follows it so far. A chunked or
+            // resumed run appends more after a session's `End` (#511), so one with lines still
+            // pending behind it only marks where a session stopped, and is ignored like a
+            // `Note`. [`Self::feed`] clears `finished` again if the log then grows. Logged once,
+            // like `Look`/`Inspect`, since it takes no game time either.
             LogLine::End { reason, .. } => {
-                let tick = self.app().session.world.tick;
-                self.push_agent(tick, format!("Run finished: {reason}"));
-                self.finished = Some(reason);
+                if self.pending.iter().all(LogLine::follows_the_end) {
+                    let tick = self.app().session.world.tick;
+                    self.push_agent(tick, format!("Run finished: {reason}"));
+                    self.finished = Some(reason);
+                }
             }
             LogLine::Header(_) => return self.start_next(), // shouldn't recur; harmless if it did
             // #482: a run's own start -- `turns == 0` is `save_script`'s own "never run" marker
@@ -1447,6 +1476,81 @@ mod tests {
         writeln!(f, "ial line\nline three").unwrap();
         assert_eq!(tail.poll().unwrap(), vec!["partial line", "line three"]);
         std::fs::remove_file(&path).ok();
+    }
+
+    /// A file that got shorter than what the tail has read was rewritten under it (#511): that's
+    /// an error, never a parse from the middle of a line.
+    #[test]
+    fn log_tail_reports_a_file_that_shrank_instead_of_reading_mid_line() {
+        let path = std::env::temp_dir()
+            .join(format!("fn_tui_watch_shrink_test_{}.jsonl", std::process::id()));
+        std::fs::write(&path, "line one\nline two\nline three\n").unwrap();
+        let mut tail = LogTail::open(&path).unwrap();
+        assert_eq!(tail.poll().unwrap().len(), 3);
+        std::fs::write(&path, "line one\nline two\n").unwrap();
+        let err = tail.poll().unwrap_err();
+        assert!(err.to_string().contains("rewritten"), "{err}");
+        std::fs::remove_file(&path).ok();
+    }
+
+    fn end_line(reason: &str) -> LogLine {
+        LogLine::End { tick: 0, reason: reason.to_owned() }
+    }
+
+    /// An `End` with more log behind it is where one session stopped, not the run's end (#511).
+    #[test]
+    fn a_mid_log_end_does_not_finish_the_watcher() {
+        let mut w = Watcher::new(&header(Nation::Water)).unwrap();
+        w.feed([end_line("stopped by SIGTERM"), LogLine::Turn { index: 1, tick: 200 }]);
+        w.fast_forward_to_turn(1);
+        assert!(!w.finished(), "an End followed by a turn is not the run's end");
+        assert_eq!(w.turn(), 1);
+    }
+
+    /// An `End` that is the log's last line so far finishes the watcher, until the log grows
+    /// again (a resumed session).
+    #[test]
+    fn a_trailing_end_finishes_the_watcher_until_the_log_grows() {
+        let mut w = Watcher::new(&header(Nation::Water)).unwrap();
+        w.feed([end_line("stdin closed")]);
+        w.step_one();
+        assert!(w.finished());
+        w.feed([LogLine::Turn { index: 1, tick: 200 }]);
+        assert!(!w.finished(), "a resumed session un-finishes the run");
+        w.fast_forward_to_turn(1);
+        assert_eq!(w.turn(), 1);
+    }
+
+    /// `fn_agent score --append` writes its `Score` after the run's `End`: the run is still over.
+    #[test]
+    fn a_score_after_the_end_leaves_the_run_finished() {
+        let mut w = Watcher::new(&header(Nation::Water)).unwrap();
+        let score = LogLine::Score {
+            score: 1.0,
+            progress: 1.0,
+            care: 1.0,
+            horizon: 1,
+            attempt: None,
+            champion: None,
+        };
+        w.feed([end_line("stdin closed"), score.clone()]);
+        w.fast_forward_to_turn(u32::MAX);
+        w.step_one();
+        assert!(w.finished());
+        w.feed([score]);
+        assert!(w.finished(), "a trailing commentary line doesn't un-finish the run");
+    }
+
+    #[test]
+    fn to_keys_script_ignores_a_mid_log_end() {
+        let h = header(Nation::Water);
+        let lines = [
+            LogLine::Turn { index: 1, tick: 200 },
+            end_line("stopped by SIGTERM"),
+            LogLine::Turn { index: 2, tick: 400 },
+        ];
+        let tick = format!("<tick {}>", h.ticks_per_turn);
+        assert_eq!(to_keys_script(&h, &lines), format!("{tick} {tick}"));
     }
 
     #[test]

@@ -196,9 +196,11 @@ fn with_scripts<W: Write>(tools: Tools<W>, a: &ServeArgs) -> Tools<W> {
 
 /// `--resume LOG`: rebuilds `LOG`'s own session (`Host::resume`) from its header and lines,
 /// refuses to start if any flag given alongside `--resume` disagrees with that header
-/// (`check_resume_args`), then drops `LOG`'s `end` line (if it has one) and keeps appending to
-/// the same file (`Writer::recreate_with`) -- so a run can be played as a chain of short
-/// sessions, and `fn_tui --watch`/`fn_agent keys` still read it as one continuous run (#341).
+/// (`check_resume_args`), then keeps appending to the same file (`Writer::append`) -- so a run
+/// can be played as a chain of short sessions, and `fn_tui --watch`/`fn_agent keys` still read
+/// it as one continuous run (#341). The log is append-only (#511): an `end` line the last session
+/// left stays where it is, and means "a session ended" (only a log's *last* line being `end`
+/// means the run did), because rewriting the file under a live `fn_tui --watch` desynced its tail.
 fn serve_resume(a: &ServeArgs, path: &str) -> Result<(), String> {
     if let Some(log) = &a.log
         && log != path
@@ -211,11 +213,8 @@ fn serve_resume(a: &ServeArgs, path: &str) -> Result<(), String> {
     let (header, lines) = watch::read_file(Path::new(path))?;
     check_resume_args(&header, a)?;
     let host = Host::resume(&header, &lines)?;
-    let kept: Vec<LogLine> =
-        lines.into_iter().filter(|l| !matches!(l, LogLine::End { .. })).collect();
-    let writer =
-        Writer::recreate_with(Path::new(path), &header, &kept).map_err(|e| e.to_string())?;
-    let tools = with_scripts(Tools::resume(host, writer, &kept), a);
+    let writer = Writer::append(Path::new(path)).map_err(|e| e.to_string())?;
+    let tools = with_scripts(Tools::resume(host, writer, &lines), a);
     run_tools(tools, Path::new(path))
 }
 
@@ -819,6 +818,55 @@ mod tests {
         assert_eq!(
             lines.last(),
             Some(&LogLine::End { tick: 200, reason: "stdin closed".to_owned() })
+        );
+    }
+
+    /// #511: a served session stopped by the #329 signal path and then resumed (as
+    /// `serve_resume` does: `Writer::append`, no rewrite) never moves a byte of what a tail
+    /// following the file has already read, so the tail gets every line whole, `end` in the
+    /// middle included.
+    #[test]
+    fn a_tail_follows_a_session_stopped_by_a_signal_and_resumed_line_for_line() {
+        use serde_json::json;
+
+        let path = scratch_log("tail_across_resume");
+        let host =
+            Host::new(7, fn_tui::cli::parse_nation("fire").unwrap(), None, None, None, false)
+                .unwrap();
+        let mut tail_lines = Vec::new();
+
+        let mut tools = Tools::new(host, Writer::create(&path).unwrap()).unwrap();
+        let mut tail = watch::LogTail::open(&path).unwrap();
+        tools.call("end_turn", json!({"turns": 1})).unwrap();
+        tail_lines.extend(tail.poll().unwrap());
+        // The signal arrives while the session is blocked reading stdin: the handler appends the
+        // `end` line through its own file handle.
+        write_end_for_signal(&path, "SIGTERM").unwrap();
+        tail_lines.extend(tail.poll().unwrap());
+        drop(tools);
+
+        let (header, lines) = watch::read_file(&path).unwrap();
+        let host = Host::resume(&header, &lines).unwrap();
+        let mut tools = Tools::resume(host, Writer::append(&path).unwrap(), &lines);
+        tail_lines.extend(tail.poll().unwrap());
+        tools.call("end_turn", json!({"turns": 1})).unwrap();
+        tail_lines.extend(tail.poll().unwrap());
+        tools.end("stdin closed").unwrap();
+        tail_lines.extend(tail.poll().unwrap());
+
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        let want: Vec<&str> = on_disk.lines().collect();
+        assert_eq!(tail_lines, want, "the tail should have seen every line whole");
+        let parsed: Vec<LogLine> =
+            tail_lines.iter().map(|l| serde_json::from_str(l).unwrap()).collect();
+        let ends = parsed.iter().filter(|l| matches!(l, LogLine::End { .. })).count();
+        assert_eq!(ends, 2, "one per session: {parsed:?}");
+        assert!(matches!(parsed.last(), Some(LogLine::End { .. })));
+        assert!(
+            parsed.iter().position(|l| matches!(l, LogLine::End { .. })).unwrap()
+                < parsed.len() - 2,
+            "the first end sits mid-log, with the resumed session's lines after it"
         );
     }
 

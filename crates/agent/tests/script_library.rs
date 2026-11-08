@@ -213,10 +213,8 @@ fn a_resumed_session_restores_the_same_scripts_notes_and_memory() {
 
     let (header, lines) = watch::read_file(&path).unwrap();
     let host = Host::resume(&header, &lines).unwrap();
-    let kept: Vec<LogLine> =
-        lines.into_iter().filter(|l| !matches!(l, LogLine::End { .. })).collect();
-    let writer = Writer::recreate_with(&path, &header, &kept).unwrap();
-    let mut resumed = Tools::resume(host, writer, &kept).with_scripts(limits());
+    let writer = Writer::append(&path).unwrap();
+    let mut resumed = Tools::resume(host, writer, &lines).with_scripts(limits());
     std::fs::remove_file(&path).ok();
 
     assert_eq!(resumed.call("scripts", json!({})).unwrap(), want_scripts);
@@ -253,10 +251,8 @@ fn a_saved_but_never_run_script_is_restored_by_resume() {
     );
 
     let host = Host::resume(&header, &lines).unwrap();
-    let kept: Vec<LogLine> =
-        lines.into_iter().filter(|l| !matches!(l, LogLine::End { .. })).collect();
-    let writer = Writer::recreate_with(&path, &header, &kept).unwrap();
-    let mut resumed = Tools::resume(host, writer, &kept).with_scripts(limits());
+    let writer = Writer::append(&path).unwrap();
+    let mut resumed = Tools::resume(host, writer, &lines).with_scripts(limits());
     std::fs::remove_file(&path).ok();
 
     let got_scripts = resumed.call("scripts", json!({})).unwrap();

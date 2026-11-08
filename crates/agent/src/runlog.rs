@@ -32,8 +32,9 @@ impl<W: Write> Writer<W> {
         self.write_json(line)
     }
 
-    /// The log's last line, ever (#327): `tick` is the world's own tick when the session ended,
-    /// `reason` says why (stdin closed, or an error). Nothing is written after this.
+    /// The line a session ends with (#327): `tick` is the world's own tick when the session
+    /// ended, `reason` says why (stdin closed, or an error). A later `--resume` appends after it
+    /// (#511), so it is the *run's* end only while it is the log's last line.
     pub fn write_end(&mut self, tick: u64, reason: &str) -> io::Result<()> {
         self.write_json(&LogLine::End { tick, reason: reason.to_owned() })
     }
@@ -56,31 +57,14 @@ impl Writer<BufWriter<File>> {
         Ok(Self::new(BufWriter::new(File::create(path)?)))
     }
 
-    /// Opens `path` for appending, writing nothing new to it (#329): the signal handler's own
-    /// way of adding one last `End` line to a log a live session is already writing, without
-    /// going through that session's own `Writer` (which the signal arrived in the middle of a
-    /// blocking stdin read, not holding onto).
+    /// Opens `path` for appending, writing nothing new to it. A run log is append-only (#511):
+    /// `fn_agent serve --resume` keeps adding to the log it resumes (a watcher tailing the file
+    /// holds a byte offset into it, so nothing already written may move), and the signal
+    /// handler (#329) uses it to add one last `End` line to a log a live session is already
+    /// writing, without going through that session's own `Writer` (which the signal arrived in
+    /// the middle of a blocking stdin read, not holding onto).
     pub fn append(path: &Path) -> io::Result<Self> {
         Ok(Self::new(BufWriter::new(std::fs::OpenOptions::new().append(true).open(path)?)))
-    }
-
-    /// Recreates `path` (truncating whatever was there) and writes `header` then every one of
-    /// `lines`, in order: `fn_agent serve --resume`'s own way of dropping a finished run's `end`
-    /// line (#327, #341) before it keeps appending to the same file, so a watcher or `fn_agent
-    /// keys` reading the file afterwards finds one continuous run rather than one that looks
-    /// like it stopped partway through. `lines` should already have any `End` line filtered out
-    /// -- this writes exactly what it's given, nothing more.
-    pub fn recreate_with(
-        path: &Path,
-        header: &RunLogHeader,
-        lines: &[LogLine],
-    ) -> io::Result<Self> {
-        let mut writer = Self::create(path)?;
-        writer.write_header(header)?;
-        for line in lines {
-            writer.write_line(line)?;
-        }
-        Ok(writer)
     }
 }
 
@@ -117,34 +101,6 @@ mod tests {
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0], LogLine::Header(header()));
         assert_eq!(lines[1], LogLine::Turn { index: 1, tick: 200 });
-    }
-
-    /// `recreate_with` truncates whatever was on disk and writes exactly the header and lines
-    /// it's given (#341): a resumed run dropping its old `end` line before it keeps appending.
-    #[test]
-    fn recreate_with_truncates_and_writes_exactly_what_it_is_given() {
-        let path = std::env::temp_dir()
-            .join(format!("fn_agent_runlog_recreate_test_{}.jsonl", std::process::id()));
-        std::fs::write(&path, "this old content should be gone\n").unwrap();
-
-        let kept = vec![LogLine::Turn { index: 1, tick: 200 }];
-        {
-            let mut w = Writer::recreate_with(&path, &header(), &kept).unwrap();
-            // Appending after `recreate_with` lands after the lines it just wrote, not before.
-            w.write_line(&LogLine::Turn { index: 2, tick: 400 }).unwrap();
-        }
-
-        let text = std::fs::read_to_string(&path).unwrap();
-        std::fs::remove_file(&path).ok();
-        let lines: Vec<LogLine> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
-        assert_eq!(
-            lines,
-            vec![
-                LogLine::Header(header()),
-                LogLine::Turn { index: 1, tick: 200 },
-                LogLine::Turn { index: 2, tick: 400 },
-            ]
-        );
     }
 
     /// `append` adds to whatever's already on disk rather than truncating it (#329): the

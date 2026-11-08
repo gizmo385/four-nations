@@ -1664,6 +1664,30 @@ mod tests {
         fs::remove_dir_all(&dir).ok();
     }
 
+    /// #511: a mid-log `end` (a chunk's session that was stopped, then resumed) is not the run's
+    /// end; only the last line being `end` is.
+    #[test]
+    fn finish_log_still_ends_a_log_whose_only_end_line_is_mid_log() {
+        let dir = tempdir();
+        let log = dir.join("run.jsonl");
+        write_lines(
+            &log,
+            &[
+                r#"{"type":"turn","index":1,"tick":200}"#,
+                r#"{"type":"end","tick":200,"reason":"stopped by SIGTERM"}"#,
+                r#"{"type":"turn","index":2,"tick":400}"#,
+            ],
+        );
+        finish_log(&dir, "agent finished").unwrap();
+        let text = fs::read_to_string(&log).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 4);
+        let last: serde_json::Value = serde_json::from_str(lines[3]).unwrap();
+        assert_eq!(last["type"], "end");
+        assert_eq!(last["tick"], 400);
+        fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn finish_log_is_a_no_op_with_no_log_file_at_all() {
         let dir = tempdir();
