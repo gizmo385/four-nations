@@ -35,7 +35,7 @@ use crate::geom::Pos;
 use crate::jobs::ItemId;
 use crate::mapgen::MapGenConfig;
 use crate::nation::Nation;
-use crate::score::{ScoreDef, Scorecard};
+use crate::score::{ScoreDef, ScoreStart, Scorecard};
 use crate::world::{
     EndeavorEventKind, FoodSource, SeasonEventKind, TICKS_PER_SECOND, Task, UnitId, World,
 };
@@ -303,7 +303,13 @@ pub fn run_economy_scored(
     score: &ScoreDef,
 ) -> (EconomyReport, Scorecard) {
     let (report, world) = run_economy_world(cfg, defs);
-    let card = Scorecard::compute(&world, defs, score, minutes_to_ticks(cfg.minutes));
+    let card = Scorecard::compute(
+        &world,
+        defs,
+        score,
+        &ScoreStart::default(),
+        minutes_to_ticks(cfg.minutes),
+    );
     (report, card)
 }
 
@@ -600,8 +606,10 @@ pub struct ParTrack {
 /// `map_size` map at `site` if one is named, else `World::new` on the default map. A prelude
 /// runs first for its own opening and minutes; `Economy` plays from there to the horizon.
 /// `horizon_turns` count from turn 0, after the prelude, but the scorecard's ticks are the
-/// world's own, so the horizon is `prelude ticks + horizon_turns × turn ticks` and a milestone
-/// met in the prelude carries its absolute tick.
+/// world's own, so the horizon is `prelude ticks + horizon_turns × turn ticks`, and a milestone
+/// met in the prelude carries its absolute tick. The scorecard is told where turn 0 is
+/// ([`ScoreStart`], #548): a milestone met in the prelude earns full credit, the late-credit
+/// slope runs from the end of the prelude, and care counts from there.
 ///
 /// Errors on an unknown preset or map size, or a site `World::found` refuses. Deterministic:
 /// the same `track` and `defs` always give an equal `Scorecard`.
@@ -633,7 +641,11 @@ pub fn par(track: &ParTrack, defs: &Defs, score: &ScoreDef) -> Result<Scorecard,
     let horizon = prelude_ticks + track.horizon_turns * turn_ticks;
     let economy = Economy::new(PEOPLE);
     let plain = Opening::new(PEOPLE);
+    let mut start = ScoreStart::default();
     for tick in 0..horizon {
+        if tick == prelude_ticks && tick > 0 {
+            start = ScoreStart::of(&world);
+        }
         if Opening::due(tick) {
             match track.prelude {
                 Some(ParPrelude { opening: ParOpening::Opening, .. }) if tick < prelude_ticks => {
@@ -644,7 +656,11 @@ pub fn par(track: &ParTrack, defs: &Defs, score: &ScoreDef) -> Result<Scorecard,
         }
         world.tick(defs);
     }
-    Ok(Scorecard::compute(&world, defs, score, horizon))
+    if horizon <= prelude_ticks && prelude_ticks > 0 {
+        // No turns after the prelude: turn 0 is the horizon.
+        start = ScoreStart::of(&world);
+    }
+    Ok(Scorecard::compute(&world, defs, score, &start, horizon))
 }
 
 fn minutes_to_ticks(minutes: f32) -> u64 {
@@ -1041,6 +1057,32 @@ mod tests {
         let score = ScoreDef::bundled();
         let (_, scored) = run_economy_scored(&cfg, &defs, &score);
         assert_eq!(par(&track, &defs, &score).unwrap(), scored);
+    }
+
+    /// A prelude moves turn 0 to its end (#548): the card knows where it is, and a milestone met
+    /// during the prelude is credited in full, the same as one met at turn 0.
+    #[test]
+    fn par_on_a_prelude_track_starts_at_the_end_of_the_prelude() {
+        let (track, defs) = par_track();
+        let score = ScoreDef::bundled();
+        let prelude = ParPrelude { opening: ParOpening::Economy, minutes: 10.0 };
+        let track = ParTrack { prelude: Some(prelude), horizon_turns: 60, ..track };
+        let card = par(&track, &defs, &score).unwrap();
+        let prelude_ticks = minutes_to_ticks(10.0);
+        assert_eq!(card.start_tick, prelude_ticks);
+        assert_eq!(card.horizon_ticks, prelude_ticks + 60 * 200);
+        let early: Vec<_> = card
+            .milestones
+            .iter()
+            .filter(|r| r.first_met.is_some_and(|t| t <= prelude_ticks))
+            .collect();
+        assert!(!early.is_empty(), "something is met within the first ten minutes: {card:#?}");
+        for r in early {
+            assert!((r.credit - 1.0).abs() < 1e-9, "{} met in the prelude: {r:?}", r.id);
+        }
+        // No prelude: turn 0 is tick 0.
+        let (plain, _) = par_track();
+        assert_eq!(par(&plain, &defs, &score).unwrap().start_tick, 0);
     }
 
     #[test]

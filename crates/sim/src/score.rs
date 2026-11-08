@@ -6,13 +6,22 @@
 //!
 //! - **Progress** is a weighted mean of one credit per milestone (every sign, then Ready, then
 //!   every stage). A milestone first met at tick `t` of a `horizon` earns
-//!   `1 - (1 - late_credit) × t / horizon`. A sign not holding at the horizon earns only
+//!   `1 - (1 - late_credit) × (t - start) / (horizon - start)`, where `start` is turn 0 (see
+//!   "Preludes" below); one met at or before `start` earns 1. A sign not holding at the horizon earns only
 //!   `partial_credit × min(1, value / target)`, unless the endeavor latched Ready, which keeps
 //!   every sign's first-met credit as the game does. Ready and the stages have no partial credit.
 //! - **Care** is `max(0, 1 - death × deaths - close_call × close_calls - suffering × share)`. The
 //!   counts come from `World::care()` (#533) and `World::deaths`; nothing here counts anything.
 //!
-//! Everything here is a pure function of a `World`, the `Defs`, a `ScoreDef` and the horizon: no
+//! **Preludes.** A track that starts from a scenario's prelude (`data/scenarios.toml`, #481) has
+//! its turn 0 at the end of the prelude, not at world tick 0 (docs/design/agent-hillclimb.md,
+//! "Tracks"). `Scorecard::compute` takes a [`ScoreStart`] for that: milestones met by `start.tick`
+//! (the prelude's, or turn 0's) earn full credit, the late-credit slope runs from `start.tick`
+//! to the horizon, and care counts only what happened after it (the care tally at the start is
+//! subtracted; deaths at or before it are left out). With no prelude, `ScoreStart::default()` is
+//! tick 0 and an empty tally, and the score is what it was before the start existed.
+//!
+//! Everything here is a pure function of a `World`, the `Defs`, a `ScoreDef`, the start and the horizon: no
 //! clock, no RNG, no sim state of its own. The score data (`data/score.toml`) is loaded on its
 //! own, not into `Defs`, so `Defs::id_hash` doesn't change when a weight does and old run logs
 //! rescore under new weights.
@@ -28,7 +37,7 @@
 use serde::Deserialize;
 
 use crate::defs::Defs;
-use crate::world::{EndeavorEventKind, Severe, World};
+use crate::world::{CareTally, EndeavorEventKind, Severe, World};
 
 /// What a perfect run (all milestones, care 1.0) scores.
 pub const SCORE_SCALE: f64 = 1000.0;
@@ -212,10 +221,13 @@ impl ProgressDef {
         self.weights.iter().find(|(w, _)| w == id).map_or(self.default_weight, |&(_, w)| w)
     }
 
-    /// The credit for a milestone first met at tick `t` of `horizon`: 1 at turn 0, `late_credit`
-    /// at the horizon.
-    pub fn met_credit(&self, t: u64, horizon: u64) -> f64 {
-        let fraction = if horizon == 0 { 0.0 } else { (t as f64 / horizon as f64).min(1.0) };
+    /// The credit for a milestone first met at tick `t`, on a track whose turn 0 is tick `start`
+    /// and whose horizon is tick `horizon`: 1 at or before `start`, `late_credit` at the horizon,
+    /// a straight line between.
+    pub fn met_credit(&self, t: u64, start: u64, horizon: u64) -> f64 {
+        let span = horizon.saturating_sub(start);
+        let fraction =
+            if span == 0 { 0.0 } else { (t.saturating_sub(start) as f64 / span as f64).min(1.0) };
         1.0 - (1.0 - self.late_credit) * fraction
     }
 
@@ -226,6 +238,23 @@ impl ProgressDef {
             return 0.0;
         }
         self.partial_credit * (f64::from(value) / f64::from(target)).min(1.0)
+    }
+}
+
+/// Where a track's turn 0 is: the world tick it starts at, and the care tally at that moment.
+/// `ScoreStart::default()` is a track with no prelude (tick 0, nothing tallied yet).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ScoreStart {
+    /// The world's tick at turn 0: 0, or the end of a scenario's prelude.
+    pub tick: u64,
+    /// `World::care()` at that tick, subtracted from the final tally.
+    pub care: CareTally,
+}
+
+impl ScoreStart {
+    /// Turn 0 is `world` as it stands now: call it right after a prelude has run.
+    pub fn of(world: &World) -> Self {
+        Self { tick: world.tick, care: world.care().clone() }
     }
 }
 
@@ -284,6 +313,8 @@ pub struct CareScore {
 /// A run's score, with everything it was computed from.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scorecard {
+    /// The world tick of turn 0 (`ScoreStart::tick`).
+    pub start_tick: u64,
     pub horizon_ticks: u64,
     /// The world's tick when it was scored.
     pub world_tick: u64,
@@ -312,6 +343,7 @@ pub fn milestone_ids(defs: &Defs) -> Vec<String> {
 
 /// What `Scorecard::build` reads, gathered from the world by `compute`.
 struct Inputs {
+    start: u64,
     horizon: u64,
     world_tick: u64,
     milestones: Vec<Milestone>,
@@ -334,9 +366,16 @@ struct Milestone {
 }
 
 impl Scorecard {
-    /// Scores `world` at `horizon_ticks` (ticks from the start; `TICKS_PER_SECOND` to a second).
-    /// See the module doc: the world should be at or before the horizon.
-    pub fn compute(world: &World, defs: &Defs, score: &ScoreDef, horizon_ticks: u64) -> Self {
+    /// Scores `world` at `horizon_ticks` (a world tick; `TICKS_PER_SECOND` to a second) for a
+    /// track whose turn 0 is `start` (module doc, "Preludes"). See the module doc: the world
+    /// should be at or before the horizon, and `start.tick` at or before that.
+    pub fn compute(
+        world: &World,
+        defs: &Defs,
+        score: &ScoreDef,
+        start: &ScoreStart,
+        horizon_ticks: u64,
+    ) -> Self {
         let within = |tick: u64| tick <= horizon_ticks;
         let first = |want: &dyn Fn(&EndeavorEventKind) -> bool| {
             world
@@ -383,12 +422,13 @@ impl Scorecard {
             });
         }
 
-        let care = world.care();
+        let care = world.care().since(&start.care);
         let severe_minutes = score.care.severe.iter().map(|&s| (s, care.severe_minutes(s)));
-        let deaths = world.deaths.iter().filter(|d| within(d.tick)).count();
+        let deaths = world.deaths.iter().filter(|d| d.tick > start.tick && within(d.tick)).count();
         Self::build(
             score,
             Inputs {
+                start: start.tick,
                 horizon: horizon_ticks,
                 world_tick: world.tick,
                 milestones,
@@ -415,10 +455,10 @@ impl Scorecard {
                 let credit = match (m.kind, m.first_met) {
                     // Ready latched: every sign keeps its first-met credit.
                     (MilestoneKind::Sign, Some(t)) if m.met_now || inputs.ready_latched => {
-                        p.met_credit(t, inputs.horizon)
+                        p.met_credit(t, inputs.start, inputs.horizon)
                     }
                     (MilestoneKind::Sign, _) => p.partial(m.value, m.target),
-                    (_, Some(t)) => p.met_credit(t, inputs.horizon),
+                    (_, Some(t)) => p.met_credit(t, inputs.start, inputs.horizon),
                     (_, None) => 0.0,
                 };
                 MilestoneRow {
@@ -451,6 +491,7 @@ impl Scorecard {
             - c.suffering * suffering)
             .max(0.0);
         Self {
+            start_tick: inputs.start,
             horizon_ticks: inputs.horizon,
             world_tick: inputs.world_tick,
             past_horizon: inputs.world_tick > inputs.horizon,

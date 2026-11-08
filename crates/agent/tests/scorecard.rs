@@ -331,3 +331,28 @@ fn bad_arguments_are_usage_errors() {
         assert!(!out.status.success(), "{args:?} should fail");
     }
 }
+
+/// A scenario start (#481) puts turn 0 at the end of its prelude (#548): the replayed card and
+/// the live host's card agree on where that is, and a sign the prelude already met earns full
+/// credit.
+#[test]
+fn a_scenario_start_scores_from_the_end_of_its_prelude() {
+    let host = Host::from_scenario("earth-year-two").unwrap();
+    let header = host.header();
+    assert!(header.prelude.is_some(), "the scenario has a prelude");
+    let start = host.tick();
+    assert!(start > 0);
+
+    let live = referee::live(&host, &ScoreDef::bundled());
+    assert_eq!(live.start_tick, start);
+    let report = scorecard::build(&header, &[], Some(0)).unwrap();
+    assert_eq!(report.replay.card, live);
+    assert_eq!(report.replay.start_tick, start);
+    assert_eq!(report.replay.card.start_tick, start);
+    let met = |r: &&referee::score::MilestoneRow| r.first_met.is_some_and(|t| t <= start);
+    let early: Vec<_> = report.replay.card.milestones.iter().filter(met).collect();
+    assert!(!early.is_empty(), "a year of prelude meets some sign");
+    for row in early {
+        assert!((row.credit - 1.0).abs() < 1e-9, "{} was met in the prelude: {row:?}", row.id);
+    }
+}

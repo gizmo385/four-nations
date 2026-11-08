@@ -37,6 +37,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use fn_sim::score::ScoreStart;
 use fn_sim::world::TICKS_PER_SECOND;
 use fn_sim::{Nation, Pos};
 use fn_ui::alerts::{Entry as AlertEntry, Kind as AlertKind};
@@ -106,6 +107,8 @@ pub struct Host {
     /// in a later region, so the legend reads the same call after call instead of depending on
     /// what else that particular region happened to contain.
     char_pool: CharPool,
+    /// Where turn 0 is for scoring (#548): set by [`Self::with_prelude`].
+    score_start: ScoreStart,
 }
 
 impl Host {
@@ -171,6 +174,7 @@ impl Host {
             log: RunLog::new(seed, nation),
             header,
             char_pool: CharPool::default(),
+            score_start: ScoreStart::default(),
         };
         // Seeds `needs_ever_seen` from whatever's already flagged the moment this session
         // exists, the same way `end_turn`'s own local `seen` is seeded at the start of a call:
@@ -196,7 +200,7 @@ impl Host {
     /// sees exactly the same screen a fresh `Host::new` never built up to. `Self::header` keeps
     /// `prelude` from here on, so `--watch`, `--resume` and `fn_agent keys` can run it again.
     pub fn with_prelude(mut self, prelude: Prelude) -> Self {
-        prelude::run(self.app_mut(), &prelude);
+        self.score_start = prelude::run(self.app_mut(), &prelude);
         self.alerts_since_turn = self.app().ui.alerts.history().len();
         self.header.prelude = Some(prelude);
         self
@@ -247,6 +251,12 @@ impl Host {
     /// since it changes nothing and isn't returned to an agent.
     pub fn tick(&self) -> u64 {
         self.app().session.ticks_elapsed()
+    }
+
+    /// Where turn 0 is for scoring (#548): tick 0 and an empty care tally, or the world as the
+    /// scenario prelude left it ([`Self::with_prelude`]).
+    pub fn score_start(&self) -> &ScoreStart {
+        &self.score_start
     }
 
     /// `Defs::id_hash`: a stable hash of the bundled data's id tables (docs/design/agent-play.md,
@@ -1283,6 +1293,7 @@ pub enum PreludeOpening {
 /// exactly the same start.
 pub(crate) mod prelude {
     use fn_sim::autoplay::{Economy, Opening};
+    use fn_sim::score::ScoreStart;
     use fn_sim::world::TICKS_PER_SECOND;
     use fn_ui::{STARTING_UNITS, Session};
 
@@ -1302,7 +1313,10 @@ pub(crate) mod prelude {
     /// `ui.alerts` ever saw the world, and would read the whole prelude's backlog as alerts
     /// that just happened -- including ones `end_turn`'s own early-stop treats as worth
     /// stopping for.
-    pub(crate) fn run(app: &mut App, prelude: &Prelude) {
+    ///
+    /// Returns where turn 0 is for scoring (#548): the world's tick and care tally as the
+    /// prelude left them.
+    pub(crate) fn run(app: &mut App, prelude: &Prelude) -> ScoreStart {
         let total_ticks = (prelude.minutes * 60.0 * TICKS_PER_SECOND as f32).round() as u64;
         for tick in 0..total_ticks {
             if Opening::due(tick) {
@@ -1311,6 +1325,7 @@ pub(crate) mod prelude {
             app.session.world.tick(&app.session.defs);
         }
         app.settle(CATCH_UP_DT);
+        ScoreStart::of(&app.session.world)
     }
 
     fn step(session: &mut Session, opening: PreludeOpening) {
@@ -2449,6 +2464,7 @@ pub mod referee {
         let horizon_turns = horizon.unwrap_or(log_turns);
         let ticks_per_turn = host.ticks_per_turn();
         let start_tick = host.tick();
+        let score_start = host.score_start().clone();
 
         let mut sampler = Sampler::default();
         let mut played = 0u32;
@@ -2468,7 +2484,8 @@ pub mod referee {
 
         let horizon_ticks = start_tick + u64::from(horizon_turns) * u64::from(ticks_per_turn);
         let session = &host.app().session;
-        let card = Scorecard::compute(&session.world, &session.defs, score, horizon_ticks);
+        let card =
+            Scorecard::compute(&session.world, &session.defs, score, &score_start, horizon_ticks);
         if card.past_horizon {
             return Err(format!(
                 "replayed to tick {} but the horizon is tick {horizon_ticks}",
@@ -2508,7 +2525,13 @@ pub mod referee {
     /// balance harness scores one, by `Scorecard::compute`.
     pub fn live(host: &Host, score: &ScoreDef) -> Scorecard {
         let session = &host.app().session;
-        Scorecard::compute(&session.world, &session.defs, score, session.world.tick)
+        Scorecard::compute(
+            &session.world,
+            &session.defs,
+            score,
+            host.score_start(),
+            session.world.tick,
+        )
     }
 
     /// The per-turn samples behind [`Reported`].

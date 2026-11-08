@@ -18,6 +18,7 @@ fn blank(defs: &Defs) -> Inputs {
     let ready = [(READY_ID.to_owned(), MilestoneKind::Ready, 1)];
     let stages = defs.endeavor.stages.iter().map(|s| (s.id.clone(), MilestoneKind::Stage, 1));
     Inputs {
+        start: 0,
         horizon: 100 * TURN,
         world_tick: 100 * TURN,
         milestones: signs
@@ -136,6 +137,98 @@ fn a_sign_met_at_turn_zero_earns_one_and_at_the_horizon_earns_late_credit() {
     near(row(&card, "stone").credit, 0.6);
     near(row(&card, "branch").credit, 0.8);
     assert!(!row(&card, "stone").slipped);
+}
+
+/// Turn 0 at `start` turns, horizon at 100 turns: the late-credit line runs from one to the other.
+#[test]
+fn credit_runs_from_the_start_to_the_horizon_and_a_prelude_milestone_earns_one() {
+    let (defs, score) = setup();
+    let mut run = blank(&defs);
+    run.start = 40 * TURN;
+    // Met during the prelude, and exactly at its end: both full credit.
+    run.met("population", 3, 6, 6);
+    run.met("branch", 40, 6, 6);
+    // Halfway between the start (turn 40) and the horizon (turn 100): the midpoint, 0.8.
+    run.met("stone", 70, 200, 200);
+    // At the horizon: late credit.
+    run.met("ore", 100, 6, 6);
+    let card = Scorecard::build(&score, run);
+    near(row(&card, "population").credit, 1.0);
+    near(row(&card, "branch").credit, 1.0);
+    near(row(&card, "stone").credit, 0.8);
+    near(row(&card, "ore").credit, 0.6);
+    assert_eq!(card.start_tick, 40 * TURN);
+    // A first-met tick stays the world's own.
+    assert_eq!(row(&card, "population").first_met, Some(3 * TURN));
+}
+
+#[test]
+fn a_start_at_the_horizon_leaves_no_slope_to_divide_by() {
+    let (defs, score) = setup();
+    let mut run = blank(&defs);
+    run.start = run.horizon;
+    run.met("population", 100, 6, 6);
+    let card = Scorecard::build(&score, run);
+    near(row(&card, "population").credit, 1.0);
+}
+
+#[test]
+fn compute_with_a_prelude_credits_its_milestones_in_full_and_counts_care_only_after_it() {
+    let defs = Defs::bundled();
+    let score = ScoreDef::bundled();
+    let cfg = MapGenConfig { seed: 7, width: 64, height: 64, ..MapGenConfig::default() };
+    let mut world = World::new(&cfg, Nation::Water, 20, &defs);
+    for _ in 0..100 {
+        world.tick(&defs);
+    }
+    let start = ScoreStart::of(&world);
+    assert_eq!(start.tick, 100);
+    for _ in 0..200 {
+        world.tick(&defs);
+    }
+    let id = world.units[0].id;
+    let died = |tick| Death {
+        id,
+        name: "Test".to_owned(),
+        tick,
+        cause: DeathCause::Starvation,
+        weakened_by: None,
+    };
+    world.deaths.push(died(50));
+    world.deaths.push(died(250));
+
+    let from_zero = Scorecard::compute(&world, &defs, &score, &ScoreStart::default(), 300);
+    let from_start = Scorecard::compute(&world, &defs, &score, &start, 300);
+    assert_eq!(from_start.start_tick, 100);
+    // The population sign was met on the first check, inside the prelude: full credit once turn
+    // 0 is the prelude's end, a little less when measured from tick 0.
+    near(row(&from_start, "population").credit, 1.0);
+    assert!(row(&from_zero, "population").credit < 1.0);
+    // Care counts from the start only: the prelude's person-time and its death don't.
+    assert_eq!(from_zero.care.deaths, 2);
+    assert_eq!(from_start.care.deaths, 1);
+    let after = world.care().since(&start.care);
+    near(from_start.care.person_minutes, after.person_minutes());
+    assert!(from_start.care.person_minutes < from_zero.care.person_minutes);
+    near(from_start.care.person_minutes, from_zero.care.person_minutes * 200.0 / 300.0);
+}
+
+#[test]
+fn the_default_start_scores_exactly_as_a_world_with_no_prelude_did() {
+    let defs = Defs::bundled();
+    let score = ScoreDef::bundled();
+    let cfg = MapGenConfig { seed: 7, width: 64, height: 64, ..MapGenConfig::default() };
+    let mut world = World::new(&cfg, Nation::Water, 20, &defs);
+    let fresh = ScoreStart::of(&world);
+    assert_eq!(fresh, ScoreStart::default(), "a world at tick 0 has nothing tallied");
+    for _ in 0..300 {
+        world.tick(&defs);
+    }
+    assert_eq!(
+        Scorecard::compute(&world, &defs, &score, &fresh, 300),
+        Scorecard::compute(&world, &defs, &score, &ScoreStart::default(), 300)
+    );
+    assert_eq!(world.care().since(&CareTally::default()), *world.care());
 }
 
 #[test]
@@ -358,7 +451,7 @@ fn compute_reads_the_worlds_events_deaths_and_care_and_cuts_off_at_the_horizon()
     world.deaths.push(died(100));
     world.deaths.push(died(250));
 
-    let at_300 = Scorecard::compute(&world, &defs, &score, 300);
+    let at_300 = Scorecard::compute(&world, &defs, &score, &ScoreStart::default(), 300);
     assert_eq!(at_300.care.deaths, 2);
     assert!(!at_300.past_horizon);
     assert_eq!(at_300.world_tick, 300);
@@ -369,10 +462,14 @@ fn compute_reads_the_worlds_events_deaths_and_care_and_cuts_off_at_the_horizon()
 
     // Scored at an earlier horizon, the later death is ignored and the card says the rest is
     // from a later moment.
-    let at_200 = Scorecard::compute(&world, &defs, &score, 200);
+    let at_200 = Scorecard::compute(&world, &defs, &score, &ScoreStart::default(), 200);
     assert_eq!(at_200.care.deaths, 1);
     assert!(at_200.past_horizon);
-    assert_eq!(Scorecard::compute(&world, &defs, &score, 300), at_300, "deterministic");
+    assert_eq!(
+        Scorecard::compute(&world, &defs, &score, &ScoreStart::default(), 300),
+        at_300,
+        "deterministic"
+    );
     // Population is met from the start (5 of the target): sign rows follow `endeavor_signs`.
     let pop = world.endeavor_signs(&defs).into_iter().find(|p| p.id == "population").unwrap();
     assert_eq!(row(&at_300, "population").value, pop.value);
@@ -396,8 +493,8 @@ fn compute_ignores_events_after_the_horizon() {
             _ => None,
         })
         .expect("20 settlers meet the population sign on the first check");
-    let after = Scorecard::compute(&world, &defs, &score, met_at + 100);
+    let after = Scorecard::compute(&world, &defs, &score, &ScoreStart::default(), met_at + 100);
     assert_eq!(row(&after, "population").first_met, Some(met_at));
-    let before = Scorecard::compute(&world, &defs, &score, met_at - 1);
+    let before = Scorecard::compute(&world, &defs, &score, &ScoreStart::default(), met_at - 1);
     assert_eq!(row(&before, "population").first_met, None);
 }

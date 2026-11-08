@@ -150,6 +150,25 @@ impl CareTally {
         self.lowest_health
     }
 
+    /// What was tallied after `earlier`, a snapshot of this same tally from before (the care half
+    /// of a score whose turn 0 comes after a scenario prelude). Every count is the difference
+    /// (floored at 0); the lowest health and the close-call bookkeeping stay as they are now.
+    pub fn since(&self, earlier: &CareTally) -> CareTally {
+        let mut out = self.clone();
+        out.person_ticks = self.person_ticks.saturating_sub(earlier.person_ticks);
+        for i in 0..out.depleted_ticks.len() {
+            out.depleted_ticks[i] =
+                self.depleted_ticks[i].saturating_sub(earlier.depleted_ticks[i]);
+        }
+        for i in 0..out.severe_ticks.len() {
+            out.severe_ticks[i] = self.severe_ticks[i].saturating_sub(earlier.severe_ticks[i]);
+        }
+        out.severe_any_ticks = self.severe_any_ticks.saturating_sub(earlier.severe_any_ticks);
+        out.cold_ticks = self.cold_ticks.saturating_sub(earlier.cold_ticks);
+        out.close_calls = self.close_calls.saturating_sub(earlier.close_calls);
+        out
+    }
+
     /// One tick of settler `u`, after this tick's needs, exposure and sickness have applied.
     /// `exposed` is whether `World::apply_exposure` damaged them this tick. The Avatar is skipped.
     pub(super) fn observe(&mut self, u: &Unit, exposed: bool, defs: &Defs) {
