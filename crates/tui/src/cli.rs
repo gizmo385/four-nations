@@ -103,6 +103,16 @@ options:
                  help screens; U browses the Build list) before the frame, so free look can be
                  golden-tested. Never the game's own keys: a spectator can't change the replay
 
+  --runs DIR     open the run browser on the runs under DIR (what `agent-run` leaves in
+                 $FN_AGENT_RUNS): a list with each run's date, nation, seed or scenario, mode,
+                 model, length, score, signs, deaths, cost and state; Enter opens the selected
+                 run in the watcher, and q there returns to the list. Up/Down or j/k move,
+                 s sorts by date or score, n filters by nation, q quits. Scores are replayed in
+                 the background and cached in each run folder. Takes --pace, --ascii and --color;
+                 with --frame, also --size and --keys (the keys drive the list, and Enter shows
+                 the run's watcher frame) -- run it by itself, no SEED NATION, --watch or other
+                 options
+
 Without --frame this starts the game in the terminal: arrows or WASD move the cursor
 (Shift: 10 tiles), Enter selects a unit (Tab cycles, F follows, Esc closes the bar), H X P B U
 pick the harvest, cancel, stockpile, bend and build tools (U again cycles the building) and

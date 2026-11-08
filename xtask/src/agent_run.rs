@@ -4,8 +4,9 @@
 //! `cargo xtask agent-run --scripts [options]`  play by writing and running scripts (#484)
 //! `cargo xtask agent-run --track ID --attempts N [options]`  hill-climb a track (#530)
 //! `cargo xtask agent-run --resume CAMPAIGN_DIR [--attempts N] [options]`  continue a campaign
-//! `cargo xtask agent-run watch [options] [RUN_DIR]`  watch (or replay) a run; default: the
-//!                                      latest. `watch --help` lists its options and keys,
+//! `cargo xtask agent-run watch [options] [RUN_DIR]`  watch (or replay) a run; default: a list
+//!                                      of your runs to pick from (#556), or the latest with no
+//!                                      terminal. `watch --help` lists its options and keys,
 //!                                      `watch --list` the recent runs (#510, #553).
 //!
 //! Starts an agent run (docs/design/agent-play.md): a Claude Code session plays one game
@@ -92,7 +93,7 @@
 
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
-use std::io::Write as _;
+use std::io::{IsTerminal as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
@@ -658,11 +659,15 @@ usage: cargo xtask agent-run watch [options] [RUN_DIR]
 Watches a run in the terminal (`fn_tui --watch`): a live one while the agent plays, or a
 finished one replayed from its log. Never starts an agent.
 
+With no RUN_DIR, in a terminal, it opens the run browser (below) so you can pick the run from a
+list. With a RUN_DIR it opens that run directly. With no terminal (output piped, or run from a
+script) or with --record, it takes the newest run, as it always did.
+
 RUN_DIR   a run folder (the one holding run.jsonl). A bare folder name with no path is looked
-          for under the runs folder. Default: the newest folder under $FN_AGENT_RUNS (else
-          ~/fn-agent-runs); the folder opened is printed. A folder with no log yet is a run
-          just starting, so this waits (up to a minute) for the log; a folder that doesn't
-          exist fails at once.
+          for under the runs folder. Default: the run browser in a terminal, else the newest
+          folder under $FN_AGENT_RUNS (else ~/fn-agent-runs); the folder opened is printed. A
+          folder with no log yet is a run just starting, so this waits (up to a minute) for the
+          log; a folder that doesn't exist fails at once.
 
 options:
   --list           list the newest runs (folder, nation, seed or scenario, turns, score if the
@@ -683,7 +688,30 @@ options:
   -h, --help       this text
 
 Other fn_tui --watch flags (--frame, --at, --keys, --ansi) print one frame instead of opening
-the watcher, so they are not passed on: run fn_tui --watch LOG --frame directly for those.
+the watcher, so they are not passed on: run fn_tui --watch LOG --frame directly for those. The
+run browser has a frame of its own: fn_tui --runs DIR --frame [--keys SCRIPT].
+
+the run browser (`watch` with no RUN_DIR, in a terminal):
+  One row a run folder, newest first with the newest selected: its start date and time, nation,
+  seed or scenario, difficulty, mode (scripts or by turn), model, length (turns and game time),
+  score, signs met, deaths, cost and state (live, finished or stopped early). A value the run
+  doesn't have shows `-`; a run with an unreadable or cut-off log still has a row, saying why
+  (`no log`, `empty log`, `unreadable`, `cut off`; the line below the list has the whole reason,
+  and Enter on one that can't be opened says it instead of opening it). A terminal narrower
+  than the full row drops the columns from the right and never wraps or cuts the run's name.
+  SCORE@540 is the score at 540 turns, computed by the same code as `fn_agent score LOG
+  --horizon 540`: the log's own `score` line (from `fn_agent score --append`) when it has one
+  (shown as 41.3@N when it was made at another horizon), else replayed in the background, so
+  the list opens at once with `...` in the score, signs and deaths cells and fills them in.
+  The result is cached in score-cache.json in the run folder (the log is never written to);
+  it is replayed again when the log has grown, and ignored after a change to the game's data.
+  A live run's turn count moves while the browser is open.
+  up or k, down or j   move the selection; PageUp, PageDown, Home or g, End or G go further
+  enter          open the selected run in the watcher (its keys, below); q there returns here
+                 on the same run
+  s              switch the order between date (newest first) and score (highest first)
+  n              show one nation's runs: each press goes on to the next nation, then to all
+  q              quit
 
 keys inside the watcher:
   space          pause or resume the replay
@@ -696,7 +724,8 @@ keys inside the watcher:
                  studio size these switch the tab instead
   0              back to the split (below the studio size, only flashes a reminder)
   j  k           scroll the code pane a line down or up; J  K half a pane
-  q              quit (a run started by `agent-run` stops its agent too; `watch` never does)
+  q              quit (a run started by `agent-run` stops its agent too; `watch` never does;
+                 from the run browser, back to the list)
 
 free look (any of these switch to it from Follow; read-only, the replay never changes):
   arrows, WASD   move the cursor (Shift: 10 tiles); Ctrl+arrows or PageUp/PageDown jump
@@ -919,6 +948,30 @@ fn fn_tui_args(log: &Path, o: &WatchOpts) -> Vec<String> {
     args
 }
 
+/// Whether a `watch` opens the run browser: nothing was named, nothing is being recorded, and
+/// there is a terminal to draw it in (#556). Otherwise it opens the newest run, as before.
+fn wants_browser(o: &WatchOpts, terminal: bool) -> bool {
+    terminal && o.dir.is_none() && o.record.is_none()
+}
+
+/// The `fn_tui` command line (after the program name) that opens the run browser on `runs`.
+fn fn_tui_runs_args(runs: &Path, o: &WatchOpts) -> Vec<String> {
+    let mut args = vec![
+        "--runs".to_string(),
+        runs.display().to_string(),
+        "--pace".to_string(),
+        o.pace.to_string(),
+    ];
+    if o.ascii {
+        args.push("--ascii".to_string());
+    }
+    if let Some(color) = &o.color {
+        args.push("--color".to_string());
+        args.push(color.clone());
+    }
+    args
+}
+
 fn run_watch(repo: &Path, args: &[&str]) -> Result {
     let opts = match parse_watch(args)? {
         WatchCmd::Help => {
@@ -934,6 +987,19 @@ fn run_watch(repo: &Path, args: &[&str]) -> Result {
     };
     let runs = runs_dir();
     let (dir, latest) = resolve_watch_dir(&opts, &runs)?;
+    let terminal = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+    if wants_browser(&opts, terminal) {
+        say(&format!("opening the run browser on {}", runs.display()));
+        if !opts.no_build {
+            build_fn_tui_if_stale(repo)?;
+        }
+        let bin = repo.join("target/release/fn_tui");
+        let status = Command::new(bin)
+            .args(fn_tui_runs_args(&runs, &opts))
+            .status()
+            .map_err(|e| e.to_string())?;
+        return if status.success() { Ok(()) } else { Err(format!("fn_tui --runs: {status}")) };
+    }
     say(&format!("watching {}{}", dir.display(), if latest { " (the latest run)" } else { "" }));
     if !opts.no_build {
         build_fn_tui_if_stale(repo)?;

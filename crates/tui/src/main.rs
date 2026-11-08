@@ -17,6 +17,10 @@ use fn_tui::keys::Step;
 use fn_tui::shell::Shell;
 
 fn main() -> ExitCode {
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    if fn_tui::browser::wanted(&raw) && !raw.iter().any(|a| a == "-h" || a == "--help") {
+        return run_browser(&raw);
+    }
     let args = match cli::parse(std::env::args().skip(1)) {
         Ok(args) => args,
         Err(message) if message == cli::USAGE => {
@@ -92,6 +96,35 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     }
     match fn_tui::run::run(&args, depth, saves, seed_hint()) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("fn_tui: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// `--runs DIR` (#556): the run browser, or with `--frame` one frame of it.
+fn run_browser(raw: &[String]) -> ExitCode {
+    let cli = match fn_tui::browser::parse(raw) {
+        Ok(cli) => cli,
+        Err(message) => {
+            eprintln!("fn_tui: {message}\n\n{}", cli::USAGE);
+            return ExitCode::from(2);
+        }
+    };
+    let depth = ColorDepth::detect(cli.color, |k| std::env::var(k).ok());
+    if cli.frame {
+        print!("{}", fn_tui::browser::frame(&cli, SystemTime::now(), depth));
+        return ExitCode::SUCCESS;
+    }
+    if !(std::io::stdout().is_terminal() && std::io::stdin().is_terminal()) {
+        eprintln!(
+            "fn_tui: the run browser needs a terminal. To look at it from a script, add --frame."
+        );
+        return ExitCode::from(2);
+    }
+    match fn_tui::browser::run(&cli, depth) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("fn_tui: {e}");

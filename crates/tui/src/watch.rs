@@ -1291,15 +1291,27 @@ pub fn run(
     ascii: bool,
     initial_pace: Option<u32>,
 ) -> io::Result<()> {
+    let _restore = crate::run::Restore;
+    let mut terminal = crate::run::setup()?;
+    run_in(&mut terminal, path, depth, ascii, initial_pace)
+}
+
+/// [`run`] on a terminal that is already set up (and that the caller restores): the run browser
+/// (#556, `crate::browser`) opens a run from its list this way, and gets the terminal back when
+/// the watcher quits.
+pub fn run_in(
+    terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>,
+    path: &Path,
+    depth: ColorDepth,
+    ascii: bool,
+    initial_pace: Option<u32>,
+) -> io::Result<()> {
     use std::time::{Duration, Instant};
 
     use crossterm::event::{Event, KeyEventKind};
 
     const FRAME: Duration = Duration::from_millis(33);
     const RETRY: Duration = Duration::from_millis(100);
-
-    let _restore = crate::run::Restore;
-    let mut terminal = crate::run::setup()?;
 
     let mut tail = loop {
         match LogTail::open(path) {
@@ -1362,25 +1374,7 @@ pub fn run(
         while pending {
             match crossterm::event::read()? {
                 Event::Key(key) if key.kind != KeyEventKind::Release => {
-                    use crossterm::event::KeyCode;
-                    match key.code {
-                        // The watcher's own controls (docs/design/agent-play.md, "Watching")
-                        // win over anything the game or the spectator would otherwise do with
-                        // the same key (#330's acceptance criteria).
-                        KeyCode::Char(' ') => watcher.toggle_pause(),
-                        KeyCode::Char('+' | '=') => watcher.faster(),
-                        KeyCode::Char('-' | '_') => watcher.slower(),
-                        KeyCode::Char('.') => watcher.step_one(),
-                        KeyCode::Char(']') => watcher.fast_forward_to_turn(watcher.turn() + 1),
-                        KeyCode::Char('q' | 'Q') => quit = true,
-                        // Studio keys (#499, `j`/`k`/`J`/`K` scrolling the code pane) win over
-                        // free look too; everything else is free look's: `V` (not an F-key,
-                        // since the owner's WSL terminal never sees those) toggles the view, and
-                        // everything else is the spectator's own, read-only
-                        // (`Watcher::free_look_key`).
-                        _ if watcher.key(key) => {}
-                        _ => watcher.free_look_key(key),
-                    }
+                    quit |= control_key(&mut watcher, key);
                 }
                 // A watched session's nation never changes (there's no key for it, #319's
                 // refused list), so the palette built at the start stays right.
@@ -1395,6 +1389,31 @@ pub fn run(
         last_tick = now;
     }
     Ok(())
+}
+
+/// One key pressed in the watcher, in the order it matters; `true` is quit. The watcher's own
+/// controls (docs/design/agent-play.md, "Watching") win over anything the game or the spectator
+/// would otherwise do with the same key (#330's acceptance criteria). The interactive loop
+/// ([`run_in`]) and the run browser's headless frames both press keys through this.
+pub fn control_key(watcher: &mut Watcher, key: KeyEvent) -> bool {
+    use crossterm::event::KeyCode;
+
+    let mut quit = false;
+    match key.code {
+        KeyCode::Char(' ') => watcher.toggle_pause(),
+        KeyCode::Char('+' | '=') => watcher.faster(),
+        KeyCode::Char('-' | '_') => watcher.slower(),
+        KeyCode::Char('.') => watcher.step_one(),
+        KeyCode::Char(']') => watcher.fast_forward_to_turn(watcher.turn() + 1),
+        KeyCode::Char('q' | 'Q') => quit = true,
+        // Studio keys (#499, `j`/`k`/`J`/`K` scrolling the code pane) win over free look too;
+        // everything else is free look's: `V` (not an F-key, since the owner's WSL terminal
+        // never sees those) toggles the view, and everything else is the spectator's own,
+        // read-only (`Watcher::free_look_key`).
+        _ if watcher.key(key) => {}
+        _ => watcher.free_look_key(key),
+    }
+    quit
 }
 
 #[cfg(test)]

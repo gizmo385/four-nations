@@ -316,6 +316,16 @@ x1". Its exact shape follows the panel restyle (#309) and isn't specified here.
 pace to a terminal, needs a socket and a thread inside `run`, makes races depend on someone
 watching, and shows nothing the follower doesn't. It's question 4.
 
+**Picking a run to watch (#556).** `cargo xtask agent-run watch` with no run named, in a
+terminal, opens the run browser, `fn_tui --runs DIR` (`crates/tui/src/browser.rs`): one row a
+folder under `$FN_AGENT_RUNS`, newest first, with the start time, nation, seed or scenario,
+difficulty, mode, model, length, score, signs, deaths, cost and state. Enter opens the run in the
+watcher above, and quitting the watcher comes back to the same row. The score is the
+`fn_agent score` scorecard at the 540-turn horizon (`referee::score`, the same call): a log's own
+`score` line if it has one, else a background replay cached in `score-cache.json` in the run
+folder (never in `run.jsonl`), so the list opens at once and the cells fill in. `fn_tui --runs
+DIR --frame --keys SCRIPT` draws it headless, which is how the tests drive it.
+
 ## Racing
 
 **`data/races.toml`**, read by `fn_agent` (the sim never reads it, as with `tui.toml`):

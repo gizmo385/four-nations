@@ -11,6 +11,7 @@
 pub mod app;
 pub mod banner;
 pub mod bar;
+pub mod browser;
 pub mod build;
 pub mod cli;
 pub mod color;
@@ -31,6 +32,7 @@ pub mod panel;
 pub mod record;
 pub mod research;
 pub mod run;
+pub mod runs;
 pub mod saves;
 pub mod scenario;
 pub mod screens;

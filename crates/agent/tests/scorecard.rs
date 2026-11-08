@@ -356,3 +356,51 @@ fn a_scenario_start_scores_from_the_end_of_its_prelude() {
         assert!((row.credit - 1.0).abs() < 1e-9, "{} was met in the prelude: {row:?}", row.id);
     }
 }
+
+/// The run browser's score column (#556) is `fn_agent score LOG --horizon 540`: the same number,
+/// signs and deaths, read off a run folder whose `run.jsonl` the browser never writes to.
+#[test]
+fn the_run_browsers_score_is_the_one_fn_agent_score_prints() {
+    let script = temp_path("browser-script.rhai");
+    std::fs::write(&script, std::fs::read_to_string(SETTLE).unwrap()).unwrap();
+    let dir = temp_path("browser-run");
+    std::fs::create_dir_all(&dir).unwrap();
+    let log = dir.join("run.jsonl");
+    let out = fn_agent()
+        .args(["play", "--script"])
+        .arg(&script)
+        .args(["--seed", "7", "--nation", "earth", "--turns", "12", "--wake-on", "death"])
+        .arg("--log")
+        .arg(&log)
+        .output()
+        .unwrap();
+    std::fs::remove_file(&script).ok();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let before = std::fs::read(&log).unwrap();
+
+    let json_out =
+        fn_agent().arg("score").arg(&log).args(["--horizon", "540", "--json"]).output().unwrap();
+    assert!(json_out.status.success(), "{}", String::from_utf8_lossy(&json_out.stderr));
+    let want: Value = serde_json::from_slice(&json_out.stdout).unwrap();
+
+    let (_, got) = fn_tui::runs::score_run(&dir);
+    let got = got.unwrap();
+    assert_eq!(got.score, want["score"].as_f64().unwrap());
+    assert_eq!(u64::from(got.deaths), want["care_detail"]["deaths"].as_u64().unwrap());
+    let signs: Vec<&Value> = want["progress_detail"]["milestones"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|m| m["kind"] == "sign")
+        .collect();
+    assert_eq!(got.signs_total as usize, signs.len());
+    let met = signs.iter().filter(|m| m["met_now"] == true && !m["met_turn"].is_null()).count();
+    assert_eq!(got.signs_met as usize, met);
+
+    assert_eq!(
+        std::fs::read(&log).unwrap(),
+        before,
+        "scoring for the browser never writes the log"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
