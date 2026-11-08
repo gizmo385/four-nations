@@ -220,14 +220,17 @@ with settlers at 20 to 60. An empty need then kills in 2 to 6 minutes instead of
 ordinary lean spell in winter costs someone. **Honest caveat:** today's food glut means even
 `--no-farms` runs barely starve (0 or 1 deaths on seeds 1, 2 and 5 to 8, the Air one again the
 Eat bug). Careless deaths need #353's leaner food as well as this design. #394 checks both
-targets after both land:
+targets after both land. The numbers live in `data/harness.toml` (`[[target]]`, #537) and
+`balance verdict` judges them on a 32-seed panel, so this table names the targets instead of
+repeating them. "Careful" is the `steady` play style and "careless" is `careless` (no farms, no
+healing).
 
-| `balance --economy`, Normal, seeds 1–8, 180 min | Target |
+| Play style and preset, 180 min | Target |
 |---|---|
-| Economy opening, herbs researched (careful) | 0 deaths; harm events above 0; lowest health may dip below 50 |
-| `--no-farms --no-healing` (careless) | at least 1 death by minute 180 on most seeds, with `weakened_by` set |
-| Hard, careful | at most 2 deaths |
-| Sandbox | no harm events at all |
+| Careful, Normal, herbs researched | `no_deaths_by_180`; harm events above 0 and a lowest health below 50 are allowed, not gated |
+| Careless, Normal | `careless_deaths_by_180` (read `weakened_by` from the autopsies), and `careless_close_calls` |
+| Careful, Hard | `hard_deaths_by_180` |
+| Sandbox | no harm events at all (not a harness target yet: a run record carries no harm tally) |
 
 ## Readable before it kills
 

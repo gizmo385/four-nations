@@ -323,16 +323,18 @@ edited to show the proposal mid-game. The hints are the new data strings.)*
   food per head, wood, population and signs met. A `--no-farms` variant tills nothing, to test
   question 2.
 
-**Targets** (seeds 1–8, all four nations, Small, Normal, economy opening):
+**Targets** (all four nations, Small, Normal, economy opening): the numbers live in
+`data/harness.toml` (`[[target]]`, #537) and `balance verdict` judges them on a 32-seed panel, so
+this table names the targets instead of repeating them.
 
 | | Target |
 |---|---|
-| Stone sign met | by minute 120 (end of year 2) on at least 7 of 8 seeds, every nation |
-| Ore sign met | by minute 120 on at least 7 of 8 seeds, every nation, Earth first |
-| Food per head entering winter 2 | 3 to 8 (difficulty.md's band, now with farms) |
-| Wood at minute 120 | under 300 |
-| Population at minute 120 | 14 or more |
-| Deaths by minute 180 | 0 (and, if question 2 goes as recommended, at least one by minute 120 with `--no-farms`) |
+| Stone sign met, at the end of year 2, on nearly every seed, every nation | `stone_by_120` |
+| Ore sign met, at the end of year 2, on nearly every seed, every nation, Earth first | `ore_by_120` |
+| Food per head entering winter 2 (difficulty.md's band, now with farms) | `food_winter2` |
+| Wood at the end of year 2 | `wood_at_120` |
+| Population at the end of year 2 | `pop_at_120` |
+| Deaths by the end of the run (and, if question 2 goes as recommended, some with `--no-farms`) | `no_deaths_by_180`; `careless_deaths_by_180` |
 
 **Pacing (#272's second check).** The branch takes about 73 minutes of research with two
 scholars (1530 points at 21 a minute for Earth), and population is the long pole at about
@@ -343,7 +345,7 @@ agent playtests and records what they found in endgame.md.
 
 ### What the harness measured (#355, 2026-11-07)
 
-`cargo run --release -p fn_sim --bin balance -- --economy --seeds 1-8 --minutes 180 --nations N
+`cargo run --release -p fn_harness --bin balance -- economy --seeds 1-8 --minutes 180 --nations N
 --preset normal`, plus the same with `--no-farms`, on `main` at 3127de9 (every follow-up above
 merged). Counts are out of 8 seeds. "Ready" here is the latest sign's first-met minute: a lower
 bound, since a stores sign can dip again before the rest are met.

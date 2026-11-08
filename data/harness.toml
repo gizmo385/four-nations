@@ -46,3 +46,234 @@ research = "branch_first"
 [[style]]
 id = "idle"
 opening = "none"
+
+# --- The panel (section 5, #537) ---
+# Defaults for `balance verdict`; a target can override `share`, `min_runs` and `minutes`.
+#
+#   seeds      the panel: a seed list, `A-B` ranges and numbers. 1-8 stay a subset, so history is
+#              comparable; `--seeds` narrows it.
+#   threads    worker threads (the runs are independent; output never depends on which finishes
+#              first)
+#   minutes    how long a run is, unless a target asks for more
+#   min_runs   fewer counted runs than this for a nation is "no data", not a pass or a fail
+#   share      the share of counted runs that must meet a bar: 85% of valid runs on feasible
+#              sites (#543, a starting default to retune once the harness has a track record)
+[panel]
+seeds = "1-32"
+threads = 4
+minutes = 180
+min_runs = 8
+share = 0.85
+
+# --- Detector thresholds (section 3, #534) ---
+# The run-health probe's thresholds, handed to `fn_sim::balance::Detectors`; the values here are
+# the doc's. Every key is optional and defaults to this.
+[detectors]
+stranded_minutes = 3      # stranded: no path to water, a stockpile or home, minutes running
+stuck_minutes = 3         # stuck_need: the same need task, the need not rising, minutes running
+idle_share = 0.6          # idle_with_work: the idle share of settlers at or above which a minute counts
+idle_minutes = 30         #   ... for this many minutes, with a stores sign's material in reach
+frozen_minutes = 30       # stores_frozen: stores unchanged this long, same conditions
+research_minutes = 10     # research_idle: nothing set to research while a tech is available
+chi_idle_share = 0.5      # chi_idle: the share of the bending minutes a bender sits idle at full chi
+chi_idle_after = 20       #   ... judged once this many minutes of bending are known
+refused_streak = 20       # refused: substantive command refusals in a row
+overgrow_share = 0.25     # overgrow: population this far over the population sign, food unmet
+
+# --- Targets (section 5, #537) ---
+# Each target names the design doc section it comes from (`doc`), so a doc can say "see
+# `stone_by_120`" and the number lives only here.
+#
+#   id            unique
+#   doc           file.md#anchor of the section the target comes from
+#   style, preset the run it reads; default steady on normal. `steady` gates every target, and
+#                 a target gates on another style only by naming it (#544); scripted agents are
+#                 shown, not gating
+#   metric        what is read off a run (crates/harness/src/metric.rs lists them)
+#   at_most,      the bar: either bound, or both for a band. An event that never happened reads
+#   at_least      as infinity, so it passes `at_least` ("no death in 3 h") and fails `at_most`
+#   share         the share of counted runs that must meet the bar (default [panel] share)
+#   min_runs      default [panel] min_runs
+#   minutes       how long its runs are (default [panel] minutes)
+#   first_seeds   only the first N seeds of the panel run for it (the doc's full tier runs Hard
+#                 and Sandbox at 12 seeds)
+#   nations       only these nations (default: all)
+#   hard_when     { supply = "stone" | "ore", below = X }: the site is hard for this target when
+#                 the material in reach (with the nation's tunnelling, bricks counting for
+#                 stone) is below X times the sign's need (#543)
+#   hard_expect   the softer bar hard sites are judged against, and the share that must meet it;
+#                 hard sites stay in the game and the embark outlook warns about them (#546)
+#
+# A run is bucketed per target: sim lock, harness gap, hard site, outlier, balance. Only the last
+# two count toward `share`.
+
+# materials.md, "7. Measuring it" (seeds 1-8, all four nations, Small, Normal, economy opening)
+[[target]]
+id = "stone_by_120"
+doc = "materials.md#7-measuring-it"
+metric = "sign_minute.stone"
+at_most = 120
+hard_when = { supply = "stone", below = 1.0 }
+hard_expect = { at_most = 180, share = 0.5 }
+
+[[target]]
+id = "ore_by_120"
+doc = "materials.md#7-measuring-it"
+metric = "sign_minute.ore"
+at_most = 120
+hard_when = { supply = "ore", below = 1.0 }
+# pacing.md's "ore sign on seeds 2 and 6: met by minute 150 with caravan deals" (#440), applied to
+# every nation: the pacing doc names Earth and Fire, who have the best odds.
+hard_expect = { at_most = 150, share = 0.5 }
+
+[[target]]
+id = "wood_at_120"
+doc = "materials.md#7-measuring-it"
+metric = "wood_at.120"
+at_most = 299                 # "under 300"
+
+[[target]]
+id = "pop_at_120"
+doc = "materials.md#7-measuring-it"
+metric = "pop_at.120"
+at_least = 14
+
+# difficulty.md, "Measuring it": food per head entering winter 2 on the opening, per preset
+# (materials.md's food row is the Normal one).
+[[target]]
+id = "food_winter2"
+doc = "difficulty.md#measuring-it"
+metric = "food_per_head.winter.2"
+at_least = 3
+at_most = 8
+
+[[target]]
+id = "food_winter2_hard"
+doc = "difficulty.md#measuring-it"
+preset = "hard"
+metric = "food_per_head.winter.2"
+at_least = 1
+at_most = 4
+first_seeds = 12
+
+# harm.md, "Is a careful Normal colony safe?", and difficulty.md's "Opening: deaths by 3 h".
+[[target]]
+id = "no_deaths_by_180"
+doc = "harm.md#is-a-careful-normal-colony-safe"
+metric = "deaths_by.180"
+at_most = 0
+share = 0.95
+
+[[target]]
+id = "sandbox_no_deaths_by_180"
+doc = "difficulty.md#measuring-it"
+preset = "sandbox"
+metric = "deaths_by.180"
+at_most = 0
+share = 0.95
+first_seeds = 12
+
+[[target]]
+id = "hard_deaths_by_180"
+doc = "harm.md#is-a-careful-normal-colony-safe"
+preset = "hard"
+metric = "deaths_by.180"
+at_most = 2
+first_seeds = 12
+
+# harm.md's careless colony: at least one death by minute 180 "on most seeds" (the weakened_by
+# half of that row is read from the autopsies, not gated), and the close calls #394 is after.
+[[target]]
+id = "careless_deaths_by_180"
+doc = "harm.md#is-a-careful-normal-colony-safe"
+style = "careless"
+metric = "deaths_by.180"
+at_least = 1
+share = 0.5
+
+[[target]]
+id = "careless_close_calls"
+doc = "harm.md#is-a-careful-normal-colony-safe"
+style = "careless"
+metric = "care.close_calls"
+at_least = 1
+share = 0.5
+
+# difficulty.md's no-input row: the first death.
+[[target]]
+id = "idle_first_death_normal"
+doc = "difficulty.md#measuring-it"
+style = "idle"
+metric = "first_death"
+at_least = 45
+at_most = 120                 # "first or second winter"
+
+[[target]]
+id = "idle_first_death_hard"
+doc = "difficulty.md#measuring-it"
+style = "idle"
+preset = "hard"
+metric = "first_death"
+at_least = 45
+at_most = 60                  # "first winter"
+first_seeds = 12
+
+[[target]]
+id = "idle_no_death_sandbox"
+doc = "difficulty.md#measuring-it"
+style = "idle"
+preset = "sandbox"
+metric = "first_death"
+at_least = 180                # "none in 3 h"
+first_seeds = 12
+
+# pacing.md, "Measuring it" (the economy opening, once draw, caravans and the chapter landed)
+[[target]]
+id = "decision_gap"
+doc = "pacing.md#measuring-it"
+metric = "longest_gap"
+at_most = 15                  # minutes, minute 30 to Ready
+
+[[target]]
+id = "decision_gap_branch_first"
+doc = "pacing.md#measuring-it"
+style = "branch_first"
+metric = "longest_gap"
+at_most = 15
+
+[[target]]
+id = "pop16_window"
+doc = "pacing.md#measuring-it"
+metric = "sign_minute.population"
+at_least = 100
+at_most = 130
+
+[[target]]
+id = "ready_window"
+doc = "pacing.md#measuring-it"
+metric = "ready_minute"
+at_least = 130                # "ignoring masters and scrolls"
+at_most = 170
+
+# Rows of those tables that are not targets here yet: the walk per meal at minute 90 against
+# minute 15 (a path-length median from `fn_sim::balance::run`, which `balance sweep` still
+# prints), "population 16 on a beds-only opening" (needs a style that doesn't exist), and
+# "no harm events at all on Sandbox" (a record carries no harm tally).
+
+# --- Sensitivity pairs (section 5, #486) ---
+# Two runs that must separate. If `higher` doesn't read above `lower` on at least `share` of the
+# paired runs (both without flags), the check can't fail: the verdict says so instead of passing.
+[[pair]]
+id = "careless_vs_careful_care"
+doc = "harm.md#is-a-careful-normal-colony-safe"
+metric = "care.suffering"
+lower = { style = "steady", preset = "normal" }
+higher = { style = "careless", preset = "normal" }
+
+[[pair]]
+id = "hard_vs_normal_deaths"
+doc = "difficulty.md#measuring-it"
+metric = "deaths"
+lower = { style = "steady", preset = "normal" }
+higher = { style = "steady", preset = "hard" }
+first_seeds = 12

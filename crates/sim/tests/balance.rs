@@ -8,7 +8,7 @@
 //! route for material that was never going to arrive (`fn_sim::autoplay`'s module doc), which is
 //! what made an early draft of this test take over ten seconds for a single run. A much longer
 //! sweep over every seed, nation and preset belongs to the `balance` binary
-//! (`cargo run -p fn_sim --bin balance`), not this gate.
+//! (`cargo run -p fn_harness --bin balance`), not this gate.
 
 use fn_sim::autoplay::{Economy, Opening};
 use fn_sim::balance::{EconomyConfig, RunConfig, run, run_economy};

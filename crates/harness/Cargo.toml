@@ -1,6 +1,6 @@
 [package]
 name = "fn_harness"
-description = "The balance harness (docs/design/balance-harness.md): reads data/harness.toml, which fn_sim never does. For now only the play styles; the runner, targets and verdict follow (#537)."
+description = "The balance harness (docs/design/balance-harness.md): owns the `balance` binary and reads data/harness.toml, which fn_sim never does. Play styles, targets, the runner and the verdict."
 edition.workspace = true
 version.workspace = true
 license.workspace = true
@@ -8,7 +8,12 @@ license.workspace = true
 [lib]
 name = "fn_harness"
 
+[[bin]]
+name = "balance"
+path = "src/bin/balance.rs"
+
 [dependencies]
 fn_sim = { path = "../sim" }
 serde = { workspace = true }
+serde_json = { workspace = true }
 toml = { workspace = true }

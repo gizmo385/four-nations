@@ -67,11 +67,23 @@ struct RawStyle {
     research: Option<RawResearch>,
 }
 
+/// The whole file, as far as styles are concerned: `[[style]]` is read here, and the other
+/// tables (`[panel]`, `[detectors]`, `[[target]]`, `[[pair]]`) are `config`'s, so they're let
+/// through unread. A key that is none of those is still an error.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)] // the let-through tables exist only so their keys are allowed
 struct RawFile {
     #[serde(default)]
     style: Vec<RawStyle>,
+    #[serde(default)]
+    panel: Option<toml::Value>,
+    #[serde(default)]
+    detectors: Option<toml::Value>,
+    #[serde(default)]
+    target: Vec<toml::Value>,
+    #[serde(default)]
+    pair: Vec<toml::Value>,
 }
 
 impl RawStyle {

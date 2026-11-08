@@ -382,16 +382,17 @@ What this means for the rest of the doc:
 - `--branch-first`, which researches the nation's branch before the shared tier, closer to how a
   person plays.
 
-**Targets** (seeds 1-8, all nations, Small, Normal, economy opening, once draw, caravans and the
-chapter have landed):
+**Targets** (all nations, Small, Normal, economy opening, once draw, caravans and the chapter
+have landed): the numbers live in `data/harness.toml` (`[[target]]`, #537) and `balance verdict`
+judges them on a 32-seed panel, so this table names the targets instead of repeating them.
 
 | | Target |
 |---|---|
-| Longest gap between decisions, minute 30 to Ready | 15 minutes or less, on 7 of 8 seeds per nation, in both research orders |
-| Population 16, economy opening | minute 100 to 130 (draw near 100%) |
-| Population 16, beds-only opening (no food variety, no campfire near beds) | minute 150 or later |
-| Ore sign on seeds 2 and 6 | met by minute 150 for Earth and Fire, with caravan deals |
-| Ready, ignoring masters and scrolls | minute 130 to 170 (unchanged length; the middle is fuller, not shorter) |
+| Longest gap between decisions, minute 30 to Ready, on nearly every seed per nation, in both research orders | `decision_gap`, `decision_gap_branch_first` |
+| Population 16, economy opening (draw near 100%) | `pop16_window` |
+| Population 16, beds-only opening (no food variety, no campfire near beds) | minute 150 or later (not a harness target yet: no play style does this) |
+| Ore sign on the sites where it is hard (seeds 2 and 6), with caravan deals | the hard bar of `ore_by_120` (applied to every nation; Earth and Fire were the ones named) |
+| Ready, ignoring masters and scrolls (unchanged length; the middle is fuller, not shorter) | `ready_window` |
 
 ## Follow-up issues
 

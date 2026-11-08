@@ -1,65 +1,80 @@
-//! Runs the balance harness (#300, `docs/design/difficulty.md`, "Measuring it") over every
-//! (preset, nation, seed) a caller names, with no input and with the standard opening
-//! (`fn_sim::autoplay::Opening`), on Small. Prints one row per run: the minute of the first
+//! The older modes of the `balance` binary (#300, #343, #348, #352, #526), kept as subcommands
+//! when the binary moved here from `fn_sim` (#537): `sweep`, `supply`, `mastery` and `economy`.
+//! They drive `fn_sim::balance::run` and `run_economy`, which stay, because their walk-time and
+//! mastery outputs don't fit a `Player` (`fn_sim::balance::run_record`'s, which `verdict` uses).
+//! The old flag spellings (`balance --supply`, `--mastery`, `--economy`, and bare sweep flags)
+//! still reach these through `cli`.
+//!
+//! `sweep` runs the harness (`docs/design/difficulty.md`, "Measuring it") over every (preset,
+//! nation, seed) a caller names, with no input and with the standard opening
+//! (`fn_sim::autoplay::Opening`), on Small. It prints one row per run: the minute of the first
 //! death, deaths and population at the end, food per head on each winter's first tick, and the
 //! median path length walked per meal in the 15-minute windows at minute 15 and minute 90.
 //!
-//!     cargo run -p fn_sim --bin balance -- --seeds 1-8 --minutes 180 [--presets ..] [--nations ..]
+//! ```text
+//! cargo run -p fn_harness --bin balance -- sweep --seeds 1-8 --minutes 180 [--presets ..] [--nations ..]
+//! ```
 //!
 //! `--presets` and `--nations` take comma-separated ids (default: every preset in
 //! `data/difficulty.toml`'s order; every nation). `--seeds` takes a comma-separated list of
 //! numbers and `A-B` ranges (default: `1-8`).
 //!
-//! A single run is cheap (`fn_sim::balance::run`'s own doc), but this binary's default sweep is
-//! not: 3 presets x 4 nations x 8 seeds x 2 modes is 192 runs of up to 180 minutes each. It's a
-//! dev tool, run on demand, never part of `cargo xtask ci` (`crates/sim/tests/balance.rs` is the
-//! cheap, CI-sized version of this same check).
+//! A single run is cheap, but this default sweep is not: 3 presets x 4 nations x 8 seeds x 2 modes
+//! is 192 runs of up to 180 minutes each. It's a dev tool, run on demand, never part of `cargo
+//! xtask ci` (`crates/sim/tests/balance.rs` is the cheap, CI-sized version of this same check).
 //!
-//! `--supply` switches to the supply survey instead (`docs/design/materials.md`, "What the map
-//! holds" and "Measuring it", #348): how much of each named deposit is reachable from
+//! `supply` is the supply survey instead (`docs/design/materials.md`, "What the map holds" and
+//! "Measuring it", #348): how much of each named deposit is reachable from
 //! `Survey::default_site` on Small, per seed, at each named radius.
 //!
-//!     cargo run -p fn_sim --bin balance -- --supply --seeds 1-8
-//!         [--radii 20,40] [--resources stone,gold_vein,gold_seam] [--bore-limit 2]
+//! ```text
+//! cargo run -p fn_harness --bin balance -- supply --seeds 1-8
+//!     [--radii 20,40] [--resources stone,gold_vein,gold_seam] [--bore-limit 2]
+//! ```
 //!
 //! This is cheap (one map generation and one BFS per seed): unlike the sweep above, it's fine to
 //! run it often while retuning `resources.toml` or `jobs.toml`.
 //!
-//! `--mastery` switches to the mastery-pacing survey instead (#343, `docs/design/endgame.md`,
-//! "Mastery pacing"): the standard opening, plus up to `--bend-slots` bends kept designated near
-//! the anchor every in-game minute (`fn_sim::autoplay::Opening::with_bending`), re-run fresh for
-//! every named checkpoint in `--minutes` (one run per checkpoint, since one run is cheap). Each
-//! row is the three highest settlers' bend counts at that checkpoint and the minute the
-//! `masters` sign (`data/endeavor.toml`) was first met, if by then.
+//! `mastery` is the mastery-pacing survey (#343, `docs/design/endgame.md`, "Mastery pacing"): the
+//! standard opening, plus up to `--bend-slots` bends kept designated near the anchor every
+//! in-game minute (`fn_sim::autoplay::Opening::with_bending`), re-run fresh for every named
+//! checkpoint in `--minutes` (one run per checkpoint, since one run is cheap). Each row is the
+//! three highest settlers' bend counts at that checkpoint and the minute the `masters` sign
+//! (`data/endeavor.toml`) was first met, if by then.
 //!
-//!     cargo run -p fn_sim --bin balance -- --mastery --seeds 7,42
-//!         --minutes 30,60,90,120,150,180,240 [--nations fire,earth,water,air]
-//!         [--preset normal] [--bend-slots 6] [--full-research]
+//! ```text
+//! cargo run -p fn_harness --bin balance -- mastery --seeds 7,42
+//!     --minutes 30,60,90,120,150,180,240 [--nations fire,earth,water,air]
+//!     [--preset normal] [--bend-slots 6] [--full-research]
+//! ```
 //!
 //! `--full-research` swaps the short `RESEARCH_PLAN` for the settlement's whole visible tech
 //! tree (`fn_sim::autoplay::Opening::with_full_research`, #352): off by default, since the
 //! mastery sweep predates it, but a caller comparing Earth's and Air's pace with and without
 //! their own branch researched (Bore Tunnel, Gliders) can turn it on either way.
 //!
-//! `--economy` switches to the economy opening instead (#352, `docs/design/materials.md`
-//! section 7): `fn_sim::autoplay::Economy`, which plays toward the Harmony Gate's signs (stone,
-//! ore, population, buildings, the nation's branch) rather than just surviving. One row per
-//! season reached, for every named `(nation, seed)`, then the minute each sign was first met, the
-//! minute each reachable building first stood, and what recipe items and ore are left in stores
-//! (#376); then (#434, `docs/design/pacing.md` "Measuring it") each tech's completion minute
-//! (`techs:`), the decision timeline (`timeline:`: every tech completion that unlocks a
-//! building, ability or job, plus each sign's first-met minute, in minute order), the longest
-//! gap between decisions from minute 30 to Ready and how many gaps are over 15 minutes, and the
-//! idle share (the fraction of units with no task) per 15-minute window. A trailing line per
-//! nation gives how many of its seeds keep that longest gap at 15 minutes or less.
+//! `economy` is the economy opening (#352, `docs/design/materials.md` section 7):
+//! `fn_sim::autoplay::Economy`, which plays toward the Harmony Gate's signs (stone, ore,
+//! population, buildings, the nation's branch) rather than just surviving. One row per season
+//! reached, for every named `(nation, seed)`, then the minute each sign was first met, the minute
+//! each reachable building first stood, and what recipe items and ore are left in stores (#376);
+//! then (#434, `docs/design/pacing.md` "Measuring it") each tech's completion minute (`techs:`),
+//! the decision timeline (`timeline:`: every tech completion that unlocks a building, ability or
+//! job, plus each sign's first-met minute, in minute order), the longest gap between decisions
+//! from minute 30 to Ready and how many gaps are over 15 minutes, and the idle share (the
+//! fraction of units with no task) per 15-minute window. A trailing line per nation gives how
+//! many of its seeds keep that longest gap at 15 minutes or less.
 //!
-//!     cargo run -p fn_sim --bin balance -- --economy --seeds 7,42 --minutes 180
-//!         [--nations fire,earth,water,air] [--preset normal] [--no-farms] [--branch-first]
+//! ```text
+//! cargo run -p fn_harness --bin balance -- economy --seeds 7,42 --minutes 180
+//!     [--nations fire,earth,water,air] [--preset normal] [--no-farms] [--branch-first]
+//! ```
 //!
 //! `--no-farms` tills no farm plots and raises no orchard (materials.md's own `--no-farms`,
 //! owner question 2's check). `--branch-first` (`fn_sim::autoplay::Economy::with_branch_first`)
 //! researches the nation's own branch before the shared tier, closer to how a person plays
 //! (pacing.md's own "a player who goes branch first" note); the default order is unchanged.
+//! `verdict` replaces these two flags with play styles (`data/harness.toml`).
 //!
 //! `--score` (#526, `docs/design/agent-hillclimb.md`) scores each run with
 //! `fn_sim::score::Scorecard::compute` at the end of the run and prints a `score:` line per
@@ -68,8 +83,10 @@
 //! with neither, the horizon is the run's own length. The same scoring gives a track's par
 //! (`fn_sim::balance::par`).
 //!
-//!     cargo run -p fn_sim --bin balance -- --economy --score --seeds 7 --nations water
-//!         [--horizon-minutes 180]
+//! ```text
+//! cargo run -p fn_harness --bin balance -- economy --score --seeds 7 --nations water
+//!     [--horizon-minutes 180]
+//! ```
 
 use fn_sim::balance::{
     EconomyConfig, EconomyReport, PEOPLE, RunConfig, RunReport, run, run_economy,
@@ -80,20 +97,8 @@ use fn_sim::embark::Survey;
 use fn_sim::score::{ScoreDef, Scorecard};
 use fn_sim::{Defs, Nation};
 
-fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.first().map(String::as_str) == Some("--supply") {
-        run_supply(&args[1..]);
-        return;
-    }
-    if args.first().map(String::as_str) == Some("--mastery") {
-        run_mastery(&args[1..]);
-        return;
-    }
-    if args.first().map(String::as_str) == Some("--economy") {
-        run_economy_sweep(&args[1..]);
-        return;
-    }
+/// `sweep`: the no-input and opening sweep over presets, nations and seeds.
+pub fn run_sweep(args: &[String]) {
     let mut seeds = parse_seeds("1-8");
     let mut minutes: f32 = 180.0;
     let mut preset_ids: Option<Vec<String>> = None;
@@ -102,15 +107,13 @@ fn main() {
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "--seeds" => seeds = parse_seeds(&value(&args, &mut i)),
-            "--minutes" => {
-                minutes = value(&args, &mut i).parse().expect("--minutes needs a number")
-            }
+            "--seeds" => seeds = parse_seeds(&value(args, &mut i)),
+            "--minutes" => minutes = value(args, &mut i).parse().expect("--minutes needs a number"),
             "--presets" => {
-                preset_ids = Some(value(&args, &mut i).split(',').map(str::to_owned).collect())
+                preset_ids = Some(value(args, &mut i).split(',').map(str::to_owned).collect())
             }
             "--nations" => {
-                nation_ids = Some(value(&args, &mut i).split(',').map(str::to_owned).collect())
+                nation_ids = Some(value(args, &mut i).split(',').map(str::to_owned).collect())
             }
             other => usage_error(&format!("unknown argument {other:?}")),
         }
@@ -187,7 +190,7 @@ fn print_row(preset: &str, nation: Nation, seed: u64, opening: bool, r: &RunRepo
 }
 
 /// `--supply`'s own loop: one `Survey` per seed, reported at every radius (#348).
-fn run_supply(args: &[String]) {
+pub fn run_supply(args: &[String]) {
     let mut seeds = parse_seeds("1-8");
     let mut radii: Vec<i32> = vec![20, 40];
     let mut resource_ids = vec!["stone".to_owned(), "gold_vein".to_owned(), "gold_seam".to_owned()];
@@ -259,14 +262,14 @@ fn run_supply(args: &[String]) {
 fn supply_usage_error(msg: &str) -> ! {
     eprintln!("{msg}");
     eprintln!(
-        "usage: balance --supply [--seeds 1-8] [--radii 20,40] [--resources stone,gold_vein,gold_seam] [--bore-limit 2]"
+        "usage: balance supply [--seeds 1-8] [--radii 20,40] [--resources stone,gold_vein,gold_seam] [--bore-limit 2]"
     );
     std::process::exit(1);
 }
 
 /// `--mastery`'s own loop: one run per `(nation, seed, minutes checkpoint)`, re-run fresh for
 /// each checkpoint (#343).
-fn run_mastery(args: &[String]) {
+pub fn run_mastery(args: &[String]) {
     let mut seeds = parse_seeds("7,42");
     let mut checkpoints: Vec<f32> = vec![30.0, 60.0, 90.0, 120.0, 150.0, 180.0, 240.0];
     let mut nation_ids: Option<Vec<String>> = None;
@@ -350,7 +353,7 @@ fn print_mastery_row(nation: Nation, seed: u64, minutes: f32, r: &RunReport) {
 fn mastery_usage_error(msg: &str) -> ! {
     eprintln!("{msg}");
     eprintln!(
-        "usage: balance --mastery [--seeds 7,42] [--minutes 30,60,90,120,150,180,240] [--nations fire,earth,water,air] [--preset normal] [--bend-slots 6]"
+        "usage: balance mastery [--seeds 7,42] [--minutes 30,60,90,120,150,180,240] [--nations fire,earth,water,air] [--preset normal] [--bend-slots 6]"
     );
     std::process::exit(1);
 }
@@ -388,7 +391,7 @@ fn nation_from_id(id: &str) -> Nation {
 fn usage_error(msg: &str) -> ! {
     eprintln!("{msg}");
     eprintln!(
-        "usage: balance [--seeds 1-8] [--minutes 180] [--presets sandbox,normal,hard] [--nations air,water,earth,fire]"
+        "usage: balance sweep [--seeds 1-8] [--minutes 180] [--presets sandbox,normal,hard] [--nations air,water,earth,fire]"
     );
     std::process::exit(1);
 }
@@ -396,7 +399,7 @@ fn usage_error(msg: &str) -> ! {
 /// `--economy`'s own loop: one run per `(nation, seed)`, driving `fn_sim::autoplay::Economy`
 /// (#352, `docs/design/materials.md` section 7). Each run reports one row per season reached,
 /// plus a trailing row with the minute every sign was first met (or "none").
-fn run_economy_sweep(args: &[String]) {
+pub fn run_economy_sweep(args: &[String]) {
     let mut seeds = parse_seeds("7,42");
     let mut minutes: f32 = 180.0;
     let mut nation_ids: Option<Vec<String>> = None;
@@ -589,7 +592,7 @@ fn print_idle_share(nation: Nation, seed: u64, report: &EconomyReport) {
 fn economy_usage_error(msg: &str) -> ! {
     eprintln!("{msg}");
     eprintln!(
-        "usage: balance --economy [--seeds 7,42] [--minutes 180] [--nations fire,earth,water,air] [--preset normal] [--no-farms] [--branch-first] [--score [--horizon-minutes M]]"
+        "usage: balance economy [--seeds 7,42] [--minutes 180] [--nations fire,earth,water,air] [--preset normal] [--no-farms] [--branch-first] [--score [--horizon-minutes M]]"
     );
     std::process::exit(1);
 }

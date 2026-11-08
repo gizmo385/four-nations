@@ -278,6 +278,40 @@ vs baseline  stone sign minute: earlier on 21, later on 6, same on 5; median -4.
 verdict      2 pass, 1 fails (water stone), 1 no data; ore's hard bar fails 3 of 4; 2 outliers
 ```
 
+**As built (#537, `fn_harness`).** `balance verdict [--seeds 1-32] [--styles ..] [--presets ..]
+[--nations ..] [--threads 4] [--label NAME] [--out DIR] [--minutes M]` runs the panel and prints
+the report above to stdout (progress and timing go to stderr, so two runs of a panel print the
+same bytes). It exits 1 if a target fails; "no data" and "can't fail" don't fail it. Where the
+text above was loose:
+
+- **Targets list the runs they need.** `plan` takes each (style, preset) the targets and pairs
+  name, runs it as long as the longest of them asks (`minutes`) and over as many panel seeds as
+  the most demanding wants (`first_seeds`: the full tier's Hard and Sandbox at 12 seeds). A
+  `--styles` or `--presets` filter leaves the other targets at "no data".
+- **A metric reads a record.** `sign_minute.ID`, `ready_minute`, `first_death`, `deaths`,
+  `deaths_by.M`, `pop_at.M`, `wood_at.M`, `food_per_head.winter.N`, `longest_gap`,
+  `gaps_over_15` and the care rates (`crates/harness/src/metric.rs` lists them). An event that
+  never happened reads as infinity, so "no death in 3 h" is `at_least = 180`. A reading the run
+  is too short for is no data, not a miss.
+- **A flag counts against a target only if raised by its deadline:** the `at_most` of a minute
+  metric, the minute of `pop_at.M`, or the run's end. A style that plays nothing (`idle`) has no
+  player to fail, so only the sim's flags (`stranded`, `stuck_need`) can exclude its runs: its
+  `research_idle` would otherwise fire in every run.
+- **Hard is per target.** `hard_when = { supply, below }` compares the site profile's supply of
+  that material with `below` times the sign's need for the run's nation; a hard run is judged
+  against `hard_expect`, with its flags checked against that bar's deadline.
+- **Outliers** need `OUTLIERS_NEED` (2) other nations that met the standard bar on the seed.
+- **Sensitivity pairs** are `[[pair]]` entries: `higher` must read above `lower` on at least
+  `share` (25%) of the paired runs, neither flagged, or the report says it can't fail.
+- **`balance trace` isn't built yet (#535).** The report prints the command it will take, in the
+  syntax #535 gives (`balance trace --seed S --nation N [--style ID] [--preset P] --from M --to M
+  --map-at M`), for every flagged run and outlier.
+- **The targets from materials.md are in section 7, "Measuring it"** (`materials.md#7-measuring-it`),
+  where its minute targets live; section 6 only sets the stone and ore signs.
+- **Not targets yet:** the walk per meal (a path-length median `run` computes, which `balance
+  sweep` still prints), "population 16 on a beds-only opening" (no such style) and "no harm
+  events on Sandbox" (a record carries no harm tally).
+
 ## 6. Regression: paired against a baseline
 
 Every verdict run writes its run records (one JSON object per style, nation and seed: metrics,
@@ -320,7 +354,11 @@ is owner question 3.
   (style, nation, seed) so output never depends on thread order, writes JSON and prints the
   verdict. It's a separate crate because it does file I/O and threads, which `fn_sim` must not.
   The old modes stay as subcommands: `supply`, `mastery`, `economy` (the per-season table) and
-  `trace`.
+  `trace`. As built (#537): also `sweep` (the original no-input and opening sweep, which had no
+  flag of its own), `verdict`, and the old spellings (`balance --supply`, `--mastery`,
+  `--economy`, bare sweep flags) still work. `economy` and the other old modes keep driving
+  `fn_sim::balance::run` and `run_economy`, which stay (their walk-time and mastery outputs
+  don't fit a `Player`); `tests/balance.rs` still calls them.
 - **Scenario starts (#481)** aren't used by the panel, which always starts at embark. A later
   target can name a scenario to test the gate project without paying for the first 60 minutes.
 

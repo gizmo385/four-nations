@@ -17,7 +17,7 @@ Scrolls come from two places (`data/resources.toml`, `data/jobs.toml`):
 - **Lost ruins** (#197): any open land, `buried = true`, 2 scrolls each when searched. Only Air's
   Glide uncovers them.
 
-Measured with the supply survey (`cargo run --release -p fn_sim --bin balance -- --supply
+Measured with the supply survey (`cargo run --release -p fn_harness --bin balance -- supply
 --seeds 1-12 --radii 40,90 --resources ancient_scroll,lost_ruins`), Small map, default site,
 reachable on foot. Radius 90 covers the whole landmass the site is on:
 

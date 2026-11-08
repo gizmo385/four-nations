@@ -386,7 +386,7 @@ swaps `None` for that preset), so goldens can show seasons.
 
 ## Measuring it
 
-A `balance` binary (`cargo run -p fn_sim --bin balance -- --seeds 1-8 --minutes 180`) runs every
+A `balance` binary (`cargo run -p fn_harness --bin balance -- sweep --seeds 1-8 --minutes 180`) runs every
 (preset, nation, seed) on Small, headless and deterministic, in two modes:
 
 - **No input.** The settlers forage, drink and sleep on their own, as they do today.
@@ -399,14 +399,20 @@ It prints one row per run: the minute of the first death, deaths and population 
 food per head on the first tick of each winter, and the median path length walked per meal in
 the 15-minute windows at minute 15 and minute 90.
 
-**Targets for the tuning pass** (seeds 1-8, all four nations, Small):
+**Targets for the tuning pass** (all four nations, Small): the numbers live in
+`data/harness.toml` (`[[target]]`, #537) and `balance verdict` judges them, so this table names
+the targets instead of repeating them. "No input" is the `idle` play style and "opening" is
+`steady`.
 
 | | Sandbox | Normal | Hard |
 |---|---|---|---|
-| No input: first death | none in 3 h | first or second winter (45-120 min) | first winter (45-60 min) |
-| Opening: deaths by 3 h | 0 | 0 | at most 2 |
-| Food per head entering winter 2 (opening) | — | 3 to 8 | 1 to 4 |
+| No input: first death | `idle_no_death_sandbox` | `idle_first_death_normal` | `idle_first_death_hard` |
+| Opening: deaths by 3 h | `sandbox_no_deaths_by_180` | `no_deaths_by_180` | `hard_deaths_by_180` |
+| Food per head entering winter 2 (opening) | — | `food_winter2` | `food_winter2_hard` |
 | Walk per meal, minute 90 vs minute 15 | about 1x | at least 1.5x | at least 2x |
+
+The walk-per-meal row is not a harness target yet: it is a path-length median from the older
+`run`, which `balance sweep` still prints.
 
 **CI** (`crates/sim/tests/balance.rs`, a soak test under #291's split, seed 7, Earth, 90
 minutes): two runs give identical output. With no input, the first death comes no later under
