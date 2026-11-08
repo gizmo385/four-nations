@@ -66,6 +66,10 @@
 //!   surplus into a person and the "food" sign never fills (#513). It builds them again if the
 //!   population falls below the target. Also one of every other building the nation can reach
 //!   (`endeavor::reachable_buildings`), each once its cost is affordable;
+//! - (`Economy::with_beds` picks the bed rule, `BedPolicy`; `Economy::with_healing` the Herb
+//!   Garden rule, `HealingPolicy`; `Economy::with_research` the tech order, `ResearchOrder`: the
+//!   knobs a play style sets, `docs/design/balance-harness.md`, section 2. The defaults are what
+//!   this list describes.)
 //! - (unless `farms` is false, `Economy::without_farms`, materials.md's own `--no-farms` check)
 //!   tills one farm plot per `PEOPLE_PER_FARM_PLOT` people and sows each the moment it's empty,
 //!   and raises an orchard where the nation has one;
@@ -139,6 +143,66 @@ const PEOPLE_PER_FARM_PLOT: u32 = 3;
 /// One is enough to cover a single death without the population dropping back under the sign,
 /// while still not turning every surplus of food into one more settler.
 const BED_MARGIN: u32 = 1;
+
+/// The tech that unlocks the Herb Garden, and the Herb Garden itself (`data/research.toml`,
+/// `data/buildings.toml`; #390). Named here because `HealingPolicy` is about exactly this one
+/// feature, the way `farm_plot` is named for the farms.
+const HERBALISM: &str = "herbalism";
+const HERB_GARDEN: &str = "herb_garden";
+
+/// People per Herb Garden under `HealingPolicy::Planned` (`docs/design/balance-harness.md`,
+/// section 2; #394).
+const PEOPLE_PER_HERB_GARDEN: u32 = 8;
+
+/// How many beds `Economy` builds, beyond keeping one ahead of the living population (#513,
+/// `docs/design/balance-harness.md`, section 2's `beds`). Plain data for a harness to name; the
+/// default is `BedPolicy::default()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BedPolicy {
+    /// Always one bed ahead of the population, with no ceiling: growth takes each newcomer's
+    /// food from stores, so every surplus becomes a person (#513's endless beds).
+    Ahead,
+    /// One ahead, but never more than the "population" sign's target for the nation plus
+    /// `margin`. Builds again if the population falls below the target.
+    ToTarget { margin: u32 },
+}
+
+impl Default for BedPolicy {
+    /// The cap `Economy::new` has always had: the population target plus `BED_MARGIN` (#513).
+    fn default() -> Self {
+        Self::ToTarget { margin: BED_MARGIN }
+    }
+}
+
+/// Which techs `Economy` queues first when nothing is queued (`Economy::research_plan`). Both
+/// orders research the whole visible tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ResearchOrder {
+    /// The shared tier first, then the nation's own branch: file order. The default.
+    #[default]
+    SharedFirst,
+    /// The nation's own branch before the shared tier (`docs/design/pacing.md`, "Measuring it";
+    /// #434).
+    BranchFirst,
+}
+
+/// What `Economy` does about the Herb Garden and its tech (herbalism).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HealingPolicy {
+    /// Nothing special: herbalism is researched in its place in the tree and one Herb Garden is
+    /// built like any other building, never sown. What `Economy::new` has always done (so the
+    /// golden `tests/balance.rs` numbers stay put).
+    #[default]
+    Sweep,
+    /// A careless colony: herbalism is never researched and no Herb Garden is built
+    /// (`docs/design/harm.md`, "Close calls for a careless one").
+    Off,
+    /// A careful one: herbalism is researched in its place in the order (`ResearchOrder` still
+    /// decides what comes first, so a branch-first player isn't pulled off its branch), one Herb
+    /// Garden is kept per `PEOPLE_PER_HERB_GARDEN` people (at least one), and each is sown
+    /// whenever it's empty, so a hurt or sick settler has herbs in stores to fetch.
+    Planned,
+}
 
 /// A scripted opening for one settlement. Stateless beyond `people`, `bend_slots` and
 /// `full_research` (`Opening::step` reads everything else off the `World` it's given), so it's
@@ -254,32 +318,60 @@ pub struct Economy {
     /// but always on.
     pub people: u32,
     /// Till farm plots and raise an orchard (module doc, "Economy")? `true` unless built with
-    /// `without_farms`.
+    /// `without_farms` or `with_farms(false)`.
     pub farms: bool,
-    /// Research the nation's own branch before the shared tier, instead of the shared tier
-    /// first (`docs/design/pacing.md`, "Measuring it"; #434's `--branch-first`). Set with
-    /// `with_branch_first`; both orders research the whole visible tree either way
-    /// (`research_plan`), so this only changes which tech is picked first when nothing is
-    /// queued.
-    pub branch_first: bool,
+    /// Which tech is picked first when nothing is queued (`docs/design/pacing.md`, "Measuring
+    /// it"; #434's `--branch-first`). Set with `with_research` or `with_branch_first`; both
+    /// orders research the whole visible tree (`research_plan`).
+    pub research: ResearchOrder,
+    /// How many beds to build (#513). Set with `with_beds`.
+    pub beds: BedPolicy,
+    /// What to do about herbalism and the Herb Garden. Set with `with_healing`.
+    pub healing: HealingPolicy,
 }
 
 impl Economy {
     pub fn new(people: u32) -> Self {
-        Self { people, farms: true, branch_first: false }
+        Self {
+            people,
+            farms: true,
+            research: ResearchOrder::default(),
+            beds: BedPolicy::default(),
+            healing: HealingPolicy::default(),
+        }
     }
 
     /// The same opening, but it tills no farm plots and raises no orchard
     /// (`docs/design/materials.md` section 7's `--no-farms`, owner question 2's check).
     pub fn without_farms(people: u32) -> Self {
-        Self { people, farms: false, branch_first: false }
+        Self::new(people).with_farms(false)
+    }
+
+    /// The same opening, with farm plots and an orchard on or off.
+    pub fn with_farms(self, farms: bool) -> Self {
+        Self { farms, ..self }
     }
 
     /// The same opening, but `research_plan` tries the nation's own branch before the shared
     /// tier (`docs/design/pacing.md`, "Measuring it"; #434), closer to how a person plays than
     /// the default shared-tier-first order.
     pub fn with_branch_first(self) -> Self {
-        Self { branch_first: true, ..self }
+        self.with_research(ResearchOrder::BranchFirst)
+    }
+
+    /// The same opening, with `research` as its tech order.
+    pub fn with_research(self, research: ResearchOrder) -> Self {
+        Self { research, ..self }
+    }
+
+    /// The same opening, with `beds` as its bed policy.
+    pub fn with_beds(self, beds: BedPolicy) -> Self {
+        Self { beds, ..self }
+    }
+
+    /// The same opening, with `healing` as its herbalism policy.
+    pub fn with_healing(self, healing: HealingPolicy) -> Self {
+        Self { healing, ..self }
     }
 
     /// `defs.techs_for(nation)`'s own set, reordered with the nation's branch before the shared
@@ -291,11 +383,18 @@ impl Economy {
     fn research_plan(&self, nation: Nation, defs: &Defs) -> Vec<TechId> {
         let mut techs: Vec<(TechId, bool)> =
             defs.techs_for(nation).map(|(id, t)| (id, t.nation.is_none())).collect();
-        if self.branch_first {
+        if self.research == ResearchOrder::BranchFirst {
             // A stable sort keeps each group (branch, then shared) in its own file order.
             techs.sort_by_key(|&(_, shared)| shared);
         }
-        techs.into_iter().map(|(id, _)| id).collect()
+        let mut plan: Vec<TechId> = techs.into_iter().map(|(id, _)| id).collect();
+        if let Some(herbalism) = defs.tech_id(HERBALISM) {
+            match self.healing {
+                HealingPolicy::Sweep | HealingPolicy::Planned => {}
+                HealingPolicy::Off => plan.retain(|&t| t != herbalism),
+            }
+        }
+        plan
     }
 
     /// Issues whatever the opening still wants done, reading `world` fresh. Call this once per
@@ -312,7 +411,10 @@ impl Economy {
         queue_next_known_tech(world, defs, self.research_plan(world.nation, defs).into_iter());
         self.raise_buildings(world, defs, anchor);
         if self.farms {
-            self.sow_farm_plots(world, defs);
+            self.sow_plots(world, defs, "farm_plot");
+        }
+        if self.healing == HealingPolicy::Planned {
+            self.sow_plots(world, defs, HERB_GARDEN);
         }
         let wanted = self.wanted_items(world, defs);
         keep_bends_designated(world, defs, anchor, DEPOSIT_RADIUS, self.people, &wanted);
@@ -390,19 +492,28 @@ impl Economy {
                 }
             }
             "orchard" => u32::from(self.farms),
+            HERB_GARDEN => match self.healing {
+                HealingPolicy::Sweep => 1,
+                HealingPolicy::Off => 0,
+                HealingPolicy::Planned => {
+                    (world.units.len() as u32).div_ceil(PEOPLE_PER_HERB_GARDEN).max(1)
+                }
+            },
             _ => 1,
         }
     }
 
-    /// The most beds `Economy` ever asks for: the "population" sign's target for this nation
-    /// plus `BED_MARGIN` (#513). No cap (`u32::MAX`) if the data has no such sign.
+    /// The most beds `Economy` ever asks for: with `BedPolicy::ToTarget`, the "population"
+    /// sign's target for this nation plus the policy's margin (#513). No cap (`u32::MAX`) under
+    /// `BedPolicy::Ahead`, or if the data has no such sign.
     fn bed_ceiling(&self, world: &World, defs: &Defs) -> u32 {
+        let BedPolicy::ToTarget { margin } = self.beds else { return u32::MAX };
         defs.endeavor
             .signs
             .iter()
             .find(|s| s.kind == SignKind::Population)
             .and_then(|s| s.target_for(world.nation))
-            .map_or(u32::MAX, |t| t.saturating_add(BED_MARGIN))
+            .map_or(u32::MAX, |t| t.saturating_add(margin))
     }
 
     /// One farm plot per `PEOPLE_PER_FARM_PLOT` living settlers, at least 1.
@@ -410,10 +521,11 @@ impl Economy {
         (world.units.len() as u32).div_ceil(PEOPLE_PER_FARM_PLOT).max(1)
     }
 
-    /// Sows every empty farm plot the settlement has built (`Command::Sow`): a plot sits empty
-    /// until sown, then grows and is reaped on its own (`world/farm.rs`).
-    fn sow_farm_plots(&self, world: &mut World, defs: &Defs) {
-        let Some(farm_plot) = defs.building_id("farm_plot") else { return };
+    /// Sows every empty `plot` (a farm plot or an Herb Garden) the settlement has built
+    /// (`Command::Sow`): a plot sits empty until sown, then grows and is reaped on its own
+    /// (`world/farm.rs`).
+    fn sow_plots(&self, world: &mut World, defs: &Defs, plot: &str) {
+        let Some(farm_plot) = defs.building_id(plot) else { return };
         let empty: Vec<Pos> = world
             .buildings()
             .filter(|&(_, id)| id == farm_plot)
@@ -422,6 +534,27 @@ impl Economy {
             .collect();
         for pos in empty {
             let _ = world.apply(Command::Sow { pos }, defs);
+        }
+    }
+}
+
+/// Who plays a run: the economy opening with a policy for each knob, or nobody
+/// (`docs/design/balance-harness.md`, section 2: the `idle` style, difficulty.md's no-input row).
+/// Plain data, so a harness maps its own play styles onto it; `step` is `Economy::step` or
+/// nothing.
+#[derive(Debug, Clone, Copy)]
+pub enum Player {
+    /// Issues no command, ever.
+    Idle,
+    Economy(Economy),
+}
+
+impl Player {
+    /// Issues whatever the player wants done this step; call it once per `Opening::due` tick.
+    pub fn step(&self, world: &mut World, defs: &Defs) {
+        match self {
+            Self::Idle => {}
+            Self::Economy(economy) => economy.step(world, defs),
         }
     }
 }
@@ -1258,5 +1391,65 @@ mod tests {
         assert_eq!(economy.building_target(&met, &defs, bed), ceiling);
         let over = World::new(&cfg, Nation::Fire, target + 4, &defs);
         assert_eq!(economy.building_target(&over, &defs, bed), ceiling);
+    }
+
+    /// #536: the bed policy sets the ceiling, and `Ahead` has none.
+    #[test]
+    fn bed_policy_sets_the_ceiling() {
+        let (world, defs) = world(Nation::Fire);
+        let target = defs
+            .endeavor
+            .signs
+            .iter()
+            .find(|s| s.kind == SignKind::Population)
+            .and_then(|s| s.target_for(Nation::Fire))
+            .unwrap();
+        let bed = defs.building_id("bed").unwrap();
+        let default = Economy::new(6);
+        assert_eq!(default.beds, BedPolicy::ToTarget { margin: BED_MARGIN });
+        let margin = default.with_beds(BedPolicy::ToTarget { margin: 2 });
+        assert_eq!(margin.bed_ceiling(&world, &defs), target + 2);
+        let ahead = default.with_beds(BedPolicy::Ahead);
+        assert_eq!(ahead.bed_ceiling(&world, &defs), u32::MAX);
+        assert_eq!(ahead.building_target(&world, &defs, bed), world.units.len() as u32 + 1);
+    }
+
+    /// #536: `HealingPolicy` sets the Herb Garden's count and whether herbalism is researched.
+    #[test]
+    fn healing_policy_sets_the_herb_garden_count() {
+        let (world, defs) = world(Nation::Fire);
+        let garden = defs.building_id(HERB_GARDEN).unwrap();
+        let herbalism = defs.tech_id(HERBALISM).unwrap();
+        let base = Economy::new(6);
+        // The default is what `Economy` did before the policy existed: one, in file order.
+        assert_eq!(base.healing, HealingPolicy::Sweep);
+        assert_eq!(base.building_target(&world, &defs, garden), 1);
+        assert!(base.research_plan(Nation::Fire, &defs).contains(&herbalism));
+
+        let off = base.with_healing(HealingPolicy::Off);
+        assert_eq!(off.building_target(&world, &defs, garden), 0);
+        assert!(!off.research_plan(Nation::Fire, &defs).contains(&herbalism));
+
+        let planned = base.with_healing(HealingPolicy::Planned);
+        assert_eq!(planned.building_target(&world, &defs, garden), 1);
+        assert_eq!(
+            planned.research_plan(Nation::Fire, &defs),
+            base.research_plan(Nation::Fire, &defs)
+        );
+        // One per 8 people, rounding up.
+        let cfg = MapGenConfig { seed: 7, width: 64, height: 64, ..MapGenConfig::default() };
+        let nine = World::new(&cfg, Nation::Fire, 9, &defs);
+        assert_eq!(planned.building_target(&nine, &defs, garden), 2);
+        assert_eq!(base.building_target(&nine, &defs, garden), 1);
+    }
+
+    /// #536: `Player::Idle` issues nothing, ever.
+    #[test]
+    fn the_idle_player_issues_no_command() {
+        let (mut world, defs) = world(Nation::Earth);
+        Player::Idle.step(&mut world, &defs);
+        assert!(world.command_log().is_empty());
+        Player::Economy(Economy::new(6)).step(&mut world, &defs);
+        assert!(!world.command_log().is_empty());
     }
 }

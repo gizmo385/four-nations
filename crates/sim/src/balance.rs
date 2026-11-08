@@ -196,7 +196,7 @@ pub struct EconomyConfig {
     /// Till farm plots and raise an orchard (`Economy::farms`)? `false` is materials.md's
     /// `--no-farms` check (owner question 2).
     pub farms: bool,
-    /// Research the nation's own branch before the shared tier (`Economy::branch_first`,
+    /// Research the nation's own branch before the shared tier (`Economy::research`,
     /// `docs/design/pacing.md`'s own `--branch-first`, #434): `false` is the default, unchanged
     /// order.
     pub branch_first: bool,

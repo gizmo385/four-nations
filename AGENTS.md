@@ -17,6 +17,7 @@ gets in your way, stop and say so in the work item's Notes instead of working ar
 | `crates/sim` (`fn_sim`) | All game rules and state | Headless and deterministic (see below) |
 | `crates/ui` (`fn_ui`) | Frontend logic shared by every UI (tools, text, view models, theme, clock) | Depends on `fn_sim` only. No I/O, no wall-clock reads |
 | `crates/tui` (`fn_tui`) | The terminal frontend (ratatui + crossterm); `cargo run` plays it | Reads `World`, changes it only via sim APIs. Headless by construction: see below |
+| `crates/harness` (`fn_harness`) | The balance harness (docs/design/balance-harness.md): play styles so far; reads `data/harness.toml` | Depends on `fn_sim`. The only crate that reads `data/harness.toml`; `fn_sim` never does |
 | `data/*.toml` | Nations, biomes, resources, ... | Balance numbers go here, not in code |
 | `xtask/` | Repo tooling | `cargo xtask ci --fast` is the gate |
 | `scripts/` | Dev helpers | |

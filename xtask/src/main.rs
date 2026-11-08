@@ -229,7 +229,7 @@ fn check(crates: &[String], fast: bool) -> Result {
 /// transitively, on `c` -- so a change in `c` also has to retest them.
 fn dependents(c: &str) -> &'static [&'static str] {
     match c {
-        "fn_sim" => &["fn_ui", "fn_tui", "fn_agent"],
+        "fn_sim" => &["fn_ui", "fn_tui", "fn_agent", "fn_harness"],
         "fn_ui" => &["fn_tui", "fn_agent"],
         "fn_tui" => &["fn_agent"],
         _ => &[],
@@ -242,7 +242,11 @@ fn dependents(c: &str) -> &'static [&'static str] {
 /// as a change to all of them.
 fn crates_for_path(p: &str) -> Vec<&'static str> {
     if p == "Cargo.toml" || p == "Cargo.lock" {
-        return vec!["fn_sim", "fn_ui", "fn_tui", "fn_agent", "xtask"];
+        return vec!["fn_sim", "fn_ui", "fn_tui", "fn_agent", "fn_harness", "xtask"];
+    }
+    // `data/harness.toml` is the harness crate's own (compiled into `fn_harness`, never `fn_sim`).
+    if p == "data/harness.toml" || p.starts_with("crates/harness/") {
+        return vec!["fn_harness"];
     }
     if p.starts_with("data/") || p.starts_with("crates/sim/") {
         return vec!["fn_sim"];

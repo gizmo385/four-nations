@@ -1,0 +1,48 @@
+# The balance harness's own data (docs/design/balance-harness.md), read by `fn_harness` and never
+# by `fn_sim`. Strict keys: a misspelt field is an error at load, not a silent default.
+
+# --- Play styles (section 2, #536) ---
+# One reference player that behaves the way a steady person does, plus a few variants that each
+# exist to test one target. A style is the same for every nation: nothing here names one.
+#
+#   opening      "economy" (fn_sim::autoplay::Economy) or "none" (no commands at all)
+#   farms        till farm plots and raise an orchard
+#   healing      true: one Herb Garden per 8 people, each sown (herbalism comes in its place in
+#                the research order, #394); false: never research herbalism or build a Herb
+#                Garden; absent: whatever the economy opening does by default (one, never sown)
+#   beds         "to_target": one ahead of the population, stopping at the "population" sign's
+#                target plus `bed_margin` (#513); "ahead": one ahead, no ceiling
+#   bed_margin   only with beds = "to_target"; absent means the economy opening's own margin
+#   research     "shared_first" (the shared tier, then the nation's branch) or "branch_first"
+#   inherits     another style's id; every field not set here comes from it
+#
+# A field left out of a style that doesn't inherit takes the economy opening's own default.
+
+# The reference: every target uses it unless it names another.
+[[style]]
+id = "steady"
+opening = "economy"
+farms = true
+healing = true
+beds = "to_target"
+bed_margin = 2
+research = "shared_first"
+
+# harm.md's careless colony: no farms, no healing, beds unlimited.
+[[style]]
+id = "careless"
+opening = "economy"
+farms = false
+healing = false
+beds = "ahead"
+
+# pacing.md's "a player who goes branch first".
+[[style]]
+id = "branch_first"
+inherits = "steady"
+research = "branch_first"
+
+# difficulty.md's no-input row.
+[[style]]
+id = "idle"
+opening = "none"

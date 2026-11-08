@@ -457,6 +457,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fn_harness"
+version = "0.1.0"
+dependencies = [
+ "fn_sim",
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "fn_sim"
 version = "0.1.0"
 dependencies = [
