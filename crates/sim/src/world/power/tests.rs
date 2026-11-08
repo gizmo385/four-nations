@@ -77,6 +77,20 @@ fn a_tile_within_reach_is_powered_at_the_sources_boost() {
 }
 
 #[test]
+fn a_footprint_is_powered_when_any_tile_of_it_is_in_reach() {
+    let mut defs = Defs::bundled();
+    let source = test_source(&mut defs, 3, 1.5);
+    let mut w = World::with_map(1, arena(12), Nation::Water, &[at(0, 0)], &defs);
+    raise_source(&mut w, &defs, source, at(5, 5));
+
+    // A 2x2 whose anchor (1, 5) is 4 tiles away, but whose far column (2, 5) is 3 away.
+    let two_by_two = Footprint::new(at(1, 5), 2, 2);
+    assert!(w.power_at(at(1, 5), &defs).is_none(), "the anchor alone is out of reach");
+    assert_eq!(w.power_for(two_by_two, &defs), Some(PowerAt { source: at(5, 5), boost: 1.5 }));
+    assert!(w.power_for(Footprint::new(at(0, 5), 2, 2), &defs).is_none());
+}
+
+#[test]
 fn two_sources_in_reach_give_the_best_boost_not_the_product() {
     let mut defs = Defs::bundled();
     let weak = test_source(&mut defs, 3, 1.5);

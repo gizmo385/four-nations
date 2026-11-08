@@ -301,6 +301,14 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
     }
 }
 
+/// A power boost as the player reads it (#452): two decimal places with trailing zeros dropped,
+/// so 1.25 is "1.25x", 1.5 is "1.5x" and 2.0 is "2x". One decimal would print the Windmill's
+/// 1.25 and a 1.2 source alike as "1.2x".
+pub fn boost_label(boost: f32) -> String {
+    let s = format!("{boost:.2}");
+    format!("{}x", s.trim_end_matches('0').trim_end_matches('.'))
+}
+
 #[cfg(test)]
 mod tests {
     use fn_sim::Nation;
@@ -324,6 +332,14 @@ mod tests {
             .map(|(p, _)| p)
             .min_by_key(|p| (p.x - home.x).abs().max((p.y - home.y).abs()))
             .expect("a tree on the map")
+    }
+
+    #[test]
+    fn boosts_print_two_places_with_trailing_zeros_dropped() {
+        assert_eq!(boost_label(1.25), "1.25x");
+        assert_eq!(boost_label(1.2), "1.2x");
+        assert_eq!(boost_label(1.5), "1.5x");
+        assert_eq!(boost_label(2.0), "2x");
     }
 
     #[test]

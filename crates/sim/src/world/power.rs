@@ -82,12 +82,20 @@ impl World {
         reaching
     }
 
-    /// Which source powers `pos`, and at what boost: the best among sources whose reach covers
-    /// it, for a client's cursor panel (#429). `None` if nothing reaches it.
-    pub fn power_at(&self, pos: Pos, defs: &Defs) -> Option<PowerAt> {
-        let (source, def) =
-            self.sources_reaching(Footprint::single(pos), defs).into_iter().next()?;
+    /// Which source powers a consumer whose footprint is `footprint`, and at what boost: the best
+    /// among sources whose reach covers any of its tiles, exactly what `power_boost` scales work
+    /// by. For a client's readouts (#429, #452): ask with the building's `footprint_at`, so a
+    /// multi-tile consumer reached only through a far tile reads as powered. `None` if nothing
+    /// reaches it.
+    pub fn power_for(&self, footprint: Footprint, defs: &Defs) -> Option<PowerAt> {
+        let (source, def) = self.sources_reaching(footprint, defs).into_iter().next()?;
         Some(PowerAt { source, boost: def.boost })
+    }
+
+    /// Which source powers the single tile `pos` (`power_for` over `Footprint::single`): for the
+    /// reach tint and the cursor panel on an empty tile (#429).
+    pub fn power_at(&self, pos: Pos, defs: &Defs) -> Option<PowerAt> {
+        self.power_for(Footprint::single(pos), defs)
     }
 
     /// The best boost a consumer whose footprint is `footprint` runs at: 1.0 with no source in

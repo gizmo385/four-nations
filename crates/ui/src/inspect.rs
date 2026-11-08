@@ -94,17 +94,21 @@ fn ground_line(world: &World, defs: &Defs, tile: Pos) -> Option<String> {
 }
 
 /// How many finished, `uses_power` buildings currently have `source` as the one that actually
-/// powers them: the best boost in reach (`World::power_at`), not merely every building its reach
-/// physically covers (two sources never both power one building, #428). For a source's own
-/// "Powering" readout (#429). Counted by anchor (`Building::part` zero), so a multi-tile
-/// consumer isn't counted once per tile.
+/// powers them: the best boost in reach (`World::power_for` over the consumer's whole footprint,
+/// as the sim scales its work), not merely every building its reach physically covers (two
+/// sources never both power one building, #428). For a source's own "Powering" readout (#429).
+/// Counted by anchor (`Building::part` zero), so a multi-tile consumer isn't counted once per
+/// tile.
 fn powering_count(world: &World, defs: &Defs, source: Pos) -> usize {
     world
         .map
         .iter()
         .filter(|&(p, t)| {
             t.building.is_some_and(|b| b.part == [0, 0] && defs.building(b.id).uses_power)
-                && world.power_at(p, defs).is_some_and(|at| at.source == source)
+                && world
+                    .footprint_at(p)
+                    .and_then(|f| world.power_for(f, defs))
+                    .is_some_and(|at| at.source == source)
         })
         .count()
 }
@@ -123,13 +127,14 @@ fn power_lines(world: &World, defs: &Defs, anchor: Pos, building: BuildingId) ->
             format!("Powering: {powering} building{}", if powering == 1 { "" } else { "s" }),
         ]
     } else if def.uses_power {
-        let line = match world.power_at(anchor, defs) {
+        let powered = world.footprint_at(anchor).and_then(|f| world.power_for(f, defs));
+        let line = match powered {
             Some(p) => {
                 let source = world.building_at(p.source).expect("a registered source stands here");
                 format!(
-                    "Powered: {}, {:.1}x",
+                    "Powered: {}, {}",
                     defs.building(source).display_name(world.nation),
-                    p.boost
+                    crate::text::boost_label(p.boost)
                 )
             }
             None => "Unpowered".to_owned(),
@@ -667,6 +672,51 @@ mod tests {
             source_lines.contains(&Line::Detail("Reach: 3 tiles".to_owned())),
             "{source_lines:?}"
         );
+        assert!(
+            source_lines.contains(&Line::Detail("Powering: 1 building".to_owned())),
+            "{source_lines:?}"
+        );
+    }
+
+    /// A 2x2 consumer whose anchor is out of reach but whose far tile is in reach is powered
+    /// (the sim scales its work by `power_boost` over the whole footprint), and its source
+    /// counts it (issue #452). A 1.25 boost prints as "1.25x", not "1.2x".
+    #[test]
+    fn a_big_consumer_reached_only_through_a_far_tile_reads_powered_and_is_counted() {
+        use fn_sim::building::{Building, PowerDef};
+        use fn_sim::geom::Footprint;
+        let mut s = Session::new(7, Nation::Water, 24, 24);
+        let source_id = s.defs.building_id("bed").unwrap();
+        s.defs.buildings[source_id.0 as usize].power =
+            Some(PowerDef { radius: 3, boost: 1.25, boost_millis: 1250 });
+        let consumer_id = s.defs.building_id("earth_wall").unwrap();
+        s.defs.buildings[consumer_id.0 as usize].uses_power = true;
+
+        let source_at = Pos::new(10, 10);
+        // The anchor (6, 10) is 4 tiles from the source, out of reach; the tile (7, 10) of the
+        // same footprint is 3 away, in reach.
+        let anchor = Pos::new(6, 10);
+        let foot = Footprint::new(anchor, 2, 2);
+        s.world.units.retain(|u| u.pos != source_at && !foot.contains(u.pos));
+        s.world.map.get_mut(source_at).unwrap().building =
+            Some(Building::new(source_id, true, false));
+        s.world.adopt_power_sources(&s.defs);
+        for p in foot.tiles() {
+            let part = [(p.x - anchor.x) as u8, (p.y - anchor.y) as u8];
+            let b = Building { part, size: [2, 2], ..Building::new(consumer_id, true, false) };
+            s.world.map.get_mut(p).unwrap().building = Some(b);
+        }
+        assert!(s.world.power_at(anchor, &s.defs).is_none(), "the anchor alone is out of reach");
+
+        let source_name = s.defs.building(source_id).display_name(s.world.nation).to_owned();
+        for p in foot.tiles() {
+            let lines = tile_lines(&s, Tool::Select, p).unwrap();
+            assert!(
+                lines.contains(&Line::Detail(format!("Powered: {source_name}, 1.25x"))),
+                "{p:?}: {lines:?}"
+            );
+        }
+        let source_lines = tile_lines(&s, Tool::Select, source_at).unwrap();
         assert!(
             source_lines.contains(&Line::Detail("Powering: 1 building".to_owned())),
             "{source_lines:?}"

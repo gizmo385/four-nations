@@ -454,7 +454,7 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
     if let Some(power) = &def.power {
         let reach = power.radius_for(session.world.modifiers().power_generation);
         effects.push(format!("Powers buildings within {reach} tiles"));
-        effects.push(format!("Powered work: {:.1}x faster", power.boost));
+        effects.push(format!("Powered work: {} faster", crate::text::boost_label(power.boost)));
     }
     if def.uses_power {
         effects.push("Uses power".to_owned());
@@ -786,6 +786,10 @@ mod tests {
         );
         assert!(detail.effects.contains(&"Powered work: 1.5x faster".to_owned()), "{detail:?}");
         assert!(!detail.effects.contains(&"Nothing beyond shelter".to_owned()), "{detail:?}");
+        earth.defs.buildings[wall.0 as usize].power =
+            Some(PowerDef { radius: 3, boost: 1.25, boost_millis: 1250 });
+        let detail = building_detail(&earth, wall);
+        assert!(detail.effects.contains(&"Powered work: 1.25x faster".to_owned()), "{detail:?}");
 
         let workshop = earth.defs.building_id("workshop").unwrap();
         let workshop_detail = building_detail(&earth, workshop);
