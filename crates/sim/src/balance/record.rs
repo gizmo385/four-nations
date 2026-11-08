@@ -1,0 +1,306 @@
+//! One run, recorded whole (`docs/design/balance-harness.md`, sections 3 and 8; #534): [`run`]
+//! plays a [`RunSpec`] and returns a [`RunRecord`] with everything the run knows about itself, the
+//! numbers the old `run_economy` report carried plus the site profile, the care tally, the run's
+//! health flags and an autopsy for every death. The `balance` binary and the `fn_harness` crate
+//! (#537) read records; nothing here prints, reads a file or spawns a thread.
+//!
+//! A record is a pure function of its spec and `Defs`: the same spec always gives an equal one,
+//! because the world draws only seeded randomness, the player reads only the world and the probe
+//! only reads it.
+
+use std::collections::BTreeSet;
+
+use crate::autoplay::{self, Economy, Opening, Player};
+use crate::building::BuildingId;
+use crate::defs::Defs;
+use crate::embark::Survey;
+use crate::endeavor;
+use crate::jobs::ItemId;
+use crate::mapgen::MapGenConfig;
+use crate::nation::Nation;
+use crate::world::{CareNeed, EndeavorEventKind, SeasonEventKind, Severe, World};
+
+use super::autopsy::Autopsy;
+use super::probe::{Detectors, Probe, Raised, Watch};
+use super::site::SiteProfile;
+use super::{
+    DecisionEvent, EconomyReport, EconomySeason, IDLE_WINDOW_MINUTES, PEOPLE, decision_events,
+    decision_gaps, economy_season, minutes_to_ticks, ready_minute, sample_idle_share,
+    ticks_to_minutes,
+};
+
+/// What one run varies: the start, who plays and how closely the run is watched.
+#[derive(Debug, Clone)]
+pub struct RunSpec {
+    pub seed: u64,
+    pub nation: Nation,
+    /// A `data/difficulty.toml` preset id, or `None` for identity (`World::found`'s meaning).
+    pub preset: Option<String>,
+    pub minutes: f32,
+    pub width: i32,
+    pub height: i32,
+    /// Who plays: nobody, or the economy opening with a policy for each knob (the play style,
+    /// `docs/design/balance-harness.md`, section 2; `fn_harness` maps its `data/harness.toml`
+    /// styles onto this).
+    pub player: Player,
+    /// The health probe's thresholds.
+    pub detectors: Detectors,
+}
+
+impl RunSpec {
+    /// The reference run for `seed` and `nation`: the small map, Normal, the economy opening in
+    /// its default style, the doc's detector thresholds.
+    pub fn new(seed: u64, nation: Nation, minutes: f32, defs: &Defs) -> Self {
+        let size = defs.embark.map_size("small").expect("bundled data always has a small map size");
+        Self {
+            seed,
+            nation,
+            preset: Some("normal".to_owned()),
+            minutes,
+            width: size.width,
+            height: size.height,
+            player: Player::Economy(Economy::new(PEOPLE)),
+            detectors: Detectors::default(),
+        }
+    }
+}
+
+/// The care tally (`World::care()`) in minutes, the way a consumer reads it.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct CareSummary {
+    /// Minutes lived, summed over settlers: the denominator of every rate.
+    pub person_minutes: f64,
+    /// Person-minutes with hunger, thirst and energy at 0, in that order.
+    pub depleted_minutes: [f64; 3],
+    /// Person-minutes with each severe flag (Starving, Parched, Exhausted, Dying), a breakdown
+    /// rather than a total.
+    pub severe_minutes: [f64; 4],
+    /// Person-minutes with at least one severe flag.
+    pub severe_any_minutes: f64,
+    /// Person-minutes asleep without shelter in the cold, with exposure applying.
+    pub cold_minutes: f64,
+    pub close_calls: u32,
+    pub lowest_health: Option<f32>,
+}
+
+impl CareSummary {
+    pub fn of(world: &World) -> Self {
+        let care = world.care();
+        Self {
+            person_minutes: care.person_minutes(),
+            depleted_minutes: CareNeed::ALL.map(|n| care.depleted_minutes(n)),
+            severe_minutes: Severe::ALL.map(|s| care.severe_minutes(s)),
+            severe_any_minutes: care.severe_any_minutes(),
+            cold_minutes: care.cold_minutes(),
+            close_calls: care.close_calls(),
+            lowest_health: care.lowest_health(),
+        }
+    }
+}
+
+/// Everything one run knows about itself (module doc).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct RunRecord {
+    pub seed: u64,
+    pub nation: Nation,
+    pub preset: Option<String>,
+    pub minutes: f32,
+    /// The player, as `Debug` prints it: for a human reading the JSON, not a key.
+    pub style: String,
+    pub site: SiteProfile,
+    /// One entry at tick 0, plus one per season boundary reached (`EconomyReport::seasons`).
+    pub seasons: Vec<EconomySeason>,
+    /// Every sign in `data/endeavor.toml`'s order with the minute it was first met.
+    pub sign_minutes: Vec<(String, Option<f32>)>,
+    /// Every decision event in minute order (`EconomyReport::timeline`).
+    pub timeline: Vec<DecisionEvent>,
+    pub first_built: Vec<(String, Option<f32>)>,
+    pub recipe_stores: Vec<(String, u32)>,
+    pub techs: Vec<(String, f32)>,
+    pub longest_gap: Option<(f32, f32)>,
+    pub gaps_over_15: u32,
+    pub idle_share: Vec<(f32, f32)>,
+    pub care: CareSummary,
+    pub first_death_minute: Option<f32>,
+    pub deaths: u32,
+    /// Living settlers when the run ended.
+    pub population: u32,
+    /// An autopsy per death, oldest first.
+    pub autopsies: Vec<Autopsy>,
+    /// Every health flag raised, in `Flag::ALL`'s order, with the minute each first was.
+    pub flags: Vec<Raised>,
+}
+
+impl RunRecord {
+    /// The record as the older economy report: the part of it `run_economy` has always returned.
+    pub fn economy_report(&self) -> EconomyReport {
+        EconomyReport {
+            seasons: self.seasons.clone(),
+            sign_minutes: self.sign_minutes.clone(),
+            first_built: self.first_built.clone(),
+            recipe_stores: self.recipe_stores.clone(),
+            techs: self.techs.clone(),
+            timeline: self.timeline.clone(),
+            longest_gap: self.longest_gap,
+            gaps_over_15: self.gaps_over_15,
+            idle_share: self.idle_share.clone(),
+            first_death_minute: self.first_death_minute,
+            deaths: self.deaths,
+        }
+    }
+
+    /// The minute `flag` was first raised, if it was.
+    pub fn flag_minute(&self, flag: super::probe::Flag) -> Option<f32> {
+        self.flags.iter().find(|r| r.flag == flag).map(|r| r.minute)
+    }
+}
+
+/// Plays `spec` and records it (module doc). Panics only if `spec.preset` or the map size names
+/// something `World::found` refuses at the default site, which the bundled data never does.
+pub fn run(spec: &RunSpec, defs: &Defs) -> RunRecord {
+    run_world(spec, defs).0
+}
+
+/// `run`, and the world as the run left it, for the scored runs (`run_economy_scored`).
+pub(super) fn run_world(spec: &RunSpec, defs: &Defs) -> (RunRecord, World) {
+    let map_cfg = MapGenConfig {
+        seed: spec.seed,
+        width: spec.width,
+        height: spec.height,
+        ..MapGenConfig::default()
+    };
+    let survey = Survey::new(&map_cfg, defs);
+    let start = survey.default_site(defs);
+    let site = SiteProfile::compute(&survey, start, spec.nation, defs);
+    let mut world = World::found(survey, spec.nation, start, PEOPLE, spec.preset.clone(), defs)
+        .expect("Survey::default_site always names a site World::found accepts");
+
+    let stone_items = autoplay::sign_items(defs, "stone");
+    let ore_items = autoplay::sign_items(defs, "ore");
+    let wood = defs.item_id("wood");
+
+    let reachable: Vec<BuildingId> =
+        endeavor::reachable_buildings(spec.nation, &defs.techs, &defs.buildings).collect();
+    let mut first_built: Vec<Option<f32>> = vec![None; reachable.len()];
+    // One `(idle, total)` tally per 15-minute window (`EconomyReport::idle_share`), grown as the
+    // run reaches a later window.
+    let mut idle_windows: Vec<(u32, u32)> = Vec::new();
+
+    let mut probe = Probe::new(&world, defs, &site);
+    let mut watch = Watch::new(spec.detectors);
+    let mut autopsies: Vec<Autopsy> = Vec::new();
+
+    let total_ticks = minutes_to_ticks(spec.minutes);
+    // `World::tick_season` only ever logs a `Changed` event at a later boundary, so spring, year
+    // 1 is reported here, the way `World::season_index` already treats a fresh world.
+    let mut seasons = vec![economy_season(
+        &world,
+        defs,
+        world.season_index(defs),
+        &stone_items,
+        &ore_items,
+        wood,
+    )];
+    for tick in 0..total_ticks {
+        if Opening::due(tick) {
+            watch.observe(&probe.sample(&world, defs));
+            spec.player.step(&mut world, defs);
+            if first_built.iter().any(Option::is_none) {
+                let standing: BTreeSet<BuildingId> = world.buildings().map(|(_, b)| b).collect();
+                for (slot, b) in first_built.iter_mut().zip(&reachable) {
+                    if slot.is_none() && standing.contains(b) {
+                        *slot = Some(ticks_to_minutes(world.tick));
+                    }
+                }
+            }
+            sample_idle_share(&world, &mut idle_windows);
+        }
+        world.tick(defs);
+
+        if world.deaths.len() > autopsies.len() {
+            autopsies.extend(probe.autopsies(&world, defs));
+        }
+        for ev in world.season_events().iter().rev().take_while(|e| e.tick == world.tick) {
+            if let SeasonEventKind::Changed { season } = ev.kind {
+                seasons.push(economy_season(&world, defs, season, &stone_items, &ore_items, wood));
+            }
+        }
+    }
+
+    let sign_minutes: Vec<(String, Option<f32>)> = defs
+        .endeavor
+        .signs
+        .iter()
+        .map(|s| {
+            let minute = world.endeavor_events().iter().find_map(|e| match &e.kind {
+                EndeavorEventKind::SignMet(id) if *id == s.id => Some(ticks_to_minutes(e.tick)),
+                _ => None,
+            });
+            (s.id.clone(), minute)
+        })
+        .collect();
+
+    let first_built = reachable
+        .iter()
+        .zip(first_built)
+        .map(|(&b, minute)| (defs.building(b).id.clone(), minute))
+        .collect();
+    let recipe_items: BTreeSet<ItemId> = reachable
+        .iter()
+        .filter_map(|&b| defs.building(b).recipe.as_ref())
+        .flat_map(|r| r.inputs.iter().chain(std::iter::once(&r.output)).map(|c| c.item))
+        .chain(ore_items.iter().copied())
+        .collect();
+    let recipe_stores = recipe_items
+        .into_iter()
+        .map(|item| (defs.item(item).id.clone(), world.stored_total(item)))
+        .collect();
+
+    let techs: Vec<(String, f32)> = world
+        .research()
+        .completions()
+        .iter()
+        .map(|c| (defs.tech(c.tech).id.clone(), ticks_to_minutes(c.tick)))
+        .collect();
+    let timeline = decision_events(&world, defs, &sign_minutes);
+    let ready = ready_minute(&sign_minutes, spec.minutes);
+    let gaps = decision_gaps(&timeline, ready);
+    let longest_gap = gaps.iter().copied().max_by(|a, b| (a.1 - a.0).total_cmp(&(b.1 - b.0)));
+    let gaps_over_15 = gaps.iter().filter(|&&(start, end)| end - start > 15.0).count() as u32;
+    let idle_share: Vec<(f32, f32)> = idle_windows
+        .iter()
+        .enumerate()
+        .map(|(window, &(idle, total))| {
+            let share = if total > 0 { idle as f32 / total as f32 } else { 0.0 };
+            (window as f32 * IDLE_WINDOW_MINUTES, share)
+        })
+        .collect();
+
+    let record = RunRecord {
+        seed: spec.seed,
+        nation: spec.nation,
+        preset: spec.preset.clone(),
+        minutes: spec.minutes,
+        style: format!("{:?}", spec.player),
+        site,
+        seasons,
+        sign_minutes,
+        timeline,
+        first_built,
+        recipe_stores,
+        techs,
+        longest_gap,
+        gaps_over_15,
+        idle_share,
+        care: CareSummary::of(&world),
+        first_death_minute: world.deaths.first().map(|d| ticks_to_minutes(d.tick)),
+        deaths: world.deaths.len() as u32,
+        population: world.units.len() as u32,
+        autopsies,
+        flags: watch.raised(),
+    };
+    (record, world)
+}
+
+#[cfg(test)]
+mod tests;

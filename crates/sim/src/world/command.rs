@@ -69,6 +69,35 @@ pub enum CommandError {
     Endeavor(EndeavorError),
 }
 
+impl CommandError {
+    /// Whether a stateless player (`autoplay`) gets this refusal as a matter of course: it asked
+    /// for what is already so (`AlreadyDesignated`, `AlreadyKnown`, `PlotNotEmpty`), for something
+    /// not unlocked yet, or tried a bend on a tile to let validation say whether it fits. Such a
+    /// player re-issues its whole plan every step, so these number in the thousands and say
+    /// nothing; any other refusal means a command that was wrong (`World::refusals`).
+    pub fn is_routine(&self) -> bool {
+        match self {
+            Self::Designate(e) => matches!(
+                e,
+                DesignateError::AlreadyDesignated
+                    | DesignateError::NotDesignated
+                    | DesignateError::NotResearched(_)
+                    | DesignateError::PlotNotEmpty
+            ),
+            Self::Research(e) => matches!(e, ResearchError::AlreadyKnown),
+            Self::Bend(e) => matches!(
+                e,
+                BendError::AlreadyDesignated
+                    | BendError::NotDesignated
+                    | BendError::Locked { .. }
+                    | BendError::InvalidTarget(_)
+            ),
+            Self::Build(e) => matches!(e, BuildError::NotResearched(_) | BuildError::NotDesignated),
+            Self::Endeavor(e) => matches!(e, EndeavorError::NotReady),
+        }
+    }
+}
+
 impl From<DesignateError> for CommandError {
     fn from(e: DesignateError) -> Self {
         Self::Designate(e)
@@ -133,6 +162,12 @@ impl World {
     /// Applies a player command. On success it is added to the command log; on failure the world
     /// is untouched.
     pub fn apply(&mut self, command: Command, defs: &Defs) -> Result<(), CommandError> {
+        let result = self.apply_command(command, defs);
+        self.refusals.record(result.as_ref().err());
+        result
+    }
+
+    fn apply_command(&mut self, command: Command, defs: &Defs) -> Result<(), CommandError> {
         match command {
             Command::DesignateHarvest { pos } => self.designate_harvest(pos, defs).map(drop)?,
             Command::DesignateRepeatingHarvest { pos } => {

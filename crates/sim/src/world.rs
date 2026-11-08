@@ -40,6 +40,7 @@ mod inside;
 mod orchard;
 mod population;
 mod power;
+mod probe;
 mod season;
 mod strain;
 mod stride;
@@ -66,6 +67,7 @@ pub use harm::{HarmEvent, HarmEventKind, HarmKind};
 pub use heat::{Aura, Flame, Glow, HeatSource};
 pub use population::Arrival;
 pub use power::PowerAt;
+pub use probe::{Reach, Refusals};
 pub use season::{SeasonEvent, SeasonEventKind};
 pub use strain::StrainEvent;
 pub use stride::{STRIDE_LOOKAHEAD, Stride};
@@ -389,6 +391,10 @@ pub struct World {
     /// (`care.rs`, #533). A save from before #533 loads with zeros.
     #[serde(default)]
     care: CareTally,
+    /// How many commands `apply` refused, and how many in a row since the last one it took
+    /// (`probe.rs`, #534). Not saved: it describes the session, not the settlement.
+    #[serde(skip)]
+    refusals: probe::Refusals,
     /// Where the end game stands (`endeavor.rs`, #234): Dormant until every sign is met at once.
     #[serde(default)]
     endeavor: EndeavorState,
@@ -531,6 +537,7 @@ impl World {
             power_sources: BTreeSet::new(),
             tallies: Tallies::default(),
             care: CareTally::default(),
+            refusals: probe::Refusals::default(),
             endeavor: EndeavorState::Dormant,
             endeavor_log: EndeavorLog::default(),
             avatar: AvatarState::default(),

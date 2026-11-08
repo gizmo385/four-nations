@@ -26,11 +26,19 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::autoplay::{self, Economy, Opening};
-use crate::building::BuildingId;
+mod autopsy;
+mod probe;
+mod record;
+mod site;
+
+pub use autopsy::Autopsy;
+pub use probe::{Detectors, Flag, FlagClass, Occupation, Probe, Raised, Sample, Watch};
+pub use record::{CareSummary, RunRecord, RunSpec, run as run_record};
+pub use site::{BORE_LIMIT, OPEN_RADIUS, SiteProfile};
+
+use crate::autoplay::{Economy, Opening, Player};
 use crate::defs::Defs;
 use crate::embark::Survey;
-use crate::endeavor;
 use crate::geom::Pos;
 use crate::jobs::ItemId;
 use crate::mapgen::MapGenConfig;
@@ -207,7 +215,7 @@ pub struct EconomyConfig {
 /// One season's snapshot (`run_economy`, `docs/design/materials.md` section 7: "stone stored,
 /// ore mined, food per head, wood stored, population, signs met, and the minute each sign was
 /// first met").
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct EconomySeason {
     pub year: u64,
     /// Index into `defs.seasons.seasons`; the caller names it (`SeasonDef::name`).
@@ -232,7 +240,7 @@ pub struct EconomySeason {
 /// time. `label` names what happened (the tech's name, or `"<sign name> met"`), for printing;
 /// nothing here is keyed by id, since the timeline is read-only output, not state a caller looks
 /// things up in.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct DecisionEvent {
     pub minute: f32,
     pub label: String,
@@ -314,128 +322,20 @@ pub fn run_economy_scored(
 }
 
 fn run_economy_world(cfg: &EconomyConfig, defs: &Defs) -> (EconomyReport, World) {
-    let map_cfg = MapGenConfig {
-        seed: cfg.seed,
-        width: cfg.width,
-        height: cfg.height,
-        ..MapGenConfig::default()
-    };
-    let survey = Survey::new(&map_cfg, defs);
-    let start = survey.default_site(defs);
-    let mut world = World::found(survey, cfg.nation, start, PEOPLE, cfg.preset.clone(), defs)
-        .expect("Survey::default_site always names a site World::found accepts");
     let economy = if cfg.farms { Economy::new(PEOPLE) } else { Economy::without_farms(PEOPLE) };
     let economy = if cfg.branch_first { economy.with_branch_first() } else { economy };
-
-    let stone_items = autoplay::sign_items(defs, "stone");
-    let ore_items = autoplay::sign_items(defs, "ore");
-    let wood = defs.item_id("wood");
-
-    let reachable: Vec<BuildingId> =
-        endeavor::reachable_buildings(cfg.nation, &defs.techs, &defs.buildings).collect();
-    let mut first_built: Vec<Option<f32>> = vec![None; reachable.len()];
-    // One `(idle, total)` tally per 15-minute window (`idle_share`'s own module doc), grown as
-    // the run reaches a later window (`idle_window` below always moves forward with `tick`, so
-    // a window is only ever touched once reached).
-    let mut idle_windows: Vec<(u32, u32)> = Vec::new();
-
-    let total_ticks = minutes_to_ticks(cfg.minutes);
-    // `World::tick_season` only ever logs a `Changed` event at a later boundary (`World::tick`
-    // increments the tick before checking, so tick 0 itself never is one): spring, year 1 is
-    // reported here instead, the same way `World::season_index` already treats a fresh world.
-    let mut seasons = vec![economy_season(
-        &world,
-        defs,
-        world.season_index(defs),
-        &stone_items,
-        &ore_items,
-        wood,
-    )];
-    for tick in 0..total_ticks {
-        if Opening::due(tick) {
-            economy.step(&mut world, defs);
-            if first_built.iter().any(Option::is_none) {
-                let standing: BTreeSet<BuildingId> = world.buildings().map(|(_, b)| b).collect();
-                for (slot, b) in first_built.iter_mut().zip(&reachable) {
-                    if slot.is_none() && standing.contains(b) {
-                        *slot = Some(ticks_to_minutes(world.tick));
-                    }
-                }
-            }
-            sample_idle_share(&world, &mut idle_windows);
-        }
-        world.tick(defs);
-
-        for ev in world.season_events().iter().rev().take_while(|e| e.tick == world.tick) {
-            if let SeasonEventKind::Changed { season } = ev.kind {
-                seasons.push(economy_season(&world, defs, season, &stone_items, &ore_items, wood));
-            }
-        }
-    }
-
-    let sign_minutes: Vec<(String, Option<f32>)> = defs
-        .endeavor
-        .signs
-        .iter()
-        .map(|s| {
-            let minute = world.endeavor_events().iter().find_map(|e| match &e.kind {
-                EndeavorEventKind::SignMet(id) if *id == s.id => Some(ticks_to_minutes(e.tick)),
-                _ => None,
-            });
-            (s.id.clone(), minute)
-        })
-        .collect();
-
-    let first_built = reachable
-        .iter()
-        .zip(first_built)
-        .map(|(&b, minute)| (defs.building(b).id.clone(), minute))
-        .collect();
-    let recipe_items: BTreeSet<ItemId> = reachable
-        .iter()
-        .filter_map(|&b| defs.building(b).recipe.as_ref())
-        .flat_map(|r| r.inputs.iter().chain(std::iter::once(&r.output)).map(|c| c.item))
-        .chain(ore_items.iter().copied())
-        .collect();
-    let recipe_stores = recipe_items
-        .into_iter()
-        .map(|item| (defs.item(item).id.clone(), world.stored_total(item)))
-        .collect();
-
-    let techs: Vec<(String, f32)> = world
-        .research()
-        .completions()
-        .iter()
-        .map(|c| (defs.tech(c.tech).id.clone(), ticks_to_minutes(c.tick)))
-        .collect();
-    let timeline = decision_events(&world, defs, &sign_minutes);
-    let ready = ready_minute(&sign_minutes, cfg.minutes);
-    let gaps = decision_gaps(&timeline, ready);
-    let longest_gap = gaps.iter().copied().max_by(|a, b| (a.1 - a.0).total_cmp(&(b.1 - b.0)));
-    let gaps_over_15 = gaps.iter().filter(|&&(start, end)| end - start > 15.0).count() as u32;
-    let idle_share: Vec<(f32, f32)> = idle_windows
-        .iter()
-        .enumerate()
-        .map(|(window, &(idle, total))| {
-            let share = if total > 0 { idle as f32 / total as f32 } else { 0.0 };
-            (window as f32 * IDLE_WINDOW_MINUTES, share)
-        })
-        .collect();
-
-    let report = EconomyReport {
-        seasons,
-        sign_minutes,
-        first_built,
-        recipe_stores,
-        techs,
-        timeline,
-        longest_gap,
-        gaps_over_15,
-        idle_share,
-        first_death_minute: world.deaths.first().map(|d| ticks_to_minutes(d.tick)),
-        deaths: world.deaths.len() as u32,
+    let spec = RunSpec {
+        seed: cfg.seed,
+        nation: cfg.nation,
+        preset: cfg.preset.clone(),
+        minutes: cfg.minutes,
+        width: cfg.width,
+        height: cfg.height,
+        player: Player::Economy(economy),
+        detectors: Detectors::default(),
     };
-    (report, world)
+    let (record, world) = record::run_world(&spec, defs);
+    (record.economy_report(), world)
 }
 
 /// How wide an `idle_share` window is, in minutes (`EconomyReport::idle_share`'s own module doc;
@@ -886,7 +786,7 @@ mod tests {
         let c = economy_cfg(Nation::Earth, 20.0, true);
         let report = run_economy(&c, &defs);
         let reachable: Vec<String> =
-            endeavor::reachable_buildings(Nation::Earth, &defs.techs, &defs.buildings)
+            crate::endeavor::reachable_buildings(Nation::Earth, &defs.techs, &defs.buildings)
                 .map(|b| defs.building(b).id.clone())
                 .collect();
         let listed: Vec<String> = report.first_built.iter().map(|(id, _)| id.clone()).collect();

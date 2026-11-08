@@ -473,6 +473,7 @@ dependencies = [
  "rand_chacha",
  "ron",
  "serde",
+ "serde_json",
  "toml",
 ]
 

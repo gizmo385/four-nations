@@ -555,7 +555,7 @@ impl World {
 
     /// The harvest for the resource on `pos`, if it can be worked right now: it has a harvest
     /// entry, the nation knows how, and it isn't resting after the last time.
-    fn ripe_harvest<'d>(&self, pos: Pos, defs: &'d Defs) -> Option<&'d HarvestDef> {
+    pub(super) fn ripe_harvest<'d>(&self, pos: Pos, defs: &'d Defs) -> Option<&'d HarvestDef> {
         let h = defs.harvest(self.map.get(pos)?.resource?)?;
         (self.can_work(h) && !self.resting.contains_key(&pos)).then_some(h)
     }

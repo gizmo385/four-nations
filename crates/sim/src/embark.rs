@@ -507,15 +507,20 @@ impl Survey {
     /// `MoveRules` (8-connected, no corner cutting), capped at `WATER_SEARCH_CAP` steps. Terrain
     /// is always accurate, rough survey or not (`docs/design/embark.md`, "Rough survey").
     fn nearest_water(&self, at: Pos) -> Option<(Terrain, u32)> {
+        self.nearest_water_where(at, Terrain::is_water)
+    }
+
+    /// `nearest_water`, but only counting water `wanted` accepts.
+    fn nearest_water_where(&self, at: Pos, wanted: fn(Terrain) -> bool) -> Option<(Terrain, u32)> {
         let rules = MoveRules::default();
         let mut visited = BTreeSet::from([at]);
         let mut queue = VecDeque::from([(at, 0u32)]);
         while let Some((p, dist)) = queue.pop_front() {
-            if self.surface[p].terrain.is_water() {
+            if wanted(self.surface[p].terrain) {
                 return Some((self.surface[p].terrain, dist));
             }
             for q in self.surface.neighbors(p, true) {
-                if self.surface[q].terrain.is_water() {
+                if wanted(self.surface[q].terrain) {
                     return Some((self.surface[q].terrain, dist));
                 }
             }
@@ -529,6 +534,60 @@ impl Survey {
             }
         }
         None
+    }
+
+    /// Walking steps from `at` to the nearest fresh water (a river, lake or ford: what a settler
+    /// drinks without risk of sickness, `docs/design/harm.md`), capped at 40. `None` if there is
+    /// none within the cap, or `at` isn't on the map.
+    pub fn fresh_water_steps(&self, at: Pos) -> Option<u32> {
+        if !self.surface.in_bounds(at) {
+            return None;
+        }
+        self.nearest_water_where(at, |t| {
+            matches!(t, Terrain::River | Terrain::Lake | Terrain::Ford)
+        })
+        .map(|(_, steps)| steps)
+    }
+
+    /// How many tiles within `radius` of `at` (Chebyshev) hold one of `resources` and touch
+    /// ground connected to `at`: the survey's own count for a group, for any list of resources
+    /// and radius. Zero if `at` is on no region.
+    pub fn count_resources(&self, at: Pos, radius: i32, resources: &[ResourceId]) -> u32 {
+        let Some(region) = self.regions.region(at) else { return 0 };
+        self.count_in(at, radius, region, resources)
+    }
+
+    fn count_in(&self, at: Pos, radius: i32, region: RegionId, resources: &[ResourceId]) -> u32 {
+        self.box_tiles(at, radius)
+            .filter(|&(p, t)| {
+                t.resource.is_some_and(|r| resources.contains(&r))
+                    && self
+                        .surface
+                        .neighbors(p, true)
+                        .any(|n| self.regions.region(n) == Some(region))
+            })
+            .count() as u32
+    }
+
+    /// Open ground a settler could walk to from `at` within `radius` tiles of it (Chebyshev),
+    /// counting `at`: how much room there is to move, build and be cut off from. Walks the
+    /// ordinary `MoveRules`, so a pond or a cliff line reduces it as it does a real settler's
+    /// reach.
+    pub fn open_tiles_near(&self, at: Pos, radius: i32) -> u32 {
+        let rules = MoveRules::default();
+        if !self.surface.in_bounds(at) || !rules.passable(&self.surface[at]) {
+            return 0;
+        }
+        let mut seen = BTreeSet::from([at]);
+        let mut queue = VecDeque::from([at]);
+        while let Some(p) = queue.pop_front() {
+            for q in self.surface.neighbors(p, true) {
+                if q.chebyshev(at) <= radius && rules.passable(&self.surface[q]) && seen.insert(q) {
+                    queue.push_back(q);
+                }
+            }
+        }
+        seen.len() as u32
     }
 
     /// The share of `at`'s box per biome, plus mountain and water, largest first (stable on
@@ -580,15 +639,7 @@ impl Survey {
     /// or grove the box can see across water or a sealed-off pocket of land isn't actually
     /// reachable from the site, so the report shouldn't count it as if it were.
     fn count_group(&self, at: Pos, radius: i32, region: RegionId, g: &GroupDef) -> u32 {
-        self.box_tiles(at, radius)
-            .filter(|&(p, t)| {
-                t.resource.is_some_and(|r| g.resources.contains(&r))
-                    && self
-                        .surface
-                        .neighbors(p, true)
-                        .any(|n| self.regions.region(n) == Some(region))
-            })
-            .count() as u32
+        self.count_in(at, radius, region, &g.resources)
     }
 
     /// A rough survey's estimate of `g`'s level at `at`: `true_level` moved one step with

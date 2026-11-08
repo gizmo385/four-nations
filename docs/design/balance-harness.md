@@ -150,6 +150,23 @@ moment of death, and whether it could reach a stockpile and water. #487 took an 
 an hour with throwaway trace programs. With this it's one line: "Starvation, Unreachable for 14
 minutes before death, 52 food within 15 tiles, no path to a stockpile", which is a sim lock.
 
+**As built (#534, `fn_sim::balance`).** `run_record(&RunSpec, &Defs) -> RunRecord` (it can't be
+`balance::run`: that name is the older no-input/opening entry point, which `tests/balance.rs` still
+calls). Where the table above was loose, the probe reads it this way:
+
+- `stranded` is a settler with no path to water, to a stockpile (once one is marked) or to the
+  settlement's anchor for 3 minutes running. An idle reason of `Unreachable` alone doesn't count:
+  `World::idle_reason` reports it for any work a settler is blocked from for a reason that isn't
+  geometry (a build waiting for wood), and a seed sweep flagged most healthy runs on it. It is
+  recorded in the autopsy instead.
+- `refused` counts only substantive refusals in a row (`CommandError::is_routine` is false):
+  `Economy` re-issues its whole plan every minute, so thousands of "already designated" and "not
+  researched yet" refusals per run are its normal.
+- `stuck_need` watches eating, drinking and sleeping; `idle_with_work` and `stores_frozen` watch
+  the `stone` and `ore` signs, and need the site profile to show that material in reach and some
+  of it still standing within 40 tiles; `chi_idle` is judged once 20 minutes of bending are known.
+- Each flag is recorded with the minute it was raised and the minute its condition began.
+
 **`balance trace`** reproduces one flagged run and prints its per-minute probe rows over a window,
 plus an ASCII crop around the anchor at a chosen minute (the `mapgen` renderer over the live map,
 with units, buildings and blocking resources marked). The verdict prints the exact command for
