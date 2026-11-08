@@ -10,7 +10,9 @@ use fn_agent::scorecard;
 use fn_agent::script::{self, Limits as ScriptLimits};
 use fn_agent::server;
 use fn_agent::tools::Tools;
-use fn_tui::surface::{DEFAULT_TURN_SECONDS, EventKind, Host, LogLine, RunLogHeader};
+use fn_tui::surface::{
+    DEFAULT_TURN_SECONDS, EventKind, Host, LogLine, Prelude, PreludeOpening, RunLogHeader,
+};
 use fn_tui::{scenario, watch};
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
@@ -25,7 +27,7 @@ usage: fn_agent serve --seed N --nation X [--start default|X,Y] [--difficulty ID
                       [--start default|X,Y] [--difficulty ID]] --turns N [--turn SECS]
                       [--wake-on LIST] [--plan FILE] --log PATH
        fn_agent play --script FILE [--plan FILE] --horizon TURNS [start flags as above]
-                      [--turn SECS] --log PATH
+                      [--map-size ID] [--prelude OPENING:MINUTES] [--turn SECS] --log PATH
        fn_agent keys LOG
        fn_agent score LOG [--horizon TURNS] [--json] [--append]
 
@@ -61,7 +63,10 @@ object, within data/agent.toml's plan_bytes) is the plan that plan() returns, as
 have set it.
 
 play --horizon TURNS (docs/design/agent-hillclimb.md, \"Across runs: attempts and a champion\") is
-the clean evaluation of a strategy: instead of stopping at the first wake it runs to exactly TURNS
+the clean evaluation of a strategy (a track, data/tracks.toml, is read by `cargo xtask agent-eval`,
+which passes its start here; --map-size small, medium or large goes with --start X,Y, and --prelude
+economy:60 or opening:60 runs that autoplay opening for that many game minutes before turn 0, as a
+scenario's prelude does): instead of stopping at the first wake it runs to exactly TURNS
 turns, with no model. Event wakes are ignored. When the script returns or calls wake() it runs again
 with its memory kept (one end_turn is forced first if the run used no turn, so it can't spin). After
 an error or a runaway the remaining turns run with no orders. The log has a wake line per stop. The
@@ -350,6 +355,10 @@ struct PlayArgs {
     nation: Option<String>,
     start_given: bool,
     start: Option<(i32, i32)>,
+    /// `--map-size ID` (#529): a `data/embark.toml` map size, read with `--start X,Y`.
+    map_size: Option<String>,
+    /// `--prelude OPENING:MINUTES` (#529): a scenario-style autoplay opening before turn 0.
+    prelude: Option<Prelude>,
     difficulty: Option<String>,
     scenario: Option<String>,
     turn_seconds: Option<u32>,
@@ -369,6 +378,8 @@ fn parse_play_args(args: Vec<String>) -> Result<PlayArgs, String> {
         nation: None,
         start_given: false,
         start: None,
+        map_size: None,
+        prelude: None,
         difficulty: None,
         scenario: None,
         turn_seconds: None,
@@ -394,6 +405,8 @@ fn parse_play_args(args: Vec<String>) -> Result<PlayArgs, String> {
                 };
             }
             "--difficulty" => a.difficulty = Some(value()?),
+            "--map-size" => a.map_size = Some(value()?),
+            "--prelude" => a.prelude = Some(parse_prelude(&value()?)?),
             "--scenario" => a.scenario = Some(value()?),
             "--turn" => a.turn_seconds = Some(value()?.parse::<u32>().map_err(|e| e.to_string())?),
             "--turns" => a.turns = Some(value()?.parse::<u32>().map_err(|e| e.to_string())?),
@@ -423,13 +436,35 @@ fn parse_play_args(args: Vec<String>) -> Result<PlayArgs, String> {
         return Err("--horizon wants at least one turn".to_owned());
     }
     if a.scenario.is_some()
-        && (a.seed.is_some() || a.nation.is_some() || a.start_given || a.difficulty.is_some())
+        && (a.seed.is_some()
+            || a.nation.is_some()
+            || a.start_given
+            || a.difficulty.is_some()
+            || a.map_size.is_some()
+            || a.prelude.is_some())
     {
-        return Err("--scenario can't be combined with --seed, --nation, --start or \
-                     --difficulty: the preset already sets them"
+        return Err("--scenario can't be combined with --seed, --nation, --start, --difficulty, \
+                     --map-size or --prelude: the preset already sets them"
             .to_owned());
     }
     Ok(a)
+}
+
+/// `--prelude OPENING:MINUTES`: `economy` or `opening` (a scenario's `prelude.opening`), then the
+/// game minutes it runs before turn 0.
+fn parse_prelude(s: &str) -> Result<Prelude, String> {
+    let bad = || format!("--prelude wants OPENING:MINUTES (economy:60, say), got {s:?}");
+    let (opening, minutes) = s.split_once(':').ok_or_else(bad)?;
+    let opening = match opening {
+        "economy" => PreludeOpening::Economy,
+        "opening" => PreludeOpening::Opening,
+        _ => return Err(bad()),
+    };
+    let minutes: f32 = minutes.parse().map_err(|_| bad())?;
+    if !minutes.is_finite() || minutes <= 0.0 {
+        return Err(bad());
+    }
+    Ok(Prelude { opening, minutes })
 }
 
 /// `--wake-on`'s own vocabulary: the same word [`EventKind::as_str`] gives back, so a list a
@@ -477,7 +512,12 @@ fn play(args: Vec<String>) -> Result<ExitCode, String> {
                 format!("unknown nation {nation_str:?} (air, water, earth or fire)")
             })?;
             let seed = a.seed.ok_or("--seed is required")?;
-            Host::new(seed, nation, None, a.difficulty.clone(), a.start, false)?
+            let host =
+                Host::new(seed, nation, a.map_size.clone(), a.difficulty.clone(), a.start, false)?;
+            match a.prelude {
+                Some(prelude) => host.with_prelude(prelude),
+                None => host,
+            }
         }
     };
     let mut host = host.with_turn_seconds(a.turn_seconds.unwrap_or(DEFAULT_TURN_SECONDS));
@@ -999,6 +1039,29 @@ mod tests {
         ];
         v.extend(extra.iter().map(|s| (*s).to_owned()));
         v
+    }
+
+    /// `--map-size` and `--prelude OPENING:MINUTES` (#529) parse; a bad prelude is refused, and a
+    /// scenario can't be combined with either.
+    #[test]
+    fn parse_play_args_reads_map_size_and_prelude() {
+        let a = parse_play_args(play_args(&["--map-size", "medium", "--prelude", "economy:60"]))
+            .unwrap();
+        assert_eq!(a.map_size.as_deref(), Some("medium"));
+        assert_eq!(a.prelude, Some(Prelude { opening: PreludeOpening::Economy, minutes: 60.0 }));
+        assert_eq!(
+            parse_prelude("opening:12.5").unwrap(),
+            Prelude { opening: PreludeOpening::Opening, minutes: 12.5 }
+        );
+        for bad in ["economy", "economy:", "economy:0", "economy:-1", "sprint:5", ":5"] {
+            assert!(parse_prelude(bad).unwrap_err().contains("--prelude"), "{bad}");
+        }
+        for clash in [["--map-size", "small"], ["--prelude", "economy:60"]] {
+            let mut args: Vec<String> = ["--scenario", "air-year-two"].map(str::to_owned).to_vec();
+            args.extend(["--script", "s.rhai", "--turns", "5", "--log", "l"].map(str::to_owned));
+            args.extend(clash.map(str::to_owned));
+            assert!(parse_play_args(args).is_err(), "{clash:?}");
+        }
     }
 
     /// Every flag `play` takes (`--script`, `--seed`, `--nation`, `--start`, `--difficulty`,

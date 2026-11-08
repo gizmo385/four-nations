@@ -1,0 +1,30 @@
+# Hill-climb tracks (docs/design/agent-hillclimb.md, "Tracks are data"). A track is a start
+# family scored at a fixed horizon. The model plays play_seed; selection uses the mean clean score
+# over train_seeds; holdout_seeds are reported to the owner only. Read by `cargo xtask agent-eval`
+# (and the attempt loop), never by the sim. Seeds as decided in #521.
+#
+# [[track]]
+# - id, name:          the id `--track ID` takes, and its label.
+# - nation, difficulty, map_size, site: the start, as `fn_agent play --nation/--difficulty/
+#                      --map-size/--start`. nation is earth, fire, water or air; site is "default"
+#                      or "X,Y" (map_size is read with an "X,Y" site only).
+# - prelude:           optional, as data/scenarios.toml: `opening` ("economy" or "opening") and
+#                      `minutes` of autoplay before turn 0.
+# - horizon_turns:     the turns a clean evaluation plays; the score is read there.
+# - play_seed:         the one seed the model ever plays.
+# - train_seeds:       the seeds selection averages over (a clean replay of the strategy each).
+# - holdout_seeds:     seeds that are never selected on and never shown to the model. They may not
+#                      repeat a train seed or play_seed.
+
+[[track]]
+id = "water-3h"
+name = "Water, the first three hours"
+nation = "water"
+difficulty = "normal"
+map_size = "small"
+site = "default"
+# prelude = { opening = "economy", minutes = 60 }
+horizon_turns = 540
+play_seed = 7633
+train_seeds = [7633, 7, 42]
+holdout_seeds = [1, 5, 8]

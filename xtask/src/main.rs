@@ -28,6 +28,12 @@
 //!                               wrapper around this. See `cargo xtask agent-run --help` for
 //!                               every option, or `cargo xtask agent-run watch [RUN_DIR]` to
 //!                               watch or replay a run.
+//!     cargo xtask agent-eval --track ID --champion DIR [--json] [--out DIR]
+//!                               the clean evaluation of a strategy (#529): replays DIR/handoff.json's
+//!                               `governor` script and plan with no model on every train and
+//!                               held-out seed of a data/tracks.toml track, one at a time, and
+//!                               prints the score per seed, the train mean and the held-out
+//!                               scores. See `cargo xtask agent-eval --help`.
 //!
 //! `root()` finds the repo root at runtime with `git rev-parse --show-toplevel`, so an `xtask`
 //! binary built from one worktree's `target/` still works when run from another (a shared
@@ -37,6 +43,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+mod agent_eval;
 mod agent_run;
 mod lint;
 
@@ -103,6 +110,7 @@ fn dispatch(args: &[&str]) -> Result {
             check(&crates, fast)
         }
         Some("agent-run") => agent_run::run(&args[1..]),
+        Some("agent-eval") => agent_eval::run(&args[1..]),
         _ => Err(help()),
     }
 }

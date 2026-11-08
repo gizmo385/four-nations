@@ -425,6 +425,17 @@ measured.)*
 balance change, that re-scores the current champion for free: the regression loop
 agent-scripting.md promised, now with a number.
 
+As built (#529): `data/tracks.toml` has strict keys and is validated on load (a held-out seed may
+not repeat a train seed or `play_seed`). `agent-eval` reads `DIR/handoff.json` (the file
+`agent-run --carry` writes): the script named `governor`, and the plan if there is one; a handoff
+with no `governor` is an error. It runs `fn_agent play --horizon` once per train seed and then once
+per held-out seed, one at a time, and prints the score, progress and care per seed, the train mean
+and the held-out scores (`--json` prints the same table as JSON; `--out DIR` keeps each seed's log
+as `seed-N.jsonl`). A run whose script was stopped by an error or a runaway is scored at the
+horizon as usual and flagged in the table, not failed. `fn_agent play` gained `--map-size` and
+`--prelude OPENING:MINUTES` so a track's whole start can be passed on its command line; the
+reusable core is `agent_eval::evaluate`, for the attempt loop (#530).
+
 ### Fairness: lookahead and held-out seeds (#521)
 
 Climbing on one seed teaches the map (where the water is, which outcrop is reachable) as much as

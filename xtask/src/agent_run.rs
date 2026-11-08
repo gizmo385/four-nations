@@ -214,7 +214,7 @@ struct Opts {
 }
 
 /// The nations `--nation` can name, and so the ones a random pick chooses between.
-const NATIONS: [&str; 4] = ["earth", "fire", "water", "air"];
+pub(crate) const NATIONS: [&str; 4] = ["earth", "fire", "water", "air"];
 
 /// Random seeds are 1..=99999: short enough to type back in.
 const MAX_RANDOM_SEED: u64 = 99_999;
@@ -470,7 +470,7 @@ fn latest_run_dir(runs: &Path) -> Result<PathBuf> {
 /// Not `-q`: when another cargo holds the target directory's build lock (a `ci` run, say),
 /// cargo prints "Blocking waiting for file lock", and silencing that made the command look hung
 /// (#510). The "building" line says so up front too.
-fn cargo_build_release(repo: &Path, pkgs: &[&str]) -> Result {
+pub(crate) fn cargo_build_release(repo: &Path, pkgs: &[&str]) -> Result {
     say(&format!(
         "building {} (release); if another cargo holds the build lock this waits for it",
         pkgs.join(" and ")
@@ -924,9 +924,9 @@ fn finish_log(dir: &Path, reason: &str) -> Result {
 // -------------------------------------------------------------------------------------------
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
-struct ScriptEntry {
-    version: u32,
-    code: String,
+pub(crate) struct ScriptEntry {
+    pub(crate) version: u32,
+    pub(crate) code: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     last_outcome: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -934,14 +934,14 @@ struct ScriptEntry {
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
-struct Handoff {
+pub(crate) struct Handoff {
     #[serde(default)]
-    scripts: BTreeMap<String, ScriptEntry>,
+    pub(crate) scripts: BTreeMap<String, ScriptEntry>,
     #[serde(default)]
     notes: Vec<String>,
     /// The `plan` tool's latest map (#524); absent when none was ever set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    plan: Option<serde_json::Value>,
+    pub(crate) plan: Option<serde_json::Value>,
 }
 
 /// Replays `lines`' own `script`/`turn`/`wake`/`note`/`plan` lines (the same ones
