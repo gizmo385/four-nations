@@ -812,6 +812,9 @@ impl<W: std::io::Write> Tools<W> {
         });
         if self.scripts.is_some() {
             briefing["probes"] = json!(script::bindings::PROBE_NOTE);
+            // The rule the run is scored on, from data/score.toml (#531): weights, never a
+            // number about this run. Pure data; nothing of any world is read.
+            briefing["scoring"] = json!(crate::scorecard::bundled_score_rule());
         }
         briefing
     }

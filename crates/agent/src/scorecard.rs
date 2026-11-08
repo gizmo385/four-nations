@@ -6,7 +6,8 @@
 //! the log goes on), then `fn_sim::score::Scorecard::compute` scores the world it reached --
 //! both through `fn_tui::surface::referee`, the privileged read the parity lint keeps out of
 //! every MCP tool handler. This file is the one place in `crates/agent/src/` allowed to name it
-//! (`xtask/src/lint.rs`, `REFEREE_USERS`), and nothing in `tools.rs` calls in here.
+//! (`xtask/src/lint.rs`, `REFEREE_USERS`), and the only thing in `tools.rs` that calls in here is
+//! [`bundled_score_rule`] (#531), which reads `data/score.toml` and no world.
 //!
 //! What the referee measures is in [`Report::replay`]. What only the log's own lines can say --
 //! script churn: names, one-shot names, turns and acts per script, the governor's share, plan
@@ -524,9 +525,132 @@ fn fmt_weight(w: f64) -> String {
     if (w - w.round()).abs() < 1e-9 { format!("{w:.0}") } else { format!("{w:.2}") }
 }
 
+/// The paragraph `briefing` gives a `--scripts` run about what it is scored on (#531,
+/// docs/design/agent-hillclimb.md, "Parity: when the agent sees it"): the rule and its weights,
+/// never a number about this run. Generated from `def` so the text can't drift from
+/// `data/score.toml`; it reads that data and nothing of any world.
+pub fn score_rule(def: &ScoreDef) -> String {
+    let (p, c) = (&def.progress, &def.care);
+    let mut out = format!(
+        "How this run is scored: out of 1000, as progress times care. Progress is the weighted \
+         share of the Endeavor's milestones you reach: every sign, then Ready, then every stage \
+         of the build. Each milestone weighs {}",
+        rule_num(p.default_weight)
+    );
+    if p.weights.is_empty() {
+        out.push('.');
+    } else {
+        let notes: Vec<String> = p
+            .weights
+            .iter()
+            .map(|(id, w)| {
+                if *w == 0.0 {
+                    format!("{id} doesn't count")
+                } else {
+                    format!("{id} weighs {}", rule_num(*w))
+                }
+            })
+            .collect();
+        let _ = write!(out, " unless noted ({}).", notes.join("; "));
+    }
+    let _ = write!(
+        out,
+        " A milestone first reached at the very start earns full credit and one first reached at \
+         the end of the run earns {} of it, falling in a straight line between, so sooner is \
+         better. A sign not met at the end (never met, or met and since lost) earns {} of its \
+         progress toward its target. Care multiplies progress. It starts at 1 and loses {} per \
+         death, {} per close call (a settler's health dipping dangerously low and recovering, or \
+         the Avatar leaving), and {} times the share of settler-time that anyone spends {}. So a \
+         death or lasting suffering costs score however far the settlement gets.",
+        rule_pct(p.late_credit),
+        rule_pct(p.partial_credit),
+        rule_num(c.death),
+        rule_num(c.close_call),
+        rule_num(c.suffering),
+        rule_list(c.severe.iter().map(|f| f.name().to_lowercase())),
+    );
+    out
+}
+
+/// [`score_rule`] of the bundled `data/score.toml`.
+pub fn bundled_score_rule() -> String {
+    score_rule(&ScoreDef::bundled())
+}
+
+/// A weight or rate as short as it can be: "1", "0.15", "2".
+fn rule_num(v: f64) -> String {
+    format!("{v}")
+}
+
+/// A fraction as a percentage: 0.6 is "60%".
+fn rule_pct(v: f64) -> String {
+    format!("{}%", rule_num((v * 1000.0).round() / 10.0))
+}
+
+/// "a", "a or b", "a, b or c".
+fn rule_list(items: impl Iterator<Item = String>) -> String {
+    let items: Vec<String> = items.collect();
+    match items.split_last() {
+        None => "in trouble".to_owned(),
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} or {last}", rest.join(", ")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn score_rule_states_the_bundled_weights() {
+        let text = bundled_score_rule();
+        for want in [
+            "out of 1000",
+            "progress times care",
+            "60%",
+            "50%",
+            "0.15 per death",
+            "0.03 per close call",
+            "2 times the share",
+            "starving, parched, exhausted or dying",
+        ] {
+            assert!(text.contains(want), "missing {want:?} in: {text}");
+        }
+    }
+
+    /// Changing a weight in `score.toml` changes the paragraph, so the text can't drift.
+    #[test]
+    fn score_rule_follows_score_toml() {
+        let src = include_str!("../../../data/score.toml");
+        let base = score_rule(&ScoreDef::from_toml(src).unwrap());
+        assert_eq!(base, bundled_score_rule());
+        let severe = "severe = [\"starving\", \"parched\", \"exhausted\", \"dying\"]";
+        for (from, to, want) in [
+            ("late_credit = 0.6", "late_credit = 0.25", "25%"),
+            ("partial_credit = 0.5", "partial_credit = 0.4", "40%"),
+            ("death = 0.15", "death = 0.2", "0.2 per death"),
+            ("close_call = 0.03", "close_call = 0.07", "0.07 per close call"),
+            ("suffering = 2.0", "suffering = 3.5", "3.5 times the share"),
+            ("default_weight = 1.0", "default_weight = 2.0", "weighs 2"),
+            (severe, "severe = [\"dying\"]", "spends dying."),
+        ] {
+            assert!(src.contains(from), "score.toml no longer says {from:?}");
+            let changed = score_rule(&ScoreDef::from_toml(&src.replace(from, to)).unwrap());
+            assert_ne!(changed, base, "{from} -> {to}");
+            assert!(changed.contains(want), "{want:?} missing from: {changed}");
+        }
+    }
+
+    #[test]
+    fn score_rule_lists_weight_overrides() {
+        let src = include_str!("../../../data/score.toml").replace(
+            "\n[care]\n",
+            "\n[[progress.weight]]\nid = \"scrolls\"\nweight = 0.5\n\n\
+             [[progress.weight]]\nid = \"ready\"\nweight = 0\n\n[care]\n",
+        );
+        let text = score_rule(&ScoreDef::from_toml(&src).unwrap());
+        assert!(text.contains("unless noted (scrolls weighs 0.5; ready doesn't count)"), "{text}");
+    }
 
     fn script(name: &str, version: u32, turns: u32) -> LogLine {
         LogLine::Script { name: name.into(), version, code: String::new(), turns, wake_on: vec![] }

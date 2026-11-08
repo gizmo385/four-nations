@@ -123,3 +123,14 @@ fn sdk_reference_and_briefing_name_the_probe_rule() {
     let briefing = t.call("briefing", json!({})).unwrap();
     assert!(briefing["probes"].as_str().unwrap().contains(REFUSAL), "{briefing}");
 }
+
+/// With `--scripts`, `briefing` carries the score rule (#531), the same text `score_rule`
+/// generates from `data/score.toml`.
+#[test]
+fn scripts_briefing_states_the_score_rule() {
+    let mut t = tools();
+    let briefing = t.call("briefing", json!({})).unwrap();
+    let rule = briefing["scoring"].as_str().expect("a scoring paragraph");
+    assert_eq!(rule, fn_agent::scorecard::bundled_score_rule());
+    assert!(rule.contains("progress times care"), "{rule}");
+}

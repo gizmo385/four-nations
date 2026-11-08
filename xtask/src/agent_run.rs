@@ -752,30 +752,43 @@ fn handoff_prompt(n: u32, done_turns: u32, report: &str) -> String {
     )
 }
 
-/// `--scripts`' own first prompt (docs/design/agent-scripting.md, "The trampoline").
+/// `--scripts`' own first prompt (docs/design/agent-scripting.md, "The trampoline"; #531,
+/// docs/design/agent-hillclimb.md, "Within a run: a governor and a plan").
 fn default_script_prompt(total: u32, calls: u32) -> String {
     format!(
         "You're playing The Four Nations, a colony game, by writing and running scripts through \
-         the four-nations tools, rather than acting turn by turn. Call briefing first, then \
-         observe. Save a short, focused script with save_script for one routine job, then run \
-         it with run_script for just 3-5 turns to see what it does. Once a script proves \
-         itself, run it for a season, and once that goes well, for a year. Keep everyone alive \
-         and grow the settlement, toward about {total} turns in all. After every run_script \
-         call, use notes to record what happened, and a line starting \"SDK gap:\" for anything \
-         you wished the tools could do. This session is one chunk of that: after roughly {calls} \
-         tool calls, stop and summarise how it went so the next session can carry on."
+         the four-nations tools, rather than acting turn by turn. Call briefing first (it says \
+         how the run is scored: play to that), then observe, and read sdk_reference. Run the \
+         whole settlement from one saved script named \"governor\": a single loop of duties \
+         (water, food, beds, stockpile, research, what to build next) that reads what to aim \
+         for from plan(). Keep your intent in the plan tool (goal, order, targets, build \
+         queue) and change it there: when something needs doing, edit the plan and let the \
+         governor do it. Revise the governor with save_script rather than replacing it or \
+         starting another one, and only when it can't do something at all. Start it small, run \
+         it with run_script for just 3-5 turns to see what it does, then for a season, and \
+         once that goes well, for a year. Use inline run_script code only to look (it is \
+         read-only: observe, look, cells and the like), never to act. Keep everyone alive and \
+         grow the settlement, toward about {total} turns in all. After every run_script call, \
+         use notes to record what you learned so it survives into the next stretch, and a line \
+         starting \"SDK gap:\" for anything you wished the tools could do. This session is one \
+         chunk of that: after roughly {calls} tool calls, stop and summarise how it went so the \
+         next session can carry on."
     )
 }
 
 /// A resumed `--scripts` chunk's own prompt (#341's rule in script-mode terms, #484's acceptance
-/// criteria: the library and notes rather than a prose report).
+/// criteria: the library and notes rather than a prose report; #531 adds the plan and the
+/// governor rules).
 fn scripts_handoff_prompt(total: u32, done_turns: u32, calls: u32, listing: &str) -> String {
     format!(
         "You're continuing the same settlement from where you left off (turn {done_turns} of \
-         about {total} so far), not starting a new one. Here is your own script library and lab \
-         notes:\n\n{listing}\n\nCarry on the same way: run or improve a script with run_script \
-         and save_script, record outcomes and any SDK gap in notes, and let time pass. After \
-         roughly {calls} more tool calls, stop and summarise how it went."
+         about {total} so far), not starting a new one. Here is your own plan, script library \
+         and lab notes:\n\n{listing}\n\nCarry on the same way. One saved script, \"governor\", \
+         runs the whole settlement from plan(): change what you want with the plan tool, and \
+         revise the governor with save_script (don't replace it or start another) only when it \
+         can't do something at all. Use inline run_script code only to look; it is read-only. \
+         Record what you learn in notes (and any SDK gap), and let time pass with run_script. \
+         After roughly {calls} more tool calls, stop and summarise how it went."
     )
 }
 
@@ -979,8 +992,13 @@ fn parse_library(
 /// this is only orientation text, not a restore payload.
 fn library_notes_listing(log: &Path) -> Result<String> {
     let lines = read_log_lines(log).map_err(|e| e.to_string())?;
-    let (scripts, notes, _plan) = parse_library(&lines);
+    let (scripts, notes, plan) = parse_library(&lines);
     let mut out = Vec::new();
+    match &plan {
+        Some(plan) => out.push(format!("Plan:\n{plan}")),
+        None => out.push("Plan: none set yet.".to_string()),
+    }
+    out.push(String::new());
     if scripts.is_empty() {
         out.push("Scripts: none saved yet.".to_string());
     } else {
@@ -1726,7 +1744,57 @@ mod tests {
         let listing = library_notes_listing(&log).unwrap();
         assert!(listing.contains("Scripts: none saved yet."));
         assert!(listing.contains("Notes: none yet."));
+        assert!(listing.contains("Plan: none set yet."));
         fs::remove_dir_all(&dir).ok();
+    }
+
+    /// #531: the handoff listing shows the current (latest) plan next to scripts and notes.
+    #[test]
+    fn library_notes_listing_shows_the_current_plan() {
+        let dir = tempdir();
+        let log = dir.join("run.jsonl");
+        write_lines(
+            &log,
+            &[
+                r#"{"type":"plan","plan":{"goal":"old"}}"#,
+                r#"{"type":"script","name":"governor","version":1,"code":"x","turns":0,"wake_on":[]}"#,
+                r#"{"type":"plan","plan":{"goal":"nine signs","order":["beds","stone"]}}"#,
+                r#"{"type":"note","text":"beds first"}"#,
+            ],
+        );
+        let listing = library_notes_listing(&log).unwrap();
+        assert!(listing.contains("Plan:\n{\"goal\":\"nine signs\""), "{listing}");
+        assert!(!listing.contains("old"), "{listing}");
+        assert!(listing.contains("governor v1"));
+        assert!(listing.contains("beds first"));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    /// #531: both script-mode prompts teach one governor run from plan(), plan edits for
+    /// intent, revising rather than replacing, read-only inline probes, and notes.
+    #[test]
+    fn script_prompts_teach_the_governor_and_the_plan() {
+        let first = default_script_prompt(540, 30);
+        let handoff = scripts_handoff_prompt(540, 100, 30, "(listing)");
+        assert!(handoff.contains("(listing)"));
+        for prompt in [&first, &handoff] {
+            for phrase in [
+                "\"governor\"",
+                "plan()",
+                "plan tool",
+                "revise the governor",
+                "Use inline run_script code only to look",
+                "read-only",
+                "notes",
+                "SDK gap",
+            ] {
+                let hit =
+                    prompt.contains(phrase) || prompt.contains(&phrase.replace("revise", "Revise"));
+                assert!(hit, "missing {phrase:?} in: {prompt}");
+            }
+        }
+        assert!(first.contains("how the run is scored"), "{first}");
+        assert!(!first.contains("for one routine job"), "the per-job wording is gone: {first}");
     }
 
     #[test]

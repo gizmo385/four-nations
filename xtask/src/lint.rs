@@ -19,7 +19,8 @@
 //! appear in their code at all, since no tool should read the privileged, goal-judging
 //! `referee` (#318, and since #525 the scorer `fn_agent score` replays a log through). The one
 //! file that may name it is `scorecard.rs` (`REFEREE_USERS`), the `score` command's own module,
-//! which no tool handler calls into.
+//! which no tool handler calls into except for `bundled_score_rule`, a paragraph generated from
+//! `data/score.toml` alone (#531): it reads no world.
 
 use std::fs;
 use std::path::{Path, PathBuf};
