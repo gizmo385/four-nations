@@ -2,7 +2,8 @@
 //! that still has room and food to spare draws newcomers, so the end game's population sign
 //! isn't stuck at the starting six forever.
 //!
-//! Every `[growth].arrival_minutes` (`data/needs.toml`), if a bed nobody owns is free and at
+//! Every `[growth].arrival_minutes` (`data/needs.toml`), if the beds hold more than the living
+//! settlers (#552, #513) and at
 //! least `food_per_newcomer` food items sit in stores, one newcomer joins: an ordinary unit
 //! (`Unit`, no `guest`) added to `World::units`, on the outskirts: the walkable tile in the
 //! settlement's own region nearest the map edge (owner decision, 2026-11-03). Mapgen rings every
@@ -99,7 +100,7 @@ impl World {
         if interval == 0 || !self.tick.is_multiple_of(interval) {
             return;
         }
-        if !self.has_free_bed(defs) || self.stored_food(defs) < growth.food_per_newcomer {
+        if !self.has_room_for_newcomer(defs) || self.stored_food(defs) < growth.food_per_newcomer {
             return;
         }
         if self.spawn_newcomer(defs) {
@@ -108,21 +109,28 @@ impl World {
         }
     }
 
-    /// Whether some bed somewhere has room for one more sleeper nobody has claimed yet. Mirrors
-    /// `bed_route`'s own capacity rule (a 1x1 bed holds one sleeper keyed by its own tile; a
-    /// bigger one holds `capacity`, keyed by its anchor), but existence is all growth cares
-    /// about: no particular unit is looking for it, and reachability doesn't matter yet either.
-    fn has_free_bed(&self, defs: &Defs) -> bool {
-        self.buildings().any(|(foot, id)| {
-            let Some(_bed) = defs.building(id).bed else { return false };
-            let big = foot.w > 1 || foot.h > 1;
-            let limit = if big { defs.building(id).capacity } else { 1 };
-            if limit == 0 {
-                return false;
-            }
-            let claimed = self.units.iter().filter(|u| u.bed == Some(foot.anchor)).count() as u32;
-            claimed < limit
-        })
+    /// Total sleepers the settlement's beds hold, whoever is lying in them right now. Mirrors
+    /// `bed_route`'s capacity rule (a 1x1 bed holds one sleeper; a bigger one holds
+    /// `BuildingDef::capacity`). Public so a headless tool (`fn_sim::autoplay`) and the UI can
+    /// read the same number growth does.
+    pub fn bed_capacity(&self, defs: &Defs) -> u32 {
+        self.buildings()
+            .filter(|&(_, id)| defs.building(id).bed.is_some())
+            .map(|(foot, id)| if foot.w > 1 || foot.h > 1 { defs.building(id).capacity } else { 1 })
+            .sum()
+    }
+
+    /// Whether the settlement's beds hold more than its living settlers, so one more would still
+    /// have a bed to call its own (#552, #513). The Avatar (#237) isn't counted: he arrives on
+    /// his own schedule and isn't part of what growth feeds. This is capacity against headcount,
+    /// not "is some bed unclaimed this instant": `Unit::bed` is only set while a unit walks to or
+    /// lies in a bed, so the instantaneous check was true for any settlement with a bed and left
+    /// growth gated by food alone. A bed that is destroyed, or a settler who dies, changes the
+    /// answer at the next check; nobody is evicted when capacity drops below the headcount, growth
+    /// just pauses. Reachability doesn't matter here, as no particular unit is looking for a bed.
+    fn has_room_for_newcomer(&self, defs: &Defs) -> bool {
+        let settlers = self.units.iter().filter(|u| !u.is_avatar()).count() as u32;
+        self.bed_capacity(defs) > settlers
     }
 
     /// How many food items (anything `Defs::food_of` recognizes) are sitting in stockpiles.

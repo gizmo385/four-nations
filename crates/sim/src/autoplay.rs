@@ -61,7 +61,10 @@
 //!   read generically from the "stone" and "ore" signs' `items` in `data/endeavor.toml`, so a new
 //!   deposit kind or a second ore (#349, #134) needs no change here;
 //! - keeps a bed one ahead of the living population (instead of a fixed headcount, so growth
-//!   doesn't stall on a full house) and one of every other building the nation can reach
+//!   doesn't stall on a full house) up to `BED_MARGIN` past the "population" sign's target, then
+//!   stops: growth takes each newcomer's food from stores, so beds without a ceiling turn every
+//!   surplus into a person and the "food" sign never fills (#513). It builds them again if the
+//!   population falls below the target. Also one of every other building the nation can reach
 //!   (`endeavor::reachable_buildings`), each once its cost is affordable;
 //! - (unless `farms` is false, `Economy::without_farms`, materials.md's own `--no-farms` check)
 //!   tills one farm plot per `PEOPLE_PER_FARM_PLOT` people and sows each the moment it's empty,
@@ -131,6 +134,11 @@ pub const SCROLL_RADIUS: i32 = 90;
 
 /// People per farm plot `Economy` keeps tilled (module doc, "Economy").
 const PEOPLE_PER_FARM_PLOT: u32 = 3;
+
+/// Beds `Economy` builds past the "population" sign's target before it stops adding them (#513).
+/// One is enough to cover a single death without the population dropping back under the sign,
+/// while still not turning every surplus of food into one more settler.
+const BED_MARGIN: u32 = 1;
 
 /// A scripted opening for one settlement. Stateless beyond `people`, `bend_slots` and
 /// `full_research` (`Opening::step` reads everything else off the `World` it's given), so it's
@@ -373,7 +381,7 @@ impl Economy {
     /// the nation: every nation's farm plot and bed (if it has one) gets the same treatment.
     fn building_target(&self, world: &World, defs: &Defs, building: BuildingId) -> u32 {
         match defs.building(building).id.as_str() {
-            "bed" => world.units.len() as u32 + 1,
+            "bed" => (world.units.len() as u32 + 1).min(self.bed_ceiling(world, defs)),
             "farm_plot" => {
                 if self.farms {
                     self.farm_plot_target(world)
@@ -384,6 +392,17 @@ impl Economy {
             "orchard" => u32::from(self.farms),
             _ => 1,
         }
+    }
+
+    /// The most beds `Economy` ever asks for: the "population" sign's target for this nation
+    /// plus `BED_MARGIN` (#513). No cap (`u32::MAX`) if the data has no such sign.
+    fn bed_ceiling(&self, world: &World, defs: &Defs) -> u32 {
+        defs.endeavor
+            .signs
+            .iter()
+            .find(|s| s.kind == SignKind::Population)
+            .and_then(|s| s.target_for(world.nation))
+            .map_or(u32::MAX, |t| t.saturating_add(BED_MARGIN))
     }
 
     /// One farm plot per `PEOPLE_PER_FARM_PLOT` living settlers, at least 1.
@@ -1204,5 +1223,40 @@ mod tests {
             building_count(&world, bed) <= world.units.len() as u32 + 1,
             "never more beds than the population needs"
         );
+    }
+
+    /// #513: once the population sign is met (plus `BED_MARGIN`), `Economy` asks for no more
+    /// beds, so growth stops taking food from stores; below the target it asks for one ahead
+    /// again.
+    #[test]
+    fn economy_stops_asking_for_beds_past_the_population_sign() {
+        let defs = Defs::bundled();
+        let size = defs.embark.map_size("small").unwrap();
+        let cfg = MapGenConfig {
+            seed: 7,
+            width: size.width,
+            height: size.height,
+            ..MapGenConfig::default()
+        };
+        let bed = defs.building_id("bed").unwrap();
+        let economy = Economy::new(6);
+        let target = defs
+            .endeavor
+            .signs
+            .iter()
+            .find(|s| s.kind == SignKind::Population)
+            .and_then(|s| s.target_for(Nation::Fire))
+            .unwrap();
+        let ceiling = target + BED_MARGIN;
+        assert_eq!(economy.bed_ceiling(&World::new(&cfg, Nation::Fire, 6, &defs), &defs), ceiling);
+
+        // Below the target: one ahead of the population, as before.
+        let small = World::new(&cfg, Nation::Fire, target - 1, &defs);
+        assert_eq!(economy.building_target(&small, &defs, bed), target);
+        // At the target: one more bed, up to the margin, then no further.
+        let met = World::new(&cfg, Nation::Fire, target, &defs);
+        assert_eq!(economy.building_target(&met, &defs, bed), ceiling);
+        let over = World::new(&cfg, Nation::Fire, target + 4, &defs);
+        assert_eq!(economy.building_target(&over, &defs, bed), ceiling);
     }
 }

@@ -59,7 +59,9 @@ fn tick_one_check(w: &mut World, defs: &Defs) {
 fn a_newcomer_joins_with_a_free_bed_and_enough_food() {
     let defs = Defs::bundled();
     let mut w = world(1, &defs);
+    // One settler, so two beds: capacity above the headcount (#552).
     place(&mut w, &defs, at(10, 2), "bed");
+    place(&mut w, &defs, at(12, 2), "bed");
     stock_food(&mut w, &defs, defs.needs.growth.food_per_newcomer);
     let before = w.units.len();
     tick_one_check(&mut w, &defs);
@@ -164,6 +166,7 @@ fn no_newcomer_without_enough_food() {
     let defs = Defs::bundled();
     let mut w = world(1, &defs);
     place(&mut w, &defs, at(10, 2), "bed");
+    place(&mut w, &defs, at(12, 2), "bed");
     stock_food(&mut w, &defs, defs.needs.growth.food_per_newcomer - 1);
     let before = w.units.len();
     tick_one_check(&mut w, &defs);
@@ -171,22 +174,58 @@ fn no_newcomer_without_enough_food() {
     assert!(w.arrivals().is_empty());
 }
 
-/// `has_free_bed` and `tick_population` are internal, but testing them directly (rather than
-/// through a long run of `World::tick`) is what lets this check the claim itself, not whatever
-/// else a settler with nothing to sleep for gets up to over `arrival_minutes` of simulated
-/// time (its `bed` is task-scoped state, cleared the moment any need task of its own finishes,
-/// `work.rs`'s `finish_need`; faking one claimed without it actually sleeping doesn't survive a
-/// real tick).
+/// #552, #513: growth needs bed capacity above the living settlers, whether or not anyone is
+/// lying in a bed right now (`Unit::bed` is only set while walking to or sleeping in one, so the
+/// old "some bed is unclaimed" check was true for any settlement with a bed). Calls
+/// `has_room_for_newcomer` directly, so the settlers' own needs can't muddy it.
 #[test]
-fn a_bed_already_claimed_is_not_free() {
+fn growth_needs_bed_capacity_above_the_headcount() {
     let defs = Defs::bundled();
     let mut w = world(1, &defs);
-    // A 1x1 bed always sleeps one, whatever `BuildingDef::capacity` says (#227 reserves that
-    // field for beds bigger than 1x1; `has_free_bed` mirrors `bed_route`'s own rule here).
+    assert_eq!(w.bed_capacity(&defs), 0);
+    assert!(!w.has_room_for_newcomer(&defs), "no beds");
+    // Spare capacity: two 1x1 beds (one sleeper each), one settler.
     place(&mut w, &defs, at(10, 2), "bed");
-    assert!(w.has_free_bed(&defs), "nobody has claimed it yet");
-    w.units[0].bed = Some(at(10, 2));
-    assert!(!w.has_free_bed(&defs), "the only bed is already claimed");
+    place(&mut w, &defs, at(12, 2), "bed");
+    assert_eq!(w.bed_capacity(&defs), 2);
+    assert!(w.has_room_for_newcomer(&defs), "two beds, one settler");
+    // Exactly full: two settlers fill both beds, though nobody is lying in one right now.
+    assert!(w.spawn_newcomer(&defs));
+    assert!(w.units.iter().all(|u| u.bed.is_none()), "nobody is in a bed");
+    assert!(!w.has_room_for_newcomer(&defs), "two beds, two settlers: full");
+    // A third bed reopens it; losing one closes it again, and nobody is evicted.
+    place(&mut w, &defs, at(14, 2), "bed");
+    assert!(w.has_room_for_newcomer(&defs));
+    w.map[at(14, 2)].building = None;
+    w.building_index.remove(&(2, 14));
+    w.map_changed();
+    assert_eq!(w.bed_capacity(&defs), 2, "capacity lost");
+    assert!(!w.has_room_for_newcomer(&defs));
+    assert_eq!(w.units.len(), 2, "no one is evicted");
+}
+
+/// The Avatar (#237) isn't one of the settlers growth makes room for.
+#[test]
+fn the_avatar_does_not_use_up_a_bed_for_growth() {
+    let defs = Defs::bundled();
+    let mut w = world(1, &defs);
+    place(&mut w, &defs, at(10, 2), "bed");
+    place(&mut w, &defs, at(12, 2), "bed");
+    assert!(w.spawn_newcomer(&defs));
+    assert!(!w.has_room_for_newcomer(&defs));
+    w.units[1].guest = Some(Guest::Avatar);
+    assert!(w.has_room_for_newcomer(&defs), "two beds, one settler and the Avatar");
+}
+
+#[test]
+fn growth_stalls_when_the_beds_are_full_even_with_food() {
+    let defs = Defs::bundled();
+    let mut w = world(1, &defs);
+    place(&mut w, &defs, at(10, 2), "bed");
+    stock_food(&mut w, &defs, defs.needs.growth.food_per_newcomer * 4);
+    let before = w.units.len();
+    tick_one_check(&mut w, &defs);
+    assert_eq!(w.units.len(), before, "one bed, one settler: no newcomer");
 }
 
 #[test]
@@ -196,6 +235,7 @@ fn the_newcomer_lands_on_the_edge_tile_nearest_the_settlement() {
     // Frozen so the settlement's one unit can't wander off (10, 4) and move the anchor.
     w.units[0].idle_until = u64::MAX;
     place(&mut w, &defs, at(10, 2), "bed");
+    place(&mut w, &defs, at(12, 2), "bed");
     stock_food(&mut w, &defs, defs.needs.growth.food_per_newcomer);
     tick_one_check(&mut w, &defs);
     let newcomer = w.units.last().unwrap();
@@ -228,6 +268,7 @@ fn on_a_sea_ringed_map_the_newcomer_arrives_on_its_own_coast_farthest_out() {
     let mut w = World::with_map(1, map, Nation::Earth, &[at(10, 5)], &defs);
     w.units[0].idle_until = u64::MAX;
     place(&mut w, &defs, at(10, 4), "bed");
+    place(&mut w, &defs, at(12, 4), "bed");
     stock_food(&mut w, &defs, defs.needs.growth.food_per_newcomer);
     // Stores sit at (0, 4) in `stock_food`, off this map's land; move them onto it.
     let stack = w.stored.remove(&at(0, 4)).unwrap();
@@ -244,7 +285,9 @@ fn two_runs_from_one_seed_give_the_same_arrivals() {
     let defs = Defs::bundled();
     let setup = |seed| {
         let mut w = world(seed, &defs);
-        place(&mut w, &defs, at(10, 2), "bed");
+        for x in [10, 12, 14, 16] {
+            place(&mut w, &defs, at(x, 2), "bed");
+        }
         stock_food(&mut w, &defs, defs.needs.growth.food_per_newcomer * 10);
         w
     };

@@ -121,13 +121,13 @@ rate = (1 / arrival_minutes) x multiplier, per minute
 multiplier = base + food variety + warm beds + spare beds, capped at max
 ```
 
-When draw reaches 1.0 and growth's existing conditions hold (a free bed and `food_per_newcomer`
+When draw reaches 1.0 and growth's existing conditions hold (bed capacity above the living settlers, #552, and `food_per_newcomer`
 in stores), one newcomer arrives through the same spawn, and 1.0 is spent. While the conditions
 fail, accrual stops at 1.0, so a player who builds a bed late gets one newcomer, not a burst.
 
 | Term | Rule | Value | Why it's a decision |
 |---|---|---|---|
-| base | A free bed and the food floor | **0.6** | The passive pace: 16.7 min per newcomer with #353's 10, close to today's 15 |
+| base | Bed capacity above the headcount and the food floor | **0.6** | The passive pace: 16.7 min per newcomer with #353's 10, close to today's 15 |
 | food variety | Each food kind beyond the first with at least 10 in stores (fish, fruit, cabbage today) | **+0.2** each, up to 2 | Fish, forage and farm, not one big pile. Air's orchard alone doesn't max it |
 | warm beds | Every bed's tile is heated (`World::is_heated`: a campfire's radius, or Hearthflame) | **+0.2** | Where to put beds, and campfires to keep. Fire's Hearthflame counts, which suits the nation |
 | spare beds | Each free bed beyond the first | **+0.1** each, up to 2 | Building ahead of arrivals |
