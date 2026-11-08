@@ -1,7 +1,7 @@
 # Clearing ground: uproot plants, build over what's in the way
 
-Status: **proposed** (#411, from the owner's 2026-11-06 playtest). Open questions for the owner are
-at the end. Companion issues: #342 (deconstruct finished buildings) and #335 (rectangle cancel
+Status: **accepted** (#411, from the owner's 2026-11-06 playtest). The owner took every
+recommendation; see "Owner decisions" at the end. #424, #425 and #426 have landed; #427 is open. Companion issues: #342 (deconstruct finished buildings) and #335 (rectangle cancel
 keeps stockpiles and sites).
 
 ## The problem
@@ -170,7 +170,7 @@ shows `Waiting: 2 to clear` in inspect, beside the delivery line.
 - **No "keep clear" zone.** Planned space is a building site, and orchards already avoid sites
   (plus the spacing fix above). To keep land for a building, place the building: build-over makes
   that one step. To shrink a grove, deconstruct the orchard (#342). A zone would be a fourth kind
-  of rectangle to explain, for a problem build-over already solves. Owner question 3 covers this.
+  of rectangle to explain, for a problem build-over already solves. The owner agreed (#459).
 - A pending Clear mark needs no special case. The tile still holds a resource, so `can_plant`
   already skips it, and once it's cleared the mark is gone.
 
@@ -208,8 +208,8 @@ Reopen this if a playtest wants a ford gone.
   `e` and `e e`. The agent API stays explicit while the TUI shares one key.
 - Marks draw in the new `clear` colour, the same way harvest marks use `harvest`.
 
-If the owner wants deconstruct on its own key instead (question 2), mode 2 moves to that key and
-nothing else in this doc changes.
+The owner chose this one-key layout (#458), so #342's TUI work is `E`'s second mode, not a new
+key.
 
 ## Not chosen
 
@@ -225,30 +225,28 @@ nothing else in this doc changes.
 
 ## Follow-up issues
 
-- **#424** Sim and data: the Clear designation (`DesignateClear`/`CancelClear`,
+- **#424** (done) Sim and data: the Clear designation (`DesignateClear`/`CancelClear`,
   `JobKind::Clear`, `[harvest.clear]`).
-- **#425** Sim: build over clearable resources (`to_clear`, `site_ready`, cancel withdraws
+- **#425** (done) Sim: build over clearable resources (`to_clear`, `site_ready`, cancel withdraws
   unstarted clears, orchard spacing around sites, autoplay unchanged). Blocked by #424.
-- **#426** TUI and agent: the Clear tool on `E` (ground mode), the `clear` colour, notices and
-  `designate {tool: clear}`. Blocked by #424.
-- **#427** TUI: the build ghost shows tiles to clear, plus the Cursor and inspect lines. Blocked by
-  #425.
+- **#426** (done) TUI and agent: the Clear tool on `E` (ground mode), the `clear` colour, notices
+  and `designate {tool: clear}`. Blocked by #424.
+- **#427** (open) TUI: the build ghost shows tiles to clear, plus the Cursor and inspect lines.
+  Blocked by #425.
 
-None of them is blocked by #342 or #335. Clearing touches neither buildings nor stockpiles. If
-the owner accepts question 2, #342's TUI work becomes `E`'s second mode rather than a new key (a
-comment on #342 says so). #426 and #335 both edit `fn_ui::tools`, so whichever lands second
-rebases.
+None of them is blocked by #342 or #335. Clearing touches neither buildings nor stockpiles.
+Following #458, #342's TUI work is `E`'s second mode (buildings) rather than a new key, with the
+agent step `designate {tool: deconstruct}` lowered to `e e`.
 
-## Open questions for the owner
+## Owner decisions
 
-1. **Is build-over automatic?** Recommended: **yes**. Placing a building over trees or plants
-   queues their clearing, and the ghost shows which tiles go. The alternative is to refuse and
-   point at the tiles.
-2. **One removal key?** Recommended: **yes, `E` Clear with two modes** (ground, then buildings
-   on a second press), with `X` taking back orders only. The alternative is a separate
-   Deconstruct key for #342.
-3. **A "keep clear" zone so orchards never replant somewhere?** Recommended: **no**. Placing the
-   building (build-over) or deconstructing the orchard covers it.
-4. **Does uprooting a food plant give anything back?** Recommended: **its ripe crop, plus 2 wood
-   for a fruit tree** (numbers in data/jobs.toml). The alternative is nothing, which makes
-   clearing a deliberate sacrifice but also wastes a laden tree for no gain.
+All four were answered on 2026-11-06, each with the recommended option.
+
+1. **Build-over is automatic** (#457). Placing a building over trees or plants queues their
+   clearing, and the ghost shows which tiles go.
+2. **One removal key** (#458). `E` Clear has two modes, ground then buildings on a second press,
+   and `X` takes back orders only.
+3. **No "keep clear" zone** (#459). Placing the building (build-over) or deconstructing the
+   orchard covers it.
+4. **Uprooting a food plant gives its ripe crop, plus 2 wood for a fruit tree** (#460). The
+   numbers live in data/jobs.toml.
