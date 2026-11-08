@@ -13,6 +13,11 @@
 # has a `#N:` commit after the branch point and the issue isn't labelled `in-progress`.
 # Everything else is kept and reported. Never touches main or the main checkout.
 #
+# Portable to macOS: it must run under /bin/bash 3.2 (no associative arrays, mapfile,
+# ${var,,} and the like) and BSD stat/date. The process check reads /proc where it
+# exists (Linux) and uses `lsof -d cwd` where it doesn't (macOS); CLEANUP_PROCS=lsof|proc
+# forces one of them. scripts/test-cleanup-merged.sh checks this on a throwaway repo.
+#
 # A worktree with no commits ahead of main is usually just-created (an agent hasn't
 # committed yet), not actually merged, so it's kept while its directory is younger
 # than FRESH_MINUTES. Pass --include-fresh to remove those too.
@@ -22,8 +27,10 @@
 #     && git branch -M main && mkdir -p .claude/worktrees \
 #     && git worktree add -q .claude/worktrees/fresh -b worktree-agent-fresh main \
 #     && git worktree add -q .claude/worktrees/old -b worktree-agent-old main \
-#     && touch -d "3 hours ago" .claude/worktrees/old \
+#     && touch -t "$(date -d '3 hours ago' +%Y%m%d%H%M)" .claude/worktrees/old \
 #     && /path/to/scripts/cleanup-merged.sh
+#   On macOS use `date -v-3H` for the touch, and run the script as
+#   `/bin/bash /path/to/scripts/cleanup-merged.sh` to be sure it is bash 3.2.
 #   Expect: KEEP ... fresh [...]: fresh (created 0m ago) and
 #           REMOVE ... old [...]: no commits ahead of main
 set -euo pipefail
@@ -48,6 +55,18 @@ root=$(git rev-parse --show-toplevel)
 cd "$root"
 
 main_subjects=$(git log --format=%s main)
+me=${USER:-$(id -un)}
+
+# How to find processes inside a worktree: /proc where it exists (Linux), else lsof.
+proc_method=${CLEANUP_PROCS:-}
+if [[ -z $proc_method ]]; then
+  if [[ -d /proc/self ]]; then proc_method=proc; else proc_method=lsof; fi
+fi
+case $proc_method in
+  proc) ;;
+  lsof) command -v lsof >/dev/null || { echo "need lsof to look for processes inside worktrees" >&2; exit 2; } ;;
+  *) echo "CLEANUP_PROCS must be proc or lsof" >&2; exit 2 ;;
+esac
 
 # Prints why BRANCH counts as on main, or nothing if it doesn't.
 on_main() {
@@ -73,30 +92,55 @@ on_main() {
 }
 
 # Prints DIR's age in whole minutes, from its mtime, or nothing if unreadable.
+# GNU stat takes -c and BSD (macOS) stat takes -f; GNU `stat -f` means something
+# else, so -c goes first.
 age_minutes() {
   local dir=$1 modified
-  modified=$(stat -c %Y "$dir" 2>/dev/null) || return
+  modified=$(stat -c %Y "$dir" 2>/dev/null) || modified=$(stat -f %m "$dir" 2>/dev/null) || return
   echo $(( ($(date +%s) - modified) / 60 ))
 }
 
 # Prints the PIDs of processes whose working directory is inside DIR.
 procs_in() {
-  local dir=$1 p
-  for p in $(pgrep -u "$USER" || true); do
-    if [[ $(readlink "/proc/$p/cwd" 2>/dev/null) == "$dir"* ]]; then echo "$p"; fi
+  case $proc_method in
+    proc) procs_in_proc "$1" ;;
+    lsof) procs_in_lsof "$1" ;;
+  esac
+}
+
+# Linux: read the cwd link of each of the user's processes.
+procs_in_proc() {
+  local dir=$1 p cwd
+  for p in $(pgrep -u "$me" || true); do
+    cwd=$(readlink "/proc/$p/cwd" 2>/dev/null) || continue
+    if [[ $cwd == "$dir" || $cwd == "$dir/"* ]]; then echo "$p"; fi
   done
 }
+
+# macOS has no /proc. `lsof -Fpn` prints "p<pid>" and then "n<cwd>" for each process.
+procs_in_lsof() {
+  local dir=$1 line pid=""
+  while IFS= read -r line; do
+    case $line in
+      p*) pid=${line#p} ;;
+      n*) if [[ -n $pid && ( ${line#n} == "$dir" || ${line#n} == "$dir/"* ) ]]; then echo "$pid"; fi ;;
+    esac
+  done < <(lsof -a -d cwd -u "$me" -Fpn 2>/dev/null || true)
+}
+
+# Is KEY in the newline-separated LIST? (bash 3.2 has no associative arrays.)
+has() { [[ $1 == *$'\n'"$2"$'\n'* ]]; }
 
 act() { if [[ $apply == 1 ]]; then "$@"; fi; }
 
 removed=0 kept=0
-declare -A seen gone
+seen=$'\n' gone=$'\n'
 
 echo "== worktrees"
 while read -r wt branch; do
   [[ $wt == "$root/.claude/worktrees/"* ]] || continue
   branch=${branch#refs/heads/}
-  seen[$branch]=1
+  seen+="$branch"$'\n'
   name=${wt#"$root/"}
   if [[ -n $(git -C "$wt" status --porcelain 2>/dev/null) ]]; then
     echo "KEEP   $name [$branch]: uncommitted changes"; kept=$((kept + 1)); continue
@@ -107,7 +151,10 @@ while read -r wt branch; do
   fi
   if [[ $include_fresh == 0 && $(git rev-list --count "main..$branch") == 0 ]]; then
     age=$(age_minutes "$wt")
-    if [[ -n $age && $age -lt $FRESH_MINUTES ]]; then
+    if [[ -z $age ]]; then
+      echo "KEEP   $name [$branch]: can't tell how old it is"; kept=$((kept + 1)); continue
+    fi
+    if [[ $age -lt $FRESH_MINUTES ]]; then
       echo "KEEP   $name [$branch]: fresh (created ${age}m ago)"; kept=$((kept + 1)); continue
     fi
   fi
@@ -117,7 +164,7 @@ while read -r wt branch; do
     kept=$((kept + 1)); continue
   fi
   echo "REMOVE $name [$branch]: $why"
-  gone[$wt]=1
+  gone+="$wt"$'\n'
   act git worktree unlock "$wt" 2>/dev/null || true
   act git worktree remove --force "$wt"
   act git branch -D "$branch" >/dev/null
@@ -126,10 +173,10 @@ done < <(git worktree list --porcelain | awk '/^worktree /{w=$2} /^branch /{prin
 
 echo "== branches without a worktree"
 while read -r b; do
-  [[ -n ${seen[$b]:-} ]] && continue
+  has "$seen" "$b" && continue
   git worktree list --porcelain | grep -qx "branch refs/heads/$b" && continue
   wt="$root/.claude/worktrees/agent-${b#worktree-agent-}"
-  if [[ $b == worktree-agent-* && -d $wt && -z ${gone[$wt]:-} ]]; then
+  if [[ $b == worktree-agent-* && -d $wt ]] && ! has "$gone" "$wt"; then
     echo "KEEP   $b: its agent's worktree is kept"; kept=$((kept + 1)); continue
   fi
   why=$(on_main "$b")
