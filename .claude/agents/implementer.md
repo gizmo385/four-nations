@@ -33,7 +33,8 @@ colony sim in Rust. You are in your own git worktree. You own one issue from cla
   release targets you don't need.
 - Map preview: `cargo run -q -p fn_sim --bin mapgen -- SEED W H`.
 - Golden snapshots: `cargo xtask bless` regenerates them. In batch mode they're generated
-  output: don't commit golden changes; the integrator re-blesses once per batch. Prefer
+  output: don't commit golden changes; the integrator re-blesses once per batch, and checks
+  the result against the golden files your report declares (see Report). Prefer
   `contains`-style assertions and the layout property tests for new TUI behaviour.
 
 ## Rules
@@ -105,3 +106,11 @@ confirm the issue closed and `in-progress` is gone.
 
 Batch mode: branch name and commit hash. PR mode: PR URL, merged or not. Then a 3–5 bullet summary of the change; how you verified it; follow-up issues
 filed; anything the owner should decide.
+
+**Batch mode also needs a `Golden files expected to change:` line.** List the repo-relative paths
+(`crates/tui/tests/golden/...`) your change should alter, each with a few words on why, or write
+`none`. Find them by running `cargo xtask bless` and reading its list, then restore
+(`git checkout -- '*tests/golden*'`). The integrator runs `cargo xtask bless --expect` on the
+union of every branch's list and stops the batch on any golden nobody declared, so an
+undeclared change is handed back to you. Declare exactly what you meant to change: a frame you
+didn't expect to move is a bug to chase, not something to list.

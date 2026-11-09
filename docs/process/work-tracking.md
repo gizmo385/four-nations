@@ -157,13 +157,16 @@ batch.
 4. Check only what you touched: `cargo xtask check` (fmt, clippy for the workspace, and tests
    for the crates you changed and the crates that depend on them, with golden comparisons
    skipped). Run it once when you're done.
-5. **Don't commit golden changes.** Golden frames are generated output in batch mode. If you
-   ran `cargo xtask bless` to look at a frame, put the files back before committing
-   (`git checkout -- '*tests/golden*'`), and paste the frame into your report instead.
+5. **Don't commit golden changes, but declare them.** Golden frames are generated output in
+   batch mode. Run `cargo xtask bless` to see which golden files your change alters, put the
+   files back before committing (`git checkout -- '*tests/golden*'`), and paste the frame into
+   your report if it helps. Your report carries a `Golden files expected to change:` line with
+   each path and why, or `none`. The integrator checks the bless against those declarations.
 6. Commit with `Fixes #N` in the body. Write the message for `main`'s history: the integrator
    squashes your branch into one commit that reuses it. Don't push and don't open a PR. Leave `in-progress` on;
    the integrator clears it after the merge.
-7. Report the branch, the commit, what changed and how you checked it.
+7. Report the branch, the commit, what changed, how you checked it, and the golden files you
+   expect to change.
 
 **Integrator** (`.claude/agents/integrator.md`), run by the orchestrator when 2–3 branches are
 waiting, or at the end of a session. Its brief lists the whole batch. Branches that finish
@@ -176,7 +179,11 @@ mid-run go to the next run, not into a message to the running one:
    commit per issue, with no merge commits. On a conflict in a golden
    file, take either side. Resolve small conflicts that keep both sides' intent (doc comments,
    test expectations). For anything else, abort that merge and hand the branch back.
-3. `cargo xtask bless`, and commit any golden changes as one batch commit.
+3. `cargo xtask bless --expect FILE...` with the union of the golden files the branches
+   declared. A changed golden that no branch claimed fails the command and stops the batch: the
+   integrator finds the responsible branch (bless after each squash, or bisect) and hands it
+   back. Otherwise it commits the golden changes as one batch commit whose body lists each
+   changed golden with the issue that declared it.
 4. `cargo xtask ci --fast` once. If it fails, find the branch responsible and hand it back,
    or fix a trivial failure (fmt, a stale expectation) itself.
 5. Clear `in-progress`, remove the merged worktrees and branches with
