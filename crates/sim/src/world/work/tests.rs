@@ -1266,3 +1266,61 @@ fn a_replayed_command_log_reproduces_a_clear() {
     assert_eq!(replayed.tallies(), w.tallies());
     assert_eq!(replayed.command_log(), w.command_log());
 }
+
+/// #574: a claim that finds nothing, and the idle-reason question the balance probe asks once a
+/// minute, flood once and then wait for a change instead of flooding every retry. One fixed run:
+/// two idle settlers, a craft seat whose door is blocked by a tree (so the region pre-check
+/// lets it through and only the flood can say no), and a probe every 600 ticks. That was a claim
+/// flood per settler per retry (every 5 s) plus one per probe call, 260 in all; now it is one
+/// of each per settler.
+#[test]
+fn a_claim_that_finds_nothing_floods_once_not_every_retry() {
+    let rows = [".........", ".........", "........."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(0, 0), at(0, 2)]);
+    wall_in_a_seat(&mut w, &defs);
+    for u in &mut w.units {
+        u.idle_until = u64::MAX;
+    }
+    crate::flood::CALLS.with(|c| c.set(0));
+    let ids: Vec<UnitId> = w.units.iter().map(|u| u.id).collect();
+    for t in 0..6000 {
+        w.tick(&defs);
+        if t % 600 == 0 {
+            for &id in &ids {
+                assert_eq!(w.idle_reason(id, &defs), Some(IdleReason::Unreachable));
+            }
+        }
+    }
+    assert!(w.units.iter().all(|u| u.task().is_none()), "the seat is out of reach");
+    let floods = crate::flood::CALLS.with(|c| c.get());
+    assert!(floods <= SEAT_FLOODS_CAP, "{floods} floods in 6000 ticks");
+}
+
+const SEAT_FLOODS_CAP: u32 = 8;
+
+/// A craft seat at (4, 1) whose door tile holds a tree.
+fn wall_in_a_seat(w: &mut World, defs: &Defs) {
+    let bed = defs.building_id("bed").unwrap();
+    w.map[at(4, 1)].building = Some(crate::building::Building::new(bed, false, false));
+    w.map[at(4, 2)].resource = defs.resource_id("oak_tree");
+    w.map_changed();
+    w.add_job(JobKind::Craft { pos: at(4, 1) });
+}
+
+/// A change a claim depends on ends the wait: the seat's door is cleared, and the settler goes.
+#[test]
+fn a_failed_claim_is_retried_once_what_blocked_it_changes() {
+    let rows = [".........", ".........", "........."];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(0, 0)]);
+    wall_in_a_seat(&mut w, &defs);
+    w.units[0].idle_until = u64::MAX;
+    for _ in 0..200 {
+        w.tick(&defs);
+    }
+    assert!(w.units[0].task().is_none());
+    w.map[at(4, 2)].resource = None;
+    w.map_changed();
+    w.units[0].claim_retry_at = 0;
+    w.tick(&defs);
+    assert!(w.units[0].task().is_some(), "the door is open now");
+}

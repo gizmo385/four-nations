@@ -370,6 +370,17 @@ pub struct World {
     /// was computed. Recomputed on demand; see `regions.rs`.
     #[serde(skip)]
     regions: Option<Regions>,
+    /// Counts `map_changed` calls: part of the key that lets a failed job claim wait for
+    /// something to change (`ClaimKey`, #574). Not saved; a loaded world starts a fresh count
+    /// with no failures remembered.
+    #[serde(skip)]
+    map_rev: u64,
+    /// Per unit, the last answer of `claim_job`'s search and the key it was found under (#574).
+    #[serde(skip)]
+    claim_memo: BTreeMap<UnitId, (work::ClaimKey, work::Picked)>,
+    /// `World::idle_reason`'s last answer per unit, with the key it was given under (#574).
+    #[serde(skip)]
+    idle_memo: work::IdleMemo,
     /// Every bend that has finished or failed, oldest first.
     bend_events: Vec<BendEvent>,
     /// Watered patches that haven't dried yet, in `(dries_at, centre)` order (Water the Land).
@@ -548,6 +559,9 @@ impl World {
             rules: MoveRules::default(),
             cart_rules: defs.cart_rules(MoveRules::default()),
             regions: None,
+            map_rev: 0,
+            claim_memo: BTreeMap::new(),
+            idle_memo: work::IdleMemo::default(),
             bend_events: Vec::new(),
             patches: Vec::new(),
             reverts: Vec::new(),
@@ -802,6 +816,7 @@ impl World {
     /// `map` directly needs to call it.
     pub fn map_changed(&mut self) {
         self.regions = None;
+        self.map_rev += 1;
     }
 
     /// The connected regions of the current map, recomputed first if the map has changed.
