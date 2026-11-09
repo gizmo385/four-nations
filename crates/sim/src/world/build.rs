@@ -925,14 +925,7 @@ impl World {
 
         if let Some(stack) = self.units[i].carrying {
             // Carrying a trip's worth of materials to the site.
-            if self.units[i].route.is_none() {
-                let flood = self.flood_from(i);
-                match self.stand_building(&flood, pos, defs).and_then(|(_, s)| flood.path_to(s)) {
-                    Some(path) => self.units[i].route = Some(route_from(path)),
-                    None => return self.abandon_job(i, id, defs),
-                }
-            }
-            if !self.walk(i, defs) {
+            if !self.go_or_abandon(i, id, StandRule::Building(pos), defs) {
                 return;
             }
             self.deliver_to_site(pos, stack, defs);
@@ -948,6 +941,9 @@ impl World {
                 // (#322): check that cheaply before paying for a flood.
                 if !self.any_source_for(item, defs) {
                     return self.abandon_job(i, id, defs);
+                }
+                if self.keep_walking(i, defs) {
+                    return;
                 }
                 let flood = self.flood_from(i);
                 let Some((source, stand, found)) = self.nearest_source_for(&flood, item, defs)
@@ -973,15 +969,7 @@ impl World {
             }
             None => {
                 // Fully supplied: work the site.
-                if self.units[i].route.is_none() {
-                    let flood = self.flood_from(i);
-                    match self.stand_building(&flood, pos, defs).and_then(|(_, s)| flood.path_to(s))
-                    {
-                        Some(path) => self.units[i].route = Some(route_from(path)),
-                        None => return self.abandon_job(i, id, defs),
-                    }
-                }
-                if !self.walk(i, defs) {
+                if !self.go_or_abandon(i, id, StandRule::Building(pos), defs) {
                     return;
                 }
                 let rate = self.modifiers().construction;

@@ -70,7 +70,8 @@ use crate::research::MILLIS_PER_POINT;
 
 use super::*;
 
-use eligibility::{Bar, Check, StandRule};
+pub(super) use eligibility::StandRule;
+use eligibility::{Bar, Check};
 
 /// How far from a drop point a stack may be placed when its own tile is taken, in tiles.
 const GROUND_SEARCH_RADIUS: i32 = 8;
@@ -221,6 +222,14 @@ pub(super) fn step_needed(
     let plain = if diagonal { DIAGONAL } else { STRAIGHT };
     let cost = rules.step_cost(&map[from], &map[to], diagonal).unwrap_or(plain);
     BASE_TICKS_PER_STEP * cost as f32 / STRAIGHT as f32
+}
+
+/// How a unit's trip to a stand tile stands this tick (`World::go_to`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Go {
+    Arrived,
+    Walking,
+    Unreachable,
 }
 
 /// The remaining steps of a path, next step last.
@@ -783,6 +792,65 @@ impl World {
     ) -> Option<(u32, Pos)> {
         let (foot, walkable) = self.work_area(pos, defs);
         self.stand(flood, foot, walkable)
+    }
+
+    /// Plans unit `i`'s route to stand for `rule`, unless it already has one (#603): the one
+    /// place a runner turns "go there" into a route, so a stale-route fix (#562) lands once.
+    /// False if there is nowhere reachable to stand. An existing route is trusted, with no flood.
+    pub(super) fn plan_route(&mut self, i: usize, rule: StandRule, defs: &Defs) -> bool {
+        if self.units[i].route.is_some() {
+            return true;
+        }
+        let flood = self.flood_from(i);
+        match self.stand_at(&flood, rule, defs).and_then(|(_, s)| flood.path_to(s)) {
+            Some(path) => {
+                self.units[i].route = Some(route_from(path));
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// One tick of getting to `rule`'s stand tile: plan if there is no route, then `walk`.
+    pub(super) fn go_to(&mut self, i: usize, rule: StandRule, defs: &Defs) -> Go {
+        if !self.plan_route(i, rule, defs) {
+            Go::Unreachable
+        } else if self.walk(i, defs) {
+            Go::Arrived
+        } else {
+            Go::Walking
+        }
+    }
+
+    /// `go_to` for a claimed job: true once arrived, false while still walking, and an
+    /// unreachable destination abandons the job (also false).
+    pub(super) fn go_or_abandon(
+        &mut self,
+        i: usize,
+        id: JobId,
+        rule: StandRule,
+        defs: &Defs,
+    ) -> bool {
+        match self.go_to(i, rule, defs) {
+            Go::Arrived => true,
+            Go::Walking => false,
+            Go::Unreachable => {
+                self.abandon_job(i, id, defs);
+                false
+            }
+        }
+    }
+
+    /// Mid-walk to a stand tile chosen earlier (a fetch from a source): takes the step and says
+    /// so, so the runner skips the flood that re-picking the source would cost (#574, #603).
+    /// False once the route is spent or missing, which is when the runner looks again.
+    pub(super) fn keep_walking(&mut self, i: usize, defs: &Defs) -> bool {
+        if self.units[i].route.as_ref().is_some_and(|r| !r.is_empty()) {
+            self.walk(i, defs);
+            true
+        } else {
+            false
+        }
     }
 
     pub(super) fn flood_from(&self, i: usize) -> Flood {
@@ -1690,15 +1758,7 @@ impl World {
             // Not ripe (it can't have been when the job was claimed): wait for it.
             return self.abandon_job(i, id, defs);
         }
-        if self.units[i].route.is_none() {
-            // Resuming after a need, or the claim's route was lost: plan from here.
-            let flood = self.flood_from(i);
-            match self.stand_tile(&flood, pos).and_then(|(_, s)| flood.path_to(s)) {
-                Some(path) => self.units[i].route = Some(route_from(path)),
-                None => return self.abandon_job(i, id, defs),
-            }
-        }
-        if !self.walk(i, defs) {
+        if !self.go_or_abandon(i, id, StandRule::Tile(pos), defs) {
             return;
         }
         let rate = self.work_rate(i, h, defs);
@@ -1726,15 +1786,7 @@ impl World {
             self.jobs.remove(idx);
             return self.finish_job(i);
         };
-        if self.units[i].route.is_none() {
-            // Resuming after a need, or the claim's route was lost: plan from here.
-            let flood = self.flood_from(i);
-            match self.stand_tile(&flood, pos).and_then(|(_, s)| flood.path_to(s)) {
-                Some(path) => self.units[i].route = Some(route_from(path)),
-                None => return self.abandon_job(i, id, defs),
-            }
-        }
-        if !self.walk(i, defs) {
+        if !self.go_or_abandon(i, id, StandRule::Tile(pos), defs) {
             return;
         }
         // A renewable's clear has no modifier of its own (`data/jobs.toml`'s `[harvest.clear]`
@@ -1760,14 +1812,7 @@ impl World {
             self.jobs.remove(idx);
             return self.finish_job(i);
         };
-        if self.units[i].route.is_none() {
-            let flood = self.flood_from(i);
-            match flood.path_to(pos) {
-                Some(path) => self.units[i].route = Some(route_from(path)),
-                None => return self.abandon_job(i, id, defs),
-            }
-        }
-        if !self.walk(i, defs) {
+        if !self.go_or_abandon(i, id, StandRule::Exact(pos), defs) {
             return;
         }
         let take = stack.count.min(self.carry_capacity(i, defs));

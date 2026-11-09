@@ -20,7 +20,6 @@
 use crate::flood::Flood;
 use crate::jobs::JobKind;
 
-use super::work::route_from;
 use super::*;
 
 impl World {
@@ -52,14 +51,7 @@ impl World {
             return self.finish_job(i);
         }
         if self.units[i].inside.is_none() {
-            if self.units[i].route.is_none() {
-                let flood = self.flood_from(i);
-                match self.stand_entrance(&flood, anchor).and_then(|(_, s)| flood.path_to(s)) {
-                    Some(path) => self.units[i].route = Some(route_from(path)),
-                    None => return self.abandon_job(i, id, defs),
-                }
-            }
-            if !self.walk(i, defs) {
+            if !self.go_or_abandon(i, id, StandRule::Entrance(anchor), defs) {
                 return;
             }
             // At the door: step inside once there's room, else wait (retried every tick).
