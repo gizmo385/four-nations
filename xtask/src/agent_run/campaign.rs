@@ -779,7 +779,16 @@ impl Campaign<'_> {
         ));
         let mcp_config = adir.join("mcp.json");
         let claude_args = base_claude_args(&mcp_config, o.model.as_deref());
-        run_scripts_chunked(self.repo, &adir, &self.fn_agent, &o, &claude_args)?;
+        // An error here is a chunk whose cost couldn't be read (#568): the attempt's spend is
+        // unknown, so the campaign stops. The attempt gets no ledger row; its folder is kept
+        // (stop.json says why) and is never reused.
+        run_scripts_chunked(self.repo, &adir, &self.fn_agent, &o, &claude_args).map_err(|e| {
+            format!(
+                "attempt {k} stopped the campaign: {e} No ledger row was written for it; its \
+                 folder is {}.",
+                adir.display()
+            )
+        })?;
 
         // Score what was played.
         let log = adir.join("run.jsonl");

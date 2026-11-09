@@ -486,7 +486,9 @@ prompt asks for a small revision saved under the same name. The later attempts' 
 (`default_script_prompt`) under a block with the ledger's train columns, the champion's
 scorecard and the one ask; held-out numbers appear only in `ledger.json` and the table printed
 at the end. `--max-usd` is a per-attempt `--max-budget-usd` of what's left of the invocation's
-cap, and the loop stops once it is spent. `agent-run --resume DIR [--attempts N]` reads the
+cap, and the loop stops once it is spent. `--max-usd` is required for `--track` and for
+`--resume` too (#568; what bounds a chunk is in agent-play.md, "What bounds a run's spend"); an
+attempt whose chunk leaves no readable cost stops the campaign and gets no row. `agent-run --resume DIR [--attempts N]` reads the
 ledger (which holds the track as it began), refuses a folder with no ledger or a tracks file
 whose entry differs in anything but its label, and numbers new attempts after every row and
 every `attempt-K` folder. `--tracks FILE` swaps the tracks file, for tests. Still to do: the

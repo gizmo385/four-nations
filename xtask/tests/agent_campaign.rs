@@ -84,6 +84,18 @@ if [ -n "$STUB_PROMPTS" ]; then
   printf '%s\n' "$prompt" > "$STUB_PROMPTS/prompt-$attempt-$n"
 fi
 
+# STUB_NOJSON_AT=N: the Nth call of the whole invocation (counted in $STUB_COUNT) exits 1 with
+# no result, as a crashed `claude` would (#568).
+call=1
+if [ -n "$STUB_COUNT" ]; then
+  call=$(( $(cat "$STUB_COUNT" 2>/dev/null || echo 0) + 1 ))
+  echo "$call" > "$STUB_COUNT"
+fi
+if [ "$call" = "$STUB_NOJSON_AT" ]; then
+  echo "stub claude: crashed" >&2
+  exit 1
+fi
+
 if [ "$output_format_json" = "1" ]; then
   printf '{"num_turns":1,"usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":5},"total_cost_usd":0.01,"result":"stub report"}\n'
 fi
@@ -253,13 +265,13 @@ impl Fixture {
     fn campaign(&self, scores: &str, extra: &[&str]) -> Output {
         let mut args = vec!["--track", "tiny", "--model", "stub"];
         args.extend(extra);
-        self.agent_run(scores, &args)
+        self.agent_run(scores, &with_cap(args))
     }
 
     fn resume(&self, scores: &str, dir: &Path, extra: &[&str]) -> Output {
         let mut args = vec!["--resume", dir.to_str().unwrap()];
         args.extend(extra);
-        self.agent_run(scores, &args)
+        self.agent_run(scores, &with_cap(args))
     }
 
     fn campaign_dir(&self) -> PathBuf {
@@ -302,6 +314,14 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.tmp);
     }
+}
+
+/// A campaign needs a spend cap (#568): `args` with a generous one, unless it has its own.
+fn with_cap(mut args: Vec<&str>) -> Vec<&str> {
+    if !args.contains(&"--max-usd") {
+        args.extend(["--max-usd", "100"]);
+    }
+    args
 }
 
 fn stdout(out: &Output) -> String {
@@ -520,7 +540,7 @@ fn an_attempt_without_a_governor_is_recorded_and_not_kept() {
     let fx = Fixture::new("nogov");
     let real_path = std::env::var("PATH").unwrap_or_default();
     let out = Command::new(xtask_bin())
-        .args(["agent-run", "--track", "tiny", "--attempts", "2", "--tracks"])
+        .args(["agent-run", "--track", "tiny", "--attempts", "2", "--max-usd", "100", "--tracks"])
         .arg(fx.tracks())
         .env("PATH", format!("{}:{real_path}", fx.bin_dir().display()))
         .env("FN_AGENT_RUNS", &fx.runs_dir)
@@ -645,7 +665,7 @@ fn resume_refuses_what_it_cannot_compare() {
 fn campaign_flags_are_checked() {
     let fx = Fixture::new("flags");
     let refused = |args: &[&str], needle: &str| {
-        let out = fx.agent_run("1", args);
+        let out = fx.agent_run("1", &with_cap(args.to_vec()));
         assert!(!out.status.success(), "{args:?} should fail");
         let err = stderr(&out);
         assert!(err.contains(needle), "{args:?}: wanted {needle:?} in {err}");
@@ -959,4 +979,48 @@ fn a_resume_stops_when_fn_agent_cannot_name_its_build() {
     assert!(!out.status.success());
     assert!(stderr(&out).contains("build-id"), "{}", stderr(&out));
     assert!(!dir.join("attempt-2").exists(), "nothing was played");
+}
+
+/// #568: a campaign calls the model, so `--track` and `--resume` both refuse to start without
+/// `--max-usd`, before a folder is made or `claude` is run; a resumed campaign's old spend is no
+/// excuse (the cap is of this invocation).
+#[test]
+fn a_campaign_needs_a_spend_cap_and_so_does_a_resume() {
+    let fx = Fixture::new("nocap");
+    let out = fx.agent_run("1", &["--track", "tiny", "--attempts", "1"]);
+    assert!(!out.status.success());
+    assert!(stderr(&out).contains("needs a spend cap: add --max-usd N"), "{}", stderr(&out));
+    assert!(!fx.runs_dir.exists(), "no campaign folder");
+
+    let out = fx.campaign("100", &["--attempts", "1"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let dir = fx.campaign_dir();
+    let out = fx.agent_run("1", &["--resume", dir.to_str().unwrap()]);
+    assert!(!out.status.success());
+    assert!(stderr(&out).contains("needs a spend cap: add --max-usd N"), "{}", stderr(&out));
+    assert_eq!(rows(&dir).len(), 1, "nothing was played");
+}
+
+/// #568: an attempt that ends because `claude` crashed (no result, so no cost) is not charged as
+/// $0 and not retried: the campaign stops with an error, the attempt's folder says why, and the
+/// attempt gets no ledger row.
+#[test]
+fn a_crashed_chunk_stops_the_campaign_with_no_row_for_the_attempt() {
+    let mut fx = Fixture::new("crash");
+    fx.extra_env.push(("STUB_COUNT".to_owned(), fx.tmp.join("count").display().to_string()));
+    // The first attempt is two chunks; the third call is attempt 2's first.
+    fx.extra_env.push(("STUB_NOJSON_AT".to_owned(), "3".to_owned()));
+    let out = fx.campaign("100,200,300", &["--attempts", "3"]);
+    assert!(!out.status.success(), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(err.contains("unknown, not $0"), "{err}");
+    assert!(err.contains("exit status: 1"), "{err}");
+    assert!(err.contains("attempt 2"), "{err}");
+    let dir = fx.campaign_dir();
+    assert_eq!(rows(&dir).len(), 1, "attempt 1 only");
+    let stop = json(&dir.join("attempt-2/stop.json"));
+    assert_eq!(stop["reason"], "unknown_cost");
+    assert_eq!(json(&dir.join("attempt-2/cost.json"))["unknown_chunks"], serde_json::json!([1]));
+    assert!(!dir.join("attempt-3").exists(), "no retry, no next attempt");
+    assert_eq!(fs::read_to_string(fx.tmp.join("count")).unwrap().trim(), "3");
 }

@@ -27,6 +27,11 @@ const STUB_CARGO: &str = "#!/bin/sh\nexit 0\n";
 /// `--resume` on a resumed one), and, when called with `--output-format json`, prints a
 /// `claude -p` result shape to stdout so `agent-run`'s own cost tracking and chunk results have
 /// something to parse.
+///
+/// Knobs (#568), each a list of 1-based call numbers counted in the file `$STUB_COUNT`:
+/// `STUB_IDLE_CALLS` write nothing to the log, `STUB_NOJSON_CALLS` print no result,
+/// `STUB_NOCOST_CALLS` print one with no `total_cost_usd`, `STUB_EXIT_CALLS` exit 1 (after
+/// printing); `STUB_COST` is the cost of a call in dollars (default 0.01).
 const STUB_CLAUDE: &str = r#"#!/bin/sh
 mcp_config=""
 prev=""
@@ -50,6 +55,13 @@ for a in "$@"; do
   prev="$a"
 done
 
+call=1
+if [ -n "$STUB_COUNT" ]; then
+  call=$(( $(cat "$STUB_COUNT" 2>/dev/null || echo 0) + 1 ))
+  echo "$call" > "$STUB_COUNT"
+fi
+in_list() { case " $2 " in *" $1 "*) return 0 ;; esac; return 1; }
+
 log=""
 if [ -n "$mcp_config" ] && [ -f "$mcp_config" ]; then
   log=$(grep -A1 -e '"--log"' -e '"--resume"' "$mcp_config" 2>/dev/null \
@@ -58,7 +70,7 @@ if [ -n "$mcp_config" ] && [ -f "$mcp_config" ]; then
     | sed 's/^[ \t]*"//; s/",\{0,1\}[ \t]*$//')
 fi
 
-if [ -n "$log" ]; then
+if [ -n "$log" ] && ! in_list "$call" "$STUB_IDLE_CALLS"; then
   turns=$(grep -c "\"type\":\"turn\"" "$log" 2>/dev/null)
   turns=${turns:-0}
   next=$((turns + 1))
@@ -79,11 +91,16 @@ if [ -n "$STUB_LOG" ]; then
   echo "$OTEL_RESOURCE_ATTRIBUTES" >> "$STUB_LOG"
 fi
 
-if [ "$output_format_json" = "1" ]; then
-  printf '{"num_turns":1,"usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":5},"total_cost_usd":0.01,"result":"stub report"}\n'
+if [ "$output_format_json" = "1" ] && ! in_list "$call" "$STUB_NOJSON_CALLS"; then
+  if in_list "$call" "$STUB_NOCOST_CALLS"; then
+    printf '{"num_turns":1,"result":"stub report, no cost"}\n'
+  else
+    printf '{"num_turns":1,"usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":5},"total_cost_usd":%s,"result":"stub report"}\n' "${STUB_COST:-0.01}"
+  fi
 fi
 
 echo "stub claude: chunk done" >&2
+in_list "$call" "$STUB_EXIT_CALLS" && exit 1
 exit 0
 "#;
 
@@ -136,6 +153,39 @@ impl Fixture {
         cmd.env_remove("STUB_NO_TRANSCRIPT");
         cmd.arg("agent-run");
         cmd
+    }
+
+    /// `command()` with a spend cap far above what the stub spends (#568: a model run needs one).
+    fn capped(&self) -> Command {
+        let mut cmd = self.command();
+        cmd.args(["--max-usd", "100"]);
+        cmd
+    }
+
+    /// A scripted run of `turns` turns against the stub, `extra` options after them. The calls
+    /// the stub gets are counted in `$STUB_COUNT` and its arguments recorded in `$STUB_ARGS`.
+    fn scripted(&self, turns: &str, extra: &[&str]) -> Command {
+        let mut cmd = self.command();
+        cmd.args([
+            "--scripts",
+            "--turns",
+            turns,
+            "--seed",
+            "4",
+            "--nation",
+            "air",
+            "--max-usd",
+            "100",
+        ]);
+        cmd.args(extra);
+        cmd.env("STUB_COUNT", self.tmp.join("count"));
+        cmd.env("STUB_ARGS", self.tmp.join("calls.txt"));
+        cmd
+    }
+
+    /// How many times the stub `claude` was called by a `scripted` run.
+    fn calls(&self) -> usize {
+        fs::read_to_string(self.tmp.join("count")).map_or(0, |t| t.trim().parse().unwrap())
     }
 
     fn run_dir(&self) -> PathBuf {
@@ -207,7 +257,7 @@ fn chunk_turns_run_makes_one_claude_call_per_chunk_and_sums_cost_json() {
     let fx = Fixture::new("chunked");
     let stub_log = fx.tmp.join("stub.log");
     let status = fx
-        .command()
+        .capped()
         .args([
             "--chunk-turns",
             "1",
@@ -258,7 +308,7 @@ fn chunk_turns_run_makes_one_claude_call_per_chunk_and_sums_cost_json() {
 fn scripts_run_writes_sdk_gaps_and_cost_json() {
     let fx = Fixture::new("scripts");
     let status = fx
-        .command()
+        .capped()
         .args([
             "--scripts",
             "--turns",
@@ -298,7 +348,7 @@ fn scripts_run_with_carry_writes_a_handoff_file() {
     let fx = Fixture::new("carry");
     let carry_dir = fx.tmp.join("carry");
     let status = fx
-        .command()
+        .capped()
         .args([
             "--scripts",
             "--turns",
@@ -389,7 +439,7 @@ fn every_chunk_runs_in_an_empty_sandbox_dir_with_the_clean_flags() {
     let fx = Fixture::new("sandbox");
     let calls_log = fx.tmp.join("calls.txt");
     // A relative runs dir, resolved against the cwd xtask is started from.
-    let mut cmd = fx.command();
+    let mut cmd = fx.capped();
     cmd.current_dir(&fx.tmp).env("FN_AGENT_RUNS", "rel-runs");
     let status = cmd
         .args(["--chunk-turns", "1", "--turns", "2", "--seed", "3", "--nation", "water"])
@@ -435,7 +485,7 @@ fn each_chunks_transcript_is_copied_into_the_run_folder() {
     let fx = Fixture::new("transcripts");
     let calls_log = fx.tmp.join("calls.txt");
     let status = fx
-        .command()
+        .capped()
         .args(["--chunk-turns", "1", "--turns", "2", "--seed", "3", "--nation", "water"])
         .env("STUB_ARGS", &calls_log)
         .status()
@@ -456,7 +506,7 @@ fn each_chunks_transcript_is_copied_into_the_run_folder() {
 fn a_missing_transcript_warns_and_does_not_fail_the_run() {
     let fx = Fixture::new("no-transcript");
     let output = fx
-        .command()
+        .capped()
         .args(["--chunk-turns", "1", "--turns", "2", "--seed", "3", "--nation", "water"])
         .env("STUB_NO_TRANSCRIPT", "1")
         .output()
@@ -488,4 +538,202 @@ fn interactive_sessions_are_sandboxed_and_keep_their_transcript() {
     assert!(cwd.starts_with(fx.tmp.join("tmp").canonicalize().unwrap()), "{cwd:?}");
     assert_eq!(arg_after(args, "--tools"), "");
     assert!(fx.run_dir().join("transcripts/interactive.jsonl").is_file());
+}
+
+// -------------------------------------------------------------------------------------------
+// #568: a mandatory spend cap, a no-progress stop, and chunks that fail loudly
+// -------------------------------------------------------------------------------------------
+
+fn stop_json(dir: &Path) -> serde_json::Value {
+    serde_json::from_str(&fs::read_to_string(dir.join("stop.json")).unwrap()).unwrap()
+}
+
+fn cost_json(dir: &Path) -> serde_json::Value {
+    serde_json::from_str(&fs::read_to_string(dir.join("cost.json")).unwrap()).unwrap()
+}
+
+/// The `--max-budget-usd` each recorded `claude` call was given.
+fn budgets(calls_log: &Path) -> Vec<f64> {
+    recorded_calls(calls_log)
+        .iter()
+        .map(|(_, args)| arg_after(args, "--max-budget-usd").parse().unwrap())
+        .collect()
+}
+
+/// A run that calls the model is refused without `--max-usd`, saying how to give one, before a
+/// run folder is made or `claude` is started. `--interactive` is the exemption, and refuses a cap.
+#[test]
+fn a_model_run_without_a_cap_is_refused_before_anything_runs() {
+    let fx = Fixture::new("nocap");
+    let stub_log = fx.tmp.join("stub.log");
+    for args in [&["--seed", "3", "--nation", "fire"][..], &["--scripts"], &["--chunk-turns", "3"]]
+    {
+        let out = fx.command().args(args).env("STUB_LOG", &stub_log).output().unwrap();
+        assert!(!out.status.success(), "{args:?} should be refused");
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(err.contains("needs a spend cap: add --max-usd N"), "{args:?}: {err}");
+        assert!(err.contains("e.g. --max-usd 5"), "{err}");
+    }
+    let out = fx.command().args(["--scripts", "--max-usd", "0"]).output().unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("more than 0"));
+    let out = fx.command().args(["--interactive", "--max-usd", "5"]).output().unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("--interactive"));
+    assert!(!fx.runs_dir.exists(), "no run folder should have been created");
+    assert!(!stub_log.exists(), "claude must not have been started");
+}
+
+/// Every chunk of a scripted run, and of a `--chunk-turns` run, is started with
+/// `--max-budget-usd` of what is left of the cap, so `claude` itself stops a chunk that would
+/// overspend, not just the loop between chunks.
+#[test]
+fn every_chunk_gets_the_remaining_budget_as_claudes_own_cap() {
+    let fx = Fixture::new("remaining");
+    let status = fx
+        .scripted("3", &["--chunk-calls", "5", "--max-usd", "1"])
+        .env("STUB_COST", "0.25")
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert_eq!(budgets(&fx.tmp.join("calls.txt")), [1.0, 0.75, 0.5]);
+
+    let fx = Fixture::new("remaining-turns");
+    let calls_log = fx.tmp.join("calls.txt");
+    let status = fx
+        .command()
+        .args(["--chunk-turns", "1", "--turns", "3", "--max-usd", "2"])
+        .env("STUB_COST", "0.5")
+        .env("STUB_ARGS", &calls_log)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert_eq!(budgets(&calls_log), [2.0, 1.5, 1.0]);
+}
+
+/// A chunk that ignores its budget (the stub does; `claude` does not) is the worst case for the
+/// loop: it is charged what it cost, and the run stops before another chunk starts.
+#[test]
+fn a_spent_cap_stops_the_run_before_the_next_chunk() {
+    let fx = Fixture::new("capstop");
+    let out = fx.scripted("10", &["--max-usd", "1"]).env("STUB_COST", "0.6").output().unwrap();
+    assert!(out.status.success());
+    assert_eq!(fx.calls(), 2, "0.6, then 0.6 into the 0.4 left: over the cap, so no third");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("hit the $1 cap"), "{err}");
+    let dir = fx.run_dir();
+    assert_eq!(stop_json(&dir)["reason"], "cap");
+    assert!((cost_json(&dir)["usd"].as_f64().unwrap() - 1.2).abs() < 1e-9);
+}
+
+/// Two chunks in a row that change nothing end an ordinary run, saying why; the reason is in the
+/// run folder.
+#[test]
+fn two_idle_chunks_in_a_row_end_a_scripted_run() {
+    let fx = Fixture::new("idle2");
+    let out = fx.scripted("10", &[]).env("STUB_IDLE_CALLS", "2 3").output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(fx.calls(), 3, "one turn, then two idle chunks");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("2 chunk(s) in a row changed nothing"), "{err}");
+    let stop = stop_json(&fx.run_dir());
+    assert_eq!(stop["reason"], "no_progress");
+    assert_eq!(stop["chunk"], 3);
+    assert_eq!(stop["turns"], 1);
+    assert!(stop["detail"].as_str().unwrap().contains("changed nothing"));
+}
+
+/// One idle chunk is forgiven when the next one does something, and a finished run says so.
+#[test]
+fn one_idle_chunk_does_not_end_a_scripted_run() {
+    let fx = Fixture::new("idle1");
+    let out = fx.scripted("3", &[]).env("STUB_IDLE_CALLS", "2").output().unwrap();
+    assert!(out.status.success());
+    assert_eq!(fx.calls(), 4, "turn 1, idle, turn 2, turn 3");
+    assert_eq!(stop_json(&fx.run_dir())["reason"], "done");
+}
+
+/// The same rule on a `--chunk-turns` run.
+#[test]
+fn two_idle_chunks_in_a_row_end_a_chunk_turns_run() {
+    let fx = Fixture::new("idle2-turns");
+    let out = fx
+        .command()
+        .args(["--chunk-turns", "1", "--turns", "10", "--max-usd", "5"])
+        .env("STUB_COUNT", fx.tmp.join("count"))
+        .env("STUB_IDLE_CALLS", "2 3")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert_eq!(fx.calls(), 3);
+    assert_eq!(stop_json(&fx.run_dir())["reason"], "no_progress");
+}
+
+/// A chunk whose cost can't be read is unknown, not $0: whether `claude` printed nothing, exited
+/// nonzero, or printed a result with no cost, the run stops (and fails) at that chunk instead of
+/// retrying, and the folder says which chunk's spend is missing.
+#[test]
+fn a_chunk_with_an_unreadable_cost_stops_the_run() {
+    for (name, env, needle) in [
+        ("exit0", ("STUB_NOJSON_CALLS", "2"), "claude exited 0 but left no result"),
+        ("nocost", ("STUB_NOCOST_CALLS", "2"), "claude exited 0 but left no result"),
+        ("exit1", ("STUB_EXIT_CALLS", "2"), "exit status: 1 and left no result with a cost"),
+    ] {
+        let fx = Fixture::new(&format!("unknown-{name}"));
+        let mut cmd = fx.scripted("10", &[]);
+        cmd.env(env.0, env.1);
+        if name == "exit1" {
+            cmd.env("STUB_NOJSON_CALLS", "2");
+        }
+        let out = cmd.output().unwrap();
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "{name}: {err}");
+        assert!(err.contains(needle), "{name}: {err}");
+        assert!(err.contains("unknown, not $0"), "{name}: {err}");
+        assert_eq!(fx.calls(), 2, "{name}: stopped, no retry");
+        let dir = fx.run_dir();
+        let cost = cost_json(&dir);
+        assert_eq!(cost["unknown_chunks"], serde_json::json!([2]), "{name}");
+        assert!((cost["usd"].as_f64().unwrap() - 0.01).abs() < 1e-9, "{name}: {cost}");
+        let stop = stop_json(&dir);
+        assert_eq!(stop["reason"], "unknown_cost", "{name}");
+        assert_eq!(stop["chunk"], 2);
+        if name == "exit1" {
+            let agent_log = fs::read_to_string(dir.join("agent.log")).unwrap();
+            assert!(agent_log.contains("chunk 2 failed: claude ended with exit status: 1"));
+        }
+    }
+}
+
+/// Same for `--chunk-turns`.
+#[test]
+fn a_chunk_turns_chunk_with_an_unreadable_cost_stops_the_run() {
+    let fx = Fixture::new("unknown-turns");
+    let out = fx
+        .command()
+        .args(["--chunk-turns", "1", "--turns", "5", "--max-usd", "5"])
+        .env("STUB_COUNT", fx.tmp.join("count"))
+        .env("STUB_NOJSON_CALLS", "1")
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert_eq!(fx.calls(), 1);
+    assert_eq!(stop_json(&fx.run_dir())["reason"], "unknown_cost");
+}
+
+/// A nonzero exit that still printed a result with its cost is reported and charged, and the run
+/// goes on (the cap and the no-progress rule bound what repeats).
+#[test]
+fn a_nonzero_exit_with_a_known_cost_is_reported_and_charged() {
+    let fx = Fixture::new("exit-known");
+    let out = fx.scripted("2", &[]).env("STUB_EXIT_CALLS", "1").output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("chunk 1: claude ended with exit status: 1"), "{err}");
+    assert_eq!(fx.calls(), 2);
+    let dir = fx.run_dir();
+    assert!((cost_json(&dir)["usd"].as_f64().unwrap() - 0.02).abs() < 1e-9);
+    assert_eq!(stop_json(&dir)["reason"], "done");
+    let agent_log = fs::read_to_string(dir.join("agent.log")).unwrap();
+    assert!(agent_log.contains("chunk 1 failed: claude ended with exit status: 1"), "{agent_log}");
 }

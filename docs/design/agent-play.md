@@ -429,6 +429,41 @@ environment, so a run started from inside another Claude Code session carries th
 `CLAUDE_CODE_*` variables. Last, the sandbox hides files, not the game: it does not limit what
 the player does with the game's own tools.
 
+## What bounds a run's spend (#568)
+
+`cargo xtask agent-run` refuses to start any run that calls the model (the default mode,
+`--chunk-turns`, `--scripts`, `--track`, `--resume`) without `--max-usd N`. `--interactive` is the
+exception: the owner is in that session and can end it, and `claude --max-budget-usd` only works
+with `-p`, so a cap there would be a promise the harness couldn't keep; it is refused rather than
+ignored. What limits the spend, from the inside out:
+
+- **`claude`'s own `--max-budget-usd`**, given to every `claude -p` call as what is left of the cap
+  (the whole cap for the default mode's one call; the cap minus `cost.json` for a chunk; for a
+  campaign attempt, the invocation's cap minus the attempts so far, minus the attempt's chunks).
+  This is the only thing that stops a chunk while it runs. `--chunk-calls` is a request in the
+  prompt and nothing enforces it, so a chunk that ignores it runs until it hits this budget. By
+  `claude`'s own account it stops once a response takes it past the amount, so a runaway chunk can
+  overshoot by what was in flight, not by a chunk's worth; that overshoot has not been measured
+  with a real session (nothing here runs the model), so treat it as "one response, a few cents",
+  not as a guarantee.
+- **The loop between chunks** reads `cost.json` and stops once the cap is spent. A chunk that did
+  overshoot is therefore charged and is the last one.
+- **A chunk whose cost can't be read** (no JSON, a result with no `total_cost_usd`, `claude`
+  killed) is unknown, not $0. The run stops with an error rather than start another chunk it can't
+  account for, and `cost.json` lists the chunk under `unknown_chunks` (its spend is missing from
+  `usd`, so that total is a floor). That chunk was itself started with the remaining budget, so
+  the unknown amount is bounded by the cap too. A nonzero exit whose result still has a cost is
+  reported (stderr, `agent.log`) and charged, and the run goes on: that may be how `claude` ends a
+  chunk that hit its budget, and the next check sees the cap spent.
+- **No progress** (two chunks in a row that add no turn, script save, plan edit, note or
+  `test_governor` call to `run.jsonl`) ends a plain run; a campaign attempt ends on the first, as
+  #569 made it. A chunk that only edits and tests counts as work, so this does not bound a model
+  that edits forever: the cap does.
+
+Every chunked loop writes `stop.json` in its run folder (or the campaign's `attempt-K/`): `done`,
+`cap`, `no_progress`, `unknown_cost` or `gave_up`, the chunk, the turns and a sentence. The
+backstop on chunk count (`gave_up`) is a last resort, not a bound anyone should rely on.
+
 ## Enforcing and testing parity
 
 Rust visibility can't enforce parity on its own, because `Shell` and `Session` are public

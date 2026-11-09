@@ -44,8 +44,15 @@
 //!   --carry DIR        with --scripts, saves the run's final script library, lab notes and
 //!                      plan to DIR, and loads whatever's already there into the first
 //!                      session's own prompt.
-//!   --max-usd N        caps the run's own spend at N dollars (only with --chunk-turns or
-//!                      --scripts; #485). Enforced, not just watched.
+//!   --max-usd N        the spend cap, in dollars, and required for every run that calls the
+//!                      model (#568): the default mode, --chunk-turns, --scripts and a --track or
+//!                      --resume campaign. Not for --interactive, which is a chat you are in
+//!                      and can end (and `claude --max-budget-usd` only works with `-p`), so
+//!                      it is refused there. Enforced, not just watched (#485): every `claude`
+//!                      call gets `--max-budget-usd` of what is left, and a chunked run also
+//!                      stops between chunks once it is spent. `--chunk-calls` is only a request
+//!                      in the prompt: it is this cap, `claude`'s own, that limits a chunk.
+//!                      A chunk whose cost can't be read stops the run (it would not be $0).
 //!   --track ID         a hill-climbing campaign (docs/design/agent-hillclimb.md, "The attempt
 //!                      loop"; #530) on a `data/tracks.toml` track: --attempts N scripted runs
 //!                      (--scripts is implied) on the track's play_seed to its horizon, each
@@ -61,7 +68,8 @@
 //!                      the whole invocation's spend, and the loop stops once it is spent.
 //!                      The live game stops at the track's horizon (`fn_agent serve
 //!                      --horizon`, #569); an attempt ends there, or when a chunk changes
-//!                      nothing.
+//!                      nothing (a plain --scripts or --chunk-turns run ends after two such
+//!                      chunks in a row, #568).
 //!   --attempts N       how many attempts to play (required with --track; default 1 with --resume)
 //!   --resume DIR       continues the campaign in DIR: the track, ledger.json and champion are
 //!                      read from the folder, new attempts are numbered after the last one, and
@@ -89,7 +97,8 @@
 //! the run folder's `transcripts/`. In the default mode, quitting the watcher stops the agent
 //! too. The agent's own output goes to agent.log in the run folder. A --chunk-turns or
 //! --scripts run also gets cost.json (round trips and tokens summed from every chunk's own
-//! `claude -p --output-format json`, with a USD total; #485); a --scripts run also gets
+//! `claude -p --output-format json`, with a USD total; #485) and stop.json (why the loop ended:
+//! done, cap, no_progress, unknown_cost or gave_up; #568); a --scripts run also gets
 //! sdk-gaps.md.
 //!
 //! Every `claude` call this makes is tagged with OTEL_RESOURCE_ATTRIBUTES
@@ -208,6 +217,11 @@ pub fn run(args: &[&str]) -> Result {
         return Ok(());
     }
 
+    // One `claude -p` for the whole run, so claude's own cap is the whole cap (#568).
+    let mut claude_args = claude_args;
+    if let Some(cap) = opts.max_usd {
+        claude_args.extend(budget_args(cap));
+    }
     run_default(&repo, &dir, &opts, &prompt, &claude_args)
 }
 
@@ -484,10 +498,33 @@ fn validate(o: &Opts) -> Result {
     if o.carry_dir.is_some() && !o.scripts {
         return Err("--carry only applies with --scripts".into());
     }
-    if o.max_usd.is_some() && !o.scripts && o.chunk_turns == 0 {
-        return Err("--max-usd only applies with --chunk-turns or --scripts".into());
+    check_cap(o)
+}
+
+/// The spend cap (#568): every run that calls the model has one. `--interactive` is the
+/// exception: it is a chat the owner is sitting in and can end, and `claude --max-budget-usd`
+/// only works with `-p`, so a cap there could not be kept; it is refused rather than ignored.
+fn check_cap(o: &Opts) -> Result {
+    if o.interactive {
+        if o.max_usd.is_some() {
+            return Err(
+                "--max-usd doesn't apply to --interactive: `claude --max-budget-usd` only \
+                        works with `claude -p`, and you are in the session and can end it"
+                    .into(),
+            );
+        }
+        return Ok(());
     }
-    Ok(())
+    match o.max_usd {
+        None => {
+            Err("this run calls the model, so it needs a spend cap: add --max-usd N (dollars), \
+                     e.g. --max-usd 5. A scripted game year costs about $0.5 on Sonnet and 3-4x \
+                     that on Opus (docs/design/agent-scripting.md). --interactive needs none."
+                .into())
+        }
+        Some(cap) if cap <= 0.0 => Err("--max-usd must be more than 0".into()),
+        Some(_) => Ok(()),
+    }
 }
 
 /// What a campaign (`--track`, `--resume`) can't be combined with: the track fixes the start
@@ -519,7 +556,7 @@ fn validate_campaign(o: &Opts) -> Result {
             ));
         }
     }
-    Ok(())
+    check_cap(o)
 }
 
 /// Whether `bin` (a bare name, resolved on `$PATH`, or a path containing a separator) exists --
@@ -1172,9 +1209,9 @@ fn base_claude_args(mcp_config: &Path, model: Option<&str>) -> Vec<String> {
 }
 
 /// One `claude -p PROMPT ... --output-format json` call: stdout (the JSON result) goes to
-/// `out_json`, stderr is appended to `dir/agent.log`. The exit status is ignored (`|| true` in
-/// the old script): a chunk that errors out still gets its (empty) result parsed and the loop
-/// moves on.
+/// `out_json`, stderr is appended to `dir/agent.log`. How it went is in the returned
+/// [`ChunkRun`], which `settle_chunk` turns into the run's cost, its report, and whether the
+/// loop can go on (#568).
 fn run_claude_p(
     opts: &Opts,
     prompt: &str,
@@ -1183,7 +1220,7 @@ fn run_claude_p(
     chunk: u32,
     dir: &Path,
     out_json: &Path,
-) -> Result {
+) -> Result<ChunkRun> {
     let stdout_file =
         File::create(out_json).map_err(|e| format!("creating {}: {e}", out_json.display()))?;
     let stderr_file = OpenOptions::new()
@@ -1193,7 +1230,7 @@ fn run_claude_p(
         .map_err(|e| e.to_string())?;
     let attrs = otel_attrs(opts, dir, mode, Some(chunk));
     let session = sandbox::new_session_id();
-    let _ = sandbox::claude_command(&opts.claude_bin, dir, &session)?
+    let status = sandbox::claude_command(&opts.claude_bin, dir, &session)?
         .arg("-p")
         .arg(prompt)
         .args(call_args)
@@ -1203,7 +1240,12 @@ fn run_claude_p(
         .stderr(stderr_file)
         .status();
     sandbox::keep_transcript(dir, &session, &format!("chunk-{chunk}"));
-    Ok(())
+    let failure = match status {
+        Ok(s) if s.success() => None,
+        Ok(s) => Some(format!("claude ended with {s}")),
+        Err(e) => Some(format!("claude could not be run: {e}")),
+    };
+    Ok(ChunkRun { failure, result: read_claude_result(out_json) })
 }
 
 fn append_log(path: &Path, text: &str) -> Result {
@@ -1785,8 +1827,12 @@ fn write_sdk_gaps(dir: &Path) -> Result {
 }
 
 // -------------------------------------------------------------------------------------------
-// Cost tracking (#485)
+// Reading `claude`'s result, and cost tracking (#485, #568)
 // -------------------------------------------------------------------------------------------
+//
+// Everything about what a `claude -p --output-format json` call left behind is here: parsing the
+// result (`read_claude_result`), the cost in it (`ClaudeResult::cost`), what a call's end means
+// (`ChunkRun`, `settle_chunk`) and the running totals (`cost.json`).
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 struct Usage {
@@ -1801,8 +1847,8 @@ struct Usage {
 }
 
 /// A `claude -p ... --output-format json` call's own result shape: just the fields this cares
-/// about, same leniency as the old script's `try/except` (a missing or unparsable file reads as
-/// all zeros, never an error).
+/// about. A field that is missing reads as zero or empty, except the cost: a result with no
+/// `total_cost_usd` has an unknown cost, not a free one (#568).
 #[derive(Debug, Default, Clone, Deserialize)]
 struct ClaudeResult {
     #[serde(default)]
@@ -1810,9 +1856,33 @@ struct ClaudeResult {
     #[serde(default)]
     usage: Usage,
     #[serde(default)]
-    total_cost_usd: f64,
+    total_cost_usd: Option<f64>,
     #[serde(default)]
     result: String,
+}
+
+impl ClaudeResult {
+    /// The call's cost in dollars, or `None` when the result doesn't say (or says something that
+    /// isn't an amount of money).
+    fn cost(&self) -> Option<f64> {
+        self.total_cost_usd.filter(|c| c.is_finite() && *c >= 0.0)
+    }
+}
+
+/// Parses `path` as a `claude -p --output-format json` result: `None` if the file is missing or
+/// isn't a JSON object of that shape (a crashed or killed `claude` leaves nothing, or half a
+/// line).
+fn read_claude_result(path: &Path) -> Option<ClaudeResult> {
+    serde_json::from_str(&fs::read_to_string(path).ok()?).ok()
+}
+
+/// How one chunk's `claude` call went (#568).
+#[derive(Debug)]
+struct ChunkRun {
+    /// Set when `claude` didn't exit 0 (killed, nonzero status, or never started): what happened.
+    failure: Option<String>,
+    /// What it printed, if that parsed.
+    result: Option<ClaudeResult>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -1829,37 +1899,81 @@ struct CostTotals {
     output_tokens: u64,
     #[serde(default)]
     usd: f64,
+    /// Chunks whose cost couldn't be read (#568). Their spend is not in `usd`, so a total with
+    /// any of these is a floor, not the cost; the run stops at the first one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    unknown_chunks: Vec<u32>,
 }
 
-/// Reads and parses `path` as JSON, or `T::default()` if it's missing or isn't valid JSON --
-/// the same leniency the old script's Python `try/except (FileNotFoundError, JSONDecodeError)`
-/// had.
+/// Reads and parses `path` as JSON, or `T::default()` if it's missing or isn't valid JSON.
 fn read_json_or_default<T: Default + for<'de> Deserialize<'de>>(path: &Path) -> T {
     fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
-/// Adds one chunk's own `claude -p --output-format json` result (read from `json_path`) into
-/// `dir/cost.json`'s running total: round trips (`num_turns`), input/cache/output tokens, and
-/// USD. Updated after every chunk, not just at the end, so an interrupted run still reports what
-/// it spent so far.
-fn update_cost(dir: &Path, json_path: &Path) -> Result {
-    let data: ClaudeResult = read_json_or_default(json_path);
+/// Adds one chunk's result into `dir/cost.json`'s running total: round trips (`num_turns`),
+/// input/cache/output tokens, and USD. A chunk with no result, or none with a readable cost, is
+/// listed in `unknown_chunks` and adds nothing to `usd`. Updated after every chunk, not just at
+/// the end, so an interrupted run still reports what it spent so far.
+fn update_cost(dir: &Path, chunk: u32, result: Option<&ClaudeResult>) -> Result {
     let cost_path = dir.join("cost.json");
     let mut totals: CostTotals = read_json_or_default(&cost_path);
-    totals.round_trips += data.num_turns;
-    totals.input_tokens += data.usage.input_tokens;
-    totals.cache_creation_input_tokens += data.usage.cache_creation_input_tokens;
-    totals.cache_read_input_tokens += data.usage.cache_read_input_tokens;
-    totals.output_tokens += data.usage.output_tokens;
-    totals.usd += data.total_cost_usd;
+    if let Some(data) = result {
+        totals.round_trips += data.num_turns;
+        totals.input_tokens += data.usage.input_tokens;
+        totals.cache_creation_input_tokens += data.usage.cache_creation_input_tokens;
+        totals.cache_read_input_tokens += data.usage.cache_read_input_tokens;
+        totals.output_tokens += data.usage.output_tokens;
+    }
+    match result.and_then(ClaudeResult::cost) {
+        Some(usd) => totals.usd += usd,
+        None => totals.unknown_chunks.push(chunk),
+    }
     let text = serde_json::to_string_pretty(&totals).map_err(|e| e.to_string())? + "\n";
     fs::write(&cost_path, text).map_err(|e| format!("writing {}: {e}", cost_path.display()))
 }
 
-/// Extracts a `claude -p --output-format json` call's own `result` text (its final report).
-/// Empty (not an error) with no result yet, or if `claude` never wrote valid JSON.
-fn chunk_result(json_path: &Path) -> String {
-    read_json_or_default::<ClaudeResult>(json_path).result
+/// What a finished chunk comes to (#568).
+struct Settled {
+    /// The chunk's own report, or a line saying it left none, for the next chunk's handoff.
+    report: String,
+    /// Why the loop can't go on, when it can't: the chunk's cost is unknown, so the cap can no
+    /// longer be vouched for.
+    stop: Option<String>,
+}
+
+/// Books a finished chunk, in one place for every chunked loop: reports a `claude` that failed
+/// (on stderr and in agent.log, never silently), adds the cost to `cost.json`, and says to stop
+/// if the cost can't be read. A nonzero exit whose result still carries a cost is charged and
+/// reported but doesn't stop the run by itself: that is also how `claude` may end a chunk that
+/// hit `--max-budget-usd`, and the cap and no-progress rules bound what repeats.
+fn settle_chunk(dir: &Path, chunk: u32, run: &ChunkRun) -> Result<Settled> {
+    let agent_log = dir.join("agent.log");
+    if let Some(why) = &run.failure {
+        say(&format!("chunk {chunk}: {why}; see {}", agent_log.display()));
+        append_log(&agent_log, &format!("\n--- chunk {chunk} failed: {why} ---\n"))?;
+    }
+    update_cost(dir, chunk, run.result.as_ref())?;
+    let known = run.result.as_ref().and_then(ClaudeResult::cost).is_some();
+    let stop = (!known).then(|| {
+        let what = match &run.failure {
+            Some(why) => format!("{why} and left no result with a cost"),
+            None => "claude exited 0 but left no result with a total_cost_usd".to_string(),
+        };
+        format!(
+            "chunk {chunk}: {what} (chunk-{chunk}.json). What it spent is unknown, not $0, so \
+             the spend cap can't be checked: stopping. cost.json lists it under unknown_chunks."
+        )
+    });
+    let said = run.result.as_ref().map(|r| r.result.as_str()).unwrap_or_default();
+    let report = if !said.is_empty() {
+        said.to_string()
+    } else if let Some(why) = &run.failure {
+        format!("(this chunk's session failed: {why}; see {}/agent.log)", dir.display())
+    } else {
+        format!("(this chunk's session ended without a report; see {}/agent.log)", dir.display())
+    };
+    append_log(&agent_log, &format!("\n--- chunk {chunk} report ---\n{report}\n"))?;
+    Ok(Settled { report, stop })
 }
 
 /// The USD `dir/cost.json` has recorded so far (0 with no file yet).
@@ -1873,6 +1987,97 @@ fn budget_remaining(dir: &Path, max_usd: f64) -> f64 {
     (max_usd - cost_so_far(dir)).max(0.0)
 }
 
+/// `claude`'s own spend cap for one call. This, not `--chunk-calls` (a request in the prompt),
+/// is what limits what a chunk can spend: `claude` stops once a response takes it past the
+/// amount, so a runaway chunk overshoots by at most what was in flight (#568).
+fn budget_args(usd: f64) -> [String; 2] {
+    ["--max-budget-usd".to_string(), usd.to_string()]
+}
+
+/// A chunk's `claude` arguments: the run's, plus a cap of what's left of `--max-usd`.
+fn chunk_call_args(o: &Opts, dir: &Path, claude_args: &[String]) -> Vec<String> {
+    let mut args = claude_args.to_vec();
+    if let Some(max_usd) = o.max_usd {
+        args.extend(budget_args(budget_remaining(dir, max_usd)));
+    }
+    args
+}
+
+// -------------------------------------------------------------------------------------------
+// Why a chunked loop ended (#568)
+// -------------------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StopReason {
+    /// The target turns were played (or a campaign attempt reached its horizon).
+    Done,
+    /// `--max-usd` is spent.
+    Cap,
+    /// Chunks in a row changed nothing.
+    NoProgress,
+    /// A chunk's cost couldn't be read; the run stops rather than assume $0. An error.
+    UnknownCost,
+    /// The backstop on chunk count.
+    GaveUp,
+}
+
+impl StopReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Done => "done",
+            Self::Cap => "cap",
+            Self::NoProgress => "no_progress",
+            Self::UnknownCost => "unknown_cost",
+            Self::GaveUp => "gave_up",
+        }
+    }
+}
+
+/// Writes `dir/stop.json`: why the loop ended, so a run folder (or a campaign's attempt folder)
+/// says it without the terminal output.
+fn write_stop(dir: &Path, reason: StopReason, chunk: u32, turns: u32, detail: &str) -> Result {
+    let text = serde_json::to_string_pretty(&serde_json::json!({
+        "reason": reason.as_str(),
+        "chunk": chunk,
+        "turns": turns,
+        "detail": detail,
+    }))
+    .map_err(|e| e.to_string())?
+        + "\n";
+    fs::write(dir.join("stop.json"), text).map_err(|e| format!("writing stop.json: {e}"))
+}
+
+/// A chunked run's no-progress rule (#568, building on #569's): a chunk that adds nothing to
+/// `run.jsonl`'s `work_marks` (no turn, script save, plan edit, note or test) is idle, and
+/// `limit` idle chunks in a row end the run. An editing-only chunk is work, so this does not
+/// bound a model that edits forever: `--max-usd` does.
+struct Idle {
+    limit: u32,
+    streak: u32,
+}
+
+impl Idle {
+    /// A campaign attempt (`o.trial`) ends on the first idle chunk (#569: that is how an attempt
+    /// that has done what it will do finishes). An ordinary run has no such natural end, so it
+    /// gets one idle chunk of grace (a session that spent itself thinking, or hit a transient
+    /// error), and stops on the second.
+    fn for_run(o: &Opts) -> Self {
+        Self { limit: if o.trial.is_some() { 1 } else { 2 }, streak: 0 }
+    }
+
+    /// Records a chunk that went from `before` to `after` work marks; true when the run should
+    /// stop now.
+    fn chunk_done(&mut self, before: usize, after: usize) -> bool {
+        self.streak = if after > before { 0 } else { self.streak + 1 };
+        self.streak >= self.limit
+    }
+}
+
+/// How much work `log` holds (see [`work_marks`]), 0 with no log yet.
+fn logged_work(log: &Path) -> usize {
+    read_log_lines(log).map_or(0, |l| work_marks(&l))
+}
+
 // -------------------------------------------------------------------------------------------
 // Chunked loops
 // -------------------------------------------------------------------------------------------
@@ -1880,6 +2085,10 @@ fn budget_remaining(dir: &Path, max_usd: f64) -> f64 {
 /// `--chunk-turns N`: plays `opts.turns` as successive `claude -p` sessions of at most N turns
 /// each, every one but the first resuming `run.jsonl` (`fn_agent serve --resume`, #341) instead
 /// of starting a fresh game, so no single session's context grows past one chunk's worth.
+///
+/// Ends (and says why, in `stop.json`) when the turns are played, `--max-usd` is spent, two
+/// chunks in a row change nothing, a chunk's cost can't be read (an error) or the chunk-count
+/// backstop is hit.
 fn run_chunked(
     repo: &Path,
     dir: &Path,
@@ -1900,29 +2109,27 @@ fn run_chunked(
     let mcp_config = dir.join("mcp.json");
     let log = dir.join("run.jsonl");
     let mut report = String::new();
-    loop {
+    let mut idle = Idle::for_run(o);
+    let mut last_chunk = 0;
+    let (reason, detail) = loop {
         let done_turns = turns_done(dir)?;
         if done_turns >= target {
-            say(&format!("reached turn {done_turns} of {target} turns; done"));
-            break;
+            let detail = format!("reached turn {done_turns} of {target} turns; done");
+            say(&detail);
+            break (StopReason::Done, detail);
         }
         if n > max_chunks {
-            say(&format!(
+            let detail = format!(
                 "giving up after {max_chunks} chunks (only reached turn {done_turns} of \
                  {target}); see {}/agent.log",
                 dir.display()
-            ));
-            break;
+            );
+            say(&detail);
+            break (StopReason::GaveUp, detail);
         }
-        if let Some(max_usd) = o.max_usd {
-            let spent = cost_so_far(dir);
-            if spent >= max_usd {
-                say(&format!(
-                    "stopping: hit the ${max_usd} cap (${spent} spent so far, turn {done_turns} \
-                     of {target})"
-                ));
-                break;
-            }
+        if let Some(detail) = cap_reached(o, dir, done_turns, target) {
+            say(&detail);
+            break (StopReason::Cap, detail);
         }
         let turns_left = target - done_turns;
         let this_chunk = turns_left.min(size);
@@ -1938,12 +2145,8 @@ fn run_chunked(
             (None, 1) => default_prompt(this_chunk),
             (None, _) => handoff_prompt(this_chunk, done_turns, &report),
         };
-
-        let mut call_args = claude_args.to_vec();
-        if let Some(max_usd) = o.max_usd {
-            call_args.push("--max-budget-usd".to_string());
-            call_args.push(budget_remaining(dir, max_usd).to_string());
-        }
+        let marks_before = logged_work(&log);
+        let call_args = chunk_call_args(o, dir, claude_args);
 
         say(&format!(
             "chunk {n}: turns {}-{} of {target}",
@@ -1951,29 +2154,52 @@ fn run_chunked(
             done_turns + this_chunk
         ));
         let chunk_json = dir.join(format!("chunk-{n}.json"));
-        run_claude_p(o, &this_prompt, &call_args, "mcp-chunked", n, dir, &chunk_json)?;
-        let result = chunk_result(&chunk_json);
-        report = if result.is_empty() {
-            format!(
-                "(this chunk's session ended without a report; see {}/agent.log)",
-                dir.display()
-            )
-        } else {
-            result
-        };
-        append_log(&dir.join("agent.log"), &format!("\n--- chunk {n} report ---\n{report}\n"))?;
-        update_cost(dir, &chunk_json)?;
+        let run = run_claude_p(o, &this_prompt, &call_args, "mcp-chunked", n, dir, &chunk_json)?;
+        last_chunk = n;
+        let settled = settle_chunk(dir, n, &run)?;
+        report = settled.report;
         finish_log(dir, &format!("chunk {n} finished"))?;
+        if let Some(detail) = settled.stop {
+            say(&detail);
+            break (StopReason::UnknownCost, detail);
+        }
+        if idle.chunk_done(marks_before, logged_work(&log)) {
+            let detail = format!(
+                "stopping: {} chunk(s) in a row changed nothing (no turn, script, plan, note or \
+                 test); at turn {} of {target}. See {}/agent.log",
+                idle.streak,
+                turns_done(dir)?,
+                dir.display()
+            );
+            say(&detail);
+            break (StopReason::NoProgress, detail);
+        }
         n += 1;
-    }
+    };
+    write_stop(dir, reason, last_chunk, turns_done(dir)?, &detail)?;
     let _ = repo;
-    Ok(())
+    if reason == StopReason::UnknownCost { Err(detail) } else { Ok(()) }
+}
+
+/// The `--max-usd` check between chunks: a line saying so once the cap is spent.
+fn cap_reached(o: &Opts, dir: &Path, done_turns: u32, target: u32) -> Option<String> {
+    let max_usd = o.max_usd?;
+    let spent = cost_so_far(dir);
+    (spent >= max_usd).then(|| {
+        format!(
+            "stopping: hit the ${max_usd} cap (${spent} spent so far, turn {done_turns} of \
+             {target})"
+        )
+    })
 }
 
 /// `--scripts`: plays `opts.turns` as successive `claude -p` sessions chunked by round trips
 /// rather than game turns (`--chunk-calls`, #484, docs/design/agent-scripting.md). Every chunk
 /// but the first resumes `run.jsonl` (`fn_agent serve --scripts --resume`), which restores the
 /// real script library and memory on its own.
+///
+/// Ends like [`run_chunked`] does. A campaign attempt (`o.trial`) differs in two ways: it is
+/// done at its horizon too, and one idle chunk ends it rather than two.
 fn run_scripts_chunked(
     repo: &Path,
     dir: &Path,
@@ -1986,7 +2212,7 @@ fn run_scripts_chunked(
     let mut n: u32 = 1;
     // Turns per chunk vary a lot with how mature the library is, so this backstop can't be
     // sized from `calls` the way `run_chunked`'s is from `size`: one extra chunk per turn, plus
-    // headroom.
+    // headroom. The cap and the no-progress rule are what bound a run in practice.
     let max_chunks = target + 10;
     // A campaign attempt (`o.trial` is only ever set by one, #561): its live game stops at the
     // horizon (`--horizon`, #569), and what finishes it is not only the turn counter.
@@ -1998,29 +2224,27 @@ fn run_scripts_chunked(
     ));
     let mcp_config = dir.join("mcp.json");
     let log = dir.join("run.jsonl");
-    loop {
+    let mut idle = Idle::for_run(o);
+    let mut last_chunk = 0;
+    let (reason, detail) = loop {
         let done_turns = turns_done(dir)?;
         if done_turns >= target {
-            say(&format!("reached turn {done_turns} of {target} turns; done"));
-            break;
+            let detail = format!("reached turn {done_turns} of {target} turns; done");
+            say(&detail);
+            break (StopReason::Done, detail);
         }
         if n > max_chunks {
-            say(&format!(
+            let detail = format!(
                 "giving up after {max_chunks} chunks (only reached turn {done_turns} of \
                  {target}); see {}/agent.log",
                 dir.display()
-            ));
-            break;
+            );
+            say(&detail);
+            break (StopReason::GaveUp, detail);
         }
-        if let Some(max_usd) = o.max_usd {
-            let spent = cost_so_far(dir);
-            if spent >= max_usd {
-                say(&format!(
-                    "stopping: hit the ${max_usd} cap (${spent} spent so far, turn {done_turns} \
-                     of {target})"
-                ));
-                break;
-            }
+        if let Some(detail) = cap_reached(o, dir, done_turns, target) {
+            say(&detail);
+            break (StopReason::Cap, detail);
         }
 
         if n == 1 {
@@ -2052,51 +2276,54 @@ fn run_scripts_chunked(
             });
             scripts_handoff_prompt(target, done_turns, calls, &listing, note.as_deref())
         };
-        let marks_before = read_log_lines(&log).map_or(0, |l| work_marks(&l));
-
-        let mut call_args = claude_args.to_vec();
-        if let Some(max_usd) = o.max_usd {
-            call_args.push("--max-budget-usd".to_string());
-            call_args.push(budget_remaining(dir, max_usd).to_string());
-        }
+        let marks_before = logged_work(&log);
+        let call_args = chunk_call_args(o, dir, claude_args);
 
         say(&format!(
             "chunk {n}: about {calls} tool calls, past turn {done_turns} of {target} so far"
         ));
         let chunk_json = dir.join(format!("chunk-{n}.json"));
-        run_claude_p(o, &this_prompt, &call_args, "scripts", n, dir, &chunk_json)?;
-        let result = chunk_result(&chunk_json);
-        let result = if result.is_empty() {
-            format!(
-                "(this chunk's session ended without a report; see {}/agent.log)",
-                dir.display()
-            )
-        } else {
-            result
-        };
-        append_log(&dir.join("agent.log"), &format!("\n--- chunk {n} report ---\n{result}\n"))?;
-        update_cost(dir, &chunk_json)?;
+        let run = run_claude_p(o, &this_prompt, &call_args, "scripts", n, dir, &chunk_json)?;
+        last_chunk = n;
+        let settled = settle_chunk(dir, n, &run)?;
         finish_log(dir, &format!("chunk {n} finished"))?;
+        if let Some(detail) = settled.stop {
+            say(&detail);
+            break (StopReason::UnknownCost, detail);
+        }
         // A campaign attempt is finished when the live game is at its horizon (the loop's own
         // check, once the chunk that got there has had its finishing calls) or when a chunk
         // changed nothing: no turn, no saved script, plan edit, note or test. A chunk that
         // played no turns but did something is not finished, so an attempt may spend whole
         // chunks editing and testing; the turn counter alone ended it (or restarted it) before.
-        if campaign && read_log_lines(&log).map_or(0, |l| work_marks(&l)) <= marks_before {
-            say(&format!(
-                "chunk {n} changed nothing (no turn, script, plan, note or test); \
-                 the attempt is finished"
-            ));
-            break;
+        // An ordinary run stops after two such chunks in a row (#568).
+        if idle.chunk_done(marks_before, logged_work(&log)) {
+            let detail = if campaign {
+                format!(
+                    "chunk {n} changed nothing (no turn, script, plan, note or test); \
+                     the attempt is finished"
+                )
+            } else {
+                format!(
+                    "stopping: {} chunk(s) in a row changed nothing (no turn, script, plan, \
+                     note or test); at turn {} of {target}. See {}/agent.log",
+                    idle.streak,
+                    turns_done(dir)?,
+                    dir.display()
+                )
+            };
+            say(&detail);
+            break (StopReason::NoProgress, detail);
         }
         n += 1;
-    }
+    };
+    write_stop(dir, reason, last_chunk, turns_done(dir)?, &detail)?;
     write_sdk_gaps(dir)?;
     if let Some(carry_dir) = &o.carry_dir {
         carry_save(&log, carry_dir)?;
     }
     let _ = repo;
-    Ok(())
+    if reason == StopReason::UnknownCost { Err(detail) } else { Ok(()) }
 }
 
 #[cfg(test)]
@@ -2174,7 +2401,8 @@ mod tests {
             draws += 1;
             5
         };
-        let o = parse_args_with(&["--scenario", "earth-year-two"], &mut counting).unwrap();
+        let o = parse_args_with(&["--scenario", "earth-year-two", "--max-usd", "1"], &mut counting)
+            .unwrap();
         assert_eq!(draws, 0);
         assert!(validate(&o).is_ok());
         assert!(start_line(&o).is_none());
@@ -2216,7 +2444,7 @@ mod tests {
     fn scenario_cannot_combine_with_seed_nation_or_difficulty() {
         let o = parse_args(&["--scenario", "earth-year-two", "--seed", "3"]).unwrap();
         assert!(validate(&o).is_err());
-        let o = parse_args(&["--scenario", "earth-year-two"]).unwrap();
+        let o = parse_args(&["--scenario", "earth-year-two", "--max-usd", "1"]).unwrap();
         assert!(validate(&o).is_ok());
     }
 
@@ -2230,18 +2458,50 @@ mod tests {
     #[test]
     fn carry_requires_scripts() {
         assert!(validate(&parse_args(&["--carry", "/tmp/x"]).unwrap()).is_err());
-        assert!(validate(&parse_args(&["--carry", "/tmp/x", "--scripts"]).unwrap()).is_ok());
+        assert!(
+            validate(&parse_args(&["--carry", "/tmp/x", "--scripts", "--max-usd", "1"]).unwrap())
+                .is_ok()
+        );
     }
 
     #[test]
-    fn max_usd_requires_a_plain_number_and_a_chunked_mode() {
+    fn max_usd_wants_a_plain_number_above_zero() {
         assert!(parse_args(&["--max-usd", "abc"]).is_err());
         assert!(parse_args(&["--max-usd", "-1"]).is_err());
-        assert!(validate(&parse_args(&["--max-usd", "5"]).unwrap()).is_err());
-        assert!(validate(&parse_args(&["--max-usd", "5", "--scripts"]).unwrap()).is_ok());
-        assert!(
-            validate(&parse_args(&["--max-usd", "5.50", "--chunk-turns", "3"]).unwrap()).is_ok()
-        );
+        let zero = validate(&parse_args(&["--max-usd", "0", "--scripts"]).unwrap());
+        assert!(zero.unwrap_err().contains("more than 0"));
+    }
+
+    /// #568: every run that calls the model needs a cap, and says how to give one.
+    #[test]
+    fn every_model_run_needs_a_spend_cap() {
+        for args in [
+            &[][..],
+            &["--scripts"],
+            &["--chunk-turns", "3"],
+            &["--track", "t", "--attempts", "1"],
+            &["--resume", "d"],
+        ] {
+            let err = validate(&parse_args(args).unwrap()).unwrap_err();
+            assert!(err.contains("--max-usd N"), "{args:?}: {err}");
+        }
+        for args in [
+            &["--max-usd", "5"][..],
+            &["--max-usd", "5", "--scripts"],
+            &["--max-usd", "5.50", "--chunk-turns", "3"],
+            &["--max-usd", "5", "--track", "t", "--attempts", "1"],
+            &["--max-usd", "5", "--resume", "d"],
+        ] {
+            assert!(validate(&parse_args(args).unwrap()).is_ok(), "{args:?}");
+        }
+    }
+
+    /// #568: an interactive chat is the one exemption, and a cap there is refused, not ignored.
+    #[test]
+    fn interactive_needs_no_cap_and_takes_none() {
+        assert!(validate(&parse_args(&["--interactive"]).unwrap()).is_ok());
+        let err = validate(&parse_args(&["--interactive", "--max-usd", "5"]).unwrap());
+        assert!(err.unwrap_err().contains("only works with `claude -p`"));
     }
 
     #[test]
@@ -2310,7 +2570,7 @@ mod tests {
 
     #[test]
     fn otel_attrs_use_scenario_instead_of_seed_nation_difficulty() {
-        let o = parse_args(&["--scenario", "earth-year-two"]).unwrap();
+        let o = parse_args(&["--scenario", "earth-year-two", "--max-usd", "1"]).unwrap();
         let dir = PathBuf::from("/tmp/x/20260101-000000-scenario-earth-year-two");
         let attrs = otel_attrs(&o, &dir, "scripts", Some(2));
         assert_eq!(
@@ -2620,28 +2880,94 @@ mod tests {
 
     // ----- cost tracking -----
 
+    fn result_json(dir: &Path, name: &str, text: &str) -> Option<ClaudeResult> {
+        let path = dir.join(name);
+        fs::write(&path, text).unwrap();
+        read_claude_result(&path)
+    }
+
     #[test]
     fn update_cost_sums_across_chunks() {
         let dir = tempdir();
-        let chunk1 = dir.join("chunk-1.json");
-        fs::write(
-            &chunk1,
+        let chunk1 = result_json(
+            &dir,
+            "chunk-1.json",
             r#"{"num_turns":3,"usage":{"input_tokens":100,"output_tokens":20},"total_cost_usd":0.05,"result":"ok"}"#,
-        )
-        .unwrap();
-        update_cost(&dir, &chunk1).unwrap();
-        let chunk2 = dir.join("chunk-2.json");
-        fs::write(
-            &chunk2,
+        );
+        update_cost(&dir, 1, chunk1.as_ref()).unwrap();
+        let chunk2 = result_json(
+            &dir,
+            "chunk-2.json",
             r#"{"num_turns":2,"usage":{"input_tokens":50,"output_tokens":10},"total_cost_usd":0.03,"result":"ok again"}"#,
-        )
-        .unwrap();
-        update_cost(&dir, &chunk2).unwrap();
+        );
+        update_cost(&dir, 2, chunk2.as_ref()).unwrap();
         let totals: CostTotals = read_json_or_default(&dir.join("cost.json"));
         assert_eq!(totals.round_trips, 5);
         assert_eq!(totals.input_tokens, 150);
         assert_eq!(totals.output_tokens, 30);
         assert!((totals.usd - 0.08).abs() < 1e-9);
+        assert!(totals.unknown_chunks.is_empty());
+        assert!(!fs::read_to_string(dir.join("cost.json")).unwrap().contains("unknown"));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    /// #568: a result with no readable cost is unknown, never a free chunk.
+    #[test]
+    fn a_cost_that_cannot_be_read_is_unknown_not_zero() {
+        let dir = tempdir();
+        assert!(result_json(&dir, "a.json", "not json").is_none());
+        assert!(read_claude_result(&dir.join("missing.json")).is_none());
+        for text in
+            [r#"{"result":"report"}"#, r#"{"total_cost_usd":null}"#, r#"{"total_cost_usd":-1}"#]
+        {
+            let r = result_json(&dir, "b.json", text).expect("it parses");
+            assert_eq!(r.cost(), None, "{text}");
+        }
+        assert_eq!(
+            result_json(&dir, "c.json", r#"{"total_cost_usd":0}"#).unwrap().cost(),
+            Some(0.0)
+        );
+
+        // The chunk is listed, and adds nothing to `usd`.
+        update_cost(&dir, 4, None).unwrap();
+        let r = result_json(&dir, "d.json", r#"{"total_cost_usd":0.5}"#);
+        update_cost(&dir, 5, r.as_ref()).unwrap();
+        let totals: CostTotals = read_json_or_default(&dir.join("cost.json"));
+        assert_eq!(totals.unknown_chunks, [4]);
+        assert!((totals.usd - 0.5).abs() < 1e-9);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn settle_chunk_stops_only_for_an_unreadable_cost() {
+        let dir = tempdir();
+        let ok = ChunkRun {
+            failure: None,
+            result: result_json(&dir, "1.json", r#"{"total_cost_usd":0.2,"result":"done it"}"#),
+        };
+        let settled = settle_chunk(&dir, 1, &ok).unwrap();
+        assert_eq!((settled.report.as_str(), settled.stop), ("done it", None));
+
+        // Failed, but the result has its cost (what a budget stop may look like): charged,
+        // reported, not a reason to stop by itself.
+        let failed_known = ChunkRun {
+            failure: Some("claude ended with exit status: 1".into()),
+            result: result_json(&dir, "2.json", r#"{"total_cost_usd":0.3}"#),
+        };
+        let settled = settle_chunk(&dir, 2, &failed_known).unwrap();
+        assert!(settled.stop.is_none());
+        assert!(settled.report.contains("exit status: 1"), "{}", settled.report);
+        assert!((cost_so_far(&dir) - 0.5).abs() < 1e-9);
+
+        let failed = ChunkRun { failure: Some("claude ended with signal: 9".into()), result: None };
+        let stop = settle_chunk(&dir, 3, &failed).unwrap().stop.unwrap();
+        assert!(stop.contains("signal: 9") && stop.contains("unknown, not $0"), "{stop}");
+        let silent = ChunkRun { failure: None, result: result_json(&dir, "4.json", "{}") };
+        let stop = settle_chunk(&dir, 4, &silent).unwrap().stop.unwrap();
+        assert!(stop.contains("exited 0 but left no result"), "{stop}");
+        assert!((cost_so_far(&dir) - 0.5).abs() < 1e-9, "unknown chunks add nothing");
+        let agent_log = fs::read_to_string(dir.join("agent.log")).unwrap();
+        assert!(agent_log.contains("chunk 3 failed: claude ended with signal: 9"), "{agent_log}");
         fs::remove_dir_all(&dir).ok();
     }
 
@@ -2662,22 +2988,31 @@ mod tests {
     }
 
     #[test]
-    fn chunk_result_reads_the_result_field_or_is_empty_without_one() {
-        let dir = tempdir();
-        let path = dir.join("chunk-1.json");
-        fs::write(&path, r#"{"result":"all good"}"#).unwrap();
-        assert_eq!(chunk_result(&path), "all good");
-        fs::write(&path, "not json").unwrap();
-        assert_eq!(chunk_result(&path), "");
-        assert_eq!(chunk_result(&dir.join("missing.json")), "");
-        fs::remove_dir_all(&dir).ok();
+    fn budget_args_are_claudes_own_flag() {
+        assert_eq!(budget_args(5.0), ["--max-budget-usd", "5"]);
+        assert_eq!(budget_args(0.25), ["--max-budget-usd", "0.25"]);
+    }
+
+    /// #568: an ordinary run gives one idle chunk grace; a campaign attempt does not (#569).
+    #[test]
+    fn idle_chunks_end_an_ordinary_run_on_the_second_and_an_attempt_on_the_first() {
+        let mut ordinary = Idle::for_run(&parse_args(&["--scripts"]).unwrap());
+        assert!(!ordinary.chunk_done(3, 3), "one idle chunk");
+        assert!(!ordinary.chunk_done(3, 4), "work resets the streak");
+        assert!(!ordinary.chunk_done(4, 4));
+        assert!(ordinary.chunk_done(4, 4), "two in a row");
+        let mut attempt = Idle::for_run(&Opts {
+            trial: Some((vec![1], 2)),
+            ..parse_args(&["--scripts"]).unwrap()
+        });
+        assert!(attempt.chunk_done(3, 3));
     }
 
     // ----- fn_agent CLI arguments and mcp.json -----
 
     #[test]
     fn serve_args_use_scenario_or_seed_nation_difficulty() {
-        let o = parse_args(&["--scenario", "earth-year-two"]).unwrap();
+        let o = parse_args(&["--scenario", "earth-year-two", "--max-usd", "1"]).unwrap();
         let args = serve_args(&o, Path::new("/tmp/run.jsonl"));
         assert_eq!(args, vec!["serve", "--scenario", "earth-year-two", "--log", "/tmp/run.jsonl"]);
 
