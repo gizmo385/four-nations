@@ -18,15 +18,21 @@
 //! Pairs with the same governor code and the same plan are one pair, and the later version's
 //! number names it.
 //!
-//! **The cost is bounded.** Evaluating a pair is the three train seeds one after the other
-//! (`#571` makes them parallel): about 30 s for the first campaign's champion governor, 3 to 4
-//! minutes for a heavy one. So at most [`CANDIDATE_CAP`] pairs are evaluated: the final pair
-//! always, then the tested pairs, newest first, then the untested ones, newest first. Below
-//! the cap every saved version is evaluated; above it the oldest untested ones are not, and the
-//! ledger's `tried` and `saved` columns say so.
+//! **The cost is bounded, and the order matters (#571).** A pair is the three screen seeds,
+//! about 30 s for the first campaign's champion governor and 3 to 4 minutes for a heavy one, and
+//! the runs of all the pairs share one parallel queue. Only the best pair by screen mean runs
+//! the 12 gate seeds, so the gate costs one pair's worth, not twelve. At most
+//! [`CANDIDATE_CAP`] pairs are screened: the final pair always, then the tested pairs, newest
+//! first, then the untested ones, newest first. Below the cap every saved version is screened;
+//! above it the oldest untested ones are not, and the ledger's `tried` and `saved` columns say
+//! so.
 //!
-//! **Selection is on the train mean alone.** [`best`] takes train means and nothing else, so no
-//! held-out score can reach it; the held-out panel is run once, for the pair that was chosen.
+//! **Choosing the pair is on the screen mean alone.** [`best`] takes screen means and nothing
+//! else, so no gate or owner-only score can reach it. The screen only picks which pair goes to
+//! the gate; whether it replaces the champion is the gate's call (`paired::judge`), made on
+//! seeds the choice of the pair never saw, which is what keeps picking the best of twelve on
+//! three seeds from inflating the comparison. The owner-only tier is run for a promoted pair
+//! afterwards, and decides nothing.
 
 use serde_json::Value;
 
@@ -157,12 +163,12 @@ pub(super) fn pick(
     order.into_iter().map(|i| pairs[i].clone()).collect()
 }
 
-/// The index of the best train mean, a later one winning a tie (a later pair is the one the
+/// The index of the best screen mean, a later one winning a tie (a later pair is the one the
 /// model ended up with, and the champion test needs a strict gain anyway). `None` for no
-/// numbers. Takes train means only, so selection can't see a held-out score.
-pub(super) fn best(train_means: &[Option<f64>]) -> Option<usize> {
+/// numbers. Takes screen means only, so the choice can't see a gate or owner-only score.
+pub(super) fn best(screen_means: &[Option<f64>]) -> Option<usize> {
     let mut best: Option<(usize, f64)> = None;
-    for (i, m) in train_means.iter().enumerate() {
+    for (i, m) in screen_means.iter().enumerate() {
         if let Some(m) = m
             && best.is_none_or(|(_, b)| *m >= b)
         {
@@ -279,33 +285,46 @@ mod tests {
         assert_eq!(kept.len(), 1);
     }
 
-    /// Selection reads `Table::train_mean` and nothing else: tables whose held-out rows say the
-    /// opposite of their train rows (and `best` takes numbers, not tables) choose by train.
+    /// The choice of a pair reads `Table::screen_mean` and nothing else: tables whose gate and
+    /// owner-only rows say the opposite of their screen rows (and `best` takes numbers, not
+    /// tables) choose by the screen. The owner-only tier above all: nothing it holds may move
+    /// the choice.
     #[test]
-    fn held_out_scores_play_no_part_in_the_choice() {
+    fn gate_and_owner_scores_play_no_part_in_choosing_the_pair() {
         use crate::agent_eval::{Role, Row, Table};
-        let row =
-            |seed, role, score| Row { seed, role, score, progress: 0.0, care: 1.0, stopped: None };
-        let table = |train: f64, held: f64| Table {
+        let row = |seed, role, score| Row {
+            seed,
+            role,
+            score,
+            progress: 0.0,
+            care: 1.0,
+            deaths: 0,
+            stopped: None,
+        };
+        let table = |screen: f64, gate: f64, owner: f64| Table {
             track: "t".to_owned(),
             horizon: 5,
+            collapse_below: 50.0,
             rows: vec![
-                row(1, Role::Train, train),
-                row(2, Role::Train, train),
-                row(3, Role::Holdout, held),
+                row(1, Role::Screen, screen),
+                row(2, Role::Screen, screen),
+                row(101, Role::Gate, gate),
+                row(201, Role::Owner, owner),
             ],
         };
-        let tables = [table(10.0, 0.0), table(5.0, 99_999.0), table(7.0, 50_000.0)];
-        let means: Vec<Option<f64>> = tables.iter().map(Table::train_mean).collect();
+        let tables =
+            [table(10.0, 0.0, 0.0), table(5.0, 99_999.0, 99_999.0), table(7.0, 50_000.0, 1.0)];
+        let means: Vec<Option<f64>> = tables.iter().map(Table::screen_mean).collect();
         assert_eq!(best(&means), Some(0));
-        // And with the held-out numbers swapped between the tables, the choice does not move.
-        let swapped = [table(10.0, 99_999.0), table(5.0, 0.0), table(7.0, 1.0)];
-        let means: Vec<Option<f64>> = swapped.iter().map(Table::train_mean).collect();
+        // And with the other tiers' numbers swapped between the tables, the choice does not move.
+        let swapped =
+            [table(10.0, 99_999.0, 99_999.0), table(5.0, 0.0, 0.0), table(7.0, 1.0, 50_000.0)];
+        let means: Vec<Option<f64>> = swapped.iter().map(Table::screen_mean).collect();
         assert_eq!(best(&means), Some(0));
     }
 
     #[test]
-    fn best_goes_by_the_train_mean_and_a_tie_goes_to_the_later_pair() {
+    fn best_goes_by_the_screen_mean_and_a_tie_goes_to_the_later_pair() {
         assert_eq!(best(&[Some(1.0), Some(5.0), Some(3.0)]), Some(1));
         assert_eq!(best(&[Some(5.0), None, Some(5.0)]), Some(2));
         assert_eq!(best(&[None, None]), None);

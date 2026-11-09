@@ -1,5 +1,5 @@
 //! End-to-end coverage of `cargo xtask agent-eval` (#529) against the real `fn_agent`, on a tiny
-//! track (a few turns, two train seeds and one held-out seed) so it runs in seconds. No model is
+//! track (a few turns, two screen seeds, two gate seeds and one owner-only seed) so it runs in seconds. No model is
 //! involved. `fn_agent` is built once per test run with `cargo build -p fn_agent --profile ci`
 //! and handed to `xtask` through `$FN_AGENT_BIN`, so the xtask binary never builds a release
 //! `fn_agent` here.
@@ -45,8 +45,10 @@ map_size = "small"
 site = "default"
 horizon_turns = 4
 play_seed = 7
-train_seeds = [7, 42]
-holdout_seeds = [1]
+screen_seeds = [7, 42]
+gate_seeds = [101, 102]
+owner_seeds = [201]
+collapse_below = 1
 "#;
 
 struct Fixture {
@@ -107,8 +109,8 @@ fn stderr(out: &Output) -> String {
     String::from_utf8_lossy(&out.stderr).into_owned()
 }
 
-/// The table has a row per train and held-out seed, the train mean and the held-out scores, and
-/// two evaluations of the same strategy print the same bytes.
+/// The table has a row per seed of every tier, each tier's mean and failure counts, and two
+/// evaluations of the same strategy print the same bytes, whatever the thread count (#571).
 #[test]
 fn the_table_has_its_shape_and_is_deterministic() {
     let fx = Fixture::new("shape");
@@ -117,11 +119,31 @@ fn the_table_has_its_shape_and_is_deterministic() {
     assert!(a.status.success(), "{}", stderr(&a));
     let text = stdout(&a);
     assert!(text.contains("tiny") && text.contains("horizon 4"), "{text}");
-    for needle in ["7  train", "42  train", "1  held-out", "train mean", "held-out"] {
+    for needle in
+        ["7  screen", "42  screen", "101  gate", "201  owner", "screen  mean", "owner   mean"]
+    {
         assert!(text.contains(needle), "missing {needle:?} in\n{text}");
     }
-    let b = fx.eval(&champion, &[]);
-    assert_eq!(text, stdout(&b), "same strategy, same table");
+    let b = fx.eval(&champion, &["--threads", "1"]);
+    assert_eq!(text, stdout(&b), "same strategy, same table, one thread or many");
+    let c = fx.eval(&champion, &["--threads", "5"]);
+    assert_eq!(text, stdout(&c), "same strategy, same table, five threads");
+}
+
+/// `--tiers` runs only the tiers named.
+#[test]
+fn tiers_can_be_picked() {
+    let fx = Fixture::new("tiers");
+    let champion = fx.champion(&[("governor", "wait(2);")], None);
+    let out = fx.eval(&champion, &["--tiers", "gate"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(
+        text.contains("101  gate") && !text.contains("screen") && !text.contains("owner  "),
+        "{text}"
+    );
+    let bad = fx.eval(&champion, &["--tiers", "held-out"]);
+    assert!(!bad.status.success() && stderr(&bad).contains("unknown tier"), "{}", stderr(&bad));
 }
 
 /// `--json` prints the same table as JSON, with the same determinism, and `--out` keeps the logs.
@@ -137,13 +159,17 @@ fn json_is_the_same_table_and_out_keeps_the_logs() {
     let seeds = |panel: &str| -> Vec<u64> {
         j[panel].as_array().unwrap().iter().map(|r| r["seed"].as_u64().unwrap()).collect()
     };
-    assert_eq!((seeds("train"), seeds("holdout")), (vec![7, 42], vec![1]));
+    assert_eq!(
+        (seeds("screen"), seeds("gate"), seeds("owner")),
+        (vec![7, 42], vec![101, 102], vec![201])
+    );
     let scores: Vec<f64> =
-        j["train"].as_array().unwrap().iter().map(|r| r["score"].as_f64().unwrap()).collect();
+        j["screen"].as_array().unwrap().iter().map(|r| r["score"].as_f64().unwrap()).collect();
     let mean = scores.iter().sum::<f64>() / scores.len() as f64;
-    assert!((j["train_mean"].as_f64().unwrap() - mean).abs() < 1e-9, "{j}");
-    assert!(j["holdout_mean"].is_number(), "{j}");
-    for seed in [7, 42, 1] {
+    assert!((j["screen_mean"].as_f64().unwrap() - mean).abs() < 1e-9, "{j}");
+    assert!(j["owner_mean"].is_number() && j["gate_failures"]["collapses"].is_number(), "{j}");
+    assert!(j["screen"][0]["deaths"].is_number(), "{j}");
+    for seed in [7, 42, 101, 102, 201] {
         assert!(out_dir.join(format!("seed-{seed}.jsonl")).is_file());
     }
     let b = fx.eval(&champion, &["--json"]);
@@ -159,11 +185,12 @@ fn a_stopped_script_is_scored_and_flagged() {
     assert!(out.status.success(), "{}", stderr(&out));
     let text = stdout(&out);
     assert!(text.contains("stopped by error at turn 1"), "{text}");
-    assert!(text.contains("train mean"), "{text}");
+    assert!(text.contains("screen  mean"), "{text}");
     let j: serde_json::Value =
         serde_json::from_str(&stdout(&fx.eval(&champion, &["--json"]))).unwrap();
-    assert_eq!(j["stopped"], 3, "{j}");
-    assert_eq!(j["train"][0]["stopped_by"]["reason"], "error");
+    assert_eq!(j["stopped"], 5, "{j}");
+    assert_eq!(j["screen"][0]["stopped_by"]["reason"], "error");
+    assert_eq!(j["screen_failures"]["stopped"], 2, "{j}");
 }
 
 /// A handoff with no `governor` script fails with a message that says so, and prints no table.

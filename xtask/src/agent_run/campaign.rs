@@ -7,31 +7,37 @@
 //! CAMPAIGN/
 //!   ledger.json            the track as it was, and a row per finished attempt
 //!   champion/handoff.json  the best strategy so far: scripts, plan and notes
-//!   champion/meta.json     which attempt it came from, and its train mean
+//!   champion/meta.json     which attempt it came from, and its screen and gate means
+//!   champion/gate.json     its score on each gate seed, on the build it was measured on (#571)
 //!   champion/scorecard.txt its scorecard on the track's play_seed, for the next prompt
 //!   attempt-K/             a normal --scripts run on play_seed, played to the horizon
 //!     eval/vV-N/           one clean evaluation per governor version tried (#570): V is the
-//!                          version, N the order; seed-N.jsonl logs, and the held-out ones
-//!                          for the chosen pair only
-//!     eval/versions.json   what was tried, with train scores and seconds, and which was chosen
+//!                          version, N the order; seed-N.jsonl logs of the screen seeds, and of
+//!                          the gate and owner-only seeds for the chosen pair only
+//!     eval/versions.json   what was tried, with screen scores and seconds, and which was chosen
 //!     handoff.json         the attempt's own final strategy
 //!     chosen-handoff.json  the strategy that became the champion, when one did
 //! ```
 //!
-//! After every attempt the played log is scored (`fn_agent score --append`), every governor
-//! version it saved is cleanly evaluated on the train seeds with the plan it was judged with
-//! (`versions`, `agent_eval::evaluate_panels`), the best by train mean is the attempt's candidate
-//! and gets the held-out seeds too, and one ledger row is written, last: a row is what makes an
-//! attempt count, so an attempt a crash left unfinished has none and is left alone. If the mean
-//! train score beats the champion's the attempt becomes the champion. Otherwise the champion
-//! stays, the attempt's notes are merged into the champion's, and its code and plan are dropped.
+//! After every attempt the played log is scored (`fn_agent score --append`) and every governor
+//! version it saved is cleanly evaluated on the screen seeds with the plan it was judged with
+//! (`versions`, `agent_eval::evaluate_many`, in parallel). The best by screen mean is the
+//! attempt's candidate, and only it runs the gate seeds, where it is compared with the
+//! champion's scores on the same seeds (`paired::judge`: a bootstrap interval of the paired mean
+//! difference that must lie above zero, and no more collapses than the champion). If it passes
+//! the attempt becomes the champion and the candidate runs the owner-only tier too. Otherwise the
+//! champion stays, the attempt's notes are merged into the champion's, and its code and plan are
+//! dropped. One ledger row is written, last: a row is what makes an attempt count, so an attempt
+//! a crash left unfinished has none and is left alone. The first governor of a campaign has
+//! nothing to be compared with and becomes the champion.
 //!
 //! Every score is made on a build of `fn_agent` (#566), recorded on each row and on the champion.
-//! A resume on a different build than the champion's evaluates the champion again first
-//! ([`Campaign::reevaluate_champion`]) and compares new attempts with that, keeping the old
-//! mean in the ledger's `reevals`.
+//! A resume on a different build than the champion's evaluates the champion again first, on the
+//! screen and gate tiers ([`Campaign::reevaluate_champion`]) and compares new attempts with
+//! that, keeping the old means in the ledger's `reevals`. A ledger from before the seed tiers
+//! (#571) is refused with a message that says so.
 //!
-//! Held-out scores go in the ledger and the table printed for the owner, and in nothing the
+//! Owner-only scores go in the ledger and the table printed for the owner, and in nothing the
 //! model reads: [`ledger_text`] with `owner == false` is the only ledger text a prompt gets.
 
 use std::fmt::Write as _;
@@ -39,7 +45,7 @@ use std::fmt::Write as _;
 use serde_json::{Value, json};
 
 use super::*;
-use crate::agent_eval::{self, Role, Strategy, Table, Track};
+use crate::agent_eval::{self, Role, Strategy, Table, Track, paired};
 
 const LEDGER: &str = "ledger.json";
 const CHAMPION: &str = "champion";
@@ -63,6 +69,73 @@ struct SeedScore {
     stopped_turn: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     stopped_why: Option<String>,
+    /// Deaths in the run (#571); absent in a score written without them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    deaths: Option<u32>,
+}
+
+impl From<&SeedScore> for paired::Sample {
+    fn from(s: &SeedScore) -> Self {
+        Self {
+            seed: s.seed,
+            score: s.score,
+            deaths: s.deaths.unwrap_or(0),
+            stopped: s.stopped.is_some(),
+        }
+    }
+}
+
+fn samples(scores: &[SeedScore]) -> Vec<paired::Sample> {
+    scores.iter().map(paired::Sample::from).collect()
+}
+
+/// How a candidate compared with the champion on the gate seeds (#571), as the ledger keeps it.
+/// Every number is an aggregate over the gate seeds; none names a seed or a score.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct GateRecord {
+    /// The champion it was compared with.
+    champion_attempt: u32,
+    /// Candidate minus champion, mean per seed, and its bootstrap interval at `level`.
+    diff: f64,
+    lo: f64,
+    hi: f64,
+    level: f64,
+    wins: u32,
+    losses: u32,
+    ties: u32,
+    candidate_collapses: u32,
+    champion_collapses: u32,
+    candidate_deaths: u32,
+    champion_deaths: u32,
+    /// The rule's answer and its reason in words.
+    promoted: bool,
+    reason: String,
+}
+
+impl GateRecord {
+    fn new(champion_attempt: u32, v: &paired::Verdict) -> Self {
+        Self {
+            champion_attempt,
+            diff: v.diff.mean,
+            lo: v.diff.lo,
+            hi: v.diff.hi,
+            level: v.diff.level,
+            wins: v.wins as u32,
+            losses: v.losses as u32,
+            ties: v.ties as u32,
+            candidate_collapses: v.candidate.collapses as u32,
+            champion_collapses: v.champion.collapses as u32,
+            candidate_deaths: v.candidate.deaths,
+            champion_deaths: v.champion.deaths,
+            promoted: v.promote,
+            reason: v.reason.clone(),
+        }
+    }
+
+    /// `+31 [+8, +55]`: the gain and its interval, rounded to whole points.
+    fn text(&self) -> String {
+        format!("{:+.0} [{:+.0}, {:+.0}]", self.diff, self.lo, self.hi)
+    }
 }
 
 /// An attempt's ledger row.
@@ -70,29 +143,36 @@ struct SeedScore {
 struct Row {
     attempt: u32,
     /// The `governor` version the attempt hands on (#570): the one whose pair scored best on the
-    /// train seeds, not necessarily the last saved. `None` when the attempt never saved one.
+    /// screen seeds, not necessarily the last saved. `None` when the attempt never saved one.
     governor_version: Option<u32>,
     /// Plan edits since the campaign began (the champion's count, plus this attempt's own up to
     /// the plan the chosen pair was judged with).
     plan_revision: u32,
     /// The score of the attempt's own played log at the horizon.
     played: Option<f64>,
-    /// The clean score per train seed, in `train_seeds` order (empty with no governor).
-    clean: Vec<SeedScore>,
-    train_mean: Option<f64>,
-    /// The clean score per held-out seed. For the owner; no prompt ever shows it.
-    held_out: Vec<SeedScore>,
+    /// The clean score per screen seed, in `screen_seeds` order (empty with no governor).
+    screen: Vec<SeedScore>,
+    screen_mean: Option<f64>,
+    /// The chosen pair on the gate seeds, in `gate_seeds` order (empty with no governor).
+    gate: Vec<SeedScore>,
+    gate_mean: Option<f64>,
+    /// The paired comparison with the champion; `None` for the first governor of a campaign
+    /// (nothing to compare with) and for an attempt with no governor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    verdict: Option<GateRecord>,
+    /// The clean score per owner-only seed, run for a promoted candidate only. For the owner; no
+    /// prompt ever shows it, nor a count or a mean made from it.
+    owner: Vec<SeedScore>,
     kept: bool,
     cost_usd: f64,
     /// The build (`fn_agent build-id`, #566) the clean scores above were made on. `None` in a
     /// ledger from before builds were recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     build: Option<String>,
-    /// How many versions of the governor the attempt saved (#570); `None` in a ledger from
-    /// before, or with no governor.
+    /// How many versions of the governor the attempt saved (#570); `None` with no governor.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     saved: Option<u32>,
-    /// How many governor and plan pairs were evaluated on the train seeds to choose
+    /// How many governor and plan pairs were evaluated on the screen seeds to choose
     /// `governor_version` (at most `versions::CANDIDATE_CAP`; fewer than `saved` when the cap cut
     /// the older untested ones).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -109,9 +189,10 @@ struct Ledger {
     reevals: Vec<Reeval>,
 }
 
-/// The champion, evaluated again on a different build than the one its mean came from (#566).
-/// Scores aren't comparable across builds (the same strategy can score differently once the sim
-/// has changed), so the attempts that follow are compared with `mean`, not `was_mean`.
+/// The champion, evaluated again on a different build than the one its means came from (#566,
+/// #571). Scores aren't comparable across builds (the same strategy can score differently once
+/// the sim has changed), so the attempts that follow are compared with the new gate scores, not
+/// the old.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct Reeval {
     /// The champion's attempt number.
@@ -119,9 +200,11 @@ struct Reeval {
     /// How many attempts had a row when this happened: the re-evaluation sits between the rows.
     after_rows: u32,
     was_build: Option<String>,
-    was_mean: f64,
+    was_screen_mean: f64,
+    was_gate_mean: f64,
     build: String,
-    mean: f64,
+    screen_mean: f64,
+    gate_mean: f64,
 }
 
 /// `champion/meta.json`.
@@ -129,13 +212,22 @@ struct Reeval {
 struct Champion {
     attempt: u32,
     /// On `build`, as of the last time the champion was evaluated.
-    train_mean: f64,
+    screen_mean: f64,
+    gate_mean: f64,
     governor_version: Option<u32>,
     plan_revision: u32,
-    /// The build `train_mean` was measured on; `None` before #566, which a resume treats as
+    /// The build the means were measured on; `None` before #566, which a resume treats as
     /// another build and re-evaluates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     build: Option<String>,
+}
+
+/// `champion/gate.json`: the champion's score on each gate seed, on `build`. A candidate is
+/// compared with these, paired by seed, so they are kept instead of run again for every attempt.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct ChampionGate {
+    build: String,
+    scores: Vec<SeedScore>,
 }
 
 /// Writes `text` to `path` by way of a sibling file, so a crash leaves the old file or the new
@@ -164,7 +256,27 @@ fn read_ledger(dir: &Path) -> Result<Ledger> {
             dir.display()
         )
     })?;
-    serde_json::from_str(&text).map_err(|e| format!("{} isn't a ledger: {e}", path.display()))
+    let raw: Value = serde_json::from_str(&text)
+        .map_err(|e| format!("{} isn't a ledger: {e}", path.display()))?;
+    if is_pre_tier_ledger(&raw) {
+        return Err(format!(
+            "{} was written before the seed tiers (#571): its track has train and held-out \
+             seeds and no gate, and its rows are scored a different way, so a promotion can't be \
+             compared with them. It isn't read as a campaign any more. Start a new campaign with \
+             --track ID; the old folder's ledger.json and champion/handoff.json are still plain \
+             files, and `cargo xtask agent-compare DIR` still evaluates its champion on the \
+             current tiers.",
+            path.display()
+        ));
+    }
+    serde_json::from_value(raw).map_err(|e| format!("{} isn't a ledger: {e}", path.display()))
+}
+
+/// Whether `ledger` is from before the seed tiers (#571): the track it holds names `train_seeds`
+/// and `holdout_seeds` and no `gate_seeds`.
+fn is_pre_tier_ledger(ledger: &Value) -> bool {
+    let track = &ledger["track"];
+    track.get("train_seeds").is_some() && track.get("gate_seeds").is_none()
 }
 
 fn champion_dir(dir: &Path) -> PathBuf {
@@ -199,24 +311,42 @@ fn read_champion(dir: &Path) -> Result<Option<Champion>> {
         .map_err(|e| format!("{} isn't a champion record: {e}", meta.display()))
 }
 
+/// The champion's scores on the gate seeds, where `gate.json` has them for this `build` and for
+/// exactly the gate seeds of `track`, in order; `None` otherwise (a stale or missing record is
+/// made again, never compared against).
+fn read_champion_gate(dir: &Path, track: &Track, build: &str) -> Option<Vec<SeedScore>> {
+    let text = fs::read_to_string(champion_dir(dir).join("gate.json")).ok()?;
+    let gate: ChampionGate = serde_json::from_str(&text).ok()?;
+    let seeds: Vec<u64> = gate.scores.iter().map(|s| s.seed).collect();
+    (gate.build == build && seeds == track.gate_seeds).then_some(gate.scores)
+}
+
 /// Writes the champion's files. `meta.json` goes last: it is the record that says there is one.
-fn write_champion(dir: &Path, handoff: &Handoff, champion: &Champion, scorecard: &str) -> Result {
+fn write_champion(
+    dir: &Path,
+    handoff: &Handoff,
+    champion: &Champion,
+    gate: &ChampionGate,
+    scorecard: &str,
+) -> Result {
     let cdir = champion_dir(dir);
     fs::create_dir_all(&cdir).map_err(|e| format!("creating {}: {e}", cdir.display()))?;
     write_atomic(&cdir.join("scorecard.txt"), scorecard)?;
     write_json(&champion_handoff_path(dir), handoff)?;
+    write_json(&cdir.join("gate.json"), gate)?;
     write_json(&cdir.join("meta.json"), champion)
 }
 
 // -------------------------------------------------------------------------------------------
 // Selection
 // -------------------------------------------------------------------------------------------
-
-/// Whether a train mean takes the champion's place: strictly better, or the first with any.
-/// Runs are deterministic, so any difference on the same seeds is real, not noise.
-fn beats(mean: f64, champion: Option<f64>) -> bool {
-    champion.is_none_or(|best| mean > best)
-}
+//
+// An attempt's governor and plan pairs are ranked on the screen seeds (`versions::best`, screen
+// means only); the best goes to the gate, where it and the champion are compared paired by seed
+// (`paired::judge`, the rule written out in `agent_eval/paired.rs` and the design doc); a
+// promoted candidate then also runs the owner-only tier, which decides nothing. The first
+// governor of a campaign is promoted without a comparison, because there is nothing to compare
+// with, and its gate scores become the champion's.
 
 /// The champion's lab notes followed by whichever of the attempt's aren't there already (an
 /// attempt that started from the champion has them all as its first notes).
@@ -285,13 +415,13 @@ fn scores_cell(scores: &[SeedScore]) -> String {
 /// The longest a stop's `why` runs in a ledger line.
 const WHY_MAX: usize = 100;
 
-/// One short line per attempt whose clean runs on the train seeds were stopped (#561): the
-/// reason(s), how many seeds, the turn range, and the first one's `why`. Reads `clean` only, so
-/// no held-out seed's stop can reach a line (the prompt's ledger text is built from these).
+/// One short line per attempt whose clean runs on the screen seeds were stopped (#561): the
+/// reason(s), how many seeds, the turn range, and the first one's `why`. Reads `screen` only, so
+/// no gate or owner-only seed's stop can reach a line (the prompt's ledger text is built from these).
 fn stop_lines(rows: &[Row]) -> Vec<String> {
     let mut lines = Vec::new();
     for r in rows {
-        let stopped: Vec<&SeedScore> = r.clean.iter().filter(|s| s.stopped.is_some()).collect();
+        let stopped: Vec<&SeedScore> = r.screen.iter().filter(|s| s.stopped.is_some()).collect();
         let Some(first) = stopped.first() else { continue };
         let mut reasons: Vec<&str> = stopped.iter().filter_map(|s| s.stopped.as_deref()).collect();
         reasons.sort_unstable();
@@ -313,15 +443,38 @@ fn stop_lines(rows: &[Row]) -> Vec<String> {
             r.attempt,
             reasons.join("/"),
             stopped.len(),
-            r.clean.len(),
+            r.screen.len(),
             why.unwrap_or_default(),
         ));
     }
     lines
 }
 
-/// The ledger as a table. With `owner` it has the held-out columns and each attempt's cost; the
-/// text a prompt gets is `ledger_text(ledger, false)`, which has neither.
+/// One owner-table cell for a promoted attempt's owner-only scores: the mean and the failure
+/// counts, not the scores seed by seed (thirty of them would not fit a row).
+fn owner_cell(owner: &[SeedScore], collapse_below: f64) -> String {
+    if owner.is_empty() {
+        return "-".to_owned();
+    }
+    let s = samples(owner);
+    let scores: Vec<f64> = s.iter().map(|x| x.score).collect();
+    let f = paired::Failures::of(&s, collapse_below);
+    format!(
+        "{:.0} · collapse {}/{} · deaths {} · stopped {}",
+        paired::mean(&scores),
+        f.collapses,
+        f.seeds,
+        f.deaths,
+        f.stopped
+    )
+}
+
+/// The ledger as a table, one row per attempt. The columns every reader gets: the screen scores
+/// and their mean, the gate mean, the gain over the champion with its interval, and the gate's
+/// collapse count. With `owner` it also has the gate's deaths, the owner-only tier's summary
+/// and each attempt's cost; the text a prompt gets is `ledger_text(ledger, false)`, which has
+/// none of those. To add a column, push its header in `head` and its cell in the row, in the
+/// same place.
 fn ledger_text(ledger: &Ledger, owner: bool) -> String {
     let t = &ledger.track;
     let mut head = vec![
@@ -330,11 +483,15 @@ fn ledger_text(ledger: &Ledger, owner: bool) -> String {
         "plan".to_owned(),
         "tried".to_owned(),
         "played".to_owned(),
-        format!("clean {}", seeds_label(&t.train_seeds)),
+        format!("screen {}", seeds_label(&t.screen_seeds)),
         "mean".to_owned(),
+        "gate".to_owned(),
+        "vs champ [95%]".to_owned(),
+        "collapses".to_owned(),
     ];
     if owner {
-        head.push(format!("held-out {}", seeds_label(&t.holdout_seeds)));
+        head.push("gate deaths".to_owned());
+        head.push(format!("owner-only ({} seeds)", t.owner_seeds.len()));
     }
     head.push("kept".to_owned());
     if owner {
@@ -352,11 +509,21 @@ fn ledger_text(ledger: &Ledger, owner: bool) -> String {
                 _ => "-".to_owned(),
             },
             r.played.map_or("-".to_owned(), |p| format!("{p:.0}")),
-            scores_cell(&r.clean),
-            r.train_mean.map_or("-".to_owned(), |m| format!("{m:.0}")),
+            scores_cell(&r.screen),
+            r.screen_mean.map_or("-".to_owned(), |m| format!("{m:.0}")),
+            r.gate_mean.map_or("-".to_owned(), |m| format!("{m:.0}")),
+            r.verdict.as_ref().map_or("-".to_owned(), GateRecord::text),
+            if r.gate.is_empty() {
+                "-".to_owned()
+            } else {
+                let f = paired::Failures::of(&samples(&r.gate), t.collapse_below);
+                format!("{}/{}", f.collapses, f.seeds)
+            },
         ];
         if owner {
-            cells.push(scores_cell(&r.held_out));
+            let deaths: u32 = samples(&r.gate).iter().map(|s| s.deaths).sum();
+            cells.push(if r.gate.is_empty() { "-".to_owned() } else { deaths.to_string() });
+            cells.push(owner_cell(&r.owner, t.collapse_below));
         }
         cells.push(if r.kept { "champ" } else { "no" }.to_owned());
         if owner {
@@ -368,9 +535,9 @@ fn ledger_text(ledger: &Ledger, owner: bool) -> String {
     let widths: Vec<usize> = (0..cols)
         .map(|c| table.iter().map(|row| row[c].chars().count()).max().unwrap_or(0))
         .collect();
-    let kept_col = cols - if owner { 2 } else { 1 };
+    let kept_col = table[0].iter().position(|h| h == "kept").expect("a kept column");
     let mut out = String::new();
-    let note = if owner { "                    (held-out: owner only)" } else { "" };
+    let note = if owner { "                    (owner-only tier: owner only)" } else { "" };
     let _ = writeln!(out, "ledger · {} · horizon {}{note}", t.id, t.horizon_turns);
     for row in &table {
         let line: Vec<String> = row
@@ -386,13 +553,9 @@ fn ledger_text(ledger: &Ledger, owner: bool) -> String {
             .collect();
         let _ = writeln!(out, " {}", line.join("  ").trim_end());
     }
-    // The held-out columns are the owner's: a prompt's footnote reads the train rows only, or a
-    // stop on a held-out seed would show there as a footnote with no `*` to explain.
-    let any_stop = ledger
-        .rows
-        .iter()
-        .flat_map(|r| r.clean.iter().chain(r.held_out.iter().filter(|_| owner)))
-        .any(|s| s.stopped.is_some());
+    // Only the screen scores carry a `*`, so only they decide the footnote; a stop on a gate or
+    // owner-only seed would show there as a footnote with no `*` to explain.
+    let any_stop = ledger.rows.iter().flat_map(|r| &r.screen).any(|s| s.stopped.is_some());
     if any_stop {
         let _ = writeln!(
             out,
@@ -412,8 +575,8 @@ fn ledger_text(ledger: &Ledger, owner: bool) -> String {
 pub(super) fn deciding_passage(horizon: u32) -> String {
     format!(
         "What decides this attempt is the clean score, not this game's own: after the run, your \
-         final governor and plan are replayed from turn 0, with no one at the keys, on several \
-         other maps, and the scores are averaged. A governor that only works on the map you can \
+         governor and plan are replayed from turn 0, with no one at the keys, on several \
+         other maps. A governor that only works on the map you can \
          see scores badly there, so improve the governor and the plan, not just this \
          settlement. If the governor stops (an error or a runaway) it stays stopped, and the \
          colony coasts to the end with no orders. `test_governor` plays your saved governor and \
@@ -423,7 +586,10 @@ pub(super) fn deciding_passage(horizon: u32) -> String {
          why a map failed: run it after a change, on the maps that did worst. When the attempt \
          ends, each governor version you saved is replayed like that, with the plan as it was \
          when you moved on from it or tested it, and the best by mean score is the attempt's \
-         candidate, so a worse last edit does not lose a better version. This game ends at \
+         candidate, so a worse last edit does not lose a better version. The candidate then has \
+         to beat the best strategy so far on a larger set of other maps: it takes its place \
+         only if it scores clearly higher across them, not on one or two, and does not collapse \
+         on more of them, so a small gain that could be luck does not count. This game ends at \
          turn {horizon}; when it does, finish up (test, fix, save, notes) and stop."
     )
 }
@@ -452,20 +618,27 @@ pub(super) fn handoff_note(horizon: u32, done_turns: u32, tests: usize) -> Strin
 }
 
 /// One line per champion re-evaluation (#566): the rows above it were scored on the build it
-/// names as `was`, and the attempts after it are compared with the new mean. Train scores only,
-/// so the prompt may show it.
+/// names as `was`, and the attempts after it are compared with the new gate scores. Screen and
+/// gate means only, so the prompt may show it.
 fn reeval_lines(reevals: &[Reeval]) -> Vec<String> {
+    let change = |name: &str, was: f64, now: f64| {
+        if (now - was).abs() < 0.05 {
+            format!("{name} mean {now:.0}, unchanged")
+        } else {
+            format!("{name} mean {was:.0} -> {now:.0}")
+        }
+    };
     reevals
         .iter()
         .map(|r| {
-            let change = if (r.mean - r.was_mean).abs() < 0.05 {
-                format!("train mean {:.0}, unchanged", r.mean)
-            } else {
-                format!("train mean {:.0} -> {:.0}", r.was_mean, r.mean)
-            };
+            let change = format!(
+                "{}, {}",
+                change("screen", r.was_screen_mean, r.screen_mean),
+                change("gate", r.was_gate_mean, r.gate_mean)
+            );
             format!(
-                "champion (attempt {}) re-evaluated on build {} after {} attempt(s) (its mean was \
-                 from {}): {change}; later attempts are compared with the new mean",
+                "champion (attempt {}) re-evaluated on build {} after {} attempt(s) (its means \
+                 were from {}): {change}; later attempts are compared with the new gate scores",
                 r.attempt,
                 r.build,
                 r.after_rows,
@@ -522,8 +695,11 @@ fn attempt_prompt(
          plan and notes show them, so nothing needs retyping. Read the governor's source with \
          scripts {{\"name\": \"{governor}\"}} before you change anything.\n\n\
          {decides}\n\n\
-         The ledger so far (clean scores per map, `*` for a stopped governor; the mean is what \
-         has to go up):\n{ledger}\n\
+         The ledger so far (clean scores per screen map, `*` for a stopped governor; `gate` is \
+         the mean on the larger set of other maps, `vs champ` the gain over the best strategy \
+         then with the interval it is judged by, and `collapses` the maps where the governor \
+         fell apart. An attempt becomes the best only if that interval is wholly above zero \
+         and it collapses no more often):\n{ledger}\n\
          The best strategy's scorecard on your map:\n{scorecard}\n\n{rules}\n\n\
          Your one job this attempt: raise the clean score by improving the governor and the \
          plan. The governor is already loaded, so run it from the start instead of building one \
@@ -554,8 +730,13 @@ struct Chosen {
     plan: Option<Value>,
     /// `plan` lines in the attempt's log up to this pair.
     plan_edits: u32,
-    /// Train and held-out rows; the held-out ones were run for this pair only.
+    /// Screen and gate rows, and the owner-only rows when the pair was promoted.
     table: Table,
+    /// The paired comparison with the champion on the gate seeds; `None` when there is no
+    /// champion to compare with (the first governor of a campaign is promoted as it is).
+    verdict: Option<paired::Verdict>,
+    /// Whether the pair replaces the champion.
+    promote: bool,
     /// Where this pair's evaluation logs are.
     dir: PathBuf,
     /// Governor versions the attempt saved, and pairs evaluated to choose among them.
@@ -571,6 +752,8 @@ struct Campaign<'a> {
     fn_agent: PathBuf,
     /// The build `fn_agent` is (`fn_agent build-id`, #566): what this invocation's scores are on.
     build: String,
+    /// Clean runs at once (`$FN_EVAL_THREADS`, else half the cores; see `agent_eval`).
+    threads: usize,
     opts: &'a Opts,
 }
 
@@ -589,13 +772,8 @@ pub(super) fn run(repo: &Path, opts: &Opts) -> Result {
     };
     let attempts = opts.attempts.unwrap_or(1);
 
-    let fn_agent = match std::env::var_os("FN_AGENT_BIN") {
-        Some(bin) => PathBuf::from(bin),
-        None => {
-            cargo_build_release(repo, &["fn_agent"])?;
-            repo.join("target/release/fn_agent")
-        }
-    };
+    let fn_agent = agent_eval::fn_agent_binary(repo)?;
+    let threads = agent_eval::resolve_threads(None)?;
 
     let t = &ledger.track;
     if fresh {
@@ -614,17 +792,18 @@ pub(super) fn run(repo: &Path, opts: &Opts) -> Result {
     ));
 
     let build = fn_agent_build(&fn_agent)?;
-    say(&format!("build {build}"));
-    let mut campaign = Campaign { repo, dir, ledger, fn_agent, build, opts };
+    say(&format!("build {build}; clean runs on {threads} thread(s)"));
+    let mut campaign = Campaign { repo, dir, ledger, fn_agent, build, threads, opts };
     campaign.reevaluate_champion()?;
     campaign.climb(attempts)?;
     print!("{}", ledger_text(&campaign.ledger, true));
     say(&format!("ledger: {}", campaign.dir.join(LEDGER).display()));
     if let Some(c) = read_champion(&campaign.dir)? {
         say(&format!(
-            "champion: attempt {} (train mean {:.0}), in {}",
+            "champion: attempt {} (screen mean {:.0}, gate mean {:.0}), in {}",
             c.attempt,
-            c.train_mean,
+            c.screen_mean,
+            c.gate_mean,
             champion_dir(&campaign.dir).display()
         ));
     }
@@ -699,15 +878,19 @@ fn build_words(build: Option<&String>) -> String {
 }
 
 impl Campaign<'_> {
-    /// Evaluates the champion again on this build, if its mean came from another (#566): runs
-    /// are deterministic, so the same strategy scores the same on the same build and nothing
-    /// changes; on another build the sim may have, and the champion's old mean is not a number
-    /// this build's attempts can be compared with. The new mean replaces it in `meta.json` (the
-    /// old one stays in the ledger's `reevals`), so every attempt from here on is compared with
-    /// the champion as this build scores it. It needs no model, only CPU.
+    /// Evaluates the champion again on this build, when its means came from another (#566) or
+    /// its gate scores aren't on file for this build (#571): runs are deterministic, so the same
+    /// strategy scores the same on the same build and nothing changes; on another build the sim
+    /// may have, and the champion's old numbers are not ones this build's attempts can be
+    /// compared with. The champion is run on the screen and gate tiers, the tiers a promotion
+    /// reads; the new means replace the old in `meta.json` (the old stay in the ledger's
+    /// `reevals`), and its gate scores are what every attempt from here on is compared with.
+    /// It needs no model, only CPU.
     fn reevaluate_champion(&mut self) -> Result {
         let Some(champion) = read_champion(&self.dir)? else { return Ok(()) };
-        if champion.build.as_deref() == Some(self.build.as_str()) {
+        let track = self.ledger.track.clone();
+        let same_build = champion.build.as_deref() == Some(self.build.as_str());
+        if same_build && read_champion_gate(&self.dir, &track, &self.build).is_some() {
             return Ok(());
         }
         let handoff = read_handoff(&champion_handoff_path(&self.dir))?;
@@ -718,34 +901,57 @@ impl Campaign<'_> {
                 champion.attempt
             ));
         };
-        let track = self.ledger.track.clone();
-        say(&format!(
-            "champion (attempt {}): its mean {:.0} was measured on {}, this is build {}; \
-             evaluating it again",
-            champion.attempt,
-            champion.train_mean,
-            build_words(champion.build.as_ref()),
-            self.build,
-        ));
+        if same_build {
+            say(&format!(
+                "champion (attempt {}): no gate scores on file for this build; evaluating it \
+                 again",
+                champion.attempt
+            ));
+        } else {
+            say(&format!(
+                "champion (attempt {}): its means (screen {:.0}, gate {:.0}) were measured on {}, \
+                 this is build {}; evaluating it again",
+                champion.attempt,
+                champion.screen_mean,
+                champion.gate_mean,
+                build_words(champion.build.as_ref()),
+                self.build,
+            ));
+        }
         let strategy = Strategy { governor: governor.code.clone(), plan: handoff.plan.clone() };
         let work = self.dir.join(format!("reeval-{}", self.ledger.reevals.len() + 1));
-        let table = agent_eval::evaluate(&self.fn_agent, &track, &strategy, &work)
-            .map_err(|e| format!("re-evaluating the champion on this build failed: {e}"))?;
-        let mean = table.train_mean().ok_or("re-evaluating the champion gave no train mean")?;
+        let table = agent_eval::evaluate_tiers(
+            &self.fn_agent,
+            &track,
+            &strategy,
+            &work,
+            &[Role::Screen, Role::Gate],
+            self.threads,
+        )
+        .map_err(|e| format!("re-evaluating the champion on this build failed: {e}"))?;
+        let screen_mean =
+            table.mean_of(Role::Screen).ok_or("re-evaluating the champion gave no screen mean")?;
+        let gate_mean =
+            table.mean_of(Role::Gate).ok_or("re-evaluating the champion gave no gate mean")?;
         say(&format!(
-            "champion (attempt {}): train mean {:.0} -> {mean:.0} on build {}",
-            champion.attempt, champion.train_mean, self.build
+            "champion (attempt {}): screen mean {:.0} -> {screen_mean:.0}, gate mean {:.0} -> \
+             {gate_mean:.0} on build {}",
+            champion.attempt, champion.screen_mean, champion.gate_mean, self.build
         ));
 
-        self.ledger.reevals.push(Reeval {
-            attempt: champion.attempt,
-            after_rows: self.ledger.rows.len() as u32,
-            was_build: champion.build.clone(),
-            was_mean: champion.train_mean,
-            build: self.build.clone(),
-            mean,
-        });
-        write_ledger(&self.dir, &self.ledger)?;
+        if !same_build {
+            self.ledger.reevals.push(Reeval {
+                attempt: champion.attempt,
+                after_rows: self.ledger.rows.len() as u32,
+                was_build: champion.build.clone(),
+                was_screen_mean: champion.screen_mean,
+                was_gate_mean: champion.gate_mean,
+                build: self.build.clone(),
+                screen_mean,
+                gate_mean,
+            });
+            write_ledger(&self.dir, &self.ledger)?;
+        }
         // The scorecard the next prompt shows is the champion's on this build; `meta.json` goes
         // last, as in `write_champion`.
         let log = work.join(format!("seed-{}.jsonl", track.play_seed));
@@ -753,7 +959,11 @@ impl Campaign<'_> {
             let card = scorecard_text(&self.fn_agent, &log, track.horizon_turns);
             write_atomic(&champion_dir(&self.dir).join("scorecard.txt"), &card)?;
         }
-        let record = Champion { train_mean: mean, build: Some(self.build.clone()), ..champion };
+        let gate =
+            ChampionGate { build: self.build.clone(), scores: seed_scores(&table, Role::Gate) };
+        write_json(&champion_dir(&self.dir).join("gate.json"), &gate)?;
+        let record =
+            Champion { screen_mean, gate_mean, build: Some(self.build.clone()), ..champion };
         write_json(&champion_dir(&self.dir).join("meta.json"), &record)
     }
 
@@ -777,22 +987,26 @@ impl Campaign<'_> {
         Ok(())
     }
 
-    /// Evaluates the governor and plan pairs the attempt held (`versions::find`, at most
-    /// `CANDIDATE_CAP` of them) on the train seeds, one pair after the other, and returns the
-    /// best by train mean with its held-out scores. `None` when the attempt saved no governor.
-    /// Needs no model; the time it takes is printed and written to `eval/versions.json`.
+    /// Chooses the attempt's candidate and judges it (#571). The governor and plan pairs the
+    /// attempt held (`versions::find`, at most `CANDIDATE_CAP` of them) are all run on the
+    /// screen seeds, in one parallel queue; the best by screen mean is the candidate
+    /// (`versions::best`, which takes screen means and nothing else). Only the candidate runs the
+    /// gate seeds, and it is judged against the champion's gate scores (`paired::judge`); a
+    /// promoted candidate then runs the owner-only tier, which decides nothing. `None` when the
+    /// attempt saved no governor. Needs no model; the time it takes is printed and written to
+    /// `eval/versions.json`.
     fn evaluate_versions(
         &self,
         k: u32,
         adir: &Path,
         lines: &[LogLine],
-        champion_handoff: Option<&Handoff>,
+        champion: Option<(&Champion, &Handoff)>,
     ) -> Result<Option<Chosen>> {
         let track = &self.ledger.track;
         let (mut pairs, mut saved) = versions::find(lines);
         pairs.retain(|p| !p.code.trim().is_empty());
-        let champion_pair = champion_handoff
-            .and_then(|h| h.scripts.get(GOVERNOR).map(|g| (g.code.clone(), h.plan.clone())));
+        let champion_pair = champion
+            .and_then(|(_, h)| h.scripts.get(GOVERNOR).map(|g| (g.code.clone(), h.plan.clone())));
         if champion_pair.as_ref().is_some_and(|(code, _)| versions::starts_from(lines, code)) {
             saved -= 1;
         }
@@ -801,59 +1015,128 @@ impl Campaign<'_> {
         if picked.is_empty() {
             return Ok(None);
         }
+
+        // The screen: every pair, all their seeds in one queue.
         let started = Instant::now();
-        let mut tables: Vec<(Table, PathBuf, u64)> = Vec::new();
-        for (i, c) in picked.iter().enumerate() {
-            say(&format!(
-                "attempt {k}: evaluating governor v{} ({}) on the train seeds, {} of {}",
-                c.version,
-                if c.tested { "tested" } else { "not tested" },
-                i + 1,
-                picked.len()
-            ));
-            let dir = adir.join("eval").join(format!("v{}-{}", c.version, i + 1));
-            let began = Instant::now();
-            let strategy = Strategy { governor: c.code.clone(), plan: c.plan.clone() };
-            let table =
-                agent_eval::evaluate_panels(&self.fn_agent, track, &strategy, &dir, &[Role::Train])
-                    .map_err(|e| format!("attempt {k}: the clean evaluation failed: {e}"))?;
-            tables.push((table, dir, began.elapsed().as_secs()));
-        }
-        let means: Vec<Option<f64>> = tables.iter().map(|(t, ..)| t.train_mean()).collect();
+        say(&format!(
+            "attempt {k}: screening {} governor/plan pair(s) on {} seed(s) each",
+            picked.len(),
+            track.screen_seeds.len()
+        ));
+        let strategies: Vec<Strategy> = picked
+            .iter()
+            .map(|c| Strategy { governor: c.code.clone(), plan: c.plan.clone() })
+            .collect();
+        let dirs: Vec<PathBuf> = picked
+            .iter()
+            .enumerate()
+            .map(|(i, c)| adir.join("eval").join(format!("v{}-{}", c.version, i + 1)))
+            .collect();
+        let jobs: Vec<agent_eval::Job> = strategies
+            .iter()
+            .zip(&dirs)
+            .map(|(strategy, work)| agent_eval::Job { strategy, work: work.clone() })
+            .collect();
+        let mut tables =
+            agent_eval::evaluate_many(&self.fn_agent, track, &jobs, &[Role::Screen], self.threads)
+                .map_err(|e| format!("attempt {k}: the clean evaluation failed: {e}"))?;
+        let screen_secs = started.elapsed().as_secs();
+        let means: Vec<Option<f64>> = tables.iter().map(Table::screen_mean).collect();
         let Some(best) = versions::best(&means) else { return Ok(None) };
         let c = &picked[best];
+        let (mut table, dir) = (tables.swap_remove(best), dirs[best].clone());
 
-        // The held-out seeds, for the owner, for the chosen pair only: they play no part above.
-        say(&format!("attempt {k}: governor v{} chosen; running the held-out seeds", c.version));
-        let (mut table, dir, _) = tables.swap_remove(best);
-        let strategy = Strategy { governor: c.code.clone(), plan: c.plan.clone() };
-        let held =
-            agent_eval::evaluate_panels(&self.fn_agent, track, &strategy, &dir, &[Role::Holdout])
-                .map_err(|e| format!("attempt {k}: the held-out evaluation failed: {e}"))?;
-        table.rows.extend(held.rows);
+        // The gate: the candidate alone, then compared with the champion's scores on the same
+        // seeds.
+        say(&format!(
+            "attempt {k}: governor v{} has the best screen mean; running the gate",
+            c.version
+        ));
+        let gate_started = Instant::now();
+        let gate = agent_eval::evaluate_tiers(
+            &self.fn_agent,
+            track,
+            &strategies[best],
+            &dir,
+            &[Role::Gate],
+            self.threads,
+        )
+        .map_err(|e| format!("attempt {k}: the gate evaluation failed: {e}"))?;
+        table.rows.extend(gate.rows);
+        let gate_secs = gate_started.elapsed().as_secs();
+        let verdict = match champion {
+            None => None,
+            Some((champion, _)) => {
+                let scores =
+                    read_champion_gate(&self.dir, track, &self.build).ok_or_else(|| {
+                        format!(
+                            "attempt {k}: the champion has no gate scores on file for build {}",
+                            self.build
+                        )
+                    })?;
+                let v = paired::judge(
+                    &table.samples(Role::Gate),
+                    &samples(&scores),
+                    track.collapse_below,
+                )
+                .map_err(|e| format!("attempt {k}: comparing with the champion: {e}"))?;
+                say(&format!(
+                    "attempt {k}: against champion (attempt {}) on the gate: {} (candidate {:.0}, champion {:.0}); {}",
+                    champion.attempt,
+                    v.diff.text(),
+                    v.candidate_mean,
+                    v.champion_mean,
+                    v.reason
+                ));
+                Some(v)
+            }
+        };
+        let promote = verdict.as_ref().is_none_or(|v| v.promote);
+
+        // The owner-only tier, for a promoted candidate only: it decides nothing.
+        let mut owner_secs = 0;
+        if promote {
+            say(&format!("attempt {k}: promoted; running the owner-only tier"));
+            let owner_started = Instant::now();
+            let owner = agent_eval::evaluate_tiers(
+                &self.fn_agent,
+                track,
+                &strategies[best],
+                &dir,
+                &[Role::Owner],
+                self.threads,
+            )
+            .map_err(|e| format!("attempt {k}: the owner-only evaluation failed: {e}"))?;
+            table.rows.extend(owner.rows);
+            owner_secs = owner_started.elapsed().as_secs();
+        }
 
         let total = started.elapsed().as_secs();
         say(&format!(
-            "attempt {k}: {} governor version(s) saved, {} evaluated, v{} chosen; evaluation took \
-             {total} s",
-            saved,
+            "attempt {k}: {saved} governor version(s) saved, {} screened, v{} chosen; evaluation \
+             took {total} s (screen {screen_secs} s, gate {gate_secs} s, owner-only {owner_secs} s)",
             picked.len(),
             c.version
         ));
         let summary = serde_json::json!({
             "build": self.build,
+            "threads": self.threads,
             "saved": saved,
             "tried": picked.len(),
             "cap": versions::CANDIDATE_CAP,
             "chosen": c.version,
             "seconds": total,
-            // Train scores only: selection never saw anything else.
+            "screen_seconds": screen_secs,
+            "gate_seconds": gate_secs,
+            "owner_seconds": owner_secs,
+            "promoted": promote,
+            // Screen scores only: the choice of the pair never saw anything else.
             "pairs": picked.iter().zip(&means).enumerate().map(|(i, (p, m))| json!({
                 "version": p.version,
                 "tested": p.tested,
                 "final": p.last,
                 "plan_edits": p.plan_edits,
-                "train_mean": m,
+                "screen_mean": m,
                 "chosen": i == best,
             })).collect::<Vec<_>>(),
         });
@@ -864,6 +1147,8 @@ impl Campaign<'_> {
             plan: c.plan.clone(),
             plan_edits: c.plan_edits,
             table,
+            verdict,
+            promote,
             dir,
             saved,
             tried: picked.len() as u32,
@@ -936,20 +1221,26 @@ impl Campaign<'_> {
         ));
 
         // The attempt's strategy: every governor version it saved, each with the plan it was
-        // judged with, evaluated on the train seeds, and the best of them handed on (#570).
+        // judged with, ranked on the screen seeds, and the best of them judged on the gate (#570,
+        // #571).
         let lines = read_log_lines(&log).unwrap_or_default();
         let (scripts, notes, plan) = parse_library(&lines);
         let handoff = Handoff { scripts, notes, plan };
         write_json(&adir.join("handoff.json"), &handoff)?;
-        let chosen = self.evaluate_versions(k, &adir, &lines, champion_handoff.as_ref())?;
+        let chosen = self.evaluate_versions(
+            k,
+            &adir,
+            &lines,
+            champion.as_ref().zip(champion_handoff.as_ref()),
+        )?;
         if chosen.is_none() {
             say(&format!("attempt {k}: no script named \"{GOVERNOR}\" was saved; not kept"));
         }
 
-        // Select.
-        let train_mean = chosen.as_ref().and_then(|c| c.table.train_mean());
-        let champion_mean = champion.as_ref().map(|c| c.train_mean);
-        let kept = train_mean.is_some_and(|m| beats(m, champion_mean));
+        // Select: the promotion rule's answer (`paired::judge`), or yes for the first governor.
+        let screen_mean = chosen.as_ref().and_then(|c| c.table.screen_mean());
+        let gate_mean = chosen.as_ref().and_then(|c| c.table.mean_of(Role::Gate));
+        let kept = chosen.as_ref().is_some_and(|c| c.promote);
         let prior_plan_revision = champion.as_ref().map_or(0, |c| c.plan_revision);
         let preloaded_plan = champion_handoff.as_ref().is_some_and(|h| h.plan.is_some());
         let edits = chosen.as_ref().map_or_else(|| plan_edits(&lines), |c| c.plan_edits);
@@ -973,13 +1264,18 @@ impl Campaign<'_> {
             };
             let record = Champion {
                 attempt: k,
-                train_mean: train_mean.unwrap_or_default(),
+                screen_mean: screen_mean.unwrap_or_default(),
+                gate_mean: gate_mean.unwrap_or_default(),
                 governor_version,
                 plan_revision,
                 build: Some(self.build.clone()),
             };
+            let gate = ChampionGate {
+                build: self.build.clone(),
+                scores: seed_scores(&c.table, Role::Gate),
+            };
             let card = scorecard_text(&self.fn_agent, &card_log, track.horizon_turns);
-            write_champion(&self.dir, &strategy, &record, &card)?;
+            write_champion(&self.dir, &strategy, &record, &gate, &card)?;
         } else if let Some(mut stays) = champion_handoff {
             // The idea is kept so the next attempt doesn't retry it; its code and plan aren't.
             stays.notes = merged;
@@ -992,9 +1288,15 @@ impl Campaign<'_> {
             governor_version,
             plan_revision,
             played,
-            clean: table.map_or(Vec::new(), |t| seed_scores(t, Role::Train)),
-            train_mean,
-            held_out: table.map_or(Vec::new(), |t| seed_scores(t, Role::Holdout)),
+            screen: table.map_or(Vec::new(), |t| seed_scores(t, Role::Screen)),
+            screen_mean,
+            gate: table.map_or(Vec::new(), |t| seed_scores(t, Role::Gate)),
+            gate_mean,
+            verdict: chosen
+                .as_ref()
+                .zip(champion.as_ref())
+                .and_then(|(c, ch)| c.verdict.as_ref().map(|v| GateRecord::new(ch.attempt, v))),
+            owner: table.map_or(Vec::new(), |t| seed_scores(t, Role::Owner)),
             kept,
             cost_usd: cost_so_far(&adir),
             build: Some(self.build.clone()),
@@ -1002,8 +1304,9 @@ impl Campaign<'_> {
             tried: chosen.as_ref().map(|c| c.tried),
         };
         say(&format!(
-            "attempt {k}: clean mean {}; {}",
-            train_mean.map_or("-".to_owned(), |m| format!("{m:.0}")),
+            "attempt {k}: screen mean {}, gate mean {}; {}",
+            screen_mean.map_or("-".to_owned(), |m| format!("{m:.0}")),
+            gate_mean.map_or("-".to_owned(), |m| format!("{m:.0}")),
             if kept { "new champion" } else { "champion stays" }
         ));
         self.ledger.rows.push(row.clone());
@@ -1035,8 +1338,9 @@ fn attempt_opts(
     o.prelude = track.prelude.as_ref().map(|p| format!("{}:{}", p.opening, p.minutes));
     o.carry_in = carry_in;
     o.first_prompt = first_prompt;
-    // The train seeds only: a held-out seed never reaches the model's side of the harness.
-    o.trial = Some((track.train_seeds.clone(), track.horizon_turns));
+    // The screen seeds only: a gate or owner-only seed never reaches the model's side of the
+    // harness.
+    o.trial = Some((track.screen_seeds.clone(), track.horizon_turns));
     o
 }
 
@@ -1051,6 +1355,7 @@ fn seed_scores(table: &Table, role: Role) -> Vec<SeedScore> {
             stopped: r.stopped.as_ref().map(|s| s.reason.clone()),
             stopped_turn: r.stopped.as_ref().map(|s| u32::try_from(s.turn).unwrap_or(u32::MAX)),
             stopped_why: r.stopped.as_ref().and_then(|s| s.why.clone()),
+            deaths: Some(r.deaths),
         })
         .collect()
 }
@@ -1105,7 +1410,8 @@ mod tests {
         agent_eval::parse_tracks(
             "[[track]]\nid = \"t\"\nname = \"Tee\"\nnation = \"water\"\ndifficulty = \"normal\"\n\
              map_size = \"small\"\nsite = \"default\"\nhorizon_turns = 5\nplay_seed = 1\n\
-             train_seeds = [1, 2]\nholdout_seeds = [3, 4]\n",
+             screen_seeds = [1, 2]\ngate_seeds = [101, 102]\nowner_seeds = [301, 302]\n\
+             collapse_below = 100\n",
         )
         .unwrap()
         .remove(0)
@@ -1119,10 +1425,24 @@ mod tests {
                 stopped: None,
                 stopped_turn: None,
                 stopped_why: None,
+                deaths: None,
             })
             .collect()
     }
 
+    fn champion(attempt: u32, screen_mean: f64) -> Champion {
+        Champion {
+            attempt,
+            screen_mean,
+            gate_mean: 200.0,
+            governor_version: Some(9),
+            plan_revision: 6,
+            build: None,
+        }
+    }
+
+    /// Row 1 is the campaign's first governor (no verdict); row 2 saved nothing. Its owner-only
+    /// scores are 7771 and 7772, numbers that must never reach a prompt.
     fn ledger() -> Ledger {
         Ledger {
             track: track(),
@@ -1132,9 +1452,12 @@ mod tests {
                     governor_version: Some(9),
                     plan_revision: 6,
                     played: Some(256.4),
-                    clean: seeds(&[(1, 231.0), (2, 174.0)]),
-                    train_mean: Some(202.5),
-                    held_out: seeds(&[(3, 7771.0), (4, 7772.0)]),
+                    screen: seeds(&[(1, 231.0), (2, 174.0)]),
+                    screen_mean: Some(202.5),
+                    gate: seeds(&[(101, 220.0), (102, 60.0)]),
+                    gate_mean: Some(140.0),
+                    verdict: None,
+                    owner: seeds(&[(301, 7771.0), (302, 7772.0)]),
                     kept: true,
                     cost_usd: 0.974,
                     build: None,
@@ -1146,9 +1469,12 @@ mod tests {
                     governor_version: None,
                     plan_revision: 6,
                     played: None,
-                    clean: Vec::new(),
-                    train_mean: None,
-                    held_out: Vec::new(),
+                    screen: Vec::new(),
+                    screen_mean: None,
+                    gate: Vec::new(),
+                    gate_mean: None,
+                    verdict: None,
+                    owner: Vec::new(),
                     kept: false,
                     cost_usd: 0.1,
                     build: None,
@@ -1161,38 +1487,39 @@ mod tests {
     }
 
     #[test]
-    fn the_owner_table_has_held_out_and_cost() {
+    fn the_owner_table_has_the_owner_tier_failures_and_cost() {
         let t = ledger_text(&ledger(), true);
-        assert!(
-            t.contains("held-out 3/4") && t.contains("7771 / 7772") && t.contains("$0.97"),
-            "{t}"
-        );
-        assert!(t.contains("clean 1/2") && t.contains("231 / 174") && t.contains("champ"), "{t}");
+        assert!(t.contains("owner-only (2 seeds)") && t.contains("$0.97"), "{t}");
+        // The owner-only mean (7771.5), its collapse count and deaths; not the seeds one by one.
+        assert!(t.contains("7772 · collapse 0/2 · deaths 0 · stopped 0"), "{t}");
+        assert!(t.contains("screen 1/2") && t.contains("231 / 174") && t.contains("champ"), "{t}");
         assert!(t.contains("v9") && t.contains("r6") && t.contains("256"), "{t}");
+        // The gate: its mean, and the collapses at the track's threshold of 100 (one of two).
+        assert!(t.contains("gate") && t.contains("140") && t.contains("1/2"), "{t}");
+        assert!(t.contains("gate deaths"), "{t}");
         // An attempt with no governor shows dashes, not zeros.
         let row2 = t.lines().last().unwrap();
         assert!(row2.contains('-') && row2.contains("no"), "{t}");
     }
 
+    /// The prompt's table has the screen scores and the gate's aggregates, and nothing of the
+    /// owner-only tier: no seed, score, count or the tier's name; no cost.
     #[test]
-    fn the_prompt_table_never_shows_held_out_or_cost() {
+    fn the_prompt_table_never_shows_the_owner_tier_or_cost() {
         let t = ledger_text(&ledger(), false);
-        for needle in ["held", "7771", "7772", "3/4", "$", "cost", "owner"] {
+        for needle in ["owner", "7771", "7772", "301", "302", "2 seeds", "$", "cost", "deaths"] {
             assert!(!t.contains(needle), "{needle:?} in\n{t}");
         }
         assert!(t.contains("231 / 174") && t.contains("202"), "{t}");
+        assert!(t.contains("gate") && t.contains("collapses") && t.contains("vs champ"), "{t}");
+        // The gate seeds themselves are not named either.
+        assert!(!t.contains("101") && !t.contains("102"), "{t}");
     }
 
     #[test]
-    fn the_attempt_prompt_builds_on_the_script_prompt_and_hides_held_out() {
+    fn the_attempt_prompt_builds_on_the_script_prompt_and_hides_the_owner_tier() {
         let l = ledger();
-        let c = Champion {
-            attempt: 1,
-            train_mean: 202.5,
-            governor_version: Some(9),
-            plan_revision: 6,
-            build: None,
-        };
+        let c = champion(1, 202.5);
         let p = attempt_prompt(&l, 3, &c, "Water seed 1\nscore 231\n", 5, 30);
         assert!(p.contains("attempt 3") && p.contains("(attempt 1)"), "{p}");
         assert!(p.contains("raise the clean score"), "{p}");
@@ -1201,9 +1528,38 @@ mod tests {
             p.ends_with(&default_script_prompt(5, 30)),
             "the script prompt comes through whole"
         );
-        for needle in ["7771", "7772", "held-out"] {
+        for needle in ["7771", "7772", "owner", "held-out", "301", "302"] {
             assert!(!p.contains(needle), "{needle:?} in\n{p}");
         }
+    }
+
+    /// What the gate says in a row: the gain over the champion with its interval, and the
+    /// collapses on each side.
+    #[test]
+    fn a_verdict_shows_as_the_gain_and_its_interval() {
+        let champ: Vec<f64> = vec![200.0, 190.0, 210.0, 205.0, 195.0, 200.0];
+        let cand: Vec<f64> = champ.iter().map(|s| s + 30.0).collect();
+        let s = |scores: &[f64]| -> Vec<paired::Sample> {
+            scores
+                .iter()
+                .enumerate()
+                .map(|(i, &score)| paired::Sample {
+                    seed: 100 + i as u64,
+                    score,
+                    deaths: 0,
+                    stopped: false,
+                })
+                .collect()
+        };
+        let v = paired::judge(&s(&cand), &s(&champ), 100.0).unwrap();
+        assert!(v.promote);
+        let mut l = ledger();
+        l.rows[0].verdict = Some(GateRecord::new(1, &v));
+        let t = ledger_text(&l, false);
+        assert!(t.contains("+30 [+30, +30]"), "{t}");
+        let back: Ledger = serde_json::from_str(&serde_json::to_string(&l).unwrap()).unwrap();
+        assert_eq!(back, l);
+        assert!(back.rows[0].verdict.as_ref().unwrap().promoted);
     }
 
     fn stopped(seed: u64, score: f64, reason: &str, turn: u32, why: Option<&str>) -> SeedScore {
@@ -1213,20 +1569,25 @@ mod tests {
             stopped: Some(reason.to_owned()),
             stopped_turn: Some(turn),
             stopped_why: why.map(str::to_owned),
+            deaths: None,
         }
     }
 
-    /// A ledger whose attempt 1 had both train runs stopped and both held-out runs stopped for a
-    /// reason, turn and why that appear nowhere else.
+    /// A ledger whose attempt 1 had both screen runs stopped, and both gate and both owner-only
+    /// runs stopped for a reason, turn and why that appear nowhere else.
     fn stopped_ledger() -> Ledger {
         let mut l = ledger();
-        l.rows[0].clean = vec![
+        l.rows[0].screen = vec![
             stopped(1, 101.0, "runaway", 171, Some("a loop with no wait?")),
             stopped(2, 51.0, "runaway", 195, None),
         ];
-        l.rows[0].held_out = vec![
-            stopped(3, 77.0, "error", 4242, Some("HELDOUT_WHY secret")),
-            stopped(4, 78.0, "error", 4243, Some("HELDOUT_WHY secret")),
+        l.rows[0].gate = vec![
+            stopped(101, 66.0, "error", 3131, Some("GATE_WHY secret")),
+            stopped(102, 67.0, "error", 3132, Some("GATE_WHY secret")),
+        ];
+        l.rows[0].owner = vec![
+            stopped(301, 77.0, "error", 4242, Some("OWNER_WHY secret")),
+            stopped(302, 78.0, "error", 4243, Some("OWNER_WHY secret")),
         ];
         l
     }
@@ -1250,7 +1611,7 @@ mod tests {
     #[test]
     fn a_stop_line_handles_one_turn_mixed_reasons_long_whys_and_old_ledgers() {
         let mut row = ledger().rows.remove(0);
-        row.clean = vec![
+        row.screen = vec![
             stopped(1, 1.0, "error", 1, Some(&format!("line one\n{}", "x".repeat(300)))),
             stopped(2, 1.0, "runaway", 1, None),
         ];
@@ -1265,7 +1626,7 @@ mod tests {
         let old: SeedScore =
             serde_json::from_str(r#"{"seed": 7, "score": 10.5, "stopped": "runaway"}"#).unwrap();
         assert_eq!((old.stopped_turn, old.stopped_why.clone()), (None, None));
-        row.clean = vec![old];
+        row.screen = vec![old];
         assert_eq!(stop_lines(&[row]), ["attempt 1: runaway stopped 1 of 1 clean runs"]);
         // And a score with no stop at all still reads.
         let bare: SeedScore = serde_json::from_str(r#"{"seed": 7, "score": 10.5}"#).unwrap();
@@ -1280,38 +1641,61 @@ mod tests {
         assert_eq!(serde_json::from_str::<Ledger>(&text).unwrap(), l);
     }
 
-    /// A held-out seed's stop reason, turn and why never reach the prompt; the owner's table marks
-    /// the stop but gives no held-out detail either.
+    /// A gate or owner-only seed's stop reason, turn and why never reach the prompt; the owner's
+    /// table marks the screen stops but gives no detail on any other tier's.
     #[test]
-    fn held_out_stops_never_reach_the_prompt() {
+    fn gate_and_owner_stops_never_reach_the_prompt() {
         let l = stopped_ledger();
-        let c = Champion {
-            attempt: 1,
-            train_mean: 76.0,
-            governor_version: Some(9),
-            plan_revision: 6,
-            build: None,
-        };
+        let c = champion(1, 76.0);
         let p = attempt_prompt(&l, 3, &c, "card\n", 5, 30);
-        for needle in ["HELDOUT_WHY", "4242", "4243", "error stopped", "78", "77"] {
+        for needle in [
+            "GATE_WHY",
+            "OWNER_WHY",
+            "3131",
+            "4242",
+            "4243",
+            "error stopped",
+            "66",
+            "67",
+            "77",
+            "78",
+        ] {
             assert!(!p.contains(needle), "{needle:?} in\n{p}");
         }
         assert!(p.contains("runaway stopped 2 of 2 clean runs at turns 171-195"), "{p}");
-        // The owner's table marks held-out stops with a star too.
+        // The owner's table marks the screen stops with a star, and has no stop detail for the
+        // other tiers.
         let owner = ledger_text(&l, true);
-        assert!(owner.contains("77* / 78*") && owner.contains("101* / 51*"), "{owner}");
-        assert!(!owner.contains("HELDOUT_WHY"), "{owner}");
+        assert!(owner.contains("101* / 51*"), "{owner}");
+        assert!(!owner.contains("GATE_WHY") && !owner.contains("OWNER_WHY"), "{owner}");
+    }
+
+    /// The owner-only tier is not in the ledger text a prompt gets, in any form, even in a ledger
+    /// full of it: no score, no seed, no failure count, no word for it.
+    #[test]
+    fn nothing_from_the_owner_tier_reaches_a_prompt() {
+        let mut l = stopped_ledger();
+        l.rows[0].owner = vec![
+            SeedScore {
+                deaths: Some(41),
+                ..stopped(301, 55555.0, "error", 4242, Some("OWNER_WHY"))
+            },
+            SeedScore { deaths: Some(42), ..stopped(302, 66666.0, "error", 4243, None) },
+        ];
+        let c = champion(1, 76.0);
+        for text in [attempt_prompt(&l, 3, &c, "card\n", 5, 30), ledger_text(&l, false)] {
+            for needle in
+                ["55555", "66666", "301", "302", "OWNER_WHY", "41", "42", "owner", "Owner"]
+            {
+                assert!(!text.contains(needle), "{needle:?} in\n{text}");
+            }
+        }
+        assert!(ledger_text(&l, true).contains("owner-only"), "the owner's table has it");
     }
 
     #[test]
     fn the_prompt_says_a_stopped_clean_run_coasts_and_names_the_test_tool() {
-        let c = Champion {
-            attempt: 1,
-            train_mean: 76.0,
-            governor_version: Some(9),
-            plan_revision: 6,
-            build: None,
-        };
+        let c = champion(1, 76.0);
         let p = attempt_prompt(&ledger(), 3, &c, "card\n", 5, 30);
         assert!(p.contains("coasts to the end with no orders"), "{p}");
         assert!(p.contains("costs most of the score") && p.contains("test_governor"), "{p}");
@@ -1319,18 +1703,20 @@ mod tests {
     }
 
     #[test]
-    fn attempt_options_hand_the_tool_the_train_seeds_and_nothing_else() {
+    fn attempt_options_hand_the_tool_the_screen_seeds_and_nothing_else() {
         let t = track();
         let base = parse_args_with(&["--chunk-calls", "7"], &mut || 1).unwrap();
         let o = attempt_opts(&base, &t, None, None, None);
         assert_eq!(o.trial, Some((vec![1, 2], 5)));
         let args = serve_args(&o, Path::new("/a/run.jsonl")).join(" ");
         assert!(args.contains("--trial-seeds 1,2 --trial-turns 5"), "{args}");
-        assert!(!args.contains('3') && !args.contains('4'), "{args}");
+        for seed in ["101", "102", "301", "302"] {
+            assert!(!args.contains(seed), "{seed} in {args}");
+        }
     }
 
     /// `test_governor` on the map being played is a lookahead copy (#570): fine for climbing,
-    /// wrong for a race. Only a campaign attempt (a track, with train seeds to name) turns the
+    /// wrong for a race. Only a campaign attempt (a track, with screen seeds to name) turns the
     /// tool on, and no flag does: the one assignment of `Opts::trial` outside the parser's
     /// default is in `attempt_opts`, which this pins by reading the sources.
     #[test]
@@ -1360,14 +1746,6 @@ mod tests {
     }
 
     #[test]
-    fn a_strictly_better_mean_takes_the_champion_and_the_first_always_does() {
-        assert!(beats(1.0, None));
-        assert!(beats(10.1, Some(10.0)));
-        assert!(!beats(10.0, Some(10.0)), "a tie keeps the champion");
-        assert!(!beats(9.0, Some(10.0)));
-    }
-
-    #[test]
     fn notes_merge_without_repeating() {
         let a = vec!["x".to_owned(), "y".to_owned()];
         let b = vec!["y".to_owned(), "z".to_owned()];
@@ -1383,10 +1761,10 @@ mod tests {
         b.name = "Renamed".to_owned();
         assert!(track_diff(&a, &b).is_empty());
         b.horizon_turns = 9;
-        b.train_seeds = vec![1, 5];
+        b.gate_seeds = vec![101, 105];
         let d = track_diff(&a, &b).join("; ");
         assert!(d.contains("horizon_turns was 5, is now 9"), "{d}");
-        assert!(d.contains("train_seeds"), "{d}");
+        assert!(d.contains("gate_seeds"), "{d}");
     }
 
     #[test]
@@ -1403,19 +1781,20 @@ mod tests {
         let _ = fs::remove_dir_all(&tmp);
     }
 
-    /// #566: a ledger and a champion record written before builds were recorded read back, and
-    /// are written back without the new fields.
+    /// #566: a ledger and a champion record written without a build read back, and are written
+    /// back without the new fields. #571: a seed score without deaths reads back too.
     #[test]
-    fn an_old_ledger_and_champion_read_without_a_build() {
+    fn a_ledger_without_a_build_reads_back_and_one_with_round_trips() {
         let mut l = ledger();
         let text = serde_json::to_string(&l).unwrap();
         assert!(!text.contains("build") && !text.contains("reevals"), "{text}");
+        assert!(!text.contains("deaths") && !text.contains("verdict"), "{text}");
         let back: Ledger = serde_json::from_str(&text).unwrap();
         assert_eq!(back, l);
         assert!(back.reevals.is_empty() && back.rows[0].build.is_none());
-        let old_champion =
-            r#"{"attempt":1,"train_mean":202.5,"governor_version":9,"plan_revision":6}"#;
-        let champ: Champion = serde_json::from_str(old_champion).unwrap();
+        let no_build = r#"{"attempt":1,"screen_mean":202.5,"gate_mean":199.0,
+            "governor_version":9,"plan_revision":6}"#;
+        let champ: Champion = serde_json::from_str(no_build).unwrap();
         assert_eq!(champ.build, None);
 
         // And with them, they round-trip.
@@ -1424,46 +1803,117 @@ mod tests {
             attempt: 1,
             after_rows: 2,
             was_build: None,
-            was_mean: 355.0,
+            was_screen_mean: 355.0,
+            was_gate_mean: 300.0,
             build: "def5678".to_owned(),
-            mean: 294.0,
+            screen_mean: 294.0,
+            gate_mean: 250.0,
         });
         let back: Ledger = serde_json::from_str(&serde_json::to_string(&l).unwrap()).unwrap();
         assert_eq!(back, l);
     }
 
-    /// The re-evaluation is on the ledger text, train numbers only, old value and new, with the
-    /// build each came from; an unchanged one says so.
+    /// #571: a ledger written before the seed tiers is refused with a message that says why and
+    /// what to do, not with a serde error about a missing field. It names the old track shape
+    /// (train and held-out seeds, no gate) however the rest of the file looks.
     #[test]
-    fn the_ledger_text_shows_the_old_and_the_re_evaluated_mean() {
+    fn a_ledger_from_before_the_tiers_is_refused_clearly() {
+        let old = json!({
+            "track": {
+                "id": "water-3h", "name": "W", "nation": "water", "difficulty": "normal",
+                "map_size": "small", "site": "default", "prelude": null, "horizon_turns": 540,
+                "play_seed": 7633, "train_seeds": [7633, 7, 42], "holdout_seeds": [1, 5, 8]
+            },
+            "rows": [{
+                "attempt": 1, "governor_version": 9, "plan_revision": 6, "played": 256.4,
+                "clean": [{"seed": 7633, "score": 231.0}], "train_mean": 231.0,
+                "held_out": [{"seed": 1, "score": 188.0}], "kept": true, "cost_usd": 0.97
+            }]
+        });
+        assert!(is_pre_tier_ledger(&old));
+        let new = serde_json::to_value(ledger()).unwrap();
+        assert!(!is_pre_tier_ledger(&new));
+
+        let tmp = std::env::temp_dir().join(format!("fn_campaign_old_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        fs::write(tmp.join(LEDGER), old.to_string()).unwrap();
+        let e = read_ledger(&tmp).unwrap_err();
+        assert!(
+            e.contains("before the seed tiers")
+                && e.contains("--track ID")
+                && e.contains("agent-compare"),
+            "{e}"
+        );
+        assert!(!e.contains("missing field") && !e.contains("unknown field"), "{e}");
+        // The same ledger in the new shape reads.
+        fs::write(tmp.join(LEDGER), new.to_string()).unwrap();
+        assert_eq!(read_ledger(&tmp).unwrap(), ledger());
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// The champion's gate scores are used only for the build and gate seeds they were made on.
+    #[test]
+    fn the_champions_gate_scores_are_read_only_for_their_build_and_seeds() {
+        let tmp = std::env::temp_dir().join(format!("fn_campaign_gate_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(champion_dir(&tmp)).unwrap();
+        let t = track();
+        assert!(read_champion_gate(&tmp, &t, "b1").is_none(), "no file");
+        let gate =
+            ChampionGate { build: "b1".to_owned(), scores: seeds(&[(101, 5.0), (102, 6.0)]) };
+        write_json(&champion_dir(&tmp).join("gate.json"), &gate).unwrap();
+        assert_eq!(read_champion_gate(&tmp, &t, "b1"), Some(gate.scores.clone()));
+        assert!(read_champion_gate(&tmp, &t, "b2").is_none(), "another build");
+        let mut other = t.clone();
+        other.gate_seeds = vec![101, 103];
+        assert!(read_champion_gate(&tmp, &other, "b1").is_none(), "other gate seeds");
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// The re-evaluation is on the ledger text, screen and gate means only, old value and new,
+    /// with the build each came from; an unchanged one says so.
+    #[test]
+    fn the_ledger_text_shows_the_old_and_the_re_evaluated_means() {
         let mut l = ledger();
         assert!(!ledger_text(&l, false).contains("re-evaluated"));
         l.reevals.push(Reeval {
             attempt: 1,
             after_rows: 2,
             was_build: Some("abc1234".to_owned()),
-            was_mean: 355.0,
+            was_screen_mean: 355.0,
+            was_gate_mean: 300.0,
             build: "def5678+0f0f0f0f".to_owned(),
-            mean: 294.0,
+            screen_mean: 294.0,
+            gate_mean: 250.0,
         });
         l.reevals.push(Reeval {
             attempt: 1,
             after_rows: 2,
             was_build: None,
-            was_mean: 294.0,
+            was_screen_mean: 294.0,
+            was_gate_mean: 250.0,
             build: "9999999".to_owned(),
-            mean: 294.0,
+            screen_mean: 294.0,
+            gate_mean: 250.0,
         });
         for owner in [false, true] {
             let t = ledger_text(&l, owner);
             assert!(
                 t.contains("champion (attempt 1) re-evaluated on build def5678+0f0f0f0f after 2")
-                    && t.contains("mean was from build abc1234): train mean 355 -> 294"),
+                    && t.contains("means were from build abc1234)")
+                    && t.contains("screen mean 355 -> 294, gate mean 300 -> 250"),
                 "{t}"
             );
-            assert!(t.contains("from an unrecorded build): train mean 294, unchanged"), "{t}");
+            assert!(
+                t.contains("from an unrecorded build): screen mean 294, unchanged, gate mean 250, unchanged"),
+                "{t}"
+            );
         }
-        assert!(!ledger_text(&l, false).contains("7771"), "held-out stays out of the prompt text");
+        assert!(
+            !ledger_text(&l, false).contains("7771"),
+            "the owner tier stays out of the prompt text"
+        );
     }
 
     #[test]
@@ -1509,13 +1959,7 @@ mod tests {
 
     fn all_prompt_paths() -> Vec<(&'static str, String)> {
         let l = ledger();
-        let c = Champion {
-            attempt: 1,
-            train_mean: 202.5,
-            governor_version: Some(9),
-            plan_revision: 6,
-            build: None,
-        };
+        let c = champion(1, 202.5);
         vec![
             ("attempt 1", first_attempt_prompt(540, 30)),
             ("later attempt", attempt_prompt(&l, 2, &c, "card\n", 540, 30)),

@@ -56,12 +56,14 @@
 //!   --track ID         a hill-climbing campaign (docs/design/agent-hillclimb.md, "The attempt
 //!                      loop"; #530) on a `data/tracks.toml` track: --attempts N scripted runs
 //!                      (--scripts is implied) on the track's play_seed to its horizon, each
-//!                      scored, then cleanly evaluated on the train and held-out seeds. The
-//!                      attempt whose mean train score beats the champion's becomes the champion;
+//!                      scored, then cleanly evaluated (#571): the best governor version on the
+//!                      screen seeds, then on the gate seeds against the champion, paired. It
+//!                      becomes the champion when the gain is clear (agent_eval/paired.rs);
 //!                      later attempts start with the champion's scripts, plan and notes
 //!                      preloaded (`fn_agent serve --carry-in`). The campaign folder holds
 //!                      attempt-K/ run folders, ledger.json and champion/handoff.json, and the
-//!                      ledger (held-out columns included, for you only) is printed at the end.
+//!                      ledger (owner-only columns included, for you only) is printed at the end.
+//!                      Clean runs go in parallel: $FN_EVAL_THREADS, else half the cores.
 //!                      The track sets the start, so --seed, --nation, --difficulty, --scenario,
 //!                      --turns, --turn-secs, --prompt, --carry and --interactive don't apply.
 //!                      --model, --max-usd and --chunk-calls do, per attempt; --max-usd also caps
@@ -269,8 +271,8 @@ struct Opts {
     prelude: Option<String>,
     carry_in: Option<PathBuf>,
     first_prompt: Option<String>,
-    /// The track's train seeds and horizon (#561): `fn_agent serve --trial-seeds/--trial-turns`,
-    /// which turns on the `test_governor` tool. Never a held-out seed.
+    /// The track's screen seeds and horizon (#561): `fn_agent serve --trial-seeds/--trial-turns`,
+    /// which turns on the `test_governor` tool. Never a gate or owner-only seed.
     trial: Option<(Vec<u64>, u32)>,
 }
 

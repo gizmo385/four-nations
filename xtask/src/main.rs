@@ -28,12 +28,18 @@
 //!                               wrapper around this. See `cargo xtask agent-run --help` for
 //!                               every option, or `cargo xtask agent-run watch [RUN_DIR]` to
 //!                               watch or replay a run.
-//!     cargo xtask agent-eval --track ID --champion DIR [--json] [--out DIR]
+//!     cargo xtask agent-eval --track ID --champion DIR [--threads N] [--json] [--out DIR]
 //!                               the clean evaluation of a strategy (#529): replays DIR/handoff.json's
-//!                               `governor` script and plan with no model on every train and
-//!                               held-out seed of a data/tracks.toml track, one at a time, and
-//!                               prints the score per seed, the train mean and the held-out
-//!                               scores. See `cargo xtask agent-eval --help`.
+//!                               `governor` script and plan with no model on every screen, gate
+//!                               and owner-only seed of a data/tracks.toml track (#571), in
+//!                               parallel, and prints the score per seed, each tier's mean and
+//!                               the failure counts. See `cargo xtask agent-eval --help`.
+//!     cargo xtask agent-compare [--tier owner] CONDITION...
+//!                               compares conditions with no model (#571): campaign folders'
+//!                               champions or a fixed governor and plan, each replayed on a
+//!                               tier's seeds, paired by seed against the first condition, with
+//!                               bootstrap intervals and failure counts. See `cargo xtask
+//!                               agent-compare --help`.
 //!
 //! `root()` finds the repo root at runtime with `git rev-parse --show-toplevel`, so an `xtask`
 //! binary built from one worktree's `target/` still works when run from another (a shared
@@ -43,6 +49,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+mod agent_compare;
 mod agent_eval;
 mod agent_run;
 mod lint;
@@ -111,6 +118,7 @@ fn dispatch(args: &[&str]) -> Result {
         }
         Some("agent-run") => agent_run::run(&args[1..]),
         Some("agent-eval") => agent_eval::run(&args[1..]),
+        Some("agent-compare") => agent_compare::run(&args[1..]),
         _ => Err(help()),
     }
 }

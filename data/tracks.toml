@@ -1,7 +1,8 @@
-# Hill-climb tracks (docs/design/agent-hillclimb.md, "Tracks are data"). A track is a start
-# family scored at a fixed horizon. The model plays play_seed; selection uses the mean clean score
-# over train_seeds; holdout_seeds are reported to the owner only. Read by `cargo xtask agent-eval`
-# (and the attempt loop), never by the sim. Seeds as decided in #521.
+# Hill-climb tracks (docs/design/agent-hillclimb.md, "Tracks are data" and "Measuring a
+# difference"). A track is a start family scored at a fixed horizon. The model plays play_seed.
+# Seeds come in three tiers, which may not overlap (#571, extending the owner's decision in #521):
+# the screen, the gate and the owner-only tier. Read by `cargo xtask agent-eval`, `agent-compare`
+# and the attempt loop, never by the sim.
 #
 # [[track]]
 # - id, name:          the id `--track ID` takes, and its label.
@@ -11,10 +12,21 @@
 # - prelude:           optional, as data/scenarios.toml: `opening` ("economy" or "opening") and
 #                      `minutes` of autoplay before turn 0.
 # - horizon_turns:     the turns a clean evaluation plays; the score is read there.
-# - play_seed:         the one seed the model ever plays.
-# - train_seeds:       the seeds selection averages over (a clean replay of the strategy each).
-# - holdout_seeds:     seeds that are never selected on and never shown to the model. They may not
-#                      repeat a train seed or play_seed.
+# - play_seed:         the one seed the model ever plays. It may be a screen seed; it may not be a
+#                      gate or owner seed.
+# - screen_seeds:      about 3. The seeds the model's `test_governor` runs on, and the ones every
+#                      governor and plan pair of an attempt is ranked on (a clean replay each); the
+#                      best pair goes on to the gate. Cheap, and noisy: three seeds cannot tell a
+#                      small gain from luck, so nothing is promoted on them.
+# - gate_seeds:        about 12. The best pair and the champion are both run on these and compared,
+#                      paired by seed, with a bootstrap interval of the mean difference and the
+#                      failure counts. This decides the promotion. The model never names one.
+# - owner_seeds:       about 30 fresh seeds. Reported to the owner only (and what `agent-compare`
+#                      measures on): never selected on, never in a prompt. None may be in the
+#                      balance harness's panel, seeds 1-32. The gate avoids 1-32 too.
+# - collapse_below:    a score under this is a collapse, the failure count the gate reports and
+#                      its second promotion condition reads. About a fifth of seeds scored under
+#                      120 for the review's governors, where a working run scores 250 to 400.
 
 [[track]]
 id = "water-3h"
@@ -26,5 +38,13 @@ site = "default"
 # prelude = { opening = "economy", minutes = 60 }
 horizon_turns = 540
 play_seed = 7633
-train_seeds = [7633, 7, 42]
-holdout_seeds = [1, 5, 8]
+screen_seeds = [7633, 7, 42]
+# 1101-1112: clear of the balance panel (1-32) and of its own holdout (1001-1032).
+gate_seeds = [1101, 1102, 1103, 1104, 1105, 1106, 1107, 1108, 1109, 1110, 1111, 1112]
+# 2001-2030, likewise.
+owner_seeds = [
+    2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
+    2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020,
+    2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030,
+]
+collapse_below = 120

@@ -35,13 +35,16 @@ cheap enough to repeat.
    intent as data (goal, sign order, research queue, build queue, targets). The governor, a
    saved script, reads the plan every loop. Most wakes then become a plan edit, not a new
    script. Inline one-off code becomes read-only (probes look, they don't act; #522).
-6. **Hill-climb on the clean score.** After each attempt, the final governor and plan replay
-   **from turn 0 with no model** (`fn_agent play --horizon`) on the track's training seeds, at
-   no token cost. The best mean clean score is the champion. The next attempt starts from the
-   champion, and regressions are dropped while their notes are kept.
-7. **Generalisation is checked, not assumed.** The model plays one seed. Selection uses the mean
-   over three training seeds. A held-out panel of three more is reported to the owner and never
-   shown to the agent or selected on.
+6. **Hill-climb on the clean score.** After each attempt, the governors and plans it saved replay
+   **from turn 0 with no model** (`fn_agent play --horizon`), at no token cost. The best of them
+   on three screen seeds goes on to a gate of twelve, where it and the champion are compared on
+   the same seeds. It becomes the champion when the gain is clear, not just positive (see
+   "Measuring a difference", #571). The next attempt starts from the champion, and regressions
+   are dropped while their notes are kept.
+7. **Generalisation is checked, not assumed.** The model plays one seed. Seeds come in three
+   tiers that never overlap: a screen of about three the model tests on, a gate of about twelve
+   that decides promotion, and about thirty owner-only seeds, none in the balance panel 1-32,
+   reported to the owner and never shown to the agent or selected on.
 8. **`cargo xtask agent-run --track ID --attempts N`** runs the loop and writes a ledger. The
    studio shows each attempt's scorecard at the end of its replay, and `attempt 3/5, best 312`
    on the strip.
@@ -354,8 +357,9 @@ plan edits. The agent sees its own habits next to its score.
 
 ```toml
 # Hill-climb tracks (docs/design/agent-hillclimb.md). A track is a start family scored at a
-# fixed horizon. The model plays play_seed; selection uses the mean clean score over
-# train_seeds; holdout_seeds are reported to the owner only.
+# fixed horizon. The model plays play_seed. Seeds come in three tiers that may not overlap
+# (#571): screen_seeds, which the model tests on and which rank an attempt's versions;
+# gate_seeds, which decide promotion; owner_seeds, which are reported to the owner only.
 [[track]]
 id = "water-3h"
 name = "Water, the first three hours"
@@ -366,8 +370,10 @@ site = "default"
 # prelude = { opening = "economy", minutes = 60 }   # optional, as data/scenarios.toml
 horizon_turns = 540
 play_seed = 7633
-train_seeds = [7633, 7, 42]
-holdout_seeds = [1, 5, 8]
+screen_seeds = [7633, 7, 42]
+gate_seeds = [1101, 1102, 1103, 1104, 1105, 1106, 1107, 1108, 1109, 1110, 1111, 1112]
+owner_seeds = [2001, 2002, ..., 2030]   # 30 of them, written out in the file
+collapse_below = 120                     # a score under this is a collapse
 ```
 
 **Clean evaluation** (`fn_agent play --script governor.rhai --plan plan.json --horizon 540
@@ -391,30 +397,34 @@ the scorecard costs about as much CPU again as the run. The exit is nonzero only
 `stopped_by` is set.
 
 As built (#561): the model hears about stops two ways. The ledger text in the attempt prompt marks
-a stopped clean run with `*` and adds one line per attempt (reason, how many train seeds, the turn
+a stopped clean run with `*` and adds one line per attempt (reason, how many screen seeds, the turn
 range, the first one's `why`), and says that a stopped run coasts, so an early stop costs most of
-the score; held-out seeds never appear in it. And during an attempt `fn_agent serve --trial-seeds
+the score; gate and owner-only seeds never appear in it. And during an attempt `fn_agent serve --trial-seeds
 LIST --trial-turns N` offers `test_governor`: the saved governor and the current plan played from
-turn 0 on a train seed (the play seed by default), for up to the horizon, in a world of its own
+turn 0 on a screen seed (the play seed by default), for up to the horizon, in a world of its own
 built from the live game's header with the seed swapped. It scores the way `play --horizon` does,
 so the stop reason, turn and score are the clean evaluation's own. The live game, its log and its
 replay are untouched (the only trace is the `call` line). The result is one short JSON object. It
 is bounded to 6 calls per attempt, counted from the log's `call` lines so chunked sessions share
 the count; a full 540-turn test took 4 s to 9 s in the release build. The harness hands over the
-track's train seeds only.
+track's screen seeds only.
 
 **The attempt loop** (`cargo xtask agent-run --track water-3h --attempts 5`):
 
 1. **Attempt 1** is a normal `--scripts` run on `play_seed` to the horizon, with the governor and
    plan prompts.
 2. **After every attempt**, the runner scores the played log (the **played score**), cleanly
-   evaluates the final `governor` and plan on every training seed (the **clean score**, their
-   mean), and runs the held-out panel. It appends a row to `ledger.json`.
-3. **Selection:** if the mean clean score beats the champion's, the attempt's governor, plan and
-   notes become the champion (`champion/handoff.json`). Otherwise the champion stays, the
-   attempt's notes are kept (so the next attempt doesn't retry the same idea), and its code and
-   plan are dropped. Runs are deterministic, so any difference on the same seeds is real, not
-   noise.
+   evaluates the governors and plans the attempt saved on the screen seeds (the **clean score**,
+   their mean), runs the best of them on the gate seeds, and, if it was promoted, on the
+   owner-only seeds. It appends a row to `ledger.json`.
+3. **Selection and promotion** (#571, "Measuring a difference" below): the pair with the best
+   screen mean is the attempt's candidate. It becomes the champion (`champion/handoff.json`)
+   when its mean gain over the champion on the gate seeds, paired by seed, has a 95% bootstrap
+   interval wholly above zero and it does not collapse on more gate seeds than the champion.
+   Otherwise the champion stays, the attempt's notes are kept (so the next attempt doesn't retry
+   the same idea), and its code and plan are dropped. Runs are deterministic, but a seed is one
+   draw from a skewed distribution, so a difference on a few seeds is not a difference in the
+   strategy; the gate asks for one that holds across the seeds.
 4. **The next attempt** starts fresh on `play_seed`, with the champion's governor, plan and notes
    **preloaded** by `fn_agent serve --carry-in`. That replaces today's `--carry`, which asks the
    model to retype every script. The first prompt carries the ledger's training rows and the
@@ -456,7 +466,7 @@ governor it saved, not the last.
   12 columns in on the start. Every number is something a player could see: the People row,
   the stores, the idle count, the death alerts, and the notices a failed designation or build
   shows. The signs are the scorecard's, as `fn_agent score` prints them for the champion. Nothing
-  names a map but the one tested, and the tool knows no held-out seed.
+  names a map but the one tested, and the tool knows no gate or owner-only seed.
 - *Reading it, on the failure that prompted this* (seed 42 under the review's champion
   governor, 3 deaths and 3 people at the end): the summary shows three deaths of starvation at
   turns 78, 105 and 128, everybody idle (96% in the first slice) and hungry and thirsty from
@@ -475,51 +485,58 @@ governor it saved, not the last.
   lookahead copy of the model's own game: right for climbing, wrong for a race, which has no
   track and so never has the tool.
 - *Which version an attempt hands on.* When an attempt ends, `agent-run` reads every governor
-  version it saved from `run.jsonl` and evaluates each on the train seeds, with no model.
+  version it saved from `run.jsonl` and evaluates each on the screen seeds, with no model.
   A candidate is a pair, a governor and the plan it is judged with, because the clean run uses
   both. The pairs are the states the model held: for each version, the plan as it stood when the
   model moved on from it (the next save of the governor, or the end), and the plan at each
   `test_governor` call while it was current, which are the pairs the model was shown a score for.
-  Same code and same plan is one pair. The best by train mean is the attempt's candidate (a tie
-  goes to the later pair), runs the held-out seeds, and is what the champion test compares and
-  what the champion keeps, with that pair's plan; `attempt-K/handoff.json` still holds the
-  attempt's own final state and `chosen-handoff.json` the pair that became champion.
-  Held-out scores are run for the chosen pair only and play no part in the choice (the choice
-  takes train means, nothing else; a test swaps held-out numbers and the choice doesn't move).
-- *Cost.* Evaluating one pair is the three train seeds one after another until #571: 29 s for
-  the first campaign's champion governor (13 s, 15 s and 2 s on seeds 7633, 7 and 42, release
-  build), up to 3 to 4 minutes for a heavy one. An attempt that saved 22 versions would take
-  11 minutes at the typical figure. So at most 12 pairs are evaluated: the final one always,
-  then the tested ones newest first, then the untested ones newest first. Below 12 every saved
-  version is evaluated; above it the oldest untested ones are not. The ledger's `tried` column
-  reads "3/9" for 3 evaluated of 9 saved, `eval/versions.json` has each pair's train mean and
-  the seconds the whole evaluation took, and the campaign prints that time.
+  Same code and same plan is one pair. The best by screen mean is the attempt's candidate (a tie
+  goes to the later pair), runs the gate seeds, and, if it is promoted (#571), the owner-only
+  seeds; it is what the champion keeps, with that pair's plan; `attempt-K/handoff.json` still
+  holds the attempt's own final state and `chosen-handoff.json` the pair that became champion.
+  The gate and owner-only scores play no part in choosing the pair (the choice takes screen
+  means, nothing else; a test swaps the other tiers' numbers and the choice doesn't move).
+- *Cost.* Evaluating one pair is three screen runs: 29 s for the first campaign's champion
+  governor (13 s, 15 s and 2 s on seeds 7633, 7 and 42, release build), up to 3 to 4 minutes for
+  a heavy one, and 2 to 103 s a run in the review. Run one after another, 12 pairs on 3 seeds
+  and 12 gate seeds for the candidate (48 runs) are about an hour at the 70 s a run measured
+  below. At most 12 pairs are screened: the final one always, then the tested ones newest first,
+  then the untested ones newest first. Below 12 every saved version is screened; above it the
+  oldest untested ones are not. The order is what makes it affordable: the screen is small and
+  runs every pair, the 12-seed gate runs for the candidate only (the champion's gate scores are
+  kept), and the 30-seed owner-only tier runs only for a promoted candidate, all on a parallel
+  queue (below). The ledger's `tried` column reads "3/9" for 3 screened of 9 saved,
+  `eval/versions.json` has each pair's screen mean and the seconds each stage took (screen,
+  gate, owner-only), and the campaign prints them.
 
 ```text
-ledger · water-3h · horizon 540                                   (held-out: owner only)
- #  governor  plan  tried  played  clean 7633/7/42      mean   held-out 1/5/8   kept   cost
- 1  v9        r6     4/9    256    231 / 174 / 205      203    188 / 160 / 197  champ  $0.97
- 2  v12       r9     6/14   301    288 / 240 / 251      260    233 / 201 / 240  champ  $0.41
- 3  v14       r11    3/3    322    301 / 198 / 243      247       ...           no     $0.36
+ledger · water-3h · horizon 540                                          (owner-only tier: owner only)
+ #  governor  plan  tried  played  screen 7633/7/42  mean  gate  vs champ [95%]  collapses  gate deaths  owner-only (30 seeds)                            kept   cost
+ 1  v9        r6     4/9    256    231 / 174 / 205    203   188              -       2/12            3  205 · collapse 3/30 · deaths 9 · stopped 0  champ  $0.97
+ 2  v12       r9     6/14   301    288 / 240 / 251    260   236   +48 [+12, +91]       1/12            2  241 · collapse 2/30 · deaths 5 · stopped 0  champ  $0.41
+ 3  v14       r11    3/3    322    301 / 198 / 243    247   229    -7 [-41, +30]       1/12            3                                           -  no     $0.36
 ```
 
 *(Row 1's played score is the evidence run. Every other number shows the format and isn't
-measured.)*
+measured. The prompt gets the same table without the `gate deaths`, `owner-only` and `cost`
+columns. In row 3 the screen mean is nearly as high as row 2's, and the gate says the gain is
+not there.)*
 
 `cargo xtask agent-eval --track ID --champion DIR` reruns only the clean evaluation. After a
 balance change, that re-scores the current champion for free: the regression loop
 agent-scripting.md promised, now with a number.
 
-As built (#529): `data/tracks.toml` has strict keys and is validated on load (a held-out seed may
-not repeat a train seed or `play_seed`). `agent-eval` reads `DIR/handoff.json` (the file
+As built (#529): `data/tracks.toml` has strict keys and is validated on load (the tiers may not overlap, and a gate or owner-only seed may
+not be in 1-32 or be `play_seed`, #571). `agent-eval` reads `DIR/handoff.json` (the file
 `agent-run --carry` writes): the script named `governor`, and the plan if there is one; a handoff
-with no `governor` is an error. It runs `fn_agent play --horizon` once per train seed and then once
-per held-out seed, one at a time, and prints the score, progress and care per seed, the train mean
-and the held-out scores (`--json` prints the same table as JSON; `--out DIR` keeps each seed's log
-as `seed-N.jsonl`). A run whose script was stopped by an error or a runaway is scored at the
+with no `governor` is an error. It runs `fn_agent play --horizon` once per seed of every tier
+(screen, gate and owner-only since #571; train and held-out before, one at a time), in parallel,
+and prints the score, progress, care and deaths per seed, each tier's mean and its failure counts
+(`--json` prints the same table as JSON; `--out DIR` keeps each seed's log as `seed-N.jsonl`;
+`--tiers` picks tiers, `--threads` the parallelism). A run whose script was stopped by an error or a runaway is scored at the
 horizon as usual and flagged in the table, not failed. `fn_agent play` gained `--map-size` and
 `--prelude OPENING:MINUTES` so a track's whole start can be passed on its command line; the
-reusable core is `agent_eval::evaluate`, for the attempt loop (#530).
+reusable core is `agent_eval::evaluate_many`, for the attempt loop (#530) and `agent-compare`.
 
 As built (#530): `cargo xtask agent-run --track ID --attempts N [--model M] [--max-usd X]
 [--chunk-calls C]` makes a campaign folder under `$FN_AGENT_RUNS` (`DATE-campaign-ID`) with
@@ -527,8 +544,8 @@ As built (#530): `cargo xtask agent-run --track ID --attempts N [--model M] [--m
 horizon, with `eval/` (see #570 below) and its own `handoff.json` beside the usual files),
 `ledger.json` and `champion/` (`handoff.json`, `meta.json` and `scorecard.txt`, the champion's
 clean run on `play_seed`). After each attempt it runs `fn_agent score --append`, evaluates the
-final `governor` and plan, writes the champion if the train mean is strictly higher (a tie keeps
-the champion), and only then appends the ledger row, so an attempt with no row is one a crash
+final `governor` and plan, writes the champion if the candidate passes the gate (#571; it was
+"the train mean is strictly higher" until then), and only then appends the ledger row, so an attempt with no row is one a crash
 cut short: it isn't counted and its folder is never reused. An attempt that never saved a
 `governor` gets a row with dashes and isn't kept. The ledger row's plan revision counts plan
 edits across the campaign (a preloaded plan isn't an edit); its governor version is the saved
@@ -538,8 +555,8 @@ call, and `serve` gained `--map-size` and `--prelude` so a track with a site or 
 played as it is evaluated. The carried-in governor is readable with `scripts {name}` (#560);
 the first attempt of the campaign wrote a v21 from scratch because it couldn't read v16, so the
 prompt asks for a small revision saved under the same name. The later attempts' first prompt is the script prompt
-(`default_script_prompt`) under a block with the ledger's train columns, the champion's
-scorecard and the one ask; held-out numbers appear only in `ledger.json` and the table printed
+(`default_script_prompt`) under a block with the ledger's screen and gate columns, the champion's
+scorecard and the one ask; owner-only numbers appear only in `ledger.json` and the table printed
 at the end. `--max-usd` is a per-attempt `--max-budget-usd` of what's left of the invocation's
 cap, and the loop stops once it is spent. `--max-usd` is required for `--track` and for
 `--resume` too (#568; what bounds a chunk is in agent-play.md, "What bounds a run's spend"); an
@@ -568,17 +585,174 @@ ledger text, the prompt included. The run browser (`score-cache.json`) is keyed 
 too, so after a rebuild each run scores again once in the background, and a logged score some
 other build computed carries a `~`.
 
-### Fairness: lookahead and held-out seeds (#521)
+### Measuring a difference (#571)
+
+The first campaigns promoted a candidate whose mean over three seeds was higher by any amount.
+That is true of the arithmetic ("runs are deterministic, so any difference on the same seeds is
+real") and false of the strategy: the seeds are three draws from a skewed distribution. The
+review of 2026-11-08 (`dist.txt`, 24 fresh seeds each of two governors) found:
+
+- one governor's score on one seed has a standard deviation of 61 to 120, and about a fifth of
+  seeds collapse below 120 where a working run scores 250 to 400 (the distribution is bimodal);
+- the mean of three seeds of one governor ranged from 148 to 361 (5th to 95th percentile), so
+  the old rule (any strictly higher mean over three seeds) promoted a candidate that changed
+  nothing half the time, the sign of a mean difference being a coin toss;
+- the standard error of a mean is about 70 at 3 seeds, 35 at 12 and 22 at 30;
+- the held-out seeds 1, 5 and 8 sit inside the balance panel 1-32.
+
+**The tiers** (`data/tracks.toml`, validated on load: no seed in two tiers, none of the gate or
+owner-only seeds in 1-32, `play_seed` in the screen at most):
+
+| tier | seeds | what it does | who sees it |
+|---|---|---|---|
+| screen | 3 (`7633, 7, 42`) | `test_governor`'s maps; ranks the 12 or fewer governor and plan pairs of an attempt | the model |
+| gate | 12 (`1101-1112`) | the candidate and the champion are compared on these, paired | the model sees the aggregates (gate mean, gain with its interval, collapse count), never a seed |
+| owner-only | 30 (`2001-2030`) | reported to the owner; what `agent-compare` measures | the owner |
+
+**Selection and promotion use them in this order.**
+
+1. *Rank on the screen.* Every pair of the attempt (at most 12) runs on the 3 screen seeds, all
+   in one parallel queue. The best screen mean is the attempt's candidate (a tie goes to the
+   later pair). This step only picks which pair goes on; it promotes nothing. Picking the best
+   of twelve by three seeds is a biased estimate of that pair, which is why nothing is decided
+   on those seeds.
+2. *Judge on the gate.* Only the candidate runs the 12 gate seeds. The champion's gate scores
+   come from `champion/gate.json`, made when it was promoted (or when a resume on a new build
+   re-evaluated it) and run again only then. Candidate and champion are paired by seed. The
+   candidate is promoted when **both**:
+   - the 95% percentile-bootstrap interval of the mean difference (candidate minus champion;
+     2000 resamples from a fixed-seed generator, so the same scores always give the same
+     interval) lies wholly above zero; and
+   - the candidate has no more collapses (a gate-seed score below the track's `collapse_below`,
+     120) than the champion.
+   The first governor of a campaign has no champion and is promoted as it is; its gate scores
+   become the champion's.
+3. *Owner-only.* A promoted candidate also runs the 30 owner-only seeds. This decides nothing; a
+   candidate that is not promoted is not run on them. The ledger row keeps the result, and a
+   test checks that no seed, score, stop reason or count of this tier appears in a prompt or in
+   the choice of the pair.
+
+The rule is deliberately plain. The interval asks for a gain that holds across the seeds rather
+than one that hangs on a few: with the whole difference carried by one seed, a third of the
+resamples (11/12 to the 12th power) leave it out, their mean is zero, and the lower end of the
+interval is zero, so it is not promoted; the gain has to be spread over about four of twelve
+seeds before it clears. The collapse condition covers what a mean of a bimodal score hides: a
+candidate can raise the mean by 100 while failing on one more seed, which trades a robust
+governor for a flaky one. Deaths and stopped scripts are counted and reported beside the
+mean (`deaths 5 on 3 seeds`, `stopped 1`) but decide nothing: a death already costs score, and a
+stopped script scores as the collapse it is.
+
+**What the gate can detect, in plain numbers.** Twelve paired seeds with a standard deviation of
+74 on the difference (the evidence: 73.7 between the two governors on 24 seeds, a mean of +125)
+have a standard error of 21. Synthetic data, a fixed generator, 10 000 candidates per cell
+(`cargo test -p xtask --release -- --ignored --nocapture power_table`; a smaller version of the
+test is in the suite):
+
+| true gain per seed | 0 | +20 | +40 | +60 | +80 | +100 | +125 |
+|---|---|---|---|---|---|---|---|
+| promoted, differences Normal(gain, 74) | 4.8% | 20% | 51% | 82% | 96% | 99.6% | 100% |
+| promoted, bimodal seeds (a fifth collapse) | 4.5% | 20% | 49% | 79% | 94% | 98% | 99.5% |
+
+So a candidate that changes nothing is promoted about 1 time in 20 (the interval's lower end is
+a nominal 2.5% tail; a percentile bootstrap on 12 values runs about twice that, as it is known
+to), a +40 gain about half the time, and about +55 is the 80% mark. Below +20 the gate mostly
+says no, so most small real improvements are rejected and the campaign stalls instead of
+drifting; if most candidates change little, a fair share of the promotions will still be noise.
+A gain like the review's +125 is found every time. The old rule (strictly higher mean on 3
+seeds) promoted a candidate that changed nothing about half the time. Since the champion's gate
+scores were part of what promoted it, they are a little lucky, which makes the bar for the next
+candidate slightly higher than the true gain it has to beat. The owner-only tier has no such
+bias: it is for judging a campaign, not for selecting in it. With 30 seeds the standard error
+of a paired difference is about 13, so `agent-compare` resolves a difference of about 27 (its
+95% interval's half-width). Both tables come from synthetic data, not from the game: how the
+real distribution differs (heavier tails, correlated seeds) moves them.
+
+**Parallel evaluation.** `agent_eval::evaluate_many` runs the queue of (pair, seed) runs on
+`--threads N` threads (`$FN_EVAL_THREADS`, else half the cores, at most 12, fewer if
+`MemAvailable` allows fewer at 100 MB each: 24 cores gives 12, the owner's 8-core laptop 4). A
+run is one core and 27 to 30 MB at its peak (measured), so memory is not the limit, other
+processes are. Each table lists its rows in tier and seed order, so the output is the same
+whatever the thread count and whichever run finishes first (a test runs the same evaluation on
+1, 2, 5, 14 and 64 threads, with a stub whose later seeds finish first). A failing run stops the
+queue, and the error reported is the earliest in queue order.
+
+*Measured*, release `fn_agent` at build c1ddaff, on the 24-core desktop with 12 threads, while
+other agents' builds and a campaign kept the load average between 4 and 13 (so these are slower
+than an idle machine would be):
+
+| what | runs | wall-clock |
+|---|---|---|
+| one pair, the 3 screen seeds, 1 thread / 3 threads | 3 | 213 s / 115 s (the slowest run is the floor; the tables are byte-identical) |
+| an attempt's screen: 12 pairs (one governor, 12 plans) on 3 seeds | 36 | 310 s |
+| the gate for the candidate, 12 seeds | 12 | 241 s (one seed took about 4 minutes by itself) |
+| the owner-only tier for a promoted candidate, 30 seeds | 30 | 343 s |
+| **a whole promoted attempt** | **78** | **894 s, 15 minutes** |
+| an attempt that is not promoted (screen and gate) | 48 | about 9 minutes (551 s) |
+| `agent-compare`, two governors on the 30 owner-only seeds | 60 | 362 s |
+
+At the 71 s a run that the serial row implies, 78 runs one after another are about 90 minutes
+and 48 about 57, so 12 threads buy about 6 times, short of 12 because a stage ends when its
+slowest run does and the machine was shared. The wall-clock of a stage is that of its slowest
+run: a gate cannot finish before the heaviest of its seeds. Runs are queued in the order of
+the track, not longest first, because nothing says in advance which will be long.
+
+**Re-evaluation on a new build** (#566) uses the tiers too: a resume on another build runs the
+champion on the screen and the gate (not the owner-only tier), replaces its means and
+`champion/gate.json`, and keeps the old and new means in the ledger's `reevals`, so the next
+attempt is compared with the champion as this build scores it.
+
+**`cargo xtask agent-compare [--tier owner] [--threads N] CONDITION...`** compares conditions
+with no model. A condition is `[LABEL=]PATH[,PATH...]`: a campaign folder (its `champion/` is the
+strategy), a folder with a `handoff.json`, or `GOVERNOR.rhai[@PLAN.json]`, a fixed governor
+and plan. Every strategy runs on the tier's seeds (default owner-only), and the command prints
+the mean, standard deviation, minimum and failure counts per strategy, and for each later
+condition its paired difference from the first, with a 95% bootstrap interval and wins, losses
+and ties. For a condition of several campaigns' champions the per-seed score is their average,
+and the min, median and max of the champions' means are printed beside the interval, because
+the interval covers seeds and not how much one campaign differs from another. `--json`
+prints the same; `--per-seed` adds a score table. It needs `--track` unless a campaign folder
+names one. A campaign folder from before the tiers works here: only its champion is read.
+
+*First use* (2026-11-08, build c1ddaff): the review's `champion-governor.rhai` against
+`champ-nowait.rhai` with their plans on the 30 owner-only seeds, which the review had measured on
+24 other seeds at +125. Now: champion 129.6 (sd 67, 9 collapses of 30, 27 deaths on 10 seeds),
+no-wait 256.9 (sd 109, 4 collapses, 12 deaths on 6 seeds), paired difference **+127.4, 95%
+interval [+101.6, +154.6], 28 wins, 1 loss, 1 tie**; 6 minutes 18 seconds. The review's finding
+holds on fresh seeds and a changed sim; a second evaluation of the no-wait governor on the same
+seeds gave the same mean, spread and failure counts.
+
+**Old ledgers** are refused by `agent-run --resume` with a message that says the ledger is from
+before the seed tiers (its track has train and held-out seeds and no gate), that a promotion
+can't be compared with its rows, and what to do (start a new campaign; the old folder's champion
+still goes into `agent-compare`). A track whose seeds changed was already refused on resume.
+
+### Fairness: lookahead and held-out seeds (#521, extended by #571)
 
 Climbing on one seed teaches the map (where the water is, which outcrop is reachable) as much as
 the game. Three layers keep that honest:
 
 - **The model plays only `play_seed`.** It never sees another seed's map.
-- **Selection is the mean over `train_seeds`.** A plan full of `play_seed` coordinates scores
-  badly on seeds 7 and 42, so a governor that finds its own sites wins. That pushes the agent
-  toward the porcelain the evidence run's SDK gaps asked for (find water, prefer plains).
-- **`holdout_seeds` are never selected on and never shown to the agent.** The ledger shows them
-  to the owner, and a growing gap between train and held-out means overfitting.
+- **Selection is on seeds it did not play.** A plan full of `play_seed` coordinates scores badly
+  on seeds 7 and 42, so a governor that finds its own sites wins. That pushes the agent toward
+  the porcelain the evidence run's SDK gaps asked for (find water, prefer plains). The model
+  tests on the screen (`play_seed`, 7, 42); the gate that promotes a candidate is twelve other
+  seeds it is never told.
+- **`owner_seeds` are never selected on and never shown to the agent.** The ledger shows them
+  to the owner, and a growing gap between gate and owner-only means overfitting.
+
+**The record of #521 (2026-11-07, the owner took the recommendation)**: selection by the mean
+over three training seeds, with the model playing one of them, and three held-out seeds shown to
+the owner only. **#571 extends it (2026-11-08)** after the harness review found that three seeds
+cannot carry a promotion (the mean of three seeds of one governor ranged from 148 to 361 between
+the 5th and 95th percentile, about a fifth of seeds collapse below 120, and the held-out seeds
+1, 5 and 8 sit inside the balance harness's panel 1-32, so they were not independent of the
+game's tuning). What stays: the model plays one seed, no seed outside the screen is shown to it,
+and a tier is reported to the owner and never selected on. What changes: the held-out tier is
+replaced by an owner-only tier of 30 fresh seeds (2001-2030, none in 1-32 or in the balance
+harness's own holdout 1001-1032); the selection that three seeds could not carry moves to a gate
+of 12 fresh seeds (1101-1112); the three seeds stay as the screen. The tiers may not overlap, and
+`data/tracks.toml` refuses a gate or owner-only seed in 1-32. The owner-only tier plays no part
+in selection and no seed, score, reason or count from it reaches a prompt (tests pin it).
 
 For races (#318), a racer may not carry a strategy climbed on its race's own seed. If scripted
 races ever allow carried libraries, they rank in their own bracket, as #474 already does for
@@ -590,10 +764,13 @@ scripts.
 |---|---|---|---|
 | Attempt 1 (as the evidence run) | ~86 | ~$1 | |
 | Later attempts (governor plays until surprised) | target 20–40 | ~$0.25–0.50 (Sonnet's scripted rate, agent-scripting.md) | |
-| Clean evaluation, 6 seeds × 540 turns | 0 | $0 | ~2.5 min |
-| A 5-attempt campaign | | ~$2–3 | ~13 min |
+| Clean evaluation of one pair, 3 screen seeds × 540 turns | 0 | $0 | ~30 s to 4 min |
+| The gate for a candidate (12 seeds), and for a promoted one the owner-only tier (30 seeds) | 0 | $0 | see "Measuring a difference" |
+| A 5-attempt campaign | | ~$2–3 | see "Measuring a difference" |
 
-Clean evaluation runs one seed at a time, which matters on the owner's 8 GB laptop.
+Clean evaluation runs in parallel (#571): half the cores by default, so 4 runs on the owner's
+8-core laptop, each about 30 MB. CPU is what a campaign costs, not memory: see "Measuring a
+difference".
 
 ### Watching attempts
 
@@ -650,6 +827,8 @@ In dependency order. Decisions gate the items noted.
 - #531 Script-mode prompts teach one governor and a plan, and the briefing states the score
   rule (#524, #523, decision #522)
 - #532 Watch: the `score` line as a card, plus attempt and best on the strip (#525, #530)
+- #571 Measurement: seed tiers, parallel evaluation, the paired promotion rule with failure
+  counts, `agent-compare` (extends #521; see "Measuring a difference")
 
 ## Owner decisions
 
@@ -662,6 +841,9 @@ The owner took every recommendation on 2026-11-07.
    severe-need time. Mild flags, harm events and food security are reported but not scored.
    The tallies are kept on `World` by #533, shared with the balance harness.
 3. **What the climb selects on** (#521): the mean clean score over three training seeds, with
-   the model playing one of them and three held-out seeds shown to the owner only.
+   the model playing one of them and three held-out seeds shown to the owner only. *Extended
+   2026-11-08 by #571 (see "Fairness"): the three seeds are now the screen, promotion is
+   decided on a gate of twelve fresh seeds, and the held-out three are replaced by thirty
+   owner-only seeds outside the balance panel.*
 4. **How hard to push toward one strategy** (#522): the plan tool, plus read-only inline probes,
    with churn reported on the scorecard.
