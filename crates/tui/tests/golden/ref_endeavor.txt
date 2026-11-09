@@ -32,7 +32,7 @@
 │   Closest: Juni 0/8b 0/3f, Shen 0/8b 0/3f                                            ││                              │
 │   Designate a bend (B) on a tile a bender can work - credit to whoever channels it   ││                              │
 │   Ancient scrolls read                 ░░░░░░░░░░       0/3                          ││                              │
-│   Bring scrolls to a study hall                                                      ││                              │
+│   Bring scrolls to a study hall. Cartography charts ruins.                           ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
