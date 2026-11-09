@@ -31,13 +31,35 @@ jobs:
       # The toolchain (version, components, wasm32 target) is pinned in rust-toolchain.toml, the one
       # source shared with flake.nix and local rustup. Change it there, not here.
       - run: rustup toolchain install
+      # The cargo registry and git checkouts. target/ is cached by the steps below instead:
+      # rust-cache's key only changes with Cargo.lock, so it never re-saves a newer build of our
+      # own crates.
       - uses: Swatinem/rust-cache@v2
         with:
+          cache-targets: false
           # Only main writes the cache; PRs restore it. Keeps us within the private-repo quota.
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # All of target/, dependencies and workspace crates, from main's newest build with this
+      # toolchain and Cargo.lock. Each push to main saves a new one (keyed by commit); GitHub
+      # evicts the oldest past the repository's cache limit.
+      - uses: actions/cache/restore@v6
+        with:
+          path: target
+          key: target-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-${{ github.sha }}
+          restore-keys: target-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-
+      # Backdates the sources that haven't changed since that build, so cargo reuses the crates
+      # built from them (fn_sim's opt-level-3 build is most of a cold build) and rebuilds the rest.
+      - run: scripts/ci-cache-mtimes.sh
       # `cargo xtask ci` runs the tests with nextest when it's installed (and requires it on CI):
       # all test binaries share one pool instead of running one after another.
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
       - run: cargo xtask ci
+      - if: github.ref == 'refs/heads/main'
+        run: git rev-parse HEAD > target/.cache-commit
+      - if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: target
+          key: target-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-${{ github.sha }}
