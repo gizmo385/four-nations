@@ -32,7 +32,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 
 use crate::studio::ScriptDiff;
-use crate::widgets::Marks;
+use crate::widgets::{self, Marks};
 
 /// One finished entry, built once and never revisited -- only the still-open [`Pending`] entry
 /// (if any) changes as more of the replay lands. The ASCII-sensitive separators (`·`/`-`,
@@ -154,38 +154,9 @@ fn say_rows(text: &str, width: usize) -> Vec<Row> {
 fn wrap(text: &str, width: usize, label: &str, kind: Kind) -> Vec<Row> {
     let indent = label.chars().count();
     let room = width.saturating_sub(indent).max(1);
-    let mut lines: Vec<String> = Vec::new();
-    let mut cur = String::new();
-    let mut cur_len = 0;
-    for word in text.split_whitespace() {
-        let mut word: &str = word;
-        loop {
-            let len = word.chars().count();
-            let sep = usize::from(cur_len > 0);
-            if cur_len + sep + len <= room {
-                if sep == 1 {
-                    cur.push(' ');
-                }
-                cur.push_str(word);
-                cur_len += sep + len;
-                break;
-            }
-            if cur_len > 0 {
-                lines.push(std::mem::take(&mut cur));
-                cur_len = 0;
-                continue;
-            }
-            // A word wider than a whole row: break it.
-            let cut = word.char_indices().nth(room).map_or(word.len(), |(i, _)| i);
-            lines.push(word[..cut].to_owned());
-            word = &word[cut..];
-            if word.is_empty() {
-                break;
-            }
-        }
-    }
-    if !cur.is_empty() || lines.is_empty() {
-        lines.push(cur);
+    let mut lines = widgets::wrap(text, room, usize::MAX, ' ');
+    if lines.is_empty() {
+        lines.push(String::new());
     }
     lines
         .into_iter()

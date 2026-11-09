@@ -176,6 +176,16 @@ fn seed_lists_parse_like_the_binarys_flag() {
 }
 
 #[test]
+fn seed_lists_match_what_the_legacy_sweeps_expanded() {
+    // `legacy.rs` once had its own parser: no dedup, no trimming, `4-1` an empty range. On its
+    // defaults and on any list without repeats or inverted ranges it gave exactly this.
+    assert_eq!(parse_seeds("1-8"), Some((1..=8).collect()));
+    assert_eq!(parse_seeds("7,42"), Some(vec![7, 42]));
+    assert_eq!(parse_seeds("5"), Some(vec![5]));
+    assert_eq!(parse_seeds(" 3 - 4 , 9"), Some(vec![3, 4, 9]));
+}
+
+#[test]
 fn noise_floors_load_by_metric_name() {
     let cfg =
         parse(&format!("{TARGET}[noise]\n\"sign_minute.stone\" = 1.5\n\"deaths_by.180\" = 0\n"))

@@ -46,6 +46,7 @@ use crate::nation::Nation;
 use crate::score::{ScoreDef, ScoreStart, Scorecard};
 use crate::world::{
     EndeavorEventKind, FoodSource, SeasonEventKind, TICKS_PER_SECOND, Task, UnitId, World,
+    minutes_to_ticks,
 };
 
 /// The settlement's starting headcount every run uses: the same six settlers the TUI starts a
@@ -574,10 +575,6 @@ pub fn par_start(track: &ParTrack, defs: &Defs) -> Result<World, String> {
                 .map_err(|p| format!("can't start at ({x}, {y}): {p:?}"))
         }
     }
-}
-
-fn minutes_to_ticks(minutes: f32) -> u64 {
-    (f64::from(minutes) * 60.0 * f64::from(TICKS_PER_SECOND)).round() as u64
 }
 
 fn ticks_to_minutes(tick: u64) -> f32 {

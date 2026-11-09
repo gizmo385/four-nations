@@ -262,11 +262,6 @@ pub(super) struct Ride {
     pub until: u64,
 }
 
-/// Ticks in `minutes` in-game minutes, at least 1.
-fn minutes_to_ticks(minutes: f32) -> u64 {
-    ((minutes * 60.0 * TICKS_PER_SECOND as f32).round() as u64).max(1)
-}
-
 /// Seconds in `ticks`.
 fn ticks_to_seconds(ticks: u64) -> f32 {
     ticks as f32 / TICKS_PER_SECOND as f32
@@ -752,7 +747,7 @@ impl World {
         restoke_below: f32,
     ) -> bool {
         let Some(until) = until.filter(|&u| u > self.tick) else { return false };
-        let full = minutes_to_ticks(duration_minutes * magnitude) as f32;
+        let full = minutes_to_ticks_min1(duration_minutes * magnitude) as f32;
         (until - self.tick) as f32 > restoke_below * full
     }
 
@@ -1034,7 +1029,7 @@ impl World {
                 }
                 if let Some(minutes) = revert_minutes {
                     let was = self.map[pos].terrain;
-                    let at = self.tick + minutes_to_ticks(minutes * magnitude);
+                    let at = self.tick + minutes_to_ticks_min1(minutes * magnitude);
                     let key = (at, pos);
                     let i = self.reverts.partition_point(|r| (r.at, r.pos) <= key);
                     self.reverts.insert(i, Revert { pos, terrain: was, at });
@@ -1086,7 +1081,7 @@ impl World {
                     radius: *radius,
                     sleep_bonus: *sleep_bonus,
                     seek_tiles: *seek_tiles,
-                    until: self.tick + minutes_to_ticks(duration_minutes * magnitude),
+                    until: self.tick + minutes_to_ticks_min1(duration_minutes * magnitude),
                     size: crate::building::ONE_BY_ONE,
                     cooks: *cooks,
                     ability: Some(ability),
@@ -1101,7 +1096,7 @@ impl World {
                     unit: caster,
                     radius: *radius,
                     sleep_bonus: *sleep_bonus,
-                    until: self.tick + minutes_to_ticks(duration_minutes * magnitude),
+                    until: self.tick + minutes_to_ticks_min1(duration_minutes * magnitude),
                 });
                 None
             }
@@ -1112,7 +1107,7 @@ impl World {
                     caster,
                     Ride {
                         multiplier: *multiplier,
-                        until: self.tick + minutes_to_ticks(duration_minutes * magnitude),
+                        until: self.tick + minutes_to_ticks_min1(duration_minutes * magnitude),
                     },
                 );
                 None
@@ -1146,11 +1141,11 @@ impl World {
             } => {
                 let patch = Patch {
                     centre: pos,
-                    dries_at: self.tick + minutes_to_ticks(wet_minutes * magnitude),
+                    dries_at: self.tick + minutes_to_ticks_min1(wet_minutes * magnitude),
                     sprouts: *sprouts,
                     resource: *sprout_resource,
                     biomes: biomes.clone(),
-                    fallow_ticks: minutes_to_ticks(*fallow_minutes),
+                    fallow_ticks: minutes_to_ticks_min1(*fallow_minutes),
                 };
                 // Keep the list in drying order; equal times stay in the order they were made.
                 let key = (patch.dries_at, patch.centre);

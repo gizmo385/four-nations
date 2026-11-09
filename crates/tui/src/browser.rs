@@ -46,6 +46,7 @@ use crate::keys::{self, Step};
 use crate::runs::campaign::{self, Attempt, Campaign, Game};
 use crate::runs::{self, RunInfo, SCORE_HORIZON, Scored, State};
 use crate::watch::{self, Watcher};
+use crate::widgets;
 
 /// What a playtest's row says in the score column, and in the mode column (#576).
 pub const PLAYTEST_CELL: &str = "playtest";
@@ -1439,32 +1440,9 @@ fn pad_right(text: &str, width: usize) -> String {
 }
 
 /// `text` broken into lines of at most `width` cells at spaces (a word longer than a line is cut).
+/// A zero width counts as one; no line limit.
 fn wrap(text: &str, width: usize) -> Vec<String> {
-    let mut lines = Vec::new();
-    let mut line = String::new();
-    for word in text.split_whitespace() {
-        let mut word = word.to_owned();
-        while word.chars().count() > width.max(1) {
-            if !line.is_empty() {
-                lines.push(std::mem::take(&mut line));
-            }
-            let head: String = word.chars().take(width.max(1)).collect();
-            word = word.chars().skip(width.max(1)).collect();
-            lines.push(head);
-        }
-        if line.is_empty() {
-            line = word;
-        } else if line.chars().count() + 1 + word.chars().count() <= width {
-            line.push(' ');
-            line.push_str(&word);
-        } else {
-            lines.push(std::mem::replace(&mut line, word));
-        }
-    }
-    if !line.is_empty() {
-        lines.push(line);
-    }
-    lines
+    widgets::wrap(text, width.max(1), usize::MAX, ' ')
 }
 
 // -------------------------------------------------------------------------------------------

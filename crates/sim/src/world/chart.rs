@@ -56,11 +56,6 @@ pub enum ChartStanding {
     NothingLeft,
 }
 
-/// Ticks in `minutes` in-game minutes, at least 1 (mirrors `world/study.rs`'s own copy; #402).
-fn minutes_to_ticks(minutes: f32) -> u64 {
-    ((minutes * 60.0 * TICKS_PER_SECOND as f32).round() as u64).max(1)
-}
-
 impl World {
     /// Opens `seats` new `Chart` jobs at `pos`. Called once, when a Map Room finishes
     /// construction, in place of `open_study_seats` (`world/build.rs`).
@@ -107,7 +102,7 @@ impl World {
         if !self.chart_has_target(pos, def) {
             return Some(ChartStanding::NothingLeft);
         }
-        let target = minutes_to_ticks(def.minutes) as f32;
+        let target = minutes_to_ticks_min1(def.minutes) as f32;
         let percent = (self.chart_progress(pos) / target * 100.0).floor().clamp(0.0, 99.0);
         Some(ChartStanding::Charting { percent: percent as u32 })
     }
@@ -186,7 +181,7 @@ impl World {
                 return;
             }
         }
-        let target = minutes_to_ticks(def.minutes) as f32;
+        let target = minutes_to_ticks_min1(def.minutes) as f32;
         let study = self.modifiers().study;
         let progress = self.charts.entry(anchor).or_insert(0.0);
         *progress += study;
