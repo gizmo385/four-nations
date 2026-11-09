@@ -473,6 +473,39 @@ fn horizon_a_runaway_script_coasts_to_the_horizon() {
     assert_eq!(r["stopped_by"]["turn"], 0, "{r}");
 }
 
+/// A loop of native calls with no `wait` is a `runaway` too, and quickly (#564): Rhai counts an
+/// `observe()` as one operation, but the budget charges what the host does for it.
+#[test]
+fn horizon_a_native_call_loop_with_no_wait_is_a_runaway() {
+    let script = temp_script("h_native.rhai", "loop { observe(); }");
+    let (out, _, log) = play_horizon("h_native", &script, 5, &[]);
+    std::fs::remove_file(&script).ok();
+    std::fs::remove_file(&log).ok();
+    assert!(!out.status.success());
+    let r = report(&out);
+    assert_eq!(r["stopped_by"]["reason"], "runaway", "{r}");
+    assert_eq!(r["stopped_by"]["turn"], 0, "{r}");
+    let why = r["stopped_by"]["why"].as_str().unwrap_or_default();
+    assert!(why.contains("Stopped at line 1"), "{r}");
+}
+
+/// A loop with a `wait` in it never runs away, however much work the whole run does (#564): 20
+/// passes of about 60,000 operations is more than the whole budget, and the run is one script
+/// to the horizon, with no restart.
+#[test]
+fn horizon_a_loop_that_waits_runs_the_whole_horizon_in_one_run() {
+    let script =
+        temp_script("h_waits.rhai", "let x = 0; loop { for i in 0..20000 { x += 1; } wait(1); }");
+    let (out, _, log) = play_horizon("h_waits", &script, 20, &[]);
+    std::fs::remove_file(&script).ok();
+    std::fs::remove_file(&log).ok();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let r = report(&out);
+    assert_eq!(r["stopped_by"], serde_json::Value::Null, "{r}");
+    assert_eq!(r["restarts"], 0, "{r}");
+    assert_eq!(r["turns_run"], 20, "{r}");
+}
+
 /// Event wakes are ignored: the run that `--wake-on need` stopped early in the `--turns` test
 /// above goes on to the horizon.
 #[test]

@@ -18,12 +18,14 @@ use super::limits::Limits;
 pub struct Outcome {
     /// `"done"` (the script returned), `"error"` (a parse or runtime error), `"asked"`
     /// (the script called `wake(msg)`), `"event"` (a `wake_on` event landed during a `wait`),
-    /// `"budget"` (`turns` ran out) or `"runaway"` (too many operations with no `wait`).
+    /// `"budget"` (`turns` ran out) or `"runaway"` (over the operation budget since the last
+    /// `wait`, #564).
     pub reason: &'static str,
     /// Why `reason` is what it is, in one line: the error's own text (`"error"`), the message
     /// `wake(msg)` was given (`"asked"`), or the event's own kind and text (`"event"`,
-    /// "death: Ping died of thirst"). `None` for `"done"`, `"budget"` and `"runaway"`, which
-    /// need no further explaining than `reason` itself.
+    /// "death: Ping died of thirst"), or for a `"runaway"` how much work it did since its last
+    /// `wait` and the line it stopped at. `None` for `"done"` and `"budget"`, which need no
+    /// further explaining than `reason` itself.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub why: Option<String>,
     /// This run's own tag: the caller's `note` for an ad hoc `run_script {code}` call, or the
@@ -37,7 +39,8 @@ pub struct Outcome {
     /// through `rhai::serde`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<serde_json::Value>,
-    /// `"line:col"` of the error, the `wake(msg)` call, or the `wait` an event landed in, when
+    /// `"line:col"` of the error, the `wake(msg)` call, the `wait` an event landed in, or where a
+    /// runaway stopped, when
     /// Rhai could place it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<String>,
@@ -138,9 +141,14 @@ pub fn run(host: &mut Host, request: Request<'_>, limits: &Limits) -> Outcome {
         // `prelude::engine()` raises the per-function expression depth above Rhai's debug-build
         // default (16 levels, #480): the porcelain layer's own nested loops and string
         // interpolation need more than that, well short of anything resembling a runaway
-        // script -- `set_max_operations` below is what actually guards against those.
+        // script -- the operation budget below is what actually guards against those.
         let mut engine = super::prelude::engine();
-        engine.set_max_operations(limits.max_operations);
+        // The operation budget counts since the last `wait`, not over the whole run (#564):
+        // Rhai's own `set_max_operations` can't be reset, so `Engine::on_progress` does it
+        // (`Context::check_work`) and `do_wait` starts the count over.
+        ctx.set_work_limit(limits.max_operations);
+        let progress_ctx = ctx.clone();
+        engine.on_progress(move |ops| progress_ctx.check_work(ops));
 
         let print_ctx = ctx.clone();
         engine.on_print(move |s| print_ctx.push_log(s.to_owned()));
@@ -193,7 +201,7 @@ pub fn run(host: &mut Host, request: Request<'_>, limits: &Limits) -> Outcome {
     let (mut reason, mut why, mut value, line) = match result {
         Ok(value) => ("done", None, dynamic_to_json(value), None),
         Err(err) => {
-            let (reason, why, line) = classify_error(&err);
+            let (reason, why, line) = classify_error(&err, code);
             (reason, why, None, line)
         }
     };
@@ -282,10 +290,13 @@ fn since_start(before: &Observation, after: &Observation, events: &[Event]) -> S
 }
 
 /// Why `err` stopped the script: a [`Signal`] from `bindings::read_signal` (`"budget"`,
-/// `"asked"` or `"event"`), Rhai's own `ErrorTooManyOperations` (`"runaway"`, from
-/// `Engine::set_max_operations`), or anything else (`"error"`, with its own message and
-/// `"line:col"`).
-fn classify_error(err: &EvalAltResult) -> (&'static str, Option<String>, Option<String>) {
+/// `"asked"`, `"event"` or `"runaway"`, the last from `Context::check_work`), or anything else
+/// (`"error"`, with its own message and `"line:col"`). `code` is the caller's own source, to quote
+/// the line a runaway stopped on.
+fn classify_error(
+    err: &EvalAltResult,
+    code: &str,
+) -> (&'static str, Option<String>, Option<String>) {
     let root = err.unwrap_inner();
     if let EvalAltResult::ErrorTerminated(token, _) = root
         && let Some(signal) = bindings::read_signal(token)
@@ -296,16 +307,32 @@ fn classify_error(err: &EvalAltResult) -> (&'static str, Option<String>, Option<
             Signal::Event { kind, text, .. } => {
                 ("event", Some(format!("{}: {text}", kind.as_str())), position_of(err))
             }
+            Signal::Runaway { spent, limit } => {
+                ("runaway", Some(runaway_why(spent, limit, err, code)), position_of(err))
+            }
         };
-    }
-    if matches!(root, EvalAltResult::ErrorTooManyOperations(_)) {
-        return ("runaway", Some("a loop with no wait?".to_owned()), None);
     }
     ("error", Some(err.to_string()), position_of(err))
 }
 
-/// `"line:col"` of `err`, when Rhai could place it (`None` for a position-less error, like
-/// Rhai's own `ErrorTooManyOperations`).
+/// The one line a `"runaway"` says (#564): what was spent against what limit since the last
+/// `wait`, and where it was. Rhai gives a script-function call's caller's position, so the line
+/// is the top-level statement the work was inside, quoted from `code`.
+fn runaway_why(spent: u64, limit: u64, err: &EvalAltResult, code: &str) -> String {
+    let at = err
+        .position()
+        .line()
+        .and_then(|l| code.lines().nth(l - 1).map(|text| (l, text.trim())))
+        .map_or_else(String::new, |(l, text)| format!(" Stopped at line {l}: `{text}`."));
+    format!(
+        "{spent} operations since the last wait, over the limit of {limit} (a wait starts the \
+         count again; observe, act, cells and the other game calls count for more than one \
+         each).{at} A loop that never reaches wait, or one pass that does too much before it, \
+         ends here."
+    )
+}
+
+/// `"line:col"` of `err`, when Rhai could place it (`None` for a position-less error).
 fn position_of(err: &EvalAltResult) -> Option<String> {
     let pos = err.position();
     pos.line().map(|l| format!("{l}:{}", pos.position().unwrap_or(0)))
@@ -482,14 +509,114 @@ mod tests {
         assert_eq!(out.turns_run, 5);
     }
 
-    /// A loop with no `wait` runs away: `Engine::set_max_operations` stops it deterministically
-    /// before it could ever use a turn.
+    /// A loop with no `wait` runs away: the operation budget stops it deterministically before
+    /// it could ever use a turn.
     #[test]
     fn a_loop_with_no_wait_is_runaway() {
         let mut h = host();
         let out = run_default(&mut h, "let x = 0; loop { x += 1; }", None, None);
         assert_eq!(out.reason, "runaway");
         assert_eq!(out.turns_run, 0);
+    }
+
+    /// A runaway says what is true (#564): the work since the last `wait`, the limit, and the
+    /// line it stopped on -- as `line` and quoted in `why` -- without suggesting a `wait` after
+    /// every scan. Two runs of the same script stop at the same place.
+    #[test]
+    fn a_runaway_names_the_line_it_stopped_on_and_is_deterministic() {
+        let code = "let x = 0;\nwait(1);\nloop {\n    x += 1;\n}";
+        let first = run_default(&mut host(), code, None, None);
+        assert_eq!(first.reason, "runaway", "{first:?}");
+        assert_eq!(first.turns_run, 1, "the wait before the loop ran");
+        let why = first.why.as_deref().expect("a runaway says why");
+        assert!(why.contains("operations since the last wait"), "{why}");
+        assert!(why.contains("limit of 50000"), "{why}");
+        assert!(why.contains("Stopped at line 4: `x += 1;`"), "{why}");
+        assert!(!why.contains("a loop with no wait?"), "{why}");
+        assert!(first.line.as_deref().is_some_and(|l| l.starts_with("4:")), "{:?}", first.line);
+        let second = run_default(&mut host(), code, None, None);
+        assert_eq!((second.why, second.line), (first.why, first.line));
+    }
+
+    /// Work done inside a script function is reported at the call, the statement of the caller's
+    /// own code that was running (Rhai gives a terminated call its outermost call site).
+    #[test]
+    fn a_runaway_inside_a_function_points_at_the_call() {
+        let code = "fn spin() {\n    loop { }\n}\nlet y = 1;\nspin();";
+        let out = run_default(&mut host(), code, None, None);
+        assert_eq!(out.reason, "runaway", "{out:?}");
+        assert!(out.why.as_deref().unwrap().contains("line 5: `spin();`"), "{:?}", out.why);
+    }
+
+    /// A pass that is a little under the limit before each `wait` never runs away, however many
+    /// passes there are, and one a little over does, on its first pass.
+    #[test]
+    fn the_limit_applies_to_one_pass_between_waits() {
+        // About 3 operations per `x += 1` iteration in a `for`: 10_000 stays under 50_000.
+        let under = "let x = 0; loop { for i in 0..10000 { x += 1; } wait(1); }";
+        let out = run_default(&mut host(), under, Some(10), None);
+        assert_eq!((out.reason, out.turns_run), ("budget", 10), "{out:?}");
+        let over = "let x = 0; loop { for i in 0..60000 { x += 1; } wait(1); }";
+        let out = run_default(&mut host(), over, Some(10), None);
+        assert_eq!((out.reason, out.turns_run), ("runaway", 0), "{out:?}");
+    }
+
+    /// Native calls cost the budget what they cost the host (#564): Rhai counts `observe()` as
+    /// one operation, so without a cost a loop of them would run for minutes. A loop of any of
+    /// them with no `wait` runs away (under the test limit of 50_000, `observe` stops after a
+    /// few dozen calls), and a `wait` in the loop keeps it going.
+    #[test]
+    fn a_loop_of_native_calls_with_no_wait_is_runaway() {
+        for call in [
+            "observe()",
+            "cells(0, 0, 39, 39)",
+            "look(0, 0, 64, 40)",
+            "inspect(1, 1)",
+            "screen(\"research\")",
+            "can_build(\"Bed\", 1, 1)",
+            "act([#{step: \"cursor\", x: 3, y: 3}])",
+            "keys(\"<right>\")",
+        ] {
+            let code = format!("let n = 0; loop {{ {call}; n += 1; }}");
+            let mut h = host();
+            let out = run_default(&mut h, &code, None, None);
+            assert_eq!(out.reason, "runaway", "{call}: {out:?}");
+            assert_eq!(out.turns_run, 0);
+            let kept = format!("loop {{ {call}; wait(1); }}");
+            let out = run_default(&mut host(), &kept, Some(5), None);
+            assert_eq!((out.reason, out.turns_run), ("budget", 5), "{call} with a wait: {out:?}");
+        }
+    }
+
+    /// A call's cost is what the budget sees, so the same loop stops after the same number of
+    /// calls on every run: the stop never depends on how fast the machine is.
+    #[test]
+    fn a_native_loop_stops_after_the_same_number_of_calls_every_time() {
+        let code = "let n = 0; loop { cells(0, 0, 39, 39); n += 1; memory.n = n; }";
+        let stops: Vec<_> = (0..2)
+            .map(|_| {
+                let out = run_default(&mut host(), code, None, None);
+                (out.reason, out.memory["n"].clone(), out.why)
+            })
+            .collect();
+        assert_eq!(stops[0], stops[1]);
+        assert_eq!(stops[0].0, "runaway");
+        // 50_000 / (20 + 39 * 39 / 2 = 780 per call, plus a few operations) is about 60 calls.
+        let calls = stops[0].1.as_i64().expect("memory.n was written");
+        assert!((55..=64).contains(&calls), "{calls} calls before the stop");
+    }
+
+    /// The operation budget counts since the last `wait` (#564), so a healthy loop that does a
+    /// couple of thousand operations a pass and `wait`s at the end of each never runs away: 100
+    /// passes of ~2000 operations is 200k, four times `limits()`'s 50k, and it stops `"budget"`
+    /// only because `turns` ran out.
+    #[test]
+    fn a_loop_with_a_wait_in_it_never_runs_away() {
+        let mut h = host();
+        let code = "let x = 0; loop { for i in 0..700 { x += 1; } wait(1); }";
+        let out = run_default(&mut h, code, Some(100), None);
+        assert_eq!(out.reason, "budget", "{out:?}");
+        assert_eq!(out.turns_run, 100);
     }
 
     /// The sandbox (docs/design/agent-scripting.md, "The SDK", "Language: Rhai, embedded"): no

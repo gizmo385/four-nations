@@ -12,8 +12,10 @@ pub struct Limits {
     pub default_turns: u32,
     /// No call may ask for more turns than this, whatever `turns` it's given.
     pub max_turns: u32,
-    /// `Engine::set_max_operations`: a loop with no `wait` stops deterministically instead of
-    /// running forever ("runaway").
+    /// The work a script may do between two `wait`s (#564), counted in Rhai operations plus a
+    /// fixed cost per native call (`bindings::cost`): past it the script stops
+    /// deterministically ("runaway") instead of running on. Every `wait` starts the count again,
+    /// so a loop that waits never reaches it, however long it runs.
     pub max_operations: u64,
     /// How many of the script's own log lines a result keeps, most recent last.
     pub log_tail: usize,

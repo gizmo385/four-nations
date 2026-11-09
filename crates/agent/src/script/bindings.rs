@@ -26,6 +26,9 @@ pub(super) enum Signal {
     Wake { msg: String },
     /// A `wake_on` event landed during a `wait`.
     Event { kind: EventKind, text: String, turn: u32 },
+    /// The script did more work than the budget allows since its last `wait` (or its start):
+    /// `spent` units against the `limit` (#564, [`Context::check_work`]).
+    Runaway { spent: u64, limit: u64 },
 }
 
 fn terminate(signal: Signal) -> Box<EvalAltResult> {
@@ -83,6 +86,45 @@ pub(super) struct Context {
     /// they touch the host, so no key is pressed and no turn passes; every porcelain helper that
     /// acts or waits does so through one of those three and so fails the same way.
     probe: bool,
+    /// The most operations (plus native-call [`cost`]s) the script may spend between two `wait`s
+    /// (#564): `Limits::max_operations`. `u64::MAX` until [`Self::set_work_limit`].
+    work_limit: Cell<u64>,
+    /// Rhai's own operation count at the last `Engine::on_progress` call, which is cumulative
+    /// over the whole run: [`Self::check_work`] writes it, [`Self::reset_work`] reads it.
+    ops_seen: Cell<u64>,
+    /// `ops_seen` as of the last `wait` (or `0` at the start): what the budget counts from.
+    ops_base: Cell<u64>,
+    /// The cost of the native calls (`cells`, `act`, ...) made since the last `wait`, in
+    /// operations (the [`cost`] module): Rhai counts a call as one operation however much work
+    /// the host does for it.
+    native_cost: Cell<u64>,
+}
+
+/// What a native call charges the operation budget (#564), in the budget's own unit: one Rhai
+/// operation, taken as about a microsecond of a script doing real work. Rhai counts a call to
+/// `cells` or `act` as one operation however long the host takes, so a loop of them would run
+/// for minutes inside the limit. These are flat, or a function of the arguments, never of a
+/// clock, so the budget is the same on every machine.
+///
+/// Measured on the reference governor (`crates/agent/tests/reference_governor.rs`) in a release
+/// build over a 540-turn game: `observe` and `act` took 3.5 to 4.5 ms each once the colony had
+/// grown (60 us when it had died out), `cells` took 0.7 ms for its biggest, 39x39 window and
+/// about 0.5 us a cell, `can_build` 10 to 15 us, `screen` 10 to 30 us. `observe`, `act` and `keys`
+/// are charged half of the late-game figure, so a pass of the reference governor (up to 40 acts
+/// and 9 observes) uses about a sixth of the limit and a loop of nothing but `observe` runs about
+/// 500 times before it stops.
+mod cost {
+    /// `observe` (and `act` and `keys`, which return a fresh observation's worth of work).
+    pub(super) const HEAVY: u64 = 2000;
+    /// `can_build`, `inspect`, `screen`, `events` and `plan`.
+    pub(super) const LIGHT: u64 = 40;
+
+    /// `cells` and `look`: a base and half an operation a cell of the window the host really
+    /// returns (it caps one at `MAX_LOOK`).
+    pub(super) fn window(w: u16, h: u16) -> u64 {
+        let (max_w, max_h) = fn_tui::surface::MAX_LOOK;
+        20 + u64::from(w.min(max_w)) * u64::from(h.min(max_h)) / 2
+    }
 }
 
 /// The error a probe's `act`, `keys` or `wait` fails with (docs/design/agent-hillclimb.md,
@@ -121,7 +163,47 @@ impl Context {
             last_failure: RefCell::new(None),
             plan,
             probe,
+            work_limit: Cell::new(u64::MAX),
+            ops_seen: Cell::new(0),
+            ops_base: Cell::new(0),
+            native_cost: Cell::new(0),
         })
+    }
+
+    /// Sets the budget between two `wait`s (`Limits::max_operations`, #564).
+    pub(super) fn set_work_limit(&self, limit: u64) {
+        self.work_limit.set(limit);
+    }
+
+    /// `Engine::on_progress`'s callback (#564): `ops` is Rhai's cumulative count. The budget is
+    /// what the script spent since its last `wait`: the operations Rhai counted since then plus
+    /// the cost of the native calls. Past the limit, ends the script with [`Signal::Runaway`]
+    /// (Rhai puts the token in an `ErrorTerminated` at the statement it was in).
+    pub(super) fn check_work(&self, ops: u64) -> Option<Dynamic> {
+        self.ops_seen.set(ops);
+        let spent = self.work_spent();
+        let limit = self.work_limit.get();
+        (spent > limit).then(|| {
+            rhai::serde::to_dynamic(Signal::Runaway { spent, limit })
+                .expect("Signal always serializes to a Dynamic")
+        })
+    }
+
+    /// The operations and native-call costs since the last `wait`.
+    fn work_spent(&self) -> u64 {
+        (self.ops_seen.get() - self.ops_base.get()) + self.native_cost.get()
+    }
+
+    /// Charges a native call's [`cost`] to the budget; [`Self::check_work`] sees it at the
+    /// script's next operation, which a loop of native calls reaches at once.
+    fn charge(&self, cost: u64) {
+        self.native_cost.set(self.native_cost.get().saturating_add(cost));
+    }
+
+    /// A `wait` returned to the script: the budget counts from here (#564).
+    fn reset_work(&self) {
+        self.ops_base.set(self.ops_seen.get());
+        self.native_cost.set(0);
     }
 
     /// # Safety
@@ -222,6 +304,7 @@ impl Context {
 pub(super) fn register(engine: &mut Engine, ctx: &Rc<Context>) {
     let c = ctx.clone();
     engine.register_fn("observe", move || -> Result<Dynamic, Box<EvalAltResult>> {
+        c.charge(cost::HEAVY);
         rhai::serde::to_dynamic(c.host().observe())
     });
 
@@ -229,6 +312,7 @@ pub(super) fn register(engine: &mut Engine, ctx: &Rc<Context>) {
     engine.register_fn(
         "look",
         move |x: i64, y: i64, w: i64, h: i64| -> Result<Dynamic, Box<EvalAltResult>> {
+            c.charge(cost::window(clamp_u16(w), clamp_u16(h)));
             let view = c.host().look(x as i32, y as i32, clamp_u16(w), clamp_u16(h));
             rhai::serde::to_dynamic(view)
         },
@@ -236,6 +320,7 @@ pub(super) fn register(engine: &mut Engine, ctx: &Rc<Context>) {
 
     let c = ctx.clone();
     engine.register_fn("inspect", move |x: i64, y: i64| -> Result<Dynamic, Box<EvalAltResult>> {
+        c.charge(cost::LIGHT);
         rhai::serde::to_dynamic(c.host().inspect(x as i32, y as i32))
     });
 
@@ -243,6 +328,7 @@ pub(super) fn register(engine: &mut Engine, ctx: &Rc<Context>) {
     engine.register_fn(
         "cells",
         move |x: i64, y: i64, w: i64, h: i64| -> Result<Dynamic, Box<EvalAltResult>> {
+            c.charge(cost::window(clamp_u16(w), clamp_u16(h)));
             let view = c.host().cells(x as i32, y as i32, clamp_u16(w), clamp_u16(h));
             rhai::serde::to_dynamic(view)
         },
@@ -250,6 +336,7 @@ pub(super) fn register(engine: &mut Engine, ctx: &Rc<Context>) {
 
     let c = ctx.clone();
     engine.register_fn("screen", move |name: &str| -> Result<Dynamic, Box<EvalAltResult>> {
+        c.charge(cost::LIGHT);
         let view = c.host().screen(name).map_err(err_to_rhai)?;
         rhai::serde::to_dynamic(view)
     });
@@ -258,6 +345,7 @@ pub(super) fn register(engine: &mut Engine, ctx: &Rc<Context>) {
     engine.register_fn(
         "can_build",
         move |building: &str, x: i64, y: i64| -> Result<Dynamic, Box<EvalAltResult>> {
+            c.charge(cost::LIGHT);
             let view = c.host().can_build(building, x as i32, y as i32);
             rhai::serde::to_dynamic(view)
         },
@@ -280,6 +368,7 @@ pub(super) fn register(engine: &mut Engine, ctx: &Rc<Context>) {
 
     let c = ctx.clone();
     engine.register_fn("events", move || -> Result<Dynamic, Box<EvalAltResult>> {
+        c.charge(cost::LIGHT);
         rhai::serde::to_dynamic(c.events_since_start())
     });
 
@@ -290,6 +379,7 @@ pub(super) fn register(engine: &mut Engine, ctx: &Rc<Context>) {
     let c = ctx.clone();
     engine.register_fn("plan", move || -> Result<Dynamic, Box<EvalAltResult>> {
         // Always a map, even for a session that never set a plan.
+        c.charge(cost::LIGHT);
         if c.plan.is_object() {
             rhai::serde::to_dynamic(&c.plan)
         } else {
@@ -436,6 +526,7 @@ fn do_act(
     note: Option<&str>,
 ) -> Result<Dynamic, Box<EvalAltResult>> {
     ctx.refuse_if_probe()?;
+    ctx.charge(cost::HEAVY);
     let steps: Vec<ActionStep> = rhai::serde::from_dynamic(&steps)?;
     let note = Some(ctx.tag_note(note));
     let result = ctx.host().act(&steps, note);
@@ -459,6 +550,7 @@ fn act_failure(result: &ActResult) -> Option<String> {
 
 fn do_keys(ctx: &Context, script: &str, note: Option<&str>) -> Result<Dynamic, Box<EvalAltResult>> {
     ctx.refuse_if_probe()?;
+    ctx.charge(cost::HEAVY);
     let note = Some(ctx.tag_note(note));
     let result = ctx.host().press_keys(script, None, note).map_err(err_to_rhai)?;
     ctx.record(keys_failure(script, &result));
@@ -496,6 +588,8 @@ fn do_wait(ctx: &Context, turns: i64) -> Result<Dynamic, Box<EvalAltResult>> {
             return Err(terminate(Signal::Event { kind: ev.kind, text: ev.text, turn: ev.turn }));
         }
     }
+    // The script is running again: its operation budget starts over (#564).
+    ctx.reset_work();
     rhai::serde::to_dynamic(last.expect("n is at least 1 (turns.max(1))"))
 }
 

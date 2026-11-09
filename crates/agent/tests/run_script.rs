@@ -144,3 +144,42 @@ fn fn_agent_keys_on_a_scripted_log_reproduces_the_same_frame_as_an_mcp_only_run(
     let got = fn_tui::frame::to_text(&fn_tui::frame::render_shell(&mut replay, &palette, SIZE));
     assert_eq!(got, want);
 }
+
+/// Keys drive a replay, not budgets (#564): a log made under a roomy operation budget -- a pass
+/// of 1.2 million operations before its first `wait`, a runaway under the bundled limit --
+/// replays to the very game the live run ended in, because replaying a log runs no script and so
+/// never asks what the budget was.
+#[test]
+fn a_log_made_under_a_bigger_budget_replays_to_the_same_game() {
+    let heavy = r#"
+        let x = 0;
+        for i in 0..400000 { x += 1; }
+        act([#{step: "cursor", x: 5, y: 5}], "after a long think");
+        wait(2);
+    "#;
+    // The bundled budget refuses that pass...
+    let mut bundled =
+        Tools::new(host(), Writer::new(Vec::new())).unwrap().with_scripts(Limits::bundled());
+    bundled.call("save_script", json!({"name": "heavy", "code": heavy})).unwrap();
+    let refused = bundled.call("run_script", json!({"name": "heavy", "turns": 5})).unwrap();
+    assert_eq!(refused["reason"], "runaway", "{refused}");
+
+    // ...a session with a bigger one plays it, and its log replays to the same game.
+    let path =
+        std::env::temp_dir().join(format!("fn_agent_budget_replay_{}.jsonl", std::process::id()));
+    let live = {
+        let mut roomy = limits();
+        roomy.max_operations = 50_000_000;
+        let writer = Writer::create(&path).unwrap();
+        let mut tools = Tools::new(host(), writer).unwrap().with_scripts(roomy);
+        tools.call("save_script", json!({"name": "heavy", "code": heavy})).unwrap();
+        let done = tools.call("run_script", json!({"name": "heavy", "turns": 5})).unwrap();
+        assert_eq!(done["reason"], "done", "{done}");
+        assert_eq!(done["turns_run"], 2);
+        done["observe"].clone()
+    };
+    let (header, lines) = watch::read_file(&path).unwrap();
+    std::fs::remove_file(&path).ok();
+    let replayed = Host::resume(&header, &lines).expect("the log replays");
+    assert_eq!(serde_json::to_value(replayed.observe()).unwrap(), live);
+}

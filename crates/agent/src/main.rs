@@ -73,7 +73,9 @@ as a batch job. It stops at the first wake (an error, wake(msg), or a --wake-on 
 wait) or once --turns runs out, writes --log PATH the same way serve does, and prints the wake
 report as JSON on stdout. It exits 0 for done or budget, nonzero for anything else (error,
 runaway, asked or event), so a shell loop (scripts/agent-run.sh, say) can tell which runs need a
-look. --wake-on is a comma-separated list from death, arrival, tech, endeavor, season, stockpile,
+look. A runaway is more work than data/agent.toml's max_operations between two waits (each wait
+starts the count again; native calls such as cells and act count too). --wake-on is a
+comma-separated list from death, arrival, tech, endeavor, season, stockpile,
 bend_failed, need (data/agent.toml's own default_wake with none given). --plan FILE (a JSON
 object, within data/agent.toml's plan_bytes) is the plan that plan() returns, as the plan tool would
 have set it.

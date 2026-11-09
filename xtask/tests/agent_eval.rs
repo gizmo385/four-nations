@@ -204,3 +204,32 @@ fn a_missing_handoff_or_track_is_named() {
     let err = stderr(&out);
     assert!(err.contains("nope") && err.contains("tiny"), "{err}");
 }
+
+/// A child run that never comes back is bounded (#564): `evaluate` kills it after
+/// `$FN_AGENT_PLAY_TIMEOUT_SECS` and fails with an error that says so, rather than hanging the
+/// whole evaluation or scoring it. A stub `fn_agent` that sleeps stands in for the stuck child.
+#[test]
+fn a_child_that_never_returns_is_killed_and_reported_not_scored() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fx = Fixture::new("hang");
+    let stub = fx.tmp.join("fn_agent_hang");
+    fs::write(&stub, "#!/bin/sh\nexec sleep 60\n").unwrap();
+    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+    let champion = fx.champion(&[("governor", "wait(1);")], None);
+    let started = std::time::Instant::now();
+    let out = Command::new(xtask_bin())
+        .args(["agent-eval", "--track", "tiny", "--champion"])
+        .arg(&champion)
+        .arg("--tracks")
+        .arg(fx.tmp.join("tracks.toml"))
+        .env("FN_AGENT_BIN", &stub)
+        .env("FN_AGENT_PLAY_TIMEOUT_SECS", "1")
+        .output()
+        .unwrap();
+    assert!(started.elapsed().as_secs() < 30, "the stub's 60 s sleep was not cut short");
+    assert!(!out.status.success());
+    let err = stderr(&out);
+    assert!(err.contains("seed 7") && err.contains("ran longer than 1 s"), "{err}");
+    assert!(stdout(&out).is_empty(), "no table for a harness failure: {}", stdout(&out));
+}

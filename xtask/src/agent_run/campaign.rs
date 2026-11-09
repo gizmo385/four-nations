@@ -352,8 +352,9 @@ fn ledger_text(ledger: &Ledger, owner: bool) -> String {
 
 /// What every attempt's prompt says about the clean run and `test_governor` (#561).
 fn clean_run_rules() -> &'static str {
-    "How the clean run ends matters. If the governor stops (an error, or a runaway: too many \
-     operations with no wait), it stays stopped: from that turn the colony coasts to the end \
+    "How the clean run ends matters. If the governor stops (an error, or a runaway: more work \
+     between two waits than the budget allows; each wait starts the count again), it stays \
+     stopped: from that turn the colony coasts to the end \
      with no orders at all, so a stop early in the run costs most of the score. `test_governor` \
      plays your saved governor and the current plan from turn 0 on one of the evaluation maps, \
      on a separate copy of the world (this game is not touched), and tells you the stop reason, \

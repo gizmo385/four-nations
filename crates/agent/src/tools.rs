@@ -205,8 +205,10 @@ fn run_script_tool() -> Value {
                          memory from before. Stops and returns once the script returns \
                          (`done`, with its own value), errors (`error`, with message and \
                          line:col), calls `wake(msg)` (`asked`), a `wake_on` event lands \
-                         during a `wait` (`event`), uses up `turns` (`budget`), or runs too \
-                         many operations with no `wait` (`runaway`). The result is the wake \
+                         during a `wait` (`event`), uses up `turns` (`budget`), or does more \
+                         than the operation budget between two `wait`s (`runaway`; every \
+                         `wait` starts the count again, and its `why` names the line it \
+                         stopped on). The result is the wake \
                          report: reason, why, script name and version (if run by name), the \
                          turns actually run, the clock span, a since_start diff (people, store \
                          deltas, event counts, deduplicated texts), act counts with the last \

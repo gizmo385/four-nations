@@ -30,8 +30,10 @@
 
 use std::fmt::Write as _;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -400,6 +402,61 @@ pub(crate) fn parse_report(seed: u64, role: Role, stdout: &str) -> Result<Row> {
     })
 }
 
+/// How long one `fn_agent play --horizon` child may run before `evaluate` gives up on it (#564).
+/// The script runner bounds a script's own work deterministically (`max_operations` per `wait`,
+/// native calls included), so this is only the backstop for something that does not come back at
+/// all. Generous: the reference governor takes about a minute and a half in a release build.
+/// `$FN_AGENT_PLAY_TIMEOUT_SECS` overrides it (tests use a second).
+const PLAY_TIMEOUT: Duration = Duration::from_secs(20 * 60);
+
+fn play_timeout() -> Duration {
+    std::env::var("FN_AGENT_PLAY_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .map_or(PLAY_TIMEOUT, Duration::from_secs)
+}
+
+/// Runs `cmd` to completion for at most `limit` of wall-clock time, collecting its output. Past
+/// the limit the child is killed and this is an error naming `what`: a failure of the harness,
+/// reported as such and never as a score (the clock decides nothing a score reads, so a slow
+/// machine can only turn a result into an error, never into a different result).
+fn run_bounded(cmd: &mut Command, limit: Duration, what: &str, program: &Path) -> Result<Output> {
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("can't run {}: {e}", program.display()))?;
+    // Drain both pipes on threads so a chatty child can't block on a full pipe.
+    fn drain(mut pipe: impl Read + Send + 'static) -> std::thread::JoinHandle<Vec<u8>> {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = pipe.read_to_end(&mut buf);
+            buf
+        })
+    }
+    let stdout = drain(child.stdout.take().expect("piped"));
+    let stderr = drain(child.stderr.take().expect("piped"));
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            break status;
+        }
+        if started.elapsed() >= limit {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!(
+                "{what}: fn_agent play ran longer than {} s and was killed (a harness failure, \
+                 not a score: the script runner bounds a script's own work, so something did \
+                 not come back)",
+                limit.as_secs()
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    Ok(Output {
+        status,
+        stdout: stdout.join().unwrap_or_default(),
+        stderr: stderr.join().unwrap_or_default(),
+    })
+}
+
 /// Runs `fn_agent play --horizon` once per train seed, then once per held-out seed, one at a
 /// time, with `strategy` on `track`. `fn_agent` is the binary to run; `work` is a folder for the
 /// script, the plan and each seed's log (`seed-N.jsonl`). The reusable core (#530).
@@ -441,7 +498,7 @@ pub(crate) fn evaluate(
                 .args(track.start_args(seed))
                 .arg("--log")
                 .arg(&log);
-            let out = cmd.output().map_err(|e| format!("can't run {}: {e}", fn_agent.display()))?;
+            let out = run_bounded(&mut cmd, play_timeout(), &format!("seed {seed}"), fn_agent)?;
             let stdout = String::from_utf8_lossy(&out.stdout);
             let row = match parse_report(seed, role, &stdout) {
                 Ok(row) => row,

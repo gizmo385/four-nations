@@ -29,3 +29,26 @@ debug = false
 
 [profile.ci.package."*"]
 opt-level = 0
+
+# The hot code of a long clean run, optimised even in the `ci` profile
+# (crates/agent/tests/reference_governor.rs plays 540 turns of a grown colony with a Rhai
+# governor: the sim's flood fills and path finding, and the Rhai interpreter with the string and
+# hash crates it spends its time in). With these at opt-level 3 that test takes about 90 s; with
+# everything at the profile's opt-level 1 and dependencies at 0 it takes over 5 minutes. Debug
+# assertions and overflow checks stay on, so the sim tests lose no checking. Costs about 2
+# minutes of extra build CPU, once per change to these crates.
+[profile.ci.package.fn_sim]
+opt-level = 3
+codegen-units = 1
+
+[profile.ci.package.rhai]
+opt-level = 3
+
+[profile.ci.package.smartstring]
+opt-level = 3
+
+[profile.ci.package.hashbrown]
+opt-level = 3
+
+[profile.ci.package.ahash]
+opt-level = 3

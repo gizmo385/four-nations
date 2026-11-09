@@ -117,8 +117,9 @@ Rhai wins on sandboxing and on deterministic re-runs. The cost is fluency, so th
 is generated from the registered functions and served by a tool (below). The runner configures
 the engine with no module resolver (no `import`, so no file reads) and no time functions, and
 it routes `print` and `debug` to the script log. That routing matters because stdout is the MCP
-channel. A per-call operation budget (`Engine::on_progress`) stops runaway loops
-deterministically.
+channel. An operation budget (`Engine::on_progress`) stops runaway scripts deterministically.
+It counts the work done since the script's last `wait`, so a loop that waits can run all game
+(see "The operation budget" under `run_script`).
 
 ### Plumbing: 1:1 with `Host`
 
@@ -188,7 +189,7 @@ for a one-off probe. The script runs until one of these happens:
 | `turns` used up | `budget` |
 | A `wake_on` event lands during a `wait` | `event` (which one) |
 | The script calls `wake(msg)` | `asked` (the message) |
-| Too many operations | `runaway` ("a loop with no `wait`?") |
+| More work than the budget since the last `wait` | `runaway` (how much, and the line it stopped on) |
 
 Event kinds are the alert kinds plus needs: `death`, `arrival`, `tech`, `endeavor`, `season`,
 `stockpile`, `bend_failed`, and `need` (a need flag first shown). These are the same events that
@@ -206,6 +207,32 @@ script, a season (45 turns) for one that worked once, and a year for a proven on
 All limits go in `data/agent.toml` `[scripts]`: `default_turns`, `max_turns`, `max_operations`,
 `log_tail`, `memory_bytes`, `plan_bytes` (the `plan` tool's cap, see agent-hillclimb.md) and
 `default_wake`. Like `tui.toml`, the sim never reads this file.
+
+### The operation budget
+
+A script may do `max_operations` of work between two `wait`s (#564): Rhai operations, plus a
+fixed cost for each native call, because Rhai counts `cells()` or `act()` as one operation
+however long the game takes over it. Every `wait` starts the count again, so a loop that waits
+runs all game, and a loop that never reaches a `wait` stops as `runaway`. The `why` says how
+much work it had done and quotes the line it stopped on (for a call into one of the script's own
+functions, the line of the call). Nothing about the stop suggests a `wait` after each scan: one
+pass of a governor may be as long as the budget allows.
+
+The costs are in `bindings::cost`: `observe`, `act` and `keys` 2000 each, `cells` and `look`
+20 plus half the cells in the window, `can_build`, `inspect`, `screen`, `events` and `plan` 40.
+They are flat or a function of the arguments, never of a clock, so a run stops at the same call
+on every machine. They are about a microsecond to the operation, set from release-build timings
+on the reference governor (`crates/agent/tests/reference/`): a late-game `observe` or `act` takes
+3.5 to 4.5 ms, a 39x39 `cells` 0.7 ms and a `can_build` 10 to 15 us. That governor's heaviest
+pass, 540 turns on three seeds, is 48,000 operations plus 40 `act`s and 9 `observe`s, about
+160,000 in all. The budget is 1,000,000: six times that, so a governor twice its size still fits
+a pass, and a stuck loop stops in a second or two: 0.15 s for a bare loop of arithmetic, 2 s for
+one of `cells(0, 0, 39, 39)` (measured in the `ci` profile).
+
+`fn_agent play` and `test_governor` use the same budget as `run_script` (they run the same
+runner), and replaying a log runs no script at all: keys drive a replay, so no budget can change
+what one does. A harness that runs `fn_agent play` as a child (`cargo xtask agent-eval`) also
+kills a child that outlives a wall-clock limit, and reports that as an error, never as a score.
 
 ### The wake report
 

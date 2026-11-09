@@ -13,10 +13,15 @@ default_turns = 15
 # report check in.
 max_turns = 180
 
-# `Engine::set_max_operations`: a script loop with no `wait` runs away, and this many Rhai
-# operations stops it deterministically, before it burns CPU for nothing ("runaway",
-# docs/design/agent-scripting.md, "`run_script`").
-max_operations = 500000
+# The work a script may do between two `wait`s (#564): Rhai operations, plus a fixed cost for
+# each native call (`observe`/`act`/`keys` 2000, `cells`/`look` 20 + half the cells, the rest 40;
+# crates/agent/src/script/bindings.rs, `cost`). Past it the script stops deterministically
+# ("runaway", docs/design/agent-scripting.md, "`run_script`"), before it burns CPU for nothing.
+# Every `wait` starts the count again, so a loop that waits never reaches it. Sized from the
+# reference governor (crates/agent/tests/reference_governor.rs): one pass of it, between two
+# waits, peaks near 160k, so this is six times that; a stuck loop stops in a second or two
+# (0.15 s for a bare one).
+max_operations = 1000000
 
 # How many of the script's own `log`/`print`/`debug` lines a `run_script` result keeps, most
 # recent last.
