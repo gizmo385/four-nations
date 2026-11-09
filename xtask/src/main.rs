@@ -6,7 +6,8 @@
 //!                               `ci` profile (opt-level 1 for our own crates), as CI does;
 //!                               --no-goldens sets FN_GOLDEN=skip, so every golden comparison
 //!                               is a no-op that passes. `ci --fast` with no other flags is
-//!                               exactly what GitHub CI runs.
+//!                               exactly what GitHub CI runs. Tests run with cargo-nextest
+//!                               when it's installed (as on CI), else with `cargo test`.
 //!     cargo xtask bless         re-blesses every golden (fn_tui frames, fn_sim mapgen and
 //!                               embark text) with FN_BLESS=1, at the `ci` profile's
 //!                               opt-level 1. Runs only the test files that contain a golden
@@ -203,10 +204,43 @@ fn ci(fast: bool, no_goldens: bool) -> Result {
             .concat();
     cargo_env(&clippy, &env)?;
     clippy_wasm(&profile, &env)?;
-    let test: Vec<&str> = [&["test", "--workspace"][..], &profile].concat();
-    cargo_env(&test, &env)?;
+    cargo_env(&test_args(&["--workspace"], &profile)?, &env)?;
     println!("ci OK");
     Ok(())
+}
+
+/// The test command for `selection` (`--workspace`, or `-p CRATE ...`) at `profile`.
+///
+/// Uses `cargo nextest run` when cargo-nextest is installed: it runs every test binary's tests
+/// in one pool, where `cargo test` runs the binaries one after another, so a binary with one
+/// minute-long test no longer leaves the other cores idle. Settings are in `.config/nextest.toml`.
+/// Doc-tests are skipped, which loses nothing: the workspace has none. Without nextest it falls
+/// back to `cargo test`, except on CI ($CI set), where a missing nextest is an error so a broken
+/// install can't quietly slow the gate back down.
+fn test_args<'a>(selection: &[&'a str], profile: &[&'a str]) -> Result<Vec<&'a str>> {
+    if nextest_installed() {
+        // nextest's own `--profile` picks a nextest profile; the cargo one is `--cargo-profile`.
+        let cargo_profile: Vec<&str> =
+            profile.iter().map(|&a| if a == "--profile" { "--cargo-profile" } else { a }).collect();
+        return Ok([&["nextest", "run"][..], selection, &cargo_profile].concat());
+    }
+    if std::env::var_os("CI").is_some() {
+        return Err("cargo-nextest isn't installed; CI runs the tests with it \
+                    (`cargo install cargo-nextest --locked`)"
+            .to_owned());
+    }
+    println!(
+        "(cargo-nextest isn't installed, so tests run with `cargo test`, one binary at a time)"
+    );
+    Ok([&["test"][..], selection, profile].concat())
+}
+
+/// Whether `cargo nextest` runs.
+fn nextest_installed() -> bool {
+    Command::new(env!("CARGO"))
+        .args(["nextest", "--version"])
+        .output()
+        .is_ok_and(|o| o.status.success())
 }
 
 /// The crates the web replayer (#595) builds for the browser.
@@ -266,13 +300,12 @@ fn check(crates: &[String], fast: bool) -> Result {
         println!("check: no crates changed against main; skipping tests");
         return Ok(());
     }
-    let mut test: Vec<&str> = vec!["test"];
+    let mut selection: Vec<&str> = Vec::new();
     for c in &picked {
-        test.push("-p");
-        test.push(c);
+        selection.push("-p");
+        selection.push(c);
     }
-    test.extend(profile);
-    cargo_env(&test, &env)?;
+    cargo_env(&test_args(&selection, &profile)?, &env)?;
     println!("check OK ({})", picked.join(", "));
     Ok(())
 }

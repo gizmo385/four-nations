@@ -20,7 +20,9 @@ jobs:
   # fmt, clippy and tests for the whole workspace. The single required status check.
   ci:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # A normal run takes about 10 minutes since tests moved to nextest; 30 leaves room for a slow
+    # runner or a cold cache without letting a hung test burn an hour.
+    timeout-minutes: 30
     env:
       # Optimize our own crates (dependencies stay at opt-level 0 via profile.ci.package."*").
       # The long simulation tests run about 7x faster, cutting this job from ~10 to ~4 minutes,
@@ -39,4 +41,9 @@ jobs:
         with:
           # Only main writes the cache; PRs restore it. Keeps us within the private-repo quota.
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # `cargo xtask ci` runs the tests with nextest when it's installed (and requires it on CI):
+      # all test binaries share one pool instead of running one after another.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - run: cargo xtask ci
