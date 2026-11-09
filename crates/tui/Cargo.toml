@@ -15,9 +15,14 @@ path = "src/main.rs"
 [dependencies]
 fn_sim = { path = "../sim" }
 fn_ui = { path = "../ui" }
-ratatui = "0.30"
-crossterm = "0.29"
+ratatui = { version = "0.30", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
 unicode-width = "0.2"
+
+# The terminal back end. crossterm doesn't build for wasm32 (#594), so the web replayer's build
+# leaves it, and ratatui's crossterm back end, out; `keyev` stands in for its key types there.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ratatui = "0.30"
+crossterm = "0.29"

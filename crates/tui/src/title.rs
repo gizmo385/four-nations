@@ -8,7 +8,7 @@
 
 use std::path::Path;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use crate::keyev::{KeyCode, KeyEvent, KeyEventKind};
 use fn_sim::embark::SurveyMode;
 use fn_sim::{Defs, Nation, World};
 use ratatui::buffer::Buffer;
@@ -635,7 +635,7 @@ pub fn draw_exit_prompt(palette: &Palette, area: Rect, buf: &mut Buffer) {
 
 #[cfg(test)]
 mod tests {
-    use crossterm::event::{KeyEventState, KeyModifiers};
+    use crate::keyev::{KeyEventState, KeyModifiers};
     use fn_sim::Defs;
 
     use super::*;

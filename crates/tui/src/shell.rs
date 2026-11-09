@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use crate::keyev::{KeyCode, KeyEvent, KeyEventKind};
 use fn_sim::embark::Survey;
 use fn_sim::{Defs, Nation};
 use fn_ui::Session;

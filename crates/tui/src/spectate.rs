@@ -13,7 +13,7 @@
 //! `App`'s own tests stay the only ones that can break if its behaviour changes, while this
 //! module's own tests are the only ones that can break if the spectator's does.
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crate::keyev::{KeyCode, KeyEvent};
 use fn_ui::Session;
 
 use crate::input::{self, Action};
@@ -237,7 +237,7 @@ fn build_modal_key(ui: &mut UiState, session: &Session, key: KeyEvent) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use crate::keyev::{KeyCode, KeyEvent, KeyModifiers};
     use fn_sim::Nation;
     use fn_sim::Pos;
     use fn_ui::Session;

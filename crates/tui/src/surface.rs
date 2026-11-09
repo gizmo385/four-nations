@@ -36,7 +36,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crate::keyev::{KeyCode, KeyEvent, KeyModifiers};
 use fn_sim::score::ScoreStart;
 use fn_sim::world::TICKS_PER_SECOND;
 use fn_sim::{Nation, Pos};

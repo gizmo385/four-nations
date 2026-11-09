@@ -33,6 +33,8 @@ jobs:
         with:
           toolchain: "1.98"
           components: rustfmt, clippy
+          # The web replayer's crates are linted for wasm32 too (`cargo xtask ci`, #594).
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
           # Only main writes the cache; PRs restore it. Keeps us within the private-repo quota.

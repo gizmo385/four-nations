@@ -36,7 +36,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crate::keyev::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
@@ -53,6 +53,7 @@ pub const PLAYTEST_CELL: &str = "playtest";
 /// A run that is still growing is scored again no sooner than this after its last scoring.
 pub const RESCORE_LIVE: Duration = Duration::from_secs(30);
 
+#[cfg(not(target_arch = "wasm32"))]
 /// How often the interactive loop rescans the runs folder.
 const REFRESH_EVERY: Duration = Duration::from_secs(1);
 
@@ -1584,6 +1585,7 @@ pub fn frame(cli: &Cli, now: SystemTime, depth: ColorDepth) -> String {
     if cli.ansi { crate::frame::to_ansi(&buf) } else { crate::frame::to_text(&buf) }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// `--runs DIR` in a terminal: the browser, until `q`. Enter opens the selected run in the
 /// watcher on the same terminal.
 pub fn run(cli: &Cli, depth: ColorDepth) -> std::io::Result<()> {

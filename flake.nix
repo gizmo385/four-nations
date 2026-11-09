@@ -41,6 +41,8 @@
         let
           rust = pkgs.rust-bin.stable.${rustVersion}.default.override {
             extensions = [ "rust-src" "rust-analyzer" "clippy" "rustfmt" ];
+            # `cargo xtask ci` lints the web replayer's crates for wasm32 (#594).
+            targets = [ "wasm32-unknown-unknown" ];
           };
         in
         {

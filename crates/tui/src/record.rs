@@ -11,17 +11,9 @@
 //! Turning it into a GIF or video is the user's step (`agg OUT.cast OUT.gif`, or
 //! `asciinema play OUT.cast`); nothing here shells out.
 
-use std::cell::RefCell;
-use std::io::{self, Write};
-use std::path::Path;
-use std::rc::Rc;
-
-use ratatui::backend::CrosstermBackend;
-use ratatui::layout::Rect;
-use ratatui::{Terminal, TerminalOptions, Viewport};
-
-use crate::color::{ColorDepth, Palette};
-use crate::watch::{self, Watcher};
+use crate::color::ColorDepth;
+#[cfg(not(target_arch = "wasm32"))]
+pub use render::{record_file, record_text};
 
 /// `--size` when `--record` doesn't give one: a studio-sized terminal
 /// (`data/tui.toml`'s `[studio]` threshold fits it).
@@ -42,101 +34,123 @@ pub struct Options {
     pub depth: ColorDepth,
 }
 
-/// An in-memory terminal output that [`record_text`] can read back while the `Terminal` still
-/// owns the backend.
-#[derive(Clone, Default)]
-struct Sink(Rc<RefCell<Vec<u8>>>);
+/// The recording itself, which drives ratatui's crossterm back end into a buffer; crossterm
+/// doesn't build for wasm32 (#594), so the web build has the options above and no recorder.
+#[cfg(not(target_arch = "wasm32"))]
+mod render {
+    use std::cell::RefCell;
+    use std::io::{self, Write};
+    use std::path::Path;
+    use std::rc::Rc;
 
-impl Write for Sink {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.0.borrow_mut().extend_from_slice(buf);
-        Ok(buf.len())
-    }
+    use ratatui::backend::CrosstermBackend;
+    use ratatui::layout::Rect;
+    use ratatui::{Terminal, TerminalOptions, Viewport};
 
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
+    use super::{MAX_FPS, Options};
+    use crate::color::Palette;
+    use crate::watch::{self, Watcher};
 
-/// Records the run log at `log` to `out`.
-pub fn record_file(log: &Path, out: &Path, options: &Options) -> Result<(), String> {
-    let text = std::fs::read_to_string(log)
-        .map_err(|e| format!("can't read the run log {}: {e}", log.display()))?;
-    let cast = record_text(&text, options)?;
-    std::fs::write(out, cast).map_err(|e| format!("can't write {}: {e}", out.display()))
-}
+    /// An in-memory terminal output that [`record_text`] can read back while the `Terminal` still
+    /// owns the backend.
+    #[derive(Clone, Default)]
+    struct Sink(Rc<RefCell<Vec<u8>>>);
 
-/// The asciicast v2 text for the run log `text`: a header line, then one event line per frame
-/// that changed anything. Stops once the log is fully replayed (its `end` line included, when it
-/// has one).
-pub fn record_text(text: &str, options: &Options) -> Result<String, String> {
-    let (width, height) = options.size;
-    let fps = options.fps.clamp(1, MAX_FPS);
-    let (header, events) = watch::parse(text)?;
-    let mut watcher = Watcher::new(&header)?;
-    if let Some(pace) = options.pace {
-        while watcher.pace() < pace {
-            watcher.faster();
+    impl Write for Sink {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.borrow_mut().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
         }
     }
-    watcher.feed(events);
-    watcher.resize(width, height);
-    watcher.set_frame_size(width, height);
-    let palette = Palette::new(watcher.defs(), watcher.nation(), options.depth, options.ascii);
 
-    // crossterm drops colour escapes when NO_COLOR is set; the palette already decides colour
-    // (`--color never`), so the environment must not change the file.
-    crossterm::style::force_color_output(true);
-    let sink = Sink::default();
-    let mut terminal = Terminal::with_options(
-        CrosstermBackend::new(sink.clone()),
-        TerminalOptions { viewport: Viewport::Fixed(Rect::new(0, 0, width, height)) },
-    )
-    .map_err(|e| e.to_string())?;
-
-    let header_line = serde_json::json!({
-        "version": 2,
-        "width": width,
-        "height": height,
-        "title": format!("The Four Nations: seed {} {}", header.seed, header.nation.as_str()),
-    });
-    let mut out = header_line.to_string();
-    out.push('\n');
-
-    // The first event clears the screen and hides the cursor, so the file plays the same in a
-    // terminal that wasn't blank.
-    let mut frame_bytes = b"\x1b[2J\x1b[H\x1b[?25l".to_vec();
-    let mut frame = 0u64;
-    loop {
-        terminal
-            .draw(|f| {
-                let buf = watcher.render(&palette, (width, height));
-                f.buffer_mut().clone_from(&buf);
-            })
-            .map_err(|e| e.to_string())?;
-        frame_bytes.append(&mut sink.0.borrow_mut());
-        if !frame_bytes.is_empty() {
-            push_event(&mut out, frame, fps, &frame_bytes);
-            frame_bytes.clear();
-        }
-        if watcher.caught_up() {
-            break;
-        }
-        watcher.advance(1.0 / f64::from(fps));
-        frame += 1;
+    /// Records the run log at `log` to `out`.
+    pub fn record_file(log: &Path, out: &Path, options: &Options) -> Result<(), String> {
+        let text = std::fs::read_to_string(log)
+            .map_err(|e| format!("can't read the run log {}: {e}", log.display()))?;
+        let cast = record_text(&text, options)?;
+        std::fs::write(out, cast).map_err(|e| format!("can't write {}: {e}", out.display()))
     }
-    Ok(out)
+
+    /// The asciicast v2 text for the run log `text`: a header line, then one event line per frame
+    /// that changed anything. Stops once the log is fully replayed (its `end` line included, when it
+    /// has one).
+    pub fn record_text(text: &str, options: &Options) -> Result<String, String> {
+        let (width, height) = options.size;
+        let fps = options.fps.clamp(1, MAX_FPS);
+        let (header, events) = watch::parse(text)?;
+        let mut watcher = Watcher::new(&header)?;
+        if let Some(pace) = options.pace {
+            while watcher.pace() < pace {
+                watcher.faster();
+            }
+        }
+        watcher.feed(events);
+        watcher.resize(width, height);
+        watcher.set_frame_size(width, height);
+        let palette = Palette::new(watcher.defs(), watcher.nation(), options.depth, options.ascii);
+
+        // crossterm drops colour escapes when NO_COLOR is set; the palette already decides colour
+        // (`--color never`), so the environment must not change the file.
+        crossterm::style::force_color_output(true);
+        let sink = Sink::default();
+        let mut terminal = Terminal::with_options(
+            CrosstermBackend::new(sink.clone()),
+            TerminalOptions { viewport: Viewport::Fixed(Rect::new(0, 0, width, height)) },
+        )
+        .map_err(|e| e.to_string())?;
+
+        let header_line = serde_json::json!({
+            "version": 2,
+            "width": width,
+            "height": height,
+            "title": format!("The Four Nations: seed {} {}", header.seed, header.nation.as_str()),
+        });
+        let mut out = header_line.to_string();
+        out.push('\n');
+
+        // The first event clears the screen and hides the cursor, so the file plays the same in a
+        // terminal that wasn't blank.
+        let mut frame_bytes = b"\x1b[2J\x1b[H\x1b[?25l".to_vec();
+        let mut frame = 0u64;
+        loop {
+            terminal
+                .draw(|f| {
+                    let buf = watcher.render(&palette, (width, height));
+                    f.buffer_mut().clone_from(&buf);
+                })
+                .map_err(|e| e.to_string())?;
+            frame_bytes.append(&mut sink.0.borrow_mut());
+            if !frame_bytes.is_empty() {
+                push_event(&mut out, frame, fps, &frame_bytes);
+                frame_bytes.clear();
+            }
+            if watcher.caught_up() {
+                break;
+            }
+            watcher.advance(1.0 / f64::from(fps));
+            frame += 1;
+        }
+        Ok(out)
+    }
+
+    /// One `[time, "o", data]` line. Time is integer microseconds formatted by hand, so no float
+    /// formatting is involved.
+    fn push_event(out: &mut String, frame: u64, fps: u32, bytes: &[u8]) {
+        let micros = frame * 1_000_000 / u64::from(fps);
+        let data = serde_json::Value::String(String::from_utf8_lossy(bytes).into_owned());
+        out.push_str(&format!(
+            "[{}.{:06}, \"o\", {data}]\n",
+            micros / 1_000_000,
+            micros % 1_000_000
+        ));
+    }
 }
 
-/// One `[time, "o", data]` line. Time is integer microseconds formatted by hand, so no float
-/// formatting is involved.
-fn push_event(out: &mut String, frame: u64, fps: u32, bytes: &[u8]) {
-    let micros = frame * 1_000_000 / u64::from(fps);
-    let data = serde_json::Value::String(String::from_utf8_lossy(bytes).into_owned());
-    out.push_str(&format!("[{}.{:06}, \"o\", {data}]\n", micros / 1_000_000, micros % 1_000_000));
-}
-
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use fn_sim::Nation;
 

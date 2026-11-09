@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use crate::keyev::{KeyCode, KeyEvent, KeyEventKind};
 use fn_sim::{Nation, World};
 use fn_ui::research::screen_view;
 use fn_ui::saves;

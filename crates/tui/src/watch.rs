@@ -19,7 +19,7 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crate::keyev::{KeyCode, KeyEvent, KeyModifiers};
 use fn_sim::world::TICKS_PER_SECOND;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -27,7 +27,7 @@ use ratatui::style::{Modifier, Style};
 
 use crate::app::App;
 use crate::cli::{self, Args};
-use crate::color::{ColorDepth, Palette};
+use crate::color::Palette;
 use crate::feed::Feed;
 use crate::frame::render_shell;
 use crate::glyphs::StudioDef;
@@ -178,6 +178,11 @@ fn parse_line(line: &str, number: usize, offset: u64) -> Result<LogLine, String>
 /// `--watch LOG --frame`, where the log is already finished (#319's acceptance criteria).
 pub fn read_file(path: &Path) -> Result<(RunLogHeader, Vec<LogLine>), String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    parse_finished(&text)
+}
+
+/// [`parse`] for a log that is already whole, so its last line counts even without a newline.
+fn parse_finished(text: &str) -> Result<(RunLogHeader, Vec<LogLine>), String> {
     // `parse` wants its text to end past the last complete line; a finished file's last
     // character already is one, but appending a newline costs nothing if it somehow isn't.
     parse(&format!("{text}\n"))
@@ -516,6 +521,16 @@ impl Watcher {
             playtest: header.playtest,
             skipped: Vec::new(),
         })
+    }
+
+    /// A watcher for a finished log's whole `text`, everything queued and nothing replayed yet
+    /// (#594): what the web replayer (#595) builds from a log it fetched, with no file to open.
+    /// Drive it with [`Self::advance`] and draw it with [`Self::render`]; neither reads a clock.
+    pub fn from_text(text: &str) -> Result<Self, String> {
+        let (header, lines) = parse_finished(text)?;
+        let mut watcher = Self::new(&header)?;
+        watcher.feed(lines);
+        Ok(watcher)
     }
 
     /// A line of the live log did not parse (#587): it is left out and the watch goes on, with a
@@ -1375,6 +1390,7 @@ fn draw_ghost(view: &fn_sim::Pos, ghost: Ghost, area: Rect, buf: &mut Buffer) {
 // The interactive loop
 // ------------------------------------------------------------------------------------------
 
+#[cfg(not(target_arch = "wasm32"))]
 /// `fn_tui --watch LOG` (docs/design/agent-play.md, "Watching"): opens `path`, waits for its
 /// header (retrying while the file doesn't exist yet, or is empty, so starting the watcher
 /// before the agent has written anything just waits), then replays it live in a real terminal.
@@ -1385,7 +1401,7 @@ fn draw_ghost(view: &fn_sim::Pos, ghost: Ghost, area: Rect, buf: &mut Buffer) {
 /// the game's. The other place besides `run::run` that reads the wall clock.
 pub fn run(
     path: &Path,
-    depth: ColorDepth,
+    depth: crate::color::ColorDepth,
     ascii: bool,
     initial_pace: Option<u32>,
 ) -> io::Result<()> {
@@ -1401,6 +1417,7 @@ pub fn run(
     Ok(())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// [`run`] on a terminal that is already set up (and that the caller restores): the run browser
 /// (#556, `crate::browser`) opens a run from its list this way, and gets the terminal back when
 /// the watcher quits. The result is the messages of the lines a live log had that did not parse
@@ -1409,7 +1426,7 @@ pub fn run(
 pub fn run_in(
     terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>,
     path: &Path,
-    depth: ColorDepth,
+    depth: crate::color::ColorDepth,
     ascii: bool,
     initial_pace: Option<u32>,
 ) -> io::Result<Vec<String>> {
@@ -1490,6 +1507,7 @@ pub fn run_in(
     Ok(watcher.skipped_lines().to_vec())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Feeds `lines` of a live log to `watcher`. A line that does not parse never ends the watch
 /// (#587): the log is being written by other processes, and one bad line in the middle of it is
 /// not worth losing the whole view for. It is skipped and counted ([`Watcher::skip_line`]).
@@ -1507,7 +1525,7 @@ fn feed_live(watcher: &mut Watcher, lines: impl IntoIterator<Item = TailLine>) {
 /// would otherwise do with the same key (#330's acceptance criteria). The interactive loop
 /// ([`run_in`]) and the run browser's headless frames both press keys through this.
 pub fn control_key(watcher: &mut Watcher, key: KeyEvent) -> bool {
-    use crossterm::event::KeyCode;
+    use crate::keyev::KeyCode;
 
     let mut quit = false;
     match key.code {
@@ -1532,6 +1550,7 @@ mod tests {
     use fn_sim::Nation;
 
     use super::*;
+    use crate::color::ColorDepth;
     use crate::surface::Host;
 
     fn header(nation: Nation) -> RunLogHeader {
@@ -1587,6 +1606,30 @@ mod tests {
         let (got_header, events) = parse(&text).unwrap();
         assert_eq!(got_header, h.header());
         assert!(events.is_empty());
+    }
+
+    /// `Watcher::from_text` replays a whole log driven only by explicit time steps (#594): the
+    /// web replayer's way in, with no file and no clock.
+    #[test]
+    fn from_text_replays_a_whole_log_on_explicit_time_steps() {
+        let mut h = Host::new(7, Nation::Earth, None, None, None, false).unwrap();
+        h.press_keys("h <right*3> <enter>", Some("harvest".into()), None).unwrap();
+        h.end_turn(1);
+        h.press_keys("<left>", None, None).unwrap();
+        h.end_turn(1);
+        let text = h.log().to_jsonl(&h.header());
+        let mut w = Watcher::from_text(text.trim_end()).unwrap();
+        let palette = Palette::new(w.defs(), w.nation(), ColorDepth::TrueColor, false);
+        for _ in 0..100_000 {
+            if w.caught_up() {
+                break;
+            }
+            w.advance(1.0 / 30.0);
+        }
+        assert!(w.caught_up(), "the replay never reached the end of the log");
+        assert_eq!(w.turn(), 2);
+        let buf = w.render(&palette, (120, 40));
+        assert_eq!((buf.area.width, buf.area.height), (120, 40));
     }
 
     #[test]
