@@ -108,8 +108,11 @@ options:
                  model, length, score, signs, deaths, cost and state; Enter opens the selected
                  run in the watcher, and q there returns to the list. Up/Down or j/k move,
                  s sorts by date or score, n filters by nation, q quits. Scores are replayed in
-                 the background and cached in each run folder. Takes --pace, --ascii and --color;
-                 with --frame, also --size and --keys (the keys drive the list, and Enter shows
+                 the background and cached in each run folder. A campaign is a row too: l or
+                 Right opens its attempts, and an attempt its clean evaluation runs, which
+                 Enter opens the same way (h or Left folds). Takes --pace, --ascii and --color;
+                 --focus PATH starts on a campaign, attempt, run or log under DIR; with
+                 --frame, also --size and --keys (the keys drive the list, and Enter shows
                  the run's watcher frame) -- run it by itself, no SEED NATION, --watch or other
                  options
 

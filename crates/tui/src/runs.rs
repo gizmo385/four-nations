@@ -25,6 +25,8 @@ use crate::surface::RunLogHeader;
 use crate::surface::referee::{self, score::MilestoneKind, score::ScoreDef};
 use crate::watch;
 
+pub mod campaign;
+
 /// The horizon the browser scores at: `fn_agent score`'s fixed horizon for a track
 /// (`horizon_turns` in data/tracks.toml; docs/design/agent-hillclimb.md, "Scoring").
 pub const SCORE_HORIZON: u32 = 540;
@@ -446,10 +448,14 @@ pub fn run_dirs(dir: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Date order, newest first: by the folder name's stamp, then by when the log was last written,
-/// and by name last so the order never wobbles.
+/// Date order, newest first (#585): by the date in the folder name, and by nothing a read or a
+/// cache write can change (a folder's own modification time moves when `score-cache.json` is
+/// written into it, which once put old runs above today's). A folder with no date in its name
+/// goes after the dated ones, newest log first (the log's time, not the folder's), and the name
+/// breaks every tie so the order never wobbles.
 pub fn newest_first(a: &RunInfo, b: &RunInfo) -> std::cmp::Ordering {
-    (&b.stamp, b.modified, &b.name).cmp(&(&a.stamp, a.modified, &a.name))
+    let undated = |i: &RunInfo| if i.stamp.is_none() { i.modified } else { None };
+    (&b.stamp, undated(b), &b.name).cmp(&(&a.stamp, undated(a), &a.name))
 }
 
 // -------------------------------------------------------------------------------------------
@@ -512,11 +518,25 @@ fn stamp_for(build: &str) -> String {
     format!("{h:016x}")
 }
 
+/// Where the score cache for `log` lives: [`CACHE_FILE`] beside a run's `run.jsonl`, and
+/// `NAME.score-cache.json` beside any other log (a campaign's clean evaluation logs, #585).
+fn cache_path(log: &Path) -> PathBuf {
+    if log.file_name().is_some_and(|n| n == "run.jsonl") {
+        log.with_file_name(CACHE_FILE)
+    } else {
+        log.with_extension("score-cache.json")
+    }
+}
+
 /// The cached scoring of `dir`'s log, if there is one made for a log of exactly `log_bytes`
 /// bytes under the current rules.
 pub fn cached_score(dir: &Path, log_bytes: u64) -> Option<Result<Scored, String>> {
-    let cache: Cache =
-        serde_json::from_str(&fs::read_to_string(dir.join(CACHE_FILE)).ok()?).ok()?;
+    cached_score_log(&dir.join("run.jsonl"), log_bytes)
+}
+
+/// [`cached_score`] for any log file, not only a run folder's `run.jsonl`.
+pub fn cached_score_log(log: &Path, log_bytes: u64) -> Option<Result<Scored, String>> {
+    let cache: Cache = serde_json::from_str(&fs::read_to_string(cache_path(log)).ok()?).ok()?;
     if cache.stamp != rules_stamp()
         || cache.log_bytes != log_bytes
         || cache.horizon != SCORE_HORIZON
@@ -534,10 +554,15 @@ pub fn cached_score(dir: &Path, log_bytes: u64) -> Option<Result<Scored, String>
 /// bytes of the log that were read, and the scoring of exactly those. Never writes to the log.
 /// A panic in the replay is an error, not a crash.
 pub fn compute_score(dir: &Path) -> (u64, Result<Scored, String>) {
-    let log = dir.join("run.jsonl");
-    let text = match fs::read(&log) {
+    compute_score_log(&dir.join("run.jsonl"))
+}
+
+/// [`compute_score`] for any log file.
+pub fn compute_score_log(log: &Path) -> (u64, Result<Scored, String>) {
+    let name = log.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    let text = match fs::read(log) {
         Ok(b) => String::from_utf8_lossy(&b).into_owned(),
-        Err(e) => return (0, Err(format!("can't read run.jsonl: {e}"))),
+        Err(e) => return (0, Err(format!("can't read {name}: {e}"))),
     };
     let bytes = text.len() as u64;
     let result = std::panic::catch_unwind(|| score_text(&text))
@@ -570,16 +595,21 @@ pub fn score_lines(
 /// and writes the cache (best effort: a folder that can't be written to just isn't cached).
 /// Returns the log length the answer is for.
 pub fn score_run(dir: &Path) -> (u64, Result<Scored, String>) {
-    let len = fs::metadata(dir.join("run.jsonl")).map_or(0, |m| m.len());
-    if let Some(hit) = cached_score(dir, len) {
+    score_log(&dir.join("run.jsonl"))
+}
+
+/// [`score_run`] for any log file.
+pub fn score_log(log: &Path) -> (u64, Result<Scored, String>) {
+    let len = fs::metadata(log).map_or(0, |m| m.len());
+    if let Some(hit) = cached_score_log(log, len) {
         return (len, hit);
     }
-    let (bytes, result) = compute_score(dir);
-    write_cache(dir, bytes, &result);
+    let (bytes, result) = compute_score_log(log);
+    write_cache(log, bytes, &result);
     (bytes, result)
 }
 
-fn write_cache(dir: &Path, log_bytes: u64, result: &Result<Scored, String>) {
+fn write_cache(log: &Path, log_bytes: u64, result: &Result<Scored, String>) {
     let cache = Cache {
         stamp: rules_stamp().to_owned(),
         log_bytes,
@@ -589,8 +619,9 @@ fn write_cache(dir: &Path, log_bytes: u64, result: &Result<Scored, String>) {
     };
     let Ok(text) = serde_json::to_string(&cache) else { return };
     // Written beside and renamed over, so a browser reading it never sees half of one.
-    let tmp = dir.join(format!("{CACHE_FILE}.tmp{}", std::process::id()));
-    if fs::write(&tmp, text).is_ok() && fs::rename(&tmp, dir.join(CACHE_FILE)).is_err() {
+    let path = cache_path(log);
+    let tmp = path.with_extension(format!("json.tmp{}", std::process::id()));
+    if fs::write(&tmp, text).is_ok() && fs::rename(&tmp, &path).is_err() {
         let _ = fs::remove_file(&tmp);
     }
 }

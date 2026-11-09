@@ -138,6 +138,7 @@ use serde::{Deserialize, Serialize};
 use crate::Result;
 
 mod campaign;
+mod listing;
 mod playtest;
 mod sandbox;
 mod versions;
@@ -663,15 +664,40 @@ fn make_run_dir(runs: &Path, o: &Opts) -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Every run folder under `runs`, newest first (by modification time).
+/// `YYYYMMDD-HHMMSS` at the front of a run folder's name (`timestamp()` writes it).
+fn folder_stamp(name: &str) -> Option<&str> {
+    let b = name.as_bytes();
+    let ok = b.len() >= 15
+        && b[..8].iter().all(u8::is_ascii_digit)
+        && b[8] == b'-'
+        && b[9..15].iter().all(u8::is_ascii_digit)
+        && (b.len() == 15 || b[15] == b'-');
+    ok.then(|| &name[..15])
+}
+
+/// Every run folder under `runs`, newest first by the date in its name (#585). Never by the
+/// folder's modification time: that moves whenever anything is written into the folder, such as
+/// the run browser's `score-cache.json`, and put old runs ahead of today's. A folder with no date
+/// in its name goes after the dated ones, newest log first, and the name settles every tie.
 fn run_dirs_newest(runs: &Path) -> Result<Vec<PathBuf>> {
     let entries = fs::read_dir(runs).map_err(|e| format!("no runs in {}: {e}", runs.display()))?;
-    let mut dirs: Vec<(std::time::SystemTime, PathBuf)> = entries
+    let key = |dir: &Path| {
+        let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let stamp = folder_stamp(&name).map(str::to_owned);
+        let log_time = if stamp.is_none() {
+            dir.join("run.jsonl").metadata().and_then(|m| m.modified()).ok()
+        } else {
+            None
+        };
+        (stamp, log_time, name)
+    };
+    let mut dirs: Vec<(_, PathBuf)> = entries
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir())
-        .filter_map(|e| e.metadata().ok().and_then(|m| m.modified().ok()).map(|t| (t, e.path())))
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .map(|p| (key(&p), p))
         .collect();
-    dirs.sort_by_key(|(t, _)| std::cmp::Reverse(*t));
+    dirs.sort_by(|a, b| b.0.cmp(&a.0));
     Ok(dirs.into_iter().map(|(_, p)| p).collect())
 }
 
@@ -780,15 +806,20 @@ With no RUN_DIR, in a terminal, it opens the run browser (below) so you can pick
 list. With a RUN_DIR it opens that run directly. With no terminal (output piped, or run from a
 script) or with --record, it takes the newest run, as it always did.
 
-RUN_DIR   a run folder (the one holding run.jsonl). A bare folder name with no path is looked
-          for under the runs folder. Default: the run browser in a terminal, else the newest
-          folder under $FN_AGENT_RUNS (else ~/fn-agent-runs); the folder opened is printed. A
-          folder with no log yet is a run just starting, so this waits (up to a minute) for the
-          log; a folder that doesn't exist fails at once.
+RUN_DIR   a run folder (the one holding run.jsonl), a campaign folder, or a .jsonl log such as
+          a campaign's clean run (attempt-1/eval/v5-6/seed-7.jsonl). A bare folder name with no
+          path is looked for under the runs folder. Default: the run browser in a terminal, else
+          the newest folder under $FN_AGENT_RUNS (else ~/fn-agent-runs), by the date in its
+          name; the folder opened is printed. A folder with no log yet is a run just starting,
+          so this waits (up to a minute) for the log; a folder that doesn't exist fails at once.
+          A campaign folder opens the run browser on that campaign, its attempts showing; with
+          no terminal (or --record) it watches the campaign's newest attempt that has a log.
 
 options:
-  --list           list the newest runs (folder, nation, seed or scenario, turns, score if the
-                   log has one) and exit; builds and opens nothing
+  --list           list the newest runs and campaigns, newest first by the date in the folder
+                   name (folder, nation, seed or scenario, turns, score if the log has one), each
+                   campaign followed by its attempts (clean mean, kept or not, live turns, cost,
+                   where the clean runs are), and exit; builds and opens nothing
   --no-build       don't build fn_tui first. Without it, a release fn_tui is built unless
                    target/release/fn_tui is newer than everything under crates/, data/ and
                    Cargo.lock
@@ -823,9 +854,21 @@ the run browser (`watch` with no RUN_DIR, in a terminal):
   The result is cached in score-cache.json in the run folder (the log is never written to);
   it is replayed again when the log has grown, and ignored after a change to the game's data.
   A live run's turn count moves while the browser is open.
+  A campaign (a hill-climb: `agent-run --track ID --attempts N`) is a row of its own, marked +
+  (folded) or - (open): its track, attempts kept of attempts made, best clean mean (CLEAN), cost
+  and state, which for a running one says what it is doing (`live: a3 evaluating`, or playing,
+  or testing). Opened, it shows its attempts oldest first: the live game's turns, cost and the
+  score it played to, the clean mean (CLEAN) and whether the attempt was kept (KEPT). Under an
+  attempt, once opened, are its clean evaluation runs of the chosen governor, one per seed,
+  with the seed's tier (screen, gate, owner, or train and held-out in older ledgers) and the
+  score the ledger recorded, or replayed in the background if it has none. An attempt with no
+  live turns says so and offers those instead. Both ledger layouts show; a missing file is `-`.
   up or k, down or j   move the selection; PageUp, PageDown, Home or g, End or G go further
-  enter          open the selected run in the watcher (its keys, below); q there returns here
-                 on the same run
+  enter          open the selected run, attempt (if it has live turns) or clean run in the
+                 watcher (its keys, below); q there returns here on the same row. On a campaign
+                 it opens or folds the row
+  right or l     open a campaign or attempt (when open already, go into it); left or h folds it,
+                 or goes up to the row it belongs to; space does one or the other
   s              switch the order between date (newest first) and score (highest first)
   n              show one nation's runs: each press goes on to the next nation, then to all
   q              quit
@@ -1026,9 +1069,12 @@ fn resolve_watch_dir(o: &WatchOpts, runs: &Path) -> Result<(PathBuf, bool)> {
             path.display()
         ));
     }
-    if !path.is_dir() {
+    // A log file opens as it is: `fn_tui --watch` reads any `.jsonl`, such as the clean
+    // evaluation logs of a campaign (`attempt-1/eval/v5-6/seed-7.jsonl`).
+    let is_log = path.is_file() && path.extension().is_some_and(|e| e == "jsonl");
+    if !path.is_dir() && !is_log {
         return Err(format!(
-            "{} isn't a directory; RUN_DIR is the folder holding run.jsonl",
+            "{} isn't a directory; RUN_DIR is the folder holding run.jsonl (or a .jsonl log)",
             path.display()
         ));
     }
@@ -1071,14 +1117,43 @@ fn wants_browser(o: &WatchOpts, terminal: bool) -> bool {
     terminal && o.dir.is_none() && o.record.is_none()
 }
 
-/// The `fn_tui` command line (after the program name) that opens the run browser on `runs`.
-fn fn_tui_runs_args(runs: &Path, o: &WatchOpts) -> Vec<String> {
+/// Whether `dir` is a campaign folder (#585): it has no `run.jsonl` of its own, and a
+/// `ledger.json` or `attempt-N` folders.
+fn is_campaign_dir(dir: &Path) -> bool {
+    dir.is_dir()
+        && !dir.join("run.jsonl").is_file()
+        && (dir.join("ledger.json").is_file() || !attempt_dirs(dir).is_empty())
+}
+
+/// A campaign's `attempt-K` folders, by K.
+fn attempt_dirs(campaign: &Path) -> Vec<(u32, PathBuf)> {
+    let mut v: Vec<(u32, PathBuf)> = fs::read_dir(campaign)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| {
+            let k = e.file_name().to_string_lossy().strip_prefix("attempt-")?.parse().ok()?;
+            Some((k, e.path()))
+        })
+        .collect();
+    v.sort();
+    v
+}
+
+/// The `fn_tui` command line (after the program name) that opens the run browser on `runs`, on
+/// `focus` (a campaign, say) if given.
+fn fn_tui_runs_args(runs: &Path, o: &WatchOpts, focus: Option<&Path>) -> Vec<String> {
     let mut args = vec![
         "--runs".to_string(),
         runs.display().to_string(),
         "--pace".to_string(),
         o.pace.to_string(),
     ];
+    if let Some(focus) = focus {
+        args.push("--focus".to_string());
+        args.push(focus.display().to_string());
+    }
     if o.ascii {
         args.push("--ascii".to_string());
     }
@@ -1112,10 +1187,46 @@ fn run_watch(repo: &Path, args: &[&str]) -> Result {
         }
         let bin = repo.join("target/release/fn_tui");
         let status = Command::new(bin)
-            .args(fn_tui_runs_args(&runs, &opts))
+            .args(fn_tui_runs_args(&runs, &opts, None))
             .status()
             .map_err(|e| e.to_string())?;
         return if status.success() { Ok(()) } else { Err(format!("fn_tui --runs: {status}")) };
+    }
+    // A campaign folder has no log of its own (#585): in a terminal the browser opens on it, with
+    // its attempts showing; otherwise its newest attempt with a log is watched, as the newest run
+    // would be.
+    let mut dir = dir;
+    if is_campaign_dir(&dir) && opts.record.is_none() {
+        if terminal {
+            let abs = fs::canonicalize(&dir).unwrap_or_else(|_| dir.clone());
+            let parent = abs.parent().map_or_else(|| runs.clone(), Path::to_path_buf);
+            say(&format!("{} is a campaign: opening the run browser on it", dir.display()));
+            if !opts.no_build {
+                build_fn_tui_if_stale(repo)?;
+            }
+            let bin = repo.join("target/release/fn_tui");
+            let status = Command::new(bin)
+                .args(fn_tui_runs_args(&parent, &opts, Some(&abs)))
+                .status()
+                .map_err(|e| e.to_string())?;
+            return if status.success() { Ok(()) } else { Err(format!("fn_tui --runs: {status}")) };
+        }
+        let newest = attempt_dirs(&dir)
+            .into_iter()
+            .rev()
+            .find(|(_, d)| d.join("run.jsonl").metadata().is_ok_and(|m| m.len() > 0));
+        let Some((k, attempt)) = newest else {
+            return Err(format!(
+                "{} is a campaign folder with no attempt log yet (its attempts are attempt-K \
+                 folders); run `watch` in a terminal to browse it",
+                dir.display()
+            ));
+        };
+        say(&format!(
+            "{} is a campaign: watching its newest attempt with a log (attempt {k})",
+            dir.display()
+        ));
+        dir = attempt;
     }
     say(&format!("watching {}{}", dir.display(), if latest { " (the latest run)" } else { "" }));
     if !opts.no_build {
@@ -1125,7 +1236,8 @@ fn run_watch(repo: &Path, args: &[&str]) -> Result {
 }
 
 fn watch_run(repo: &Path, dir: &Path, o: &WatchOpts) -> Result {
-    let log = dir.join("run.jsonl");
+    // A `.jsonl` named as the RUN_DIR is the log itself.
+    let log = if dir.is_file() { dir.to_path_buf() } else { dir.join("run.jsonl") };
     let has_log = || log.is_file() && log.metadata().map(|m| m.len() > 0).unwrap_or(false);
     if !has_log() {
         say(&format!(
@@ -1171,6 +1283,10 @@ struct RunRow {
     score: Option<f64>,
     /// The header says it was a playtest (#576): its score isn't shown beside the scored runs'.
     playtest: bool,
+    /// A campaign's row has no turns of its own (#585), and its attempts hang under it.
+    campaign: bool,
+    /// What a campaign or one of its attempts adds beyond the columns.
+    detail: Option<String>,
 }
 
 /// Reads `dir`'s `run.jsonl` for its header, turn count and last score. Parses only the three
@@ -1198,6 +1314,8 @@ fn run_row(dir: &Path) -> RunRow {
         turns: 0,
         score: None,
         playtest: false,
+        campaign: false,
+        detail: None,
     };
     let Ok(text) = fs::read_to_string(dir.join("run.jsonl")) else { return row };
     for line in text.lines() {
@@ -1225,9 +1343,19 @@ fn run_row(dir: &Path) -> RunRow {
     row
 }
 
-/// The newest `limit` runs under `runs`, newest first. A missing or empty folder is no rows.
+/// The newest `limit` runs and campaigns under `runs`, newest first, each campaign followed by
+/// its attempts (#585). A missing or empty folder is no rows.
 fn list_runs(runs: &Path, limit: usize) -> Vec<RunRow> {
-    run_dirs_newest(runs).unwrap_or_default().iter().take(limit).map(|d| run_row(d)).collect()
+    let now = SystemTime::now();
+    let mut rows = Vec::new();
+    for dir in run_dirs_newest(runs).unwrap_or_default().iter().take(limit) {
+        if is_campaign_dir(dir) {
+            rows.extend(listing::campaign_rows(dir, now));
+        } else {
+            rows.push(run_row(dir));
+        }
+    }
+    rows
 }
 
 fn format_run_list(runs: &Path, rows: &[RunRow]) -> String {
@@ -1240,25 +1368,43 @@ fn format_run_list(runs: &Path, rows: &[RunRow]) -> String {
     let name_w = width(|r| r.name.len(), "RUN");
     let nation_w = width(|r| r.nation.len(), "NATION");
     let start_w = width(|r| r.start.len(), "START");
-    let mut out = vec![format!(
-        "{:name_w$}  {:nation_w$}  {:start_w$}  {:>5}  SCORE",
-        "RUN", "NATION", "START", "TURNS"
-    )];
+    let details = rows.iter().any(|r| r.detail.is_some());
+    let line = |run: &str, nation: &str, start: &str, turns: &str, score: &str, detail: &str| {
+        let text = format!(
+            "{run:name_w$}  {nation:nation_w$}  {start:start_w$}  {turns:>5}  {score:>5}  {detail}"
+        );
+        text.trim_end().to_string()
+    };
+    let head_detail = if details { "DETAIL" } else { "" };
+    let mut out = vec![line("RUN", "NATION", "START", "TURNS", "SCORE", head_detail)];
     for r in rows {
         let score = if r.playtest {
             "playtest".to_string()
         } else {
             r.score.map_or("-".to_string(), |s| format!("{s:.1}"))
         };
-        out.push(format!(
-            "{:name_w$}  {:nation_w$}  {:start_w$}  {:>5}  {score}",
-            r.name, r.nation, r.start, r.turns
+        let turns = if r.campaign { "-".to_string() } else { r.turns.to_string() };
+        out.push(line(
+            &r.name,
+            &r.nation,
+            &r.start,
+            &turns,
+            &score,
+            r.detail.as_deref().unwrap_or(""),
         ));
     }
     out.push(format!(
-        "newest first, in {}; watch one with: cargo xtask agent-run watch NAME",
+        "newest first by the date in the name, in {}; watch one with: cargo xtask agent-run \
+         watch NAME",
         runs.display()
     ));
+    if details {
+        out.push(
+            "a campaign opens in the run browser (its attempts and their clean runs); a clean \
+             run opens with: cargo xtask agent-run watch PATH/seed-N.jsonl"
+                .to_string(),
+        );
+    }
     out.join("\n")
 }
 
@@ -3196,6 +3342,8 @@ mod tests {
                 turns: 3,
                 score: Some(55.5),
                 playtest,
+                campaign: false,
+                detail: None,
             };
             format_run_list(Path::new("/runs"), &[row])
         };
@@ -3578,6 +3726,171 @@ mod tests {
         assert!(lines[3].contains("water") && lines[3].contains("seed 7633"), "{text}");
         assert!(lines[3].ends_with("41.2") || lines[3].ends_with("41.3"), "{text}");
         assert!(text.contains("agent-run watch NAME"), "{text}");
+        fs::remove_dir_all(&runs).ok();
+    }
+
+    /// #585: the order is the date in the folder name. Writing into a folder (the run browser's
+    /// `score-cache.json`) moves its modification time, and once put old runs above today's.
+    #[test]
+    fn lists_and_the_latest_run_go_by_the_date_in_the_name_not_the_folders_mtime() {
+        let runs = tempdir();
+        // The oldest name has the newest folder time.
+        write_run(&runs, "20261104-000000-earth-7-normal", &[HEADER, TURN_1], 10);
+        write_run(&runs, "20261107-000000-earth-7-normal", &[HEADER, TURN_1], 500);
+        write_run(&runs, "20261108-000000-earth-7-normal", &[HEADER, TURN_1], 900);
+        let names = |runs: &Path| -> Vec<String> {
+            list_runs(runs, 20).into_iter().map(|r| r.name[..8].to_string()).collect()
+        };
+        assert_eq!(names(&runs), ["20261108", "20261107", "20261104"]);
+        assert!(latest_run_dir(&runs).unwrap().ends_with("20261108-000000-earth-7-normal"));
+
+        // A cache write into the oldest folder makes it the most recently modified, and changes
+        // nothing about the order.
+        fs::write(runs.join("20261104-000000-earth-7-normal/score-cache.json"), "{}").unwrap();
+        assert_eq!(names(&runs), ["20261108", "20261107", "20261104"]);
+
+        // A folder with no date in its name goes after the dated ones, newest log first.
+        write_run(&runs, "scratch-a", &[HEADER], 100);
+        write_run(&runs, "scratch-b", &[HEADER], 50);
+        let all: Vec<String> = list_runs(&runs, 20).into_iter().map(|r| r.name).collect();
+        assert_eq!(all[3..], ["scratch-b", "scratch-a"]);
+
+        assert_eq!(folder_stamp("20261108-142213-water-7633-normal"), Some("20261108-142213"));
+        assert_eq!(folder_stamp("20261108-142213"), Some("20261108-142213"));
+        assert_eq!(folder_stamp("20261108-1422"), None);
+        assert_eq!(folder_stamp("water-7633"), None);
+        fs::remove_dir_all(&runs).ok();
+    }
+
+    /// A campaign in the first ledger shape (train and held-out) and one in the seed-tier shape.
+    fn write_campaign(runs: &Path, name: &str, tiered: bool) -> PathBuf {
+        let dir = runs.join(name);
+        fs::create_dir_all(dir.join("attempt-1/eval/v3-2")).unwrap();
+        fs::create_dir_all(dir.join("attempt-2")).unwrap();
+        let (track, row) = if tiered {
+            (
+                r#"{"id":"water-3h","nation":"water","screen_seeds":[1],"gate_seeds":[2],"owner_seeds":[3]}"#,
+                r#"{"attempt":1,"governor_version":3,"played":210.5,"screen":[],"screen_mean":275.0,"gate_mean":250.0,"kept":true,"cost_usd":0.5}"#,
+            )
+        } else {
+            (
+                r#"{"id":"water-3h","nation":"water","train_seeds":[1],"holdout_seeds":[2]}"#,
+                r#"{"attempt":1,"governor_version":16,"played":355.3,"clean":[],"train_mean":102.3,"held_out":[],"kept":true,"cost_usd":0.5}"#,
+            )
+        };
+        fs::write(dir.join("ledger.json"), format!(r#"{{"track":{track},"rows":[{row}]}}"#))
+            .unwrap();
+        fs::write(dir.join("attempt-1/run.jsonl"), [HEADER, TURN_1, TURN_2, END].join("\n") + "\n")
+            .unwrap();
+        fs::write(
+            dir.join("attempt-1/eval/versions.json"),
+            r#"{"pairs":[{"version":2,"chosen":false},{"version":3,"chosen":true}]}"#,
+        )
+        .unwrap();
+        for seed in [1, 2] {
+            fs::write(dir.join(format!("attempt-1/eval/v3-2/seed-{seed}.jsonl")), "x").unwrap();
+        }
+        // The second attempt has no ledger row and no live turns.
+        fs::write(dir.join("attempt-2/run.jsonl"), HEADER.to_string() + "\n").unwrap();
+        fs::write(dir.join("attempt-2/cost.json"), r#"{"usd":0.25}"#).unwrap();
+        dir
+    }
+
+    #[test]
+    fn list_shows_campaigns_with_their_attempts_in_either_ledger_shape() {
+        let runs = tempdir();
+        write_campaign(&runs, "20261108-100000-campaign-water-3h", false);
+        write_campaign(&runs, "20261108-200000-campaign-water-3h", true);
+        write_run(&runs, "20261108-150000-water-7633-normal", &[HEADER, TURN_1], 100);
+        let rows = list_runs(&runs, 20);
+        let names: Vec<&str> = rows.iter().map(|r| r.name.trim()).collect();
+        assert_eq!(
+            names,
+            [
+                "20261108-200000-campaign-water-3h",
+                "attempt-1",
+                "attempt-2",
+                "20261108-150000-water-7633-normal",
+                "20261108-100000-campaign-water-3h",
+                "attempt-1",
+                "attempt-2",
+            ]
+        );
+        // The tiered campaign: best clean mean is the screen mean, and the attempts say what
+        // they did.
+        assert!(rows[0].campaign && rows[0].turns == 0 && rows[0].start == "water-3h");
+        assert_eq!(rows[0].score, Some(275.0));
+        let detail = rows[0].detail.as_deref().unwrap();
+        assert!(detail.contains("2 attempt(s), 1 kept") && detail.contains("$0.75"), "{detail}");
+        assert!(detail.contains("live: attempt 2 playing"), "just written, no row yet: {detail}");
+        assert_eq!((rows[1].turns, rows[1].score), (2, Some(275.0)));
+        let d1 = rows[1].detail.as_deref().unwrap();
+        assert!(d1.contains("kept") && d1.contains("played 210.5"), "{d1}");
+        assert!(d1.contains("2 clean run(s) in eval/v3-2"), "only the chosen pair: {d1}");
+        let d2 = rows[2].detail.as_deref().unwrap();
+        assert!(d2.contains("no ledger row yet") && d2.contains("no live turns"), "{d2}");
+        assert_eq!(rows[2].turns, 0);
+        // The first shape reads its train mean.
+        assert_eq!(rows[4].score, Some(102.3));
+        assert_eq!(rows[5].start, "v16");
+
+        let text = format_run_list(&runs, &rows);
+        assert!(text.lines().next().unwrap().ends_with("DETAIL"), "{text}");
+        let camp = text.lines().nth(1).unwrap();
+        assert!(camp.contains("water-3h") && camp.contains(" -  "), "no turns of its own: {camp}");
+        assert!(text.contains("  attempt-1"), "attempts are indented under it:\n{text}");
+        assert!(text.contains("watch PATH/seed-N.jsonl"), "{text}");
+        assert!(text.lines().all(|l| l == l.trim_end()), "no trailing spaces:\n{text}");
+        fs::remove_dir_all(&runs).ok();
+    }
+
+    #[test]
+    fn a_campaign_with_damaged_files_still_lists_with_dashes() {
+        let runs = tempdir();
+        let dir = runs.join("20261108-100000-campaign-water-3h");
+        fs::create_dir_all(dir.join("attempt-1")).unwrap();
+        fs::write(dir.join("ledger.json"), "{ nope").unwrap();
+        let rows = list_runs(&runs, 20);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            (rows[0].nation.as_str(), rows[0].start.as_str(), rows[0].score),
+            ("-", "-", None)
+        );
+        assert_eq!(
+            (rows[1].nation.as_str(), rows[1].start.as_str(), rows[1].score),
+            ("-", "-", None)
+        );
+        assert!(format_run_list(&runs, &rows).contains("attempt-1"));
+        fs::remove_dir_all(&runs).ok();
+    }
+
+    #[test]
+    fn watch_takes_a_campaign_folder_or_a_log_file() {
+        let runs = tempdir();
+        let with_dir =
+            |d: &Path| WatchOpts { dir: Some(d.display().to_string()), ..WatchOpts::live(20) };
+        let campaign = write_campaign(&runs, "20261108-100000-campaign-water-3h", true);
+        assert!(is_campaign_dir(&campaign));
+        assert!(!is_campaign_dir(&campaign.join("attempt-1")), "an attempt is a plain run");
+        let (dir, latest) = resolve_watch_dir(&with_dir(&campaign), &runs).unwrap();
+        assert_eq!((dir.as_path(), latest), (campaign.as_path(), false));
+        assert_eq!(attempt_dirs(&campaign).iter().map(|(k, _)| *k).collect::<Vec<_>>(), [1, 2]);
+
+        // A clean evaluation log opens as it is; some other file is still refused.
+        let log = campaign.join("attempt-1/eval/v3-2/seed-1.jsonl");
+        let (dir, _) = resolve_watch_dir(&with_dir(&log), &runs).unwrap();
+        assert_eq!(dir, log);
+        let args = fn_tui_args(&log, &watch_opts(&[]));
+        assert_eq!(args[..2], ["--watch", log.to_str().unwrap()]);
+        fs::write(runs.join("notes.txt"), "x").unwrap();
+        assert!(resolve_watch_dir(&with_dir(&runs.join("notes.txt")), &runs).is_err());
+
+        // The browser opens on the campaign.
+        let args = fn_tui_runs_args(&runs, &watch_opts(&[]), Some(&campaign));
+        assert_eq!(args[..2], ["--runs", runs.to_str().unwrap()]);
+        assert!(args.windows(2).any(|w| w[0] == "--focus" && w[1] == campaign.to_str().unwrap()));
+        assert!(!fn_tui_runs_args(&runs, &watch_opts(&[]), None).contains(&"--focus".to_string()));
+        assert!(WATCH_HELP.contains("campaign folder") && WATCH_HELP.contains("right or l"));
         fs::remove_dir_all(&runs).ok();
     }
 

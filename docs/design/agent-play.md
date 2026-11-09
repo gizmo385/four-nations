@@ -326,6 +326,21 @@ watcher above, and quitting the watcher comes back to the same row. The score is
 folder (never in `run.jsonl`), so the list opens at once and the cells fill in. `fn_tui --runs
 DIR --frame --keys SCRIPT` draws it headless, which is how the tests drive it.
 
+**Campaigns in the browser (#585).** A hill-climb campaign folder is a row of its own, and `l`
+or Right opens the attempts under it (`crates/tui/src/runs/campaign.rs` reads the folder). An
+attempt's row has its live game (turns, cost, the score it played to) and its clean evaluation
+(mean, kept or not); Enter on one with live turns opens it in the watcher. Under an attempt,
+opened, are the clean runs of its chosen governor, one per seed with the seed's tier, and Enter
+opens one as it would a run: `fn_tui --watch` reads any log file, so `watch PATH/seed-N.jsonl`
+works too. An attempt with no live turns (its calls went to `test_governor`, which writes no
+log) says so and offers its clean runs. A running campaign shows which attempt is under way and
+whether it is playing, testing or evaluating, read from the folder (`stop.json` and the clean
+logs mean evaluating; a last `test_governor` call in `run.jsonl` means testing). Both ledger
+shapes read: the first one's `clean`/`train_mean`/`held_out` and the seed tiers'
+`screen`/`gate`/`owner` with the gate verdict. Lists sort on the date in the folder name, never
+on the folder's modification time, which a cache write changes. `watch CAMPAIGN_DIR` opens the
+browser on that campaign (`--focus`), and `watch --list` prints campaigns with their attempts.
+
 ## Racing
 
 **`data/races.toml`**, read by `fn_agent` (the sim never reads it, as with `tui.toml`):
