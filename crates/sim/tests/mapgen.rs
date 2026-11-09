@@ -2,6 +2,8 @@
 //!
 //! Golden files live in `tests/golden/`. If you changed generation *on purpose*, regenerate them
 //! with `FN_BLESS=1 cargo test -p fn_sim` and review the diff before committing.
+// Test code, not the sim: it reads and blesses golden files. The lint in clippy.toml is for the library (AGENTS.md rule 4).
+#![allow(clippy::disallowed_methods)]
 
 use std::collections::VecDeque;
 

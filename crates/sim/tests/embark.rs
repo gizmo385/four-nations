@@ -2,6 +2,8 @@
 //!
 //! If you changed the report on purpose, regenerate with `FN_BLESS=1 cargo test -p fn_sim` and
 //! review the diff.
+// Test code, not the sim: it reads and blesses golden files. The lint in clippy.toml is for the library (AGENTS.md rule 4).
+#![allow(clippy::disallowed_methods)]
 
 use fn_sim::embark::{LandKind, Level, Survey, SurveyMode};
 use fn_sim::{Defs, Pos};

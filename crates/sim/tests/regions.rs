@@ -4,6 +4,8 @@
 //! correctness and print timings. Measure with:
 //!
 //!     cargo test --release -p fn_sim --test regions -- --nocapture
+// Test code, not the sim: it times queries against the perf budget. The lint in clippy.toml is for the library (AGENTS.md rule 4).
+#![allow(clippy::disallowed_types, clippy::disallowed_methods)]
 
 use std::hint::black_box;
 use std::time::{Duration, Instant};

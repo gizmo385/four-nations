@@ -1,0 +1,28 @@
+# AGENTS.md rule 4: the sim does no I/O, reads no clock and uses no OS or thread RNG.
+# Clippy reads this file only for fn_sim (it looks in the package directory), so the other crates
+# are unaffected. Integration tests under tests/ are separate crates of this package and read it
+# too; those that legitimately touch files or the environment carry a targeted
+# `#![allow(clippy::disallowed_methods)]`. Randomness: `fn_sim::rng::stream`.
+# Thread and OS RNG: the workspace `rand` has default features off, so `rand::rng()`, `ThreadRng`
+# and `SysRng` do not exist and do not compile today. The type entries (allow-invalid: the paths are
+# unreachable) keep guarding it if a feature is ever switched on.
+
+disallowed-types = [
+    { path = "std::time::Instant", reason = "the sim reads no clock (AGENTS.md rule 4)" },
+    { path = "std::time::SystemTime", reason = "the sim reads no clock (AGENTS.md rule 4)" },
+    { path = "std::fs::File", reason = "the sim does no file I/O (AGENTS.md rule 4)" },
+    { path = "rand::rngs::ThreadRng", reason = "use fn_sim::rng::stream (AGENTS.md rule 4)", allow-invalid = true },
+    { path = "rand::rngs::SysRng", reason = "use fn_sim::rng::stream (AGENTS.md rule 4)", allow-invalid = true },
+]
+
+disallowed-methods = [
+    { path = "std::fs::read", reason = "the sim does no file I/O (AGENTS.md rule 4)" },
+    { path = "std::fs::read_to_string", reason = "the sim does no file I/O (AGENTS.md rule 4)" },
+    { path = "std::fs::write", reason = "the sim does no file I/O (AGENTS.md rule 4)" },
+    { path = "std::fs::read_dir", reason = "the sim does no file I/O (AGENTS.md rule 4)" },
+    { path = "std::fs::create_dir_all", reason = "the sim does no file I/O (AGENTS.md rule 4)" },
+    { path = "std::fs::remove_file", reason = "the sim does no file I/O (AGENTS.md rule 4)" },
+    { path = "std::env::var", reason = "the sim reads no environment (AGENTS.md rule 4)" },
+    { path = "std::env::var_os", reason = "the sim reads no environment (AGENTS.md rule 4)" },
+    { path = "std::env::vars", reason = "the sim reads no environment (AGENTS.md rule 4)" },
+    ]
