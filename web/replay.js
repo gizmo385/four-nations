@@ -321,7 +321,8 @@ function showMessage(msg, error = false) {
   el.classList.toggle('error', error);
 }
 
-// The run index (runs/index.json, published by #596): a list of
+// The run index (runs/index.json): `cargo xtask web LOG...` writes one for local use; the
+// published site has none, since runs are opened from disk there. A list of
 // { path, name, nation, seed, build, turns, score? }.
 async function loadIndex() {
   let runs;
@@ -341,6 +342,7 @@ async function loadIndex() {
     select.add(new Option(`${run.name}${bits ? ` (${bits})` : ''}`, run.path));
   }
   select.disabled = false;
+  $('pick').hidden = false;
   select.onchange = () => {
     if (!select.value) return;
     const params = new URLSearchParams(location.search);

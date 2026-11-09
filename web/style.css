@@ -28,6 +28,7 @@ select, button, .file {
 }
 button:hover, .file:hover, select:hover { border-color: var(--accent); }
 .file input { display: none; }
+[hidden] { display: none !important; }
 .pick select { max-width: 60vw; }
 main { flex: 1; position: relative; min-height: 0; overflow: auto; display: grid; place-items: center; }
 main.drop { outline: 2px dashed var(--accent); outline-offset: -8px; }

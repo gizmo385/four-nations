@@ -361,7 +361,15 @@ under a second. A log made against other data is refused with the build it was m
 `cargo xtask web` builds the page and the wasm into `target/replayer/`; `--serve` serves it on
 localhost, and each `LOG` argument is copied in and listed in the page's run picker
 (`runs/index.json`). A page link takes `?run=PATH` (a `.jsonl` or `.jsonl.gz`); a file can
-also be opened or dropped on it. #596 publishes the page and runs to GitHub Pages.
+also be opened or dropped on it.
+
+**The hosted replayer (#596).** `.github/workflows/pages.yml` builds `main`'s replayer on every
+push and deploys it to GitHub Pages (`https://gizmo385.github.io/four-nations/`; public, as the
+owner chose). The site holds no runs: a viewer opens a run's `run.jsonl` (or `.jsonl.gz`) from
+their own disk, or drops it on the page, and it is replayed in their browser and never
+uploaded. A log replays only against the game data it was made with, so the hosted page plays
+logs made on recent builds of `main`; an older one is refused with the build it came from, and
+`cargo xtask web --serve` from a checkout of that build plays it.
 
 ## Racing
 
