@@ -16,7 +16,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 
 use crate::color::Palette;
-use crate::widgets::{Marks, Painter, Row, Tone};
+use crate::widgets::{Marks, Painter, Row, Tone, window_start};
 
 /// The narrowest a column of cards can be. A terminal too narrow for every column scrolls
 /// sideways with the cursor.
@@ -52,12 +52,6 @@ impl Grid {
         let cards = ((grid_height + 1) / CARD_STRIDE).max(1);
         Self { columns, column_width, cards }
     }
-}
-
-/// The first column or card that shows so that `at` does: the grid starts at the top and slides
-/// only once the cursor passes its far edge.
-fn window_start(at: usize, shown: usize) -> usize {
-    (at + 1).saturating_sub(shown)
 }
 
 /// The card under the cursor, if the view has any.

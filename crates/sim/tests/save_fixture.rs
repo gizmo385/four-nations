@@ -21,6 +21,8 @@
 //! a regenerated file would be written in the new format and would no longer prove anything about
 //! old saves. If only the game data changed (so `data_hash` no longer matches), edit the hash in
 //! the file's first line instead; see `the_fixture_matches_the_current_data`.
+// Test code, not the sim: it reads and regenerates its fixture. The lint in clippy.toml is for the library (AGENTS.md rule 4).
+#![allow(clippy::disallowed_methods)]
 
 use std::path::PathBuf;
 

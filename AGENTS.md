@@ -34,7 +34,9 @@ gets in your way, stop and say so in the work item's Notes instead of working ar
    tests for every crate.
 4. **The sim stays pure.** `fn_sim` must not depend on Bevy or any engine. It does no file or
    network I/O (data is embedded or passed in), reads no wall-clock time, and uses no
-   thread or OS RNG. All randomness comes from `fn_sim::rng::stream(seed, "subsystem.name")`
+   thread or OS RNG; clippy enforces this in `fn_sim` (`crates/sim/clippy.toml` bans
+   `std::time::Instant`/`SystemTime`, `std::fs`, `std::env::var` and thread/OS RNG types).
+   All randomness comes from `fn_sim::rng::stream(seed, "subsystem.name")`
    with a new stream name per subsystem.
 5. **Determinism is tested.** New sim behavior needs a test. If you change map generation on
    purpose, re-bless the golden files (`FN_BLESS=1 cargo test -p fn_sim`) and say so in the

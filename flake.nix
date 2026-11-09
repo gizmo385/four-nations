@@ -4,8 +4,8 @@
   #   nix develop                    # interactive shell
   #   nix develop -c cargo xtask ci  # one command
   #
-  # CI does not use this (it installs Rust with dtolnay/rust-toolchain). Keep `rustVersion` in sync
-  # with .github/workflows/ci.yml so local clippy matches CI.
+  # The Rust version, components and targets come from rust-toolchain.toml, the one source that CI
+  # (`rustup toolchain install`) and plain rustup also read. Change the pin there, not here.
   description = "The Four Nations dev shell";
 
   inputs = {
@@ -21,7 +21,6 @@
   outputs =
     { nixpkgs, rust-overlay, ... }:
     let
-      rustVersion = "1.98.1";
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems =
         f:
@@ -39,10 +38,9 @@
       devShells = forAllSystems (
         pkgs:
         let
-          rust = pkgs.rust-bin.stable.${rustVersion}.default.override {
-            extensions = [ "rust-src" "rust-analyzer" "clippy" "rustfmt" ];
-            # `cargo xtask ci` lints the web replayer's crates for wasm32 (#594).
-            targets = [ "wasm32-unknown-unknown" ];
+          # Extra tools for editing only; everything the gate needs is in the toolchain file.
+          rust = (pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml).override {
+            extensions = [ "rust-src" "rust-analyzer" ];
           };
         in
         {

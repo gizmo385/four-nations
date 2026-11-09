@@ -16,7 +16,7 @@ use ratatui::style::{Modifier, Style};
 
 use crate::color::Palette;
 use crate::modal;
-use crate::widgets::{Marks, Painter, Row, Tone, wrap};
+use crate::widgets::{Marks, Painter, Row, Tone, window_start, wrap};
 
 /// The modal's height: enough rows for a dozen buildings and the detail's wrapped effects. Its
 /// width follows the list ([`list_width`]) plus [`DETAIL_WIDTH`].
@@ -54,12 +54,6 @@ pub fn jump_to_letter(rows: &[PickerRow], at: usize, c: char) -> usize {
     // past a match the cursor is already on to the next one (two buildings can share a letter:
     // Bed and Bison Stable).
     (1..=rows.len()).map(|step| (at + step) % rows.len()).find(|&i| starts(&rows[i])).unwrap_or(at)
-}
-
-/// The first row that shows so that `at` does: the list starts at the top and slides only once
-/// the cursor passes its far edge.
-fn window_start(at: usize, shown: usize) -> usize {
-    (at + 1).saturating_sub(shown)
 }
 
 /// The list column's width: its widest row, pointer, name, gap and cost (or "Locked") together,

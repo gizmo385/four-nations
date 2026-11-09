@@ -255,6 +255,12 @@ pub fn heading_row(title: &str, value: &str, width: usize, marks: &Marks, title_
     Row::spans(left)
 }
 
+/// The first row that shows so that `at` does: a list starts at the top and slides only once the
+/// cursor passes its far edge (the build picker, the roster, the research grid, the saves list).
+pub fn window_start(at: usize, shown: usize) -> usize {
+    (at + 1).saturating_sub(shown)
+}
+
 /// `text` broken at spaces into lines of at most `width` cells (a word longer than a line is
 /// cut), and at most `max_lines` of them: if there is more, the last line ends in `ellipsis`.
 pub fn wrap(text: &str, width: usize, max_lines: usize, ellipsis: char) -> Vec<String> {
@@ -478,6 +484,24 @@ mod tests {
         for line in lines("designate harvest (chop, mine, gather); O: standing order", 28, 3) {
             assert!(line.chars().count() <= 28, "{line}");
         }
+    }
+
+    /// The browser's and the feed's callers pass `usize::MAX` for no limit (their old copies
+    /// had none); a zero width is theirs to raise to one.
+    #[test]
+    fn wrap_without_a_line_limit_keeps_every_line_for_the_browser_and_the_feed() {
+        let all = |t: &str, w| wrap(t, w, usize::MAX, ' ');
+        assert_eq!(all("aaa bbb ccc", 7), ["aaa bbb", "ccc"]);
+        assert_eq!(all("aaaaaaaaaa b", 4), ["aaaa", "aaaa", "aa b"]);
+        assert_eq!(all("x", 1), ["x"]);
+        assert!(all("", 10).is_empty());
+        assert_eq!(all("a bb ccc dddd", 1), ["a", "b", "b", "c", "c", "c", "d", "d", "d", "d"]);
+    }
+
+    #[test]
+    fn window_start_slides_only_once_the_cursor_passes_the_far_edge() {
+        assert_eq!((0..3).map(|at| window_start(at, 3)).collect::<Vec<_>>(), [0, 0, 0]);
+        assert_eq!((3..5).map(|at| window_start(at, 3)).collect::<Vec<_>>(), [1, 2]);
     }
 
     /// `heading_row`'s shape matches docs/design/side-panel.md "Headings" exactly, with and

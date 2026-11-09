@@ -77,6 +77,16 @@ pub use work::{DesignateError, FoodSource, IdleReason, Task};
 /// Ticks per in-game second. Movement and needs are expressed per tick.
 pub const TICKS_PER_SECOND: u32 = 10;
 
+/// Ticks in `minutes` in-game minutes, rounded to the nearest tick (zero for zero minutes).
+pub fn minutes_to_ticks(minutes: f32) -> u64 {
+    (minutes * 60.0 * TICKS_PER_SECOND as f32).round() as u64
+}
+
+/// `minutes_to_ticks`, but at least 1: for a duration that must not collapse to "already over".
+pub fn minutes_to_ticks_min1(minutes: f32) -> u64 {
+    minutes_to_ticks(minutes).max(1)
+}
+
 /// Ticks a baseline (move_speed 1.0) unit waits between steps.
 const BASE_TICKS_PER_STEP: f32 = 6.0;
 

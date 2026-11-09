@@ -165,7 +165,7 @@ fn chart_standing_reads_progress_and_closes_with_nothing_left() {
     assert_eq!(w.chart_standing(anchor, &defs), Some(ChartStanding::Charting { percent: 0 }));
 
     let def = defs.building(defs.building_id("map_room").unwrap());
-    let target = minutes_to_ticks(def.chart.as_ref().unwrap().minutes) as f32;
+    let target = minutes_to_ticks_min1(def.chart.as_ref().unwrap().minutes) as f32;
     w.charts.insert(anchor, target * 0.4);
     assert_eq!(w.chart_standing(anchor, &defs), Some(ChartStanding::Charting { percent: 40 }));
     w.charts.insert(anchor, target);

@@ -88,6 +88,7 @@
 //!     [--horizon-minutes 180]
 //! ```
 
+use crate::config;
 use fn_sim::balance::{
     EconomyConfig, EconomyReport, PEOPLE, RunConfig, RunReport, run, run_economy,
     run_economy_scored,
@@ -364,21 +365,10 @@ fn value(args: &[String], i: &mut usize) -> String {
     args.get(*i).cloned().unwrap_or_else(|| usage_error(&format!("{flag} needs a value")))
 }
 
+/// The `--seeds` flag's value, or a usage error: `config::parse_seeds`, which returns `None` where
+/// this exits.
 fn parse_seeds(s: &str) -> Vec<u64> {
-    s.split(',')
-        .flat_map(|part| match part.split_once('-') {
-            Some((a, b)) => {
-                let a: u64 = a.parse().unwrap_or_else(|_| usage_error("--seeds must be numbers"));
-                let b: u64 = b.parse().unwrap_or_else(|_| usage_error("--seeds must be numbers"));
-                a..=b
-            }
-            None => {
-                let n: u64 =
-                    part.parse().unwrap_or_else(|_| usage_error("--seeds must be numbers"));
-                n..=n
-            }
-        })
-        .collect()
+    config::parse_seeds(s).unwrap_or_else(|| usage_error("--seeds must be numbers"))
 }
 
 fn nation_from_id(id: &str) -> Nation {
