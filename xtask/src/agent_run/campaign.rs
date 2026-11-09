@@ -1331,8 +1331,13 @@ mod tests {
 
     fn all_prompt_paths() -> Vec<(&'static str, String)> {
         let l = ledger();
-        let c =
-            Champion { attempt: 1, train_mean: 202.5, governor_version: Some(9), plan_revision: 6 };
+        let c = Champion {
+            attempt: 1,
+            train_mean: 202.5,
+            governor_version: Some(9),
+            plan_revision: 6,
+            build: None,
+        };
         vec![
             ("attempt 1", first_attempt_prompt(540, 30)),
             ("later attempt", attempt_prompt(&l, 2, &c, "card\n", 540, 30)),
