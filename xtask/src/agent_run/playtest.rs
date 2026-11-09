@@ -176,6 +176,12 @@ fn say_line(text: &str) -> String {
 /// waits until the log exists and ends on a line break, and is held in memory until then. Every
 /// write is one `write_all` of whole lines to a file opened for append, which the kernel places
 /// at the end whatever else is appending.
+///
+/// That only holds if `fn_agent` appends too (#587): it used to write through a plain
+/// `File::create` handle, at its own offset, so it overwrote the remarks appended behind its back
+/// (25 of a session's 26 were lost) and left a watcher's read position inside a longer line.
+/// `Writer::create` now reopens the log in append mode, and writes each line with one `write_all`,
+/// so the two processes' lines interleave whole.
 struct Sink {
     log: PathBuf,
     pending: Vec<String>,
@@ -224,7 +230,15 @@ impl Sink {
     /// The chunk is over: one last try. Whatever still can't be written (the session never
     /// called a tool, so there is no log) is returned, to be reported rather than lost quietly.
     fn finish(mut self) -> Vec<String> {
-        self.flush();
+        // `fn_agent serve` may still be writing its last lines as the session ends (an `end`
+        // line after stdin closes): a few short tries let a remark wait out a line in progress
+        // rather than be reported as lost, and it still lands in order with what is there.
+        for _ in 0..20 {
+            if self.flush() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
         self.pending
     }
 }
@@ -584,7 +598,60 @@ mod tests {
         let two = one.replace("msg_1", "msg_2");
         r.line(&two);
         assert_eq!(r.remarks, 2);
-        assert_eq!(fs::read_to_string(&log).unwrap().matches("\"say\"").count(), 2);
+        // One block per event under one message id (#587): different text under the same id is
+        // not a repeat.
+        r.line(&assistant(serde_json::json!([{"type": "text", "text": "other"}])));
+        assert_eq!(r.remarks, 3);
+        assert_eq!(fs::read_to_string(&log).unwrap().matches("\"say\"").count(), 3);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A real stream (#587), cut down to the fields read here: `claude -p --output-format
+    /// stream-json --verbose` sends one content block per `assistant` event (each event with its
+    /// own message id here), `thinking` and `tool_use` blocks between the text. Every text block
+    /// becomes one `say` line, in order, and the result event is the last thing seen. Blocks
+    /// sharing an id are `a_repeated_block_is_one_remark_and_a_later_one_is_another`'s.
+    #[test]
+    fn every_text_block_of_a_real_stream_is_one_say_line_in_order() {
+        const STREAM: &str = include_str!("playtest_stream.jsonl");
+        let dir = tmp("real_stream");
+        let log = dir.join("run.jsonl");
+        fs::write(&log, "{\"type\":\"header\"}\n").unwrap();
+        let mut r = Reader::new(&log);
+        let mut want = Vec::new();
+        for line in STREAM.lines() {
+            for e in parse_event(line) {
+                if let Event::Said { text, .. } = e {
+                    want.push(text);
+                }
+            }
+            r.line(line);
+            // What `fn_agent` adds as the model works: calls between the remarks.
+            if line.contains("tool_use") {
+                let mut f = OpenOptions::new().append(true).open(&log).unwrap();
+                f.write_all(b"{\"type\":\"call\",\"tool\":\"x\",\"summary\":\"\"}\n").unwrap();
+            }
+        }
+        assert!(want.len() >= 10, "the fixture has the real session's remarks: {}", want.len());
+        assert_eq!(r.remarks, want.len());
+        assert!(r.result.as_deref().is_some_and(|r| r.contains("total_cost_usd")));
+        let said: Vec<String> = fs::read_to_string(&log)
+            .unwrap()
+            .lines()
+            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+            .filter(|v| v["type"] == "say")
+            .map(|v| v["text"].as_str().unwrap().to_owned())
+            .collect();
+        // The long closing report is cut to the logged length; the rest are verbatim.
+        let want: Vec<String> = want
+            .iter()
+            .map(|t| {
+                let v: serde_json::Value = serde_json::from_str(say_line(t).trim()).unwrap();
+                v["text"].as_str().unwrap().to_owned()
+            })
+            .collect();
+        assert_eq!(said, want);
+        assert!(r.sink.finish().is_empty());
         let _ = fs::remove_dir_all(&dir);
     }
 

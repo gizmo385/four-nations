@@ -40,8 +40,13 @@ impl<W: Write> Writer<W> {
     }
 
     fn write_json(&mut self, value: &impl Serialize) -> io::Result<()> {
-        let text = serde_json::to_string(value).expect("a run log line always serializes");
-        writeln!(self.out, "{text}")?;
+        let mut text = serde_json::to_string(value).expect("a run log line always serializes");
+        text.push('\n');
+        // One `write_all` of the whole line, newline included (#587). A `writeln!` of a line
+        // longer than the `BufWriter`'s buffer goes out as two writes (the text, then the
+        // newline), and a second process appending a `say` line (`xtask agent-run --playtest`)
+        // could land between them.
+        self.out.write_all(text.as_bytes())?;
         self.out.flush()
     }
 
@@ -53,8 +58,15 @@ impl<W: Write> Writer<W> {
 
 impl Writer<BufWriter<File>> {
     /// Creates (or truncates) `path` and wraps it for buffered, line-at-a-time writes.
+    ///
+    /// The file is then reopened in append mode (#587), so every line goes to the file's current
+    /// end. A log is written by two processes during a playtest (`fn_agent` and the `say` lines
+    /// `xtask agent-run` appends), and a plain `File::create` handle writes at its own offset:
+    /// the other process's lines were overwritten, and a watcher that had already read them was
+    /// left holding an offset in the middle of a longer line.
     pub fn create(path: &Path) -> io::Result<Self> {
-        Ok(Self::new(BufWriter::new(File::create(path)?)))
+        drop(File::create(path)?);
+        Self::append(path)
     }
 
     /// Opens `path` for appending, writing nothing new to it. A run log is append-only (#511):

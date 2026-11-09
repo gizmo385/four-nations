@@ -116,23 +116,62 @@ enum StripMode {
 /// line after it one more [`LogLine`]. A trailing line with no newline after it (a live log
 /// caught mid-write) is dropped rather than failing the whole parse, so a grower's latest,
 /// not-yet-flushed line just isn't there yet.
+///
+/// A bad line fails the whole parse, naming its line number and byte offset (#587): this is what
+/// `--frame` and the replay tools read, a finished log, where a bad line is a real problem to
+/// report and scoring must not quietly read around it. The live watcher ([`run_in`]) is the one
+/// reader that skips a bad line and says so.
 pub fn parse(text: &str) -> Result<(RunLogHeader, Vec<LogLine>), String> {
     let complete = match text.rfind('\n') {
         Some(i) => &text[..i],
         None => return Err("empty run log".to_owned()),
     };
-    let mut lines = complete.lines().filter(|l| !l.trim().is_empty());
-    let first = lines.next().ok_or("empty run log")?;
-    let header = match parse_line(first)? {
+    let mut offset = 0u64;
+    let mut lines = complete.split('\n').enumerate().filter_map(|(i, raw)| {
+        let at = (i + 1, offset);
+        offset += raw.len() as u64 + 1;
+        let line = raw.trim_end_matches('\r');
+        (!line.trim().is_empty()).then_some((at, line))
+    });
+    let ((number, offset), first) = lines.next().ok_or("empty run log")?;
+    let header = match parse_line(first, number, offset)? {
         LogLine::Header(h) => h,
         other => return Err(format!("the run log's first line must be a header, got {other:?}")),
     };
-    let events = lines.map(parse_line).collect::<Result<Vec<_>, _>>()?;
+    let events = lines
+        .map(|((number, offset), line)| parse_line(line, number, offset))
+        .collect::<Result<Vec<_>, _>>()?;
     Ok((header, events))
 }
 
-fn parse_line(line: &str) -> Result<LogLine, String> {
-    serde_json::from_str(line).map_err(|e| format!("{line:?}: {e}"))
+/// How much of a bad line [`parse_line`]'s error quotes: the start and the end, since a torn
+/// line is cut at an arbitrary place and a very long one would push the rest of the message off
+/// the screen.
+const QUOTE_HEAD: usize = 60;
+const QUOTE_TAIL: usize = 30;
+
+/// `line` quoted whole when short, else its head and tail with the length between.
+fn quote(line: &str) -> String {
+    let chars: Vec<char> = line.chars().collect();
+    if chars.len() <= QUOTE_HEAD + QUOTE_TAIL + 20 {
+        return format!("{line:?}");
+    }
+    let head: String = chars[..QUOTE_HEAD].iter().collect();
+    let tail: String = chars[chars.len() - QUOTE_TAIL..].iter().collect();
+    format!("{head:?} ... [{} more characters] ... {tail:?}", chars.len() - QUOTE_HEAD - QUOTE_TAIL)
+}
+
+/// One log line as a [`LogLine`]. The error leads with where the line is (`number`, 1-based, and
+/// the byte `offset` its first character is at) and what serde said, then a shortened quote of
+/// the line (#587).
+fn parse_line(line: &str, number: usize, offset: u64) -> Result<LogLine, String> {
+    serde_json::from_str(line).map_err(|e| {
+        format!(
+            "bad run log line {number} (byte {offset}): {e}; the line ({} bytes) is {}",
+            line.len(),
+            quote(line)
+        )
+    })
 }
 
 /// Reads whatever of `path` is on disk right now, parsed the same way [`parse`] does: for
@@ -172,20 +211,33 @@ pub fn to_keys_script(header: &RunLogHeader, lines: &[LogLine]) -> String {
     tokens.join(" ")
 }
 
+/// One whole line a [`LogTail`] returned, with where it was in the file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TailLine {
+    /// 1-based, counting every line the tail has returned.
+    pub number: usize,
+    /// The byte offset in the file of the line's first character.
+    pub offset: u64,
+    pub text: String,
+}
+
 /// Tails a growing run log file: every call to [`Self::poll`] returns whatever whole lines have
 /// landed since the last one, leaving a not-yet-newline-terminated tail buffered for next time
 /// (docs/design/agent-play.md, "Watching": "If the log is still growing, it follows it live").
 pub struct LogTail {
     file: File,
-    buf: String,
+    /// Bytes read that don't yet end in a newline.
+    buf: Vec<u8>,
     /// How many bytes of the file this tail has read so far (#511), to notice the file being
     /// replaced by a shorter one underneath it.
     offset: u64,
+    /// How many lines have been returned.
+    lines: usize,
 }
 
 impl LogTail {
     pub fn open(path: &Path) -> io::Result<Self> {
-        Ok(Self { file: File::open(path)?, buf: String::new(), offset: 0 })
+        Ok(Self { file: File::open(path)?, buf: Vec::new(), offset: 0, lines: 0 })
     }
 
     /// The whole lines that have landed since the last call (empty if none have). A run log is
@@ -193,6 +245,13 @@ impl LogTail {
     /// rewritten underneath the tail and reading on from the old offset would start mid-line, so
     /// this fails with an error saying so instead.
     pub fn poll(&mut self) -> io::Result<Vec<String>> {
+        Ok(self.poll_lines()?.into_iter().map(|l| l.text).collect())
+    }
+
+    /// [`Self::poll`] with each line's number and byte offset (#587), for an error that says
+    /// where a bad line is. A line that isn't valid UTF-8 comes through with replacement
+    /// characters, so it fails to parse as one bad line instead of ending the watch.
+    pub fn poll_lines(&mut self) -> io::Result<Vec<TailLine>> {
         let len = self.file.metadata()?.len();
         if len < self.offset {
             return Err(io::Error::new(
@@ -204,15 +263,24 @@ impl LogTail {
                 ),
             ));
         }
-        let mut chunk = String::new();
-        self.file.read_to_string(&mut chunk)?;
-        self.offset += chunk.len() as u64;
-        self.buf.push_str(&chunk);
+        let before = self.buf.len();
+        let read = self.file.read_to_end(&mut self.buf)?;
+        let mut start = self.offset - before as u64;
+        self.offset += read as u64;
         let mut lines = Vec::new();
-        while let Some(i) = self.buf.find('\n') {
-            lines.push(self.buf[..i].to_owned());
-            self.buf.drain(..=i);
+        let mut from = 0;
+        while let Some(i) = self.buf[from..].iter().position(|&b| b == b'\n') {
+            let raw = &self.buf[from..from + i];
+            self.lines += 1;
+            lines.push(TailLine {
+                number: self.lines,
+                offset: start,
+                text: String::from_utf8_lossy(raw).into_owned(),
+            });
+            start += i as u64 + 1;
+            from += i + 1;
         }
+        self.buf.drain(..from);
         Ok(lines)
     }
 }
@@ -342,6 +410,9 @@ pub struct Watcher {
     /// The log's header says this run is a playtest (#576): the strip says so right after the
     /// nation.
     playtest: bool,
+    /// Lines of a live log that did not parse and were skipped (#587), as their error messages,
+    /// oldest first. The strip says how many; [`run`] prints them when the watch ends.
+    skipped: Vec<String>,
 }
 
 /// What the agent strip shows for a script run in progress or just woken, between the clock and
@@ -443,7 +514,19 @@ impl Watcher {
             frame_size: cli::DEFAULT_SIZE,
             small_notice_left: 0.0,
             playtest: header.playtest,
+            skipped: Vec::new(),
         })
+    }
+
+    /// A line of the live log did not parse (#587): it is left out and the watch goes on, with a
+    /// mark on the strip so it is never silent. `message` is [`parse_line`]'s error.
+    pub fn skip_line(&mut self, message: String) {
+        self.skipped.push(message);
+    }
+
+    /// The error messages of every line [`Self::skip_line`] was given.
+    pub fn skipped_lines(&self) -> &[String] {
+        &self.skipped
     }
 
     /// Queues more of the log to replay, oldest first. The code pane scans every `Script` line
@@ -1209,6 +1292,12 @@ impl Watcher {
         let action = if drop_action { String::new() } else { action };
         let view = if self.follow { "FOLLOW" } else { "FREE" };
         let playtest = if self.playtest { "  PLAYTEST" } else { "" };
+        let skipped = match self.skipped.len() {
+            0 => String::new(),
+            1 => "  1 BAD LOG LINE SKIPPED".to_owned(),
+            n => format!("  {n} BAD LOG LINES SKIPPED"),
+        };
+        let playtest = format!("{playtest}{skipped}");
         format!(
             " AGENT {}{playtest}  {view}  turn {}  {clock}  {script}{action}  x{}",
             self.nation_label,
@@ -1300,21 +1389,30 @@ pub fn run(
     ascii: bool,
     initial_pace: Option<u32>,
 ) -> io::Result<()> {
-    let _restore = crate::run::Restore;
-    let mut terminal = crate::run::setup()?;
-    run_in(&mut terminal, path, depth, ascii, initial_pace)
+    let skipped = {
+        let _restore = crate::run::Restore;
+        let mut terminal = crate::run::setup()?;
+        run_in(&mut terminal, path, depth, ascii, initial_pace)?
+    };
+    // The terminal is back to normal: say what the watch read around, so it stays on screen.
+    for message in &skipped {
+        eprintln!("skipped: {message}");
+    }
+    Ok(())
 }
 
 /// [`run`] on a terminal that is already set up (and that the caller restores): the run browser
 /// (#556, `crate::browser`) opens a run from its list this way, and gets the terminal back when
-/// the watcher quits.
+/// the watcher quits. The result is the messages of the lines a live log had that did not parse
+/// (#587): they are skipped, shown on the strip as they happen, and handed back here so the caller
+/// can print them once the screen is its own again.
 pub fn run_in(
     terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>,
     path: &Path,
     depth: ColorDepth,
     ascii: bool,
     initial_pace: Option<u32>,
-) -> io::Result<()> {
+) -> io::Result<Vec<String>> {
     use std::time::{Duration, Instant};
 
     use crossterm::event::{Event, KeyEventKind};
@@ -1330,13 +1428,13 @@ pub fn run_in(
         }
     };
     let mut watcher = loop {
-        let lines = tail.poll()?;
+        let lines = tail.poll_lines()?;
         let mut lines = lines.into_iter();
         let Some(first) = lines.next() else {
             std::thread::sleep(RETRY);
             continue;
         };
-        let header = match parse_line(&first) {
+        let header = match parse_line(&first.text, first.number, first.offset) {
             Ok(LogLine::Header(h)) => h,
             Ok(other) => {
                 let message = format!("the run log's first line must be a header, got {other:?}");
@@ -1351,11 +1449,7 @@ pub fn run_in(
                 watcher.faster();
             }
         }
-        for line in lines {
-            let event =
-                parse_line(&line).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-            watcher.feed([event]);
-        }
+        feed_live(&mut watcher, lines);
         break watcher;
     };
 
@@ -1366,11 +1460,7 @@ pub fn run_in(
     let mut last_tick = Instant::now();
     let mut quit = false;
     while !quit {
-        for line in tail.poll()? {
-            let event =
-                parse_line(&line).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-            watcher.feed([event]);
-        }
+        feed_live(&mut watcher, tail.poll_lines()?);
 
         terminal.draw(|f| {
             let area = f.area();
@@ -1397,7 +1487,19 @@ pub fn run_in(
         watcher.advance(now.duration_since(last_tick).as_secs_f64());
         last_tick = now;
     }
-    Ok(())
+    Ok(watcher.skipped_lines().to_vec())
+}
+
+/// Feeds `lines` of a live log to `watcher`. A line that does not parse never ends the watch
+/// (#587): the log is being written by other processes, and one bad line in the middle of it is
+/// not worth losing the whole view for. It is skipped and counted ([`Watcher::skip_line`]).
+fn feed_live(watcher: &mut Watcher, lines: impl IntoIterator<Item = TailLine>) {
+    for line in lines {
+        match parse_line(&line.text, line.number, line.offset) {
+            Ok(event) => watcher.feed([event]),
+            Err(message) => watcher.skip_line(message),
+        }
+    }
 }
 
 /// One key pressed in the watcher, in the order it matters; `true` is quit. The watcher's own
@@ -1521,6 +1623,67 @@ mod tests {
         let err = tail.poll().unwrap_err();
         assert!(err.to_string().contains("rewritten"), "{err}");
         std::fs::remove_file(&path).ok();
+    }
+
+    /// `poll_lines` says where each line is, and a line that is not UTF-8 is one bad line instead
+    /// of an error that ends the tail (#587).
+    #[test]
+    fn log_tail_numbers_lines_and_survives_bytes_that_are_not_utf8() {
+        let path = std::env::temp_dir()
+            .join(format!("fn_tui_watch_numbers_test_{}.jsonl", std::process::id()));
+        std::fs::write(&path, b"ab\ncd\xff\nefg").unwrap();
+        let mut tail = LogTail::open(&path).unwrap();
+        let lines = tail.poll_lines().unwrap();
+        let at: Vec<_> = lines.iter().map(|l| (l.number, l.offset)).collect();
+        assert_eq!(at, vec![(1, 0), (2, 3)]);
+        assert!(lines[1].text.starts_with("cd"), "{:?}", lines[1]);
+        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        std::io::Write::write_all(&mut f, b"h\nij\n").unwrap();
+        let lines = tail.poll_lines().unwrap();
+        let at: Vec<_> = lines.iter().map(|l| (l.number, l.offset, l.text.as_str())).collect();
+        assert_eq!(at, vec![(3, 7, "efgh"), (4, 12, "ij")]);
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// A bad line's error leads with where it is and what serde said, and quotes only its head
+    /// and tail, so the part that matters is not cut off on one screen (#587).
+    #[test]
+    fn a_bad_line_error_names_its_place_and_the_cause_before_a_short_quote() {
+        let torn =
+            format!("{{\"building\":\"Campfire\",\"count\":1}},{}", "{\"b\":1},".repeat(400));
+        let err = parse_line(&torn, 1234, 98765).unwrap_err();
+        assert!(err.starts_with("bad run log line 1234 (byte 98765): "), "{err}");
+        assert!(err.chars().count() < 400, "{} chars: {err}", err.chars().count());
+        assert!(err.contains("more characters") && err.contains("Campfire"), "{err}");
+    }
+
+    /// `parse` (a finished log: `--frame`, replay) still fails on a bad line, saying which one.
+    #[test]
+    fn parse_still_fails_hard_on_a_bad_line_and_names_it() {
+        let h = serde_json::to_string(&LogLine::Header(header(Nation::Earth))).unwrap();
+        let text = format!("{h}\n{{\"type\":\"turn\",\"index\":1,\"tick\":2}}\n\"junk\n");
+        let err = parse(&text).unwrap_err();
+        let offset = h.len() + 1 + "{\"type\":\"turn\",\"index\":1,\"tick\":2}\n".len();
+        assert!(err.starts_with(&format!("bad run log line 3 (byte {offset}):")), "{err}");
+    }
+
+    /// A bad line in a live log is skipped, the lines around it still reach the watcher, and the
+    /// strip says it happened (#587).
+    #[test]
+    fn a_bad_live_line_is_skipped_and_the_strip_says_so() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        let good = |i| TailLine {
+            number: i,
+            offset: 0,
+            text: format!("{{\"type\":\"turn\",\"index\":{i},\"tick\":{}}}", i * 200),
+        };
+        let bad = TailLine { number: 3, offset: 77, text: "{\"building\":\"Campfire\"},".into() };
+        feed_live(&mut w, [good(1), bad, good(2)]);
+        w.fast_forward_to_turn(2);
+        assert_eq!(w.turn(), 2, "the lines after the bad one still arrived");
+        assert_eq!(w.skipped_lines().len(), 1);
+        assert!(w.skipped_lines()[0].contains("line 3 (byte 77)"), "{:?}", w.skipped_lines());
+        assert!(w.strip_text(false).contains("1 BAD LOG LINE SKIPPED"), "{}", w.strip_text(false));
     }
 
     fn end_line(reason: &str) -> LogLine {

@@ -1037,10 +1037,18 @@ pub fn run(cli: &Cli, depth: ColorDepth) -> std::io::Result<()> {
                 Event::Key(key) if key.kind != KeyEventKind::Release => {
                     if let Outcome::Open(dir) = browser.key(key) {
                         let log = dir.join("run.jsonl");
-                        if let Err(e) =
-                            watch::run_in(&mut terminal, &log, depth, cli.ascii, cli.pace)
-                        {
-                            browser.set_notice(format!("can't watch {}: {e}", dir.display()));
+                        match watch::run_in(&mut terminal, &log, depth, cli.ascii, cli.pace) {
+                            Err(e) => {
+                                browser.set_notice(format!("can't watch {}: {e}", dir.display()))
+                            }
+                            // #587: the watch went on past lines that did not parse; say so.
+                            Ok(skipped) if !skipped.is_empty() => browser.set_notice(format!(
+                                "{} bad log line(s) skipped in {}; first: {}",
+                                skipped.len(),
+                                dir.display(),
+                                skipped[0]
+                            )),
+                            Ok(_) => {}
                         }
                         // The watcher drew over the whole screen; draw the list from scratch.
                         terminal.clear()?;
