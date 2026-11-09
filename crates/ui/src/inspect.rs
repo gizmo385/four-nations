@@ -2,7 +2,7 @@
 //! then).
 
 use fn_sim::building::BuildingId;
-use fn_sim::world::{PlotStage, Unit};
+use fn_sim::world::{ChartStanding, PlotStage, Unit};
 use fn_sim::{Defs, Pos, World};
 
 use crate::build;
@@ -252,6 +252,14 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
         {
             let filled = world.occupants(at).count();
             lines.push(Line::Detail(format!("Study: {filled}/{seats} seats filled")));
+        }
+        // A Map Room says how far through its next chart it is, or that its seat has closed for
+        // want of anything left to chart (#403).
+        if let Some(standing) = world.chart_standing(at, defs) {
+            lines.push(Line::Detail(match standing {
+                ChartStanding::Charting { percent } => format!("Charting: {percent}%"),
+                ChartStanding::NothingLeft => "Nothing left to chart".to_owned(),
+            }));
         }
         // A power source names its reach and how many buildings it's powering; a consumer names
         // which source powers it, and at what boost, or "Unpowered" (issue #429).
@@ -659,6 +667,65 @@ mod tests {
             lines.contains(&Line::Detail(format!("Study: 1/{seats} seats filled"))),
             "{lines:?}"
         );
+    }
+
+    /// A Map Room's tooltip says how far through its next chart it is while a lost ruin is
+    /// still buried within its range, and `Nothing left to chart` once its seat has closed, or
+    /// when the only ruin lies out of range (#403, docs/design/cartography.md).
+    #[test]
+    fn a_map_room_says_how_far_it_has_charted_and_when_nothing_is_left() {
+        use fn_sim::building::Building;
+        use fn_sim::defs::BiomeId;
+        use fn_sim::geom::Footprint;
+        use fn_sim::{Grid, Terrain, Tile};
+
+        let defs = Defs::bundled();
+        let room = defs.building_id("map_room").unwrap();
+        let ruins = defs.resource_id("lost_ruins").unwrap();
+        let def = defs.building(room);
+        let (size, passable) = (def.footprint, def.passable);
+        let range = def.chart.as_ref().unwrap().range as i32;
+        let at = Pos::new(2, 2);
+        // A strip of plain land: the room at the west end, a ruin `range` tiles east of its
+        // anchor (the edge of reach), and a second one placed per case.
+        let width = range + 20;
+        let map = Grid::from_fn(width, 6, |_| Tile {
+            elevation: 100,
+            temperature: 128,
+            moisture: 128,
+            terrain: Terrain::Land,
+            biome: BiomeId(0),
+            resource: None,
+            building: None,
+        });
+        let mut world = World::with_map(1, map, Nation::Earth, &[Pos::new(0, 0)], &defs);
+        let foot = Footprint::new(at, size.0, size.1);
+        for p in foot.tiles() {
+            let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
+            let b =
+                Building { part, size: [size.0, size.1], ..Building::new(room, passable, false) };
+            world.map.get_mut(p).unwrap().building = Some(b);
+        }
+        let mut s =
+            Session { world, defs, clock: crate::clock::Clock::default(), bend_choice: None };
+        let lines = |s: &Session| tooltip_lines(s, Tool::Select, at).unwrap();
+        let charting = |pct: u32| Line::Detail(format!("Charting: {pct}%"));
+        let nothing = Line::Detail("Nothing left to chart".to_owned());
+
+        // Nothing buried at all: the seat is closed.
+        assert!(lines(&s).contains(&nothing), "{:?}", lines(&s));
+
+        // A ruin out of range doesn't open it.
+        s.world.map.get_mut(Pos::new(at.x + range + 1, 4)).unwrap().resource = Some(ruins);
+        s.world.bury(&s.defs);
+        assert!(lines(&s).contains(&nothing), "{:?}", lines(&s));
+
+        // One within range does, at 0% before anyone has charted.
+        s.world.map.get_mut(Pos::new(at.x + range, 4)).unwrap().resource = Some(ruins);
+        s.world.bury(&s.defs);
+        let l = lines(&s);
+        assert!(l.contains(&charting(0)), "{l:?}");
+        assert!(!l.contains(&nothing), "{l:?}");
     }
 
     /// A consumer names the source that actually powers it and the boost, or "Unpowered" out of

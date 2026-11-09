@@ -155,6 +155,31 @@ fn a_settler_charting_adds_progress_at_the_study_modifier_and_it_survives_a_meal
 }
 
 #[test]
+fn chart_standing_reads_progress_and_closes_with_nothing_left() {
+    use super::ChartStanding;
+    let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(1, 2)]);
+    let anchor = at(2, 2);
+    assert_eq!(w.chart_standing(anchor, &defs), None, "no Map Room yet");
+    w.buried.insert(at(8, 8), ruins(&defs));
+    place_map_room(&mut w, &defs, anchor);
+    assert_eq!(w.chart_standing(anchor, &defs), Some(ChartStanding::Charting { percent: 0 }));
+
+    let def = defs.building(defs.building_id("map_room").unwrap());
+    let target = minutes_to_ticks(def.chart.as_ref().unwrap().minutes) as f32;
+    w.charts.insert(anchor, target * 0.4);
+    assert_eq!(w.chart_standing(anchor, &defs), Some(ChartStanding::Charting { percent: 40 }));
+    w.charts.insert(anchor, target);
+    assert_eq!(
+        w.chart_standing(anchor, &defs),
+        Some(ChartStanding::Charting { percent: 99 }),
+        "a full chart is found at once, never shown as done"
+    );
+
+    w.buried.clear();
+    assert_eq!(w.chart_standing(anchor, &defs), Some(ChartStanding::NothingLeft));
+}
+
+#[test]
 fn the_study_modifier_scales_how_fast_a_settler_charts() {
     // No Map Room yet, so there is nothing to pull the lone unit away from idling while
     // meditation (no prereqs, raises Air's `study` to 1.2) is learned on the passive trickle
@@ -222,6 +247,35 @@ fn a_ruin_under_something_else_is_skipped() {
         "the blocked ruin is skipped"
     );
     assert_eq!(w.map[blocked].resource, None, "left buried");
+}
+
+#[test]
+fn a_finished_chart_is_remembered_across_a_save_without_its_room_or_its_ruins() {
+    let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(1, 1)]);
+    place_map_room(&mut w, &defs, at(1, 3));
+    let only = at(7, 7);
+    w.buried.insert(only, ruins(&defs));
+    assert!(!w.has_charted());
+    assert!(!w.charted_at(only));
+
+    run_until(&mut w, &defs, 200, |w| seated(w, 0));
+    run_until(&mut w, &defs, 20_000, |w| !w.chart_events().is_empty());
+    assert!(w.has_charted());
+    assert!(w.charted_at(only));
+    assert!(!w.charted_at(at(2, 2)), "only the charted ruin's own tile");
+
+    // The ruin is recovered and the Map Room is gone: the chart still happened.
+    w.map[only].resource = None;
+    let room = defs.building_id("map_room").unwrap();
+    let foot = w.footprint_at(at(1, 3)).unwrap();
+    for p in foot.tiles() {
+        assert_eq!(w.map[p].building.map(|b| b.id), Some(room));
+        w.map[p].building = None;
+    }
+    let text = w.save(&defs).unwrap();
+    let loaded = World::load(&text, &defs).unwrap();
+    assert!(loaded.has_charted());
+    assert!(loaded.charted_at(only));
 }
 
 #[test]

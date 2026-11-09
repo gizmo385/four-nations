@@ -57,13 +57,13 @@ pub struct SignRow {
     /// closest non-masters ("Master: Lu Ten. Closest: Jee 9/10, Shyu 8/10, Ikem 8/10",
     /// `docs/design/endgame.md`, "Showing mastery", #347). `None` for every other sign.
     pub closest: Option<String>,
-    /// The scrolls sign only, shown only while it isn't met: every scroll-yielding resource
-    /// still sitting on the map, nearest first (#380, "let a player find out where to look").
-    /// Empty for every other sign.
+    /// The scrolls sign only, shown only while it isn't met: the scroll sources already marked
+    /// or charted, nearest first (`found_scrolls`; #380, #403). Empty for every other sign, and
+    /// for this one until a surface scroll is marked or a ruin is uncovered.
     pub found: Vec<FoundScroll>,
 }
 
-/// One scroll-yielding resource still on the map, for the scrolls sign's own row
+/// One marked surface scroll or uncovered ruin, for the scrolls sign's own row
 /// (`found_scrolls`): where it is and why it isn't read yet.
 #[derive(Clone, PartialEq, Debug)]
 pub struct FoundScroll {
@@ -71,8 +71,9 @@ pub struct FoundScroll {
     pub name: String,
     /// "34 tiles north-west" (`crate::text::compass_distance`), from the settlement's anchor.
     pub distance: String,
-    /// "marked", "not marked" or "no settler can reach it" (`World::job_unreachable`, #337's
-    /// flag, reused rather than a new one).
+    /// "marked", "not marked" (an uncovered ruin only: a surface scroll is listed only while
+    /// marked) or "no settler can reach it" (`World::job_unreachable`, #337's flag, reused
+    /// rather than a new one).
     pub status: String,
 }
 
@@ -226,29 +227,66 @@ fn masters_text(masters: &[String], closest: &[(String, u32, u32, u32, u32)]) ->
     }
 }
 
-/// How many found-but-unresolved scrolls the scrolls sign's row names: enough for every seed the
-/// supply survey measured (`docs/design/cartography.md`, up to 6 on a small map), without letting
-/// a very lucky one turn the row into a wall of text.
+/// How many sources the scrolls sign's row names: enough for every seed the supply survey
+/// measured (`docs/design/cartography.md`, up to 6 on a small map), without letting a very lucky
+/// one turn the row into a wall of text.
 const FOUND_SHOWN: usize = 6;
 
-/// Every scroll-yielding resource still sitting on the map, nearest the settlement's anchor
-/// first (`World::settlement_anchor`): `ancient_scroll` itself (always visible) and `lost_ruins`
-/// once something has uncovered one (Air's Glide, #197, or a Map Room's Chart, #402) -- both
-/// yield the same `ancient_scroll` item (`data/jobs.toml`), so one item filter catches both
-/// without naming either resource by id, the same trick `fn_sim::autoplay::recover_scrolls`
-/// plays. For each: its name (with a count when a harvest yields more than one), how far and
-/// which way from the settlement, and whether it's marked, not yet marked, or not reachable by
-/// any living settler (`World::job_unreachable`, #337's flag) -- the "why isn't one fetched" a
-/// 2026-11-05 playtest never got an answer to (#380). Empty without the `ancient_scroll` item in
-/// the data at all.
-fn found_scrolls(world: &World, defs: &Defs) -> Vec<FoundScroll> {
+/// Whether the scrolls sign's full list is open (owner decision, 2026-11-09, second part): the
+/// sign's `hint_until` tech (`cartography`) is known and a Map Room has finished a chart
+/// (`World::has_charted`, saved state that outlives the room and the ruins). Until then the list
+/// holds only what a Glide uncovered (`found_scrolls`).
+fn scrolls_unlocked(sign: &SignDef, world: &World) -> bool {
+    sign.hint_until.as_ref().is_none_or(|u| world.research().is_known(u.tech))
+        && world.has_charted()
+}
+
+/// The scroll sources the player has already acted on or charted, nearest the settlement's anchor
+/// first (`World::settlement_anchor`). Owner decisions, 2026-11-09 (`docs/design/cartography.md`
+/// "What the player sees"): finding scrolls stays the player's job, and the list opens only once
+/// the settlement has charted (`scrolls_unlocked`).
+///
+/// Once open, two kinds and nothing else:
+/// - a buried resource that something has uncovered (a lost ruin, by a Map Room's chart, #402,
+///   or Air's Glide, #197), marked or not;
+/// - an ordinary surface scroll, but only while it is marked.
+///
+/// Before it opens, only a ruin a Glide uncovered: one on the map that no finished chart
+/// recorded (`World::charted_at`), since the player already found it. A marked surface scroll is
+/// not listed yet.
+///
+/// An unmarked surface scroll is never listed, however near, and neither is a ruin still under
+/// the ground. Both yield the same `ancient_scroll` item (`data/jobs.toml`), so one item filter
+/// catches them without naming either resource by id, the same trick
+/// `fn_sim::autoplay::recover_scrolls` plays; the resource's `buried` flag tells them apart.
+///
+/// The list is worked out from the map and the open jobs on every call and remembers nothing, so
+/// it follows them: a scroll leaves it once it is recovered (its map tile is gone, and an item
+/// being carried or stored is not a source), and a surface scroll leaves it if its mark is
+/// removed. An uncovered ruin stays listed, as "not marked", after its mark is removed.
+///
+/// For each: its name (with a count when a harvest yields more than one), how far and which way
+/// from the settlement, and whether it's marked, not marked (an uncovered ruin only), or not
+/// reachable by any living settler (`World::job_unreachable`, #337's flag). Empty without the
+/// `ancient_scroll` item in the data at all.
+fn found_scrolls(world: &World, defs: &Defs, sign: &SignDef) -> Vec<FoundScroll> {
     let Some(scroll_item) = defs.item_id("ancient_scroll") else { return Vec::new() };
+    let unlocked = scrolls_unlocked(sign, world);
     let anchor = world.settlement_anchor();
+    let marked: Vec<Pos> = world.harvest_designations().collect();
     let mut found: Vec<Pos> = world
         .map
         .iter()
-        .filter(|(_, t)| {
-            t.resource.and_then(|r| defs.harvest(r)).is_some_and(|h| h.item == scroll_item)
+        .filter(|(p, t)| {
+            let Some(r) = t.resource else { return false };
+            if !defs.harvest(r).is_some_and(|h| h.item == scroll_item) {
+                return false;
+            }
+            if defs.resource(r).buried {
+                unlocked || !world.charted_at(*p)
+            } else {
+                unlocked && marked.contains(p)
+            }
         })
         .map(|(p, _)| p)
         .collect();
@@ -267,7 +305,7 @@ fn found_scrolls(world: &World, defs: &Defs) -> Vec<FoundScroll> {
             };
             let status = if world.job_unreachable(pos) == Some(true) {
                 "no settler can reach it"
-            } else if world.harvest_designations().any(|p| p == pos) {
+            } else if marked.contains(&pos) {
                 "marked"
             } else {
                 "not marked"
@@ -289,7 +327,15 @@ fn hint(sign: &SignDef, world: &World, defs: &Defs) -> Option<String> {
             building_hint(&missing_building_names(world, defs), sign.hint.as_deref())
         }
         SignKind::Masters => Some(masters_hint()),
-        _ => sign.hint.clone(),
+        _ => match &sign.hint_until {
+            // The scrolls sign points at cartography until it is researched, then at the Map
+            // Room until the first chart is done (#403).
+            Some(until) if !world.research().is_known(until.tech) => Some(until.text.clone()),
+            Some(_) if !world.has_charted() && sign.hint_uncharted.is_some() => {
+                sign.hint_uncharted.clone()
+            }
+            _ => sign.hint.clone(),
+        },
     }
 }
 
@@ -379,7 +425,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
             .then(|| masters_line(world, defs))
             .flatten();
         let found = if !p.met && matches!(sign.kind, SignKind::Tally(Tally::ScrollsRead)) {
-            found_scrolls(world, defs)
+            found_scrolls(world, defs, sign)
         } else {
             Vec::new()
         };
@@ -772,21 +818,28 @@ mod tests {
         assert_eq!(Tool::Bend.key(), "B");
     }
 
-    /// The scrolls sign's own found-but-unresolved list (#380, "let a player find out where to
-    /// look"): nearest first, naming whether each is marked, not yet marked, or stranded where
-    /// no settler can reach it -- the "why isn't one fetched" a 2026-11-05 playtest never got.
-    #[test]
-    fn the_scrolls_sign_lists_found_scrolls_nearest_first_with_their_status() {
+    /// Where `scroll_session` puts its lost ruin, and the other places the tests use.
+    const RUIN: Pos = Pos { x: 10, y: 1 };
+    const FAR_RUIN: Pos = Pos { x: 11, y: 2 };
+    const NEAR_SCROLL: Pos = Pos { x: 7, y: 2 };
+    const ISLAND_SCROLL: Pos = Pos { x: 1, y: 1 };
+
+    /// A session on a small map with two surface scrolls, a lost ruin and one settler: X, a
+    /// surface scroll on an island nobody can reach; Y, one on the settlement's own landmass;
+    /// R, a lost ruin already uncovered (a resource on the map: `World::with_map` buries it, as
+    /// it does every buried kind, so it is put back below). Distances from the settler at
+    /// (5, 1): X 4 west, Y 2 south-east, R 5 east. No Map Room has charted anything, so the
+    /// ruin counts as a Glide find.
+    fn scroll_session() -> Session {
         use fn_sim::defs::BiomeId;
-        use fn_sim::{Defs, Grid, Nation, Terrain, Tile, World};
+        use fn_sim::{Defs, Grid, Terrain, Tile, World};
 
         use crate::clock::Clock;
 
         let defs = Defs::bundled();
         let scroll = defs.resource_id("ancient_scroll").unwrap();
-        // X: an island scroll, surrounded by water on every side, nobody can ever reach it.
-        // Y: an ordinary scroll on the settlement's own landmass, 5 tiles closer.
-        let rows = ["~~~~~~~~~~~", "~X~.......~", "~~~....Y..~", "~~~~~~~~~~~"];
+        let ruins = defs.resource_id("lost_ruins").unwrap();
+        let rows = ["~~~~~~~~~~~~~", "~X~.......R.~", "~~~....Y....~", "~~~~~~~~~~~~~"];
         let map = Grid::from_fn(rows[0].len() as i32, rows.len() as i32, |p| {
             let c = rows[p.y as usize].as_bytes()[p.x as usize];
             Tile {
@@ -795,36 +848,236 @@ mod tests {
                 moisture: 128,
                 terrain: if c == b'~' { Terrain::Water } else { Terrain::Land },
                 biome: BiomeId(0),
-                resource: (c == b'X' || c == b'Y').then_some(scroll),
+                resource: match c {
+                    b'X' | b'Y' => Some(scroll),
+                    b'R' => Some(ruins),
+                    _ => None,
+                },
                 building: None,
             }
         });
         let world = World::with_map(1, map, Nation::Earth, &[Pos::new(5, 1)], &defs);
         let mut s = Session { world, defs, clock: Clock::default(), bend_choice: None };
+        s.world.map[RUIN].resource = Some(ruins);
         s.world.ensure_regions();
+        s
+    }
 
-        let found = found_scrolls(&s.world, &s.defs);
-        assert_eq!(found.len(), 2, "{found:?}");
-        assert_eq!(found[0].name, "Ancient Scroll");
-        assert_eq!(found[0].distance, "2 tiles south-east");
-        assert_eq!(found[0].status, "not marked", "reachable and not yet marked");
-        assert_eq!(found[1].distance, "4 tiles west");
-        assert_eq!(found[1].status, "no settler can reach it");
+    /// Researches `cartography` (made cheap and prerequisite-free for the test) before anything
+    /// is marked, so no settler has a job to wander off to.
+    fn learn_cartography(s: &mut Session) {
+        use fn_sim::world::Command;
+        let cart = s.defs.tech_id("cartography").unwrap();
+        s.defs.techs[cart.0 as usize].cost = 1;
+        s.defs.techs[cart.0 as usize].prereqs.clear();
+        s.apply(Command::SetResearch { tech: cart }).unwrap();
+        for _ in 0..20_000 {
+            if s.world.research().is_known(cart) {
+                break;
+            }
+            s.tick();
+        }
+        assert!(s.world.research().is_known(cart), "researched");
+    }
 
-        // Marking the reachable one updates its own status to "marked"; the island's doesn't
-        // change, since marking it would never do anything.
-        s.apply(fn_sim::world::Command::DesignateHarvest { pos: Pos::new(7, 2) }).unwrap();
-        let found = found_scrolls(&s.world, &s.defs);
-        assert_eq!(found[0].status, "marked");
-        assert_eq!(found[1].status, "no settler can reach it");
+    /// Records one finished chart that uncovered `found` (a Map Room's chart event), the way a
+    /// real one does, by writing it into a save and loading that back: the event is the saved
+    /// state `World::has_charted` reads, and nothing outside `fn_sim` can push one.
+    fn finish_first_chart(s: &mut Session, found: Pos) {
+        use fn_sim::World;
+        let text = s.world.save(&s.defs).unwrap();
+        let (header, world) = text.split_once('\n').unwrap();
+        let event = format!(
+            "chart_events:[(tick:9,room:(x:3,y:1),kind:Found(pos:(x:{},y:{}),reachable:true))],",
+            found.x, found.y
+        );
+        let world = world.replacen('(', &format!("({event}"), 1);
+        s.world = World::load(&format!("{header}\n{world}"), &s.defs).unwrap();
+        s.world.ensure_regions();
+        assert!(s.world.has_charted() && s.world.charted_at(found));
+    }
 
-        // The Endeavor screen's own row carries the same list while the sign isn't met.
+    fn scrolls_row(s: &Session) -> SignRow {
+        let v = screen_view(s);
+        v.groups.into_iter().flat_map(|g| g.signs).find(|r| r.id == "scrolls").unwrap()
+    }
+
+    fn found(s: &Session) -> Vec<FoundScroll> {
+        let sign = s.defs.endeavor.signs.iter().find(|x| x.id == "scrolls").unwrap();
+        found_scrolls(&s.world, &s.defs, sign)
+    }
+
+    const CART_HINT: &str = "Bring scrolls to a study hall. Cartography charts ruins.";
+    const ROOM_HINT: &str = "Bring scrolls to a study hall. A Map Room charts ruins.";
+    const PLAIN_HINT: &str = "Bring scrolls to a study hall";
+
+    /// Before cartography is known and a chart is done, the list is closed: a marked surface
+    /// scroll is not on it, and only a Glide's ruin is (one no chart recorded), since the
+    /// player already found it. Unmarked surface scrolls are never on it.
+    #[test]
+    fn before_the_first_chart_the_scrolls_list_holds_glide_finds_and_nothing_else() {
+        use fn_sim::world::Command;
+
+        let mut s = scroll_session();
+        let list = found(&s);
+        assert_eq!(list.len(), 1, "{list:?}");
+        assert_eq!(list[0].name, "Lost Ruins (2)");
+        assert_eq!(list[0].distance, "5 tiles east");
+        assert_eq!(list[0].status, "not marked");
+        assert_eq!(scrolls_row(&s).hint.as_deref(), Some(CART_HINT));
+
+        // Marking a surface scroll does not list it yet.
+        s.apply(Command::DesignateHarvest { pos: NEAR_SCROLL }).unwrap();
+        s.apply(Command::DesignateHarvest { pos: ISLAND_SCROLL }).unwrap();
+        assert_eq!(found(&s).len(), 1, "{:?}", found(&s));
+        // The Glide's ruin can be marked, and says so.
+        s.apply(Command::DesignateHarvest { pos: RUIN }).unwrap();
+        assert_eq!(found(&s)[0].status, "marked");
+    }
+
+    /// With nothing found at all, the sign is its name, count and hint: no list, no number of
+    /// scrolls left to find, no direction. A ruin still buried is not on it.
+    #[test]
+    fn with_nothing_found_the_scrolls_sign_shows_only_its_hint() {
+        let mut s = scroll_session();
+        s.world.map[RUIN].resource = None;
+        let row = scrolls_row(&s);
+        assert!(row.found.is_empty(), "{:?}", row.found);
+        assert_eq!(row.hint.as_deref(), Some(CART_HINT));
+        assert_eq!(row.value, "0/3");
+        // `World::with_map` buried the ruin; it is still underground.
+        assert_eq!(s.world.buried_count(), 1);
+    }
+
+    /// Cartography known but nothing charted yet: still closed, and the hint points at the Map
+    /// Room instead.
+    #[test]
+    fn once_cartography_is_known_but_nothing_is_charted_the_hint_names_the_map_room() {
+        use fn_sim::world::Command;
+
+        let mut s = scroll_session();
+        learn_cartography(&mut s);
+        s.apply(Command::DesignateHarvest { pos: NEAR_SCROLL }).unwrap();
+        let row = scrolls_row(&s);
+        assert_eq!(row.hint.as_deref(), Some(ROOM_HINT));
+        assert_eq!(row.found.len(), 1, "the Glide's ruin only: {:?}", row.found);
+        assert_eq!(row.found[0].name, "Lost Ruins (2)");
+    }
+
+    /// A finished chart without the tech does not open the list either (it cannot happen in
+    /// play, since the Map Room needs the tech, but the gate names both).
+    #[test]
+    fn a_chart_alone_without_cartography_does_not_open_the_list() {
+        use fn_sim::world::Command;
+
+        let mut s = scroll_session();
+        finish_first_chart(&mut s, RUIN);
+        s.apply(Command::DesignateHarvest { pos: NEAR_SCROLL }).unwrap();
+        assert!(found(&s).is_empty(), "{:?}", found(&s));
+    }
+
+    /// After cartography and a first chart: the list opens. Charted ruins (marked or not) and
+    /// marked surface scrolls are on it, nearest first. Unmarked surface scrolls never are, and
+    /// the plain hint closes the sign.
+    #[test]
+    fn after_the_first_chart_the_list_has_charted_ruins_and_marked_scrolls_only() {
+        use fn_sim::world::Command;
+
+        let mut s = scroll_session();
+        learn_cartography(&mut s);
+        finish_first_chart(&mut s, RUIN);
+        let list = found(&s);
+        assert_eq!(list.len(), 1, "both surface scrolls are unmarked: {list:?}");
+        assert_eq!(list[0].name, "Lost Ruins (2)");
+        assert_eq!(list[0].status, "not marked");
+        assert_eq!(scrolls_row(&s).hint.as_deref(), Some(PLAIN_HINT));
+
+        s.apply(Command::DesignateHarvest { pos: NEAR_SCROLL }).unwrap();
+        let list = found(&s);
+        assert_eq!(list.len(), 2, "{list:?}");
+        // Nearest first from the settlement's anchor, which the settler's walk to research
+        // moved a little: the nearer scroll leads, the ruin follows.
+        assert_eq!(list[0].name, "Ancient Scroll");
+        assert!(list[0].distance.ends_with("south-east"), "{list:?}");
+        assert_eq!(list[0].status, "marked");
+        assert_eq!(list[1].name, "Lost Ruins (2)");
+
+        s.apply(Command::DesignateHarvest { pos: ISLAND_SCROLL }).unwrap();
+        let list = found(&s);
+        assert_eq!(list.len(), 3, "{list:?}");
+        let island = list.iter().find(|f| f.status == "no settler can reach it").unwrap();
+        assert_eq!(island.name, "Ancient Scroll");
+        assert!(island.distance.ends_with("west"), "{island:?}");
+
+        s.apply(Command::DesignateHarvest { pos: RUIN }).unwrap();
+        let list = found(&s);
+        let ruin = list.iter().find(|f| f.name == "Lost Ruins (2)").unwrap();
+        assert_eq!(ruin.status, "marked");
+
+        // The Endeavor screen's own row carries the same list while the sign isn't met, and no
+        // other sign carries one.
+        assert_eq!(scrolls_row(&s).found, found(&s));
         let v = screen_view(&s);
-        let row = v.groups.iter().flat_map(|g| &g.signs).find(|r| r.id == "scrolls").unwrap();
-        assert_eq!(row.found, found);
-        // Every other sign carries no found list at all.
         for other in v.groups.iter().flat_map(|g| &g.signs).filter(|r| r.id != "scrolls") {
             assert!(other.found.is_empty(), "{other:?}");
         }
+    }
+
+    /// The gate is saved state: it survives a save and load, and stays open with the charted
+    /// ruin gone from the map (recovered) and no Map Room standing anywhere.
+    #[test]
+    fn the_open_gate_survives_a_save_and_a_recovered_ruin() {
+        use fn_sim::World;
+        use fn_sim::world::Command;
+
+        let mut s = scroll_session();
+        learn_cartography(&mut s);
+        finish_first_chart(&mut s, RUIN);
+        s.world.map[RUIN].resource = None;
+        let text = s.world.save(&s.defs).unwrap();
+        s.world = World::load(&text, &s.defs).unwrap();
+        s.world.ensure_regions();
+        assert!(found(&s).is_empty());
+        s.apply(Command::DesignateHarvest { pos: NEAR_SCROLL }).unwrap();
+        assert_eq!(found(&s).len(), 1, "a marked surface scroll is listed: the gate is open");
+    }
+
+    /// A ruin the Glide uncovered after the gate opened is listed beside the charted ones.
+    #[test]
+    fn a_glide_find_is_listed_beside_charted_ruins_once_the_gate_is_open() {
+        let mut s = scroll_session();
+        learn_cartography(&mut s);
+        finish_first_chart(&mut s, RUIN);
+        s.world.map[FAR_RUIN].resource = s.defs.resource_id("lost_ruins");
+        let list = found(&s);
+        assert_eq!(list.len(), 2, "{list:?}");
+    }
+
+    /// A mark taken off a surface scroll takes it off the list; an uncovered ruin stays, as
+    /// "not marked". A scroll that has been recovered is gone from the map and so from the list.
+    #[test]
+    fn a_surface_scroll_leaves_the_list_when_unmarked_or_recovered() {
+        use fn_sim::world::Command;
+
+        let mut s = scroll_session();
+        learn_cartography(&mut s);
+        finish_first_chart(&mut s, RUIN);
+        s.apply(Command::DesignateHarvest { pos: NEAR_SCROLL }).unwrap();
+        s.apply(Command::DesignateHarvest { pos: RUIN }).unwrap();
+        assert_eq!(found(&s).len(), 2);
+
+        s.apply(Command::CancelHarvest { pos: NEAR_SCROLL }).unwrap();
+        s.apply(Command::CancelHarvest { pos: RUIN }).unwrap();
+        let list = found(&s);
+        assert_eq!(list.len(), 1, "{list:?}");
+        assert_eq!(list[0].name, "Lost Ruins (2)");
+        assert_eq!(list[0].status, "not marked");
+
+        // Marked again and then recovered: the tile loses its resource, so nothing lists it,
+        // and the scroll in a settler's hands or a stockpile is not a source.
+        s.apply(Command::DesignateHarvest { pos: NEAR_SCROLL }).unwrap();
+        assert_eq!(found(&s).len(), 2);
+        s.world.map[NEAR_SCROLL].resource = None;
+        assert_eq!(found(&s).len(), 1);
     }
 }

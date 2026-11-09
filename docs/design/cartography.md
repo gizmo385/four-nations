@@ -124,22 +124,61 @@ Keep these plain, with no advice or asides (the owner's 2026-11-06 note on text 
 - **Research screen.** `cartography`'s unlock summary reads "Map Room" automatically once its
   `[tech.unlocks]` lists the building. `crates/ui/src/research.rs` has a test asserting "-" for
   cartography today; that test changes.
-- **Endeavor screen, scrolls sign.** #380 picks one of three approaches. This design wants its
-  third one, "a found-but-unreached scroll is listed on the Endeavor screen", and extends that list
-  with uncovered ruins. Each row: what it is, how many scrolls, distance and direction from the
-  settlement, and its state (unmarked, marked, no settler can reach). Mockup (text, not yet a real
-  frame):
+- **Endeavor screen, scrolls sign.** #380 built a list under the sign that named every surface
+  scroll on the map and every uncovered ruin, with distance, direction and state. This design
+  first wanted to keep that list and add ruins to it. **Owner decision (2026-11-09), #403: the
+  softer sign.** The sign lists only sources the player has already acted on or charted: a
+  surface scroll once it is marked, and a lost ruin once it is uncovered (by a chart or a Glide).
+  It does not list every surface scroll from the start, so finding them stays the player's job:
+  players and agents should discover things rather than be handed answers, and adding entries
+  later is easier than taking them away. There is no fog of war, so "found" uses what the game
+  already tracks (marks and uncovered ruins) and no new exploration state. Each row: what it is,
+  how many scrolls, distance and direction from the settlement, and its state (marked, not
+  marked, no settler can reach it). Rules that follow from this:
+  - An unmarked surface scroll is never listed, however near, and neither is a ruin still
+    buried. The sign shows no count of what is not found and points at nothing unmarked.
+  - "Not marked" now applies only to an uncovered ruin that nobody has marked. A surface scroll
+    is listed only while marked, so its state is "marked", or "no settler can reach it".
+  - The list is worked out from the map and the open marks each time, so it follows them. A
+    surface scroll whose mark is removed leaves the list; an uncovered ruin stays, as "not
+    marked". A scroll that has been recovered is off the map and gone from the list, and one
+    being carried to a study hall or sitting in a stockpile is not a source.
+  - With nothing marked or charted the list is empty and the sign shows only its hint.
+
+  **A second decision the same day: the list is gated.** It stays hidden until `cartography` is
+  known and a Map Room has finished its first chart, and shows only the hint until then. The
+  gate is saved state that already existed: `World::has_charted`, which reads `chart_events`
+  (every finished chart, logged by `world/chart.rs`; nothing trims it). It survives a save and
+  load, and doesn't depend on a Map Room still standing or on any ruin being left to chart.
+  - **Exception: a Glide.** A ruin that Air's Glide uncovered is listed before the gate opens,
+    since the player already found it. Nothing new is tracked to tell the two apart: a finished
+    chart records the ruin it uncovered (`ChartEventKind::Found`, `World::charted_at`), so an
+    uncovered ruin on the map that no chart recorded was uncovered some other way, which today
+    means a Glide. Before the gate, the list holds those and nothing else: a marked surface
+    scroll isn't listed yet. (A chart can't have recorded a ruin before the gate opens, since
+    its first chart opens it.) Once open, charted and Glide ruins are listed alike.
+  - **Hints.** While `cartography` is unknown: `Bring scrolls to a study hall. Cartography
+    charts ruins.` Once it is known and no chart has finished: `Bring scrolls to a study hall. A
+    Map Room charts ruins.` After the first chart: `Bring scrolls to a study hall`. All three are
+    in `data/endeavor.toml` (`hint_until`, `hint_uncharted`, `hint`).
+  - **Agents.** `screen("endeavor")` carries each sign's `found` rows from the same view model
+    (`fn_ui::endeavor::SignRow::found`), and the `frame` tool draws the same screen, so both
+    follow the gate with no agent-specific code. The balance harness doesn't read the sign:
+    autoplay's `recover_scrolls` reads the world directly.
+
+  Mockup, once the gate is open (a ruin charted and marked, a ruin charted but not marked, a
+  surface scroll marked but unreachable; the unmarked scroll lying nearby is not shown):
 
   ```
   Ancient scrolls read                 1 / 3
-    Lost ruins (2)     34 NW   marked
-    Ancient scroll     58 E    no settler can reach
-    Lost ruins (2)     52 E    no settler can reach
+    Lost Ruins (2) - 34 tiles north-west - marked
+    Lost Ruins (2) - 52 tiles east - not marked
+    Ancient Scroll - 58 tiles east - no settler can reach it
+    Bring scrolls to a study hall
   ```
 
-  Before `cartography` is known, the sign's hint (`data/endeavor.toml`) becomes
-  `Bring scrolls to a study hall. Cartography charts ruins.` That's in-game knowledge (#313): the
-  player can read the tech in the research screen.
+  The hint before `cartography` is known is in-game knowledge (#313): the player can read the
+  tech in the research screen.
 - **Inspecting a Map Room** shows its chart progress (`Charting: 40%`), or `Nothing left to
   chart` once the job closes.
 
@@ -213,8 +252,9 @@ actually keeps open.
 3. **When should the scrolls sign land?** *Decided:* year 2 to 3 on Normal, which is after
    `cartography` arrives (around year 2) plus a couple of charts and the walks out to them.
 4. **Should charts also mark surface scrolls on the map?** *Decided:* no. They're already
-   visible, and #380's list on the Endeavor screen covers "where are they". Charts only uncover
-   what's hidden.
+   visible, and finding them is the player's job: the Endeavor screen lists a surface scroll only
+   once it is marked (owner decision, 2026-11-09; see "What the player sees"). Charts only
+   uncover what's hidden.
 
 ## Follow-up issues
 

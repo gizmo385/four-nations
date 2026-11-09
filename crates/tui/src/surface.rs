@@ -893,6 +893,15 @@ impl Host {
                             hint: s.hint,
                             value: s.value,
                             closest: s.closest,
+                            found: s
+                                .found
+                                .into_iter()
+                                .map(|f| FoundScrollView {
+                                    name: f.name,
+                                    distance: f.distance,
+                                    status: f.status,
+                                })
+                                .collect(),
                         })
                         .collect(),
                 })
@@ -2002,6 +2011,19 @@ pub struct SignRowView {
     /// The masters sign's own line, naming who has mastered and who is closest (#347). `None`
     /// for every other sign.
     pub closest: Option<String>,
+    /// The scrolls sign's own list (`fn_ui::endeavor::FoundScroll`, #403): what the Endeavor
+    /// screen lists under the sign, in the same order and state. Empty for every other sign, and
+    /// for this one until something is marked or charted.
+    pub found: Vec<FoundScrollView>,
+}
+
+/// One row of the scrolls sign's list, as the screen prints it
+/// (`"  {name} - {distance} - {status}"`).
+#[derive(Clone, Debug, Serialize)]
+pub struct FoundScrollView {
+    pub name: String,
+    pub distance: String,
+    pub status: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -3452,6 +3474,119 @@ mod tests {
         let view = h.can_build("Bed", w, hh);
         assert!(!view.ok);
         assert!(view.reason.unwrap().contains("isn't on the map"));
+    }
+
+    /// The scrolls sign's list reaches an agent the way it reaches a player (#403): the
+    /// `screen("endeavor")` rows are the view model's own, in the same state, and the `frame`
+    /// tool (which draws the screen) prints exactly those rows. Both follow the one gate: closed
+    /// (a Glide's ruin only) until `cartography` is known and a chart has finished, open after.
+    #[test]
+    fn the_scrolls_list_reaches_screen_and_frame_in_the_same_state_as_the_screen() {
+        let mut h = host(Nation::Earth);
+        let scroll = h.app().session.defs.resource_id("ancient_scroll").unwrap();
+        let ruins = h.app().session.defs.resource_id("lost_ruins").unwrap();
+        let anchor = h.app().session.world.settlement_anchor();
+        let mut spots: Vec<Pos> = h
+            .app()
+            .session
+            .world
+            .map
+            .iter()
+            .filter(|(p, t)| {
+                t.terrain == Terrain::Land
+                    && t.resource.is_none()
+                    && t.building.is_none()
+                    && (3..=9).contains(&anchor.chebyshev(*p))
+            })
+            .map(|(p, _)| p)
+            .collect();
+        spots.sort_by_key(|p| (anchor.chebyshev(*p), p.y, p.x));
+        let (marked, glide_ruin) = (spots[0], spots[1]);
+        {
+            let s = &mut h.app_mut().session;
+            s.world.map[marked].resource = Some(scroll);
+            s.world.map[glide_ruin].resource = Some(ruins);
+            s.apply(Command::DesignateHarvest { pos: marked }).unwrap();
+        }
+
+        let scrolls = |h: &Host| match h.screen("endeavor").unwrap() {
+            ScreenView::Endeavor(v) => v
+                .groups
+                .into_iter()
+                .flat_map(|g| g.signs)
+                .find(|s| s.name == "Ancient scrolls read")
+                .unwrap(),
+            other => unreachable!("{other:?}"),
+        };
+        let printed = |h: &mut Host| -> Vec<String> {
+            h.press_keys("g", None, None).unwrap();
+            let frame = h.frame(160, 50);
+            h.press_keys("<esc>", None, None).unwrap();
+            frame
+                .lines()
+                .filter(|l| l.contains(" tiles ") || l.contains(" here - "))
+                .filter(|l| l.contains("Ancient Scroll -") || l.contains("Lost Ruins"))
+                .map(|l| {
+                    // The row's own text, between the screen's borders (`|`, or `│` in a
+                    // non-ASCII frame).
+                    let from = l.find("Lost Ruins").or_else(|| l.find("Ancient Scroll")).unwrap();
+                    let row = &l[from..];
+                    let end = row.find(['|', '│']).unwrap_or(row.len());
+                    row[..end].trim().to_owned()
+                })
+                .collect()
+        };
+        let rows = |sign: &SignRowView| -> Vec<String> {
+            sign.found
+                .iter()
+                .map(|f| format!("{} - {} - {}", f.name, f.distance, f.status))
+                .collect()
+        };
+
+        // Closed: the Glide's ruin only, though a scroll is marked. Screen and frame agree, and
+        // so does the hint.
+        let sign = scrolls(&h);
+        assert_eq!(rows(&sign).len(), 1, "{:?}", sign.found);
+        assert!(sign.found[0].name.starts_with("Lost Ruins"));
+        assert_eq!(printed(&mut h), rows(&sign));
+        assert_eq!(
+            sign.hint.as_deref(),
+            Some("Bring scrolls to a study hall. Cartography charts ruins.")
+        );
+
+        // Open (cartography made cheap to learn, a finished chart written into the save): the
+        // marked scroll joins the list, in the view model's order, in both. The mark comes off
+        // while the world ticks for the research, or a settler would go and fetch the scroll.
+        {
+            let s = &mut h.app_mut().session;
+            s.apply(Command::CancelHarvest { pos: marked }).unwrap();
+            let cart = s.defs.tech_id("cartography").unwrap();
+            s.defs.techs[cart.0 as usize].cost = 1;
+            s.defs.techs[cart.0 as usize].prereqs.clear();
+            s.apply(Command::SetResearch { tech: cart }).unwrap();
+            for _ in 0..20_000 {
+                if s.world.research().is_known(cart) {
+                    break;
+                }
+                s.tick();
+            }
+            assert!(s.world.research().is_known(cart));
+            let text = s.world.save(&s.defs).unwrap();
+            let (header, world) = text.split_once('\n').unwrap();
+            let event = format!(
+                "chart_events:[(tick:9,room:(x:3,y:1),kind:Found(pos:(x:{},y:{}),\
+                 reachable:true))],",
+                glide_ruin.x, glide_ruin.y
+            );
+            let world = world.replacen('(', &format!("({event}"), 1);
+            s.world = fn_sim::World::load(&format!("{header}\n{world}"), &s.defs).unwrap();
+            s.apply(Command::DesignateHarvest { pos: marked }).unwrap();
+        }
+        let sign = scrolls(&h);
+        assert_eq!(sign.found.len(), 2, "{:?}", sign.found);
+        assert!(sign.found.iter().any(|f| f.name == "Ancient Scroll" && f.status != "not marked"));
+        assert_eq!(printed(&mut h), rows(&sign));
+        assert_eq!(sign.hint.as_deref(), Some("Bring scrolls to a study hall"));
     }
 
     #[test]

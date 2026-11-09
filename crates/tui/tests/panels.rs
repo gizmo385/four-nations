@@ -897,6 +897,63 @@ fn the_endeavor_screen_lists_the_gates_groups_and_signs() {
     }
 }
 
+/// Before the first chart the scrolls sign is closed (#403, owner decisions 2026-11-09): a
+/// marked surface scroll and an unmarked one are both absent, and a lost ruin a Glide uncovered
+/// (one no chart recorded) is the only row. The open gate is covered through the agent surface
+/// (`surface.rs`, which can write a finished chart into the save).
+#[test]
+fn before_the_first_chart_the_scrolls_sign_lists_only_a_glide_ruin() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    let scroll = a.session.defs.resource_id("ancient_scroll").unwrap();
+    let ruins = a.session.defs.resource_id("lost_ruins").unwrap();
+    let anchor = a.session.world.settlement_anchor();
+    let mut spots: Vec<Pos> = a
+        .session
+        .world
+        .map
+        .iter()
+        .filter(|(p, t)| {
+            let d = anchor.chebyshev(*p);
+            t.terrain == Terrain::Land
+                && t.resource.is_none()
+                && t.building.is_none()
+                && (3..=9).contains(&d)
+        })
+        .map(|(p, _)| p)
+        .collect();
+    spots.sort_by_key(|p| (anchor.chebyshev(*p), p.y, p.x));
+    let (unmarked, marked, ruin) = (spots[0], spots[1], spots[2]);
+    a.session.world.map[unmarked].resource = Some(scroll);
+    a.session.world.map[marked].resource = Some(scroll);
+    a.session.world.map[ruin].resource = Some(ruins);
+    a.session.apply(Command::DesignateHarvest { pos: marked }).unwrap();
+
+    run(&mut a, "g");
+    let frame = text(&mut a, SIZE);
+    assert!(!frame.contains("Ancient Scroll - "), "no surface scroll yet\n{frame}");
+    let ruin_row = frame.lines().find(|l| l.contains("Lost Ruins (2) - ")).expect(&frame);
+    assert!(ruin_row.contains("tiles") && ruin_row.contains("not marked"), "{ruin_row}");
+    // The hint still closes the sign, and points at cartography while it is unknown.
+    assert!(frame.contains("Bring scrolls to a study hall. Cartography charts ruins."), "{frame}");
+}
+
+/// With nothing marked or charted the scrolls sign is its name, its count and its hint: no list,
+/// no number of scrolls left to find, no direction (#403).
+#[test]
+fn with_nothing_marked_or_charted_the_scrolls_sign_is_just_its_hint() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "g");
+    let frame = text(&mut a, SIZE);
+    let lines: Vec<&str> = frame.lines().collect();
+    let at = lines.iter().position(|l| l.contains("Ancient scrolls read")).expect("the sign");
+    assert!(
+        lines[at + 1].contains("Bring scrolls to a study hall. Cartography charts ruins."),
+        "{frame}"
+    );
+    assert!(!frame.contains("Ancient Scroll -"), "{frame}");
+    assert!(!frame.contains("Lost Ruins"), "{frame}");
+}
+
 /// `G` toggles the screen like every other screen key, closes it the same as `Esc`, and gives
 /// way to `T` and `L` opening their own screens (only one screen covers the map at a time).
 #[test]

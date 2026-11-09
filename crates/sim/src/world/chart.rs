@@ -47,6 +47,15 @@ pub enum ChartEventKind {
     NoneLeft,
 }
 
+/// Where a Map Room stands, for a frontend's inspect panel (`World::chart_standing`, #403).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChartStanding {
+    /// Its seat is open: this far (0 to 99) through the chart it is working on.
+    Charting { percent: u32 },
+    /// Nothing is left to chart within its range, so its seat stays closed.
+    NothingLeft,
+}
+
 /// Ticks in `minutes` in-game minutes, at least 1 (mirrors `world/study.rs`'s own copy; #402).
 fn minutes_to_ticks(minutes: f32) -> u64 {
     ((minutes * 60.0 * TICKS_PER_SECOND as f32).round() as u64).max(1)
@@ -71,6 +80,36 @@ impl World {
     /// one with nothing banked yet.
     pub fn chart_progress(&self, pos: Pos) -> f32 {
         self.charts.get(&pos).copied().unwrap_or(0.0)
+    }
+
+    /// Whether any Map Room has finished a chart, ever (#403). Read from the saved
+    /// `chart_events`, which nothing trims, so it survives a save and load and does not depend
+    /// on a Map Room still standing or on anything being left to chart.
+    pub fn has_charted(&self) -> bool {
+        !self.chart_events.is_empty()
+    }
+
+    /// Whether a finished chart is what uncovered the ruin at `pos`. A buried resource that is
+    /// on the map but was not charted was uncovered some other way (Air's Glide, #197).
+    pub fn charted_at(&self, pos: Pos) -> bool {
+        self.chart_events
+            .iter()
+            .any(|e| matches!(e.kind, ChartEventKind::Found { pos: p, .. } if p == pos))
+    }
+
+    /// Where the Map Room anchored on `pos` stands (`None` off a Map Room): how far through its
+    /// next chart, or that its seat has closed for want of anything to chart
+    /// (`chart_has_target`). Progress is banked already scaled by the `study` modifier, so it
+    /// reads against the unscaled target; it never reads 100, since a full chart is found at
+    /// once.
+    pub fn chart_standing(&self, pos: Pos, defs: &Defs) -> Option<ChartStanding> {
+        let def = self.chart_def_at(pos, defs)?;
+        if !self.chart_has_target(pos, def) {
+            return Some(ChartStanding::NothingLeft);
+        }
+        let target = minutes_to_ticks(def.minutes) as f32;
+        let percent = (self.chart_progress(pos) / target * 100.0).floor().clamp(0.0, 99.0);
+        Some(ChartStanding::Charting { percent: percent as u32 })
     }
 
     /// The Map Room's own def at `pos`, if one stands there (`BuildingDef::chart`).

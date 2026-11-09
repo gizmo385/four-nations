@@ -30,7 +30,7 @@ use crate::building::{BuildingDef, BuildingId, CostItem};
 use crate::defs::DefsError;
 use crate::jobs::{ItemDef, ItemId};
 use crate::nation::{Modifiers, Nation};
-use crate::research::TechDef;
+use crate::research::{TechDef, TechId};
 
 /// The endeavor and its signs. Empty (no signs) when the data has no endeavor, as in
 /// `Defs::from_toml` without `Defs::with_endeavor`: then the endeavor never becomes Ready.
@@ -252,6 +252,13 @@ pub fn reachable_buildings<'a>(
     })
 }
 
+/// A sign's hint for as long as a tech is unknown (`SignDef::hint_until`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HintUntil {
+    pub tech: TechId,
+    pub text: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignDef {
     pub id: String,
@@ -264,6 +271,12 @@ pub struct SignDef {
     pub short: String,
     /// What the UI suggests while the sign isn't met ("Spare beds and food draw newcomers").
     pub hint: Option<String>,
+    /// A different hint while a tech isn't known yet (`hint_until` in the data): the scrolls sign
+    /// points at cartography until it is researched (#403).
+    pub hint_until: Option<HintUntil>,
+    /// The scrolls sign only (`hint_uncharted`): the hint once the `hint_until` tech is known
+    /// but no Map Room has finished a chart yet (#403).
+    pub hint_uncharted: Option<String>,
     /// The shared target, 0 for the kinds whose target the sim works out (`target_for`).
     target: u32,
     /// Per-nation overrides of `target`, indexed like `Nation::ALL`.
@@ -412,6 +425,13 @@ struct PerNation {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawHintUntil {
+    tech: String,
+    text: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawSign {
     id: String,
     group: SignGroup,
@@ -425,6 +445,12 @@ struct RawSign {
     per_nation: Option<PerNation>,
     #[serde(default)]
     hint: Option<String>,
+    /// A different hint until a tech is known (#403): `{ tech = "cartography", text = "..." }`.
+    #[serde(default)]
+    hint_until: Option<RawHintUntil>,
+    /// `tally = "scrolls_read"` only: the hint once that tech is known but no chart has finished.
+    #[serde(default)]
+    hint_uncharted: Option<String>,
     /// `stored` and `tally = "harvested"`: item ids.
     #[serde(default)]
     items: Option<Vec<String>>,
@@ -457,7 +483,7 @@ impl EndeavorFile {
         }
         let mut signs: Vec<SignDef> = Vec::with_capacity(self.sign.len());
         for raw in self.sign {
-            let sign = raw.resolve(items)?;
+            let sign = raw.resolve(items, techs)?;
             if signs.iter().any(|s| s.id == sign.id) {
                 return Err(DefsError(format!("sign {}: duplicate id", sign.id)));
             }
@@ -718,7 +744,7 @@ impl RawAvatar {
 }
 
 impl RawSign {
-    fn resolve(self, items: &[ItemDef]) -> Result<SignDef, DefsError> {
+    fn resolve(self, items: &[ItemDef], techs: &[TechDef]) -> Result<SignDef, DefsError> {
         let id = self.id;
         let err = |msg: &str| DefsError(format!("sign {id}: {msg}"));
         if id.trim().is_empty() {
@@ -746,6 +772,11 @@ impl RawSign {
         allowed(self.food.is_some(), k == RawKind::Stored, "food")?;
         allowed(self.tally.is_some(), k == RawKind::Tally, "tally")?;
         allowed(self.spare.is_some(), k == RawKind::EveryBuilding, "spare")?;
+        allowed(
+            self.hint_uncharted.is_some(),
+            k == RawKind::Tally && self.tally == Some(RawTally::ScrollsRead),
+            "hint_uncharted",
+        )?;
         let takes_items = k == RawKind::Stored
             || (k == RawKind::Tally && self.tally == Some(RawTally::Harvested));
         allowed(self.items.is_some(), takes_items, "items")?;
@@ -761,6 +792,21 @@ impl RawSign {
         if per_nation.contains(&Some(0)) {
             return Err(err("per_nation targets must be at least 1"));
         }
+
+        let hint_until = match self.hint_until {
+            None => None,
+            Some(h) if h.text.trim().is_empty() => {
+                return Err(err("hint_until text must not be empty"));
+            }
+            Some(h) => {
+                let tech = techs
+                    .iter()
+                    .position(|t| t.id == h.tech)
+                    .map(|n| TechId(n as u16))
+                    .ok_or_else(|| err(&format!("hint_until: unknown tech {:?}", h.tech)))?;
+                Some(HintUntil { tech, text: h.text })
+            }
+        };
 
         let resolve_items = |ids: &[String]| -> Result<Vec<ItemId>, DefsError> {
             ids.iter()
@@ -811,6 +857,8 @@ impl RawSign {
             kind,
             short: self.short,
             hint: self.hint.filter(|h| !h.trim().is_empty()),
+            hint_until,
+            hint_uncharted: self.hint_uncharted.filter(|h| !h.trim().is_empty()),
             target,
             per_nation,
             id,
@@ -891,6 +939,53 @@ mod tests {
         assert_eq!(stone.target_for(Nation::Earth), Some(200));
         assert_eq!(stone.hint.as_deref(), Some("Quarry stone"));
         assert_eq!(e.signs[1].target_for(Nation::Fire), None);
+    }
+
+    /// `hint_until` names a real tech and carries non-empty text (#403).
+    #[test]
+    fn hint_until_resolves_its_tech_or_fails_loudly() {
+        let sign = |until: &str| {
+            format!(
+                "{HEADER}\n[[sign]]\nid = \"s\"\ngroup = \"bending\"\nname = \"S\"\n\
+                 kind = \"tally\"\ntally = \"scrolls_read\"\nshort = \"s\"\ntarget = 3\n\
+                 hint = \"a\"\nhint_until = {until}\n"
+            )
+        };
+        let defs = Defs::bundled();
+        let e = load_file(&sign("{ tech = \"cartography\", text = \"b\" }")).unwrap();
+        let until = e.signs[0].hint_until.as_ref().unwrap();
+        assert_eq!(Some(until.tech), defs.tech_id("cartography"));
+        assert_eq!(until.text, "b");
+
+        let err = load_file(&sign("{ tech = \"nope\", text = \"b\" }")).unwrap_err();
+        assert!(err.0.contains("unknown tech"), "{err:?}");
+        let err = load_file(&sign("{ tech = \"cartography\", text = \" \" }")).unwrap_err();
+        assert!(err.0.contains("must not be empty"), "{err:?}");
+    }
+
+    /// The bundled scrolls sign points at cartography until it is known (#403).
+    #[test]
+    fn the_bundled_scrolls_sign_points_at_cartography_until_it_is_known() {
+        let defs = Defs::bundled();
+        let sign = defs.endeavor.signs.iter().find(|s| s.id == "scrolls").unwrap();
+        let until = sign.hint_until.as_ref().unwrap();
+        assert_eq!(Some(until.tech), defs.tech_id("cartography"));
+        assert_eq!(until.text, "Bring scrolls to a study hall. Cartography charts ruins.");
+        assert_eq!(
+            sign.hint_uncharted.as_deref(),
+            Some("Bring scrolls to a study hall. A Map Room charts ruins.")
+        );
+    }
+
+    /// `hint_uncharted` belongs to the scrolls tally only.
+    #[test]
+    fn hint_uncharted_is_for_the_scrolls_sign_only() {
+        let src = format!(
+            "{HEADER}\n[[sign]]\nid = \"s\"\ngroup = \"people\"\nname = \"S\"\nkind = \"population\"\n\
+             short = \"s\"\ntarget = 3\nhint_uncharted = \"x\"\n"
+        );
+        let err = load_file(&src).unwrap_err();
+        assert!(err.0.contains("hint_uncharted doesn't apply"), "{err:?}");
     }
 
     /// `master_threshold` reads `data/bending.toml`'s bundled `[mastery]` numbers for a `masters`

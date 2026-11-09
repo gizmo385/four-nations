@@ -32,8 +32,8 @@ fn sign_rows(sign: &SignRow, name_width: usize, marks: &Marks) -> Vec<Row> {
         if let Some(closest) = &sign.closest {
             rows.push(Row::text(format!("  {closest}"), Tone::Text));
         }
-        // The scrolls sign's own found-but-unresolved list (#380): one row per scroll, nearest
-        // first, with why it isn't read yet.
+        // The scrolls sign's own list (#380, #403): one row per marked scroll or charted ruin,
+        // nearest first, with its state. Empty until there is one, leaving only the hint.
         for found in &sign.found {
             rows.push(Row::text(
                 format!("  {} - {} - {}", found.name, found.distance, found.status),

@@ -54,7 +54,7 @@ use bending::{Patch, Revert};
 use build::Site;
 pub use build::{Blocker, BuildError};
 pub use care::{CareNeed, CareTally, Severe};
-pub use chart::{ChartEvent, ChartEventKind};
+pub use chart::{ChartEvent, ChartEventKind, ChartStanding};
 pub use command::{Command, CommandError, Recorded};
 use endeavor::EndeavorLog;
 pub use endeavor::{

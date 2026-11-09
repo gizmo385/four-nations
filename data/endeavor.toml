@@ -39,6 +39,11 @@
 # - hint:       optional; what the UI suggests while the sign isn't met. Ignored for `masters`:
 #               the UI always computes that one (`fn_ui::endeavor::masters_hint`, #382), so it
 #               can name the Bend tool's real key instead of a fixed string.
+# - hint_until: optional; `{ tech = "...", text = "..." }`: the hint to show instead of `hint`
+#               for as long as that tech is unknown (#403: the scrolls sign points at
+#               cartography until it is researched). The tech must exist.
+# - hint_uncharted: optional, `tally = "scrolls_read"` only; the hint once the `hint_until` tech
+#               is known but no Map Room has finished a chart (#403).
 #
 # [[stage]], built in the order listed once the player has placed the site (issue #236):
 # - id:   unique; saves refer to stages by id.
@@ -171,6 +176,8 @@ kind = "tally"
 tally = "scrolls_read"
 target = 3
 hint = "Bring scrolls to a study hall"
+hint_until = { tech = "cartography", text = "Bring scrolls to a study hall. Cartography charts ruins." }
+hint_uncharted = "Bring scrolls to a study hall. A Map Room charts ruins."
 
 # The stages (docs/design/endgame.md, "The project: four stages"). A pillar takes a full chi meter
 # (the design's 150 is more than `chi.max` in bending.toml allows). The Arch's beam lift and the
