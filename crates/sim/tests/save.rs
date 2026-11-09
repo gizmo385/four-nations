@@ -215,12 +215,13 @@ fn another_format_version_is_refused_before_the_body_is_read() {
 }
 
 #[test]
-fn a_save_from_different_game_data_is_refused() {
+fn a_save_whose_ids_line_is_damaged_is_corrupt() {
+    // The data hash no longer gates loading (#602; tests/save_compat.rs), but the id tables do.
     let defs = Defs::bundled();
     let text = fresh(Nation::Fire, &defs).save(&defs).unwrap();
-    let tampered = text.replacen(&format!("data_hash:{}", defs.id_hash()), "data_hash:1", 1);
-    assert_ne!(tampered, text);
-    assert_eq!(World::load(&tampered, &defs).err(), Some(SaveError::DataMismatch));
+    let broken = text.replacen("(biomes:[", "(biomes:[oops", 1);
+    assert_ne!(broken, text);
+    assert!(matches!(World::load(&broken, &defs), Err(SaveError::Corrupt(_))));
 }
 
 #[test]

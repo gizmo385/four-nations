@@ -611,6 +611,11 @@ impl World {
         self.buried.len()
     }
 
+    /// The research state, for `save::load` to remap its positional `known` table (#602).
+    pub(crate) fn research_mut(&mut self) -> &mut Research {
+        &mut self.research
+    }
+
     /// Checks that a world read from a save is consistent enough to run: the things that would
     /// panic later (grid shape, research tables, unit placement), not every invariant.
     pub(crate) fn validate(&self, defs: &Defs) -> Result<(), String> {

@@ -246,7 +246,7 @@ fn esc_in_the_name_prompt_goes_back_to_the_menu_without_saving() {
     run(&mut a, "<esc> <down> <enter> m y <esc>");
     assert_eq!(a.ui.modal, Some(Modal::Menu), "back to the row list, not resumed");
     assert_eq!(a.ui.menu_name, None);
-    assert!(fn_ui::saves::list(&tmp.0, &a.session.defs).unwrap().is_empty());
+    assert!(fn_ui::saves::list(&tmp.0).unwrap().is_empty());
 }
 
 #[test]

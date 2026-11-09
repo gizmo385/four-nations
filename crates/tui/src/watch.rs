@@ -448,8 +448,8 @@ impl Watcher {
     /// Builds the session `header` describes (the way `surface::Host::new` does), with nothing
     /// yet to replay: feed it events with [`Self::feed`]. Refuses a log made against different
     /// data (`header.data_digest` against the bundled data's own `Defs::id_hash` -- #324's
-    /// acceptance criteria), the same rule `fn_sim::save` applies to a save file: a replay only
-    /// holds for the same data a header's `Host` was built against.
+    /// acceptance criteria): a replay only holds for the same data a header's `Host` was built
+    /// against. Save files no longer follow this rule (#602); run logs still do.
     pub fn new(header: &RunLogHeader) -> Result<Self, String> {
         let args = Args {
             seed: Some(header.seed),

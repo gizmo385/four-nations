@@ -133,8 +133,8 @@ pub struct TitleScreen {
 }
 
 impl TitleScreen {
-    pub fn new(defs: &Defs, saves: Option<&Path>, seed_hint: u64) -> Self {
-        let save_slots = list_slots(defs, saves);
+    pub fn new(saves: Option<&Path>, seed_hint: u64) -> Self {
+        let save_slots = list_slots(saves);
         let continue_slot = save_slots.iter().find(|s| s.loadable()).cloned();
         Self {
             page: Page::Menu,
@@ -216,7 +216,7 @@ impl TitleScreen {
                 None => Outcome::None,
             },
             MenuItem::Load => {
-                self.save_slots = list_slots(defs, saves);
+                self.save_slots = list_slots(saves);
                 self.load_cursor = 0;
                 self.page = Page::Load;
                 Outcome::None
@@ -378,8 +378,8 @@ impl TitleScreen {
 
 /// Every save in `saves`, newest first, or none without a directory. A listing error is folded
 /// into an empty list; it would otherwise have nowhere to show before the Load page is even open.
-fn list_slots(defs: &Defs, saves: Option<&Path>) -> Vec<fn_ui::saves::Slot> {
-    saves.map(|dir| fn_ui::saves::list(dir, defs).unwrap_or_default()).unwrap_or_default()
+fn list_slots(saves: Option<&Path>) -> Vec<fn_ui::saves::Slot> {
+    saves.map(|dir| fn_ui::saves::list(dir).unwrap_or_default()).unwrap_or_default()
 }
 
 /// The highlight after a step of `dy` rows (its sign only), stopping at the edges, as
@@ -651,8 +651,7 @@ mod tests {
 
     #[test]
     fn with_no_saves_continue_is_hidden_and_the_menu_has_the_other_three() {
-        let defs = Defs::bundled();
-        let screen = TitleScreen::new(&defs, None, 1);
+        let screen = TitleScreen::new(None, 1);
         assert_eq!(
             screen.items(),
             [MenuItem::NewGame, MenuItem::Load, MenuItem::Quit],
@@ -662,8 +661,7 @@ mod tests {
 
     #[test]
     fn the_menu_cursor_stops_at_the_edges() {
-        let defs = Defs::bundled();
-        let mut screen = TitleScreen::new(&defs, None, 1);
+        let mut screen = TitleScreen::new(None, 1);
         assert_eq!(screen.cursor, 0);
         press(&mut screen, KeyCode::Up);
         assert_eq!(screen.cursor, 0, "stops at the top");
@@ -675,8 +673,7 @@ mod tests {
 
     #[test]
     fn new_game_goes_through_a_nation_then_a_seed_then_starts() {
-        let defs = Defs::bundled();
-        let mut screen = TitleScreen::new(&defs, None, 42);
+        let mut screen = TitleScreen::new(None, 42);
         assert!(matches!(press(&mut screen, KeyCode::Enter), Outcome::None)); // New game (cursor 0)
         assert!(matches!(screen.page, Page::Nation { cursor: 0 }));
         assert_eq!(screen.display_nation(), Nation::Air);
@@ -706,8 +703,7 @@ mod tests {
 
     #[test]
     fn typing_digits_replaces_the_default_seed_and_backspace_edits_it() {
-        let defs = Defs::bundled();
-        let mut screen = TitleScreen::new(&defs, None, 999);
+        let mut screen = TitleScreen::new(None, 999);
         screen.page = Page::Seed {
             nation: Nation::Water,
             digits: "999".into(),
@@ -736,7 +732,7 @@ mod tests {
     #[test]
     fn size_and_survey_rows_move_with_up_down_and_change_with_left_right() {
         let defs = Defs::bundled();
-        let mut screen = TitleScreen::new(&defs, None, 7);
+        let mut screen = TitleScreen::new(None, 7);
         press(&mut screen, KeyCode::Enter); // New game
         press(&mut screen, KeyCode::Enter); // Air, to the seed page
         press(&mut screen, KeyCode::Down); // Size row
@@ -775,7 +771,7 @@ mod tests {
     #[test]
     fn difficulty_row_defaults_cycles_in_file_order_and_wraps_into_the_outcome() {
         let defs = Defs::bundled();
-        let mut screen = TitleScreen::new(&defs, None, 7);
+        let mut screen = TitleScreen::new(None, 7);
         press(&mut screen, KeyCode::Enter); // New game
         press(&mut screen, KeyCode::Enter); // Air, to the seed page
         if let Page::Seed { difficulty_idx, .. } = &screen.page {
@@ -815,8 +811,7 @@ mod tests {
 
     #[test]
     fn escape_steps_back_a_page_at_a_time() {
-        let defs = Defs::bundled();
-        let mut screen = TitleScreen::new(&defs, None, 1);
+        let mut screen = TitleScreen::new(None, 1);
         press(&mut screen, KeyCode::Enter); // New game
         press(&mut screen, KeyCode::Enter); // Air, to the seed page
         press(&mut screen, KeyCode::Esc);
@@ -827,8 +822,7 @@ mod tests {
 
     #[test]
     fn an_empty_seed_before_any_typing_falls_back_to_the_hint() {
-        let defs = Defs::bundled();
-        let mut screen = TitleScreen::new(&defs, None, 7);
+        let mut screen = TitleScreen::new(None, 7);
         press(&mut screen, KeyCode::Enter); // New game
         press(&mut screen, KeyCode::Enter); // Air, to the seed page
         let outcome = press(&mut screen, KeyCode::Enter); // Enter alone: the hint
@@ -837,8 +831,7 @@ mod tests {
 
     #[test]
     fn quit_from_the_menu_quits_at_once_with_no_further_question() {
-        let defs = Defs::bundled();
-        let mut screen = TitleScreen::new(&defs, None, 1);
+        let mut screen = TitleScreen::new(None, 1);
         for _ in 0..3 {
             press(&mut screen, KeyCode::Down);
         }
@@ -848,8 +841,7 @@ mod tests {
 
     #[test]
     fn with_no_save_directory_load_says_so_and_continue_does_nothing() {
-        let defs = Defs::bundled();
-        let mut screen = TitleScreen::new(&defs, None, 1);
+        let mut screen = TitleScreen::new(None, 1);
         // Load is the second item without a Continue slot.
         press(&mut screen, KeyCode::Down);
         assert_eq!(screen.items()[screen.cursor], MenuItem::Load);
@@ -864,7 +856,7 @@ mod tests {
     #[test]
     fn a_release_event_does_nothing() {
         let defs = Defs::bundled();
-        let mut screen = TitleScreen::new(&defs, None, 1);
+        let mut screen = TitleScreen::new(None, 1);
         let release = KeyEvent {
             code: KeyCode::Down,
             modifiers: KeyModifiers::NONE,

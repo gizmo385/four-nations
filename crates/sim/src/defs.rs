@@ -57,10 +57,12 @@ impl Terrain {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+// `Deserialize` is `save::ids`' remapping impl (#602).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct BiomeId(pub u8);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+// `Deserialize` is `save::ids`' remapping impl (#602).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct ResourceId(pub u16);
 
 /// A biome and the climate it occupies. Mapgen picks the *first* biome (in file order) whose
@@ -221,38 +223,26 @@ const BUNDLED_FILES: [&str; 13] = [
 
 impl Defs {
     /// A hash of every id table (biomes, resources, nations, techs, items, buildings, abilities) in
-    /// order. Ids such as `TechId` and `ItemId` are indices into these tables, so a save is only
-    /// meaningful against data whose hash matches. Balance numbers don't enter into it: retuning a
-    /// rate or a cost keeps old saves loadable, while adding, removing or reordering an entry
-    /// doesn't.
+    /// order: `SaveIds::of(self).hash()`. Ids such as `TechId` are indices into these tables, so
+    /// two builds with the same hash number their content the same way. Balance numbers don't
+    /// enter into it. Saves no longer depend on it (#602: a save carries its own id tables and is
+    /// remapped by name on load) and write it only as information. It is still a run log's
+    /// `data_digest`, because replaying keystrokes only holds for the same id order.
     pub fn id_hash(&self) -> u64 {
-        let tables: [Vec<&str>; 7] = [
-            self.biomes.iter().map(|d| d.id.as_str()).collect(),
-            self.resources.iter().map(|d| d.id.as_str()).collect(),
-            self.nations.iter().map(|d| d.name.as_str()).collect(),
-            self.techs.iter().map(|d| d.id.as_str()).collect(),
-            self.items.iter().map(|d| d.id.as_str()).collect(),
-            self.buildings.iter().map(|d| d.id.as_str()).collect(),
-            self.abilities.iter().map(|d| d.id.as_str()).collect(),
-        ];
-        // FNV-1a, as in `rng::stream`; stable across platforms and Rust versions.
-        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-        let mut feed = |b: u8| {
-            h ^= u64::from(b);
-            h = h.wrapping_mul(0x0100_0000_01b3);
-        };
-        for table in &tables {
-            for id in table {
-                id.bytes().for_each(&mut feed);
-                feed(0);
-            }
-            feed(1);
-        }
-        h
+        crate::save::SaveIds::of(self).hash()
     }
 
     /// The definitions shipped in `data/`, embedded at compile time.
     pub fn bundled() -> Self {
+        Self::from_files(BUNDLED_FILES)
+            .expect("bundled data/*.toml must be valid; run `cargo test -p fn_sim`")
+    }
+
+    /// Definitions read from the text of the 13 `data/*.toml` files, in the order
+    /// [`Defs::bundled`] reads them: biomes, resources, nations, research, needs, jobs, bending,
+    /// buildings, endeavor, embark, difficulty, seasons, harm. `bundled` is this on the embedded
+    /// files; tests use it on edited copies of them.
+    pub fn from_files(files: [&str; 13]) -> Result<Self, DefsError> {
         let [
             biomes,
             resources,
@@ -267,14 +257,13 @@ impl Defs {
             difficulty,
             seasons,
             harm,
-        ] = BUNDLED_FILES;
+        ] = files;
         Self::from_toml(biomes, resources, nations, research, needs, jobs, bending, buildings)
             .and_then(|d| d.with_endeavor(endeavor))
             .and_then(|d| d.with_embark(embark))
             .and_then(|d| d.with_difficulty(difficulty))
             .and_then(|d| d.with_seasons(seasons))
             .and_then(|d| d.with_harm(harm))
-            .expect("bundled data/*.toml must be valid; run `cargo test -p fn_sim`")
     }
 
     /// A hash of the text of every file [`Defs::bundled`] reads, so two runs of the game (or of

@@ -36,9 +36,8 @@ pub enum Rank {
     Master,
 }
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+// `Deserialize` is `save::ids`' remapping impl (#602).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
 pub struct AbilityId(pub u16);
 
 /// `[chi]` in `data/bending.toml`. Every unit has a meter from 0 to `max`.
