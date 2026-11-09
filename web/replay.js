@@ -140,8 +140,9 @@ function layout() {
   if (choice === 'fit') {
     font = 14;
     let m = measure(font);
-    // Shrink the font until at least 120x40 fits (the TUI's smallest comfortable size).
-    while (font > 8 && (stage.clientWidth / m.cw < 120 || stage.clientHeight / m.ch < 40)) {
+    // Shrink the font until the studio fits (data/tui.toml [studio] min_width x min_height,
+    // 160x45): below that the script, game and feed panes collapse into tabs.
+    while (font > 8 && (stage.clientWidth / m.cw < 160 || stage.clientHeight / m.ch < 45)) {
       font -= 1;
       m = measure(font);
     }
