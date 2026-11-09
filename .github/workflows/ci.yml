@@ -35,4 +35,9 @@ jobs:
         with:
           # Only main writes the cache; PRs restore it. Keeps us within the private-repo quota.
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # `cargo xtask ci` runs the tests with nextest when it's installed (and requires it on CI):
+      # all test binaries share one pool instead of running one after another.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - run: cargo xtask ci

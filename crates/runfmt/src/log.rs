@@ -23,6 +23,10 @@ pub enum PreludeOpening {
     /// buildings, farms, bending) -- the only kind a bundled `data/scenarios.toml` preset uses
     /// today.
     Economy,
+    /// `Economy` with its research branch-first (`Economy::with_branch_first`, as `balance
+    /// --branch-first` measures): the nation's own branch before the shared tier, so a nation's
+    /// later abilities arrive in minutes instead of hours.
+    EconomyBranchFirst,
     /// The plainer `fn_sim::autoplay::Opening`: beds, a campfire and a short research queue.
     Opening,
 }

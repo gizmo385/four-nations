@@ -467,6 +467,8 @@ fn economy_season(
 pub enum ParOpening {
     /// `autoplay::Economy`.
     Economy,
+    /// `autoplay::Economy` researching branch-first (`Economy::with_branch_first`).
+    EconomyBranchFirst,
     /// The plainer `autoplay::Opening`.
     Opening,
 }
@@ -521,6 +523,7 @@ pub fn par(track: &ParTrack, defs: &Defs, score: &ScoreDef) -> Result<Scorecard,
     let turn_ticks = u64::from(track.turn_seconds.max(1)) * u64::from(TICKS_PER_SECOND);
     let horizon = prelude_ticks + track.horizon_turns * turn_ticks;
     let economy = Economy::new(PEOPLE);
+    let branch_first = Economy::new(PEOPLE).with_branch_first();
     let plain = Opening::new(PEOPLE);
     let mut start = ScoreStart::default();
     for tick in 0..horizon {
@@ -531,6 +534,11 @@ pub fn par(track: &ParTrack, defs: &Defs, score: &ScoreDef) -> Result<Scorecard,
             match track.prelude {
                 Some(ParPrelude { opening: ParOpening::Opening, .. }) if tick < prelude_ticks => {
                     plain.step(&mut world, defs)
+                }
+                Some(ParPrelude { opening: ParOpening::EconomyBranchFirst, .. })
+                    if tick < prelude_ticks =>
+                {
+                    branch_first.step(&mut world, defs)
                 }
                 _ => economy.step(&mut world, defs),
             }
@@ -816,14 +824,25 @@ mod tests {
         assert!(!report.seasons.is_empty());
     }
 
-    /// #434's own acceptance criterion: `timeline` is in minute order, and every tech event in
-    /// it names a tech with a visible unlock (a building, ability or job), never one that only
-    /// changes a modifier (`decision_events`'s own rule).
+    /// One 120-minute economy run checks the report's shape (these were four tests with a
+    /// run each, ~45 s of CI between them, for checks no nation changes):
+    /// - #434's own acceptance criterion: `timeline` is in minute order, and every tech event in
+    ///   it names a tech with a visible unlock (a building, ability or job), never one that only
+    ///   changes a modifier (`decision_events`'s own rule).
+    /// - `techs` lists every completion `timeline` could possibly draw a tech event from, so a
+    ///   caller never sees a tech in `timeline` that isn't also in `techs`.
+    /// - `idle_share` samples every `Opening::due` tick (module doc; #434), so the run covers at
+    ///   least the first 15-minute window, and every share is a fraction.
+    /// - `longest_gap`, when present, is a well-formed interval inside the measured window
+    ///   (minute 30 to `ready_minute`, which is at most `cfg.minutes`): its start comes no
+    ///   earlier than minute 30 and its end no later than the run's own length.
     #[test]
-    fn timeline_is_in_minute_order_and_every_tech_event_has_a_visible_unlock() {
+    fn the_economy_report_is_well_formed() {
         let defs = Defs::bundled();
-        let c = economy_cfg(Nation::Earth, 90.0, true);
+        let c = economy_cfg(Nation::Earth, 120.0, true);
         let report = run_economy(&c, &defs);
+
+        // timeline: minute order, and tech events name techs with a visible unlock.
         assert!(!report.timeline.is_empty(), "{report:?}");
         assert!(
             report.timeline.windows(2).all(|w| w[0].minute <= w[1].minute),
@@ -852,16 +871,9 @@ mod tests {
                 );
             }
         }
-    }
 
-    /// `techs` lists every completion `timeline` could possibly draw a tech event from, so a
-    /// caller never sees a tech in `timeline` that isn't also in `techs`.
-    #[test]
-    fn every_tech_event_in_the_timeline_is_also_in_techs() {
-        let defs = Defs::bundled();
-        let c = economy_cfg(Nation::Fire, 90.0, true);
-        let report = run_economy(&c, &defs);
-        let tech_names: std::collections::BTreeSet<&str> = report
+        // Every tech event in the timeline is also in techs.
+        let completed: std::collections::BTreeSet<&str> = report
             .techs
             .iter()
             .map(|(id, _)| defs.tech(defs.tech_id(id).unwrap()).name.as_str())
@@ -869,25 +881,24 @@ mod tests {
         for event in &report.timeline {
             if !event.label.ends_with(" met") {
                 assert!(
-                    tech_names.contains(event.label.as_str()),
+                    completed.contains(event.label.as_str()),
                     "timeline tech event {event:?} has no matching completion in techs"
                 );
             }
         }
-    }
 
-    /// `idle_share` samples every `Opening::due` tick (module doc; #434), so a 90-minute run
-    /// covers at least the first 15-minute window, and every share is a fraction.
-    #[test]
-    fn idle_share_covers_the_run_with_fractions_in_range() {
-        let defs = Defs::bundled();
-        let c = economy_cfg(Nation::Air, 90.0, true);
-        let report = run_economy(&c, &defs);
+        // idle_share: at least one window, every share a fraction.
         assert!(!report.idle_share.is_empty(), "{report:?}");
         for &(start, share) in &report.idle_share {
             assert!(start >= 0.0, "{report:?}");
             assert!((0.0..=1.0).contains(&share), "{report:?}");
         }
+
+        // longest_gap: inside the measured window.
+        if let Some((start, end)) = report.longest_gap {
+            assert!(start >= 30.0 && end <= 120.0 && start <= end, "{report:?}");
+        }
+        assert!(report.gaps_over_15 as usize <= report.timeline.len() + 1, "{report:?}");
     }
 
     /// `--branch-first` (`EconomyConfig::branch_first`) is as deterministic as the default order
@@ -897,20 +908,6 @@ mod tests {
         let defs = Defs::bundled();
         let c = EconomyConfig { branch_first: true, ..economy_cfg(Nation::Earth, 60.0, true) };
         assert_eq!(run_economy(&c, &defs), run_economy(&c, &defs));
-    }
-
-    /// `longest_gap`, when present, is a well-formed interval inside the measured window
-    /// (minute 30 to `ready_minute`, which is at most `cfg.minutes`): its start comes no earlier
-    /// than minute 30 and its end no later than the run's own length.
-    #[test]
-    fn longest_gap_is_a_well_formed_interval_when_present() {
-        let defs = Defs::bundled();
-        let c = economy_cfg(Nation::Water, 120.0, true);
-        let report = run_economy(&c, &defs);
-        if let Some((start, end)) = report.longest_gap {
-            assert!(start >= 30.0 && end <= 120.0 && start <= end, "{report:?}");
-        }
-        assert!(report.gaps_over_15 as usize <= report.timeline.len() + 1, "{report:?}");
     }
 
     /// Seed 7, Earth, Normal, the small map's default site, 90 turns (30 game minutes).

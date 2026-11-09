@@ -1,0 +1,10 @@
+# cargo-nextest settings (`cargo xtask ci` and `check` run tests with nextest when it's installed).
+# nextest runs each test in its own process, all binaries' tests in one pool.
+
+[profile.default]
+# Name any test still running after a minute, so the slow ones stay visible in CI logs.
+slow-timeout = { period = "60s" }
+# Run every test even after a failure, so one CI run shows all of them.
+fail-fast = false
+# List the slow tests again in the final summary.
+final-status-level = "slow"

@@ -1365,6 +1365,11 @@ pub(crate) mod prelude {
             PreludeOpening::Economy => {
                 Economy::new(STARTING_UNITS).step(&mut session.world, &session.defs);
             }
+            PreludeOpening::EconomyBranchFirst => {
+                Economy::new(STARTING_UNITS)
+                    .with_branch_first()
+                    .step(&mut session.world, &session.defs);
+            }
             PreludeOpening::Opening => {
                 Opening::new(STARTING_UNITS).step(&mut session.world, &session.defs);
             }
@@ -2538,6 +2543,7 @@ pub mod referee {
             prelude: header.prelude.map(|p| ParPrelude {
                 opening: match p.opening {
                     super::PreludeOpening::Economy => ParOpening::Economy,
+                    super::PreludeOpening::EconomyBranchFirst => ParOpening::EconomyBranchFirst,
                     super::PreludeOpening::Opening => ParOpening::Opening,
                 },
                 minutes: p.minutes,
