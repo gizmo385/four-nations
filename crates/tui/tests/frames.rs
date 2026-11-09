@@ -1445,7 +1445,21 @@ fn an_orchards_sapling_has_its_own_glyph() {
 #[test]
 fn a_farm_plot_shows_its_growing_and_ripe_glyphs() {
     let mut s = Session::new(1, Nation::Earth, 48, 32);
-    let plot = Pos::new(s.world.units[0].pos.x + 2, s.world.units[0].pos.y);
+    // The nearest open meadow tile two or more steps from the first settler that it can walk to
+    // (a start in a forest has pockets of open ground a plot there could not be worked from, #582).
+    let home = s.world.units[0].pos;
+    let regions =
+        fn_sim::regions::Regions::compute(&s.world.map, &fn_sim::path::MoveRules::default());
+    let mut spots: Vec<Pos> = s.world.map.iter().map(|(p, _)| p).collect();
+    spots.sort_by_key(|p| ((p.x - home.x).pow(2) + (p.y - home.y).pow(2), p.x, p.y));
+    let plot = spots
+        .into_iter()
+        .find(|&p| {
+            p.chebyshev(home) >= 2
+                && regions.connected(home, p)
+                && s.world.map.get(p).is_some_and(|t| t.resource.is_none() && t.building.is_none())
+        })
+        .expect("an open tile to plant");
     let id = s.defs.building_id("farm_plot").unwrap();
     let passable = s.defs.building(id).passable;
     s.world.map.get_mut(plot).unwrap().building =

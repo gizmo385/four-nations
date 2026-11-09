@@ -270,8 +270,14 @@ pub struct Death {
     pub weakened_by: Option<HarmKind>,
 }
 
-/// Where `count` starting units go: walkable tiles, spiralling out from the map center.
-fn spawn_points(map: &TileMap, count: usize) -> Vec<Pos> {
+/// Where `count` starting units go: walkable tiles, spiralling out from the map center, all in
+/// one connected region (#582). A map crowded with trees has sealed pockets of open ground
+/// near the center (trees block walking), and a settler born in one can reach no water, no
+/// food and no work: it stood there until it died, beside stores it could see. So the spiral
+/// keeps only tiles in the region of the nearest open tile that belongs to a landmass of at
+/// least `min_room` tiles (`EmbarkDef::min_room`, the size `found` insists on too), or, with
+/// no landmass that big among the candidates, in the largest one they touch.
+fn spawn_points(map: &TileMap, count: usize, min_room: usize) -> Vec<Pos> {
     let center = Pos::new(map.width() / 2, map.height() / 2);
     let mut candidates: Vec<Pos> = map
         .iter()
@@ -279,6 +285,14 @@ fn spawn_points(map: &TileMap, count: usize) -> Vec<Pos> {
         .map(|(p, _)| p)
         .collect();
     candidates.sort_by_key(|p| ((p.x - center.x).pow(2) + (p.y - center.y).pow(2), *p));
+    let regions = Regions::compute(map, &MoveRules::default());
+    let size = |p: &Pos| regions.region(*p).map_or(0, |r| regions.size(r));
+    let home = candidates
+        .iter()
+        .find(|p| size(p) >= min_room)
+        .or_else(|| candidates.iter().max_by_key(|p| (size(p), std::cmp::Reverse(**p))))
+        .and_then(|&p| regions.region(p));
+    candidates.retain(|&p| regions.region(p) == home);
     candidates.truncate(count);
     candidates
 }
@@ -492,7 +506,7 @@ pub struct World {
 impl World {
     pub fn new(cfg: &MapGenConfig, nation: Nation, starting_units: u32, defs: &Defs) -> Self {
         let map = mapgen::generate(cfg, defs);
-        let spawns = spawn_points(&map, starting_units as usize);
+        let spawns = spawn_points(&map, starting_units as usize, defs.embark.min_room as usize);
         Self::with_map(cfg.seed, map, nation, &spawns, defs)
     }
 
@@ -996,6 +1010,48 @@ mod tests {
         let (w, _) = world(Nation::Earth);
         assert_eq!(w.units.len(), 4);
         assert!(w.units.iter().all(|u| w.walkable(u.pos)));
+    }
+
+    /// 41x41 open land with a one-tile island at the center, ringed by water.
+    fn island_at_center() -> TileMap {
+        use crate::defs::{BiomeId, Terrain};
+        use crate::geom::Grid;
+        use crate::mapgen::Tile;
+        let center = Pos::new(20, 20);
+        Grid::from_fn(41, 41, |p| Tile {
+            elevation: 100,
+            temperature: 128,
+            moisture: 128,
+            terrain: if p != center && p.chebyshev(center) == 1 {
+                Terrain::Water
+            } else {
+                Terrain::Land
+            },
+            biome: BiomeId(0),
+            resource: None,
+            building: None,
+        })
+    }
+
+    #[test]
+    fn spawns_share_one_region_not_a_sealed_pocket_at_the_center() {
+        // The center tile is the nearest open ground, but nobody standing on it can walk
+        // anywhere (#582): the settlers spawn on the mainland around it instead.
+        let map = island_at_center();
+        let spawns = spawn_points(&map, 6, 300);
+        assert_eq!(spawns.len(), 6);
+        assert!(!spawns.contains(&Pos::new(20, 20)), "{spawns:?}");
+        let regions = Regions::compute(&map, &MoveRules::default());
+        assert!(spawns.iter().all(|&p| regions.connected(spawns[0], p)), "{spawns:?}");
+    }
+
+    #[test]
+    fn spawns_use_the_largest_region_when_none_is_big_enough() {
+        // Nothing here reaches `min_room`, so the largest landmass among the candidates wins.
+        let map = island_at_center();
+        let spawns = spawn_points(&map, 4, 100_000);
+        assert!(!spawns.contains(&Pos::new(20, 20)), "{spawns:?}");
+        assert_eq!(spawns.len(), 4);
     }
 
     #[test]

@@ -372,22 +372,35 @@ fn the_tool_knows_nothing_of_held_out_seeds() {
     assert!(!r.to_string().contains("held"), "{r}");
 }
 
-/// Seed 42 punishes a settlement with no orders: someone dies before turn 100. The result names
-/// them as the alert did (who, of what, on which turn), and the detail's deaths row agrees.
+/// Seed 2 punishes a settlement with no orders: it comes through two winters on the wild food
+/// around it and loses people in the third (turns 495-540), with no stores laid by. (Seed 42 did
+/// it before turn 100 until #582: two settlers spawned in sealed pockets of trees and starved
+/// beside the stores. That was a spawn bug, now fixed.) The result names them as the alert did
+/// (who, of what, on which turn), and the detail's deaths row agrees.
 #[test]
 fn deaths_come_with_their_cause_and_turn() {
-    let mut tools = Tools::new(host(LIVE_SEED), Writer::new(Vec::new()))
+    const DEATH_SEED: u64 = 2;
+    // The small map on Normal, the track's own start: seed 2 only dies there.
+    let nation = fn_tui::cli::parse_nation("water").unwrap();
+    let live =
+        Host::new(LIVE_SEED, nation, Some("small".into()), Some("normal".into()), None, false)
+            .unwrap()
+            .with_turn_seconds(DEFAULT_TURN_SECONDS);
+    let mut tools = Tools::new(live, Writer::new(Vec::new()))
         .unwrap()
         .with_scripts(Limits::bundled())
-        .with_trial(Trial::new(vec![LIVE_SEED, OTHER_SEED], 100).unwrap());
+        .with_trial(Trial::new(vec![LIVE_SEED, DEATH_SEED], 540).unwrap());
     save(&mut tools, WORKS);
-    let r = tools.call("test_governor", json!({"seed": OTHER_SEED, "detail": true})).unwrap();
+    let r = tools.call("test_governor", json!({"seed": DEATH_SEED, "detail": true})).unwrap();
     let deaths = text(&r, "deaths");
-    assert!(deaths.starts_with("1: "), "{deaths}");
+    let (count, named) = deaths.split_once(": ").unwrap_or_else(|| panic!("no deaths: {deaths}"));
+    let count: u32 = count.parse().unwrap();
+    assert!(count >= 1, "{deaths}");
+    let first = named.split("; ").next().unwrap();
     let (cause, turn) =
-        deaths.rsplit_once(" t").map(|(a, b)| (a, b.parse::<u32>().unwrap())).unwrap();
+        first.rsplit_once(" t").map(|(a, b)| (a, b.parse::<u32>().unwrap())).unwrap();
     assert!(cause.ends_with("starvation") || cause.ends_with("dehydration"), "{deaths}");
-    assert!((1..=100).contains(&turn), "{deaths}");
+    assert!((1..=540).contains(&turn), "{deaths}");
     let trace = text(&r, "trace");
     let died: u32 = trace
         .lines()
@@ -397,8 +410,21 @@ fn deaths_come_with_their_cause_and_turn() {
         .skip(1)
         .map(|c| c.parse::<u32>().unwrap())
         .sum();
-    assert_eq!(died, 1, "{trace}");
+    assert_eq!(died, count, "{trace}");
     assert!(r["care"].as_f64().unwrap() < 1.0, "{r}");
+}
+
+/// Seed 42 used to lose someone to a spawn pocket before turn 100 (#582); now nobody dies there
+/// in that time, and the result says so.
+#[test]
+fn no_deaths_reads_none() {
+    let mut tools = Tools::new(host(LIVE_SEED), Writer::new(Vec::new()))
+        .unwrap()
+        .with_scripts(Limits::bundled())
+        .with_trial(Trial::new(vec![LIVE_SEED, OTHER_SEED], 100).unwrap());
+    save(&mut tools, WORKS);
+    let r = tools.call("test_governor", json!({"seed": OTHER_SEED, "detail": true})).unwrap();
+    assert_eq!(text(&r, "deaths"), "none", "{r}");
 }
 
 /// Same governor, plan and seed: the same bytes, the detail form too (no clock, no thread RNG).

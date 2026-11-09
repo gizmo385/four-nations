@@ -8,7 +8,8 @@ use fn_sim::{Defs, MapGenConfig, Nation, Pos, SAVE_VERSION, SaveError, World};
 /// `the_saved_session_has_the_state_the_tests_need_to_cover` fails, try the next seed. Re-picked
 /// by #383: gold veins no longer count toward `targets` (gold mining needs `prospecting` now),
 /// which left seed 14's start without a harvest job still pending at tick 1500.
-const SEED: u64 = 6;
+/// Re-picked by #582: settlers now spawn in one connected region, which moved the start of seed 6 (and others).
+const SEED: u64 = 18;
 
 fn fresh(nation: Nation, defs: &Defs) -> World {
     let cfg = MapGenConfig { seed: SEED, ..Default::default() };

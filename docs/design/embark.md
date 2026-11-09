@@ -406,9 +406,12 @@ impl Session { pub fn found(survey: Survey, nation: Nation, start: Pos) -> Resul
   no randomness, and the name and variant streams (`world.names`, `world.units`) are untouched, so
   the same seed gives the same people wherever they settle. #287's starting stores, if it adds
   them, go down at the start here too.
-- **No churn for the old path.** `World::new` keeps today's centre spiral exactly and leaves
-  `start` as `None`, which isn't serialized (`skip_serializing_if`). Every mapgen, world, save
-  and TUI golden stays as it is. Moving the CLI path onto `found(default_site)` would improve
+- **No churn for the old path.** `World::new` keeps today's centre spiral and leaves
+  `start` as `None`, which isn't serialized (`skip_serializing_if`). The one change (#582): the
+  spiral keeps only tiles of one connected region, the first landmass of `min_room` tiles it
+  meets, because on a forested map the nearest open tiles can be sealed pockets (trees block
+  walking) and a settler born in one starved beside full stores. Maps with no such pocket spawn
+  exactly as before. Every mapgen, world, save and TUI golden stays as it is. Moving the CLI path onto `found(default_site)` would improve
   seed 7's start but rebless many goldens while #212, #239 and #284 are in flight. It's a later
   cleanup and is not filed.
 - **Saves.** The map's size is already in the saved `TileMap`. `start` is an additive `#[serde(default)]` field, so there's no `SAVE_VERSION`
