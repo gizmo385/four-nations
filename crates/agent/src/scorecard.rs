@@ -162,6 +162,7 @@ impl Report {
             horizon: self.replay.horizon_turns,
             attempt: None,
             champion: None,
+            build: Some(fn_tui::buildid::CURRENT.to_owned()),
         }
     }
 
@@ -465,6 +466,8 @@ impl Report {
             "progress": card.progress,
             "care": c.value,
             "par": self.par,
+            "build": fn_tui::buildid::CURRENT,
+            "log_build": h.build,
             "horizon": r.horizon_turns,
             "played": r.played_turns,
             "log_turns": r.log_turns,

@@ -364,7 +364,7 @@ impl Browser {
             Some((_, _, Ok(s))) => Some(s.score),
             _ => None,
         };
-        e.info.logged_score.map(|s| s.score).or(computed)
+        e.info.logged_score.as_ref().map(|s| s.score).or(computed)
     }
 
     fn keep_selection(&mut self) {
@@ -782,8 +782,18 @@ impl Browser {
         if parts.is_empty() {
             let score = match (&e.info.logged_score, &e.scored) {
                 (Some(l), _) => format!(
-                    "score {:.1} at {} turns (from the log's score line)",
-                    l.score, l.horizon
+                    "score {:.1} at {} turns (from the log's score line{})",
+                    l.score,
+                    l.horizon,
+                    if l.from_another_build() {
+                        format!(
+                            "; computed by {}, this is build {}: a rescore may differ",
+                            crate::buildid::describe(l.build.as_deref()),
+                            crate::buildid::CURRENT
+                        )
+                    } else {
+                        String::new()
+                    }
                 ),
                 (None, Some((_, _, Ok(s)))) => {
                     format!(

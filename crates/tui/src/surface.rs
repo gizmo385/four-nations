@@ -161,6 +161,7 @@ impl Host {
             rough,
             data_digest,
             crate_version: env!("CARGO_PKG_VERSION").to_owned(),
+            build: Some(crate::buildid::CURRENT.to_owned()),
             prelude: None,
         };
         let mut host = Self {
@@ -2146,6 +2147,12 @@ pub struct RunLogHeader {
     /// #481 still parses.
     #[serde(default)]
     pub prelude: Option<Prelude>,
+    /// The build (`crate::buildid`, #566) of the binary that began this run: a git commit with a
+    /// dirty mark. The same keys can reach a different world under another sim, so a reader that
+    /// scores the log says when its own build isn't this one. `None` in a log written before
+    /// #566, which still reads back; left out of the line when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<String>,
 }
 
 /// One line of a run log file, after the first ([`RunLogHeader`]'s own line): the JSON shape
@@ -2185,7 +2192,7 @@ pub struct RunLogHeader {
 ///   from the arguments alone (never a result, and never `run_script`'s own code), capped at 60
 ///   characters; empty for a tool whose arguments say nothing worth summarizing (`observe`,
 ///   `briefing`, `inspect`, `save_script`, `scripts`, `sdk_reference`).
-/// - `Score { score, progress, care, horizon, attempt?, champion? }`: written by `fn_agent score
+/// - `Score { score, progress, care, horizon, attempt?, champion?, build? }`: written by `fn_agent score
 ///   --append` (#525) after a run, the scorecard's top block; ignored like the other commentary.
 /// - `Plan { plan }`: written by `fn_agent`'s `plan {set?, merge?}` tool after each change (#524,
 ///   docs/design/agent-hillclimb.md, "Within a run: a governor and a plan"): `plan` is the whole
@@ -2253,6 +2260,10 @@ pub enum LogLine {
         attempt: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         champion: Option<bool>,
+        /// The build (`crate::buildid`, #566) of the binary that computed this score: the same
+        /// log can score differently on another. `None` in a line from before #566.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        build: Option<String>,
     },
 }
 
@@ -2955,6 +2966,7 @@ mod tests {
             horizon: 1,
             attempt: None,
             champion: None,
+            build: None,
         };
         assert_eq!(run_end_reason(&[]), None);
         assert_eq!(run_end_reason(&[turn.clone(), end("a")]), Some("a"));
@@ -4074,6 +4086,7 @@ mod tests {
                 rough: false,
                 data_digest: h.data_digest(),
                 crate_version: env!("CARGO_PKG_VERSION").to_owned(),
+                build: Some(crate::buildid::CURRENT.to_owned()),
                 prelude: None,
             }
         );
@@ -4315,6 +4328,7 @@ mod tests {
             horizon: 3,
             attempt: Some(2),
             champion: None,
+            build: None,
         });
         let scored = Host::resume(&header, &lines).unwrap();
         assert_eq!(scored.log(), plain.log());

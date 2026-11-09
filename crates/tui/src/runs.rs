@@ -86,11 +86,25 @@ pub struct Problem {
 }
 
 /// A `score` line `fn_agent score --append` left in the log.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LoggedScore {
     pub score: f64,
     pub horizon: u32,
+    /// The build that computed it (#566); `None` for a line from before builds were recorded.
+    pub build: Option<String>,
 }
+
+impl LoggedScore {
+    /// Whether another build than this one computed the score: the same log can score
+    /// differently here, so the number may not be what a rescore gives. An unrecorded build
+    /// counts: nothing says it was this one.
+    pub fn from_another_build(&self) -> bool {
+        crate::buildid::is_other(self.build.as_deref())
+    }
+}
+
+/// Appended to a logged score that [`LoggedScore::from_another_build`].
+pub const OTHER_BUILD_MARK: &str = "~";
 
 /// What one run folder says about its run.
 #[derive(Clone, Debug, PartialEq)]
@@ -250,9 +264,12 @@ impl RunInfo {
                 struct Score {
                     score: f64,
                     horizon: u32,
+                    #[serde(default)]
+                    build: Option<String>,
                 }
                 if let Ok(s) = serde_json::from_str::<Score>(line) {
-                    self.logged_score = Some(LoggedScore { score: s.score, horizon: s.horizon });
+                    self.logged_score =
+                        Some(LoggedScore { score: s.score, horizon: s.horizon, build: s.build });
                 }
                 // A `score` line after the end doesn't un-end the run.
             } else if line.starts_with(r#"{"type":"end""#) {
@@ -373,13 +390,15 @@ impl RunInfo {
         Some(format!("{}:{:02}", secs / 3600, secs / 60 % 60))
     }
 
-    /// The `score` line's value, with its horizon if that isn't [`SCORE_HORIZON`].
+    /// The `score` line's value, with its horizon if that isn't [`SCORE_HORIZON`], and
+    /// [`OTHER_BUILD_MARK`] if another build computed it.
     pub fn logged_score_text(&self) -> Option<String> {
-        let s = self.logged_score?;
+        let s = self.logged_score.as_ref()?;
+        let mark = if s.from_another_build() { OTHER_BUILD_MARK } else { "" };
         Some(if s.horizon == SCORE_HORIZON {
-            format!("{:.1}", s.score)
+            format!("{:.1}{mark}", s.score)
         } else {
-            format!("{:.1}@{}", s.score, s.horizon)
+            format!("{:.1}@{}{mark}", s.score, s.horizon)
         })
     }
 }
@@ -453,31 +472,39 @@ struct Cache {
 }
 
 /// A fingerprint of everything a score depends on that the log doesn't carry: the bundled data
-/// files the replay reads, and the build's version. A cache from another one is ignored.
+/// files the replay reads, and the build (`crate::buildid`, #566: the replay is this binary's sim,
+/// so the same log can score differently once the code has changed). A cache from another one
+/// is ignored, and each run is scored again.
+///
+/// The build id is the last commit that touched the code or data, plus a hash of uncommitted
+/// changes to them, so it already is a "data and sim-relevant" key: a commit that only changes
+/// docs, `xtask` or the harness leaves it alone and costs the browser nothing.
 fn rules_stamp() -> &'static str {
     use std::sync::OnceLock;
     static STAMP: OnceLock<String> = OnceLock::new();
-    STAMP.get_or_init(|| {
-        let files: [&str; 11] = [
-            include_str!("../../../data/biomes.toml"),
-            include_str!("../../../data/resources.toml"),
-            include_str!("../../../data/nations.toml"),
-            include_str!("../../../data/research.toml"),
-            include_str!("../../../data/needs.toml"),
-            include_str!("../../../data/jobs.toml"),
-            include_str!("../../../data/bending.toml"),
-            include_str!("../../../data/buildings.toml"),
-            include_str!("../../../data/endeavor.toml"),
-            include_str!("../../../data/score.toml"),
-            include_str!("../../../data/harm.toml"),
-        ];
-        // FNV-1a, as `Defs::id_hash` does: stable across platforms and Rust versions.
-        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-        for byte in files.iter().flat_map(|f| f.bytes()).chain(env!("CARGO_PKG_VERSION").bytes()) {
-            h = (h ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
-        }
-        format!("{h:016x}")
-    })
+    STAMP.get_or_init(|| stamp_for(crate::buildid::CURRENT))
+}
+
+fn stamp_for(build: &str) -> String {
+    let files: [&str; 11] = [
+        include_str!("../../../data/biomes.toml"),
+        include_str!("../../../data/resources.toml"),
+        include_str!("../../../data/nations.toml"),
+        include_str!("../../../data/research.toml"),
+        include_str!("../../../data/needs.toml"),
+        include_str!("../../../data/jobs.toml"),
+        include_str!("../../../data/bending.toml"),
+        include_str!("../../../data/buildings.toml"),
+        include_str!("../../../data/endeavor.toml"),
+        include_str!("../../../data/score.toml"),
+        include_str!("../../../data/harm.toml"),
+    ];
+    // FNV-1a, as `Defs::id_hash` does: stable across platforms and Rust versions.
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in files.iter().flat_map(|f| f.bytes()).chain(build.bytes()) {
+        h = (h ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:016x}")
 }
 
 /// The cached scoring of `dir`'s log, if there is one made for a log of exactly `log_bytes`
@@ -577,6 +604,43 @@ mod tests {
         assert_eq!(stamp_of("20261108-1422"), None);
         assert_eq!(stamp_of("water-7633"), None);
         assert_eq!(stamp_of("20261108-142213x"), None);
+    }
+
+    /// #566: a cache written by another build is not used, so every run is scored again under
+    /// this one; one written by this build is.
+    #[test]
+    fn a_score_cache_from_another_build_is_ignored() {
+        let dir = std::env::temp_dir().join(format!("fn_tui_runs_cache_{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let scored = Scored { score: 12.5, signs_met: 1, signs_total: 3, deaths: 0 };
+        let cache = |stamp: String| Cache {
+            stamp,
+            log_bytes: 100,
+            horizon: SCORE_HORIZON,
+            scored: Some(scored.clone()),
+            error: None,
+        };
+        let put = |c: &Cache| fs::write(dir.join(CACHE_FILE), serde_json::to_string(c).unwrap());
+
+        put(&cache(rules_stamp().to_owned())).unwrap();
+        assert_eq!(cached_score(&dir, 100), Some(Ok(scored.clone())));
+        put(&cache(stamp_for("0badc0d+deadbeef"))).unwrap();
+        assert_eq!(cached_score(&dir, 100), None, "another build's score isn't this build's");
+        assert_ne!(stamp_for("0badc0d"), stamp_for("0badc0e"));
+        assert_eq!(stamp_for(crate::buildid::CURRENT), rules_stamp());
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_logged_score_from_another_build_is_marked() {
+        let at = |build: Option<&str>| LoggedScore {
+            score: 355.0,
+            horizon: SCORE_HORIZON,
+            build: build.map(str::to_owned),
+        };
+        assert!(!at(Some(crate::buildid::CURRENT)).from_another_build());
+        assert!(at(Some("0badc0d")).from_another_build());
+        assert!(at(None).from_another_build(), "a line from before builds were recorded");
     }
 
     #[test]

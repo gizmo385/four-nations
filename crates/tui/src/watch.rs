@@ -1436,6 +1436,7 @@ mod tests {
             data_digest: fn_sim::Defs::bundled().id_hash(),
             crate_version: env!("CARGO_PKG_VERSION").to_owned(),
             prelude: None,
+            build: None,
         }
     }
 
@@ -1551,6 +1552,7 @@ mod tests {
             horizon: 1,
             attempt: None,
             champion: None,
+            build: None,
         };
         w.feed([end_line("stdin closed"), score.clone()]);
         w.fast_forward_to_turn(u32::MAX);

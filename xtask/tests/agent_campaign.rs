@@ -95,7 +95,15 @@ const STUB_FN_AGENT: &str = r#"#!/bin/sh
 [ -n "$STUB_FN_AGENT_LOG" ] && echo "$*" >> "$STUB_FN_AGENT_LOG"
 cmd="$1"
 shift
+# The build (#566): `STUB_BUILD` says which this "binary" is, and `STUB_SHIFT` is how far this
+# build's sim moves every clean score, so a resume on another build re-scores the champion.
+build="${STUB_BUILD:-stub-1}"
+shift_by="${STUB_SHIFT:-0}"
 case "$cmd" in
+build-id)
+  [ -n "$STUB_NO_BUILD_ID" ] && { echo "stub fn_agent: no build-id" >&2; exit 2; }
+  echo "$build"
+  ;;
 score)
   log="$1"
   json=0
@@ -107,7 +115,7 @@ score)
   s=$(grep -o 'SCORE=[0-9]*' "$log" | tail -1 | cut -d= -f2)
   played=$(( ${s:-0} + 1 ))
   if [ "$append" = 1 ]; then
-    printf '{"type":"score","score":%d.0,"progress":0.5,"care":0.9,"horizon":2,"attempt":null,"champion":null}\n' "$played" >> "$log"
+    printf '{"type":"score","score":%d.0,"progress":0.5,"care":0.9,"horizon":2,"attempt":null,"champion":null,"build":"%s"}\n' "$played" "$build" >> "$log"
   fi
   if [ "$json" = 1 ]; then
     printf '{"score": %d.0}\n' "$played"
@@ -140,7 +148,7 @@ play)
   if grep -q HELDONLY "$script" && [ "$seed" = 9001 ]; then
     by='{"reason":"error","why":"HELDOUT_WHY","turn":4242}'
   fi
-  printf '{"scorecard":{"score":%d.0,"progress":0.5,"care":0.9},"stopped_by":%s}\n' "$(( ${s:-0} + seed ))" "$by"
+  printf '{"scorecard":{"score":%d.0,"progress":0.5,"care":0.9},"stopped_by":%s}\n' "$(( ${s:-0} + seed + shift_by ))" "$by"
   [ "$by" = null ] || exit 1
   ;;
 *)
@@ -233,6 +241,9 @@ impl Fixture {
             .env("STUB_FN_AGENT_LOG", &self.fn_agent_log)
             .env_remove("STUB_NO_GOVERNOR")
             .env_remove("STUB_STOP")
+            .env_remove("STUB_BUILD")
+            .env_remove("STUB_SHIFT")
+            .env_remove("STUB_NO_BUILD_ID")
             .envs(self.extra_env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
             .env_remove("OTEL_RESOURCE_ATTRIBUTES")
             .output()
@@ -831,4 +842,121 @@ fn a_chunk_that_changes_nothing_ends_the_attempt() {
     assert!(stderr(&out).contains("changed nothing"), "{}", stderr(&out));
     // The attempt is still evaluated and recorded.
     assert_eq!(rows(&fx.campaign_dir()).len(), 1);
+}
+
+/// #566: every row and the champion record the build their scores were made on.
+#[test]
+fn rows_and_champion_record_the_build() {
+    let fx = Fixture::new("buildrec");
+    let out = fx.campaign("100", &["--attempts", "1"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let dir = fx.campaign_dir();
+    assert_eq!(rows(&dir)[0]["build"], "stub-1");
+    assert_eq!(json(&dir.join("champion/meta.json"))["build"], "stub-1");
+    // The score line `fn_agent score --append` left on the played log says who computed it.
+    let run1 = fs::read_to_string(dir.join("attempt-1/run.jsonl")).unwrap();
+    assert!(run1.lines().last().unwrap().contains("\"build\":\"stub-1\""), "{run1}");
+    assert!(json(&dir.join("ledger.json")).get("reevals").is_none(), "nothing to re-evaluate");
+}
+
+/// A resume on another build evaluates the champion again before anything else, and the attempts
+/// that follow are compared with that, not with the champion's old mean; both numbers are in the
+/// ledger, the prompt and the printed table. A resume on the same build does none of this.
+#[test]
+fn a_resume_on_another_build_re_evaluates_the_champion_first() {
+    let mut fx = Fixture::new("reeval");
+    // Attempt 1: SCORE 300 on train seeds 7 and 41, mean 324, on build stub-1.
+    let out = fx.campaign("300", &["--attempts", "1"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let dir = fx.campaign_dir();
+
+    // The same build again: the champion's mean stands, so nothing is run for it.
+    let out = fx.resume("300,0", &dir, &["--attempts", "1", "--model", "stub"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(!dir.join("reeval-1").exists());
+    assert!(json(&dir.join("ledger.json")).get("reevals").is_none());
+    assert!(!stderr(&out).contains("evaluating it again"), "{}", stderr(&out));
+
+    // Another build, whose sim scores every clean run 100 lower. The champion is now worth 224.
+    // Attempt 3 earns 274 there: less than the champion's old 324, more than its new 224.
+    fx.extra_env.push(("STUB_BUILD".to_owned(), "stub-2".to_owned()));
+    fx.extra_env.push(("STUB_SHIFT".to_owned(), "-100".to_owned()));
+    let out = fx.resume("300,0,350", &dir, &["--attempts", "1", "--model", "stub"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stderr(&out).contains("train mean 324 -> 224 on build stub-2"), "{}", stderr(&out));
+    for seed in [7, 41, 9001] {
+        assert!(dir.join(format!("reeval-1/seed-{seed}.jsonl")).is_file(), "reeval-1/seed-{seed}");
+    }
+    let ledger = json(&dir.join("ledger.json"));
+    let reevals = ledger["reevals"].as_array().unwrap();
+    assert_eq!(reevals.len(), 1, "{ledger}");
+    let re = &reevals[0];
+    assert_eq!((re["attempt"].as_u64(), re["after_rows"].as_u64()), (Some(1), Some(2)));
+    assert_eq!((re["was_build"].as_str(), re["build"].as_str()), (Some("stub-1"), Some("stub-2")));
+    assert_eq!((re["was_mean"].as_f64(), re["mean"].as_f64()), (Some(324.0), Some(224.0)));
+    let rows = rows(&dir);
+    assert_eq!(rows[2]["build"], "stub-2");
+    assert_eq!(rows[2]["train_mean"], 274.0);
+    assert_eq!(rows[2]["kept"], true, "274 beats the re-evaluated 224, though not the old 324");
+    assert_eq!(rows[1]["kept"], false);
+    let meta = json(&dir.join("champion/meta.json"));
+    assert_eq!((meta["attempt"].as_u64(), meta["train_mean"].as_f64()), (Some(3), Some(274.0)));
+    assert_eq!(meta["build"], "stub-2");
+
+    // The prompt and the owner's table both show the old and the new value; the prompt shows no
+    // held-out score.
+    let p = fx.prompt("prompt-3-0");
+    let line = "train mean 324 -> 224";
+    assert!(p.contains(line) && p.contains("stub-1") && p.contains("stub-2"), "{p}");
+    assert!(!p.contains("9101") && !p.contains("9201"), "{p}");
+    assert!(stdout(&out).contains(line), "{}", stdout(&out));
+
+    // And once the champion is on this build, the next resume on it leaves things alone.
+    let out = fx.resume("0,0,0,10", &dir, &["--attempts", "1", "--model", "stub"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(json(&dir.join("ledger.json"))["reevals"].as_array().unwrap().len(), 1);
+    assert!(!dir.join("reeval-2").exists());
+}
+
+/// A campaign from before builds were recorded has none on its rows or its champion. A resume
+/// takes that for another build and re-evaluates once, saying the old build wasn't recorded.
+#[test]
+fn a_campaign_with_no_recorded_build_is_re_evaluated_on_resume() {
+    let fx = Fixture::new("reevalold");
+    let out = fx.campaign("100", &["--attempts", "1"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let dir = fx.campaign_dir();
+    let mut ledger = json(&dir.join("ledger.json"));
+    ledger["rows"][0].as_object_mut().unwrap().remove("build");
+    fs::write(dir.join("ledger.json"), serde_json::to_string_pretty(&ledger).unwrap()).unwrap();
+    let mut meta = json(&dir.join("champion/meta.json"));
+    meta.as_object_mut().unwrap().remove("build");
+    fs::write(dir.join("champion/meta.json"), serde_json::to_string_pretty(&meta).unwrap())
+        .unwrap();
+
+    let out = fx.resume("100,50", &dir, &["--attempts", "1", "--model", "stub"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let ledger = json(&dir.join("ledger.json"));
+    assert!(ledger["rows"][0].get("build").is_none(), "an old row stays as it was");
+    let reevals = ledger["reevals"].as_array().unwrap();
+    assert_eq!(reevals.len(), 1);
+    assert!(reevals[0]["was_build"].is_null());
+    assert_eq!(reevals[0]["build"], "stub-1");
+    assert!(stdout(&out).contains("an unrecorded build"), "{}", stdout(&out));
+    assert_eq!(json(&dir.join("champion/meta.json"))["build"], "stub-1");
+}
+
+/// An `fn_agent` that can't say what build it is can't have a champion compared fairly: the
+/// resume stops before it plays anything, and says why.
+#[test]
+fn a_resume_stops_when_fn_agent_cannot_name_its_build() {
+    let mut fx = Fixture::new("nobuild");
+    let out = fx.campaign("100", &["--attempts", "1"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let dir = fx.campaign_dir();
+    fx.extra_env.push(("STUB_NO_BUILD_ID".to_owned(), "1".to_owned()));
+    let out = fx.resume("100,200", &dir, &["--attempts", "1", "--model", "stub"]);
+    assert!(!out.status.success());
+    assert!(stderr(&out).contains("build-id"), "{}", stderr(&out));
+    assert!(!dir.join("attempt-2").exists(), "nothing was played");
 }

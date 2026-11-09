@@ -142,6 +142,7 @@ fn fixture() -> PathBuf {
         horizon: 2,
         attempt: None,
         champion: None,
+        build: Some(fn_tui::buildid::CURRENT.to_owned()),
     };
     put(
         &dir,
@@ -215,7 +216,15 @@ fn metadata_reads_what_each_run_has_and_leaves_gaps_for_what_it_hasnt() {
     // A log's own score line, and the horizon it was made at.
     let sd = info(SCORED);
     assert!(matches!(sd.logged_score_text().as_deref(), Some("41.2@2" | "41.3@2")));
-    assert_eq!(sd.logged_score.map(|s| (s.score, s.horizon)), Some((41.25, 2)));
+    assert_eq!(sd.logged_score.as_ref().map(|s| (s.score, s.horizon)), Some((41.25, 2)));
+    // #566: a score some other build computed (or a line from before builds were recorded) wears
+    // a mark; one this build computed doesn't.
+    let mut other = sd.clone();
+    other.logged_score.as_mut().unwrap().build = Some("0badc0d".to_owned());
+    assert!(other.logged_score_text().unwrap().ends_with('~'));
+    other.logged_score.as_mut().unwrap().build = None;
+    assert!(other.logged_score_text().unwrap().ends_with('~'));
+    assert!(!sd.logged_score_text().unwrap().contains('~'));
     assert_eq!(
         sd.state(now),
         Some(State::Finished),

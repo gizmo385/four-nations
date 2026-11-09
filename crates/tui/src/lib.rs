@@ -13,6 +13,7 @@ pub mod banner;
 pub mod bar;
 pub mod browser;
 pub mod build;
+pub mod buildid;
 pub mod cli;
 pub mod color;
 pub mod draw;

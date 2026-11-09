@@ -266,7 +266,7 @@ fn the_binary_scores_a_play_log_and_append_leaves_the_replay_untouched() {
     assert_eq!(header_after, header);
     assert_eq!(lines_after.len(), lines.len() + 1);
     assert_eq!(&lines_after[..lines.len()], &lines[..]);
-    let Some(LogLine::Score { score, progress, care, horizon, attempt, champion }) =
+    let Some(LogLine::Score { score, progress, care, horizon, attempt, champion, build }) =
         lines_after.last().cloned()
     else {
         panic!("the last line should be the score: {:?}", lines_after.last());
@@ -276,6 +276,7 @@ fn the_binary_scores_a_play_log_and_append_leaves_the_replay_untouched() {
     assert_eq!(care, want.replay.card.care.value);
     assert_eq!(horizon, want.replay.horizon_turns);
     assert_eq!((attempt, champion), (None, None));
+    assert_eq!(build.as_deref(), Some(fn_tui::buildid::CURRENT), "the score line says who scored");
 
     // Everything that reads the log ignores the new line.
     let keys_after = fn_agent().arg("keys").arg(&log).output().unwrap().stdout;

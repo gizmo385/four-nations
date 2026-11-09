@@ -21,6 +21,11 @@
 //! score beats the champion's the attempt becomes the champion. Otherwise the champion stays,
 //! the attempt's notes are merged into the champion's, and its code and plan are dropped.
 //!
+//! Every score is made on a build of `fn_agent` (#566), recorded on each row and on the champion.
+//! A resume on a different build than the champion's evaluates the champion again first
+//! ([`Campaign::reevaluate_champion`]) and compares new attempts with that, keeping the old
+//! mean in the ledger's `reevals`.
+//!
 //! Held-out scores go in the ledger and the table printed for the owner, and in nothing the
 //! model reads: [`ledger_text`] with `owner == false` is the only ledger text a prompt gets.
 
@@ -72,6 +77,10 @@ struct Row {
     held_out: Vec<SeedScore>,
     kept: bool,
     cost_usd: f64,
+    /// The build (`fn_agent build-id`, #566) the clean scores above were made on. `None` in a
+    /// ledger from before builds were recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    build: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -79,15 +88,38 @@ struct Ledger {
     /// The track as the campaign started it: what `--resume` checks against the tracks file.
     track: Track,
     rows: Vec<Row>,
+    /// Each time a resume re-evaluated the champion on a new build, in order (#566).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    reevals: Vec<Reeval>,
+}
+
+/// The champion, evaluated again on a different build than the one its mean came from (#566).
+/// Scores aren't comparable across builds (the same strategy can score differently once the sim
+/// has changed), so the attempts that follow are compared with `mean`, not `was_mean`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct Reeval {
+    /// The champion's attempt number.
+    attempt: u32,
+    /// How many attempts had a row when this happened: the re-evaluation sits between the rows.
+    after_rows: u32,
+    was_build: Option<String>,
+    was_mean: f64,
+    build: String,
+    mean: f64,
 }
 
 /// `champion/meta.json`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct Champion {
     attempt: u32,
+    /// On `build`, as of the last time the champion was evaluated.
     train_mean: f64,
     governor_version: Option<u32>,
     plan_revision: u32,
+    /// The build `train_mean` was measured on; `None` before #566, which a resume treats as
+    /// another build and re-evaluates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    build: Option<String>,
 }
 
 /// Writes `text` to `path` by way of a sibling file, so a crash leaves the old file or the new
@@ -346,7 +378,7 @@ fn ledger_text(ledger: &Ledger, owner: bool) -> String {
              orders from that turn on"
         );
     }
-    for line in stop_lines(&ledger.rows) {
+    for line in stop_lines(&ledger.rows).into_iter().chain(reeval_lines(&ledger.reevals)) {
         let _ = writeln!(out, " {line}");
     }
     out
@@ -392,6 +424,30 @@ pub(super) fn handoff_note(horizon: u32, done_turns: u32, tests: usize) -> Strin
         ),
     };
     format!("{game}{tests}\n\n{}", deciding_passage(horizon))
+}
+
+/// One line per champion re-evaluation (#566): the rows above it were scored on the build it
+/// names as `was`, and the attempts after it are compared with the new mean. Train scores only,
+/// so the prompt may show it.
+fn reeval_lines(reevals: &[Reeval]) -> Vec<String> {
+    reevals
+        .iter()
+        .map(|r| {
+            let change = if (r.mean - r.was_mean).abs() < 0.05 {
+                format!("train mean {:.0}, unchanged", r.mean)
+            } else {
+                format!("train mean {:.0} -> {:.0}", r.was_mean, r.mean)
+            };
+            format!(
+                "champion (attempt {}) re-evaluated on build {} after {} attempt(s) (its mean was \
+                 from {}): {change}; later attempts are compared with the new mean",
+                r.attempt,
+                r.build,
+                r.after_rows,
+                build_words(r.was_build.as_ref()),
+            )
+        })
+        .collect()
 }
 
 /// The detail of the clean run that an attempt's first prompt adds to [`deciding_passage`]
@@ -469,6 +525,8 @@ struct Campaign<'a> {
     dir: PathBuf,
     ledger: Ledger,
     fn_agent: PathBuf,
+    /// The build `fn_agent` is (`fn_agent build-id`, #566): what this invocation's scores are on.
+    build: String,
     opts: &'a Opts,
 }
 
@@ -478,7 +536,7 @@ pub(super) fn run(repo: &Path, opts: &Opts) -> Result {
         (Some(id), _) => {
             let track = agent_eval::load_track(&tracks_path, id)?;
             let dir = new_campaign_dir(&runs_dir(), &track.id)?;
-            let ledger = Ledger { track, rows: Vec::new() };
+            let ledger = Ledger { track, rows: Vec::new(), reevals: Vec::new() };
             write_ledger(&dir, &ledger)?;
             (dir, ledger, true)
         }
@@ -511,7 +569,10 @@ pub(super) fn run(repo: &Path, opts: &Opts) -> Result {
         opts.max_usd.map_or(String::new(), |m| format!(", at most ${m}"))
     ));
 
-    let mut campaign = Campaign { repo, dir, ledger, fn_agent, opts };
+    let build = fn_agent_build(&fn_agent)?;
+    say(&format!("build {build}"));
+    let mut campaign = Campaign { repo, dir, ledger, fn_agent, build, opts };
+    campaign.reevaluate_champion()?;
     campaign.climb(attempts)?;
     print!("{}", ledger_text(&campaign.ledger, true));
     say(&format!("ledger: {}", campaign.dir.join(LEDGER).display()));
@@ -570,7 +631,88 @@ fn open_campaign(dir: &Path, tracks_path: &Path) -> Result<Ledger> {
     Ok(ledger)
 }
 
+/// What `fn_agent build-id` prints: the build of the binary that scores everything in this
+/// invocation.
+fn fn_agent_build(fn_agent: &Path) -> Result<String> {
+    let out = Command::new(fn_agent)
+        .arg("build-id")
+        .output()
+        .map_err(|e| format!("can't run {} build-id: {e}", fn_agent.display()))?;
+    let id = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    if !out.status.success() || id.is_empty() {
+        return Err(format!(
+            "{} build-id failed (a binary from before #566?): {}",
+            fn_agent.display(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(id)
+}
+
+/// `build X`, or what a ledger from before builds were recorded says instead.
+fn build_words(build: Option<&String>) -> String {
+    build.map_or("an unrecorded build".to_owned(), |b| format!("build {b}"))
+}
+
 impl Campaign<'_> {
+    /// Evaluates the champion again on this build, if its mean came from another (#566): runs
+    /// are deterministic, so the same strategy scores the same on the same build and nothing
+    /// changes; on another build the sim may have, and the champion's old mean is not a number
+    /// this build's attempts can be compared with. The new mean replaces it in `meta.json` (the
+    /// old one stays in the ledger's `reevals`), so every attempt from here on is compared with
+    /// the champion as this build scores it. It needs no model, only CPU.
+    fn reevaluate_champion(&mut self) -> Result {
+        let Some(champion) = read_champion(&self.dir)? else { return Ok(()) };
+        if champion.build.as_deref() == Some(self.build.as_str()) {
+            return Ok(());
+        }
+        let handoff = read_handoff(&champion_handoff_path(&self.dir))?;
+        let Some(governor) = handoff.scripts.get(GOVERNOR).filter(|g| !g.code.trim().is_empty())
+        else {
+            return Err(format!(
+                "the champion (attempt {}) has no script named \"{GOVERNOR}\" to evaluate",
+                champion.attempt
+            ));
+        };
+        let track = self.ledger.track.clone();
+        say(&format!(
+            "champion (attempt {}): its mean {:.0} was measured on {}, this is build {}; \
+             evaluating it again",
+            champion.attempt,
+            champion.train_mean,
+            build_words(champion.build.as_ref()),
+            self.build,
+        ));
+        let strategy = Strategy { governor: governor.code.clone(), plan: handoff.plan.clone() };
+        let work = self.dir.join(format!("reeval-{}", self.ledger.reevals.len() + 1));
+        let table = agent_eval::evaluate(&self.fn_agent, &track, &strategy, &work)
+            .map_err(|e| format!("re-evaluating the champion on this build failed: {e}"))?;
+        let mean = table.train_mean().ok_or("re-evaluating the champion gave no train mean")?;
+        say(&format!(
+            "champion (attempt {}): train mean {:.0} -> {mean:.0} on build {}",
+            champion.attempt, champion.train_mean, self.build
+        ));
+
+        self.ledger.reevals.push(Reeval {
+            attempt: champion.attempt,
+            after_rows: self.ledger.rows.len() as u32,
+            was_build: champion.build.clone(),
+            was_mean: champion.train_mean,
+            build: self.build.clone(),
+            mean,
+        });
+        write_ledger(&self.dir, &self.ledger)?;
+        // The scorecard the next prompt shows is the champion's on this build; `meta.json` goes
+        // last, as in `write_champion`.
+        let log = work.join(format!("seed-{}.jsonl", track.play_seed));
+        if log.is_file() {
+            let card = scorecard_text(&self.fn_agent, &log, track.horizon_turns);
+            write_atomic(&champion_dir(&self.dir).join("scorecard.txt"), &card)?;
+        }
+        let record = Champion { train_mean: mean, build: Some(self.build.clone()), ..champion };
+        write_json(&champion_dir(&self.dir).join("meta.json"), &record)
+    }
+
     /// Plays up to `attempts` more attempts, stopping early once `--max-usd` is spent.
     fn climb(&mut self, attempts: u32) -> Result {
         let mut spent = 0.0;
@@ -688,6 +830,7 @@ impl Campaign<'_> {
                 train_mean: train_mean.unwrap_or_default(),
                 governor_version,
                 plan_revision,
+                build: Some(self.build.clone()),
             };
             let card = scorecard_text(&self.fn_agent, &card_log, track.horizon_turns);
             write_champion(
@@ -712,6 +855,7 @@ impl Campaign<'_> {
             held_out: table.as_ref().map_or(Vec::new(), |t| seed_scores(t, Role::Holdout)),
             kept,
             cost_usd: cost_so_far(&adir),
+            build: Some(self.build.clone()),
         };
         say(&format!(
             "attempt {k}: clean mean {}; {}",
@@ -849,6 +993,7 @@ mod tests {
                     held_out: seeds(&[(3, 7771.0), (4, 7772.0)]),
                     kept: true,
                     cost_usd: 0.974,
+                    build: None,
                 },
                 Row {
                     attempt: 2,
@@ -860,8 +1005,10 @@ mod tests {
                     held_out: Vec::new(),
                     kept: false,
                     cost_usd: 0.1,
+                    build: None,
                 },
             ],
+            reevals: Vec::new(),
         }
     }
 
@@ -891,8 +1038,13 @@ mod tests {
     #[test]
     fn the_attempt_prompt_builds_on_the_script_prompt_and_hides_held_out() {
         let l = ledger();
-        let c =
-            Champion { attempt: 1, train_mean: 202.5, governor_version: Some(9), plan_revision: 6 };
+        let c = Champion {
+            attempt: 1,
+            train_mean: 202.5,
+            governor_version: Some(9),
+            plan_revision: 6,
+            build: None,
+        };
         let p = attempt_prompt(&l, 3, &c, "Water seed 1\nscore 231\n", 5, 30);
         assert!(p.contains("attempt 3") && p.contains("(attempt 1)"), "{p}");
         assert!(p.contains("raise the clean score"), "{p}");
@@ -985,8 +1137,13 @@ mod tests {
     #[test]
     fn held_out_stops_never_reach_the_prompt() {
         let l = stopped_ledger();
-        let c =
-            Champion { attempt: 1, train_mean: 76.0, governor_version: Some(9), plan_revision: 6 };
+        let c = Champion {
+            attempt: 1,
+            train_mean: 76.0,
+            governor_version: Some(9),
+            plan_revision: 6,
+            build: None,
+        };
         let p = attempt_prompt(&l, 3, &c, "card\n", 5, 30);
         for needle in ["HELDOUT_WHY", "4242", "4243", "error stopped", "78", "77"] {
             assert!(!p.contains(needle), "{needle:?} in\n{p}");
@@ -1000,8 +1157,13 @@ mod tests {
 
     #[test]
     fn the_prompt_says_a_stopped_clean_run_coasts_and_names_the_test_tool() {
-        let c =
-            Champion { attempt: 1, train_mean: 76.0, governor_version: Some(9), plan_revision: 6 };
+        let c = Champion {
+            attempt: 1,
+            train_mean: 76.0,
+            governor_version: Some(9),
+            plan_revision: 6,
+            build: None,
+        };
         let p = attempt_prompt(&ledger(), 3, &c, "card\n", 5, 30);
         assert!(p.contains("coasts to the end with no orders"), "{p}");
         assert!(p.contains("costs most of the score") && p.contains("test_governor"), "{p}");
@@ -1058,9 +1220,72 @@ mod tests {
         fs::create_dir_all(tmp.join("champion")).unwrap();
         let l = ledger();
         assert_eq!(next_attempt(&tmp, &l), 5, "attempt-4 was left unfinished: not reused");
-        let empty = Ledger { track: track(), rows: Vec::new() };
+        let empty = Ledger { track: track(), rows: Vec::new(), reevals: Vec::new() };
         assert_eq!(next_attempt(&tmp.join("nowhere"), &empty), 1);
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// #566: a ledger and a champion record written before builds were recorded read back, and
+    /// are written back without the new fields.
+    #[test]
+    fn an_old_ledger_and_champion_read_without_a_build() {
+        let mut l = ledger();
+        let text = serde_json::to_string(&l).unwrap();
+        assert!(!text.contains("build") && !text.contains("reevals"), "{text}");
+        let back: Ledger = serde_json::from_str(&text).unwrap();
+        assert_eq!(back, l);
+        assert!(back.reevals.is_empty() && back.rows[0].build.is_none());
+        let old_champion =
+            r#"{"attempt":1,"train_mean":202.5,"governor_version":9,"plan_revision":6}"#;
+        let champ: Champion = serde_json::from_str(old_champion).unwrap();
+        assert_eq!(champ.build, None);
+
+        // And with them, they round-trip.
+        l.rows[0].build = Some("abc1234+0f0f0f0f".to_owned());
+        l.reevals.push(Reeval {
+            attempt: 1,
+            after_rows: 2,
+            was_build: None,
+            was_mean: 355.0,
+            build: "def5678".to_owned(),
+            mean: 294.0,
+        });
+        let back: Ledger = serde_json::from_str(&serde_json::to_string(&l).unwrap()).unwrap();
+        assert_eq!(back, l);
+    }
+
+    /// The re-evaluation is on the ledger text, train numbers only, old value and new, with the
+    /// build each came from; an unchanged one says so.
+    #[test]
+    fn the_ledger_text_shows_the_old_and_the_re_evaluated_mean() {
+        let mut l = ledger();
+        assert!(!ledger_text(&l, false).contains("re-evaluated"));
+        l.reevals.push(Reeval {
+            attempt: 1,
+            after_rows: 2,
+            was_build: Some("abc1234".to_owned()),
+            was_mean: 355.0,
+            build: "def5678+0f0f0f0f".to_owned(),
+            mean: 294.0,
+        });
+        l.reevals.push(Reeval {
+            attempt: 1,
+            after_rows: 2,
+            was_build: None,
+            was_mean: 294.0,
+            build: "9999999".to_owned(),
+            mean: 294.0,
+        });
+        for owner in [false, true] {
+            let t = ledger_text(&l, owner);
+            assert!(
+                t.contains("champion (attempt 1) re-evaluated on build def5678+0f0f0f0f after 2")
+                    && t.contains("mean was from build abc1234): train mean 355 -> 294"),
+                "{t}"
+            );
+            assert!(t.contains("from an unrecorded build): train mean 294, unchanged"), "{t}");
+        }
+        assert!(!ledger_text(&l, false).contains("7771"), "held-out stays out of the prompt text");
     }
 
     #[test]

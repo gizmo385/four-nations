@@ -492,6 +492,25 @@ whose entry differs in anything but its label, and numbers new attempts after ev
 every `attempt-K` folder. `--tracks FILE` swaps the tracks file, for tests. Still to do: the
 `attempt` and `champion` fields of the `score` line (the watcher issue).
 
+**The build (#566).** A log's data digest covers data only, so the first campaign's attempt 1
+(`score` line 355, care 0.997) rescored to 294 (care 0.83) under the same digest: the sim had
+changed under it. Every binary now knows its build (`fn_agent build-id`, `fn_tui::buildid`): the
+last commit that touched code or data (`crates/` but the harness, `data/`, the manifests), plus
+`+HEX` when there are uncommitted changes to those paths (a hash of the diff, so the same edit is
+the same build and an afternoon of unrelated runs on one dirty tree is not a new build per run),
+or `unknown` without git. It is baked in by `crates/tui/build.rs`, so a commit or an edit
+re-runs a build script and recompiles `fn_tui` and `fn_agent` incrementally, and nothing touches
+`fn_sim`. The run log's header, each `score` line and each ledger row and champion record carry
+the build, and all of them read back without it. `fn_agent score` warns on stderr when the log's
+build isn't its own, and refuses nothing: comparing across builds is often the point. Every
+`agent-run --resume` asks `fn_agent build-id` and, if the champion's recorded build differs
+(or none was recorded), evaluates it again first with no model (`reeval-N/` in the campaign
+folder). The new mean replaces the champion's in `champion/meta.json` and every attempt after
+it is compared with that. The old mean stays in `ledger.json` (`reevals`) and both show in the
+ledger text, the prompt included. The run browser (`score-cache.json`) is keyed on the build
+too, so after a rebuild each run scores again once in the background, and a logged score some
+other build computed carries a `~`.
+
 ### Fairness: lookahead and held-out seeds (#521)
 
 Climbing on one seed teaches the map (where the water is, which outcrop is reachable) as much as

@@ -34,6 +34,7 @@ usage: fn_agent serve --seed N --nation X [--start default|X,Y] [--difficulty ID
                       [--map-size ID] [--prelude OPENING:MINUTES] [--turn SECS] --log PATH
        fn_agent keys LOG
        fn_agent score LOG [--horizon TURNS] [--json] [--append]
+       fn_agent build-id
 
 serve speaks MCP (JSON-RPC 2.0) over stdin and stdout: initialize, tools/list and tools/call. It
 writes --log PATH as it goes; watch it live (or replay it after) with
@@ -103,7 +104,13 @@ score replays LOG up to --horizon TURNS (the log's own last turn by default; it 
 the log goes on) and prints its scorecard (docs/design/agent-hillclimb.md, \"The scorecard\"): the
 score, progress by milestone, care, and diagnostics (idle share, research, script churn). --json
 prints the same fields as JSON. --append adds a `score` line to LOG, which replay, keys, --resume
-and --watch all ignore. A log made against different data is refused.
+and --watch all ignore, and records the build that computed it. A log made against different
+data is refused. A log made by another build (#566; the header records the commit and a dirty
+mark) is scored with a warning on stderr: the same keys can score differently on other code, so
+the score may not reproduce what that build reported.
+
+build-id prints the build this binary is: the last commit that touched the code or data, with
+`+HEX` for uncommitted changes to them, or `unknown` without git.
 
 keys prints the run at LOG as a --keys script, as a full fn_tui command line: --scenario ID when
 the log's own header matches a bundled preset, else SEED NATION --start ... --difficulty ....";
@@ -115,6 +122,10 @@ fn main() -> ExitCode {
         Some("keys") => keys(args.collect()).map(|()| ExitCode::SUCCESS),
         Some("play") => play(args.collect()),
         Some("score") => score(args.collect()).map(|()| ExitCode::SUCCESS),
+        Some("build-id") => {
+            println!("{}", fn_tui::buildid::CURRENT);
+            Ok(ExitCode::SUCCESS)
+        }
         _ => Err(USAGE.to_owned()),
     };
     match result {
@@ -812,6 +823,10 @@ fn score(args: Vec<String>) -> Result<(), String> {
     let a = parse_score_args(args)?;
     let path = a.log.ok_or("fn_agent score needs a LOG path")?;
     let (header, lines) = watch::read_file(Path::new(&path))?;
+    // On stderr, so `--json` output stays clean for a caller that parses it.
+    if let Some(warning) = fn_tui::buildid::mismatch_warning("the log", header.build.as_deref()) {
+        eprintln!("fn_agent: warning: {warning}");
+    }
     let report = scorecard::build(&header, &lines, a.horizon)?;
     if a.json {
         println!("{}", serde_json::to_string_pretty(&report.json()).map_err(|e| e.to_string())?);
@@ -874,6 +889,7 @@ mod tests {
             data_digest: 42,
             crate_version: "0.1.0".into(),
             prelude: None,
+            build: None,
         }
     }
 
