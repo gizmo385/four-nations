@@ -85,6 +85,7 @@ mod tests {
             data_digest: 42,
             crate_version: "0.1.0".into(),
             prelude: None,
+            playtest: false,
             build: None,
         }
     }

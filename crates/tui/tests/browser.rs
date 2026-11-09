@@ -737,3 +737,76 @@ fn outcome_open_names_the_folder() {
     let fn_tui::keys::Step::Key(enter) = key[0] else { panic!() };
     assert_eq!(b.key(enter), Outcome::Open(dir.join(LIVE)));
 }
+
+// ---- playtests (#576) ----
+
+/// A log of `turns` turns that `agent-run --playtest` would have started: the header says so, and
+/// a remark sits in the middle.
+fn playtest_log(seed: u64, nation: Nation, turns: u32) -> String {
+    let mut h = Host::new(seed, nation, None, None, None, false)
+        .unwrap()
+        .with_turn_seconds(20)
+        .with_playtest();
+    for _ in 0..turns {
+        h.end_turn(1);
+    }
+    let mut text = h.log().to_jsonl(&h.header());
+    let say = LogLine::Say { text: "game problem: the well gives no water".to_owned() };
+    text.push_str(&serde_json::to_string(&say).unwrap());
+    text.push('\n');
+    text
+}
+
+#[test]
+fn a_playtest_is_marked_in_its_row_and_kept_out_of_the_score_ranking() {
+    let dir = fresh_dir();
+    let day = 86_400;
+    // (SECOND is the scored run, FINISHED the playtest: runs list newest first by their names.)
+    put(
+        &dir,
+        SECOND,
+        Some(&(game_log(7, Nation::Water, 3) + &end_line("agent finished"))),
+        2 * day,
+    );
+    put(
+        &dir,
+        FINISHED,
+        Some(&(playtest_log(9, Nation::Fire, 2) + &end_line("agent finished"))),
+        100,
+    );
+
+    let info = RunInfo::read(&dir.join(FINISHED), SystemTime::now());
+    assert!(info.playtest);
+    assert!(!RunInfo::read(&dir.join(SECOND), SystemTime::now()).playtest);
+    // A remark is not a turn, a key press or an end: the run reads as it would without it.
+    assert_eq!(info.turns, 2);
+    assert_eq!(info.state(SystemTime::now()), Some(State::Finished));
+
+    let mut b = open(&dir);
+    b.wait_for_scores(Duration::from_secs(60));
+    let f = frame(&mut b, 200, 20);
+    assert!(line_with(&f, FINISHED).contains("playtest"), "{f}");
+    assert!(!line_with(&f, SECOND).contains("playtest"), "{f}");
+    // Its score is not shown beside the scored run's.
+    assert!(line_with(&f, SECOND).contains('.'), "the scored run has a number:\n{f}");
+
+    // The playtest is the newer run, so it leads by date; by score it is last.
+    press(&mut b, "s");
+    assert_eq!(b.sort(), Sort::Score);
+    let f = frame(&mut b, 200, 20);
+    let at = |name: &str| f.find(name).unwrap();
+    assert!(at(SECOND) < at(FINISHED), "{f}");
+    let f = frame(&mut b, 200, 20);
+    assert!(f.contains("a playtest"), "the status line says so:\n{f}");
+}
+
+#[test]
+fn a_playtest_is_still_marked_when_the_terminal_is_narrow() {
+    let dir = fresh_dir();
+    put(&dir, SECOND, Some(&(playtest_log(9, Nation::Fire, 2) + &end_line("agent finished"))), 100);
+    let mut b = open(&dir);
+    b.wait_for_scores(Duration::from_secs(60));
+    // The score column comes first after the state, so it survives a narrow terminal.
+    let f = frame(&mut b, 60, 12);
+    assert!(f.contains("playtest"), "{f}");
+}

@@ -22,7 +22,7 @@ const USAGE: &str = "\
 usage: fn_agent serve --seed N --nation X [--start default|X,Y] [--difficulty ID]
                        [--map-size ID] [--prelude OPENING:MINUTES] [--turn SECS] [--scripts]
                        [--carry-in FILE] [--trial-seeds LIST --trial-turns N] [--horizon N]
-                       --log PATH
+                       [--playtest] --log PATH
        fn_agent serve --scenario ID [--turn SECS] [--scripts] --log PATH
        fn_agent serve --resume LOG [--seed N] [--nation X] [--start default|X,Y]
                        [--difficulty ID] [--turn SECS] [--scripts]
@@ -75,6 +75,10 @@ with reason horizon, not error, runaway or budget); test_governor, save_script, 
 work, and the session gets a few more calls (80, enough for every test and the fix it asks for)
 to finish up before the rest are refused. Works
 with --resume. Nothing is logged past the horizon, so the log scores as it would have without it.
+
+--playtest (#576; `cargo xtask agent-run --playtest` passes it) marks the log's header as a playtest,
+so the watcher and the run browser label it and don't set its score beside the scored runs'. It
+changes nothing about the game or the tools. With --resume it must agree with the log's header.
 
 --scripts (docs/design/agent-scripting.md) adds the run_script tool: a sandboxed Rhai runner
 over the same Host, with limits from data/agent.toml's [scripts] table. Works with --scenario
@@ -170,6 +174,8 @@ struct ServeArgs {
     trial_turns: Option<u32>,
     /// `--horizon N` (#569): live play stops at turn N.
     horizon: Option<u32>,
+    /// `--playtest` (#576): the header marks the run as a playtest. Nothing else changes.
+    playtest: bool,
 }
 
 fn parse_serve_args(args: Vec<String>) -> Result<ServeArgs, String> {
@@ -190,6 +196,7 @@ fn parse_serve_args(args: Vec<String>) -> Result<ServeArgs, String> {
         trial_seeds: None,
         trial_turns: None,
         horizon: None,
+        playtest: false,
     };
     let mut it = args.into_iter();
     while let Some(flag) = it.next() {
@@ -214,6 +221,7 @@ fn parse_serve_args(args: Vec<String>) -> Result<ServeArgs, String> {
             "--log" => a.log = Some(value()?),
             "--resume" => a.resume = Some(value()?),
             "--scripts" => a.scripts = true,
+            "--playtest" => a.playtest = true,
             "--trial-seeds" => {
                 let v = value()?;
                 let seeds: Result<Vec<u64>, _> = v.split(',').map(|s| s.trim().parse()).collect();
@@ -315,6 +323,7 @@ fn serve_fresh(a: &ServeArgs) -> Result<(), String> {
         }
     };
     let host = host.with_turn_seconds(a.turn_seconds.unwrap_or(DEFAULT_TURN_SECONDS));
+    let host = if a.playtest { host.with_playtest() } else { host };
     let writer = Writer::create(Path::new(log)).map_err(|e| e.to_string())?;
     let mut tools = with_scripts(Tools::new(host, writer)?, a)?;
     if let Some(path) = &a.carry_in {
@@ -405,6 +414,11 @@ fn check_resume_args(header: &RunLogHeader, a: &ServeArgs) -> Result<(), String>
     }
     if a.start_given && a.start != header.site {
         return Err(format!("--start doesn't match the log's own start {:?}", header.site));
+    }
+    if a.playtest && !header.playtest {
+        return Err(
+            "--playtest doesn't match the log: its header doesn't say it is a playtest".to_owned()
+        );
     }
     Ok(())
 }
@@ -894,6 +908,7 @@ mod tests {
             data_digest: 42,
             crate_version: "0.1.0".into(),
             prelude: None,
+            playtest: false,
             build: None,
         }
     }
@@ -916,6 +931,7 @@ mod tests {
             trial_seeds: None,
             trial_turns: None,
             horizon: None,
+            playtest: false,
         }
     }
 
@@ -1045,6 +1061,31 @@ mod tests {
             ..resume_args("run.jsonl")
         };
         check_resume_args(&h, &args).unwrap();
+    }
+
+    /// #576: `--playtest` parses, and a resume that asks for it must be resuming a playtest.
+    #[test]
+    fn playtest_parses_and_a_resume_must_agree_with_the_header() {
+        let parsed = parse_serve_args(
+            ["--seed", "7", "--nation", "earth", "--log", "x", "--playtest"]
+                .map(String::from)
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(parsed.playtest);
+        let plain = parse_serve_args(
+            ["--seed", "7", "--nation", "earth", "--log", "x"].map(String::from).to_vec(),
+        )
+        .unwrap();
+        assert!(!plain.playtest);
+
+        let ask = ServeArgs { playtest: true, ..resume_args("run.jsonl") };
+        let err = check_resume_args(&header(), &ask).unwrap_err();
+        assert!(err.contains("--playtest"), "{err}");
+        let marked = RunLogHeader { playtest: true, ..header() };
+        check_resume_args(&marked, &ask).unwrap();
+        // Not asking is always fine: the header decides.
+        check_resume_args(&marked, &resume_args("run.jsonl")).unwrap();
     }
 
     /// `--scenario` can't be combined with anything that would also pick a seed, nation, site,

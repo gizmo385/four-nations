@@ -163,6 +163,7 @@ impl Host {
             crate_version: env!("CARGO_PKG_VERSION").to_owned(),
             build: Some(crate::buildid::CURRENT.to_owned()),
             prelude: None,
+            playtest: false,
         };
         let mut host = Self {
             shell,
@@ -190,6 +191,13 @@ impl Host {
         self.turn_seconds = turn_seconds.max(1);
         self.header.turn_seconds = self.turn_seconds;
         self.header.ticks_per_turn = self.turn_seconds * TICKS_PER_SECOND;
+        self
+    }
+
+    /// Marks this session's run as a playtest (#576): the header says so, for the watcher and the
+    /// run browser. Nothing about the game changes.
+    pub fn with_playtest(mut self) -> Self {
+        self.header.playtest = true;
         self
     }
 
@@ -329,6 +337,7 @@ impl Host {
         if let Some(prelude) = header.prelude {
             host = host.with_prelude(prelude);
         }
+        host.header.playtest = header.playtest;
         Ok(host)
     }
 
@@ -345,7 +354,8 @@ impl Host {
             | LogLine::Note { .. }
             | LogLine::Call { .. }
             | LogLine::Plan { .. }
-            | LogLine::Score { .. } => {}
+            | LogLine::Score { .. }
+            | LogLine::Say { .. } => {}
             LogLine::Keys { keys, label, note } => {
                 self.press_keys(keys, label.clone(), note.clone())?;
             }
@@ -2153,6 +2163,16 @@ pub struct RunLogHeader {
     /// #566, which still reads back; left out of the line when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub build: Option<String>,
+    /// Whether this run is a playtest (#576, `agent-run --playtest`): the agent was asked to say
+    /// what it thinks of the game, not to play for a score, so the watcher and the run browser
+    /// label it and don't set its score beside the scored runs'. Left out of the line when
+    /// false, so every other run's header is byte for byte what it was; absent reads as false.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub playtest: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// One line of a run log file, after the first ([`RunLogHeader`]'s own line): the JSON shape
@@ -2194,6 +2214,8 @@ pub struct RunLogHeader {
 ///   `briefing`, `inspect`, `save_script`, `scripts`, `sdk_reference`).
 /// - `Score { score, progress, care, horizon, attempt?, champion?, build? }`: written by `fn_agent score
 ///   --append` (#525) after a run, the scorecard's top block; ignored like the other commentary.
+/// - `Say { text }`: written by `agent-run --playtest` (#576), not by `fn_agent`: a remark the
+///   model made in plain text; the watcher's feed shows it, everything else ignores it.
 /// - `Plan { plan }`: written by `fn_agent`'s `plan {set?, merge?}` tool after each change (#524,
 ///   docs/design/agent-hillclimb.md, "Within a run: a governor and a plan"): `plan` is the whole
 ///   plan map after the change. A `--resume` session restores the latest one; replay, `verify` and
@@ -2264,6 +2286,14 @@ pub enum LogLine {
         /// log can score differently on another. `None` in a line from before #566.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         build: Option<String>,
+    },
+    /// What the playing model said in plain text between its tool calls (#576,
+    /// `agent-run --playtest`): `agent-run` appends it as the text streams in, so it sits in the
+    /// log among the calls it was said around. It is the model's stated account, not its
+    /// reasoning, and a commentary line like the others: replay, `verify`, scoring, `keys` and
+    /// `--resume` ignore it, so the world and the score are what they are without it.
+    Say {
+        text: String,
     },
 }
 
@@ -4169,6 +4199,7 @@ mod tests {
                 crate_version: env!("CARGO_PKG_VERSION").to_owned(),
                 build: Some(crate::buildid::CURRENT.to_owned()),
                 prelude: None,
+                playtest: false,
             }
         );
 

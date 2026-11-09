@@ -44,6 +44,21 @@
 //!   --carry DIR        with --scripts, saves the run's final script library, lab notes and
 //!                      plan to DIR, and loads whatever's already there into the first
 //!                      session's own prompt.
+//!   --playtest         plays by scripts like --scripts, but to learn about the game rather than
+//!                      to score (#576): the prompt asks the model to say a short remark
+//!                      (at most 30 words) before significant actions and when something
+//!                      surprises it, and to write `game problem:` lines for anything that seems
+//!                      wrong with the game itself. The remarks are read from `claude`'s
+//!                      `--output-format stream-json --verbose` as they arrive and appended to
+//!                      run.jsonl as `say` lines, so `agent-run watch` shows them live in the
+//!                      feed, labelled "says": they are what the model chose to write, not its
+//!                      reasoning. The header and the run browser mark the run a playtest, and its
+//!                      score is not shown beside the scored runs'. At the end (and after every
+//!                      chunk) game-problems.md lists the distinct `game problem:` lines from the
+//!                      notes and remarks with the turn each was first said. Not combined with
+//!                      --track, --resume, --interactive or --chunk-turns; --chunk-calls and
+//!                      --carry apply as for --scripts. Campaign and --scripts prompts are not
+//!                      changed by it.
 //!   --max-usd N        the spend cap, in dollars, and required for every run that calls the
 //!                      model (#568): the default mode, --chunk-turns, --scripts and a --track or
 //!                      --resume campaign. Not for --interactive, which is a chat you are in
@@ -101,7 +116,7 @@
 //! --scripts run also gets cost.json (round trips and tokens summed from every chunk's own
 //! `claude -p --output-format json`, with a USD total; #485) and stop.json (why the loop ended:
 //! done, cap, no_progress, unknown_cost or gave_up; #568); a --scripts run also gets
-//! sdk-gaps.md.
+//! sdk-gaps.md. A --playtest run also gets game-problems.md.
 //!
 //! Every `claude` call this makes is tagged with OTEL_RESOURCE_ATTRIBUTES
 //! (four_nations.run/.seed/.nation/.difficulty/.mode, plus .chunk on chunked runs; #494), kept
@@ -123,6 +138,7 @@ use serde::{Deserialize, Serialize};
 use crate::Result;
 
 mod campaign;
+mod playtest;
 mod sandbox;
 mod versions;
 
@@ -171,6 +187,10 @@ pub fn run(args: &[&str]) -> Result {
     if let Some(line) = start_line(&opts) {
         say(&line);
     }
+    if opts.playtest {
+        say("playtest: the model is asked to say what it thinks of the game, not to score; its \
+             remarks go in the log and the watch feed, and the run isn't compared with scored runs");
+    }
 
     cargo_build_release(&repo, &["fn_agent", "fn_tui"])?;
 
@@ -193,6 +213,9 @@ pub fn run(args: &[&str]) -> Result {
             dir.display()
         ));
         say(&format!("cost: {0}/cost.json; SDK gaps: {0}/sdk-gaps.md", dir.display()));
+        if opts.playtest {
+            say(&format!("game problems the model flagged: {}/game-problems.md", dir.display()));
+        }
         return Ok(());
     }
     if opts.chunk_turns != 0 {
@@ -274,6 +297,9 @@ struct Opts {
     /// The track's screen seeds and horizon (#561): `fn_agent serve --trial-seeds/--trial-turns`,
     /// which turns on the `test_governor` tool. Never a gate or owner-only seed.
     trial: Option<(Vec<u64>, u32)>,
+    /// `--playtest` (#576): a scripted run played to learn about the game, not to score, whose
+    /// model says what it thinks as it goes (`playtest.rs`). Implies `--scripts`.
+    playtest: bool,
 }
 
 /// The nations `--nation` can name, and so the ones a random pick chooses between.
@@ -373,6 +399,7 @@ fn parse_args_with(args: &[&str], entropy: Entropy) -> Result<Opts> {
         carry_in: None,
         first_prompt: None,
         trial: None,
+        playtest: false,
     };
 
     let mut i = 0;
@@ -414,6 +441,10 @@ fn parse_args_with(args: &[&str], entropy: Entropy) -> Result<Opts> {
             }
             "--interactive" => o.interactive = true,
             "--scripts" => o.scripts = true,
+            "--playtest" => {
+                o.playtest = true;
+                o.scripts = true;
+            }
             "--chunk-calls" => {
                 let v = take_value(args, &mut i, "--chunk-calls")?;
                 o.chunk_calls =
@@ -478,6 +509,9 @@ fn is_plain_number(s: &str) -> bool {
 }
 
 fn validate(o: &Opts) -> Result {
+    if o.playtest {
+        validate_playtest(o)?;
+    }
     if o.track.is_some() || o.resume_dir.is_some() {
         return validate_campaign(o);
     }
@@ -502,6 +536,33 @@ fn validate(o: &Opts) -> Result {
         return Err("--carry only applies with --scripts".into());
     }
     check_cap(o)
+}
+
+/// What `--playtest` (#576) can't be combined with. A campaign plays for score with its scored
+/// prompts, and a playtest is for learning about the game: running both in one invocation would
+/// mix two aims, and a campaign's attempts are compared with each other. The model's remarks are
+/// read from a stream that `--interactive` (a chat the owner is in) doesn't have, and the run is
+/// always `--scripts`, chunked by `--chunk-calls`.
+fn validate_playtest(o: &Opts) -> Result {
+    if o.track.is_some() || o.resume_dir.is_some() {
+        let mode = if o.track.is_some() { "--track" } else { "--resume" };
+        return Err(format!(
+            "--playtest can't be combined with {mode}: a campaign plays for score with scored \
+             prompts and its attempts are compared with each other, while a playtest plays to \
+             learn about the game and isn't compared with anything. Run them separately."
+        ));
+    }
+    if o.interactive {
+        return Err("--playtest and --interactive can't be combined: a playtest streams the \
+                     model's remarks into the log, and --interactive is a chat you are in"
+            .into());
+    }
+    if o.chunk_turns != 0 {
+        return Err("--playtest and --chunk-turns can't be combined: a playtest plays by \
+                     scripts, chunked by round trips (--chunk-calls)"
+            .into());
+    }
+    Ok(())
 }
 
 /// The spend cap (#568): every run that calls the model has one. `--interactive` is the
@@ -1108,6 +1169,8 @@ struct RunRow {
     start: String,
     turns: u32,
     score: Option<f64>,
+    /// The header says it was a playtest (#576): its score isn't shown beside the scored runs'.
+    playtest: bool,
 }
 
 /// Reads `dir`'s `run.jsonl` for its header, turn count and last score. Parses only the three
@@ -1120,6 +1183,8 @@ fn run_row(dir: &Path) -> RunRow {
         nation: String,
         #[serde(default)]
         prelude: Option<serde_json::Value>,
+        #[serde(default)]
+        playtest: bool,
     }
     #[derive(Deserialize)]
     struct Score {
@@ -1132,12 +1197,14 @@ fn run_row(dir: &Path) -> RunRow {
         start: "-".to_string(),
         turns: 0,
         score: None,
+        playtest: false,
     };
     let Ok(text) = fs::read_to_string(dir.join("run.jsonl")) else { return row };
     for line in text.lines() {
         if line.starts_with(r#"{"type":"header""#) {
             if let Ok(h) = serde_json::from_str::<Head>(line) {
                 row.nation = h.nation;
+                row.playtest = h.playtest;
                 // The header only says a scenario's prelude ran; the folder name has its id.
                 let scenario = name.split_once("-scenario-").map(|(_, id)| id);
                 row.start = match (h.prelude, scenario) {
@@ -1178,7 +1245,11 @@ fn format_run_list(runs: &Path, rows: &[RunRow]) -> String {
         "RUN", "NATION", "START", "TURNS"
     )];
     for r in rows {
-        let score = r.score.map_or("-".to_string(), |s| format!("{s:.1}"));
+        let score = if r.playtest {
+            "playtest".to_string()
+        } else {
+            r.score.map_or("-".to_string(), |s| format!("{s:.1}"))
+        };
         out.push(format!(
             "{:name_w$}  {:nation_w$}  {:start_w$}  {:>5}  {score}",
             r.name, r.nation, r.start, r.turns
@@ -1224,6 +1295,10 @@ fn run_claude_p(
     dir: &Path,
     out_json: &Path,
 ) -> Result<ChunkRun> {
+    if opts.playtest {
+        // The only run that reads `claude`'s output as it goes (#576), for the model's remarks.
+        return playtest::run_claude_stream(opts, prompt, call_args, mode, chunk, dir, out_json);
+    }
     let stdout_file =
         File::create(out_json).map_err(|e| format!("creating {}: {e}", out_json.display()))?;
     let stderr_file = OpenOptions::new()
@@ -1344,6 +1419,10 @@ fn serve_args(o: &Opts, log: &Path) -> Vec<String> {
     }
     if o.scripts {
         args.push("--scripts".to_string());
+    }
+    // The header carries it from here on, so a resumed chunk (`resume_args`) needn't repeat it.
+    if o.playtest {
+        args.push("--playtest".to_string());
     }
     for (flag, value) in [("--map-size", &o.map_size), ("--prelude", &o.prelude)] {
         if let Some(v) = value {
@@ -1571,6 +1650,11 @@ enum LogLine {
     /// A tool call (#497): only its tool is read, to count `test_governor` calls (#569).
     Call {
         tool: String,
+    },
+    /// What the model said in a `--playtest` (#576): only its text is read, for
+    /// `game-problems.md`.
+    Say {
+        text: String,
     },
     #[serde(other)]
     Other,
@@ -2263,7 +2347,11 @@ fn run_scripts_chunked(
         } else if n == 1 && o.first_prompt.is_some() {
             o.first_prompt.clone().unwrap_or_default()
         } else if n == 1 {
-            let base = default_script_prompt(target, calls);
+            let base = if o.playtest {
+                playtest::first_prompt(target, calls)
+            } else {
+                default_script_prompt(target, calls)
+            };
             match &o.carry_dir {
                 Some(carry_dir) => match carry_block(carry_dir)? {
                     Some(block) => format!("{block}\n\n{base}"),
@@ -2271,6 +2359,9 @@ fn run_scripts_chunked(
                 },
                 None => base,
             }
+        } else if o.playtest {
+            let listing = library_notes_listing(&log)?;
+            playtest::handoff_prompt(target, done_turns, calls, &listing)
         } else {
             let listing = library_notes_listing(&log)?;
             let note = campaign.then(|| {
@@ -2286,10 +2377,15 @@ fn run_scripts_chunked(
             "chunk {n}: about {calls} tool calls, past turn {done_turns} of {target} so far"
         ));
         let chunk_json = dir.join(format!("chunk-{n}.json"));
-        let run = run_claude_p(o, &this_prompt, &call_args, "scripts", n, dir, &chunk_json)?;
+        let mode = if o.playtest { "playtest" } else { "scripts" };
+        let run = run_claude_p(o, &this_prompt, &call_args, mode, n, dir, &chunk_json)?;
         last_chunk = n;
         let settled = settle_chunk(dir, n, &run)?;
         finish_log(dir, &format!("chunk {n} finished"))?;
+        if o.playtest {
+            // After every chunk, so a run that stops early has it too.
+            playtest::write_game_problems(dir)?;
+        }
         if let Some(detail) = settled.stop {
             say(&detail);
             break (StopReason::UnknownCost, detail);
@@ -2322,6 +2418,9 @@ fn run_scripts_chunked(
     };
     write_stop(dir, reason, last_chunk, turns_done(dir)?, &detail)?;
     write_sdk_gaps(dir)?;
+    if o.playtest {
+        playtest::write_game_problems(dir)?;
+    }
     if let Some(carry_dir) = &o.carry_dir {
         carry_save(&log, carry_dir)?;
     }
@@ -3009,6 +3108,99 @@ mod tests {
             ..parse_args(&["--scripts"]).unwrap()
         });
         assert!(attempt.chunk_done(3, 3));
+    }
+
+    // ----- --playtest (#576) -----
+
+    /// FNV-1a, for pinning a prompt's text without copying all of it into the test.
+    fn fnv(text: &str) -> u64 {
+        text.bytes()
+            .fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
+    }
+
+    /// Campaign and scored `--scripts` prompts must not change because a playtest exists: their
+    /// text, with the shared layout passage (pinned by its own tests) taken out, is pinned.
+    /// If this fails after you edited one of them on purpose, update the number; if you did not,
+    /// something is leaking playtest wording into a scored run.
+    #[test]
+    fn the_scored_prompts_are_byte_for_byte_what_they_were() {
+        let style = script_style_passage();
+        let first = default_script_prompt(540, 30).replace(style, "<STYLE>");
+        let handoff =
+            scripts_handoff_prompt(540, 100, 30, "<LISTING>", None).replace(style, "<STYLE>");
+        let campaign = scripts_handoff_prompt(540, 100, 30, "<LISTING>", Some("<NOTE>"))
+            .replace(style, "<STYLE>");
+        assert_eq!(
+            [fnv(&first), fnv(&handoff), fnv(&campaign)],
+            PINNED_SCORED_PROMPTS,
+            "first:\n{first}\n\nhandoff:\n{handoff}\n\ncampaign:\n{campaign}"
+        );
+        for prompt in [&first, &handoff, &campaign] {
+            for playtest_word in ["playtest", "game problem", "remark"] {
+                assert!(
+                    !prompt.to_lowercase().contains(playtest_word),
+                    "{playtest_word}: {prompt}"
+                );
+            }
+        }
+        // And the playtest's prompts are their own.
+        assert_ne!(first, playtest::first_prompt(540, 30).replace(style, "<STYLE>"));
+    }
+
+    const PINNED_SCORED_PROMPTS: [u64; 3] =
+        [529_216_101_422_545_671, 2_747_889_883_185_109_194, 17_751_177_510_856_055_539];
+
+    #[test]
+    fn playtest_implies_scripts_and_is_refused_with_a_campaign_a_chat_or_chunk_turns() {
+        let o = parse_args(&["--playtest", "--max-usd", "3"]).unwrap();
+        assert!(o.playtest && o.scripts);
+        validate(&o).unwrap();
+        assert!(!parse_args(&["--scripts", "--max-usd", "3"]).unwrap().playtest);
+
+        for (extra, want) in [
+            (&["--track", "t", "--attempts", "1"][..], "--playtest can't be combined with --track"),
+            (&["--resume", "dir"][..], "--playtest can't be combined with --resume"),
+            (&["--interactive"][..], "--playtest and --interactive"),
+            (&["--chunk-turns", "5"][..], "--playtest and --chunk-turns"),
+        ] {
+            let mut args = vec!["--playtest", "--max-usd", "3"];
+            args.extend_from_slice(extra);
+            let err = validate(&parse_args(&args).unwrap()).unwrap_err();
+            assert!(err.contains(want), "{extra:?}: {err}");
+        }
+        // It still needs a cap: it calls the model.
+        let err = validate(&parse_args(&["--playtest"]).unwrap()).unwrap_err();
+        assert!(err.contains("--max-usd"), "{err}");
+    }
+
+    #[test]
+    fn only_a_playtest_asks_fn_agent_for_the_playtest_header() {
+        let log = Path::new("/tmp/run.jsonl");
+        let plain = serve_args(&parse_args(&["--scripts", "--max-usd", "1"]).unwrap(), log);
+        assert!(!plain.contains(&"--playtest".to_string()), "{plain:?}");
+        let play = serve_args(&parse_args(&["--playtest", "--max-usd", "1"]).unwrap(), log);
+        assert!(
+            play.contains(&"--playtest".to_string()) && play.contains(&"--scripts".to_string())
+        );
+        // A resumed chunk reads it from the header.
+        assert!(!resume_args(log, true).contains(&"--playtest".to_string()));
+    }
+
+    #[test]
+    fn the_run_list_marks_a_playtest_instead_of_scoring_it() {
+        let rows = |playtest: bool| {
+            let row = RunRow {
+                name: "r".into(),
+                nation: "earth".into(),
+                start: "seed 1".into(),
+                turns: 3,
+                score: Some(55.5),
+                playtest,
+            };
+            format_run_list(Path::new("/runs"), &[row])
+        };
+        assert!(rows(true).contains("playtest") && !rows(true).contains("55.5"));
+        assert!(rows(false).contains("55.5") && !rows(false).contains("playtest"));
     }
 
     // ----- fn_agent CLI arguments and mcp.json -----

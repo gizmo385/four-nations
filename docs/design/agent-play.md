@@ -464,6 +464,47 @@ Every chunked loop writes `stop.json` in its run folder (or the campaign's `atte
 `cap`, `no_progress`, `unknown_cost` or `gave_up`, the chunk, the turns and a sentence. The
 backstop on chunk count (`gave_up`) is a last resort, not a bound anyone should rely on.
 
+## Playtests: the model says what it thinks (#576)
+
+`cargo xtask agent-run --playtest --max-usd N` plays a scripted run to learn about the game, not
+to score. It is `--scripts` with its own prompt and one more channel; campaigns (`--track`,
+`--resume`) and plain `--scripts` runs keep their prompts byte for byte (a test pins them),
+because narration costs tokens and could change how a model plays. A playtest can't be combined
+with `--track`, `--resume`, `--interactive` or `--chunk-turns`.
+
+- **The prompt** is the script prompt's governor-and-plan framing with the aim changed: help the
+  people who make the game learn how it plays, don't play for a high score. It asks for a remark
+  of at most 30 words before significant actions and when something surprises the model (what it
+  expects, what surprised it, what is confusing), and for a line starting `game problem:` for
+  anything that seems wrong with the game itself. `SDK gap:` stays for the scripting tools.
+- **What is captured** is the model's visible text, not its reasoning. Thinking comes through
+  `claude`'s output as an empty block with an opaque signature, so it is skipped and no signature
+  is stored; the feed's label says "says" for that reason.
+- **How it gets into the log**: `claude -p` is run with `--output-format stream-json --verbose`
+  and its stdout read as it arrives. Each text block is appended to `run.jsonl` as a
+  `{"type":"say","text":...}` line at once, so a watcher sees it live and a crash keeps what was
+  already written. The final `result` event is written to `chunk-N.json` in the same shape
+  `--output-format json` gives, so cost reading, `--max-usd` and the unknown-cost stop are the
+  code they were; a stream that ends with no result event is an unknown cost. Reading the
+  session transcript after each chunk would have been simpler, but the transcript only exists
+  once the session is over, and the feed is meant to be live. One consequence: the remark and
+  the `call` line that follows it are written by two processes, so on a loaded machine a remark
+  can land a line after its call.
+- **`say` is a commentary line** like `note` and `plan`: replay, scoring, `keys` and `--resume`
+  ignore it, and a test pins that a log with and without remarks gives the same world and score.
+  A reader without a `say` variant (a build from before #576) refuses the whole log with an
+  "unknown variant" error rather than skipping the line; that is the behaviour for every new line
+  kind, and it is why such a log needs a current build to watch or score.
+- **The header** carries `"playtest":true` (only then), set by `fn_agent serve --playtest`. The
+  watcher's strip reads `AGENT earth  PLAYTEST ...`, and the run browser and `watch --list` show
+  `playtest` where the score would go and rank it with the unscored runs.
+- **`game-problems.md`** is written after every chunk and at the end: the `game problem:` lines
+  from the notes and the remarks, each distinct problem once with the turn it was first said
+  (repeats, such as a carried note that reappears in a later session, are folded into it with the
+  turns they came back at). They are the model's claims, not checked bugs. Run-health flags
+  (#534's detectors) are not attached: they describe a `RunSpec` balance run, and a played log is
+  not one.
+
 ## Enforcing and testing parity
 
 Rust visibility can't enforce parity on its own, because `Shell` and `Session` are public

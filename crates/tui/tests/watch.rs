@@ -753,3 +753,175 @@ fn record_says_what_is_wrong_with_the_log() {
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("can't read the run log"));
 }
+
+// -------------------------------------------------------------------------------------------
+// A playtest's remarks (#576): `say` lines in the feed, the header's label, and a log that reads
+// the same with or without them.
+// -------------------------------------------------------------------------------------------
+
+fn say(text: &str) -> LogLine {
+    LogLine::Say { text: text.to_owned() }
+}
+
+const PROBLEM: &str = "game problem: the briefing promises wood from a harvest, but the stock \
+                       stays at 0 after two turns";
+
+/// The lines of a short playtest: remarks around a harvest and two turns, one carrying a
+/// `game problem:` line. With `remarks` false, the same log without them.
+fn playtest_lines(remarks: bool) -> Vec<LogLine> {
+    let mut h = Host::new(7, Nation::Earth, None, None, None, false)
+        .unwrap()
+        .with_turn_seconds(5)
+        .with_playtest();
+    h.press_keys(
+        "h <right*3> <enter> <down*2> <enter>",
+        Some("harvest".into()),
+        Some("wood".into()),
+    )
+    .unwrap();
+    h.end_turn(2);
+    let body = h.log().lines();
+
+    let mut lines = vec![LogLine::Header(h.header())];
+    if remarks {
+        lines.push(say("I expect the harvest to be done within a turn or two."));
+    }
+    lines.push(call("act", "1 step"));
+    lines.extend(body);
+    if remarks {
+        lines.push(say(&format!("Nothing changed in the wood count.\n{PROBLEM}")));
+    }
+    lines
+}
+
+fn write_playtest_log() -> std::path::PathBuf {
+    write_lines(&playtest_lines(true), "playtest")
+}
+
+fn frame_of(path: &std::path::Path, extra: &[&str]) -> String {
+    let out =
+        fn_tui().args(["--watch", path.to_str().unwrap(), "--frame"]).args(extra).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    String::from_utf8(out.stdout).unwrap()
+}
+
+/// In the studio the feed shows what the model said, labelled as saying and not as thinking,
+/// with the `game problem:` line marked; and the strip says it is a playtest.
+#[test]
+fn watch_studio_feed_shows_remarks_and_the_playtest_label() {
+    let path = write_playtest_log();
+    let text = frame_of(&path, &["--size", "160x45"]);
+    std::fs::remove_file(&path).ok();
+    assert!(text.contains("says: I expect the harvest to be done"), "{text}");
+    assert!(text.contains("says: Nothing changed in the wood count."), "{text}");
+    assert!(text.contains("! game problem: the briefing promises wood"), "{text}");
+    assert!(text.contains("PLAYTEST"), "the strip names it:\n{text}");
+    assert!(!text.to_lowercase().contains("thinking"), "{text}");
+    // Remarks are not calls: there is the one `act` call.
+    assert!(text.contains("1 call "), "{text}");
+}
+
+/// Replayed to a turn before the later remark, the feed has only what came before it.
+#[test]
+fn watch_studio_feed_only_shows_remarks_replayed_so_far() {
+    let path = write_playtest_log();
+    let text = frame_of(&path, &["--size", "160x45", "--at", "1"]);
+    std::fs::remove_file(&path).ok();
+    assert!(text.contains("says: I expect the harvest"), "{text}");
+    assert!(!text.contains("game problem:"), "{text}");
+}
+
+/// The feed tab (below the studio's threshold) and `--ascii` carry the remarks and the marker
+/// too, wrapped to fit.
+#[test]
+fn watch_tab_and_ascii_frames_show_remarks() {
+    let path = write_playtest_log();
+    for size in ["110x34", "80x24", "60x20"] {
+        let text = frame_of(&path, &["--size", size, "--keys", "3", "--ascii"]);
+        assert!(text.contains("says: I expect"), "{size}:\n{text}");
+        assert!(text.contains("! game problem: the"), "{size}:\n{text}");
+        let width: usize = size.split('x').next().unwrap().parse().unwrap();
+        assert!(text.lines().all(|l| l.chars().count() <= width), "{size}:\n{text}");
+        assert!(text.contains("PLAYTEST") || size == "60x20", "{size}:\n{text}");
+    }
+    std::fs::remove_file(&path).ok();
+}
+
+/// An ordinary run's header and strip are untouched: no label, and no `playtest` key in the line.
+#[test]
+fn a_run_that_is_not_a_playtest_says_nothing_of_it() {
+    let path = write_log();
+    let text = frame_of(&path, &["--size", "160x45"]);
+    let log = std::fs::read_to_string(&path).unwrap();
+    std::fs::remove_file(&path).ok();
+    assert!(!text.contains("PLAYTEST"), "{text}");
+    assert!(!log.contains("playtest"), "{log}");
+}
+
+/// A log with and without its remarks gives the same world and the same score: replay and
+/// scoring ignore a `say` line.
+#[test]
+fn remarks_change_neither_the_world_nor_the_score() {
+    let with = playtest_lines(true);
+    let without = playtest_lines(false);
+    assert!(with.len() > without.len());
+    let (head_with, body_with) = with.split_first().unwrap();
+    let (head_without, body_without) = without.split_first().unwrap();
+    let (LogLine::Header(hw), LogLine::Header(ho)) = (head_with, head_without) else {
+        panic!("a header first")
+    };
+    assert!(hw.playtest && ho.playtest);
+
+    let a = Host::resume(hw, body_with).unwrap();
+    let b = Host::resume(ho, body_without).unwrap();
+    assert_eq!(a.tick(), b.tick());
+    assert_eq!(
+        serde_json::to_string(&a.observe()).unwrap(),
+        serde_json::to_string(&b.observe()).unwrap()
+    );
+    assert_eq!(a.header(), b.header(), "a resumed host is still a playtest");
+
+    let sa = fn_tui::runs::score_lines(hw, body_with).unwrap();
+    let sb = fn_tui::runs::score_lines(ho, body_without).unwrap();
+    assert_eq!(sa, sb);
+
+    // And the keys script a replay would press.
+    assert_eq!(
+        fn_tui::watch::to_keys_script(hw, body_with),
+        fn_tui::watch::to_keys_script(ho, body_without)
+    );
+}
+
+/// The header carries `playtest` only for a playtest, and a header without the key reads as one
+/// that isn't (every log written before #576).
+#[test]
+fn the_header_marks_a_playtest_and_old_headers_still_read() {
+    let lines = playtest_lines(false);
+    let LogLine::Header(h) = &lines[0] else { panic!("a header first") };
+    let text = serde_json::to_string(&lines[0]).unwrap();
+    assert!(text.contains(r#""playtest":true"#), "{text}");
+
+    let plain = fn_tui::surface::RunLogHeader { playtest: false, ..h.clone() };
+    let text = serde_json::to_string(&LogLine::Header(plain.clone())).unwrap();
+    assert!(!text.contains("playtest"), "{text}");
+    let back: LogLine = serde_json::from_str(&text).unwrap();
+    assert_eq!(back, LogLine::Header(plain));
+}
+
+/// What reading a log does with a line kind it has no variant for (#576): the whole read fails and
+/// names the line. That is what a build from before `say` does with a playtest's log, so a log
+/// with remarks in it needs this build to be watched, scored or resumed; and what this build does
+/// with `say` lines is the opposite, which is why they are a variant rather than skipped text.
+#[test]
+fn an_unknown_line_kind_fails_the_read_and_a_say_line_does_not() {
+    let lines = playtest_lines(true);
+    let text =
+        lines.iter().map(|l| serde_json::to_string(l).unwrap()).collect::<Vec<_>>().join("\n");
+    let (header, parsed) = fn_tui::watch::parse(&format!("{text}\n")).unwrap();
+    assert!(header.playtest);
+    assert_eq!(parsed.iter().filter(|l| matches!(l, LogLine::Say { .. })).count(), 2);
+
+    let future = format!("{text}\n{{\"type\":\"a_kind_from_the_future\",\"x\":1}}\n");
+    let err = fn_tui::watch::parse(&future).unwrap_err();
+    assert!(err.contains("unknown variant") && err.contains("a_kind_from_the_future"), "{err}");
+}

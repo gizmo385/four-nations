@@ -1177,7 +1177,8 @@ fn rebuild_session(lines: &[LogLine]) -> (Library, Value, Vec<String>, Value) {
             | LogLine::Inspect { .. }
             | LogLine::End { .. }
             | LogLine::Call { .. }
-            | LogLine::Score { .. } => {}
+            | LogLine::Score { .. }
+            | LogLine::Say { .. } => {}
         }
     }
     (library, memory, notes, plan)
@@ -1335,5 +1336,34 @@ mod attempt_limit_tests {
             HORIZON_GRACE_CALLS >= 2 * tests + 20,
             "{HORIZON_GRACE_CALLS} calls after the horizon can't hold {tests} tests and their fixes"
         );
+    }
+}
+
+#[cfg(test)]
+mod say_tests {
+    use fn_tui::surface::LogLine;
+    use serde_json::json;
+
+    use super::rebuild_session;
+
+    /// #576: a `--resume` session rebuilds the same library, memory, notes and plan whether or
+    /// not the log holds the playtest's remarks, and each note is still there once.
+    #[test]
+    fn a_resumed_session_ignores_remarks() {
+        let base = vec![
+            LogLine::Note { text: "first".into() },
+            LogLine::Turn { index: 1, tick: 200 },
+            LogLine::Plan { plan: json!({"goal": "water"}) },
+            LogLine::Note { text: "second".into() },
+        ];
+        let mut with = base.clone();
+        with.insert(1, LogLine::Say { text: "I expected more water".into() });
+        with.push(LogLine::Say { text: "game problem: x".into() });
+
+        let (lib_a, mem_a, notes_a, plan_a) = rebuild_session(&base);
+        let (lib_b, mem_b, notes_b, plan_b) = rebuild_session(&with);
+        assert_eq!((mem_a, notes_a.clone(), plan_a), (mem_b, notes_b, plan_b));
+        assert_eq!(notes_a, ["first", "second"]);
+        let _ = (lib_a, lib_b);
     }
 }

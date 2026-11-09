@@ -33,6 +33,9 @@ use crate::keys::{self, Step};
 use crate::runs::{self, RunInfo, SCORE_HORIZON, Scored, State};
 use crate::watch::{self, Watcher};
 
+/// What a playtest's row says in the score column, and in the mode column (#576).
+pub const PLAYTEST_CELL: &str = "playtest";
+
 /// A run that is still growing is scored again no sooner than this after its last scoring.
 pub const RESCORE_LIVE: Duration = Duration::from_secs(30);
 
@@ -360,6 +363,9 @@ impl Browser {
     /// line when it has one, else the replay's.
     fn score_value(&self, i: usize) -> Option<f64> {
         let e = &self.entries[i];
+        if e.info.playtest {
+            return None; // sorts with the unscored, never among the scored (#576)
+        }
         let computed = match &e.scored {
             Some((_, _, Ok(s))) => Some(s.score),
             _ => None,
@@ -554,6 +560,10 @@ impl Browser {
     }
 
     fn score_cell(&self, e: &Entry) -> String {
+        // A playtest wasn't played for score (#576): the row says so where the number would go.
+        if e.info.playtest {
+            return PLAYTEST_CELL.to_owned();
+        }
         if let Some(text) = e.info.logged_score_text() {
             return text;
         }
@@ -611,7 +621,12 @@ impl Browser {
             Column::new(
                 "MODE",
                 false,
-                cells(&|e| or_dash(e.info.mode.map(|m| m.word().to_owned()))),
+                cells(&|e| {
+                    if e.info.playtest {
+                        return PLAYTEST_CELL.to_owned();
+                    }
+                    or_dash(e.info.mode.map(|m| m.word().to_owned()))
+                }),
             ),
             Column::new(
                 "COST",
@@ -803,7 +818,14 @@ impl Browser {
                 }
                 _ => format!("score at {SCORE_HORIZON} turns: being worked out"),
             };
-            parts.push(format!("{}: {score}", e.info.name));
+            if e.info.playtest {
+                parts.push(format!(
+                    "{}: a playtest, played to learn about the game and not for score; {score}",
+                    e.info.name
+                ));
+            } else {
+                parts.push(format!("{}: {score}", e.info.name));
+            }
         }
         let _ = rows;
         parts.join("; ")

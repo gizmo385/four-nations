@@ -118,6 +118,9 @@ pub struct RunInfo {
     pub seed: Option<u64>,
     pub scenario: Option<String>,
     pub difficulty: Option<String>,
+    /// The header says this was a playtest (#576): the model was asked to say what it thinks of
+    /// the game, not to play for a score, so its score is not set beside the scored runs'.
+    pub playtest: bool,
     pub mode: Option<Mode>,
     pub model: Option<String>,
     /// The highest turn the log has reached.
@@ -148,6 +151,7 @@ impl RunInfo {
             seed: None,
             scenario: None,
             difficulty: None,
+            playtest: false,
             mode: None,
             model: None,
             turns: 0,
@@ -239,6 +243,7 @@ impl RunInfo {
         self.nation = Some(header.nation.as_str().to_owned());
         self.seed = Some(header.seed);
         self.difficulty = header.difficulty.clone();
+        self.playtest = header.playtest;
         self.turn_seconds = Some(header.turn_seconds);
         if header.prelude.is_some() {
             self.scenario = crate::scenario::id_for(&header)

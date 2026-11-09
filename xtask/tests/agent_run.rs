@@ -36,6 +36,8 @@ const STUB_CLAUDE: &str = r#"#!/bin/sh
 mcp_config=""
 prev=""
 output_format_json=0
+output_format_stream=0
+verbose=0
 session=""
 # One block per call in $STUB_ARGS (#567): the working directory, then each argument on a line
 # of its own, so a test can check what the player was started with and where.
@@ -51,6 +53,12 @@ for a in "$@"; do
   fi
   if [ "$prev" = "--output-format" ] && [ "$a" = "json" ]; then
     output_format_json=1
+  fi
+  if [ "$prev" = "--output-format" ] && [ "$a" = "stream-json" ]; then
+    output_format_stream=1
+  fi
+  if [ "$a" = "--verbose" ]; then
+    verbose=1
   fi
   prev="$a"
 done
@@ -91,11 +99,31 @@ if [ -n "$STUB_LOG" ]; then
   echo "$OTEL_RESOURCE_ATTRIBUTES" >> "$STUB_LOG"
 fi
 
-if [ "$output_format_json" = "1" ] && ! in_list "$call" "$STUB_NOJSON_CALLS"; then
+# `--output-format stream-json` (#576) is the playtest's: like the real `claude`, it needs
+# `--verbose`. The stream is an init event, two assistant messages (a thinking block with an
+# opaque signature, a remark, a tool call; the second message flags the same game problem on
+# every call, to be deduplicated), and the same result object `json` prints, with a type. Knobs:
+# `STUB_NOSAY_CALLS` leaves the assistant messages out.
+if [ "$output_format_stream" = "1" ]; then
+  if [ "$verbose" != "1" ]; then
+    echo "Error: When using --print, --output-format=stream-json requires --verbose" >&2
+    exit 1
+  fi
+  printf '{"type":"system","subtype":"init","session_id":"%s"}\n' "$session"
+  if ! in_list "$call" "$STUB_NOSAY_CALLS"; then
+    printf '{"type":"assistant","message":{"id":"msg_%d_a","role":"assistant","content":[{"type":"thinking","thinking":"","signature":"SECRET-SIGNATURE-%d"},{"type":"text","text":"Remark %d: I expect water nearby."},{"type":"tool_use","id":"tu_%d","name":"mcp__four-nations__observe","input":{}}]},"parent_tool_use_id":null}\n' "$call" "$call" "$call" "$call"
+    printf '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_%d","content":"ok"}]}}\n' "$call"
+    printf '{"type":"assistant","message":{"id":"msg_%d_b","role":"assistant","content":[{"type":"text","text":"Odd.\\ngame problem: the stub well gives no water."},{"type":"tool_use","id":"tu_%d_b","name":"mcp__four-nations__end_turn","input":{}}]},"parent_tool_use_id":null}\n' "$call" "$call"
+  fi
+fi
+
+if { [ "$output_format_json" = "1" ] || [ "$output_format_stream" = "1" ]; } && ! in_list "$call" "$STUB_NOJSON_CALLS"; then
+  kind=""
+  [ "$output_format_stream" = "1" ] && kind='"type":"result","subtype":"success",'
   if in_list "$call" "$STUB_NOCOST_CALLS"; then
-    printf '{"num_turns":1,"result":"stub report, no cost"}\n'
+    printf '{%s"num_turns":1,"result":"stub report, no cost"}\n' "$kind"
   else
-    printf '{"num_turns":1,"usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":5},"total_cost_usd":%s,"result":"stub report"}\n' "${STUB_COST:-0.01}"
+    printf '{%s"num_turns":1,"usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":5},"total_cost_usd":%s,"result":"stub report"}\n' "$kind" "${STUB_COST:-0.01}"
   fi
 fi
 
@@ -736,4 +764,204 @@ fn a_nonzero_exit_with_a_known_cost_is_reported_and_charged() {
     assert_eq!(stop_json(&dir)["reason"], "done");
     let agent_log = fs::read_to_string(dir.join("agent.log")).unwrap();
     assert!(agent_log.contains("chunk 1 failed: claude ended with exit status: 1"), "{agent_log}");
+}
+
+// -------------------------------------------------------------------------------------------
+// `--playtest` (#576)
+// -------------------------------------------------------------------------------------------
+
+/// The `say` lines of a run's log, in order.
+fn says(dir: &Path) -> Vec<String> {
+    fs::read_to_string(dir.join("run.jsonl"))
+        .unwrap()
+        .lines()
+        .filter(|l| l.starts_with(r#"{"type":"say""#))
+        .map(|l| {
+            serde_json::from_str::<serde_json::Value>(l).unwrap()["text"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect()
+}
+
+/// A playtest streams the model's text into the log as `say` lines, in order with the rest of
+/// the log and once each across chunks, reads cost from the final result event, and writes
+/// `game-problems.md` with the repeated problem once.
+#[test]
+fn a_playtest_puts_remarks_in_the_log_in_order_and_reads_cost_from_the_stream() {
+    let fx = Fixture::new("playtest");
+    let out = fx.scripted("2", &["--playtest", "--chunk-calls", "5"]).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(fx.calls(), 2);
+    let dir = fx.run_dir();
+
+    // The arguments: streaming, with the --verbose it needs, and the cap still enforced.
+    for (n, (_, args)) in recorded_calls(&fx.tmp.join("calls.txt")).iter().enumerate() {
+        assert_eq!(arg_after(args, "--output-format"), "stream-json", "{args:?}");
+        assert!(args.contains(&"--verbose".to_string()), "{args:?}");
+        assert!(args.contains(&"--max-budget-usd".to_string()), "{args:?}");
+        let prompt = arg_after(args, "-p");
+        let want =
+            if n == 0 { "You're playtesting" } else { "You're continuing the same playtest" };
+        assert!(prompt.starts_with(want), "chunk {}: {args:?}", n + 1);
+    }
+
+    // Each remark once, in the order the log has them: chunk 1's before chunk 2's turn.
+    let log = fs::read_to_string(dir.join("run.jsonl")).unwrap();
+    let said = says(&dir);
+    assert_eq!(said.len(), 4, "{said:?}");
+    assert_eq!(said.iter().filter(|s| s.starts_with("Remark 1:")).count(), 1);
+    assert_eq!(said.iter().filter(|s| s.starts_with("Remark 2:")).count(), 1);
+    let at = |needle: &str| log.find(needle).unwrap_or_else(|| panic!("{needle} in {log}"));
+    assert!(at("Remark 1:") < at(r#""index":2"#), "{log}");
+    assert!(at(r#""index":2"#) < at("Remark 2:"), "{log}");
+    assert!(at("chunk 1 finished") < at(r#""index":2"#), "{log}");
+    // The multi-line text stayed one line of the log.
+    assert!(said.iter().any(|s| s == "Odd.\ngame problem: the stub well gives no water."));
+
+    // No signature anywhere the run keeps.
+    for name in ["run.jsonl", "agent.log", "chunk-1.json", "chunk-2.json"] {
+        let text = fs::read_to_string(dir.join(name)).unwrap();
+        assert!(!text.contains("SECRET-SIGNATURE"), "{name}: {text}");
+    }
+
+    // Cost comes from the result events, as it does from `--output-format json`.
+    let cost = cost_json(&dir);
+    assert!((cost["usd"].as_f64().unwrap() - 0.02).abs() < 1e-9, "{cost}");
+    assert_eq!(cost["round_trips"], 2);
+    assert!(cost.get("unknown_chunks").is_none(), "{cost}");
+    let chunk: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.join("chunk-1.json")).unwrap()).unwrap();
+    assert_eq!(chunk["type"], "result");
+    assert_eq!(stop_json(&dir)["reason"], "done");
+
+    // The same problem, said in both chunks, is listed once with the turn it came back at.
+    let problems = fs::read_to_string(dir.join("game-problems.md")).unwrap();
+    assert!(problems.contains("1 distinct problem(s) from 2 mention(s)"), "{problems}");
+    assert_eq!(problems.matches("the stub well gives no water").count(), 1, "{problems}");
+    assert!(problems.contains("- turn 1 (remark): the stub well gives no water."), "{problems}");
+    assert!(problems.contains("said again at turn 2"), "{problems}");
+    assert!(dir.join("sdk-gaps.md").is_file());
+}
+
+/// An ordinary `--scripts` run is untouched: `--output-format json`, no `--verbose`, no `say`
+/// lines, no `game-problems.md`, and the scored prompt.
+#[test]
+fn an_ordinary_scripted_run_is_not_a_playtest() {
+    let fx = Fixture::new("not-playtest");
+    let out = fx.scripted("1", &[]).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let dir = fx.run_dir();
+    for (_, args) in recorded_calls(&fx.tmp.join("calls.txt")) {
+        assert_eq!(arg_after(&args, "--output-format"), "json");
+        assert!(!args.contains(&"--verbose".to_string()), "{args:?}");
+        assert!(!arg_after(&args, "-p").contains("playtest"), "{args:?}");
+    }
+    assert!(!dir.join("game-problems.md").exists());
+    assert!(!fs::read_to_string(dir.join("mcp.json")).unwrap().contains("--playtest"));
+    assert!(says(&dir).is_empty());
+}
+
+/// The playtest's `fn_agent serve` gets `--playtest` (so the header says so) on the first chunk;
+/// a resumed chunk reads it from the header it resumes.
+#[test]
+fn a_playtest_marks_the_log_header_through_fn_agent_serve() {
+    let fx = Fixture::new("playtest-header");
+    let out = fx.scripted("1", &["--playtest"]).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = fs::read_to_string(fx.run_dir().join("mcp.json")).unwrap();
+    assert!(text.contains("\"--playtest\""), "{text}");
+}
+
+/// A playtest and a campaign are different aims: refused with a message that says why, before
+/// anything runs.
+#[test]
+fn a_playtest_is_refused_with_a_campaign_or_a_chat() {
+    let fx = Fixture::new("playtest-refused");
+    for (args, want) in [
+        (vec!["--track", "t", "--attempts", "1"], "--playtest can't be combined with --track"),
+        (vec!["--resume", "some-campaign"], "--playtest can't be combined with --resume"),
+        (vec!["--interactive"], "--playtest and --interactive can't be combined"),
+        (vec!["--chunk-turns", "3"], "--playtest and --chunk-turns can't be combined"),
+    ] {
+        let out =
+            fx.command().arg("--playtest").args(&args).args(["--max-usd", "5"]).output().unwrap();
+        assert!(!out.status.success(), "{args:?}");
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(err.contains(want), "{args:?}: {err}");
+    }
+    assert!(!fx.runs_dir.exists(), "nothing should have started");
+}
+
+/// A stream that dies after the model has spoken keeps what it said: the remarks are already in
+/// the log, `game-problems.md` lists the problem, and the missing result is an unknown cost that
+/// stops the run, exactly as a missing `--output-format json` result does.
+#[test]
+fn a_crash_mid_stream_keeps_the_remarks_and_still_counts_as_unknown_cost() {
+    let fx = Fixture::new("playtest-crash");
+    let out = fx
+        .scripted("3", &["--playtest"])
+        .env("STUB_NOJSON_CALLS", "1")
+        .env("STUB_EXIT_CALLS", "1")
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert_eq!(fx.calls(), 1);
+    let dir = fx.run_dir();
+    assert_eq!(says(&dir).len(), 2, "{:?}", says(&dir));
+    assert!(
+        fs::read_to_string(dir.join("game-problems.md")).unwrap().contains("well gives no water")
+    );
+    assert_eq!(stop_json(&dir)["reason"], "unknown_cost");
+    assert_eq!(cost_json(&dir)["unknown_chunks"], serde_json::json!([1]));
+}
+
+/// A result event with no cost is unknown too, in the stream as in the plain format.
+#[test]
+fn a_streamed_result_with_no_cost_stops_the_run() {
+    let fx = Fixture::new("playtest-nocost");
+    let out = fx.scripted("3", &["--playtest"]).env("STUB_NOCOST_CALLS", "1").output().unwrap();
+    assert!(!out.status.success());
+    assert_eq!(fx.calls(), 1);
+    assert_eq!(stop_json(&fx.run_dir())["reason"], "unknown_cost");
+}
+
+/// A model that says nothing leaves an empty `game-problems.md` and no `say` lines.
+#[test]
+fn a_silent_playtest_says_none_flagged() {
+    let fx = Fixture::new("playtest-silent");
+    let out = fx.scripted("1", &["--playtest"]).env("STUB_NOSAY_CALLS", "1").output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let dir = fx.run_dir();
+    assert!(says(&dir).is_empty());
+    assert!(fs::read_to_string(dir.join("game-problems.md")).unwrap().contains("None flagged"));
+}
+
+/// `watch --list` marks a playtest in the score column, from the log's header.
+#[test]
+fn watch_list_marks_a_playtest() {
+    let fx = Fixture::new("playtest-list");
+    let run = fx.runs_dir.join("20261108-120000-earth-1-normal");
+    fs::create_dir_all(&run).unwrap();
+    let header = |extra: &str| {
+        format!(
+            "{{\"type\":\"header\",\"seed\":1,\"nation\":\"earth\",\"turn_seconds\":20,\
+             \"ticks_per_turn\":200,\"map_size\":null,\"difficulty\":null,\"site\":null,\
+             \"rough\":false,\"data_digest\":1,\"crate_version\":\"0\"{extra}}}\n\
+             {{\"type\":\"turn\",\"index\":3,\"tick\":600}}\n\
+             {{\"type\":\"score\",\"score\":55.5,\"progress\":0.1,\"care\":0.1,\"horizon\":540}}\n"
+        )
+    };
+    fs::write(run.join("run.jsonl"), header(",\"playtest\":true")).unwrap();
+    let plain = fx.runs_dir.join("20261108-110000-fire-2-normal");
+    fs::create_dir_all(&plain).unwrap();
+    fs::write(plain.join("run.jsonl"), header("")).unwrap();
+
+    let out = fx.command().args(["watch", "--list"]).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8_lossy(&out.stdout);
+    let row = |name: &str| text.lines().find(|l| l.contains(name)).unwrap().to_owned();
+    assert!(row("earth-1-normal").ends_with("playtest"), "{text}");
+    assert!(row("fire-2-normal").ends_with("55.5"), "{text}");
 }

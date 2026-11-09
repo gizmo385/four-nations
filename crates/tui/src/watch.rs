@@ -165,7 +165,8 @@ pub fn to_keys_script(header: &RunLogHeader, lines: &[LogLine]) -> String {
             | LogLine::Note { .. }
             | LogLine::Call { .. }
             | LogLine::Plan { .. }
-            | LogLine::Score { .. } => {}
+            | LogLine::Score { .. }
+            | LogLine::Say { .. } => {}
         }
     }
     tokens.join(" ")
@@ -338,6 +339,9 @@ pub struct Watcher {
     /// ([`SMALL_NOTICE_SECONDS`]), aged down by [`Self::advance`] the same way
     /// [`Self::ghost`] is. Zero once it's gone.
     small_notice_left: f32,
+    /// The log's header says this run is a playtest (#576): the strip says so right after the
+    /// nation.
+    playtest: bool,
 }
 
 /// What the agent strip shows for a script run in progress or just woken, between the clock and
@@ -438,6 +442,7 @@ impl Watcher {
             zoomed: false,
             frame_size: cli::DEFAULT_SIZE,
             small_notice_left: 0.0,
+            playtest: header.playtest,
         })
     }
 
@@ -874,6 +879,9 @@ impl Watcher {
             // #525: the scorecard line `fn_agent score --append` adds; a watcher card for it is
             // #532's.
             LogLine::Score { .. } => {}
+            // #576: something the model said in a playtest. Only the feed shows it: nothing
+            // is replayed, and it takes no game time.
+            LogLine::Say { text } => self.feed.on_say(&text, self.turn),
         }
         true
     }
@@ -1200,8 +1208,9 @@ impl Watcher {
         };
         let action = if drop_action { String::new() } else { action };
         let view = if self.follow { "FOLLOW" } else { "FREE" };
+        let playtest = if self.playtest { "  PLAYTEST" } else { "" };
         format!(
-            " AGENT {}  {view}  turn {}  {clock}  {script}{action}  x{}",
+            " AGENT {}{playtest}  {view}  turn {}  {clock}  {script}{action}  x{}",
             self.nation_label,
             self.turn,
             self.pace()
@@ -1436,6 +1445,7 @@ mod tests {
             data_digest: fn_sim::Defs::bundled().id_hash(),
             crate_version: env!("CARGO_PKG_VERSION").to_owned(),
             prelude: None,
+            playtest: false,
             build: None,
         }
     }

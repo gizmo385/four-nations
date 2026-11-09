@@ -21,10 +21,15 @@
 //! exact same entries, just opened by the structural lines themselves (docs/design/
 //! agent-studio.md: "Logs with no `call` lines... gets synthetic entries from the same lines"),
 //! with `Self::calls` then counting those openings instead.
+//!
+//! A `say` line (#576, a playtest's remark) is the one entry that is not a call at all: it is
+//! drawn as `says: ...`, wrapped to the box, with a `game problem:` line given a row of its own,
+//! marked `!` and highlighted. "says", because it is what the model chose to write and not its
+//! reasoning.
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 
 use crate::studio::ScriptDiff;
 use crate::widgets::Marks;
@@ -50,14 +55,46 @@ enum Line {
     /// own `woke: why` / `budget, k acts` / `done` / `error: ...`), with no ASCII-sensitive
     /// characters of its own.
     Woken { name: String, version: u32, budget: u32, outcome: String },
+    /// Something the model said in plain text (#576, a `say` line): wrapped to the feed's width
+    /// when drawn, so it is kept whole here. Not the model's reasoning: only what it chose to
+    /// write, which is why the label reads "says".
+    Says(String),
+}
+
+/// How a row of the feed is drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Kind {
+    Normal,
+    Dim,
+    /// A remark's own text.
+    Says,
+    /// A `game problem:` line (#576): marked and highlighted so it stands out of the remarks.
+    Problem,
+}
+
+/// One drawn row, before the marker column is added.
+#[derive(Clone, Debug, PartialEq)]
+struct Row {
+    text: String,
+    kind: Kind,
+    /// Whether this row begins a thing (it gets the marker) rather than continues a wrapped one.
+    first: bool,
+}
+
+impl Row {
+    fn new(text: String, kind: Kind) -> Self {
+        Self { text, kind, first: true }
+    }
 }
 
 impl Line {
-    /// `(text, dim)`, with every ASCII-sensitive separator resolved against `ascii`.
+    /// `(text, dim)`, with every ASCII-sensitive separator resolved against `ascii`. A remark
+    /// has no single row: [`Self::rows`] is what the feed draws.
     fn format(&self, ascii: bool) -> (String, bool) {
         match self {
             Self::Plain(s) => (s.clone(), false),
             Self::Dim(s) => (s.clone(), true),
+            Self::Says(s) => (s.clone(), false),
             Self::Save { name, version, diff } => {
                 (format!("save_script {}  {}", labelled(name, *version), diff.text(ascii)), false)
             }
@@ -69,6 +106,96 @@ impl Line {
             }
         }
     }
+
+    /// The rows this line draws in `width` columns (the marker column not counted).
+    fn rows(&self, ascii: bool, width: usize) -> Vec<Row> {
+        match self {
+            Self::Says(text) => say_rows(text, width),
+            other => {
+                let (text, dim) = other.format(ascii);
+                vec![Row::new(text, if dim { Kind::Dim } else { Kind::Normal })]
+            }
+        }
+    }
+}
+
+/// The label a remark's first line carries. "says", because that is all it is: what the model
+/// chose to write, not what it was thinking.
+const SAYS: &str = "says: ";
+
+/// Whether `line` is a `game problem:` line (#576), as the playtest prompt asks the model to
+/// write them: the words at the start (after a list bullet, if any), in any case.
+pub fn is_game_problem(line: &str) -> bool {
+    let line = line.trim_start().trim_start_matches(['-', '*']).trim_start();
+    line.get(..13).is_some_and(|head| head.eq_ignore_ascii_case("game problem:"))
+}
+
+/// `text` as rows of at most `width` columns: each line of the remark wrapped at words, its first
+/// row carrying `says: `, a `game problem:` line standing as its own highlighted row (or rows)
+/// whatever its place in the remark.
+fn say_rows(text: &str, width: usize) -> Vec<Row> {
+    let mut rows = Vec::new();
+    let mut said = false;
+    for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        if is_game_problem(line) {
+            let line = line.trim_start_matches(['-', '*']).trim_start();
+            rows.extend(wrap(line, width, "", Kind::Problem));
+        } else {
+            let label = if said { "" } else { SAYS };
+            said = true;
+            rows.extend(wrap(line, width, label, Kind::Says));
+        }
+    }
+    rows
+}
+
+/// `text` wrapped to `width` columns, `label` ahead of the first row and spaces of its width
+/// ahead of the others. A word longer than a row is broken. Always at least one row.
+fn wrap(text: &str, width: usize, label: &str, kind: Kind) -> Vec<Row> {
+    let indent = label.chars().count();
+    let room = width.saturating_sub(indent).max(1);
+    let mut lines: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    let mut cur_len = 0;
+    for word in text.split_whitespace() {
+        let mut word: &str = word;
+        loop {
+            let len = word.chars().count();
+            let sep = usize::from(cur_len > 0);
+            if cur_len + sep + len <= room {
+                if sep == 1 {
+                    cur.push(' ');
+                }
+                cur.push_str(word);
+                cur_len += sep + len;
+                break;
+            }
+            if cur_len > 0 {
+                lines.push(std::mem::take(&mut cur));
+                cur_len = 0;
+                continue;
+            }
+            // A word wider than a whole row: break it.
+            let cut = word.char_indices().nth(room).map_or(word.len(), |(i, _)| i);
+            lines.push(word[..cut].to_owned());
+            word = &word[cut..];
+            if word.is_empty() {
+                break;
+            }
+        }
+    }
+    if !cur.is_empty() || lines.is_empty() {
+        lines.push(cur);
+    }
+    lines
+        .into_iter()
+        .enumerate()
+        .map(|(i, l)| {
+            let text =
+                if i == 0 { format!("{label}{l}") } else { format!("{}{l}", " ".repeat(indent)) };
+            Row { text, kind, first: i == 0 }
+        })
+        .collect()
 }
 
 /// `name vN`, or just `name` for an ad hoc run that was never saved (`version == 0`, the same
@@ -327,6 +454,20 @@ impl Feed {
         self.push_read(format!("notes + {text:?}"), turn);
     }
 
+    /// A `Say` line reaches the replay (#576): the model's remark, as its own entry, in the order
+    /// the log has it. It is not a call and doesn't count as one. It closes whatever act group is
+    /// open, so the remark sits between the acts it was said between; but a run in progress stays
+    /// open (its own acts and turns go on counting), the remark drawn above the run's live lines.
+    pub fn on_say(&mut self, text: &str, turn: u32) {
+        if text.trim().is_empty() {
+            return;
+        }
+        if !matches!(self.pending, Some(Pending::Run(_))) {
+            self.finish_pending(turn);
+        }
+        self.lines.push(Line::Says(text.to_owned()));
+    }
+
     /// The feed's own border, title and the last entries that fit `area` -- newest at the
     /// bottom, tailing automatically (docs/design/agent-studio.md: "The feed only shows what's
     /// been replayed... Newest is at the bottom and it tails automatically"). A no-op on an area
@@ -340,15 +481,26 @@ impl Feed {
         let inner =
             Rect::new(area.x + 1, area.y + 1, area.width.saturating_sub(2), area.height - 2);
 
-        let mut all: Vec<(String, bool)> = self.lines.iter().map(|l| l.format(ascii)).collect();
+        // The marker column is two wide (a pointer and a space), whatever the row.
+        let width = usize::from(inner.width).saturating_sub(2);
+        let mut all: Vec<Row> = self.lines.iter().flat_map(|l| l.rows(ascii, width)).collect();
         if let Some(Pending::Run(run)) = &self.pending {
-            all.extend(run.live_lines(current_turn, ascii));
+            all.extend(
+                run.live_lines(current_turn, ascii)
+                    .into_iter()
+                    .map(|(text, dim)| Row::new(text, if dim { Kind::Dim } else { Kind::Normal })),
+            );
         }
         let start = all.len().saturating_sub(usize::from(inner.height));
-        for (row, (text, dim)) in all[start..].iter().enumerate() {
-            let shown =
-                if *dim { format!("  {text}") } else { format!("{} {text}", marks.pointer) };
-            let style = if *dim { Style::new().add_modifier(Modifier::DIM) } else { Style::new() };
+        for (row, r) in all[start..].iter().enumerate() {
+            let (marker, style) = match r.kind {
+                Kind::Dim => (" ", Style::new().add_modifier(Modifier::DIM)),
+                Kind::Problem => ("!", Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Kind::Normal | Kind::Says => (marks.pointer, Style::new()),
+            };
+            // A wrapped row's continuation has no marker of its own.
+            let marker = if r.first || r.kind == Kind::Dim { marker } else { " " };
+            let shown = format!("{marker} {}", r.text);
             let y = inner.y + row as u16;
             buf.set_stringn(inner.x, y, &shown, usize::from(inner.width), style);
         }
@@ -574,5 +726,158 @@ mod tests {
         let rendered = text(&buf);
         assert!(rendered.contains("keep-fed v1 - 5t -> done"), "{rendered}");
         assert!(!rendered.contains('·') && !rendered.contains('→'), "{rendered}");
+    }
+}
+
+#[cfg(test)]
+mod say_tests {
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+    use ratatui::style::{Color, Modifier};
+
+    use super::*;
+
+    fn render(feed: &Feed, w: u16, h: u16, ascii: bool) -> Buffer {
+        let mut buf = Buffer::empty(Rect::new(0, 0, w, h));
+        feed.render(&mut buf, Rect::new(0, 0, w, h), ascii, 0);
+        buf
+    }
+
+    fn rows_of(buf: &Buffer) -> Vec<String> {
+        crate::frame::to_text(buf).lines().map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn a_remark_is_labelled_says_and_never_thinking() {
+        let mut feed = Feed::new();
+        feed.on_say("I expect water within ten tiles", 0);
+        let rendered = crate::frame::to_text(&render(&feed, 60, 6, false));
+        assert!(rendered.contains("says: I expect water within ten tiles"), "{rendered}");
+        let lower = rendered.to_lowercase();
+        assert!(!lower.contains("think") && !lower.contains("reason"), "{rendered}");
+    }
+
+    #[test]
+    fn a_remark_is_not_a_call_and_an_empty_one_is_nothing() {
+        let mut feed = Feed::new();
+        feed.on_say("hello", 0);
+        feed.on_say("   \n ", 0);
+        assert!(feed.title(false).contains("0 calls"), "{}", feed.title(false));
+        let rendered = crate::frame::to_text(&render(&feed, 40, 6, false));
+        assert_eq!(rendered.matches("says:").count(), 1, "{rendered}");
+    }
+
+    /// Remarks keep the order of the log, between the entries they were said between.
+    #[test]
+    fn remarks_sit_between_the_entries_around_them() {
+        let mut feed = Feed::new();
+        feed.on_look(1, 1, 2, 2, 0);
+        feed.on_say("first remark", 0);
+        feed.on_inspect(3, 3, 0);
+        feed.on_say("second remark", 0);
+        let rows = rows_of(&render(&feed, 50, 10, false)).join("\n");
+        let at = |needle: &str| rows.find(needle).unwrap_or_else(|| panic!("{needle} in {rows}"));
+        assert!(at("look (1,1)") < at("first remark"));
+        assert!(at("first remark") < at("inspect (3,3)"));
+        assert!(at("inspect (3,3)") < at("second remark"));
+    }
+
+    /// A remark closes the act group it interrupts, so the acts before and after are two entries.
+    #[test]
+    fn a_remark_splits_an_act_group() {
+        let mut feed = Feed::new();
+        feed.on_keys(Some("build Bed"), None, "b", 0);
+        feed.on_say("that looked cheap", 0);
+        feed.on_keys(Some("build Well"), None, "w", 0);
+        let rows = rows_of(&render(&feed, 50, 10, false)).join("\n");
+        assert!(rows.contains("act build Bed"), "{rows}");
+        assert!(!rows.contains("build Bed; build Well"), "{rows}");
+    }
+
+    /// A remark said while a run is open leaves the run open: its wake still closes it.
+    #[test]
+    fn a_remark_does_not_close_a_run() {
+        let mut feed = Feed::new();
+        feed.on_script("governor", 1, 5, ScriptDiff::New { lines: 1 }, 0);
+        feed.on_say("running it now", 0);
+        feed.on_wake("done", None);
+        let rows = rows_of(&render(&feed, 60, 10, false)).join("\n");
+        assert!(rows.contains("run_script governor v1 · 5t → done"), "{rows}");
+        assert!(rows.contains("running it now"), "{rows}");
+    }
+
+    #[test]
+    fn game_problem_lines_are_recognised() {
+        for yes in [
+            "game problem: the well gives no water",
+            "Game Problem: x",
+            "  - game problem: bullet",
+            "* GAME PROBLEM: starred",
+        ] {
+            assert!(is_game_problem(yes), "{yes}");
+        }
+        for no in ["a game problem: later", "SDK gap: x", "game problems", "", "game"] {
+            assert!(!is_game_problem(no), "{no}");
+        }
+    }
+
+    /// A `game problem:` line is its own row, marked `!` and drawn bold in colour, whether it
+    /// is the whole remark or a line inside a longer one.
+    #[test]
+    fn game_problem_lines_are_highlighted() {
+        let mut feed = Feed::new();
+        feed.on_say("Trying the stockpile.\ngame problem: the briefing says 4 beds, I see 3", 0);
+        let buf = render(&feed, 70, 8, false);
+        let rows = rows_of(&buf);
+        let y = rows.iter().position(|r| r.contains("game problem:")).expect("a problem row");
+        let x = rows[y].find("game problem:").unwrap();
+        let col = rows[y][..x].chars().count() as u16;
+        assert!(rows[y][..x].contains('!'), "{}", rows[y]);
+        let cell = &buf[(col, y as u16)];
+        assert_eq!(cell.fg, Color::Yellow);
+        assert!(cell.modifier.contains(Modifier::BOLD));
+        // The ordinary line above it is plain.
+        let says = rows.iter().position(|r| r.contains("says: Trying")).expect("a says row");
+        assert!(!rows[says].contains('!'), "{}", rows[says]);
+        let plain = &buf[(4, says as u16)];
+        assert_eq!(plain.fg, Color::Reset);
+    }
+
+    /// Wrapping at every width: no row is wider than the box, and every word survives (in order)
+    /// when the box is tall enough, in both glyph sets.
+    #[test]
+    fn remarks_wrap_at_any_width_without_losing_words() {
+        let text = "Water keeps dropping although the wells are staffed, which I did not expect; \
+                    supercalifragilisticexpialidocious_is_one_very_long_unbroken_token afterwards";
+        let want: String = text.chars().filter(|c| c.is_alphanumeric()).collect();
+        for ascii in [false, true] {
+            for w in 4..=90u16 {
+                let mut feed = Feed::new();
+                feed.on_say(text, 0);
+                let rows = rows_of(&render(&feed, w, 80, ascii));
+                assert!(rows.iter().all(|r| r.chars().count() <= usize::from(w)), "w={w}");
+                if w >= 12 {
+                    // Every row below the title, minus the box's sides and the marker column.
+                    let body: String = rows[1..rows.len() - 1]
+                        .iter()
+                        .flat_map(|r| r.chars().skip(1))
+                        .filter(|c| c.is_alphanumeric())
+                        .collect();
+                    assert!(body.contains(&want), "w={w} ascii={ascii}\n{}", rows.join("\n"));
+                }
+            }
+        }
+    }
+
+    /// A short box shows the newest rows, so the latest remark is what's there.
+    #[test]
+    fn a_short_feed_tails_to_the_newest_remark() {
+        let mut feed = Feed::new();
+        for i in 0..10 {
+            feed.on_say(&format!("remark number {i}"), 0);
+        }
+        let rendered = crate::frame::to_text(&render(&feed, 40, 5, false));
+        assert!(rendered.contains("remark number 9"), "{rendered}");
+        assert!(!rendered.contains("remark number 0"), "{rendered}");
     }
 }
