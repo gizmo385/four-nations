@@ -268,8 +268,16 @@ impl World {
     }
 
     /// Puts the finished `building` on every tile of `foot`, each with its own `part`, and moves
-    /// whatever a solid one would bury.
+    /// whatever a solid one would bury or wall in.
     pub(super) fn raise(&mut self, foot: Footprint, building: BuildingId, def: &BuildingDef) {
+        // Who can get out today, so only a settler this building shuts in is moved, not one a
+        // sealed pocket (or a map with no stockpile and no water in reach) already held.
+        let free: Vec<UnitId> = if def.passable {
+            Vec::new()
+        } else {
+            self.regions();
+            self.units.iter().map(|u| u.id).filter(|&id| !self.walled_in(id)).collect()
+        };
         let b = Building {
             size: [foot.w, foot.h],
             ..Building::new(building, def.passable, def.rail.is_some())
@@ -279,10 +287,11 @@ impl World {
             self.map[p].building = Some(Building { part, ..b });
         }
         self.building_index.insert((foot.anchor.y, foot.anchor.x), foot.anchor);
+        self.map_changed();
         if !def.passable {
             self.clear_footprint(foot);
+            self.free_walled_in(&free);
         }
-        self.map_changed();
     }
 
     /// Moves what a solid building just finished on `foot` would bury: each unit on it steps to
@@ -297,21 +306,75 @@ impl World {
             if let Some(to) = self.nearest_outside(at, foot) {
                 self.units[i].pos = to;
             }
-            // A need task lives on this route (`walk` only reports arriving on one), and where
-            // it was going to be met -- the tile beside the water, the food, the bed -- is
-            // under the building or no longer where the unit stands. Dropping only the route
-            // would leave the task held forever (#563: a drinker starved beside water, `walk`
-            // never arriving), so the need is dropped with it and planned afresh next tick.
-            if self.units[i].need_task.is_some() {
-                self.finish_need(i);
-            }
-            self.units[i].route = None;
-            self.units[i].move_progress = 0.0;
+            self.replan_after_move(i);
         }
         let buried: Vec<Pos> = foot.tiles().filter(|p| self.ground.contains_key(p)).collect();
         for p in buried {
             let stack = self.ground.remove(&p).expect("just found");
             self.place_ground(p, stack);
+        }
+    }
+
+    /// Drops what unit `i` was doing about getting somewhere, after it was moved off the tile it
+    /// was planning from.
+    fn replan_after_move(&mut self, i: usize) {
+        // A need task lives on this route (`walk` only reports arriving on one), and where
+        // it was going to be met -- the tile beside the water, the food, the bed -- is
+        // under the building or no longer where the unit stands. Dropping only the route
+        // would leave the task held forever (#563: a drinker starved beside water, `walk`
+        // never arriving), so the need is dropped with it and planned afresh next tick.
+        if self.units[i].need_task.is_some() {
+            self.finish_need(i);
+        }
+        self.units[i].route = None;
+        self.units[i].move_progress = 0.0;
+    }
+
+    /// After a solid building went up: each of `free` (the units that could reach water, a
+    /// stockpile or the settlement's heart a moment ago) that now can't is walled in by it (#583:
+    /// a settler wandered into a pocket whose only way out ran through a site, and starved
+    /// there once it finished; #559 makes buildings solid, #490's `would_strand` only keeps
+    /// the opening from building such a thing, not a player). It steps to the nearest tile
+    /// that can reach one of them, as a unit on the footprint steps off it (`clear_footprint`),
+    /// and replans. Whatever else stays walled in is left where it is: if no such tile exists
+    /// at all there is nowhere to put it, and it reads "Idle: walled in" and trips `balance`'s
+    /// Stranded flag like any other sealed settler.
+    ///
+    /// The building still goes up: refusing it would mean a unit's wandering decides what the
+    /// player may build.
+    fn free_walled_in(&mut self, free: &[UnitId]) {
+        self.regions();
+        let trapped: Vec<usize> = (0..self.units.len())
+            .filter(|&i| free.contains(&self.units[i].id) && self.walled_in(self.units[i].id))
+            .collect();
+        if trapped.is_empty() {
+            return;
+        }
+        let anchor = self.settlement_anchor();
+        let regions = self.regions().clone();
+        // The regions that hold water to drink, a stockpile or the settlement's heart.
+        let mut open = std::collections::BTreeSet::new();
+        for (p, _) in self.map.iter() {
+            let Some(region) = regions.region(p) else { continue };
+            if p.chebyshev(anchor) <= 1
+                || self.zones.contains(&p)
+                || self.map.neighbors(p, true).any(|q| self.map[q].terrain.is_water())
+            {
+                open.insert(region);
+            }
+        }
+        for i in trapped {
+            let from = self.units[i].pos;
+            let to = self
+                .map
+                .iter()
+                .filter(|&(p, _)| regions.region(p).is_some_and(|r| open.contains(&r)))
+                .map(|(p, _)| p)
+                .min_by_key(|p| (p.chebyshev(from), p.y, p.x));
+            if let Some(to) = to {
+                self.units[i].pos = to;
+                self.replan_after_move(i);
+            }
         }
     }
 

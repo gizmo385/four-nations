@@ -405,6 +405,35 @@ mod tests {
         Session { world, defs, clock: Clock::default(), bend_choice: None }
     }
 
+    /// #583: a settler ringed in by rock reads "Idle: walled in", on the selection bar's line and
+    /// on the tooltip (the agent's `inspect`), instead of "no reachable job"; its neighbour in
+    /// the open keeps the plain "Idle".
+    #[test]
+    fn a_walled_in_settler_says_so() {
+        let defs = Defs::bundled();
+        let (home, pocket) = (Pos::new(2, 2), Pos::new(8, 8));
+        let mut map = field(12, 12, 128, None);
+        for (dx, dy) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
+            map[Pos::new(pocket.x + dx, pocket.y + dy)].terrain = Terrain::Mountain;
+        }
+        let world = World::with_map(1, map, Nation::Earth, &[home, pocket], &defs);
+        let mut s = custom_session(defs, world);
+        s.world.map_changed();
+        for (at, want) in [(pocket, "Idle: walled in"), (home, "Idle")] {
+            let lines = tooltip_lines(&s, Tool::Select, at).unwrap();
+            assert!(
+                lines.iter().any(|l| matches!(l, Line::Detail(d) if d.contains(want))),
+                "{want}: {lines:?}"
+            );
+            if want == "Idle" {
+                assert!(
+                    !lines.iter().any(|l| matches!(l, Line::Detail(d) if d.contains("walled"))),
+                    "{lines:?}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn tooltips_have_at_most_four_lines() {
         let s = Session::new(7, Nation::Earth, 64, 64);

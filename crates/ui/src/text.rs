@@ -148,8 +148,14 @@ pub fn caster_label(rank: Option<Rank>, count: usize) -> String {
 /// to do right now (`World::idle_reason`, #337): "Idle: no reachable job", "Idle: out of chi",
 /// "Idle: stockpile full", "Idle: too hurt for heavy work" (#388). A unit genuinely idle for a
 /// moment too brief to explain (`None`, the odd tick between a job becoming claimable and
-/// `claim_job` actually taking it) reads the same bare "Idle".
+/// `claim_job` actually taking it) reads the same bare "Idle". One that can reach no water, no
+/// stockpile and not the settlement's heart reads "Idle: walled in" ahead of all of those
+/// (`World::walled_in`, #583), since "no reachable job" would hide that it is cut off from
+/// everything.
 fn describe_idle(world: &World, defs: &Defs, unit: &Unit) -> String {
+    if world.walled_in(unit.id) {
+        return "Idle: walled in".to_owned();
+    }
     match world.idle_reason(unit.id, defs) {
         None | Some(IdleReason::NoWork) => "Idle".to_owned(),
         Some(IdleReason::Unreachable) => "Idle: no reachable job".to_owned(),

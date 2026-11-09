@@ -19,6 +19,14 @@ pub struct Reach {
     pub anchor: bool,
 }
 
+impl Reach {
+    /// Whether none of the three is within reach: no water, no stockpile (a settlement with none
+    /// marked has nothing to reach, so it counts as neither) and not the settlement's heart.
+    pub fn is_walled_in(self) -> bool {
+        !self.water && self.stockpile != Some(true) && !self.anchor
+    }
+}
+
 /// How many commands `World::apply` refused, and how many substantive ones in a row
 /// (`World::refusals`). A session's own bookkeeping: it isn't saved, and a loaded world starts
 /// from zero.
@@ -70,6 +78,29 @@ impl World {
     /// settler that has died, whose last position is all that's left.
     pub fn reach_from(&self, pos: Pos) -> Reach {
         self.reach_with(pos, &self.rules)
+    }
+
+    /// Whether living unit `unit` is walled in (#583): it can walk to no water, no stockpile and
+    /// no tile at the settlement's heart, so nothing it needs is on its side of whatever closed
+    /// round it. Cutting off just one of the three isn't this (a settler beside a pond but
+    /// away from the stores is still stranded for `balance`, #534, but not walled in). `false`
+    /// if it isn't alive.
+    ///
+    /// Asked on every frame the Nation screen draws for each idle settler, so it is cheap in the
+    /// common case: the connectivity cache, when it's current, answers "yes, it can reach the
+    /// heart" without a search, and the full `reach` runs only for a settler that might not.
+    pub fn walled_in(&self, unit: UnitId) -> bool {
+        let Some(u) = self.unit(unit) else { return false };
+        if let Some(regions) = &self.regions
+            && let Some(here) = regions.region(u.pos)
+        {
+            let anchor = self.settlement_anchor();
+            let near = |dx, dy| regions.region(Pos::new(anchor.x + dx, anchor.y + dy));
+            if (-1..=1).any(|dy| (-1..=1).any(|dx| near(dx, dy) == Some(here))) {
+                return false;
+            }
+        }
+        self.reach(unit).is_some_and(Reach::is_walled_in)
     }
 
     fn reach_with(&self, pos: Pos, rules: &MoveRules) -> Reach {

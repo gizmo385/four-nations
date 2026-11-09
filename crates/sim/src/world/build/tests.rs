@@ -973,3 +973,79 @@ fn a_resting_renewable_resource_blocks_movement_like_a_ripe_one() {
     assert!(flood.cost(at(3, 0)).is_some());
     assert!(flood.cost(at(7, 0)).is_none());
 }
+
+/// A two-wide corridor with the settlement's heart at its west end, a settler there (unit 0, who
+/// builds) and one in the dead end at the east (unit 1, who stays put), and a 2x2 hall to go up
+/// across the corridor between them. Both are free to walk until it finishes.
+fn corridor_with_a_hall() -> (World, Defs, BuildingId) {
+    // The hall's doorway is the tile below its anchor: a notch of floor in the south wall.
+    let rows = ["^^^^^^^^^^", "^........^", "^........^", "^^^^.^^^^^"];
+    let (mut w, mut defs) = setup(&rows, &[at(1, 1), at(7, 1)]);
+    let hall = hall_2x2(&mut defs);
+    w.start = Some(at(1, 1));
+    w.units[1].claim_retry_at = u64::MAX;
+    w.units[1].idle_until = u64::MAX;
+    w.designate_build(at(4, 1), hall, &defs).unwrap();
+    nearly_done(&mut w, &defs, at(4, 1));
+    (w, defs, hall)
+}
+
+/// #583: a settler in a pocket whose only way out is the site, when the building finishes, is
+/// moved to the nearest tile that reaches the rest of the settlement, as one standing on the
+/// footprint is. Without it the settler is walled in for good (seed 42, the Elders' Lodge).
+#[test]
+fn a_building_finishing_across_a_pocket_s_only_exit_moves_the_settler_out() {
+    let (mut w, defs, hall) = corridor_with_a_hall();
+    assert!(!w.walled_in(UnitId(1)), "free until the hall goes up");
+    run_until(&mut w, &defs, 4000, |w| w.building_at(at(4, 1)).is_some());
+    assert_eq!(w.building_at(at(4, 1)), Some(hall), "the build isn't held up for it");
+    assert_eq!(w.units[1].pos, at(3, 1), "the nearest tile on the settlement's side");
+    assert!(!w.walled_in(UnitId(1)));
+    assert!(w.reach(UnitId(1)).unwrap().anchor);
+    assert_eq!(w.units[1].route, None);
+}
+
+/// It is where a settler stands that decides, not who builds: with the heart in the east pocket,
+/// the builder on the west side is the one who is cut off, and is moved.
+#[test]
+fn the_settler_cut_off_from_the_heart_is_the_one_moved() {
+    let (mut w, defs, _) = corridor_with_a_hall();
+    w.start = Some(at(7, 1));
+    run_until(&mut w, &defs, 4000, |w| w.building_at(at(4, 1)).is_some());
+    assert!(!w.walled_in(UnitId(0)));
+    assert!(!w.walled_in(UnitId(1)));
+    assert!(w.units[0].pos.x >= 6, "the builder was carried over to the heart's side");
+}
+
+/// A settler that was already sealed in before the building (a pocket closed by terrain alone)
+/// isn't touched by it: it stays walled in, so `balance`'s Stranded flag still sees it.
+#[test]
+fn a_settler_already_sealed_in_is_left_to_the_detector() {
+    let rows = ["^^^^^^^^^^", "^........^", "^........^", "^^^^.^^^^^", "^..^^^^^^^", "^^^^^^^^^^"];
+    let (mut w, mut defs) = setup(&rows, &[at(1, 1), at(1, 4)]);
+    let hall = hall_2x2(&mut defs);
+    w.start = Some(at(1, 1));
+    w.units[1].claim_retry_at = u64::MAX;
+    w.units[1].idle_until = u64::MAX;
+    assert!(w.walled_in(UnitId(1)), "closed in by mountain from the start");
+    w.designate_build(at(4, 1), hall, &defs).unwrap();
+    nearly_done(&mut w, &defs, at(4, 1));
+    run_until(&mut w, &defs, 4000, |w| w.building_at(at(4, 1)).is_some());
+    assert_eq!(w.units[1].pos, at(1, 4));
+    assert!(w.walled_in(UnitId(1)));
+}
+
+/// `walled_in` is "none of the three" of `Reach`: a settler with water in its pocket, or a
+/// stockpile, is cut off from home but not walled in.
+#[test]
+fn walled_in_needs_water_stockpile_and_home_all_out_of_reach() {
+    let rows = ["........", "........", "^^^^^^^^", "..,~^...", "^^^^^^^^"];
+    let (mut w, _defs) = setup(&rows, &[at(0, 0), at(0, 3), at(6, 3)]);
+    w.start = Some(at(0, 0));
+    assert!(!w.walled_in(UnitId(0)));
+    assert!(!w.walled_in(UnitId(1)), "water in reach");
+    let r = w.reach(UnitId(2)).unwrap();
+    assert!(r.is_walled_in() && w.walled_in(UnitId(2)), "{r:?}");
+    w.designate_stockpile(at(7, 3)).unwrap();
+    assert!(!w.walled_in(UnitId(2)), "a stockpile in its pocket");
+}
