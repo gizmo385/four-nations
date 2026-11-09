@@ -1030,6 +1030,9 @@ mod idle_tests;
 mod rest_tests;
 
 #[cfg(test)]
+mod v2_fixture;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::research::TechCompleted;
