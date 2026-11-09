@@ -97,7 +97,9 @@ pub(super) fn find(lines: &[LogLine]) -> (Vec<Candidate>, u32) {
     for line in lines {
         match line {
             // A saved script is a `script` line that ran no turn (version 0 is an inline run).
-            LogLine::Script { name, version, code, turns } if name == GOVERNOR && *turns == 0 => {
+            LogLine::Script { name, version, code, turns, .. }
+                if name == GOVERNOR && *turns == 0 =>
+            {
                 if *version >= 1 {
                     note(&mut pairs, now, &plan, edits, false);
                     now = Some((*version, code));
@@ -108,7 +110,7 @@ pub(super) fn find(lines: &[LogLine]) -> (Vec<Candidate>, u32) {
                 edits += 1;
                 plan = p.as_object().is_some_and(|m| !m.is_empty()).then(|| p.clone());
             }
-            LogLine::Call { tool } if tool == TEST_TOOL => {
+            LogLine::Call { tool, .. } if tool == TEST_TOOL => {
                 note(&mut pairs, now, &plan, edits, true);
             }
             _ => {}
@@ -127,7 +129,9 @@ pub(super) fn find(lines: &[LogLine]) -> (Vec<Candidate>, u32) {
 /// attempt made, so it is not counted in the ledger's `saved`.
 pub(super) fn starts_from(lines: &[LogLine], champion_code: &str) -> bool {
     lines.iter().find_map(|l| match l {
-        LogLine::Script { name, version, code, turns: 0 } if name == GOVERNOR && *version >= 1 => {
+        LogLine::Script { name, version, code, turns: 0, .. }
+            if name == GOVERNOR && *version >= 1 =>
+        {
             Some(code == champion_code)
         }
         _ => None,
@@ -185,13 +189,19 @@ mod tests {
     use super::*;
 
     fn save(v: u32, code: &str) -> LogLine {
-        LogLine::Script { name: GOVERNOR.into(), version: v, code: code.into(), turns: 0 }
+        LogLine::Script {
+            name: GOVERNOR.into(),
+            version: v,
+            code: code.into(),
+            turns: 0,
+            wake_on: vec![],
+        }
     }
     fn plan(p: Value) -> LogLine {
         LogLine::Plan { plan: p }
     }
     fn test() -> LogLine {
-        LogLine::Call { tool: TEST_TOOL.into() }
+        LogLine::Call { tool: TEST_TOOL.into(), summary: String::new() }
     }
 
     #[test]
@@ -236,8 +246,20 @@ mod tests {
         let (pairs, _) = find(&[save(1, "a"), plan(json!({"k": 1})), plan(json!({}))]);
         assert_eq!(pairs[0].plan, None);
         // Inline runs (version 0) and other scripts' saves are not the governor.
-        let other = LogLine::Script { name: "aux".into(), version: 3, code: "x".into(), turns: 0 };
-        let run = LogLine::Script { name: GOVERNOR.into(), version: 0, code: "y".into(), turns: 5 };
+        let other = LogLine::Script {
+            name: "aux".into(),
+            version: 3,
+            code: "x".into(),
+            turns: 0,
+            wake_on: vec![],
+        };
+        let run = LogLine::Script {
+            name: GOVERNOR.into(),
+            version: 0,
+            code: "y".into(),
+            turns: 5,
+            wake_on: vec![],
+        };
         let (pairs, saved) = find(&[other, run, save(1, "a")]);
         assert_eq!((pairs.len(), saved), (1, 1));
     }

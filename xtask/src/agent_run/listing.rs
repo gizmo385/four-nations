@@ -1,9 +1,9 @@
 //! Campaign rows for `agent-run watch --list` (#585): a campaign folder, then its attempts.
 //!
-//! A small read-only parallel of what the run browser reads (`crates/tui/src/runs/campaign.rs`),
-//! because xtask does not depend on `fn_tui`. It reads both ledger shapes (the first one's
+//! A small read-only version of what the run browser reads (`crates/tui/src/runs/campaign.rs`),
+//! on the same `fn_runfmt` ledger rows. It reads both ledger shapes (the first one's
 //! `train_mean`, the seed tiers' `screen_mean`), and every field is optional: a missing or
-//! partial file is a `-`, never a hidden row or a crash.
+//! partial file is a `-`, never a crash, and a row that does not parse is skipped.
 
 use super::*;
 
@@ -51,12 +51,6 @@ fn chosen_pair(attempt: &Path) -> Option<String> {
     Some(format!("v{}-{}", p["version"].as_u64()?, n + 1))
 }
 
-/// The mean clean score of a ledger row: the seed tiers' `screen_mean`, else the first shape's
-/// `train_mean`.
-fn clean_mean(row: &serde_json::Value) -> Option<f64> {
-    row["screen_mean"].as_f64().or_else(|| row["train_mean"].as_f64())
-}
-
 fn money(c: Option<f64>) -> Option<String> {
     c.map(|c| format!("${c:.2}"))
 }
@@ -102,12 +96,14 @@ fn newest_write(dir: &Path, last_attempt: Option<&Path>) -> Option<SystemTime> {
 /// The rows for campaign `dir`: itself, then an indented row per attempt (oldest first).
 pub(super) fn campaign_rows(dir: &Path, now: SystemTime) -> Vec<RunRow> {
     let ledger = json(&dir.join("ledger.json")).unwrap_or(serde_json::Value::Null);
-    let ledger_rows: Vec<&serde_json::Value> =
-        ledger["rows"].as_array().map(|r| r.iter().collect()).unwrap_or_default();
-    let row_of = |k: u32| ledger_rows.iter().find(|r| r["attempt"].as_u64() == Some(u64::from(k)));
+    let ledger_rows: Vec<fn_runfmt::campaign::Row> = ledger["rows"]
+        .as_array()
+        .map(|r| r.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect())
+        .unwrap_or_default();
+    let row_of = |k: u32| ledger_rows.iter().find(|r| r.attempt == k);
 
     let mut numbers: Vec<u32> = attempt_dirs(dir).into_iter().map(|(k, _)| k).collect();
-    numbers.extend(ledger_rows.iter().filter_map(|r| r["attempt"].as_u64()).map(|k| k as u32));
+    numbers.extend(ledger_rows.iter().map(|r| r.attempt));
     numbers.sort_unstable();
     numbers.dedup();
 
@@ -116,13 +112,13 @@ pub(super) fn campaign_rows(dir: &Path, now: SystemTime) -> Vec<RunRow> {
     let text = |v: &serde_json::Value| v.as_str().map_or("-".to_string(), str::to_string);
     let nation = text(&track["nation"]);
 
-    let kept = |r: &&&serde_json::Value| r["kept"] == true;
+    let kept = |r: &&fn_runfmt::campaign::Row| r.kept;
     let champion = ledger_rows.iter().rev().find(|r| kept(r));
     let cost: f64 = numbers
         .iter()
         .filter_map(|k| {
             row_of(*k)
-                .and_then(|r| r["cost_usd"].as_f64())
+                .and_then(|r| r.cost_usd)
                 .or_else(|| json(&dir.join(format!("attempt-{k}/cost.json")))?["usd"].as_f64())
         })
         .sum();
@@ -149,10 +145,8 @@ pub(super) fn campaign_rows(dir: &Path, now: SystemTime) -> Vec<RunRow> {
     if let Some(c) = money((!numbers.is_empty()).then_some(cost)) {
         detail += &format!(", {c}");
     }
-    if let Some(r) = champion
-        && let Some(k) = r["attempt"].as_u64()
-    {
-        detail += &format!(", best is attempt {k}");
+    if let Some(r) = champion {
+        detail += &format!(", best is attempt {}", r.attempt);
     }
     detail += &format!(", {state}");
 
@@ -161,7 +155,7 @@ pub(super) fn campaign_rows(dir: &Path, now: SystemTime) -> Vec<RunRow> {
         nation: nation.clone(),
         start: text(&track["id"]),
         turns: 0,
-        score: champion.and_then(|r| clean_mean(r)),
+        score: champion.and_then(|r| r.clean_mean()),
         playtest: false,
         campaign: true,
         detail: Some(detail),
@@ -175,20 +169,20 @@ pub(super) fn campaign_rows(dir: &Path, now: SystemTime) -> Vec<RunRow> {
         }
         let ledger_row = row_of(k);
         row.start = ledger_row
-            .and_then(|r| r["governor_version"].as_u64())
+            .and_then(|r| r.governor_version)
             .map_or("-".to_string(), |v| format!("v{v}"));
-        row.score = ledger_row.and_then(|r| clean_mean(r));
+        row.score = ledger_row.and_then(|r| r.clean_mean());
         let mut parts = Vec::new();
         parts.push(match ledger_row {
-            Some(r) if r["kept"] == true => "kept".to_string(),
+            Some(r) if r.kept => "kept".to_string(),
             Some(_) => "not kept".to_string(),
             None => "no ledger row yet".to_string(),
         });
-        if let Some(p) = ledger_row.and_then(|r| r["played"].as_f64()) {
+        if let Some(p) = ledger_row.and_then(|r| r.played) {
             parts.push(format!("played {p:.1}"));
         }
         let attempt_cost = ledger_row
-            .and_then(|r| r["cost_usd"].as_f64())
+            .and_then(|r| r.cost_usd)
             .or_else(|| json(&adir.join("cost.json"))?["usd"].as_f64());
         parts.extend(money(attempt_cost));
         if row.turns == 0 {

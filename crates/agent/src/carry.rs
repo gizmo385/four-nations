@@ -1,35 +1,16 @@
 //! `fn_agent serve --carry-in FILE` (#530, docs/design/agent-hillclimb.md, "The attempt loop"):
 //! a fresh session that starts with a strategy already in hand. FILE is a handoff, the JSON
 //! `cargo xtask agent-run --carry` writes: saved scripts (`name` to `{version, code}`), lab
-//! `notes` and the `plan`. [`lines`] turns it into the `script`, `note` and `plan` log lines a
+//! `notes` and the `plan` (`fn_runfmt::Handoff`, the one type both sides use; a script's
+//! `last_outcome` and `last_turns_run` are `xtask`'s orientation text and skipped here). [`lines`] turns it into the `script`, `note` and `plan` log lines a
 //! session would have written had the model made those calls itself, and
 //! [`Tools::carry_in`](crate::tools::Tools::carry_in) writes them ahead of the first call. The
 //! library, notes and plan are then in place for `run_script {name}`, `notes` and `plan`, and
 //! `--resume` rebuilds them from the log like any others. This replaces asking the model to
 //! retype every script.
 
-use std::collections::BTreeMap;
-
+use fn_runfmt::Handoff;
 use fn_tui::surface::LogLine;
-use serde::Deserialize;
-use serde_json::Value;
-
-#[derive(Debug, Deserialize)]
-struct Entry {
-    #[serde(default)]
-    version: u32,
-    code: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct Handoff {
-    #[serde(default)]
-    scripts: BTreeMap<String, Entry>,
-    #[serde(default)]
-    notes: Vec<String>,
-    #[serde(default)]
-    plan: Option<Value>,
-}
 
 /// The log lines that preload `text` (a handoff's JSON): a never-run `script` line per saved
 /// script, in name order, keeping its version (so the next `save_script` continues from it), a

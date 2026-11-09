@@ -1,0 +1,13 @@
+[package]
+name = "fn_runfmt"
+description = "The file formats the agent tooling passes around (#606): the run log's header and lines, the handoff and the campaign ledger, defined once. Depends on serde and serde_json only, so xtask, fn_agent, fn_tui and the wasm replayer can all share it."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lib]
+name = "fn_runfmt"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

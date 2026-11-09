@@ -427,6 +427,7 @@ checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
 name = "fn_agent"
 version = "0.1.0"
 dependencies = [
+ "fn_runfmt",
  "fn_tui",
  "fn_ui",
  "rhai",
@@ -447,6 +448,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fn_runfmt"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "fn_sim"
 version = "0.1.0"
 dependencies = [
@@ -463,6 +472,7 @@ name = "fn_tui"
 version = "0.1.0"
 dependencies = [
  "crossterm",
+ "fn_runfmt",
  "fn_sim",
  "fn_ui",
  "ratatui",
@@ -2039,6 +2049,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "fn_runfmt",
  "serde",
  "serde_json",
  "toml",

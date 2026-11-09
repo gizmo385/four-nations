@@ -210,7 +210,7 @@ fn ci(fast: bool, no_goldens: bool) -> Result {
 }
 
 /// The crates the web replayer (#595) builds for the browser.
-const WASM_CRATES: [&str; 4] = ["fn_sim", "fn_ui", "fn_tui", "fn_web"];
+const WASM_CRATES: [&str; 5] = ["fn_runfmt", "fn_sim", "fn_ui", "fn_tui", "fn_web"];
 pub(crate) const WASM_TARGET: &str = "wasm32-unknown-unknown";
 
 /// Clippy (`-D warnings`) on [`WASM_CRATES`]' libraries for [`WASM_TARGET`] (#594), so a change
@@ -281,6 +281,7 @@ fn check(crates: &[String], fast: bool) -> Result {
 /// transitively, on `c` -- so a change in `c` also has to retest them.
 fn dependents(c: &str) -> &'static [&'static str] {
     match c {
+        "fn_runfmt" => &["fn_tui", "fn_agent", "fn_web", "xtask"],
         "fn_sim" => &["fn_ui", "fn_tui", "fn_agent", "fn_harness"],
         "fn_ui" => &["fn_tui", "fn_agent"],
         "fn_tui" => &["fn_agent"],
@@ -294,7 +295,7 @@ fn dependents(c: &str) -> &'static [&'static str] {
 /// as a change to all of them.
 fn crates_for_path(p: &str) -> Vec<&'static str> {
     if p == "Cargo.toml" || p == "Cargo.lock" {
-        return vec!["fn_sim", "fn_ui", "fn_tui", "fn_agent", "fn_harness", "xtask"];
+        return vec!["fn_runfmt", "fn_sim", "fn_ui", "fn_tui", "fn_agent", "fn_harness", "xtask"];
     }
     // `data/harness.toml` is the harness crate's own (compiled into `fn_harness`, never `fn_sim`).
     if p == "data/harness.toml" || p.starts_with("crates/harness/") {
@@ -302,6 +303,9 @@ fn crates_for_path(p: &str) -> Vec<&'static str> {
     }
     if p.starts_with("data/") || p.starts_with("crates/sim/") {
         return vec!["fn_sim"];
+    }
+    if p.starts_with("crates/runfmt/") {
+        return vec!["fn_runfmt"];
     }
     if p.starts_with("crates/ui/") {
         return vec!["fn_ui"];

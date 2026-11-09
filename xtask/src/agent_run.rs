@@ -1319,19 +1319,6 @@ struct RunRow {
 /// kinds of line it needs: a long run's log is mostly script code. A folder with no log (or an
 /// unreadable one) still gets a row, with dashes.
 fn run_row(dir: &Path) -> RunRow {
-    #[derive(Deserialize)]
-    struct Head {
-        seed: u64,
-        nation: String,
-        #[serde(default)]
-        prelude: Option<serde_json::Value>,
-        #[serde(default)]
-        playtest: bool,
-    }
-    #[derive(Deserialize)]
-    struct Score {
-        score: f64,
-    }
     let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let mut row = RunRow {
         name: name.clone(),
@@ -1346,7 +1333,7 @@ fn run_row(dir: &Path) -> RunRow {
     let Ok(text) = fs::read_to_string(dir.join("run.jsonl")) else { return row };
     for line in text.lines() {
         if line.starts_with(r#"{"type":"header""#) {
-            if let Ok(h) = serde_json::from_str::<Head>(line) {
+            if let Ok(LogLine::Header(h)) = serde_json::from_str::<LogLine>(line) {
                 row.nation = h.nation;
                 row.playtest = h.playtest;
                 // The header only says a scenario's prelude ran; the folder name has its id.
@@ -1361,9 +1348,9 @@ fn run_row(dir: &Path) -> RunRow {
                 row.turns = row.turns.max(index);
             }
         } else if line.starts_with(r#"{"type":"score""#)
-            && let Ok(s) = serde_json::from_str::<Score>(line)
+            && let Ok(LogLine::Score { score, .. }) = serde_json::from_str::<LogLine>(line)
         {
-            row.score = Some(s.score);
+            row.score = Some(score);
         }
     }
     row
@@ -1790,47 +1777,11 @@ fn otel_attrs(o: &Opts, dir: &Path, mode: &str, chunk: Option<u32>) -> String {
 }
 
 // -------------------------------------------------------------------------------------------
-// The run log (run.jsonl): a minimal parallel of fn_tui::surface::LogLine, read-only, just the
-// variants this needs (`#[serde(other)]` swallows Header/Keys/Look/Inspect/Call untouched).
-// Depending on fn_tui for the real type would pull in fn_sim, ratatui and crossterm just to
-// parse five JSON shapes; copying them here is cheaper and keeps xtask's own build light.
+// The run log (run.jsonl): `fn_runfmt`'s lines, with the nation and wake kinds as plain strings
+// (#606), so xtask reads exactly what `fn_agent` writes without `fn_sim` or `fn_tui`.
 // -------------------------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum LogLine {
-    Turn {
-        index: u32,
-        tick: u64,
-    },
-    End,
-    Script {
-        name: String,
-        version: u32,
-        code: String,
-        turns: u32,
-    },
-    Wake {
-        reason: String,
-    },
-    Note {
-        text: String,
-    },
-    Plan {
-        plan: serde_json::Value,
-    },
-    /// A tool call (#497): only its tool is read, to count `test_governor` calls (#569).
-    Call {
-        tool: String,
-    },
-    /// What the model said in a `--playtest` (#576): only its text is read, for
-    /// `game-problems.md`.
-    Say {
-        text: String,
-    },
-    #[serde(other)]
-    Other,
-}
+use fn_runfmt::LogLine;
 
 /// What a session's work in `run.jsonl` adds up to, for telling a chunk that changed something
 /// from one that didn't (#569): game turns, saved scripts, plan edits, notes and `test_governor`
@@ -1843,7 +1794,7 @@ fn work_marks(lines: &[LogLine]) -> usize {
             | LogLine::Script { .. }
             | LogLine::Plan { .. }
             | LogLine::Note { .. } => true,
-            LogLine::Call { tool } => tool == "test_governor",
+            LogLine::Call { tool, .. } => tool == "test_governor",
             _ => false,
         })
         .count()
@@ -1851,7 +1802,10 @@ fn work_marks(lines: &[LogLine]) -> usize {
 
 /// How many `test_governor` calls the log holds (the tool's own limit is per attempt).
 fn tests_used(lines: &[LogLine]) -> usize {
-    lines.iter().filter(|l| matches!(l, LogLine::Call { tool } if tool == "test_governor")).count()
+    lines
+        .iter()
+        .filter(|l| matches!(l, LogLine::Call { tool, .. } if tool == "test_governor"))
+        .count()
 }
 
 fn read_log_lines(path: &Path) -> std::io::Result<Vec<LogLine>> {
@@ -1889,7 +1843,7 @@ fn finish_log(dir: &Path, reason: &str) -> Result {
         Ok(l) => l,
         Err(_) => return Ok(()),
     };
-    if lines.is_empty() || matches!(lines.last(), Some(LogLine::End)) {
+    if lines.is_empty() || matches!(lines.last(), Some(LogLine::End { .. })) {
         return Ok(());
     }
     let tick = lines
@@ -1907,26 +1861,7 @@ fn finish_log(dir: &Path, reason: &str) -> Result {
 // The script library and lab notes (docs/design/agent-scripting.md, "Memory across sessions")
 // -------------------------------------------------------------------------------------------
 
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) struct ScriptEntry {
-    pub(crate) version: u32,
-    pub(crate) code: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    last_outcome: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    last_turns_run: Option<u32>,
-}
-
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub(crate) struct Handoff {
-    #[serde(default)]
-    pub(crate) scripts: BTreeMap<String, ScriptEntry>,
-    #[serde(default)]
-    notes: Vec<String>,
-    /// The `plan` tool's latest map (#524); absent when none was ever set.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) plan: Option<serde_json::Value>,
-}
+pub(crate) use fn_runfmt::{Handoff, ScriptEntry};
 
 /// Replays `lines`' own `script`/`turn`/`wake`/`note`/`plan` lines (the same ones
 /// `fn_agent::tools::rebuild_session` reads on `--resume`) into a script library (by name), a
@@ -1941,7 +1876,7 @@ fn parse_library(
     let mut turns_run: u32 = 0;
     for line in lines {
         match line {
-            LogLine::Script { name, version, code, turns } => {
+            LogLine::Script { name, version, code, turns, .. } => {
                 if *version >= 1 {
                     let e = scripts.entry(name.clone()).or_default();
                     e.version = *version;
@@ -1951,7 +1886,7 @@ fn parse_library(
                 turns_run = 0;
             }
             LogLine::Turn { .. } => turns_run += 1,
-            LogLine::Wake { reason } => {
+            LogLine::Wake { reason, .. } => {
                 if let Some(name) = &pending
                     && let Some(e) = scripts.get_mut(name)
                 {
