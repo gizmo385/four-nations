@@ -20,9 +20,7 @@ jobs:
   # fmt, clippy and tests for the whole workspace. The single required status check.
   ci:
     runs-on: ubuntu-latest
-    # A normal run takes about 10 minutes since tests moved to nextest; 30 leaves room for a slow
-    # runner or a cold cache without letting a hung test burn an hour.
-    timeout-minutes: 30
+    timeout-minutes: 20
     env:
       # Optimize our own crates (dependencies stay at opt-level 0 via profile.ci.package."*").
       # The long simulation tests run about 7x faster, cutting this job from ~10 to ~4 minutes,
