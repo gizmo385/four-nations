@@ -112,6 +112,7 @@ fn json_is_an_array_with_a_run_per_line() {
         nation: Nation::Earth,
         seed: 7,
         minutes: 2.0,
+        step_offset: 0,
     };
     let run = run_job(&job, &cfg, &defs);
     assert_eq!(run.record.seed, 7);
@@ -136,6 +137,7 @@ fn a_style_runs_the_player_its_data_says() {
         nation: Nation::Earth,
         seed: 7,
         minutes: 10.0,
+        step_offset: 0,
     };
     let careless = run_job(&job("careless"), &cfg, &defs);
     assert!(careless.record.style.contains("farms: false"), "{}", careless.record.style);

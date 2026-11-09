@@ -7,17 +7,23 @@
 //! - `runner`: which runs a panel needs, the runs on threads, the records as JSON.
 //! - `verdict`, `report`: every run into a bucket, every target into pass, fail or no data, and
 //!   the text the binary prints.
+//! - `baseline`, `regress`, `jitter`, `tier` (#538): the committed baseline, `--against` pairing, the
+//!   noise floor from the jitter run and the cost tiers.
 //! - `trace` (#535): one run's per-minute probe rows and an ASCII crop of its map.
 //! - `cli`, `legacy`: the subcommands (`verdict`, `trace`, and the older `sweep`, `supply`, `mastery`,
 //!   `economy`).
 
+pub mod baseline;
 pub mod cli;
 pub mod config;
+pub mod jitter;
 pub mod legacy;
 pub mod metric;
+pub mod regress;
 pub mod report;
 pub mod runner;
 pub mod style;
+pub mod tier;
 pub mod trace;
 pub mod verdict;
 

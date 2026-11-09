@@ -215,7 +215,7 @@ pub struct EconomyConfig {
 /// One season's snapshot (`run_economy`, `docs/design/materials.md` section 7: "stone stored,
 /// ore mined, food per head, wood stored, population, signs met, and the minute each sign was
 /// first met").
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct EconomySeason {
     pub year: u64,
     /// Index into `defs.seasons.seasons`; the caller names it (`SeasonDef::name`).
@@ -240,7 +240,7 @@ pub struct EconomySeason {
 /// time. `label` names what happened (the tech's name, or `"<sign name> met"`), for printing;
 /// nothing here is keyed by id, since the timeline is read-only output, not state a caller looks
 /// things up in.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DecisionEvent {
     pub minute: f32,
     pub label: String,
@@ -333,6 +333,7 @@ fn run_economy_world(cfg: &EconomyConfig, defs: &Defs) -> (EconomyReport, World)
         height: cfg.height,
         player: Player::Economy(economy),
         detectors: Detectors::default(),
+        step_offset: 0,
     };
     let (record, world) = record::run_world(&spec, defs);
     (record.economy_report(), world)

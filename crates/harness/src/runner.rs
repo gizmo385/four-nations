@@ -21,6 +21,9 @@ pub struct Job {
     pub nation: Nation,
     pub seed: u64,
     pub minutes: f32,
+    /// Ticks the player's steps run late by (`RunSpec::step_offset`): 0 for a panel, 1 for the
+    /// jitter run.
+    pub step_offset: u32,
 }
 
 /// What a caller narrows a panel to (`balance verdict --styles .. --presets ..`). `None` is
@@ -84,6 +87,7 @@ pub fn plan(config: &Config, seeds: &[u64], filter: &Filter) -> Vec<Job> {
                     nation,
                     seed,
                     minutes: filter.minutes.unwrap_or(minutes),
+                    step_offset: 0,
                 });
             }
         }
@@ -103,6 +107,7 @@ pub fn run_job(job: &Job, config: &Config, defs: &Defs) -> Run {
     spec.preset = Some(job.preset.clone());
     spec.player = style.player(PEOPLE);
     spec.detectors = config.detectors;
+    spec.step_offset = job.step_offset;
     Run { style: job.style.clone(), preset: job.preset.clone(), record: run_record(&spec, defs) }
 }
 

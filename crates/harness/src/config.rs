@@ -6,7 +6,7 @@
 //! outside (0, 1] and a repeated id are all errors at load, naming the entry. `fn_sim` never
 //! sees this file; the thresholds reach it as plain `Detectors` fields.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use fn_sim::Defs;
@@ -135,6 +135,8 @@ struct RawConfig {
     target: Vec<RawTarget>,
     #[serde(default)]
     pair: Vec<RawPair>,
+    #[serde(default)]
+    noise: BTreeMap<String, f64>,
 }
 
 // ---- Resolved ----
@@ -246,6 +248,9 @@ pub struct Config {
     pub styles: Styles,
     pub targets: Vec<Target>,
     pub pairs: Vec<Pair>,
+    /// Each metric's noise floor, by metric name (`[noise]`, written by `balance jitter`, #538).
+    /// A metric with no entry has none: any median delta past 0 counts.
+    pub noise: BTreeMap<String, f64>,
 }
 
 fn share_ok(what: &str, share: f64) -> Result<f64, ConfigError> {
@@ -424,7 +429,20 @@ impl Config {
             });
         }
 
-        Ok(Config { panel, detectors, styles, targets, pairs })
+        for (name, &floor) in &raw.noise {
+            let what = format!("[noise] {name:?}");
+            Metric::parse(name, defs).map_err(|e| ConfigError(format!("{what}: {e}")))?;
+            if floor.is_nan() || floor < 0.0 {
+                return err(format!("{what}: noise must be 0 or more, got {floor}"));
+            }
+        }
+
+        Ok(Config { panel, detectors, styles, targets, pairs, noise: raw.noise })
+    }
+
+    /// The noise floor of the metric called `name` (see [`Config::noise`]).
+    pub fn noise_of(&self, name: &str) -> f64 {
+        self.noise.get(name).copied().unwrap_or(0.0)
     }
 
     /// The target with this id.

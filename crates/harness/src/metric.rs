@@ -84,6 +84,26 @@ impl Metric {
         Ok(metric)
     }
 
+    /// The name [`Metric::parse`] reads it from: what `data/harness.toml` and the baseline call it.
+    pub fn name(&self) -> String {
+        match self {
+            Metric::SignMinute(id) => format!("sign_minute.{id}"),
+            Metric::ReadyMinute => "ready_minute".to_owned(),
+            Metric::FirstDeath => "first_death".to_owned(),
+            Metric::Deaths => "deaths".to_owned(),
+            Metric::DeathsBy(m) => format!("deaths_by.{m}"),
+            Metric::PopAt(m) => format!("pop_at.{m}"),
+            Metric::WoodAt(m) => format!("wood_at.{m}"),
+            Metric::FoodPerHeadWinter(y) => format!("food_per_head.winter.{y}"),
+            Metric::LongestGap => "longest_gap".to_owned(),
+            Metric::GapsOver15 => "gaps_over_15".to_owned(),
+            Metric::CloseCalls => "care.close_calls".to_owned(),
+            Metric::CloseCallsPer10ph => "care.close_calls_per_10ph".to_owned(),
+            Metric::DepletedPerPh => "care.depleted_per_ph".to_owned(),
+            Metric::Suffering => "care.suffering".to_owned(),
+        }
+    }
+
     /// Whether the name takes the minute it is read at (`pop_at.120`), so the run must reach it.
     fn needs_minute(&self) -> Option<f32> {
         match self {

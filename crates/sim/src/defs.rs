@@ -201,6 +201,24 @@ pub fn climate_unit(v: u8) -> f64 {
     f64::from(v) / 255.0
 }
 
+/// The files [`Defs::bundled`] embeds, in the order it reads them: biomes, resources, nations,
+/// research, needs, jobs, bending, buildings, endeavor, embark, difficulty, seasons, harm.
+const BUNDLED_FILES: [&str; 13] = [
+    include_str!("../../../data/biomes.toml"),
+    include_str!("../../../data/resources.toml"),
+    include_str!("../../../data/nations.toml"),
+    include_str!("../../../data/research.toml"),
+    include_str!("../../../data/needs.toml"),
+    include_str!("../../../data/jobs.toml"),
+    include_str!("../../../data/bending.toml"),
+    include_str!("../../../data/buildings.toml"),
+    include_str!("../../../data/endeavor.toml"),
+    include_str!("../../../data/embark.toml"),
+    include_str!("../../../data/difficulty.toml"),
+    include_str!("../../../data/seasons.toml"),
+    include_str!("../../../data/harm.toml"),
+];
+
 impl Defs {
     /// A hash of every id table (biomes, resources, nations, techs, items, buildings, abilities) in
     /// order. Ids such as `TechId` and `ItemId` are indices into these tables, so a save is only
@@ -235,22 +253,43 @@ impl Defs {
 
     /// The definitions shipped in `data/`, embedded at compile time.
     pub fn bundled() -> Self {
-        Self::from_toml(
-            include_str!("../../../data/biomes.toml"),
-            include_str!("../../../data/resources.toml"),
-            include_str!("../../../data/nations.toml"),
-            include_str!("../../../data/research.toml"),
-            include_str!("../../../data/needs.toml"),
-            include_str!("../../../data/jobs.toml"),
-            include_str!("../../../data/bending.toml"),
-            include_str!("../../../data/buildings.toml"),
-        )
-        .and_then(|d| d.with_endeavor(include_str!("../../../data/endeavor.toml")))
-        .and_then(|d| d.with_embark(include_str!("../../../data/embark.toml")))
-        .and_then(|d| d.with_difficulty(include_str!("../../../data/difficulty.toml")))
-        .and_then(|d| d.with_seasons(include_str!("../../../data/seasons.toml")))
-        .and_then(|d| d.with_harm(include_str!("../../../data/harm.toml")))
-        .expect("bundled data/*.toml must be valid; run `cargo test -p fn_sim`")
+        let [
+            biomes,
+            resources,
+            nations,
+            research,
+            needs,
+            jobs,
+            bending,
+            buildings,
+            endeavor,
+            embark,
+            difficulty,
+            seasons,
+            harm,
+        ] = BUNDLED_FILES;
+        Self::from_toml(biomes, resources, nations, research, needs, jobs, bending, buildings)
+            .and_then(|d| d.with_endeavor(endeavor))
+            .and_then(|d| d.with_embark(embark))
+            .and_then(|d| d.with_difficulty(difficulty))
+            .and_then(|d| d.with_seasons(seasons))
+            .and_then(|d| d.with_harm(harm))
+            .expect("bundled data/*.toml must be valid; run `cargo test -p fn_sim`")
+    }
+
+    /// A hash of the text of every file [`Defs::bundled`] reads, so two runs of the game (or of
+    /// the balance harness) can say whether they played the same numbers. Unlike [`Defs::id_hash`]
+    /// it moves with any edit, a retuned rate included. FNV-1a, stable across platforms and Rust
+    /// versions. It cannot see a change to the code, only to `data/`.
+    pub fn bundled_digest() -> u64 {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for file in BUNDLED_FILES {
+            for b in file.bytes().chain(std::iter::once(0)) {
+                h ^= u64::from(b);
+                h = h.wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+        h
     }
 
     /// These definitions with the endeavor read from `endeavor` (data/endeavor.toml), replacing any
@@ -518,6 +557,13 @@ impl Defs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The digest is a function of the shipped data text alone, so it is the same every time.
+    #[test]
+    fn the_bundled_digest_is_stable() {
+        assert_eq!(Defs::bundled_digest(), Defs::bundled_digest());
+        assert_ne!(Defs::bundled_digest(), 0xcbf2_9ce4_8422_2325, "it hashed nothing");
+    }
 
     const BIOMES: &str = include_str!("../../../data/biomes.toml");
     const NATIONS: &str = include_str!("../../../data/nations.toml");

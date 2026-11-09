@@ -174,3 +174,31 @@ fn seed_lists_parse_like_the_binarys_flag() {
     assert_eq!(parse_seeds("a"), None);
     assert_eq!(parse_seeds(""), None);
 }
+
+#[test]
+fn noise_floors_load_by_metric_name() {
+    let cfg =
+        parse(&format!("{TARGET}[noise]\n\"sign_minute.stone\" = 1.5\n\"deaths_by.180\" = 0\n"))
+            .unwrap();
+    assert_eq!(cfg.noise_of("sign_minute.stone"), 1.5);
+    assert_eq!(cfg.noise_of("deaths_by.180"), 0.0);
+    assert_eq!(cfg.noise_of("pop_at.120"), 0.0, "no entry is no floor");
+    assert!(parse(TARGET).unwrap().noise.is_empty());
+    let defs = Defs::bundled();
+    let bundled = Config::bundled(&defs);
+    for name in bundled.noise.keys() {
+        let read = bundled
+            .targets
+            .iter()
+            .map(|t| &t.metric)
+            .chain(bundled.pairs.iter().map(|p| &p.metric));
+        assert!(read.into_iter().any(|m| m.name() == *name), "{name}: nothing reads it");
+    }
+}
+
+#[test]
+fn bad_noise_names_the_metric() {
+    assert!(parse_err("[noise]\n\"sign_minute.nonsense\" = 1.0\n").contains("no sign"));
+    assert!(parse_err("[noise]\n\"deaths\" = -1.0\n").contains("noise must be 0 or more"));
+    assert!(parse_err("[noise]\ndeaths = \"lots\"\n").contains("invalid type"));
+}

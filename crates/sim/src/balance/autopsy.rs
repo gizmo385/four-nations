@@ -14,7 +14,7 @@ use super::ticks_to_minutes;
 
 /// One settler's death, with the facts that explain it. Times are as fine as the probe's minute:
 /// the settler was last seen eating or drinking at a probe, not at the tick it did.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Autopsy {
     pub name: String,
     pub minute: f32,

@@ -84,6 +84,8 @@ struct RawFile {
     target: Vec<toml::Value>,
     #[serde(default)]
     pair: Vec<toml::Value>,
+    #[serde(default)]
+    noise: Option<toml::Value>,
 }
 
 impl RawStyle {

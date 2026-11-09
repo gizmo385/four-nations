@@ -45,6 +45,11 @@ pub struct RunSpec {
     pub player: Player,
     /// The health probe's thresholds.
     pub detectors: Detectors,
+    /// Tick the player's steps run late by: 0 is the opening's own grid (`Opening::due`), and 1
+    /// makes every decision one tick later. Nothing else about the run changes (the probe still
+    /// reads on the original grid), so the difference between a run and its offset twin is the
+    /// chaos floor of the sim, not a balance change (the jitter run, `balance jitter`, #538).
+    pub step_offset: u32,
 }
 
 impl RunSpec {
@@ -61,12 +66,13 @@ impl RunSpec {
             height: size.height,
             player: Player::Economy(Economy::new(PEOPLE)),
             detectors: Detectors::default(),
+            step_offset: 0,
         }
     }
 }
 
 /// The care tally (`World::care()`) in minutes, the way a consumer reads it.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CareSummary {
     /// Minutes lived, summed over settlers: the denominator of every rate.
     pub person_minutes: f64,
@@ -99,7 +105,7 @@ impl CareSummary {
 }
 
 /// Everything one run knows about itself (module doc).
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RunRecord {
     pub seed: u64,
     pub nation: Nation,
@@ -227,10 +233,13 @@ fn run_world_observed(
         wood,
     )];
     for tick in 0..total_ticks {
+        let offset = u64::from(spec.step_offset);
         if Opening::due(tick) {
             let sample = probe.sample(&world, defs);
             watch.observe(&sample);
             observe(Minute { world: &world, sample: &sample, watch: &watch });
+        }
+        if tick >= offset && Opening::due(tick - offset) {
             spec.player.step(&mut world, defs);
             if first_built.iter().any(Option::is_none) {
                 let standing: BTreeSet<BuildingId> = world.buildings().map(|(_, b)| b).collect();

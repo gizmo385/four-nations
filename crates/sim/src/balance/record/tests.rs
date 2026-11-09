@@ -37,6 +37,30 @@ fn a_record_serializes_with_its_parts() {
     assert!(json["care"]["person_minutes"].as_f64().unwrap() > 0.0);
 }
 
+/// A record read back from its JSON is the record (a baseline or a saved panel is read this way).
+#[test]
+fn a_record_survives_its_json() {
+    let defs = Defs::bundled();
+    let r = run(&spec(7, Nation::Fire, 60.0, &defs), &defs);
+    let back: RunRecord = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
+    assert_eq!(back, r);
+}
+
+/// An offset of 0 is the plain run, and an offset of 1 is a different run of the same game: the
+/// opening decides one tick later, so something downstream shifts (#538).
+#[test]
+fn a_step_offset_of_zero_is_the_plain_run() {
+    let defs = Defs::bundled();
+    let plain = spec(7, Nation::Earth, 25.0, &defs);
+    let zero = RunSpec { step_offset: 0, ..plain.clone() };
+    let a = run(&plain, &defs);
+    assert_eq!(run(&zero, &defs), a);
+    let one = RunSpec { step_offset: 1, ..plain };
+    let b = run(&one, &defs);
+    assert_ne!(a, b, "a one-tick delay changed nothing in 25 minutes");
+    assert_eq!((a.seed, a.nation, a.minutes), (b.seed, b.nation, b.minutes));
+}
+
 /// `run_economy` is this run's economy half: the same numbers.
 #[test]
 fn the_economy_report_is_the_records_economy_half() {

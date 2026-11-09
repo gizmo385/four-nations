@@ -336,6 +336,34 @@ the other. That's a sign test, simple enough to read and with no dependencies. T
 comes from a one-off **jitter run**: every panel seed re-run with the opening's step offset by one
 tick. That changes nothing about balance, so whatever moves is the chaos floor.
 
+As built (#538):
+
+- **The baseline is a summary, not the records.** A full record is about 6 KB (the season rows
+  and the timeline are most of it), so the ~700 runs of the full tier would be a 4 MB file whose
+  every line changes with every sim tweak. `baseline.json` keeps, per run, only what `--against`
+  reads: the key (style, preset, nation, seed), the run's length, the flags it raised and a
+  reading of every metric a target or pair names (an event that never happened is `"never"`,
+  readings are rounded to a millionth). That is about 0.7 KB a run, one run per line, so a diff
+  shows which readings moved. The file is a pure function of the runs, sorted by key, so blessing
+  twice gives the same bytes at any thread count. `balance verdict` still writes the full records
+  to `target/balance/LABEL.json`, and `--against` reads either file.
+- **`--bless` only writes when asked,** and only for the unnarrowed full tier: it refuses
+  `--tier`, `--seeds`, `--styles`, `--presets`, `--nations` and `--minutes`, because a baseline
+  from a narrowed run would drop the rest of the panel from every later comparison.
+- **A stale baseline is a warning.** The baseline records a digest of the game data
+  (`Defs::bundled_digest`: the text of every file the sim loads) and of the play styles and
+  detector thresholds. `--against` prints a plain warning when it differs from the current one.
+  It cannot see a change to the sim's code, only to `data/` and `harness.toml`'s styles; targets
+  and noise floors aren't in it, so re-jittering doesn't make a baseline stale.
+- **Rows** are one per (metric, style, preset) a target or pair reads, over the runs both sets
+  have; each metric's `noise` is looked up by its name in `[noise]` (none means any median past 0
+  counts). A run pairs only with one of the same length. Flags that came or went are counted.
+- **`balance jitter`** plays every non-`idle` run of the full tier twice (a style that plays
+  nothing has no steps to delay) and writes each metric's median absolute difference into
+  `[noise]`, editing only those lines of `data/harness.toml`. `--dry-run` prints without writing.
+  The offset delays the player's steps (`RunSpec::step_offset`); the probe stays on the original
+  grid, and an offset of 0 is the plain run.
+
 ## 7. Cost tiers
 
 Measured: 6 seconds per 180-minute run in release, single-threaded, on the owner's 8-core laptop.
@@ -350,6 +378,13 @@ Runs are independent, so the runner uses four threads (the laptop's performance 
 
 `cargo xtask balance [--full | --holdout | --bless]` builds release and runs the tier. The budget
 is owner question 3.
+
+As built (#538): the tiers are defined once, in `fn_harness::tier` (`Tier::Quick`, `Full`,
+`Holdout`: their seed lists and which styles and presets they run), and `balance verdict --tier`
+and `balance jitter --tier` read them from there. `cargo xtask balance` (#539) should too. The
+full tier is not a second list: it is whatever the targets and pairs in `data/harness.toml` ask of
+the panel's seeds (which also includes `idle` on Normal, for the first-death target), and quick is
+a subset of it, so a quick run pairs with the committed baseline run for run.
 
 ## 8. Code shape
 

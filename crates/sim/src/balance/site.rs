@@ -25,7 +25,7 @@ pub const BORE_LIMIT: u32 = 2;
 
 /// What a start offers a nation. Computed from the survey, so it's the same for every style and
 /// costs nothing per run.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SiteProfile {
     /// The start tile.
     pub anchor: (i32, i32),

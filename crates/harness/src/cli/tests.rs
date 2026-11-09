@@ -25,8 +25,17 @@ fn verdict_flags_parse() {
         "/tmp/o",
         "--minutes",
         "30",
+        "--tier",
+        "quick",
+        "--against",
+        "base.json",
+        "--bless",
     ]))
     .unwrap();
+    assert_eq!(
+        (a.tier.as_deref(), a.against, a.bless),
+        (Some("quick"), Some(PathBuf::from("base.json")), true)
+    );
     assert_eq!(a.seeds.as_deref(), Some("1-8"));
     assert_eq!(a.styles, Some(args(&["steady", "idle"])));
     assert_eq!(a.presets, Some(args(&["normal"])));
@@ -54,6 +63,44 @@ fn bad_values_are_errors_before_any_run() {
     assert!(err(&["--presets", "easy"]).contains("unknown preset"));
     assert!(err(&["--threads", "0"]).contains("at least 1"));
     assert!(err(&["--styles", "branch_first", "--presets", "sandbox"]).contains("nothing to run"));
+    assert!(err(&["--tier", "slow"]).contains("unknown tier"));
+    assert!(err(&["--against", "/no/such/baseline.json"]).contains("can't read"));
+}
+
+/// `--bless` writes the file every later run compares against, so it takes the whole full tier or
+/// nothing: any narrowing is refused before a single run is made.
+#[test]
+fn bless_refuses_a_narrowed_panel() {
+    let err = |list: &[&str]| run_verdict(&args(list)).unwrap_err();
+    for narrowing in [
+        &["--seeds", "1-4"][..],
+        &["--styles", "steady"],
+        &["--presets", "normal"],
+        &["--nations", "air"],
+        &["--minutes", "30"],
+        &["--tier", "quick"],
+        &["--tier", "holdout"],
+    ] {
+        let mut list = vec!["--bless"];
+        list.extend(narrowing);
+        let msg = err(&list);
+        assert!(msg.contains("--bless") && msg.contains(narrowing[0]), "{msg}");
+    }
+    let a = parse_verdict_args(&args(&["--bless", "--tier", "full"])).unwrap();
+    assert_eq!(bless_refusal(&a, parse_tier(&a.tier).unwrap()), None);
+    let a = parse_verdict_args(&args(&["--bless"])).unwrap();
+    assert_eq!(bless_refusal(&a, None), None);
+}
+
+#[test]
+fn jitter_flag_errors_are_named() {
+    let err = |list: &[&str]| run_jitter(&args(list)).unwrap_err();
+    assert!(err(&["--seeds"]).contains("needs a value"));
+    assert!(err(&["--tier", "slow"]).contains("unknown tier"));
+    assert!(err(&["--seeds", "9-"]).contains("seed list"));
+    assert!(err(&["--threads", "0"]).contains("at least 1"));
+    assert!(err(&["--sedes", "1"]).contains("unknown argument"));
+    assert_eq!(main(args(&["jitter", "--help"])), ExitCode::SUCCESS);
 }
 
 #[test]
@@ -111,5 +158,29 @@ fn a_short_panel_runs_end_to_end_and_writes_its_records() {
     assert_eq!(first.lines().count(), 2 * 2 + 2, "four runs and the brackets");
     assert_eq!(run(), ExitCode::SUCCESS);
     assert_eq!(std::fs::read_to_string(&file).unwrap(), first, "same panel, same bytes");
+    // A set of full records is a fine thing to compare against (this one pairs with itself).
+    let against = file.to_string_lossy().into_owned();
+    let with_against = main(args(&[
+        "verdict",
+        "--seeds",
+        "1-2",
+        "--nations",
+        "earth,fire",
+        "--styles",
+        "steady",
+        "--presets",
+        "normal",
+        "--minutes",
+        "3",
+        "--threads",
+        "2",
+        "--out",
+        &out,
+        "--label",
+        "again",
+        "--against",
+        &against,
+    ]));
+    assert_eq!(with_against, ExitCode::SUCCESS);
     std::fs::remove_dir_all(&dir).unwrap();
 }

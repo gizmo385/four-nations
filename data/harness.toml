@@ -80,6 +80,28 @@ chi_idle_after = 20       #   ... judged once this many minutes of bending are k
 refused_streak = 20       # refused: substantive command refusals in a row
 overgrow_share = 0.25     # overgrow: population this far over the population sign, food unmet
 
+# --- Noise floors (section 6, #538) ---
+# How far each metric moves when nothing about balance changed: the median absolute difference
+# between a run and its twin with the opening's steps one tick late. `balance verdict --against`
+# calls a metric "moved" only when its median delta is past this (and the sign test agrees), so a
+# metric with no entry here has no floor. Written by `balance jitter`, which keeps the comments and
+# layout of this file; rerun it when the sim or the opening changes enough to shift the chaos.
+# Metric names are the ones targets use (crates/harness/src/metric.rs).
+[noise]
+"care.close_calls" = 0.0
+"care.suffering" = 0.0
+"deaths" = 0.0
+"deaths_by.180" = 0.0
+"first_death" = 0.0
+"food_per_head.winter.2" = 0.4375
+"longest_gap" = 2.0
+"pop_at.120" = 0.0
+"ready_minute" = 0.0
+"sign_minute.ore" = 0.958332
+"sign_minute.population" = 0.0
+"sign_minute.stone" = 0.58333
+"wood_at.120" = 2.0
+
 # --- Targets (section 5, #537) ---
 # Each target names the design doc section it comes from (`doc`), so a doc can say "see
 # `stone_by_120`" and the number lives only here.

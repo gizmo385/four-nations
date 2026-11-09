@@ -109,7 +109,7 @@ impl Flag {
 }
 
 /// When a flag was raised.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Raised {
     pub flag: Flag,
     /// The minute its condition had held long enough to raise it.
@@ -162,7 +162,7 @@ impl Default for Detectors {
 }
 
 /// What one settler was doing in a minute, for an autopsy's last ten and the stranded check.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Occupation {
     /// It had a task.

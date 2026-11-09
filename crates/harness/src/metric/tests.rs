@@ -51,7 +51,7 @@ fn every_name_parses_and_a_bad_one_says_why() {
         "care.depleted_per_ph",
         "care.suffering",
     ] {
-        parse(name);
+        assert_eq!(parse(name).name(), name, "name() is parse()'s inverse");
     }
     let defs = Defs::bundled();
     let err = |name: &str| Metric::parse(name, &defs).expect_err(name);
