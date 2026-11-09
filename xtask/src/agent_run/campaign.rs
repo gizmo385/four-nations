@@ -352,18 +352,68 @@ fn ledger_text(ledger: &Ledger, owner: bool) -> String {
     out
 }
 
-/// What every attempt's prompt says about the clean run and `test_governor` (#561).
+/// What decides an attempt and how to check it, in every prompt a campaign gives the model:
+/// attempt 1's, the later attempts' and every handoff (#569), so it is written once. The detail
+/// that only the first prompt of an attempt carries is [`clean_run_rules`].
+pub(super) fn deciding_passage(horizon: u32) -> String {
+    format!(
+        "What decides this attempt is the clean score, not this game's own: after the run, your \
+         final governor and plan are replayed from turn 0, with no one at the keys, on several \
+         other maps, and the scores are averaged. A governor that only works on the map you can \
+         see scores badly there, so improve the governor and the plan, not just this \
+         settlement. If the governor stops (an error or a runaway) it stays stopped, and the \
+         colony coasts to the end with no orders. `test_governor` plays your saved governor and \
+         the current plan from turn 0 on one of those maps, on a separate copy of the world \
+         (this game is not touched), and tells you the stop reason, turn and score the clean \
+         run will get: run it on the final governor before you finish, most of all after a \
+         change. This game ends at turn {horizon}; when it does, finish up (test, save, \
+         notes) and stop."
+    )
+}
+
+/// What a chunk after the first is told about where its attempt stands (#569): the live game's
+/// turn, or, when no turn has been played, that this is the same attempt carrying on and not a
+/// fresh start (a chunk can spend itself editing and testing); how many `test_governor` calls
+/// are used; and [`deciding_passage`]. The plan, scripts and notes come with it in the listing.
+pub(super) fn handoff_note(horizon: u32, done_turns: u32, tests: usize) -> String {
+    let game = if done_turns == 0 {
+        "No turn has been played in the live game yet. The earlier chunks of this attempt may \
+         have gone on reading, editing and testing: everything they saved is below, so this is \
+         not a fresh start."
+            .to_owned()
+    } else {
+        format!("The live game is at turn {done_turns} of {horizon}.")
+    };
+    let tests = match tests {
+        0 => String::new(),
+        n => format!(
+            " test_governor has been called {n} time(s) in this attempt so far; its result \
+             says how many tests are left."
+        ),
+    };
+    format!("{game}{tests}\n\n{}", deciding_passage(horizon))
+}
+
+/// The detail of the clean run that an attempt's first prompt adds to [`deciding_passage`]
+/// (#561): what a runaway is and what testing costs. Not repeated in handoffs.
 fn clean_run_rules() -> &'static str {
-    "How the clean run ends matters. If the governor stops (an error, or a runaway: more work \
-     between two waits than the budget allows; each wait starts the count again), it stays \
-     stopped: from that turn the colony coasts to the end \
-     with no orders at all, so a stop early in the run costs most of the score. `test_governor` \
-     plays your saved governor and the current plan from turn 0 on one of the evaluation maps, \
-     on a separate copy of the world (this game is not touched), and tells you the stop reason, \
-     turn and score the clean run will get. It takes a few seconds to half a minute and the number of \
-     tests per attempt is limited. Run it on the final governor before you finish, most of all \
-     after a change: a governor that has only run on this built-up settlement can fail from an \
-     empty start."
+    "A runaway is more work between two waits than the limit allows (each wait starts the count \
+     again, and observe, act and the other game calls count for more than one each); a stop \
+     early in the run costs most of the score. A `test_governor` run takes a few seconds to \
+     half a minute and the number of tests per attempt is limited (the tool says how many are \
+     left), so test a finished change, not every edit. A governor that has only run on this \
+     built-up settlement can fail from an empty start."
+}
+
+/// Attempt 1's first prompt, with no champion yet: what decides the attempt and the clean-run
+/// detail, on top of the plain scripted prompt (#569).
+fn first_attempt_prompt(horizon: u32, calls: u32) -> String {
+    format!(
+        "{}\n\n{}\n\n{}",
+        deciding_passage(horizon),
+        clean_run_rules(),
+        default_script_prompt(horizon, calls)
+    )
 }
 // -------------------------------------------------------------------------------------------
 // The attempt's prompt
@@ -387,11 +437,7 @@ fn attempt_prompt(
          and lab notes from the best attempt so far (attempt {best}) are already loaded: scripts, \
          plan and notes show them, so nothing needs retyping. Read the governor's source with \
          scripts {{\"name\": \"{governor}\"}} before you change anything.\n\n\
-         Each attempt is scored twice. The played score is this run's. The clean score is the one \
-         that decides: after the run, your final governor and plan are replayed from turn 0 with \
-         no one at the keys, on several different maps, and the scores are averaged. A governor \
-         that only works on the map you can see scores badly there, so improve the governor and \
-         the plan, not just this settlement.\n\n\
+         {decides}\n\n\
          The ledger so far (clean scores per map, `*` for a stopped governor; the mean is what \
          has to go up):\n{ledger}\n\
          The best strategy's scorecard on your map:\n{scorecard}\n\n{rules}\n\n\
@@ -405,6 +451,7 @@ fn attempt_prompt(
         name = t.name,
         governor = GOVERNOR,
         best = champion.attempt,
+        decides = deciding_passage(total),
         ledger = ledger_text(ledger, false),
         scorecard = scorecard.trim_end(),
         rules = clean_run_rules(),
@@ -572,11 +619,7 @@ impl Campaign<'_> {
                 ))
             }
             // No champion yet: the plain scripted prompt, with what a clean run is up against.
-            None => Some(format!(
-                "{}\n\n{}",
-                clean_run_rules(),
-                default_script_prompt(track.horizon_turns, self.opts.chunk_calls)
-            )),
+            None => Some(first_attempt_prompt(track.horizon_turns, self.opts.chunk_calls)),
         };
         let o = attempt_opts(
             self.opts,
@@ -960,7 +1003,7 @@ mod tests {
         let c =
             Champion { attempt: 1, train_mean: 76.0, governor_version: Some(9), plan_revision: 6 };
         let p = attempt_prompt(&ledger(), 3, &c, "card\n", 5, 30);
-        assert!(p.contains("coasts to the end with no orders at all"), "{p}");
+        assert!(p.contains("coasts to the end with no orders"), "{p}");
         assert!(p.contains("costs most of the score") && p.contains("test_governor"), "{p}");
         assert!(p.contains("from turn 0") && p.contains("this game is not touched"), "{p}");
     }
@@ -1044,5 +1087,105 @@ mod tests {
         assert!(args.contains("--scripts") && args.contains("--map-size small"), "{args}");
         assert!(args.contains("--start 10,20") && args.contains("--prelude economy:60"), "{args}");
         assert!(args.contains("--carry-in /c/handoff.json"), "{args}");
+        // The live game stops at the track's horizon, on every chunk's serve line (#569).
+        assert!(args.contains("--trial-turns 5 --horizon 5"), "{args}");
+        let resumed = resume_args(Path::new("/a/run.jsonl"), true);
+        let resumed = [resumed, trial_args(&o)].concat().join(" ");
+        assert!(resumed.contains("--horizon 5"), "{resumed}");
+    }
+
+    /// The phrases every prompt path of a campaign carries (#569): what decides the attempt, how
+    /// to test it, and where the live game ends.
+    const DECIDING: [&str; 5] = [
+        "the clean score",
+        "from turn 0",
+        "test_governor",
+        "several other maps",
+        "ends at turn 540",
+    ];
+
+    fn all_prompt_paths() -> Vec<(&'static str, String)> {
+        let l = ledger();
+        let c =
+            Champion { attempt: 1, train_mean: 202.5, governor_version: Some(9), plan_revision: 6 };
+        vec![
+            ("attempt 1", first_attempt_prompt(540, 30)),
+            ("later attempt", attempt_prompt(&l, 2, &c, "card\n", 540, 30)),
+            (
+                "handoff with turns",
+                scripts_handoff_prompt(540, 100, 30, "(listing)", Some(&handoff_note(540, 100, 2))),
+            ),
+            (
+                "handoff with none",
+                scripts_handoff_prompt(540, 0, 30, "(listing)", Some(&handoff_note(540, 0, 0))),
+            ),
+        ]
+    }
+
+    #[test]
+    fn every_prompt_path_says_what_decides_and_how_to_test() {
+        for (path, p) in all_prompt_paths() {
+            for phrase in DECIDING {
+                assert!(p.contains(phrase), "{phrase:?} missing from the {path} prompt:\n{p}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_shared_passage_is_written_once_per_prompt() {
+        for (path, p) in all_prompt_paths() {
+            assert_eq!(p.matches(&deciding_passage(540)).count(), 1, "{path}:\n{p}");
+        }
+        // The handoff doesn't carry the first prompt's extra detail: it would cost tokens every
+        // chunk.
+        let handoff = scripts_handoff_prompt(540, 100, 30, "(l)", Some(&handoff_note(540, 100, 0)));
+        assert!(!handoff.contains(clean_run_rules()));
+    }
+
+    /// A chunk that played no turn is the same attempt carrying on, not a fresh start, and says
+    /// what's been done; one that did says where the game is.
+    #[test]
+    fn a_handoff_with_no_turns_played_is_not_a_fresh_start() {
+        let none = scripts_handoff_prompt(540, 0, 30, "(l)", Some(&handoff_note(540, 0, 3)));
+        assert!(none.contains("not a fresh start") && none.contains("everything they saved"));
+        assert!(none.contains("called 3 time(s)"), "{none}");
+        assert!(!none.contains("turn 0 of") && !none.contains("so far)"), "{none}");
+
+        let some = scripts_handoff_prompt(540, 120, 30, "(l)", Some(&handoff_note(540, 120, 0)));
+        assert!(some.contains("live game is at turn 120 of 540"), "{some}");
+        assert!(!some.contains("test_governor has been called"), "no tests used yet: {some}");
+    }
+
+    #[test]
+    fn an_ordinary_handoff_is_what_it_was() {
+        let p = scripts_handoff_prompt(540, 100, 30, "(listing)", None);
+        assert!(p.starts_with(
+            "You're continuing the same settlement from where you left off (turn 100 of about \
+             540 so far), not starting a new one. Here is your own plan, script library and lab \
+             notes:\n\n(listing)\n\nCarry on the same way."
+        ));
+        assert!(!p.contains("clean score"), "{p}");
+    }
+
+    #[test]
+    fn the_rules_make_no_false_claim_about_the_work_limit() {
+        let r = clean_run_rules();
+        assert!(r.contains("each wait starts the count again"), "{r}");
+        assert!(!r.contains("budget"), "'budget' means the turn budget and the dollar cap: {r}");
+    }
+
+    #[test]
+    fn work_marks_count_what_a_chunk_changed() {
+        let call = |tool: &str| LogLine::Call { tool: tool.to_owned() };
+        assert_eq!(work_marks(&[call("observe"), call("run_script"), LogLine::End]), 0);
+        let editing = [
+            call("save_script"),
+            LogLine::Script { name: "governor".into(), version: 2, code: String::new(), turns: 0 },
+            LogLine::Note { text: "n".into() },
+            call("test_governor"),
+        ];
+        assert_eq!(work_marks(&editing), 3, "no turn was played, and it still counts");
+        assert_eq!(tests_used(&editing), 1);
+        assert_eq!(work_marks(&[LogLine::Turn { index: 1, tick: 10 }]), 1);
     }
 }

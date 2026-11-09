@@ -21,11 +21,12 @@ use signal_hook::iterator::Signals;
 const USAGE: &str = "\
 usage: fn_agent serve --seed N --nation X [--start default|X,Y] [--difficulty ID]
                        [--map-size ID] [--prelude OPENING:MINUTES] [--turn SECS] [--scripts]
-                       [--carry-in FILE] [--trial-seeds LIST --trial-turns N] --log PATH
+                       [--carry-in FILE] [--trial-seeds LIST --trial-turns N] [--horizon N]
+                       --log PATH
        fn_agent serve --scenario ID [--turn SECS] [--scripts] --log PATH
        fn_agent serve --resume LOG [--seed N] [--nation X] [--start default|X,Y]
                        [--difficulty ID] [--turn SECS] [--scripts]
-                       [--trial-seeds LIST --trial-turns N]
+                       [--trial-seeds LIST --trial-turns N] [--horizon N]
        fn_agent play --script FILE [--scenario ID | --seed N --nation X
                       [--start default|X,Y] [--difficulty ID]] --turns N [--turn SECS]
                       [--wake-on LIST] [--plan FILE] --log PATH
@@ -62,6 +63,12 @@ test_governor tool: a clean test of the saved governor and the plan from turn 0,
 world of its own, on one of the LIST seeds (comma-separated; the harness passes a track's train
 seeds and nothing else) for up to N turns. It reports the stop reason, turn and score the clean
 evaluation (play --horizon) would, and is limited to a few calls per attempt.
+
+--horizon N (#569; the harness passes it with --trial-seeds in a campaign) stops live play at turn N:
+end_turn and run_script play no turn past it and say so plainly (a run_script that reaches it ends
+with reason horizon, not error, runaway or budget); test_governor, save_script, plan and notes still
+work, and the session gets a few more calls (30) to finish up before the rest are refused. Works
+with --resume. Nothing is logged past the horizon, so the log scores as it would have without it.
 
 --scripts (docs/design/agent-scripting.md) adds the run_script tool: a sandboxed Rhai runner
 over the same Host, with limits from data/agent.toml's [scripts] table. Works with --scenario
@@ -145,6 +152,8 @@ struct ServeArgs {
     /// horizon; given together or not at all.
     trial_seeds: Option<Vec<u64>>,
     trial_turns: Option<u32>,
+    /// `--horizon N` (#569): live play stops at turn N.
+    horizon: Option<u32>,
 }
 
 fn parse_serve_args(args: Vec<String>) -> Result<ServeArgs, String> {
@@ -164,6 +173,7 @@ fn parse_serve_args(args: Vec<String>) -> Result<ServeArgs, String> {
         scripts: false,
         trial_seeds: None,
         trial_turns: None,
+        horizon: None,
     };
     let mut it = args.into_iter();
     while let Some(flag) = it.next() {
@@ -202,6 +212,15 @@ fn parse_serve_args(args: Vec<String>) -> Result<ServeArgs, String> {
                         .parse::<u32>()
                         .map_err(|e| format!("--trial-turns wants a turn count: {e}"))?,
                 );
+            }
+            "--horizon" => {
+                let turns = value()?
+                    .parse::<u32>()
+                    .map_err(|e| format!("--horizon wants a turn count: {e}"))?;
+                if turns == 0 {
+                    return Err("--horizon wants at least one turn".to_owned());
+                }
+                a.horizon = Some(turns);
             }
             other => return Err(format!("unknown flag {other:?}")),
         }
@@ -291,8 +310,13 @@ fn serve_fresh(a: &ServeArgs) -> Result<(), String> {
 }
 
 /// Turns `run_script` on when `--scripts` was given (`Tools::with_scripts`), with the limits
-/// `data/agent.toml` ships, and `test_governor` with it when `--trial-seeds` was (#561).
+/// `data/agent.toml` ships, and `test_governor` with it when `--trial-seeds` was (#561). A
+/// `--horizon` (#569) stops live play, scripts or not.
 fn with_scripts<W: Write>(tools: Tools<W>, a: &ServeArgs) -> Result<Tools<W>, String> {
+    let tools = match a.horizon {
+        Some(horizon) => tools.with_horizon(horizon),
+        None => tools,
+    };
     if !a.scripts {
         return Ok(tools);
     }
@@ -870,11 +894,25 @@ mod tests {
             scripts: false,
             trial_seeds: None,
             trial_turns: None,
+            horizon: None,
         }
     }
 
     fn serve_flags(args: &[&str]) -> Result<ServeArgs, String> {
         parse_serve_args(args.iter().map(|s| (*s).to_owned()).collect())
+    }
+
+    /// `--horizon N` (#569) stops live play; it works on a fresh session and a resumed one, and
+    /// wants a positive turn count.
+    #[test]
+    fn horizon_flag_takes_a_positive_turn_count() {
+        assert_eq!(
+            serve_flags(&["--resume", "r.jsonl", "--horizon", "540"]).unwrap().horizon,
+            Some(540)
+        );
+        assert_eq!(serve_flags(&["--scripts"]).unwrap().horizon, None);
+        assert!(serve_flags(&["--horizon", "0"]).unwrap_err().contains("at least one"));
+        assert!(serve_flags(&["--horizon", "x"]).unwrap_err().contains("--horizon"));
     }
 
     /// `--trial-seeds` and `--trial-turns` (#561) come as a pair, need `--scripts`, and work on a

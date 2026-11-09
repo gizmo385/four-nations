@@ -205,7 +205,9 @@ fn run_script_tool() -> Value {
                          memory from before. Stops and returns once the script returns \
                          (`done`, with its own value), errors (`error`, with message and \
                          line:col), calls `wake(msg)` (`asked`), a `wake_on` event lands \
-                         during a `wait` (`event`), uses up `turns` (`budget`), or does more \
+                         during a `wait` (`event`), uses up `turns` (`budget`), reaches the \
+                         live game's horizon where it has one (`horizon`: not a fault, the \
+                         game just ends there), or does more \
                          than the operation budget between two `wait`s (`runaway`; every \
                          `wait` starts the count again, and its `why` names the line it \
                          stopped on). The result is the wake \
@@ -560,7 +562,24 @@ pub struct Tools<W: std::io::Write> {
     /// How many `test_governor` calls this attempt has made, rejected ones included: the log's
     /// own `call` lines when resumed, so a chunked attempt shares one count.
     trial_calls: u32,
+    /// `Some(N)` once [`Self::with_horizon`] has stopped live play at turn N (a campaign attempt,
+    /// #569): no tool advances the game past it.
+    horizon: Option<u32>,
+    /// Tool calls made while the game stood at its horizon, this one included. Past
+    /// [`HORIZON_GRACE_CALLS`] a call is refused: the session is over.
+    horizon_calls: u32,
+    /// The `call` lines after the log's last `turn` line when resumed (0 for a fresh session):
+    /// what [`Self::with_horizon`] starts [`Self::horizon_calls`] from if the game is already at
+    /// its horizon, so a resumed session doesn't get the grace over again.
+    tail_calls: u32,
 }
+
+/// How many tool calls a session gets once the game has reached its horizon (#569). Live play
+/// can't go on, so what is left is finishing up: `test_governor` (at most
+/// [`trial::MAX_RUNS`] of them), a few `save_script`s, the plan and notes, and a look at the
+/// result. Calls past it are refused with a plain "stop now". It bounds what an attempt can
+/// spend after the horizon whatever `--chunk-calls` (which only asks the model to stop) says.
+pub const HORIZON_GRACE_CALLS: u32 = 30;
 
 impl<W: std::io::Write> Tools<W> {
     /// Wraps `host` and `log`, writing the header at once (`Host::header`): what the run was
@@ -578,6 +597,9 @@ impl<W: std::io::Write> Tools<W> {
             plan: json!({}),
             trial: None,
             trial_calls: 0,
+            horizon: None,
+            horizon_calls: 0,
+            tail_calls: 0,
         })
     }
 
@@ -596,6 +618,12 @@ impl<W: std::io::Write> Tools<W> {
             .iter()
             .filter(|l| matches!(l, LogLine::Call { tool, .. } if tool == trial::TOOL))
             .count() as u32;
+        let tail_calls = lines
+            .iter()
+            .rev()
+            .take_while(|l| !matches!(l, LogLine::Turn { .. }))
+            .filter(|l| matches!(l, LogLine::Call { .. }))
+            .count() as u32;
         Self {
             host,
             log,
@@ -607,6 +635,9 @@ impl<W: std::io::Write> Tools<W> {
             plan,
             trial: None,
             trial_calls,
+            horizon: None,
+            horizon_calls: 0,
+            tail_calls,
         }
     }
 
@@ -640,6 +671,44 @@ impl<W: std::io::Write> Tools<W> {
     pub fn with_trial(mut self, trial: Trial) -> Self {
         self.trial = Some(trial);
         self
+    }
+
+    /// Stops live play at turn `horizon` (`fn_agent serve --horizon`, #569): `end_turn` and
+    /// `run_script` play no turn past it, say so plainly in their result (a `run_script` that
+    /// runs into it ends with reason `horizon`, not an error, a runaway or a budget), and the
+    /// session gets [`HORIZON_GRACE_CALLS`] more calls once it is there. Everything else keeps
+    /// working: `test_governor` plays worlds of its own, and `save_script`, `plan` and `notes`
+    /// write what the clean evaluation reads. Nothing is logged past the horizon that a replay
+    /// would play, so the log scores as it would have without the stop.
+    pub fn with_horizon(mut self, horizon: u32) -> Self {
+        self.horizon = Some(horizon);
+        if self.host.observe().turn >= horizon {
+            self.horizon_calls = self.tail_calls;
+        }
+        self
+    }
+
+    /// Whether the live game is at its horizon right now.
+    fn at_horizon(&self) -> bool {
+        self.horizon.is_some_and(|h| self.host.observe().turn >= h)
+    }
+
+    /// What a result says once the game is at its horizon `horizon` (#569): plain, and the same
+    /// wherever it shows (`end_turn`, `run_script`).
+    fn horizon_note(&self, horizon: u32) -> String {
+        let calls_left = HORIZON_GRACE_CALLS.saturating_sub(self.horizon_calls);
+        let test = if self.trial.is_some() {
+            "check it with test_governor if you have tests left, "
+        } else {
+            ""
+        };
+        format!(
+            "This game has reached its horizon, turn {horizon}: no more turns will be played \
+             here and nothing after it is scored. The attempt is judged by the clean run of \
+             your saved governor and plan from turn 0 on other maps. Finish up: {test}save \
+             the final governor with save_script, record what you learned with notes, then \
+             stop with a short summary. This session has {calls_left} tool calls left."
+        )
     }
 
     /// This session's own tool list: [`list`], plus `run_script`, `save_script`, `scripts`,
@@ -691,6 +760,17 @@ impl<W: std::io::Write> Tools<W> {
         self.log
             .write_line(&LogLine::Call { tool: name.to_owned(), summary })
             .map_err(|e| e.to_string())?;
+        if self.at_horizon() {
+            self.horizon_calls += 1;
+            if self.horizon_calls > HORIZON_GRACE_CALLS {
+                return Err(format!(
+                    "this game reached its horizon (turn {}) and the {HORIZON_GRACE_CALLS} tool \
+                     calls left for finishing up are used. Nothing more can be done in this \
+                     session: stop now and reply with a short summary.",
+                    self.horizon.unwrap_or_default()
+                ));
+            }
+        }
         let result = self.dispatch(name, arguments)?;
         self.flush_new_lines()?;
         Ok(result)
@@ -731,7 +811,21 @@ impl<W: std::io::Write> Tools<W> {
             "end_turn" => {
                 let a: EndTurnArgs = args(name, arguments).unwrap_or_default();
                 let turns = a.turns.unwrap_or(1).max(1);
-                Ok(ok(&self.host.end_turn(turns)))
+                let Some(horizon) = self.horizon else {
+                    return Ok(ok(&self.host.end_turn(turns)));
+                };
+                // At the horizon no turn is played, and that is a plain answer, not an error.
+                let left = horizon.saturating_sub(self.host.observe().turn);
+                let observation = if left == 0 {
+                    self.host.observe()
+                } else {
+                    self.host.end_turn(turns.min(left))
+                };
+                let mut result = ok(&observation);
+                if observation.turn >= horizon {
+                    result["horizon"] = json!(self.horizon_note(horizon));
+                }
+                Ok(result)
             }
             "run_script" => self.run_script(arguments),
             "save_script" => {
@@ -848,7 +942,25 @@ impl<W: std::io::Write> Tools<W> {
             }
         };
         let wake_on = a.wake_on.unwrap_or_else(|| limits.default_wake.clone());
-        let turns = limits.resolve_turns(a.turns);
+        let mut turns = limits.resolve_turns(a.turns);
+
+        // At the live game's horizon (#569) a saved script is not run at all: it would act on a
+        // game that no longer counts, and its first `wait` could not play. The answer is a
+        // plain "horizon", nothing is logged but the `call` line, and a replay is unchanged.
+        let left = self.horizon.map(|h| h.saturating_sub(self.host.observe().turn));
+        if let (Some(horizon), Some(0), false) = (self.horizon, left, probe) {
+            return Ok(json!({
+                "reason": "horizon",
+                "why": self.horizon_note(horizon),
+                "script": tag,
+                "turns_run": 0,
+                "observe": self.host.observe(),
+            }));
+        }
+        // A run can't play past the horizon: its turn budget is what is left of it.
+        if let Some(left) = left {
+            turns = turns.min(left.max(1));
+        }
 
         self.log
             .write_line(&LogLine::Script {
@@ -870,7 +982,23 @@ impl<W: std::io::Write> Tools<W> {
             plan: &self.plan,
             probe,
         };
-        let outcome = script::run(&mut self.host, request, &limits);
+        let mut outcome = script::run(&mut self.host, request, &limits);
+
+        // A run that used up the turns the horizon left is not "out of budget": the game is
+        // over, and the governor did nothing wrong (#569). Any other reason stands, with the
+        // note beside it.
+        let mut horizon_note = None;
+        if let Some(horizon) = self.horizon
+            && outcome.observe.turn >= horizon
+        {
+            let note = self.horizon_note(horizon);
+            if outcome.reason == "budget" {
+                outcome.reason = "horizon";
+                outcome.why = Some(note);
+            } else {
+                horizon_note = Some(note);
+            }
+        }
 
         // The script's own `Keys`/`Turn` lines land between `Script` and `Wake`, not after:
         // flushing here (rather than waiting for `Self::call`'s own flush) keeps the log in the
@@ -891,7 +1019,11 @@ impl<W: std::io::Write> Tools<W> {
             })
             .map_err(|e| e.to_string())?;
 
-        Ok(ok(&outcome))
+        let mut result = ok(&outcome);
+        if let Some(note) = horizon_note {
+            result["horizon"] = json!(note);
+        }
+        Ok(result)
     }
 
     /// `test_governor` (#561, [`crate::trial`]): the saved `governor` and the plan as they are
@@ -959,6 +1091,12 @@ impl<W: std::io::Write> Tools<W> {
             // The rule the run is scored on, from data/score.toml (#531): weights, never a
             // number about this run. Pure data; nothing of any world is read.
             briefing["scoring"] = json!(crate::scorecard::bundled_score_rule());
+        }
+        if let Some(horizon) = self.horizon {
+            briefing["horizon"] = json!(format!(
+                "This game ends at turn {horizon}: no turn is played past it, and tool results \
+                 say so when it is reached."
+            ));
         }
         briefing
     }

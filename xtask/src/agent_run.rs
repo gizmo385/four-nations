@@ -59,6 +59,9 @@
 //!                      --turns, --turn-secs, --prompt, --carry and --interactive don't apply.
 //!                      --model, --max-usd and --chunk-calls do, per attempt; --max-usd also caps
 //!                      the whole invocation's spend, and the loop stops once it is spent.
+//!                      The live game stops at the track's horizon (`fn_agent serve
+//!                      --horizon`, #569); an attempt ends there, or when a chunk changes
+//!                      nothing.
 //!   --attempts N       how many attempts to play (required with --track; default 1 with --resume)
 //!   --resume DIR       continues the campaign in DIR: the track, ledger.json and champion are
 //!                      read from the folder, new attempts are numbered after the last one, and
@@ -1316,7 +1319,8 @@ fn serve_args(o: &Opts, log: &Path) -> Vec<String> {
 }
 
 /// `--trial-seeds LIST --trial-turns N` for a run that offers `test_governor` (#561), else
-/// nothing. A resumed chunk needs them again: `serve --resume` rebuilds the game from the log's
+/// nothing, and `--horizon N` with them: a campaign's live game stops at the track's horizon
+/// (#569). A resumed chunk needs them again: `serve --resume` rebuilds the game from the log's
 /// header but not the tool.
 fn trial_args(o: &Opts) -> Vec<String> {
     match &o.trial {
@@ -1326,6 +1330,8 @@ fn trial_args(o: &Opts) -> Vec<String> {
                 "--trial-seeds".to_string(),
                 seeds.join(","),
                 "--trial-turns".to_string(),
+                turns.to_string(),
+                "--horizon".to_string(),
                 turns.to_string(),
             ]
         }
@@ -1415,10 +1421,24 @@ fn default_script_prompt(total: u32, calls: u32) -> String {
 /// A resumed `--scripts` chunk's own prompt (#341's rule in script-mode terms, #484's acceptance
 /// criteria: the library and notes rather than a prose report; #531 adds the plan and the
 /// governor rules).
-fn scripts_handoff_prompt(total: u32, done_turns: u32, calls: u32, listing: &str) -> String {
+///
+/// A campaign attempt (#569) passes `campaign`: `campaign::handoff_note`'s account of where the
+/// attempt stands and what decides it. It takes the place of "turn N of about T so far", which
+/// read as a fresh start when a chunk had spent itself editing and testing and N was 0.
+fn scripts_handoff_prompt(
+    total: u32,
+    done_turns: u32,
+    calls: u32,
+    listing: &str,
+    campaign: Option<&str>,
+) -> String {
+    let (place, note) = match campaign {
+        Some(note) => (String::new(), format!("\n\n{note}\n\n")),
+        None => (format!(" (turn {done_turns} of about {total} so far)"), " ".to_owned()),
+    };
     format!(
-        "You're continuing the same settlement from where you left off (turn {done_turns} of \
-         about {total} so far), not starting a new one. Here is your own plan, script library \
+        "You're continuing the same settlement from where you left off{place}, not starting a \
+         new one.{note}Here is your own plan, script library \
          and lab notes:\n\n{listing}\n\nCarry on the same way. One saved script, \"governor\", \
          runs the whole settlement from plan(): change what you want with the plan tool, and \
          revise the governor with save_script (don't replace it or start another) only when it \
@@ -1503,8 +1523,34 @@ enum LogLine {
     Plan {
         plan: serde_json::Value,
     },
+    /// A tool call (#497): only its tool is read, to count `test_governor` calls (#569).
+    Call {
+        tool: String,
+    },
     #[serde(other)]
     Other,
+}
+
+/// What a session's work in `run.jsonl` adds up to, for telling a chunk that changed something
+/// from one that didn't (#569): game turns, saved scripts, plan edits, notes and `test_governor`
+/// calls. A chunk spent editing and testing adds to it without playing a turn.
+fn work_marks(lines: &[LogLine]) -> usize {
+    lines
+        .iter()
+        .filter(|l| match l {
+            LogLine::Turn { .. }
+            | LogLine::Script { .. }
+            | LogLine::Plan { .. }
+            | LogLine::Note { .. } => true,
+            LogLine::Call { tool } => tool == "test_governor",
+            _ => false,
+        })
+        .count()
+}
+
+/// How many `test_governor` calls the log holds (the tool's own limit is per attempt).
+fn tests_used(lines: &[LogLine]) -> usize {
+    lines.iter().filter(|l| matches!(l, LogLine::Call { tool } if tool == "test_governor")).count()
 }
 
 fn read_log_lines(path: &Path) -> std::io::Result<Vec<LogLine>> {
@@ -1942,6 +1988,9 @@ fn run_scripts_chunked(
     // sized from `calls` the way `run_chunked`'s is from `size`: one extra chunk per turn, plus
     // headroom.
     let max_chunks = target + 10;
+    // A campaign attempt (`o.trial` is only ever set by one, #561): its live game stops at the
+    // horizon (`--horizon`, #569), and what finishes it is not only the turn counter.
+    let campaign = o.trial.is_some();
     say(&format!(
         "scripted run: {target} turns total, about {calls} tool calls per chunk, log at \
          {}/run.jsonl",
@@ -1997,8 +2046,13 @@ fn run_scripts_chunked(
             }
         } else {
             let listing = library_notes_listing(&log)?;
-            scripts_handoff_prompt(target, done_turns, calls, &listing)
+            let note = campaign.then(|| {
+                let tests = read_log_lines(&log).map_or(0, |l| tests_used(&l));
+                campaign::handoff_note(target, done_turns, tests)
+            });
+            scripts_handoff_prompt(target, done_turns, calls, &listing, note.as_deref())
         };
+        let marks_before = read_log_lines(&log).map_or(0, |l| work_marks(&l));
 
         let mut call_args = claude_args.to_vec();
         if let Some(max_usd) = o.max_usd {
@@ -2023,6 +2077,18 @@ fn run_scripts_chunked(
         append_log(&dir.join("agent.log"), &format!("\n--- chunk {n} report ---\n{result}\n"))?;
         update_cost(dir, &chunk_json)?;
         finish_log(dir, &format!("chunk {n} finished"))?;
+        // A campaign attempt is finished when the live game is at its horizon (the loop's own
+        // check, once the chunk that got there has had its finishing calls) or when a chunk
+        // changed nothing: no turn, no saved script, plan edit, note or test. A chunk that
+        // played no turns but did something is not finished, so an attempt may spend whole
+        // chunks editing and testing; the turn counter alone ended it (or restarted it) before.
+        if campaign && read_log_lines(&log).map_or(0, |l| work_marks(&l)) <= marks_before {
+            say(&format!(
+                "chunk {n} changed nothing (no turn, script, plan, note or test); \
+                 the attempt is finished"
+            ));
+            break;
+        }
         n += 1;
     }
     write_sdk_gaps(dir)?;
@@ -2422,7 +2488,7 @@ mod tests {
     #[test]
     fn script_prompts_teach_the_governor_and_the_plan() {
         let first = default_script_prompt(540, 30);
-        let handoff = scripts_handoff_prompt(540, 100, 30, "(listing)");
+        let handoff = scripts_handoff_prompt(540, 100, 30, "(listing)", None);
         assert!(handoff.contains("(listing)"));
         for prompt in [&first, &handoff] {
             for phrase in [

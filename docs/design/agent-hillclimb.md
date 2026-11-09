@@ -423,6 +423,23 @@ track's train seeds only.
    champion costs few round trips.
 5. The loop stops after N attempts or at `--max-usd`, then prints the ledger.
 
+As built (#569): the live game stops at the horizon (`fn_agent serve --horizon N`, passed with the
+trial flags on every chunk). `end_turn` and `run_script` play no turn past it; a governor that
+runs into it ends with reason `horizon`, not `budget`, `error` or `runaway`, and every such result
+says the game has reached its horizon and what to do (test, save, notes, stop). A saved script
+started at the horizon isn't run; a probe is. `test_governor`, `save_script`, `plan` and `notes`
+keep working, so the time after the horizon is for the thing that is scored. The session then gets
+30 more tool calls (counted from the log, so a resume doesn't repeat them) and later calls are
+refused with "stop now". `--chunk-calls` only asks the model to stop; this cap, `--max-usd` and
+the chunk loop's own rules are what bound an attempt. The log holds no turn past the horizon, so
+it replays and scores as it would have without the stop. An attempt is finished when the game is
+at its horizon (after the chunk that got there), when a chunk changes nothing (no turn, script,
+plan, note or test), or at `--max-usd`; a chunk that played no turns but edited or tested is the
+same attempt carrying on, and its handoff says so instead of "turn 0 so far". Every prompt of a
+campaign (attempt 1's, later attempts' and every handoff) carries one shared passage on what
+decides the attempt (the clean score from turn 0 on other maps) and how to test it
+(`test_governor`).
+
 ```text
 ledger · water-3h · horizon 540                                   (held-out: owner only)
  #  governor  plan  played  clean 7633/7/42      mean   held-out 1/5/8   kept   cost

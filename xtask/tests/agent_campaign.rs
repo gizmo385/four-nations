@@ -47,10 +47,17 @@ fi
 attempt=0
 if [ -n "$log" ]; then
   attempt=$(basename "$(dirname "$log")" | sed 's/attempt-//')
+  # Which chunk of the attempt this is (0 for the first): the prompts written so far.
+  chunk_n=0
+  [ -n "$STUB_PROMPTS" ] && chunk_n=$(ls "$STUB_PROMPTS" 2>/dev/null | grep -c "^prompt-$attempt-")
+  idle=""
+  [ -n "$STUB_IDLE_FIRST" ] && [ "$chunk_n" = 0 ] && idle=1
+  stall=""
+  [ -n "$STUB_STALL_AT" ] && [ "$chunk_n" = "$STUB_STALL_AT" ] && stall=1
   turns=$(grep -c '"type":"turn"' "$log" 2>/dev/null)
   turns=${turns:-0}
   next=$((turns + 1))
-  if [ "$next" = 1 ]; then
+  if [ ! -f "$(dirname "$log")/first-mcp.json" ]; then
     # Later chunks rewrite mcp.json to `serve --resume`; keep the first chunk's.
     cp "$mcp_config" "$(dirname "$log")/first-mcp.json"
     # What `serve --carry-in` would have written before the first call.
@@ -58,12 +65,16 @@ if [ -n "$log" ]; then
       printf '{"type":"plan","plan":{"preloaded":true}}\n' >> "$log"
     fi
   fi
-  printf '{"type":"turn","index":%d,"tick":%d}\n' "$next" "$((next * 1000))" >> "$log"
-  printf '{"type":"note","text":"lab note from attempt %s, call %d"}\n' "$attempt" "$next" >> "$log"
-  if [ -z "$STUB_NO_GOVERNOR" ]; then
-    score=$(echo "$STUB_SCORES" | cut -d, -f"$attempt")
-    printf '{"type":"script","name":"governor","version":%d,"code":"// SCORE=%s%s%s","turns":0,"wake_on":[]}\n' "$next" "$score" "${STUB_STOP:+ STOP=$STUB_STOP}" "${STUB_STOP_HELDOUT:+ HELDONLY}" >> "$log"
-    printf '{"type":"plan","plan":{"goal":"attempt %s","call":%d}}\n' "$attempt" "$next" >> "$log"
+  # STUB_STALL_AT=N: chunk N (from 0) changes nothing. STUB_IDLE_FIRST: chunk 0 plays no turn but
+  # saves and notes, as a chunk spent editing and testing would.
+  if [ -z "$stall" ]; then
+    [ -z "$idle" ] && printf '{"type":"turn","index":%d,"tick":%d}\n' "$next" "$((next * 1000))" >> "$log"
+    printf '{"type":"note","text":"lab note from attempt %s, call %d"}\n' "$attempt" "$next" >> "$log"
+    if [ -z "$STUB_NO_GOVERNOR" ]; then
+      score=$(echo "$STUB_SCORES" | cut -d, -f"$attempt")
+      printf '{"type":"script","name":"governor","version":%d,"code":"// SCORE=%s%s%s","turns":0,"wake_on":[]}\n' "$next" "$score" "${STUB_STOP:+ STOP=$STUB_STOP}" "${STUB_STOP_HELDOUT:+ HELDONLY}" >> "$log"
+      printf '{"type":"plan","plan":{"goal":"attempt %s","call":%d}}\n' "$attempt" "$next" >> "$log"
+    fi
   fi
 fi
 
@@ -443,7 +454,9 @@ fn prompts_carry_the_train_ledger_and_never_the_held_out_scores() {
 
     let first = fx.prompt("prompt-1-0");
     assert!(first.contains("You're playing The Four Nations"), "{first}");
-    assert!(!first.contains("hill-climbing") && !first.contains("clean score"), "{first}");
+    // It isn't told it is in a campaign, but it is told what decides the attempt (#569).
+    assert!(!first.contains("hill-climbing"), "{first}");
+    assert!(first.contains("the clean score") && first.contains("test_governor"), "{first}");
 
     let second = fx.prompt("prompt-2-0");
     assert!(second.contains("attempt 2 of a hill-climbing campaign"), "{second}");
@@ -735,4 +748,87 @@ fn an_old_ledger_with_only_stop_reasons_still_resumes() {
     let p = fx.prompt("prompt-2-0");
     assert!(p.contains("attempt 1: runaway stopped 2 of 2 clean runs\n"), "{p}");
     assert_eq!(rows(&dir).len(), 2);
+}
+
+/// The live game stops at the track's horizon on every chunk's serve line, the first and the
+/// resumed ones (#569), and the chunk loop ends the attempt there.
+#[test]
+fn every_chunk_stops_live_play_at_the_horizon() {
+    let fx = Fixture::new("horizon");
+    let out = fx.campaign("100", &["--attempts", "1"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let dir = fx.campaign_dir();
+    let first_mcp = fs::read_to_string(dir.join("attempt-1/first-mcp.json")).unwrap();
+    let last_mcp = fs::read_to_string(dir.join("attempt-1/mcp.json")).unwrap();
+    assert!(last_mcp.contains("--resume"), "{last_mcp}");
+    for mcp in [&first_mcp, &last_mcp] {
+        let flat: String = mcp.split_whitespace().collect();
+        assert!(flat.contains("\"--horizon\",\"2\""), "{mcp}");
+    }
+    assert!(stderr(&out).contains("reached turn 2 of 2"), "{}", stderr(&out));
+}
+
+/// Every chunk of every attempt, attempt 1's first prompt and the handoffs included, says what
+/// decides the attempt and how to test it, and none of them has held-out data in it (#569).
+#[test]
+fn every_chunk_prompt_says_what_decides_the_attempt() {
+    let fx = Fixture::new("decides");
+    let out = fx.campaign("100,200", &["--attempts", "2"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let all = fx.prompts();
+    let names: Vec<&str> = all.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(names, ["prompt-1-0", "prompt-1-1", "prompt-2-0", "prompt-2-1"], "{names:?}");
+    for (name, text) in &all {
+        for phrase in ["the clean score", "from turn 0", "test_governor", "several other maps"] {
+            assert!(text.contains(phrase), "{phrase:?} missing from {name}:\n{text}");
+        }
+        for hidden in ["9001", "9101", "9201", "held-out", "held out"] {
+            assert!(!text.contains(hidden), "{hidden:?} leaked into {name}:\n{text}");
+        }
+    }
+    // A handoff says where the live game is, and is the continuing prompt, not the first.
+    let handoff = fx.prompt("prompt-1-1");
+    assert!(handoff.contains("The live game is at turn 1 of 2"), "{handoff}");
+    assert!(handoff.contains("not starting a new one"), "{handoff}");
+}
+
+/// A chunk that played no turn (it spent itself editing and testing) is the same attempt carrying
+/// on: the next chunk's handoff says so and says what has been done, never "turn 0 so far", and
+/// the attempt isn't restarted or cut short (#569).
+#[test]
+fn a_chunk_with_no_turns_played_continues_the_same_attempt() {
+    let mut fx = Fixture::new("idle");
+    fx.extra_env.push(("STUB_IDLE_FIRST".to_owned(), "1".to_owned()));
+    let out = fx.campaign("100", &["--attempts", "1"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let dir = fx.campaign_dir();
+    // The idle chunk, then one turn each: three chunks, one attempt, one ledger row.
+    let names: Vec<String> = fx.prompts().into_iter().map(|(n, _)| n).collect();
+    assert_eq!(names, ["prompt-1-0", "prompt-1-1", "prompt-1-2"]);
+    assert_eq!(rows(&dir).len(), 1);
+
+    let after_idle = fx.prompt("prompt-1-1");
+    assert!(after_idle.contains("No turn has been played in the live game yet"), "{after_idle}");
+    assert!(after_idle.contains("not a fresh start"), "{after_idle}");
+    assert!(after_idle.contains("not starting a new one"), "{after_idle}");
+    assert!(!after_idle.contains("turn 0 of") && !after_idle.contains("so far)"), "{after_idle}");
+    assert!(after_idle.contains("lab note from attempt 1"), "what was done is in it: {after_idle}");
+    let next = fx.prompt("prompt-1-2");
+    assert!(next.contains("The live game is at turn 1 of 2"), "{next}");
+}
+
+/// A chunk that changed nothing at all ends a campaign attempt; a chunk that only edited does not
+/// (the test above). Without it an attempt with a stuck session would run chunk after chunk
+/// until the dollar cap (#569).
+#[test]
+fn a_chunk_that_changes_nothing_ends_the_attempt() {
+    let mut fx = Fixture::new("stall");
+    fx.extra_env.push(("STUB_STALL_AT".to_owned(), "1".to_owned()));
+    let out = fx.campaign("100", &["--attempts", "1"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let names: Vec<String> = fx.prompts().into_iter().map(|(n, _)| n).collect();
+    assert_eq!(names, ["prompt-1-0", "prompt-1-1"], "no third chunk");
+    assert!(stderr(&out).contains("changed nothing"), "{}", stderr(&out));
+    // The attempt is still evaluated and recorded.
+    assert_eq!(rows(&fx.campaign_dir()).len(), 1);
 }

@@ -283,6 +283,11 @@ fn scripts_run_writes_sdk_gaps_and_cost_json() {
     let cost: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(dir.join("cost.json")).unwrap()).unwrap();
     assert_eq!(cost["round_trips"], 2);
+
+    // An ordinary scripted run has no horizon stop and no test tool (#569): those belong to a
+    // campaign attempt.
+    let mcp = fs::read_to_string(dir.join("mcp.json")).unwrap();
+    assert!(!mcp.contains("--horizon") && !mcp.contains("--trial"), "{mcp}");
 }
 
 /// `--carry DIR` saves the run's script library and lab notes, readable back by a later run
