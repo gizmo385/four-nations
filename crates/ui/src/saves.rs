@@ -12,9 +12,10 @@
 //!   then renamed over it, so a crash or a full disk mid-save leaves the previous save as it was.
 //! - **Listing is cheap**: [`list`] reads only each file's first line, the header
 //!   (`fn_sim::save::inspect`), never the multi-megabyte world. A file that isn't a save, is from
-//!   another format version or was made against other game data is listed as unloadable with the
-//!   reason, rather than failing the list. A file whose header is fine but whose world is damaged
-//!   only shows that when it is loaded, as the load's error.
+//!   another format version or is a v1 save of data this build has no id tables for is listed as
+//!   unloadable with the reason, rather than failing the list. A file whose header is fine but
+//!   whose world is damaged, or which uses content this build's data no longer has (#602), only
+//!   shows that when it is loaded, as the load's error.
 //! - **Errors are lines**: every failure is a `String` a frontend can show as it is.
 
 use std::ffi::OsString;
@@ -145,7 +146,7 @@ impl Slot {
 /// Every slot in `dir`, newest first (then by name). A directory that doesn't exist yet has no
 /// slots. Only `*.ron` files are slots; anything else there, the temporary files of a save in
 /// progress included, is left out.
-pub fn list(dir: &Path, defs: &Defs) -> Result<Vec<Slot>, String> {
+pub fn list(dir: &Path) -> Result<Vec<Slot>, String> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -164,11 +165,6 @@ pub fn list(dir: &Path, defs: &Defs) -> Result<Vec<Slot>, String> {
         let modified = entry.metadata().and_then(|m| m.modified()).ok();
         let state = match read_header(&path) {
             Err(why) => SlotState::Unloadable(why),
-            Ok(info) if info.data_hash != defs.id_hash() => SlotState::Unloadable(
-                "made with different game data (biomes, techs, items, buildings or abilities \
-                 changed)"
-                    .into(),
-            ),
             Ok(info) => SlotState::Ready(info),
         };
         slots.push(Slot { name: name.to_owned(), state, modified });
@@ -349,36 +345,42 @@ mod tests {
     fn the_list_reads_headers_and_marks_what_cannot_load() {
         let tmp = TempDir::new("list");
         let defs = Defs::bundled();
-        assert_eq!(list(&tmp.0.join("missing"), &defs), Ok(Vec::new()), "no directory, no slots");
+        assert_eq!(list(&tmp.0.join("missing")), Ok(Vec::new()), "no directory, no slots");
 
         let s = session();
         save(&tmp.0, "save-1", &s).unwrap();
         quicksave(&tmp.0, &s).unwrap();
         fs::write(tmp.0.join("junk.ron"), "this is not a save").unwrap();
-        // A newer format and other game data: the header reads, but this build can't load it.
+        // A newer format, and a v1 save of data this build has no id tables for: the header
+        // reads, but this build can't load it. Other data in a current save is fine (#602): its
+        // ids are mapped by name when it loads.
         let text = s.world.save(&defs).unwrap();
-        fs::write(tmp.0.join("future.ron"), text.replacen("version:1", "version:99", 1)).unwrap();
+        let version = format!("version:{}", fn_sim::SAVE_VERSION);
+        fs::write(tmp.0.join("future.ron"), text.replacen(&version, "version:99", 1)).unwrap();
         let hash = format!("data_hash:{}", defs.id_hash());
-        fs::write(tmp.0.join("modded.ron"), text.replacen(&hash, "data_hash:1", 1)).unwrap();
+        let modded = text.replacen(&hash, "data_hash:1", 1);
+        fs::write(tmp.0.join("modded.ron"), &modded).unwrap();
+        fs::write(tmp.0.join("old.ron"), modded.replacen(&version, "version:1", 1)).unwrap();
         // Not slots: another extension, a save in progress, a name that isn't allowed.
         fs::write(tmp.0.join("notes.txt"), "hi").unwrap();
         fs::write(tmp.0.join("save-1.ron.tmp"), "half").unwrap();
         fs::write(tmp.0.join("bad name.ron"), &text).unwrap();
 
-        let mut slots = list(&tmp.0, &defs).unwrap();
+        let mut slots = list(&tmp.0).unwrap();
         slots.sort_by(|a, b| a.name.cmp(&b.name));
         let names: Vec<_> = slots.iter().map(|s| s.name.as_str()).collect();
-        assert_eq!(names, ["future", "junk", "modded", "quicksave", "save-1"]);
+        assert_eq!(names, ["future", "junk", "modded", "old", "quicksave", "save-1"]);
         let get = |n: &str| slots.iter().find(|s| s.name == n).unwrap();
 
         let SlotState::Ready(info) = &get("save-1").state else { panic!("save-1 loads") };
         assert_eq!((info.nation, info.seed, info.tick), (Nation::Water, 3, 40));
         assert_eq!(get("save-1").describe(&defs), "Water Tribes, seed 3, 00:04 (tick 40)");
         assert!(get("quicksave").loadable());
+        assert!(get("modded").loadable(), "the data hash doesn't gate loading");
         for (name, why) in [
             ("junk", "not a Four Nations save"),
             ("future", "version 99"),
-            ("modded", "different game data"),
+            ("old", "old version of the game"),
         ] {
             let slot = get(name);
             assert!(!slot.loadable(), "{name}");
@@ -393,14 +395,14 @@ mod tests {
         let defs = Defs::bundled();
         assert_eq!(new_name(&[]), "save-1");
         let mut s = session();
-        save(&tmp.0, &new_name(&list(&tmp.0, &defs).unwrap()), &s).unwrap();
-        save(&tmp.0, &new_name(&list(&tmp.0, &defs).unwrap()), &s).unwrap();
+        save(&tmp.0, &new_name(&list(&tmp.0).unwrap()), &s).unwrap();
+        save(&tmp.0, &new_name(&list(&tmp.0).unwrap()), &s).unwrap();
         fs::remove_file(slot_path(&tmp.0, "save-1")).unwrap();
-        assert_eq!(new_name(&list(&tmp.0, &defs).unwrap()), "save-1", "a freed name is reused");
+        assert_eq!(new_name(&list(&tmp.0).unwrap()), "save-1", "a freed name is reused");
 
         s.tick_n(10);
         save(&tmp.0, "save-2", &s).unwrap();
         assert_eq!(load(&tmp.0, "save-2", &defs).unwrap().tick, 50);
-        assert_eq!(list(&tmp.0, &defs).unwrap().len(), 1);
+        assert_eq!(list(&tmp.0).unwrap().len(), 1);
     }
 }

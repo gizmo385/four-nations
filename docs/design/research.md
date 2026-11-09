@@ -1,5 +1,7 @@
 # Research and the tech tree
 
+Doc status: current
+
 Status: **proposed** (#17). Follow-up work: #18 to #28 (see the end of this doc).
 
 Research is how a settlement grows past where it starts. It unlocks buildings, jobs and bending

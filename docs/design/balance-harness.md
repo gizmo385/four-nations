@@ -1,5 +1,7 @@
 # Balance harness: a verdict, not a sweep
 
+Doc status: current
+
 Status: **accepted** (#489). The owner took every recommendation on 2026-11-07 as a starting
 default, to retune once the harness has run for a while: see "Owner decisions". The follow-up work
 is under "Follow-up issues".

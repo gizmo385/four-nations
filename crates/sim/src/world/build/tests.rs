@@ -1049,3 +1049,27 @@ fn walled_in_needs_water_stockpile_and_home_all_out_of_reach() {
     w.designate_stockpile(at(7, 3)).unwrap();
     assert!(!w.walled_in(UnitId(2)), "a stockpile in its pocket");
 }
+
+/// #603: a build trip floods to plan a route, not on every tick of the walk (the fetch branch
+/// used to re-pick its source each tick, #574). One fixed run: wood is stored at one end of a
+/// long strip, the site is at the other.
+#[test]
+fn a_build_run_floods_per_route_not_per_step() {
+    let row = ".".repeat(40);
+    let rows = [row.as_str(); 3];
+    let (mut w, defs) = setup(&rows, &[at(1, 1)]);
+    let wood = defs.item_id("wood").unwrap();
+    let bed = defs.building_id("bed").unwrap();
+    let cost = defs.building(bed).cost[0].count;
+    w.designate_stockpile(at(0, 0)).unwrap();
+    w.stored.insert(at(0, 0), Stack { item: wood, count: cost });
+    let job = w.designate_build(at(35, 1), bed, &defs).unwrap();
+    crate::flood::CALLS.with(|c| c.set(0));
+    let ticks = run_until(&mut w, &defs, 6000, |w| w.job(job).is_none());
+    let floods = crate::flood::CALLS.with(|c| c.get());
+    assert!(w.building_at(at(35, 1)).is_some());
+    assert!(floods <= FLOODS_CAP, "{floods} floods in {ticks} ticks");
+}
+
+/// 231 floods before #603 (one per walking tick), 4 after: one per planned route.
+const FLOODS_CAP: u32 = 8;

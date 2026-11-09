@@ -1,5 +1,7 @@
 # Tech stack options
 
+Doc status: current (the Saves section is the live rule; the Bevy engine choice below is historical)
+
 Status: **decided** 2026-10-21: Rust + Bevy, merged to `main`. **Superseded** 2026-11-03
 (#93, #280, #281): the owner retired the Bevy client, its art pipeline and its CI cost
 entirely, once a terminal frontend (`fn_tui`, docs/design/tui.md) reached parity with it. The

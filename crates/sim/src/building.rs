@@ -78,9 +78,8 @@ use crate::needs::NeedsSettings;
 use crate::path::STRAIGHT;
 use crate::research::{MAX_MULTIPLIER, TechDef, TechId};
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+// `Deserialize` is `save::ids`' remapping impl (#602).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
 pub struct BuildingId(pub u16);
 
 /// A building placed on a tile (`Tile::building`): baked onto the tile so pathfinding

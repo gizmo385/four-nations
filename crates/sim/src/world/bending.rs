@@ -136,7 +136,6 @@
 
 use rand::seq::SliceRandom;
 
-use super::work::route_from;
 use crate::bending::{AbilityDef, Effect, Rank};
 use crate::defs::{BiomeId, ResourceId, Terrain};
 use crate::jobs::{ItemId, JobKind};
@@ -680,15 +679,7 @@ impl World {
             // Chi can only have gone up since the claim, so this is a safety net.
             return self.abandon_job(i, id, defs);
         }
-        if self.units[i].route.is_none() {
-            // Resuming after a need, or the claim's route was lost: plan from here.
-            let flood = self.flood_from(i);
-            match self.stand_tile(&flood, pos).and_then(|(_, s)| flood.path_to(s)) {
-                Some(path) => self.units[i].route = Some(route_from(path)),
-                None => return self.abandon_job(i, id, defs),
-            }
-        }
-        if !self.walk(i, defs) {
+        if !self.go_or_abandon(i, id, StandRule::Tile(pos), defs) {
             return;
         }
         let rate = self.bend_rate(&self.units[i], def, defs);

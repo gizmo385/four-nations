@@ -1,5 +1,7 @@
 # Midgame pacing: the long wait from minute 60 to the Harmony Gate
 
+Doc status: current
+
 Status: **accepted** (#412). The owner answered on 2026-11-06 and 2026-11-08, recorded under
 "Owner decisions". The follow-up work is under "Follow-up issues". The harness numbers below
 predate #353, #490 and #513, and need a fresh measure before anyone tunes against them.

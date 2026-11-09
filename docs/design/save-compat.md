@@ -1,8 +1,17 @@
 # Saves that survive content changes
 
-Status: **proposed** (#602). The owner decided on 2026-11-09 that saves must stay compatible
+Doc status: current
+
+Status: **implemented** (#602). The owner decided on 2026-11-09 that saves must stay compatible
 across updates. This is the implementation plan. The rule it puts in place is in
 tech-stack.md, "Saves". The work is **one implementer change**.
+
+Where the implementation differs from the plan below: `inspect` also returns `DataMismatch` for
+a v1 header whose `data_hash` has no entry in `v1_ids.ron`, so `fn_ui::saves::list` still marks
+such a slot unloadable without the hash arm (and `list` no longer takes `Defs`). The
+fixture's `regenerate_v1_fixture` test is removed, since this build can only write v2. The
+fixture's body is compared with the re-saved body only while today's id tables still match the
+fixture's; after that, `save_compat.rs` covers it.
 
 ## The problem in the code
 

@@ -1,5 +1,7 @@
 # End game: the Harmony Gate, built with the Avatar
 
+Doc status: current
+
 Status: **decided** (#224, owner, 2026-10-25). The owner's answers are under "Owner decisions",
 and follow-up work is listed in "Follow-up issues". The bending-masters sign's pacing is reopened in
 "Mastery pacing" at the end (#340, proposed, 2026-11-05).

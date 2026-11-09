@@ -72,6 +72,7 @@ pub use season::{SeasonEvent, SeasonEventKind};
 pub use strain::StrainEvent;
 pub use stride::{STRIDE_LOOKAHEAD, Stride};
 pub use tally::Tallies;
+use work::StandRule;
 pub use work::{DesignateError, FoodSource, IdleReason, Task};
 
 /// Ticks per in-game second. Movement and needs are expressed per tick.
@@ -608,6 +609,11 @@ impl World {
     /// to know.
     pub fn buried_count(&self) -> usize {
         self.buried.len()
+    }
+
+    /// The research state, for `save::load` to remap its positional `known` table (#602).
+    pub(crate) fn research_mut(&mut self) -> &mut Research {
+        &mut self.research
     }
 
     /// Checks that a world read from a save is consistent enough to run: the things that would

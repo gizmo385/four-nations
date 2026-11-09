@@ -1,5 +1,7 @@
 # Difficulty and pressure: seasons, tiring land and presets
 
+Doc status: current
+
 Status: **accepted** (#287, owner answers 2026-11-03, recorded at the end). Follow-up work: #294
 to #301.
 

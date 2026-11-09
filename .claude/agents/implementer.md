@@ -17,9 +17,15 @@ colony sim in Rust. You are in your own git worktree. You own one issue from cla
   wall-clock, no thread RNG. Randomness only via `fn_sim::rng::stream(seed, "subsystem.name")`,
   with a new stream name per subsystem.
 - `crates/ui` (`fn_ui`): frontend logic shared by every UI (tools, text, view models, theme,
-  clock). Depends on `fn_sim` only.
+  clock). Depends on `fn_sim` only. No I/O except `fn_ui::saves` (save files).
 - `crates/tui` (`fn_tui`): the terminal frontend (ratatui + crossterm). `cargo run` launches it.
   No game rules; reads `World`, changes it only via sim commands.
+- `crates/harness` (`fn_harness`): the balance harness and its `balance` binary; depends on
+  `fn_sim`, and is the only crate that reads `data/harness.toml`.
+- `crates/agent` (`fn_agent`): the MCP agent surface (`fn_agent serve`), run logs, scorecards.
+  Depends on `fn_tui` and `fn_ui`; never names `fn_sim`.
+- `crates/web` (`fn_web`): the web replayer, `fn_tui`'s run-log watcher compiled to wasm32.
+  Depends on `fn_sim` and `fn_tui`.
 - `data/*.toml`: balance and content, loaded by `fn_sim::Defs` (strict validation at load).
 - `xtask`: `cargo xtask check` checks what you touched (fmt, clippy, tests for the changed
   crates and their dependents, goldens skipped). `cargo xtask ci --fast` is the whole gate, as

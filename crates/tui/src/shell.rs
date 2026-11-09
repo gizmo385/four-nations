@@ -71,7 +71,7 @@ impl Shell {
     /// Starts at the title screen.
     pub fn new_title(screen: (u16, u16), saves: Option<PathBuf>, seed_hint: u64) -> Self {
         let defs = Defs::bundled();
-        let title = TitleScreen::new(&defs, saves.as_deref(), seed_hint);
+        let title = TitleScreen::new(saves.as_deref(), seed_hint);
         Self {
             mode: Mode::Title(Box::new(title)),
             exit_prompt: false,
@@ -346,11 +346,8 @@ impl Shell {
         match key.code {
             KeyCode::Char('t' | 'T') => {
                 self.seed_hint = self.seed_hint.wrapping_add(1);
-                self.mode = Mode::Title(Box::new(TitleScreen::new(
-                    &self.defs,
-                    self.saves.as_deref(),
-                    self.seed_hint,
-                )));
+                self.mode =
+                    Mode::Title(Box::new(TitleScreen::new(self.saves.as_deref(), self.seed_hint)));
                 self.exit_prompt = false;
             }
             KeyCode::Char('q' | 'Q') | KeyCode::Enter => self.quit = true,
@@ -400,7 +397,7 @@ impl Shell {
             embark::Outcome::None => {}
             embark::Outcome::Back => {
                 let Mode::Embark(screen) = &self.mode else { return };
-                let mut title = TitleScreen::new(&self.defs, self.saves.as_deref(), self.seed_hint);
+                let mut title = TitleScreen::new(self.saves.as_deref(), self.seed_hint);
                 let size_idx = self
                     .defs
                     .embark

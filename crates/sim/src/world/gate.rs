@@ -462,6 +462,9 @@ impl World {
         match self.gate_next(defs) {
             Next::Fetch(item, needed) => {
                 // Fetches the item itself or a stand-in for it (brick for stone, issue #371).
+                if self.keep_walking(i, defs) {
+                    return;
+                }
                 let flood = self.flood_from(i);
                 let Some((source, stand, found)) = self.nearest_source_for(&flood, item, defs)
                 else {
@@ -512,17 +515,7 @@ impl World {
     /// Plans unit `i`'s way onto the site, unless it already has a route. False if it can't get
     /// there.
     fn route_to_gate(&mut self, i: usize, anchor: Pos, defs: &Defs) -> bool {
-        if self.units[i].route.is_some() {
-            return true;
-        }
-        let flood = self.flood_from(i);
-        match self.stand_building(&flood, anchor, defs).and_then(|(_, s)| flood.path_to(s)) {
-            Some(path) => {
-                self.units[i].route = Some(route_from(path));
-                true
-            }
-            None => false,
-        }
+        self.plan_route(i, StandRule::Building(anchor), defs)
     }
 
     /// A task job: walk onto the site, channel for the task's work, spend the chi.
@@ -660,14 +653,7 @@ impl World {
     pub(super) fn run_attend(&mut self, i: usize, id: JobId, defs: &Defs) {
         let Some(idx) = self.job_index(id) else { return self.finish_job(i) };
         let JobKind::Attend { pos } = self.jobs[idx].kind else { return self.finish_job(i) };
-        if self.units[i].route.is_none() {
-            let flood = self.flood_from(i);
-            match flood.path_to(pos) {
-                Some(path) => self.units[i].route = Some(route_from(path)),
-                None => return self.abandon_job(i, id, defs),
-            }
-        }
-        self.walk(i, defs);
+        self.go_or_abandon(i, id, StandRule::Exact(pos), defs);
     }
 
     /// The Avatar's own place in the rite: walk onto the plaza and stay there, meditating, until

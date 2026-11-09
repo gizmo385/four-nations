@@ -1,5 +1,7 @@
 # Nation buildings: deeper build lists, and a use for bricks, metal and tools
 
+Doc status: current
+
 Status: **decided** (#357 and #356, designed together). All five owner questions below are
 answered. The follow-ups that give bricks, metal and tools their use are closed (#369, #371,
 #373, #374, #375, #376); #398 (Metalbend on a stockpile, so the Deep Mine can be paid for) is

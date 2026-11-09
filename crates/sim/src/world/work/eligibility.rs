@@ -18,7 +18,7 @@ use super::*;
 /// Where a unit stands to work a job: the per-kind stand-tile rule, shared by the flood lookup
 /// (`World::stand_at`) and the region pre-check (`World::any_job_in_region`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum StandRule {
+pub(in crate::world) enum StandRule {
     /// On the tile if units can enter it, else beside it (`World::stand_tile`).
     Tile(Pos),
     /// Inside the building or site if it is walkable, else beside it (`World::stand_building`).

@@ -1,5 +1,7 @@
 # Bending: one signature ability per nation
 
+Doc status: current
+
 Status: **proposed** (#6). Follow-up work: #67 to #72 (see the end of this doc). Fire's second
 ability, Inner Fire, was added in #123 (see "Branch abilities"). More abilities per nation and a
 route from novice to master are proposed at the end, in "More abilities and the route to mastery"

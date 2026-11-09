@@ -109,14 +109,7 @@ impl World {
 
         if let Some(stack) = self.units[i].carrying {
             // Carrying a trip's worth of an input to the building.
-            if self.units[i].route.is_none() {
-                let flood = self.flood_from(i);
-                match self.stand_building(&flood, pos, defs).and_then(|(_, s)| flood.path_to(s)) {
-                    Some(path) => self.units[i].route = Some(route_from(path)),
-                    None => return self.abandon_job(i, id, defs),
-                }
-            }
-            if !self.walk(i, defs) {
+            if !self.go_or_abandon(i, id, StandRule::Building(pos), defs) {
                 return;
             }
             self.deliver_to_craft(pos, stack, recipe);
@@ -133,6 +126,9 @@ impl World {
 
         match self.next_craft_shortfall(pos, recipe) {
             Some((item, needed)) => {
+                if self.keep_walking(i, defs) {
+                    return;
+                }
                 let flood = self.flood_from(i);
                 let Some((source, stand)) = self.nearest_source(&flood, item) else {
                     return self.abandon_job(i, id, defs);
@@ -157,14 +153,7 @@ impl World {
             None => {
                 // Fully supplied: work inside the building.
                 if self.units[i].inside.is_none() {
-                    if self.units[i].route.is_none() {
-                        let flood = self.flood_from(i);
-                        match self.stand_entrance(&flood, pos).and_then(|(_, s)| flood.path_to(s)) {
-                            Some(path) => self.units[i].route = Some(route_from(path)),
-                            None => return self.abandon_job(i, id, defs),
-                        }
-                    }
-                    if !self.walk(i, defs) {
+                    if !self.go_or_abandon(i, id, StandRule::Entrance(pos), defs) {
                         return;
                     }
                     if !self.enter_building(i, pos, defs) {

@@ -15,9 +15,8 @@ use crate::defs::{Defs, DefsError};
 use crate::nation::{ModifierMultipliers, Modifiers, Nation};
 use crate::world::TICKS_PER_SECOND;
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+// `Deserialize` is `save::ids`' remapping impl (#602).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
 pub struct TechId(pub u16);
 
 /// Largest multiplier a single tech may apply. Keeps a typo like `12` instead of `1.2` from
@@ -334,6 +333,30 @@ impl Research {
         self.known.len() == defs.techs.len()
             && self.queue.iter().all(|t| (t.0 as usize) < defs.techs.len())
             && self.log.iter().all(|c| (c.tech.0 as usize) < defs.techs.len())
+    }
+
+    /// Rebuilds the positional state of a research state read from a save for today's tech
+    /// table (#602): `known` is indexed by the save's own tech table, so it is remapped through
+    /// `map` (today's index of each saved index, `None` where the tech is gone) to `defs.techs`.
+    /// The queue's ids were already remapped as they were read; it is re-sorted, because its
+    /// invariant is ascending `TechId` and file order keeps prereqs first. Fails with the saved
+    /// index of a known tech today's data doesn't have, or `None` if `known` doesn't match the
+    /// save's table at all.
+    pub(crate) fn remap(
+        &mut self,
+        map: &[Option<usize>],
+        defs: &Defs,
+    ) -> Result<(), Option<usize>> {
+        if self.known.len() != map.len() {
+            return Err(None);
+        }
+        let mut known = vec![false; defs.techs.len()];
+        for (saved, _) in self.known.iter().enumerate().filter(|(_, k)| **k) {
+            known[map[saved].ok_or(Some(saved))?] = true;
+        }
+        self.known = known;
+        self.queue.sort_unstable();
+        Ok(())
     }
 
     pub fn is_known(&self, tech: TechId) -> bool {

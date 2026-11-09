@@ -1,5 +1,7 @@
 # The late tree: make every tier-3 and tier-4 unlock change play
 
+Doc status: current
+
 Status: **proposed** (#413, from the owner's 2026-11-06 playtest). Owner decisions are listed at
 the end under "Open questions for the owner", and the follow-up issues under "Follow-up issues".
 
