@@ -145,8 +145,9 @@ there is one. It starts small and grows from the agents' "SDK gaps" notes:
 - `find(desc, near, radius)` returns tiles whose thing matches, nearest first.
 - `designate_near(tool, desc, near, radius, standing)` splits matches into rectangles and
   designates them.
-- `build_near(building, near)` finds a free footprint (size from `screen("build")`), builds it,
-  and reports the notice.
+- `build_near(building, near)` walks the free footprints near `near` (size from `screen("build")`),
+  nearest first, asks `can_build` of each, and `act`s only on one it accepts (#575); it reports
+  the notice, or why none was accepted.
 - `wait_until(|| cond, max_turns)` returns true once the condition holds, or false at the limit.
 - `stalled(name, value, turns)` is stuck detection: it calls `wake` if a tracked number hasn't
   moved in N turns.

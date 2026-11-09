@@ -261,6 +261,9 @@ fn the_example_governor_runs_under_run_script() {
 /// duty works down the queue instead of erroring or sticking on the first tech. One `wait` per
 /// loop pass, nothing else spends turns.
 ///
+/// #575: and it does something with the turns. By the end beds stand around the camp (they were
+/// never finished before: `build_near` spent its acts on water) and the stockpile holds food.
+///
 /// It runs under the bundled limits. Before #564 the budget was cumulative over a run, and a
 /// `build_near` scan costs tens of thousands of operations, so this example was stopped as
 /// `runaway` within 21 to 57 turns; 60 turns is past that and keeps the test short. The real
@@ -272,6 +275,7 @@ fn the_example_governor_plays_a_full_horizon_with_a_research_queue() {
     let queue = ["Farming", "Stoneworking", "Fire Making", "Shelter", "Carpentry", "Pottery"];
     let plan = json!({"research": queue, "targets": {"beds_ahead": 2}, "build": []});
     let mut host = host();
+    let camp = host.observe().cursor;
     let mut techs: Vec<String> = Vec::new();
     let run = fn_agent::clean::run(
         &mut host,
@@ -296,6 +300,17 @@ fn the_example_governor_plays_a_full_horizon_with_a_research_queue() {
     assert_eq!(run.last.reason, "budget", "still going at the horizon: {:?}", run.last);
     assert_eq!(run.restarts, 0);
     assert!(techs.len() >= 2, "it worked down the queue, not just the first tech: {techs:?}");
+
+    let beds =
+        host.cells(camp.x - 15, camp.y - 15, 31, 31).iter().filter(|c| c.thing == "Bed").count();
+    assert!(beds >= 5, "beds should have been built and finished: {beds}");
+    let stores = host.observe().stores;
+    let food: u32 = stores
+        .iter()
+        .filter(|s| ["Cabbage", "Fruit", "Fish"].contains(&s.name.as_str()))
+        .map(|s| s.count)
+        .sum();
+    assert!(food > 0, "harvested food should reach a stockpile: {stores:?}");
 }
 
 /// #565: `act` gives a script `ok`, the test the run report's `acts.failed` counts, and `error`

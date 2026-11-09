@@ -6,7 +6,7 @@
 //! (`#480`'s own acceptance criteria asks for seed 7 Earth specifically).
 
 use fn_agent::script::{Limits, Request, run};
-use fn_tui::surface::{EventKind, Host};
+use fn_tui::surface::{EventKind, Host, LogLine};
 
 const SEED: u64 = 7;
 
@@ -77,37 +77,107 @@ fn build_near_places_a_bed_that_later_finishes() {
     assert!((1..=8).contains(&tries), "tries should be within the default max_tries: {r}");
 }
 
+/// How many `build` acts the run log holds so far: a `build_near` that never acted writes none.
+fn builds_logged(h: &Host) -> usize {
+    h.log()
+        .lines()
+        .iter()
+        .filter(|l| {
+            matches!(l, LogLine::Keys { label, note, .. }
+                if label.as_deref().is_some_and(|s| s.starts_with("build"))
+                    || note.as_deref().is_some_and(|s| s.starts_with("build")))
+        })
+        .count()
+}
+
 /// A spot deep enough in the sea that every tile within `build_near`'s own 15-tile search box
 /// is water (#508): `free_origins` still calls every one of them "free" (it only looks at
-/// `thing`, never the ground), so `build_near` would otherwise burn one `act` per water tile in
-/// the whole box before giving up. It stops after the default 8 refused candidates instead,
-/// `tries` says so, and `msg` names the refusal every one of them actually shared.
+/// `thing`, never the ground), but `build_near` asks `can_build` before it acts (#575), so it
+/// spends no `act` at all: `tries` is 0, `checked` is the 120 candidates it looked at (its
+/// cap), and `msg` names the refusal every one of them shared. The run log has no build act.
 #[test]
-fn build_near_on_a_spot_surrounded_by_water_gives_up_after_max_tries() {
+fn build_near_on_a_spot_surrounded_by_water_acts_on_nothing() {
     let mut h = host();
     let code = r#"build_near("Bed", #{x: 30, y: 10})"#;
     let out = run_porcelain(&mut h, code, 1);
     assert_eq!(out.reason, "done", "{out:?}");
     let r = out.value.expect("a result map");
     assert_eq!(r["ok"], false, "{r}");
-    assert_eq!(r["tries"], 8, "{r}");
+    assert_eq!(r["tries"], 0, "{r}");
+    assert_eq!(r["checked"], 120, "{r}");
     let msg = r["msg"].as_str().unwrap();
-    assert!(msg.contains("tried 8"), "{msg}");
-    assert!(msg.contains("most said:"), "{msg}");
-    assert!(msg.contains("on water"), "{msg}");
+    assert!(msg.contains("that can_build accepts"), "{msg}");
+    assert!(msg.contains("most said: on water"), "{msg}");
+    assert_eq!(builds_logged(&h), 0, "no act was spent on water");
 }
 
-/// The optional third argument overrides the default 8-try limit.
+/// `max_tries` caps `act`s, not `can_build` checks: 0 acts on nothing even on good ground.
 #[test]
-fn build_near_max_tries_overrides_the_default() {
+fn build_near_max_tries_caps_the_acts() {
     let mut h = host();
-    let code = r#"build_near("Bed", #{x: 30, y: 10}, 3)"#;
+    let code = r#"build_near("Bed", #{x: 94, y: 64}, 0)"#;
     let out = run_porcelain(&mut h, code, 1);
     assert_eq!(out.reason, "done", "{out:?}");
     let r = out.value.expect("a result map");
     assert_eq!(r["ok"], false, "{r}");
-    assert_eq!(r["tries"], 3, "{r}");
-    assert!(r["msg"].as_str().unwrap().contains("tried 3"), "{r}");
+    assert_eq!(r["tries"], 0, "{r}");
+    assert_eq!(builds_logged(&h), 0);
+}
+
+/// The first land position (scanning rows, then columns) where the 7x7 square centred on it is
+/// all water ground, yet a tile `can_build` accepts for a Bed lies within 12: a camp with a
+/// lake beside it. `free_origins` offers all 49 water tiles first, nearest first.
+fn lake_camp(h: &mut Host) -> (i32, i32) {
+    for y in (0..130).step_by(1) {
+        for x in 0..200 {
+            let row = h.cells(x, y, 7, 1);
+            if row.len() < 7 || row.iter().any(|c| c.ground != "water" || c.thing != "-") {
+                continue;
+            }
+            let (cx, cy) = (x + 3, y);
+            let square = h.cells(cx - 3, cy - 3, 7, 7);
+            if square.len() == 49 && square.iter().all(|c| c.ground == "water" && c.thing == "-") {
+                let near = h.cells(cx - 12, cy - 12, 25, 25);
+                if near.iter().any(|c| h.can_build("Bed", c.x, c.y).ok) {
+                    return (cx, cy);
+                }
+            }
+        }
+    }
+    panic!("no lake with land within 12 on seed 7");
+}
+
+/// #575: with a lake beside the camp, `build_near` walks past the water without spending an
+/// `act` on it: one `can_build`-accepted spot, one `build` act on the first try, a site that is
+/// not on water, and a Bed that later finishes. The camp is the middle of a 7x7 lake, so the
+/// 49 nearest candidates `free_origins` offers are all water.
+#[test]
+fn build_near_places_a_bed_past_a_lake_on_its_first_try() {
+    let mut h = host();
+    let (x, y) = lake_camp(&mut h);
+    let code = format!(
+        r#"
+        let camp = #{{x: {x}, y: {y}}};
+        let offered = free_origins(camp, 15, 1, 1);
+        let first = can_build("Bed", offered[0].x, offered[0].y);
+        let r = build_near("Bed", camp);
+        #{{r: r, first_ok: first.ok, offered: offered.len()}}
+        "#
+    );
+    let out = run_porcelain(&mut h, &code, 1);
+    assert_eq!(out.reason, "done", "{out:?}");
+    let v = out.value.expect("a result map");
+    assert_eq!(v["first_ok"], false, "the nearest candidate is water: {v}");
+    let r = &v["r"];
+    assert_eq!(r["ok"], true, "{v}");
+    assert_eq!(r["tries"], 1, "placed on the first act: {v}");
+    assert!(r["checked"].as_u64().unwrap() > 49, "it checked past the lake: {v}");
+    assert_eq!(builds_logged(&h), 1, "exactly one build act, none on water");
+
+    let area = h.cells(x - 15, y - 15, 31, 31);
+    let sites: Vec<_> = area.iter().filter(|c| c.marks.iter().any(|m| m == "build")).collect();
+    assert_eq!(sites.len(), 1, "one build site: {sites:?}");
+    assert_ne!(sites[0].ground, "water", "{sites:?}");
 }
 
 /// `build_near` with a building `screen("build")` doesn't offer (or that's locked) fails

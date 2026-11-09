@@ -39,9 +39,9 @@ fn footprint_is_free(empty, ox, oy, w, h) {
 }
 /// Every top-left corner within `radius` of `near` (`search_box`'s own clamp) where a `w`x`h`
 /// footprint lands on cells with nothing on them and no mark, nearest first: `build_near`'s own
-/// first pass. "Free" here is this helper's own call, not the ground's: the final word on
-/// whether a candidate actually takes the building is still `act`'s (a lake reads "empty" too),
-/// so `build_near` still has to try each one in turn.
+/// first pass. "Free" here is only what `cells()` shows, not whether the ground takes a
+/// building: a lake, a mountain and a spot the nation can't build on all read "empty" too. So
+/// don't `act` on a candidate unchecked: `build_near` asks `can_build` about each one first.
 fn free_origins(near, radius, w, h) {
     let region = search_box(near, radius);
     let empty = #{};
@@ -162,23 +162,24 @@ fn most_common_reason(reasons) {
     best
 }
 
-/// Finds a free footprint for `building` (its size from `screen("build")`'s own rows) within
-/// 15 tiles of `near`, builds it there, and returns `#{ok, msg, tries}` with the `build` step's
-/// own notice text; `tries` is how many candidates were actually acted on. Tries free
-/// candidates `free_origins` finds, nearest first, until one actually places something or
-/// `max_tries` have been refused (#508: ground that reads "free" to `free_origins` but refuses
-/// every build -- water, say -- can otherwise burn one `act` per free tile in the whole search
-/// box before giving up). `ok` is false with `tries: 0` when `building` isn't a name
-/// `screen("build")` lists, or is locked, or no free footprint exists at all; otherwise, once
-/// refused `max_tries` times, `msg` names how many spots were tried and the most common
-/// refusal reason among them.
+/// Finds a spot for `building` (its size from `screen("build")`'s own rows) within 15 tiles of
+/// `near`, builds it there, and returns `#{ok, msg, tries, checked}` with the `build` step's own
+/// notice text. Walks the candidates `free_origins` finds, nearest first, and asks the
+/// read-only `can_build` (what a player's build ghost shows) about each: it spends an `act`
+/// only on a spot `can_build` accepts, so water, rock and anything else the ground refuses cost
+/// no `act`. `checked` is how many candidates `can_build` was asked about, at most 120 (40
+/// operations each, #564's budget); `tries` is how many `act`s were spent, at most `max_tries`
+/// (#508: a spot `can_build` accepts but the `build` step still refuses is rare, and counts).
+/// `ok` is false with `tries: 0` when `building` isn't a name `screen("build")` lists, or is
+/// locked, or no free footprint exists at all; when none of the candidates was accepted, `msg`
+/// says how many were checked and the refusal `can_build` gave most often.
 fn build_near(building, near, max_tries) {
     let row = screen("build").rows.find(|r| r.name == building);
     if row == () {
-        return #{ok: false, msg: `build_near: no such building ${building}`, tries: 0};
+        return #{ok: false, msg: `build_near: no such building ${building}`, tries: 0, checked: 0};
     }
     if row.locked {
-        return #{ok: false, msg: `build_near: ${building} is locked`, tries: 0};
+        return #{ok: false, msg: `build_near: ${building} is locked`, tries: 0, checked: 0};
     }
     let size = row.size.split("x");
     let w = parse_int(size[0]);
@@ -189,20 +190,29 @@ fn build_near(building, near, max_tries) {
             ok: false,
             msg: `build_near: no free ${row.size} spot for ${building} within 15 of (${near.x},${near.y})`,
             tries: 0,
+            checked: 0,
         };
     }
     let note = `build ${building} near (${near.x},${near.y})`;
     let tries = 0;
+    let checked = 0;
     let reasons = #{};
     for o in origins {
-        if tries >= max_tries {
+        if tries >= max_tries || checked >= 120 {
             break;
+        }
+        checked += 1;
+        let can = can_build(building, o.x, o.y);
+        if !can.ok {
+            let why = can.reason ?? "refused";
+            reasons[why] = (reasons[why] ?? 0) + 1;
+            continue;
         }
         tries += 1;
         let to = #{x: o.x + w - 1, y: o.y + h - 1};
         let r = act([#{step: "build", building: building, from: o, to: to}], note);
         if r.error == () && r.notices.len() > 0 && !r.notices[0].notice.contains("0 done,") {
-            return #{ok: true, msg: r.notices[0].notice, tries: tries};
+            return #{ok: true, msg: r.notices[0].notice, tries: tries, checked: checked};
         }
         let reason = if r.error != () {
             r.error.reason
@@ -211,20 +221,17 @@ fn build_near(building, near, max_tries) {
         } else {
             "refused"
         };
-        if reasons.contains(reason) {
-            reasons[reason] += 1;
-        } else {
-            reasons[reason] = 1;
-        }
+        reasons[reason] = (reasons[reason] ?? 0) + 1;
     }
     #{
         ok: false,
-        msg: `build_near: tried ${tries} spot(s) near (${near.x},${near.y}); most said: ${most_common_reason(reasons)}`,
+        msg: `build_near: no spot for ${building} near (${near.x},${near.y}) that can_build accepts; checked ${checked}, built on ${tries}; most said: ${most_common_reason(reasons)}`,
         tries: tries,
+        checked: checked,
     }
 }
 
-/// `build_near(building, near, 8)`: gives up after 8 refused candidates by default (#508).
+/// `build_near(building, near, 8)`: at most 8 `act`s by default (#508).
 fn build_near(building, near) {
     build_near(building, near, 8)
 }
