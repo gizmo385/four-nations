@@ -261,16 +261,14 @@ fn the_example_governor_runs_under_run_script() {
 /// duty works down the queue instead of erroring or sticking on the first tech. One `wait` per
 /// loop pass, nothing else spends turns.
 ///
-/// This test depends on #564. The operation budget is still cumulative over a run, and a
-/// `build_near` scan costs tens of thousands of operations, so under the bundled 500000 this
-/// example is stopped as `runaway` within 25 to 60 turns however it is written. The test raises
-/// the budget so it checks what #565 is about (the `.ok` error at turn 0 and the research
-/// duty); once #564 makes the budget per `wait`, it should use the bundled limits as they are,
-/// and a longer horizon (the real one is 540 turns; 60 keeps this test near 30 seconds).
+/// It runs under the bundled limits. Before #564 the budget was cumulative over a run, and a
+/// `build_near` scan costs tens of thousands of operations, so this example was stopped as
+/// `runaway` within 21 to 57 turns; 60 turns is past that and keeps the test short. The real
+/// horizon is 540 turns, which `tests/reference_governor.rs` covers on the real binary.
 #[test]
 fn the_example_governor_plays_a_full_horizon_with_a_research_queue() {
     const HORIZON: u32 = 60;
-    let limits = Limits { max_operations: 1_000_000_000, ..Limits::bundled() };
+    let limits = Limits::bundled();
     let queue = ["Farming", "Stoneworking", "Fire Making", "Shelter", "Carpentry", "Pottery"];
     let plan = json!({"research": queue, "targets": {"beds_ahead": 2}, "build": []});
     let mut host = host();
