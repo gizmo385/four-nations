@@ -1,0 +1,19 @@
+[package]
+name = "fn_web"
+description = "The web replayer (#595): fn_tui's run-log watcher compiled to wasm32 behind a small C ABI, plus the cell encoding the page draws. Depends on fn_tui, fn_ui and fn_sim only."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+# `cdylib` is the .wasm the page loads; `rlib` lets the native tests drive the same `Replay`.
+[lib]
+name = "fn_web"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+fn_sim = { path = "../sim" }
+fn_tui = { path = "../tui" }
+ratatui = { version = "0.30", default-features = false }
+
+[dev-dependencies]
+serde_json = { workspace = true }

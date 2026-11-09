@@ -20,6 +20,7 @@ use crate::state::{Modal, PINNED, Prompt, Screen, UiState};
 const NO_SAVE_DIR: &str = "Save failed: this platform has no data directory (set FN_SAVE_DIR)";
 
 /// The game and what the player sees of it. All input goes through [`App::key`].
+#[derive(Clone)]
 pub struct App {
     pub session: Session,
     pub ui: UiState,

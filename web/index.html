@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Four Nations replays</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Four Nations replays</h1>
+  <label class="pick">Run
+    <select id="runs" disabled><option>no run index</option></select>
+  </label>
+  <label class="file">Open log…<input id="file" type="file" accept=".jsonl,.gz,application/json"></label>
+  <span id="build" class="muted"></span>
+</header>
+<main id="stage">
+  <canvas id="screen" tabindex="0" aria-label="the replayed game screen"></canvas>
+  <div id="message" class="message">Pick a run, open a <code>run.jsonl</code>, or drop one here.</div>
+</main>
+<footer id="controls" hidden>
+  <button id="play" title="Space">Pause</button>
+  <button id="slower" title="-">−</button>
+  <span id="pace" class="pace">×20</span>
+  <button id="faster" title="+">+</button>
+  <button id="step" title=".">Step</button>
+  <button id="next" title="]">Next turn</button>
+  <input id="scrub" type="range" min="0" max="0" value="0" aria-label="turn">
+  <span id="turn" class="turn">turn 0 / 0</span>
+  <span class="panes">
+    <button data-key="1" title="1: code">Code</button><button data-key="2" title="2: game">Game</button><button data-key="3" title="3: feed">Feed</button><button data-key="0" title="0: studio">Studio</button>
+  </span>
+  <label class="size">Size
+    <select id="size">
+      <option value="fit">fit</option>
+      <option value="160x45">160×45</option>
+      <option value="120x40">120×40</option>
+    </select>
+  </label>
+</footer>
+<script type="module" src="replay.js"></script>
+</body>
+</html>

@@ -334,6 +334,7 @@ struct Ghost {
 /// `Shell::advance` does for a normal game, but spends them on *replay* pace instead of the
 /// sim's own clock (which a watched session never reads: see `surface::Host::refuses`-refused
 /// keys, none of which this ever presses either).
+#[derive(Clone)]
 pub struct Watcher {
     shell: Shell,
     turn_seconds: u32,
@@ -610,6 +611,11 @@ impl Watcher {
 
     pub fn slower(&mut self) {
         self.pace_index = self.pace_index.saturating_sub(1);
+    }
+
+    /// Whether Space has paused the replay.
+    pub fn paused(&self) -> bool {
+        self.paused
     }
 
     pub fn pace(&self) -> u32 {
