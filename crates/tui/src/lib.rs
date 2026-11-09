@@ -23,6 +23,7 @@ pub mod feed;
 pub mod frame;
 pub mod glyphs;
 pub mod input;
+pub mod keyev;
 pub mod keys;
 pub mod layout;
 pub mod map;
@@ -32,6 +33,7 @@ pub mod nation;
 pub mod panel;
 pub mod record;
 pub mod research;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod run;
 pub mod runs;
 pub mod saves;

@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crate::keyev::{KeyCode, KeyEvent};
 use fn_ui::code::{self, Mark};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -458,7 +458,7 @@ fn draw_box(buf: &mut Buffer, area: Rect, marks: &Marks, title: &str) {
 
 #[cfg(test)]
 mod tests {
-    use crossterm::event::KeyModifiers;
+    use crate::keyev::KeyModifiers;
     use fn_sim::{Defs, Nation};
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;

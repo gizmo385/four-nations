@@ -7,7 +7,7 @@
 //! [`crate::shell::Shell`] to act on (going back to the seed step, or founding the world).
 //! [`draw_embark`] is a pure function into a `Buffer`, like the other screens.
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crate::keyev::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use fn_sim::defs::{BiomeId, Terrain};
 use fn_sim::embark::{
     GroupCount, Level, MapSizeDef, Outlook, SiteProblem, SiteReport, Survey, SurveyMode,

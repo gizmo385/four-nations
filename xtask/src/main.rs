@@ -1,7 +1,8 @@
 //! Repo maintenance commands. Run from anywhere in the repo:
 //!
 //!     cargo xtask ci [--fast] [--no-goldens]
-//!                               fmt + clippy + tests for the whole workspace; --fast uses the
+//!                               fmt + clippy + tests for the whole workspace, plus clippy on
+//!                               fn_sim/fn_ui/fn_tui for wasm32 (#594); --fast uses the
 //!                               `ci` profile (opt-level 1 for our own crates), as CI does;
 //!                               --no-goldens sets FN_GOLDEN=skip, so every golden comparison
 //!                               is a no-op that passes. `ci --fast` with no other flags is
@@ -195,10 +196,44 @@ fn ci(fast: bool, no_goldens: bool) -> Result {
         [&["clippy", "--workspace", "--all-targets"][..], &profile, &["--", "-D", "warnings"]]
             .concat();
     cargo_env(&clippy, &env)?;
+    clippy_wasm(&profile, &env)?;
     let test: Vec<&str> = [&["test", "--workspace"][..], &profile].concat();
     cargo_env(&test, &env)?;
     println!("ci OK");
     Ok(())
+}
+
+/// The crates the web replayer (#595) builds for the browser.
+const WASM_CRATES: [&str; 3] = ["fn_sim", "fn_ui", "fn_tui"];
+const WASM_TARGET: &str = "wasm32-unknown-unknown";
+
+/// Clippy (`-D warnings`) on [`WASM_CRATES`]' libraries for [`WASM_TARGET`] (#594), so a change
+/// that breaks the web build -- a crossterm import outside `fn_tui::keyev`, a dependency with no
+/// wasm support -- fails here instead of in the replayer's deploy.
+fn clippy_wasm(profile: &[&str], env: &[(&str, &str)]) -> Result {
+    if !wasm_target_installed() {
+        return Err(format!(
+            "the {WASM_TARGET} target isn't installed; add it with \
+             `rustup target add {WASM_TARGET}` (the Nix shell has it)"
+        ));
+    }
+    let mut args = vec!["clippy", "--lib", "--target", WASM_TARGET];
+    for c in WASM_CRATES {
+        args.extend(["-p", c]);
+    }
+    args.extend(profile);
+    args.extend(["--", "-D", "warnings"]);
+    cargo_env(&args, env)
+}
+
+/// Whether the toolchain has the standard library for [`WASM_TARGET`].
+fn wasm_target_installed() -> bool {
+    let Ok(out) =
+        Command::new("rustc").args(["--print", "target-libdir", "--target", WASM_TARGET]).output()
+    else {
+        return false;
+    };
+    out.status.success() && Path::new(String::from_utf8_lossy(&out.stdout).trim()).is_dir()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -217,6 +252,7 @@ fn check(crates: &[String], fast: bool) -> Result {
         [&["clippy", "--workspace", "--all-targets"][..], &profile, &["--", "-D", "warnings"]]
             .concat();
     cargo_env(&clippy, &env)?;
+    clippy_wasm(&profile, &env)?;
 
     let picked: Vec<String> =
         if crates.is_empty() { changed_crates(&root())? } else { crates.to_vec() };

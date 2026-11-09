@@ -421,7 +421,6 @@ fn crop(world: &World, defs: &Defs, marks: &BTreeMap<UnitId, char>, radius: i32)
             settlers.push((mark, u));
         }
     }
-    drop(put);
 
     // The ruler: a digit every ten tiles, and the row numbers beside the rows.
     let mut out = String::new();

@@ -13,7 +13,7 @@ license = "MIT"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "1"
-rand = "0.10"
+rand = { version = "0.10", default-features = false }
 rand_chacha = { version = "0.10", features = ["serde"] }
 ron = { version = "0.12", features = ["integer128"] }
 

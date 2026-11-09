@@ -16,7 +16,7 @@
 //! paused), so a seed plus a script is one game: `h <right*5> <enter> <down*3> <enter> <tick 600>`
 //! designates a harvest rectangle 6 wide and 4 tall, then lets the settlers work for a minute.
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crate::keyev::{KeyCode, KeyEvent, KeyModifiers};
 
 /// The most one `*N` may repeat, so a typo can't ask for a billion keys.
 pub const MAX_REPEAT: u32 = 100_000;

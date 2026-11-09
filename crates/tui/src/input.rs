@@ -7,7 +7,7 @@
 
 use std::sync::LazyLock;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+use crate::keyev::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 use fn_sim::Nation;
 use fn_ui::Tool;
 
