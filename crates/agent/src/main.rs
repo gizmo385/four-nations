@@ -103,7 +103,7 @@ have set it.
 play --horizon TURNS (docs/design/agent-hillclimb.md, \"Across runs: attempts and a champion\") is
 the clean evaluation of a strategy (a track, data/tracks.toml, is read by `cargo xtask agent-eval`,
 which passes its start here; --map-size small, medium or large goes with --start X,Y, and --prelude
-economy:60 or opening:60 runs that autoplay opening for that many game minutes before turn 0, as a
+economy:60, economy_branch_first:60 or opening:60 runs that autoplay opening for that many game minutes before turn 0, as a
 scenario's prelude does): instead of stopping at the first wake it runs to exactly TURNS
 turns, with no model. Event wakes are ignored. When the script returns or calls wake() it runs again
 with its memory kept (one end_turn is forced first if the run used no turn, so it can't spin). After
@@ -610,13 +610,15 @@ fn parse_play_args(args: Vec<String>) -> Result<PlayArgs, String> {
     Ok(a)
 }
 
-/// `--prelude OPENING:MINUTES`: `economy` or `opening` (a scenario's `prelude.opening`), then the
+/// `--prelude OPENING:MINUTES`: `economy`, `economy_branch_first` or `opening` (a scenario's
+/// `prelude.opening`), then the
 /// game minutes it runs before turn 0.
 fn parse_prelude(s: &str) -> Result<Prelude, String> {
     let bad = || format!("--prelude wants OPENING:MINUTES (economy:60, say), got {s:?}");
     let (opening, minutes) = s.split_once(':').ok_or_else(bad)?;
     let opening = match opening {
         "economy" => PreludeOpening::Economy,
+        "economy_branch_first" => PreludeOpening::EconomyBranchFirst,
         "opening" => PreludeOpening::Opening,
         _ => return Err(bad()),
     };

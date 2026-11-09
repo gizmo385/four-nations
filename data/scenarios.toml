@@ -12,8 +12,9 @@
 #                      founded game at that site), the same vocabulary `fn_agent serve --start`
 #                      already uses.
 # - prelude:           optional. `opening` is "economy" (`fn_sim::autoplay::Economy`) or
-#                      "opening" (the plainer `fn_sim::autoplay::Opening`); `minutes` is how many
-#                      game minutes it runs before turn 0.
+#                      "opening" (the plainer `fn_sim::autoplay::Opening`), or
+#                      "economy_branch_first" (Economy researching the nation's own branch
+#                      first); `minutes` is how many game minutes it runs before turn 0.
 
 [[scenario]]
 id = "air-year-two"

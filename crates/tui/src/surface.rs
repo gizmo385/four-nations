@@ -1317,6 +1317,10 @@ pub enum PreludeOpening {
     /// buildings, farms, bending) -- the only kind a bundled `data/scenarios.toml` preset uses
     /// today.
     Economy,
+    /// `Economy` with its research branch-first (`Economy::with_branch_first`, as `balance
+    /// --branch-first` measures): the nation's own branch before the shared tier, so a nation's
+    /// later abilities arrive in minutes instead of hours.
+    EconomyBranchFirst,
     /// The plainer `fn_sim::autoplay::Opening`: beds, a campfire and a short research queue.
     Opening,
 }
@@ -1369,6 +1373,11 @@ pub(crate) mod prelude {
         match opening {
             PreludeOpening::Economy => {
                 Economy::new(STARTING_UNITS).step(&mut session.world, &session.defs);
+            }
+            PreludeOpening::EconomyBranchFirst => {
+                Economy::new(STARTING_UNITS)
+                    .with_branch_first()
+                    .step(&mut session.world, &session.defs);
             }
             PreludeOpening::Opening => {
                 Opening::new(STARTING_UNITS).step(&mut session.world, &session.defs);
@@ -2737,6 +2746,7 @@ pub mod referee {
             prelude: header.prelude.map(|p| ParPrelude {
                 opening: match p.opening {
                     super::PreludeOpening::Economy => ParOpening::Economy,
+                    super::PreludeOpening::EconomyBranchFirst => ParOpening::EconomyBranchFirst,
                     super::PreludeOpening::Opening => ParOpening::Opening,
                 },
                 minutes: p.minutes,

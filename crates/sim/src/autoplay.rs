@@ -1210,12 +1210,29 @@ mod tests {
     }
 
     fn run_economy(world: &mut World, defs: &Defs, economy: &Economy, minutes: u64) {
+        run_economy_until(world, defs, economy, minutes, |_| false);
+    }
+
+    /// `run_economy` that stops at the first decision step where `done` holds, so a "within N
+    /// minutes" test pays only for the minutes it needs; N stays the test's limit. Returns
+    /// whether `done` ever held.
+    fn run_economy_until(
+        world: &mut World,
+        defs: &Defs,
+        economy: &Economy,
+        minutes: u64,
+        done: impl Fn(&World) -> bool,
+    ) -> bool {
         for tick in 0..(minutes * 600) {
             if Opening::due(tick) {
+                if done(world) {
+                    return true;
+                }
                 economy.step(world, defs);
             }
             world.tick(defs);
         }
+        done(world)
     }
 
     /// `Economy` is as deterministic as `Opening`, for the same reason (module doc): it reads
@@ -1255,18 +1272,24 @@ mod tests {
     #[test]
     fn economy_designates_a_gold_harvest_once_prospecting_is_known() {
         let (mut world, defs, economy) = economy_opening_on_seed(Nation::Fire, 7);
-        run_economy(&mut world, &defs, &economy, 150);
         let prospecting = defs.tech_id("prospecting").unwrap();
+        let ore_items = sign_items(&defs, "ore");
+        let gold_underway = |world: &World| {
+            let anchor = world.settlement_anchor();
+            world.harvest_designations().any(|p| {
+                p.chebyshev(anchor) <= DEPOSIT_RADIUS
+                    && yields_any(&world.map[p], &defs, &ore_items)
+            }) || ore_items.iter().any(|&i| world.stored_total(i) > 0)
+        };
+        run_economy_until(&mut world, &defs, &economy, 150, |w| {
+            w.research().is_known(prospecting) && gold_underway(w)
+        });
         assert!(
             world.research().is_known(prospecting),
             "expected prospecting known within 150 minutes"
         );
-        let anchor = world.settlement_anchor();
-        let ore_items = sign_items(&defs, "ore");
         assert!(
-            world.harvest_designations().any(|p| p.chebyshev(anchor) <= DEPOSIT_RADIUS
-                && yields_any(&world.map[p], &defs, &ore_items))
-                || ore_items.iter().any(|&i| world.stored_total(i) > 0),
+            gold_underway(&world),
             "expected a gold harvest designated or already mined once prospecting is known"
         );
     }
@@ -1278,7 +1301,7 @@ mod tests {
     fn economy_eventually_builds_a_study_hall() {
         let (mut world, defs, economy) = economy_opening(Nation::Air);
         let study_hall = defs.building_id("study_hall").unwrap();
-        run_economy(&mut world, &defs, &economy, 60);
+        run_economy_until(&mut world, &defs, &economy, 60, |w| building_count(w, study_hall) > 0);
         assert!(building_count(&world, study_hall) > 0, "expected a study hall within an hour");
     }
 
@@ -1288,11 +1311,13 @@ mod tests {
     fn economy_tills_and_sows_a_farm_plot() {
         let (mut world, defs, economy) = economy_opening(Nation::Water);
         let farm_plot = defs.building_id("farm_plot").unwrap();
-        run_economy(&mut world, &defs, &economy, 90);
-        let sown = world
-            .buildings()
-            .filter(|&(_, id)| id == farm_plot)
-            .any(|(footprint, _)| world.plot_stage(footprint.anchor) != Some(PlotStage::Empty));
+        let sown = |world: &World| {
+            world
+                .buildings()
+                .filter(|&(_, id)| id == farm_plot)
+                .any(|(footprint, _)| world.plot_stage(footprint.anchor) != Some(PlotStage::Empty))
+        };
+        let sown = run_economy_until(&mut world, &defs, &economy, 90, sown);
         assert!(sown, "expected at least one sown farm plot within 90 minutes");
     }
 
@@ -1307,8 +1332,10 @@ mod tests {
     fn economy_stores_stone_on_seed_42() {
         let (mut world, defs, economy) = economy_opening_on_seed(Nation::Earth, 42);
         let stone_items = sign_items(&defs, "stone");
-        run_economy(&mut world, &defs, &economy, 150);
-        let stored: u32 = stone_items.iter().map(|&i| world.stored_total(i)).sum();
+        let stored =
+            |world: &World| stone_items.iter().map(|&i| world.stored_total(i)).sum::<u32>();
+        run_economy_until(&mut world, &defs, &economy, 150, |w| stored(w) > 0);
+        let stored = stored(&world);
         assert!(stored > 0, "expected some stone stored within 150 minutes on seed 42");
     }
 
@@ -1325,7 +1352,9 @@ mod tests {
     fn economy_raises_a_bed_on_seed_3() {
         let (mut world, defs, economy) = economy_opening_on_seed(Nation::Fire, 3);
         let bed = defs.building_id("bed").unwrap();
-        run_economy(&mut world, &defs, &economy, 30);
+        run_economy_until(&mut world, &defs, &economy, 30, |w| {
+            w.buildings().any(|(_, id)| id == bed)
+        });
         assert!(
             world.buildings().any(|(_, id)| id == bed),
             "expected a finished bed within 30 minutes on seed 3"

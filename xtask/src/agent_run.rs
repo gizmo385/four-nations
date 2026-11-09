@@ -1882,8 +1882,25 @@ fn turns_done(dir: &Path) -> Result<u32> {
 /// write the log's `end` line itself. This writes it once `claude` has exited, so the watcher
 /// shows "run finished" instead of waiting forever. A log that already ends with one, or
 /// doesn't exist yet, is left alone.
+///
+/// It first waits [`finish_log_settle`] for the MCP server's last writes to land.
 fn finish_log(dir: &Path, reason: &str) -> Result {
-    thread::sleep(Duration::from_secs(1));
+    thread::sleep(finish_log_settle());
+    end_log(dir, reason)
+}
+
+/// How long [`finish_log`] lets a stopping `fn_agent` finish writing before it reads the log: a
+/// second. `$FN_AGENT_FINISH_LOG_SETTLE_MS` overrides it; the integration tests' stub agents
+/// write nothing after they exit, so they set 0 instead of waiting a second per chunk.
+fn finish_log_settle() -> Duration {
+    std::env::var("FN_AGENT_FINISH_LOG_SETTLE_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .map_or(Duration::from_secs(1), Duration::from_millis)
+}
+
+/// [`finish_log`] without the wait.
+fn end_log(dir: &Path, reason: &str) -> Result {
     let log = dir.join("run.jsonl");
     let lines = match read_log_lines(&log) {
         Ok(l) => l,
@@ -2901,7 +2918,7 @@ mod tests {
         let dir = tempdir();
         let log = dir.join("run.jsonl");
         write_lines(&log, &[r#"{"type":"turn","index":1,"tick":200}"#]);
-        finish_log(&dir, "agent finished").unwrap();
+        end_log(&dir, "agent finished").unwrap();
         let text = fs::read_to_string(&log).unwrap();
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines.len(), 2);
@@ -2923,7 +2940,7 @@ mod tests {
                 r#"{"type":"end","tick":200,"reason":"x"}"#,
             ],
         );
-        finish_log(&dir, "agent finished").unwrap();
+        end_log(&dir, "agent finished").unwrap();
         let text = fs::read_to_string(&log).unwrap();
         assert_eq!(text.lines().count(), 2);
         fs::remove_dir_all(&dir).ok();
@@ -2943,7 +2960,7 @@ mod tests {
                 r#"{"type":"turn","index":2,"tick":400}"#,
             ],
         );
-        finish_log(&dir, "agent finished").unwrap();
+        end_log(&dir, "agent finished").unwrap();
         let text = fs::read_to_string(&log).unwrap();
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines.len(), 4);
@@ -2956,7 +2973,7 @@ mod tests {
     #[test]
     fn finish_log_is_a_no_op_with_no_log_file_at_all() {
         let dir = tempdir();
-        finish_log(&dir, "agent finished").unwrap();
+        end_log(&dir, "agent finished").unwrap();
         assert!(!dir.join("run.jsonl").exists());
         fs::remove_dir_all(&dir).ok();
     }
