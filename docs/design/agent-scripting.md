@@ -478,4 +478,8 @@ All four answered on 2026-11-06, each as recommended:
 3. **Scenario starts** (#475): presets in `data/scenarios.toml` whose prelude runs
    `autoplay::Economy` for N game minutes.
 4. **What a scripted playtest agent may read** (#476): in-game knowledge plus its own notes and
-   scripts, carried from run to run, but not `docs/` or `data/`.
+   scripts, carried from run to run, but not `docs/` or `data/`. Enforced since #567 by
+   starting each `claude` call from an empty temp directory with no built-in tools, settings,
+   skills or Claude Code prompt; carried notes reach the agent in its prompt, not as files.
+   That implements the decision as made, neither wider nor narrower. What it does not
+   guarantee is in agent-play.md, "The player's sandbox".

@@ -78,10 +78,13 @@
 //! are unaffected.
 //!
 //! Each run gets its own folder under $FN_AGENT_RUNS (default ~/fn-agent-runs), outside the
-//! repo, so the agent can't read docs/ or data/. The agent gets only fn_agent's tools: that's
-//! the "in-game knowledge only" rule (#313), enforced by claude's own `--allowedTools`/
-//! `--disallowedTools`, not by the game. In the default mode, quitting the watcher stops the
-//! agent too. The agent's own output goes to agent.log in the run folder. A --chunk-turns or
+//! repo. The agent gets only fn_agent's tools: that's the "in-game knowledge only" rule (#313,
+//! #476), enforced by how `claude` is started (sandbox.rs, #567), not by the game: from an empty
+//! temp directory, with no built-in tools, user or project settings, skills or Claude Code
+//! prompt, and only the run's own MCP config. That is a set of flags, not a container; see
+//! docs/design/agent-play.md, "The player's sandbox". Each session's transcript is copied into
+//! the run folder's `transcripts/`. In the default mode, quitting the watcher stops the agent
+//! too. The agent's own output goes to agent.log in the run folder. A --chunk-turns or
 //! --scripts run also gets cost.json (round trips and tokens summed from every chunk's own
 //! `claude -p --output-format json`, with a USD total; #485); a --scripts run also gets
 //! sdk-gaps.md.
@@ -106,6 +109,7 @@ use serde::{Deserialize, Serialize};
 use crate::Result;
 
 mod campaign;
+mod sandbox;
 
 fn say(msg: &str) {
     eprintln!("agent-run: {msg}");
@@ -132,12 +136,14 @@ pub fn run(args: &[&str]) -> Result {
         return run_watch(&repo, &args[1..]);
     }
 
-    let opts = parse_args(args)?;
+    let mut opts = parse_args(args)?;
     if opts.help {
         println!("{}", help());
         return Ok(());
     }
     validate(&opts)?;
+    // The player runs in another directory (#567), so nothing it is handed may be relative.
+    opts.resume_dir = opts.resume_dir.take().map(|d| sandbox::absolute(&d));
 
     if !claude_available(&opts.claude_bin) {
         return Err(format!("{} (Claude Code) isn't on PATH", opts.claude_bin));
@@ -189,10 +195,12 @@ pub fn run(args: &[&str]) -> Result {
         ));
         say(&format!("suggested first message: {prompt}"));
         let attrs = otel_attrs(&opts, &dir, "interactive", None);
-        let _ = Command::new(&opts.claude_bin)
+        let session = sandbox::new_session_id();
+        let _ = sandbox::claude_command(&opts.claude_bin, &dir, &session)?
             .args(&claude_args)
             .env("OTEL_RESOURCE_ATTRIBUTES", attrs)
             .status();
+        sandbox::keep_transcript(&dir, &session, "interactive");
         finish_log(&dir, "agent session closed")?;
         return Ok(());
     }
@@ -528,11 +536,12 @@ fn claude_available(bin: &str) -> bool {
 // -------------------------------------------------------------------------------------------
 
 fn runs_dir() -> PathBuf {
+    // Absolute, because the player runs in a different directory (#567).
     if let Some(p) = std::env::var_os("FN_AGENT_RUNS") {
-        return PathBuf::from(p);
+        return sandbox::absolute(Path::new(&p));
     }
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
-    home.join("fn-agent-runs")
+    sandbox::absolute(&home.join("fn-agent-runs"))
 }
 
 fn timestamp() -> String {
@@ -1143,12 +1152,15 @@ fn base_claude_args(mcp_config: &Path, model: Option<&str>) -> Vec<String> {
     let mut args = vec![
         "--strict-mcp-config".to_string(),
         "--mcp-config".to_string(),
-        mcp_config.display().to_string(),
+        sandbox::absolute(mcp_config).display().to_string(),
         "--allowedTools".to_string(),
         "mcp__four-nations__*".to_string(),
         "--disallowedTools".to_string(),
         "Bash,Read,Edit,Write,Glob,Grep,WebFetch,WebSearch,NotebookEdit,Agent".to_string(),
     ];
+    // The clean sandbox (#567): no built-in tools, settings, skills or Claude Code prompt. The
+    // cwd and session id are set where each call is made.
+    args.extend(sandbox::flags());
     if let Some(m) = model {
         args.push("--model".to_string());
         args.push(m.to_string());
@@ -1177,7 +1189,8 @@ fn run_claude_p(
         .open(dir.join("agent.log"))
         .map_err(|e| e.to_string())?;
     let attrs = otel_attrs(opts, dir, mode, Some(chunk));
-    let _ = Command::new(&opts.claude_bin)
+    let session = sandbox::new_session_id();
+    let _ = sandbox::claude_command(&opts.claude_bin, dir, &session)?
         .arg("-p")
         .arg(prompt)
         .args(call_args)
@@ -1186,6 +1199,7 @@ fn run_claude_p(
         .stdout(stdout_file)
         .stderr(stderr_file)
         .status();
+    sandbox::keep_transcript(dir, &session, &format!("chunk-{chunk}"));
     Ok(())
 }
 
@@ -1211,7 +1225,8 @@ fn run_default(
     let stdout_file = File::create(&agent_log).map_err(|e| e.to_string())?;
     let stderr_file = stdout_file.try_clone().map_err(|e| e.to_string())?;
     let attrs = otel_attrs(opts, dir, "mcp", None);
-    let mut child = Command::new(&opts.claude_bin)
+    let session = sandbox::new_session_id();
+    let mut child = sandbox::claude_command(&opts.claude_bin, dir, &session)?
         .arg("-p")
         .arg(prompt)
         .args(claude_args)
@@ -1225,10 +1240,12 @@ fn run_default(
     let killing = Arc::new(AtomicBool::new(false));
     let alive = Arc::new(AtomicBool::new(true));
     let dir_owned = dir.to_path_buf();
+    let session_for_thread = session.clone();
     let killing_for_thread = killing.clone();
     let alive_for_thread = alive.clone();
     let handle = thread::spawn(move || {
         let _ = child.wait();
+        sandbox::keep_transcript(&dir_owned, &session_for_thread, "mcp");
         alive_for_thread.store(false, Ordering::SeqCst);
         let reason = if killing_for_thread.load(Ordering::SeqCst) {
             "stopped by watcher"
@@ -1328,7 +1345,7 @@ fn write_mcp_config(path: &Path, command: &Path, args: &[String]) -> Result {
     let value = serde_json::json!({
         "mcpServers": {
             "four-nations": {
-                "command": command.display().to_string(),
+                "command": sandbox::absolute(command).display().to_string(),
                 "args": args,
             }
         }

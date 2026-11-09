@@ -31,9 +31,18 @@ const STUB_CLAUDE: &str = r#"#!/bin/sh
 mcp_config=""
 prev=""
 output_format_json=0
+session=""
+# One block per call in $STUB_ARGS (#567): the working directory, then each argument on a line
+# of its own, so a test can check what the player was started with and where.
+if [ -n "$STUB_ARGS" ]; then
+  { echo "PWD=$(pwd)"; for a in "$@"; do echo "ARG=$a"; done; echo "---"; } >> "$STUB_ARGS"
+fi
 for a in "$@"; do
   if [ "$prev" = "--mcp-config" ]; then
     mcp_config="$a"
+  fi
+  if [ "$prev" = "--session-id" ]; then
+    session="$a"
   fi
   if [ "$prev" = "--output-format" ] && [ "$a" = "json" ]; then
     output_format_json=1
@@ -56,6 +65,14 @@ if [ -n "$log" ]; then
   tick=$((next * 1000))
   printf '{"type":"turn","index":%d,"tick":%d}\n' "$next" "$tick" >> "$log"
   printf '{"type":"note","text":"SDK gap: stub note %d"}\n' "$next" >> "$log"
+fi
+
+# Claude Code files a session's transcript under its config dir, in a folder named for the
+# working directory.
+if [ -n "$session" ] && [ -z "$STUB_NO_TRANSCRIPT" ] && [ -n "$CLAUDE_CONFIG_DIR" ]; then
+  mkdir -p "$CLAUDE_CONFIG_DIR/projects/-stub-cwd"
+  printf '{"type":"stub-transcript","session":"%s"}\n' "$session" \
+    > "$CLAUDE_CONFIG_DIR/projects/-stub-cwd/$session.jsonl"
 fi
 
 if [ -n "$STUB_LOG" ]; then
@@ -112,6 +129,11 @@ impl Fixture {
         cmd.env("PATH", format!("{}:{real_path}", self.bin_dir.display()));
         cmd.env("FN_AGENT_RUNS", &self.runs_dir);
         cmd.env_remove("OTEL_RESOURCE_ATTRIBUTES");
+        // The player's empty working directory goes under $TMPDIR and its transcripts under
+        // $CLAUDE_CONFIG_DIR (#567): keep both inside the fixture.
+        cmd.env("TMPDIR", self.tmp.join("tmp"));
+        cmd.env("CLAUDE_CONFIG_DIR", self.tmp.join("claude-config"));
+        cmd.env_remove("STUB_NO_TRANSCRIPT");
         cmd.arg("agent-run");
         cmd
     }
@@ -326,4 +348,139 @@ fn stub_claude_appends_one_turn_line_per_call() {
     assert!(status.success());
     let text = fs::read_to_string(&log).unwrap();
     assert_eq!(text.lines().filter(|l| l.contains("\"type\":\"turn\"")).count(), 1);
+}
+
+/// The calls the stub `claude` recorded in `$STUB_ARGS`: each one's working directory and
+/// arguments.
+fn recorded_calls(path: &Path) -> Vec<(PathBuf, Vec<String>)> {
+    let text = fs::read_to_string(path).unwrap();
+    text.split("---\n")
+        .filter(|b| !b.trim().is_empty())
+        .map(|block| {
+            let mut cwd = PathBuf::new();
+            let mut args = Vec::new();
+            for line in block.lines() {
+                if let Some(d) = line.strip_prefix("PWD=") {
+                    cwd = PathBuf::from(d);
+                } else if let Some(a) = line.strip_prefix("ARG=") {
+                    args.push(a.to_string());
+                }
+            }
+            (cwd, args)
+        })
+        .collect()
+}
+
+fn arg_after<'a>(args: &'a [String], flag: &str) -> &'a str {
+    let i = args.iter().position(|a| a == flag).unwrap_or_else(|| panic!("no {flag} in {args:?}"));
+    &args[i + 1]
+}
+
+/// #567: the player runs from an empty directory outside the repo, with no built-in tools, no
+/// user/project settings, no skills and no Claude Code prompt, and an absolute MCP config even
+/// when `$FN_AGENT_RUNS` is relative. Checked on the arguments `claude` is really started with.
+#[test]
+fn every_chunk_runs_in_an_empty_sandbox_dir_with_the_clean_flags() {
+    let fx = Fixture::new("sandbox");
+    let calls_log = fx.tmp.join("calls.txt");
+    // A relative runs dir, resolved against the cwd xtask is started from.
+    let mut cmd = fx.command();
+    cmd.current_dir(&fx.tmp).env("FN_AGENT_RUNS", "rel-runs");
+    let status = cmd
+        .args(["--chunk-turns", "1", "--turns", "2", "--seed", "3", "--nation", "water"])
+        .env("STUB_ARGS", &calls_log)
+        .status()
+        .unwrap();
+    assert!(status.success());
+
+    let calls = recorded_calls(&calls_log);
+    assert_eq!(calls.len(), 2);
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().canonicalize().unwrap();
+    let tmp = fx.tmp.join("tmp").canonicalize().unwrap();
+    for (n, (cwd, args)) in calls.iter().enumerate() {
+        let cwd = cwd.canonicalize().unwrap();
+        assert!(cwd.starts_with(&tmp), "call {n} ran in {cwd:?}, not under {tmp:?}");
+        assert!(!cwd.starts_with(&repo), "call {n} ran inside the repo: {cwd:?}");
+        assert_eq!(fs::read_dir(&cwd).unwrap().count(), 0, "the sandbox dir must stay empty");
+
+        assert_eq!(arg_after(args, "--tools"), "", "no built-in tools: {args:?}");
+        assert_eq!(arg_after(args, "--setting-sources"), "local");
+        assert!(args.contains(&"--disable-slash-commands".to_string()));
+        assert!(args.contains(&"--strict-mcp-config".to_string()));
+        assert_eq!(arg_after(args, "--allowedTools"), "mcp__four-nations__*");
+        assert!(!arg_after(args, "--system-prompt").is_empty());
+        let mcp = Path::new(arg_after(args, "--mcp-config"));
+        assert!(mcp.is_absolute() && mcp.is_file(), "{mcp:?}");
+        let config = fs::read_to_string(mcp).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
+        let command = parsed["mcpServers"]["four-nations"]["command"].as_str().unwrap();
+        assert!(Path::new(command).is_absolute(), "fn_agent path {command}");
+        assert!(config.contains(fx.tmp.join("rel-runs").to_str().unwrap()), "{config}");
+    }
+    // One empty directory serves every chunk of the run.
+    assert_eq!(calls[0].0, calls[1].0);
+    let ids: Vec<&str> = calls.iter().map(|(_, a)| arg_after(a, "--session-id")).collect();
+    assert_ne!(ids[0], ids[1]);
+}
+
+/// #567: each session's transcript lands in the run folder under `transcripts/`, named for its
+/// chunk.
+#[test]
+fn each_chunks_transcript_is_copied_into_the_run_folder() {
+    let fx = Fixture::new("transcripts");
+    let calls_log = fx.tmp.join("calls.txt");
+    let status = fx
+        .command()
+        .args(["--chunk-turns", "1", "--turns", "2", "--seed", "3", "--nation", "water"])
+        .env("STUB_ARGS", &calls_log)
+        .status()
+        .unwrap();
+    assert!(status.success());
+
+    let dir = fx.run_dir();
+    for (n, (_, args)) in recorded_calls(&calls_log).iter().enumerate() {
+        let id = arg_after(args, "--session-id");
+        let copied = fs::read_to_string(dir.join(format!("transcripts/chunk-{}.jsonl", n + 1)))
+            .unwrap_or_else(|e| panic!("chunk {} transcript: {e}", n + 1));
+        assert!(copied.contains(id), "chunk {} copied the wrong session: {copied}", n + 1);
+    }
+}
+
+/// #567: a transcript that can't be found warns and the run carries on to the end.
+#[test]
+fn a_missing_transcript_warns_and_does_not_fail_the_run() {
+    let fx = Fixture::new("no-transcript");
+    let output = fx
+        .command()
+        .args(["--chunk-turns", "1", "--turns", "2", "--seed", "3", "--nation", "water"])
+        .env("STUB_NO_TRANSCRIPT", "1")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("warning: no transcript found for chunk-1"), "{stderr}");
+    assert!(stderr.contains("warning: no transcript found for chunk-2"), "{stderr}");
+    let dir = fx.run_dir();
+    assert!(!dir.join("transcripts/chunk-1.jsonl").exists());
+    assert!(dir.join("cost.json").is_file(), "the run still finished and wrote its cost");
+}
+
+/// #567: an interactive session gets the same sandbox, and its transcript is kept too.
+#[test]
+fn interactive_sessions_are_sandboxed_and_keep_their_transcript() {
+    let fx = Fixture::new("interactive-sandbox");
+    let calls_log = fx.tmp.join("calls.txt");
+    let status = fx
+        .command()
+        .args(["--interactive", "--seed", "11", "--nation", "fire"])
+        .env("STUB_ARGS", &calls_log)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let calls = recorded_calls(&calls_log);
+    assert_eq!(calls.len(), 1);
+    let (cwd, args) = &calls[0];
+    assert!(cwd.starts_with(fx.tmp.join("tmp").canonicalize().unwrap()), "{cwd:?}");
+    assert_eq!(arg_after(args, "--tools"), "");
+    assert!(fx.run_dir().join("transcripts/interactive.jsonl").is_file());
 }

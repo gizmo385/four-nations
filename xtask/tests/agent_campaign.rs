@@ -213,6 +213,9 @@ impl Fixture {
             .arg(self.tracks())
             .env("PATH", format!("{}:{real_path}", self.bin_dir().display()))
             .env("FN_AGENT_RUNS", &self.runs_dir)
+            // The player's sandbox dir and transcripts stay inside the fixture (#567).
+            .env("TMPDIR", self.tmp.join("tmp"))
+            .env("CLAUDE_CONFIG_DIR", self.tmp.join("claude-config"))
             .env("FN_AGENT_BIN", self.bin_dir().join("fn_agent"))
             .env("STUB_SCORES", scores)
             .env("STUB_PROMPTS", &self.prompts)

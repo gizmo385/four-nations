@@ -376,6 +376,59 @@ goal = { kind = "population", target = 10 }
   no shell, files or web. The race doc gives the recipe, and a racer's prompt is the briefing
   plus a short standard preamble that's the same for everyone.
 
+## The player's sandbox
+
+Owner decision #476 (2026-11-06, option A, recorded in agent-scripting.md): a scripted playtest
+agent knows what the game's tools show, plus its own notes and scripts carried from run to
+run, and not `docs/` or `data/`. `cargo xtask agent-run` implements that by how it starts
+`claude` (#567, `xtask/src/agent_run/sandbox.rs`). Each run gets one empty directory under the
+system temp dir, and every `claude` call for the run (every chunk, and `--interactive`) starts
+there with:
+
+| Flag | Takes away |
+|---|---|
+| (the working directory) | the repo: no `CLAUDE.md`, `.claude/`, `docs/` or `data/` to find, and no project memory directory, which Claude Code keys on the working directory |
+| `--tools ""` | every built-in tool: no shell, file, search, web, agent or tool-search tools |
+| `--setting-sources local` | user and project settings: hooks, permission rules, plugins, the user's `CLAUDE.md` |
+| `--disable-slash-commands` | skills and slash commands |
+| `--system-prompt` | Claude Code's own instructions, replaced by a few lines saying the game's tools are the only way to act |
+| `--strict-mcp-config --mcp-config` | every MCP server except the run's own `fn_agent` |
+
+The MCP config, the `fn_agent` path and the log path are absolute, since the child's working
+directory is not the one `agent-run` started in. A carried library, plan and notes still
+reach the agent the way #476 allows: in its first prompt and through `fn_agent serve
+--carry-in`, never as files it reads.
+
+Each session is started with `--session-id`, and its transcript is copied from Claude Code's
+own store into the run folder's `transcripts/` (`chunk-N.jsonl`, `mcp.jsonl` or
+`interactive.jsonl`), so the model's reasoning stays with the run. A transcript that can't be
+found is a warning, not a failed run. Transcripts hold the whole session, including any
+account context Claude Code adds, so they stay under `~/fn-agent-runs`, outside the repo, and
+are never committed or pasted into issues.
+
+**What it guarantees:** the child is *given* only the game's tools and none of the repo. Checked
+on the arguments and working directory it is started with (`xtask/tests/agent_run.rs`) and on
+one real Sonnet session (#567, 2026-11-08, $0.02): the tool list sent to the API was the eight
+`mcp__four-nations__*` tools and nothing else, loaded up front (no tool-search round trip); the
+system prompt was ours; the working directory was the empty temp directory, not a git repo; and
+no `CLAUDE.md`, memory, skill, slash-command or other MCP server context appeared. The first
+request was about 3.3k tokens against roughly 22k for a full Claude Code session in the repo.
+The model could not read a repo file because it had no tool that reads files; that session did
+not force an attempt, so "cannot" rests on the tool list.
+
+**What it does not:** the flags configure a child process; they are not a container. The child
+runs as the owner, with the owner's credentials and home directory, so a harness bug or a
+future tool outside `--tools` would not be stopped by the OS. Organisation-managed settings, if
+any, still apply (`--setting-sources` does not turn them off). Claude Code still adds a fixed
+first system line ("You are a Claude agent, ..."), the date, and account context to every
+session: the signed-in user's email address and organisation id both appeared in the real
+session. Those can't be removed without `--bare`, which refuses subscription login and needs
+an API key; `--bare` was therefore not used. `--restricted` and `--safe-mode` were not used
+either: `--tools ""` already removes the tools they would. The child inherits the caller's
+environment, so a run started from inside another Claude Code session carries that session's
+`CLAUDE_CODE_*` variables. Last, the sandbox hides files, not the game: it does not limit what
+the player does with the game's own tools.
+
 ## Enforcing and testing parity
 
 Rust visibility can't enforce parity on its own, because `Shell` and `Session` are public
