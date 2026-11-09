@@ -802,8 +802,17 @@ fn stopped_clean_runs_are_reported_to_the_model_and_marked_for_the_owner() {
     for mcp in [&first_mcp, &last_mcp] {
         assert!(mcp.contains("\"--trial-seeds\"") && mcp.contains("\"7,41\""), "{mcp}");
         assert!(mcp.contains("\"--trial-turns\""), "{mcp}");
+        // Whole numbers among the arguments, not substrings of the text: the config holds temp
+        // paths whose process ids and timestamps can contain these digits (#588, #593).
+        let numbers: Vec<&str> = mcp
+            .split('"')
+            .skip(1)
+            .step_by(2)
+            .filter(|arg| !arg.is_empty() && arg.chars().all(|c| c.is_ascii_digit() || c == ','))
+            .flat_map(|arg| arg.split(','))
+            .collect();
         for hidden in ["9001", "101", "102", "103", "104"] {
-            assert!(!mcp.contains(hidden), "{hidden} in {mcp}");
+            assert!(!numbers.contains(&hidden), "{hidden} in {mcp}");
         }
     }
 }
