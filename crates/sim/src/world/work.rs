@@ -70,6 +70,8 @@ use crate::research::MILLIS_PER_POINT;
 
 use super::*;
 
+use eligibility::{Bar, Check, StandRule};
+
 /// How far from a drop point a stack may be placed when its own tile is taken, in tiles.
 const GROUND_SEARCH_RADIUS: i32 = 8;
 
@@ -133,9 +135,9 @@ pub enum Task {
 }
 
 /// Why a unit with nothing to do (`Unit::task` is `None`) has nothing to do (#337): read from
-/// the same facts `World::idle_reason` already asks `claim_job`'s own match for every unclaimed
-/// job, instead of a second copy of the assignment rules. A frontend falls back to a bare "Idle"
-/// for `None`.
+/// the same facts `World::idle_reason` already asks `World::check_job` (`eligibility.rs`) of
+/// every unclaimed job, instead of a second copy of the assignment rules. A frontend falls back
+/// to a bare "Idle" for `None`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdleReason {
     /// Nothing at all is designated for anyone to do.
@@ -736,42 +738,11 @@ impl World {
     /// Drops unclaimed jobs whose target has gone: a tree someone else cleared, a stack that was
     /// eaten.
     fn prune_jobs(&mut self, defs: &Defs) {
-        let (map, ground, sites, plots) = (&self.map, &self.ground, &self.sites, &self.farm_plots);
-        self.jobs.retain(|j| {
-            j.claimed_by.is_some()
-                || match j.kind {
-                    JobKind::Harvest { pos } => {
-                        map[pos].resource.is_some_and(|r| defs.harvest(r).is_some())
-                    }
-                    JobKind::Haul { pos } => ground.contains_key(&pos),
-                    // Left for a unit to find out: a bend that can't happen is reported as a
-                    // failed event, not silently dropped.
-                    JobKind::Bend { .. } => true,
-                    JobKind::Build { pos } => sites.contains_key(&pos),
-                    // No demolish command yet, so a seat opened for a study hall stays open for
-                    // as long as the building does, which today is forever.
-                    JobKind::Study { pos } => map[pos].building.is_some(),
-                    // Same as a study seat: a production building's craft job stays open for as
-                    // long as the building does (#124).
-                    JobKind::Craft { pos } => map[pos].building.is_some(),
-                    // The gate drops its own task and Attend jobs when it moves on (`gate.rs`).
-                    JobKind::EndeavorTask { .. } | JobKind::Attend { .. } => true,
-                    // Moot if the plot is gone (no demolish yet, so only a hand-edited map) or
-                    // moved past the stage this job was for.
-                    JobKind::Sow { pos } => {
-                        plots.get(&pos).is_some_and(|p| p.stage == PlotStage::Empty)
-                    }
-                    JobKind::Reap { pos } => {
-                        plots.get(&pos).is_some_and(|p| p.stage == PlotStage::Ripe)
-                    }
-                    JobKind::Clear { pos } => {
-                        map[pos].resource.is_some_and(|r| defs.harvest(r).is_some())
-                    }
-                    // Same as a study seat: a Map Room's seat stays open for as long as the
-                    // building does (#402).
-                    JobKind::Chart { pos } => map[pos].building.is_some(),
-                }
-        });
+        // `job_is_live` reads the world, so the queue is lifted out while it is filtered.
+        let mut jobs = std::mem::take(&mut self.jobs);
+        jobs.retain(|j| j.claimed_by.is_some() || self.job_is_live(j.kind, defs));
+        self.jobs = jobs;
+        let map = &self.map;
         // A standing order (#81) outlives its job (which disappears between harvests while the
         // resource rests), but not the resource itself: once that's gone for good there is
         // nothing left to re-queue for.
@@ -1505,98 +1476,16 @@ impl World {
             return false;
         }
         let flood = self.flood_from(i);
-        // The Avatar never hauls, builds, studies, harvests or Attends (`docs/design/endgame.md`,
-        // "The Avatar", #237, #238): only needs, Avatar tasks, pillar tasks and bend jobs are his
-        // to claim; the rite itself is assigned directly (`run_idle`), never through this queue.
         let is_avatar = self.units[i].is_avatar();
-        // Whether a stockpile tile with room for each item can be reached, asked once per item.
         let mut room_cache: Vec<(ItemId, bool)> = Vec::new();
         let mut best: Option<((u8, u32, JobId), usize, Pos)> = None;
         for (idx, job) in self.jobs.iter().enumerate() {
             if job.claimed_by.is_some() {
                 continue;
             }
-            if is_avatar
-                && matches!(
-                    job.kind,
-                    JobKind::Harvest { .. }
-                        | JobKind::Haul { .. }
-                        | JobKind::Build { .. }
-                        | JobKind::Study { .. }
-                        | JobKind::Attend { .. }
-                        | JobKind::Craft { .. }
-                        | JobKind::Sow { .. }
-                        | JobKind::Reap { .. }
-                        | JobKind::Clear { .. }
-                        | JobKind::Chart { .. }
-                )
-            {
-                continue;
-            }
-            let found = match job.kind {
-                JobKind::Harvest { pos } => self
-                    .ripe_harvest(pos, defs)
-                    .filter(|h| h.risk <= 0.0 || self.fit_for_heavy_work(&self.units[i], defs))
-                    .and_then(|_| self.stand_tile(&flood, pos)),
-                JobKind::Clear { pos } => self
-                    .clearable_harvest(pos, defs)
-                    .filter(|h| {
-                        h.clear_risk() <= 0.0 || self.fit_for_heavy_work(&self.units[i], defs)
-                    })
-                    .and_then(|_| self.stand_tile(&flood, pos)),
-                JobKind::Sow { pos } => (self.plot_stage(pos) == Some(PlotStage::Empty))
-                    .then(|| self.stand_building(&flood, pos, defs))
-                    .flatten(),
-                JobKind::Reap { pos } => (self.plot_stage(pos) == Some(PlotStage::Ripe))
-                    .then(|| self.stand_building(&flood, pos, defs))
-                    .flatten(),
-                JobKind::Haul { pos } => {
-                    let item = self.ground[&pos].item;
-                    let room = match room_cache.iter().find(|(it, _)| *it == item) {
-                        Some(&(_, r)) => r,
-                        None => {
-                            let r = self.reachable_dest(&flood, item, defs).is_some();
-                            room_cache.push((item, r));
-                            r
-                        }
-                    };
-                    room.then(|| flood.cost(pos).map(|c| (c, pos))).flatten()
-                }
-                // A tile chained off a still-pending neighbour (#304) can't be claimed until
-                // that neighbour has actually been reshaped: `bend_ready`.
-                JobKind::Bend { ability, pos } => (self.unit_can_bend(i, ability, defs)
-                    && self.bend_ready(ability, pos, defs))
-                .then(|| self.stand_tile(&flood, pos))
-                .flatten(),
-                // Reachable as soon as the site itself is and nothing it still needs cleared
-                // (`site_ready`, `docs/design/clearing.md`, issue #425), whether or not its
-                // materials are yet: a unit will wait on those, as a resting harvest does.
-                JobKind::Build { pos } => self
-                    .site_ready(pos, defs)
-                    .then(|| self.stand_building(&flood, pos, defs))
-                    .flatten(),
-                // Not reachable at all with nothing queued to study toward: nobody should claim
-                // a seat that would only idle there (#284). `run_study` leaves a seat it already
-                // holds the same way, once the queue empties. A seat is a place inside (#227), so
-                // this is the door, not the ring `stand_building` would pick.
-                JobKind::Study { pos } => (!self.research.queue().is_empty())
-                    .then(|| self.stand_entrance(&flood, pos))
-                    .flatten(),
-                // Not reachable at all with nothing left to chart within range (#402), the same
-                // way an empty research queue leaves a study seat unclaimed.
-                JobKind::Chart { pos } => self
-                    .chart_def_at(pos, defs)
-                    .filter(|def| self.chart_has_target(pos, def))
-                    .and_then(|_| self.stand_entrance(&flood, pos)),
-                JobKind::EndeavorTask { task } => self
-                    .gate_task(task, defs)
-                    .filter(|(def, _)| self.unit_can_raise(i, def))
-                    .and_then(|(_, anchor)| self.stand_building(&flood, anchor, defs)),
-                JobKind::Attend { pos } => self.stand_tile(&flood, pos),
-                // A craft job is a seat inside, like a study hall's (#227): this is the door, not
-                // the ring `stand_building` would pick. Always reachable once the building
-                // stands; a crafter waits on its inputs the way a resting harvest is waited on.
-                JobKind::Craft { pos } => self.stand_entrance(&flood, pos),
+            let found = match self.check_job(i, job.kind, &flood, &mut room_cache, defs) {
+                Check::Take(cost, stand) => Some((cost, stand)),
+                Check::Skip | Check::Barred(_) => None,
             };
             if let Some((cost, stand)) = found {
                 let priority = if is_avatar {
@@ -1639,9 +1528,9 @@ impl World {
 
     /// Why `unit` is idle (#337), for a frontend's selection bar: `None` once it isn't (it has a
     /// `Task`) or nothing designated explains it (the odd tick a claimable job hasn't been
-    /// picked up yet, a chained bend not yet reshaped). Otherwise walks every unclaimed job
-    /// exactly as `claim_job`'s own match does -- ripe, in stage, on this unit's side of a wall
-    /// -- and the first one still blocked even though a stand tile is in reach names why: a bend
+    /// picked up yet, a chained bend not yet reshaped). Otherwise weighs every unclaimed job
+    /// exactly as `claim_job` does (`World::check_job`) -- ripe, in stage, on this unit's side of
+    /// a wall -- and the first one still blocked even though a stand tile is in reach names why: a bend
     /// past the unit's current chi (`OutOfChi`; a recast too fresh to restoke, #359, is folded
     /// into this too, since `unit_can_bend` doesn't separate the two), a haul with no
     /// stockpile room anywhere for its item (`StockpileFull`), or a harvest marked `risk` with
@@ -1657,129 +1546,16 @@ impl World {
         if unclaimed.is_empty() {
             return Some(IdleReason::NoWork);
         }
-        let is_avatar = self.units[i].is_avatar();
         let flood = self.flood_from(i);
+        let mut rooms: Vec<(ItemId, bool)> = Vec::new();
         let (mut chi_blocked, mut room_blocked, mut too_hurt) = (false, false, false);
         for job in unclaimed {
-            if is_avatar
-                && matches!(
-                    job.kind,
-                    JobKind::Harvest { .. }
-                        | JobKind::Haul { .. }
-                        | JobKind::Build { .. }
-                        | JobKind::Study { .. }
-                        | JobKind::Attend { .. }
-                        | JobKind::Craft { .. }
-                        | JobKind::Sow { .. }
-                        | JobKind::Reap { .. }
-                        | JobKind::Clear { .. }
-                        | JobKind::Chart { .. }
-                )
-            {
-                continue;
-            }
-            match job.kind {
-                JobKind::Harvest { pos } => {
-                    let Some(h) = self.ripe_harvest(pos, defs) else { continue };
-                    if self.stand_tile(&flood, pos).is_none() {
-                        continue;
-                    }
-                    if h.risk > 0.0 && !self.fit_for_heavy_work(&self.units[i], defs) {
-                        too_hurt = true;
-                        continue;
-                    }
-                    return None;
-                }
-                JobKind::Clear { pos } => {
-                    let Some(h) = self.clearable_harvest(pos, defs) else { continue };
-                    if self.stand_tile(&flood, pos).is_none() {
-                        continue;
-                    }
-                    if h.clear_risk() > 0.0 && !self.fit_for_heavy_work(&self.units[i], defs) {
-                        too_hurt = true;
-                        continue;
-                    }
-                    return None;
-                }
-                JobKind::Sow { pos } => {
-                    if self.plot_stage(pos) == Some(PlotStage::Empty)
-                        && self.stand_building(&flood, pos, defs).is_some()
-                    {
-                        return None;
-                    }
-                }
-                JobKind::Reap { pos } => {
-                    if self.plot_stage(pos) == Some(PlotStage::Ripe)
-                        && self.stand_building(&flood, pos, defs).is_some()
-                    {
-                        return None;
-                    }
-                }
-                JobKind::Haul { pos } => {
-                    let Some(stack) = self.ground.get(&pos) else { continue };
-                    if self.stand_tile(&flood, pos).is_none() {
-                        continue;
-                    }
-                    if self.reachable_dest(&flood, stack.item, defs).is_some() {
-                        return None;
-                    }
-                    room_blocked = true;
-                }
-                JobKind::Bend { ability, pos } => {
-                    if !self.bend_ready(ability, pos, defs)
-                        || self.stand_tile(&flood, pos).is_none()
-                    {
-                        continue;
-                    }
-                    if self.unit_can_bend(i, ability, defs) {
-                        return None;
-                    }
-                    let cost = defs.ability(ability).chi;
-                    if self.can_cast(&self.units[i], ability, defs) && self.units[i].chi < cost {
-                        chi_blocked = true;
-                    }
-                }
-                JobKind::Build { pos } => {
-                    if self.site_ready(pos, defs)
-                        && self.stand_building(&flood, pos, defs).is_some()
-                    {
-                        return None;
-                    }
-                }
-                JobKind::Study { pos } => {
-                    if !self.research.queue().is_empty()
-                        && self.stand_entrance(&flood, pos).is_some()
-                    {
-                        return None;
-                    }
-                }
-                JobKind::Chart { pos } => {
-                    if self
-                        .chart_def_at(pos, defs)
-                        .is_some_and(|def| self.chart_has_target(pos, def))
-                        && self.stand_entrance(&flood, pos).is_some()
-                    {
-                        return None;
-                    }
-                }
-                JobKind::EndeavorTask { task } => {
-                    if let Some((def, anchor)) = self.gate_task(task, defs)
-                        && self.unit_can_raise(i, def)
-                        && self.stand_building(&flood, anchor, defs).is_some()
-                    {
-                        return None;
-                    }
-                }
-                JobKind::Attend { pos } => {
-                    if self.stand_tile(&flood, pos).is_some() {
-                        return None;
-                    }
-                }
-                JobKind::Craft { pos } => {
-                    if self.stand_entrance(&flood, pos).is_some() {
-                        return None;
-                    }
-                }
+            match self.check_job(i, job.kind, &flood, &mut rooms, defs) {
+                Check::Take(..) => return None,
+                Check::Barred(Some(IdleReason::StockpileFull)) => room_blocked = true,
+                Check::Barred(Some(IdleReason::OutOfChi)) => chi_blocked = true,
+                Check::Barred(Some(IdleReason::TooHurt)) => too_hurt = true,
+                Check::Barred(_) | Check::Skip => {}
             }
         }
         Some(if room_blocked {
@@ -1812,59 +1588,29 @@ impl World {
             can_stand_in((Footprint::single(pos), walkable))
         };
         let can_stand_building = |pos: Pos| can_stand_in(self.work_area(pos, defs));
-        let is_avatar = self.units[i].is_avatar();
-        self.jobs.iter().filter(|j| j.claimed_by.is_none()).any(|job| match job.kind {
-            // The Avatar never hauls, builds, studies, crafts, harvests, sows, reaps or Attends
-            // (#237, #238).
-            JobKind::Harvest { .. }
-            | JobKind::Haul { .. }
-            | JobKind::Build { .. }
-            | JobKind::Study { .. }
-            | JobKind::Attend { .. }
-            | JobKind::Craft { .. }
-            | JobKind::Sow { .. }
-            | JobKind::Reap { .. }
-            | JobKind::Clear { .. }
-            | JobKind::Chart { .. }
-                if is_avatar =>
-            {
-                false
-            }
-            JobKind::Harvest { pos } => self.ripe_harvest(pos, defs).is_some() && can_stand(pos),
-            JobKind::Clear { pos } => self.clearable_harvest(pos, defs).is_some() && can_stand(pos),
-            JobKind::Haul { pos } => {
-                let item = self.ground[&pos].item;
-                in_here(pos)
-                    && if Self::is_readable(item, defs) {
-                        self.study_halls().any(can_stand_building)
-                    } else {
-                        self.zones.iter().any(|&z| in_here(z) && self.room_at(z, item, defs) > 0)
+        let can_stand_rule = |rule: StandRule| match rule {
+            StandRule::Tile(pos) => can_stand(pos),
+            // A seat's door is only known to the flood; somewhere to stand at the building is
+            // the conservative question.
+            StandRule::Building(pos) | StandRule::Entrance(pos) => can_stand_building(pos),
+            StandRule::Exact(pos) => in_here(pos),
+        };
+        self.jobs.iter().filter(|j| j.claimed_by.is_none()).any(|job| {
+            let Some(gate) = self.job_gate(i, job.kind, defs) else { return false };
+            can_stand_rule(gate.stand)
+                && match gate.bar {
+                    Bar::Free => true,
+                    Bar::Reason(_) => false,
+                    Bar::Room(item) => {
+                        if Self::is_readable(item, defs) {
+                            self.study_halls().any(can_stand_building)
+                        } else {
+                            self.zones
+                                .iter()
+                                .any(|&z| in_here(z) && self.room_at(z, item, defs) > 0)
+                        }
                     }
-            }
-            JobKind::Bend { ability, pos } => {
-                self.unit_can_bend(i, ability, defs)
-                    && self.bend_ready(ability, pos, defs)
-                    && can_stand(pos)
-            }
-            JobKind::Build { pos } => self.site_ready(pos, defs) && can_stand_building(pos),
-            JobKind::Study { pos } => !self.research.queue().is_empty() && can_stand_building(pos),
-            JobKind::Craft { pos } => can_stand_building(pos),
-            JobKind::EndeavorTask { task } => {
-                self.gate_task(task, defs).is_some_and(|(def, anchor)| {
-                    self.unit_can_raise(i, def) && can_stand_building(anchor)
-                })
-            }
-            JobKind::Attend { pos } => in_here(pos),
-            JobKind::Sow { pos } => {
-                self.plot_stage(pos) == Some(PlotStage::Empty) && can_stand_building(pos)
-            }
-            JobKind::Reap { pos } => {
-                self.plot_stage(pos) == Some(PlotStage::Ripe) && can_stand_building(pos)
-            }
-            JobKind::Chart { pos } => {
-                self.chart_def_at(pos, defs).is_some_and(|def| self.chart_has_target(pos, def))
-                    && can_stand_building(pos)
-            }
+                }
         })
     }
 
@@ -2142,5 +1888,6 @@ fn job_priority(kind: JobKind) -> u8 {
     }
 }
 
+mod eligibility;
 #[cfg(test)]
 mod tests;
