@@ -97,9 +97,46 @@ stood at the horizon. That fixed horizon turns "how many turns it took" into "ho
 milestone landed", which is easier to score than "turns to finish". Most runs never finish.
 
 Across tracks, the scorecard prints a **par**: the score of `fn_sim::autoplay::Economy` on the
-same start and horizon. Par is privileged (autoplay reads `World`), so it measures what the rules
-allow a player who knows the game, not parity-limited play. It's a yardstick only, and selection
-never uses it.
+same start and horizon (#572). Par is privileged (autoplay reads `World`), so it measures what a
+stock scripted opening reaches on this start, reading the world directly. That is not a
+discovery yardstick: the opening scrolls out to `SCROLL_RADIUS` = 90 tiles and knows where every
+resource is, which a player has to find. So par is not a target a fair player should hit, and it
+is not a ceiling either (on seed 7 the stock opening fails and a good player beats it, #397).
+Every output says it in those words. It's a yardstick only, and selection never uses it.
+
+- **The start must match.** An agent plays `World::new` (the default start: `fn_agent play`
+  without `--start`, which is what a track's `site = "default"` means), and the balance harness
+  plays `World::found` at `Survey::default_site`. Par is made on the first of these
+  (`fn_sim::balance::par_start`, held to the world a `Host` builds from the same header by
+  `par_starts_from_the_world_an_agent_plays`), or `World::found` when the track names a site.
+  Measured on the build of #572, water, normal, small, 540 turns: seeds 7633 / 7 / 42 / 1 / 5 give
+  290 / 296 / 287 / 369 / 446 on the agent's start, and the harness's 517 / 276 / 541 / 561 / 582
+  (the figures of the harness review) on `World::found`. They are two different games, and the
+  harness's figures are the wrong yardstick for an agent's score (which start the tracks should
+  play is the owner's call, #591). #582 (the connected spawn) moved
+  one of the five: seed 42 was 462 before it and is 287 after; the other four are unchanged.
+- **Not in the model's prompt.** Par is drawn from data the player couldn't see, and the owner
+  doesn't want agents handed answers, so no prompt, scorecard text or ledger text a model reads
+  carries it (`fn_agent score --no-par` is what the harness asks for there; the ledger's
+  `ledger_text(.., false)` leaves it out). The issue's "may include par for train seeds" is
+  settled as no.
+- **Cost.** A par plays 540 turns of the opening: about 20 s. `fn_agent par` computes it once per
+  build and start and keeps it under `$FN_AGENT_CACHE` (else `$XDG_CACHE_HOME/four-nations`, else
+  `~/.cache/four-nations`), in `par/BUILD/`, never in a run folder, so the run browser's listing
+  (#585) doesn't change. A campaign measures par after its last attempt, on all three tiers, in
+  parallel, and prints how long that took; the owner tier's par costs one pass the first time on
+  a build. `fn_agent score` adds it to the log's own start unless `--no-par` is given.
+- **Controls.** Beside par the owner's tables show a **do-nothing** control
+  (`loop { wait(10); }`: what a colony earns if nobody ever gives an order) and, with `--control
+  GOVERNOR.rhai[@PLAN.json]` (the `agent-compare` syntax), a fixed governor and plan, all with no
+  model, on the same seeds. They are played cleanly like any strategy and kept per build and
+  tier (`$FN_AGENT_CACHE/controls/BUILD/`). The campaign's ledger records par and the controls in
+  an optional top-level `references` key.
+- **What par didn't reach.** The scorecard says which milestones par had not met by the horizon,
+  and the owner's table which it had not met on any seed and on some. That is worded as what the
+  stock opening reached, not as a proof that the rest can't be reached: there is no data-driven
+  bound on the stages (hauling, travel and the Avatar's arrival all depend on the settlement), so
+  the doc doesn't claim one. No score number changes.
 
 ### Progress
 
@@ -165,7 +202,9 @@ Care: 0 deaths, 0 close calls, 0% suffering, so **1.00**. **Score 256.** Par (th
 opening on the same start, `balance --economy --seeds 7633 --nations water --minutes 180`) meets
 every sign but food, scrolls at minute 16 and masters at minute 103, for about **507** (no
 deaths; its suffering isn't measured yet, so care is taken as 1.0). The agent reached half of
-par, and the two signs it never started account for half of the gap.
+par, and the two signs it never started account for half of the gap. *(That par was made on the
+harness's `World::found` start. On the start the agent played, `World::new`, par for this seed
+is 290; see "Tracks: what is comparable".)*
 
 The issue's comparisons, on the same track:
 
@@ -185,7 +224,12 @@ evidence run):
 Water Tribes · seed 7633 · Normal · small · default site            horizon 540 turns (180:00)
 Played 528 turns (176:00); stopped early (stopped by SIGINT)
 
-SCORE 256        progress 0.256 × care 1.00        par 507 (Economy opening)
+SCORE 256        progress 0.256 × care 1.00        par 290
+
+PAR 290          progress 0.290 × care 1.00 · deaths 0
+  what a stock scripted opening reaches on this start, reading the world directly; not a target
+  a fair player should hit, and not a ceiling.
+  par met 4 of 14 milestones by turn 540; it had not met: One of every building, ..., The Harmony Rite
 
 PROGRESS                      met    credit   at the horizon
   + Population                t360    0.73    21/16
@@ -234,11 +278,14 @@ Idle count, the Endeavor screen, the alerts) or the agent's own actions.
   the log's end scores the turns it reached against the full horizon. The reported-only values
   (mild flags, food per head as each winter begins, idle share, research idle) are sampled at the
   end of every replayed turn, so they are exact to one 20-second turn. Script churn is counted
-  from the log's `script`, `wake`, `turn`, `keys` and `plan` lines. `par` is `null` until #526.
+  from the log's `script`, `wake`, `turn`, `keys` and `plan` lines. `par` is `null` in `--json`
+  with `--no-par`, and in `play --horizon`'s scorecard, which never computes one (#572).
   The scorer lives in `fn_tui::surface::referee` and is named only in
   `crates/agent/src/scorecard.rs`; the parity lint rejects the word in every other agent file.
-- **`balance --economy --score`** prints the same scorecard per run, which is where par comes
-  from.
+- **`fn_agent par`** (#572) is where an agent's par comes from: `balance::par` on the start the
+  header describes, cached per build and start (`crates/agent/src/par.rs`). **`balance --economy
+  --score`** prints the same scorecard per run on the harness's own start, which is where par
+  first came from.
 
 ```toml
 # data/score.toml: the run score (docs/design/agent-hillclimb.md). Read by fn_sim::score, by
@@ -829,6 +876,8 @@ In dependency order. Decisions gate the items noted.
 - #532 Watch: the `score` line as a card, plus attempt and best on the strip (#525, #530)
 - #571 Measurement: seed tiers, parallel evaluation, the paired promotion rule with failure
   counts, `agent-compare` (extends #521; see "Measuring a difference")
+- #572 Controls: par on the scorecard, in `agent-eval` and the campaign ledger (never a prompt),
+  and the do-nothing and fixed-governor controls
 
 ## Owner decisions
 

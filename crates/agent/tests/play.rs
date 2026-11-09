@@ -557,7 +557,7 @@ fn horizon_with_a_plan_is_deterministic_and_matches_fn_agent_score() {
     );
 
     let scored = fn_agent()
-        .args(["score", path1.to_str().unwrap(), "--horizon", "30", "--json"])
+        .args(["score", path1.to_str().unwrap(), "--horizon", "30", "--json", "--no-par"])
         .output()
         .unwrap();
     assert!(scored.status.success(), "{}", String::from_utf8_lossy(&scored.stderr));

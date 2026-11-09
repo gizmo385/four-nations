@@ -33,7 +33,8 @@
 //!                               `governor` script and plan with no model on every screen, gate
 //!                               and owner-only seed of a data/tracks.toml track (#571), in
 //!                               parallel, and prints the score per seed, each tier's mean and
-//!                               the failure counts. See `cargo xtask agent-eval --help`.
+//!                               the failure counts, with par and a do-nothing control on the
+//!                               same seeds (#572). See `cargo xtask agent-eval --help`.
 //!     cargo xtask agent-compare [--tier owner] CONDITION...
 //!                               compares conditions with no model (#571): campaign folders'
 //!                               champions or a fixed governor and plan, each replayed on a
@@ -53,6 +54,7 @@ mod agent_compare;
 mod agent_eval;
 mod agent_run;
 mod lint;
+mod references;
 
 type Result<T = ()> = std::result::Result<T, String>;
 

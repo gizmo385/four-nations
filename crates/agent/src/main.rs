@@ -33,7 +33,10 @@ usage: fn_agent serve --seed N --nation X [--start default|X,Y] [--difficulty ID
        fn_agent play --script FILE [--plan FILE] --horizon TURNS [start flags as above]
                       [--map-size ID] [--prelude OPENING:MINUTES] [--turn SECS] --log PATH
        fn_agent keys LOG
-       fn_agent score LOG [--horizon TURNS] [--json] [--append]
+       fn_agent score LOG [--horizon TURNS] [--json] [--append] [--no-par]
+       fn_agent par [--scenario ID | --seed N --nation X [--start default|X,Y] [--difficulty ID]
+                      [--map-size ID] [--prelude OPENING:MINUTES]] --horizon TURNS [--turn SECS]
+                      [--json] [--no-cache]
        fn_agent build-id
 
 serve speaks MCP (JSON-RPC 2.0) over stdin and stdout: initialize, tools/list and tools/call. It
@@ -118,6 +121,17 @@ data is refused. A log made by another build (#566; the header records the commi
 mark) is scored with a warning on stderr: the same keys can score differently on other code, so
 the score may not reproduce what that build reported.
 
+par (#572; docs/design/agent-hillclimb.md, \"Tracks: what is comparable\") plays the stock Economy
+opening on a start (the flags `play` takes) to --horizon TURNS and prints its scorecard: the score,
+progress, care and the turn each milestone was met. That is par: what a stock scripted opening
+reaches on this start, reading the world directly (it knows where everything is, which a player has
+to discover), so it is neither a target a fair player should hit nor a ceiling. It is
+computed once per build and start and kept under $FN_AGENT_CACHE (else $XDG_CACHE_HOME/four-nations,
+else ~/.cache/four-nations), never in a run folder; --no-cache computes it afresh and keeps
+nothing. The first run takes tens of seconds. `score` adds the par of the log's own start and
+horizon to its scorecard unless --no-par is given; `play --horizon` never computes one. The par
+is for the owner: no prompt gets it.
+
 build-id prints the build this binary is: the last commit that touched the code or data, with
 `+HEX` for uncommitted changes to them, or `unknown` without git.
 
@@ -131,6 +145,7 @@ fn main() -> ExitCode {
         Some("keys") => keys(args.collect()).map(|()| ExitCode::SUCCESS),
         Some("play") => play(args.collect()),
         Some("score") => score(args.collect()).map(|()| ExitCode::SUCCESS),
+        Some("par") => par(args.collect()).map(|()| ExitCode::SUCCESS),
         Some("build-id") => {
             println!("{}", fn_tui::buildid::CURRENT);
             Ok(ExitCode::SUCCESS)
@@ -811,6 +826,9 @@ struct ScoreArgs {
     horizon: Option<u32>,
     json: bool,
     append: bool,
+    /// `--no-par` (#572): leave out the par line and column, which cost a computation the first
+    /// time. The harness passes it wherever the scorecard feeds a prompt or a hot loop.
+    no_par: bool,
 }
 
 fn parse_score_args(args: Vec<String>) -> Result<ScoreArgs, String> {
@@ -826,6 +844,7 @@ fn parse_score_args(args: Vec<String>) -> Result<ScoreArgs, String> {
             }
             "--json" => a.json = true,
             "--append" => a.append = true,
+            "--no-par" => a.no_par = true,
             flag if flag.starts_with("--") => return Err(format!("unknown flag {flag:?}")),
             path if a.log.is_none() => a.log = Some(path.to_owned()),
             extra => return Err(format!("unexpected argument {extra:?}")),
@@ -846,7 +865,23 @@ fn score(args: Vec<String>) -> Result<(), String> {
     if let Some(warning) = fn_tui::buildid::mismatch_warning("the log", header.build.as_deref()) {
         eprintln!("fn_agent: warning: {warning}");
     }
-    let report = scorecard::build(&header, &lines, a.horizon)?;
+    let mut report = scorecard::build(&header, &lines, a.horizon)?;
+    if !a.no_par {
+        let started = std::time::Instant::now();
+        // A par that can't be made leaves the scorecard as it was: it is context, not the score.
+        match report.clone().with_par() {
+            Ok((with, source)) => {
+                report = with;
+                if source == fn_agent::par::Source::Computed {
+                    eprintln!(
+                        "fn_agent: computed par in {} s (kept for this build; --no-par skips it)",
+                        started.elapsed().as_secs()
+                    );
+                }
+            }
+            Err(e) => eprintln!("fn_agent: warning: no par: {e}"),
+        }
+    }
     if a.json {
         println!("{}", serde_json::to_string_pretty(&report.json()).map_err(|e| e.to_string())?);
     } else {
@@ -855,6 +890,67 @@ fn score(args: Vec<String>) -> Result<(), String> {
     if a.append {
         let mut writer = Writer::append(Path::new(&path)).map_err(|e| e.to_string())?;
         writer.write_line(&report.score_line()).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// `fn_agent par ...` (#572): the par scorecard of a start, as a clean evaluation's flags name it.
+fn par(args: Vec<String>) -> Result<(), String> {
+    let (mut json, mut no_cache) = (false, false);
+    let rest: Vec<String> = args
+        .into_iter()
+        .filter(|a| match a.as_str() {
+            "--json" => {
+                json = true;
+                false
+            }
+            "--no-cache" => {
+                no_cache = true;
+                false
+            }
+            _ => true,
+        })
+        .collect();
+    let a = parse_play_args(rest)?;
+    if a.script.is_some() || a.turns.is_some() || a.plan.is_some() || a.log.is_some() {
+        return Err("par takes a start and --horizon only: no --script, --turns, --plan or --log"
+            .to_owned());
+    }
+    let horizon = a.horizon.ok_or("--horizon is required")?;
+    let host = match &a.scenario {
+        Some(id) => Host::from_scenario(id)?,
+        None => {
+            let nation_str = a.nation.as_deref().ok_or("--nation is required")?;
+            let nation = fn_tui::cli::parse_nation(nation_str).ok_or_else(|| {
+                format!("unknown nation {nation_str:?} (air, water, earth or fire)")
+            })?;
+            let seed = a.seed.ok_or("--seed is required")?;
+            let host =
+                Host::new(seed, nation, a.map_size.clone(), a.difficulty.clone(), a.start, false)?;
+            match a.prelude {
+                Some(prelude) => host.with_prelude(prelude),
+                None => host,
+            }
+        }
+    };
+    let header = host.with_turn_seconds(a.turn_seconds.unwrap_or(DEFAULT_TURN_SECONDS)).header();
+    let (par, source) = if no_cache {
+        (scorecard::compute_par(&header, horizon)?, fn_agent::par::Source::Computed)
+    } else {
+        fn_agent::par::get(&header, horizon)?
+    };
+    if json {
+        let mut v = serde_json::to_value(&par).map_err(|e| e.to_string())?;
+        v["cached"] = serde_json::json!(source == fn_agent::par::Source::Cached);
+        v["what"] = serde_json::json!(fn_agent::par::WHAT);
+        println!("{}", serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?);
+    } else {
+        println!(
+            "par {:.0}  progress {:.3} x care {:.2}  deaths {}  (seed {}, horizon {} turns)",
+            par.score, par.progress, par.care, par.deaths, header.seed, par.horizon
+        );
+        println!("{}; {}.", fn_agent::par::WHAT, fn_agent::par::NOT);
+        println!("{}", par.reached_line());
     }
     Ok(())
 }

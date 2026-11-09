@@ -243,12 +243,19 @@ fn the_binary_scores_a_play_log_and_append_leaves_the_replay_untouched() {
     let (header, lines) = watch::read_file(&log).unwrap();
     let want = scorecard::build(&header, &lines, None).unwrap();
 
-    let json_out = fn_agent().arg("score").arg(&log).arg("--json").output().unwrap();
+    let json_out =
+        fn_agent().arg("score").arg(&log).arg("--no-par").arg("--json").output().unwrap();
     assert!(json_out.status.success(), "{}", String::from_utf8_lossy(&json_out.stderr));
     let json: Value = serde_json::from_slice(&json_out.stdout).unwrap();
     assert_eq!(json, want.json());
 
-    let text_out = fn_agent().arg("score").arg(&log).args(["--horizon", "6"]).output().unwrap();
+    let text_out = fn_agent()
+        .arg("score")
+        .arg(&log)
+        .arg("--no-par")
+        .args(["--horizon", "6"])
+        .output()
+        .unwrap();
     assert!(text_out.status.success());
     let text = String::from_utf8(text_out.stdout).unwrap();
     assert!(text.contains("horizon 6 turns (2:00)"), "{text}");
@@ -259,8 +266,14 @@ fn the_binary_scores_a_play_log_and_append_leaves_the_replay_untouched() {
     let digest_before = (resumed_before.tick(), resumed_before.log().clone());
 
     // --append: one more line, a `score`, after everything else.
-    let appended =
-        fn_agent().arg("score").arg(&log).arg("--append").stdout(Stdio::null()).status().unwrap();
+    let appended = fn_agent()
+        .arg("score")
+        .arg(&log)
+        .arg("--no-par")
+        .arg("--append")
+        .stdout(Stdio::null())
+        .status()
+        .unwrap();
     assert!(appended.success());
     let (header_after, lines_after) = watch::read_file(&log).unwrap();
     assert_eq!(header_after, header);
@@ -316,7 +329,7 @@ fn the_binary_refuses_a_log_made_against_different_data() {
     text.push('\n');
     std::fs::write(&log, text).unwrap();
 
-    let out = fn_agent().arg("score").arg(&log).output().unwrap();
+    let out = fn_agent().arg("score").arg(&log).arg("--no-par").output().unwrap();
     std::fs::remove_file(&log).ok();
     assert!(!out.status.success());
     let err = String::from_utf8_lossy(&out.stderr);
@@ -377,7 +390,13 @@ fn a_clean_runs_scorecard_describes_the_governor_that_ran() {
     std::fs::remove_file(&script).ok();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
 
-    let text_out = fn_agent().arg("score").arg(&log).args(["--horizon", "12"]).output().unwrap();
+    let text_out = fn_agent()
+        .arg("score")
+        .arg(&log)
+        .arg("--no-par")
+        .args(["--horizon", "12"])
+        .output()
+        .unwrap();
     assert!(text_out.status.success());
     let text = String::from_utf8(text_out.stdout).unwrap();
     assert!(text.contains("governor ran 12 of 12 turns (100%)"), "{text}");
@@ -385,6 +404,84 @@ fn a_clean_runs_scorecard_describes_the_governor_that_ran() {
     assert!(text.contains("0 one-shot"), "{text}");
     assert!(!text.contains("no governor"), "{text}");
     std::fs::remove_file(&log).ok();
+}
+
+/// Par (#572) for a log's own start: `fn_agent score` adds it, kept per build and start under
+/// `$FN_AGENT_CACHE`; it is the number `fn_agent par` prints for the same flags; `--no-par` leaves
+/// it out; and it is worded as what a stock scripted opening reaches reading the world directly.
+/// `scorecard::build`, the text a prompt may be made from, never has one.
+#[test]
+fn score_adds_the_par_of_the_logs_own_start_and_no_par_leaves_it_out() {
+    let script = temp_path("par-script.rhai");
+    std::fs::write(&script, std::fs::read_to_string(SETTLE).unwrap()).unwrap();
+    let log = temp_path("par.jsonl");
+    let out = fn_agent()
+        .args(["play", "--script"])
+        .arg(&script)
+        .args(["--seed", "7", "--nation", "earth", "--horizon", "12"])
+        .arg("--log")
+        .arg(&log)
+        .output()
+        .unwrap();
+    std::fs::remove_file(&script).ok();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+
+    let cache = temp_path("par-cache");
+    let score = |extra: &[&str]| {
+        fn_agent()
+            .arg("score")
+            .arg(&log)
+            .args(["--horizon", "12"])
+            .args(extra)
+            .env("FN_AGENT_CACHE", &cache)
+            .output()
+            .unwrap()
+    };
+    let first = score(&["--json"]);
+    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    assert!(String::from_utf8_lossy(&first.stderr).contains("computed par"));
+    let json: Value = serde_json::from_slice(&first.stdout).unwrap();
+    let par = json["par"].as_f64().expect("a par");
+    assert_eq!(json["par_detail"]["horizon"], 12);
+    assert!(json["par_detail"]["what"].as_str().unwrap().contains("reading the world directly"));
+    assert_eq!(json["par_detail"]["milestones"].as_array().unwrap().len(), 14);
+
+    // Kept: the second run reads it back, and says nothing about computing.
+    let again = score(&["--json"]);
+    assert!(!String::from_utf8_lossy(&again.stderr).contains("computed par"));
+    assert_eq!(first.stdout, again.stdout);
+    assert!(cache.join("par").is_dir());
+
+    // `fn_agent par` with the log's start flags gives the same number from a cache of its own.
+    let direct = fn_agent()
+        .args(["par", "--seed", "7", "--nation", "earth", "--horizon", "12", "--json"])
+        .env("FN_AGENT_CACHE", temp_path("par-cache-2"))
+        .output()
+        .unwrap();
+    assert!(direct.status.success(), "{}", String::from_utf8_lossy(&direct.stderr));
+    let direct: Value = serde_json::from_slice(&direct.stdout).unwrap();
+    assert_eq!(direct["score"].as_f64().unwrap(), par);
+
+    let text = String::from_utf8(score(&[]).stdout).unwrap();
+    for want in [
+        "PAR ",
+        "what a stock scripted opening reaches on this start, reading the world directly",
+        "not a target a fair player should hit, and not a ceiling",
+        "par met",
+        "SCORE ",
+    ] {
+        assert!(text.contains(want), "missing {want:?}:\n{text}");
+    }
+    assert!(text.lines().any(|l| l.starts_with("SCORE") && l.contains("par ")), "{text}");
+
+    let bare = String::from_utf8(score(&["--no-par"]).stdout).unwrap();
+    assert!(!bare.contains("PAR ") && !bare.contains("par "), "{bare}");
+    let (header, lines) = watch::read_file(&log).unwrap();
+    let built = scorecard::build(&header, &lines, Some(12)).unwrap();
+    assert!(built.par.is_none() && !built.text().contains("PAR "), "build() never adds a par");
+    assert_eq!(built.json()["par"], Value::Null);
+    std::fs::remove_file(&log).ok();
+    std::fs::remove_dir_all(&cache).ok();
 }
 
 /// The run browser's score column (#556) is `fn_agent score LOG --horizon 540`: the same number,
@@ -408,8 +505,13 @@ fn the_run_browsers_score_is_the_one_fn_agent_score_prints() {
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let before = std::fs::read(&log).unwrap();
 
-    let json_out =
-        fn_agent().arg("score").arg(&log).args(["--horizon", "540", "--json"]).output().unwrap();
+    let json_out = fn_agent()
+        .arg("score")
+        .arg(&log)
+        .arg("--no-par")
+        .args(["--horizon", "540", "--json"])
+        .output()
+        .unwrap();
     assert!(json_out.status.success(), "{}", String::from_utf8_lossy(&json_out.stderr));
     let want: Value = serde_json::from_slice(&json_out.stdout).unwrap();
 

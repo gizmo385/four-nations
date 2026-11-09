@@ -183,6 +183,18 @@ play)
   printf '{"scorecard":{"score":%d.0,"progress":0.5,"care":0.9,"care_detail":{"deaths":0}},"stopped_by":%s}\n' "$total" "$by"
   [ "$by" = null ] || exit 1
   ;;
+par)
+  # Par (#572): 500 plus the seed's last two digits, with Ready never met. `STUB_PAR_FAIL`: it
+  # fails.
+  seed=0; horizon=0; prev=""
+  for a in "$@"; do
+    [ "$prev" = "--seed" ] && seed="$a"
+    [ "$prev" = "--horizon" ] && horizon="$a"
+    prev="$a"
+  done
+  [ -n "$STUB_PAR_FAIL" ] && { echo "stub fn_agent: par failed" >&2; exit 3; }
+  printf '{"build":"%s","horizon":%d,"score":%d.0,"progress":0.5,"care":1.0,"deaths":0,"cached":false,"milestones":[{"id":"population","name":"Population","kind":"sign","met_turn":100,"met_now":true,"credit":0.8},{"id":"ready","name":"Ready","kind":"ready","met_turn":null,"met_now":false,"credit":0.0}]}\n' "$build" "$horizon" "$((500 + seed % 100))"
+  ;;
 *)
   echo "stub fn_agent: no $cmd" >&2
   exit 2
@@ -226,6 +238,9 @@ struct Fixture {
     fn_agent_log: PathBuf,
     /// Extra environment for the stubs (`STUB_STOP`).
     extra_env: Vec<(String, String)>,
+    /// Whether a campaign measures par and the do-nothing control (#572). Off by default: the
+    /// tests of everything else don't want those calls in the stub's log.
+    references: bool,
 }
 
 impl Fixture {
@@ -244,6 +259,7 @@ impl Fixture {
             prompts: tmp.join("prompts"),
             fn_agent_log: tmp.join("fn_agent.log"),
             extra_env: Vec::new(),
+            references: false,
             tmp,
         }
     }
@@ -270,6 +286,9 @@ impl Fixture {
             .env("TMPDIR", self.tmp.join("tmp"))
             .env("CLAUDE_CONFIG_DIR", self.tmp.join("claude-config"))
             .env("FN_AGENT_BIN", self.bin_dir().join("fn_agent"))
+            // Par and the controls are kept per build (#572): in the fixture, not the owner's.
+            .env("FN_AGENT_CACHE", self.tmp.join("cache"))
+            .env_remove("STUB_PAR_FAIL")
             .env("STUB_SCORES", scores)
             .env("STUB_PROMPTS", &self.prompts)
             .env("STUB_FN_AGENT_LOG", &self.fn_agent_log)
@@ -293,12 +312,18 @@ impl Fixture {
     fn campaign(&self, scores: &str, extra: &[&str]) -> Output {
         let mut args = vec!["--track", "tiny", "--model", "stub"];
         args.extend(extra);
+        if !self.references {
+            args.extend(["--no-par", "--no-controls"]);
+        }
         self.agent_run(scores, &with_cap(args))
     }
 
     fn resume(&self, scores: &str, dir: &Path, extra: &[&str]) -> Output {
         let mut args = vec!["--resume", dir.to_str().unwrap()];
         args.extend(extra);
+        if !self.references {
+            args.extend(["--no-par", "--no-controls"]);
+        }
         self.agent_run(scores, &with_cap(args))
     }
 
@@ -1286,4 +1311,126 @@ fn resume_refuses_a_ledger_from_before_the_tiers() {
     let err = stderr(&out);
     assert!(err.contains("before the seed tiers") && err.contains("--track ID"), "{err}");
     assert!(!dir.join("attempt-1").exists(), "nothing was played");
+}
+
+// ----- par and the controls (#572) -----
+
+/// Par and the do-nothing control are measured once the attempts are done and shown in the
+/// owner's table and the ledger, in the owner's words, and nothing of them reaches a prompt or the
+/// scorecard a prompt carries.
+#[test]
+fn par_and_the_controls_are_for_the_owners_table_and_the_ledger_not_the_prompt() {
+    let mut fx = Fixture::new("references");
+    fx.references = true;
+    let out = fx.campaign("100,200", &["--attempts", "2"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let table = stdout(&out);
+    // Par is 500 + the seed's last two digits (the stub; 9001 gives 501): screen 7 and 41, the four gate seeds,
+    // and the owner-only seed 9001. Do-nothing scores the seed itself.
+    for want in [
+        "references (build stub-1)",
+        "par         screen 507/541 \u{b7} gate 501/502/503/504 \u{b7} owner 501",
+        "do-nothing  screen 7/41 \u{b7} gate 101/102/103/104 \u{b7} owner 9001",
+        "par is what a stock scripted opening reaches on this start, reading the world directly",
+        "not a target a fair player should hit, and not a ceiling",
+        "by turn 2, par had not met on any of 7 seed(s): Ready",
+        "not a proof",
+    ] {
+        assert!(table.contains(want), "missing {want:?} in\n{table}");
+    }
+    let dir = fx.campaign_dir();
+    let ledger = json(&dir.join("ledger.json"));
+    assert_eq!(ledger["references"]["par"].as_array().unwrap().len(), 7, "{ledger}");
+    assert_eq!(ledger["references"]["controls"][0]["label"], "do-nothing");
+    assert_eq!(ledger["references"]["controls"][0]["seeds"].as_array().unwrap().len(), 7);
+    assert_eq!(ledger["references"]["build"], "stub-1");
+    // The rows are as they were: a reader of the rows never meets the new key.
+    assert!(rows(&dir)[0].get("references").is_none());
+
+    // Not in any prompt, and the scorecards the prompts carry are asked for with no par.
+    for (name, text) in fx.prompts() {
+        for hidden in
+            ["references (build", "do-nothing", "stock scripted", "reading the world", "507/541"]
+        {
+            assert!(!text.contains(hidden), "{hidden:?} leaked into {name}:\n{text}");
+        }
+    }
+    let calls = fs::read_to_string(&fx.fn_agent_log).unwrap();
+    let scores: Vec<&str> = calls.lines().filter(|l| l.starts_with("score ")).collect();
+    assert!(!scores.is_empty());
+    for l in &scores {
+        assert!(l.contains("--no-par"), "a score call without --no-par: {l}");
+    }
+    let pars: Vec<&str> = calls.lines().filter(|l| l.starts_with("par ")).collect();
+    assert_eq!(pars.len(), 7, "one par per seed of the three tiers: {pars:?}");
+    assert!(pars.iter().all(|l| l.contains("--horizon 2") && l.contains("--json")), "{pars:?}");
+    // ... and not during an attempt: the first par comes after the last clean evaluation.
+    let first_par = calls.lines().position(|l| l.starts_with("par ")).unwrap();
+    let all: Vec<&str> = calls.lines().collect();
+    let last_play =
+        all.iter().rposition(|l| l.starts_with("play ") && !l.contains("do-nothing")).unwrap();
+    assert!(first_par > last_play, "par ran during an attempt:\n{calls}");
+}
+
+/// A control is played once per build and tier: a resume on the same build reads it back.
+#[test]
+fn the_controls_are_kept_per_build_and_a_new_build_plays_them_again() {
+    let mut fx = Fixture::new("controls-cache");
+    fx.references = true;
+    let out = fx.campaign("100", &["--attempts", "1"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let count = |fx: &Fixture| {
+        fs::read_to_string(&fx.fn_agent_log)
+            .unwrap()
+            .lines()
+            .filter(|l| l.starts_with("play ") && l.contains("do-nothing"))
+            .count()
+    };
+    assert_eq!(count(&fx), 7, "seven seeds, played once");
+    let dir = fx.campaign_dir();
+    let out = fx.resume("100", &dir, &["--attempts", "1"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(count(&fx), 7, "the same build: read back from the cache");
+    assert!(stdout(&out).contains("do-nothing  screen 7/41"), "{}", stdout(&out));
+
+    fx.extra_env.push(("STUB_BUILD".into(), "stub-2".into()));
+    let out = fx.resume("100", &dir, &["--attempts", "1"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(count(&fx), 14, "another build plays them again");
+    assert!(stdout(&out).contains("references (build stub-2)"), "{}", stdout(&out));
+}
+
+/// `--control GOV@PLAN` adds a fixed strategy to the table; the switches leave par and the
+/// do-nothing control out; a par that can't be made is said so and stops nothing.
+#[test]
+fn a_fixed_control_the_switches_and_a_par_that_fails() {
+    let mut fx = Fixture::new("controls-flags");
+    fx.references = true;
+    fs::write(fx.tmp.join("busy.rhai"), "// SCORE=300\nwait(3);").unwrap();
+    fs::write(fx.tmp.join("busy.json"), r#"{"targets": {"wood": 10}}"#).unwrap();
+    let spec =
+        format!("{}@{}", fx.tmp.join("busy.rhai").display(), fx.tmp.join("busy.json").display());
+    let out = fx.campaign("100", &["--attempts", "1", "--control", &spec, "--no-par"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let table = stdout(&out);
+    assert!(table.contains("do-nothing  screen 7/41"), "{table}");
+    assert!(table.contains("busy        screen 307/341"), "{table}");
+    assert!(!table.contains("par  "), "--no-par: {table}");
+
+    // A par that fails is noted in the table; the campaign and the controls still finish.
+    fx.extra_env.push(("STUB_PAR_FAIL".into(), "1".into()));
+    let dir = fx.campaign_dir();
+    let out = fx.resume("100", &dir, &["--attempts", "1"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let table = stdout(&out);
+    assert!(table.contains("no par: ") && table.contains("par failed"), "{table}");
+    assert!(table.contains("do-nothing  screen 7/41"), "{table}");
+
+    // The switches belong to a campaign.
+    let out = fx.agent_run("1", &["--no-par", "--seed", "3", "--nation", "fire", "--max-usd", "1"]);
+    assert!(
+        !out.status.success() && stderr(&out).contains("--track or --resume"),
+        "{}",
+        stderr(&out)
+    );
 }

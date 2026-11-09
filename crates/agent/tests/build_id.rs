@@ -51,14 +51,14 @@ fn scoring_a_log_from_another_build_warns_and_still_scores() {
     assert_eq!(header.build.as_deref(), Some(CURRENT), "a live host records this build");
 
     let own = write_log("own.jsonl", header.clone(), &lines);
-    let out = fn_agent().arg("score").arg(&own).output().unwrap();
+    let out = fn_agent().arg("score").arg(&own).arg("--no-par").output().unwrap();
     std::fs::remove_file(&own).ok();
     assert!(out.status.success());
     assert!(!String::from_utf8_lossy(&out.stderr).contains("warning"), "the same build is quiet");
 
     let other = RunLogHeader { build: Some("0badc0d+deadbeef".into()), ..header.clone() };
     let log = write_log("other.jsonl", other, &lines);
-    let out = fn_agent().arg("score").arg(&log).arg("--json").output().unwrap();
+    let out = fn_agent().arg("score").arg(&log).arg("--no-par").arg("--json").output().unwrap();
     std::fs::remove_file(&log).ok();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let err = String::from_utf8_lossy(&out.stderr);
@@ -70,7 +70,7 @@ fn scoring_a_log_from_another_build_warns_and_still_scores() {
 
     let old = RunLogHeader { build: None, ..header };
     let log = write_log("old.jsonl", old, &lines);
-    let out = fn_agent().arg("score").arg(&log).output().unwrap();
+    let out = fn_agent().arg("score").arg(&log).arg("--no-par").output().unwrap();
     std::fs::remove_file(&log).ok();
     assert!(out.status.success());
     let err = String::from_utf8_lossy(&out.stderr);
@@ -83,7 +83,7 @@ fn the_appended_score_line_records_the_build_that_computed_it() {
     let (header, lines) = played();
     let other = RunLogHeader { build: Some("0badc0d".into()), ..header };
     let log = write_log("append.jsonl", other, &lines);
-    let out = fn_agent().arg("score").arg(&log).arg("--append").output().unwrap();
+    let out = fn_agent().arg("score").arg(&log).arg("--no-par").arg("--append").output().unwrap();
     assert!(out.status.success());
     let (_, after) = watch::read_file(&log).unwrap();
     std::fs::remove_file(&log).ok();

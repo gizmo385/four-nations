@@ -69,6 +69,7 @@
 
 pub mod carry;
 pub mod clean;
+pub mod par;
 pub mod plan;
 pub mod runlog;
 pub mod scorecard;

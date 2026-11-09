@@ -11,8 +11,9 @@
 //!
 //! What the referee measures is in [`Report::replay`]. What only the log's own lines can say --
 //! script churn: names, one-shot names, turns and acts per script, the governor's share, plan
-//! edits -- is counted here by [`Churn::of`]. `par` is left empty until the balance harness
-//! supplies it (#526).
+//! edits -- is counted here by [`Churn::of`]. `par` (#572) is the Economy opening's scorecard on
+//! the same start ([`crate::par`]); [`build`] leaves it empty, because a par takes tens of seconds
+//! to compute the first time, and [`Report::with_par`] adds it.
 
 use std::fmt::Write as _;
 
@@ -22,6 +23,8 @@ use fn_tui::surface::referee::score::{MilestoneKind, ScoreDef};
 use fn_tui::surface::referee::{self, MILD_WORDS, Replay};
 use fn_tui::surface::{LogLine, RunLogHeader};
 use serde_json::{Value, json};
+
+use crate::par::{self, Par, ParMilestone};
 
 /// The saved script that, by convention, owns a whole settlement
 /// (docs/design/agent-hillclimb.md, "The governor is how, held as code").
@@ -38,8 +41,43 @@ pub struct Report {
     pub header: RunLogHeader,
     pub replay: Replay,
     pub churn: Churn,
-    /// The score of the Economy opening on the same start: not computed yet (#526).
-    pub par: Option<f64>,
+    /// The scorecard of the Economy opening on the same start and horizon (#572; [`crate::par`]
+    /// says what that is and is not), once [`Report::with_par`] has added it.
+    pub par: Option<Par>,
+}
+
+/// Plays the Economy opening on the start `header` describes to `horizon` turns and keeps its
+/// scorecard as a [`Par`]. This is the privileged read (the opening reads `World` directly),
+/// which only this file may name; [`par::get`] caches what it returns.
+pub fn compute_par(header: &RunLogHeader, horizon: u32) -> Result<Par, String> {
+    let run = referee::par(header, horizon, &ScoreDef::bundled())?;
+    let card = &run.card;
+    let milestones = card
+        .milestones
+        .iter()
+        .map(|m| ParMilestone {
+            id: m.id.clone(),
+            name: m.name.clone(),
+            kind: match m.kind {
+                MilestoneKind::Sign => "sign",
+                MilestoneKind::Ready => "ready",
+                MilestoneKind::Stage => "stage",
+            }
+            .to_owned(),
+            met_turn: m.first_met.map(|t| run.turn_of(t)),
+            met_now: m.met_now,
+            credit: m.credit,
+        })
+        .collect();
+    Ok(Par {
+        build: fn_tui::buildid::CURRENT.to_owned(),
+        horizon,
+        score: card.score,
+        progress: card.progress,
+        care: card.care.value,
+        deaths: card.care.deaths,
+        milestones,
+    })
 }
 
 /// Replays `lines` (a log made against `header`) to `horizon` turns (`None`: the log's own last
@@ -52,6 +90,17 @@ pub fn build(
     let replay = referee::score(header, lines, horizon, &ScoreDef::bundled())?;
     let churn = Churn::of(&lines[..replay.lines_used]);
     Ok(Report { header: header.clone(), replay, churn, par: None })
+}
+
+impl Report {
+    /// This report with the par of its own start and horizon (cached per build and start). The
+    /// start comes from the log's header, so the par is the Economy opening's on the very world
+    /// the log began on; the horizon is the report's, the turns it was scored at.
+    pub fn with_par(mut self) -> Result<(Self, par::Source), String> {
+        let (par, source) = par::get(&self.header, self.replay.horizon_turns)?;
+        self.par = Some(par);
+        Ok((self, source))
+    }
 }
 
 /// What one script name did (`run_script {name}` or an inline `run_script {code, note}`, whose
@@ -240,7 +289,8 @@ impl Report {
         }
         let _ = writeln!(out, "{played}\n");
 
-        let par = self.par.map_or(String::new(), |p| format!("        par {p:.0}"));
+        let par =
+            self.par.as_ref().map_or(String::new(), |p| format!("        par {:.0}", p.score));
         let _ = writeln!(
             out,
             "SCORE {:.0}        progress {:.3} \u{d7} care {:.2}{par}\n",
@@ -251,13 +301,22 @@ impl Report {
         let mut rows: Vec<_> = card.milestones.iter().collect();
         rows.sort_by(|a, b| b.credit.total_cmp(&a.credit));
         let width = rows.iter().map(|m| m.name.chars().count()).max().unwrap_or(0).max(8);
+        let par_col = self.par.is_some();
+        let par_met = |id: &str| -> String {
+            self.par
+                .as_ref()
+                .and_then(|p| p.milestones.iter().find(|m| m.id == id))
+                .and_then(|m| m.met_turn)
+                .map_or(String::new(), |t| format!("t{t}"))
+        };
         let _ = writeln!(
             out,
-            "{:<w$}  {:>5}  {:>6}  {:>9}",
+            "{:<w$}  {:>5}  {:>6}  {:>9}{}",
             "PROGRESS",
             "met",
             "credit",
             "at horizon",
+            if par_col { "  par met" } else { "" },
             w = width + 4
         );
         for m in rows {
@@ -278,8 +337,9 @@ impl Report {
                 (MilestoneKind::Sign, false) if !m.met_now => format!("{short} short"),
                 _ => String::new(),
             };
+            let par_cell = if par_col { format!("  {:>7}", par_met(&m.id)) } else { String::new() };
             let line = format!(
-                "  {mark} {:<width$}  {met:>5}  {:>6.2}  {at:>9}  {note}",
+                "  {mark} {:<width$}  {met:>5}  {:>6.2}  {at:>9}{par_cell}  {note}",
                 m.name, m.credit
             );
             let _ = writeln!(out, "{}", line.trim_end());
@@ -292,6 +352,17 @@ impl Report {
             card.credit_total,
             fmt_weight(card.weight_total)
         );
+
+        // PAR.
+        if let Some(p) = &self.par {
+            let _ = writeln!(
+                out,
+                "PAR {:.0}          progress {:.3} \u{d7} care {:.2} \u{b7} deaths {}",
+                p.score, p.progress, p.care, p.deaths
+            );
+            let _ = writeln!(out, "  {}; {}.", par::WHAT, par::NOT);
+            let _ = writeln!(out, "  {}\n", p.reached_line());
+        }
 
         // CARE.
         let c = &card.care;
@@ -490,7 +561,20 @@ impl Report {
             "score": card.score,
             "progress": card.progress,
             "care": c.value,
-            "par": self.par,
+            "par": self.par.as_ref().map(|p| p.score),
+            "par_detail": self.par.as_ref().map(|p| json!({
+                "what": par::WHAT,
+                "not": par::NOT,
+                "build": p.build,
+                "horizon": p.horizon,
+                "score": p.score,
+                "progress": p.progress,
+                "care": p.care,
+                "deaths": p.deaths,
+                "reached": p.reached_count(),
+                "milestones": p.milestones,
+                "not_reached_by_par": p.unreached().iter().map(|m| m.id.clone()).collect::<Vec<_>>(),
+            })),
             "build": fn_tui::buildid::CURRENT,
             "log_build": h.build,
             "horizon": r.horizon_turns,

@@ -2666,6 +2666,84 @@ pub mod referee {
         )
     }
 
+    /// The par of a log's start (#572, docs/design/agent-hillclimb.md, "Tracks: what is
+    /// comparable"): what `fn_sim::autoplay::Economy` scores from the same start at the same
+    /// horizon, as `fn_sim::balance::par` computes it. It is a yardstick of one kind only: a stock
+    /// scripted opening that reads `World` directly (it scrolls out to `SCROLL_RADIUS` tiles, for
+    /// one, which a player has to discover). It is not a target a fair player should hit, and not
+    /// a ceiling.
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct ParRun {
+        /// `Scorecard::compute` on the opening's world at the horizon.
+        pub card: Scorecard,
+        /// The horizon in turns the opening was played to.
+        pub horizon_turns: u32,
+        pub ticks_per_turn: u32,
+    }
+
+    impl ParRun {
+        /// The turn at whose end `tick` was first seen, counted from turn 0 (the same rule as
+        /// [`Replay::turn_of`]).
+        pub fn turn_of(&self, tick: u64) -> u32 {
+            let ticks = u64::from(self.ticks_per_turn.max(1));
+            (tick.saturating_sub(self.card.start_tick)).div_ceil(ticks) as u32
+        }
+    }
+
+    /// The par for the start `header` describes, scored at `horizon_turns` turns past turn 0.
+    ///
+    /// The start is the one [`Host::rebuild`] builds from the same header: no `site` is
+    /// `World::new` on the default map, a `site` is `World::found` on the `map_size` survey, and a
+    /// prelude runs first ([`fn_sim::balance::par_start`] and `par`). A test holds this to that
+    /// (`par_starts_from_the_world_an_agent_plays`). It plays the opening on a world of its own and
+    /// never touches a live game; it takes tens of seconds at a 540-turn horizon, which is why
+    /// `fn_agent` caches the result (`fn_agent::par`).
+    pub fn par(
+        header: &RunLogHeader,
+        horizon_turns: u32,
+        score: &ScoreDef,
+    ) -> Result<ParRun, String> {
+        use fn_sim::balance::{ParOpening, ParPrelude, ParTrack};
+        let defs = fn_sim::Defs::bundled();
+        score.check(&defs).map_err(|e| e.to_string())?;
+        let track = ParTrack {
+            seed: header.seed,
+            nation: header.nation,
+            preset: header.difficulty.clone(),
+            map_size: header.map_size.clone(),
+            site: header.site,
+            prelude: header.prelude.map(|p| ParPrelude {
+                opening: match p.opening {
+                    super::PreludeOpening::Economy => ParOpening::Economy,
+                    super::PreludeOpening::Opening => ParOpening::Opening,
+                },
+                minutes: p.minutes,
+            }),
+            horizon_turns: u64::from(horizon_turns),
+            turn_seconds: header.turn_seconds,
+        };
+        let card = fn_sim::balance::par(&track, &defs, score)?;
+        Ok(ParRun { card, horizon_turns, ticks_per_turn: header.ticks_per_turn })
+    }
+
+    /// The world [`par`] starts from, before any opening plays: for the test that holds it to
+    /// the world a [`Host`] built from the same header starts on.
+    #[cfg(test)]
+    pub(super) fn par_start_world(header: &RunLogHeader) -> Result<fn_sim::World, String> {
+        use fn_sim::balance::ParTrack;
+        let track = ParTrack {
+            seed: header.seed,
+            nation: header.nation,
+            preset: header.difficulty.clone(),
+            map_size: header.map_size.clone(),
+            site: header.site,
+            prelude: None,
+            horizon_turns: 0,
+            turn_seconds: header.turn_seconds,
+        };
+        fn_sim::balance::par_start(&track, &fn_sim::Defs::bundled())
+    }
+
     /// The per-turn samples behind [`Reported`].
     #[derive(Default)]
     struct Sampler {
@@ -2872,6 +2950,33 @@ mod tests {
         assert_eq!(obs.people.total, 6, "a new game's starting settlers");
         assert_eq!(obs.tool, "Select");
         assert!(obs.alerts.is_empty());
+    }
+
+    /// #572: par is the score of a stock opening on the world an agent plays, not on another kind
+    /// of start. The world `referee::par` begins from is, tick for tick and field for field, the
+    /// one a `Host` made from the same header begins on, with no site (`World::new`, the default
+    /// start #582 fixed) and with one (`World::found`).
+    #[test]
+    fn par_starts_from_the_world_an_agent_plays() {
+        let defs = fn_sim::Defs::bundled();
+        let size = defs.embark.map_size("small").unwrap();
+        let survey = fn_sim::embark::Survey::new(&fn_sim::embark::Survey::config(42, size), &defs);
+        let site = survey.default_site(&defs);
+        for (seed, site) in [(7, None), (42, None), (42, Some((site.x, site.y)))] {
+            let h = Host::new(
+                seed,
+                Nation::Water,
+                Some("small".into()),
+                Some("normal".into()),
+                site,
+                false,
+            )
+            .unwrap();
+            // The save text is the whole world: map, units, stores, streams.
+            let played = h.app().session.world.save(&defs).unwrap();
+            let par = referee::par_start_world(&h.header()).unwrap().save(&defs).unwrap();
+            assert!(played == par, "seed {seed}, site {site:?}: the two worlds differ");
+        }
     }
 
     /// `observe().stockpile` (#509) is `fn_ui::view::stockpile_capacity`'s own numbers, straight

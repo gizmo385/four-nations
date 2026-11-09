@@ -515,28 +515,7 @@ pub struct ParTrack {
 /// Errors on an unknown preset or map size, or a site `World::found` refuses. Deterministic:
 /// the same `track` and `defs` always give an equal `Scorecard`.
 pub fn par(track: &ParTrack, defs: &Defs, score: &ScoreDef) -> Result<Scorecard, String> {
-    if let Some(id) = &track.preset
-        && defs.difficulty.preset(id).is_none()
-    {
-        return Err(format!("unknown difficulty preset {id:?}"));
-    }
-    let mut world = match track.site {
-        None => {
-            let cfg = MapGenConfig { seed: track.seed, ..MapGenConfig::default() };
-            let mut world = World::new(&cfg, track.nation, PEOPLE, defs);
-            world.set_difficulty(track.preset.clone());
-            world
-        }
-        Some((x, y)) => {
-            let id = track.map_size.as_deref().unwrap_or("small");
-            let size =
-                defs.embark.map_size(id).ok_or_else(|| format!("unknown map size {id:?}"))?;
-            let survey = Survey::new(&Survey::config(track.seed, size), defs);
-            World::found(survey, track.nation, Pos::new(x, y), PEOPLE, track.preset.clone(), defs)
-                .map_err(|p| format!("can't start at ({x}, {y}): {p:?}"))?
-        }
-    };
-
+    let mut world = par_start(track, defs)?;
     let prelude_ticks = track.prelude.map_or(0, |p| minutes_to_ticks(p.minutes));
     let turn_ticks = u64::from(track.turn_seconds.max(1)) * u64::from(TICKS_PER_SECOND);
     let horizon = prelude_ticks + track.horizon_turns * turn_ticks;
@@ -562,6 +541,39 @@ pub fn par(track: &ParTrack, defs: &Defs, score: &ScoreDef) -> Result<Scorecard,
         start = ScoreStart::of(&world);
     }
     Ok(Scorecard::compute(&world, defs, score, &start, horizon))
+}
+
+/// The world a [`ParTrack`] starts from, before any opening plays: the world a player or an
+/// agent begins on for the same start fields. With no `site` that is `World::new` on the default
+/// map (what plain `fn_tui SEED NATION` and `fn_agent play` without `--start` build, with the
+/// centre-spiral spawn #582 made keep to one connected region); with a `site` it is
+/// `World::found` on the `map_size` survey. The balance harness's own runs start from
+/// `World::found` at `Survey::default_site` instead, so a par that has to sit beside an agent's
+/// score is made from this and not from `run_economy`.
+///
+/// Errors on an unknown preset or map size, or a site `World::found` refuses.
+pub fn par_start(track: &ParTrack, defs: &Defs) -> Result<World, String> {
+    if let Some(id) = &track.preset
+        && defs.difficulty.preset(id).is_none()
+    {
+        return Err(format!("unknown difficulty preset {id:?}"));
+    }
+    match track.site {
+        None => {
+            let cfg = MapGenConfig { seed: track.seed, ..MapGenConfig::default() };
+            let mut world = World::new(&cfg, track.nation, PEOPLE, defs);
+            world.set_difficulty(track.preset.clone());
+            Ok(world)
+        }
+        Some((x, y)) => {
+            let id = track.map_size.as_deref().unwrap_or("small");
+            let size =
+                defs.embark.map_size(id).ok_or_else(|| format!("unknown map size {id:?}"))?;
+            let survey = Survey::new(&Survey::config(track.seed, size), defs);
+            World::found(survey, track.nation, Pos::new(x, y), PEOPLE, track.preset.clone(), defs)
+                .map_err(|p| format!("can't start at ({x}, {y}): {p:?}"))
+        }
+    }
 }
 
 fn minutes_to_ticks(minutes: f32) -> u64 {

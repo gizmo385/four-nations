@@ -21,6 +21,19 @@
 //!   --out DIR        keep each run's log as `DIR/seed-N.jsonl` (default: a scratch folder,
 //!                    removed afterwards)
 //!   --tracks FILE    a tracks file other than `data/tracks.toml` (for tests)
+//!   --control GOV[@PLAN]  also play this fixed governor, with its plan if given (the syntax
+//!                    `agent-compare` takes), beside the champion; repeatable. No model.
+//!   --no-par         leave par out
+//!   --no-controls    leave the do-nothing control out (with it, `loop { wait(10); }` is played
+//!                    on the same seeds, and kept per build and tier)
+//!
+//! Beside the scores the table shows **par** and the controls on the same seeds (#572). Par is
+//! what a stock scripted opening reaches on this start, reading the world directly: not a target
+//! a fair player should hit, and not a ceiling. It is computed once per build and seed
+//! (`fn_agent par` keeps it under $FN_AGENT_CACHE, else ~/.cache/four-nations, never in a run
+//! folder), so only the first evaluation on a build pays for it, and the time is printed. The
+//! owner-only tier's par is included when that tier is evaluated. A failure to make par or a
+//! control is reported under the table and does not stop it. None of this reaches a prompt.
 //!
 //! A run whose script was stopped by an error or a runaway (`fn_agent play` exits nonzero and
 //! reports `stopped_by`) is still a valid result: the colony coasted to the horizon and the score
@@ -46,6 +59,7 @@ use serde_json::{Value, json};
 
 use crate::Result;
 use crate::agent_run::{Handoff, NATIONS, cargo_build_release};
+use crate::references::{self, References};
 
 pub(crate) mod paired;
 
@@ -392,25 +406,45 @@ impl Table {
         self.rows.iter().filter(|r| r.stopped.is_some()).count()
     }
 
+    #[cfg(test)]
     pub(crate) fn text(&self) -> String {
+        self.text_with(None)
+    }
+
+    /// The table, with par and the controls as columns beside each seed when `refs` has them
+    /// (#572), and under it the tiers' means for each and what par had not reached.
+    pub(crate) fn text_with(&self, refs: Option<&References>) -> String {
+        let refs = refs.filter(|r| !r.is_empty());
         let mut out = String::new();
         let _ = writeln!(
             out,
             "agent-eval · {} · horizon {}                    (owner tier: owner only)",
             self.track, self.horizon
         );
-        let _ = writeln!(
-            out,
-            " {:>8}  {:<7}  {:>7}  {:>8}  {:>5}  {:>6}  note",
+        // The reference columns: par if there is one, then a column per control.
+        let has_par = refs.is_some_and(|r| !r.par.is_empty());
+        let labels: Vec<String> =
+            refs.map_or_else(Vec::new, |r| r.controls.iter().map(|c| c.label.clone()).collect());
+        let col_w = |label: &str| label.chars().count().clamp(5, 12);
+        let mut head = format!(
+            " {:>8}  {:<7}  {:>7}  {:>8}  {:>5}  {:>6}",
             "seed", "tier", "score", "progress", "care", "deaths"
         );
+        if has_par {
+            let _ = write!(head, "  {:>5}", "par");
+        }
+        for c in &labels {
+            let _ = write!(head, "  {:>w$.w$}", c, w = col_w(c));
+        }
+        head.push_str("  note");
+        let _ = writeln!(out, "{head}");
         for r in &self.rows {
             let note = match &r.stopped {
                 Some(s) => format!("stopped by {} at turn {}", s.reason, s.turn),
                 None => String::new(),
             };
-            let line = format!(
-                " {:>8}  {:<7}  {:>7.1}  {:>8.3}  {:>5.3}  {:>6}  {note}",
+            let mut line = format!(
+                " {:>8}  {:<7}  {:>7.1}  {:>8.3}  {:>5.3}  {:>6}",
                 r.seed,
                 r.role.word(),
                 r.score,
@@ -418,6 +452,17 @@ impl Table {
                 r.care,
                 r.deaths
             );
+            let cell = |v: Option<f64>| v.map_or("-".to_owned(), |v| format!("{v:.1}"));
+            if let Some(refs) = refs {
+                if has_par {
+                    let _ = write!(line, "  {:>5}", cell(refs.par_of(r.seed).map(|p| p.score)));
+                }
+                for c in &labels {
+                    let v = refs.control_of(c, r.seed).map(|s| s.score);
+                    let _ = write!(line, "  {:>w$}", cell(v), w = col_w(c));
+                }
+            }
+            let _ = write!(line, "  {note}");
             let _ = writeln!(out, "{}", line.trim_end());
         }
         let _ = writeln!(out);
@@ -425,12 +470,24 @@ impl Table {
             let Some(m) = self.mean_of(role) else { continue };
             let n = self.rows_of(role).count();
             let sd = paired::sd(&self.rows_of(role).map(|r| r.score).collect::<Vec<_>>());
-            let _ = writeln!(
-                out,
+            let mut line = format!(
                 "{:<7} mean {m:>7.1}  sd {sd:>5.1}  {n} seed(s)   {}",
                 role.word(),
                 self.failures(role).text()
             );
+            if let Some(r) = refs {
+                if let Some(p) = r.par_mean(role) {
+                    let _ = write!(line, "   par mean {p:.1}");
+                }
+                for c in &r.controls {
+                    let scores: Vec<f64> =
+                        c.seeds.iter().filter(|s| s.tier == role.word()).map(|s| s.score).collect();
+                    if !scores.is_empty() {
+                        let _ = write!(line, "   {} mean {:.1}", c.label, paired::mean(&scores));
+                    }
+                }
+            }
+            let _ = writeln!(out, "{line}");
         }
         let _ = writeln!(
             out,
@@ -438,10 +495,22 @@ impl Table {
              as usual.",
             self.collapse_below
         );
+        if let Some(r) = refs {
+            let _ = writeln!(out);
+            let tiers: Vec<Role> =
+                Role::ALL.into_iter().filter(|t| self.rows_of(*t).next().is_some()).collect();
+            out.push_str(&r.text(&tiers));
+        }
         out
     }
 
+    #[cfg(test)]
     pub(crate) fn json(&self) -> Value {
+        self.json_with(None)
+    }
+
+    /// [`Self::json`], with par and the controls under `references` when there are any.
+    pub(crate) fn json_with(&self, refs: Option<&References>) -> Value {
         let row = |r: &Row| {
             json!({
                 "seed": r.seed,
@@ -471,6 +540,11 @@ impl Table {
                 "death_seeds": f.death_seeds,
                 "stopped": f.stopped,
             });
+        }
+        if let Some(r) = refs.filter(|r| !r.is_empty()) {
+            v["references"] = serde_json::to_value(r).unwrap_or(Value::Null);
+            v["references_what"] = json!(references::PAR_WORDS);
+            v["par_not_reached"] = json!(r.ceiling_lines());
         }
         v
     }
@@ -512,7 +586,7 @@ pub(crate) fn parse_report(seed: u64, role: Role, stdout: &str) -> Result<Row> {
 /// `$FN_AGENT_PLAY_TIMEOUT_SECS` overrides it (tests use a second).
 const PLAY_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 
-fn play_timeout() -> Duration {
+pub(crate) fn play_timeout() -> Duration {
     std::env::var("FN_AGENT_PLAY_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -523,7 +597,12 @@ fn play_timeout() -> Duration {
 /// the limit the child is killed and this is an error naming `what`: a failure of the harness,
 /// reported as such and never as a score (the clock decides nothing a score reads, so a slow
 /// machine can only turn a result into an error, never into a different result).
-fn run_bounded(cmd: &mut Command, limit: Duration, what: &str, program: &Path) -> Result<Output> {
+pub(crate) fn run_bounded(
+    cmd: &mut Command,
+    limit: Duration,
+    what: &str,
+    program: &Path,
+) -> Result<Output> {
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| format!("can't run {}: {e}", program.display()))?;
     // Drain both pipes on threads so a chatty child can't block on a full pipe.
@@ -792,6 +871,19 @@ pub(crate) fn fn_agent_binary(repo: &Path) -> Result<PathBuf> {
     }
 }
 
+/// What `fn_agent build-id` prints: the build the scores and the cached pars are on. `unknown`
+/// when the binary can't say, which `references` never caches under.
+pub(crate) fn fn_agent_build(fn_agent: &Path) -> String {
+    Command::new(fn_agent)
+        .arg("build-id")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+        .filter(|b| !b.is_empty())
+        .unwrap_or_else(|| "unknown".to_owned())
+}
+
 /// `--tiers LIST`: the tiers named, comma separated, in the order of [`Role::ALL`].
 pub(crate) fn parse_tiers(list: &str) -> Result<Vec<Role>> {
     let named = list.split(',').map(|w| Role::parse(w.trim())).collect::<Result<Vec<_>>>()?;
@@ -807,6 +899,10 @@ struct Opts {
     tracks: Option<PathBuf>,
     threads: Option<usize>,
     tiers: Option<Vec<Role>>,
+    /// `--control GOV[@PLAN]`, repeatable (#572).
+    controls: Vec<String>,
+    no_par: bool,
+    no_controls: bool,
 }
 
 fn parse_args(args: &[&str]) -> Result<Opts> {
@@ -826,6 +922,9 @@ fn parse_args(args: &[&str]) -> Result<Opts> {
             }
             "--tiers" => o.tiers = Some(parse_tiers(value()?)?),
             "--json" => o.json = true,
+            "--control" => o.controls.push(value()?.to_owned()),
+            "--no-par" => o.no_par = true,
+            "--no-controls" => o.no_controls = true,
             "-h" | "--help" => return Err(help()),
             other => return Err(format!("unknown flag {other:?}\n\n{}", help())),
         }
@@ -859,10 +958,30 @@ pub fn run(args: &[&str]) -> Result {
     }
     let table = result?;
 
-    if opts.json {
-        println!("{}", serde_json::to_string_pretty(&table.json()).map_err(|e| e.to_string())?);
+    // Par and the controls (#572), on the tiers just evaluated. They are context beside the
+    // scores, so a failure to make them is reported in the table and stops nothing.
+    let refs = if opts.no_par && opts.no_controls && opts.controls.is_empty() {
+        None
     } else {
-        print!("{}", table.text());
+        let controls = references::controls_for(&opts.controls, !opts.no_controls)?;
+        let build = fn_agent_build(&fn_agent);
+        let want = references::Want { par: !opts.no_par, controls: &controls };
+        let mut refs = references::gather(&fn_agent, &track, &tiers, &want, threads, &build);
+        // How long par took is on stderr; the table and the JSON are the same bytes whether the
+        // pars were cached or not.
+        refs.par_secs = None;
+        refs.par_computed = None;
+        Some(refs)
+    };
+
+    if opts.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&table.json_with(refs.as_ref()))
+                .map_err(|e| e.to_string())?
+        );
+    } else {
+        print!("{}", table.text_with(refs.as_ref()));
     }
     Ok(())
 }

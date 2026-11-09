@@ -93,6 +93,14 @@
 //!                      --attempts means N more, --max-usd this invocation's cap. Refused for a
 //!                      folder with no ledger, or whose track's horizon or seeds no longer match
 //!                      the tracks file (those scores wouldn't be comparable).
+//!   --control GOV[@PLAN]  with --track or --resume: also play this fixed governor (and plan,
+//!                      the `agent-compare` syntax) with no model on the track's seeds, and show
+//!                      it in the owner's table beside par and the do-nothing control. Repeatable.
+//!   --no-par           leave par out of the owner's table (par is what a stock scripted opening
+//!                      reaches on this start, reading the world directly; computed once per
+//!                      build and seed and kept outside the run folders; owner only, never in a
+//!                      prompt)
+//!   --no-controls      leave the do-nothing control (`loop { wait(10); }`) out of that table
 //!   --tracks FILE      a tracks file other than data/tracks.toml (for tests)
 //!   --claude-bin PATH  the `claude` binary to run (default: $FN_AGENT_CLAUDE_BIN, else
 //!                      `claude` resolved on PATH) -- tests point this at a stub; the real
@@ -287,6 +295,13 @@ struct Opts {
     resume_dir: Option<PathBuf>,
     /// `--tracks FILE` (#530): a tracks file other than `data/tracks.toml`.
     tracks_file: Option<PathBuf>,
+    /// `--control GOVERNOR.rhai[@PLAN.json]` (#572), repeatable: fixed strategies played with no
+    /// model on the track's seeds and shown under the owner's table beside par.
+    controls: Vec<String>,
+    /// `--no-par` (#572): leave par out of the owner's table.
+    no_par: bool,
+    /// `--no-controls` (#572): leave the do-nothing control out of the owner's table.
+    no_controls: bool,
     /// A campaign attempt's own run, which the track sets up rather than the flags above
     /// (#530): `fn_agent serve --map-size`, `--start`, `--prelude`, `--carry-in`, and the
     /// first chunk's prompt (`--prompt` replaces every chunk's).
@@ -394,6 +409,9 @@ fn parse_args_with(args: &[&str], entropy: Entropy) -> Result<Opts> {
         attempts: None,
         resume_dir: None,
         tracks_file: None,
+        controls: Vec::new(),
+        no_par: false,
+        no_controls: false,
         map_size: None,
         site: None,
         prelude: None,
@@ -475,6 +493,9 @@ fn parse_args_with(args: &[&str], entropy: Entropy) -> Result<Opts> {
             "--tracks" => {
                 o.tracks_file = Some(PathBuf::from(take_value(args, &mut i, "--tracks")?));
             }
+            "--control" => o.controls.push(take_value(args, &mut i, "--control")?.to_string()),
+            "--no-par" => o.no_par = true,
+            "--no-controls" => o.no_controls = true,
             "--claude-bin" => o.claude_bin = take_value(args, &mut i, "--claude-bin")?.to_string(),
             "-h" | "--help" => {
                 o.help = true;
@@ -518,6 +539,11 @@ fn validate(o: &Opts) -> Result {
     }
     if o.attempts.is_some() || o.tracks_file.is_some() {
         return Err("--attempts and --tracks only apply with --track or --resume".into());
+    }
+    if !o.controls.is_empty() || o.no_par || o.no_controls {
+        return Err("--control, --no-par and --no-controls only apply with --track or --resume \
+                     (they shape the owner's table of a campaign)"
+            .into());
     }
     if o.scenario.is_some() && (o.seed_given || o.nation_given || o.difficulty_given) {
         return Err("--scenario can't be combined with --seed, --nation or --difficulty".into());

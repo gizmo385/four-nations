@@ -90,6 +90,9 @@ impl Fixture {
             .arg(self.tmp.join("tracks.toml"))
             .args(extra)
             .env("FN_AGENT_BIN", fn_agent_bin())
+            // Par and the controls are kept per build (#572): in this test's own folder, never
+            // the owner's cache.
+            .env("FN_AGENT_CACHE", self.tmp.join("cache"))
             .output()
             .unwrap()
     }
@@ -259,4 +262,96 @@ fn a_child_that_never_returns_is_killed_and_reported_not_scored() {
     let err = stderr(&out);
     assert!(err.contains("seed 7") && err.contains("ran longer than 1 s"), "{err}");
     assert!(stdout(&out).is_empty(), "no table for a harness failure: {}", stdout(&out));
+}
+
+/// Par and the do-nothing control sit beside the scores (#572), described as what a stock
+/// scripted opening reaches reading the world directly, and kept per build: a second evaluation
+/// prints the same table from the cache.
+#[test]
+fn par_and_the_do_nothing_control_sit_beside_the_scores() {
+    let fx = Fixture::new("refs");
+    let champion = fx.champion(&[("governor", "wait(2);")], None);
+    let a = fx.eval(&champion, &[]);
+    assert!(a.status.success(), "{}", stderr(&a));
+    let text = stdout(&a);
+    let head = text.lines().find(|l| l.contains("progress")).expect("a header");
+    assert!(head.contains("par") && head.contains("do-nothing"), "{head}");
+    for needle in [
+        "references (build ",
+        "par ",
+        "what a stock scripted opening reaches on this start, reading the world directly",
+        "not a target a fair player should hit, and not a ceiling",
+        "par mean",
+        "do-nothing mean",
+    ] {
+        assert!(text.contains(needle), "missing {needle:?} in\n{text}");
+    }
+    assert!(stderr(&a).contains("computed"), "{}", stderr(&a));
+    // The cache holds one par per seed and one control file per tier, under the build.
+    let cache = fx.tmp.join("cache");
+    let count = |sub: &str| {
+        fs::read_dir(cache.join(sub))
+            .unwrap()
+            .flat_map(|b| fs::read_dir(b.unwrap().path()).unwrap())
+            .count()
+    };
+    assert_eq!((count("par"), count("controls")), (5, 3));
+    // A second evaluation reads them back: the same bytes, nothing computed.
+    let b = fx.eval(&champion, &["--threads", "1"]);
+    assert_eq!(text, stdout(&b));
+    assert!(stderr(&b).contains("0 computed"), "{}", stderr(&b));
+}
+
+/// `--control GOV@PLAN` is the syntax `agent-compare` takes; `--no-par` and `--no-controls` leave
+/// the references out, and then the table is the one from before.
+#[test]
+fn a_fixed_governor_control_and_the_switches() {
+    let fx = Fixture::new("control");
+    let champion = fx.champion(&[("governor", "wait(2);")], None);
+    fs::write(fx.tmp.join("busy.rhai"), "wait(3);").unwrap();
+    fs::write(fx.tmp.join("busy.json"), r#"{"targets": {"wood": 10}}"#).unwrap();
+    let spec =
+        format!("{}@{}", fx.tmp.join("busy.rhai").display(), fx.tmp.join("busy.json").display());
+    let out = fx.eval(&champion, &["--no-par", "--control", &spec, "--json"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let j: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    let labels: Vec<&str> = j["references"]["controls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["label"].as_str().unwrap())
+        .collect();
+    assert_eq!(labels, ["do-nothing", "busy"], "{j}");
+    assert!(j["references"].get("par").is_none(), "--no-par: {j}");
+    assert_eq!(j["references"]["controls"][1]["seeds"].as_array().unwrap().len(), 5);
+
+    let plain = fx.eval(&champion, &["--no-par", "--no-controls"]);
+    assert!(plain.status.success(), "{}", stderr(&plain));
+    let text = stdout(&plain);
+    assert!(!text.contains("references") && !text.contains("par"), "{text}");
+    let bad = fx.eval(&champion, &["--control", "nowhere.rhai"]);
+    assert!(!bad.status.success() && stderr(&bad).contains("nowhere.rhai"), "{}", stderr(&bad));
+}
+
+/// Par is for one start: a track's seeds give pars of their own, and the same track on another
+/// build or horizon would be another file. This one pins that a par equals what `fn_agent par`
+/// prints for the same flags (the table's number is that number).
+#[test]
+fn the_tables_par_is_what_fn_agent_par_prints() {
+    let fx = Fixture::new("parnum");
+    let champion = fx.champion(&[("governor", "wait(2);")], None);
+    let out = fx.eval(&champion, &["--no-controls", "--json", "--tiers", "screen"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let j: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    let table_par = j["references"]["par"][0]["score"].as_f64().unwrap();
+    let direct = Command::new(fn_agent_bin())
+        .args(["par", "--seed", "7", "--nation", "water", "--difficulty", "normal"])
+        .args(["--map-size", "small", "--horizon", "4", "--json"])
+        .env("FN_AGENT_CACHE", fx.tmp.join("other-cache"))
+        .output()
+        .unwrap();
+    assert!(direct.status.success(), "{}", stderr(&direct));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&direct)).unwrap();
+    assert_eq!(v["cached"], false);
+    assert_eq!(v["score"].as_f64().unwrap(), table_par);
 }

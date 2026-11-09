@@ -46,6 +46,7 @@ use serde_json::{Value, json};
 
 use super::*;
 use crate::agent_eval::{self, Role, Strategy, Table, Track, paired};
+use crate::references::{self, References};
 
 const LEDGER: &str = "ledger.json";
 const CHAMPION: &str = "champion";
@@ -187,6 +188,11 @@ struct Ledger {
     /// Each time a resume re-evaluated the champion on a new build, in order (#566).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     reevals: Vec<Reeval>,
+    /// Par and the controls on the track's seeds, as of the last invocation that measured them
+    /// (#572). For the owner's table only; optional, so a ledger without it reads as before and
+    /// a reader that doesn't know it ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    references: Option<References>,
 }
 
 /// The champion, evaluated again on a different build than the one its means came from (#566,
@@ -472,9 +478,9 @@ fn owner_cell(owner: &[SeedScore], collapse_below: f64) -> String {
 /// The ledger as a table, one row per attempt. The columns every reader gets: the screen scores
 /// and their mean, the gate mean, the gain over the champion with its interval, and the gate's
 /// collapse count. With `owner` it also has the gate's deaths, the owner-only tier's summary
-/// and each attempt's cost; the text a prompt gets is `ledger_text(ledger, false)`, which has
-/// none of those. To add a column, push its header in `head` and its cell in the row, in the
-/// same place.
+/// and each attempt's cost, then par and the controls (#572); the text a prompt gets is
+/// `ledger_text(ledger, false)`, which has none of those. To add a column, push its header in
+/// `head` and its cell in the row, in the same place.
 fn ledger_text(ledger: &Ledger, owner: bool) -> String {
     let t = &ledger.track;
     let mut head = vec![
@@ -565,6 +571,12 @@ fn ledger_text(ledger: &Ledger, owner: bool) -> String {
     }
     for line in stop_lines(&ledger.rows).into_iter().chain(reeval_lines(&ledger.reevals)) {
         let _ = writeln!(out, " {line}");
+    }
+    // Par and the controls (#572): the owner's table only, never a prompt's. A prompt gets no
+    // number from data the model could not see.
+    if owner && let Some(refs) = ledger.references.as_ref().filter(|r| !r.is_empty()) {
+        let _ = writeln!(out);
+        out.push_str(&refs.text(&Role::ALL));
     }
     out
 }
@@ -763,7 +775,7 @@ pub(super) fn run(repo: &Path, opts: &Opts) -> Result {
         (Some(id), _) => {
             let track = agent_eval::load_track(&tracks_path, id)?;
             let dir = new_campaign_dir(&runs_dir(), &track.id)?;
-            let ledger = Ledger { track, rows: Vec::new(), reevals: Vec::new() };
+            let ledger = Ledger { track, rows: Vec::new(), reevals: Vec::new(), references: None };
             write_ledger(&dir, &ledger)?;
             (dir, ledger, true)
         }
@@ -796,6 +808,7 @@ pub(super) fn run(repo: &Path, opts: &Opts) -> Result {
     let mut campaign = Campaign { repo, dir, ledger, fn_agent, build, threads, opts };
     campaign.reevaluate_champion()?;
     campaign.climb(attempts)?;
+    campaign.measure_references();
     print!("{}", ledger_text(&campaign.ledger, true));
     say(&format!("ledger: {}", campaign.dir.join(LEDGER).display()));
     if let Some(c) = read_champion(&campaign.dir)? {
@@ -878,6 +891,39 @@ fn build_words(build: Option<&String>) -> String {
 }
 
 impl Campaign<'_> {
+    /// Par and the controls on every tier (#572), once the attempts are done: par is computed
+    /// once per build and seed and kept outside the run folders (`fn_agent par`), the controls
+    /// per build and tier (`references::controls_many`), so a resume on the same build costs
+    /// nothing. It runs here and not during an attempt, and says how long it took. These are
+    /// context for the owner: a failure is noted in the ledger and the table and never stops the
+    /// campaign, and nothing measured here reaches a prompt (`ledger_text(.., false)` leaves it
+    /// out).
+    fn measure_references(&mut self) {
+        let controls = match references::controls_for(&self.opts.controls, !self.opts.no_controls) {
+            Ok(c) => c,
+            Err(e) => {
+                say(&format!("no controls: {e}"));
+                Vec::new()
+            }
+        };
+        if self.opts.no_par && controls.is_empty() {
+            return;
+        }
+        let want = references::Want { par: !self.opts.no_par, controls: &controls };
+        let refs = references::gather(
+            &self.fn_agent,
+            &self.ledger.track,
+            &Role::ALL,
+            &want,
+            self.threads,
+            &self.build,
+        );
+        self.ledger.references = Some(refs);
+        if let Err(e) = write_ledger(&self.dir, &self.ledger) {
+            say(&format!("couldn't record par and the controls in the ledger: {e}"));
+        }
+    }
+
     /// Evaluates the champion again on this build, when its means came from another (#566) or
     /// its gate scores aren't on file for this build (#571): runs are deterministic, so the same
     /// strategy scores the same on the same build and nothing changes; on another build the sim
@@ -1374,7 +1420,7 @@ fn score_played(fn_agent: &Path, log: &Path, horizon: u32) -> Option<f64> {
     let out = Command::new(fn_agent)
         .arg("score")
         .arg(log)
-        .args(["--horizon", &horizon.to_string(), "--json", "--append"])
+        .args(["--horizon", &horizon.to_string(), "--json", "--append", "--no-par"])
         .output()
         .ok()?;
     if !out.status.success() {
@@ -1394,7 +1440,8 @@ fn scorecard_text(fn_agent: &Path, log: &Path, horizon: u32) -> String {
     let out = Command::new(fn_agent)
         .arg("score")
         .arg(log)
-        .args(["--horizon", &horizon.to_string()])
+        // No par (#572): this text goes into the next prompt, and par is not for the model.
+        .args(["--horizon", &horizon.to_string(), "--no-par"])
         .output();
     match out {
         Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
@@ -1483,6 +1530,7 @@ mod tests {
                 },
             ],
             reevals: Vec::new(),
+            references: None,
         }
     }
 
@@ -1504,6 +1552,39 @@ mod tests {
 
     /// The prompt's table has the screen scores and the gate's aggregates, and nothing of the
     /// owner-only tier: no seed, score, count or the tier's name; no cost.
+    /// Par and the controls (#572) are the owner's: the owner text has them and the prompt's
+    /// never does, whatever the ledger holds.
+    #[test]
+    fn par_and_the_controls_are_in_the_owner_text_and_never_the_prompts() {
+        let mut l = ledger();
+        l.references = Some(References {
+            build: "abc".into(),
+            horizon: 2,
+            par: vec![references::ParSeed {
+                seed: 1,
+                tier: "screen".into(),
+                score: 4321.0,
+                progress: 0.4,
+                care: 1.0,
+                deaths: 0,
+                reached: 1,
+                total: 2,
+                unreached: vec!["Ready".into()],
+            }],
+            ..References::default()
+        });
+        let owner = ledger_text(&l, true);
+        assert!(owner.contains("references (build abc)") && owner.contains("4321"), "{owner}");
+        let prompt = ledger_text(&l, false);
+        assert_eq!(prompt, ledger_text(&ledger(), false), "the same text as with no references");
+        assert!(!prompt.contains("4321") && !prompt.contains("par"), "{prompt}");
+        // A ledger written without them reads back, and one with them round-trips.
+        let back: Ledger = serde_json::from_str(&serde_json::to_string(&l).unwrap()).unwrap();
+        assert_eq!(back, l);
+        let bare = serde_json::to_string(&ledger()).unwrap();
+        assert!(!bare.contains("references"), "left out of the file when there are none");
+    }
+
     #[test]
     fn the_prompt_table_never_shows_the_owner_tier_or_cost() {
         let t = ledger_text(&ledger(), false);
@@ -1776,7 +1857,8 @@ mod tests {
         fs::create_dir_all(tmp.join("champion")).unwrap();
         let l = ledger();
         assert_eq!(next_attempt(&tmp, &l), 5, "attempt-4 was left unfinished: not reused");
-        let empty = Ledger { track: track(), rows: Vec::new(), reevals: Vec::new() };
+        let empty =
+            Ledger { track: track(), rows: Vec::new(), reevals: Vec::new(), references: None };
         assert_eq!(next_attempt(&tmp.join("nowhere"), &empty), 1);
         let _ = fs::remove_dir_all(&tmp);
     }
