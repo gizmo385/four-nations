@@ -210,12 +210,14 @@ fn every_observed_leaf_appears_in_a_reachable_screen_for_every_nation() {
     }
 }
 
-/// A settlement well into its game (an Economy opening, as a `data/scenarios.toml` preset runs
-/// it), so research has unlocked more than the signature ability.
+/// A settlement whose research has unlocked more than the signature ability: an hour of the
+/// Economy opening researching branch-first, so the nation's own branch comes before the shared
+/// tier. Every nation has a second ability by then on seed 7 (Air, Earth and Fire by minute 20,
+/// Water by 45). The default research order took three hours to get even Earth there.
 fn midgame(nation: Nation) -> Host {
     Host::new(7, nation, None, None, None, false)
         .unwrap()
-        .with_prelude(Prelude { opening: PreludeOpening::Economy, minutes: 180.0 })
+        .with_prelude(Prelude { opening: PreludeOpening::EconomyBranchFirst, minutes: 60.0 })
 }
 
 /// #586: `screen {"bend"}` is the Bend tool banner. For every nation, in a new game and at
@@ -227,13 +229,7 @@ fn midgame(nation: Nation) -> Host {
 fn the_bend_screen_matches_the_banner_for_every_nation() {
     let mut multi = 0;
     for nation in Nation::ALL {
-        let mut hosts = vec![("new game", golden_scenario(nation))];
-        // Only Earth has a second ability inside three game hours of the Economy opening; the
-        // others' unlocks take longer than a test should. A choice of which test hosts to
-        // build, not a rule.
-        if nation == Nation::Earth {
-            hosts.push(("midgame", midgame(nation)));
-        }
+        let hosts = [("new game", golden_scenario(nation)), ("midgame", midgame(nation))];
         for (when, mut h) in hosts {
             let listed = bend_rows(&h);
             assert!(!listed.is_empty(), "{nation:?} {when}");
@@ -274,5 +270,9 @@ fn the_bend_screen_matches_the_banner_for_every_nation() {
             }
         }
     }
-    assert!(multi > 0, "the midgame settlement should have unlocked a second ability");
+    assert_eq!(
+        multi,
+        Nation::ALL.len(),
+        "every nation's midgame settlement should have unlocked a second ability"
+    );
 }

@@ -173,6 +173,8 @@ impl Fixture {
         let real_path = std::env::var("PATH").unwrap_or_default();
         cmd.env("PATH", format!("{}:{real_path}", self.bin_dir.display()));
         cmd.env("FN_AGENT_RUNS", &self.runs_dir);
+        // The stub agent writes nothing after it exits: no need to wait for it.
+        cmd.env("FN_AGENT_FINISH_LOG_SETTLE_MS", "0");
         cmd.env_remove("OTEL_RESOURCE_ATTRIBUTES");
         // The player's empty working directory goes under $TMPDIR and its transcripts under
         // $CLAUDE_CONFIG_DIR (#567): keep both inside the fixture.
@@ -468,7 +470,9 @@ fn every_chunk_runs_in_an_empty_sandbox_dir_with_the_clean_flags() {
     let calls_log = fx.tmp.join("calls.txt");
     // A relative runs dir, resolved against the cwd xtask is started from.
     let mut cmd = fx.capped();
-    cmd.current_dir(&fx.tmp).env("FN_AGENT_RUNS", "rel-runs");
+    cmd.current_dir(&fx.tmp)
+        .env("FN_AGENT_RUNS", "rel-runs")
+        .env("FN_AGENT_FINISH_LOG_SETTLE_MS", "0");
     let status = cmd
         .args(["--chunk-turns", "1", "--turns", "2", "--seed", "3", "--nation", "water"])
         .env("STUB_ARGS", &calls_log)
