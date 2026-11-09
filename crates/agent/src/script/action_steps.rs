@@ -33,7 +33,9 @@ const ACTION_STEP_DOCS: &[ActionStepDoc] = &[
                  withdraws only job designations (a harvest, a bend, a sow or a clear mark) \
                  and leaves a build site or stockpile tile alone; with it, those go too. \
                  ability only applies when tool is \"bend\": the ability's own name (as the \
-                 Bend tool's own banner shows it, e.g. \"Bore Tunnel\"); with none given, the \
+                 Bend tool's own banner shows it, as screen(\"bend\") lists them -- each nation's \
+                 abilities are its own, so read the list rather than guessing a name); with \
+                 none given, the \
                  Bend tool is picked (or kept) without changing which ability is active. Any \
                  of these three set on the wrong tool, or an ability that's unknown or not yet \
                  usable, fails to plan.",

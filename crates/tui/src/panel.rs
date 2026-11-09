@@ -42,11 +42,11 @@
 use fn_sim::Pos;
 use fn_sim::building::BuildingId;
 use fn_sim::world::{CommandError, Unit};
+use fn_ui::bend;
 use fn_ui::build;
 use fn_ui::endeavor::EndeavorStatus;
 use fn_ui::inspect::{Hint, Line, tile_lines, tooltip_lines};
-use fn_ui::text::{caster_label, describe_stack};
-use fn_ui::tools::bend_ability;
+use fn_ui::text::describe_stack;
 use fn_ui::view::{
     Activity, SeasonView, SideView, activity_counts, food_in_stores, materials, need_flags,
     season_view, side_view,
@@ -429,14 +429,12 @@ fn picker_rows(
 /// than grow a row per ability learned. Empty off the Bend tool, or with nothing castable, which
 /// keeps the Build tool's `picker_rows` in the same slot.
 fn bend_ability_rows(session: &Session, marks: &Marks) -> Vec<Row> {
-    let defs = &session.defs;
-    let Some(current) = bend_ability(session) else { return Vec::new() };
-    let def = defs.ability(current);
-    let casters = session.world.caster_count(current, defs);
+    let view = bend::view(session);
+    let Some(current) = view.current() else { return Vec::new() };
     vec![Row::pair(
-        format!("{}{}", marks.pointer, def.name),
+        format!("{}{}", marks.pointer, current.name),
         Tone::Title,
-        caster_label(def.rank, casters),
+        current.casters.clone(),
         Tone::Dim,
     )]
 }

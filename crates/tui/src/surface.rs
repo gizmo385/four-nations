@@ -799,10 +799,10 @@ impl Host {
         }
     }
 
-    /// `nation`, `research`, `endeavor`, `log`, `help` or `build`, as data: `nation_view`,
-    /// `research::screen_view`, `endeavor::screen_view`, `input::help_rows` or
-    /// `fn_ui::build::picker_rows`, reachable in the TUI the same way (`N`, `T`, `G`, `L`, `?`,
-    /// `U`).
+    /// `nation`, `research`, `endeavor`, `log`, `help`, `build` or `bend`, as data:
+    /// `nation_view`, `research::screen_view`, `endeavor::screen_view`, `input::help_rows`,
+    /// `fn_ui::build::picker_rows` or `fn_ui::bend::view`, reachable in the TUI the same way (`N`,
+    /// `T`, `G`, `L`, `?`, `U`, `B`).
     pub fn screen(&self, name: &str) -> Result<ScreenView, String> {
         match name {
             "nation" => Ok(ScreenView::Nation(self.nation_screen())),
@@ -822,8 +822,9 @@ impl Host {
                     .collect(),
             })),
             "build" => Ok(ScreenView::Build(self.build_screen())),
+            "bend" => Ok(ScreenView::Bend(self.bend_screen())),
             other => Err(format!(
-                "no such screen {other:?} (nation, research, endeavor, log, help or build)"
+                "no such screen {other:?} (nation, research, endeavor, log, help, build or bend)"
             )),
         }
     }
@@ -917,6 +918,21 @@ impl Host {
             })
             .collect();
         BuildScreenView { rows }
+    }
+
+    /// `fn_ui::bend::view`, the Bend tool banner's own content (#586): the abilities `B` cycles
+    /// through, each as the banner and the Tool row draw it, the one the banner names now
+    /// flagged. Readable whichever tool is active, the way `build_screen` is: `b` shows the
+    /// same from any tool, at no cost.
+    fn bend_screen(&self) -> BendScreenView {
+        let view = fn_ui::bend::view(&self.app().session);
+        BendScreenView {
+            abilities: view
+                .rows
+                .into_iter()
+                .map(|r| BendRowView { name: r.name, casters: r.casters, current: r.current })
+                .collect(),
+        }
     }
 
     /// The rendered frame as ASCII text (`frame::render_shell`, `--ascii`): the parity escape
@@ -1084,7 +1100,8 @@ impl Host {
     }
 
     /// How many `B` presses move the Bend tool from whatever ability is active now to `name`
-    /// (the ability's own display name, as the Bend tool's banner shows it, e.g. "Bore Tunnel"),
+    /// (the ability's own display name, as the Bend tool's banner shows it, listed by
+    /// `screen {"bend"}`),
     /// for `plan_designate`'s own `tool: "bend"` with an `ability` (#333): one press switches
     /// into the Bend tool without changing which ability is chosen
     /// (`fn_ui::tools::cycle_ability`'s own rule), so that press is only included if the Bend
@@ -1411,7 +1428,7 @@ pub enum ActionStep {
     /// only for `tool: "cancel"` -- without it, a cancel withdraws only job designations (a
     /// harvest, a bend, a Sow or a Clear mark) and leaves a build site or a stockpile tile
     /// alone; with it, those go too. `ability` (#333) is only for `tool: "bend"`: the ability's
-    /// own name (as the Bend tool's own banner shows it, e.g. "Bore Tunnel"), lowered to however
+    /// own name (as the Bend tool's own banner shows it, listed by `screen {"bend"}`), lowered to however
     /// many `B` presses move the Bend tool from whatever ability is active now to that one
     /// (wrapping through every ability the settlement can currently use, `B`'s own order); with
     /// none given, the Bend tool is picked (or kept) without changing which ability is active.
@@ -1931,6 +1948,7 @@ pub enum ScreenView {
     Log(LogScreenView),
     Help(HelpScreenView),
     Build(BuildScreenView),
+    Bend(BendScreenView),
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -2008,6 +2026,24 @@ pub struct BuildRowView {
     /// or "Locked" when the nation hasn't unlocked it yet (`crate::build::list_row`).
     pub cost: String,
     pub locked: bool,
+}
+
+/// `screen {"bend"}` (#586): the Bend tool banner's content (`fn_ui::bend::view`), in `B`'s own
+/// order. Only abilities the settlement can use now (the banner never names a locked one), and
+/// nothing about targets or where to bend.
+#[derive(Clone, Debug, Serialize)]
+pub struct BendScreenView {
+    pub abilities: Vec<BendRowView>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BendRowView {
+    /// The name the banner badge shows, and what `designate {tool: "bend", ability}` takes.
+    pub name: String,
+    /// The Tool row's count beside it: "20 benders", "2 adepts", "no master".
+    pub casters: String,
+    /// The ability the banner names now.
+    pub current: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -3316,7 +3352,7 @@ mod tests {
     #[test]
     fn every_screen_name_resolves_and_an_unknown_one_errors() {
         let h = host(Nation::Earth);
-        for name in ["nation", "research", "endeavor", "log", "help", "build"] {
+        for name in ["nation", "research", "endeavor", "log", "help", "build", "bend"] {
             h.screen(name).unwrap();
         }
         assert!(h.screen("bogus").is_err());

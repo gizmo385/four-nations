@@ -9,7 +9,7 @@
 //! ━ BUILD Bed ━ Enter: build 1x1  ·  U: pick another  ·  Esc: leave ━━━━━━━━━━━━━━━━━━━━━━
 //! ```
 
-use fn_ui::tools::{bend_ability, usable_abilities};
+use fn_ui::bend;
 use fn_ui::{Session, Tool};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -49,9 +49,9 @@ fn badge(session: &Session, ui: &UiState) -> String {
             }
         }
         Tool::Bend => {
-            if let Some(id) = bend_ability(session) {
+            if let Some(row) = bend::view(session).current() {
                 s.push(' ');
-                s.push_str(&session.defs.ability(id).name);
+                s.push_str(&row.name);
             }
         }
         // Ground mode only (docs/design/clearing.md, #411/#426); `E` would cycle to a buildings
@@ -102,7 +102,7 @@ fn segments(session: &Session, ui: &UiState) -> Vec<String> {
             Tool::Harvest if ui.repeating => segs.push("O: one-shot".to_owned()),
             Tool::CancelHarvest if ui.teardown => segs.push("O: jobs only".to_owned()),
             Tool::Build => segs.push("U: pick another".to_owned()),
-            Tool::Bend if usable_abilities(session).len() > 1 => {
+            Tool::Bend if bend::view(session).offers_next() => {
                 segs.push("B: next ability".to_owned());
             }
             _ => {}

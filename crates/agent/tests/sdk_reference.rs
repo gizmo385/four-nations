@@ -113,3 +113,31 @@ fn sdk_reference_changes_nothing_and_logs_nothing_of_its_own() {
         log.lines().map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap()).collect();
     assert!(types.iter().all(|l| l["type"] != "sdk_reference"), "{types:?}");
 }
+
+/// #586: nothing an agent is handed as documentation names a bend ability. Each nation's
+/// abilities are its own (Bore Tunnel is Earth's alone), and a name used as an example sent a
+/// Water attempt chasing one it could never cast. The `bend` screen is where a script reads the
+/// names it can use, so the tool descriptions, the SDK reference, the briefing and the example
+/// governor point to that instead of giving one.
+#[test]
+fn no_documentation_names_a_bend_ability() {
+    let session = fn_ui::Session::new(SEED, fn_tui::cli::parse_nation("earth").unwrap(), 48, 32);
+    let names: Vec<String> = session.defs.abilities.iter().map(|a| a.name.clone()).collect();
+    assert!(names.iter().any(|n| n == "Bore Tunnel"), "{names:?}");
+
+    let mut tools = Tools::new(host(), Writer::new(Vec::new())).unwrap().with_scripts(limits());
+    let texts = [
+        ("tools/list", serde_json::to_string(&tools.list()).unwrap()),
+        ("sdk_reference", tools.call("sdk_reference", json!({})).unwrap().to_string()),
+        ("briefing", tools.call("briefing", json!({})).unwrap().to_string()),
+        ("example governor", fn_agent::plan::GOVERNOR_FRAME.to_owned()),
+    ];
+    for (what, text) in &texts {
+        for name in &names {
+            assert!(!text.contains(name.as_str()), "{what} names the ability {name:?}");
+        }
+    }
+    // And the list is documented where a script looks for it.
+    let reference = texts[1].1.as_str();
+    assert!(reference.contains("screen(\\\"bend\\\")"), "{reference}");
+}

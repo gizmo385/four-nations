@@ -19,6 +19,7 @@
 //! frontend.
 
 pub mod alerts;
+pub mod bend;
 pub mod build;
 pub mod clock;
 pub mod code;

@@ -9,7 +9,7 @@
 
 use fn_sim::Nation;
 use fn_tui::layout::panel_width;
-use fn_tui::surface::{ActionStep, Host};
+use fn_tui::surface::{ActionStep, Host, Prelude, PreludeOpening, ScreenView};
 use serde_json::Value;
 
 /// A seed-7 game past its opening moments, a settler selected and the Build tool active with a
@@ -75,7 +75,7 @@ fn observation_leaves(h: &Host) -> Vec<String> {
     observe.as_object_mut().unwrap().remove("turn");
     let mut out = Vec::new();
     leaves(&observe, &mut out);
-    for name in ["nation", "research", "endeavor", "log", "help", "build"] {
+    for name in ["nation", "research", "endeavor", "log", "help", "build", "bend"] {
         leaves(&serde_json::to_value(h.screen(name).unwrap()).unwrap(), &mut out);
     }
     out
@@ -159,7 +159,27 @@ fn reachable_text(h: &mut Host) -> String {
         push(&h.frame(SIZE.0, SIZE.1), &mut text);
     }
     h.press_keys("<esc>", None, None).unwrap();
+    // The Bend tool's banner and Tool row (#586: `screen {"bend"}`'s own leaves), once per
+    // ability `B` cycles through.
+    let abilities = bend_rows(h).len();
+    h.press_keys("b", None, None).unwrap();
+    push(&h.frame(SIZE.0, SIZE.1), &mut text);
+    for _ in 1..abilities {
+        h.press_keys("b", None, None).unwrap();
+        push(&h.frame(SIZE.0, SIZE.1), &mut text);
+    }
+    h.press_keys("<esc>", None, None).unwrap();
     text
+}
+
+/// `screen {"bend"}`'s rows, as `(name, casters, current)`.
+fn bend_rows(h: &Host) -> Vec<(String, String, bool)> {
+    match h.screen("bend").unwrap() {
+        ScreenView::Bend(v) => {
+            v.abilities.into_iter().map(|a| (a.name, a.casters, a.current)).collect()
+        }
+        other => unreachable!("{other:?}"),
+    }
 }
 
 /// Lower case, with a box's own `|` border folded in with whitespace and every run of the
@@ -188,4 +208,71 @@ fn every_observed_leaf_appears_in_a_reachable_screen_for_every_nation() {
             );
         }
     }
+}
+
+/// A settlement well into its game (an Economy opening, as a `data/scenarios.toml` preset runs
+/// it), so research has unlocked more than the signature ability.
+fn midgame(nation: Nation) -> Host {
+    Host::new(7, nation, None, None, None, false)
+        .unwrap()
+        .with_prelude(Prelude { opening: PreludeOpening::Economy, minutes: 180.0 })
+}
+
+/// #586: `screen {"bend"}` is the Bend tool banner. For every nation, in a new game and at
+/// midgame, with any tool active: each press of `B` puts the next listed ability on the banner
+/// badge and its count on the Tool row, in the order `screen` lists them; `B: next ability` is
+/// on the banner exactly when there is more than one; and nothing the banner never names (any
+/// other nation's ability) is listed.
+#[test]
+fn the_bend_screen_matches_the_banner_for_every_nation() {
+    let mut multi = 0;
+    for nation in Nation::ALL {
+        let mut hosts = vec![("new game", golden_scenario(nation))];
+        // Only Earth has a second ability inside three game hours of the Economy opening; the
+        // others' unlocks take longer than a test should. A choice of which test hosts to
+        // build, not a rule.
+        if nation == Nation::Earth {
+            hosts.push(("midgame", midgame(nation)));
+        }
+        for (when, mut h) in hosts {
+            let listed = bend_rows(&h);
+            assert!(!listed.is_empty(), "{nation:?} {when}");
+            // Readable with the Build tool open, or none: the same list.
+            h.press_keys("<esc>", None, None).unwrap();
+            assert_eq!(bend_rows(&h), listed, "{nation:?} {when}: tool-independent");
+            assert_eq!(listed.iter().filter(|r| r.2).count(), 1, "{nation:?} {when}: one current");
+            if listed.len() > 1 {
+                multi += 1;
+            }
+
+            // `b` picks the tool without moving the choice; every `b` after that moves on.
+            let start = listed.iter().position(|r| r.2).unwrap();
+            for press in 0..listed.len() {
+                h.press_keys("b", None, None).unwrap();
+                let at = (start + press) % listed.len();
+                let (name, casters, _) = &listed[at];
+                let frame = fold(&h.frame(220, 50));
+                assert!(
+                    frame.contains(&format!("bend {}", name.to_lowercase())),
+                    "{nation:?} {when}: banner should name {name:?} on press {press}:\n{frame}"
+                );
+                assert!(frame.contains(&fold(casters)), "{nation:?} {when}: {casters:?}");
+                assert_eq!(frame.contains("b: next ability"), listed.len() > 1, "{nation:?}");
+                let now = bend_rows(&h);
+                assert_eq!(now.iter().position(|r| r.2), Some(at), "{nation:?} {when}");
+                let names = |rows: &[(String, String, bool)]| {
+                    rows.iter().map(|r| r.0.clone()).collect::<Vec<_>>()
+                };
+                assert_eq!(names(&now), names(&listed), "{nation:?} {when}: B keeps the list");
+            }
+
+            // Nothing the banner can't show: every listed name is this nation's own ability.
+            let session = fn_ui::Session::new(7, nation, 48, 32);
+            for (name, ..) in &listed {
+                let def = session.defs.abilities.iter().find(|a| &a.name == name);
+                assert_eq!(def.map(|a| a.nation), Some(nation), "{nation:?} {when}: {name:?}");
+            }
+        }
+    }
+    assert!(multi > 0, "the midgame settlement should have unlocked a second ability");
 }

@@ -123,7 +123,7 @@ MCP tools that read. They're free, change nothing, and take no game time:
 | `observe` | Turn, clock, season, tool, notice, people (activity counts, need flags), research, stores, stockpile capacity, endeavor, cursor tile, and alerts since the last turn | `side_view`, `activity_counts`, `need_flags`, `stockpile_capacity`, `tooltip_lines`, the `Alerts` history |
 | `look {x,y,w,h}` | A map region, at most 64x40 | The TUI's per-cell look (below) |
 | `inspect {x,y}` | That tile's Cursor-section lines | `tooltip_lines`, as if the cursor were there |
-| `screen {name}` | `nation`, `research`, `endeavor`, `log`, `help` or `build`, as data | `nation_view`, `research::screen_view`, `endeavor::screen_view`, `help_rows`, `build::picker_rows` |
+| `screen {name}` | `nation`, `research`, `endeavor`, `log`, `help`, `build` or `bend`, as data. `bend` is the Bend tool banner's content (#586): the abilities the settlement can use now, in `B`'s order, each with the Tool row's caster count and a flag on the one the banner names; a locked ability is not on the banner, so not there. Readable with any tool active, as `build` is | `nation_view`, `research::screen_view`, `endeavor::screen_view`, `help_rows`, `build::picker_rows`, `bend::view` |
 | `frame {w,h}` | The rendered frame as ASCII text | `frame::render_shell` |
 
 **The map.** `look` returns three layers, which are what a human reads from glyph, background

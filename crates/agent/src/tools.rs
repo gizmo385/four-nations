@@ -69,15 +69,20 @@ pub fn list() -> Vec<Value> {
         }),
         json!({
             "name": "screen",
-            "description": "nation, research, endeavor, log, help or build, as data. `build` \
-                             is the Build modal's own list (name, size, cost, locked or \
-                             unlocked), the same text the modal shows, without opening it.",
+            "description": "nation, research, endeavor, log, help, build or bend, as data. \
+                             `build` is the Build modal's own list (name, size, cost, locked \
+                             or unlocked), the same text the modal shows, without opening it. \
+                             `bend` is the Bend tool banner's own content, readable whichever \
+                             tool is active: the abilities this settlement can use now, in the \
+                             order the bend key cycles them (name, caster count, and which \
+                             one the banner names now). An ability it can't use yet isn't \
+                             listed, as the banner never shows one.",
             "inputSchema": json!({
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "enum": ["nation", "research", "endeavor", "log", "help", "build"],
+                        "enum": ["nation", "research", "endeavor", "log", "help", "build", "bend"],
                     },
                 },
                 "required": ["name"],
@@ -105,9 +110,10 @@ pub fn list() -> Vec<Value> {
                              a build site or a stockpile tile; without it a cancel withdraws \
                              only job designations (a harvest, a bend, a sow or a clear mark) \
                              and leaves those alone. `ability` (bend only) is the ability's own \
-                             name as the Bend tool's own banner shows it (e.g. \"Bore Tunnel\"); \
-                             it's lowered to however many presses of the bend key move it there \
-                             from whichever ability is active now, so a repeated designate with \
+                             name as the Bend tool's own banner shows it, taken from \
+                             screen bend's list (each nation's abilities are its own, so \
+                             never a name from memory); it's lowered to however many presses \
+                             of the bend key move it there from whichever ability is active now, so a repeated designate with \
                              the same ability never presses a key at all. A step that can't be \
                              planned (an unknown tech, a building the Build modal doesn't \
                              offer, a tile off the map, standing or teardown on the wrong \

@@ -53,6 +53,7 @@ fn a_probe_can_call_every_read_binding() {
         inspect(94, 64);
         can_build("Bed", 94, 64);
         screen("build");
+        screen("bend");
         events();
         log("surveyed");
         let m = memory;
