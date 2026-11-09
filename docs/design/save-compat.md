@@ -1,5 +1,7 @@
 # Saves that survive content changes
 
+Doc status: current
+
 Status: **implemented** (#602). The owner decided on 2026-11-09 that saves must stay compatible
 across updates. This is the implementation plan. The rule it puts in place is in
 tech-stack.md, "Saves". The work is **one implementer change**.

@@ -1,5 +1,7 @@
 # Harm and healing: sources of harm, so healing has something to heal
 
+Doc status: current
+
 Status: **proposed** (#385). The owner decisions are listed at the end under "Open questions for
 the owner", and the follow-up issues under "Follow-up issues".
 

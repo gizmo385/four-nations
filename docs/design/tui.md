@@ -1,5 +1,7 @@
 # Terminal UI (Dwarf Fortress-style)
 
+Doc status: current
+
 Status: **shipped** (#93, proposed; #96-#100 and #280 built it; see "What #97 built" onward).
 **The TUI is now the game's only frontend** (owner, 2026-11-03, #281): the Bevy client it
 reached parity with has been removed. `cargo run` launches `fn_tui` straight to the title

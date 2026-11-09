@@ -1,5 +1,7 @@
 # Agents at the controls: playing and racing with a player's capabilities
 
+Doc status: current
+
 Status: **draft** (#313). Owner decisions are pending: see "Open questions for the owner".
 
 The owner wants AI agents to play The Four Nations, race each other, and be watched doing it.

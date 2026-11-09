@@ -1,5 +1,7 @@
 # UI visual direction
 
+Doc status: historical (the Bevy client it describes is gone; its layout zones, colour tokens and Seal shape live on in `fn_ui::theme`)
+
 Status: **historical** (#39, owner, 2026-10-22; superseded 2026-11-03, #281). This decided the
 Bevy client's panel look and layout (`crates/client/src/ui_style.rs`). The client is gone now,
 retired in favour of the terminal UI, but the **layout zones, colour tokens and the Seal shape**

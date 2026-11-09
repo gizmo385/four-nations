@@ -1,5 +1,7 @@
 # Script-driven agent play: an SDK and a trampoline
 
+Doc status: current
+
 Status: **accepted** (#472). The owner took every recommendation on 2026-11-06: see "Owner decisions".
 
 Agent playtests today go through `fn_agent serve` ([agent-play.md](agent-play.md)). The model

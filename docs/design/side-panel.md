@@ -1,5 +1,7 @@
 # Side panel: summaries in the panel, detail on demand
 
+Doc status: superseded by [side-panel-v2.md](side-panel-v2.md)
+
 > Revised by docs/design/side-panel-v2.md (#414), which regroups the sections below into a
 > Settlement glance, an Alerts feed and a Here section.
 

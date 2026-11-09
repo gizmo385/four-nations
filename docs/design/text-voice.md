@@ -1,5 +1,7 @@
 # Text voice: how the game talks
 
+Doc status: current
+
 Status: **accepted** (#401, from the owner's 2026-11-06 playtest notes). Applies to every string a
 player reads: the TUI, `fn_ui` view text, and the descriptions, names and hints in `data/*.toml`.
 It does not cover developer text (`fn_tui --help`, data validation errors, test messages, doc
