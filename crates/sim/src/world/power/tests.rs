@@ -200,3 +200,27 @@ fn a_powered_layout_survives_a_save_and_load_round_trip() {
     );
     assert_eq!(w.save(&defs).unwrap(), loaded.save(&defs).unwrap());
 }
+
+#[test]
+fn adopting_a_2x2_power_building_registers_it_once_and_collapses_saved_duplicates() {
+    let defs = Defs::bundled();
+    let id = defs.building_id("steam_engine").unwrap();
+    let mut w = World::with_map(1, arena(12), Nation::Water, &[at(0, 0)], &defs);
+    for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+        let mut b = Building::new(id, defs.building(id).passable, false);
+        b.part = [dx as u8, dy as u8];
+        b.size = [2, 2];
+        w.map[at(5 + dx, 5 + dy)].building = Some(b);
+    }
+    w.adopt_power_sources(&defs);
+    assert_eq!(w.power_sources.iter().copied().collect::<Vec<_>>(), vec![at(5, 5)]);
+
+    // A save from the buggy build: an entry on every tile.
+    for p in [at(6, 5), at(5, 6), at(6, 6)] {
+        w.open_power_source(p);
+    }
+    let loaded = World::load(&w.save(&defs).unwrap(), &defs).unwrap();
+    assert_eq!(loaded.power_sources.iter().copied().collect::<Vec<_>>(), vec![at(5, 5)]);
+    w.adopt_power_sources(&defs);
+    assert_eq!(w.power_sources.iter().copied().collect::<Vec<_>>(), vec![at(5, 5)]);
+}

@@ -32,13 +32,11 @@
 //! neither break the fixture nor change the digest; `appending_content_changes_nothing` checks it.
 //! Anything else that changes the digest changed the simulation.
 //!
-//! # A quirk the digest records
+//! # A quirk the digest used to record
 //!
-//! `World::load` adopts orchards by scanning the map for tiles with an orchard on them
-//! (`adopt_orchards`), so a 2x2 orchard comes back as four orchards, one per tile, each planting
-//! and tending trees. The digest was taken from the loaded fixture, so it records that: its
-//! `orchards` line lists four. A build that registers one orchard per building will not match it
-//! until the digest is re-recorded from a v2 build that has the same fix.
+//! `World::load` used to adopt every tile with an orchard on it, so a 2x2 orchard came back as
+//! four (#624). It now adopts anchor tiles only, and the digest was re-recorded from the fixed
+//! build: its `orchards` line lists one. The fixture is unchanged.
 // Test code, not the sim: it reads files and the environment. The lint is for the library
 // (AGENTS.md rule 4).
 #![allow(clippy::disallowed_methods)]

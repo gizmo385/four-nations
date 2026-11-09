@@ -54,7 +54,7 @@ rail at (10,18) 1x1 chart 0.000 trees None plot None/None power None
 rail at (11,18) 1x1 chart 0.000 trees None plot None/None power None
 rail at (12,18) 1x1 chart 0.000 trees None plot None/None power Some((18, 12, "1.500"))
 rail at (13,18) 1x1 chart 0.000 trees None plot None/None power Some((18, 12, "1.500"))
-orchards [(Pos { x: 22, y: 12 }, 2), (Pos { x: 22, y: 13 }, 1), (Pos { x: 23, y: 12 }, 1), (Pos { x: 23, y: 13 }, 1)]
+orchards [(Pos { x: 22, y: 12 }, 2)]
 charts []
 flames [Flame { pos: Pos { x: 26, y: 20 }, radius: 3, seconds_left: 334.4, ability: None }]
 
@@ -73,7 +73,6 @@ flames [Flame { pos: Pos { x: 26, y: 20 }, radius: 3, seconds_left: 334.4, abili
 (10,6) building Some("campfire") footprint Some((10, 6, 1, 1)) resource None sapling false
 (12,6) building Some("healing_hut") footprint Some((12, 5, 2, 2)) resource None sapling false
 (13,6) building Some("healing_hut") footprint Some((12, 5, 2, 2)) resource None sapling false
-(23,8) building None footprint None resource Some("fruit_tree") sapling true
 (19,9) building None footprint None resource Some("fruit_tree") sapling true
 (22,10) building None footprint None resource Some("fruit_tree") sapling true
 (16,12) building Some("forge") footprint Some((16, 12, 2, 2)) resource None sapling false
@@ -87,8 +86,6 @@ flames [Flame { pos: Pos { x: 26, y: 20 }, radius: 3, seconds_left: 334.4, abili
 (23,13) building Some("orchard") footprint Some((22, 12, 2, 2)) resource None sapling false
 (6,14) building Some("farm_plot") footprint Some((6, 14, 1, 1)) resource None sapling false
 (7,14) building Some("irrigation_channel") footprint Some((7, 14, 1, 1)) resource None sapling false
-(19,16) building None footprint None resource Some("fruit_tree") sapling true
-(23,17) building None footprint None resource Some("fruit_tree") sapling true
 (10,18) building Some("rail") footprint Some((10, 18, 1, 1)) resource None sapling false
 (11,18) building Some("rail") footprint Some((11, 18, 1, 1)) resource None sapling false
 (12,18) building Some("rail") footprint Some((12, 18, 1, 1)) resource None sapling false

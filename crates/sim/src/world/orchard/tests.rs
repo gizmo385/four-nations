@@ -532,3 +532,35 @@ fn an_orchard_never_plants_a_tree_that_seals_off_ground() {
     run(&mut w, &defs, secs(def.plant_seconds) * (def.max_trees as u64 + 2));
     assert_eq!(fruit_trees(&w, &defs).len() as u32, def.max_trees);
 }
+
+/// Stamps a finished 2x2 building with its anchor on `anchor`, without registering anything.
+fn stamp_2x2(w: &mut World, defs: &Defs, name: &str, anchor: Pos) {
+    let id = defs.building_id(name).unwrap();
+    for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+        let mut b = Building::new(id, defs.building(id).passable, false);
+        b.part = [dx as u8, dy as u8];
+        b.size = [2, 2];
+        w.map[Pos::new(anchor.x + dx, anchor.y + dy)].building = Some(b);
+    }
+}
+
+#[test]
+fn adopting_a_2x2_orchard_registers_it_once_and_collapses_saved_duplicates() {
+    let (mut w, defs) = setup(Nation::Air, 9, &[at(0, 0)]);
+    stamp_2x2(&mut w, &defs, "orchard", MID);
+    w.adopt_orchards(&defs);
+    assert_eq!(w.orchards().map(|(p, _)| p).collect::<Vec<_>>(), vec![MID]);
+
+    // A save from the buggy build: an entry on every tile, the anchor's mid-timer.
+    let def = orchard_def(&defs);
+    w.orchards.get_mut(&MID).unwrap().plant_in = 1.25;
+    for (dx, dy) in [(1, 0), (0, 1), (1, 1)] {
+        w.open_orchard(Pos::new(MID.x + dx, MID.y + dy), &def);
+    }
+    assert_eq!(w.orchards().count(), 4);
+    let loaded = World::load(&w.save(&defs).unwrap(), &defs).unwrap();
+    assert_eq!(loaded.orchards().map(|(p, _)| p).collect::<Vec<_>>(), vec![MID], "load collapses");
+    w.adopt_orchards(&defs);
+    assert_eq!(w.orchards().map(|(p, _)| p).collect::<Vec<_>>(), vec![MID]);
+    assert_eq!(w.orchards[&MID].plant_in, 1.25, "the anchor's own state is kept");
+}
