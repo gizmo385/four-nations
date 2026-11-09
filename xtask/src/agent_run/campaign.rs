@@ -332,10 +332,12 @@ fn ledger_text(ledger: &Ledger, owner: bool) -> String {
             .collect();
         let _ = writeln!(out, " {}", line.join("  ").trim_end());
     }
+    // The held-out columns are the owner's: a prompt's footnote reads the train rows only, or a
+    // stop on a held-out seed would show there as a footnote with no `*` to explain.
     let any_stop = ledger
         .rows
         .iter()
-        .flat_map(|r| r.clean.iter().chain(&r.held_out))
+        .flat_map(|r| r.clean.iter().chain(r.held_out.iter().filter(|_| owner)))
         .any(|s| s.stopped.is_some());
     if any_stop {
         let _ = writeln!(

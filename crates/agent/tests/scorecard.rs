@@ -357,6 +357,35 @@ fn a_scenario_start_scores_from_the_end_of_its_prelude() {
     }
 }
 
+/// A clean evaluation (`play --horizon`, #528) is the governor played alone, and its scorecard
+/// reaches the next attempt's prompt (#565): it says the governor ran every turn, not "no
+/// governor", and doesn't call the one whole-run script a one-shot or an inline run.
+#[test]
+fn a_clean_runs_scorecard_describes_the_governor_that_ran() {
+    let script = temp_path("clean-script.rhai");
+    std::fs::write(&script, std::fs::read_to_string(SETTLE).unwrap()).unwrap();
+    let log = temp_path("clean.jsonl");
+    let out = fn_agent()
+        .args(["play", "--script"])
+        .arg(&script)
+        .args(["--seed", "7", "--nation", "earth", "--horizon", "12"])
+        .arg("--log")
+        .arg(&log)
+        .output()
+        .unwrap();
+    std::fs::remove_file(&script).ok();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+
+    let text_out = fn_agent().arg("score").arg(&log).args(["--horizon", "12"]).output().unwrap();
+    assert!(text_out.status.success());
+    let text = String::from_utf8(text_out.stdout).unwrap();
+    assert!(text.contains("governor ran 12 of 12 turns (100%)"), "{text}");
+    assert!(text.contains("inline runs 0"), "{text}");
+    assert!(text.contains("0 one-shot"), "{text}");
+    assert!(!text.contains("no governor"), "{text}");
+    std::fs::remove_file(&log).ok();
+}
+
 /// The run browser's score column (#556) is `fn_agent score LOG --horizon 540`: the same number,
 /// signs and deaths, read off a run folder whose `run.jsonl` the browser never writes to.
 #[test]

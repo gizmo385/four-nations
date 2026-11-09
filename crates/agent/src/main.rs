@@ -617,7 +617,10 @@ fn play(args: Vec<String>) -> Result<ExitCode, String> {
     writer.write_header(&host.header()).map_err(|e| e.to_string())?;
 
     let limits = ScriptLimits::bundled();
-    let tag = "play".to_owned();
+    // A clean evaluation (--horizon) is the governor played alone, and its scorecard is read by
+    // the next attempt: tagged `governor`, the churn block says "governor ran N of N turns"
+    // instead of "no governor". A `--turns` run is an ad hoc script, tagged `play`.
+    let tag = if a.horizon.is_some() { scorecard::GOVERNOR } else { "play" }.to_owned();
 
     let plan = match &a.plan {
         Some(path) => read_plan(path, limits.plan_bytes)?,

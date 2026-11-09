@@ -129,11 +129,11 @@ It counts the work done since the script's last `wait`, so a loop that waits can
 | `look(x, y, w, h)` / `inspect(x, y)` / `screen(name)` | the same | Script reads don't draw attention ghosts (they would outline the whole map every turn) |
 | `cells(x, y, w, h)` | **new** `Host::cells` over `cell_look` | `[#{x, y, thing, ground, marks}]`, so scripts don't parse `look`'s strings. Added to the map-cell equality test |
 | `can_build(building, x, y)` | **new** `Host::can_build` over `fn_ui::build::placement_at` | `#{ok, reason}`: whether `building` could be designated with its anchor at `(x, y)`, the same check a `build` step's own confirm uses (#509). Read-only: presses no keys, changes nothing |
-| `act(steps, note)` | `Host::act` | Returns `#{ok, label, notices, error}`. It already closes open screens first, the job rs-sdk's `dismissBlockingUI` does |
+| `act(steps, note)` | `Host::act` | Returns `#{ok, keys, label, notices, error, observe}`. `ok` is added by the binding (the `act` tool's result has no such field): false when a step couldn't be planned (`error` is then `#{step, reason}`, else `()`) or a `designate`/`build` step got "0 done", the test the run report's `acts.failed` counts. It says the keys were pressed, not what they did: a `research` step for a locked or finished tech is `ok` too, so check `observe.research.label` or `screen("research")`. It already closes open screens first, the job rs-sdk's `dismissBlockingUI` does |
 | `keys(script, note)` | `Host::press_keys` | The same refused keys apply |
 | `wait(turns)` | `Host::end_turn(1)`, repeated | Returns `#{turns, events}`. At least 1 turn, so nothing shorter than the turn grid. Checks wake rules after every turn |
 | `events()` | **new**: alerts with their `Kind` | `#{turn, kind, text}` since the script started. The kind is the toast's own category, which a player sees |
-| `log(msg)`, `wake(msg)`, `memory` | runner | `memory` is a map that persists across runs in a session (8 KB cap) |
+| `log(value)`, `wake(msg)`, `memory` | runner | `log` takes any value (a string as written, anything else as its printed form, #565). `memory` is a map that persists across runs in a session (8 KB cap) |
 
 ### Porcelain: `prelude.rhai`
 

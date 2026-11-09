@@ -2,15 +2,30 @@
 let camp = memory.camp ?? observe().cursor;
 memory.camp = camp;
 
-// Research: take the next tech in the plan when none is set.
+// Techs that can be picked right now. act's ok only says the keys were
+// pressed, so a locked or finished tech would look the same.
+fn open_techs() {
+    let open = [];
+    for column in screen("research").columns {
+        for card in column {
+            if card.state == "Available" {
+                open.push(card.name);
+            }
+        }
+    }
+    open
+}
+
+// Research: take the first open tech in the plan when none is set.
 fn research_duty(queue) {
     if !observe().research.label.contains("none set") {
         return;
     }
+    let open = open_techs();
     for tech in queue {
-        let step = #{step: "research", tech: tech};
-        if act([step], "research").ok {
-            break;
+        if open.contains(tech) {
+            act([#{step: "research", tech: tech}], "research");
+            return;
         }
     }
 }

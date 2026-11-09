@@ -62,7 +62,7 @@ if [ -n "$log" ]; then
   printf '{"type":"note","text":"lab note from attempt %s, call %d"}\n' "$attempt" "$next" >> "$log"
   if [ -z "$STUB_NO_GOVERNOR" ]; then
     score=$(echo "$STUB_SCORES" | cut -d, -f"$attempt")
-    printf '{"type":"script","name":"governor","version":%d,"code":"// SCORE=%s%s","turns":0,"wake_on":[]}\n' "$next" "$score" "${STUB_STOP:+ STOP=$STUB_STOP}" >> "$log"
+    printf '{"type":"script","name":"governor","version":%d,"code":"// SCORE=%s%s%s","turns":0,"wake_on":[]}\n' "$next" "$score" "${STUB_STOP:+ STOP=$STUB_STOP}" "${STUB_STOP_HELDOUT:+ HELDONLY}" >> "$log"
     printf '{"type":"plan","plan":{"goal":"attempt %s","call":%d}}\n' "$attempt" "$next" >> "$log"
   fi
 fi
@@ -124,6 +124,10 @@ play)
     else
       by="{\"reason\":\"${stop%%:*}\",\"why\":\"a loop with no wait?\",\"turn\":${stop##*:}}"
     fi
+  fi
+  # `HELDONLY` in the governor: the script is stopped on the held-out seed and nowhere else.
+  if grep -q HELDONLY "$script" && [ "$seed" = 9001 ]; then
+    by='{"reason":"error","why":"HELDOUT_WHY","turn":4242}'
   fi
   printf '{"scorecard":{"score":%d.0,"progress":0.5,"care":0.9},"stopped_by":%s}\n' "$(( ${s:-0} + seed ))" "$by"
   [ "$by" = null ] || exit 1
@@ -678,6 +682,34 @@ fn stopped_clean_runs_are_reported_to_the_model_and_marked_for_the_owner() {
     for mcp in [&first_mcp, &last_mcp] {
         assert!(mcp.contains("\"--trial-seeds\"") && mcp.contains("\"7,41\""), "{mcp}");
         assert!(mcp.contains("\"--trial-turns\"") && !mcp.contains("9001"), "{mcp}");
+    }
+}
+
+/// A stop on a held-out seed alone is the owner's: the table marks it and carries the footnote,
+/// but the prompt's ledger has no `*` and no footnote (the footnote used to chain the held-out
+/// rows, so it showed up with nothing to explain).
+#[test]
+fn a_held_out_only_stop_reaches_the_owner_and_not_the_prompt() {
+    let mut fx = Fixture::new("heldstop");
+    fx.extra_env.push(("STUB_STOP_HELDOUT".to_owned(), "1".to_owned()));
+    let out = fx.campaign("100,200", &["--attempts", "2"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let rows = rows(&fx.campaign_dir());
+    assert_eq!(rows[0]["clean"][0]["stopped"], Value::Null, "the train runs ran clean");
+    assert_eq!(rows[0]["held_out"][0]["stopped"], "error");
+
+    let table = stdout(&out);
+    assert!(table.contains("9101*"), "{table}");
+    assert!(table.contains("the governor stopped"), "the owner's table has the footnote: {table}");
+
+    let second = fx.prompt("prompt-2-0");
+    assert!(second.contains("The ledger so far"), "{second}");
+    assert!(!second.contains("the governor stopped"), "{second}");
+    for (name, text) in &fx.prompts() {
+        assert!(
+            !text.contains("the governor stopped") && !text.contains("107*"),
+            "a stop in {name}:\n{text}"
+        );
     }
 }
 

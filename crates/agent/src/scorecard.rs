@@ -77,6 +77,10 @@ pub struct Churn {
     pub inline_runs: u32,
     /// `plan` lines: every change to the plan.
     pub plan_edits: u32,
+    /// The governor ran as a clean evaluation (`fn_agent play --horizon`): one unsaved script
+    /// (`version` 0) named `governor`, played alone from turn 0. That is how the horizon is
+    /// scored, not a habit, so it is neither an inline run nor a one-shot script.
+    pub clean_governor: bool,
     /// All `Turn` lines, in or out of a script.
     pub total_turns: u32,
     /// All `Keys` lines, in or out of a script.
@@ -95,7 +99,9 @@ impl Churn {
                         churn.saved += 1;
                         continue;
                     }
-                    if *version == 0 {
+                    if *version == 0 && name == GOVERNOR {
+                        churn.clean_governor = true;
+                    } else if *version == 0 {
                         churn.inline_runs += 1;
                     }
                     let at = match churn.scripts.iter().position(|s| s.name == *name) {
@@ -133,9 +139,10 @@ impl Churn {
         churn
     }
 
-    /// Script names that ran exactly once.
+    /// Script names that ran exactly once (a clean evaluation's governor is not one: it is the
+    /// whole run's loop).
     pub fn one_shot(&self) -> impl Iterator<Item = &ScriptUse> {
-        self.scripts.iter().filter(|s| s.runs == 1)
+        self.scripts.iter().filter(|s| s.runs == 1 && !(self.clean_governor && s.name == GOVERNOR))
     }
 
     /// The governor's turns, if a script of that name ran.
@@ -699,6 +706,21 @@ mod tests {
             c.scripts[1],
             ScriptUse { name: "findwater".into(), runs: 1, turns: 1, acts: 1 }
         );
+    }
+
+    /// A clean evaluation is one unsaved `governor` run: it counts as the governor's turns, and
+    /// is neither an inline run nor a one-shot script. An ad hoc `play` tag still is both.
+    #[test]
+    fn a_clean_evaluations_governor_is_not_inline_or_one_shot() {
+        let clean = Churn::of(&[script("governor", 0, 4), turn(), keys(), turn(), wake()]);
+        assert!(clean.clean_governor);
+        assert_eq!((clean.inline_runs, clean.one_shot().count()), (0, 0));
+        assert_eq!(clean.governor_turns(), Some(2));
+
+        let adhoc = Churn::of(&[script("play", 0, 4), turn(), wake()]);
+        assert!(!adhoc.clean_governor);
+        assert_eq!((adhoc.inline_runs, adhoc.one_shot().count()), (1, 1));
+        assert_eq!(adhoc.governor_turns(), None);
     }
 
     #[test]

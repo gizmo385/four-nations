@@ -246,13 +246,87 @@ fn the_example_governor_runs_under_run_script() {
     let mut t = tools();
     let reference = t.call("sdk_reference", json!({})).unwrap();
     let frame = reference["plan"]["governor"]["frame"].as_str().unwrap().to_owned();
-    let plan = json!({"research": [], "targets": {"beds_ahead": 2}, "build": []});
+    let plan =
+        json!({"research": ["Farming", "Pottery"], "targets": {"beds_ahead": 2}, "build": []});
     t.call("plan", json!({"set": plan})).unwrap();
     t.call("save_script", json!({"name": "governor", "code": frame})).unwrap();
     let r = t.call("run_script", json!({"name": "governor", "turns": 3})).unwrap();
     assert_eq!(r["reason"], "budget", "{r}");
     assert!(r["acts"]["ok"].as_u64().unwrap() > 0, "it did its duties: {r}");
     assert!(r["turns_run"].as_u64().unwrap() >= 3, "{r}");
+}
+
+/// #565: the example governor, given a real research queue, plays a clean evaluation's whole
+/// horizon (`fn_agent play --horizon`'s own `clean::run`) without stopping, and its research
+/// duty works down the queue instead of erroring or sticking on the first tech. One `wait` per
+/// loop pass, nothing else spends turns.
+///
+/// This test depends on #564. The operation budget is still cumulative over a run, and a
+/// `build_near` scan costs tens of thousands of operations, so under the bundled 500000 this
+/// example is stopped as `runaway` within 25 to 60 turns however it is written. The test raises
+/// the budget so it checks what #565 is about (the `.ok` error at turn 0 and the research
+/// duty); once #564 makes the budget per `wait`, it should use the bundled limits as they are,
+/// and a longer horizon (the real one is 540 turns; 60 keeps this test near 30 seconds).
+#[test]
+fn the_example_governor_plays_a_full_horizon_with_a_research_queue() {
+    const HORIZON: u32 = 60;
+    let limits = Limits { max_operations: 1_000_000_000, ..Limits::bundled() };
+    let queue = ["Farming", "Stoneworking", "Fire Making", "Shelter", "Carpentry", "Pottery"];
+    let plan = json!({"research": queue, "targets": {"beds_ahead": 2}, "build": []});
+    let mut host = host();
+    let mut techs: Vec<String> = Vec::new();
+    let run = fn_agent::clean::run(
+        &mut host,
+        fn_agent::plan::GOVERNOR_FRAME,
+        "governor",
+        &plan,
+        HORIZON,
+        &limits,
+        |line| {
+            if let LogLine::Keys { label: Some(label), .. } = line
+                && label.starts_with("research ")
+                && !techs.contains(label)
+            {
+                techs.push(label.clone());
+            }
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert!(run.stopped_by.is_none(), "{:?}", run.stopped_by);
+    assert_eq!(run.turns, HORIZON);
+    assert_eq!(run.last.reason, "budget", "still going at the horizon: {:?}", run.last);
+    assert_eq!(run.restarts, 0);
+    assert!(techs.len() >= 2, "it worked down the queue, not just the first tech: {techs:?}");
+}
+
+/// #565: `act` gives a script `ok`, the test the run report's `acts.failed` counts, and `error`
+/// is `()` when nothing failed; `log` takes any value.
+#[test]
+fn act_has_an_ok_and_log_takes_any_value() {
+    let mut t = tools();
+    let code = r#"
+        let good = act([#{step: "research", tech: "Farming"}], "r");
+        let bad = act([#{step: "research", tech: "Nonsense"}], "r");
+        log(good.ok);
+        log(bad.ok);
+        log(good.error);
+        log(bad.error);
+        log(7);
+        log(#{a: 1});
+        log([1, 2]);
+        log("text");
+    "#;
+    t.call("save_script", json!({"name": "probe", "code": code})).unwrap();
+    let r = t.call("run_script", json!({"name": "probe", "turns": 1})).unwrap();
+    assert_eq!(r["reason"], "done", "{r}");
+    assert_eq!(r["acts"]["ok"], 1, "{r}");
+    assert_eq!(r["acts"]["failed"], 1, "{r}");
+    let log: Vec<&str> = r["log"].as_array().unwrap().iter().filter_map(|l| l.as_str()).collect();
+    assert_eq!(log[..3], ["true", "false", "()"], "{log:?}");
+    assert!(log[3].contains("no such tech"), "{log:?}");
+    assert_eq!(log[4], "7");
+    assert!(log[5].contains("\"a\": 1") && log[6] == "[1, 2]" && log[7] == "text", "{log:?}");
 }
 
 /// #557: the layout rules reach `sdk_reference` and the `save_script` tool description.

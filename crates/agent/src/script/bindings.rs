@@ -388,8 +388,8 @@ pub(super) fn register(engine: &mut Engine, ctx: &Rc<Context>) {
     });
 
     let c = ctx.clone();
-    engine.register_fn("log", move |msg: &str| {
-        c.push_log(msg.to_owned());
+    engine.register_fn("log", move |msg: Dynamic| {
+        c.push_log(log_text(&msg));
     });
 }
 
@@ -486,9 +486,13 @@ fn plumbing_docs() -> &'static [(&'static str, &'static str)] {
         ),
         (
             "act",
-            "act(steps) or act(steps, note) -> #{keys, label, notices, error, observe}: runs \
-             named steps (designate, build, select, research, cursor, keys) in order, each \
-             lowered to the keys a player would press. Refused in a probe (inline run_script code): \
+            "act(steps) or act(steps, note) -> #{ok, keys, label, notices, error, observe}: \
+             runs named steps (designate, build, select, research, cursor, keys) in order, \
+             each lowered to the keys a player would press. ok is false when a step couldn't \
+             be planned (error is then #{step, reason}, else ()) or a designate/build step \
+             got \"0 done\" (see notices): the test the run report's acts.failed counts. ok \
+             says the keys were pressed, not what they did: check observe afterwards, say \
+             observe.research.label after a research step. Refused in a probe (inline run_script code): \
              \"probes can't act\".",
         ),
         (
@@ -516,7 +520,12 @@ fn plumbing_docs() -> &'static [(&'static str, &'static str)] {
              set. Edit it with the plan tool between runs; a long-running governor that wants \
              a fresh plan returns or wakes so it's re-run.",
         ),
-        ("log", "log(msg) -> (); the script's own log line, kept in the wake report's log tail."),
+        (
+            "log",
+            "log(value) -> (); the script's own log line, kept in the wake report's log tail. \
+             Takes any value: a string as written, anything else (a number, a map, an array, \
+             ()) as its printed form.",
+        ),
     ]
 }
 
@@ -530,8 +539,21 @@ fn do_act(
     let steps: Vec<ActionStep> = rhai::serde::from_dynamic(&steps)?;
     let note = Some(ctx.tag_note(note));
     let result = ctx.host().act(&steps, note);
-    ctx.record(act_failure(&result));
-    rhai::serde::to_dynamic(result)
+    let failure = act_failure(&result);
+    ctx.record(failure.clone());
+    let mut out = rhai::serde::to_dynamic(result)?;
+    // `ok` is the test `acts.failed` counts, so a script and its run report agree on which acts
+    // failed. It isn't a field of `ActResult`: the `act` tool's own result stays as it is.
+    if let Some(mut map) = out.write_lock::<rhai::Map>() {
+        map.insert("ok".into(), Dynamic::from(failure.is_none()));
+    }
+    Ok(out)
+}
+
+/// What `log` writes for `value`: a string as it is, anything else as the form a script's own
+/// string interpolation prints (`()` as `()`), so `log(r)` of a map or a number never errors.
+fn log_text(value: &Dynamic) -> String {
+    if value.is_unit() { "()".to_owned() } else { value.to_string() }
 }
 
 /// `result`'s own failure text, if any, for [`Context::record`]: the step that couldn't even be
