@@ -114,6 +114,10 @@ fn an_old_save_carries_on_without_panicking() {
     assert_eq!(again.tick, w.tick);
 }
 
+/// Names of fields v1 saves carry that no save writes any more (`Unit::variant`, removed in
+/// #607). Loading ignores them; the re-saved text lacks them.
+const FIELDS_REMOVED_SINCE_V1: &[&str] = &["variant"];
+
 /// Names of fields added since v1 that a save always writes. They are `serde(default)` fields, so
 /// old saves load without them, but new saves write them, so the re-saved text has them and the
 /// fixture doesn't. Add a name here when a feature adds a field like that. Footprint fields on
@@ -272,6 +276,7 @@ fn saving_an_old_save_again_gives_the_same_text() {
     );
     wrap_legacy_unit_nations(&mut old);
     without_fields(&mut old, FIELDS_ADDED_SINCE_V1);
+    without_fields(&mut old, FIELDS_REMOVED_SINCE_V1);
     let removed = without_fields(&mut new, FIELDS_ADDED_SINCE_V1);
     assert!(removed > 0, "the re-saved text differs, but not in the fields listed");
     if old != new {

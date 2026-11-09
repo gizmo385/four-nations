@@ -414,9 +414,6 @@ impl Defs {
                 Some(d) if d.names.is_empty() => {
                     return Err(DefsError(format!("nation {n:?} needs at least one name")));
                 }
-                Some(d) if d.characters.is_empty() => {
-                    return Err(DefsError(format!("nation {n:?} needs at least one character")));
-                }
                 Some(_) => {}
             }
         }
@@ -752,25 +749,6 @@ mod tests {
         assert!(with_resource("beside=['coast','land']").is_ok());
         assert!(with_resource("beside=['beach']").unwrap_err().0.contains("beach"));
         assert!(with_resource("chanse=0.1").unwrap_err().0.contains("chanse"));
-    }
-
-    #[test]
-    fn a_nation_needs_characters() {
-        let from = r#"characters = ["air_monk", "air_elder", "air_acolyte"]"#;
-        assert!(NATIONS.contains(from));
-        let nations = NATIONS.replacen(from, "characters = []", 1);
-        let err = Defs::from_toml(
-            BIOMES,
-            include_str!("../../../data/resources.toml"),
-            &nations,
-            RESEARCH,
-            NEEDS,
-            JOBS,
-            BENDING,
-            BUILDINGS,
-        )
-        .unwrap_err();
-        assert!(err.0.contains("character"), "{err}");
     }
 
     #[test]

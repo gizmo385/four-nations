@@ -92,8 +92,6 @@ pub fn side_view(
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct StoreRow {
     pub name: String,
-    /// The item's icon name (`ItemDef::icon`); no current frontend draws it.
-    pub icon: String,
     pub count: u32,
 }
 
@@ -106,11 +104,7 @@ pub fn store_rows(session: &Session) -> Vec<StoreRow> {
         .iter()
         .filter_map(|item| {
             let count = world.stored_total(defs.item_id(&item.id)?);
-            (count > 0).then(|| StoreRow {
-                name: item.name.clone(),
-                icon: item.icon.clone(),
-                count,
-            })
+            (count > 0).then(|| StoreRow { name: item.name.clone(), count })
         })
         .collect()
 }
@@ -488,8 +482,7 @@ impl NeedView {
     }
 }
 
-/// Everything the selection bar shows for a unit, except the portrait (a frontend picks art from
-/// the unit's `variant`).
+/// Everything the selection bar shows for a unit, except the portrait.
 #[derive(Clone, PartialEq, Debug)]
 pub struct UnitView {
     pub id: UnitId,
@@ -681,7 +674,6 @@ mod tests {
         );
         for row in &rows {
             let item = s.defs.items.iter().find(|i| i.name == row.name).unwrap();
-            assert_eq!(row.icon, item.icon);
             assert_eq!(row.count, s.world.stored_total(s.defs.item_id(&item.id).unwrap()));
         }
         assert_eq!(side_view(&s, Tool::Select, "", None, &Alerts::default()).stores, rows);

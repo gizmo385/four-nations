@@ -22,9 +22,6 @@ pub struct ItemId(pub u16);
 pub struct ItemDef {
     pub id: String,
     pub name: String,
-    /// An icon identifier for a future graphical frontend. The sim never reads it; it is data so
-    /// which picture an item uses isn't a match in frontend code.
-    pub icon: String,
     /// Index into `Defs::foods` if this item can be eaten.
     pub food: Option<usize>,
     /// Knowledge points reading this item adds to the research pool, if it can be read (issue
@@ -155,7 +152,6 @@ pub struct JobSettings {
 struct RawItem {
     id: String,
     name: String,
-    icon: String,
     #[serde(default)]
     knowledge: Option<u32>,
     #[serde(default)]
@@ -272,7 +268,6 @@ impl JobsFile {
             .map(|i| ItemDef {
                 id: i.id,
                 name: i.name,
-                icon: i.icon,
                 food: None,
                 knowledge: i.knowledge,
                 stands_for: None,
@@ -281,7 +276,6 @@ impl JobsFile {
         items.extend(foods.iter().enumerate().map(|(n, f)| ItemDef {
             id: f.id.clone(),
             name: f.name.clone(),
-            icon: f.icon.clone(),
             food: Some(n),
             knowledge: None,
             stands_for: None,
@@ -610,14 +604,14 @@ mod tests {
         assert!(err.0.contains("unknown item"), "{err}");
 
         let chain = format!(
-            "{JOBS}\n[[item]]\nid = \"super_brick\"\nicon = \"brick\"\nname = \"Super Brick\"\n\
+            "{JOBS}\n[[item]]\nid = \"super_brick\"\nname = \"Super Brick\"\n\
              stands_for = \"brick\"\n"
         );
         let err = load_jobs(&chain).unwrap_err();
         assert!(err.0.contains("chain"), "{err}");
 
         let twice = format!(
-            "{JOBS}\n[[item]]\nid = \"rubble\"\nicon = \"stone\"\nname = \"Rubble\"\n\
+            "{JOBS}\n[[item]]\nid = \"rubble\"\nname = \"Rubble\"\n\
              stands_for = \"stone\"\n"
         );
         let err = load_jobs(&twice).unwrap_err();

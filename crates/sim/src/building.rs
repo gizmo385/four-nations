@@ -396,11 +396,6 @@ pub struct BuildingDef {
     /// Pavilion for Air). Empty when every nation uses the plain `name`. If set at all, every
     /// nation has an entry (`display_name` is the one place that matters).
     pub names: HashMap<Nation, String>,
-    /// Which sprite a graphical frontend would draw this building with for each nation, if it
-    /// varies (the study hall looks different in each nation). Empty when every nation uses the
-    /// sprite named for the building's `id`. If set at all, every nation has an entry. The sim
-    /// never reads it (`BuildingDef::art_for`).
-    pub art: HashMap<Nation, String>,
     /// The tech that must be known before this building may be designated (`data/research.toml`,
     /// `Unlocks::buildings`, issue #22). `None` means every nation can build it from the start.
     pub unlocked_by: Option<TechId>,
@@ -425,12 +420,6 @@ impl BuildingDef {
         } else {
             "the right ground"
         })
-    }
-
-    /// The name of the sprite this building is drawn with in `nation`: `art[nation]` if the
-    /// building has per-nation art, else its `id`.
-    pub fn art_for(&self, nation: Nation) -> &str {
-        self.art.get(&nation).map(String::as_str).unwrap_or(&self.id)
     }
 
     /// `names[nation]` if this building has a nation-specific name, else the shared `name`.
@@ -578,8 +567,6 @@ struct RawBuilding {
     #[serde(default)]
     names: HashMap<Nation, String>,
     #[serde(default)]
-    art: HashMap<Nation, String>,
-    #[serde(default)]
     endeavor: bool,
     /// `beside = ["mountain", "tunnel"]` (issue #373): the footprint's ring must touch one of
     /// these, or the placement is refused. Absent means no such rule.
@@ -640,18 +627,6 @@ impl BuildingsFile {
                     "building {}: names must name all four nations, or none",
                     b.id
                 ));
-            }
-            if !b.art.is_empty() && b.art.len() != Nation::ALL.len() {
-                return err(format!("building {}: art must name all four nations, or none", b.id));
-            }
-            for (nation, art) in &b.art {
-                if art.trim().is_empty() {
-                    return err(format!(
-                        "building {}: {} art must not be empty",
-                        b.id,
-                        nation.as_str()
-                    ));
-                }
             }
             let [w, h] = b.footprint;
             if !(1..=MAX_SIDE).contains(&w) || !(1..=MAX_SIDE).contains(&h) {
@@ -790,7 +765,6 @@ impl BuildingsFile {
                 chart,
                 uses_power: b.uses_power,
                 names: b.names,
-                art: b.art,
                 unlocked_by: None,
                 endeavor: b.endeavor,
                 beside: b.beside,
@@ -1517,42 +1491,6 @@ mod tests {
         "#;
         let err = resolve(toml).unwrap_err();
         assert!(err.0.contains("must not be empty"), "{err}");
-    }
-
-    #[test]
-    fn art_defaults_to_the_id_and_may_vary_per_nation() {
-        let defs = Defs::bundled();
-        let bed = defs.building(defs.building_id("bed").unwrap());
-        let hall = defs.building(defs.building_id("study_hall").unwrap());
-        for n in Nation::ALL {
-            assert_eq!(bed.art_for(n), "bed");
-            assert_ne!(hall.art_for(n), "study_hall", "{n:?} has its own study hall");
-        }
-        let mut looks: Vec<_> = Nation::ALL.iter().map(|&n| hall.art_for(n)).collect();
-        looks.sort_unstable();
-        looks.dedup();
-        assert_eq!(looks.len(), 4, "one look per nation");
-    }
-
-    #[test]
-    fn art_must_cover_every_nation_or_none() {
-        let toml = r#"
-            [[building]]
-            id = "hut"
-            name = "Hut"
-            verb = "Build"
-            work = 1.0
-            passable = false
-            [building.art]
-            air = "hut_air"
-        "#;
-        let err = resolve(toml).unwrap_err();
-        assert!(err.0.contains("art must name all four nations"), "{err}");
-        let blank = toml.replace(
-            "air = \"hut_air\"",
-            "air = \" \"\nwater = \"w\"\nearth = \"e\"\nfire = \"f\"",
-        );
-        assert!(resolve(&blank).unwrap_err().0.contains("art must not be empty"));
     }
 
     const BIOMES: &str = include_str!("../../../data/biomes.toml");

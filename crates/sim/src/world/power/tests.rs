@@ -49,7 +49,6 @@ fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
         chart: None,
         uses_power: false,
         names: HashMap::new(),
-        art: HashMap::new(),
         unlocked_by: None,
         endeavor: false,
         beside: None,

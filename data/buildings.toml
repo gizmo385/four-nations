@@ -145,12 +145,6 @@ water = "Elders' Lodge"
 earth = "Scroll Library"
 fire = "Academy"
 
-[building.art]
-air = "meditation_pavilion"
-water = "elders_lodge"
-earth = "scroll_library"
-fire = "academy"
-
 # Unlocked by `cartography` (issue #402, docs/design/cartography.md): a settler holding its one
 # Chart job slowly uncovers the nearest lost ruin the settlement hasn't found yet. One seat on
 # purpose: a second scholar doubling the trickle would make the seat count the real balance
