@@ -21,6 +21,7 @@ use crate::title::{self, Outcome, Page, TitleScreen};
 /// What the shell is showing right now. All three are boxed: `App` and `EmbarkScreen` each
 /// carry a whole generated map, and `TitleScreen` grew past `clippy::large_enum_variant`'s
 /// threshold once the seed step gained a Difficulty row (#298).
+#[derive(Clone)]
 pub enum Mode {
     Title(Box<TitleScreen>),
     /// Between the seed step and the game (#290): choosing where to settle.
@@ -40,6 +41,7 @@ impl std::fmt::Debug for Mode {
     }
 }
 
+#[derive(Clone)]
 pub struct Shell {
     pub mode: Mode,
     /// `Q` then `y` in a game opens this instead of quitting at once: `T` goes back to the title

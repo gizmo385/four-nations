@@ -42,6 +42,10 @@
 //!                               tier's seeds, paired by seed against the first condition, with
 //!                               bootstrap intervals and failure counts. See `cargo xtask
 //!                               agent-compare --help`.
+//!     cargo xtask web [--serve] [--port N] [LOG...]
+//!                               builds the web replayer (#595: web/ plus fn_web.wasm) into
+//!                               target/replayer/, and with --serve serves it on localhost; each LOG
+//!                               is listed in its run picker. See `cargo xtask web --help`.
 //!
 //! `root()` finds the repo root at runtime with `git rev-parse --show-toplevel`, so an `xtask`
 //! binary built from one worktree's `target/` still works when run from another (a shared
@@ -56,6 +60,7 @@ mod agent_eval;
 mod agent_run;
 mod lint;
 mod references;
+mod web;
 
 type Result<T = ()> = std::result::Result<T, String>;
 
@@ -122,6 +127,7 @@ fn dispatch(args: &[&str]) -> Result {
         Some("agent-run") => agent_run::run(&args[1..]),
         Some("agent-eval") => agent_eval::run(&args[1..]),
         Some("agent-compare") => agent_compare::run(&args[1..]),
+        Some("web") => web::run(&args[1..]),
         _ => Err(help()),
     }
 }
@@ -204,8 +210,8 @@ fn ci(fast: bool, no_goldens: bool) -> Result {
 }
 
 /// The crates the web replayer (#595) builds for the browser.
-const WASM_CRATES: [&str; 3] = ["fn_sim", "fn_ui", "fn_tui"];
-const WASM_TARGET: &str = "wasm32-unknown-unknown";
+const WASM_CRATES: [&str; 4] = ["fn_sim", "fn_ui", "fn_tui", "fn_web"];
+pub(crate) const WASM_TARGET: &str = "wasm32-unknown-unknown";
 
 /// Clippy (`-D warnings`) on [`WASM_CRATES`]' libraries for [`WASM_TARGET`] (#594), so a change
 /// that breaks the web build -- a crossterm import outside `fn_tui::keyev`, a dependency with no

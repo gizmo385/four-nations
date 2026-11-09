@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/sim", "crates/ui", "crates/tui", "crates/agent", "crates/harness", "xtask"]
+members = ["crates/sim", "crates/ui", "crates/tui", "crates/agent", "crates/harness", "crates/web", "xtask"]
 # `fn_tui` is the game's only frontend: `cargo run` with no `-p` builds and runs it directly.
 default-members = ["crates/tui"]
 
@@ -22,6 +22,14 @@ opt-level = 1
 
 # Used by `cargo xtask ci` on CI ($CI set) and by agents with `--fast`: unoptimized dependencies
 # and no debug info compile faster and use less memory.
+# The web replayer's wasm (`cargo xtask web`, #595): small and fast, since the page downloads
+# it and a seek re-simulates turns in it.
+[profile.web]
+inherits = "release"
+lto = true
+codegen-units = 1
+strip = true
+
 [profile.ci]
 inherits = "dev"
 opt-level = 0

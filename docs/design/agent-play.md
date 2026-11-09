@@ -341,6 +341,26 @@ shapes read: the first one's `clean`/`train_mean`/`held_out` and the seed tiers'
 on the folder's modification time, which a cache write changes. `watch CAMPAIGN_DIR` opens the
 browser on that campaign (`--focus`), and `watch --list` prints campaigns with their attempts.
 
+### Watching on the web (#595)
+
+The same watcher runs in a browser. `crates/web` (`fn_web`) compiles `fn_tui`'s `Watcher` to
+`wasm32-unknown-unknown` behind a small C ABI (no wasm-bindgen), and `web/` is a static page
+that loads a log, draws each frame onto a canvas and passes keys and real time across. A
+replay re-simulates the log exactly as the terminal does, so the page needs only the
+`run.jsonl` (a 3 h attempt's is 1-4 MB, its asciicast 40-120 MB), and it shows the same
+screen: the studio panes at 160x45 and up, the agent strip, free look.
+
+The terminal watcher's keys work there too (Space, `+`/`-`, `.`, `]`, `0`-`3`, free look),
+with buttons for them and a scrubber over turns. Seeking forwards replays a turn at a time
+between frames; seeking backwards restores the nearest snapshot (one is kept every 20 turns,
+as the replay first reaches it) and replays from there, so it costs at most 20 turns, well
+under a second. A log made against other data is refused with the build it was made on.
+
+`cargo xtask web` builds the page and the wasm into `target/replayer/`; `--serve` serves it on
+localhost, and each `LOG` argument is copied in and listed in the page's run picker
+(`runs/index.json`). A page link takes `?run=PATH` (a `.jsonl` or `.jsonl.gz`); a file can
+also be opened or dropped on it. #596 publishes the page and runs to GitHub Pages.
+
 ## Racing
 
 **`data/races.toml`**, read by `fn_agent` (the sim never reads it, as with `tui.toml`):
