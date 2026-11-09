@@ -1,5 +1,7 @@
 # Vision
 
+Doc status: current
+
 Status: **draft**. Open questions are tracked as GitHub issues.
 
 ## Audience and IP (decided 2026-10-21)

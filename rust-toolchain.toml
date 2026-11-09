@@ -1,0 +1,7 @@
+# The one source for the Rust toolchain. `ci.yml` and `flake.nix` read this file; change the
+# version here and nowhere else, so local, Nix and CI clippy agree.
+[toolchain]
+channel = "1.98.1"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"

@@ -1,5 +1,7 @@
 # Scoring agent runs, and hill-climbing one strategy
 
+Doc status: current
+
 Status: **accepted** (#517, #518). The owner took every recommendation on 2026-11-07: see
 "Owner decisions". The follow-up work is under "Follow-up issues".
 

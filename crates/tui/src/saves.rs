@@ -15,7 +15,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 
 use crate::color::Palette;
-use crate::widgets::{Marks, Painter, Row, Tone};
+use crate::widgets::{Marks, Painter, Row, Tone, window_start};
 
 /// The cursor after a step of `dy` rows (its sign only), stopping at the list's edges.
 pub fn step(slots: &[Slot], at: usize, dy: i32) -> usize {
@@ -24,12 +24,6 @@ pub fn step(slots: &[Slot], at: usize, dy: i32) -> usize {
     }
     let last = slots.len() - 1;
     (at as i64 + i64::from(dy.signum())).clamp(0, last as i64) as usize
-}
-
-/// The first row that shows so that `at` does: the list starts at the top and slides only once
-/// the cursor passes its far edge, as the research grid's columns do.
-fn window_start(at: usize, shown: usize) -> usize {
-    (at + 1).saturating_sub(shown)
 }
 
 /// One slot's row: its name, then what `Slot::describe` says. The whole row dims when the slot

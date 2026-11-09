@@ -14,10 +14,12 @@
 //! # Format
 //!
 //! RON text, human-readable and diffable (map keys that aren't strings, which JSON can't do, are
-//! fine). The first line is a `SaveInfo` header and the rest is the `World`:
+//! fine). Version 2 is three lines: a `SaveInfo` header, the save's content-id tables
+//! ([`SaveIds`]), and the `World`:
 //!
 //! ```text
-//! (magic:"four-nations-save",version:1,data_hash:..,seed:..,nation:Fire,tick:..)
+//! (magic:"four-nations-save",version:2,data_hash:..,seed:..,nation:fire,tick:..)
+//! (biomes:["tundra",..],resources:[..],nations:[..],techs:[..],items:[..],buildings:[..],abilities:[..])
 //! (seed:..,tick:..,map:(..),..)
 //! ```
 //!
@@ -28,10 +30,21 @@
 //!   way old files can't be read as; `load` reads the header first and refuses a version it
 //!   doesn't know with a clear error, before trying to make sense of the body. When an old
 //!   version is worth keeping, add a branch there that upgrades it.
-//! * `data_hash` is `Defs::id_hash`: ids such as `TechId` are indices into the data tables, so a
-//!   save made against different tables would mean something else. Retuned numbers don't matter.
+//! * `data_hash` is `Defs::id_hash`, for information only: it no longer gates loading.
 //! * The header's `seed`, `nation` and `tick` let a load menu describe a save (`inspect`) without
 //!   parsing the world.
+//!
+//! # Content changes (#602, docs/design/save-compat.md)
+//!
+//! Content ids such as `TechId` are indices into the `data/*.toml` tables, in memory and in the
+//! body. The ids line records which id string each index meant, and `load` maps every saved index
+//! to today's index by name while it parses the body (`ids::Remap`), so content may be appended,
+//! inserted or reordered under an old save. A save that uses content which no longer exists fails
+//! with `SaveError::MissingContent`, naming it. The one piece of state indexed by position rather
+//! than by id, `Research::known`, is remapped after the parse.
+//!
+//! Version 1 saves have no ids line. Their tables come from a snapshot (`save/v1_ids.ron`) keyed
+//! by their `data_hash`; a v1 save whose hash isn't there is `DataMismatch`.
 //!
 //! `World` derives `Serialize`/`Deserialize` over all of its state (only the connectivity cache is
 //! skipped; it is rebuilt on demand). A new field on `World` therefore either serializes or fails
@@ -50,8 +63,13 @@ use crate::defs::Defs;
 use crate::nation::Nation;
 use crate::world::{BendOutcome, World};
 
-/// The save format version this build writes and reads.
-pub const SAVE_VERSION: u32 = 1;
+mod ids;
+
+pub use ids::SaveIds;
+use ids::{Remap, Table, Unmapped};
+
+/// The save format version this build writes. It also reads every version from 1 up.
+pub const SAVE_VERSION: u32 = 2;
 
 const MAGIC: &str = "four-nations-save";
 
@@ -60,7 +78,8 @@ const MAGIC: &str = "four-nations-save";
 pub struct SaveInfo {
     pub magic: String,
     pub version: u32,
-    /// `Defs::id_hash` of the data the world was saved against.
+    /// `Defs::id_hash` of the data the world was saved against. Information only, except in a
+    /// version 1 save, where it picks the id tables the save was made against.
     pub data_hash: u64,
     pub seed: u64,
     pub nation: Nation,
@@ -75,8 +94,11 @@ pub enum SaveError {
     NotASave(String),
     /// A save from a format this build doesn't know.
     Version { found: u32, supported: u32 },
-    /// Made against different game data (ids would point at the wrong things).
+    /// A version 1 save made against game data whose id tables this build doesn't have.
     DataMismatch,
+    /// The save uses content (a building, tech, item, ...) that this build's data doesn't have:
+    /// removed or renamed since it was made. `kind` is "building", "tech" and so on.
+    MissingContent { kind: &'static str, id: String },
     /// Looked like a save but couldn't be read, or described an impossible world.
     Corrupt(String),
     /// Couldn't be serialized (not expected to happen).
@@ -93,8 +115,13 @@ impl std::fmt::Display for SaveError {
                  {supported})"
             ),
             Self::DataMismatch => f.write_str(
-                "this save was made with different game data (biomes, techs, items, buildings or \
-                 abilities were added, removed or reordered)",
+                "this save is from an old version of the game whose content this build doesn't \
+                 know (it reads old saves only from the last data before the format changed)",
+            ),
+            Self::MissingContent { kind, id } => write!(
+                f,
+                "this save uses the {kind} {id:?}, which this version of the game doesn't have \
+                 (removed or renamed)"
             ),
             Self::Corrupt(e) => write!(f, "damaged save ({e})"),
             Self::Write(e) => write!(f, "could not write the save ({e})"),
@@ -104,7 +131,7 @@ impl std::fmt::Display for SaveError {
 
 impl std::error::Error for SaveError {}
 
-/// Splits save text into its header line and the world text after it.
+/// Splits save text into its first line and the text after it.
 fn split(text: &str) -> (&str, &str) {
     text.split_once('\n').unwrap_or((text, ""))
 }
@@ -127,23 +154,55 @@ fn probe(text: &str) -> Result<Probe, SaveError> {
 }
 
 /// Reads just the header of a save, without parsing or checking the world: its version, nation,
-/// seed and tick. Fails if the text isn't a save, or is one from a format this build can't read.
+/// seed and tick. Fails if the text isn't a save, or is one this build can't read on its header
+/// alone: a format version it doesn't know, or a version 1 save made against data it has no id
+/// tables for (`DataMismatch`).
 pub fn inspect(text: &str) -> Result<SaveInfo, SaveError> {
     let found = probe(text)?.version;
-    if found != SAVE_VERSION {
+    if !(1..=SAVE_VERSION).contains(&found) {
         return Err(SaveError::Version { found, supported: SAVE_VERSION });
     }
-    ron::from_str(split(text).0).map_err(|e| SaveError::NotASave(e.to_string()))
+    let info: SaveInfo =
+        ron::from_str(split(text).0).map_err(|e| SaveError::NotASave(e.to_string()))?;
+    if info.version == 1 && ids::v1_ids(info.data_hash).is_none() {
+        return Err(SaveError::DataMismatch);
+    }
+    Ok(info)
+}
+
+/// The id tables a save was made against, and its body.
+fn ids_and_body<'t>(info: &SaveInfo, text: &'t str) -> Result<(SaveIds, &'t str), SaveError> {
+    let after_header = split(text).1;
+    match info.version {
+        1 => Ok((ids::v1_ids(info.data_hash).ok_or(SaveError::DataMismatch)?, after_header)),
+        _ => {
+            let (ids, body) = split(after_header);
+            let ids = ron::from_str(ids).map_err(|e| SaveError::Corrupt(format!("ids: {e}")))?;
+            Ok((ids, body))
+        }
+    }
+}
+
+impl From<Unmapped> for SaveError {
+    fn from(e: Unmapped) -> Self {
+        match e {
+            Unmapped::Missing { table, id } => Self::MissingContent { kind: table.kind(), id },
+            Unmapped::OutOfRange { table, index } => {
+                Self::Corrupt(format!("{} index {index} is past the save's table", table.kind()))
+            }
+        }
+    }
 }
 
 impl World {
     /// Serializes the whole world to save-file text. Deterministic: the same world always gives
     /// the same text.
     pub fn save(&self, defs: &Defs) -> Result<String, SaveError> {
+        let ids = SaveIds::of(defs);
         let info = SaveInfo {
             magic: MAGIC.into(),
             version: SAVE_VERSION,
-            data_hash: defs.id_hash(),
+            data_hash: ids.hash(),
             seed: self.seed,
             nation: self.nation,
             tick: self.tick,
@@ -151,19 +210,33 @@ impl World {
         let write = |e: ron::Error| SaveError::Write(e.to_string());
         let mut text = ron::ser::to_string(&info).map_err(write)?;
         text.push('\n');
+        text.push_str(&ron::ser::to_string(&ids).map_err(write)?);
+        text.push('\n');
         text.push_str(&ron::ser::to_string(self).map_err(write)?);
         Ok(text)
     }
 
     /// Rebuilds a world from `save` text, checked against `defs`. The loaded world continues
-    /// exactly as the saved one would have.
+    /// exactly as the saved one would have. Content ids are mapped to `defs` by name, so the save
+    /// may come from data with content added or reordered since (#602).
     pub fn load(text: &str, defs: &Defs) -> Result<World, SaveError> {
         let info = inspect(text)?;
-        if info.data_hash != defs.id_hash() {
-            return Err(SaveError::DataMismatch);
+        let (ids, body) = ids_and_body(&info, text)?;
+        let guard = Remap::new(&ids, defs).install();
+        let parsed: Result<World, _> = ron::from_str(body);
+        let remap = guard.finish();
+        // A missing id is the real reason, whatever ron made of the error it caused.
+        if let Some(failed) = remap.failure() {
+            return Err(failed.clone().into());
         }
-        let mut world: World =
-            ron::from_str(split(text).1).map_err(|e| SaveError::Corrupt(e.to_string()))?;
+        let mut world = parsed.map_err(|e| SaveError::Corrupt(e.to_string()))?;
+        world.research_mut().remap(remap.table(Table::Tech), defs).map_err(|e| match e {
+            Some(saved) => SaveError::MissingContent {
+                kind: Table::Tech.kind(),
+                id: remap.saved_name(Table::Tech, saved).to_owned(),
+            },
+            None => SaveError::Corrupt("the research state doesn't match the save's techs".into()),
+        })?;
         world.validate(defs).map_err(SaveError::Corrupt)?;
         world.adopt_orchards(defs);
         world.adopt_farm_plots(defs);

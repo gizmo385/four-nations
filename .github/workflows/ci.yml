@@ -28,13 +28,9 @@ jobs:
       CARGO_PROFILE_CI_OPT_LEVEL: 1
     steps:
       - uses: actions/checkout@v7
-      # Keep in sync with the toolchain in the Nix profile (currently 1.98) so lints match.
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.98"
-          components: rustfmt, clippy
-          # The web replayer's crates are linted for wasm32 too (`cargo xtask ci`, #594).
-          targets: wasm32-unknown-unknown
+      # The toolchain (version, components, wasm32 target) is pinned in rust-toolchain.toml, the one
+      # source shared with flake.nix and local rustup. Change it there, not here.
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           # Only main writes the cache; PRs restore it. Keeps us within the private-repo quota.

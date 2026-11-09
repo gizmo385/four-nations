@@ -886,7 +886,7 @@ mod tests {
     fn finish_first_chart(s: &mut Session, found: Pos) {
         use fn_sim::World;
         let text = s.world.save(&s.defs).unwrap();
-        let (header, world) = text.split_once('\n').unwrap();
+        let (header, world) = text.rsplit_once('\n').unwrap();
         let event = format!(
             "chart_events:[(tick:9,room:(x:3,y:1),kind:Found(pos:(x:{},y:{}),reachable:true))],",
             found.x, found.y

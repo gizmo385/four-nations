@@ -1,5 +1,7 @@
 # Tech stack options
 
+Doc status: current (the Saves section is the live rule; the Bevy engine choice below is historical)
+
 Status: **decided** 2026-10-21: Rust + Bevy, merged to `main`. **Superseded** 2026-11-03
 (#93, #280, #281): the owner retired the Bevy client, its art pipeline and its CI cost
 entirely, once a terminal frontend (`fn_tui`, docs/design/tui.md) reached parity with it. The
@@ -103,13 +105,40 @@ A save is a snapshot of the whole `World` as RON text (`World::save` / `World::l
 played and silently becomes a different game when any rule or balance number changes; a snapshot
 loads in about a tenth of a second and survives retuning. The command log is saved inside the
 snapshot, so replay still works for tests and debugging. A save carries a format version
-(`SAVE_VERSION`) and a hash of the data tables' ids (`Defs::id_hash`); `load` refuses either
-mismatch with a clear error. The sim does no I/O: it produces and consumes the text, and the
-frontend decides where it lives (`fn_ui::saves`, `FN_SAVE_DIR` or the platform's data directory).
+(`SAVE_VERSION`), and `load` refuses a version it doesn't know with a clear error. The sim does
+no I/O: it produces and consumes the text, and the frontend decides where it lives
+(`fn_ui::saves`, `FN_SAVE_DIR` or the platform's data directory).
 
 Adding state to `World` needs no save code: the derive makes a field either serialize or fail to
-compile. Change the serialized shape of existing state in a way old files can't be read as, and
-bump `SAVE_VERSION`.
+compile. If you change the serialized shape of existing state so that old files can't be read,
+bump `SAVE_VERSION` and add an upgrade step in `load`.
+
+**Saves survive content changes (#602, owner decision 2026-11-09).** In memory, content ids
+(`BiomeId`, `ResourceId`, `TechId`, `ItemId`, `BuildingId`, `AbilityId`) are table indices. A
+save also writes, on its own line, the id strings each index meant. `load` maps every saved
+index to today's index by name. The plan is in save-compat.md. For content in those six
+tables:
+
+- **May:** append, insert anywhere, reorder, and retune anything. A save made before any of
+  these loads and plays on.
+- **May remove** an entry that a given save doesn't use. A save that does use it fails with
+  `SaveError::MissingContent` naming the id ("this save uses the building …").
+- **May not rename** an id: to an old save, a rename is a removal plus an addition. A rename
+  table can come later. Until then, a rename breaks every save that uses the id.
+- **Not covered yet:** in-progress state that runs parallel to one definition's own lists, such
+  as a build site's deliveries against `BuildingDef::cost` or a batch against
+  `RecipeDef::inputs`. Append to those lists freely. Reordering or shortening them can
+  misattribute what an old save had delivered.
+
+What this asks of code:
+
+- Never store state indexed by position in a content table. Key it by id instead, in a
+  `BTreeMap`/`BTreeSet`. `Research::known` is the one exception, and `load` remaps it by hand.
+- A new content-id type must use the remapping `Deserialize` macro and get its own table in
+  `SaveIds`.
+
+`Defs::id_hash` remains in the save header as information only. It is still the
+`data_digest` of a run log, because a keystroke replay only holds for the same id order.
 
 ## RNG streams and content (#225)
 

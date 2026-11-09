@@ -1,5 +1,7 @@
 # Clearing ground: uproot plants, build over what's in the way
 
+Doc status: current
+
 Status: **accepted** (#411, from the owner's 2026-11-06 playtest). The owner took every
 recommendation; see "Owner decisions" at the end. #424, #425 and #426 have landed; #427 is open. Companion issues: #342 (deconstruct finished buildings) and #335 (rectangle cancel
 keeps stockpiles and sites).

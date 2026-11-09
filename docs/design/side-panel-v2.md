@@ -1,5 +1,7 @@
 # Side panel v2: a glance, a feed, and what's under your hand
 
+Doc status: current
+
 Status: **accepted** (#414; owner answers 2026-11-06, see "Decisions" below; from the owner's 2026-11-06 midgame/endgame playtest). It revises
 docs/design/side-panel.md (#302), which stays the record of why the roster left the panel and why
 headings are dividers. Everything that doc settled about the Nation screen (`N`), the tool banner

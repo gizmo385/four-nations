@@ -29,7 +29,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
 use crate::state::UiState;
-use crate::widgets::{Marks, Painter, Row, Tone, fit, meter};
+use crate::widgets::{Marks, Painter, Row, Tone, fit, meter, window_start};
 
 /// At least this many columns in the map region (not the screen's own frame, which also carries
 /// the panel beside it) before the meters show instead of a flag after the task.
@@ -116,12 +116,6 @@ pub fn step(view: &NationView, at: usize, dy: i32) -> usize {
         return 0;
     }
     (at as i64 + i64::from(dy)).clamp(0, n as i64 - 1) as usize
-}
-
-/// The first row that shows so that `at` does: the roster starts at the top and slides only once
-/// the pointer passes its far edge (the same rule the research grid and the saves list follow).
-fn window_start(at: usize, shown: usize) -> usize {
-    (at + 1).saturating_sub(shown)
 }
 
 /// One line of the roster area: a group's heading, or a settler's own row.

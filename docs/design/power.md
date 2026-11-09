@@ -1,5 +1,7 @@
 # Power as a progression track, and Earth's weak source
 
+Doc status: current
+
 Status: **proposed** (#447, #446). The owner's direction (2026-11-06): Earth gets a weak power
 source, and power should be "another way for a nation to progress". The owner's calls are under
 "Open questions for the owner", and the follow-up work is under "Follow-up issues".

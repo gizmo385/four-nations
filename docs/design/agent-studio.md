@@ -1,5 +1,7 @@
 # Agent studio: the watcher as a demo of an agent writing code
 
+Doc status: current
+
 Status: **draft** (#496). The owner settled the layout, the tab fallback, the sparkline's data
 and the code pane's contents on 2026-11-06 (quoted in the issue). Two smaller calls are still
 open: see "Open questions for the owner".

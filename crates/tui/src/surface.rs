@@ -2196,7 +2196,8 @@ impl RunLog {
 /// a live `Host` started from. `data_digest` and `crate_version` are not needed to rebuild the
 /// session (a fresh one always uses whatever data and code are at hand), only to tell a reader
 /// whether it still can: `--watch` refuses a log whose `data_digest` doesn't match
-/// (`Watcher::new`), the same rule `fn_sim::save` applies to a save file.
+/// (`Watcher::new`). That is a run-log rule only: a save file maps its ids by name and loads
+/// under changed data (#602), but a keystroke replay only holds for the same id order.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RunLogHeader {
     pub seed: u64,
@@ -3582,7 +3583,7 @@ mod tests {
             }
             assert!(s.world.research().is_known(cart));
             let text = s.world.save(&s.defs).unwrap();
-            let (header, world) = text.split_once('\n').unwrap();
+            let (header, world) = text.rsplit_once('\n').unwrap();
             let event = format!(
                 "chart_events:[(tick:9,room:(x:3,y:1),kind:Found(pos:(x:{},y:{}),\
                  reachable:true))],",

@@ -130,7 +130,7 @@ fn a_bend_leaves_a_temporary_ford_that_drains_back_to_land() {
     // 10 minutes x water_work (2.0 base x irrigation's 1.15 = 2.3) is 23 minutes, or 13800 ticks.
     let factor = w.modifiers().water_work;
     assert!((factor - 2.3).abs() < 1e-4, "{factor}");
-    let full = minutes_to_ticks(10.0 * factor);
+    let full = minutes_to_ticks_min1(10.0 * factor);
     assert_eq!(full, 13_800);
     let cast_at = w.tick;
     run_until(&mut w, &defs, full + 10, |w| w.map[pos].terrain == Terrain::Land);
@@ -170,7 +170,7 @@ fn the_magnitude_modifier_scales_revert_minutes() {
     let cast_at = w.tick;
     run_until(&mut w, &defs, 5000, |w| w.map[pos].terrain == Terrain::Land);
     let took = w.tick - cast_at;
-    let want = minutes_to_ticks(2.0 * factor);
+    let want = minutes_to_ticks_min1(2.0 * factor);
     assert!(took.abs_diff(want) <= 1, "{took} vs {want}");
 }
 
@@ -206,7 +206,7 @@ fn a_settler_standing_on_the_pool_is_not_stranded_or_killed_when_it_reverts() {
     draw(&mut w, &defs, pos);
     assert_eq!(w.map[pos].terrain, Terrain::Ford);
     let cast_at = w.tick;
-    let full = minutes_to_ticks(10.0 * w.modifiers().water_work);
+    let full = minutes_to_ticks_min1(10.0 * w.modifiers().water_work);
 
     // Plant the settler right on the pool and warm the connectivity cache while it's still a
     // ford, so a stale "unreachable" answer from before the revert would be visible below.

@@ -376,7 +376,7 @@ impl App {
     fn refresh_saves(&mut self) {
         self.ui.save_slots = match self.saves.as_deref() {
             None => Vec::new(),
-            Some(dir) => match saves::list(dir, &self.session.defs) {
+            Some(dir) => match saves::list(dir) {
                 Ok(slots) => slots,
                 Err(why) => {
                     self.ui.status = why;

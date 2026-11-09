@@ -29,11 +29,6 @@ use super::*;
 /// Reserved for the Avatar: higher than any id a settler or a newcomer (#232) could ever reach.
 const AVATAR_UNIT_ID: UnitId = UnitId(u32::MAX);
 
-/// Ticks in `minutes` in-game minutes, rounded to the nearest tick.
-fn minutes_to_ticks(minutes: f32) -> u64 {
-    (minutes * 60.0 * TICKS_PER_SECOND as f32).round() as u64
-}
-
 /// Where the Avatar stands. `#[serde(default)]` on `World::avatar`, so a save from before #237
 /// reads as `NotYetArrived`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]

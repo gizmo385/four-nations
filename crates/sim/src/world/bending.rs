@@ -136,7 +136,6 @@
 
 use rand::seq::SliceRandom;
 
-use super::work::route_from;
 use crate::bending::{AbilityDef, Effect, Rank};
 use crate::defs::{BiomeId, ResourceId, Terrain};
 use crate::jobs::{ItemId, JobKind};
@@ -260,11 +259,6 @@ pub(super) struct Ride {
     pub multiplier: f32,
     /// The first tick it is over. The rider is on it while `tick < until`.
     pub until: u64,
-}
-
-/// Ticks in `minutes` in-game minutes, at least 1.
-fn minutes_to_ticks(minutes: f32) -> u64 {
-    ((minutes * 60.0 * TICKS_PER_SECOND as f32).round() as u64).max(1)
 }
 
 /// Seconds in `ticks`.
@@ -685,15 +679,7 @@ impl World {
             // Chi can only have gone up since the claim, so this is a safety net.
             return self.abandon_job(i, id, defs);
         }
-        if self.units[i].route.is_none() {
-            // Resuming after a need, or the claim's route was lost: plan from here.
-            let flood = self.flood_from(i);
-            match self.stand_tile(&flood, pos).and_then(|(_, s)| flood.path_to(s)) {
-                Some(path) => self.units[i].route = Some(route_from(path)),
-                None => return self.abandon_job(i, id, defs),
-            }
-        }
-        if !self.walk(i, defs) {
+        if !self.go_or_abandon(i, id, StandRule::Tile(pos), defs) {
             return;
         }
         let rate = self.bend_rate(&self.units[i], def, defs);
@@ -752,7 +738,7 @@ impl World {
         restoke_below: f32,
     ) -> bool {
         let Some(until) = until.filter(|&u| u > self.tick) else { return false };
-        let full = minutes_to_ticks(duration_minutes * magnitude) as f32;
+        let full = minutes_to_ticks_min1(duration_minutes * magnitude) as f32;
         (until - self.tick) as f32 > restoke_below * full
     }
 
@@ -1034,7 +1020,7 @@ impl World {
                 }
                 if let Some(minutes) = revert_minutes {
                     let was = self.map[pos].terrain;
-                    let at = self.tick + minutes_to_ticks(minutes * magnitude);
+                    let at = self.tick + minutes_to_ticks_min1(minutes * magnitude);
                     let key = (at, pos);
                     let i = self.reverts.partition_point(|r| (r.at, r.pos) <= key);
                     self.reverts.insert(i, Revert { pos, terrain: was, at });
@@ -1086,7 +1072,7 @@ impl World {
                     radius: *radius,
                     sleep_bonus: *sleep_bonus,
                     seek_tiles: *seek_tiles,
-                    until: self.tick + minutes_to_ticks(duration_minutes * magnitude),
+                    until: self.tick + minutes_to_ticks_min1(duration_minutes * magnitude),
                     size: crate::building::ONE_BY_ONE,
                     cooks: *cooks,
                     ability: Some(ability),
@@ -1101,7 +1087,7 @@ impl World {
                     unit: caster,
                     radius: *radius,
                     sleep_bonus: *sleep_bonus,
-                    until: self.tick + minutes_to_ticks(duration_minutes * magnitude),
+                    until: self.tick + minutes_to_ticks_min1(duration_minutes * magnitude),
                 });
                 None
             }
@@ -1112,7 +1098,7 @@ impl World {
                     caster,
                     Ride {
                         multiplier: *multiplier,
-                        until: self.tick + minutes_to_ticks(duration_minutes * magnitude),
+                        until: self.tick + minutes_to_ticks_min1(duration_minutes * magnitude),
                     },
                 );
                 None
@@ -1146,11 +1132,11 @@ impl World {
             } => {
                 let patch = Patch {
                     centre: pos,
-                    dries_at: self.tick + minutes_to_ticks(wet_minutes * magnitude),
+                    dries_at: self.tick + minutes_to_ticks_min1(wet_minutes * magnitude),
                     sprouts: *sprouts,
                     resource: *sprout_resource,
                     biomes: biomes.clone(),
-                    fallow_ticks: minutes_to_ticks(*fallow_minutes),
+                    fallow_ticks: minutes_to_ticks_min1(*fallow_minutes),
                 };
                 // Keep the list in drying order; equal times stay in the order they were made.
                 let key = (patch.dries_at, patch.centre);

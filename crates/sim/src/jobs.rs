@@ -14,9 +14,8 @@ use crate::needs::{FoodDef, NeedsSettings};
 use crate::research::{TechDef, TechId};
 use crate::world::UnitId;
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+// `Deserialize` is `save::ids`' remapping impl (#602).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
 pub struct ItemId(pub u16);
 
 #[derive(Debug, Clone, PartialEq)]

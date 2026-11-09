@@ -23,7 +23,6 @@ use crate::building::ChartDef;
 use crate::flood::Flood;
 use crate::jobs::JobKind;
 
-use super::work::route_from;
 use super::*;
 
 /// One finished Chart job, oldest first, for a frontend's alert log (mirrors `StrainEvent`).
@@ -54,11 +53,6 @@ pub enum ChartStanding {
     Charting { percent: u32 },
     /// Nothing is left to chart within its range, so its seat stays closed.
     NothingLeft,
-}
-
-/// Ticks in `minutes` in-game minutes, at least 1 (mirrors `world/study.rs`'s own copy; #402).
-fn minutes_to_ticks(minutes: f32) -> u64 {
-    ((minutes * 60.0 * TICKS_PER_SECOND as f32).round() as u64).max(1)
 }
 
 impl World {
@@ -107,7 +101,7 @@ impl World {
         if !self.chart_has_target(pos, def) {
             return Some(ChartStanding::NothingLeft);
         }
-        let target = minutes_to_ticks(def.minutes) as f32;
+        let target = minutes_to_ticks_min1(def.minutes) as f32;
         let percent = (self.chart_progress(pos) / target * 100.0).floor().clamp(0.0, 99.0);
         Some(ChartStanding::Charting { percent: percent as u32 })
     }
@@ -172,21 +166,14 @@ impl World {
             return self.finish_job(i);
         }
         if self.units[i].inside.is_none() {
-            if self.units[i].route.is_none() {
-                let flood = self.flood_from(i);
-                match self.stand_entrance(&flood, anchor).and_then(|(_, s)| flood.path_to(s)) {
-                    Some(path) => self.units[i].route = Some(route_from(path)),
-                    None => return self.abandon_job(i, id, defs),
-                }
-            }
-            if !self.walk(i, defs) {
+            if !self.go_or_abandon(i, id, StandRule::Entrance(anchor), defs) {
                 return;
             }
             if !self.enter_building(i, anchor, defs) {
                 return;
             }
         }
-        let target = minutes_to_ticks(def.minutes) as f32;
+        let target = minutes_to_ticks_min1(def.minutes) as f32;
         let study = self.modifiers().study;
         let progress = self.charts.entry(anchor).or_insert(0.0);
         *progress += study;

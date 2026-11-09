@@ -1,5 +1,7 @@
 # Buildings: multi-tile footprints
 
+Doc status: current
+
 Status: **decided** (#196; owner decisions of 2026-10-25 are listed at the end). Follow-up work
 is listed at the end of this doc. Units go *inside* buildings through a door, on top of the solid
 footprints ([Units inside buildings](#units-inside-buildings)), and the study halls get taller

@@ -1,5 +1,7 @@
 # Cartography: charting where the scrolls lie
 
+Doc status: current
+
 Status: **accepted** (#400). Follow-up work: #402 (sim and data, done), #404 (balance, done) to #403.
 
 The "Ancient scrolls read" sign (3 scrolls, `data/endeavor.toml`) is the one sign players make

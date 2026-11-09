@@ -1,5 +1,7 @@
 # Materials balance: stone, ore, food and wood against the Harmony Gate
 
+Doc status: current
+
 Status: **accepted** (#339, which folds in #272). The owner answered all four questions on
 2026-11-05; the answers are recorded at the end under "Owner decisions". The follow-up issues are
 listed under "Follow-up issues", and #355 measured the result on 2026-11-07 ("What the harness

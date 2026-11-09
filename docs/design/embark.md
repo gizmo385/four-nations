@@ -1,5 +1,7 @@
 # Embark: choosing where to settle
 
+Doc status: current
+
 Status: **accepted** (#286, owner answers 2026-11-03, recorded at the end). Follow-up work: #288,
 #289 and #290.
 
