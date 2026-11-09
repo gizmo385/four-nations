@@ -1,0 +1,48 @@
+# Publishes the web replayer (#595, #596) to GitHub Pages on every push to main. The site is
+# only the replayer: a viewer opens a run's run.jsonl from their own disk and it is replayed in
+# their browser, never uploaded. The site is public: anyone with its URL can load the game.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One deploy at a time, and never cancel one halfway through.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      # Keep in sync with ci.yml's toolchain.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.98"
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: pages
+      - name: Build the replayer
+        run: cargo xtask web
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: target/replayer
+      - id: deploy
+        uses: actions/deploy-pages@v4

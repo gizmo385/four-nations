@@ -92,10 +92,14 @@ fn copy(from: &Path, to: &Path) -> Result {
 /// Copies `logs` into `out/runs/` and writes `out/runs/index.json` listing them; each one's
 /// `?run=` value.
 fn add_runs(out: &Path, logs: &[PathBuf]) -> Result<Vec<String>> {
+    // An earlier run's logs never linger into this one's page (or the deployed site).
+    let runs = out.join("runs");
+    if runs.exists() {
+        fs::remove_dir_all(&runs).map_err(|e| format!("{}: {e}", runs.display()))?;
+    }
     if logs.is_empty() {
         return Ok(Vec::new());
     }
-    let runs = out.join("runs");
     fs::create_dir_all(&runs).map_err(|e| format!("{}: {e}", runs.display()))?;
     let mut entries = Vec::new();
     let mut links = Vec::new();

@@ -140,8 +140,9 @@ function layout() {
   if (choice === 'fit') {
     font = 14;
     let m = measure(font);
-    // Shrink the font until at least 120x40 fits (the TUI's smallest comfortable size).
-    while (font > 8 && (stage.clientWidth / m.cw < 120 || stage.clientHeight / m.ch < 40)) {
+    // Shrink the font until the studio fits (data/tui.toml [studio] min_width x min_height,
+    // 160x45): below that the script, game and feed panes collapse into tabs.
+    while (font > 8 && (stage.clientWidth / m.cw < 160 || stage.clientHeight / m.ch < 45)) {
       font -= 1;
       m = measure(font);
     }
@@ -321,7 +322,8 @@ function showMessage(msg, error = false) {
   el.classList.toggle('error', error);
 }
 
-// The run index (runs/index.json, published by #596): a list of
+// The run index (runs/index.json): `cargo xtask web LOG...` writes one for local use; the
+// published site has none, since runs are opened from disk there. A list of
 // { path, name, nation, seed, build, turns, score? }.
 async function loadIndex() {
   let runs;
@@ -341,6 +343,7 @@ async function loadIndex() {
     select.add(new Option(`${run.name}${bits ? ` (${bits})` : ''}`, run.path));
   }
   select.disabled = false;
+  $('pick').hidden = false;
   select.onchange = () => {
     if (!select.value) return;
     const params = new URLSearchParams(location.search);
