@@ -44,3 +44,13 @@ memory_bytes = 8192
 # scripts through `plan()`; a `set` or `merge` that would exceed this fails with a clear error and
 # leaves the plan as it was.
 plan_bytes = 8192
+
+[attempt]
+# How many times one campaign attempt may call `test_governor` (#570), rejected calls included
+# and counted over every chunk of the attempt. A test costs seconds of CPU and no tokens beyond
+# its short result (about 1.2 KB; the detail form about 2 KB), so the number is about how often
+# an attempt can usefully test, not about cost. A test and an edit are a pair of calls, so this
+# many tests need twice as many calls; `HORIZON_GRACE_CALLS` (crates/agent/src/tools.rs), which
+# is what a session has left once the game reaches its horizon, is checked against it by a unit
+# test: at least 2 x max_tests + 20.
+max_tests = 30

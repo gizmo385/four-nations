@@ -78,6 +78,9 @@ pub(super) struct Context {
     acts_ok: Cell<u32>,
     acts_failed: Cell<u32>,
     last_failure: RefCell<Option<String>>,
+    /// Every failed `act`/`keys` of this run with the turn it was made on (turns into the run),
+    /// up to [`FAILURE_CAP`]: what `test_governor`'s trace counts by message and time (#570).
+    failures: RefCell<Vec<(u32, String)>>,
     /// The session's `plan` map as of this run's start (#524): `plan()` returns a fresh copy of
     /// it every call, so a script can't change it (only the `plan` tool does, between runs).
     plan: serde_json::Value,
@@ -99,6 +102,10 @@ pub(super) struct Context {
     /// the host does for it.
     native_cost: Cell<u64>,
 }
+
+/// How many failed acts one run keeps for the trace (#570); the tally in `acts.failed` goes on
+/// counting past it. A governor refused 20 times a turn for 540 turns is about half of this.
+const FAILURE_CAP: usize = 20_000;
 
 /// What a native call charges the operation budget (#564), in the budget's own unit: one Rhai
 /// operation, taken as about a microsecond of a script doing real work. Rhai counts a call to
@@ -161,6 +168,7 @@ impl Context {
             acts_ok: Cell::new(0),
             acts_failed: Cell::new(0),
             last_failure: RefCell::new(None),
+            failures: RefCell::new(Vec::new()),
             plan,
             probe,
             work_limit: Cell::new(u64::MAX),
@@ -287,12 +295,22 @@ impl Context {
         self.last_failure.borrow().clone()
     }
 
+    /// Every failure [`Self::record`] kept, oldest first, as (turns into the run, message).
+    pub(super) fn failures(&self) -> Vec<(u32, String)> {
+        self.failures.borrow().clone()
+    }
+
     /// Tallies one `act`/`keys` step toward the eventual wake report's own `acts` counts:
     /// `Some(msg)` counts as a failure and becomes the new `last_failure`; `None` counts as ok.
     fn record(&self, failure: Option<String>) {
         match failure {
             Some(msg) => {
                 self.acts_failed.set(self.acts_failed.get() + 1);
+                let mut failures = self.failures.borrow_mut();
+                if failures.len() < FAILURE_CAP {
+                    failures.push((self.turns_used.get(), msg.clone()));
+                }
+                drop(failures);
                 *self.last_failure.borrow_mut() = Some(msg);
             }
             None => self.acts_ok.set(self.acts_ok.get() + 1),

@@ -466,6 +466,19 @@ pub(crate) fn evaluate(
     strategy: &Strategy,
     work: &Path,
 ) -> Result<Table> {
+    evaluate_panels(fn_agent, track, strategy, work, &[Role::Train, Role::Holdout])
+}
+
+/// [`evaluate`] for the given panels only, in the order given (#570): an attempt's candidate
+/// versions are compared on the train panel alone, and the held-out panel is run once, for the
+/// version that was chosen. Seeds run one at a time (#571 parallelises them).
+pub(crate) fn evaluate_panels(
+    fn_agent: &Path,
+    track: &Track,
+    strategy: &Strategy,
+    work: &Path,
+    panels: &[Role],
+) -> Result<Table> {
     fs::create_dir_all(work).map_err(|e| format!("can't create {}: {e}", work.display()))?;
     let script = work.join("governor.rhai");
     fs::write(&script, &strategy.governor).map_err(|e| e.to_string())?;
@@ -479,8 +492,11 @@ pub(crate) fn evaluate(
     };
 
     let mut rows = Vec::new();
-    let panels = [(Role::Train, &track.train_seeds), (Role::Holdout, &track.holdout_seeds)];
-    for (role, seeds) in panels {
+    for &role in panels {
+        let seeds = match role {
+            Role::Train => &track.train_seeds,
+            Role::Holdout => &track.holdout_seeds,
+        };
         for &seed in seeds {
             say(&format!(
                 "{} seed {seed} ({}), {} turns",

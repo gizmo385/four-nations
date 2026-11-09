@@ -18,7 +18,7 @@
 use fn_tui::surface::{Host, LogLine};
 use serde_json::{Value, json};
 
-use crate::script::{self, Limits, Outcome};
+use crate::script::{self, ActFailure, Limits, Outcome};
 
 /// The first script run that ended in an `error` or a `runaway`: why, and the turn it stopped on.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,6 +49,16 @@ pub struct CleanRun {
     /// The last script run's outcome (`reason` `"budget"` when the script was still going at the
     /// horizon).
     pub last: Outcome,
+    /// Every failed `act`/`keys` over all the runs, oldest first, with the turns played when it
+    /// was made (#570, `test_governor`'s trace). Kept up to a cap per script run; `acts_failed`
+    /// counts them all.
+    pub failures: Vec<ActFailure>,
+    /// `act`/`keys` calls that worked and that failed, over all the runs.
+    pub acts_ok: u32,
+    pub acts_failed: u32,
+    /// The script's own last `log`/`print`/`debug` lines over the runs (at most
+    /// `Limits::log_tail`), oldest first.
+    pub log: Vec<String>,
 }
 
 /// Plays `code` on `host` for exactly `horizon` turns (see the module doc). Every log line the
@@ -86,6 +96,9 @@ pub fn run(
     let mut stopped_by = None;
     let mut runs = 0u32;
     let mut last: Option<Outcome> = None;
+    let mut failures: Vec<ActFailure> = Vec::new();
+    let (mut acts_ok, mut acts_failed) = (0u32, 0u32);
+    let mut log: Vec<String> = Vec::new();
 
     while played(host) < horizon {
         let remaining = horizon - played(host);
@@ -110,7 +123,17 @@ pub fn run(
             plan,
             probe: false,
         };
+        let began = played(host);
         let outcome = script::run(host, request, &limits);
+        failures.extend(
+            outcome
+                .failures
+                .iter()
+                .map(|f| ActFailure { turn: began + f.turn, message: f.message.clone() }),
+        );
+        acts_ok += outcome.acts.ok;
+        acts_failed += outcome.acts.failed;
+        log.extend(outcome.log.iter().cloned());
         flush(host, &mut sink)?;
         sink(&LogLine::Wake {
             reason: outcome.reason.to_owned(),
@@ -154,5 +177,12 @@ pub fn run(
         restarts,
         stopped_by,
         last: last.expect("the loop ran at least once (horizon >= 1)"),
+        failures,
+        acts_ok,
+        acts_failed,
+        log: {
+            let drop = log.len().saturating_sub(limits.log_tail);
+            log.split_off(drop)
+        },
     })
 }

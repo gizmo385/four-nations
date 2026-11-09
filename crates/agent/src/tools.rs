@@ -521,6 +521,7 @@ struct ScriptsArgs {
 struct TestGovernorArgs {
     seed: Option<u64>,
     turns: Option<u32>,
+    detail: Option<bool>,
 }
 
 #[derive(Deserialize, Default)]
@@ -576,10 +577,18 @@ pub struct Tools<W: std::io::Write> {
 
 /// How many tool calls a session gets once the game has reached its horizon (#569). Live play
 /// can't go on, so what is left is finishing up: `test_governor` (at most
-/// [`trial::MAX_RUNS`] of them), a few `save_script`s, the plan and notes, and a look at the
-/// result. Calls past it are refused with a plain "stop now". It bounds what an attempt can
-/// spend after the horizon whatever `--chunk-calls` (which only asks the model to stop) says.
-pub const HORIZON_GRACE_CALLS: u32 = 30;
+/// `data/agent.toml`'s `[attempt] max_tests` of them, #570), the `save_script` that fixes what a
+/// test showed, the plan and notes, and a look at the result. Calls past it are refused with a
+/// plain "stop now". It bounds what an attempt can spend after the horizon whatever
+/// `--chunk-calls` (which only asks the model to stop) says.
+///
+/// Chosen with the test limit (30): a test and the edit it asks for are a pair of calls, so an
+/// attempt that saves every test for the end needs 60, and the rest (the plan, the notes, a
+/// `scripts` read, the last save) fits in 20 more. `the_grace_fits_every_test_as_a_pair` pins
+/// the relation. The price of the headroom is bounded: a model that stops when it is done spends
+/// nothing of it, and one that doesn't is stopped after 80 calls of a context that has already
+/// been paid for (cache reads), not 80 fresh games.
+pub const HORIZON_GRACE_CALLS: u32 = 80;
 
 impl<W: std::io::Write> Tools<W> {
     /// Wraps `host` and `log`, writing the header at once (`Host::header`): what the run was
@@ -698,7 +707,8 @@ impl<W: std::io::Write> Tools<W> {
     fn horizon_note(&self, horizon: u32) -> String {
         let calls_left = HORIZON_GRACE_CALLS.saturating_sub(self.horizon_calls);
         let test = if self.trial.is_some() {
-            "check it with test_governor if you have tests left, "
+            "check it with test_governor if you have tests left (each test and the fix it asks \
+             for are two calls), "
         } else {
             ""
         };
@@ -1036,11 +1046,11 @@ impl<W: std::io::Write> Tools<W> {
         };
         self.trial_calls += 1;
         let a: TestGovernorArgs = args(trial::TOOL, arguments)?;
-        if self.trial_calls > trial::MAX_RUNS {
+        if self.trial_calls > t.max_tests {
             return Err(format!(
                 "{}: all {} tests for this attempt are used",
                 trial::TOOL,
-                trial::MAX_RUNS
+                t.max_tests
             ));
         }
         let seed = a.seed.unwrap_or_else(|| {
@@ -1065,8 +1075,9 @@ impl<W: std::io::Write> Tools<W> {
         };
         let code = code.to_owned();
         let header = self.host.header();
-        let verdict = trial::run(&header, seed, &code, &self.plan, turns, &limits)?;
-        Ok(verdict.json(trial::MAX_RUNS - self.trial_calls))
+        let detail = a.detail.unwrap_or(false);
+        let verdict = trial::run(&header, seed, &code, &self.plan, turns, detail, &limits)?;
+        Ok(verdict.json(t.max_tests - self.trial_calls))
     }
 
     /// Everything `briefing` returns except the goal text, the limit and calls left, which
@@ -1305,5 +1316,24 @@ mod call_summary_tests {
         let args = json!({"steps": [], "note": "a".repeat(100)});
         let summary = call_summary("act", &args);
         assert_eq!(summary.chars().count(), CALL_SUMMARY_MAX);
+    }
+}
+
+#[cfg(test)]
+mod attempt_limit_tests {
+    use super::HORIZON_GRACE_CALLS;
+    use crate::script::limits::AttemptLimits;
+
+    /// #570: the calls a session has once the game is at its horizon must fit every test as a
+    /// pair (the test and the edit it asks for), with room for the plan, the notes, a `scripts`
+    /// read and the last save. Raising `max_tests` in `data/agent.toml` without raising the grace
+    /// would leave an attempt that saved its tests for the end out of calls with tests unused.
+    #[test]
+    fn the_grace_fits_every_test_as_a_pair() {
+        let tests = AttemptLimits::bundled().max_tests;
+        assert!(
+            HORIZON_GRACE_CALLS >= 2 * tests + 20,
+            "{HORIZON_GRACE_CALLS} calls after the horizon can't hold {tests} tests and their fixes"
+        );
     }
 }

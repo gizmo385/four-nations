@@ -2425,6 +2425,40 @@ pub mod referee {
         /// Research is idle from here to the horizon: nothing queued at the end of the last
         /// sampled turn, and at every turn since. `None` while research is still going.
         pub research_idle: Option<ResearchIdle>,
+        /// One reading per replayed turn, in order (#570): what the People row, the stores and
+        /// the idle count showed at the end of it, for `test_governor`'s trace.
+        pub turns: Vec<TurnSample>,
+        /// Every death up to the horizon, in order (#570): the alert a player is shown, with
+        /// the turn it landed on.
+        pub deaths: Vec<DeathNote>,
+    }
+
+    /// The end of one turn, as a player would read it (#570).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct TurnSample {
+        /// Everyone alive, the Avatar too.
+        pub people: u32,
+        /// Food in stores.
+        pub food: u32,
+        /// Units with no task.
+        pub idle: u32,
+        /// Settlers whose People row shows trouble with each need, the milder word or the
+        /// severe one: Hungry or Starving, Thirsty or Parched, Tired or Exhausted, Hurt or
+        /// Dying (the Avatar is left out, as in [`Reported::mild`]).
+        pub hungry: u32,
+        pub thirsty: u32,
+        pub tired: u32,
+        pub hurt: u32,
+    }
+
+    /// A death, as the alert says it (#570): "Kiluk died of starvation".
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct DeathNote {
+        /// The turn whose end first showed it.
+        pub turn: u32,
+        pub name: String,
+        /// The alert's own word: "starvation", "dehydration", ...
+        pub cause: &'static str,
     }
 
     impl Reported {
@@ -2545,6 +2579,8 @@ pub mod referee {
                 winter_food: sampler.winter_food,
                 idle_windows: sampler.idle,
                 research_idle: sampler.research_idle,
+                turns: sampler.turns,
+                deaths: sampler.deaths,
             },
         })
     }
@@ -2574,6 +2610,23 @@ pub mod referee {
         winter_food: Vec<WinterFood>,
         idle: Vec<IdleWindow>,
         research_idle: Option<ResearchIdle>,
+        turns: Vec<TurnSample>,
+        /// How many of `World::deaths` earlier turns already looked at.
+        deaths_seen: usize,
+        deaths: Vec<DeathNote>,
+    }
+
+    /// The word the death alert uses for `cause` (`fn_ui::alerts`: "Kiluk died of starvation").
+    fn death_word(cause: fn_sim::needs::DeathCause) -> &'static str {
+        use fn_sim::needs::DeathCause;
+        match cause {
+            DeathCause::Starvation => "starvation",
+            DeathCause::Dehydration => "dehydration",
+            DeathCause::Exhaustion => "exhaustion",
+            DeathCause::Exposure => "exposure",
+            DeathCause::Injury => "injuries",
+            DeathCause::Sickness => "sickness",
+        }
     }
 
     impl Sampler {
@@ -2582,9 +2635,20 @@ pub mod referee {
             let session = &host.app().session;
             let (world, defs) = (&session.world, &session.defs);
 
+            let mut trouble = [0u32; 4];
             for unit in world.units.iter().filter(|u| !u.is_avatar()) {
                 self.settler_samples += 1;
-                for need in unit_view(session, unit).needs {
+                let needs = unit_view(session, unit).needs;
+                for need in &needs {
+                    if need.status != Status::Ok
+                        && let Some(i) = ["Hunger", "Thirst", "Energy", "Health"]
+                            .iter()
+                            .position(|&l| l == need.label)
+                    {
+                        trouble[i] += 1;
+                    }
+                }
+                for need in needs {
                     if need.status == Status::Warn
                         && let Some(word) = need_word(need.label, need.status)
                         && let Some(i) = MILD_WORDS.iter().position(|&w| w == word)
@@ -2593,6 +2657,14 @@ pub mod referee {
                     }
                 }
             }
+            for d in &world.deaths[self.deaths_seen.min(world.deaths.len())..] {
+                self.deaths.push(DeathNote {
+                    turn,
+                    name: d.name.clone(),
+                    cause: death_word(d.cause),
+                });
+            }
+            self.deaths_seen = world.deaths.len();
 
             let events = world.season_events();
             for ev in &events[self.seasons_seen.min(events.len())..] {
@@ -2620,6 +2692,15 @@ pub mod referee {
             let idle = world.units.iter().filter(|u| u.task().is_none()).count() as u32;
             self.idle[window].idle += idle;
             self.idle[window].total += world.units.len() as u32;
+            self.turns.push(TurnSample {
+                people: world.units.len() as u32,
+                food: world.stored_food(defs),
+                idle,
+                hungry: trouble[0],
+                thirsty: trouble[1],
+                tired: trouble[2],
+                hurt: trouble[3],
+            });
 
             let research = world.research();
             if research.queue().is_empty() {

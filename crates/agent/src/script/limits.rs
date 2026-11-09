@@ -39,11 +39,28 @@ fn default_plan_bytes() -> usize {
     8192
 }
 
-/// `data/agent.toml`'s own shape: just the one `[scripts]` table for now (#477); later issues
-/// may add tables of their own alongside it.
+/// What one campaign attempt may use, from `data/agent.toml`'s `[attempt]` table (#570).
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+pub struct AttemptLimits {
+    /// How many times one attempt may call `test_governor`, rejected calls included, whatever
+    /// the number of chunks it takes.
+    pub max_tests: u32,
+}
+
+/// `data/agent.toml`'s own shape: `[scripts]` (#477) and `[attempt]` (#570).
 #[derive(Deserialize)]
 struct File {
     scripts: Limits,
+    attempt: AttemptLimits,
+}
+
+impl AttemptLimits {
+    /// The attempt limits shipped in `data/agent.toml`, embedded at compile time.
+    pub fn bundled() -> Self {
+        toml::from_str::<File>(include_str!("../../../../data/agent.toml"))
+            .expect("bundled data/agent.toml must be valid; run `cargo test -p fn_agent`")
+            .attempt
+    }
 }
 
 impl Limits {
@@ -78,6 +95,7 @@ mod tests {
         assert!(!l.default_wake.is_empty());
         assert!(l.memory_bytes > 0);
         assert!(l.plan_bytes > 0);
+        assert!(AttemptLimits::bundled().max_tests >= 30, "#570: at least 30 tests");
     }
 
     fn limits() -> Limits {

@@ -64,6 +64,18 @@ pub struct Outcome {
     /// are overridden to `"error"` naming the cap (`finalize_memory`), whatever the script's
     /// own code did. Always a JSON object, never `null`.
     pub memory: serde_json::Value,
+    /// Each failed `act`/`keys` with the turn (into this run) it was made on, oldest first, kept
+    /// for `test_governor`'s trace (#570) and not part of the tool result.
+    #[serde(skip)]
+    pub failures: Vec<ActFailure>,
+}
+
+/// One failed `act`/`keys` call: [`ActsSummary::last_failure`]'s text and when it happened.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ActFailure {
+    /// Turns into the run when it was made (0: before the first `wait`).
+    pub turn: u32,
+    pub message: String,
 }
 
 fn is_zero(v: &u32) -> bool {
@@ -192,6 +204,8 @@ pub fn run(host: &mut Host, request: Request<'_>, limits: &Limits) -> Outcome {
         failed: ctx.acts_failed(),
         last_failure: ctx.last_failure(),
     };
+    let failures: Vec<ActFailure> =
+        ctx.failures().into_iter().map(|(turn, message)| ActFailure { turn, message }).collect();
     let script = ctx.tag().to_owned();
     let version = ctx.version();
     let observe = host.observe();
@@ -227,6 +241,7 @@ pub fn run(host: &mut Host, request: Request<'_>, limits: &Limits) -> Outcome {
         log,
         observe,
         memory,
+        failures,
     }
 }
 

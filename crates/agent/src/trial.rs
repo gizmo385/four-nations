@@ -16,12 +16,21 @@
 //!   over no others, `--trial-seeds`), and a `seed` outside it is refused.
 //! - Read a clock or a thread RNG: the same governor, plan and seed give the same result.
 //!
-//! The cost is wall-clock time, so it is bounded: at most [`MAX_RUNS`] tests per attempt, counted
-//! from the log's own `call` lines so a chunked attempt (`serve --resume`) shares one count. A
-//! full 540-turn test took 4 s for a small governor that never stops and 9 s for the campaign's
-//! v16 governor (run away at turn 171, then coasting), in the release build (`cargo xtask
-//! agent-run` builds `fn_agent --release`); `turns` asks for a shorter one. At the limit that is
-//! a minute or so of an attempt that lasts far longer.
+//! The result (#570) is the clean evaluation's own score and stop reason, the scorecard's signs
+//! and deaths with their causes, and a short trace by time slice ([`crate::trace`]): enough to
+//! see why a run failed on a map the model isn't playing, not a log. `detail` asks for the long
+//! form. The summary is about 1.2 KB and the detail about 2 KB, under 3.2 KB whatever the governor logs (pinned by a test).
+//!
+//! The cost is wall-clock time, so it is bounded: at most [`Trial::max_tests`] tests per attempt
+//! (`data/agent.toml`, `[attempt]`), counted from the log's own `call` lines so a chunked attempt
+//! (`serve --resume`) shares one count. A full 540-turn test takes 2 to 15 s in the release build, 2 s for a colony that dies out and 13 s for a healthy one
+//! (`cargo xtask agent-run` builds `fn_agent --release`); `turns` asks for a shorter one.
+//!
+//! Testing on the map being played (the default, when it is a train seed) is a lookahead copy:
+//! the trial is that same game from turn 0. That is what a climb wants, and why the tool exists
+//! only in a campaign: `fn_agent serve` gets `--trial-seeds` from `cargo xtask agent-run
+//! --track` and from nothing else (`xtask/src/agent_run/campaign.rs` is the one place that sets
+//! it, and a test there pins that no flag does), so a race, which has no track, never has it.
 
 use fn_tui::surface::{Host, LogLine, RunLogHeader};
 use serde_json::{Value, json};
@@ -29,14 +38,11 @@ use serde_json::{Value, json};
 use crate::clean;
 use crate::scorecard;
 use crate::script::Limits;
+use crate::script::limits::AttemptLimits;
+use crate::trace;
 
 /// The tool's name.
 pub const TOOL: &str = "test_governor";
-
-/// How many times one attempt may call `test_governor`, rejected calls included: two sweeps of
-/// a three-seed train panel. Enough to test a fix and test it again on the other maps; few enough
-/// that testing can't take the attempt over.
-pub const MAX_RUNS: u32 = 6;
 
 /// What a session needs to run the tool: the track's train seeds and horizon.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +51,9 @@ pub struct Trial {
     pub seeds: Vec<u64>,
     /// The track's horizon: the default (and the longest) test.
     pub turns: u32,
+    /// How many times one attempt may call the tool, rejected calls included
+    /// (`data/agent.toml`, `[attempt]`).
+    pub max_tests: u32,
 }
 
 impl Trial {
@@ -56,7 +65,13 @@ impl Trial {
         if turns == 0 {
             return Err("--trial-turns wants at least one turn".to_owned());
         }
-        Ok(Self { seeds, turns })
+        Ok(Self { seeds, turns, max_tests: AttemptLimits::bundled().max_tests })
+    }
+
+    /// The same, with a different number of tests (tests of the tool itself use a small one).
+    pub fn with_max_tests(mut self, max_tests: u32) -> Self {
+        self.max_tests = max_tests;
+        self
     }
 }
 
@@ -71,14 +86,21 @@ pub fn tool(trial: &Trial) -> Value {
              the clean evaluation the attempt will be judged by, so it shows the same stop \
              reason and turn, and the same score, as that one will. A governor that errors or \
              runs away stops for good, and the settlement coasts with no orders from then on. \
-             The result is short: stopped (null, or reason, turn and why), score, and tests \
-             left. Maps: {seeds}. Defaults to the map you are playing and the full {turns} \
-             turns; `turns` asks for fewer. It takes a few seconds to half a minute of \
-             real time, and at most {max} tests are allowed in the whole attempt, so test a \
-             finished change, not every edit.",
+             The result: stopped (null, or reason, turn and why), score, the signs with the \
+             turn each was met or how far it got, deaths with their causes, a trace by time \
+             slice (people, idle share, settlers hungry or thirsty, your act calls that did \
+             nothing and the most common reason), and tests left. `detail: true` adds food, \
+             tired and hurt, deaths per slice, more refusals and the last distinct lines your \
+             governor's own log() wrote: log what you would want to see on a map you can't \
+             watch (stores, needs, what it just designated) and read it there. A small `turns` \
+             zooms the trace in on the start. Use it to find out why a map failed, not only \
+             whether. Maps: {seeds}. Defaults to the map you are playing and the full {turns} \
+             turns; `turns` asks for fewer. It takes a few seconds of real time, and at most \
+             {max} tests are allowed in the whole attempt (each is a call, and a fix is \
+             another: leave calls for them).",
             seeds = seeds.join(", "),
             turns = trial.turns,
-            max = MAX_RUNS,
+            max = trial.max_tests,
         ),
         "inputSchema": json!({
             "type": "object",
@@ -90,6 +112,10 @@ pub fn tool(trial: &Trial) -> Value {
                 "turns": {
                     "type": "integer",
                     "description": "How many turns to test, at most the full length.",
+                },
+                "detail": {
+                    "type": "boolean",
+                    "description": "The long form of the trace (about 2 KB instead of 1.2 KB).",
                 },
             },
         }),
@@ -104,6 +130,10 @@ pub struct Verdict {
     /// The first error or runaway, if the script had one.
     pub stopped: Option<clean::StoppedBy>,
     pub score: f64,
+    pub progress: f64,
+    pub care: f64,
+    /// The signs, deaths and trace ([`crate::trace`]).
+    pub brief: trace::Brief,
 }
 
 impl Verdict {
@@ -125,20 +155,32 @@ impl Verdict {
             "turns": self.turns,
             "stopped": self.stopped.as_ref().map(clean::StoppedBy::json),
             "score": self.score,
+            "progress": round(self.progress, 3),
+            "care": round(self.care, 2),
             "tests_left": left,
             "summary": summary,
+            "signs": self.brief.signs,
+            "deaths": self.brief.deaths,
+            "trace": self.brief.trace,
         })
     }
 }
 
+fn round(x: f64, places: i32) -> f64 {
+    let k = 10f64.powi(places);
+    (x * k).round() / k
+}
+
 /// Plays `code` and `plan` from turn 0 on a copy of the session `header` describes, on `seed`, for
 /// `turns` turns, and scores it. `header` is the live game's own; only its seed is replaced.
+/// `detail` asks for the long trace.
 pub fn run(
     header: &RunLogHeader,
     seed: u64,
     code: &str,
     plan: &Value,
     turns: u32,
+    detail: bool,
     limits: &Limits,
 ) -> Result<Verdict, String> {
     let header = RunLogHeader { seed, ..header.clone() };
@@ -149,5 +191,14 @@ pub fn run(
         Ok(())
     })?;
     let report = scorecard::build(&header, &lines, Some(turns))?;
-    Ok(Verdict { seed, turns: run.turns, stopped: run.stopped_by, score: report.replay.card.score })
+    let card = &report.replay.card;
+    Ok(Verdict {
+        seed,
+        turns: run.turns,
+        stopped: run.stopped_by.clone(),
+        score: card.score,
+        progress: card.progress,
+        care: card.care.value,
+        brief: trace::brief(&report, &run, detail),
+    })
 }

@@ -35,4 +35,4 @@ pub mod style;
 
 pub use library::Library;
 pub use limits::Limits;
-pub use runner::{Outcome, Request, run};
+pub use runner::{ActFailure, Outcome, Request, run};

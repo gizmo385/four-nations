@@ -122,6 +122,7 @@ use crate::Result;
 
 mod campaign;
 mod sandbox;
+mod versions;
 
 fn say(msg: &str) {
     eprintln!("agent-run: {msg}");

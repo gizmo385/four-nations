@@ -17,6 +17,7 @@
 use std::fmt::Write as _;
 
 use fn_tui::scenario;
+pub use fn_tui::surface::referee::TurnSample;
 use fn_tui::surface::referee::score::{MilestoneKind, ScoreDef};
 use fn_tui::surface::referee::{self, MILD_WORDS, Replay};
 use fn_tui::surface::{LogLine, RunLogHeader};
@@ -164,6 +165,30 @@ impl Report {
             champion: None,
             build: Some(fn_tui::buildid::CURRENT.to_owned()),
         }
+    }
+
+    /// The signs in one line, for `test_governor` (#570): "Stone in stores t135; Food in stores
+    /// 40/150; Ore mined never started". A sign met says the turn, a slipped one also where it
+    /// stands, an unmet one how far it got. The Ready and stage rows are named only once met.
+    pub fn signs_line(&self) -> String {
+        let r = &self.replay;
+        r.card
+            .milestones
+            .iter()
+            .filter(|m| m.kind == MilestoneKind::Sign || m.first_met.is_some())
+            .map(|m| {
+                let met = m.first_met.map(|t| format!("t{}", r.turn_of(t)));
+                let at = format!("{}/{}", m.value, m.target);
+                match (m.kind == MilestoneKind::Sign, met) {
+                    (true, Some(t)) if m.slipped => format!("{} {t}, slipped to {at}", m.name),
+                    (true, Some(t)) => format!("{} {t}", m.name),
+                    (true, None) if m.value == 0 => format!("{} never started", m.name),
+                    (true, None) => format!("{} {at}", m.name),
+                    (false, met) => format!("{} {}", m.name, met.unwrap_or_default()),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("; ")
     }
 
     fn clock(&self, turns: u32) -> String {

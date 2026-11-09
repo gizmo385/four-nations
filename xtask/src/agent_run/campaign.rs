@@ -10,16 +10,21 @@
 //!   champion/meta.json     which attempt it came from, and its train mean
 //!   champion/scorecard.txt its scorecard on the track's play_seed, for the next prompt
 //!   attempt-K/             a normal --scripts run on play_seed, played to the horizon
-//!     eval/seed-N.jsonl    the clean evaluation's logs; handoff.json is the attempt's own
-//!                          final strategy
+//!     eval/vV-N/           one clean evaluation per governor version tried (#570): V is the
+//!                          version, N the order; seed-N.jsonl logs, and the held-out ones
+//!                          for the chosen pair only
+//!     eval/versions.json   what was tried, with train scores and seconds, and which was chosen
+//!     handoff.json         the attempt's own final strategy
+//!     chosen-handoff.json  the strategy that became the champion, when one did
 //! ```
 //!
-//! After every attempt the played log is scored (`fn_agent score --append`), the attempt's final
-//! `governor` and plan are cleanly evaluated on every train and held-out seed
-//! (`agent_eval::evaluate`), and one ledger row is written, last: a row is what makes an attempt
-//! count, so an attempt a crash left unfinished has none and is left alone. If the mean train
-//! score beats the champion's the attempt becomes the champion. Otherwise the champion stays,
-//! the attempt's notes are merged into the champion's, and its code and plan are dropped.
+//! After every attempt the played log is scored (`fn_agent score --append`), every governor
+//! version it saved is cleanly evaluated on the train seeds with the plan it was judged with
+//! (`versions`, `agent_eval::evaluate_panels`), the best by train mean is the attempt's candidate
+//! and gets the held-out seeds too, and one ledger row is written, last: a row is what makes an
+//! attempt count, so an attempt a crash left unfinished has none and is left alone. If the mean
+//! train score beats the champion's the attempt becomes the champion. Otherwise the champion
+//! stays, the attempt's notes are merged into the champion's, and its code and plan are dropped.
 //!
 //! Every score is made on a build of `fn_agent` (#566), recorded on each row and on the champion.
 //! A resume on a different build than the champion's evaluates the champion again first
@@ -64,9 +69,11 @@ struct SeedScore {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct Row {
     attempt: u32,
-    /// The final `governor`'s version; `None` when the attempt never saved one.
+    /// The `governor` version the attempt hands on (#570): the one whose pair scored best on the
+    /// train seeds, not necessarily the last saved. `None` when the attempt never saved one.
     governor_version: Option<u32>,
-    /// Plan edits since the campaign began (the champion's count, plus this attempt's own).
+    /// Plan edits since the campaign began (the champion's count, plus this attempt's own up to
+    /// the plan the chosen pair was judged with).
     plan_revision: u32,
     /// The score of the attempt's own played log at the horizon.
     played: Option<f64>,
@@ -81,6 +88,15 @@ struct Row {
     /// ledger from before builds were recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     build: Option<String>,
+    /// How many versions of the governor the attempt saved (#570); `None` in a ledger from
+    /// before, or with no governor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    saved: Option<u32>,
+    /// How many governor and plan pairs were evaluated on the train seeds to choose
+    /// `governor_version` (at most `versions::CANDIDATE_CAP`; fewer than `saved` when the cap cut
+    /// the older untested ones).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tried: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -312,6 +328,7 @@ fn ledger_text(ledger: &Ledger, owner: bool) -> String {
         "#".to_owned(),
         "governor".to_owned(),
         "plan".to_owned(),
+        "tried".to_owned(),
         "played".to_owned(),
         format!("clean {}", seeds_label(&t.train_seeds)),
         "mean".to_owned(),
@@ -329,6 +346,11 @@ fn ledger_text(ledger: &Ledger, owner: bool) -> String {
             r.attempt.to_string(),
             r.governor_version.map_or("-".to_owned(), |v| format!("v{v}")),
             format!("r{}", r.plan_revision),
+            // Versions evaluated of the versions saved (#570): "3/9" chose among 3 of 9.
+            match (r.tried, r.saved) {
+                (Some(t), Some(s)) => format!("{t}/{s}"),
+                _ => "-".to_owned(),
+            },
             r.played.map_or("-".to_owned(), |p| format!("{p:.0}")),
             scores_cell(&r.clean),
             r.train_mean.map_or("-".to_owned(), |m| format!("{m:.0}")),
@@ -397,9 +419,12 @@ pub(super) fn deciding_passage(horizon: u32) -> String {
          colony coasts to the end with no orders. `test_governor` plays your saved governor and \
          the current plan from turn 0 on one of those maps, on a separate copy of the world \
          (this game is not touched), and tells you the stop reason, turn and score the clean \
-         run will get: run it on the final governor before you finish, most of all after a \
-         change. This game ends at turn {horizon}; when it does, finish up (test, save, \
-         notes) and stop."
+         run will get, with the signs, the deaths and a short trace by time slice that show \
+         why a map failed: run it after a change, on the maps that did worst. When the attempt \
+         ends, each governor version you saved is replayed like that, with the plan as it was \
+         when you moved on from it or tested it, and the best by mean score is the attempt's \
+         candidate, so a worse last edit does not lose a better version. This game ends at \
+         turn {horizon}; when it does, finish up (test, fix, save, notes) and stop."
     )
 }
 
@@ -455,10 +480,13 @@ fn reeval_lines(reevals: &[Reeval]) -> Vec<String> {
 fn clean_run_rules() -> &'static str {
     "A runaway is more work between two waits than the limit allows (each wait starts the count \
      again, and observe, act and the other game calls count for more than one each); a stop \
-     early in the run costs most of the score. A `test_governor` run takes a few seconds to \
-     half a minute and the number of tests per attempt is limited (the tool says how many are \
-     left), so test a finished change, not every edit. A governor that has only run on this \
-     built-up settlement can fail from an empty start."
+     early in the run costs most of the score. A `test_governor` run takes a few seconds and \
+     costs one call, and so does the fix it asks for; the number of tests per attempt is \
+     limited (the tool says how many are left) and a session that has played to the horizon \
+     is given extra calls to use them. `detail: true` adds more to the trace, and a small \
+     `turns` zooms in on the start; the log() lines in your governor come back with the \
+     detail, so log what you would want to see on a map you cannot watch. A governor that \
+     has only run on this built-up settlement can fail from an empty start."
 }
 
 /// Attempt 1's first prompt, with no champion yet: what decides the attempt and the clean-run
@@ -518,6 +546,22 @@ fn attempt_prompt(
 // -------------------------------------------------------------------------------------------
 // Running
 // -------------------------------------------------------------------------------------------
+
+/// The governor and plan pair an attempt hands on, with its clean evaluation (#570).
+struct Chosen {
+    version: u32,
+    code: String,
+    plan: Option<Value>,
+    /// `plan` lines in the attempt's log up to this pair.
+    plan_edits: u32,
+    /// Train and held-out rows; the held-out ones were run for this pair only.
+    table: Table,
+    /// Where this pair's evaluation logs are.
+    dir: PathBuf,
+    /// Governor versions the attempt saved, and pairs evaluated to choose among them.
+    saved: u32,
+    tried: u32,
+}
 
 /// What every attempt shares.
 struct Campaign<'a> {
@@ -733,6 +777,99 @@ impl Campaign<'_> {
         Ok(())
     }
 
+    /// Evaluates the governor and plan pairs the attempt held (`versions::find`, at most
+    /// `CANDIDATE_CAP` of them) on the train seeds, one pair after the other, and returns the
+    /// best by train mean with its held-out scores. `None` when the attempt saved no governor.
+    /// Needs no model; the time it takes is printed and written to `eval/versions.json`.
+    fn evaluate_versions(
+        &self,
+        k: u32,
+        adir: &Path,
+        lines: &[LogLine],
+        champion_handoff: Option<&Handoff>,
+    ) -> Result<Option<Chosen>> {
+        let track = &self.ledger.track;
+        let (mut pairs, mut saved) = versions::find(lines);
+        pairs.retain(|p| !p.code.trim().is_empty());
+        let champion_pair = champion_handoff
+            .and_then(|h| h.scripts.get(GOVERNOR).map(|g| (g.code.clone(), h.plan.clone())));
+        if champion_pair.as_ref().is_some_and(|(code, _)| versions::starts_from(lines, code)) {
+            saved -= 1;
+        }
+        let skip = champion_pair.as_ref().map(|(code, plan)| (code.as_str(), plan));
+        let picked = versions::pick(pairs, versions::CANDIDATE_CAP, skip);
+        if picked.is_empty() {
+            return Ok(None);
+        }
+        let started = Instant::now();
+        let mut tables: Vec<(Table, PathBuf, u64)> = Vec::new();
+        for (i, c) in picked.iter().enumerate() {
+            say(&format!(
+                "attempt {k}: evaluating governor v{} ({}) on the train seeds, {} of {}",
+                c.version,
+                if c.tested { "tested" } else { "not tested" },
+                i + 1,
+                picked.len()
+            ));
+            let dir = adir.join("eval").join(format!("v{}-{}", c.version, i + 1));
+            let began = Instant::now();
+            let strategy = Strategy { governor: c.code.clone(), plan: c.plan.clone() };
+            let table =
+                agent_eval::evaluate_panels(&self.fn_agent, track, &strategy, &dir, &[Role::Train])
+                    .map_err(|e| format!("attempt {k}: the clean evaluation failed: {e}"))?;
+            tables.push((table, dir, began.elapsed().as_secs()));
+        }
+        let means: Vec<Option<f64>> = tables.iter().map(|(t, ..)| t.train_mean()).collect();
+        let Some(best) = versions::best(&means) else { return Ok(None) };
+        let c = &picked[best];
+
+        // The held-out seeds, for the owner, for the chosen pair only: they play no part above.
+        say(&format!("attempt {k}: governor v{} chosen; running the held-out seeds", c.version));
+        let (mut table, dir, _) = tables.swap_remove(best);
+        let strategy = Strategy { governor: c.code.clone(), plan: c.plan.clone() };
+        let held =
+            agent_eval::evaluate_panels(&self.fn_agent, track, &strategy, &dir, &[Role::Holdout])
+                .map_err(|e| format!("attempt {k}: the held-out evaluation failed: {e}"))?;
+        table.rows.extend(held.rows);
+
+        let total = started.elapsed().as_secs();
+        say(&format!(
+            "attempt {k}: {} governor version(s) saved, {} evaluated, v{} chosen; evaluation took \
+             {total} s",
+            saved,
+            picked.len(),
+            c.version
+        ));
+        let summary = serde_json::json!({
+            "build": self.build,
+            "saved": saved,
+            "tried": picked.len(),
+            "cap": versions::CANDIDATE_CAP,
+            "chosen": c.version,
+            "seconds": total,
+            // Train scores only: selection never saw anything else.
+            "pairs": picked.iter().zip(&means).enumerate().map(|(i, (p, m))| json!({
+                "version": p.version,
+                "tested": p.tested,
+                "final": p.last,
+                "plan_edits": p.plan_edits,
+                "train_mean": m,
+                "chosen": i == best,
+            })).collect::<Vec<_>>(),
+        });
+        write_json(&adir.join("eval").join("versions.json"), &summary)?;
+        Ok(Some(Chosen {
+            version: c.version,
+            code: c.code.clone(),
+            plan: c.plan.clone(),
+            plan_edits: c.plan_edits,
+            table,
+            dir,
+            saved,
+            tried: picked.len() as u32,
+        }))
+    }
+
     /// One attempt, start to ledger row.
     fn attempt(&mut self, remaining: Option<f64>) -> Result<Row> {
         let track = self.ledger.track.clone();
@@ -798,40 +935,40 @@ impl Campaign<'_> {
             played.map_or("unavailable".to_owned(), |p| format!("{p:.0}"))
         ));
 
-        // The attempt's final strategy, and the clean evaluation of it.
+        // The attempt's strategy: every governor version it saved, each with the plan it was
+        // judged with, evaluated on the train seeds, and the best of them handed on (#570).
         let lines = read_log_lines(&log).unwrap_or_default();
         let (scripts, notes, plan) = parse_library(&lines);
         let handoff = Handoff { scripts, notes, plan };
         write_json(&adir.join("handoff.json"), &handoff)?;
-        let governor = handoff.scripts.get(GOVERNOR).filter(|g| !g.code.trim().is_empty());
-        let table = match governor {
-            Some(g) => {
-                let strategy = Strategy { governor: g.code.clone(), plan: handoff.plan.clone() };
-                Some(
-                    agent_eval::evaluate(&self.fn_agent, &track, &strategy, &adir.join("eval"))
-                        .map_err(|e| format!("attempt {k}: the clean evaluation failed: {e}"))?,
-                )
-            }
-            None => {
-                say(&format!("attempt {k}: no script named \"{GOVERNOR}\" was saved; not kept"));
-                None
-            }
-        };
+        let chosen = self.evaluate_versions(k, &adir, &lines, champion_handoff.as_ref())?;
+        if chosen.is_none() {
+            say(&format!("attempt {k}: no script named \"{GOVERNOR}\" was saved; not kept"));
+        }
 
         // Select.
-        let train_mean = table.as_ref().and_then(Table::train_mean);
+        let train_mean = chosen.as_ref().and_then(|c| c.table.train_mean());
         let champion_mean = champion.as_ref().map(|c| c.train_mean);
         let kept = train_mean.is_some_and(|m| beats(m, champion_mean));
         let prior_plan_revision = champion.as_ref().map_or(0, |c| c.plan_revision);
         let preloaded_plan = champion_handoff.as_ref().is_some_and(|h| h.plan.is_some());
-        let plan_revision =
-            prior_plan_revision + plan_edits(&lines).saturating_sub(u32::from(preloaded_plan));
-        let governor_version = governor.map(|g| g.version);
+        let edits = chosen.as_ref().map_or_else(|| plan_edits(&lines), |c| c.plan_edits);
+        let plan_revision = prior_plan_revision + edits.saturating_sub(u32::from(preloaded_plan));
+        let governor_version = chosen.as_ref().map(|c| c.version);
         let old_notes = champion_handoff.as_ref().map_or(Vec::new(), |h| h.notes.clone());
         let merged = merge_notes(&old_notes, &handoff.notes);
-        if kept {
+        if let Some(c) = chosen.as_ref().filter(|_| kept) {
+            // The strategy the champion keeps is the chosen pair: its governor and its plan, not
+            // necessarily the ones the attempt ended with. `handoff.json` still has those.
+            let mut scripts = handoff.scripts.clone();
+            scripts.insert(
+                GOVERNOR.to_owned(),
+                ScriptEntry { version: c.version, code: c.code.clone(), ..Default::default() },
+            );
+            let strategy = Handoff { scripts, notes: merged, plan: c.plan.clone() };
+            write_json(&adir.join("chosen-handoff.json"), &strategy)?;
             let card_log = {
-                let clean = adir.join("eval").join(format!("seed-{}.jsonl", track.play_seed));
+                let clean = c.dir.join(format!("seed-{}.jsonl", track.play_seed));
                 if clean.is_file() { clean } else { log.clone() }
             };
             let record = Champion {
@@ -842,29 +979,27 @@ impl Campaign<'_> {
                 build: Some(self.build.clone()),
             };
             let card = scorecard_text(&self.fn_agent, &card_log, track.horizon_turns);
-            write_champion(
-                &self.dir,
-                &Handoff { notes: merged, ..handoff.clone() },
-                &record,
-                &card,
-            )?;
+            write_champion(&self.dir, &strategy, &record, &card)?;
         } else if let Some(mut stays) = champion_handoff {
             // The idea is kept so the next attempt doesn't retry it; its code and plan aren't.
             stays.notes = merged;
             write_json(&champion_handoff_path(&self.dir), &stays)?;
         }
+        let table = chosen.as_ref().map(|c| &c.table);
 
         let row = Row {
             attempt: k,
             governor_version,
             plan_revision,
             played,
-            clean: table.as_ref().map_or(Vec::new(), |t| seed_scores(t, Role::Train)),
+            clean: table.map_or(Vec::new(), |t| seed_scores(t, Role::Train)),
             train_mean,
-            held_out: table.as_ref().map_or(Vec::new(), |t| seed_scores(t, Role::Holdout)),
+            held_out: table.map_or(Vec::new(), |t| seed_scores(t, Role::Holdout)),
             kept,
             cost_usd: cost_so_far(&adir),
             build: Some(self.build.clone()),
+            saved: chosen.as_ref().map(|c| c.saved),
+            tried: chosen.as_ref().map(|c| c.tried),
         };
         say(&format!(
             "attempt {k}: clean mean {}; {}",
@@ -1003,6 +1138,8 @@ mod tests {
                     kept: true,
                     cost_usd: 0.974,
                     build: None,
+                    saved: Some(9),
+                    tried: Some(3),
                 },
                 Row {
                     attempt: 2,
@@ -1015,6 +1152,8 @@ mod tests {
                     kept: false,
                     cost_usd: 0.1,
                     build: None,
+                    saved: None,
+                    tried: None,
                 },
             ],
             reevals: Vec::new(),
@@ -1188,6 +1327,36 @@ mod tests {
         let args = serve_args(&o, Path::new("/a/run.jsonl")).join(" ");
         assert!(args.contains("--trial-seeds 1,2 --trial-turns 5"), "{args}");
         assert!(!args.contains('3') && !args.contains('4'), "{args}");
+    }
+
+    /// `test_governor` on the map being played is a lookahead copy (#570): fine for climbing,
+    /// wrong for a race. Only a campaign attempt (a track, with train seeds to name) turns the
+    /// tool on, and no flag does: the one assignment of `Opts::trial` outside the parser's
+    /// default is in `attempt_opts`, which this pins by reading the sources.
+    #[test]
+    fn only_a_campaign_attempt_turns_test_governor_on() {
+        for args in [
+            &[][..],
+            &["--scripts"],
+            &["--seed", "7", "--nation", "water", "--scripts", "--turns", "30"],
+            &["--chunk-calls", "10", "--max-usd", "5", "--model", "x"],
+        ] {
+            let o = parse_args_with(args, &mut || 1).unwrap();
+            assert!(o.trial.is_none(), "{args:?}");
+            let served = serve_args(&o, Path::new("/a/run.jsonl")).join(" ");
+            assert!(!served.contains("--trial") && !served.contains("--horizon"), "{served}");
+        }
+        let needle = concat!(".trial = ", "Some(");
+        let parser = include_str!("../agent_run.rs");
+        let campaign = include_str!("campaign.rs");
+        assert_eq!(parser.matches(needle).count(), 0, "agent_run.rs sets Opts::trial");
+        assert_eq!(campaign.matches(needle).count(), 1, "campaign.rs sets it in one place");
+        let at = campaign.find(needle).unwrap();
+        assert!(
+            campaign[..at]
+                .rfind("fn attempt_opts")
+                .is_some_and(|f| !campaign[f..at].contains("\nfn "))
+        );
     }
 
     #[test]

@@ -429,7 +429,7 @@ runs into it ends with reason `horizon`, not `budget`, `error` or `runaway`, and
 says the game has reached its horizon and what to do (test, save, notes, stop). A saved script
 started at the horizon isn't run; a probe is. `test_governor`, `save_script`, `plan` and `notes`
 keep working, so the time after the horizon is for the thing that is scored. The session then gets
-30 more tool calls (counted from the log, so a resume doesn't repeat them) and later calls are
+80 more tool calls (30 before #570; counted from the log, so a resume doesn't repeat them) and later calls are
 refused with "stop now". `--chunk-calls` only asks the model to stop; this cap, `--max-usd` and
 the chunk loop's own rules are what bound an attempt. The log holds no turn past the horizon, so
 it replays and scores as it would have without the stop. An attempt is finished when the game is
@@ -440,12 +440,67 @@ campaign (attempt 1's, later attempts' and every handoff) carries one shared pas
 decides the attempt (the clean score from turn 0 on other maps) and how to test it
 (`test_governor`).
 
+As built (#570): `test_governor` returns more than a number, and an attempt keeps the best
+governor it saved, not the last.
+
+- *The result.* Still the clean evaluation's own stop reason, turn and score, and now `progress`
+  and `care`, the signs in one line (the turn each was met, how far an unmet one got), the deaths
+  with cause and turn as the alert says them, and a `trace`: 12 columns at most (a 540-turn run
+  is 12 slices of 45 turns, 15 game minutes), one row each for the turn, people alive, idle share,
+  settlers hungry and thirsty (the People row's mild or severe word) and the player's own `act`
+  calls that did nothing. The first line of the trace says what each row is, and the most common
+  refusal follows it. That is the summary, about 1.2 KB. `detail: true` adds food in stores,
+  tired, hurt and deaths per slice, the five most common refusals with their first and last turn,
+  and the last six distinct lines the governor's own `log()` wrote (the runner keeps its last 30;
+  lines are cut at 90 characters): about 2 KB, under 3.2 KB at the very most (pinned by a test). `turns` with a small number zooms the same
+  12 columns in on the start. Every number is something a player could see: the People row,
+  the stores, the idle count, the death alerts, and the notices a failed designation or build
+  shows. The signs are the scorecard's, as `fn_agent score` prints them for the champion. Nothing
+  names a map but the one tested, and the tool knows no held-out seed.
+- *Reading it, on the failure that prompted this* (seed 42 under the review's champion
+  governor, 3 deaths and 3 people at the end): the summary shows three deaths of starvation at
+  turns 78, 105 and 128, everybody idle (96% in the first slice) and hungry and thirsty from
+  turn 30, 7 food in stores at turn 45, and refusals that are noise (a repeated designation
+  "already designated", "Bore Tunnel isn't usable yet"). A model can see *that* the start failed
+  and *when*, and that the colony is idle, not that no water is within reach of the start; for
+  that it adds `log()` lines to the governor and reads them in the detail form of a short test,
+  which the tool's description says. The trace doesn't name the cause by itself.
+- *The limit.* `data/agent.toml`'s `[attempt] max_tests = 30` (was 6). A test costs seconds and
+  one call, and the fix it asks for another, so 30 tests are 60 calls. `HORIZON_GRACE_CALLS`, the
+  calls a session has after the game reaches its horizon, is 80, and a test pins it at
+  `2 x max_tests + 20`: every test as a pair, plus the plan, the notes and a last save. A model
+  that spends its tests before the horizon has all of the 80 for finishing up.
+- *Parity.* `--trial-seeds` is passed by `agent-run --track` and by nothing else (a test reads
+  the sources to pin that no other code assigns `Opts::trial`). Testing on the play seed is a
+  lookahead copy of the model's own game: right for climbing, wrong for a race, which has no
+  track and so never has the tool.
+- *Which version an attempt hands on.* When an attempt ends, `agent-run` reads every governor
+  version it saved from `run.jsonl` and evaluates each on the train seeds, with no model.
+  A candidate is a pair, a governor and the plan it is judged with, because the clean run uses
+  both. The pairs are the states the model held: for each version, the plan as it stood when the
+  model moved on from it (the next save of the governor, or the end), and the plan at each
+  `test_governor` call while it was current, which are the pairs the model was shown a score for.
+  Same code and same plan is one pair. The best by train mean is the attempt's candidate (a tie
+  goes to the later pair), runs the held-out seeds, and is what the champion test compares and
+  what the champion keeps, with that pair's plan; `attempt-K/handoff.json` still holds the
+  attempt's own final state and `chosen-handoff.json` the pair that became champion.
+  Held-out scores are run for the chosen pair only and play no part in the choice (the choice
+  takes train means, nothing else; a test swaps held-out numbers and the choice doesn't move).
+- *Cost.* Evaluating one pair is the three train seeds one after another until #571: 29 s for
+  the first campaign's champion governor (13 s, 15 s and 2 s on seeds 7633, 7 and 42, release
+  build), up to 3 to 4 minutes for a heavy one. An attempt that saved 22 versions would take
+  11 minutes at the typical figure. So at most 12 pairs are evaluated: the final one always,
+  then the tested ones newest first, then the untested ones newest first. Below 12 every saved
+  version is evaluated; above it the oldest untested ones are not. The ledger's `tried` column
+  reads "3/9" for 3 evaluated of 9 saved, `eval/versions.json` has each pair's train mean and
+  the seconds the whole evaluation took, and the campaign prints that time.
+
 ```text
 ledger · water-3h · horizon 540                                   (held-out: owner only)
- #  governor  plan  played  clean 7633/7/42      mean   held-out 1/5/8   kept   cost
- 1  v9        r6     256    231 / 174 / 205      203    188 / 160 / 197  champ  $0.97
- 2  v12       r9     301    288 / 240 / 251      260    233 / 201 / 240  champ  $0.41
- 3  v14       r11    322    301 / 198 / 243      247       ...           no     $0.36
+ #  governor  plan  tried  played  clean 7633/7/42      mean   held-out 1/5/8   kept   cost
+ 1  v9        r6     4/9    256    231 / 174 / 205      203    188 / 160 / 197  champ  $0.97
+ 2  v12       r9     6/14   301    288 / 240 / 251      260    233 / 201 / 240  champ  $0.41
+ 3  v14       r11    3/3    322    301 / 198 / 243      247       ...           no     $0.36
 ```
 
 *(Row 1's played score is the evidence run. Every other number shows the format and isn't
@@ -469,7 +524,7 @@ reusable core is `agent_eval::evaluate`, for the attempt loop (#530).
 As built (#530): `cargo xtask agent-run --track ID --attempts N [--model M] [--max-usd X]
 [--chunk-calls C]` makes a campaign folder under `$FN_AGENT_RUNS` (`DATE-campaign-ID`) with
 `attempt-K/` run folders (each a `--scripts` run of the track's whole start, played to the
-horizon, with `eval/seed-N.jsonl` and its own `handoff.json` beside the usual files),
+horizon, with `eval/` (see #570 below) and its own `handoff.json` beside the usual files),
 `ledger.json` and `champion/` (`handoff.json`, `meta.json` and `scorecard.txt`, the champion's
 clean run on `play_seed`). After each attempt it runs `fn_agent score --append`, evaluates the
 final `governor` and plan, writes the champion if the train mean is strictly higher (a tie keeps

@@ -63,12 +63,17 @@ evaluated. None of the three combine with --resume or --scenario.
 test_governor tool: a clean test of the saved governor and the plan from turn 0, on a copy of the
 world of its own, on one of the LIST seeds (comma-separated; the harness passes a track's train
 seeds and nothing else) for up to N turns. It reports the stop reason, turn and score the clean
-evaluation (play --horizon) would, and is limited to a few calls per attempt.
+evaluation (play --horizon) would, the signs with the turn each was met, the deaths with their
+causes, and a short trace by time slice (about 1.2 KB; `detail` about 2 KB). It is limited to
+data/agent.toml's [attempt] max_tests calls per attempt (#570). Only a campaign passes the flag
+(cargo xtask agent-run --track): on the map being played the test is a lookahead copy, which a
+race must never have.
 
 --horizon N (#569; the harness passes it with --trial-seeds in a campaign) stops live play at turn N:
 end_turn and run_script play no turn past it and say so plainly (a run_script that reaches it ends
 with reason horizon, not error, runaway or budget); test_governor, save_script, plan and notes still
-work, and the session gets a few more calls (30) to finish up before the rest are refused. Works
+work, and the session gets a few more calls (80, enough for every test and the fix it asks for)
+to finish up before the rest are refused. Works
 with --resume. Nothing is logged past the horizon, so the log scores as it would have without it.
 
 --scripts (docs/design/agent-scripting.md) adds the run_script tool: a sandboxed Rhai runner

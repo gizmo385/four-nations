@@ -23,6 +23,10 @@ const HELD_OUT: u64 = 1;
 /// Short enough for an unoptimised build; the real tracks are 540.
 const HORIZON: u32 = 24;
 
+/// The stated sizes of a result (#570): the summary form, and the detail form.
+const SUMMARY_BYTES: usize = 1600;
+const DETAIL_BYTES: usize = 3200;
+
 const WORKS: &str = "loop { wait(1); }";
 const RUNS_AWAY: &str = "wait(1); wait(1); loop { }";
 const ERRORS: &str = "let x = 1 / 0;";
@@ -38,11 +42,21 @@ fn trial_config() -> Trial {
     Trial::new(vec![LIVE_SEED, OTHER_SEED], HORIZON).unwrap()
 }
 
+/// Few enough tests to run them all in an unoptimised build.
+const FEW: u32 = 4;
+
 fn tools_in_memory() -> Tools<Vec<u8>> {
     Tools::new(host(LIVE_SEED), Writer::new(Vec::new()))
         .unwrap()
         .with_scripts(Limits::bundled())
         .with_trial(trial_config())
+}
+
+fn tools_with_few_tests() -> Tools<Vec<u8>> {
+    Tools::new(host(LIVE_SEED), Writer::new(Vec::new()))
+        .unwrap()
+        .with_scripts(Limits::bundled())
+        .with_trial(trial_config().with_max_tests(FEW))
 }
 
 fn save(tools: &mut Tools<Vec<u8>>, code: &str) {
@@ -101,7 +115,7 @@ fn the_verdict_is_the_clean_evaluations_own() {
         assert_eq!(got["score"].as_f64().unwrap(), want, "{code}: {got}");
         assert_eq!(got["stopped"], run.stopped_by.as_ref().map_or(Value::Null, |s| s.json()));
         assert_eq!(got["stopped"].is_object(), stops, "{code}: {got}");
-        assert_eq!(got["tests_left"], trial::MAX_RUNS - 1);
+        assert_eq!(got["tests_left"], trial_config().max_tests - 1);
     }
 }
 
@@ -115,7 +129,7 @@ fn a_stop_names_its_reason_turn_and_why_in_a_short_result() {
     assert_eq!(r["stopped"]["turn"], 0);
     assert!(r["stopped"]["why"].as_str().unwrap().contains("zero"), "{r}");
     assert!(r["summary"].as_str().unwrap().contains("coasted with no orders"), "{r}");
-    assert!(r.to_string().len() < 600, "a short result, not a log: {r}");
+    assert!(r.to_string().len() < SUMMARY_BYTES, "a short result, not a log: {r}");
 
     save(&mut tools, RUNS_AWAY);
     let r = tools.call("test_governor", json!({})).unwrap();
@@ -162,11 +176,11 @@ fn the_plan_the_session_holds_is_the_plan_that_is_tested() {
 
 #[test]
 fn tests_are_limited_per_attempt() {
-    let mut tools = tools_in_memory();
+    let mut tools = tools_with_few_tests();
     save(&mut tools, WORKS);
-    for n in 1..=trial::MAX_RUNS {
+    for n in 1..=FEW {
         let r = tools.call("test_governor", json!({"turns": 1})).unwrap();
-        assert_eq!(r["tests_left"], trial::MAX_RUNS - n);
+        assert_eq!(r["tests_left"], FEW - n);
     }
     let err = tools.call("test_governor", json!({"turns": 1})).unwrap_err();
     assert!(err.contains("used"), "{err}");
@@ -181,9 +195,9 @@ fn a_resumed_session_remembers_how_many_tests_were_used() {
         let mut tools = Tools::new(host(LIVE_SEED), Writer::create(&path).unwrap())
             .unwrap()
             .with_scripts(Limits::bundled())
-            .with_trial(trial_config());
+            .with_trial(trial_config().with_max_tests(FEW));
         tools.call("save_script", json!({"name": "governor", "code": WORKS})).unwrap();
-        for _ in 0..trial::MAX_RUNS - 1 {
+        for _ in 0..FEW - 1 {
             tools.call("test_governor", json!({"turns": 1})).unwrap();
         }
         tools.end("chunk over").unwrap();
@@ -192,7 +206,7 @@ fn a_resumed_session_remembers_how_many_tests_were_used() {
     let live = Host::resume(&header, &lines).unwrap();
     let mut tools = Tools::resume(live, Writer::append(&path).unwrap(), &lines)
         .with_scripts(Limits::bundled())
-        .with_trial(trial_config());
+        .with_trial(trial_config().with_max_tests(FEW));
     let r = tools.call("test_governor", json!({"turns": 1})).unwrap();
     assert_eq!(r["tests_left"], 0);
     assert!(tools.call("test_governor", json!({"turns": 1})).is_err());
@@ -259,3 +273,142 @@ fn a_log_with_tests_in_it_replays_and_scores_like_one_without() {
 }
 
 use fn_tui::surface::RunLogHeader;
+
+/// A governor that logs every turn and is refused every turn (`<space>` is a key the host
+/// won't press).
+const REFUSED: &str = r#"loop { log("tick"); keys("<space>"); wait(1); }"#;
+
+fn text(r: &Value, key: &str) -> String {
+    r[key].as_str().unwrap_or_else(|| panic!("no {key} in {r}")).to_owned()
+}
+
+/// #570: the result says what the clean evaluation would say and enough about the run to see why
+/// it went the way it did: signs with turns, deaths, and a trace by slice. The summary is short;
+/// `detail` adds rows, refusals and the governor's own log lines, and stays under its size.
+#[test]
+fn the_result_has_the_scorecard_and_a_short_trace_and_detail_adds_to_it() {
+    let mut tools = tools_in_memory();
+    save(&mut tools, REFUSED);
+    let short = tools.call("test_governor", json!({"seed": OTHER_SEED})).unwrap();
+    assert_eq!(short["deaths"], "none");
+    assert!(short["care"].as_f64().unwrap() <= 1.0 && short["progress"].is_number(), "{short}");
+    let signs = text(&short, "signs");
+    assert!(signs.contains("Food in stores") && signs.contains("Population"), "{signs}");
+    assert!(signs.contains("never started") || signs.contains('/'), "{signs}");
+    let trace = text(&short, "trace");
+    // 24 turns: 12 slices of 2 turns, one column each.
+    let row = |name: &str| -> Vec<String> {
+        let line = trace.lines().find(|l| l.starts_with(name)).unwrap_or_else(|| panic!("{trace}"));
+        line.split_whitespace().skip(1).map(str::to_owned).collect()
+    };
+    assert_eq!(row("turn").len(), 12, "{trace}");
+    assert_eq!(row("turn").last().unwrap(), "24", "{trace}");
+    assert_eq!(row("people").len(), 12, "{trace}");
+    assert_eq!(row("idle%").len(), 12);
+    assert_eq!(row("hungry").len(), 12);
+    assert_eq!(row("thirsty").len(), 12);
+    let refused: u32 = row("refused").iter().map(|c| c.parse::<u32>().unwrap()).sum();
+    assert_eq!(refused, 25, "one refused key at each of turns 0 to 24: {trace}");
+    assert!(trace.contains("refused 25x") && trace.contains("<space>"), "{trace}");
+    assert!(!trace.contains("tick"), "log lines are the detail's: {trace}");
+    assert!(short.to_string().len() < SUMMARY_BYTES, "{} bytes", short.to_string().len());
+
+    let long = tools.call("test_governor", json!({"seed": OTHER_SEED, "detail": true})).unwrap();
+    // The scorecard half is the same; the trace has more.
+    for key in ["score", "signs", "deaths", "stopped", "progress", "care"] {
+        assert_eq!(long[key], short[key], "{key}");
+    }
+    let trace = text(&long, "trace");
+    for row in ["food", "tired", "hurt", "deaths"] {
+        assert!(trace.lines().any(|l| l.starts_with(row)), "{row} missing: {trace}");
+    }
+    assert!(trace.contains("25x tick"), "the governor's own log lines, counted: {trace}");
+    assert!(long.to_string().len() < DETAIL_BYTES, "{} bytes", long.to_string().len());
+    assert!(long.to_string().len() > short.to_string().len());
+}
+
+/// The bound holds for a run that says a lot: many distinct long log lines and refusals are
+/// cut to a few short ones.
+#[test]
+fn a_noisy_governor_cannot_make_the_result_long() {
+    let mut tools = tools_in_memory();
+    let noisy = r#"
+        let n = 0;
+        loop {
+            n += 1;
+            log("an extremely long line that goes on and on to fill up a result " + n
+                + " and on and on and on and on and on and on and on and on and on");
+            keys(if n % 4 == 0 { "<space>" } else if n % 4 == 1 { "<f5>" } else { "<f6>" });
+            wait(1);
+        }
+    "#;
+    save(&mut tools, noisy);
+    let r = tools.call("test_governor", json!({"detail": true})).unwrap();
+    assert!(r.to_string().len() < DETAIL_BYTES, "{} bytes: {r}", r.to_string().len());
+    let trace = text(&r, "trace");
+    assert!(trace.lines().all(|l| l.chars().count() < 220), "{trace}");
+}
+
+/// A stopped governor still gets the trace of the run it coasted through.
+#[test]
+fn a_stopped_run_has_a_trace_too() {
+    let mut tools = tools_in_memory();
+    save(&mut tools, ERRORS);
+    let r = tools.call("test_governor", json!({"detail": true})).unwrap();
+    assert_eq!(r["stopped"]["reason"], "error");
+    assert!(text(&r, "trace").contains("people"), "{r}");
+}
+
+/// A held-out seed is refused, and the refusal says nothing about held-out seeds: not that there
+/// are any, and not which. The result names only the seed it was asked about.
+#[test]
+fn the_tool_knows_nothing_of_held_out_seeds() {
+    let mut tools = tools_in_memory();
+    save(&mut tools, WORKS);
+    let err = tools.call("test_governor", json!({"seed": HELD_OUT})).unwrap_err();
+    assert!(!err.contains("held") && !err.contains("hold"), "{err}");
+    let r = tools.call("test_governor", json!({"seed": OTHER_SEED, "detail": true})).unwrap();
+    assert_eq!(r["seed"], OTHER_SEED);
+    assert!(!r.to_string().contains("held"), "{r}");
+}
+
+/// Seed 42 punishes a settlement with no orders: someone dies before turn 100. The result names
+/// them as the alert did (who, of what, on which turn), and the detail's deaths row agrees.
+#[test]
+fn deaths_come_with_their_cause_and_turn() {
+    let mut tools = Tools::new(host(LIVE_SEED), Writer::new(Vec::new()))
+        .unwrap()
+        .with_scripts(Limits::bundled())
+        .with_trial(Trial::new(vec![LIVE_SEED, OTHER_SEED], 100).unwrap());
+    save(&mut tools, WORKS);
+    let r = tools.call("test_governor", json!({"seed": OTHER_SEED, "detail": true})).unwrap();
+    let deaths = text(&r, "deaths");
+    assert!(deaths.starts_with("1: "), "{deaths}");
+    let (cause, turn) =
+        deaths.rsplit_once(" t").map(|(a, b)| (a, b.parse::<u32>().unwrap())).unwrap();
+    assert!(cause.ends_with("starvation") || cause.ends_with("dehydration"), "{deaths}");
+    assert!((1..=100).contains(&turn), "{deaths}");
+    let trace = text(&r, "trace");
+    let died: u32 = trace
+        .lines()
+        .find(|l| l.starts_with("deaths"))
+        .unwrap()
+        .split_whitespace()
+        .skip(1)
+        .map(|c| c.parse::<u32>().unwrap())
+        .sum();
+    assert_eq!(died, 1, "{trace}");
+    assert!(r["care"].as_f64().unwrap() < 1.0, "{r}");
+}
+
+/// Same governor, plan and seed: the same bytes, the detail form too (no clock, no thread RNG).
+#[test]
+fn the_result_is_deterministic() {
+    let run = || {
+        let mut tools = tools_in_memory();
+        save(&mut tools, REFUSED);
+        let r = tools.call("test_governor", json!({"seed": OTHER_SEED, "detail": true})).unwrap();
+        r.to_string()
+    };
+    assert_eq!(run(), run());
+}

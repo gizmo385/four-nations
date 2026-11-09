@@ -72,8 +72,15 @@ if [ -n "$log" ]; then
     printf '{"type":"note","text":"lab note from attempt %s, call %d"}\n' "$attempt" "$next" >> "$log"
     if [ -z "$STUB_NO_GOVERNOR" ]; then
       score=$(echo "$STUB_SCORES" | cut -d, -f"$attempt")
-      printf '{"type":"script","name":"governor","version":%d,"code":"// SCORE=%s%s%s","turns":0,"wake_on":[]}\n' "$next" "$score" "${STUB_STOP:+ STOP=$STUB_STOP}" "${STUB_STOP_HELDOUT:+ HELDONLY}" >> "$log"
+      # STUB_VERSION_SCORES: the governor saved by chunk N (from 0) of every attempt scores the
+      # Nth number, so an attempt can end on a worse version than one it saved before (#570).
+      [ -n "$STUB_VERSION_SCORES" ] && score=$(echo "$STUB_VERSION_SCORES" | cut -d, -f"$((chunk_n + 1))")
+      printf '{"type":"script","name":"governor","version":%d,"code":"// SCORE=%s%s%s%s","turns":0,"wake_on":[]}\n' "$next" "$score" "${STUB_STOP:+ STOP=$STUB_STOP}" "${STUB_STOP_HELDOUT:+ HELDONLY}" "${STUB_INVERT:+ INVERT}" >> "$log"
       printf '{"type":"plan","plan":{"goal":"attempt %s","call":%d}}\n' "$attempt" "$next" >> "$log"
+      # STUB_TEST_CHUNKS=0,1: those chunks end with a `test_governor` call.
+      case ",$STUB_TEST_CHUNKS," in
+        *",$chunk_n,"*) printf '{"type":"call","tool":"test_governor","summary":""}\n' >> "$log" ;;
+      esac
     fi
   fi
 fi
@@ -145,6 +152,8 @@ play)
   done
   s=$(grep -o 'SCORE=[0-9]*' "$script" | tail -1 | cut -d= -f2)
   echo "SCORE=$s seed $seed" > "$logf"
+  # `INVERT` in the governor: it does worse on the held-out seed the better it does elsewhere.
+  if grep -q INVERT "$script" && [ "$seed" = 9001 ]; then s=$(( 1000 - s )); fi
   # `STOP=reason:turn` in the governor: the script is stopped on every seed, and the held-out
   # seed reports a different reason, turn and why that must never reach a prompt.
   stop=$(grep -o 'STOP=[a-z]*:[0-9]*' "$script" | tail -1 | cut -d= -f2)
@@ -252,6 +261,9 @@ impl Fixture {
             .env("STUB_PROMPTS", &self.prompts)
             .env("STUB_FN_AGENT_LOG", &self.fn_agent_log)
             .env_remove("STUB_NO_GOVERNOR")
+            .env_remove("STUB_VERSION_SCORES")
+            .env_remove("STUB_TEST_CHUNKS")
+            .env_remove("STUB_INVERT")
             .env_remove("STUB_STOP")
             .env_remove("STUB_BUILD")
             .env_remove("STUB_SHIFT")
@@ -364,9 +376,13 @@ fn a_campaign_lays_out_attempts_ledger_and_champion() {
         "attempt-1/run.jsonl",
         "attempt-1/cost.json",
         "attempt-1/handoff.json",
-        "attempt-1/eval/seed-7.jsonl",
-        "attempt-1/eval/seed-41.jsonl",
-        "attempt-1/eval/seed-9001.jsonl",
+        // The attempt saved v1 and v2 with the same code but a plan edit between: two pairs, and
+        // the later (v2) won the tie.
+        "attempt-1/eval/versions.json",
+        "attempt-1/eval/v2-2/seed-7.jsonl",
+        "attempt-1/eval/v2-2/seed-41.jsonl",
+        "attempt-1/eval/v2-2/seed-9001.jsonl",
+        "attempt-1/chosen-handoff.json",
         "attempt-2/run.jsonl",
     ] {
         assert!(dir.join(sub).is_file(), "missing {sub}");
@@ -419,13 +435,14 @@ fn a_campaign_lays_out_attempts_ledger_and_champion() {
     let run1 = fs::read_to_string(dir.join("attempt-1/run.jsonl")).unwrap();
     assert!(run1.lines().last().unwrap().contains("\"type\":\"score\""), "{run1}");
 
-    // Every clean run carried the plan, on train seeds first and then the held-out seed.
+    // Every clean run carried the plan: both pairs on the train seeds first, then the held-out
+    // seed for the chosen one alone.
     let calls = fs::read_to_string(&fx.fn_agent_log).unwrap();
     let plays: Vec<&str> = calls.lines().filter(|l| l.starts_with("play")).collect();
-    assert_eq!(plays.len(), 6, "{calls}");
+    assert_eq!(plays.len(), 10, "{calls}");
     assert!(plays.iter().all(|l| l.contains("--plan") && l.contains("--horizon 2")), "{calls}");
-    let order: Vec<bool> = plays.iter().take(3).map(|l| l.contains("--seed 9001")).collect();
-    assert_eq!(order, [false, false, true]);
+    let order: Vec<bool> = plays.iter().take(5).map(|l| l.contains("--seed 9001")).collect();
+    assert_eq!(order, [false, false, false, false, true]);
 
     // The printed ledger is the owner's: held-out columns, the real numbers.
     let text = stdout(&out);
@@ -1023,4 +1040,77 @@ fn a_crashed_chunk_stops_the_campaign_with_no_row_for_the_attempt() {
     assert_eq!(json(&dir.join("attempt-2/cost.json"))["unknown_chunks"], serde_json::json!([1]));
     assert!(!dir.join("attempt-3").exists(), "no retry, no next attempt");
     assert_eq!(fs::read_to_string(fx.tmp.join("count")).unwrap().trim(), "3");
+}
+
+/// #570: an attempt that saved a better version and then a worse one hands on the better one,
+/// chosen on the train mean alone, and runs the held-out seeds for that one only.
+#[test]
+fn an_attempt_hands_on_its_best_version_not_its_last() {
+    let mut fx = Fixture::new("bestver");
+    // v1 scores 300 and is tested; v2, saved after it and not tested, scores 100. The held-out
+    // seed (9001) reverses the order (INVERT: 1000 - SCORE), so a selection that peeked at it
+    // would pick v2.
+    fx.extra_env.push(("STUB_VERSION_SCORES".to_owned(), "300,100".to_owned()));
+    fx.extra_env.push(("STUB_TEST_CHUNKS".to_owned(), "0".to_owned()));
+    fx.extra_env.push(("STUB_INVERT".to_owned(), "1".to_owned()));
+    let out = fx.campaign("1", &["--attempts", "1"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let dir = fx.campaign_dir();
+
+    let rows = rows(&dir);
+    let r = &rows[0];
+    assert_eq!(r["governor_version"], 1, "the better one, not the last saved: {r}");
+    assert_eq!((r["saved"].as_u64(), r["tried"].as_u64()), (Some(2), Some(2)), "{r}");
+    assert_eq!(scores(r, "clean"), [307.0, 341.0]);
+    assert_eq!(r["train_mean"], 324.0);
+    // Held-out: v1's own, 1000 - 300 + 9001.
+    assert_eq!(scores(r, "held_out"), [9701.0]);
+    // v1's plan is the one it ended its turn with: the first chunk's, one edit.
+    assert_eq!(r["plan_revision"], 1);
+
+    let meta = json(&dir.join("champion/meta.json"));
+    assert_eq!(meta["governor_version"], 1);
+    assert_eq!(meta["train_mean"], 324.0);
+    let handoff = json(&dir.join("champion/handoff.json"));
+    assert!(handoff["scripts"]["governor"]["code"].as_str().unwrap().contains("SCORE=300"));
+    assert_eq!(handoff["scripts"]["governor"]["version"], 1);
+    assert_eq!(handoff["plan"]["call"], 1, "v1's plan, not the last plan");
+    // The attempt's own record is untouched: its final strategy is v2 with the last plan.
+    let last = json(&dir.join("attempt-1/handoff.json"));
+    assert!(last["scripts"]["governor"]["code"].as_str().unwrap().contains("SCORE=100"));
+    assert_eq!(last["plan"]["call"], 2);
+
+    // What was tried, with train scores and the time it took, and no held-out number.
+    let tried = json(&dir.join("attempt-1/eval/versions.json"));
+    assert_eq!((tried["saved"].as_u64(), tried["tried"].as_u64()), (Some(2), Some(2)));
+    assert_eq!(tried["chosen"], 1);
+    assert!(tried["seconds"].is_u64() && tried["build"] == "stub-1", "{tried}");
+    let pairs = tried["pairs"].as_array().unwrap();
+    let means: Vec<f64> = pairs.iter().map(|p| p["train_mean"].as_f64().unwrap()).collect();
+    assert_eq!(means, [324.0, 124.0]);
+    assert_eq!(pairs[0]["tested"], true);
+    assert_eq!(pairs[1]["tested"], false);
+    assert!(!tried.to_string().contains("9701") && !tried.to_string().contains("9101"));
+
+    // Every pair ran on the train seeds; the held-out seed ran once, for the chosen governor.
+    let calls = fs::read_to_string(&fx.fn_agent_log).unwrap();
+    let plays: Vec<&str> = calls.lines().filter(|l| l.starts_with("play")).collect();
+    let held: Vec<&&str> = plays.iter().filter(|l| l.contains("--seed 9001")).collect();
+    assert_eq!((plays.len(), held.len()), (5, 1), "{calls}");
+    assert!(plays.last().unwrap().contains("--seed 9001"), "held-out last: {calls}");
+
+    // The ledger the owner sees names the version and how many were tried.
+    let text = stdout(&out);
+    assert!(text.contains("tried") && text.contains("2/2") && text.contains("v1"), "{text}");
+}
+
+/// A version that only ties the champion's mean does not replace it: the champion test still
+/// wants a strict gain.
+#[test]
+fn a_version_that_ties_the_champion_does_not_replace_it() {
+    let fx = Fixture::new("tie");
+    let out = fx.campaign("100,100", &["--attempts", "2"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let rows = rows(&fx.campaign_dir());
+    assert_eq!((rows[0]["kept"].as_bool(), rows[1]["kept"].as_bool()), (Some(true), Some(false)));
 }
