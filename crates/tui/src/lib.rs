@@ -14,6 +14,7 @@ pub mod bar;
 pub mod browser;
 pub mod build;
 pub mod buildid;
+pub mod cache;
 pub mod cli;
 pub mod color;
 pub mod draw;
