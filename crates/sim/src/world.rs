@@ -37,6 +37,8 @@ mod harm;
 mod heat;
 mod injury;
 mod inside;
+#[cfg(any(test, debug_assertions))]
+mod invariants;
 mod orchard;
 mod population;
 mod power;
@@ -74,6 +76,13 @@ pub use stride::{STRIDE_LOOKAHEAD, Stride};
 pub use tally::Tallies;
 use work::StandRule;
 pub use work::{DesignateError, FoodSource, IdleReason, Task};
+
+/// `World::assert_invariants` where the checks aren't compiled in (a release build, #600), so a
+/// long run can call it unconditionally.
+#[cfg(not(any(test, debug_assertions)))]
+impl World {
+    pub fn assert_invariants(&self, _defs: &Defs) {}
+}
 
 /// Ticks per in-game second. Movement and needs are expressed per tick.
 pub const TICKS_PER_SECOND: u32 = 10;

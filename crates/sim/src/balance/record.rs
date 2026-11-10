@@ -252,6 +252,7 @@ fn run_world_observed(
             sample_idle_share(&world, &mut idle_windows);
         }
         world.tick(defs);
+        world.assert_invariants(defs);
 
         if world.deaths.len() > autopsies.len() {
             autopsies.extend(probe.autopsies(&world, defs));

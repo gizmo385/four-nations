@@ -153,7 +153,7 @@ impl Site {
         }
     }
 
-    fn footprint(&self, anchor: Pos) -> Footprint {
+    pub(super) fn footprint(&self, anchor: Pos) -> Footprint {
         Footprint::new(anchor, self.size[0], self.size[1])
     }
 }
@@ -311,6 +311,7 @@ impl World {
         let buried: Vec<Pos> = foot.tiles().filter(|p| self.ground.contains_key(p)).collect();
         for p in buried {
             let stack = self.ground.remove(&p).expect("just found");
+            self.take_haul_job(p);
             self.place_ground(p, stack);
         }
     }
@@ -883,6 +884,10 @@ impl World {
         s.count -= take;
         if s.count == 0 {
             stock.remove(&pos);
+            if matches!(source, Source::Ground(_)) {
+                // Nothing left to carry, so the stack's haul job goes too (#600).
+                self.take_haul_job(pos);
+            }
         }
         take
     }

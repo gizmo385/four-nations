@@ -1476,7 +1476,7 @@ impl World {
 
     /// Removes one `item` from `source`; for a wild resource, clears it and drops the rest of
     /// its yield for hauling.
-    fn take_food(&mut self, i: usize, source: FoodSource, item: ItemId, defs: &Defs) {
+    pub(super) fn take_food(&mut self, i: usize, source: FoodSource, item: ItemId, defs: &Defs) {
         fn take_one(stack: &mut Option<Stack>) {
             if let Some(s) = stack {
                 s.count -= 1;
@@ -1497,8 +1497,12 @@ impl World {
             FoodSource::Ground(p) => {
                 let mut s = self.ground.remove(&p);
                 take_one(&mut s);
-                if let Some(s) = s {
-                    self.ground.insert(p, s);
+                match s {
+                    Some(s) => {
+                        self.ground.insert(p, s);
+                    }
+                    // The last item was eaten: its haul job has nothing left to carry (#600).
+                    None => self.take_haul_job(p),
                 }
             }
             FoodSource::Forage(p) => {

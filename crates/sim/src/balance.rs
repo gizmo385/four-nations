@@ -148,6 +148,7 @@ pub fn run(cfg: &RunConfig, defs: &Defs) -> RunReport {
             opening.step(&mut world, defs);
         }
         world.tick(defs);
+        world.assert_invariants(defs);
 
         for ev in world.season_events().iter().rev().take_while(|e| e.tick == world.tick) {
             if let SeasonEventKind::Changed { season } = ev.kind

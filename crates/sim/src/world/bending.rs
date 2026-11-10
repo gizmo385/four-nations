@@ -520,7 +520,7 @@ impl World {
     /// to `None`, so `walk` never returned true and the need was never met. Only `job_task` is
     /// safe to clear unconditionally; `route` only if the unit isn't mid-need (`finish_need`
     /// clears it once the need is actually done, same as any other interruption).
-    fn take_haul_job(&mut self, pos: Pos) {
+    pub(super) fn take_haul_job(&mut self, pos: Pos) {
         let Some(idx) = self.jobs.iter().position(|j| j.kind == JobKind::Haul { pos }) else {
             return;
         };
