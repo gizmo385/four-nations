@@ -254,11 +254,14 @@ fn a_finished_chart_is_remembered_across_a_save_without_its_room_or_its_ruins() 
     assert!(w.charted_at(only));
     assert!(!w.charted_at(at(2, 2)), "only the charted ruin's own tile");
 
-    // The ruin is recovered: the chart still happened. (Taking the Map Room down too waits for
-    // a remove path, #619.)
+    // The ruin is recovered and the Map Room taken down: the chart still happened.
     w.map[only].resource = None;
+    let room = w.map[at(1, 3)].building.unwrap().key();
+    w.remove_building(room, &defs).unwrap();
+    assert!(w.buildings().next().is_none());
     let text = w.save(&defs).unwrap();
     let loaded = World::load(&text, &defs).unwrap();
+    assert!(loaded.buildings().next().is_none());
     assert!(loaded.has_charted());
     assert!(loaded.charted_at(only));
 }

@@ -35,8 +35,8 @@ use super::*;
 /// all have. Missing from the building's record (`Building::craft`) is the same as a fresh, empty batch.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub(super) struct CraftState {
-    delivered: Vec<u32>,
-    progress: f32,
+    pub(in crate::world) delivered: Vec<u32>,
+    pub(in crate::world) progress: f32,
 }
 
 impl World {

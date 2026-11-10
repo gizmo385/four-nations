@@ -191,10 +191,10 @@ fn growth_needs_bed_capacity_above_the_headcount() {
     assert!(w.units.iter().all(|u| u.bed.is_none()), "nobody is in a bed");
     assert!(!w.has_room_for_newcomer(&defs), "two beds, two settlers: full");
     // A third bed reopens it; without it, it is closed again, and nobody is evicted.
-    let without = w.clone();
     place(&mut w, &defs, at(14, 2), "bed");
     assert!(w.has_room_for_newcomer(&defs));
-    let w = without;
+    let third = w.map[at(14, 2)].building.unwrap().key();
+    w.remove_building(third, &defs).unwrap();
     assert_eq!(w.bed_capacity(&defs), 2, "capacity lost");
     assert!(!w.has_room_for_newcomer(&defs));
     assert_eq!(w.units.len(), 2, "no one is evicted");
