@@ -27,7 +27,7 @@
 //!                      (A scenario fixes its own seed and nation, so nothing is random.)
 //!   --turns N          how many turns the prompt asks for (default 40)
 //!   --turn-secs S      game seconds per end_turn (default: fn_agent's own, 20)
-//!   --pace N           watch pace to start at: 1, 2, 5, 10, 20 or 40 (default 20)
+//!   --pace N           watch pace to start at: 1, 2, 5, 10, 20, 40, 100, 200 or 500 (default 20)
 //!   --model M          passed to `claude --model`
 //!   --prompt TEXT      replaces the default prompt (every chunk, under --chunk-turns or
 //!                      --scripts, verbatim)
@@ -849,8 +849,8 @@ options:
   --no-build       don't build fn_tui first. Without it, a release fn_tui is built unless
                    target/release/fn_tui is newer than everything under crates/, data/ and
                    Cargo.lock
-  --pace N         the pace to start at: 1, 2, 5, 10, 20 or 40, or xN (default 20; fn_tui's own
-                   default is 1)
+  --pace N         the pace to start at: 1, 2, 5, 10, 20, 40, 100, 200 or 500, or xN (default
+                   20; fn_tui's own default is 1)
   --record OUT.cast  don't open the TUI: render the whole replay into an asciicast v2 file (the
                    same log gives a byte-identical file; it runs faster than real time). Turn
                    it into a GIF with `agg OUT.cast OUT.gif`
@@ -901,10 +901,14 @@ the run browser (`watch` with no RUN_DIR, in a terminal):
 
 keys inside the watcher:
   space          pause or resume the replay
-  + or =         faster, one step up the pace ladder (1, 2, 5, 10, 20, 40)
+  + or =         faster, one step up the pace ladder (1, 2, 5, 10, 20, 40, 100, 200, 500)
   - or _         slower, one step down it
   .              step: finish the act in progress, or start the next one, ignoring the pace
-  ]              skip ahead to the end of the next turn
+  ]  }           skip ahead to the end of the next turn, or ten turns
+  [  {           go back to the end of the previous turn, or ten turns (not in the run
+                 browser's --frame)
+  >              skip to the agent's next move, past the turns where it does nothing (in a
+                 script run, to where the script wakes the agent)
   v              switch between Follow (the agent's own view) and Free look
   1  2  3        zoom the code, game or feed pane; again to return to the split. Below the
                  studio size these switch the tab instead
@@ -924,7 +928,7 @@ The studio (the code pane beside the game and the activity feed) needs a termina
 
 /// The pace ladder `fn_tui --pace` accepts (`watch::PACES` in crates/tui/src/watch.rs; a test
 /// reads that source to make sure this copy hasn't drifted).
-const WATCH_PACES: [u32; 6] = [1, 2, 5, 10, 20, 40];
+const WATCH_PACES: [u32; 9] = [1, 2, 5, 10, 20, 40, 100, 200, 500];
 
 /// `fn_tui --fps` accepts 1 to this (`record::MAX_FPS`).
 const WATCH_MAX_FPS: u32 = 60;
@@ -3504,12 +3508,14 @@ mod tests {
 
     #[test]
     fn watch_pace_takes_what_fn_tui_takes() {
-        for (arg, want) in [("1", 1), ("2", 2), ("5", 5), ("10", 10), ("20", 20), ("40", 40)] {
+        for (arg, want) in
+            [("1", 1), ("2", 2), ("5", 5), ("10", 10), ("20", 20), ("40", 40), ("500", 500)]
+        {
             assert_eq!(watch_opts(&["--pace", arg]).pace, want);
             assert_eq!(watch_opts(&["--pace", &format!("x{arg}")]).pace, want, "the xN form");
         }
         assert_eq!(watch_opts(&["--pace=5"]).pace, 5, "the = form");
-        for bad in ["3", "0", "fast", "x", "-1", "100"] {
+        for bad in ["3", "0", "fast", "x", "-1", "1000"] {
             let err = parse_watch(&["--pace", bad]).unwrap_err();
             assert!(err.contains("--pace wants one of"), "{bad}: {err}");
             assert!(err.contains("watch --help"), "{err}");

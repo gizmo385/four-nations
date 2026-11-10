@@ -89,7 +89,8 @@ options:
                  --color and --fast
   --watch LOG    follow or replay an agent run log in the normal TUI (docs/design/agent-play.md,
                  Watching). Takes the place of SEED NATION; the log's own header says those
-  --pace xN      the watch pace to start at (1, 2, 5, 10, 20 or 40; default 1), with --watch
+  --pace xN      the watch pace to start at (1, 2, 5, 10, 20, 40, 100, 200 or 500; default 1),
+                 with --watch
   --at TURN      with --watch --frame: the frame as of the end of that turn, instead of as far
                  as the log currently reaches
   --record OUT.cast  with --watch: render the whole replay with no terminal into an asciicast

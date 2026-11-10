@@ -86,10 +86,21 @@ impl Replay {
     }
 
     /// One key, as the terminal watcher reads it (`watch::control_key`): Space pauses, `+`/`-`
-    /// change the pace, `.` steps, `]` jumps to the next turn's end, `0`-`3` pick the studio
-    /// panes, and the rest is free look. `q` does nothing here; there's nothing to quit to.
+    /// change the pace, `.` steps, `]`/`}` jump one or ten turns ahead, `>` skips to the agent's
+    /// next move, `0`-`3` pick the studio panes, and the rest is free look. `[`/`{` go back one or
+    /// ten turns through [`Self::seek`], as the terminal's own rewind does. `q` does nothing
+    /// here; there's nothing to quit to.
     pub fn key(&mut self, key: KeyEvent) {
         if matches!(key.code, KeyCode::Char('q' | 'Q')) || self.seek_target.is_some() {
+            return;
+        }
+        let back = match key.code {
+            KeyCode::Char('[') => Some(1),
+            KeyCode::Char('{') => Some(watch::BIG_STEP_TURNS),
+            _ => None,
+        };
+        if let Some(turns) = back {
+            self.seek_now(self.watcher.turn().saturating_sub(turns));
             return;
         }
         let before = self.watcher.turn();

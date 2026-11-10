@@ -14,7 +14,7 @@
 //! jumps to the end of the next turn and `q` quits (`fn_tui`'s interactive loop reads these;
 //! nothing here does).
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
@@ -54,8 +54,23 @@ const COMPRESS_FROM: usize = (KEYS_PER_SECOND * 2.0) as usize;
 const SHIFT_STRIDE: usize = 10;
 
 /// The watch pace ladder: a multiple of [`KEYS_PER_SECOND`] and of how fast turns fast-forward.
-/// `+`/`-` step through it; the first is the default.
-pub const PACES: [u32; 6] = [1, 2, 5, 10, 20, 40];
+/// `+`/`-` step through it; the first is the default. The top three are for getting through a
+/// long run quickly: at x500 a ten-second turn passes in a fiftieth of a second.
+pub const PACES: [u32; 9] = [1, 2, 5, 10, 20, 40, 100, 200, 500];
+
+/// How many turns `}` skips ahead (and `{` back) at once.
+pub const BIG_STEP_TURNS: u32 = 10;
+
+/// How often [`Rewind`] keeps a copy of the watcher, in turns: a rewind restores the nearest copy
+/// before its target and replays forward from there, so this bounds how much a `[` replays.
+pub const REWIND_SNAPSHOT_EVERY: u32 = 20;
+
+/// The most real time one [`Watcher::advance`] call of the interactive loop is given. A fast
+/// pace can ask for more sim work than a frame has time for; without a cap, each slow frame
+/// would owe more work to the next, and the watcher would fall further behind every frame. With
+/// it, a pace the machine can't keep up with just plays as fast as the machine can.
+#[cfg(not(target_arch = "wasm32"))]
+const MAX_FRAME_SECS: f64 = 0.1;
 
 /// How long an attention ghost (a `look`'s region or an `inspect`'s tile outline) stays on
 /// screen after the watcher reaches it, in real seconds.
@@ -814,6 +829,51 @@ impl Watcher {
         self.start_next();
     }
 
+    /// `>`: skips ahead to the agent's next move, all at once, so the quiet stretches between
+    /// moves (turns of ticks with nothing pressed) go by instantly. Finishes whatever is in
+    /// progress, or the move that is next, so a press always gets somewhere; then replays turns
+    /// and reads until the next `Keys`, `Say` or script run line, and stops just before it, so
+    /// [`Self::advance`] animates that move at the chosen pace. Inside a script run, the
+    /// script's own keys are not the agent's moves: it skips to the run's `Wake` line instead and
+    /// stops just after it, where the agent takes over again.
+    pub fn skip_to_next_move(&mut self) {
+        self.step_one();
+        loop {
+            if self.current.is_some() {
+                self.finish_current();
+                continue;
+            }
+            let Some(next) = self.pending.front() else { break };
+            let in_script = matches!(self.script_strip, Some(ScriptStrip::Running { .. }));
+            let is_move = match next {
+                LogLine::Keys { .. } | LogLine::Say { .. } => true,
+                LogLine::Script { turns, .. } => *turns > 0,
+                _ => false,
+            };
+            if !in_script && is_move {
+                break;
+            }
+            let woke = in_script && matches!(next, LogLine::Wake { .. });
+            self.start_next();
+            if woke {
+                break;
+            }
+        }
+    }
+
+    /// Takes the viewer's own choices from `viewer` (the pace, pause, which pane is shown, the
+    /// frame size), for a watcher [`Rewind`] just restored from an older copy. The view goes back
+    /// to Follow: the older copy's free-look spectator may point at things that don't exist yet.
+    fn keep_view_from(&mut self, viewer: &Watcher) {
+        self.pace_index = viewer.pace_index;
+        self.paused = viewer.paused;
+        self.tab = viewer.tab;
+        self.zoomed = viewer.zoomed;
+        self.frame_size = viewer.frame_size;
+        self.follow = true;
+        self.owed = 0.0;
+    }
+
     /// Replays everything up to and including the end of turn `turn`, all at once -- for
     /// `--watch LOG --frame --at TURN` (#319's acceptance criteria), where nothing is animated
     /// because there is no terminal to animate it in. Stops early if the log doesn't reach that
@@ -1450,7 +1510,7 @@ pub fn run_in(
             Err(e) => return Err(e),
         }
     };
-    let mut watcher = loop {
+    let (mut watcher, mut rewind) = loop {
         let lines = tail.poll_lines()?;
         let mut lines = lines.into_iter();
         let Some(first) = lines.next() else {
@@ -1472,18 +1532,19 @@ pub fn run_in(
                 watcher.faster();
             }
         }
-        feed_live(&mut watcher, lines);
-        break watcher;
+        let mut rewind = Rewind::new(&watcher);
+        feed_live(&mut watcher, &mut rewind, lines);
+        break (watcher, rewind);
     };
 
-    let (w, h) = crossterm::terminal::size()?;
+    let (mut w, mut h) = crossterm::terminal::size()?;
     watcher.resize(w, h);
     let palette = Palette::new(watcher.defs(), watcher.nation(), depth, ascii);
 
     let mut last_tick = Instant::now();
     let mut quit = false;
     while !quit {
-        feed_live(&mut watcher, tail.poll_lines()?);
+        feed_live(&mut watcher, &mut rewind, tail.poll_lines()?);
 
         terminal.draw(|f| {
             let area = f.area();
@@ -1496,18 +1557,36 @@ pub fn run_in(
         while pending {
             match crossterm::event::read()? {
                 Event::Key(key) if key.kind != KeyEventKind::Release => {
-                    quit |= control_key(&mut watcher, key);
+                    // Rewinding needs the copies only this loop keeps, so it is handled here
+                    // rather than in `control_key`, which the web replayer shares.
+                    let back = match key.code {
+                        crate::keyev::KeyCode::Char('[') => Some(1),
+                        crate::keyev::KeyCode::Char('{') => Some(BIG_STEP_TURNS),
+                        _ => None,
+                    };
+                    match back {
+                        Some(turns) => {
+                            rewind.back(&mut watcher, turns);
+                            watcher.resize(w, h);
+                        }
+                        None => quit |= control_key(&mut watcher, key),
+                    }
+                    rewind.note(&watcher);
                 }
                 // A watched session's nation never changes (there's no key for it, #319's
                 // refused list), so the palette built at the start stays right.
-                Event::Resize(w, h) => watcher.resize(w, h),
+                Event::Resize(new_w, new_h) => {
+                    (w, h) = (new_w, new_h);
+                    watcher.resize(w, h);
+                }
                 _ => {}
             }
             pending = crossterm::event::poll(Duration::ZERO)?;
         }
 
         let now = Instant::now();
-        watcher.advance(now.duration_since(last_tick).as_secs_f64());
+        watcher.advance(now.duration_since(last_tick).as_secs_f64().min(MAX_FRAME_SECS));
+        rewind.note(&watcher);
         last_tick = now;
     }
     Ok(watcher.skipped_lines().to_vec())
@@ -1517,12 +1596,13 @@ pub fn run_in(
 /// Feeds `lines` of a live log to `watcher`. A line that does not parse never ends the watch
 /// (#587): the log is being written by other processes, and one bad line in the middle of it is
 /// not worth losing the whole view for. It is skipped and counted ([`Watcher::skip_line`]).
-fn feed_live(watcher: &mut Watcher, lines: impl IntoIterator<Item = TailLine>) {
+fn feed_live(
+    watcher: &mut Watcher,
+    rewind: &mut Rewind,
+    lines: impl IntoIterator<Item = TailLine>,
+) {
     for line in lines {
-        match parse_line(&line.text, line.number, line.offset) {
-            Ok(event) => watcher.feed([event]),
-            Err(message) => watcher.skip_line(message),
-        }
+        rewind.feed(watcher, parse_line(&line.text, line.number, line.offset));
     }
 }
 
@@ -1540,6 +1620,8 @@ pub fn control_key(watcher: &mut Watcher, key: KeyEvent) -> bool {
         KeyCode::Char('-' | '_') => watcher.slower(),
         KeyCode::Char('.') => watcher.step_one(),
         KeyCode::Char(']') => watcher.fast_forward_to_turn(watcher.turn() + 1),
+        KeyCode::Char('}') => watcher.fast_forward_to_turn(watcher.turn() + BIG_STEP_TURNS),
+        KeyCode::Char('>') => watcher.skip_to_next_move(),
         KeyCode::Char('q' | 'Q') => quit = true,
         // Studio keys (#499, `j`/`k`/`J`/`K` scrolling the code pane) win over free look too;
         // everything else is free look's: `V` (not an F-key, since the owner's WSL terminal
@@ -1549,6 +1631,71 @@ pub fn control_key(watcher: &mut Watcher, key: KeyEvent) -> bool {
         _ => watcher.free_look_key(key),
     }
     quit
+}
+
+/// Rewinding the terminal watcher (`[` back a turn, `{` back [`BIG_STEP_TURNS`]). A replay only
+/// runs forward, so this keeps a copy of the watcher every [`REWIND_SNAPSHOT_EVERY`] turns, and
+/// every log line it has been fed; going back restores the nearest copy before the target, feeds
+/// it the lines that arrived after the copy was made (a live log keeps growing) and replays
+/// forward to the target, all at once. The web replayer has its own seek bar and snapshots
+/// (`fn_web::Replay`), so this lives with the terminal loop ([`run_in`]).
+pub struct Rewind {
+    /// Every line fed so far, oldest first: a parsed line, or a bad line's message
+    /// ([`Watcher::skip_line`]), so a restored copy skips the same lines.
+    lines: Vec<Result<LogLine, String>>,
+    /// The copies, by the turn they were made at, each with how many of [`Self::lines`] it had
+    /// been fed then. Turn 0's, made before anything was fed, is always there.
+    snapshots: BTreeMap<u32, (Watcher, usize)>,
+}
+
+impl Rewind {
+    /// Starts from `watcher`, which must not have been fed anything yet: feed it through
+    /// [`Self::feed`] from here on.
+    pub fn new(watcher: &Watcher) -> Self {
+        Self { lines: Vec::new(), snapshots: BTreeMap::from([(0, (watcher.clone(), 0))]) }
+    }
+
+    /// Feeds one line of the log to `watcher`, and remembers it.
+    pub fn feed(&mut self, watcher: &mut Watcher, line: Result<LogLine, String>) {
+        match &line {
+            Ok(event) => watcher.feed([event.clone()]),
+            Err(message) => watcher.skip_line(message.clone()),
+        }
+        self.lines.push(line);
+    }
+
+    /// Keeps a copy of `watcher` if it has just reached a turn that is due one. Call it after
+    /// anything that may have moved the watcher on.
+    pub fn note(&mut self, watcher: &Watcher) {
+        let turn = watcher.turn();
+        if turn.is_multiple_of(REWIND_SNAPSHOT_EVERY) && !self.snapshots.contains_key(&turn) {
+            self.snapshots.insert(turn, (watcher.clone(), self.lines.len()));
+        }
+    }
+
+    /// Puts `watcher` back `turns` turns, to the end of that turn (to the very start for turn
+    /// 0), keeping the viewer's own pace, pause and pane.
+    pub fn back(&mut self, watcher: &mut Watcher, turns: u32) {
+        let target = watcher.turn().saturating_sub(turns);
+        // The nearest copy strictly before the target (turn 0's for a target of 0): a copy may
+        // already be partway into the turn after its own, so it is only ever replayed forward
+        // from, never shown as the end of its own turn.
+        let (from, fed) = {
+            let (_, (copy, fed)) =
+                self.snapshots.range(..target.max(1)).next_back().expect("turn 0's is kept");
+            (copy.clone(), *fed)
+        };
+        let mut restored = from;
+        for line in &self.lines[fed..] {
+            match line {
+                Ok(event) => restored.feed([event.clone()]),
+                Err(message) => restored.skip_line(message.clone()),
+            }
+        }
+        restored.fast_forward_to_turn(target);
+        restored.keep_view_from(watcher);
+        *watcher = restored;
+    }
 }
 
 #[cfg(test)]
@@ -1727,10 +1874,14 @@ mod tests {
             text: format!("{{\"type\":\"turn\",\"index\":{i},\"tick\":{}}}", i * 200),
         };
         let bad = TailLine { number: 3, offset: 77, text: "{\"building\":\"Campfire\"},".into() };
-        feed_live(&mut w, [good(1), bad, good(2)]);
+        let mut rewind = Rewind::new(&w);
+        feed_live(&mut w, &mut rewind, [good(1), bad, good(2)]);
         w.fast_forward_to_turn(2);
         assert_eq!(w.turn(), 2, "the lines after the bad one still arrived");
         assert_eq!(w.skipped_lines().len(), 1);
+        rewind.back(&mut w, 1);
+        assert_eq!(w.turn(), 1);
+        assert_eq!(w.skipped_lines().len(), 1, "a rewound watcher still knows what was skipped");
         assert!(w.skipped_lines()[0].contains("line 3 (byte 77)"), "{:?}", w.skipped_lines());
         assert!(w.strip_text(false).contains("1 BAD LOG LINE SKIPPED"), "{}", w.strip_text(false));
     }
@@ -2575,5 +2726,163 @@ mod tests {
         );
         assert_eq!(spied.app().session.world.tick, plain.app().session.world.tick);
         assert_eq!(spied.turn(), plain.turn());
+    }
+
+    /// A log of `turns` turns with a keys act at the start of every fifth one, from a real host.
+    fn long_log(turns: u32) -> Host {
+        let mut h =
+            Host::new(7, Nation::Earth, None, None, None, false).unwrap().with_turn_seconds(10);
+        for t in 0..turns {
+            if t % 5 == 0 {
+                h.press_keys("<right>", None, Some(format!("move {t}"))).unwrap();
+            }
+            h.end_turn(1);
+        }
+        h
+    }
+
+    fn frame_text(w: &mut Watcher) -> String {
+        let palette = crate::color::Palette::new(
+            &fn_sim::Defs::bundled(),
+            w.nation(),
+            crate::color::ColorDepth::TrueColor,
+            true,
+        );
+        crate::frame::to_text(&w.render(&palette, (100, 40)))
+    }
+
+    /// The pace ladder goes well past x40, for getting through a long run.
+    #[test]
+    fn the_pace_ladder_reaches_x500() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        for _ in 0..PACES.len() {
+            w.faster();
+        }
+        assert_eq!(w.pace(), 500);
+    }
+
+    /// `}` jumps ten turns at once.
+    #[test]
+    fn a_big_step_skips_ten_turns() {
+        let h = long_log(25);
+        let mut w = Watcher::new(&h.header()).unwrap();
+        w.feed(h.log().lines());
+        control_key(&mut w, KeyEvent::new(KeyCode::Char('}'), KeyModifiers::NONE));
+        assert_eq!(w.turn(), 10);
+        control_key(&mut w, KeyEvent::new(KeyCode::Char('}'), KeyModifiers::NONE));
+        control_key(&mut w, KeyEvent::new(KeyCode::Char('}'), KeyModifiers::NONE));
+        assert_eq!(w.turn(), 25, "stops at the end of the log");
+    }
+
+    /// `>` goes through the quiet turns at once and stops just before the agent's next move.
+    #[test]
+    fn skipping_to_the_next_move_passes_the_quiet_turns() {
+        let h = long_log(12);
+        let mut w = Watcher::new(&h.header()).unwrap();
+        w.feed(h.log().lines());
+        let next = KeyEvent::new(KeyCode::Char('>'), KeyModifiers::NONE);
+        // The first press does turn 0's move, then skips turns 0 to 4.
+        control_key(&mut w, next);
+        assert_eq!(w.turn(), 5);
+        assert!(matches!(w.pending.front(), Some(LogLine::Keys { .. })), "{:?}", w.pending.front());
+        assert!(w.current.is_none(), "the move itself is left for `advance` to animate");
+        control_key(&mut w, next);
+        assert_eq!(w.turn(), 10);
+        control_key(&mut w, next);
+        assert_eq!(w.turn(), 12, "no move left: the end of the log");
+        assert!(w.caught_up());
+    }
+
+    /// Inside a script run, `>` skips the script's own work to where the agent wakes.
+    #[test]
+    fn skipping_to_the_next_move_runs_a_script_through_to_its_wake() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.feed([
+            script("keep-fed", 3, 45),
+            LogLine::Keys { keys: "h".to_owned(), label: None, note: None },
+            LogLine::Turn { index: 0, tick: 100 },
+            LogLine::Keys { keys: "x".to_owned(), label: None, note: None },
+            LogLine::Turn { index: 1, tick: 200 },
+            wake("event", Some("a raid")),
+            LogLine::Turn { index: 2, tick: 300 },
+            LogLine::Keys { keys: "h".to_owned(), label: None, note: None },
+        ]);
+        w.skip_to_next_move();
+        assert_eq!(w.turn(), 2);
+        assert!(matches!(w.script_strip, Some(ScriptStrip::Woke { .. })), "{:?}", w.script_strip);
+        assert!(matches!(w.pending.front(), Some(LogLine::Turn { .. })));
+        w.skip_to_next_move();
+        assert_eq!(w.turn(), 3);
+        assert!(matches!(w.pending.front(), Some(LogLine::Keys { .. })));
+    }
+
+    /// Going back a turn, or ten, lands on the same frame a fresh replay to that turn shows, and
+    /// keeps the viewer's pace and pause.
+    #[test]
+    fn rewinding_matches_a_fresh_replay_to_that_turn() {
+        let h = long_log(45);
+        let lines = h.log().lines();
+        let mut w = Watcher::new(&h.header()).unwrap();
+        let mut rewind = Rewind::new(&w);
+        for line in lines.clone() {
+            rewind.feed(&mut w, Ok(line));
+        }
+        for t in 1..=45 {
+            w.fast_forward_to_turn(t);
+            rewind.note(&w);
+        }
+        w.faster();
+        w.toggle_pause();
+
+        rewind.back(&mut w, 1);
+        assert_eq!(w.turn(), 44);
+        rewind.back(&mut w, BIG_STEP_TURNS);
+        assert_eq!(w.turn(), 34);
+        assert_eq!((w.pace(), w.paused()), (PACES[1], true), "the viewer's choices stay");
+
+        let mut fresh = Watcher::new(&h.header()).unwrap();
+        fresh.feed(lines);
+        fresh.fast_forward_to_turn(34);
+        fresh.faster();
+        fresh.toggle_pause();
+        assert_eq!(w.app().session.world.tick, fresh.app().session.world.tick);
+        assert_eq!(frame_text(&mut w), frame_text(&mut fresh));
+
+        rewind.back(&mut w, 100);
+        assert_eq!(w.turn(), 0, "back past the start goes to the start");
+        w.fast_forward_to_turn(u32::MAX);
+        assert_eq!(w.turn(), 45, "and the whole log is still there to play forward");
+    }
+
+    /// Lines a live log gains after a copy was made still reach a watcher rewound to that copy.
+    #[test]
+    fn rewinding_keeps_lines_that_arrived_after_the_copy() {
+        let h = long_log(30);
+        let lines = h.log().lines();
+        // Everything up to the 23rd turn line: 22 turns' worth.
+        let split = lines
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| matches!(l, LogLine::Turn { .. }))
+            .nth(22)
+            .unwrap()
+            .0;
+        let mut w = Watcher::new(&h.header()).unwrap();
+        let mut rewind = Rewind::new(&w);
+        for line in lines[..split].iter().cloned() {
+            rewind.feed(&mut w, Ok(line));
+        }
+        for t in 1..=22 {
+            w.fast_forward_to_turn(t);
+            rewind.note(&w); // keeps the copy at turn 20, made before the rest arrived
+        }
+        assert_eq!(w.turn(), 22);
+        for line in lines[split..].iter().cloned() {
+            rewind.feed(&mut w, Ok(line));
+        }
+        rewind.back(&mut w, 1);
+        assert_eq!(w.turn(), 21);
+        w.fast_forward_to_turn(u32::MAX);
+        assert_eq!(w.turn(), 30);
     }
 }
