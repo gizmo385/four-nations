@@ -100,9 +100,6 @@ pub struct NationDef {
     pub description: String,
     /// Pool of personal names for this nation's units.
     pub names: Vec<String>,
-    /// Art ids of the characters this nation's units look like; `Unit::variant` indexes this.
-    /// Non-empty (validated at load). The sim never interprets them: the client maps them to art.
-    pub characters: Vec<String>,
     pub modifiers: Modifiers,
     /// Tech ids as written in `nations.toml`; resolved into `starting_techs` at load.
     #[serde(rename = "starting_techs")]
@@ -111,13 +108,6 @@ pub struct NationDef {
     /// own, and the set is closed under prereqs.
     #[serde(skip)]
     pub starting_techs: Vec<TechId>,
-}
-
-impl NationDef {
-    /// The character a unit with this `variant` is drawn as.
-    pub fn character(&self, variant: u8) -> &str {
-        &self.characters[usize::from(variant) % self.characters.len()]
-    }
 }
 
 #[cfg(test)]
@@ -152,14 +142,5 @@ mod tests {
     fn unknown_multiplier_names_fail_to_parse() {
         let err = toml::from_str::<ModifierMultipliers>("contstruction = 1.2").unwrap_err();
         assert!(err.to_string().contains("contstruction"), "{err}");
-    }
-
-    #[test]
-    fn variants_pick_characters_and_wrap() {
-        let air = crate::Defs::bundled().nation(Nation::Air).clone();
-        assert_eq!(air.character(0), air.characters[0]);
-        let n = air.characters.len() as u8;
-        assert_eq!(air.character(n), air.characters[0]);
-        assert_eq!(air.character(n + 1), air.characters[1]);
     }
 }

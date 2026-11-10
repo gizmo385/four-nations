@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/sim", "crates/ui", "crates/tui", "crates/agent", "crates/harness", "crates/web", "xtask"]
+members = ["crates/runfmt", "crates/sim", "crates/ui", "crates/tui", "crates/agent", "crates/harness", "crates/web", "xtask"]
 # `fn_tui` is the game's only frontend: `cargo run` with no `-p` builds and runs it directly.
 default-members = ["crates/tui"]
 

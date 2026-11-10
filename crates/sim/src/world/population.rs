@@ -12,8 +12,8 @@
 //! staying in the settlement's region means a newcomer never lands on another island. It is named from the nation's pool, drawn from its own RNG
 //! stream (`rng::stream(seed, "population.names")`, kept separate from the starting settlers'
 //! `world.names` shuffle, since growth draws one name at a time for as long as the game runs);
-//! its character variant is picked the same way `World::spawn_units` picks the starting
-//! settlers', from the shared `world.units` stream. From there it is a unit like any other: the
+//! it spends the same retired variant draw `World::spawn_units` does, on the shared `world.units`
+//! stream (`World::discard_legacy_variant_draw`). From there it is a unit like any other: the
 //! normal need and idle-wander code (`World::wander`) is what actually walks it inward, and
 //! nobody assigns it a bed or a job.
 //!
@@ -238,7 +238,7 @@ impl World {
         let drawn = self.newcomer_nation(defs);
         let nation = defs.nation(drawn);
         let name = self.draw_newcomer_name(nation);
-        let variant = self.rng.random_range(0..nation.characters.len() as u8);
+        self.discard_legacy_variant_draw();
         let id = UnitId(self.next_unit);
         self.next_unit += 1;
         self.units.push(Unit {
@@ -248,7 +248,6 @@ impl World {
             // another nation needs the field set.
             nation: (drawn != self.nation).then_some(drawn),
             pos,
-            variant,
             needs: Needs::full(&defs.needs),
             chi: defs.chi.max,
             carrying: None,

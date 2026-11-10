@@ -62,10 +62,8 @@ other_weight = 0.2
 # once cooked, and must be higher. `resource` (optional) links to a map resource in
 # data/resources.toml that yields this food (what the harvest yields is in data/jobs.toml).
 
-# `icon` names the food's sprite for a future graphical frontend, as for the items in data/jobs.toml.
 [[food]]
 id = "fish"
-icon = "fish"
 name = "Fish"
 hunger = 40.0
 cooked_hunger = 70.0
@@ -73,7 +71,6 @@ resource = "fish_spot"
 
 [[food]]
 id = "fruit"
-icon = "fruit"
 name = "Fruit"
 hunger = 30.0
 cooked_hunger = 40.0
@@ -81,7 +78,6 @@ resource = "fruit_tree"
 
 [[food]]
 id = "cabbage"
-icon = "cabbage"
 name = "Cabbage"
 hunger = 30.0
 cooked_hunger = 45.0

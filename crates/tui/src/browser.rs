@@ -1291,11 +1291,7 @@ impl Browser {
                     s += &format!(", gate {g:.1}");
                 }
                 if let Some(v) = &r.verdict {
-                    s += &format!(
-                        ", {} vs champion{}",
-                        v.text(),
-                        v.champion_attempt.map_or(String::new(), |k| format!(" (attempt {k})"))
-                    );
+                    s += &format!(", {} vs champion (attempt {})", v.text(), v.champion_attempt);
                 }
                 s += if r.kept { ", kept" } else { ", not kept" };
             }

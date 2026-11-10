@@ -110,8 +110,6 @@ pub struct Unit {
     #[serde(default, deserialize_with = "deserialize_unit_nation")]
     pub nation: Option<Nation>,
     pub pos: Pos,
-    /// Which of the unit's own nation's sprite variants to draw. Purely cosmetic.
-    pub variant: u8,
     /// Hunger, thirst, energy and health (data/needs.toml). At 0 health the unit dies.
     pub needs: Needs,
     /// Bending energy, from 0 to `data/bending.toml`'s `chi.max`. Regenerates every tick (faster
@@ -370,6 +368,17 @@ pub struct World {
     /// was computed. Recomputed on demand; see `regions.rs`.
     #[serde(skip)]
     regions: Option<Regions>,
+    /// Counts `map_changed` calls: part of the key that lets a failed job claim wait for
+    /// something to change (`ClaimKey`, #574). Not saved; a loaded world starts a fresh count
+    /// with no failures remembered.
+    #[serde(skip)]
+    map_rev: u64,
+    /// Per unit, the last answer of `claim_job`'s search and the key it was found under (#574).
+    #[serde(skip)]
+    claim_memo: BTreeMap<UnitId, (work::ClaimKey, work::Picked)>,
+    /// `World::idle_reason`'s last answer per unit, with the key it was given under (#574).
+    #[serde(skip)]
+    idle_memo: work::IdleMemo,
     /// Every bend that has finished or failed, oldest first.
     bend_events: Vec<BendEvent>,
     /// Watered patches that haven't dried yet, in `(dries_at, centre)` order (Water the Land).
@@ -548,6 +557,9 @@ impl World {
             rules: MoveRules::default(),
             cart_rules: defs.cart_rules(MoveRules::default()),
             regions: None,
+            map_rev: 0,
+            claim_memo: BTreeMap::new(),
+            idle_memo: work::IdleMemo::default(),
             bend_events: Vec::new(),
             patches: Vec::new(),
             reverts: Vec::new(),
@@ -746,12 +758,19 @@ impl World {
         self.research.set_target(tech, self.nation, defs)
     }
 
+    /// Spends the draw that once picked a unit's sprite variant (removed in #607). Every nation
+    /// had three characters, so it was `0..3` on the `world.units` stream, which also drives idle
+    /// wandering; keeping the draw leaves that stream, and so every seed's run, where it was.
+    pub(crate) fn discard_legacy_variant_draw(&mut self) {
+        let _: u8 = self.rng.random_range(0..3);
+    }
+
     fn spawn_units(&mut self, spawns: &[Pos], defs: &Defs) {
         let nation = defs.nation(self.nation);
         let mut names = nation.names.clone();
         names.shuffle(&mut rng::stream(self.seed, "world.names"));
         for (i, &pos) in spawns.iter().enumerate() {
-            let variant = self.rng.random_range(0..nation.characters.len() as u8);
+            self.discard_legacy_variant_draw();
             // Reuse the pool with a numeral suffix if there are more units than names.
             let name = match i / names.len() {
                 0 => names[i % names.len()].clone(),
@@ -762,7 +781,6 @@ impl World {
                 name,
                 nation: None,
                 pos,
-                variant,
                 needs: Needs::full(&defs.needs),
                 chi: defs.chi.max,
                 carrying: None,
@@ -802,6 +820,7 @@ impl World {
     /// `map` directly needs to call it.
     pub fn map_changed(&mut self) {
         self.regions = None;
+        self.map_rev += 1;
     }
 
     /// The connected regions of the current map, recomputed first if the map has changed.

@@ -70,8 +70,11 @@ use crate::research::MILLIS_PER_POINT;
 
 use super::*;
 
-pub(super) use eligibility::StandRule;
 use eligibility::{Bar, Check};
+pub(super) use eligibility::{ClaimKey, IdleMemo, StandRule};
+
+/// `claim_job`'s search result: the job taken (if any) and the route to it.
+pub(super) type Picked = (Option<JobId>, Option<Vec<Pos>>);
 
 /// How far from a drop point a stack may be placed when its own tile is taken, in tiles.
 const GROUND_SEARCH_RADIUS: i32 = 8;
@@ -1543,35 +1546,25 @@ impl World {
             self.units[i].claim_retry_at = self.tick + self.retry_ticks(defs);
             return false;
         }
-        let flood = self.flood_from(i);
-        let is_avatar = self.units[i].is_avatar();
-        let mut room_cache: Vec<(ItemId, bool)> = Vec::new();
-        let mut best: Option<((u8, u32, JobId), usize, Pos)> = None;
-        for (idx, job) in self.jobs.iter().enumerate() {
-            if job.claimed_by.is_some() {
-                continue;
+        // The verdict is a function of the key (`ClaimKey`): asked again with nothing changed it
+        // is the same job and the same route, so the flood is skipped (#574). That is the common
+        // case for a settler that keeps claiming a build site and abandoning it for want of
+        // materials, and for one that finds nothing at all.
+        let unit_id = self.units[i].id;
+        let key = self.claim_key(i, defs);
+        let (job_id, route) = match self.claim_memo.get(&unit_id).filter(|(k, _)| *k == key) {
+            Some((_, outcome)) => outcome.clone(),
+            None => {
+                let outcome = self.pick_job(i, defs);
+                self.claim_memo.insert(unit_id, (key, outcome.clone()));
+                outcome
             }
-            let found = match self.check_job(i, job.kind, &flood, &mut room_cache, defs) {
-                Check::Take(cost, stand) => Some((cost, stand)),
-                Check::Skip | Check::Barred(_) => None,
-            };
-            if let Some((cost, stand)) = found {
-                let priority = if is_avatar {
-                    self.avatar_job_priority(job.kind, defs)
-                } else {
-                    job_priority(job.kind)
-                };
-                let key = (priority, cost, job.id);
-                if best.is_none_or(|b| key < b.0) {
-                    best = Some((key, idx, stand));
-                }
-            }
-        }
-        let Some((_, idx, stand)) = best else {
+        };
+        let Some(job_id) = job_id else {
             self.units[i].claim_retry_at = self.tick + self.retry_ticks(defs);
             return false;
         };
-        let unit_id = self.units[i].id;
+        let idx = self.job_index(job_id).expect("an unclaimed job in the key");
         let job = &mut self.jobs[idx];
         job.claimed_by = Some(unit_id);
         let task = match job.kind {
@@ -1590,8 +1583,41 @@ impl World {
         };
         let u = &mut self.units[i];
         u.job_task = Some(task);
-        u.route = flood.path_to(stand).map(route_from);
+        u.route = route;
         true
+    }
+
+    /// The nearest unclaimed job in the best tier that unit `i` can take, and the route to it
+    /// (`claim_job`, which remembers the answer). Floods from the unit.
+    fn pick_job(&self, i: usize, defs: &Defs) -> Picked {
+        let flood = self.flood_from(i);
+        let is_avatar = self.units[i].is_avatar();
+        let mut room_cache: Vec<(ItemId, bool)> = Vec::new();
+        let mut best: Option<((u8, u32, JobId), Pos)> = None;
+        for job in &self.jobs {
+            if job.claimed_by.is_some() {
+                continue;
+            }
+            let found = match self.check_job(i, job.kind, &flood, &mut room_cache, defs) {
+                Check::Take(cost, stand) => Some((cost, stand)),
+                Check::Skip | Check::Barred(_) => None,
+            };
+            if let Some((cost, stand)) = found {
+                let priority = if is_avatar {
+                    self.avatar_job_priority(job.kind, defs)
+                } else {
+                    job_priority(job.kind)
+                };
+                let key = (priority, cost, job.id);
+                if best.is_none_or(|b| key < b.0) {
+                    best = Some((key, stand));
+                }
+            }
+        }
+        match best {
+            Some(((_, _, id), stand)) => (Some(id), flood.path_to(stand).map(route_from)),
+            None => (None, None),
+        }
     }
 
     /// Why `unit` is idle (#337), for a frontend's selection bar: `None` once it isn't (it has a
@@ -1614,6 +1640,19 @@ impl World {
         if unclaimed.is_empty() {
             return Some(IdleReason::NoWork);
         }
+        // The verdict is a function of the key, so asking again under the same key (the balance
+        // probe asks once a minute per idle settler) gets the last answer (#574).
+        let key = self.claim_key(i, defs);
+        if let Some(reason) = self.idle_memo.get(unit, &key) {
+            return reason;
+        }
+        let reason = self.idle_reason_for(i, &unclaimed, defs);
+        self.idle_memo.put(unit, key, reason);
+        reason
+    }
+
+    /// `idle_reason`'s weighing of every unclaimed job, for a unit with no task.
+    fn idle_reason_for(&self, i: usize, unclaimed: &[&Job], defs: &Defs) -> Option<IdleReason> {
         let flood = self.flood_from(i);
         let mut rooms: Vec<(ItemId, bool)> = Vec::new();
         let (mut chi_blocked, mut room_blocked, mut too_hurt) = (false, false, false);

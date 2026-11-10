@@ -44,7 +44,7 @@ pub(super) enum Bar {
 }
 
 /// `World::job_gate`'s answer for a valid job.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Gate {
     pub stand: StandRule,
     pub bar: Bar,
@@ -79,7 +79,127 @@ pub(super) fn avatar_may_take(kind: JobKind) -> bool {
     }
 }
 
+/// A job's gate, its tier and the tiles its stand rule picks from.
+type JobWeighing = (Gate, u8, Vec<Pos>);
+
+/// Everything a claim attempt for one unit depends on, short of the flood itself (#574). The
+/// attempt's answer is remembered with its key (`World::claim_memo`) and not recomputed while
+/// the key is the same: the flood only reads the map's passability (`map_rev`) and the unit's tile,
+/// and `check_job` only reads what `job_gate` and the stand and room lookups read, all of which
+/// are listed here. The unit's own state (chi, health, cooldown, being the Avatar) and the
+/// world's (research, plots, time-gated jobs) reach the verdict through `job_gate`, so the
+/// gate itself is in the key rather than its inputs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::world) struct ClaimKey {
+    pos: Pos,
+    map_rev: u64,
+    /// Each unclaimed job, its gate (`None`: gated out) and the tiles its stand rule picks from.
+    jobs: Vec<(JobId, JobKind, Option<JobWeighing>)>,
+    /// Per item a `Bar::Room` job asks about: the stockpile tiles with room for it, or, for a
+    /// readable item, the tiles beside each study hall.
+    rooms: Vec<(ItemId, Vec<Pos>)>,
+}
+
+/// `World::idle_reason`'s answers, kept per unit with the `ClaimKey` they were given for (#574).
+/// It takes `&self`, hence the lock; a clone starts empty, and it is never saved.
+#[derive(Default)]
+pub(in crate::world) struct IdleMemo(
+    std::sync::Mutex<BTreeMap<UnitId, (ClaimKey, Option<IdleReason>)>>,
+);
+
+impl IdleMemo {
+    pub(super) fn get(&self, unit: UnitId, key: &ClaimKey) -> Option<Option<IdleReason>> {
+        let memo = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        memo.get(&unit).filter(|(k, _)| k == key).map(|&(_, reason)| reason)
+    }
+
+    pub(super) fn put(&self, unit: UnitId, key: ClaimKey, reason: Option<IdleReason>) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).insert(unit, (key, reason));
+    }
+}
+
+impl Clone for IdleMemo {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl std::fmt::Debug for IdleMemo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("IdleMemo")
+    }
+}
+
 impl World {
+    /// The tiles `rule` picks its stand tile from, before the flood narrows them to the
+    /// reachable cheapest (what `stand_at` reads from the map).
+    fn stand_candidates(&self, rule: StandRule, defs: &Defs) -> Vec<Pos> {
+        let area = |foot: Footprint, walkable: bool| -> Vec<Pos> {
+            if walkable { foot.tiles().collect() } else { foot.ring().collect() }
+        };
+        match rule {
+            StandRule::Tile(pos) => {
+                let walkable = self.map.get(pos).is_some_and(|t| self.rules.passable(t));
+                area(Footprint::single(pos), walkable)
+            }
+            StandRule::Building(pos) => {
+                let (foot, walkable) = self.work_area(pos, defs);
+                area(foot, walkable)
+            }
+            StandRule::Entrance(pos) => {
+                self.footprint_at(pos).map(|f| f.entrance()).into_iter().collect()
+            }
+            StandRule::Exact(pos) => vec![pos],
+        }
+    }
+
+    /// See `ClaimKey`.
+    pub(super) fn claim_key(&self, i: usize, defs: &Defs) -> ClaimKey {
+        let is_avatar = self.units[i].is_avatar();
+        let mut rooms: Vec<(ItemId, Vec<Pos>)> = Vec::new();
+        let jobs = self
+            .jobs
+            .iter()
+            .filter(|j| j.claimed_by.is_none())
+            .map(|j| {
+                let gate = self.job_gate(i, j.kind, defs).map(|g| {
+                    if let Bar::Room(item) = g.bar
+                        && !rooms.iter().any(|(it, _)| *it == item)
+                    {
+                        let tiles = if Self::is_readable(item, defs) {
+                            self.study_halls()
+                                .flat_map(|h| {
+                                    let (foot, walkable) = self.work_area(h, defs);
+                                    if walkable {
+                                        foot.tiles().collect::<Vec<_>>()
+                                    } else {
+                                        foot.ring().collect()
+                                    }
+                                })
+                                .collect()
+                        } else {
+                            self.zones
+                                .iter()
+                                .copied()
+                                .filter(|&z| self.room_at(z, item, defs) > 0)
+                                .collect()
+                        };
+                        rooms.push((item, tiles));
+                    }
+                    // The tier decides between jobs the unit can take (`claim_job`).
+                    let tier = if is_avatar {
+                        self.avatar_job_priority(j.kind, defs)
+                    } else {
+                        job_priority(j.kind)
+                    };
+                    (g, tier, self.stand_candidates(g.stand, defs))
+                });
+                (j.id, j.kind, gate)
+            })
+            .collect();
+        ClaimKey { pos: self.units[i].pos, map_rev: self.map_rev, jobs, rooms }
+    }
+
     /// Whether an unclaimed job of `kind` should stay in the queue: its target hasn't gone.
     pub(super) fn job_is_live(&self, kind: JobKind, defs: &Defs) -> bool {
         match kind {

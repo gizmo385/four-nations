@@ -56,24 +56,12 @@ const GOVERNOR: &str = "governor";
 // The ledger and the champion, as files
 // -------------------------------------------------------------------------------------------
 
-/// One seed's clean score. `stopped` is the reason the script stopped giving orders, if it did
-/// (the score is still read at the horizon); `stopped_turn` and `stopped_why` say when and why
-/// (#561). A ledger written before #561 has only `stopped`, and reads back with the other two
-/// empty.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct SeedScore {
-    seed: u64,
-    score: f64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    stopped: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    stopped_turn: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    stopped_why: Option<String>,
-    /// Deaths in the run (#571); absent in a score written without them.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    deaths: Option<u32>,
-}
+// The ledger, the champion's files and the seed scores are `fn_runfmt::campaign`'s, the types
+// the run browser reads too (#606).
+use fn_runfmt::campaign::{Champion, ChampionGate, GateRecord, Reeval, Row, SeedScore};
+
+/// The ledger with `xtask`'s own track and references.
+type Ledger = fn_runfmt::campaign::Ledger<Track, References>;
 
 impl From<&SeedScore> for paired::Sample {
     fn from(s: &SeedScore) -> Self {
@@ -90,150 +78,24 @@ fn samples(scores: &[SeedScore]) -> Vec<paired::Sample> {
     scores.iter().map(paired::Sample::from).collect()
 }
 
-/// How a candidate compared with the champion on the gate seeds (#571), as the ledger keeps it.
-/// Every number is an aggregate over the gate seeds; none names a seed or a score.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct GateRecord {
-    /// The champion it was compared with.
-    champion_attempt: u32,
-    /// Candidate minus champion, mean per seed, and its bootstrap interval at `level`.
-    diff: f64,
-    lo: f64,
-    hi: f64,
-    level: f64,
-    wins: u32,
-    losses: u32,
-    ties: u32,
-    candidate_collapses: u32,
-    champion_collapses: u32,
-    candidate_deaths: u32,
-    champion_deaths: u32,
-    /// The rule's answer and its reason in words.
-    promoted: bool,
-    reason: String,
-}
-
-impl GateRecord {
-    fn new(champion_attempt: u32, v: &paired::Verdict) -> Self {
-        Self {
-            champion_attempt,
-            diff: v.diff.mean,
-            lo: v.diff.lo,
-            hi: v.diff.hi,
-            level: v.diff.level,
-            wins: v.wins as u32,
-            losses: v.losses as u32,
-            ties: v.ties as u32,
-            candidate_collapses: v.candidate.collapses as u32,
-            champion_collapses: v.champion.collapses as u32,
-            candidate_deaths: v.candidate.deaths,
-            champion_deaths: v.champion.deaths,
-            promoted: v.promote,
-            reason: v.reason.clone(),
-        }
+/// The ledger's record of how `v` compared a candidate with the champion `champion_attempt`.
+fn gate_record(champion_attempt: u32, v: &paired::Verdict) -> GateRecord {
+    GateRecord {
+        champion_attempt,
+        diff: v.diff.mean,
+        lo: v.diff.lo,
+        hi: v.diff.hi,
+        level: v.diff.level,
+        wins: v.wins as u32,
+        losses: v.losses as u32,
+        ties: v.ties as u32,
+        candidate_collapses: v.candidate.collapses as u32,
+        champion_collapses: v.champion.collapses as u32,
+        candidate_deaths: v.candidate.deaths,
+        champion_deaths: v.champion.deaths,
+        promoted: v.promote,
+        reason: v.reason.clone(),
     }
-
-    /// `+31 [+8, +55]`: the gain and its interval, rounded to whole points.
-    fn text(&self) -> String {
-        format!("{:+.0} [{:+.0}, {:+.0}]", self.diff, self.lo, self.hi)
-    }
-}
-
-/// An attempt's ledger row.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct Row {
-    attempt: u32,
-    /// The `governor` version the attempt hands on (#570): the one whose pair scored best on the
-    /// screen seeds, not necessarily the last saved. `None` when the attempt never saved one.
-    governor_version: Option<u32>,
-    /// Plan edits since the campaign began (the champion's count, plus this attempt's own up to
-    /// the plan the chosen pair was judged with).
-    plan_revision: u32,
-    /// The score of the attempt's own played log at the horizon.
-    played: Option<f64>,
-    /// The clean score per screen seed, in `screen_seeds` order (empty with no governor).
-    screen: Vec<SeedScore>,
-    screen_mean: Option<f64>,
-    /// The chosen pair on the gate seeds, in `gate_seeds` order (empty with no governor).
-    gate: Vec<SeedScore>,
-    gate_mean: Option<f64>,
-    /// The paired comparison with the champion; `None` for the first governor of a campaign
-    /// (nothing to compare with) and for an attempt with no governor.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    verdict: Option<GateRecord>,
-    /// The clean score per owner-only seed, run for a promoted candidate only. For the owner; no
-    /// prompt ever shows it, nor a count or a mean made from it.
-    owner: Vec<SeedScore>,
-    kept: bool,
-    cost_usd: f64,
-    /// The build (`fn_agent build-id`, #566) the clean scores above were made on. `None` in a
-    /// ledger from before builds were recorded.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    build: Option<String>,
-    /// How many versions of the governor the attempt saved (#570); `None` with no governor.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    saved: Option<u32>,
-    /// How many governor and plan pairs were evaluated on the screen seeds to choose
-    /// `governor_version` (at most `versions::CANDIDATE_CAP`; fewer than `saved` when the cap cut
-    /// the older untested ones).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    tried: Option<u32>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct Ledger {
-    /// The track as the campaign started it: what `--resume` checks against the tracks file.
-    track: Track,
-    rows: Vec<Row>,
-    /// Each time a resume re-evaluated the champion on a new build, in order (#566).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    reevals: Vec<Reeval>,
-    /// Par and the controls on the track's seeds, as of the last invocation that measured them
-    /// (#572). For the owner's table only; optional, so a ledger without it reads as before and
-    /// a reader that doesn't know it ignores it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    references: Option<References>,
-}
-
-/// The champion, evaluated again on a different build than the one its means came from (#566,
-/// #571). Scores aren't comparable across builds (the same strategy can score differently once
-/// the sim has changed), so the attempts that follow are compared with the new gate scores, not
-/// the old.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct Reeval {
-    /// The champion's attempt number.
-    attempt: u32,
-    /// How many attempts had a row when this happened: the re-evaluation sits between the rows.
-    after_rows: u32,
-    was_build: Option<String>,
-    was_screen_mean: f64,
-    was_gate_mean: f64,
-    build: String,
-    screen_mean: f64,
-    gate_mean: f64,
-}
-
-/// `champion/meta.json`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct Champion {
-    attempt: u32,
-    /// On `build`, as of the last time the champion was evaluated.
-    screen_mean: f64,
-    gate_mean: f64,
-    governor_version: Option<u32>,
-    plan_revision: u32,
-    /// The build the means were measured on; `None` before #566, which a resume treats as
-    /// another build and re-evaluates.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    build: Option<String>,
-}
-
-/// `champion/gate.json`: the champion's score on each gate seed, on `build`. A candidate is
-/// compared with these, paired by seed, so they are kept instead of run again for every attempt.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct ChampionGate {
-    build: String,
-    scores: Vec<SeedScore>,
 }
 
 /// Writes `text` to `path` by way of a sibling file, so a crash leaves the old file or the new
@@ -533,7 +395,7 @@ fn ledger_text(ledger: &Ledger, owner: bool) -> String {
         }
         cells.push(if r.kept { "champ" } else { "no" }.to_owned());
         if owner {
-            cells.push(format!("${:.2}", r.cost_usd));
+            cells.push(format!("${:.2}", r.cost_usd.unwrap_or(0.0)));
         }
         table.push(cells);
     }
@@ -1028,7 +890,7 @@ impl Campaign<'_> {
             }
             let remaining = self.opts.max_usd.map(|cap| cap - spent);
             let row = self.attempt(remaining)?;
-            spent += row.cost_usd;
+            spent += row.cost_usd.unwrap_or(0.0);
         }
         Ok(())
     }
@@ -1341,13 +1203,14 @@ impl Campaign<'_> {
             verdict: chosen
                 .as_ref()
                 .zip(champion.as_ref())
-                .and_then(|(c, ch)| c.verdict.as_ref().map(|v| GateRecord::new(ch.attempt, v))),
+                .and_then(|(c, ch)| c.verdict.as_ref().map(|v| gate_record(ch.attempt, v))),
             owner: table.map_or(Vec::new(), |t| seed_scores(t, Role::Owner)),
             kept,
-            cost_usd: cost_so_far(&adir),
+            cost_usd: Some(cost_so_far(&adir)),
             build: Some(self.build.clone()),
             saved: chosen.as_ref().map(|c| c.saved),
             tried: chosen.as_ref().map(|c| c.tried),
+            ..Default::default()
         };
         say(&format!(
             "attempt {k}: screen mean {}, gate mean {}; {}",
@@ -1506,10 +1369,11 @@ mod tests {
                     verdict: None,
                     owner: seeds(&[(301, 7771.0), (302, 7772.0)]),
                     kept: true,
-                    cost_usd: 0.974,
+                    cost_usd: Some(0.974),
                     build: None,
                     saved: Some(9),
                     tried: Some(3),
+                    ..Default::default()
                 },
                 Row {
                     attempt: 2,
@@ -1523,10 +1387,11 @@ mod tests {
                     verdict: None,
                     owner: Vec::new(),
                     kept: false,
-                    cost_usd: 0.1,
+                    cost_usd: Some(0.1),
                     build: None,
                     saved: None,
                     tried: None,
+                    ..Default::default()
                 },
             ],
             reevals: Vec::new(),
@@ -1635,7 +1500,7 @@ mod tests {
         let v = paired::judge(&s(&cand), &s(&champ), 100.0).unwrap();
         assert!(v.promote);
         let mut l = ledger();
-        l.rows[0].verdict = Some(GateRecord::new(1, &v));
+        l.rows[0].verdict = Some(gate_record(1, &v));
         let t = ledger_text(&l, false);
         assert!(t.contains("+30 [+30, +30]"), "{t}");
         let back: Ledger = serde_json::from_str(&serde_json::to_string(&l).unwrap()).unwrap();
@@ -2002,7 +1867,7 @@ mod tests {
     fn plan_revisions_count_plan_lines() {
         let lines = vec![
             LogLine::Plan { plan: json!({"a": 1}) },
-            LogLine::End,
+            LogLine::End { tick: 0, reason: String::new() },
             LogLine::Plan { plan: json!({"a": 2}) },
         ];
         assert_eq!(plan_edits(&lines), 2);
@@ -2110,11 +1975,24 @@ mod tests {
 
     #[test]
     fn work_marks_count_what_a_chunk_changed() {
-        let call = |tool: &str| LogLine::Call { tool: tool.to_owned() };
-        assert_eq!(work_marks(&[call("observe"), call("run_script"), LogLine::End]), 0);
+        let call = |tool: &str| LogLine::Call { tool: tool.to_owned(), summary: String::new() };
+        assert_eq!(
+            work_marks(&[
+                call("observe"),
+                call("run_script"),
+                LogLine::End { tick: 0, reason: String::new() }
+            ]),
+            0
+        );
         let editing = [
             call("save_script"),
-            LogLine::Script { name: "governor".into(), version: 2, code: String::new(), turns: 0 },
+            LogLine::Script {
+                name: "governor".into(),
+                version: 2,
+                code: String::new(),
+                turns: 0,
+                wake_on: vec![],
+            },
             LogLine::Note { text: "n".into() },
             call("test_governor"),
         ];

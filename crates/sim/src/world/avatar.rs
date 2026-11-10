@@ -93,7 +93,6 @@ impl World {
             name: avatar.name.clone(),
             nation: None,
             pos,
-            variant: 0,
             needs: Needs::full(&defs.needs),
             chi: avatar.chi_max,
             carrying: None,

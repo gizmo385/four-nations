@@ -403,3 +403,18 @@ fn a_v2_save_with_another_data_hash_still_loads() {
     let w = World::load(&tampered, &defs).unwrap();
     assert_eq!(w.save(&defs).unwrap(), text);
 }
+
+#[test]
+fn a_save_carrying_the_retired_unit_variant_loads_and_drops_it() {
+    // `Unit::variant` was removed in #607; a save written before still names it on every unit.
+    let defs = Defs::bundled();
+    let text = busy_worlds()[2].save(&defs).unwrap();
+    assert!(!text.contains("variant:"), "new saves no longer write it");
+    let old = text.replace(",needs:(", ",variant:1,needs:(");
+    assert_ne!(old, text);
+    let w = World::load(&old, &defs).unwrap();
+    assert_eq!(w.save(&defs).unwrap(), text);
+    // The checked-in fixture's units carry it too.
+    assert!(FIXTURE.contains("variant:"));
+    World::load(FIXTURE, &defs).unwrap();
+}

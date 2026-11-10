@@ -63,73 +63,11 @@ fn attempt_numbers(dir: &Path) -> Vec<u32> {
 // The ledger
 // -------------------------------------------------------------------------------------------
 
-/// One seed's clean score.
-#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
-#[serde(default)]
-pub struct SeedScore {
-    pub seed: u64,
-    pub score: f64,
-    /// Why the governor stopped giving orders, if it did (`runaway`).
-    pub stopped: Option<String>,
-    pub stopped_turn: Option<u32>,
-}
-
-/// How a candidate compared with the champion on the gate seeds (#571).
-#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
-#[serde(default)]
-pub struct Verdict {
-    pub champion_attempt: Option<u32>,
-    pub diff: f64,
-    pub lo: f64,
-    pub hi: f64,
-    pub promoted: bool,
-}
-
-impl Verdict {
-    /// `+31 [+8, +55]`: the gain and its interval, in whole points.
-    pub fn text(&self) -> String {
-        format!("{:+.0} [{:+.0}, {:+.0}]", self.diff, self.lo, self.hi)
-    }
-}
-
-/// An attempt's ledger row, in either shape.
-#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
-#[serde(default)]
-pub struct LedgerRow {
-    pub attempt: u32,
-    pub governor_version: Option<u32>,
-    /// The attempt's own live game, scored at the horizon.
-    pub played: Option<f64>,
-    // The first shape.
-    pub clean: Vec<SeedScore>,
-    pub train_mean: Option<f64>,
-    pub held_out: Vec<SeedScore>,
-    // The seed tiers.
-    pub screen: Vec<SeedScore>,
-    pub screen_mean: Option<f64>,
-    pub gate: Vec<SeedScore>,
-    pub gate_mean: Option<f64>,
-    pub verdict: Option<Verdict>,
-    pub owner: Vec<SeedScore>,
-    pub kept: bool,
-    pub cost_usd: Option<f64>,
-}
-
-impl LedgerRow {
-    /// The mean clean score the attempt was judged on first: the screen mean, or the train mean
-    /// of the first shape.
-    pub fn clean_mean(&self) -> Option<f64> {
-        self.screen_mean.or(self.train_mean)
-    }
-
-    /// The clean score of `seed` anywhere in the row.
-    pub fn score_of(&self, seed: u64) -> Option<&SeedScore> {
-        [&self.clean, &self.screen, &self.gate, &self.held_out, &self.owner]
-            .into_iter()
-            .flatten()
-            .find(|s| s.seed == seed)
-    }
-}
+// The row, the seed score and the gate verdict are `fn_runfmt::campaign`'s, the types `xtask`
+// writes (#606). This reader shows no `stopped_why`, `deaths`, `plan_revision`, `build`, `saved`
+// or `tried`; it reads them and leaves them be. `Track` below stays the reader's own view: the
+// ledger's track is `xtask`'s TOML-backed type, and this one also reads the first shape's seeds.
+pub use fn_runfmt::campaign::{GateRecord as Verdict, Row as LedgerRow, SeedScore};
 
 /// The seeds of a track, by tier. The first shape has `train` and `held_out`; the seed tiers
 /// have `screen`, `gate` and `owner`.
