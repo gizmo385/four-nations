@@ -362,6 +362,15 @@ between frames; seeking backwards restores the nearest snapshot (one is kept eve
 as the replay first reaches it) and replays from there, so it costs at most 20 turns, well
 under a second. A log made against other data is refused with the build it was made on.
 
+The scrubber marks the turns worth finding again: deaths, endeavor milestones (a sign met, the
+endeavor Ready, a stage done, the gate complete), the Avatar coming and going (and the rite
+pausing or breaking), techs learned and bending ranks reached, and newcomers. Each kind has its
+own colour and shape; hovering one lists what happened that turn, clicking it seeks there, and
+the legend's chips hide or show a kind. The log holds only keys and turns, so the page finds
+them by replaying the whole log a second time (`fn_web::scan`) on another instance of the wasm
+in a Web Worker; markers fill in as it goes (a 540-turn run takes a few seconds) without
+slowing the replay being watched.
+
 `cargo xtask web` builds the page and the wasm into `target/replayer/`; `--serve` serves it on
 localhost, and each `LOG` argument is copied in and listed in the page's run picker
 (`runs/index.json`). A page link takes `?run=PATH` (a `.jsonl` or `.jsonl.gz`); a file can

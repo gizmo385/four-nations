@@ -26,8 +26,13 @@
   <button id="faster" title="+">+</button>
   <button id="step" title=".">Step</button>
   <button id="next" title="]">Next turn</button>
-  <input id="scrub" type="range" min="0" max="0" value="0" aria-label="turn">
+  <div id="timeline" class="timeline">
+    <div id="marks" class="marks" aria-label="events on the timeline"></div>
+    <input id="scrub" type="range" min="0" max="0" value="0" aria-label="turn">
+    <div id="tip" class="tip" role="tooltip" hidden></div>
+  </div>
   <span id="turn" class="turn">turn 0 / 0</span>
+  <span id="legend" class="legend" hidden></span>
   <span class="panes">
     <button data-key="1" title="1: code">Code</button><button data-key="2" title="2: game">Game</button><button data-key="3" title="3: feed">Feed</button><button data-key="0" title="0: studio">Studio</button>
   </span>
