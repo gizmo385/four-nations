@@ -118,7 +118,8 @@ fn site_profiles_count_a_tunnelling_nation_s_reach() {
 }
 
 /// Seed 3's default site, the one the doc's Water examples sit on: stone-rich (#512), with ore
-/// to spare, water at hand and room to move.
+/// to spare, water within reach and room to move. #410 dropped the pond beside it (and the fish
+/// in it), so the walk to water grew from 1 step to 13 and there is no food source nearby.
 #[test]
 fn seed_3_is_a_stone_rich_site_with_room() {
     let defs = Defs::bundled();
@@ -126,10 +127,10 @@ fn seed_3_is_a_stone_rich_site_with_room() {
     let survey = Survey::new(&Survey::config(3, size), &defs);
     let start = survey.default_site(&defs);
     let p = SiteProfile::compute(&survey, start, Nation::Water, &defs);
-    assert_eq!(p.stone(), 724);
+    assert_eq!(p.stone(), 696);
     assert!(p.ore() >= 40, "{p:?}");
-    assert!(p.fresh_water_steps.is_some_and(|s| s < 5), "{p:?}");
-    assert!(p.food_sources > 0 && p.open_tiles > 30, "{p:?}");
+    assert!(p.fresh_water_steps.is_some_and(|s| s <= defs.embark.outlook.water_far), "{p:?}");
+    assert!(p.open_tiles > 30, "{p:?}");
 }
 
 /// Care comes from `World::care()`: the same minutes, rounded the same way.

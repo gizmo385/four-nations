@@ -8,11 +8,14 @@
 //!    plus ridged noise for mountain *ranges*, pulled down toward the map edges by a falloff
 //!    mask so land never touches the border.
 //! 2. **Sea level** by percentile, so `land_fraction` of the map is above it whatever the noise
-//!    did. Mountains are the highest `mountain_fraction` of land.
+//!    did. Only below-sea-level tiles connected to the map border stay sea (issue #410):
+//!    landlocked basins of at least `min_lake_tiles` become lakes and smaller ones become land,
+//!    so continents aren't pocked with sand-ringed puddles of "sea". Mountains are the highest
+//!    `mountain_fraction` of land.
 //! 3. **Climate** (`mapgen.climate`): temperature from latitude (poles at the top and bottom),
 //!    minus altitude; moisture from noise plus nearness to water.
-//! 4. **Hydrology** (see `hydrology`): fill depressions into lakes, route rain downhill, and
-//!    turn high-flow tiles into rivers. Moisture is then recomputed so rivers green their
+//! 4. **Hydrology** (see `hydrology`): fill depressions into lakes (dropping any smaller than
+//!    `min_lake_tiles`), route rain downhill, and turn high-flow tiles into rivers. Moisture is then recomputed so rivers green their
 //!    valleys.
 //!    **River crossings** (see `crossings`, issue #30): rivers are not walkable, so the
 //!    narrowest river tiles that would otherwise split a landmass become `Terrain::Ford`.
@@ -45,7 +48,9 @@ pub struct MapGenConfig {
     pub width: i32,
     pub height: i32,
     pub seed: u64,
-    /// Fraction of the map that is not sea (land, mountains, rivers and lakes).
+    /// Fraction of the map above sea level. Landlocked basins below it become land or lakes
+    /// (issue #410), so the share that isn't sea (`Terrain::Water`) comes out a little higher:
+    /// up to about 3 points on the default map.
     pub land_fraction: f64,
     /// Fraction of non-sea tiles (by elevation rank) that become mountain.
     pub mountain_fraction: f64,
@@ -65,6 +70,9 @@ pub struct MapGenConfig {
     /// Minimum depth (in elevation units, sea-to-peak is roughly 1) of a filled depression for
     /// it to become a lake.
     pub lake_depth: f64,
+    /// Smallest lake kept, in 8-connected tiles: smaller filled depressions and landlocked sea
+    /// basins become land (issue #410, settled on #407).
+    pub min_lake_tiles: usize,
 }
 
 impl Default for MapGenConfig {
@@ -82,6 +90,7 @@ impl Default for MapGenConfig {
             water_border: 2,
             river_threshold: 45.0,
             lake_depth: 0.02,
+            min_lake_tiles: 16,
         }
     }
 }
@@ -106,8 +115,11 @@ pub type TileMap = Grid<Tile>;
 
 pub fn generate(cfg: &MapGenConfig, defs: &Defs) -> TileMap {
     let elevation = elevation(cfg);
-    let (sea, sea_level) = sea_by_percentile(&elevation, cfg);
-    let mountain = mountains(&elevation, &sea, cfg.mountain_fraction);
+    let (below_sea, sea_level) = sea_by_percentile(&elevation, cfg);
+    let (sea, basins) = split_landlocked(&below_sea, cfg.min_lake_tiles);
+    // Open water of either kind: what mountains are ranked against and rain is measured from.
+    let water = sea.map_with(|p, &s| s || basins[p]);
+    let mountain = mountains(&elevation, &water, cfg.mountain_fraction);
 
     let mut climate_rng = rng::stream(cfg.seed, "mapgen.climate");
     let moisture_noise = rank_normalize(&noise_field(cfg, &Fbm::new(&mut climate_rng, 4), 2.0));
@@ -115,9 +127,18 @@ pub fn generate(cfg: &MapGenConfig, defs: &Defs) -> TileMap {
 
     // Rain for river routing comes from noise and distance to the sea; the final moisture also
     // counts rivers and lakes.
-    let rain = moisture(&moisture_noise, &sea);
-    let hydro =
-        hydrology::rivers_and_lakes(&elevation, &sea, &rain, cfg.river_threshold, cfg.lake_depth);
+    let rain = moisture(&moisture_noise, &water);
+    let hydro = hydrology::rivers_and_lakes(
+        &elevation,
+        &sea,
+        &basins,
+        &rain,
+        &hydrology::Params {
+            river_threshold: cfg.river_threshold,
+            lake_depth: cfg.lake_depth,
+            min_lake_tiles: cfg.min_lake_tiles,
+        },
+    );
     let terrain = elevation.map_with(|p, _| {
         if sea[p] {
             Terrain::Water
@@ -234,6 +255,31 @@ fn sea_by_percentile(elevation: &Grid<f64>, cfg: &MapGenConfig) -> (Grid<bool>, 
     }
     let sea_level = ranked.get(sea_count).map_or(f64::INFINITY, |&p| elevation[p]);
     (sea, sea_level)
+}
+
+/// Splits below-sea-level tiles into the sea proper (8-connected to the map border) and the
+/// landlocked basins of at least `min_tiles` that become lakes. Smaller basins are in neither:
+/// they become land.
+fn split_landlocked(below_sea: &Grid<bool>, min_tiles: usize) -> (Grid<bool>, Grid<bool>) {
+    let mut sea = below_sea.map_with(|_, _| false);
+    let mut queue: VecDeque<Pos> = below_sea
+        .positions()
+        .filter(|&p| below_sea[p] && below_sea.neighbors(p, false).count() < 4)
+        .collect();
+    for &p in &queue {
+        sea[p] = true;
+    }
+    while let Some(p) = queue.pop_front() {
+        for q in below_sea.neighbors(p, true) {
+            if below_sea[q] && !sea[q] {
+                sea[q] = true;
+                queue.push_back(q);
+            }
+        }
+    }
+    let landlocked = below_sea.map_with(|p, &b| b && !sea[p]);
+    let basins = hydrology::without_small_components(&landlocked, min_tiles);
+    (sea, basins)
 }
 
 /// Positions sorted by value ascending, ties broken by position.
