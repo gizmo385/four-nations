@@ -364,7 +364,8 @@ under a second. A log made against other data is refused with the build it was m
 
 The scrubber marks the turns worth finding again: deaths, endeavor milestones (a sign met, the
 endeavor Ready, a stage done, the gate complete), the Avatar coming and going (and the rite
-pausing or breaking), techs learned and bending ranks reached, and newcomers. Each kind has its
+pausing or breaking), techs learned and bending ranks reached, newcomers, and the agent's script changes (each new
+saved revision, or new ad hoc code, with its `+A −D` against the last one). Each kind has its
 own colour and shape; hovering one lists what happened that turn, clicking it seeks there, and
 the legend's chips hide or show a kind. The log holds only keys and turns, so the page finds
 them by replaying the whole log a second time (`fn_web::scan`) on another instance of the wasm

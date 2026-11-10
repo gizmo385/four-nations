@@ -124,10 +124,15 @@ calls are coloured, and the `▌` lines also get a tinted background.
   starting. This is the owner's "version running at that point in the replay". Until the first
   run, the pane shows the latest saved script, marked `saved` instead of `run Nt`. A
   `save_script` that comes after a run doesn't take the pane over. It shows in the feed, and the
-  next run picks it up.
+  next run picks it up. The exception is an ad hoc run that has woken: a saved script's
+  `save_script` after it does take the pane back, since an ad hoc run is usually a probe (a
+  one-line `let s = scripts; 1`) and would otherwise hide the governor saved right after it,
+  often for the rest of the replay.
 - **The watcher scans `script` lines as they are fed, not as they are replayed**, so `M` in
-  `rev N/M` counts every revision in the log read so far. Live, that's usually `N/N`. In a
-  replay, it shows how far into the agent's iteration you are.
+  `rev N/M` is the latest revision in the log read so far. Live, that's usually `N/N`. In a
+  replay, it shows how far into the agent's iteration you are. `M` is the highest revision
+  number, not a count: a log that inherits a script library (a campaign attempt, a `--resume`
+  session) starts at a saved script's later versions, and counting would read `rev 10/5`.
 
 ### The header
 
