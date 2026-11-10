@@ -394,10 +394,10 @@ fn watch_studio_ansi_frame_pins_the_highlight_and_diff_colours() {
     }
 }
 
-/// A script with more lines than a single column holds, at a terminal wide enough for the code
-/// pane to split into two columns of at least `two_column_min` each (newspaper order).
+/// A script with more lines than the pane holds, at a wide terminal: the code stays one column
+/// no wider than `code_max_width`, and the game column gets the rest of the width.
 #[test]
-fn watch_studio_splits_into_two_columns_when_the_script_does_not_fit() {
+fn watch_studio_keeps_code_to_one_column_and_widens_the_game() {
     static COUNTER: AtomicU32 = AtomicU32::new(0);
     let mut h = Host::new(7, Nation::Earth, None, None, None, false).unwrap().with_turn_seconds(5);
     h.end_turn(1);
@@ -419,7 +419,7 @@ fn watch_studio_splits_into_two_columns_when_the_script_does_not_fit() {
             + "\n";
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir()
-        .join(format!("fn_tui_watch_studio_two_col_test_{}_{n}.jsonl", std::process::id()));
+        .join(format!("fn_tui_watch_studio_one_col_test_{}_{n}.jsonl", std::process::id()));
     std::fs::File::create(&path).unwrap().write_all(text.as_bytes()).unwrap();
 
     let out = fn_tui()
@@ -429,13 +429,15 @@ fn watch_studio_splits_into_two_columns_when_the_script_does_not_fit() {
     std::fs::remove_file(&path).ok();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let text = String::from_utf8(out.stdout).unwrap();
-    // Both halves of the script show somewhere in the pane: line 1 near the top of the left
-    // column, line 60 only reachable through the second column.
+    // One column: line 1 near the top, and the lines past the pane's height scrolled off rather
+    // than shown in a second column beside it.
     assert!(text.contains("let v0 = 0;"), "{text}");
-    assert!(text.contains("let v59 = 59;"), "{text}");
-    // Newspaper order: the second column starts where the first leaves off, on the same rows.
+    assert!(!text.contains("let v59 = 59;"), "{text}");
     let first = text.lines().find(|l| l.contains("1▌ let v0 = 0;")).expect("line 1");
-    assert!(first.contains("44▌ let v43 = 43;"), "the second column's first row:\n{first}");
+    assert_eq!(first.matches("let v").count(), 1, "one column only:\n{first}");
+    // The code pane's box is `code_max_width` (88) wide: its top-right corner is the 88th cell.
+    let top: Vec<char> = text.lines().next().unwrap().chars().collect();
+    assert_eq!(top[87], '┐', "the code pane ends at 88 columns:\n{}", text.lines().next().unwrap());
 }
 
 // -------------------------------------------------------------------------------------------

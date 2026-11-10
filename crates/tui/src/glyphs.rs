@@ -151,16 +151,13 @@ pub struct StudioDef {
     /// Below this width (or `min_height`), the studio's three panes become tabs instead.
     pub min_width: u16,
     pub min_height: u16,
-    /// The game column's share of the terminal's width, before `game_min_width`/`game_max_width`
-    /// clamp it.
+    /// The game column's share of the terminal's width, at least `game_min_width`.
     pub game_share: f64,
     pub game_min_width: u16,
-    pub game_max_width: u16,
+    /// The code column's widest: past it, every extra column goes to the game column instead.
+    pub code_max_width: u16,
     /// The agent feed's height: `max(feed_min_rows, height / 4)`.
     pub feed_min_rows: u16,
-    /// How many code characters a column needs before the code pane splits into two
-    /// (newspaper order).
-    pub two_column_min: u16,
     /// The sparkline's window, in turns, in the studio and in the tab strip.
     pub spark_turns: u16,
     pub spark_turns_tabs: u16,
@@ -170,10 +167,11 @@ pub struct StudioDef {
 
 impl StudioDef {
     /// The game column's width for a terminal `width` columns wide (docs/design/agent-studio.md,
-    /// "Layout"): `game_share` of it, clamped to `[game_min_width, game_max_width]`.
+    /// "Layout"): `game_share` of it, at least `game_min_width`, and wide enough that the code
+    /// column gets no more than `code_max_width`.
     pub fn game_width(&self, width: u16) -> u16 {
         let share = (f64::from(width) * self.game_share).round() as u16;
-        share.clamp(self.game_min_width, self.game_max_width).min(width)
+        share.max(self.game_min_width).max(width.saturating_sub(self.code_max_width)).min(width)
     }
 
     /// Whether a `width` x `height` terminal is big enough for the studio layout rather than the
@@ -459,13 +457,16 @@ mod tests {
         assert!(g.code.for_class(Class::Plain).is_none(), "Plain should have none");
     }
 
-    /// The studio's game column clamps to `[game_min_width, game_max_width]` (#499's acceptance
-    /// criteria, the doc's own worked examples: 64+96 at 160, 80+120 at 200).
+    /// The studio's game column follows `game_share`, and takes everything past the code
+    /// column's `code_max_width` (the doc's own worked examples: 64+96 at 160, 80+120 at 200,
+    /// 88+162 at 250).
     #[test]
-    fn studio_game_width_follows_the_share_and_clamps() {
+    fn studio_game_width_follows_the_share_and_caps_the_code() {
         let g = Glyphs::bundled();
         assert_eq!(g.studio.game_width(160), 96);
         assert_eq!(g.studio.game_width(200), 120);
+        assert_eq!(g.studio.game_width(250), 162);
+        assert_eq!(g.studio.game_width(400), 312);
         assert!(g.studio.fits(160, 45));
         assert!(!g.studio.fits(159, 45));
         assert!(!g.studio.fits(160, 44));
