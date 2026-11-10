@@ -113,6 +113,7 @@ fn a_ruin_in_the_only_corridor_stays_buried() {
     for x in 4..=6 {
         w.map[at(x, 5)].terrain = Terrain::Land;
     }
+    w.map_changed();
     assert!(w.uncover(at(5, 4)));
     assert_eq!(w.map[at(5, 4)].resource, Some(ruin));
 }

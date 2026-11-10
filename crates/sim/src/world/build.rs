@@ -574,7 +574,21 @@ impl World {
     /// Open ground answers from the eight tiles around `at` alone (`ring_stays_joined`); only a
     /// tile in a gap pays for the floods. Reads the live map: a pending solid site isn't counted
     /// (unlike in `would_strand`).
+    ///
+    /// The answer depends only on the map's passability and `rules`, so it's remembered per
+    /// tile until either changes (`CutMemo`): a Map Room asks about every buried ruin in range
+    /// each tick (`chart_has_target`), and a ruin in a gap would otherwise flood the whole map
+    /// every time.
     pub fn would_cut_off(&self, at: Pos) -> bool {
+        if let Some(known) = self.cut_memo.get(self.map_rev, &self.rules, at) {
+            return known;
+        }
+        let answer = self.would_cut_off_uncached(at);
+        self.cut_memo.put(self.map_rev, &self.rules, at, answer);
+        answer
+    }
+
+    fn would_cut_off_uncached(&self, at: Pos) -> bool {
         let walkable = |p: Pos| self.map.get(p).is_some_and(|t| self.rules.passable(t));
         if !walkable(at) || self.ring_stays_joined(at) {
             return false;
@@ -1018,3 +1032,48 @@ impl World {
 
 #[cfg(test)]
 mod tests;
+
+/// `World::would_cut_off`'s answers for the map as of `map_rev` under `rules`. Not saved, and a
+/// clone starts empty: it only ever repeats what a fresh computation would say. Behind a mutex,
+/// like `IdleMemo`, because `would_cut_off` takes `&self`.
+#[derive(Default)]
+pub(in crate::world) struct CutMemo(std::sync::Mutex<CutMemoInner>);
+
+#[derive(Default)]
+struct CutMemoInner {
+    rev: u64,
+    rules: Option<MoveRules>,
+    known: std::collections::HashMap<Pos, bool>,
+}
+
+impl CutMemo {
+    fn get(&self, rev: u64, rules: &MoveRules, at: Pos) -> Option<bool> {
+        let memo = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if memo.rev != rev || memo.rules.as_ref() != Some(rules) {
+            return None;
+        }
+        memo.known.get(&at).copied()
+    }
+
+    fn put(&self, rev: u64, rules: &MoveRules, at: Pos, answer: bool) {
+        let mut memo = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if memo.rev != rev || memo.rules.as_ref() != Some(rules) {
+            memo.rev = rev;
+            memo.rules = Some(rules.clone());
+            memo.known.clear();
+        }
+        memo.known.insert(at, answer);
+    }
+}
+
+impl Clone for CutMemo {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl std::fmt::Debug for CutMemo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("CutMemo")
+    }
+}

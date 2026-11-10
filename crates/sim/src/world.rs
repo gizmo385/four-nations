@@ -388,6 +388,9 @@ pub struct World {
     /// `World::idle_reason`'s last answer per unit, with the key it was given under (#574).
     #[serde(skip)]
     idle_memo: work::IdleMemo,
+    /// `would_cut_off`'s answers since the map last changed (`build::CutMemo`).
+    #[serde(skip)]
+    cut_memo: build::CutMemo,
     /// Every bend that has finished or failed, oldest first.
     bend_events: Vec<BendEvent>,
     /// Watered patches that haven't dried yet, in `(dries_at, centre)` order (Water the Land).
@@ -569,6 +572,7 @@ impl World {
             map_rev: 0,
             claim_memo: BTreeMap::new(),
             idle_memo: work::IdleMemo::default(),
+            cut_memo: build::CutMemo::default(),
             bend_events: Vec::new(),
             patches: Vec::new(),
             reverts: Vec::new(),
@@ -624,6 +628,7 @@ impl World {
             self.map[p].resource = None;
             self.buried.insert(p, r);
         }
+        self.map_changed();
     }
 
     /// How many resources are still underground (#133). Where they are is not for the frontends
