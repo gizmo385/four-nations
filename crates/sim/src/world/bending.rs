@@ -1283,6 +1283,8 @@ impl World {
                 continue;
             }
             self.map[p].resource = Some(patch.resource);
+            // The next candidate's `would_cut_off` must see this sprout.
+            self.map_changed();
             self.resting.remove(&p);
             self.fallow.insert(p, self.tick + patch.fallow_ticks);
             grown += 1;
