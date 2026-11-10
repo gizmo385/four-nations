@@ -160,12 +160,13 @@ fn a_wind_turbine_powers_a_workshop_within_9_tiles_but_not_at_10() {
 
     // Nearest workshop tile is (1, 0): a turbine 10 tiles east sits 9 away (within the reach of
     // 9), one 11 tiles east sits 10 away (just outside it).
-    let mut far = w.clone();
     raise_source(&mut w, &defs, turbine, at(10, 0));
     assert_eq!(w.power_boost(workshop_footprint, &defs), 1.5, "9 tiles away: in reach");
 
-    raise_source(&mut far, &defs, turbine, at(11, 0));
-    assert_eq!(far.power_boost(workshop_footprint, &defs), 1.0, "10 tiles away: out of reach");
+    let near = w.map[at(10, 0)].building.unwrap().key();
+    w.remove_building(near, &defs).unwrap();
+    raise_source(&mut w, &defs, turbine, at(11, 0));
+    assert_eq!(w.power_boost(workshop_footprint, &defs), 1.0, "10 tiles away: out of reach");
 }
 
 #[test]

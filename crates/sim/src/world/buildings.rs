@@ -25,6 +25,7 @@
 
 use crate::building::{BuildingKey, TileBuilding, is_one_by_one, one_by_one};
 use crate::geom::Footprint;
+use crate::jobs::JobKind;
 use crate::mapgen::Tile;
 use crate::save::v2;
 
@@ -115,6 +116,16 @@ impl Buildings {
         self.index(key, &record, defs);
         self.records.insert(key, record);
         key
+    }
+
+    /// Drops the record under `key` and its index entries.
+    fn take(&mut self, key: BuildingKey, defs: &Defs) -> Option<Building> {
+        let record = self.records.remove(&key)?;
+        self.rows.remove(&(record.anchor.y, record.anchor.x));
+        for kind in Kind::of(defs.building(record.id)) {
+            self.kinds.remove(&(kind, record.anchor));
+        }
+        Some(record)
     }
 
     fn index(&mut self, key: BuildingKey, record: &Building, defs: &Defs) {
@@ -259,6 +270,64 @@ impl World {
         }
         self.map_changed();
         key
+    }
+
+    /// Takes the finished building `key` off the map and returns its record (`None` if there is
+    /// none). Whoever is using it stops first, in this order: units inside leave by the door
+    /// (which reads the footprint, so it runs before the tiles are cleared); units holding one
+    /// of its Study, Chart, Craft, Sow or Reap jobs drop it, and those jobs are removed; units
+    /// bound for it to sleep or heal (`bed`, `healing`) finish that need. Then the footprint's
+    /// tiles are cleared, the record and its index entries removed, and `map_changed` called.
+    /// It decides no refunds (the record carries a craft batch's deliveries) and doesn't ask
+    /// whether the building may go (the gate). Planted orchard trees stay: they are map
+    /// resources. Deconstruction (#342) is the caller.
+    pub fn remove_building(&mut self, key: BuildingKey, defs: &Defs) -> Option<Building> {
+        let (anchor, foot) = {
+            let b = self.buildings.get(key)?;
+            (b.anchor, b.footprint())
+        };
+        for i in 0..self.units.len() {
+            if self.units[i].inside == Some(anchor) {
+                self.leave_building(i);
+            }
+        }
+        let at_anchor = |k: &JobKind| {
+            matches!(k, JobKind::Study { pos } | JobKind::Chart { pos } | JobKind::Craft { pos }
+                | JobKind::Sow { pos } | JobKind::Reap { pos } if *pos == anchor)
+        };
+        let ids: Vec<JobId> =
+            self.jobs.iter().filter(|j| at_anchor(&j.kind)).map(|j| j.id).collect();
+        for i in 0..self.units.len() {
+            let held = match self.units[i].job_task {
+                Some(
+                    Task::Study(id)
+                    | Task::Chart(id)
+                    | Task::Craft(id)
+                    | Task::Sow(id)
+                    | Task::Reap(id),
+                ) if ids.contains(&id) => Some(id),
+                _ => None,
+            };
+            if let Some(id) = held {
+                self.abandon_job(i, id, defs);
+            }
+        }
+        self.jobs.retain(|j| !ids.contains(&j.id));
+        for i in 0..self.units.len() {
+            let u = &self.units[i];
+            if u.bed == Some(anchor)
+                || u.healing == Some(anchor)
+                || u.need_task == Some(Task::Healing(anchor))
+            {
+                self.finish_need(i);
+            }
+        }
+        for p in foot.tiles() {
+            self.map[p].building = None;
+        }
+        let record = self.buildings.take(key, defs);
+        self.map_changed();
+        record
     }
 
     /// Every finished building once, in anchor order (row-major).

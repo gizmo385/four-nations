@@ -210,3 +210,113 @@ fn the_invariant_refuses_indexes_that_drifted_from_the_records() {
     bad.buildings.rows.clear();
     assert!(bad.check_building_records(&defs).unwrap_err().contains("listing"));
 }
+
+/// Unit `i` stood on the door of the building anchored at `anchor` and stepped inside.
+fn seat_inside(w: &mut World, i: usize, anchor: Pos) {
+    let door = w.footprint_at(anchor).unwrap().entrance();
+    w.units[i].pos = door;
+    w.units[i].inside = Some(anchor);
+}
+
+/// Anything in the world, bar the tiles, that still names `anchor`: a unit's place inside, bed,
+/// healing spot or task, or an open job.
+fn refers_to(w: &World, anchor: Pos) -> Option<String> {
+    for u in &w.units {
+        if u.inside == Some(anchor) || u.bed == Some(anchor) || u.healing == Some(anchor) {
+            return Some(format!("unit {} is bound to it", u.id.0));
+        }
+        if u.need_task == Some(Task::Healing(anchor)) {
+            return Some(format!("unit {} is healing in it", u.id.0));
+        }
+    }
+    let at_anchor = |k: &JobKind| {
+        matches!(k, JobKind::Study { pos } | JobKind::Chart { pos } | JobKind::Craft { pos }
+            | JobKind::Sow { pos } | JobKind::Reap { pos } if *pos == anchor)
+    };
+    w.jobs.iter().find(|j| at_anchor(&j.kind)).map(|j| format!("job {} is still open", j.id.0))
+}
+
+#[test]
+fn removing_a_building_in_use_leaves_nothing_pointing_at_it() {
+    let defs = Defs::bundled();
+    let mut tested = 0;
+    for def in defs.buildings.iter().filter(|d| !d.endeavor) {
+        let name = &def.id;
+        let id = defs.building_id(name).unwrap();
+        let anchor = at(10, 6);
+        let foot = Footprint::new(anchor, def.footprint.0, def.footprint.1);
+        let units = [at(1, 1), at(2, 1), at(3, 1), at(4, 1)];
+        let mut w = World::with_map(5, field(), Nation::Earth, &units, &defs);
+        // Another building elsewhere, which must be left alone.
+        let campfire = defs.building_id("campfire").unwrap();
+        let bystander = w.put_building(Footprint::single(at(1, 12)), campfire, &defs);
+        w.raise(foot, id, &defs);
+        let key = w.map[anchor].building.unwrap().key();
+
+        // In use, each only where the def has a use for it: a scholar seated or a crafter
+        // mid-batch, a sleeper in the bed, a patient healing, a farmhand with a Sow job, and
+        // otherwise a unit inside.
+        let seat = w.jobs.iter().find_map(|j| match j.kind {
+            JobKind::Study { pos } if pos == anchor => Some((j.id, Task::Study(j.id))),
+            JobKind::Chart { pos } if pos == anchor => Some((j.id, Task::Chart(j.id))),
+            JobKind::Craft { pos } if pos == anchor => Some((j.id, Task::Craft(j.id))),
+            _ => None,
+        });
+        if let Some((job, task)) = seat {
+            let j = w.job_index(job).unwrap();
+            w.jobs[j].claimed_by = Some(w.units[0].id);
+            w.units[0].job_task = Some(task);
+            seat_inside(&mut w, 0, anchor);
+        }
+        if let Some(recipe) = &def.recipe {
+            w.anchored_mut(anchor).unwrap().craft =
+                Some(CraftState { delivered: vec![1; recipe.inputs.len()], progress: 2.5 });
+        }
+        if def.bed.is_some() {
+            w.units[1].bed = Some(anchor);
+            w.units[1].need_task = Some(Task::Sleep);
+            seat_inside(&mut w, 1, anchor);
+        }
+        if def.healing.is_some() {
+            w.units[2].healing = Some(anchor);
+            w.units[2].need_task = Some(Task::Healing(anchor));
+            seat_inside(&mut w, 2, anchor);
+        }
+        if def.farm.is_some() {
+            let job = w.add_job(JobKind::Sow { pos: anchor });
+            let j = w.job_index(job).unwrap();
+            w.jobs[j].claimed_by = Some(w.units[3].id);
+            w.units[3].job_task = Some(Task::Sow(job));
+        } else {
+            seat_inside(&mut w, 3, anchor);
+        }
+        w.validate(&defs).unwrap();
+        w.check_invariants(&defs).unwrap_or_else(|e| panic!("{name} before: {e}"));
+        let before = w.map_rev;
+
+        let record = w.remove_building(key, &defs).unwrap_or_else(|| panic!("{name}"));
+        assert_eq!(record.anchor, anchor, "{name}");
+        assert_eq!(record.craft.is_some(), def.recipe.is_some(), "{name}: the batch comes back");
+        w.validate(&defs).unwrap_or_else(|e| panic!("{name}: {e}"));
+        w.check_invariants(&defs).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert!(w.map_rev > before, "{name}: the claim memo must be told");
+        assert!(w.buildings().all(|b| b.anchor != anchor), "{name}: still listed");
+        assert_eq!(w.buildings().count(), 1, "{name}: the bystander stays");
+        assert!(w.buildings.get(bystander).is_some(), "{name}");
+        assert!(foot.tiles().all(|p| w.map[p].building.is_none()), "{name}: a tile points on");
+        assert_eq!(refers_to(&w, anchor), None, "{name}");
+        assert!(w.remove_building(key, &defs).is_none(), "{name}: removed twice");
+        for u in &w.units {
+            assert!(u.job_task.is_none() && u.need_task.is_none(), "{name}: {:?}", u.task());
+        }
+
+        // Putting one back on the same anchor starts from nothing, under a new key.
+        let again = w.put_building(foot, id, &defs);
+        assert_ne!(again, key, "{name}: keys aren't reused");
+        let fresh = w.anchored(anchor).unwrap();
+        assert!(fresh.craft.is_none() && fresh.chart.is_none(), "{name}");
+        w.check_invariants(&defs).unwrap_or_else(|e| panic!("{name}: {e}"));
+        tested += 1;
+    }
+    assert!(tested >= 10, "only {tested} kinds tried");
+}
