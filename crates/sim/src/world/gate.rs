@@ -259,6 +259,26 @@ impl World {
             .map_or(Ok(()), |(at, why)| Err(EndeavorError::CannotBuild { at, why }))
     }
 
+    /// Whether the gate's site may be withdrawn now (`Command::CancelEndeavor`): there must be
+    /// one, and no work on it may have started. Changes nothing, so a frontend can call it to
+    /// say whether withdrawing is on offer.
+    pub fn check_cancel_endeavor(&self, defs: &Defs) -> Result<(), EndeavorError> {
+        let Some(g) = self.gate() else { return Err(EndeavorError::NotBuilding) };
+        let first = defs.endeavor.stages.first().map(|s| s.id.as_str());
+        let channelled = self
+            .jobs
+            .iter()
+            .any(|j| matches!(j.kind, JobKind::EndeavorTask { .. }) && j.progress > 0.0);
+        if first != Some(g.stage.as_str())
+            || g.progress > 0.0
+            || g.tasks.iter().any(|t| t.done)
+            || channelled
+        {
+            return Err(EndeavorError::Started);
+        }
+        Ok(())
+    }
+
     /// Places the gate's site with its anchor on `anchor` and starts the first stage.
     pub(super) fn begin_endeavor(&mut self, anchor: Pos, defs: &Defs) -> Result<(), EndeavorError> {
         self.check_endeavor_site(anchor, defs)?;
@@ -276,19 +296,8 @@ impl World {
     /// Withdraws the site, if no work on it has started: materials delivered drop beside it and
     /// the endeavor is Ready again.
     pub(super) fn cancel_endeavor(&mut self, defs: &Defs) -> Result<(), EndeavorError> {
-        let Some(g) = self.gate() else { return Err(EndeavorError::NotBuilding) };
-        let first = defs.endeavor.stages.first().map(|s| s.id.as_str());
-        let channelled = self
-            .jobs
-            .iter()
-            .any(|j| matches!(j.kind, JobKind::EndeavorTask { .. }) && j.progress > 0.0);
-        if first != Some(g.stage.as_str())
-            || g.progress > 0.0
-            || g.tasks.iter().any(|t| t.done)
-            || channelled
-        {
-            return Err(EndeavorError::Started);
-        }
+        self.check_cancel_endeavor(defs)?;
+        let Some(g) = self.gate() else { unreachable!("checked") };
         let tick = g.ready_tick;
         let EndeavorState::Building(g) =
             std::mem::replace(&mut self.endeavor, EndeavorState::Ready { tick })

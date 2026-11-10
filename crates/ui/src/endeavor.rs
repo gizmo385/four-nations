@@ -14,8 +14,12 @@ use crate::session::Session;
 use crate::text::compass_distance;
 use crate::tools::Tool;
 
-/// What the screen and the side panel say once the endeavor is Ready (the toast says it too).
+/// What the toast and the log say once the endeavor is Ready.
 pub const READY_TEXT: &str = "Word of your settlement has reached the Avatar.";
+
+/// The side panel's line once the endeavor is Ready (#643): short enough to fit beside the count,
+/// and the row's own `[G]` already names the screen where the site is chosen.
+pub const READY_LINE: &str = "Ready";
 
 /// The Endeavor screen (`G`).
 #[derive(Clone, PartialEq, Debug)]
@@ -30,6 +34,9 @@ pub struct ScreenView {
     pub frac: f32,
     /// Under the gate: where the endeavor stands ("Stage: not begun").
     pub stage: String,
+    /// Under the stage, what can be done with the gate now (#643): "Enter: choose a site for the
+    /// gate" once Ready, "X: withdraw the site" until work on it starts (`crate::gate::action`).
+    pub action: Option<String>,
     /// The signs under their headings, in data order.
     pub groups: Vec<GroupView>,
 }
@@ -453,6 +460,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
         count: format!("{met} of {total} signs"),
         frac: share(met, total),
         stage: stage(world, defs),
+        action: crate::gate::action(session).map(|a| a.hint().to_owned()),
         groups,
     }
 }
@@ -482,7 +490,7 @@ pub fn endeavor_status(session: &Session) -> Option<EndeavorStatus> {
         frac: share(met, signs.len()),
         line: match world.endeavor() {
             EndeavorState::Dormant => "Signs met - G: open".to_owned(),
-            EndeavorState::Ready { .. } => READY_TEXT.to_owned(),
+            EndeavorState::Ready { .. } => READY_LINE.to_owned(),
             EndeavorState::Building(_) | EndeavorState::Complete { .. } => stage(world, defs),
         },
         next,

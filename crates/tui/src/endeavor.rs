@@ -1,7 +1,8 @@
 //! The Endeavor screen (`G`, docs/design/endgame.md "Showing progress"): the same text as the
 //! side panel's own section builds on, laid out as a full page -- the endeavor's name and how
 //! many signs are met, its description, the stage tracker (what the gate's site is building, or
-//! that the endeavor hasn't begun), then every sign grouped under its heading, each with a mark
+//! that the endeavor hasn't begun) with what can be done with the gate now (#643: `Enter`
+//! chooses a site once Ready, `X` withdraws one no work has started on), then every sign grouped under its heading, each with a mark
 //! once it is met, a hint while it isn't, its count and a 10-cell bar, like the selection bar's
 //! meters. What it shows is `fn_ui::endeavor::screen_view`; this module only lays it out as rows
 //! that scroll (`screens::draw_screen`).
@@ -72,6 +73,11 @@ pub fn lines(session: &Session, width: usize, marks: &Marks) -> Vec<Row> {
     }
     rows.push(Row::default());
     rows.push(Row::text(v.stage.clone(), Tone::Strong));
+    // What can be done with the gate now (#643): place it once Ready, withdraw it until work
+    // starts. The whole line is the hint.
+    if let Some(action) = &v.action {
+        rows.push(Row::text(action.clone(), Tone::Accent));
+    }
     for group in &v.groups {
         rows.push(Row::default());
         rows.extend(group_rows(group, name_width, marks));

@@ -248,6 +248,7 @@ impl Overlays {
             sites: world
                 .build_sites()
                 .flat_map(|(f, b, _)| f.tiles().map(move |p| (p, b)))
+                .chain(gate_site_tiles(world, defs))
                 .collect(),
             ghost: ghost_tiles(ui.ghost_building(session), &ghosts),
             door: door_tiles(&ghosts),
@@ -359,6 +360,23 @@ fn flame_thing(ability: Option<AbilityId>, defs: &Defs) -> Thing {
         Some("air_shield") => Thing::AirShield,
         _ => Thing::Flame,
     }
+}
+
+/// Every tile of the Harmony Gate's site while it is building, with the gate's building (#643):
+/// `World::build_sites` leaves the gate out (its stages are the endeavor's own), so the map adds
+/// it back here for [`gate_stage_look`] to draw.
+fn gate_site_tiles(
+    world: &fn_sim::World,
+    defs: &fn_sim::Defs,
+) -> impl Iterator<Item = (Pos, BuildingId)> {
+    let site = match (world.endeavor(), defs.endeavor.building) {
+        (fn_sim::world::EndeavorState::Building(g), Some(gate)) => {
+            let (w, h) = defs.building(gate).footprint;
+            Some((Footprint::new(g.anchor, w, h), gate))
+        }
+        _ => None,
+    };
+    site.into_iter().flat_map(|(f, gate)| f.tiles().map(move |p| (p, gate)))
 }
 
 /// The 4x4 glyph block for the Harmony Gate's site at its current stage (#242, `[gate_stage.*]`

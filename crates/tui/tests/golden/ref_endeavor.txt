@@ -36,5 +36,5 @@
 │                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
-┗─ Arrows W S scroll  PgUp PgDn page  Esc/G close ─────────────────────────────────────┛┗─ seed 1 ─────────────────────┛
- ENDEAVOR  arrows/W S scroll  PgUp/PgDn page  Esc/G close  L log  ? keys  Space pause                            PAUSED
+┗─ Arrows W S scroll  Enter place gate  X withdraw  Esc/G close ───────────────────────┛┗─ seed 1 ─────────────────────┛
+ ENDEAVOR  arrows/W S scroll  Enter place gate  X withdraw  Esc/G close  L log  ? keys  Space pause              PAUSED

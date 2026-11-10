@@ -77,6 +77,11 @@ fn enter_hint(session: &Session, ui: &UiState) -> Option<String> {
         let (w, h) = session.defs.building(building).footprint;
         return Some(format!("Enter: build {w}x{h}"));
     }
+    if ui.tool == Tool::Gate {
+        let gate = fn_ui::gate::building(session)?;
+        let (w, h) = session.defs.building(gate).footprint;
+        return Some(format!("Enter: place {w}x{h}"));
+    }
     rect_hint(ui)
 }
 

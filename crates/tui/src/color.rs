@@ -204,7 +204,8 @@ impl Tint {
             Tool::Clear => Some(Self::Clear),
             Tool::Stockpile => Some(Self::Stockpile),
             Tool::Bend => Some(Self::Bend),
-            Tool::Build => Some(Self::Build),
+            // The gate is a building too (#643).
+            Tool::Build | Tool::Gate => Some(Self::Build),
             Tool::Select => None,
         }
     }

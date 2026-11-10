@@ -273,7 +273,8 @@ fn build_table() -> Vec<Binding> {
     add(Group::Game, "Key help", Key::ch('?'), Action::ShowHelp);
     add(
         Group::Game,
-        "Endeavor: the Harmony Gate's progress and, once building, its stage",
+        "Endeavor: the Harmony Gate's progress; once Ready, Enter places the gate, X withdraws \
+         the site until work starts",
         Key::ch('g'),
         Action::ShowEndeavor,
     );

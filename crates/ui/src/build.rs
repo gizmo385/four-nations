@@ -170,7 +170,7 @@ pub fn ghosts(
 
 /// Why a building can't go on `at`, as a reason for the notice: "an oak tree is in the way",
 /// "on a stockpile".
-fn describe_blocker(session: &Session, at: Pos, why: Blocker) -> String {
+pub(crate) fn describe_blocker(session: &Session, at: Pos, why: Blocker) -> String {
     let world = &session.world;
     let tile = world.map.get(at);
     let a = |name: &str| {

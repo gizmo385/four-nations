@@ -891,7 +891,7 @@ fn the_endeavor_screen_lists_the_gates_groups_and_signs() {
         "KNOWLEDGE",
         "STORES AND HARVESTS",
         "BENDING",
-        "Arrows W S scroll  PgUp PgDn page  Esc/G close",
+        "Arrows W S scroll  Enter place gate  X withdraw  Esc/G close",
     ] {
         assert!(frame.contains(want), "{want:?} in\n{frame}");
     }
@@ -1207,4 +1207,52 @@ fn the_alert_log_carries_the_winter_notices() {
     assert!(frame.contains("Winter in 3 minutes"), "{frame}");
     assert!(frame.contains("Winter. Wild plants rest"), "{frame}");
     assert!(frame.contains("First frost"), "{frame}");
+}
+
+/// #643's frame check: with the endeavor Ready, the key script `g <enter>`, a cursor walk and
+/// `<enter>` places the gate, and the next frame draws the Foundation's own glyph block on the
+/// map (`data/tui.toml`'s `[gate_stage.foundation]`), which no frame before it has. (Before
+/// #643 the map left the gate's site out altogether: `World::build_sites` skips it.)
+#[test]
+fn a_key_script_places_the_gate_and_the_frame_shows_its_site() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    // Ready, as if every sign had been met: a save round trip with the state spliced in.
+    let text_save = a.session.world.save(&a.session.defs).unwrap();
+    let text_save = text_save.replacen("Dormant", "Ready(tick:0)", 1);
+    let world = fn_sim::World::load(&text_save, &a.session.defs).unwrap();
+    a.load(world);
+    let before = text(&mut a, SIZE);
+    assert!(!before.contains('▦'), "no gate site yet\n{before}");
+    assert!(before.contains("Gate 0/9 · Ready "), "the side panel says so\n{before}");
+
+    run(&mut a, "g");
+    let screen = text(&mut a, SIZE);
+    assert!(screen.contains("Enter: choose a site for the gate"), "{screen}");
+
+    // A site a few tiles off the cursor, where the ghost says the gate fits.
+    let start = a.ui.cursor;
+    let cursor = (1..12)
+        .flat_map(|r| (-r..=r).flat_map(move |dy| (-r..=r).map(move |dx| (dx, dy))))
+        .map(|(dx, dy)| Pos::new(start.x + dx, start.y + dy))
+        .find(|&c| fn_ui::gate::placement(&a.session, c).is_some_and(|p| p.ok()))
+        .expect("a free site near the cursor");
+    let walk = |d: i32, pos: &str, neg: &str| {
+        let key = if d >= 0 { pos } else { neg };
+        if d == 0 { String::new() } else { format!("<{key}*{}>", d.abs()) }
+    };
+    let script = format!(
+        "<enter> {} {} <enter>",
+        walk(cursor.x - start.x, "right", "left"),
+        walk(cursor.y - start.y, "down", "up")
+    );
+    run(&mut a, &script);
+    assert!(
+        matches!(a.session.world.endeavor(), fn_sim::world::EndeavorState::Building(_)),
+        "{script}: {:?}",
+        a.session.world.endeavor()
+    );
+    let after = text(&mut a, SIZE);
+    // Sixteen tiles, less any a settler stands on.
+    let block = after.chars().filter(|&c| c == '▦').count();
+    assert!(block >= 8, "the Foundation's block on the map ({block} cells)\n{after}");
 }
