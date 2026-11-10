@@ -51,9 +51,12 @@ impl Track {
         }
     }
 
-    /// `M`: how many distinct revisions have been scanned so far for this name.
-    fn count(&self) -> u32 {
-        self.revisions.len() as u32
+    /// `M`: the highest revision number scanned so far for this name. Not how many there are: a
+    /// saved script's numbers are its `version`s, and a log can start partway through them (a
+    /// campaign attempt or a `--resume` session inherits the script library, so its first
+    /// `save_script` may be v6), which made the header read `rev 10/5`.
+    fn latest(&self) -> u32 {
+        self.revisions.iter().map(|(n, _)| *n).max().unwrap_or(0)
     }
 
     fn code(&self, number: u32) -> Option<&str> {
@@ -128,6 +131,11 @@ pub struct CodePane {
     /// again (docs/design/agent-studio.md: "A `save_script` that comes after a run doesn't take
     /// the pane over").
     has_run: bool,
+    /// Whether [`Self::shown`] is an ad hoc run (`version` 0). Once one has woken, a saved
+    /// script's `save_script` takes the pane back: an ad hoc run is usually a probe (a one-line
+    /// `let s = scripts; 1` to see what's there), and leaving it up hid the governor the agent
+    /// saved right after it, often for the rest of the replay.
+    shown_ad_hoc: bool,
     /// The first visible source line, in the shown revision's own line order.
     scroll: usize,
     /// Set whenever the shown revision changes; consumed by the next [`Self::render`], which
@@ -160,9 +168,11 @@ impl CodePane {
     /// docs/design/agent-studio.md "The agent feed") that needs to know it too.
     pub fn on_script(&mut self, name: &str, version: u32, code: &str, turns: u32) -> u32 {
         let number = self.tracks.entry(name.to_owned()).or_default().scan(version, code);
-        if turns == 0 && self.has_run {
+        let probe_done = self.shown_ad_hoc && matches!(self.shown, Some(Shown::Woke { .. }));
+        if turns == 0 && self.has_run && !(probe_done && version > 0) {
             return number;
         }
+        self.shown_ad_hoc = version == 0;
         let changed = self.shown.as_ref().map(Shown::key) != Some((name, number));
         self.shown = Some(if turns > 0 {
             self.has_run = true;
@@ -234,7 +244,7 @@ impl CodePane {
     fn header_text(&self, ascii: bool) -> Option<String> {
         let shown = self.shown.as_ref()?;
         let (name, number) = shown.key();
-        let max = self.tracks.get(name).map_or(number, Track::count);
+        let max = self.tracks.get(name).map_or(number, Track::latest);
         let run_part = match shown {
             Shown::Saved { .. } => "saved".to_owned(),
             Shown::Running { run_turns, .. } => format!("run {run_turns}t"),
@@ -510,6 +520,45 @@ mod tests {
         let header = pane.header_text(false).unwrap();
         assert!(header.contains("rev 2/2"), "{header}");
         assert!(header.contains("+2 −1") || header.contains("+2 -1"), "{header}");
+    }
+
+    /// A log that inherits a script library starts at a later saved version (a campaign
+    /// attempt's first `save_script` may be v6): `M` is the latest version, never fewer than the
+    /// revision shown.
+    #[test]
+    fn m_is_the_latest_version_when_the_log_starts_partway_through() {
+        let mut pane = CodePane::new();
+        pane.feed([
+            &script("governor", 6, "let a = 1;", 0),
+            &script("governor", 7, "let a = 2;", 0),
+            &script("governor", 10, "let a = 3;", 0),
+        ]);
+        pane.on_script("governor", 7, "let a = 2;", 60);
+        let header = pane.header_text(false).unwrap();
+        assert!(header.contains("rev 7/10"), "{header}");
+    }
+
+    /// A saved script's `save_script` takes the pane back from an ad hoc run that has woken, but
+    /// not from a saved script's run, nor from an ad hoc run still going.
+    #[test]
+    fn a_save_takes_the_pane_back_from_a_finished_ad_hoc_run_only() {
+        let mut pane = CodePane::new();
+        pane.on_script("governor", 3, "gov();", 40);
+        pane.on_wake(40);
+        pane.on_script("governor", 4, "gov2();", 0);
+        assert!(pane.header_text(false).unwrap().starts_with("governor.rhai"));
+        assert!(pane.header_text(false).unwrap().contains("rev 3/4"));
+
+        pane.on_script("script", 0, "let s = scripts; 1", 1);
+        pane.on_script("governor", 5, "gov3();", 0); // the probe is still running
+        assert!(pane.header_text(false).unwrap().starts_with("script.rhai"));
+        pane.on_wake(0);
+        pane.on_script("governor", 6, "gov4();", 0);
+        let header = pane.header_text(false).unwrap();
+        assert!(
+            header.contains("governor.rhai") && header.contains("rev 6/6 ── saved"),
+            "{header}"
+        );
     }
 
     /// An ad hoc `run_script {code}` (`version` 0) numbers its revisions by how many distinct

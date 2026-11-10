@@ -11,6 +11,7 @@
   --avatar: #c99be6;
   --learned: #61afef;
   --arrival: #98c379;
+  --script: #56b6c2;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -90,6 +91,8 @@ canvas { display: block; outline: none; }
 }
 .mark.avatar { z-index: 3; }
 .mark.avatar::after { background: var(--avatar); border-radius: 50%; left: 2px; top: 3px; width: 6px; height: 6px; }
+.mark.script { z-index: 2; }
+.mark.script::after { background: var(--script); left: 2px; top: 3px; width: 6px; height: 6px; }
 .mark.learned { z-index: 2; }
 .mark.arrival { z-index: 1; }
 .mark.learned::after, .mark.arrival::after { left: 4px; width: 2px; top: 3px; }

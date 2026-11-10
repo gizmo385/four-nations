@@ -334,6 +334,7 @@ const KINDS = {
   avatar: { label: 'Avatar', color: 'var(--avatar)' },
   learned: { label: 'Learned', color: 'var(--learned)' },
   arrival: { label: 'Arrivals', color: 'var(--arrival)' },
+  script: { label: 'Script changes', color: 'var(--script)' },
 };
 const HIDDEN_KEY = 'fn-replay-hidden-markers';
 
