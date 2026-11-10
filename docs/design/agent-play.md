@@ -254,8 +254,12 @@ headless at full speed, and watching never slows them.
   the strip reads "run finished" instead of ever counting up a wait that will never end. A log
   with no `end` line (one from before #327, or still live) follows exactly as before.
 
-Watcher keys: `Space` pauses the replay, `+`/`-` change the pace, `.` steps one action, `]`
-jumps to the end of the next turn, and `q` quits. These win over the game's own keys if they'd
+Watcher keys: `Space` pauses the replay, `+`/`-` change the pace (x1 up to x500), `.` steps one
+action, `]` jumps to the end of the next turn and `}` ten turns, `[` goes back to the end of the
+previous turn and `{` ten turns, `>` skips to the agent's next move (past the turns where it does
+nothing; inside a script run, to where the script wakes it), and `q` quits. Going back restores
+a copy the watcher keeps every 20 turns and replays forward from it, so it is quick even late in
+a long run. These win over the game's own keys if they'd
 otherwise clash (#330): the watcher's meaning always comes first.
 
 **Free-look spectating** (#330, `crate::spectate`): the rest of the game's own keys move a
