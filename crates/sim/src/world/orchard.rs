@@ -91,11 +91,23 @@ impl World {
     /// orchards did anything, and ones a test or tool put on the map by hand (like
     /// `map_changed`, for code that writes to `map` directly). Orchards already known are left
     /// as they are.
+    ///
+    /// Only a building's anchor tile (`part == [0, 0]`) counts: a 2x2 orchard is one orchard. A
+    /// save written by a build that registered every tile has an entry on each non-anchor tile
+    /// too; those are dropped here, and with them their trees and planting timer. The anchor's
+    /// entry (its own trees and timer) is the one that stays.
     pub fn adopt_orchards(&mut self, defs: &Defs) {
+        let map = &self.map;
+        self.orchards
+            .retain(|&p, _| map.get(p).and_then(|t| t.building).is_none_or(|b| b.part == [0, 0]));
         let found: Vec<(Pos, OrchardDef)> = self
             .map
             .iter()
-            .filter_map(|(p, t)| Some((p, defs.building(t.building?.id).orchard?)))
+            .filter_map(|(p, t)| {
+                let b = t.building?;
+                (b.part == [0, 0]).then_some(())?;
+                Some((p, defs.building(b.id).orchard?))
+            })
             .filter(|(p, _)| !self.orchards.contains_key(p))
             .collect();
         for (p, def) in found {

@@ -8,13 +8,18 @@
 //!                               is a no-op that passes. `ci --fast` with no other flags is
 //!                               exactly what GitHub CI runs. Tests run with cargo-nextest
 //!                               when it's installed (as on CI), else with `cargo test`.
-//!     cargo xtask bless         re-blesses every golden (fn_tui frames, fn_sim mapgen and
+//!     cargo xtask bless [--expect FILE...]
+//!                               re-blesses every golden (fn_tui frames, fn_sim mapgen and
 //!                               embark text) with FN_BLESS=1, at the `ci` profile's
 //!                               opt-level 1. Runs only the test files that contain a golden
 //!                               comparison (found by scanning `crates/*/tests/*.rs` for
 //!                               `FN_BLESS`), not every test, and not at opt-level 0 like a bare
 //!                               `FN_BLESS=1 cargo test` would. Prints which golden files
-//!                               changed.
+//!                               changed. With `--expect`, every changed golden must be one of the
+//!                               FILEs (repo-relative paths; a path ending in `/` covers its
+//!                               directory; no FILEs means none may change), else it exits
+//!                               non-zero naming the undeclared ones (#601). The integrator
+//!                               passes the union of what a batch's branches declared.
 //!     cargo xtask check [-p CRATE ...] [--fast]
 //!                               fmt and clippy for the whole workspace (`-D warnings`), then
 //!                               tests -- with goldens always skipped -- for only the named
@@ -101,12 +106,11 @@ fn dispatch(args: &[&str]) -> Result {
             }
             ci(rest.contains(&"--fast"), rest.contains(&"--no-goldens"))
         }
-        Some("bless") => {
-            if args.len() > 1 {
-                return Err(help());
-            }
-            bless()
-        }
+        Some("bless") => match args.get(1).copied() {
+            None => bless(None),
+            Some("--expect") => bless(Some(&args[2..])),
+            Some(_) => Err(help()),
+        },
         Some("check") => {
             let mut crates = Vec::new();
             let mut fast = false;
@@ -406,12 +410,12 @@ fn git_lines(root: &Path, args: &[&str]) -> Result<Vec<String>> {
 // bless
 // ---------------------------------------------------------------------------------------------
 
-fn bless() -> Result {
+fn bless(expect: Option<&[&str]>) -> Result {
     let root = root();
     let targets = golden_test_targets(&root)?;
     if targets.is_empty() {
         println!("bless: no golden-producing test files found");
-        return Ok(());
+        return check_expected(&[], expect);
     }
     let env = [("FN_BLESS", "1"), ("CARGO_PROFILE_CI_OPT_LEVEL", "1")];
     for (pkg, stems) in &targets {
@@ -424,8 +428,35 @@ fn bless() -> Result {
         args.push("ci");
         cargo_env(&args, &env)?;
     }
-    print_changed_goldens(&root)?;
-    Ok(())
+    let changed = print_changed_goldens(&root)?;
+    check_expected(&changed, expect)
+}
+
+/// With `--expect`, fails if any changed golden isn't declared (#601). A declared file that
+/// didn't change is only a note: a branch may have declared a change another branch undid.
+fn check_expected(changed: &[String], expect: Option<&[&str]>) -> Result {
+    let Some(expect) = expect else { return Ok(()) };
+    let covers = |e: &str, path: &str| {
+        let e = e.trim_start_matches("./");
+        path == e || (e.ends_with('/') && path.starts_with(e))
+    };
+    let undeclared: Vec<&String> =
+        changed.iter().filter(|c| !expect.iter().any(|e| covers(e, c))).collect();
+    for e in expect {
+        if !changed.iter().any(|c| covers(e, c)) {
+            println!("bless: note: declared but unchanged: {e}");
+        }
+    }
+    if undeclared.is_empty() {
+        println!("bless: all changed goldens were declared");
+        return Ok(());
+    }
+    let list: Vec<String> = undeclared.iter().map(|c| format!("  {c}")).collect();
+    Err(format!(
+        "bless: golden files changed that no branch declared:\n{}\n\
+         Find the branch that changed them (bless after each squash, or bisect) and hand it back.",
+        list.join("\n")
+    ))
 }
 
 /// Every `(package, [test-file stems])` pair under `crates/*/tests` with at least one file that
@@ -486,10 +517,11 @@ fn golden_dirs(root: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-fn print_changed_goldens(root: &Path) -> Result {
+/// Prints the changed golden files and returns their repo-relative paths.
+fn print_changed_goldens(root: &Path) -> Result<Vec<String>> {
     let dirs = golden_dirs(root);
     if dirs.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     let rel: Vec<String> =
         dirs.iter().map(|d| d.strip_prefix(root).unwrap().to_string_lossy().into_owned()).collect();
@@ -509,9 +541,13 @@ fn print_changed_goldens(root: &Path) -> Result {
         println!("bless: no golden files changed");
     } else {
         println!("bless: golden files changed:");
-        for line in lines {
+        for line in &lines {
             println!("  {line}");
         }
     }
-    Ok(())
+    // Porcelain lines are `XY path`; a rename reads `XY old -> new`, so take the last path.
+    Ok(lines
+        .iter()
+        .map(|l| l[3..].rsplit(" -> ").next().unwrap_or_default().trim_matches('"').to_owned())
+        .collect())
 }

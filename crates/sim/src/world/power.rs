@@ -45,12 +45,20 @@ impl World {
     /// before this issue, or a map a test or tool built by hand), the way
     /// `adopt_irrigation_channels` does for irrigation channels. Sources already known are left
     /// as they are.
+    ///
+    /// Only a building's anchor tile (`part == [0, 0]`) counts: a 2x2 power building is one
+    /// source. A save written by a build that registered every tile has an entry on each
+    /// non-anchor tile too; those are dropped here (a source holds no state beyond its position,
+    /// so nothing else is lost) and the anchor's entry stays.
     pub fn adopt_power_sources(&mut self, defs: &Defs) {
+        let map = &self.map;
+        self.power_sources
+            .retain(|&p| map.get(p).and_then(|t| t.building).is_none_or(|b| b.part == [0, 0]));
         let found: Vec<Pos> = self
             .map
             .iter()
             .filter(|(p, t)| {
-                t.building.is_some_and(|b| defs.building(b.id).power.is_some())
+                t.building.is_some_and(|b| b.part == [0, 0] && defs.building(b.id).power.is_some())
                     && !self.power_sources.contains(p)
             })
             .map(|(p, _)| p)

@@ -40,11 +40,23 @@ and the orchestrator puts it in the next run.
    - Anything else (logic on both sides, or a resolution that needs a product call):
      `git reset --merge` (the tree was clean at preflight, so this only drops the squash), note
      the conflicting files, and go on to the next branch.
-3. **Re-bless once.** `cargo xtask bless`. If any golden changed, commit them in one commit:
-   `Batch: re-bless golden frames after merging #A, #B`, ending with exactly
-   `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>` and no other trailer.
-   Skim the diff: a changed frame should come from
-   something a merged branch meant to change. Mention anything that looks unrelated.
+3. **Re-bless once, against what the branches declared.** Each branch's hand-back report has a
+   `Golden files expected to change:` line (paths with a reason, or `none`); your brief carries
+   them. Run `cargo xtask bless --expect FILE...` with the union of the declared paths (plain
+   `--expect` if every branch said `none`). It lists the changed goldens and exits non-zero if
+   any changed file is not in the list.
+   - Exit 0: if any golden changed, commit them in one commit:
+     `Batch: re-bless golden frames after merging #A, #B`, ending with exactly
+     `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>` and no other trailer.
+     The body lists each changed golden with the issue that declared it (`- PATH: #N, reason`).
+     A declared file that didn't change is only a note; mention it in the report.
+   - Non-zero: some golden changed that no branch claimed. Stop the batch for the golden step:
+     `git checkout -- '*tests/golden*'`, then find the responsible branch. Either bless after
+     each squash (in a scratch `git worktree` at `$start`, squash the branches in one at a time
+     and run `cargo xtask bless` after each), or bisect the squashed commits. Don't commit the undeclared frame. Report the file, the branch and a
+     diff excerpt so the orchestrator can hand it back; the implementer fixes the change or
+     declares it. Branches whose goldens were all declared can still be gated.
+   - Also skim the diff: a changed frame should plausibly follow from its declared reason.
 4. **Gate once.** `cargo xtask ci --fast`, in the foreground.
    - Passes: done.
    - fmt only, or a stale expectation from two branches crossing: fix it, commit

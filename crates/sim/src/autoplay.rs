@@ -1045,6 +1045,7 @@ mod tests {
                 opening.step(&mut world, &defs);
             }
             world.tick(&defs);
+            world.assert_invariants(&defs);
         }
         assert!(building_count(&world, bed) > 0, "expected at least one bed after 30 minutes");
     }
@@ -1135,6 +1136,7 @@ mod tests {
                 opening.step(&mut world, &defs);
             }
             world.tick(&defs);
+            world.assert_invariants(&defs);
         }
         assert!(
             world.research().is_known(earth_shaping)
@@ -1231,6 +1233,7 @@ mod tests {
                 economy.step(world, defs);
             }
             world.tick(defs);
+            world.assert_invariants(defs);
         }
         done(world)
     }

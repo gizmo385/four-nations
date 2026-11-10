@@ -106,6 +106,7 @@ fn the_economy_opening_is_deterministic_and_keeps_applying() {
             economy.step(&mut world, &defs);
         }
         world.tick(&defs);
+        world.assert_invariants(&defs);
     }
     assert!(
         !world.command_log().is_empty(),
