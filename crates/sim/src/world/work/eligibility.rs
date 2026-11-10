@@ -327,17 +327,24 @@ impl World {
     }
 
     /// Unit `i` weighed against `kind`: the gate, then the flood. `rooms` caches, per item,
-    /// whether a stockpile tile with room for it can be reached (asked once per item).
+    /// whether a stockpile tile with room for it can be reached (asked once per item). With a
+    /// `limit`, a stand tile costing more than it counts as out of reach (`Flood::within`): for
+    /// `pick_job`, which only wants a job cheaper than the best it has.
     pub(super) fn check_job(
         &self,
         i: usize,
         kind: JobKind,
         flood: &Flood,
         rooms: &mut Vec<(ItemId, bool)>,
+        limit: Option<u32>,
         defs: &Defs,
     ) -> Check {
         let Some(gate) = self.job_gate(i, kind, defs) else { return Check::Skip };
-        let Some((cost, stand)) = self.stand_at(flood, gate.stand, defs) else {
+        let stand = match limit {
+            Some(limit) => flood.within(limit, || self.stand_at(flood, gate.stand, defs)),
+            None => self.stand_at(flood, gate.stand, defs),
+        };
+        let Some((cost, stand)) = stand else {
             return Check::Skip;
         };
         match gate.bar {
