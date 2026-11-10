@@ -92,13 +92,9 @@ impl Par {
 // The cache
 // -------------------------------------------------------------------------------------------
 
-/// The cache folder (module doc), or `None` when neither `$FN_AGENT_CACHE` nor a home is known.
-/// `xtask`'s `references::cache_root` resolves the same folder the same way; keep the two together.
+/// The cache folder (module doc): `fn_tui::cache::root`, shared with the scenario prelude cache.
 pub fn cache_root() -> Option<PathBuf> {
-    let from = |var: &str| std::env::var_os(var).filter(|v| !v.is_empty()).map(PathBuf::from);
-    from("FN_AGENT_CACHE")
-        .or_else(|| from("XDG_CACHE_HOME").map(|p| p.join("four-nations")))
-        .or_else(|| from("HOME").map(|p| p.join(".cache").join("four-nations")))
+    fn_tui::cache::root()
 }
 
 /// The file name for a start at a horizon: everything that decides the world and where it is

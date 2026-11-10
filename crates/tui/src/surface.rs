@@ -35,6 +35,7 @@
 //! always is) and exported as a `--keys` script (`RunLog::to_keys_script`).
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
 use crate::keyev::{KeyCode, KeyEvent, KeyModifiers};
 use fn_sim::score::ScoreStart;
@@ -227,8 +228,23 @@ impl Host {
     /// (`Self::alerts_since_turn` is reset to skip it) -- a player who starts the same scenario
     /// sees exactly the same screen a fresh `Host::new` never built up to. `Self::header` keeps
     /// `prelude` from here on, so `--watch`, `--resume` and `fn_agent keys` can run it again.
-    pub fn with_prelude(mut self, prelude: Prelude) -> Self {
-        self.score_start = prelude::run(self.app_mut(), &prelude);
+    pub fn with_prelude(self, prelude: Prelude) -> Self {
+        self.with_prelude_cached_in(
+            prelude,
+            crate::cache::root().as_deref(),
+            crate::buildid::CURRENT,
+        )
+    }
+
+    /// [`Self::with_prelude`] with the prelude cache's folder and build given
+    /// (`prelude::run_with`), for tests.
+    fn with_prelude_cached_in(
+        mut self,
+        prelude: Prelude,
+        root: Option<&Path>,
+        build: &str,
+    ) -> Self {
+        self.score_start = prelude::run_with(self.app_mut(), &prelude, root, build);
         self.alerts_since_turn = self.app().ui.alerts.history().len();
         self.header.prelude = Some(prelude);
         self
@@ -1324,6 +1340,9 @@ impl Host {
 /// and so does `crate::shell::Shell`'s own `--scenario` path, so a human and an agent reach
 /// exactly the same start.
 pub(crate) mod prelude {
+    use std::path::{Path, PathBuf};
+
+    use fn_sim::World;
     use fn_sim::autoplay::{Economy, Opening};
     use fn_sim::score::ScoreStart;
     use fn_sim::world::TICKS_PER_SECOND;
@@ -1348,16 +1367,72 @@ pub(crate) mod prelude {
     ///
     /// Returns where turn 0 is for scoring (#548): the world's tick and care tally as the
     /// prelude left them.
+    ///
+    /// The world the prelude leaves is cached on disk (`cached_path`), so a start this build has
+    /// already played loads in a fraction of a second instead of replaying an hour of game time.
     pub(crate) fn run(app: &mut App, prelude: &Prelude) -> ScoreStart {
-        let total_ticks = (prelude.minutes * 60.0 * TICKS_PER_SECOND as f32).round() as u64;
-        for tick in 0..total_ticks {
-            if Opening::due(tick) {
-                step(&mut app.session, prelude.opening);
+        run_with(app, prelude, crate::cache::root().as_deref(), crate::buildid::CURRENT)
+    }
+
+    /// [`run`] with the cache folder and the build given (tests give their own). `None`, or an
+    /// `unknown` build, plays the prelude and keeps nothing.
+    pub(crate) fn run_with(
+        app: &mut App,
+        prelude: &Prelude,
+        root: Option<&Path>,
+        build: &str,
+    ) -> ScoreStart {
+        let path = root
+            .filter(|_| build != "unknown")
+            .and_then(|root| cached_path(root, build, &app.session, prelude));
+        let cached = path.as_deref().and_then(|p| read(p, &app.session));
+        match cached {
+            Some(world) => app.session.world = world,
+            None => {
+                play(&mut app.session, prelude);
+                if let Some(path) = &path
+                    && let Ok(text) = app.session.world.save(&app.session.defs)
+                {
+                    crate::cache::write(path, &text);
+                }
             }
-            app.session.world.tick(&app.session.defs);
         }
         app.settle(CATCH_UP_DT);
         ScoreStart::of(&app.session.world)
+    }
+
+    fn play(session: &mut Session, prelude: &Prelude) {
+        let total_ticks = (prelude.minutes * 60.0 * TICKS_PER_SECOND as f32).round() as u64;
+        for tick in 0..total_ticks {
+            if Opening::due(tick) {
+                step(session, prelude.opening);
+            }
+            session.world.tick(&session.defs);
+        }
+    }
+
+    /// Where this build keeps what `prelude` makes of `session`'s world:
+    /// `<cache>/preludes/<build>/<hash>.save`, where the hash covers the save of the world
+    /// before the prelude (so the seed, nation, map, site, difficulty and data, whatever made
+    /// it) and the prelude itself. The build id covers the code: the same build and the same
+    /// start always play to the same world (`tests/save.rs`,
+    /// `a_loaded_world_carries_on_exactly_like_the_original`). `None` if the world can't be saved.
+    fn cached_path(
+        root: &Path,
+        build: &str,
+        session: &Session,
+        prelude: &Prelude,
+    ) -> Option<PathBuf> {
+        let before = session.world.save(&session.defs).ok()?;
+        let key = format!("{before}\n{prelude:?}");
+        let name = format!("{:016x}.save", crate::cache::fnv1a(key.as_bytes()));
+        Some(root.join("preludes").join(crate::cache::safe(build)).join(name))
+    }
+
+    /// The world kept at `path`, if there is one and it loads with `session`'s data.
+    fn read(path: &Path, session: &Session) -> Option<World> {
+        let text = std::fs::read_to_string(path).ok()?;
+        World::load(&text, &session.defs).ok()
     }
 
     fn step(session: &mut Session, opening: PreludeOpening) {
@@ -2703,6 +2778,43 @@ mod tests {
 
     fn host(nation: Nation) -> Host {
         Host::new(7, nation, None, None, None, false).unwrap()
+    }
+
+    /// The prelude cache (`prelude::run_with`): a start loaded from the cache is the same game
+    /// as one played from scratch -- the same world, the same first screen and observation, and
+    /// the same game a few turns on. A short prelude stands in for an hour: the cache keeps
+    /// whatever world the prelude ends on, so the length doesn't change what is checked.
+    #[test]
+    fn a_cached_prelude_starts_the_same_game_as_a_played_one() {
+        let dir = std::env::temp_dir().join(format!("fn_tui_prelude_{}", std::process::id()));
+        let prelude = Prelude { opening: PreludeOpening::Economy, minutes: 2.0 };
+        let start = || {
+            Host::new(7, Nation::Water, Some("small".into()), Some("normal".into()), None, false)
+                .unwrap()
+        };
+        let mut played = start().with_prelude_cached_in(prelude, None, "test");
+        let mut kept = start().with_prelude_cached_in(prelude, Some(&dir), "test");
+        let files: Vec<_> = std::fs::read_dir(dir.join("preludes").join("test")).unwrap().collect();
+        assert_eq!(files.len(), 1, "the played prelude is kept, and only that");
+        let mut cached = start().with_prelude_cached_in(prelude, Some(&dir), "test");
+
+        let save = |h: &Host| h.app().session.world.save(&h.app().session.defs).unwrap();
+        let json = |o: &Observation| serde_json::to_string(o).unwrap();
+        assert!(save(&played) == save(&cached), "the cached world is the played one");
+        assert_eq!(cached.tick(), played.tick());
+        assert_eq!(cached.score_start(), played.score_start());
+        for host in [&mut kept, &mut cached] {
+            assert_eq!(json(&host.observe()), json(&played.observe()));
+            assert_eq!(host.frame(120, 40), played.frame(120, 40));
+        }
+        let later = json(&played.end_turn(6));
+        assert_eq!(json(&cached.end_turn(6)), later, "and plays on the same");
+        assert!(save(&played) == save(&cached));
+
+        // An unknown build (no git) can't vouch for its code, so it keeps nothing.
+        let _ = start().with_prelude_cached_in(prelude, Some(&dir), "unknown");
+        assert!(!dir.join("preludes").join("unknown").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// A plain `Shell::for_args` game, the same shape `Host::new` builds, for round-trip tests
