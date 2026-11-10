@@ -12,6 +12,11 @@ use serde_json::json;
 
 const SEED: u64 = 7;
 
+/// A small, runnable governor in the layout `LAYOUT_RULES` asks for. A test fixture only (#638):
+/// `sdk_reference` used to show it, and every campaign descended from it. It is never shipped to
+/// an agent.
+const EXAMPLE_GOVERNOR: &str = include_str!("reference/example_governor.rhai");
+
 fn limits() -> Limits {
     Limits {
         default_turns: 15,
@@ -228,8 +233,8 @@ fn sdk_reference_documents_the_plan() {
     for key in ["goal", "order", "research", "build", "targets"] {
         assert!(r["plan"]["keys"][key].is_string(), "{key} missing from {}", r["plan"]["keys"]);
     }
-    let frame = r["plan"]["governor"]["frame"].as_str().unwrap();
-    assert!(frame.contains("let p = plan();") && frame.contains("fn beds_duty("), "{frame}");
+    assert!(r["plan"]["governor"]["convention"].is_string(), "{r}");
+    assert!(r["plan"]["governor"]["layout"].is_string(), "{r}");
     let signatures: Vec<&str> = r["plumbing"]
         .as_array()
         .unwrap()
@@ -239,24 +244,52 @@ fn sdk_reference_documents_the_plan() {
     assert!(signatures.contains(&"plan()"), "{signatures:?}");
 }
 
-/// #557: the example governor `sdk_reference` shows is a real, runnable script: saved and run
+/// #638: `sdk_reference` shows no governor: no `frame` key, and none of the example's source
+/// anywhere in its output (a model that is handed a governor copies it, and every campaign then
+/// measures "the example plus edits"). The function reference, convention and layout stay.
+#[test]
+fn sdk_reference_shows_no_governor_source() {
+    let mut t = tools();
+    let r = t.call("sdk_reference", json!({})).unwrap();
+    assert!(r["plan"]["governor"].get("frame").is_none(), "{}", r["plan"]["governor"]);
+    let text = r.to_string();
+    assert!(!text.contains("loop {"), "a governor loop in sdk_reference");
+    for duty in ["research_duty", "food_duty", "stockpile_duty", "wood_duty", "beds_duty"] {
+        assert!(!text.contains(duty), "the example's {duty} is in sdk_reference");
+        assert!(EXAMPLE_GOVERNOR.contains(duty), "the fixture lost {duty}: the check is vacuous");
+    }
+    // And what stays is still there.
+    assert!(r["plan"]["governor"]["convention"].as_str().unwrap().contains("Revise your own"));
+    assert!(r["plan"]["governor"]["layout"].is_string(), "{r}");
+    assert!(r["plumbing"].as_array().is_some_and(|p| !p.is_empty()));
+    assert!(r["action_steps"].as_array().is_some_and(|p| !p.is_empty()));
+}
+
+/// The fixture follows the layout rules it was written for (under 80 characters, no tabs).
+#[test]
+fn the_example_governor_follows_its_own_rules() {
+    for line in EXAMPLE_GOVERNOR.lines() {
+        assert!(line.chars().count() < 80, "over 79 characters: {line}");
+        assert!(!line.contains('\t'), "tab in: {line}");
+    }
+}
+
+/// #557: the example governor (a test fixture, #638) is a real, runnable script: saved and run
 /// against a plan it reads, it runs its turns to the budget and its duties act.
 #[test]
 fn the_example_governor_runs_under_run_script() {
     let mut t = tools();
-    let reference = t.call("sdk_reference", json!({})).unwrap();
-    let frame = reference["plan"]["governor"]["frame"].as_str().unwrap().to_owned();
     let plan =
         json!({"research": ["Farming", "Pottery"], "targets": {"beds_ahead": 2}, "build": []});
     t.call("plan", json!({"set": plan})).unwrap();
-    t.call("save_script", json!({"name": "governor", "code": frame})).unwrap();
+    t.call("save_script", json!({"name": "governor", "code": EXAMPLE_GOVERNOR})).unwrap();
     let r = t.call("run_script", json!({"name": "governor", "turns": 3})).unwrap();
     assert_eq!(r["reason"], "budget", "{r}");
     assert!(r["acts"]["ok"].as_u64().unwrap() > 0, "it did its duties: {r}");
     assert!(r["turns_run"].as_u64().unwrap() >= 3, "{r}");
 }
 
-/// #565: the example governor, given a real research queue, plays a clean evaluation's whole
+/// #565: the example governor fixture, given a real research queue, plays a clean evaluation's whole
 /// horizon (`fn_agent play --horizon`'s own `clean::run`) without stopping, and its research
 /// duty works down the queue instead of erroring or sticking on the first tech. One `wait` per
 /// loop pass, nothing else spends turns.
@@ -279,7 +312,7 @@ fn the_example_governor_plays_a_full_horizon_with_a_research_queue() {
     let mut techs: Vec<String> = Vec::new();
     let run = fn_agent::clean::run(
         &mut host,
-        fn_agent::plan::GOVERNOR_FRAME,
+        EXAMPLE_GOVERNOR,
         "governor",
         &plan,
         HORIZON,

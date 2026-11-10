@@ -517,11 +517,12 @@ to score. It is `--scripts` with its own prompt and one more channel; campaigns 
 because narration costs tokens and could change how a model plays. A playtest can't be combined
 with `--track`, `--resume`, `--interactive` or `--chunk-turns`.
 
-- **The prompt** is the script prompt's governor-and-plan framing with the aim changed: help the
-  people who make the game learn how it plays, don't play for a high score. It asks for a remark
-  of at most 30 words before significant actions and when something surprises the model (what it
-  expects, what surprised it, what is confusing), and for a line starting `game problem:` for
-  anything that seems wrong with the game itself. `SDK gap:` stays for the scripting tools.
+- **The prompt** is the script prompt's governor-and-plan framing (no example governor is given,
+  #638) with the aim changed: help the people who make the game learn how it plays, don't play
+  for a high score. It asks for a remark of at most 30 words before significant actions and when
+  something surprises the model (what it expects, what surprised it, what is confusing), and for
+  a line starting `game problem:` for anything that seems wrong with the game itself. `SDK gap:` stays for the scripting
+  tools.
 - **What is captured** is the model's visible text, not its reasoning. Thinking comes through
   `claude`'s output as an empty block with an opaque signature, so it is skipped and no signature
   is stored; the feed's label says "says" for that reason.

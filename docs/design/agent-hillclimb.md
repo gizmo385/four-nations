@@ -365,8 +365,15 @@ empty `memory` but keeps the plan.
 **The governor is how, held as code.** By convention one saved script named `governor` owns the
 whole settlement: one loop of duties (water, food, beds, stockpile, research, the build queue,
 the next sign in `plan().order`, idle hands), each reading its numbers from the plan. The model
-revises it, it doesn't replace it. `sdk_reference` shows the shape, as a frame and not a
-strategy:
+revises its own governor, it doesn't replace it. The agent is given no example governor
+(#638): `sdk_reference` carries the function reference, the convention and the layout rules, and
+no governor source, because a governor handed to every model is copied by every model (the first
+governor of the 2026-11-09 earth-3h campaign shared 67 of 98 lines with the old example, and each
+later attempt starts from the champion, so campaigns were measuring "the example plus edits").
+Each model devises its own duties. A small runnable governor still lives under
+`crates/agent/tests/reference/` as a test fixture, and is never shown to an agent. What a
+governor tends to look like, as a model might write it (an illustration for this document, not
+something the agent sees):
 
 ```rust
 // governor: one loop of duties. Intent lives in plan(); this is the how.

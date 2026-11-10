@@ -1,8 +1,8 @@
 //! The `plan` tool's own rules (#524, docs/design/agent-hillclimb.md, "Within a run: a governor
 //! and a plan"): the plan is the model's intent held as data, a JSON map scripts read through
 //! `plan()`. `memory` is what scripts remember; the plan is what the model wants. [`apply`] is
-//! the one place a `set` or `merge` is checked and combined; [`reference`] is the convention and
-//! the governor example `sdk_reference` shows.
+//! the one place a `set` or `merge` is checked and combined; [`reference`] is the convention
+//! `sdk_reference` shows.
 
 use serde_json::{Map, Value, json};
 
@@ -64,14 +64,10 @@ fn kind(value: &Value) -> &'static str {
     }
 }
 
-/// The governor example `sdk_reference` shows (#557, docs/design/agent-hillclimb.md): a small,
-/// runnable governor in the layout [`crate::script::style::LAYOUT_RULES`] asks for. A shape, not
-/// a strategy; the agent adds duties (stockpile, the build queue, signs) the same way.
-pub use crate::script::style::EXAMPLE_GOVERNOR as GOVERNOR_FRAME;
-
 /// `sdk_reference`'s `plan` section: what the tool does, the conventional keys, and the governor
-/// example. The keys are the agent's own to extend; the convention is what the scorecard and the
-/// studio display.
+/// convention and layout rules. It holds no governor source (#638): each model writes its own.
+/// The keys are the agent's own to extend; the convention is what the scorecard and the studio
+/// display.
 pub fn reference() -> Value {
     json!({
         "tool": "plan {set?, merge?}: with neither, returns the current plan (a JSON map). \
@@ -94,14 +90,13 @@ pub fn reference() -> Value {
             "convention": "By convention one saved script named `governor` owns the whole \
                            settlement: one loop of duties (water, food, beds, stockpile, \
                            research, the build queue, the next sign in plan().order, idle \
-                           hands), each reading its numbers from the plan. Revise it, don't \
-                           replace it. Most wakes become plan edits: \"build a dock\" is \
+                           hands), each reading its numbers from the plan. Revise your own \
+                           governor, don't replace it. Most wakes become plan edits: \"build a dock\" is \
                            plan {merge: {build: [...]}}, and \"food is falling\" is raising \
                            targets.food_per_head. Write code only when the governor can't do \
                            something at all. Re-run the governor after a plan edit: a running \
                            script sees the plan as of its start.",
             "layout": crate::script::style::LAYOUT_RULES,
-            "frame": GOVERNOR_FRAME,
         },
     })
 }
@@ -161,11 +156,5 @@ mod tests {
         // A merge that pushes an existing plan over the cap fails too.
         let plan = json!({"a": "x".repeat(30)});
         assert!(apply(&plan, None, Some(json!({"b": "y".repeat(30)})), 50).is_err());
-    }
-
-    /// The frame has to be real Rhai, or it teaches a script that doesn't compile.
-    #[test]
-    fn the_governor_frame_compiles() {
-        crate::script::prelude::compile_check(GOVERNOR_FRAME).expect("the governor frame parses");
     }
 }

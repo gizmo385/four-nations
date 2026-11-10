@@ -34,14 +34,6 @@ pub(crate) fn engine() -> Engine {
     engine
 }
 
-/// Whether `code` parses with the same engine settings `runner::run` uses (nothing is run, and
-/// undefined functions only fail at call time): for a test that a documented example is real
-/// Rhai.
-#[cfg(test)]
-pub(crate) fn compile_check(code: &str) -> Result<(), String> {
-    engine().compile(code).map(|_| ()).map_err(|e| e.to_string())
-}
-
 /// One porcelain function, for `sdk_reference`: its own name, its parameter names as written
 /// (in order), and its `///` doc comment with the comment markers stripped.
 #[derive(Clone, Debug, Serialize)]

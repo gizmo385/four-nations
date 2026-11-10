@@ -178,6 +178,10 @@ code, plus (#508) every `act` step shape (`designate`, `build`, `select`, `resea
 `keys`, docs/design/agent-play.md's own "Action" table) as a `#{step, fields, example}`,
 including `sow` (#333) and `bend`'s own `ability` field.
 
+It shows no example governor (#638): the agent gets the function reference, the governor
+convention and the layout rules, and writes its own governor from them. A governor handed to every
+model is copied by every model, which would make every campaign measure the example plus edits.
+
 ## The trampoline
 
 ### `run_script`
