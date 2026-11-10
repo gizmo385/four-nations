@@ -46,9 +46,10 @@ of it should work as a demo video.
 └─────────────────┘└───────────────────────────┘  └───────────────────────────────────┘
 ```
 
-- **Game column width** = `clamp(round(0.6 × W), 96, 120)`. 96 columns is a 64-column map plus
-  the 32-column panel. Past 120 a wider map only shows more terrain, so the code pane gets
-  the rest of the width. At 160 the split is 64 + 96, and at 200 it's 80 + 120.
+- **Game column width** = `max(round(0.6 × W), 96, W − 88)`. 96 columns is a 64-column map plus
+  the 32-column panel. The code pane is capped at 88 columns (80 characters of code plus its
+  gutter and border), and every column past that goes to the map. At 160 the split is 64 + 96,
+  at 200 it's 80 + 120, and at 250 it's 88 + 162.
 - **The feed** is the bottom `max(12, H / 4)` rows of the game column. The game gets what's
   left (33 rows at 45 high), and its bottom row is the agent strip, as it is today.
 - **The game pane is the existing watcher render** (`Watcher::render` at the pane's size, drawn
@@ -188,7 +189,7 @@ pub fn line_diff(old: &str, new: &str) -> (Vec<Mark>, usize /*added*/, usize /*d
 - **Added lines** get `▌` (`+` with `--ascii`) in the marker column, plus the `added_bg` tint
   across the line.
 
-### Gutter, scrolling, long lines, two columns
+### Gutter, scrolling, long lines
 
 - **The gutter** is the line number, right-aligned to the width of the largest number, then the
   marker column, then a space.
@@ -197,9 +198,8 @@ pub fn line_diff(old: &str, new: &str) -> (Vec<Mark>, usize /*added*/, usize /*d
 - **Auto-scroll:** when the shown revision changes, the pane scrolls so that the first marked
   line sits a third of the way down. `j`/`k` scroll one line, and `J`/`K` scroll half a pane.
   Your scroll position holds until the revision changes.
-- **Two columns, newspaper order:** when the script doesn't fit in the pane's height and each
-  column would still get at least `two_column_min` (56) code characters. At the game column's
-  120-column cap, that happens from about 250 columns wide.
+- **One column only.** The code pane never splits into columns: past `code_max_width` (88), the
+  extra width goes to the game column's map instead, so a long script scrolls.
 
 ## The agent feed
 
@@ -353,11 +353,10 @@ revision unpins it.
 [studio]
 min_width = 160          # below this (or min_height) the panes become tabs
 min_height = 45
-game_share = 0.6         # the game column's share of the width,
-game_min_width = 96      #   clamped to these
-game_max_width = 120
+game_share = 0.6         # the game column's share of the width, at least
+game_min_width = 96
+code_max_width = 88      # the code column never grows past this: the game gets the rest
 feed_min_rows = 12       # the feed is max(feed_min_rows, height / 4) rows
-two_column_min = 56      # code characters per column before the pane splits in two
 spark_turns = 24         # sparkline window in the studio
 spark_turns_tabs = 10    # and in the tab strip
 spark_floor = 4          # acts per turn that fill a bar, at least

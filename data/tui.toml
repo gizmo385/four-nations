@@ -466,11 +466,10 @@ winter_food_per_head = 4
 [studio]
 min_width = 160          # below this (or min_height) the panes become tabs
 min_height = 45
-game_share = 0.6         # the game column's share of the width,
-game_min_width = 96      #   clamped to these
-game_max_width = 120
+game_share = 0.6         # the game column's share of the width, at least
+game_min_width = 96
+code_max_width = 88      # the code column never grows past this: the game gets the rest
 feed_min_rows = 12       # the feed is max(feed_min_rows, height / 4) rows
-two_column_min = 56      # code characters per column before the pane splits in two
 spark_turns = 24         # sparkline window in the studio
 spark_turns_tabs = 10    # and in the tab strip
 spark_floor = 4          # acts per turn that fill a bar, at least

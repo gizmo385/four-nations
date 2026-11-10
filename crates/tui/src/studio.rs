@@ -24,10 +24,6 @@ use crate::color::{self, Palette};
 use crate::surface::LogLine;
 use crate::widgets::Marks;
 
-/// The blank columns between the two columns of a split code pane (`crate::modal::GAP`'s own
-/// value: the rest of the TUI's "newspaper" and list/detail splits use the same gap).
-const COLUMN_GAP: u16 = 2;
-
 /// One script name's revisions, in the order first scanned (docs/design/agent-studio.md, "Which
 /// revision is shown, and when"): `(revision number, code)`.
 #[derive(Clone, Debug, Default)]
@@ -132,13 +128,12 @@ pub struct CodePane {
     /// again (docs/design/agent-studio.md: "A `save_script` that comes after a run doesn't take
     /// the pane over").
     has_run: bool,
-    /// The first visible source line, in the shown revision's own line order (before it's split
-    /// into one or two columns).
+    /// The first visible source line, in the shown revision's own line order.
     scroll: usize,
     /// Set whenever the shown revision changes; consumed by the next [`Self::render`], which
     /// recomputes [`Self::scroll`] so the first marked line sits a third of the way down.
     want_autoscroll: bool,
-    /// The last rendered pane's row count (one column's height): `J`/`K`'s own half-pane step.
+    /// The last rendered pane's row count: `J`/`K`'s own half-pane step.
     last_pane_rows: u16,
 }
 
@@ -205,7 +200,7 @@ impl CodePane {
     }
 
     /// `j`/`k`/`J`/`K`: scrolls the pane a line, or half a pane (docs/design/agent-studio.md,
-    /// "Gutter, scrolling, long lines, two columns"). `true` if `key` was one of these -- the
+    /// "Gutter, scrolling, long lines"). `true` if `key` was one of these -- the
     /// caller (`crate::watch::Watcher::key`) tries nothing else once it is.
     pub fn key(&mut self, key: KeyEvent) -> bool {
         let half = i64::from(self.last_pane_rows.max(2)) / 2;
@@ -259,8 +254,8 @@ impl CodePane {
     }
 
     /// Draws the pane's border, header and (if a revision is shown) its highlighted, diffed
-    /// source into `area`, scrolled and split into one or two columns
-    /// (docs/design/agent-studio.md, "Gutter, scrolling, long lines, two columns"). A no-op on an
+    /// source into `area`, scrolled, in a single column (docs/design/agent-studio.md, "Gutter,
+    /// scrolling, long lines"). A no-op on an
     /// area too small to draw a border in at all.
     pub fn render(&mut self, buf: &mut Buffer, area: Rect, palette: &Palette) {
         if area.width < 6 || area.height < 3 {
@@ -289,11 +284,9 @@ impl CodePane {
         let digits = total.max(1).to_string().len() as u16;
         let gutter_width = digits + 2; // the line number, the marker, one space
 
-        let two_column_min = palette.glyphs.studio.two_column_min;
-        let (cols, content_width) =
-            pick_columns(total, inner.width, gutter_width, inner.height, two_column_min);
+        let content_width = inner.width.saturating_sub(gutter_width);
         self.last_pane_rows = inner.height;
-        let capacity = usize::from(inner.height) * cols;
+        let capacity = usize::from(inner.height);
         let max_scroll = total.saturating_sub(capacity);
 
         if self.want_autoscroll {
@@ -304,49 +297,20 @@ impl CodePane {
         self.scroll = self.scroll.min(max_scroll);
 
         let base_bg = color::to_u8(palette.theme.panel);
-        let column_width = content_width + gutter_width;
-        for col in 0..cols {
-            let x0 = inner.x + (column_width + COLUMN_GAP) * col as u16;
-            let start = self.scroll + col * usize::from(inner.height);
-            for row in 0..inner.height {
-                let idx = start + usize::from(row);
-                if idx >= total {
-                    break;
-                }
-                let row_bg = (marks_diff[idx] == Mark::Added)
-                    .then(|| palette.code_added_bg(base_bg))
-                    .flatten();
-                let y = inner.y + row;
-                draw_gutter(buf, (x0, y), digits, idx, marks_diff[idx], palette);
-                let line = CodeLine { text: lines[idx], spans: &highlighted[idx] };
-                draw_code_line(buf, (x0 + gutter_width, y), content_width, &line, row_bg, palette);
+        for row in 0..inner.height {
+            let idx = self.scroll + usize::from(row);
+            if idx >= total {
+                break;
             }
+            let row_bg =
+                (marks_diff[idx] == Mark::Added).then(|| palette.code_added_bg(base_bg)).flatten();
+            let y = inner.y + row;
+            draw_gutter(buf, (inner.x, y), digits, idx, marks_diff[idx], palette);
+            let line = CodeLine { text: lines[idx], spans: &highlighted[idx] };
+            let x = inner.x + gutter_width;
+            draw_code_line(buf, (x, y), content_width, &line, row_bg, palette);
         }
     }
-}
-
-/// How many columns the code pane splits into, and how wide each one's content is (not counting
-/// its own gutter): two, newspaper order, once the source doesn't fit in one column's height and
-/// each column would still get at least `two_column_min` code characters; one otherwise.
-fn pick_columns(
-    total: usize,
-    inner_width: u16,
-    gutter_width: u16,
-    inner_height: u16,
-    two_column_min: u16,
-) -> (usize, u16) {
-    let one_col_content = inner_width.saturating_sub(gutter_width);
-    if inner_height == 0 || total as u16 <= inner_height {
-        return (1, one_col_content);
-    }
-    if inner_width > COLUMN_GAP + 2 * gutter_width {
-        let each = (inner_width - COLUMN_GAP) / 2;
-        let content = each.saturating_sub(gutter_width);
-        if content >= two_column_min {
-            return (2, content);
-        }
-    }
-    (1, one_col_content)
 }
 
 /// The gutter: `idx`'s line number (1-based), right-aligned to `digits` columns, then the diff
@@ -621,14 +585,5 @@ mod tests {
         // Line 1 ("a") is unchanged and is also the line just above the removed "b": `RemovedAfter`.
         assert!(rows[1].contains('▁'), "{}", rows[1]);
         assert!(rows[2].contains('▌'), "{}", rows[2]);
-    }
-
-    #[test]
-    fn pick_columns_splits_when_the_source_does_not_fit_and_there_is_room() {
-        assert_eq!(pick_columns(100, 160, 4, 20, 56), (2, 75));
-        // Not enough width for two columns of at least `two_column_min`: stays one column.
-        assert_eq!(pick_columns(100, 80, 4, 20, 56), (1, 76));
-        // Fits in one column's height: stays one column even with plenty of width.
-        assert_eq!(pick_columns(10, 250, 4, 20, 56), (1, 246));
     }
 }
