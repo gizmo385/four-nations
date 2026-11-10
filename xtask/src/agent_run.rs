@@ -1785,7 +1785,7 @@ use fn_runfmt::LogLine;
 
 /// What a session's work in `run.jsonl` adds up to, for telling a chunk that changed something
 /// from one that didn't (#569): game turns, saved scripts, plan edits, notes and `test_governor`
-/// calls. A chunk spent editing and testing adds to it without playing a turn.
+/// calls that ran a test (not a repeat of an earlier one, #639). A chunk spent editing and testing adds to it without playing a turn.
 fn work_marks(lines: &[LogLine]) -> usize {
     lines
         .iter()
@@ -1794,18 +1794,16 @@ fn work_marks(lines: &[LogLine]) -> usize {
             | LogLine::Script { .. }
             | LogLine::Plan { .. }
             | LogLine::Note { .. } => true,
-            LogLine::Call { tool, .. } => tool == "test_governor",
+            // A repeat of an earlier test is not work (#639): it changed nothing.
+            LogLine::Call { .. } => l.is_fresh_test(),
             _ => false,
         })
         .count()
 }
 
-/// How many `test_governor` calls the log holds (the tool's own limit is per attempt).
+/// How many tests the log holds (the tool's own limit is per attempt); repeats don't count.
 fn tests_used(lines: &[LogLine]) -> usize {
-    lines
-        .iter()
-        .filter(|l| matches!(l, LogLine::Call { tool, .. } if tool == "test_governor"))
-        .count()
+    lines.iter().filter(|l| l.is_fresh_test()).count()
 }
 
 fn read_log_lines(path: &Path) -> std::io::Result<Vec<LogLine>> {

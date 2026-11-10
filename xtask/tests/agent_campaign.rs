@@ -56,6 +56,9 @@ if [ -n "$log" ]; then
   [ -n "$STUB_IDLE_FIRST" ] && [ "$chunk_n" = 0 ] && idle=1
   stall=""
   [ -n "$STUB_STALL_AT" ] && [ "$chunk_n" = "$STUB_STALL_AT" ] && stall=1
+  # STUB_REPEAT_AT=N: chunk N (from 0) only repeats an earlier test_governor call (#639).
+  repeat=""
+  [ -n "$STUB_REPEAT_AT" ] && [ "$chunk_n" = "$STUB_REPEAT_AT" ] && repeat=1
   turns=$(grep -c '"type":"turn"' "$log" 2>/dev/null)
   turns=${turns:-0}
   next=$((turns + 1))
@@ -69,7 +72,9 @@ if [ -n "$log" ]; then
   fi
   # STUB_STALL_AT=N: chunk N (from 0) changes nothing. STUB_IDLE_FIRST: chunk 0 plays no turn but
   # saves and notes, as a chunk spent editing and testing would.
-  if [ -z "$stall" ]; then
+  if [ -n "$repeat" ]; then
+    printf '{"type":"call","tool":"test_governor","summary":"repeat seed 7 3t"}\n' >> "$log"
+  elif [ -z "$stall" ]; then
     [ -z "$idle" ] && printf '{"type":"turn","index":%d,"tick":%d}\n' "$next" "$((next * 1000))" >> "$log"
     printf '{"type":"note","text":"lab note from attempt %s, call %d"}\n' "$attempt" "$next" >> "$log"
     if [ -z "$STUB_NO_GOVERNOR" ]; then
@@ -975,6 +980,20 @@ fn a_chunk_that_changes_nothing_ends_the_attempt() {
     assert_eq!(names, ["prompt-1-0", "prompt-1-1"], "no third chunk");
     assert!(stderr(&out).contains("changed nothing"), "{}", stderr(&out));
     // The attempt is still evaluated and recorded.
+    assert_eq!(rows(&fx.campaign_dir()).len(), 1);
+}
+
+/// #639: a chunk whose only activity is a test of what an earlier one tested (a repeat) changed
+/// nothing, so it ends the attempt like a chunk with no activity does; a fresh test would not.
+#[test]
+fn a_chunk_that_only_repeats_a_test_ends_the_attempt() {
+    let mut fx = Fixture::new("repeat");
+    fx.extra_env.push(("STUB_REPEAT_AT".to_owned(), "1".to_owned()));
+    let out = fx.campaign("100", &["--attempts", "1"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let names: Vec<String> = fx.prompts().into_iter().map(|(n, _)| n).collect();
+    assert_eq!(names, ["prompt-1-0", "prompt-1-1"], "no third chunk");
+    assert!(stderr(&out).contains("changed nothing"), "{}", stderr(&out));
     assert_eq!(rows(&fx.campaign_dir()).len(), 1);
 }
 

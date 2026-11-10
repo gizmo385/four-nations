@@ -178,11 +178,12 @@ fn the_plan_the_session_holds_is_the_plan_that_is_tested() {
 fn tests_are_limited_per_attempt() {
     let mut tools = tools_with_few_tests();
     save(&mut tools, WORKS);
+    // A different test each time: asking for the same one again is a repeat and free.
     for n in 1..=FEW {
-        let r = tools.call("test_governor", json!({"turns": 1})).unwrap();
+        let r = tools.call("test_governor", json!({"turns": n})).unwrap();
         assert_eq!(r["tests_left"], FEW - n);
     }
-    let err = tools.call("test_governor", json!({"turns": 1})).unwrap_err();
+    let err = tools.call("test_governor", json!({"turns": FEW + 1})).unwrap_err();
     assert!(err.contains("used"), "{err}");
 }
 
@@ -197,8 +198,8 @@ fn a_resumed_session_remembers_how_many_tests_were_used() {
             .with_scripts(Limits::bundled())
             .with_trial(trial_config().with_max_tests(FEW));
         tools.call("save_script", json!({"name": "governor", "code": WORKS})).unwrap();
-        for _ in 0..FEW - 1 {
-            tools.call("test_governor", json!({"turns": 1})).unwrap();
+        for n in 1..FEW {
+            tools.call("test_governor", json!({"turns": n})).unwrap();
         }
         tools.end("chunk over").unwrap();
     }
@@ -207,9 +208,95 @@ fn a_resumed_session_remembers_how_many_tests_were_used() {
     let mut tools = Tools::resume(live, Writer::append(&path).unwrap(), &lines)
         .with_scripts(Limits::bundled())
         .with_trial(trial_config().with_max_tests(FEW));
-    let r = tools.call("test_governor", json!({"turns": 1})).unwrap();
+    let r = tools.call("test_governor", json!({"turns": FEW})).unwrap();
     assert_eq!(r["tests_left"], 0);
-    assert!(tools.call("test_governor", json!({"turns": 1})).is_err());
+    assert!(tools.call("test_governor", json!({"turns": FEW + 1})).is_err());
+    std::fs::remove_file(&path).ok();
+}
+
+/// #639: a test of what an earlier one tested (same governor, plan, map and turns) returns the
+/// earlier verdict, marked as a repeat, and spends no test. Changing any of them is a new test.
+#[test]
+fn a_repeated_test_returns_the_earlier_verdict_and_spends_nothing() {
+    let mut tools = tools_with_few_tests();
+    save(&mut tools, WORKS);
+    let first = tools.call("test_governor", json!({"turns": 3})).unwrap();
+    assert_eq!(first["tests_left"], FEW - 1);
+    assert!(first.get("repeat").is_none(), "{first}");
+
+    let again = tools.call("test_governor", json!({"turns": 3})).unwrap();
+    assert_eq!(again["repeat"], true);
+    assert!(again["note"].as_str().unwrap().contains("not progress"), "{again}");
+    assert_eq!(again["tests_left"], FEW - 1, "no test spent");
+    for key in ["seed", "turns", "score", "stopped", "signs", "deaths", "trace", "summary"] {
+        assert_eq!(again[key], first[key], "{key}");
+    }
+    // The default map and the same map named are the same test.
+    let named = tools.call("test_governor", json!({"seed": LIVE_SEED, "turns": 3})).unwrap();
+    assert_eq!(named["repeat"], true);
+    assert_eq!(named["tests_left"], FEW - 1);
+
+    // The map, the turns, the long form, the plan and the governor each make a new test.
+    let other_map = tools.call("test_governor", json!({"seed": OTHER_SEED, "turns": 3})).unwrap();
+    assert!(other_map.get("repeat").is_none() && other_map["tests_left"] == FEW - 2);
+    let other_turns = tools.call("test_governor", json!({"turns": 4})).unwrap();
+    assert!(other_turns.get("repeat").is_none() && other_turns["tests_left"] == FEW - 3);
+    let detail = tools.call("test_governor", json!({"turns": 3, "detail": true})).unwrap();
+    assert!(detail.get("repeat").is_none() && detail["tests_left"] == FEW - 4);
+
+    // Out of tests, a repeat still answers; a new test is refused.
+    assert_eq!(tools.call("test_governor", json!({"turns": 3})).unwrap()["repeat"], true);
+    assert!(tools.call("test_governor", json!({"turns": 5})).is_err());
+
+    // A changed plan or a changed governor is a new test (a fresh session, as this one is out).
+    let mut tools = tools_with_few_tests();
+    save(&mut tools, WORKS);
+    tools.call("test_governor", json!({"turns": 3})).unwrap();
+    tools.call("plan", json!({"set": {"a": 1}})).unwrap();
+    let r = tools.call("test_governor", json!({"turns": 3})).unwrap();
+    assert!(r.get("repeat").is_none() && r["tests_left"] == FEW - 2, "a plan change: {r}");
+    save(&mut tools, "loop { wait(2); }");
+    let r = tools.call("test_governor", json!({"turns": 3})).unwrap();
+    assert!(r.get("repeat").is_none() && r["tests_left"] == FEW - 3, "a new governor: {r}");
+    let r = tools.call("test_governor", json!({"turns": 3})).unwrap();
+    assert_eq!(r["repeat"], true);
+}
+
+/// The log says which calls were repeats (the harness reads that), with the map and turns a bare
+/// call resolved to.
+#[test]
+fn a_repeat_is_marked_in_the_log_and_remembered_across_a_resume() {
+    let path = temp_path("repeat.jsonl");
+    {
+        let mut tools = Tools::new(host(LIVE_SEED), Writer::create(&path).unwrap())
+            .unwrap()
+            .with_scripts(Limits::bundled())
+            .with_trial(trial_config().with_max_tests(FEW));
+        tools.call("save_script", json!({"name": "governor", "code": WORKS})).unwrap();
+        tools.call("test_governor", json!({"turns": 2})).unwrap();
+        tools.call("test_governor", json!({"turns": 2})).unwrap();
+        tools.end("chunk over").unwrap();
+    }
+    let (header, lines) = watch::read_file(&path).unwrap();
+    let summaries: Vec<&str> = lines
+        .iter()
+        .filter_map(|l| match l {
+            LogLine::Call { tool, summary } if tool == trial::TOOL => Some(summary.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(summaries, ["seed 7 2t", "repeat seed 7 2t"]);
+    assert_eq!(lines.iter().filter(|l| l.is_fresh_test()).count(), 1);
+
+    let live = Host::resume(&header, &lines).unwrap();
+    let mut tools = Tools::resume(live, Writer::append(&path).unwrap(), &lines)
+        .with_scripts(Limits::bundled())
+        .with_trial(trial_config().with_max_tests(FEW));
+    let r = tools.call("test_governor", json!({"turns": 2})).unwrap();
+    assert_eq!(r["repeat"], true, "{r}");
+    assert_eq!(r["tests_left"], FEW - 1);
+    let fresh = tools.call("test_governor", json!({"turns": 3})).unwrap();
+    assert!(fresh.get("repeat").is_none() && fresh["tests_left"] == FEW - 2, "{fresh}");
     std::fs::remove_file(&path).ok();
 }
 

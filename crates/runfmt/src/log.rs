@@ -207,7 +207,19 @@ pub enum LogLine<N = String, E = String> {
     },
 }
 
+/// What a `test_governor` call's `summary` starts with when it repeated an earlier test of this
+/// attempt (same governor, plan, map and turns, #639): it got the earlier verdict back and did
+/// not spend a test. Written by `fn_agent`, read by `agent-run` to tell a repeat from work.
+pub const REPEAT_TEST_PREFIX: &str = "repeat ";
+
 impl<N, E> LogLine<N, E> {
+    /// Whether this is a `test_governor` call that ran a test (#639): not a repeat of an earlier
+    /// one. Only these spend one of the attempt's tests and count as work.
+    pub fn is_fresh_test(&self) -> bool {
+        matches!(self, LogLine::Call { tool, summary }
+            if tool == "test_governor" && !summary.starts_with(REPEAT_TEST_PREFIX))
+    }
+
     /// Whether this line is commentary written after a run is over (`fn_agent score --append`'s
     /// `Score`), which doesn't make a run's `End` before it any less its last.
     pub fn follows_the_end(&self) -> bool {

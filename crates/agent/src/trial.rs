@@ -23,7 +23,10 @@
 //!
 //! The cost is wall-clock time, so it is bounded: at most [`Trial::max_tests`] tests per attempt
 //! (`data/agent.toml`, `[attempt]`), counted from the log's own `call` lines so a chunked attempt
-//! (`serve --resume`) shares one count. A full 540-turn test takes 2 to 15 s in the release build, 2 s for a colony that dies out and 13 s for a healthy one
+//! (`serve --resume`) shares one count. A test of what an earlier one already tested (the same
+//! saved governor, plan, map and turns, #639) is a repeat: it returns the earlier verdict with
+//! `repeat: true` and a note, spends no test, and its `call` line says `repeat`, so the harness
+//! does not count it as work. A full 540-turn test takes 2 to 15 s in the release build, 2 s for a colony that dies out and 13 s for a healthy one
 //! (`cargo xtask agent-run` builds `fn_agent --release`); `turns` asks for a shorter one.
 //!
 //! Testing on the map being played (the default, when it is a train seed) is a lookahead copy:
@@ -43,6 +46,13 @@ use crate::trace;
 
 /// The tool's name.
 pub const TOOL: &str = "test_governor";
+
+/// What a repeated test says (#639): the result is the earlier one, and the right next step is
+/// to change something or play the live game on, not to ask again.
+pub const REPEAT_NOTE: &str = "Nothing has changed since this test (same governor, plan, map and \
+    turns), so this is the earlier result and it did not use a test. Testing an unchanged \
+    governor again is not progress: change the governor or the plan, or play the live game on \
+    toward the horizon.";
 
 /// What a session needs to run the tool: the track's train seeds and horizon.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,8 +105,9 @@ pub fn tool(trial: &Trial) -> Value {
              watch (stores, needs, what it just designated) and read it there. A small `turns` \
              zooms the trace in on the start. Use it to find out why a map failed, not only \
              whether. Maps: {seeds}. Defaults to the map you are playing and the full {turns} \
-             turns; `turns` asks for fewer. It takes a few seconds of real time, and at most \
-             {max} tests are allowed in the whole attempt (each is a call, and a fix is \
+             turns; `turns` asks for fewer. A test of the same governor, plan, map and turns \
+             as an earlier one returns that result again, marked repeat, and uses no test. It \
+             takes a few seconds of real time, and at most {max} tests are allowed in the whole attempt (each is a call, and a fix is \
              another: leave calls for them).",
             seeds = seeds.join(", "),
             turns = trial.turns,

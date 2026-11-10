@@ -16,4 +16,4 @@ mod handoff;
 mod log;
 
 pub use handoff::{Handoff, ScriptEntry};
-pub use log::{LogLine, Prelude, PreludeOpening, RunLogHeader, run_end_reason};
+pub use log::{LogLine, Prelude, PreludeOpening, REPEAT_TEST_PREFIX, RunLogHeader, run_end_reason};

@@ -530,6 +530,81 @@ struct TestGovernorArgs {
     detail: Option<bool>,
 }
 
+/// What a `test_governor` call tests (#639): the saved governor's code, the plan, the map and the
+/// turns, and whether the long trace was asked for. Two calls with the same key give the same
+/// verdict, so the second is a repeat.
+#[derive(Debug, Clone, PartialEq)]
+struct TestKey {
+    code: String,
+    plan: Value,
+    seed: u64,
+    turns: u32,
+    detail: bool,
+}
+
+impl TestKey {
+    /// The call's log summary: the resolved map and turns (so a log shows what a bare call
+    /// tested, and a resumed session can rebuild the keys from it), led by the repeat prefix
+    /// when it repeated an earlier test.
+    fn summary(&self, repeat: bool) -> String {
+        format!(
+            "{}seed {} {}t{}",
+            if repeat { fn_runfmt::REPEAT_TEST_PREFIX } else { "" },
+            self.seed,
+            self.turns,
+            if self.detail { " detail" } else { "" },
+        )
+    }
+
+    /// The inverse of [`Self::summary`] for a call that ran a test, given the governor and plan
+    /// it ran with. `None` for a summary of any other shape (a refused call's).
+    fn from_summary(summary: &str, code: &str, plan: &Value) -> Option<Self> {
+        let rest = summary.strip_prefix("seed ")?;
+        let (seed, rest) = rest.split_once(' ')?;
+        let (turns, rest) = rest.split_once('t')?;
+        let detail = match rest {
+            "" => false,
+            " detail" => true,
+            _ => return None,
+        };
+        Some(Self {
+            code: code.to_owned(),
+            plan: plan.clone(),
+            seed: seed.parse().ok()?,
+            turns: turns.parse().ok()?,
+            detail,
+        })
+    }
+}
+
+/// The tests a log holds (#639), in order: for each fresh `test_governor` call, the governor and
+/// plan the log's `Script` and `Plan` lines had set by then. A call with no governor saved
+/// before it was refused and has none.
+fn tested_in(lines: &[LogLine]) -> Vec<TestKey> {
+    let mut governor: Option<&str> = None;
+    let mut plan = json!({});
+    let mut keys = Vec::new();
+    for line in lines {
+        match line {
+            LogLine::Script { name, version, code, .. }
+                if name == crate::scorecard::GOVERNOR && *version >= 1 =>
+            {
+                governor = Some(code);
+            }
+            LogLine::Plan { plan: p } => plan = p.clone(),
+            LogLine::Call { summary, .. } if line.is_fresh_test() => {
+                if let Some(code) = governor
+                    && let Some(key) = TestKey::from_summary(summary, code, &plan)
+                {
+                    keys.push(key);
+                }
+            }
+            _ => {}
+        }
+    }
+    keys
+}
+
 #[derive(Deserialize, Default)]
 struct NotesArgs {
     append: Option<String>,
@@ -569,6 +644,10 @@ pub struct Tools<W: std::io::Write> {
     /// How many `test_governor` calls this attempt has made, rejected ones included: the log's
     /// own `call` lines when resumed, so a chunked attempt shares one count.
     trial_calls: u32,
+    /// The tests this attempt has run (#639), each with the verdict it returned if this session
+    /// ran it (a resumed one only knows the key, from the log). A `test_governor` call that
+    /// matches one is a repeat: it gets the earlier verdict and spends no test.
+    tested: Vec<(TestKey, Option<Value>)>,
     /// `Some(N)` once [`Self::with_horizon`] has stopped live play at turn N (a campaign attempt,
     /// #569): no tool advances the game past it.
     horizon: Option<u32>,
@@ -612,6 +691,7 @@ impl<W: std::io::Write> Tools<W> {
             plan: json!({}),
             trial: None,
             trial_calls: 0,
+            tested: Vec::new(),
             horizon: None,
             horizon_calls: 0,
             tail_calls: 0,
@@ -629,10 +709,9 @@ impl<W: std::io::Write> Tools<W> {
     pub fn resume(host: Host, log: Writer<W>, lines: &[LogLine]) -> Self {
         let written = host.log().lines().len();
         let (library, memory, notes, plan) = rebuild_session(lines);
-        let trial_calls = lines
-            .iter()
-            .filter(|l| matches!(l, LogLine::Call { tool, .. } if tool == trial::TOOL))
-            .count() as u32;
+        // A repeat spent no test (#639).
+        let trial_calls = lines.iter().filter(|l| l.is_fresh_test()).count() as u32;
+        let tested = tested_in(lines).into_iter().map(|k| (k, None)).collect();
         let tail_calls = lines
             .iter()
             .rev()
@@ -650,6 +729,7 @@ impl<W: std::io::Write> Tools<W> {
             plan,
             trial: None,
             trial_calls,
+            tested,
             horizon: None,
             horizon_calls: 0,
             tail_calls,
@@ -772,7 +852,12 @@ impl<W: std::io::Write> Tools<W> {
     /// the end of the run. Written even for a call that goes on to fail (a bad argument, an
     /// unknown tool): that's acceptable, the design doc's own call.
     pub fn call(&mut self, name: &str, arguments: Value) -> Result<Value, String> {
-        let summary = call_summary(name, &arguments);
+        let mut summary = call_summary(name, &arguments);
+        if name == trial::TOOL
+            && let Some(key) = self.test_key(&arguments)
+        {
+            summary = key.summary(self.has_tested(&key));
+        }
         self.log
             .write_line(&LogLine::Call { tool: name.to_owned(), summary })
             .map_err(|e| e.to_string())?;
@@ -1050,6 +1135,13 @@ impl<W: std::io::Write> Tools<W> {
         let Some(t) = self.trial.clone() else {
             return Err(format!("{}: this session has no evaluation maps to test on", trial::TOOL));
         };
+        // A test this attempt has already run, on the same governor, plan, map and turns (#639):
+        // the earlier verdict again, and no test spent.
+        if let Some(key) = self.test_key(&arguments)
+            && self.has_tested(&key)
+        {
+            return self.repeat_verdict(&key, &limits, &t);
+        }
         self.trial_calls += 1;
         let a: TestGovernorArgs = args(trial::TOOL, arguments)?;
         if self.trial_calls > t.max_tests {
@@ -1059,10 +1151,7 @@ impl<W: std::io::Write> Tools<W> {
                 t.max_tests
             ));
         }
-        let seed = a.seed.unwrap_or_else(|| {
-            let live = self.host.log().seed;
-            if t.seeds.contains(&live) { live } else { t.seeds[0] }
-        });
+        let seed = self.test_seed(&a, &t);
         if !t.seeds.contains(&seed) {
             let maps: Vec<String> = t.seeds.iter().map(u64::to_string).collect();
             return Err(format!(
@@ -1079,11 +1168,82 @@ impl<W: std::io::Write> Tools<W> {
                 crate::scorecard::GOVERNOR
             ));
         };
-        let code = code.to_owned();
+        let key = TestKey {
+            code: code.to_owned(),
+            plan: self.plan.clone(),
+            seed,
+            turns,
+            detail: a.detail.unwrap_or(false),
+        };
+        let result = self.run_test(&key, &limits, t.max_tests - self.trial_calls)?;
+        self.tested.push((key, Some(result.clone())));
+        Ok(result)
+    }
+
+    /// The map a test runs on when none is asked for: the live game's, if it is a train seed.
+    fn test_seed(&self, a: &TestGovernorArgs, t: &Trial) -> u64 {
+        a.seed.unwrap_or_else(|| {
+            let live = self.host.log().seed;
+            if t.seeds.contains(&live) { live } else { t.seeds[0] }
+        })
+    }
+
+    /// What a `test_governor` call with `arguments` would test right now (#639), or `None` if it
+    /// would be refused (a bad argument, a map that isn't a train seed, no governor saved).
+    fn test_key(&self, arguments: &Value) -> Option<TestKey> {
+        let t = self.trial.as_ref()?;
+        let a: TestGovernorArgs = serde_json::from_value(arguments.clone()).ok()?;
+        let seed = self.test_seed(&a, t);
+        if !t.seeds.contains(&seed) {
+            return None;
+        }
+        let (code, _) = self.library.get(crate::scorecard::GOVERNOR)?;
+        Some(TestKey {
+            code: code.to_owned(),
+            plan: self.plan.clone(),
+            seed,
+            turns: a.turns.unwrap_or(t.turns).clamp(1, t.turns),
+            detail: a.detail.unwrap_or(false),
+        })
+    }
+
+    fn has_tested(&self, key: &TestKey) -> bool {
+        self.tested.iter().any(|(k, _)| k == key)
+    }
+
+    /// A test, played: `left` is how many tests remain after it.
+    fn run_test(&self, key: &TestKey, limits: &ScriptLimits, left: u32) -> Result<Value, String> {
         let header = self.host.header();
-        let detail = a.detail.unwrap_or(false);
-        let verdict = trial::run(&header, seed, &code, &self.plan, turns, detail, &limits)?;
-        Ok(verdict.json(t.max_tests - self.trial_calls))
+        let verdict =
+            trial::run(&header, key.seed, &key.code, &key.plan, key.turns, key.detail, limits)?;
+        Ok(verdict.json(left))
+    }
+
+    /// The earlier verdict for a repeated test (#639), marked as one. The play is deterministic,
+    /// so a session that did not run the earlier test itself (a resumed one) plays it again for
+    /// the same result; either way no test is spent.
+    fn repeat_verdict(
+        &mut self,
+        key: &TestKey,
+        limits: &ScriptLimits,
+        t: &Trial,
+    ) -> Result<Value, String> {
+        let left = t.max_tests.saturating_sub(self.trial_calls);
+        let cached = self.tested.iter().find(|(k, _)| k == key).and_then(|(_, v)| v.clone());
+        let mut result = match cached {
+            Some(v) => v,
+            None => {
+                let v = self.run_test(key, limits, left)?;
+                if let Some(slot) = self.tested.iter_mut().find(|(k, _)| k == key) {
+                    slot.1 = Some(v.clone());
+                }
+                v
+            }
+        };
+        result["tests_left"] = json!(left);
+        result["repeat"] = json!(true);
+        result["note"] = json!(trial::REPEAT_NOTE);
+        Ok(result)
     }
 
     /// Everything `briefing` returns except the goal text, the limit and calls left, which

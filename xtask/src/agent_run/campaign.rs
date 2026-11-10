@@ -457,7 +457,11 @@ pub(super) fn deciding_passage(horizon: u32) -> String {
          the current plan from turn 0 on one of those maps, on a separate copy of the world \
          (this game is not touched), and tells you the stop reason, turn and score the clean \
          run will get, with the signs, the deaths and a short trace by time slice that show \
-         why a map failed: run it after a change, on the maps that did worst. When the attempt \
+         why a map failed: run it after a change, on the maps that did worst. Testing a governor \
+         and plan you have not changed since the last test on the same map and turns returns \
+         that result again and uses no test: it is not progress. A session has to change \
+         something (the governor or the plan) or play this game on toward turn {horizon}; a \
+         session that does neither ends the attempt. When the attempt \
          ends, each governor version you saved is replayed like that, with the plan as it was \
          when you moved on from it or tested it, and the best by mean score is the attempt's \
          candidate, so a worse last edit does not lose a better version. The candidate then has \
@@ -1999,5 +2003,26 @@ mod tests {
         assert_eq!(work_marks(&editing), 3, "no turn was played, and it still counts");
         assert_eq!(tests_used(&editing), 1);
         assert_eq!(work_marks(&[LogLine::Turn { index: 1, tick: 10 }]), 1);
+    }
+
+    /// #639: a repeat of an earlier test is neither work nor a test used.
+    #[test]
+    fn a_repeated_test_is_not_work_and_uses_no_test() {
+        let test = |summary: &str| LogLine::Call {
+            tool: "test_governor".to_owned(),
+            summary: summary.to_owned(),
+        };
+        let repeats = [test("repeat seed 7 540t"), test("repeat seed 41 3t detail")];
+        assert_eq!((work_marks(&repeats), tests_used(&repeats)), (0, 0));
+        let mixed = [test("seed 7 540t"), test("repeat seed 7 540t")];
+        assert_eq!((work_marks(&mixed), tests_used(&mixed)), (1, 1));
+    }
+
+    #[test]
+    fn every_prompt_says_a_session_must_change_something_or_play_on() {
+        for text in [deciding_passage(540), handoff_note(540, 0, 3)] {
+            assert!(text.contains("uses no test: it is not progress"), "{text}");
+            assert!(text.contains("or play this game on toward turn 540"), "{text}");
+        }
     }
 }
