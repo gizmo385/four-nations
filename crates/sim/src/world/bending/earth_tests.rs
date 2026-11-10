@@ -53,9 +53,9 @@ fn raise_at(w: &mut World, defs: &Defs, pos: Pos) {
     w.units[0].needs = crate::needs::Needs::full(&defs.needs);
     w.units[0].chi = defs.chi.max;
     w.apply(Command::Bend { ability: raise(defs), pos }, defs).unwrap();
-    let events = w.bend_events().len();
-    run_until(w, defs, 2000, |w| w.bend_events().len() > events);
-    assert_eq!(w.bend_events().last().unwrap().outcome, BendOutcome::Done);
+    let events = w.bend_events().count();
+    run_until(w, defs, 2000, |w| w.bend_events().count() > events);
+    assert_eq!(w.bend_events().next_back().unwrap().outcome, BendOutcome::Done);
 }
 
 #[test]
@@ -103,13 +103,13 @@ fn a_bend_leaves_a_permanent_ford_and_spends_the_chi() {
     // Right beside the river, so the walk is a tick or two.
     w.units[0].pos = at(4, 3);
     w.apply(Command::Bend { ability: raise(&defs), pos: at(5, 3) }, &defs).unwrap();
-    let taken = run_until(&mut w, &defs, 500, |w| !w.bend_events().is_empty());
+    let taken = run_until(&mut w, &defs, 500, |w| w.bend_events().next().is_some());
     // 15 s at earthworks 2.5 is 6 s, or 60 ticks.
     assert!((60..=70).contains(&taken), "{taken}");
     assert_eq!(w.map[at(5, 3)].terrain, Terrain::Ford);
     assert_eq!(w.map[at(5, 2)].terrain, Terrain::River, "only the target changed");
     assert!((w.units[0].chi - 50.0).abs() < 0.1, "{}", w.units[0].chi);
-    assert_eq!(w.bend_events()[0].outcome, BendOutcome::Done);
+    assert_eq!(w.bend_events().next().unwrap().outcome, BendOutcome::Done);
     // A ford can't be raised again, and nothing turns it back.
     let again = w.apply(Command::Bend { ability: raise(&defs), pos: at(5, 3) }, &defs);
     assert_eq!(again, Err(CommandError::Bend(BendError::InvalidTarget("already a ford"))));
@@ -174,7 +174,7 @@ fn a_raised_ford_makes_the_far_bank_reachable() {
     // While it channels, push its retry timer far out: finishing the bend must wake it.
     run_until(&mut w, &defs, 1000, |w| w.jobs().iter().any(|j| j.claimed_by.is_some()));
     w.units[0].claim_retry_at = w.tick + 1_000_000;
-    run_until(&mut w, &defs, 1000, |w| !w.bend_events().is_empty());
+    run_until(&mut w, &defs, 1000, |w| w.bend_events().next().is_some());
     assert_eq!(w.units[0].claim_retry_at, 0, "idle units are woken");
 
     run_until(&mut w, &defs, 6000, |w| w.stored_total(item) == 1);
@@ -239,12 +239,8 @@ fn a_four_wide_lake_is_raised_in_one_line_designated_at_once() {
     for x in 5..=8 {
         assert_eq!(w.map[at(x, 3)].terrain, Terrain::Ford, "x={x}");
     }
-    let order: Vec<i32> = w
-        .bend_events()
-        .iter()
-        .filter(|e| e.outcome == BendOutcome::Done)
-        .map(|e| e.pos.x)
-        .collect();
+    let order: Vec<i32> =
+        w.bend_events().filter(|e| e.outcome == BendOutcome::Done).map(|e| e.pos.x).collect();
     assert_eq!(order, vec![5, 6, 7, 8], "raised bank outward, in order");
 
     // A chain of fords joins the banks, so the cabbage can be fetched.
@@ -296,7 +292,7 @@ fn snapshot(w: &World, defs: &Defs) -> String {
     format!(
         "tick {} {units:?} fords {fords:?} {:?} stored {}",
         w.tick,
-        w.bend_events(),
+        w.bend_events().collect::<Vec<_>>(),
         w.stored_total(cabbage_item(defs)),
     )
 }
@@ -320,7 +316,7 @@ fn play_session(defs: &Defs) -> World {
             _ => {}
         }
         // Each bend opens up the next: chain across, then fetch the far side's cabbage.
-        let done = w.bend_events().iter().filter(|e| e.outcome == BendOutcome::Done).count();
+        let done = w.bend_events().filter(|e| e.outcome == BendOutcome::Done).count();
         if done >= 1 && stage == 0 {
             stage = 1;
             w.apply(Command::Bend { ability, pos: at(6, 3) }, defs).unwrap();
@@ -340,7 +336,7 @@ fn a_session_with_raise_earth_replays_identically() {
     let log = original.command_log().to_vec();
     assert!(log.len() >= 5);
     assert!(
-        original.bend_events().len() >= 2 && original.stored_total(cabbage_item(&defs)) > 0,
+        original.bend_events().count() >= 2 && original.stored_total(cabbage_item(&defs)) > 0,
         "the session should raise a causeway and cross it, or the test proves little: {}",
         snapshot(&original, &defs)
     );

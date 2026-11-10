@@ -141,12 +141,12 @@ fn a_bend_spends_chi_only_when_it_completes() {
     w.apply(Command::Bend { ability: probe, pos: at(6, 2) }, &defs).unwrap();
     // While it walks and channels the meter stays full.
     run_until(&mut w, &defs, 400, |w| {
-        if w.bend_events().is_empty() {
+        if w.bend_events().next().is_none() {
             assert_eq!(w.units[0].chi, 100.0);
         }
-        !w.bend_events().is_empty()
+        w.bend_events().next().is_some()
     });
-    let [event] = w.bend_events() else { panic!("one event") };
+    let [event] = w.bend_events().collect::<Vec<_>>()[..] else { panic!("one event") };
     assert_eq!(
         *event,
         BendEvent {
@@ -171,7 +171,7 @@ fn the_speed_modifier_divides_the_channel_time() {
         let (mut w, defs) = setup(Nation::Earth, &[at(3, 2)], 10.0, extra);
         w.apply(Command::Bend { ability: id(&defs, "probe"), pos: at(3, 2) }, &defs).unwrap();
         let rate = w.modifiers().earthworks;
-        (run_until(&mut w, &defs, 1000, |w| !w.bend_events().is_empty()), rate)
+        (run_until(&mut w, &defs, 1000, |w| w.bend_events().next().is_some()), rate)
     };
     let (plain, rate) = ticks("");
     let (fast, _) = ticks("speed_modifier = 'earthworks'");
@@ -190,10 +190,10 @@ fn a_unit_without_the_chi_waits_until_it_has_enough() {
         w.tick(&defs);
         assert_eq!(w.jobs()[0].claimed_by, None);
     }
-    assert!(w.bend_events().is_empty());
+    assert!(w.bend_events().next().is_none());
     w.units[0].chi = 40.0;
-    run_until(&mut w, &defs, 400, |w| !w.bend_events().is_empty());
-    assert_eq!(w.bend_events()[0].outcome, BendOutcome::Done);
+    run_until(&mut w, &defs, 400, |w| w.bend_events().next().is_some());
+    assert_eq!(w.bend_events().next().unwrap().outcome, BendOutcome::Done);
     assert!(w.units[0].chi < 1.0);
 }
 
@@ -207,7 +207,7 @@ fn a_unit_of_another_nation_does_not_take_the_job() {
     }
     assert_eq!(w.jobs().len(), 1);
     assert_eq!(w.jobs()[0].claimed_by, None);
-    assert!(w.bend_events().is_empty());
+    assert!(w.bend_events().next().is_none());
 }
 
 /// `caster_count` (#248, the bend picker's "Raise Earth: 14 benders"): counts whoever could
@@ -242,8 +242,8 @@ fn a_need_pre_empts_a_bend_and_its_progress_is_kept() {
         assert_eq!(w.jobs()[0].claimed_by, Some(w.units[0].id));
     }
     w.units[0].needs.energy = 95.0;
-    run_until(&mut w, &defs, 300, |w| !w.bend_events().is_empty());
-    assert_eq!(w.bend_events()[0].outcome, BendOutcome::Done);
+    run_until(&mut w, &defs, 300, |w| w.bend_events().next().is_some());
+    assert_eq!(w.bend_events().next().unwrap().outcome, BendOutcome::Done);
     // Only the remainder was left to channel after waking: 10 s total, 2+ done before sleep.
     assert!(w.tick < 100 + 55 + 90, "{}", w.tick);
 }
@@ -256,8 +256,11 @@ fn a_target_that_became_invalid_fails_without_spending_chi() {
     // The ground turns to rock before anyone gets there.
     w.map[at(6, 2)].terrain = Terrain::Mountain;
     w.map_changed();
-    run_until(&mut w, &defs, 400, |w| !w.bend_events().is_empty());
-    assert_eq!(w.bend_events()[0].outcome, BendOutcome::Failed("probe needs walkable ground"));
+    run_until(&mut w, &defs, 400, |w| w.bend_events().next().is_some());
+    assert_eq!(
+        w.bend_events().next().unwrap().outcome,
+        BendOutcome::Failed("probe needs walkable ground")
+    );
     assert_eq!(w.units[0].chi, 100.0);
     assert!(w.jobs().is_empty());
     assert_eq!(w.units[0].task(), None);
@@ -272,10 +275,10 @@ fn each_finished_bend_counts_toward_the_casters_tally() {
     for x in [1, 2] {
         w.apply(Command::Bend { ability: probe, pos: at(x, 2) }, &defs).unwrap();
     }
-    run_until(&mut w, &defs, 600, |w| w.bend_events().len() == 2);
-    assert!(w.bend_events().iter().all(|e| e.outcome == BendOutcome::Done));
+    run_until(&mut w, &defs, 600, |w| w.bend_events().count() == 2);
+    assert!(w.bend_events().all(|e| e.outcome == BendOutcome::Done));
     let tally = |w: &World, id: UnitId| w.unit(id).unwrap().bends();
-    let by = |id: UnitId| w.bend_events().iter().filter(|e| e.unit == id).count() as u32;
+    let by = |id: UnitId| w.bend_events().filter(|e| e.unit == id).count() as u32;
     assert_eq!(tally(&w, UnitId(0)), by(UnitId(0)));
     assert_eq!(tally(&w, UnitId(1)), by(UnitId(1)));
     assert_eq!(tally(&w, UnitId(0)) + tally(&w, UnitId(1)), 2);
@@ -293,7 +296,7 @@ fn cancelling_releases_the_unit_and_logs_no_event() {
     for _ in 0..300 {
         w.tick(&defs);
     }
-    assert!(w.bend_events().is_empty());
+    assert!(w.bend_events().next().is_none());
     assert_eq!(w.units[0].chi, 100.0);
 }
 
@@ -301,7 +304,7 @@ fn cancelling_releases_the_unit_and_logs_no_event() {
 fn snapshot(w: &World) -> String {
     let units: Vec<_> =
         w.units.iter().map(|u| (u.id, u.pos, u.chi.to_bits(), u.needs, u.task())).collect();
-    format!("tick {} {units:?} {:?} {:?}", w.tick, w.jobs(), w.bend_events())
+    format!("tick {} {units:?} {:?} {:?}", w.tick, w.jobs(), w.bend_events().collect::<Vec<_>>())
 }
 
 fn play_session(defs: &Defs) -> World {
@@ -332,7 +335,7 @@ fn a_session_with_bend_commands_replays_identically() {
     let log = original.command_log().to_vec();
     assert_eq!(log.len(), 5);
     assert!(
-        original.bend_events().len() >= 2 && original.units.iter().any(|u| u.chi < 100.0),
+        original.bend_events().count() >= 2 && original.units.iter().any(|u| u.chi < 100.0),
         "the session should have bent something, or the test proves little"
     );
 

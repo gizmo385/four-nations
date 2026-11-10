@@ -148,9 +148,9 @@ fn the_first_frost_sends_ripe_plants_on_frost_bands_back_to_resting() {
     let regrow = defs.harvest(fruit_tree(&defs).unwrap()).unwrap().regrow.unwrap();
     assert_eq!(*w.resting.get(&at(0, 0)).unwrap(), regrow, "its full regrow time");
     assert!(
-        w.season_events().iter().any(|e| matches!(e.kind, SeasonEventKind::Frost { count: 1 })),
+        w.season_events().any(|e| matches!(e.kind, SeasonEventKind::Frost { count: 1 })),
         "{:?}",
-        w.season_events()
+        w.season_events().collect::<Vec<_>>()
     );
 }
 
@@ -177,7 +177,7 @@ fn frost_is_skipped_when_the_effective_severity_is_zero() {
     w.tick = 3 * season_ticks(&defs) - 1;
     w.tick(&defs);
     assert!(!w.is_resting(at(0, 0)), "no frost at severity 0");
-    assert!(!w.season_events().iter().any(|e| matches!(e.kind, SeasonEventKind::Frost { .. })));
+    assert!(!w.season_events().any(|e| matches!(e.kind, SeasonEventKind::Frost { .. })));
 }
 
 #[test]
@@ -192,12 +192,11 @@ fn a_season_change_event_fires_at_every_boundary_and_a_warning_before_winter() {
     w.tick(&defs); // into summer
     assert!(
         w.season_events()
-            .iter()
             .any(|e| e.kind == SeasonEventKind::Changed { season: 1 } && e.tick == per)
     );
     w.tick = 3 * per - warn - 1;
     w.tick(&defs);
-    assert!(w.season_events().iter().any(|e| e.kind == SeasonEventKind::WinterWarning));
+    assert!(w.season_events().any(|e| e.kind == SeasonEventKind::WinterWarning));
 }
 
 // ---- cold ----

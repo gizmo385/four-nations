@@ -64,11 +64,6 @@ impl World {
         }
     }
 
-    /// Every finished chart so far, oldest first.
-    pub fn chart_events(&self) -> &[ChartEvent] {
-        &self.chart_events
-    }
-
     /// The Map Room anchored on `pos`'s progress toward its next chart, in ticks (scaled by the
     /// `study` modifier as they're added), for a frontend's inspect panel. 0 off a Map Room or
     /// one with nothing banked yet.
@@ -80,14 +75,13 @@ impl World {
     /// `chart_events`, which nothing trims, so it survives a save and load and does not depend
     /// on a Map Room still standing or on anything being left to chart.
     pub fn has_charted(&self) -> bool {
-        !self.chart_events.is_empty()
+        self.chart_events().next().is_some()
     }
 
     /// Whether a finished chart is what uncovered the ruin at `pos`. A buried resource that is
     /// on the map but was not charted was uncovered some other way (Air's Glide, #197).
     pub fn charted_at(&self, pos: Pos) -> bool {
-        self.chart_events
-            .iter()
+        self.chart_events()
             .any(|e| matches!(e.kind, ChartEventKind::Found { pos: p, .. } if p == pos))
     }
 
@@ -190,7 +184,7 @@ impl World {
             }
             None => ChartEventKind::NoneLeft,
         };
-        self.chart_events.push(ChartEvent { tick: self.tick, room: anchor, kind: event_kind });
+        self.log_event(ChartEvent { tick: self.tick, room: anchor, kind: event_kind });
     }
 }
 

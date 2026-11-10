@@ -52,7 +52,7 @@ use fn_sim::building::BuildingId;
 use fn_sim::defs::{BiomeId, ResourceId};
 use fn_sim::geom::Footprint;
 use fn_sim::jobs::{ItemId, Stack};
-use fn_sim::world::{BendOutcome, Moved, PlotStage, TICKS_PER_SECOND};
+use fn_sim::world::{BendOutcome, Event, Moved, PlotStage, TICKS_PER_SECOND};
 use fn_sim::{Defs, Nation, Pos, Terrain};
 use fn_ui::build::Placement;
 use fn_ui::{Session, Tool};
@@ -119,18 +119,21 @@ fn shape_tiles(shape: Shape, pos: Pos, moved: Option<Moved>) -> Vec<Pos> {
 /// `--frame` is deterministic.
 const HIGHLIGHT_TICKS: u64 = TICKS_PER_SECOND as u64 / 2;
 
-/// The tiles a bend changed, lit for [`HIGHLIGHT_TICKS`] after `World::bend_events` says it
+/// The tiles a bend changed, lit for [`HIGHLIGHT_TICKS`] after the world's event log says it
 /// landed; the events themselves are the only state this needs, so nothing is carried frame to
-/// frame.
+/// frame. Walks the log back from the newest event, so it stops at the first one that is too old.
 fn cast_highlights(session: &Session) -> BTreeSet<Pos> {
     let (world, defs) = (&session.world, &session.defs);
     let now = world.tick;
     world
-        .bend_events()
+        .events()
         .iter()
         .rev()
-        .take_while(|e| now.saturating_sub(e.tick) < HIGHLIGHT_TICKS)
-        .filter(|e| e.outcome == BendOutcome::Done)
+        .take_while(|e| now.saturating_sub(e.tick()) < HIGHLIGHT_TICKS)
+        .filter_map(|e| match e {
+            Event::Bend(e) if e.outcome == BendOutcome::Done => Some(e),
+            _ => None,
+        })
         .filter_map(|e| {
             shape_of(&defs.ability(e.ability).id).map(|s| shape_tiles(s, e.pos, e.moved))
         })

@@ -266,15 +266,13 @@ fn a_save_with_the_sign_already_met_keeps_it_met() {
     run(&mut w, &defs, 10);
     assert_eq!(progress(&w, &defs, "building_kinds"), (11, 11, true));
     assert!(
-        w.endeavor_events()
-            .iter()
-            .any(|e| e.kind == EndeavorEventKind::SignMet("building_kinds".into()))
+        w.endeavor_events().any(|e| e.kind == EndeavorEventKind::SignMet("building_kinds".into()))
     );
 
     let saved = w.save(&defs).expect("world saves");
     let w2 = World::load(&saved, &defs).expect("world loads");
     assert_eq!(progress(&w2, &defs, "building_kinds"), (11, 11, true));
-    assert_eq!(w2.endeavor_events(), w.endeavor_events());
+    assert!(w2.endeavor_events().eq(w.endeavor_events()));
 }
 
 #[test]
@@ -405,13 +403,13 @@ fn note_rank_up_fires_once_per_rank_and_a_save_load_does_not_refire_it() {
 
     give_bends(&mut w, &defs, 0, 4, 2);
     w.note_rank_up(0, &defs);
-    assert!(w.endeavor_events().is_empty(), "below the adept threshold (5 bends, 2 forms)");
+    assert!(w.endeavor_events().next().is_none(), "below the adept threshold (5 bends, 2 forms)");
 
     give_bends(&mut w, &defs, 0, 5, 2);
     w.note_rank_up(0, &defs);
     assert_eq!(
-        w.endeavor_events(),
-        [EndeavorEvent {
+        w.endeavor_events().collect::<Vec<_>>(),
+        [&EndeavorEvent {
             tick: w.tick,
             kind: EndeavorEventKind::RankUp {
                 unit: id,
@@ -425,14 +423,14 @@ fn note_rank_up_fires_once_per_rank_and_a_save_load_does_not_refire_it() {
     // More bends, still adept: no refire.
     w.units[0].bends += 1;
     w.note_rank_up(0, &defs);
-    assert_eq!(w.endeavor_events().len(), 1);
+    assert_eq!(w.endeavor_events().count(), 1);
 
     // Reaching master (10 bends, 3 forms) fires a second event.
     give_bends(&mut w, &defs, 0, 10, 3);
     w.note_rank_up(0, &defs);
     assert_eq!(
-        w.endeavor_events()[1],
-        EndeavorEvent {
+        w.endeavor_events().nth(1).unwrap(),
+        &EndeavorEvent {
             tick: w.tick,
             kind: EndeavorEventKind::RankUp {
                 unit: id,
@@ -446,14 +444,14 @@ fn note_rank_up_fires_once_per_rank_and_a_save_load_does_not_refire_it() {
     // Calling again (more bends, still master) doesn't refire it.
     w.units[0].bends += 1;
     w.note_rank_up(0, &defs);
-    assert_eq!(w.endeavor_events().len(), 2);
+    assert_eq!(w.endeavor_events().count(), 2);
 
     // Neither does a save/load round trip.
     let saved = w.save(&defs).expect("world saves");
     let mut w2 = World::load(&saved, &defs).expect("world loads");
     w2.units[0].bends += 1;
     w2.note_rank_up(0, &defs);
-    assert_eq!(w2.endeavor_events().len(), 2, "already credited before the save");
+    assert_eq!(w2.endeavor_events().count(), 2, "already credited before the save");
 
     // The second unit, jumping straight to master, still gets its own event.
     let id2 = w2.units[1].id;
@@ -461,8 +459,8 @@ fn note_rank_up_fires_once_per_rank_and_a_save_load_does_not_refire_it() {
     give_bends(&mut w2, &defs, 1, 10, 3);
     w2.note_rank_up(1, &defs);
     assert_eq!(
-        w2.endeavor_events()[2],
-        EndeavorEvent {
+        w2.endeavor_events().nth(2).unwrap(),
+        &EndeavorEvent {
             tick: w2.tick,
             kind: EndeavorEventKind::RankUp {
                 unit: id2,
@@ -484,7 +482,7 @@ fn note_rank_up_fires_even_without_a_masters_sign() {
     assert_eq!(defs.endeavor.master_threshold(Nation::Fire), None);
     give_bends(&mut w, &defs, 0, 10, 3);
     w.note_rank_up(0, &defs);
-    assert_eq!(w.endeavor_events().len(), 1);
+    assert_eq!(w.endeavor_events().count(), 1);
 }
 
 const STONE_SIGNS: &str = "
@@ -514,14 +512,14 @@ fn every_sign_met_at_once_latches_ready_and_eating_stores_does_not_undo_it() {
     assert_eq!(*w.endeavor(), EndeavorState::Dormant);
     // The population sign was met at the first check, and only logged once.
     assert_eq!(
-        w.endeavor_events(),
-        [EndeavorEvent { tick: 10, kind: EndeavorEventKind::SignMet("people".into()) }]
+        w.endeavor_events().collect::<Vec<_>>(),
+        [&EndeavorEvent { tick: 10, kind: EndeavorEventKind::SignMet("people".into()) }]
     );
 
     store(&mut w, &defs, "stone", at(1, 5), 50);
     run(&mut w, &defs, 10);
     assert_eq!(*w.endeavor(), EndeavorState::Ready { tick: 40 });
-    let tail: Vec<_> = w.endeavor_events()[1..].iter().map(|e| (e.tick, e.kind.clone())).collect();
+    let tail: Vec<_> = w.endeavor_events().skip(1).map(|e| (e.tick, e.kind.clone())).collect();
     assert_eq!(
         tail,
         [(40, EndeavorEventKind::SignMet("stone".into())), (40, EndeavorEventKind::Ready)]
@@ -532,7 +530,7 @@ fn every_sign_met_at_once_latches_ready_and_eating_stores_does_not_undo_it() {
     run(&mut w, &defs, 100);
     assert!(!sign(&w, &defs, "stone").met);
     assert_eq!(*w.endeavor(), EndeavorState::Ready { tick: 40 });
-    assert_eq!(w.endeavor_events().len(), 3);
+    assert_eq!(w.endeavor_events().count(), 3);
 }
 
 #[test]
@@ -548,7 +546,7 @@ fn signs_met_one_at_a_time_are_not_ready_and_each_is_logged_once() {
     run(&mut w, &defs, 20);
     store(&mut w, &defs, "stone", at(1, 5), 60);
     run(&mut w, &defs, 20);
-    let met: Vec<_> = w.endeavor_events().iter().map(|e| e.kind.clone()).collect();
+    let met: Vec<_> = w.endeavor_events().map(|e| e.kind.clone()).collect();
     assert_eq!(met, [EndeavorEventKind::SignMet("stone".into())], "logged the first time only");
     assert_eq!(*w.endeavor(), EndeavorState::Dormant);
 }
@@ -572,7 +570,7 @@ fn data_without_signs_never_becomes_ready() {
     let mut w = world(Nation::Earth, 1, &defs);
     run(&mut w, &defs, 50);
     assert_eq!(*w.endeavor(), EndeavorState::Dormant);
-    assert!(w.endeavor_events().is_empty());
+    assert!(w.endeavor_events().next().is_none());
     assert!(w.endeavor_signs(&defs).is_empty());
 }
 
@@ -605,7 +603,7 @@ fn the_endeavor_is_deterministic() {
             w.apply(Command::DesignateHarvest { pos }, &defs).unwrap();
         }
         run(&mut w, &defs, 4000);
-        (w.endeavor().clone(), w.endeavor_events().to_vec())
+        (w.endeavor().clone(), w.endeavor_events().cloned().collect::<Vec<_>>())
     };
     let (a, b) = (play(), play());
     assert_eq!(a, b);

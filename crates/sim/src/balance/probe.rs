@@ -559,8 +559,8 @@ impl Probe {
     /// An autopsy for every death since the last call, oldest first. Call it right after a tick
     /// that added deaths, so the world is as the settler left it.
     pub fn autopsies(&mut self, world: &World, defs: &Defs) -> Vec<Autopsy> {
-        let new: Vec<&Death> = world.deaths.iter().skip(self.autopsied).collect();
-        self.autopsied = world.deaths.len();
+        let new: Vec<&Death> = world.deaths().skip(self.autopsied).collect();
+        self.autopsied = world.deaths().count();
         new.into_iter()
             .map(|death| {
                 let track = self.tracks.remove(&death.id);

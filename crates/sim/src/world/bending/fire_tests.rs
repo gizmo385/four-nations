@@ -69,9 +69,9 @@ fn lit(pos: Pos, until: u64, seek_tiles: u32) -> HeatSource {
 fn kindle(w: &mut World, defs: &Defs, pos: Pos) {
     w.units[0].chi = defs.chi.max;
     w.apply(Command::Bend { ability: hearth(defs), pos }, defs).unwrap();
-    let events = w.bend_events().len();
-    run_until(w, defs, 1000, |w| w.bend_events().len() > events);
-    assert_eq!(w.bend_events().last().unwrap().outcome, BendOutcome::Done);
+    let events = w.bend_events().count();
+    run_until(w, defs, 1000, |w| w.bend_events().count() > events);
+    assert_eq!(w.bend_events().next_back().unwrap().outcome, BendOutcome::Done);
 }
 
 #[test]
@@ -313,7 +313,7 @@ fn snapshot(w: &World) -> String {
         "tick {} {units:?} flames {:?} {:?} heated {}",
         w.tick,
         w.flames(),
-        w.bend_events(),
+        w.bend_events().collect::<Vec<_>>(),
         w.is_heated(at(11, 4)),
     )
 }
@@ -357,7 +357,7 @@ fn a_session_with_hearthflame_replays_identically() {
     let log = original.command_log().to_vec();
     assert!(log.len() >= 4);
     assert!(
-        original.bend_events().len() >= 2 && !original.flames().is_empty(),
+        original.bend_events().count() >= 2 && !original.flames().is_empty(),
         "the session should kindle and restoke a flame, or the test proves little: {}",
         snapshot(&original)
     );
@@ -399,9 +399,9 @@ fn cast_inner_fire(w: &mut World, defs: &Defs, pos: Pos) {
     }
     w.units[0].chi = defs.chi.max;
     w.apply(Command::Bend { ability: inner_fire(defs), pos }, defs).unwrap();
-    let events = w.bend_events().len();
-    run_until(w, defs, 1000, |w| w.bend_events().len() > events);
-    assert_eq!(w.bend_events().last().unwrap().outcome, BendOutcome::Done);
+    let events = w.bend_events().count();
+    run_until(w, defs, 1000, |w| w.bend_events().count() > events);
+    assert_eq!(w.bend_events().next_back().unwrap().outcome, BendOutcome::Done);
 }
 
 /// Ticks `n` times with unit `i` held on `pos` (a carrier that would otherwise wander off).
@@ -697,7 +697,7 @@ fn a_session_with_inner_fire_replays_identically() {
     let original = play_aura_session(&defs);
     let log = original.command_log().to_vec();
     assert!(
-        original.bend_events().len() >= 2 && !original.glows().is_empty(),
+        original.bend_events().count() >= 2 && !original.glows().is_empty(),
         "the session should cast twice and still glow: {}",
         aura_snapshot(&original)
     );

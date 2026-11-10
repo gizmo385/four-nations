@@ -71,11 +71,6 @@ pub struct Arrival {
 }
 
 impl World {
-    /// Every newcomer who has joined so far, oldest first.
-    pub fn arrivals(&self) -> &[Arrival] {
-        &self.arrivals
-    }
-
     /// Restores `next_unit`'s invariant (past every id a living or dead unit has): a no-op for
     /// a save written since #232, since it is already past every one of those; a save from
     /// before it existed deserializes the field as 0, which this fixes from the units and
@@ -83,7 +78,7 @@ impl World {
     pub(crate) fn fixup_next_unit(&mut self) {
         // The Avatar (#237) has a fixed id at u32::MAX, outside the counter's range.
         let settlers = self.units.iter().filter(|u| !u.is_avatar());
-        let used = settlers.map(|u| u.id.0).chain(self.deaths.iter().map(|d| d.id.0)).max();
+        let used = settlers.map(|u| u.id.0).chain(self.deaths().map(|d| d.id.0)).max();
         if let Some(m) = used {
             self.next_unit = self.next_unit.max(m + 1);
         }
@@ -274,7 +269,7 @@ impl World {
             sick_until: None,
             remedy_retry_at: 0,
         });
-        self.arrivals.push(Arrival { tick: self.tick, unit: id, name });
+        self.log_event(Arrival { tick: self.tick, unit: id, name });
         true
     }
 

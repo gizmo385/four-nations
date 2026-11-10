@@ -13,12 +13,12 @@
 //! study hall still being built. It was generated on a hand-made map, so that not even mapgen
 //! was involved, by a `regenerate_v1_fixture` test that #602 removed (see git history).
 //!
-//! It can't be regenerated: the build writes version 3 now (#602, #604), so a regenerated file
+//! It can't be regenerated: the build writes version 4 now (#602, #604, #605), so a regenerated file
 //! would no longer prove anything about old saves. Nor does a data change need any edit to it. A
 //! v1 save has no id tables of its own; `load` reads its ids against the snapshot of the tables
 //! it was made with (`crates/sim/src/save/v1_ids.ron`, picked by its `data_hash`) and maps them
 //! to today's data by name, as for any save, then turns its buildings into records (#604), as
-//! for a v2 save. `tests/save_compat.rs` loads it under edited data.
+//! for a v2 save, then merges its event lists into one log (#605), as for a v3 save. `tests/save_compat.rs` loads it under edited data.
 
 use fn_sim::building::BuildingId;
 use fn_sim::save::SaveIds;
@@ -42,7 +42,7 @@ fn the_fixture_is_a_v1_save_with_the_state_the_tests_need() {
     // Guards the other tests against a fixture that was regenerated into something empty.
     let info = fn_sim::save::inspect(FIXTURE).unwrap();
     assert_eq!(info.version, 1);
-    assert_eq!(SAVE_VERSION, 3, "a new format version needs a new fixture and an upgrade path");
+    assert_eq!(SAVE_VERSION, 4, "a new format version needs a new fixture and an upgrade path");
     assert_eq!((info.seed, info.nation), (7, Nation::Fire));
     assert!(info.tick > 0);
     assert!(FIXTURE.lines().next().is_some_and(|l| l.contains("four-nations-save")));
@@ -206,6 +206,40 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
 /// they hold. The map itself is written as `tiles` now, and is renamed back before comparing.
 const FIELDS_RESHAPED_IN_V3: &[&str] = &["building", "heat"];
 
+/// The event lists saves up to version 3 kept (`bend_events`, `deaths`, and the research
+/// state's `log` in this fixture, which predates the others; the endeavor's were its `events`),
+/// and the one log version 4 writes in their place (`events`, #605). The comparison sets them aside on both sides;
+/// `saving_an_old_save_again_gives_the_same_text` checks that the log holds every old entry.
+const FIELDS_MERGED_IN_V4: &[&str] = &[
+    "bend_events",
+    "deaths",
+    "log",
+    "arrivals",
+    "season_events",
+    "strain_events",
+    "harm_events",
+    "chart_events",
+    "events",
+];
+
+/// How many entries the sequences in fields named `names` hold, at any depth of `value`.
+fn entries_in(value: &ron::Value, names: &[&str]) -> usize {
+    match value {
+        ron::Value::Map(map) => map
+            .iter()
+            .map(|(k, v)| match (k, v) {
+                (ron::Value::String(s), ron::Value::Seq(items)) if names.contains(&s.as_str()) => {
+                    items.len()
+                }
+                _ => entries_in(v, names),
+            })
+            .sum(),
+        ron::Value::Seq(items) => items.iter().map(|v| entries_in(v, names)).sum(),
+        ron::Value::Option(Some(inner)) => entries_in(inner, names),
+        _ => 0,
+    }
+}
+
 /// Renames the top-level `tiles` field of `value` (a v3 `World`) to `map`, its v1/v2 name.
 fn tiles_as_map(value: &mut ron::Value) {
     let ron::Value::Map(map) = value else { return };
@@ -273,7 +307,7 @@ fn saving_an_old_save_again_gives_the_same_text() {
     let defs = Defs::bundled();
     let w = World::load(FIXTURE, &defs).unwrap();
     let text = w.save(&defs).unwrap();
-    // A v1 save is a header and a body; it comes back as v3: a header, the id tables and a body.
+    // A v1 save is a header and a body; it comes back as v4: a header, the id tables and a body.
     let (old_header, old_body) = FIXTURE.split_once('\n').unwrap();
     let mut lines = text.splitn(3, '\n');
     let (header, ids, body) = (lines.next().unwrap(), lines.next().unwrap(), lines.next().unwrap());
@@ -298,6 +332,13 @@ fn saving_an_old_save_again_gives_the_same_text() {
     );
     tiles_as_map(&mut new);
     wrap_legacy_unit_nations(&mut old);
+    // One event log (#605): every entry of the old lists is in it, and nothing else. (This
+    // fixture's lists are empty; `tests/save_v3_fixture.rs` has one with entries in each.)
+    let old_entries = entries_in(&old, FIELDS_MERGED_IN_V4);
+    assert_eq!(entries_in(&new, &["events"]), old_entries);
+    assert_eq!(w.events().len(), old_entries);
+    assert!(without_fields(&mut old, FIELDS_MERGED_IN_V4) > 0);
+    assert!(without_fields(&mut new, FIELDS_MERGED_IN_V4) > 0);
     without_fields(&mut old, FIELDS_ADDED_SINCE_V1);
     without_fields(&mut old, FIELDS_REMOVED_SINCE_V1);
     assert!(without_fields(&mut old, FIELDS_RESHAPED_IN_V3) > 0);

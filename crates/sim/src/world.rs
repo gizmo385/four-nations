@@ -30,6 +30,7 @@ mod care;
 mod chart;
 mod command;
 mod endeavor;
+mod events;
 mod farm;
 mod forge;
 mod found;
@@ -66,6 +67,7 @@ use endeavor::EndeavorLog;
 pub use endeavor::{
     AvatarLeaveReason, EndeavorEvent, EndeavorEventKind, EndeavorState, SignProgress,
 };
+pub use events::Event;
 pub use farm::PlotStage;
 use forge::CraftState;
 pub use gate::{EndeavorError, GateSite, GateTask};
@@ -359,8 +361,16 @@ pub struct World {
     /// The nation's modifiers with every known tech applied. Recomputed when a tech completes;
     /// read it through `modifiers()`.
     modifiers: Modifiers,
-    /// Units that have died, oldest first.
-    pub deaths: Vec<Death>,
+    /// Everything the world has logged, oldest first (`world/events.rs`, #605): bends, techs,
+    /// deaths, endeavor events, arrivals, seasons, strain, harm and charts. Read it through
+    /// `events()` or one of its typed filters (`deaths()`, `bend_events()`, ...). A save up to
+    /// version 3 has none: its nine vectors are read into the `v3_*` fields below and merged
+    /// into this on load (`upgrade_from_v3`).
+    #[serde(default)]
+    events: Vec<Event>,
+    /// A v1 to v3 save's deaths (#605): merged into `events` on load, never written.
+    #[serde(default, skip_serializing, rename = "deaths")]
+    v3_deaths: Vec<Death>,
     /// Designated work that isn't finished, in creation order.
     jobs: Vec<Job>,
     next_job: u32,
@@ -406,8 +416,9 @@ pub struct World {
     /// `would_cut_off`'s answers since the map last changed (`build::CutMemo`).
     #[serde(skip)]
     cut_memo: build::CutMemo,
-    /// Every bend that has finished or failed, oldest first.
-    bend_events: Vec<BendEvent>,
+    /// A v1 to v3 save's bends (#605): merged into `events` on load, never written.
+    #[serde(default, skip_serializing, rename = "bend_events")]
+    v3_bend_events: Vec<BendEvent>,
     /// Watered patches that haven't dried yet, in `(dries_at, centre)` order (Water the Land).
     patches: Vec<Patch>,
     /// `Reshape`s waiting to revert, in `(at, pos)` order (Draw Water's temporary pool, #364). A
@@ -472,42 +483,33 @@ pub struct World {
     /// save whose id the loaded data no longer has.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     difficulty: Option<String>,
-    /// Season changes, the winter warning and frost, oldest first, for the TUI's alerts
-    /// (`world/season.rs`, #295). Empty unless a difficulty preset's `seasons` flag is on, and
-    /// empty (so unwritten) for every save from before this existed, so neither changes a byte.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    season_events: Vec<SeasonEvent>,
+    /// A v1 to v3 save's season events (#605): merged into `events` on load, never written.
+    #[serde(default, skip_serializing, rename = "season_events")]
+    v3_season_events: Vec<SeasonEvent>,
     /// Live strain on wild renewable tiles, by tile (`world/strain.rs`, #296): added by a
     /// harvest, scaled by the difficulty preset's `strain` knob, and fading on its own. Empty
     /// unless the knob is above 0, and empty (so unwritten) for every save from before this
     /// existed, so neither changes a byte. Read it through `strain_at()`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     strain: BTreeMap<Pos, f32>,
-    /// Wild plants killed by over-picking (`strain_kills`), oldest first, for the TUI's alert
-    /// log. Empty unless a difficulty preset turns `strain_kills` on, and empty (so unwritten)
-    /// for every save from before this existed.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    strain_events: Vec<StrainEvent>,
-    /// Harm events (lying down to sleep rough in the cold, an injury), oldest first, for the
-    /// TUI's alerts (`world/harm.rs`, #387; `world/injury.rs`, #388). Empty unless a difficulty
-    /// preset's `harm` knob is above 0, and empty (so unwritten) for every save from before this
-    /// existed.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    harm_events: Vec<HarmEvent>,
-    /// Every finished Map Room chart, oldest first (`world/chart.rs`, issue #402), for a
-    /// frontend's alerts. Empty (so unwritten) for every save from before this existed.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    chart_events: Vec<ChartEvent>,
+    /// A v1 to v3 save's plants picked to death (#605): merged into `events` on load, never written.
+    #[serde(default, skip_serializing, rename = "strain_events")]
+    v3_strain_events: Vec<StrainEvent>,
+    /// A v1 to v3 save's harm events (#605): merged into `events` on load, never written.
+    #[serde(default, skip_serializing, rename = "harm_events")]
+    v3_harm_events: Vec<HarmEvent>,
+    /// A v1 to v3 save's finished charts (#605): merged into `events` on load, never written.
+    #[serde(default, skip_serializing, rename = "chart_events")]
+    v3_chart_events: Vec<ChartEvent>,
     /// The id the next unit gets, whether it is a newcomer (`population.rs`, #232) or some
     /// future runtime spawn: always past every id a unit (living or dead) has ever had, so none
     /// is reused. A save from before this counter existed deserializes it as 0; `World::load`
     /// fixes it up to the same invariant from the units and deaths already on file.
     #[serde(default)]
     next_unit: u32,
-    /// Newcomers who have joined since the world began (`population.rs`, #232), oldest first.
-    /// Read it through `arrivals()`.
-    #[serde(default)]
-    arrivals: Vec<Arrival>,
+    /// A v1 to v3 save's arrivals (#605): merged into `events` on load, never written.
+    #[serde(default, skip_serializing, rename = "arrivals")]
+    v3_arrivals: Vec<Arrival>,
     /// Picks which tile an orchard plants next (`orchard.plant`).
     #[serde(default = "orchard::default_rng")]
     orchard_rng: SimRng,
@@ -561,7 +563,8 @@ impl World {
             units: Vec::new(),
             research: Research::new(nation, defs),
             modifiers: defs.nation(nation).modifiers,
-            deaths: Vec::new(),
+            events: Vec::new(),
+            v3_deaths: Vec::new(),
             jobs: Vec::new(),
             next_job: 0,
             command_log: Vec::new(),
@@ -578,7 +581,7 @@ impl World {
             claim_memo: BTreeMap::new(),
             idle_memo: work::IdleMemo::default(),
             cut_memo: build::CutMemo::default(),
-            bend_events: Vec::new(),
+            v3_bend_events: Vec::new(),
             patches: Vec::new(),
             reverts: Vec::new(),
             fallow: BTreeMap::new(),
@@ -595,13 +598,13 @@ impl World {
             buried: BTreeMap::new(),
             start: None,
             difficulty: None,
-            season_events: Vec::new(),
+            v3_season_events: Vec::new(),
             strain: BTreeMap::new(),
-            strain_events: Vec::new(),
-            harm_events: Vec::new(),
-            chart_events: Vec::new(),
+            v3_strain_events: Vec::new(),
+            v3_harm_events: Vec::new(),
+            v3_chart_events: Vec::new(),
             next_unit: 0,
-            arrivals: Vec::new(),
+            v3_arrivals: Vec::new(),
             orchard_rng: orchard::new_rng(seed),
             sprout_rng: rng::stream(seed, "bending.sprout"),
             growth_rng: population::new_rng(seed),
@@ -651,6 +654,9 @@ impl World {
         }
         if !self.research.fits(defs) {
             return Err("the research state doesn't match the tech tree".into());
+        }
+        if self.has_v3_logs() {
+            return Err("the save's old event lists weren't merged into the event log".into());
         }
         if let Some(id) = &self.difficulty
             && defs.difficulty.preset(id).is_none()
@@ -867,11 +873,13 @@ impl World {
     /// signs (`endeavor.rs`) and the Harmony Rite its own attendance (`gate.rs`, #238).
     pub fn tick(&mut self, defs: &Defs) {
         self.tick += 1;
-        let completed = self.research.completions().len();
         let research_cost = self.knobs(defs).research_cost;
-        self.research.tick(self.tick, defs, research_cost);
-        if self.research.completions().len() != completed {
+        let completed = self.research.tick(self.tick, defs, research_cost);
+        if !completed.is_empty() {
             self.refresh_modifiers(defs);
+        }
+        for c in completed {
+            self.log_event(c);
         }
         self.tick_needs(defs);
         self.tick_season(defs);
@@ -1028,7 +1036,7 @@ impl World {
         for u in dead {
             let cause = Self::death_cause(&u);
             let weakened_by = Self::weakened_by(cause, u.last_harm, tick);
-            self.deaths.push(Death { id: u.id, name: u.name.clone(), tick, cause, weakened_by });
+            self.log_event(Death { id: u.id, name: u.name.clone(), tick, cause, weakened_by });
             self.release(&u);
         }
         if any_died {
@@ -1147,7 +1155,7 @@ mod tests {
     }
 
     fn spent_millis(w: &World, defs: &Defs) -> u64 {
-        w.research().completions().iter().map(|c| u64::from(defs.tech(c.tech).cost) * 1000).sum()
+        w.tech_completions().map(|c| u64::from(defs.tech(c.tech).cost) * 1000).sum()
     }
 
     #[test]
@@ -1178,7 +1186,10 @@ mod tests {
         assert!(!w.research().is_known(fm));
         w.tick(&defs);
         assert!(w.research().is_known(fm));
-        assert_eq!(w.research().completions(), [TechCompleted { tech: fm, tick: 5000 }]);
+        assert_eq!(
+            w.tech_completions().collect::<Vec<_>>(),
+            [&TechCompleted { tech: fm, tick: 5000 }]
+        );
         assert!(w.research().queue().is_empty());
         assert_eq!(w.research().pool_millis(), 0);
     }
@@ -1230,7 +1241,7 @@ mod tests {
         // What was banked carries over; the idle buffer alone can't pay for even the cheapest
         // tech, so nothing completes yet.
         assert_eq!(w.research().pool_millis(), cap + defs.research.passive_millis_per_tick);
-        assert!(w.research().completions().is_empty());
+        assert!(w.tech_completions().next().is_none());
     }
 
     #[test]
@@ -1242,7 +1253,7 @@ mod tests {
         w.research.bank_for_test(100_000);
         w.set_research(tech(&defs, "carpentry"), &defs).unwrap();
         w.tick(&defs);
-        let completed: Vec<_> = w.research().completions().iter().map(|c| c.tech).collect();
+        let completed: Vec<_> = w.tech_completions().map(|c| c.tech).collect();
         assert_eq!(completed, [tech(&defs, "shelter")]);
         assert!(!w.research().is_known(tech(&defs, "carpentry")));
     }
@@ -1298,7 +1309,7 @@ mod tests {
         }
         // Everything earned is either still banked or was spent on a completed tech.
         assert_eq!(w.research().pool_millis() + spent_millis(&w, &defs), 5 * 12_000);
-        assert!(!w.research().completions().is_empty());
+        assert!(w.tech_completions().next().is_some());
     }
 
     #[test]
@@ -1404,7 +1415,7 @@ mod tests {
                     w.tick(&defs);
                 }
             }
-            let order: Vec<_> = w.research().completions().iter().map(|c| c.tech).collect();
+            let order: Vec<_> = w.tech_completions().map(|c| c.tech).collect();
             (order, w)
         };
         let (order_a, a) = reach(["masonry", "earth_shaping"]);
@@ -1445,9 +1456,9 @@ mod tests {
             w
         };
         let (a, b) = (run(), run());
-        assert_eq!(a.deaths.len(), 4);
-        assert_eq!(a.deaths, b.deaths);
-        assert!(a.deaths.windows(2).all(|w| w[0].tick <= w[1].tick));
+        assert_eq!(a.deaths().count(), 4);
+        assert!(a.deaths().eq(b.deaths()));
+        assert!(a.deaths().zip(a.deaths().skip(1)).all(|(x, y)| x.tick <= y.tick));
     }
 
     #[test]
@@ -1460,8 +1471,8 @@ mod tests {
         assert_eq!(w.units.len(), 3);
         assert!(w.unit(UnitId(1)).is_none());
         assert_eq!(w.unit(UnitId(2)).map(|u| u.id), Some(UnitId(2)));
-        assert_eq!(w.deaths.len(), 1);
-        assert_eq!(w.deaths[0].id, UnitId(1));
-        assert_eq!(w.deaths[0].cause, DeathCause::Starvation);
+        assert_eq!(w.deaths().count(), 1);
+        assert_eq!(w.deaths().next().unwrap().id, UnitId(1));
+        assert_eq!(w.deaths().next().unwrap().cause, DeathCause::Starvation);
     }
 }

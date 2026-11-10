@@ -89,11 +89,6 @@ impl World {
             && !self.is_heated(pos)
     }
 
-    /// Season changes, the winter warning and frost, oldest first.
-    pub fn season_events(&self) -> &[SeasonEvent] {
-        &self.season_events
-    }
-
     /// The growth-rate multiplier `World::growth_rate` (`work.rs`) applies for the seasons:
     /// identity (1.0) unless the difficulty preset's `seasons` flag is on. Outside winter it's
     /// the running season's `growth`. In winter, a `frost_hardy` harvest (fishing) uses a flat
@@ -128,14 +123,16 @@ impl World {
         let into_year = self.tick % (per * n);
         if into_year.is_multiple_of(per) {
             let idx = (into_year / per) as usize;
-            self.season_events.push(SeasonEvent {
+            self.log_event(SeasonEvent {
                 tick: self.tick,
                 kind: SeasonEventKind::Changed { season: idx },
             });
             if defs.seasons.seasons[idx].winter && severity > 0.0 {
                 let count = self.apply_frost(defs);
-                self.season_events
-                    .push(SeasonEvent { tick: self.tick, kind: SeasonEventKind::Frost { count } });
+                self.log_event(SeasonEvent {
+                    tick: self.tick,
+                    kind: SeasonEventKind::Frost { count },
+                });
             }
         }
         let warn = {
@@ -144,8 +141,7 @@ impl World {
         };
         let winter_start = defs.seasons.winter_index() as u64 * per;
         if warn <= winter_start && into_year == winter_start - warn {
-            self.season_events
-                .push(SeasonEvent { tick: self.tick, kind: SeasonEventKind::WinterWarning });
+            self.log_event(SeasonEvent { tick: self.tick, kind: SeasonEventKind::WinterWarning });
         }
     }
 

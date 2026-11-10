@@ -503,12 +503,12 @@ mod tests {
             .find(|&pos| s.apply(Command::Bend { ability, pos }).is_ok())
             .expect("somewhere to light a Hearthflame");
         for _ in 0..50 {
-            if !s.world.bend_events().is_empty() {
+            if s.world.bend_events().next().is_some() {
                 break;
             }
             s.tick_n(20);
         }
-        let event = s.world.bend_events()[0];
+        let event = *s.world.bend_events().next().unwrap();
         assert_eq!(event.outcome, BendOutcome::Done, "at {target:?}");
         let caster = s.world.unit(event.unit).unwrap();
         assert_eq!(caster.bends(), 1, "finished a bend");

@@ -155,10 +155,10 @@ fn hard_kills_an_over_picked_tree_and_normal_never_does() {
     }
     assert!(killed, "an over-picked tree should die on Hard");
     assert_eq!(w.strain_at(TREE), None, "the dead tile holds no strain");
-    assert_eq!(w.strain_events().len(), 1);
-    assert_eq!(w.strain_events()[0].pos, TREE);
+    assert_eq!(w.strain_events().count(), 1);
+    assert_eq!(w.strain_events().next().unwrap().pos, TREE);
     assert_eq!(
-        w.strain_events()[0].resource,
+        w.strain_events().next().unwrap().resource,
         defs.resource_id("fruit_tree").unwrap(),
         "the TUI's alert (#299) names what it was"
     );
@@ -173,7 +173,7 @@ fn hard_kills_an_over_picked_tree_and_normal_never_does() {
         assert!(w.map[TREE].resource.is_some(), "Normal never kills an over-picked tree");
         run_until(&mut w, &defs, 50_000, |w| !w.is_resting(TREE));
     }
-    assert!(w.strain_events().is_empty());
+    assert!(w.strain_events().next().is_none());
 }
 
 #[test]
@@ -192,7 +192,7 @@ fn strain_zero_matches_todays_behaviour_byte_for_byte() {
                 "{preset:?}: {rest} vs {expected} expected, with no strain multiplier"
             );
         }
-        assert!(w.strain_events().is_empty());
+        assert!(w.strain_events().next().is_none());
     }
 }
 

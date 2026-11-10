@@ -207,8 +207,8 @@ fn a_finished_chart_uncovers_the_nearest_reachable_ruin_before_a_closer_unreacha
     w.buried.insert(farther_but_reachable, ruins(&defs));
 
     run_until(&mut w, &defs, 200, |w| seated(w, 0));
-    run_until(&mut w, &defs, 20_000, |w| !w.chart_events().is_empty());
-    let ev = w.chart_events()[0];
+    run_until(&mut w, &defs, 20_000, |w| w.chart_events().next().is_some());
+    let ev = w.chart_events().next().unwrap();
     match ev.kind {
         ChartEventKind::Found { pos, reachable } => {
             assert_eq!(pos, farther_but_reachable, "the reachable one wins despite being farther");
@@ -230,9 +230,9 @@ fn a_ruin_under_something_else_is_skipped() {
     w.ground.insert(blocked, Stack { item: defs.item_id("wood").unwrap(), count: 1 });
 
     run_until(&mut w, &defs, 200, |w| seated(w, 0));
-    run_until(&mut w, &defs, 20_000, |w| !w.chart_events().is_empty());
+    run_until(&mut w, &defs, 20_000, |w| w.chart_events().next().is_some());
     assert_eq!(
-        w.chart_events()[0].kind,
+        w.chart_events().next().unwrap().kind,
         ChartEventKind::Found { pos: open, reachable: true },
         "the blocked ruin is skipped"
     );
@@ -249,7 +249,7 @@ fn a_finished_chart_is_remembered_across_a_save_without_its_room_or_its_ruins() 
     assert!(!w.charted_at(only));
 
     run_until(&mut w, &defs, 200, |w| seated(w, 0));
-    run_until(&mut w, &defs, 20_000, |w| !w.chart_events().is_empty());
+    run_until(&mut w, &defs, 20_000, |w| w.chart_events().next().is_some());
     assert!(w.has_charted());
     assert!(w.charted_at(only));
     assert!(!w.charted_at(at(2, 2)), "only the charted ruin's own tile");
@@ -274,8 +274,11 @@ fn every_ruin_charted_closes_the_seat_and_logs_none_left() {
     w.buried.insert(only, ruins(&defs));
 
     run_until(&mut w, &defs, 200, |w| seated(w, 0));
-    run_until(&mut w, &defs, 20_000, |w| !w.chart_events().is_empty());
-    assert_eq!(w.chart_events()[0].kind, ChartEventKind::Found { pos: only, reachable: true });
+    run_until(&mut w, &defs, 20_000, |w| w.chart_events().next().is_some());
+    assert_eq!(
+        w.chart_events().next().unwrap().kind,
+        ChartEventKind::Found { pos: only, reachable: true }
+    );
     assert_eq!(w.map[only].resource, Some(ruins(&defs)));
 
     // Nothing left: the seat opens again, but a settler who takes it immediately finds nothing
@@ -297,7 +300,10 @@ fn charting_is_deterministic() {
         for _ in 0..20_000 {
             w.tick(&defs);
         }
-        (w.chart_events().to_vec(), w.map.iter().filter(|(_, t)| t.resource.is_some()).count())
+        (
+            w.chart_events().cloned().collect::<Vec<_>>(),
+            w.map.iter().filter(|(_, t)| t.resource.is_some()).count(),
+        )
     };
     assert_eq!(run(), run());
 }

@@ -71,9 +71,9 @@ fn cast_scooter(w: &mut World, defs: &Defs, pos: Pos) {
     }
     w.units[0].chi = defs.chi.max;
     w.apply(Command::Bend { ability: scooter(defs), pos }, defs).unwrap();
-    let events = w.bend_events().len();
-    run_until(w, defs, 1000, |w| w.bend_events().len() > events);
-    assert_eq!(w.bend_events().last().unwrap().outcome, BendOutcome::Done);
+    let events = w.bend_events().count();
+    run_until(w, defs, 1000, |w| w.bend_events().count() > events);
+    assert_eq!(w.bend_events().next_back().unwrap().outcome, BendOutcome::Done);
 }
 
 #[test]
@@ -229,7 +229,12 @@ fn strip_rides(body: &str) -> String {
 
 fn scooter_snapshot(w: &World) -> String {
     let units: Vec<_> = w.units.iter().map(|u| (u.id, u.pos, u.chi.to_bits())).collect();
-    format!("tick {} {units:?} rides {:?} events {:?}", w.tick, w.rides, w.bend_events())
+    format!(
+        "tick {} {units:?} rides {:?} events {:?}",
+        w.tick,
+        w.rides,
+        w.bend_events().collect::<Vec<_>>()
+    )
 }
 
 fn play_scooter_session(defs: &Defs) -> World {
@@ -252,7 +257,7 @@ fn a_session_with_air_scooter_replays_identically() {
     let original = play_scooter_session(&defs);
     let log = original.command_log().to_vec();
     assert!(
-        original.bend_events().len() >= 2,
+        original.bend_events().count() >= 2,
         "the session should cast twice: {}",
         scooter_snapshot(&original)
     );

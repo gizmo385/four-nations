@@ -1549,11 +1549,11 @@ fn a_bend_flashes_the_nations_accent_right_after_it_lands_then_fades() {
     s.apply(Command::Bend { ability, pos }).unwrap();
     for _ in 0..20_000 {
         s.tick();
-        if !s.world.bend_events().is_empty() {
+        if s.world.bend_events().next().is_some() {
             break;
         }
     }
-    assert_eq!(s.world.bend_events().last().map(|e| e.outcome), Some(BendOutcome::Done));
+    assert_eq!(s.world.bend_events().next_back().map(|e| e.outcome), Some(BendOutcome::Done));
 
     let mut app = App::new(s, SIZE);
     let p = palette(&app.session, ColorDepth::TrueColor, false);

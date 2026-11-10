@@ -217,12 +217,12 @@ fn fire_mid_game() -> Session {
     s.world.map_changed();
     for _ in 0..200 {
         s.tick_n(100);
-        if s.world.bend_events().iter().any(|e| matches!(e.outcome, BendOutcome::Failed(_))) {
+        if s.world.bend_events().any(|e| matches!(e.outcome, BendOutcome::Failed(_))) {
             break;
         }
     }
     assert!(
-        s.world.bend_events().iter().any(|e| matches!(e.outcome, BendOutcome::Failed(_))),
+        s.world.bend_events().any(|e| matches!(e.outcome, BendOutcome::Failed(_))),
         "the settler's own tile turning to rock should have doomed one channel"
     );
     let bed = s.defs.building_id("bed").expect("every nation has a bed");

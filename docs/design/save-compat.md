@@ -224,6 +224,23 @@ only.
   build (`fixtures/v2_….ron`, including a multi-tile building and a site). The v1 fixture must
   then load through both steps, and the save_compat cases should run against the v3 format too.
 
+## Version 4: one event log (#605)
+
+`SAVE_VERSION` is 4. The body writes one `events` list (`World::events`) in place of the nine
+event lists up to v3 (`bend_events`, the research state's `log`, `deaths`, the endeavor log's
+`events`, `arrivals`, `season_events`, `strain_events`, `harm_events`, `chart_events`). The
+step follows the #604 pattern:
+
+- The old lists are deserialize-only `v3_*` fields (`World`, `Research::v3_log`,
+  `EndeavorLog::v3_events`), read inside the id remap, so their ids are already today's.
+- `load` runs `upgrade_from_v2` for a body below v3, then `upgrade_from_v3` for a body below
+  v4, so v1 and v2 saves load through every step. `validate` refuses a world whose old lists
+  weren't merged.
+- The merge orders by tick, then by `Event::order` (bends, techs, deaths, endeavor, arrivals,
+  seasons, strain, harm, charts: the order `fn_ui::Alerts` read the lists in), then each list's
+  own order. `fixtures/v3_events.ron` pins it, and `fn_ui::alerts` checks that the fixture's
+  alert log reads as it did before the change.
+
 ## Open question for the owner
 
 1. **Should v1 saves made with older data also load?** Today's design loads only v1 saves

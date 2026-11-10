@@ -154,8 +154,8 @@ fn every_death_gets_an_autopsy() {
     };
     let (r, world) = run_world(&s, &defs);
     assert!(r.deaths > 0, "expected someone to die with nobody playing on Hard: {r:?}");
-    assert_eq!(r.autopsies.len(), world.deaths.len());
-    for (a, d) in r.autopsies.iter().zip(&world.deaths) {
+    assert_eq!(r.autopsies.len(), world.deaths().count());
+    for (a, d) in r.autopsies.iter().zip(world.deaths()) {
         assert_eq!(
             (a.name.as_str(), a.cause, a.weakened_by),
             (d.name.as_str(), d.cause, d.weakened_by)
@@ -319,7 +319,7 @@ fn an_autopsy_names_the_water_and_food_it_never_had() {
         World::with_map(1, arena(&defs, &rows), Nation::Earth, &[Pos::new(3, 1)], &defs);
     let mut probe = Probe::new(&world, &defs, &bare_site());
     let mut minutes = 0u16;
-    while world.deaths.is_empty() {
+    while world.deaths().next().is_none() {
         assert!(minutes < 300, "nobody died in five hours");
         probe.sample(&world, &defs);
         for _ in 0..600 {

@@ -70,9 +70,9 @@ fn cut(w: &mut World, defs: &Defs, pos: Pos) {
         u.chi = defs.chi.max;
     }
     w.apply(Command::Bend { ability: cut_ice(defs), pos }, defs).unwrap();
-    let events = w.bend_events().len();
-    run_until(w, defs, 3000, |w| w.bend_events().len() > events);
-    assert_eq!(w.bend_events().last().unwrap().outcome, BendOutcome::Done);
+    let events = w.bend_events().count();
+    run_until(w, defs, 3000, |w| w.bend_events().count() > events);
+    assert_eq!(w.bend_events().next_back().unwrap().outcome, BendOutcome::Done);
 }
 
 #[test]

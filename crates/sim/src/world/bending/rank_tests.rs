@@ -168,15 +168,15 @@ fn forms_count_distinct_abilities_not_total_bends() {
     let b = id(&defs, "probe_b");
 
     w.apply(Command::Bend { ability: a, pos: at(3, 1) }, &defs).unwrap();
-    run_until(&mut w, &defs, 200, |w| w.bend_events().len() == 1);
+    run_until(&mut w, &defs, 200, |w| w.bend_events().count() == 1);
     assert_eq!((w.units[0].bends(), w.units[0].forms()), (1, 1));
 
     w.apply(Command::Bend { ability: a, pos: at(4, 1) }, &defs).unwrap();
-    run_until(&mut w, &defs, 200, |w| w.bend_events().len() == 2);
+    run_until(&mut w, &defs, 200, |w| w.bend_events().count() == 2);
     assert_eq!((w.units[0].bends(), w.units[0].forms()), (2, 1), "same ability again: no new form");
 
     w.apply(Command::Bend { ability: b, pos: at(5, 1) }, &defs).unwrap();
-    run_until(&mut w, &defs, 200, |w| w.bend_events().len() == 3);
+    run_until(&mut w, &defs, 200, |w| w.bend_events().count() == 3);
     assert_eq!((w.units[0].bends(), w.units[0].forms()), (3, 2), "a different ability: a new form");
     assert_eq!(w.units[0].bends_of(a), 2);
     assert_eq!(w.units[0].bends_of(b), 1);
@@ -248,8 +248,8 @@ fn a_master_pays_the_discounted_chi() {
     let spawn = w.units[0].pos;
     w.units[0].chi = 8.0; // Below probe_a's full 10, but above its master's 80%.
     w.apply(Command::Bend { ability: probe_a, pos: spawn }, &defs).unwrap();
-    run_until(&mut w, &defs, 200, |w| !w.bend_events().is_empty());
-    assert_eq!(w.bend_events()[0].outcome, BendOutcome::Done);
+    run_until(&mut w, &defs, 200, |w| w.bend_events().next().is_some());
+    assert_eq!(w.bend_events().next().unwrap().outcome, BendOutcome::Done);
     assert!(w.units[0].chi < 0.1, "{}", w.units[0].chi);
 }
 

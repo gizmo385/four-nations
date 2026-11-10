@@ -194,7 +194,7 @@ fn digest(w: &World, defs: &Defs) -> String {
     let mut out = String::new();
     let o = &mut out;
     writeln!(o, "tick {}", w.tick).unwrap();
-    writeln!(o, "deaths {} buried {}", w.deaths.len(), w.buried_count()).unwrap();
+    writeln!(o, "deaths {} buried {}", w.deaths().count(), w.buried_count()).unwrap();
 
     writeln!(o, "\n[units]").unwrap();
     for u in &w.units {
@@ -244,7 +244,7 @@ fn digest(w: &World, defs: &Defs) -> String {
     writeln!(o, "pool {} known {}", r.pool_millis(), known.join(",")).unwrap();
     writeln!(o, "queue {}", r.queue().iter().map(|&t| tech(t)).collect::<Vec<_>>().join(","))
         .unwrap();
-    for c in r.completions() {
+    for c in w.tech_completions() {
         writeln!(o, "completed {} at {}", tech(c.tech), c.tick).unwrap();
     }
 
@@ -291,7 +291,7 @@ fn digest(w: &World, defs: &Defs) -> String {
         .unwrap();
     }
     writeln!(o, "orchards {:?}", w.orchards().collect::<Vec<_>>()).unwrap();
-    writeln!(o, "charts {:?}", w.chart_events()).unwrap();
+    writeln!(o, "charts {:?}", w.chart_events().collect::<Vec<_>>()).unwrap();
     writeln!(o, "flames {:?}", w.flames()).unwrap();
 
     // Every tile, by public query: what stands on it, what grows on it, whether a source warms

@@ -177,16 +177,16 @@ fn an_air_settlement_finishes_its_tree_within_the_pacing_targets() {
     let minutes = done_at.expect("the tree should finish within 4 hours") as f64 / MINUTE as f64;
     // 2 to 2.5 hours, plus or minus 25%.
     assert!((90.0..=187.5).contains(&minutes), "finished after {minutes:.1} min");
-    assert!(w.deaths.is_empty(), "{:?}", w.deaths);
+    assert!(w.deaths().next().is_none(), "{:?}", w.deaths().collect::<Vec<_>>());
 
     // The branch finished in prerequisite order, and everything it unlocks is now open.
     let tick_of = |name: &str| {
         let id = defs.tech_id(name).unwrap();
-        w.research().completions().iter().find(|c| c.tech == id).map(|c| c.tick).unwrap()
+        w.tech_completions().find(|c| c.tech == id).map(|c| c.tick).unwrap()
     };
     for t in nation_techs.iter().map(|&t| defs.tech(t)) {
         for p in &t.prereqs {
-            if let Some(c) = w.research().completions().iter().find(|c| c.tech == *p) {
+            if let Some(c) = w.tech_completions().find(|c| c.tech == *p) {
                 assert!(c.tick <= tick_of(&t.id), "{} before its prereq", t.id);
             }
         }

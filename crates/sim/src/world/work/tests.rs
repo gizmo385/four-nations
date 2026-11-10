@@ -375,7 +375,7 @@ fn a_building_finished_under_a_drinker_does_not_hold_the_drink_forever() {
 
     let before = w.units[0].needs.thirst;
     run_until(&mut w, &defs, 500, |w| w.units[0].needs.thirst > before + 20.0);
-    assert!(w.deaths.is_empty());
+    assert!(w.deaths().next().is_none());
 }
 
 /// #563's backstop, and #386's signature: whatever clears the route under a need task, the task
@@ -386,7 +386,7 @@ fn a_need_task_that_loses_its_route_is_planned_again() {
     w.units[0].route = None;
     let before = w.units[0].needs.thirst;
     run_until(&mut w, &defs, 500, |w| w.units[0].needs.thirst > before + 20.0);
-    assert!(w.deaths.is_empty());
+    assert!(w.deaths().next().is_none());
 }
 
 /// #293: `plan_drink` now finds the nearest tile beside water through `Flood::seek`, checking
@@ -662,8 +662,8 @@ fn units_still_starve_where_there_is_no_food_at_all() {
     let rows = ["~~~~~~~~~", ".........", ".........", "........."];
     let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 2), at(5, 2)]);
     run_until(&mut w, &defs, 100_000, |w| w.units.is_empty());
-    assert_eq!(w.deaths.len(), 2);
-    assert!(w.deaths.iter().all(|d| d.cause == DeathCause::Starvation));
+    assert_eq!(w.deaths().count(), 2);
+    assert!(w.deaths().all(|d| d.cause == DeathCause::Starvation));
 }
 
 #[test]

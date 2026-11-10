@@ -63,8 +63,8 @@ fn a_newcomer_joins_with_a_free_bed_and_enough_food() {
     let before = w.units.len();
     tick_one_check(&mut w, &defs);
     assert_eq!(w.units.len(), before + 1, "a newcomer should have joined");
-    assert_eq!(w.arrivals().len(), 1);
-    let arrival = &w.arrivals()[0];
+    assert_eq!(w.arrivals().count(), 1);
+    let arrival = &w.arrivals().next().unwrap();
     assert_eq!(arrival.unit, w.units.last().unwrap().id);
     assert!(!arrival.name.is_empty());
 }
@@ -155,7 +155,7 @@ fn no_newcomer_without_a_free_bed() {
     let before = w.units.len();
     tick_one_check(&mut w, &defs);
     assert_eq!(w.units.len(), before, "no bed, no newcomer");
-    assert!(w.arrivals().is_empty());
+    assert!(w.arrivals().next().is_none());
 }
 
 #[test]
@@ -168,7 +168,7 @@ fn no_newcomer_without_enough_food() {
     let before = w.units.len();
     tick_one_check(&mut w, &defs);
     assert_eq!(w.units.len(), before, "not enough food, no newcomer");
-    assert!(w.arrivals().is_empty());
+    assert!(w.arrivals().next().is_none());
 }
 
 /// #552, #513: growth needs bed capacity above the living settlers, whether or not anyone is
@@ -293,8 +293,8 @@ fn two_runs_from_one_seed_give_the_same_arrivals() {
         a.tick(&defs);
         b.tick(&defs);
     }
-    assert!(!a.arrivals().is_empty(), "growth should have fired at least once");
-    assert_eq!(a.arrivals(), b.arrivals());
+    assert!(a.arrivals().next().is_some(), "growth should have fired at least once");
+    assert!(a.arrivals().eq(b.arrivals()));
     assert_eq!(a.save(&defs).unwrap(), b.save(&defs).unwrap());
 }
 
@@ -408,10 +408,11 @@ fn old_saves_without_the_growth_fields_still_load() {
     let defs = Defs::bundled();
     let w = world(1, &defs);
     let text = w.save(&defs).unwrap();
-    assert!(text.contains("next_unit:1") && text.contains("arrivals:[]"), "{text}");
-    let old = text.replace("next_unit:1,", "").replace("arrivals:[],", "");
+    // Arrivals are in the event log since #605; a v4 save has no `arrivals` list to leave out.
+    assert!(text.contains("next_unit:1") && !text.contains("arrivals"), "{text}");
+    let old = text.replace("next_unit:1,", "");
     let mut loaded = World::load(&old, &defs).unwrap();
-    assert_eq!(loaded.arrivals(), &[]);
+    assert_eq!(loaded.arrivals().count(), 0);
     // A missing `next_unit` deserializes as 0, which would collide with the one unit already on
     // file (also id 0); `World::load`'s fixup must have moved it past that before anything new
     // can spawn.

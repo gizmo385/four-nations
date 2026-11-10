@@ -326,11 +326,6 @@ fn reshape_mismatch(from: &[Terrain], terrain: Terrain) -> &'static str {
 
 /// Queries and the designations behind `Command::Bend` and `Command::CancelBend`.
 impl World {
-    /// Every bend that has finished or failed, oldest first.
-    pub fn bend_events(&self) -> &[BendEvent] {
-        &self.bend_events
-    }
-
     /// Every bend being channelled right now, in unit order: the unit has reached its spot, no
     /// need has pre-empted the job, and the channel has not yet completed. A unit still walking
     /// to the tile, or set aside to eat, is not channelling.
@@ -709,7 +704,7 @@ impl World {
             }
         };
         let unit = self.units[i].id;
-        self.bend_events.push(BendEvent { tick: self.tick, unit, ability, pos, outcome, moved });
+        self.log_event(BendEvent { tick: self.tick, unit, ability, pos, outcome, moved });
     }
 
     /// Is `pos` an acceptable target for `def` right now? Run when the command is given and

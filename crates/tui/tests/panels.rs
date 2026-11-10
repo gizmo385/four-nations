@@ -676,11 +676,11 @@ fn deaths_are_logged() {
     a.session.world.units[0].needs.health = 0.01;
     for _ in 0..50 {
         run(&mut a, "<tick 20>");
-        if !a.session.world.deaths.is_empty() {
+        if a.session.world.deaths().next().is_some() {
             break;
         }
     }
-    assert!(!a.session.world.deaths.is_empty(), "the settler should have died");
+    assert!(a.session.world.deaths().next().is_some(), "the settler should have died");
     run(&mut a, "l");
     let frame = text(&mut a, SIZE);
     assert!(frame.contains(" died of "), "{frame}");

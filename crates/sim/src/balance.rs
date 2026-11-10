@@ -45,8 +45,8 @@ use crate::mapgen::MapGenConfig;
 use crate::nation::Nation;
 use crate::score::{ScoreDef, ScoreStart, Scorecard};
 use crate::world::{
-    EndeavorEventKind, FoodSource, SeasonEventKind, TICKS_PER_SECOND, Task, UnitId, World,
-    minutes_to_ticks,
+    EndeavorEventKind, Event, FoodSource, SeasonEvent, SeasonEventKind, TICKS_PER_SECOND, Task,
+    UnitId, World, minutes_to_ticks,
 };
 
 /// The settlement's starting headcount every run uses: the same six settlers the TUI starts a
@@ -150,8 +150,9 @@ pub fn run(cfg: &RunConfig, defs: &Defs) -> RunReport {
         world.tick(defs);
         world.assert_invariants(defs);
 
-        for ev in world.season_events().iter().rev().take_while(|e| e.tick == world.tick) {
-            if let SeasonEventKind::Changed { season } = ev.kind
+        for ev in world.events_this_tick() {
+            if let Event::Season(SeasonEvent { kind: SeasonEventKind::Changed { season }, .. }) =
+                *ev
                 && defs.seasons.seasons[season].winter
             {
                 let population = world.units.len() as f32;
@@ -174,14 +175,14 @@ pub fn run(cfg: &RunConfig, defs: &Defs) -> RunReport {
     let mut top_bends: Vec<u32> = world.units.iter().map(|u| u.bends()).collect();
     top_bends.sort_unstable_by(|a, b| b.cmp(a));
     top_bends.truncate(3);
-    let masters_minute = world.endeavor_events().iter().find_map(|e| match &e.kind {
+    let masters_minute = world.endeavor_events().find_map(|e| match &e.kind {
         EndeavorEventKind::SignMet(id) if id == "masters" => Some(ticks_to_minutes(e.tick)),
         _ => None,
     });
 
     RunReport {
-        first_death_minute: world.deaths.first().map(|d| ticks_to_minutes(d.tick)),
-        deaths: world.deaths.len() as u32,
+        first_death_minute: world.deaths().next().map(|d| ticks_to_minutes(d.tick)),
+        deaths: world.deaths().count() as u32,
         population: world.units.len() as u32,
         winter_food_per_head,
         walk_minute_15: median(window_samples[0].clone()),
@@ -387,9 +388,7 @@ fn decision_events(
     sign_minutes: &[(String, Option<f32>)],
 ) -> Vec<DecisionEvent> {
     let mut events: Vec<DecisionEvent> = world
-        .research()
-        .completions()
-        .iter()
+        .tech_completions()
         .filter_map(|c| {
             let tech = defs.tech(c.tech);
             let unlocks_something = !tech.unlocks.buildings.is_empty()

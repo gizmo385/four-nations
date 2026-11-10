@@ -245,9 +245,9 @@ fn frost_takes_an_unharvested_ripe_crop_on_a_frost_band_tile() {
     w.tick(&defs); // crosses into winter: the first frost
     assert_eq!(w.plot_stage(MID), Some(PlotStage::Empty), "frost took the unharvested crop");
     assert!(
-        w.season_events().iter().any(|e| matches!(e.kind, SeasonEventKind::Frost { count: 1 })),
+        w.season_events().any(|e| matches!(e.kind, SeasonEventKind::Frost { count: 1 })),
         "{:?}",
-        w.season_events()
+        w.season_events().collect::<Vec<_>>()
     );
 }
 

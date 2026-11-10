@@ -65,9 +65,9 @@ fn draw(w: &mut World, defs: &Defs, pos: Pos) {
         u.chi = defs.chi.max;
     }
     w.apply(Command::Bend { ability: draw_water(defs), pos }, defs).unwrap();
-    let events = w.bend_events().len();
-    run_until(w, defs, 3000, |w| w.bend_events().len() > events);
-    assert_eq!(w.bend_events().last().unwrap().outcome, BendOutcome::Done);
+    let events = w.bend_events().count();
+    run_until(w, defs, 3000, |w| w.bend_events().count() > events);
+    assert_eq!(w.bend_events().next_back().unwrap().outcome, BendOutcome::Done);
 }
 
 #[test]
@@ -164,7 +164,7 @@ fn the_magnitude_modifier_scales_revert_minutes() {
     let ability = defs.ability_id("fast_draw").unwrap();
     let pos = at(4, 4);
     w.apply(Command::Bend { ability, pos }, &defs).unwrap();
-    run_until(&mut w, &defs, 200, |w| !w.bend_events().is_empty());
+    run_until(&mut w, &defs, 200, |w| w.bend_events().next().is_some());
     let factor = w.modifiers().water_work;
     assert!((factor - 2.0).abs() < 1e-4, "{factor}");
     let cast_at = w.tick;
@@ -224,7 +224,7 @@ fn a_settler_standing_on_the_pool_is_not_stranded_or_killed_when_it_reverts() {
     w.tick(&defs);
     assert_eq!(w.map[pos].terrain, Terrain::Land, "reverted on schedule");
     assert!(w.unit(w.units[0].id).is_some(), "the settler standing on the pool survives");
-    assert!(w.deaths.is_empty());
+    assert!(w.deaths().next().is_none());
     assert!(w.map[pos].terrain.is_walkable(), "still walkable Land after reverting");
 
     // The regions cache was marked dirty by the revert (not left stale), and a far tile is still
