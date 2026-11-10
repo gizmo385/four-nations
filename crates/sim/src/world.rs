@@ -29,6 +29,7 @@ mod buildings;
 mod care;
 mod chart;
 mod command;
+mod deconstruct;
 mod endeavor;
 mod events;
 mod farm;

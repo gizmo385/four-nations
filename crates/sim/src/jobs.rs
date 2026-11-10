@@ -491,6 +491,11 @@ pub enum JobKind {
     /// `seats` when a Map Room finishes construction (`world/chart.rs`), mirroring a study
     /// hall's `Study` job; never completes on its own.
     Chart { pos: Pos },
+    /// Take down the finished building anchored on this tile (issue #342,
+    /// `world/deconstruct.rs`): a unit works it from beside (or inside) the building, and when
+    /// the work is done the whole footprint clears at once and part of its cost drops by the
+    /// anchor (`[deconstruct]` in data/buildings.toml). Opened by `Command::Deconstruct`.
+    Deconstruct { pos: Pos },
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

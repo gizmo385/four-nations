@@ -191,7 +191,8 @@ fn task_job(task: Task) -> Option<JobId> {
         | Task::Sow(id)
         | Task::Reap(id)
         | Task::Clear(id)
-        | Task::Chart(id) => Some(id),
+        | Task::Chart(id)
+        | Task::Deconstruct(id) => Some(id),
         Task::Rite
         | Task::Deliver
         | Task::Eat(_)

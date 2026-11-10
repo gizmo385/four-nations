@@ -203,6 +203,24 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
                 None => format!("Clearing at ({}, {})", pos.x, pos.y),
             }
         }
+        Task::Deconstruct(id) => {
+            let Some(job) = world.job(id) else { return "Taking down".into() };
+            let JobKind::Deconstruct { pos } = job.kind else { return "Taking down".into() };
+            match world.building_record(pos) {
+                Some(b) => {
+                    let def = defs.building(b.id);
+                    let total = def.work * defs.deconstruct.work;
+                    format!(
+                        "Taking down {} at ({}, {}), {:.0}% done",
+                        def.display_name(world.nation),
+                        pos.x,
+                        pos.y,
+                        (job.progress / total * 100.0).clamp(0.0, 100.0)
+                    )
+                }
+                None => format!("Taking down at ({}, {})", pos.x, pos.y),
+            }
+        }
         Task::Haul(id) => {
             let at = world.job(id).and_then(|j| match j.kind {
                 JobKind::Haul { pos } => Some(pos),
@@ -215,7 +233,7 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
                 JobKind::Craft { .. } => None,
                 JobKind::Sow { .. } | JobKind::Reap { .. } => None,
                 JobKind::Clear { .. } => None,
-                JobKind::Chart { .. } => None,
+                JobKind::Chart { .. } | JobKind::Deconstruct { .. } => None,
             });
             let stack = at.and_then(|p| world.ground_items().find(|(q, _)| *q == p));
             match (stack, at) {

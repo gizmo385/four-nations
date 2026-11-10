@@ -57,6 +57,13 @@ pub enum Command {
     DesignateClear { pos: Pos },
     /// Withdraw a Clear designation. Work already done on it is lost.
     CancelClear { pos: Pos },
+    /// Mark the finished building covering this tile (any tile of its footprint) to be taken
+    /// down (`world/deconstruct.rs`, issue #342): a unit works it, the whole footprint clears at
+    /// once, and part of its cost drops by the anchor.
+    Deconstruct { pos: Pos },
+    /// Take back the mark on the building covering this tile. Work done on it is lost; the
+    /// building stands untouched.
+    CancelDeconstruct { pos: Pos },
 }
 
 /// Why a command was refused. The world is unchanged when `apply` returns one of these.
@@ -140,6 +147,10 @@ impl std::fmt::Display for CommandError {
             Self::Designate(DesignateError::NoFarmPlot) => f.write_str("not a farm plot"),
             Self::Designate(DesignateError::PlotNotEmpty) => f.write_str("already sown"),
             Self::Designate(DesignateError::CannotClear) => f.write_str("can't be cleared"),
+            Self::Designate(DesignateError::NoBuilding) => f.write_str("no building here"),
+            Self::Designate(DesignateError::CannotDeconstruct) => {
+                f.write_str("can't be taken down")
+            }
             Self::Research(e) => e.fmt(f),
             Self::Bend(e) => e.fmt(f),
             Self::Build(e) => e.fmt(f),
@@ -189,6 +200,8 @@ impl World {
             Command::CancelSow { pos } => self.cancel_sow(pos)?,
             Command::DesignateClear { pos } => self.designate_clear(pos, defs).map(drop)?,
             Command::CancelClear { pos } => self.cancel_clear(pos)?,
+            Command::Deconstruct { pos } => self.designate_deconstruct(pos, defs).map(drop)?,
+            Command::CancelDeconstruct { pos } => self.cancel_deconstruct(pos)?,
         }
         self.command_log.push(Recorded { tick: self.tick, command });
         Ok(())

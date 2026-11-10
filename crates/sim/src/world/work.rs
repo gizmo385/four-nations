@@ -125,6 +125,8 @@ pub enum Task {
     Clear(JobId),
     /// Holding a Map Room's seat (`world/chart.rs`, #402).
     Chart(JobId),
+    /// Taking a finished building down (`world/deconstruct.rs`, #342).
+    Deconstruct(JobId),
     /// Carrying a stack to a stockpile tile.
     Deliver,
     Eat(FoodSource),
@@ -181,6 +183,10 @@ pub enum DesignateError {
     /// The resource on that tile is renewable but has no `[harvest.clear]`
     /// (`docs/design/clearing.md`, issue #424): a fish spot, say.
     CannotClear,
+    /// There is no finished building on that tile to take down (issue #342).
+    NoBuilding,
+    /// That building can't be taken down: the endeavor's gate (issue #342).
+    CannotDeconstruct,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -264,7 +270,7 @@ impl World {
                 JobKind::Craft { .. } => None,
                 JobKind::Sow { .. } | JobKind::Reap { .. } => None,
                 JobKind::Clear { .. } => None,
-                JobKind::Chart { .. } => None,
+                JobKind::Chart { .. } | JobKind::Deconstruct { .. } => None,
             })
             .chain(self.standing_harvest.iter().copied())
     }
@@ -290,7 +296,8 @@ impl World {
             | JobKind::Craft { .. }
             | JobKind::Sow { .. }
             | JobKind::Reap { .. }
-            | JobKind::Chart { .. } => None,
+            | JobKind::Chart { .. }
+            | JobKind::Deconstruct { .. } => None,
         })
     }
 
@@ -1364,8 +1371,8 @@ impl World {
                     .map(|id| defs.building(id))
                     .and_then(|d| d.healing.as_ref())
                 else {
-                    // The building is gone (no demolish command exists yet, so unreachable in
-                    // practice today).
+                    // The building is gone: taken down (#342, though `remove_building` already
+                    // ends this need) or a data change. Moot.
                     return self.finish_need(i);
                 };
                 let u = &self.units[i];
@@ -1587,6 +1594,7 @@ impl World {
             JobKind::Reap { .. } => Task::Reap(job.id),
             JobKind::Clear { .. } => Task::Clear(job.id),
             JobKind::Chart { .. } => Task::Chart(job.id),
+            JobKind::Deconstruct { .. } => Task::Deconstruct(job.id),
         };
         let u = &mut self.units[i];
         u.job_task = Some(task);
@@ -1793,6 +1801,7 @@ impl World {
             Task::Reap(id) => self.run_reap(i, id, defs),
             Task::Clear(id) => self.run_clear(i, id, defs),
             Task::Chart(id) => self.run_chart(i, id, defs),
+            Task::Deconstruct(id) => self.run_deconstruct(i, id, defs),
             Task::Deliver => self.run_deliver(i, defs),
             // Need tasks never sit in the job slot.
             _ => self.finish_job(i),
@@ -1984,7 +1993,8 @@ fn job_pos(kind: JobKind) -> Option<Pos> {
         | JobKind::Sow { pos }
         | JobKind::Reap { pos }
         | JobKind::Clear { pos }
-        | JobKind::Chart { pos } => Some(pos),
+        | JobKind::Chart { pos }
+        | JobKind::Deconstruct { pos } => Some(pos),
         JobKind::EndeavorTask { .. } => None,
     }
 }
@@ -2001,7 +2011,8 @@ fn job_priority(kind: JobKind) -> u8 {
         | JobKind::EndeavorTask { .. }
         | JobKind::Sow { .. }
         | JobKind::Reap { .. }
-        | JobKind::Clear { .. } => 0,
+        | JobKind::Clear { .. }
+        | JobKind::Deconstruct { .. } => 0,
     }
 }
 
