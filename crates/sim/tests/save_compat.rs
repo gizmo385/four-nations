@@ -215,7 +215,9 @@ fn copy(case: Case) -> Defs {
 }
 
 /// A busy world per nation, played under the bundled data: the scripted opening with bending and
-/// the whole tech tree queued, then a fresh build site. Built once per test binary.
+/// the whole tech tree queued, then a fresh build site. Built once per test process (nextest
+/// runs each test in its own). A 64x64 map: what's under test is how ids map, not the map's
+/// size, and every save and load of a small-map world costs an eighth as much.
 fn busy_worlds() -> &'static [World] {
     static WORLDS: OnceLock<Vec<World>> = OnceLock::new();
     WORLDS.get_or_init(|| {
@@ -224,7 +226,12 @@ fn busy_worlds() -> &'static [World] {
             .into_iter()
             .enumerate()
             .map(|(i, nation)| {
-                let cfg = MapGenConfig { seed: 30 + i as u64, ..Default::default() };
+                let cfg = MapGenConfig {
+                    seed: 30 + i as u64,
+                    width: 64,
+                    height: 64,
+                    ..Default::default()
+                };
                 let mut w = World::new(&cfg, nation, 4, &defs);
                 let opening = Opening::with_bending(4, 2).with_full_research();
                 for tick in 0..6000 {

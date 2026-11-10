@@ -6,12 +6,14 @@
 //! `path::find`, so a path read out of a flood is a legal, cheapest path under the same
 //! `MoveRules`. Ties are broken by tile index, so results are deterministic.
 
+use std::cell::RefCell;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
+use std::sync::Arc;
 
 use crate::geom::Pos;
 use crate::mapgen::TileMap;
-use crate::path::{DIAGONAL_SIDES, MoveRules, NEIGHBORS};
+use crate::path::{DIAGONAL, DIAGONAL_SIDES, MoveRules, NEIGHBORS, STRAIGHT};
 
 const UNSEEN: u32 = u32::MAX;
 
@@ -22,42 +24,175 @@ thread_local! {
     pub(crate) static CALLS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
+/// What a flood needs to know about each tile of one map under one set of `MoveRules`: its
+/// entry cost multiplier (`MoveRules::tile_cost`, `UNSEEN` for impassable) and whether it
+/// holds rail. Built once per map and rules, it lets a flood step without looking tiles and
+/// rules up again, and lets `World` share one between every flood until the map changes.
+#[derive(Debug)]
+pub struct StepGrid {
+    width: i32,
+    height: i32,
+    cost: Vec<u32>,
+    rail: Vec<bool>,
+    rail_step: u32,
+    /// Connected region per tile (`UNSEEN` for impassable ones), labelled by a 4-way fill the
+    /// way `Regions` is (its module doc says why that is exactly what 8-way steps without
+    /// corner-cutting reach). Lets a flood answer "unreachable" without searching for it.
+    region: Vec<u32>,
+}
+
+impl StepGrid {
+    pub fn new(map: &TileMap, rules: &MoveRules) -> Self {
+        let mut cost = Vec::with_capacity((map.width() * map.height()) as usize);
+        let mut rail = Vec::with_capacity(cost.capacity());
+        for (_, t) in map.iter() {
+            cost.push(rules.tile_cost(t).unwrap_or(UNSEEN));
+            rail.push(t.building.is_some_and(|b| b.rail()));
+        }
+        let (width, height) = (map.width(), map.height());
+        let region = label_regions(width, height, &cost);
+        Self { width, height, cost, rail, rail_step: rules.rail_step(), region }
+    }
+
+    fn in_bounds(&self, p: Pos) -> bool {
+        p.x >= 0 && p.y >= 0 && p.x < self.width && p.y < self.height
+    }
+
+    /// `MoveRules::step_cost` from tile `from` onto its neighbour `to` (both indices).
+    fn step(&self, from: usize, to: usize, diagonal: bool) -> Option<u32> {
+        let cost = self.cost[to];
+        if cost == UNSEEN {
+            return None;
+        }
+        if diagonal {
+            return Some(DIAGONAL * cost);
+        }
+        if self.rail_step > 0 && self.rail[from] && self.rail[to] {
+            return Some(self.rail_step.min(STRAIGHT * cost));
+        }
+        Some(STRAIGHT * cost)
+    }
+}
+
+/// `StepGrid::region`: a 4-way flood fill over the passable tiles, in row-major order.
+fn label_regions(width: i32, height: i32, cost: &[u32]) -> Vec<u32> {
+    let mut label = vec![UNSEEN; cost.len()];
+    let mut stack = Vec::new();
+    let mut next = 0;
+    for start in 0..cost.len() {
+        if cost[start] == UNSEEN || label[start] != UNSEEN {
+            continue;
+        }
+        label[start] = next;
+        stack.push(start);
+        while let Some(i) = stack.pop() {
+            let (x, y) = (i as i32 % width, i as i32 / width);
+            for (nx, ny) in [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)] {
+                if nx < 0 || ny < 0 || nx >= width || ny >= height {
+                    continue;
+                }
+                let n = (ny * width + nx) as usize;
+                if cost[n] != UNSEEN && label[n] == UNSEEN {
+                    label[n] = next;
+                    stack.push(n);
+                }
+            }
+        }
+        next += 1;
+    }
+    label
+}
+
 /// Cheapest costs from `origin` to every tile it can reach.
+///
+/// The Dijkstra search runs lazily: asking for a tile's cost (or a path to it) continues the
+/// search just until that tile is settled, so a caller that only asks about nearby tiles never
+/// pays for the rest of the map. Tiles settle in exactly the order a search to the end would
+/// settle them, so every answer is the one a complete flood gives.
 #[derive(Debug, Clone)]
 pub struct Flood {
     width: i32,
     origin: Pos,
+    grid: Arc<StepGrid>,
+    search: RefCell<Search>,
+    /// `within`'s bound while it is answering; `UNSEEN` (no bound) otherwise.
+    limit: std::cell::Cell<u32>,
+    /// The origin's region (`StepGrid::region`) when the origin is passable: every tile it can
+    /// reach is in it, so any other tile is unreachable without a search. `None` for an
+    /// impassable origin, which can step into more than one.
+    home: Option<u32>,
+}
+
+#[derive(Debug, Clone)]
+struct Search {
     cost: Vec<u32>,
     came_from: Vec<u32>,
+    closed: Vec<bool>,
+    open: BinaryHeap<Reverse<(u32, usize)>>,
+    /// Set by `seek`, which stops early on purpose: no more expanding, and `cost` answers from
+    /// whatever it reached, settled or not, as it always has.
+    frozen: bool,
 }
 
 impl Flood {
     /// Floods outward from `origin`, which counts as reachable even if its own tile is
     /// impassable (a unit may be standing somewhere it could no longer walk onto).
     pub fn new(map: &TileMap, origin: Pos, rules: &MoveRules) -> Self {
+        Self::over(Arc::new(StepGrid::new(map, rules)), origin)
+    }
+
+    /// `new` over a `StepGrid` already built for the map and rules (`World` keeps one until the
+    /// map changes).
+    pub fn over(grid: Arc<StepGrid>, origin: Pos) -> Self {
         #[cfg(test)]
         CALLS.with(|c| c.set(c.get() + 1));
-        let (w, len) = (map.width(), (map.width() * map.height()) as usize);
-        let idx = |p: Pos| (p.y * w + p.x) as usize;
-        let pos = |i: usize| Pos::new(i as i32 % w, i as i32 / w);
-        let mut cost = vec![UNSEEN; len];
-        let mut came_from = vec![u32::MAX; len];
-        let mut closed = vec![false; len];
-        let mut open = BinaryHeap::new();
-        if map.in_bounds(origin) {
-            cost[idx(origin)] = 0;
-            open.push(Reverse((0u32, idx(origin))));
+        let len = grid.cost.len();
+        let mut search = Search {
+            cost: vec![UNSEEN; len],
+            came_from: vec![u32::MAX; len],
+            closed: vec![false; len],
+            open: BinaryHeap::new(),
+            frozen: false,
+        };
+        if grid.in_bounds(origin) {
+            let i = (origin.y * grid.width + origin.x) as usize;
+            search.cost[i] = 0;
+            search.open.push(Reverse((0u32, i)));
         }
-        while let Some(Reverse((c, i))) = open.pop() {
-            if closed[i] {
+        let limit = std::cell::Cell::new(UNSEEN);
+        let home = grid
+            .in_bounds(origin)
+            .then(|| grid.region[(origin.y * grid.width + origin.x) as usize])
+            .filter(|&r| r != UNSEEN);
+        Self { width: grid.width, origin, grid, search: RefCell::new(search), limit, home }
+    }
+
+    /// Continues the search until tile `target` is settled, or until everything reachable is.
+    fn settle(&self, target: usize) {
+        let mut guard = self.search.borrow_mut();
+        let s = &mut *guard;
+        if s.frozen {
+            return;
+        }
+        let g = &*self.grid;
+        let w = g.width;
+        let limit = self.limit.get();
+        while !s.closed[target] {
+            if s.open.peek().is_some_and(|Reverse((c, _))| *c > limit) {
+                return;
+            }
+            let Some(Reverse((c, i))) = s.open.pop() else { return };
+            if s.closed[i] {
                 continue;
             }
-            closed[i] = true;
-            let p = pos(i);
-            let here = &map[p];
+            s.closed[i] = true;
+            let (x, y) = (i as i32 % w, i as i32 / w);
             let costs = NEIGHBORS.map(|(dx, dy)| {
-                let t = map.get(Pos::new(p.x + dx, p.y + dy))?;
-                rules.step_cost(here, t, dx != 0 && dy != 0)
+                let n = Pos::new(x + dx, y + dy);
+                if !g.in_bounds(n) {
+                    return None;
+                }
+                g.step(i, (n.y * w + n.x) as usize, dx != 0 && dy != 0)
             });
             for (k, (dx, dy)) in NEIGHBORS.into_iter().enumerate() {
                 let Some(step) = costs[k] else { continue };
@@ -67,16 +202,15 @@ impl Flood {
                         continue;
                     }
                 }
-                let n = idx(Pos::new(p.x + dx, p.y + dy));
+                let n = ((y + dy) * w + x + dx) as usize;
                 let nc = c + step;
-                if !closed[n] && nc < cost[n] {
-                    cost[n] = nc;
-                    came_from[n] = i as u32;
-                    open.push(Reverse((nc, n)));
+                if !s.closed[n] && nc < s.cost[n] {
+                    s.cost[n] = nc;
+                    s.came_from[n] = i as u32;
+                    s.open.push(Reverse((nc, n)));
                 }
             }
         }
-        Self { width: w, origin, cost, came_from }
     }
 
     /// Floods from `origin` like `new`, but stops once the nearest tile `probe` accepts has been
@@ -155,7 +289,19 @@ impl Flood {
                 }
             }
         }
-        let flood = Self { width: w, origin, cost, came_from };
+        let search = Search { cost, came_from, closed, open: BinaryHeap::new(), frozen: true };
+        // Frozen: it never steps again, so its grid needs no tiles.
+        let grid = Arc::new(StepGrid {
+            width: w,
+            height: map.height(),
+            cost: Vec::new(),
+            rail: Vec::new(),
+            rail_step: 0,
+            region: Vec::new(),
+        });
+        let limit = std::cell::Cell::new(UNSEEN);
+        let flood =
+            Self { width: w, origin, grid, search: RefCell::new(search), limit, home: None };
         (flood, best.map(|(_, _, p)| p).zip(answer))
     }
 
@@ -174,6 +320,18 @@ impl Flood {
         Self::seek(map, origin, rules, |p, c| targets.get(&p).and_then(|v| accept(p, c, v)))
     }
 
+    /// Runs `f` with every `cost` (and `path_to`) answering `None` for a tile that costs more
+    /// than `limit`, reachable or not, so the search never grows past `limit` while `f` runs.
+    /// Tiles within it answer exactly as they would without one.
+    /// For a caller that only wants something cheaper than what it already has
+    /// (`World::pick_job`).
+    pub fn within<R>(&self, limit: u32, f: impl FnOnce() -> R) -> R {
+        let before = self.limit.replace(limit.min(self.limit.get()));
+        let out = f();
+        self.limit.set(before);
+        out
+    }
+
     pub fn origin(&self) -> Pos {
         self.origin
     }
@@ -184,8 +342,17 @@ impl Flood {
         if p.x < 0 || p.y < 0 || p.x >= self.width {
             return None;
         }
-        match self.cost.get((p.y * self.width + p.x) as usize) {
-            Some(&c) if c != UNSEEN => Some(c),
+        let i = (p.y * self.width + p.x) as usize;
+        if i >= self.search.borrow().cost.len() {
+            return None;
+        }
+        if self.home.is_some_and(|h| self.grid.region[i] != h) {
+            return None;
+        }
+        self.settle(i);
+        let s = self.search.borrow();
+        match s.cost[i] {
+            c if c != UNSEEN && c <= self.limit.get() && (s.closed[i] || s.frozen) => Some(c),
             _ => None,
         }
     }
@@ -197,8 +364,9 @@ impl Flood {
         let pos = |i: usize| Pos::new(i as i32 % w, i as i32 / w);
         let mut path = vec![p];
         let mut cur = (p.y * w + p.x) as usize;
+        let s = self.search.borrow();
         while pos(cur) != self.origin {
-            cur = self.came_from[cur] as usize;
+            cur = s.came_from[cur] as usize;
             path.push(pos(cur));
         }
         path.reverse();

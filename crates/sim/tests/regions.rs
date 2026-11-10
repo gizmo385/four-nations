@@ -44,20 +44,26 @@ fn connected_agrees_with_path_find_on_generated_maps() {
         let regions = Regions::compute(&map, &rules);
         assert!(regions.count() > 1, "seed {seed}: want several regions to tell apart");
 
-        // Sample tiles across the map, including every region's first tile, and check every
-        // pair among them (deterministic: no RNG).
+        // Sample tiles across the map, plus the first tile of every third region (so small
+        // islands and lakes are in it too), and check every pair among them (deterministic: no
+        // RNG). Each unconnected pair costs path::find a search of a whole region, so the
+        // sample is kept to about a hundred tiles.
         let mut sample: Vec<Pos> =
-            map.positions().filter(|p| (p.x * 7 + p.y * 13) % 29 == 0).collect();
+            map.positions().filter(|p| (p.x * 7 + p.y * 13) % 173 == 0).collect();
+        let mut firsts = std::collections::BTreeSet::new();
         for p in map.positions() {
-            if regions.region(p).is_some_and(|r| (r.0 as usize).is_multiple_of(3))
-                && sample.len() < 120
+            if let Some(r) = regions.region(p)
+                && (r.0 as usize).is_multiple_of(3)
+                && firsts.insert(r)
+                && firsts.len() <= 15
             {
                 sample.push(p);
             }
         }
         let (mut yes, mut no) = (0, 0);
-        for &a in &sample {
-            for &b in &sample {
+        // Connectivity is symmetric, so each unordered pair once.
+        for (i, &a) in sample.iter().enumerate() {
+            for &b in &sample[i + 1..] {
                 let found = path::find(&map, a, b, &rules).is_some();
                 assert_eq!(regions.connected(a, b), found, "seed {seed}: {a:?} -> {b:?}");
                 if found {

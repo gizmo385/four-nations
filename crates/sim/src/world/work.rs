@@ -857,7 +857,8 @@ impl World {
     }
 
     pub(super) fn flood_from(&self, i: usize) -> Flood {
-        Flood::new(&self.map, self.units[i].pos, self.rules_for(&self.units[i]))
+        let rules = self.rules_for(&self.units[i]);
+        Flood::over(self.step_grids.get(&self.map, self.map_rev, rules), self.units[i].pos)
     }
 
     /// How `u` moves right now. Planning (`flood_from`), walking (`walk`) and the client's view
@@ -1598,22 +1599,36 @@ impl World {
     fn pick_job(&self, i: usize, defs: &Defs) -> Picked {
         let flood = self.flood_from(i);
         let is_avatar = self.units[i].is_avatar();
+        let priority = |kind: JobKind| {
+            if is_avatar { self.avatar_job_priority(kind, defs) } else { job_priority(kind) }
+        };
+        // The best tier first, so that once something is found, a job in a worse tier is never
+        // weighed at all and one in the same tier only has its stand looked for as far as the
+        // best cost so far (`check_job`'s `limit`): the flood stops growing there. The answer is
+        // the least `(priority, cost, id)` whatever order the jobs are weighed in.
+        // Within a tier, nearest by straight-line distance first, so the bound tightens early.
+        let from = self.units[i].pos;
+        let near = |kind: JobKind| job_pos(kind).map_or(i32::MAX, |p| from.chebyshev(p));
+        let mut open: Vec<(u8, i32, &Job)> = self
+            .jobs
+            .iter()
+            .filter(|j| j.claimed_by.is_none())
+            .map(|j| (priority(j.kind), near(j.kind), j))
+            .collect();
+        open.sort_by_key(|&(p, d, _)| (p, d));
         let mut room_cache: Vec<(ItemId, bool)> = Vec::new();
         let mut best: Option<((u8, u32, JobId), Pos)> = None;
-        for job in &self.jobs {
-            if job.claimed_by.is_some() {
-                continue;
-            }
-            let found = match self.check_job(i, job.kind, &flood, &mut room_cache, defs) {
+        for (priority, _, job) in open {
+            let limit = match best {
+                Some(((p, _, _), _)) if p < priority => break,
+                Some(((_, cost, _), _)) => Some(cost),
+                None => None,
+            };
+            let found = match self.check_job(i, job.kind, &flood, &mut room_cache, limit, defs) {
                 Check::Take(cost, stand) => Some((cost, stand)),
                 Check::Skip | Check::Barred(_) => None,
             };
             if let Some((cost, stand)) = found {
-                let priority = if is_avatar {
-                    self.avatar_job_priority(job.kind, defs)
-                } else {
-                    job_priority(job.kind)
-                };
                 let key = (priority, cost, job.id);
                 if best.is_none_or(|b| key < b.0) {
                     best = Some((key, stand));
@@ -1663,7 +1678,7 @@ impl World {
         let mut rooms: Vec<(ItemId, bool)> = Vec::new();
         let (mut chi_blocked, mut room_blocked, mut too_hurt) = (false, false, false);
         for job in unclaimed {
-            match self.check_job(i, job.kind, &flood, &mut rooms, defs) {
+            match self.check_job(i, job.kind, &flood, &mut rooms, None, defs) {
                 Check::Take(..) => return None,
                 Check::Barred(Some(IdleReason::StockpileFull)) => room_blocked = true,
                 Check::Barred(Some(IdleReason::OutOfChi)) => chi_blocked = true,
@@ -1955,6 +1970,25 @@ fn rules_for<'a>(_on_foot: &'a MoveRules, cart: &'a MoveRules, _u: &Unit) -> &'a
 /// endeavor task is reachable at all. Attending the Harmony Rite (#238) is lower still: "nothing
 /// more urgent" (`docs/design/endgame.md`), so it loses to a study seat too. Lower is picked
 /// first.
+/// Where `kind`'s work is, for ordering (`pick_job`); `None` for an endeavor task, whose place
+/// is the gate's.
+fn job_pos(kind: JobKind) -> Option<Pos> {
+    match kind {
+        JobKind::Harvest { pos }
+        | JobKind::Haul { pos }
+        | JobKind::Bend { pos, .. }
+        | JobKind::Build { pos }
+        | JobKind::Study { pos }
+        | JobKind::Attend { pos }
+        | JobKind::Craft { pos }
+        | JobKind::Sow { pos }
+        | JobKind::Reap { pos }
+        | JobKind::Clear { pos }
+        | JobKind::Chart { pos } => Some(pos),
+        JobKind::EndeavorTask { .. } => None,
+    }
+}
+
 fn job_priority(kind: JobKind) -> u8 {
     match kind {
         JobKind::Study { .. } | JobKind::Chart { .. } => 1,
@@ -1974,3 +2008,40 @@ fn job_priority(kind: JobKind) -> u8 {
 mod eligibility;
 #[cfg(test)]
 mod tests;
+
+/// `StepGrid`s for the map as of `map_rev`, one per `MoveRules` asked for (walking and hauling),
+/// shared by every `flood_from` until the map changes. Not saved, and a clone starts empty.
+#[derive(Default)]
+pub(in crate::world) struct StepGrids(
+    std::sync::Mutex<Vec<(u64, MoveRules, std::sync::Arc<crate::flood::StepGrid>)>>,
+);
+
+impl StepGrids {
+    fn get(
+        &self,
+        map: &crate::mapgen::TileMap,
+        rev: u64,
+        rules: &MoveRules,
+    ) -> std::sync::Arc<crate::flood::StepGrid> {
+        let mut grids = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        grids.retain(|(r, _, _)| *r == rev);
+        if let Some((_, _, g)) = grids.iter().find(|(_, r, _)| r == rules) {
+            return std::sync::Arc::clone(g);
+        }
+        let g = std::sync::Arc::new(crate::flood::StepGrid::new(map, rules));
+        grids.push((rev, rules.clone(), std::sync::Arc::clone(&g)));
+        g
+    }
+}
+
+impl Clone for StepGrids {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl std::fmt::Debug for StepGrids {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("StepGrids")
+    }
+}

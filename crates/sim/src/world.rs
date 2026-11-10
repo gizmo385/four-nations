@@ -416,6 +416,9 @@ pub struct World {
     /// `would_cut_off`'s answers since the map last changed (`build::CutMemo`).
     #[serde(skip)]
     cut_memo: build::CutMemo,
+    /// `flood_from`'s step grids since the map last changed (`work::StepGrids`).
+    #[serde(skip)]
+    step_grids: work::StepGrids,
     /// A v1 to v3 save's bends (#605): merged into `events` on load, never written.
     #[serde(default, skip_serializing, rename = "bend_events")]
     v3_bend_events: Vec<BendEvent>,
@@ -581,6 +584,7 @@ impl World {
             claim_memo: BTreeMap::new(),
             idle_memo: work::IdleMemo::default(),
             cut_memo: build::CutMemo::default(),
+            step_grids: work::StepGrids::default(),
             v3_bend_events: Vec::new(),
             patches: Vec::new(),
             reverts: Vec::new(),
