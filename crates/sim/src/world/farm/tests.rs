@@ -1,7 +1,7 @@
 use super::*;
-use crate::building::{Building, FarmDef, IrrigationDef};
+use crate::building::{FarmDef, IrrigationDef};
 use crate::defs::{BiomeId, Terrain};
-use crate::geom::Grid;
+use crate::geom::{Footprint, Grid};
 use crate::jobs::JobKind;
 use crate::mapgen::Tile;
 use crate::world::command::Command;
@@ -38,9 +38,12 @@ fn farm_def(defs: &Defs) -> FarmDef {
 /// Puts a finished, empty farm plot on `pos`, as if built.
 fn raise_farm_plot(w: &mut World, defs: &Defs, pos: Pos) {
     let id = defs.building_id("farm_plot").unwrap();
-    let def = defs.building(id);
-    w.map[pos].building = Some(Building::new(id, def.passable, false));
-    w.open_farm_plot(pos);
+    w.put_building(Footprint::single(pos), id, defs);
+}
+
+/// The farm plot anchored on `pos`, to change.
+fn plot_mut(w: &mut World, pos: Pos) -> &mut FarmPlot {
+    w.anchored_mut(pos).and_then(|b| b.plot.as_mut()).expect("a farm plot")
 }
 
 fn irrigation_def(defs: &Defs) -> IrrigationDef {
@@ -52,9 +55,7 @@ fn irrigation_def(defs: &Defs) -> IrrigationDef {
 /// Puts a finished irrigation channel on `pos`, as if built.
 fn raise_irrigation_channel(w: &mut World, defs: &Defs, pos: Pos) {
     let id = defs.building_id("irrigation_channel").unwrap();
-    let def = defs.building(id);
-    w.map[pos].building = Some(Building::new(id, def.passable, false));
-    w.open_irrigation_channel(pos);
+    w.put_building(Footprint::single(pos), id, defs);
 }
 
 fn secs(s: f32) -> u64 {
@@ -125,8 +126,8 @@ fn crop_growth_scales_ripening_time() {
         defs.buildings[id.0 as usize].farm.as_mut().unwrap().crop_growth = crop_growth;
         let (mut w, _) = (World::with_map(1, arena(SIZE), Nation::Earth, &[at(0, 0)], &defs), ());
         raise_farm_plot(&mut w, &defs, MID);
-        w.farm_plots.get_mut(&MID).unwrap().stage = PlotStage::Growing;
-        w.farm_plots.get_mut(&MID).unwrap().growing_left = farm_def(&defs).grow_seconds;
+        plot_mut(&mut w, MID).stage = PlotStage::Growing;
+        plot_mut(&mut w, MID).growing_left = farm_def(&defs).grow_seconds;
         run_until(&mut w, &defs, secs(farm_def(&defs).grow_seconds) + 50, |w| {
             w.plot_stage(MID) == Some(PlotStage::Ripe)
         })
@@ -151,7 +152,7 @@ fn sowing_is_refused_off_a_plot_and_on_one_that_isnt_empty() {
         w.apply(Command::Sow { pos: MID }, &defs),
         Err(CommandError::Designate(DesignateError::AlreadyDesignated))
     );
-    w.farm_plots.get_mut(&MID).unwrap().stage = PlotStage::Growing;
+    plot_mut(&mut w, MID).stage = PlotStage::Growing;
     assert_eq!(
         w.apply(Command::Sow { pos: MID }, &defs),
         Err(CommandError::Designate(DesignateError::PlotNotEmpty))
@@ -173,17 +174,16 @@ fn cancel_sow_withdraws_the_job_but_not_a_job_that_doesnt_exist() {
 }
 
 #[test]
-fn adopt_farm_plots_registers_a_hand_placed_plot_but_leaves_a_known_one_alone() {
+fn a_plot_record_without_its_state_gets_it_on_load_but_a_known_one_is_left_alone() {
     let (mut w, defs) = setup(Nation::Earth, 1, &[at(0, 0)]);
-    let id = defs.building_id("farm_plot").unwrap();
-    let def = defs.building(id);
-    w.map[MID].building = Some(Building::new(id, def.passable, false));
-    assert_eq!(w.plot_stage(MID), None, "not registered until adopted");
-    w.adopt_farm_plots(&defs);
+    raise_farm_plot(&mut w, &defs, MID);
+    w.anchored_mut(MID).unwrap().plot = None;
+    assert_eq!(w.plot_stage(MID), None);
+    w.reindex_buildings(&defs);
     assert_eq!(w.plot_stage(MID), Some(PlotStage::Empty));
 
-    w.farm_plots.get_mut(&MID).unwrap().stage = PlotStage::Growing;
-    w.adopt_farm_plots(&defs);
+    plot_mut(&mut w, MID).stage = PlotStage::Growing;
+    w.reindex_buildings(&defs);
     assert_eq!(w.plot_stage(MID), Some(PlotStage::Growing), "already known, left alone");
 }
 
@@ -197,7 +197,7 @@ fn season_ticks(defs: &Defs) -> u64 {
 
 /// Puts a growing plot on `pos` with `left` seconds to ripen.
 fn plant_growing(w: &mut World, pos: Pos, left: f32) {
-    let plot = w.farm_plots.get_mut(&pos).unwrap();
+    let plot = plot_mut(w, pos);
     plot.stage = PlotStage::Growing;
     plot.growing_left = left;
 }
@@ -240,7 +240,7 @@ fn frost_takes_an_unharvested_ripe_crop_on_a_frost_band_tile() {
     w.map[MID].temperature = 0; // polar: frost band
     w.difficulty = Some("normal".into());
     raise_farm_plot(&mut w, &defs, MID);
-    w.farm_plots.get_mut(&MID).unwrap().stage = PlotStage::Ripe;
+    plot_mut(&mut w, MID).stage = PlotStage::Ripe;
     w.tick = 3 * season_ticks(&defs) - 1; // the tick before winter
     w.tick(&defs); // crosses into winter: the first frost
     assert_eq!(w.plot_stage(MID), Some(PlotStage::Empty), "frost took the unharvested crop");
@@ -256,7 +256,7 @@ fn with_no_difficulty_preset_frost_never_touches_a_ripe_crop() {
     let (mut w, defs) = setup(Nation::Earth, 1, &[]);
     w.map[MID].temperature = 0; // polar: would be a frost band with seasons on
     raise_farm_plot(&mut w, &defs, MID);
-    w.farm_plots.get_mut(&MID).unwrap().stage = PlotStage::Ripe;
+    plot_mut(&mut w, MID).stage = PlotStage::Ripe;
     w.tick = 3 * season_ticks(&defs) - 1;
     w.tick(&defs);
     assert_eq!(w.plot_stage(MID), Some(PlotStage::Ripe), "no seasons on, no frost");

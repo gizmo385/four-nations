@@ -14,13 +14,13 @@
 //! # Format
 //!
 //! RON text, human-readable and diffable (map keys that aren't strings, which JSON can't do, are
-//! fine). Version 2 is three lines: a `SaveInfo` header, the save's content-id tables
+//! fine). Versions 2 and 3 are three lines: a `SaveInfo` header, the save's content-id tables
 //! ([`SaveIds`]), and the `World`:
 //!
 //! ```text
-//! (magic:"four-nations-save",version:2,data_hash:..,seed:..,nation:fire,tick:..)
+//! (magic:"four-nations-save",version:3,data_hash:..,seed:..,nation:fire,tick:..)
 //! (biomes:["tundra",..],resources:[..],nations:[..],techs:[..],items:[..],buildings:[..],abilities:[..])
-//! (seed:..,tick:..,map:(..),..)
+//! (seed:..,tick:..,tiles:(..),buildings:(next:..,records:{..}),..)
 //! ```
 //!
 //! The header is its own line so that `inspect` (and the version check) never has to parse the
@@ -46,6 +46,14 @@
 //! Version 1 saves have no ids line. Their tables come from a snapshot (`save/v1_ids.ron`) keyed
 //! by their `data_hash`; a v1 save whose hash isn't there is `DataMismatch`.
 //!
+//! # Buildings as records (#604, docs/design/buildings-as-records.md)
+//!
+//! Version 3 keeps one record per finished building (`World::buildings`), and its tiles point at
+//! them; the body's map is written as `tiles`. Versions 1 and 2 copied the building onto every
+//! tile and kept its state in side tables. They are read through deserialize-only fields and
+//! upgraded after the parse (`save/v2.rs`), so a v1 save loads through both steps: its id
+//! tables, then the records.
+//!
 //! `World` derives `Serialize`/`Deserialize` over all of its state (only the connectivity cache is
 //! skipped; it is rebuilt on demand). A new field on `World` therefore either serializes or fails
 //! to compile, and the round-trip tests compare complete serializations, so state can't be
@@ -64,12 +72,13 @@ use crate::nation::Nation;
 use crate::world::{BendOutcome, World};
 
 mod ids;
+pub(crate) mod v2;
 
 pub use ids::SaveIds;
 use ids::{Remap, Table, Unmapped};
 
 /// The save format version this build writes. It also reads every version from 1 up.
-pub const SAVE_VERSION: u32 = 2;
+pub const SAVE_VERSION: u32 = 3;
 
 const MAGIC: &str = "four-nations-save";
 
@@ -237,14 +246,13 @@ impl World {
             },
             None => SaveError::Corrupt("the research state doesn't match the save's techs".into()),
         })?;
+        if info.version < 3 {
+            // Buildings became records (#604): the body has the v2 shape (`save/v2.rs`).
+            world.upgrade_from_v2().map_err(SaveError::Corrupt)?;
+        }
         world.validate(defs).map_err(SaveError::Corrupt)?;
-        world.adopt_orchards(defs);
-        world.adopt_farm_plots(defs);
-        world.adopt_irrigation_channels(defs);
-        world.adopt_power_sources(defs);
-        // building_index isn't saved (#292); rebuild it once here rather than on every
-        // once-a-second endeavor check.
-        world.rebuild_building_index();
+        // The building indexes aren't saved; rebuild them from the records, from today's defs.
+        world.reindex_buildings(defs);
         // next_unit (#232) defaults to 0 for a save from before it existed; restore its
         // invariant (past every unit id ever handed out) from the units and deaths on file.
         world.fixup_next_unit();

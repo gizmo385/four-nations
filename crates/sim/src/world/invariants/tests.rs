@@ -2,10 +2,11 @@
 //! makes `check_invariants` name it.
 
 use super::*;
-use crate::building::Building;
 use crate::defs::{BiomeId, Terrain};
 use crate::geom::Grid;
 use crate::mapgen::Tile;
+use crate::world::farm::FarmPlot;
+use crate::world::orchard::Orchard;
 
 fn arena() -> TileMap {
     Grid::from_fn(15, 15, |_| Tile {
@@ -34,7 +35,7 @@ fn setup() -> (World, Defs) {
 /// Puts a finished building called `name` on `pos`, as if built.
 fn raise(w: &mut World, defs: &Defs, name: &str, pos: Pos) {
     let id = defs.building_id(name).unwrap();
-    w.map[pos].building = Some(Building::new(id, defs.building(id).passable, false));
+    w.put_building(crate::geom::Footprint::single(pos), id, defs);
 }
 
 fn err(w: &World, defs: &Defs) -> String {
@@ -152,51 +153,53 @@ fn a_site_under_a_finished_building_fails() {
     assert!(err(&w, &defs).contains("finished building"));
 }
 
-#[test]
-fn a_craft_without_a_crafting_building_fails() {
+/// Raises `name` on (5, 5), gives its record the state `fill` adds, and returns the check's
+/// verdict.
+fn with_state(name: &str, fill: impl FnOnce(&mut Building)) -> Result<(), String> {
     let (mut w, defs) = setup();
-    w.crafts.insert(at(5, 5), CraftState::default());
-    assert!(err(&w, &defs).starts_with("crafts"));
-    raise(&mut w, &defs, "forge", at(5, 5));
-    w.check_invariants(&defs).expect("a forge crafts");
+    raise(&mut w, &defs, name, at(5, 5));
+    fill(w.anchored_mut(at(5, 5)).unwrap());
+    w.check_invariants(&defs)
 }
 
 #[test]
-fn a_chart_without_a_map_room_fails() {
-    let (mut w, defs) = setup();
-    w.charts.insert(at(5, 5), 1.0);
-    assert!(err(&w, &defs).starts_with("charts"));
-    raise(&mut w, &defs, "map_room", at(5, 5));
-    w.check_invariants(&defs).expect("a map room charts");
+fn a_craft_on_a_building_without_a_recipe_fails() {
+    let err = with_state("bed", |b| b.craft = Some(CraftState::default())).unwrap_err();
+    assert!(err.contains("holds craft state"), "{err}");
+    with_state("forge", |b| b.craft = Some(CraftState::default())).expect("a forge crafts");
 }
 
 #[test]
-fn a_farm_plot_without_a_plot_fails() {
-    let (mut w, defs) = setup();
-    w.open_farm_plot(at(5, 5));
-    assert!(err(&w, &defs).starts_with("farm_plots"));
-    raise(&mut w, &defs, "farm_plot", at(5, 5));
-    w.check_invariants(&defs).expect("a farm plot farms");
+fn a_chart_on_a_building_that_is_not_a_map_room_fails() {
+    let err = with_state("bed", |b| b.chart = Some(1.0)).unwrap_err();
+    assert!(err.contains("holds chart state"), "{err}");
+    with_state("map_room", |b| b.chart = Some(1.0)).expect("a map room charts");
 }
 
 #[test]
-fn an_orchard_without_an_orchard_building_fails() {
-    let (mut w, defs) = setup();
-    let id = defs.building_id("orchard").unwrap();
-    let orchard = defs.building(id).orchard.unwrap();
-    w.open_orchard(at(5, 5), &orchard);
-    assert!(err(&w, &defs).starts_with("orchards"));
-    raise(&mut w, &defs, "orchard", at(5, 5));
-    w.check_invariants(&defs).expect("an orchard orchards");
+fn a_farm_plot_on_a_building_that_is_not_a_plot_fails() {
+    let err = with_state("bed", |b| b.plot = Some(FarmPlot::empty())).unwrap_err();
+    assert!(err.contains("holds plot state"), "{err}");
+    with_state("farm_plot", |_| {}).expect("a farm plot farms");
 }
 
 #[test]
-fn a_power_source_without_a_generator_fails() {
+fn an_orchard_on_a_building_that_is_not_an_orchard_fails() {
+    let defs = Defs::bundled();
+    let def = defs.building(defs.building_id("orchard").unwrap());
+    let orchard = Orchard::new(def.orchard.as_ref().unwrap());
+    let err = with_state("bed", |b| b.orchard = Some(orchard)).unwrap_err();
+    assert!(err.contains("holds orchard state"), "{err}");
+    with_state("orchard", |_| {}).expect("an orchard orchards");
+}
+
+#[test]
+fn a_tile_that_lost_its_building_fails() {
     let (mut w, defs) = setup();
-    w.open_power_source(at(5, 5));
-    assert!(err(&w, &defs).starts_with("power_sources"));
     raise(&mut w, &defs, "wind_turbine", at(5, 5));
-    w.check_invariants(&defs).expect("a turbine powers");
+    w.check_invariants(&defs).expect("a turbine stands");
+    w.map[at(5, 5)].building = None;
+    assert!(err(&w, &defs).contains("doesn't point at the building"));
 }
 
 /// The invariant found these on `main` (#600): each took a ground stack away without the haul
@@ -230,7 +233,7 @@ fn raising_a_solid_building_on_a_ground_stack_moves_its_haul_job() {
     w.add_job(JobKind::Haul { pos: at(6, 6) });
     let id = defs.building_id("earth_wall").unwrap();
     assert!(!defs.building(id).passable);
-    w.raise(crate::geom::Footprint::new(at(6, 6), 1, 1), id, defs.building(id));
+    w.raise(crate::geom::Footprint::new(at(6, 6), 1, 1), id, &defs);
     w.check_invariants(&defs).expect("the haul job followed the stack");
 }
 

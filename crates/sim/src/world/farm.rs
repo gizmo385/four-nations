@@ -55,15 +55,22 @@ pub(super) struct FarmPlot {
     growing_left: f32,
 }
 
+impl FarmPlot {
+    /// Nothing planted.
+    pub(super) fn empty() -> Self {
+        Self { stage: PlotStage::Empty, growing_left: 0.0 }
+    }
+}
+
 impl World {
     /// What stage the farm plot on `pos` is in, if there is one.
     pub fn plot_stage(&self, pos: Pos) -> Option<PlotStage> {
-        self.farm_plots.get(&pos).map(|p| p.stage)
+        self.plot(pos).map(|p| p.stage)
     }
 
     /// Seconds left until the growing plot on `pos` ripens, if it is growing.
     pub fn plot_growth_left(&self, pos: Pos) -> Option<f32> {
-        let p = self.farm_plots.get(&pos)?;
+        let p = self.plot(pos)?;
         (p.stage == PlotStage::Growing).then_some(p.growing_left)
     }
 
@@ -75,60 +82,26 @@ impl World {
         })
     }
 
+    /// The farm plot anchored on `pos`, if there is one.
+    fn plot(&self, pos: Pos) -> Option<&FarmPlot> {
+        self.anchored(pos)?.plot.as_ref()
+    }
+
+    /// Puts the farm plot anchored on `pos` into `plot`'s state. A no-op with no building there.
+    fn set_plot(&mut self, pos: Pos, plot: FarmPlot) {
+        if let Some(b) = self.anchored_mut(pos) {
+            b.plot = Some(plot);
+        }
+    }
+
     /// The `FarmDef` of the building on `pos`, if it is a farm plot.
     fn farm_def(&self, pos: Pos, defs: &Defs) -> Option<FarmDef> {
-        defs.building(self.map.get(pos)?.building?.id).farm
-    }
-
-    /// A farm plot building has just finished: it starts empty.
-    pub(super) fn open_farm_plot(&mut self, pos: Pos) {
-        self.farm_plots.insert(pos, FarmPlot { stage: PlotStage::Empty, growing_left: 0.0 });
-    }
-
-    /// Registers farm plots that stand on the map but not in `farm_plots` (a save from before
-    /// this issue, or a map a test or tool built by hand), the way `adopt_orchards` does for
-    /// orchards. Plots already known are left as they are.
-    pub fn adopt_farm_plots(&mut self, defs: &Defs) {
-        let found: Vec<Pos> = self
-            .map
-            .iter()
-            .filter(|(p, t)| {
-                t.building.is_some_and(|b| defs.building(b.id).farm.is_some())
-                    && !self.farm_plots.contains_key(p)
-            })
-            .map(|(p, _)| p)
-            .collect();
-        for p in found {
-            self.open_farm_plot(p);
-        }
+        defs.building(self.building_at(pos)?).farm
     }
 
     /// The `IrrigationDef` of the building on `pos`, if it is an irrigation channel.
     fn irrigation_def(&self, pos: Pos, defs: &Defs) -> Option<IrrigationDef> {
-        defs.building(self.map.get(pos)?.building?.id).irrigation
-    }
-
-    /// An irrigation channel building has just finished: it starts tending plots around it.
-    pub(super) fn open_irrigation_channel(&mut self, pos: Pos) {
-        self.irrigation_channels.insert(pos);
-    }
-
-    /// Registers irrigation channels that stand on the map but not in `irrigation_channels` (a
-    /// save from before this issue, or a map a test or tool built by hand), the way
-    /// `adopt_orchards` does for orchards. Channels already known are left as they are.
-    pub fn adopt_irrigation_channels(&mut self, defs: &Defs) {
-        let found: Vec<Pos> = self
-            .map
-            .iter()
-            .filter(|(p, t)| {
-                t.building.is_some_and(|b| defs.building(b.id).irrigation.is_some())
-                    && !self.irrigation_channels.contains(p)
-            })
-            .map(|(p, _)| p)
-            .collect();
-        for p in found {
-            self.open_irrigation_channel(p);
-        }
+        defs.building(self.building_at(pos)?).irrigation
     }
 
     /// How many times faster than normal a farm plot on `pos` grows because an irrigation
@@ -136,9 +109,8 @@ impl World {
     /// `pos`, else 1.0, the same way `tend_rate` layers onto an orchard's resting trees. Two
     /// channels in reach of one plot don't stack.
     pub(super) fn irrigation_rate(&self, pos: Pos, defs: &Defs) -> f32 {
-        self.irrigation_channels
-            .iter()
-            .filter_map(|&c| self.irrigation_def(c, defs).map(|d| (c, d)))
+        self.of_kind(Kind::Irrigation)
+            .filter_map(|b| self.irrigation_def(b.anchor, defs).map(|d| (b.anchor, d)))
             .filter(|(c, d)| c.chebyshev(pos) <= d.radius as i32)
             .map(|(_, d)| d.growth_boost)
             .fold(1.0, f32::max)
@@ -160,7 +132,7 @@ impl World {
     /// `World::tick_season`'s `apply_frost`): the plot goes back to **empty**, as if nothing had
     /// grown, the same way frost sends a ripe wild plant back to resting.
     pub(super) fn frost_plot(&mut self, pos: Pos) {
-        self.farm_plots.insert(pos, FarmPlot { stage: PlotStage::Empty, growing_left: 0.0 });
+        self.set_plot(pos, FarmPlot::empty());
     }
 
     /// Checks that `pos` has an empty farm plot, for `designate_sow`.
@@ -217,8 +189,7 @@ impl World {
             return;
         }
         self.jobs.remove(idx);
-        self.farm_plots
-            .insert(pos, FarmPlot { stage: PlotStage::Growing, growing_left: def.grow_seconds });
+        self.set_plot(pos, FarmPlot { stage: PlotStage::Growing, growing_left: def.grow_seconds });
         self.finish_job(i);
     }
 
@@ -246,26 +217,25 @@ impl World {
         self.jobs.remove(idx);
         self.tallies.count_crops(def.harvest_count);
         self.place_ground(pos, Stack { item: def.crop, count: def.harvest_count });
-        self.farm_plots.insert(pos, FarmPlot { stage: PlotStage::Empty, growing_left: 0.0 });
+        self.set_plot(pos, FarmPlot::empty());
         self.finish_job(i);
     }
 
     /// Advances every growing plot, ripening those that are done and queueing their Reap job.
     pub(super) fn tick_farms(&mut self, defs: &Defs) {
-        if self.farm_plots.is_empty() {
+        if !self.has_kind(Kind::Farm) {
             return;
         }
         let step = 1.0 / TICKS_PER_SECOND as f32;
         let growing: Vec<Pos> = self
-            .farm_plots
-            .iter()
-            .filter(|(_, p)| p.stage == PlotStage::Growing)
-            .map(|(&pos, _)| pos)
+            .of_kind(Kind::Farm)
+            .filter(|b| b.plot.as_ref().is_some_and(|p| p.stage == PlotStage::Growing))
+            .map(|b| b.anchor)
             .collect();
         let mut ripened = Vec::new();
         for pos in growing {
             let rate = self.crop_growth_rate(pos, defs);
-            let plot = self.farm_plots.get_mut(&pos).expect("just listed");
+            let plot = self.anchored_mut(pos).and_then(|b| b.plot.as_mut()).expect("just listed");
             plot.growing_left -= rate * step;
             if plot.growing_left <= 0.0 {
                 plot.stage = PlotStage::Ripe;

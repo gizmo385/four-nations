@@ -440,12 +440,10 @@ mod tests {
     #[test]
     fn a_healing_unit_names_the_hut_it_heals_in() {
         use fn_sim::Terrain;
-        use fn_sim::building::Building;
         use fn_sim::geom::Footprint;
 
         let mut s = Session::new(7, Nation::Water, 48, 32);
         let hut = s.defs.building_id("healing_hut").unwrap();
-        let passable = s.defs.building(hut).passable;
         let at = fn_sim::Pos::new(20, 20);
         for dy in 0..2 {
             for dx in 0..2 {
@@ -457,11 +455,7 @@ mod tests {
         let foot = Footprint::new(at, 2, 2);
         let door = foot.entrance();
         s.world.units.retain(|u| !foot.contains(u.pos) && u.pos != door);
-        for p in foot.tiles() {
-            let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
-            let b = Building { part, size: [2, 2], ..Building::new(hut, passable, false) };
-            s.world.map.get_mut(p).unwrap().building = Some(b);
-        }
+        s.world.put_building(foot, hut, &s.defs);
         s.world.units[0].pos = door;
         s.world.units[0].needs.health = 50.0;
         for _ in 0..200 {

@@ -146,7 +146,7 @@ fn a_study_seat_loses_to_a_farther_harvest_when_both_are_open() {
     let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 1)]);
     let hall = defs.building_id("study_hall").unwrap();
     let def = defs.building(hall);
-    w.map[at(2, 1)].building = Some(crate::building::Building::new(hall, def.passable, false));
+    w.put_building(Footprint::single(at(2, 1)), hall, &defs);
     w.open_study_seats(at(2, 1), def.seats);
     let earth_shaping = defs.tech_id("earth_shaping").unwrap();
     w.apply(Command::SetResearch { tech: earth_shaping }, &defs).unwrap();
@@ -331,7 +331,7 @@ fn a_need_steps_a_unit_out_of_a_building_the_tick_it_becomes_urgent() {
         d.passable = false;
         d.capacity = 1;
     }
-    w.raise(foot, hall, defs.building(hall));
+    w.raise(foot, hall, &defs);
     assert!(w.enter_building(0, anchor, &defs));
 
     w.units[0].needs.thirst = defs.needs.thirst.low;
@@ -370,7 +370,7 @@ fn a_building_finished_under_a_drinker_does_not_hold_the_drink_forever() {
         d.capacity = 1;
     }
     let spot = w.units[0].pos;
-    w.raise(Footprint::new(spot, 2, 2), hall, defs.building(hall));
+    w.raise(Footprint::new(spot, 2, 2), hall, &defs);
     assert_ne!(w.units[0].pos, spot, "the building moved her off its tiles");
 
     let before = w.units[0].needs.thirst;
@@ -550,7 +550,7 @@ fn with_healing_hut(nation: Nation, units: &[Pos]) -> (World, Defs, BuildingId, 
     let (mut w, defs) = setup(nation, &WOODS, units);
     let id = defs.building_id("healing_hut").unwrap();
     let anchor = at(0, 0);
-    w.raise(Footprint::new(anchor, 2, 2), id, defs.building(id));
+    w.raise(Footprint::new(anchor, 2, 2), id, &defs);
     (w, defs, id, anchor)
 }
 
@@ -600,7 +600,7 @@ fn a_hungry_injured_unit_eats_before_healing() {
     let rows = ["~~~~~~~~~", ".........", ".c.......", ".........", "........."];
     let (mut w, defs) = setup(Nation::Water, &rows, &[at(7, 3)]);
     let id = defs.building_id("healing_hut").unwrap();
-    w.raise(Footprint::new(at(0, 0), 2, 2), id, defs.building(id));
+    w.raise(Footprint::new(at(0, 0), 2, 2), id, &defs);
     w.units[0].needs.health = 50.0;
     w.units[0].needs.hunger = defs.needs.hunger.low - 1.0;
     w.tick(&defs);
@@ -919,9 +919,8 @@ fn designating_repeating_harvest_twice_does_not_duplicate_the_job() {
 fn lay_rail(w: &mut World, defs: &Defs, tiles: impl IntoIterator<Item = Pos>) {
     let id = defs.building_id("rail").expect("rail is defined");
     for p in tiles {
-        w.map[p].building = Some(crate::building::Building::new(id, true, true));
+        w.put_building(Footprint::single(p), id, defs);
     }
-    w.map_changed();
 }
 
 /// Ticks for one unit to haul `count` wood from (3, 2) to a stockpile at (32, 2) along a flat
@@ -1300,8 +1299,8 @@ const SEAT_FLOODS_CAP: u32 = 8;
 
 /// A craft seat at (4, 1) whose door tile holds a tree.
 fn wall_in_a_seat(w: &mut World, defs: &Defs) {
-    let bed = defs.building_id("bed").unwrap();
-    w.map[at(4, 1)].building = Some(crate::building::Building::new(bed, false, false));
+    let wall = defs.building_id("earth_wall").unwrap();
+    w.put_building(Footprint::single(at(4, 1)), wall, defs);
     w.map[at(4, 2)].resource = defs.resource_id("oak_tree");
     w.map_changed();
     w.add_job(JobKind::Craft { pos: at(4, 1) });

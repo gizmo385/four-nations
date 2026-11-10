@@ -4,7 +4,7 @@
 │   Available   25 pts   Locked      60 pts   Locked     120 pts   Locked     250 pts  ││ People 2              Idle 2 │
 │   Campfire             Needs: Fire Making   Needs: Carpentry     Needs: Writing      ││ Food 0 · 0/head              │
 │                                                                                      ││ Research: none set       [T] │
-│  ◇ Shelter            · Carpentry          · Writing            · Earthen Walls      ││ Gate 0/9 · 14 people     [G] │
+│  ◇ Shelter            · Carpentry          · Writing            · Earthen Walls      ││ Gate 1/9 · 14 people     [G] │
 │   Available   25 pts   Locked      60 pts   Locked     120 pts   Locked     120 pts  │├─ HERE ──────────── (64, 28) ─┤
 │   Prerequisite for …   Needs: Shelter       Needs: Pottery       Needs: Earth Shap…  ││ Juni                         │
 │                                                                                      ││ Idle                         │

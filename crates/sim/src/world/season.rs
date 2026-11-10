@@ -175,12 +175,12 @@ impl World {
         }
 
         let frosted_plots: Vec<Pos> = self
-            .farm_plots
-            .iter()
-            .filter(|&(&pos, p)| {
-                p.stage == PlotStage::Ripe && self.climate_at(pos, defs).is_some_and(|c| c.frost)
+            .of_kind(Kind::Farm)
+            .filter(|b| {
+                b.plot.as_ref().is_some_and(|p| p.stage == PlotStage::Ripe)
+                    && self.climate_at(b.anchor, defs).is_some_and(|c| c.frost)
             })
-            .map(|(&pos, _)| pos)
+            .map(|b| b.anchor)
             .collect();
         count += frosted_plots.len() as u32;
         for pos in frosted_plots {

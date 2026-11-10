@@ -984,15 +984,7 @@ mod tests {
         assert!(site_report(&s, at).is_some());
         // Finished: baked onto every tile.
         s.apply(Command::CancelBuild { pos: at }).unwrap();
-        for p in foot.tiles() {
-            let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
-            let b = fn_sim::building::Building {
-                part,
-                size: [2, 2],
-                ..fn_sim::building::Building::new(hall, false, false)
-            };
-            s.world.map.get_mut(p).unwrap().building = Some(b);
-        }
+        s.world.put_building(foot, hall, &s.defs);
         for p in foot.tiles() {
             assert_eq!(built_name(&s, p).as_deref(), Some("Bed"), "{p:?}");
         }
@@ -1004,7 +996,6 @@ mod tests {
     fn earth_with_a_study_hall() -> (Session, BuildingId, Pos) {
         let mut s = session(Nation::Earth);
         let hall = s.defs.building_id("study_hall").unwrap();
-        let passable = s.defs.building(hall).passable;
         let at = Pos::new(30, 30);
         for dy in 0..3 {
             for dx in 0..3 {
@@ -1016,15 +1007,7 @@ mod tests {
         let foot = Footprint::new(at, 2, 2);
         let door = foot.entrance();
         s.world.units.retain(|u| !foot.contains(u.pos) && u.pos != door);
-        for p in foot.tiles() {
-            let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
-            let b = fn_sim::building::Building {
-                part,
-                size: [2, 2],
-                ..fn_sim::building::Building::new(hall, passable, false)
-            };
-            s.world.map.get_mut(p).unwrap().building = Some(b);
-        }
+        s.world.put_building(foot, hall, &s.defs);
         (s, hall, at)
     }
 

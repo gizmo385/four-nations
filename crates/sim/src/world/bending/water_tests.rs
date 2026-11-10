@@ -243,7 +243,7 @@ fn a_unit_inside_a_building_does_not_block_its_door_from_sprouting() {
     // (3, 4) (rows 3-5), but its door, the ring tile below it, lands inside that patch.
     let anchor = at(3, 1);
     let foot = crate::geom::Footprint::new(anchor, 2, 2);
-    w.raise(foot, hall, defs.building(hall));
+    w.raise(foot, hall, &defs);
     let door = foot.entrance();
     assert_eq!(door, at(3, 3));
     w.units[0].pos = door;

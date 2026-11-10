@@ -33,7 +33,7 @@ fn snapshot(w: &World, defs: &Defs) -> String {
     let ground: Vec<_> = w.ground_items().collect();
     let zones: Vec<_> = w.stockpile_zones().collect();
     let buildings: Vec<_> =
-        w.map.iter().filter_map(|(p, t)| t.building.map(|b| (p, b.id))).collect();
+        w.map.iter().filter_map(|(p, _)| w.building_at(p).map(|b| (p, b))).collect();
     let sites: Vec<_> = w.build_sites().collect();
     format!(
         "tick {} {units:?} {:?} {stored:?} {ground:?} {zones:?} {buildings:?} {sites:?} {:?} {:?}",
@@ -223,7 +223,7 @@ fn replaying_the_command_log_reproduces_the_session() {
     );
     let bed = defs.building_id("bed").unwrap();
     assert!(
-        original.map.iter().any(|(_, t)| t.building.is_some_and(|b| b.id == bed)),
+        original.buildings().any(|b| b.id == bed),
         "the designated bed should have been built during the session"
     );
 

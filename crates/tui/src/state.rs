@@ -647,11 +647,9 @@ mod tests {
     #[test]
     fn enter_on_a_building_with_nobody_visible_cycles_its_occupants() {
         use fn_sim::Nation;
-        use fn_sim::building::Building;
         use fn_sim::geom::Footprint;
         let mut s = Session::new(7, Nation::Fire, 64, 64);
         let hall = s.defs.building_id("study_hall").unwrap();
-        let passable = s.defs.building(hall).passable;
         let at = Pos::new(30, 30);
         for dy in 0..3 {
             for dx in 0..3 {
@@ -661,11 +659,7 @@ mod tests {
             }
         }
         let foot = Footprint::new(at, 2, 2);
-        for p in foot.tiles() {
-            let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
-            let b = Building { part, size: [2, 2], ..Building::new(hall, passable, false) };
-            s.world.map.get_mut(p).unwrap().building = Some(b);
-        }
+        s.world.put_building(foot, hall, &s.defs);
         let door = foot.entrance();
         s.world.units[0].pos = door;
         s.world.units[1].pos = door;

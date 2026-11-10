@@ -1,18 +1,17 @@
 ┏──────────────────────────────────── ◆ ENDEAVOR ◆ ────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
-│ The Harmony Gate                                                        0 of 9 signs ││ ‖ Paused x1            00:00 │
+│ The Harmony Gate                                                        1 of 9 signs ││ ‖ Paused x1            00:00 │
 │ A great work with the Avatar. When every sign is met, word of the settlement reaches │├─ SETTLEMENT ─────────── [N] ─┤
 │ Aang.                                                                                ││ People 2              Idle 2 │
 │                                                                                      ││ Food 0 · 0/head              │
 │ Stage: not begun                                                                     ││ Research: none set       [T] │
-│                                                                                      ││ Gate 0/9 · 14 people     [G] │
+│                                                                                      ││ Gate 1/9 · 14 people     [G] │
 │ PEOPLE                                                                               │├─ HERE ──────────── (64, 28) ─┤
 │   Population                           █░░░░░░░░░      2/16                          ││ Juni                         │
 │   Spare beds and food draw newcomers                                                 ││ Idle                         │
-│   Everyone has a bed                   ░░░░░░░░░░       0/2                          ││ Press Enter to select        │
-│   Build beds                                                                         ││                              │
+│ ✓ Everyone has a bed                   ██████████       2/2                          ││ Press Enter to select        │
 │                                                                                      ││                              │
 │ BUILDINGS                                                                            ││                              │
-│   One of every building                ░░░░░░░░░░      0/10                          ││                              │
+│   One of every building                █░░░░░░░░░      1/10                          ││                              │
 │   Raise something new                                                                ││                              │
 │                                                                                      ││                              │
 │ KNOWLEDGE                                                                            ││                              │
@@ -33,6 +32,7 @@
 │   Designate a bend (B) on a tile a bender can work - credit to whoever channels it   ││                              │
 │   Ancient scrolls read                 ░░░░░░░░░░       0/3                          ││                              │
 │   Bring scrolls to a study hall. Cartography charts ruins.                           ││                              │
+│                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │

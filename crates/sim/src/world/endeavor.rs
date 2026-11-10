@@ -172,13 +172,12 @@ impl World {
         SignProgress { id: &sign.id, value, target, met: target > 0 && value >= target }
     }
 
-    /// The id of every finished building, once per building however many tiles it covers. Reads
-    /// `building_index` (#292), maintained wherever a building finishes (`World::raise`,
-    /// `build.rs`), rather than `buildings()`'s full map scan: this runs once a second for as
-    /// long as the `BedsForAll` and `EveryBuilding` signs below are unmet (`tick_endeavor`),
-    /// essentially the whole game, so a bigger map mustn't cost more to check.
+    /// The id of every finished building, once per building however many tiles it covers. Walks
+    /// the building records (`World::buildings`, #604), never the map: this runs once a second
+    /// for as long as the `BedsForAll` and `EveryBuilding` signs below are unmet
+    /// (`tick_endeavor`), essentially the whole game, so a bigger map mustn't cost more to check.
     fn finished_buildings(&self) -> impl Iterator<Item = BuildingId> + '_ {
-        self.building_index.values().filter_map(|&p| self.map[p].building.map(|b| b.id))
+        self.buildings().map(|b| b.id)
     }
 
     /// The reachable kinds (`endeavor::reachable_buildings`) this settlement hasn't finished

@@ -4,7 +4,7 @@
 │                               Hunger  Thirst  Energy  Health  Chi     Bends   Forms  ││ People 2              Idle 2 │
 │ IDLE 2                                                                               ││ Food 0 · 0/head              │
 │ ▸ Juni Idle                   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   0/8     0/3    ││ Research: none set       [T] │
-│   Shen Idle                   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   0/8     0/3    ││ Gate 0/9 · 14 people     [G] │
+│   Shen Idle                   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   0/8     0/3    ││ Gate 1/9 · 14 people     [G] │
 │                                                                                      │├─ HERE ──────────── (64, 28) ─┤
 │                                                                                      ││ Juni                         │
 │                                                                                      ││ Idle                         │

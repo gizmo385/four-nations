@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::*;
-use crate::building::{Building, BuildingDef, BuildingId, PowerDef};
+use crate::building::{BuildingDef, BuildingId, PowerDef};
 use crate::defs::{BiomeId, Terrain};
 use crate::geom::{Footprint, Grid};
 use crate::mapgen::Tile;
@@ -45,16 +45,7 @@ fn run_until(w: &mut World, defs: &Defs, limit: u64, mut done: impl FnMut(&World
 fn place_building(w: &mut World, defs: &Defs, id: BuildingId, anchor: Pos) {
     let def = defs.building(id);
     let (width, height) = def.footprint;
-    let foot = Footprint::new(anchor, width, height);
-    for p in foot.tiles() {
-        let part = [(p.x - anchor.x) as u8, (p.y - anchor.y) as u8];
-        w.map[p].building = Some(Building {
-            part,
-            size: [width, height],
-            ..Building::new(id, def.passable, false)
-        });
-    }
-    w.map_changed();
+    w.put_building(Footprint::new(anchor, width, height), id, defs);
     w.open_craft_jobs(anchor, def);
 }
 
@@ -401,9 +392,7 @@ fn a_powered_workshop_finishes_a_batch_faster_by_exactly_its_boost() {
         }
         if let Some((radius, boost)) = source {
             let id = test_source(&mut defs, radius, boost);
-            let pos = at(8, 8);
-            w.map[pos].building = Some(Building::new(id, true, false));
-            w.open_power_source(pos);
+            w.put_building(Footprint::single(at(8, 8)), id, &defs);
         }
         let ticks = run_until(&mut w, &defs, 6000, |w| {
             w.ground_items().any(|(_, s)| s.item == recipe.output.item)
@@ -444,7 +433,6 @@ fn a_tide_mill_speeds_up_a_workshop_in_its_reach_by_its_own_boost() {
         if with_mill {
             let mill = defs.building_id("tide_mill").unwrap();
             place_building(&mut w, &defs, mill, at(8, 8));
-            w.open_power_source(at(8, 8));
         }
         let ticks = run_until(&mut w, &defs, 6000, |w| {
             w.ground_items().any(|(_, s)| s.item == recipe.output.item)

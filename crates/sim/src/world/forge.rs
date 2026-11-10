@@ -12,12 +12,12 @@
 //! Finishing a batch drops the output on the ground near the building (`World::place_ground`,
 //! queuing a haul like any other yield) and the unit steps back out to start the next one.
 //! Progress toward a batch (both the inputs delivered and the work done) is kept per building, in
-//! `World::crafts`, the way a build site's is (`world/build.rs`'s `Site`): pulling a crafter off
+//! the building's record (`Building::craft`), the way a build site's is (`world/build.rs`'s `Site`): pulling a crafter off
 //! for a need, or losing the claim, loses nothing of the batch under way.
 //!
 //! Needs pre-empt a craft job exactly like a study seat: `consider_needs` steps a unit standing
 //! inside back out before planning anything, and the next tick picks the cycle up again from
-//! wherever `World::crafts` says it left off.
+//! wherever the building's record (`Building::craft`) says it left off.
 //!
 //! A recipe's `stock_limit` (issue #350) stops a crafter from starting a *new* batch once that
 //! many of its output are already in stores (`World::craft_idle`); a batch already under way
@@ -32,7 +32,7 @@ use super::*;
 
 /// One production building's progress toward its next batch: how much of each of its recipe's
 /// inputs has been delivered so far (parallel to `RecipeDef::inputs`), and work done once they
-/// all have. Missing from `World::crafts` is the same as a fresh, empty batch.
+/// all have. Missing from the building's record (`Building::craft`) is the same as a fresh, empty batch.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub(super) struct CraftState {
     delivered: Vec<u32>,
@@ -40,6 +40,11 @@ pub(super) struct CraftState {
 }
 
 impl World {
+    /// The batch under way at the production building anchored on `pos`, if one has begun.
+    fn craft(&self, pos: Pos) -> Option<&CraftState> {
+        self.anchored(pos)?.craft.as_ref()
+    }
+
     /// Opens `def.capacity` new `Craft` jobs at `pos`, if `def` has a recipe: called once, when a
     /// production building finishes construction, mirroring `open_study_seats`. A no-op for an
     /// ordinary building (`recipe` is `None`).
@@ -55,7 +60,7 @@ impl World {
     /// `RecipeDef::inputs` (and the state's `delivered`), the item, and how much more is needed.
     /// `None` once every input for this batch is in.
     fn next_craft_shortfall(&self, pos: Pos, recipe: &RecipeDef) -> Option<(ItemId, u32)> {
-        let delivered = self.crafts.get(&pos).map(|s| s.delivered.as_slice()).unwrap_or(&[]);
+        let delivered = self.craft(pos).map(|s| s.delivered.as_slice()).unwrap_or(&[]);
         recipe.inputs.iter().enumerate().find_map(|(idx, c)| {
             let have = delivered.get(idx).copied().unwrap_or(0);
             (have < c.count).then_some((c.item, c.count - have))
@@ -64,12 +69,12 @@ impl World {
 
     /// Whether the craft job at `pos` is idle at `recipe`'s `stock_limit` (issue #350): no batch
     /// is under way (nothing of this one delivered yet) and the output is already at or past the
-    /// limit. A batch already started (`World::crafts` holds an entry for `pos`) always finishes,
+    /// limit. A batch already started (the building's record (`Building::craft`) holds an entry for `pos`) always finishes,
     /// however much is in stores. `stock_limit` 0 means no limit, so this is always false. Used
     /// both to gate `run_craft` and to describe the crafter's task to the player.
     pub fn craft_idle(&self, pos: Pos, recipe: &RecipeDef) -> bool {
         recipe.stock_limit > 0
-            && !self.crafts.contains_key(&pos)
+            && self.craft(pos).is_none()
             && self.stored_total(recipe.output.item) >= recipe.stock_limit
     }
 
@@ -78,7 +83,8 @@ impl World {
     /// `next_craft_shortfall` named).
     fn deliver_to_craft(&mut self, pos: Pos, stack: Stack, recipe: &RecipeDef) {
         let Some(idx) = recipe.inputs.iter().position(|c| c.item == stack.item) else { return };
-        let state = self.crafts.entry(pos).or_insert_with(|| CraftState {
+        let Some(b) = self.anchored_mut(pos) else { return };
+        let state = b.craft.get_or_insert_with(|| CraftState {
             delivered: vec![0; recipe.inputs.len()],
             progress: 0.0,
         });
@@ -170,16 +176,18 @@ impl World {
                     1.0
                 };
                 let len = recipe.inputs.len();
-                let state = self
-                    .crafts
-                    .entry(pos)
-                    .or_insert_with(|| CraftState { delivered: vec![0; len], progress: 0.0 });
+                let Some(b) = self.anchored_mut(pos) else { return self.finish_job(i) };
+                let state = b
+                    .craft
+                    .get_or_insert_with(|| CraftState { delivered: vec![0; len], progress: 0.0 });
                 state.progress += rate * boost / TICKS_PER_SECOND as f32;
                 if state.progress < recipe.work {
                     return;
                 }
                 let output = recipe.output;
-                self.crafts.remove(&pos);
+                if let Some(b) = self.anchored_mut(pos) {
+                    b.craft = None;
+                }
                 self.leave_building(i);
                 self.units[i].route = None;
                 self.place_ground(pos, Stack { item: output.item, count: output.count });

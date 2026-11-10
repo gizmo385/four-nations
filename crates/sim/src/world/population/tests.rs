@@ -1,7 +1,7 @@
 //! Population growth (#232): a newcomer joins only when a bed and food are both there for it.
 
 use super::*;
-use crate::building::{Building, BuildingId};
+use crate::building::BuildingId;
 use crate::defs::{BiomeId, Terrain};
 use crate::geom::Grid;
 use crate::mapgen::Tile;
@@ -27,13 +27,10 @@ fn world(seed: u64, defs: &Defs) -> World {
     World::with_map(seed, field(), Nation::Earth, &[at(10, 4)], defs)
 }
 
-/// Stands a finished 1x1 building (as `raise` would), updating `building_index` (#292) too.
+/// Stands a finished 1x1 building (`put_building`).
 fn place(w: &mut World, defs: &Defs, pos: Pos, building: &str) -> BuildingId {
     let id = defs.building_id(building).unwrap();
-    let def = defs.building(id);
-    w.map[pos].building = Some(Building::new(id, def.passable, def.rail.is_some()));
-    w.building_index.insert((pos.y, pos.x), pos);
-    w.map_changed();
+    w.put_building(crate::geom::Footprint::single(pos), id, defs);
     id
 }
 
@@ -193,12 +190,11 @@ fn growth_needs_bed_capacity_above_the_headcount() {
     assert!(w.spawn_newcomer(&defs));
     assert!(w.units.iter().all(|u| u.bed.is_none()), "nobody is in a bed");
     assert!(!w.has_room_for_newcomer(&defs), "two beds, two settlers: full");
-    // A third bed reopens it; losing one closes it again, and nobody is evicted.
+    // A third bed reopens it; without it, it is closed again, and nobody is evicted.
+    let without = w.clone();
     place(&mut w, &defs, at(14, 2), "bed");
     assert!(w.has_room_for_newcomer(&defs));
-    w.map[at(14, 2)].building = None;
-    w.building_index.remove(&(2, 14));
-    w.map_changed();
+    let w = without;
     assert_eq!(w.bed_capacity(&defs), 2, "capacity lost");
     assert!(!w.has_room_for_newcomer(&defs));
     assert_eq!(w.units.len(), 2, "no one is evicted");

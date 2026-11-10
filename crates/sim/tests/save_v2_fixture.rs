@@ -20,12 +20,11 @@
 //! orchard with a tree, a farm plot growing beside an irrigation channel, a stretch of rail, and
 //! a part-delivered build site. A Fire settlement of six, saved at tick 901.
 //!
-//! It was written by `world::v2_fixture::regenerate_v2_fixture` (a `#[ignore]`d unit test in
-//! `crates/sim/src/world/v2_fixture.rs`, which needs private access to stand buildings up). The
-//! digest was written by `write_v2_digest` below. Both are one-shot, and **must not be
-//! regenerated once the format has changed** (v3, #604 part 2): a file written then would no
-//! longer prove anything about v2 saves or about the refactor. Both generators go away with the
-//! format change, the way #602 removed the v1 one.
+//! It was written by a `#[ignore]`d unit test, `world::v2_fixture::regenerate_v2_fixture`, and
+//! the digest by a `write_v2_digest` test here, both from the v2 build (see git history). Both
+//! were removed with the format change (v3, #604 part 2), the way #602 removed the v1 generator:
+//! a file written by a v3 build would no longer prove anything about v2 saves or about the
+//! refactor. The v3 build reproduces the digest byte for byte.
 //!
 //! The digest uses public queries only, and names content (items, buildings, techs) rather than
 //! printing table indices. Ordinary content changes (#602: saves are remapped by name) therefore
@@ -36,10 +35,8 @@
 //!
 //! `World::load` used to adopt every tile with an orchard on it, so a 2x2 orchard came back as
 //! four (#624). It now adopts anchor tiles only, and the digest was re-recorded from the fixed
-//! build: its `orchards` line lists one. The fixture is unchanged.
-// Test code, not the sim: it reads files and the environment. The lint is for the library
-// (AGENTS.md rule 4).
-#![allow(clippy::disallowed_methods)]
+//! build: its `orchards` line lists one. The fixture is unchanged. The v3 upgrade drops those
+//! extra entries the same way (`save/v2.rs`).
 
 use std::fmt::Write;
 
@@ -90,6 +87,7 @@ fn body_has(field: &str) -> bool {
 fn the_fixture_is_a_v2_save() {
     let info = fn_sim::save::inspect(FIXTURE).unwrap();
     assert_eq!(info.version, 2);
+    assert!(info.version < SAVE_VERSION, "the fixture loads through the upgrade to records (#604)");
     assert_eq!((info.seed, info.nation), (7, Nation::Fire));
     assert!(info.tick > 0);
     assert_eq!(FIXTURE.lines().count(), 3, "header, id tables, body");
@@ -184,10 +182,9 @@ fn stack(defs: &Defs, s: Stack) -> String {
 }
 
 /// Every finished building, in `World::buildings` order. The one place the digest touches that
-/// query's item type, which #604 part 2 changes (to a record with `footprint()` and `id`): adapt
-/// this and nothing else.
+/// query's item type, which #604 part 2 changed to a record with `footprint()` and `id`.
 fn listing(w: &World) -> Vec<(fn_sim::geom::Footprint, BuildingId)> {
-    w.buildings().collect()
+    w.buildings().map(|b| (b.footprint(), b.id)).collect()
 }
 
 /// The world as a text a person can diff: units, jobs, tallies, research, stacks and every
@@ -351,11 +348,10 @@ fn the_fixture_plays_on_to_the_recorded_digest() {
             "the simulation of the v2 fixture changed (first difference at line {}).\n\
              recorded: {:?}\n\
              got:      {:?}\n\
-             This digest was written before buildings became records (#604); until that \
-             refactor is done it pins today's behaviour. If you changed the rules on purpose, \
-             say so in the commit and re-record `fixtures/v2_buildings.after.txt` with \
-             `FN_REGENERATE_FIXTURE=1 cargo test -p fn_sim --test save_v2_fixture -- --ignored \
-             write_v2_digest`; never after the v3 format is in.",
+             This digest was written before buildings became records (#604), and the v3 build \
+             reproduced it. If you changed the rules on purpose, say so in the commit and \
+             update `fixtures/v2_buildings.after.txt` by hand from the `got` side, after \
+             checking that every difference is the one you meant.",
             at + 1,
             AFTER.lines().nth(at),
             got.lines().nth(at),
@@ -418,19 +414,4 @@ fn appending_content_changes_nothing() {
     assert!(defs.building_id("test_building").is_some() && defs.tech_id("test_tech").is_some());
     assert_ne!(defs.id_hash(), Defs::bundled().id_hash());
     assert_eq!(played_digest(&defs), AFTER);
-}
-
-/// Records `fixtures/v2_buildings.after.txt` from the fixture. One-shot: see the module docs.
-#[test]
-#[ignore = "rewrites the checked-in digest; run by hand, and only while saves are v2"]
-fn write_v2_digest() {
-    assert!(
-        std::env::var_os("FN_REGENERATE_FIXTURE").is_some(),
-        "set FN_REGENERATE_FIXTURE=1 to confirm you mean to rewrite the digest"
-    );
-    assert_eq!(SAVE_VERSION, 2, "the digest records the pre-refactor (v2) build");
-    let text = played_digest(&Defs::bundled());
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/v2_buildings.after.txt");
-    std::fs::write(path, text).unwrap();
 }

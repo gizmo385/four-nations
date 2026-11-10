@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use super::*;
-use crate::building::{Building, BuildingDef, BuildingId, PowerDef};
+use crate::building::{BuildingDef, BuildingId, PowerDef};
 use crate::defs::{BiomeId, Terrain};
-use crate::geom::Grid;
+use crate::geom::{Footprint, Grid};
 use crate::mapgen::Tile;
 use crate::world::Command;
 
@@ -58,9 +58,7 @@ fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
 
 /// Puts a finished source of `id` on `pos`, as if built.
 fn raise_source(w: &mut World, defs: &Defs, id: BuildingId, pos: Pos) {
-    let def = defs.building(id);
-    w.map[pos].building = Some(Building::new(id, def.passable, false));
-    w.open_power_source(pos);
+    w.put_building(Footprint::single(pos), id, defs);
 }
 
 #[test]
@@ -162,26 +160,12 @@ fn a_wind_turbine_powers_a_workshop_within_9_tiles_but_not_at_10() {
 
     // Nearest workshop tile is (1, 0): a turbine 10 tiles east sits 9 away (within the reach of
     // 9), one 11 tiles east sits 10 away (just outside it).
+    let mut far = w.clone();
     raise_source(&mut w, &defs, turbine, at(10, 0));
     assert_eq!(w.power_boost(workshop_footprint, &defs), 1.5, "9 tiles away: in reach");
 
-    w.power_sources.remove(&at(10, 0));
-    w.map[at(10, 0)].building = None;
-    raise_source(&mut w, &defs, turbine, at(11, 0));
-    assert_eq!(w.power_boost(workshop_footprint, &defs), 1.0, "10 tiles away: out of reach");
-}
-
-#[test]
-fn a_save_from_before_power_sources_adopts_the_one_it_already_has() {
-    let mut defs = Defs::bundled();
-    let source = test_source(&mut defs, 3, 1.5);
-    let mut w = World::with_map(1, arena(12), Nation::Water, &[at(0, 0)], &defs);
-    // On the map but never registered, as a save from before #428 would be.
-    w.map[at(5, 5)].building = Some(Building::new(source, true, false));
-    assert!(w.power_at(at(5, 5), &defs).is_none());
-
-    w.adopt_power_sources(&defs);
-    assert_eq!(w.power_at(at(5, 5), &defs), Some(PowerAt { source: at(5, 5), boost: 1.5 }));
+    raise_source(&mut far, &defs, turbine, at(11, 0));
+    assert_eq!(far.power_boost(workshop_footprint, &defs), 1.0, "10 tiles away: out of reach");
 }
 
 #[test]
@@ -202,25 +186,13 @@ fn a_powered_layout_survives_a_save_and_load_round_trip() {
 }
 
 #[test]
-fn adopting_a_2x2_power_building_registers_it_once_and_collapses_saved_duplicates() {
+fn a_2x2_power_building_is_one_source() {
     let defs = Defs::bundled();
     let id = defs.building_id("steam_engine").unwrap();
     let mut w = World::with_map(1, arena(12), Nation::Water, &[at(0, 0)], &defs);
-    for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-        let mut b = Building::new(id, defs.building(id).passable, false);
-        b.part = [dx as u8, dy as u8];
-        b.size = [2, 2];
-        w.map[at(5 + dx, 5 + dy)].building = Some(b);
-    }
-    w.adopt_power_sources(&defs);
-    assert_eq!(w.power_sources.iter().copied().collect::<Vec<_>>(), vec![at(5, 5)]);
-
-    // A save from the buggy build: an entry on every tile.
-    for p in [at(6, 5), at(5, 6), at(6, 6)] {
-        w.open_power_source(p);
-    }
+    w.put_building(Footprint::new(at(5, 5), 2, 2), id, &defs);
+    let sources = |w: &World| w.of_kind(Kind::Power).map(|b| b.anchor).collect::<Vec<_>>();
+    assert_eq!(sources(&w), vec![at(5, 5)]);
     let loaded = World::load(&w.save(&defs).unwrap(), &defs).unwrap();
-    assert_eq!(loaded.power_sources.iter().copied().collect::<Vec<_>>(), vec![at(5, 5)]);
-    w.adopt_power_sources(&defs);
-    assert_eq!(w.power_sources.iter().copied().collect::<Vec<_>>(), vec![at(5, 5)]);
+    assert_eq!(sources(&loaded), vec![at(5, 5)]);
 }

@@ -97,18 +97,14 @@ fn ground_line(world: &World, defs: &Defs, tile: Pos) -> Option<String> {
 /// powers them: the best boost in reach (`World::power_for` over the consumer's whole footprint,
 /// as the sim scales its work), not merely every building its reach physically covers (two
 /// sources never both power one building, #428). For a source's own "Powering" readout (#429).
-/// Counted by anchor (`Building::part` zero), so a multi-tile consumer isn't counted once per
+/// Counted per building (`World::buildings`), so a multi-tile consumer isn't counted once per
 /// tile.
 fn powering_count(world: &World, defs: &Defs, source: Pos) -> usize {
     world
-        .map
-        .iter()
-        .filter(|&(p, t)| {
-            t.building.is_some_and(|b| b.part == [0, 0] && defs.building(b.id).uses_power)
-                && world
-                    .footprint_at(p)
-                    .and_then(|f| world.power_for(f, defs))
-                    .is_some_and(|at| at.source == source)
+        .buildings()
+        .filter(|b| {
+            defs.building(b.id).uses_power
+                && world.power_for(b.footprint(), defs).is_some_and(|at| at.source == source)
         })
         .count()
 }
@@ -613,18 +609,13 @@ mod tests {
 
     #[test]
     fn a_finished_building_s_tooltip_names_its_anchor_from_every_tile_of_its_footprint() {
-        use fn_sim::building::Building;
         use fn_sim::geom::Footprint;
         let mut s = Session::new(7, Nation::Earth, 64, 64);
         let bed = s.defs.building_id("bed").unwrap();
         let at = Pos::new(30, 30);
         let foot = Footprint::new(at, 2, 2);
         s.world.units.retain(|u| !foot.contains(u.pos));
-        for p in foot.tiles() {
-            let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
-            let b = Building { part, size: [2, 2], ..Building::new(bed, true, false) };
-            s.world.map.get_mut(p).unwrap().building = Some(b);
-        }
+        s.world.put_building(foot, bed, &s.defs);
         for p in foot.tiles() {
             let lines = tooltip_lines(&s, Tool::Select, p).unwrap();
             assert_eq!(
@@ -640,20 +631,15 @@ mod tests {
     /// only the total (`build::building_detail`).
     #[test]
     fn a_study_hall_says_how_many_seats_are_filled() {
-        use fn_sim::building::Building;
         use fn_sim::geom::Footprint;
         let mut s = Session::new(7, Nation::Earth, 64, 64);
         let hall = s.defs.building_id("study_hall").unwrap();
         let def = s.defs.building(hall);
-        let (seats, passable) = (def.seats, def.passable);
+        let seats = def.seats;
         let at = Pos::new(30, 30);
         let foot = Footprint::new(at, 2, 2);
         s.world.units.retain(|u| !foot.contains(u.pos) && u.pos != foot.entrance());
-        for p in foot.tiles() {
-            let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
-            let b = Building { part, size: [2, 2], ..Building::new(hall, passable, false) };
-            s.world.map.get_mut(p).unwrap().building = Some(b);
-        }
+        s.world.put_building(foot, hall, &s.defs);
         let lines = tooltip_lines(&s, Tool::Select, at).unwrap();
         assert!(
             lines.contains(&Line::Detail(format!("Study: 0/{seats} seats filled"))),
@@ -674,7 +660,6 @@ mod tests {
     /// when the only ruin lies out of range (#403, docs/design/cartography.md).
     #[test]
     fn a_map_room_says_how_far_it_has_charted_and_when_nothing_is_left() {
-        use fn_sim::building::Building;
         use fn_sim::defs::BiomeId;
         use fn_sim::geom::Footprint;
         use fn_sim::{Grid, Terrain, Tile};
@@ -683,7 +668,7 @@ mod tests {
         let room = defs.building_id("map_room").unwrap();
         let ruins = defs.resource_id("lost_ruins").unwrap();
         let def = defs.building(room);
-        let (size, passable) = (def.footprint, def.passable);
+        let size = def.footprint;
         let range = def.chart.as_ref().unwrap().range as i32;
         let at = Pos::new(2, 2);
         // A strip of plain land: the room at the west end, a ruin `range` tiles east of its
@@ -700,12 +685,7 @@ mod tests {
         });
         let mut world = World::with_map(1, map, Nation::Earth, &[Pos::new(0, 0)], &defs);
         let foot = Footprint::new(at, size.0, size.1);
-        for p in foot.tiles() {
-            let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
-            let b =
-                Building { part, size: [size.0, size.1], ..Building::new(room, passable, false) };
-            world.map.get_mut(p).unwrap().building = Some(b);
-        }
+        world.put_building(foot, room, &defs);
         let mut s =
             Session { world, defs, clock: crate::clock::Clock::default(), bend_choice: None };
         let lines = |s: &Session| tooltip_lines(s, Tool::Select, at).unwrap();
@@ -736,7 +716,7 @@ mod tests {
     /// Water's `power_generation` is 1.0 (data/nations.toml), so its reach is the bare radius.
     #[test]
     fn a_consumer_names_its_source_and_a_source_names_its_reach_and_how_many_it_powers() {
-        use fn_sim::building::{Building, PowerDef};
+        use fn_sim::building::PowerDef;
         let mut s = Session::new(7, Nation::Water, 24, 24);
         let source_id = s.defs.building_id("bed").unwrap();
         s.defs.buildings[source_id.0 as usize].power =
@@ -748,11 +728,9 @@ mod tests {
         let near = Pos::new(10, 13); // 3 tiles away: in reach
         let far = Pos::new(10, 20); // out of reach
         s.world.units.retain(|u| ![source_at, near, far].contains(&u.pos));
-        s.world.map.get_mut(source_at).unwrap().building =
-            Some(Building::new(source_id, true, false));
-        s.world.adopt_power_sources(&s.defs);
-        s.world.map.get_mut(near).unwrap().building = Some(Building::new(consumer_id, true, false));
-        s.world.map.get_mut(far).unwrap().building = Some(Building::new(consumer_id, true, false));
+        s.world.put_building(fn_sim::geom::Footprint::single(source_at), source_id, &s.defs);
+        s.world.put_building(fn_sim::geom::Footprint::single(near), consumer_id, &s.defs);
+        s.world.put_building(fn_sim::geom::Footprint::single(far), consumer_id, &s.defs);
 
         let source_name = s.defs.building(source_id).display_name(s.world.nation).to_owned();
         let near_lines = tile_lines(&s, Tool::Select, near).unwrap();
@@ -779,7 +757,7 @@ mod tests {
     /// counts it (issue #452). A 1.25 boost prints as "1.25x", not "1.2x".
     #[test]
     fn a_big_consumer_reached_only_through_a_far_tile_reads_powered_and_is_counted() {
-        use fn_sim::building::{Building, PowerDef};
+        use fn_sim::building::PowerDef;
         use fn_sim::geom::Footprint;
         let mut s = Session::new(7, Nation::Water, 24, 24);
         let source_id = s.defs.building_id("bed").unwrap();
@@ -794,14 +772,8 @@ mod tests {
         let anchor = Pos::new(6, 10);
         let foot = Footprint::new(anchor, 2, 2);
         s.world.units.retain(|u| u.pos != source_at && !foot.contains(u.pos));
-        s.world.map.get_mut(source_at).unwrap().building =
-            Some(Building::new(source_id, true, false));
-        s.world.adopt_power_sources(&s.defs);
-        for p in foot.tiles() {
-            let part = [(p.x - anchor.x) as u8, (p.y - anchor.y) as u8];
-            let b = Building { part, size: [2, 2], ..Building::new(consumer_id, true, false) };
-            s.world.map.get_mut(p).unwrap().building = Some(b);
-        }
+        s.world.put_building(fn_sim::geom::Footprint::single(source_at), source_id, &s.defs);
+        s.world.put_building(foot, consumer_id, &s.defs);
         assert!(s.world.power_at(anchor, &s.defs).is_none(), "the anchor alone is out of reach");
 
         let source_name = s.defs.building(source_id).display_name(s.world.nation).to_owned();
@@ -824,7 +796,6 @@ mod tests {
         let mut s = Session::new(3, Nation::Air, 64, 64);
         let id = s.defs.building_id("orchard").unwrap();
         let o = s.defs.building(id).orchard.unwrap();
-        let passable = s.defs.building(id).passable;
         let home = s.world.units[0].pos;
         let mut spots: Vec<Pos> = s.world.map.iter().map(|(p, _)| p).collect();
         spots.sort_by_key(|p| ((p.x - home.x).pow(2) + (p.y - home.y).pow(2), p.x, p.y));
@@ -842,9 +813,7 @@ mod tests {
         spots.truncate(400);
         let pos = spots.into_iter().max_by_key(|&p| open(p)).expect("an open meadow");
         assert!(open(pos) >= 40, "the open meadow has room to plant");
-        s.world.map.get_mut(pos).unwrap().building =
-            Some(fn_sim::building::Building::new(id, passable, false));
-        s.world.adopt_orchards(&s.defs);
+        s.world.put_building(fn_sim::geom::Footprint::single(pos), id, &s.defs);
         let at = |s: &Session| tooltip_lines(s, Tool::Select, pos).unwrap();
         assert!(at(&s).contains(&Line::Detail(format!("Tends 0 of {} fruit trees", o.max_trees))));
 

@@ -2,7 +2,6 @@
 //! a drink taken where the only water nearby is the sea.
 
 use super::*;
-use crate::building::Building;
 use crate::defs::{BiomeId, Terrain};
 use crate::geom::Grid;
 use crate::mapgen::Tile;
@@ -128,7 +127,7 @@ fn a_sleeper_in_a_bed_takes_no_exposure_damage() {
     let bed = defs.building_id("bed").unwrap();
     let def = defs.building(bed);
     assert!(def.bed.unwrap().sleep_bonus > 1.0, "a bed must beat the cold on its own");
-    w.map[pos].building = Some(Building::new(bed, def.passable, false));
+    w.put_building(crate::geom::Footprint::single(pos), bed, &defs);
     for _ in 0..600 {
         w.tick(&defs);
     }

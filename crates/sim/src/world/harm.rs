@@ -111,10 +111,7 @@ impl World {
     /// does.
     pub(super) fn bed_sleep_bonus(&self, u: &Unit, defs: &Defs) -> f32 {
         let bed_tile = u.inside.unwrap_or(u.pos);
-        self.map[bed_tile]
-            .building
-            .and_then(|b| defs.building(b.id).bed)
-            .map_or(1.0, |b| b.sleep_bonus)
+        self.building_at(bed_tile).and_then(|b| defs.building(b).bed).map_or(1.0, |b| b.sleep_bonus)
     }
 
     /// Applies this tick's exposure damage to `u` if it's exposed right now (asleep, on a cold

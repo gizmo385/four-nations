@@ -920,22 +920,15 @@ fn a_fire_picker_row_with_a_stone_stand_in_names_brick_on_screen() {
 // Power (#428, #429): readouts in the Build modal and the Here section
 // ---------------------------------------------------------------------------------------------
 
-/// Stamps a finished `id` with its anchor at `at`, baking every tile's own `part` and `size`
-/// (`fn_sim::building::Building`), the way a construction site would once it finishes: for a
-/// test that needs a building already standing, not under construction.
+/// Stands a finished `id` with its anchor at `at` (`World::put_building`), the way a
+/// construction site would once it finishes: for a test that needs a building already standing,
+/// not under construction.
 fn place_building(s: &mut Session, id: fn_sim::building::BuildingId, at: Pos) {
-    use fn_sim::building::Building;
     use fn_sim::geom::Footprint;
-    let def = s.defs.building(id);
-    let (w, h) = def.footprint;
-    let passable = def.passable;
+    let (w, h) = s.defs.building(id).footprint;
     let foot = Footprint::new(at, w, h);
     s.world.units.retain(|u| !foot.contains(u.pos));
-    for p in foot.tiles() {
-        let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
-        let b = Building { part, size: [w, h], ..Building::new(id, passable, false) };
-        s.world.map.get_mut(p).unwrap().building = Some(b);
-    }
+    s.world.put_building(foot, id, &s.defs);
 }
 
 /// No bundled building is a power source yet (#255, #204, #200), so every test here mutates
@@ -993,7 +986,6 @@ fn the_here_section_names_a_powered_and_an_unpowered_workshop_and_the_source_its
     let powered_at = Pos::new(13, 10); // 3 tiles from the source's own tile: just in reach
     let unpowered_at = Pos::new(25, 10); // far outside it
     place_building(&mut s, source, source_at);
-    s.world.adopt_power_sources(&s.defs);
     place_building(&mut s, workshop, powered_at);
     place_building(&mut s, workshop, unpowered_at);
 
@@ -1308,7 +1300,6 @@ fn a_finished_power_sources_reach_is_tinted_under_the_cursor() {
     let (mut s, source) = session_with_a_test_source(7, Nation::Water, 3, 1.5);
     let at = Pos::new(10, 10);
     place_building(&mut s, source, at);
-    s.world.adopt_power_sources(&s.defs);
 
     let mut app = App::new(s, SIZE);
     let p = palette(&app.session, ColorDepth::TrueColor, false);
@@ -1397,7 +1388,6 @@ fn an_orchards_sapling_has_its_own_glyph() {
     let mut s = Session::new(3, Nation::Air, 48, 32);
     let home = s.world.units[0].pos;
     let id = s.defs.building_id("orchard").unwrap();
-    let passable = s.defs.building(id).passable;
     // The orchard on the open land nearest the settlers, which then plants beside itself.
     let land = |p: Pos| {
         (-4..=4)
@@ -1416,9 +1406,7 @@ fn an_orchards_sapling_has_its_own_glyph() {
     spots.truncate(400);
     let orchard = spots.into_iter().max_by_key(|&p| land(p)).expect("an open meadow");
     assert!(land(orchard) >= 40, "the open meadow has room to plant");
-    s.world.map.get_mut(orchard).unwrap().building =
-        Some(fn_sim::building::Building::new(id, passable, false));
-    s.world.adopt_orchards(&s.defs);
+    s.world.put_building(fn_sim::geom::Footprint::single(orchard), id, &s.defs);
     s.tick_n(1200);
     let sapling = s
         .world
@@ -1461,10 +1449,7 @@ fn a_farm_plot_shows_its_growing_and_ripe_glyphs() {
         })
         .expect("an open tile to plant");
     let id = s.defs.building_id("farm_plot").unwrap();
-    let passable = s.defs.building(id).passable;
-    s.world.map.get_mut(plot).unwrap().building =
-        Some(fn_sim::building::Building::new(id, passable, false));
-    s.world.adopt_farm_plots(&s.defs);
+    s.world.put_building(fn_sim::geom::Footprint::single(plot), id, &s.defs);
     s.apply(Command::Sow { pos: plot }).unwrap();
 
     let mut app = App::new(s, SIZE);

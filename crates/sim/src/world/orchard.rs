@@ -31,9 +31,16 @@ use crate::building::OrchardDef;
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(super) struct Orchard {
     /// Seconds until it plants again. Only counts down while it tends fewer than `max_trees`.
-    plant_in: f32,
+    pub(super) plant_in: f32,
     /// The trees it planted, saplings included.
-    trees: BTreeSet<Pos>,
+    pub(super) trees: BTreeSet<Pos>,
+}
+
+impl Orchard {
+    /// A just-finished orchard: its first planting timer, and no trees yet.
+    pub(super) fn new(def: &OrchardDef) -> Self {
+        Self { plant_in: def.plant_seconds, trees: BTreeSet::new() }
+    }
 }
 
 /// The stream orchard planting draws from. A saved world that predates orchards loads with this
@@ -61,67 +68,33 @@ impl World {
 
     /// The finished orchards with how many trees each tends, in tile order.
     pub fn orchards(&self) -> impl Iterator<Item = (Pos, usize)> + '_ {
-        self.orchards.iter().map(|(&p, o)| (p, o.trees.len()))
+        self.of_kind(Kind::Orchard)
+            .filter_map(|b| b.orchard.as_ref().map(|o| (b.anchor, o.trees.len())))
     }
 
-    /// How many trees the orchard on `pos` tends right now, if there is one.
+    /// How many trees the orchard anchored on `pos` tends right now, if there is one.
     pub fn orchard_trees(&self, pos: Pos) -> Option<usize> {
-        self.orchards.get(&pos).map(|o| o.trees.len())
+        self.anchored(pos)?.orchard.as_ref().map(|o| o.trees.len())
     }
 
     /// Seconds until the orchard on `pos` plants its next tree, if it is due to (it tends fewer
     /// than its maximum).
     pub fn orchard_plants_in(&self, pos: Pos, defs: &Defs) -> Option<f32> {
-        let o = self.orchards.get(&pos)?;
+        let o = self.anchored(pos)?.orchard.as_ref()?;
         let def = self.orchard_def(pos, defs)?;
         ((o.trees.len() as u32) < def.max_trees).then_some(o.plant_in)
     }
 
     fn orchard_def(&self, pos: Pos, defs: &Defs) -> Option<OrchardDef> {
-        defs.building(self.map.get(pos)?.building?.id).orchard
-    }
-
-    /// A building has just been finished on `pos`: if it is an orchard, it starts its first
-    /// planting timer.
-    pub(super) fn open_orchard(&mut self, pos: Pos, def: &OrchardDef) {
-        self.orchards.insert(pos, Orchard { plant_in: def.plant_seconds, trees: BTreeSet::new() });
-    }
-
-    /// Registers orchards that stand on the map but not in `orchards`: ones in a save from before
-    /// orchards did anything, and ones a test or tool put on the map by hand (like
-    /// `map_changed`, for code that writes to `map` directly). Orchards already known are left
-    /// as they are.
-    ///
-    /// Only a building's anchor tile (`part == [0, 0]`) counts: a 2x2 orchard is one orchard. A
-    /// save written by a build that registered every tile has an entry on each non-anchor tile
-    /// too; those are dropped here, and with them their trees and planting timer. The anchor's
-    /// entry (its own trees and timer) is the one that stays.
-    pub fn adopt_orchards(&mut self, defs: &Defs) {
-        let map = &self.map;
-        self.orchards
-            .retain(|&p, _| map.get(p).and_then(|t| t.building).is_none_or(|b| b.part == [0, 0]));
-        let found: Vec<(Pos, OrchardDef)> = self
-            .map
-            .iter()
-            .filter_map(|(p, t)| {
-                let b = t.building?;
-                (b.part == [0, 0]).then_some(())?;
-                Some((p, defs.building(b.id).orchard?))
-            })
-            .filter(|(p, _)| !self.orchards.contains_key(p))
-            .collect();
-        for (p, def) in found {
-            self.open_orchard(p, &def);
-        }
+        defs.building(self.building_at(pos)?).orchard
     }
 
     /// How many times faster than normal a resting resource on `pos` grows because an orchard
     /// tends it: the best `tend_boost` among orchards in reach that plant its kind, else 1.0.
     pub(super) fn tend_rate(&self, pos: Pos, defs: &Defs) -> f32 {
         let Some(kind) = self.map.get(pos).and_then(|t| t.resource) else { return 1.0 };
-        self.orchards
-            .keys()
-            .filter_map(|&o| self.orchard_def(o, defs).map(|d| (o, d)))
+        self.of_kind(Kind::Orchard)
+            .filter_map(|b| self.orchard_def(b.anchor, defs).map(|d| (b.anchor, d)))
             .filter(|(o, d)| d.plants == kind && o.chebyshev(pos) <= d.radius as i32)
             .map(|(_, d)| d.tend_boost)
             .fold(1.0, f32::max)
@@ -129,19 +102,18 @@ impl World {
 
     /// One tick of every orchard's planting.
     pub(super) fn tick_orchards(&mut self, defs: &Defs) {
-        if self.orchards.is_empty() {
+        if !self.has_kind(Kind::Orchard) {
             return;
         }
         let step = 1.0 / TICKS_PER_SECOND as f32;
-        let spots: Vec<Pos> = self.orchards.keys().copied().collect();
+        let spots: Vec<Pos> = self.of_kind(Kind::Orchard).map(|b| b.anchor).collect();
         for pos in spots {
-            let Some(def) = self.orchard_def(pos, defs) else {
-                // Nothing stands here any more (no demolish yet, so only a hand-edited map).
-                self.orchards.remove(&pos);
+            let Some(def) = self.orchard_def(pos, defs) else { continue };
+            let key = self.map[pos].building.expect("an orchard stands here").key();
+            let map = &self.map;
+            let Some(o) = self.buildings.get_mut(key).and_then(|b| b.orchard.as_mut()) else {
                 continue;
             };
-            let map = &self.map;
-            let o = self.orchards.get_mut(&pos).expect("just listed");
             o.trees.retain(|&t| map[t].resource == Some(def.plants));
             if o.trees.len() as u32 >= def.max_trees {
                 o.plant_in = def.plant_seconds;
@@ -167,7 +139,8 @@ impl World {
         if def.auto_pick {
             self.standing_harvest.insert(tree);
         }
-        self.orchards.get_mut(&orchard).expect("planting orchard exists").trees.insert(tree);
+        let o = self.anchored_mut(orchard).and_then(|b| b.orchard.as_mut());
+        o.expect("planting orchard exists").trees.insert(tree);
     }
 
     /// Where the orchard on `pos` plants next: a random one of the tiles in reach that

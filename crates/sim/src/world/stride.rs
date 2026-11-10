@@ -156,8 +156,7 @@ mod tests {
         let mut w = world(&defs);
         let rail = defs.building_id("rail").unwrap();
         for x in 5..=20 {
-            w.map[Pos::new(x, 10)].building =
-                Some(crate::building::Building::new(rail, true, true));
+            w.put_building(crate::geom::Footprint::single(Pos::new(x, 10)), rail, &defs);
         }
         let wood = defs.item_id("wood").unwrap();
         w.units[0].carrying = Some(crate::jobs::Stack { item: wood, count: 2 });

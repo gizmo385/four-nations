@@ -119,7 +119,7 @@ mod tests {
         }
         let mut w = World::with_map(1, field(12, 12), Nation::Earth, units, &defs);
         let foot = Footprint::new(anchor, 2, 2);
-        w.raise(foot, hall, defs.building(hall));
+        w.raise(foot, hall, &defs);
         (w, defs, hall)
     }
 

@@ -1058,7 +1058,7 @@ impl World {
     /// walked onto directly and holds one sleeper, keyed by its own tile, unchanged since #58.
     /// One bigger than 1x1 needs a `capacity` (#227): that many places inside it, reached (and
     /// reserved) through its door like a study seat, keyed by its anchor.
-    fn bed_route(&self, i: usize, defs: &Defs) -> Option<(Vec<Pos>, Pos)> {
+    pub(super) fn bed_route(&self, i: usize, defs: &Defs) -> Option<(Vec<Pos>, Pos)> {
         if !defs.buildings.iter().any(|b| b.bed.is_some()) {
             return None;
         }
@@ -1068,7 +1068,8 @@ impl World {
         // have to touch at exactly that tile) keeps all of them, in `self.buildings()`'s anchor
         // order, same as a plain scan would see them in.
         let mut targets: HashMap<Pos, Vec<(u32, Pos, u32)>> = HashMap::new();
-        for (foot, id) in self.buildings() {
+        for b in self.buildings() {
+            let (foot, id) = (b.footprint(), b.id);
             let Some(bed) = defs.building(id).bed else { continue };
             let big = foot.w > 1 || foot.h > 1;
             let (stand, limit) =
@@ -1104,7 +1105,7 @@ impl World {
     /// `None` with no reachable one -- no healing building in the data at all, none this
     /// healthy would seek out, or every reachable one already full. Unlike `bed_route` there is
     /// no `seek_tiles` limit: the data names none, so any reachable one counts.
-    fn plan_healing(&self, i: usize, defs: &Defs) -> Option<(Vec<Pos>, Pos)> {
+    pub(super) fn plan_healing(&self, i: usize, defs: &Defs) -> Option<(Vec<Pos>, Pos)> {
         if !defs.buildings.iter().any(|b| b.healing.is_some()) {
             return None;
         }
@@ -1113,7 +1114,8 @@ impl World {
         // `bed_route`'s `targets`, keyed the same way: a door shared by more than one building
         // keeps all of them, in `self.buildings()`'s anchor order).
         let mut targets: HashMap<Pos, Vec<(Pos, u32, f32)>> = HashMap::new();
-        for (foot, id) in self.buildings() {
+        for b in self.buildings() {
+            let (foot, id) = (b.footprint(), b.id);
             let Some(h) = defs.building(id).healing.as_ref() else { continue };
             let capacity = defs.building(id).capacity;
             if capacity == 0 || health >= h.seek_below {
@@ -1730,17 +1732,10 @@ impl World {
         defs.item(item).knowledge.is_some()
     }
 
-    /// Positions of the study halls that stand, one per hall. A hall's seats are `Study` jobs
-    /// that never complete (`study.rs`), so the queue is the list of halls.
+    /// Anchors of the study halls that stand, one per hall, in `Pos` order (`Kind::Study`:
+    /// seats, and no chart). Every reader asks "any" or "nearest", so the order doesn't matter.
     fn study_halls(&self) -> impl Iterator<Item = Pos> + '_ {
-        let mut last = None;
-        self.jobs.iter().filter_map(move |j| match j.kind {
-            JobKind::Study { pos } if last != Some(pos) => {
-                last = Some(pos);
-                Some(pos)
-            }
-            _ => None,
-        })
+        self.of_kind(Kind::Study).map(|b| b.anchor)
     }
 
     /// Is `pos` on or beside a study hall? Where a unit that walked a scroll to the hall ends up.

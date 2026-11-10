@@ -1,5 +1,4 @@
 use super::*;
-use crate::building::Building;
 use crate::defs::{BiomeId, Terrain};
 use crate::geom::{Footprint, Grid};
 use crate::jobs::JobKind;
@@ -36,9 +35,7 @@ fn orchard_def(defs: &Defs) -> OrchardDef {
 /// Puts a finished orchard on `pos`, as if built.
 fn raise_orchard(w: &mut World, defs: &Defs, pos: Pos) {
     let id = defs.building_id("orchard").unwrap();
-    let def = defs.building(id);
-    w.map[pos].building = Some(Building::new(id, def.passable, false));
-    w.open_orchard(pos, def.orchard.as_ref().unwrap());
+    w.put_building(Footprint::single(pos), id, defs);
 }
 
 fn secs(s: f32) -> u64 {
@@ -129,7 +126,7 @@ fn a_unit_inside_a_building_does_not_block_its_door_from_planting() {
     }
     let anchor = at(4, 4);
     let foot = Footprint::new(anchor, 2, 2);
-    w.raise(foot, hall, defs.building(hall));
+    w.raise(foot, hall, &defs);
     let door = foot.entrance();
     w.units[0].pos = door;
     assert!(w.enter_building(0, anchor, &defs));
@@ -418,18 +415,17 @@ fn orchards_survive_a_save_and_the_grove_keeps_growing_the_same() {
 }
 
 #[test]
-fn a_save_from_before_orchards_planted_adopts_the_ones_it_already_has() {
+fn an_orchard_record_without_its_state_gets_it_on_load() {
+    // As in a save from before orchards planted: the building stands, its orchard state doesn't.
     let (mut w, defs) = setup(Nation::Air, 9, &[at(0, 0)]);
-    let id = defs.building_id("orchard").unwrap();
-    let b = defs.building(id);
-    // The building is on the map but nothing registered it, as in an old save.
-    w.map[MID].building = Some(Building::new(id, b.passable, false));
+    raise_orchard(&mut w, &defs, MID);
+    w.anchored_mut(MID).unwrap().orchard = None;
     assert_eq!(w.orchard_trees(MID), None);
-    w.adopt_orchards(&defs);
+    w.reindex_buildings(&defs);
     assert_eq!(w.orchard_trees(MID), Some(0));
-    w.adopt_orchards(&defs);
+    w.reindex_buildings(&defs);
     run(&mut w, &defs, secs(orchard_def(&defs).plant_seconds) + 5);
-    assert_eq!(w.orchard_trees(MID), Some(1), "adopting twice doesn't reset it");
+    assert_eq!(w.orchard_trees(MID), Some(1), "reindexing twice doesn't reset it");
 }
 
 // --- Water's Fishing Dock (#374): the orchard, planting on water ------------------------------
@@ -441,9 +437,7 @@ fn fishing_dock_def(defs: &Defs) -> OrchardDef {
 /// Puts a finished Fishing Dock on `anchor`, as if built, with its real 2x2 footprint.
 fn raise_fishing_dock(w: &mut World, defs: &Defs, anchor: Pos) {
     let id = defs.building_id("fishing_dock").unwrap();
-    let def = defs.building(id);
-    w.raise(Footprint::new(anchor, 2, 2), id, def);
-    w.open_orchard(anchor, def.orchard.as_ref().unwrap());
+    w.raise(Footprint::new(anchor, 2, 2), id, defs);
 }
 
 fn fish_spots(w: &World, defs: &Defs) -> Vec<Pos> {
@@ -533,34 +527,12 @@ fn an_orchard_never_plants_a_tree_that_seals_off_ground() {
     assert_eq!(fruit_trees(&w, &defs).len() as u32, def.max_trees);
 }
 
-/// Stamps a finished 2x2 building with its anchor on `anchor`, without registering anything.
-fn stamp_2x2(w: &mut World, defs: &Defs, name: &str, anchor: Pos) {
-    let id = defs.building_id(name).unwrap();
-    for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-        let mut b = Building::new(id, defs.building(id).passable, false);
-        b.part = [dx as u8, dy as u8];
-        b.size = [2, 2];
-        w.map[Pos::new(anchor.x + dx, anchor.y + dy)].building = Some(b);
-    }
-}
-
 #[test]
-fn adopting_a_2x2_orchard_registers_it_once_and_collapses_saved_duplicates() {
+fn a_2x2_orchard_is_one_orchard() {
     let (mut w, defs) = setup(Nation::Air, 9, &[at(0, 0)]);
-    stamp_2x2(&mut w, &defs, "orchard", MID);
-    w.adopt_orchards(&defs);
+    let id = defs.building_id("orchard").unwrap();
+    w.put_building(Footprint::new(MID, 2, 2), id, &defs);
     assert_eq!(w.orchards().map(|(p, _)| p).collect::<Vec<_>>(), vec![MID]);
-
-    // A save from the buggy build: an entry on every tile, the anchor's mid-timer.
-    let def = orchard_def(&defs);
-    w.orchards.get_mut(&MID).unwrap().plant_in = 1.25;
-    for (dx, dy) in [(1, 0), (0, 1), (1, 1)] {
-        w.open_orchard(Pos::new(MID.x + dx, MID.y + dy), &def);
-    }
-    assert_eq!(w.orchards().count(), 4);
     let loaded = World::load(&w.save(&defs).unwrap(), &defs).unwrap();
-    assert_eq!(loaded.orchards().map(|(p, _)| p).collect::<Vec<_>>(), vec![MID], "load collapses");
-    w.adopt_orchards(&defs);
-    assert_eq!(w.orchards().map(|(p, _)| p).collect::<Vec<_>>(), vec![MID]);
-    assert_eq!(w.orchards[&MID].plant_in, 1.25, "the anchor's own state is kept");
+    assert_eq!(loaded.orchards().map(|(p, _)| p).collect::<Vec<_>>(), vec![MID]);
 }

@@ -195,9 +195,10 @@ impl World {
         fixed.chain(carried)
     }
 
-    /// The lit sources that stay put.
+    /// The lit sources that stay put: timed flames and shelters, then building fires. Every
+    /// reader asks "any" or "best of", so the order doesn't matter.
     fn fixed_sources(&self) -> impl Iterator<Item = &HeatSource> + '_ {
-        self.heat.values().filter(|s| s.lit_at(self.tick))
+        self.heat.values().chain(self.buildings.fires()).filter(|s| s.lit_at(self.tick))
     }
 
     /// Every lit aura with its carrier's tile, in unit order. One whose carrier is gone is
@@ -225,34 +226,22 @@ impl World {
         self.heat.insert(source.pos, source);
     }
 
-    /// A finished building keeps a fire if its def says so (`BuildingDef::heat`). `pos` is its
-    /// anchor and `size` its footprint, as baked onto its tiles.
-    pub(super) fn light_building_fire(&mut self, pos: Pos, size: [u8; 2], def: &BuildingDef) {
-        if let Some(heat) = def.heat {
-            self.light_heat_source(HeatSource {
-                pos,
-                radius: heat.radius_for(self.modifiers.heating),
-                sleep_bonus: heat.sleep_bonus,
-                seek_tiles: heat.seek_tiles,
-                until: HeatSource::FOREVER,
-                size,
-                cooks: true,
-                ability: None,
-            });
-        }
-    }
-
     /// Re-derives the radius of every building's fire from the current `heating` modifier, for
-    /// when research changes it.
+    /// when research changes it. A finished building's fire is lit by `put_building`
+    /// (`world/buildings.rs`) and kept on its record.
     pub(super) fn refresh_heat_radii(&mut self, defs: &Defs) {
         let heating = self.modifiers.heating;
-        for (pos, source) in self.heat.iter_mut().filter(|(_, s)| s.is_permanent()) {
-            let heat =
-                self.map.get(*pos).and_then(|t| t.building).and_then(|b| defs.building(b.id).heat);
-            if let Some(heat) = heat {
+        for (id, source) in self.buildings.fires_mut() {
+            if let Some(heat) = defs.building(id).heat {
                 source.radius = heat.radius_for(heating);
             }
         }
+    }
+
+    /// The source anchored on `pos`: a finished building's fire, else a timed flame there.
+    #[cfg(test)]
+    pub(super) fn heat_at(&self, pos: Pos) -> Option<HeatSource> {
+        self.anchored(pos).and_then(|b| b.heat).or_else(|| self.heat.get(&pos).copied())
     }
 
     /// Drops the sources whose time is up, and the auras whose time is up or whose carrier died.
@@ -273,7 +262,7 @@ impl World {
     /// is no such source and it should sleep where it is.
     pub(super) fn warm_sleep_route(&self, i: usize) -> Option<Vec<Pos>> {
         // Only sources that stay put are worth walking to; an aura moves.
-        if self.heat.is_empty() {
+        if self.heat.is_empty() && self.buildings.fires().next().is_none() {
             return None;
         }
         let flood = self.flood_from(i);
