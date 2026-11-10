@@ -603,6 +603,11 @@ impl Watcher {
         self.turn
     }
 
+    /// The replayed game, read-only: the web replayer's timeline (#595) reads its event log.
+    pub fn session(&self) -> &fn_ui::Session {
+        &self.app().session
+    }
+
     /// Nothing left to replay and nothing mid-press: a finished log's watcher has reached the
     /// end (though a live one might still grow).
     pub fn caught_up(&self) -> bool {

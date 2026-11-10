@@ -5,6 +5,12 @@
   --line: #333;
   --muted: #8a8a8a;
   --accent: #6fb3d2;
+  /* The timeline's event markers, one colour a kind. */
+  --death: #e06c6c;
+  --milestone: #e5c07b;
+  --avatar: #c99be6;
+  --learned: #61afef;
+  --arrival: #98c379;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -39,7 +45,74 @@ canvas { display: block; outline: none; }
 }
 .message.error { color: #e28a8a; }
 .message:empty { display: none; }
-#scrub { flex: 1; min-width: 120px; accent-color: var(--accent); }
+/* The scrub bar, styled by hand so its thumb's width is known: the markers above it sit where
+   the thumb's centre would be at their turn, which runs from half a thumb in to half a thumb
+   short of the end. */
+/* A row of its own, above the buttons, so the markers have the page's whole width. */
+.timeline { --thumb: 12px; position: relative; flex: 1 1 100%; order: -1; padding-top: 12px; }
+#scrub {
+  --pct: 0%;
+  display: block; width: 100%; height: 16px; margin: 0; background: transparent;
+  -webkit-appearance: none; appearance: none; cursor: pointer;
+}
+#scrub::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 2px;
+  background: linear-gradient(to right, var(--accent) var(--pct), var(--line) var(--pct));
+}
+#scrub::-webkit-slider-thumb {
+  -webkit-appearance: none; width: var(--thumb); height: var(--thumb); margin-top: -4px;
+  border: 0; border-radius: 50%; background: var(--fg);
+}
+#scrub::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line); }
+#scrub::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
+#scrub::-moz-range-thumb {
+  width: var(--thumb); height: var(--thumb); border: 0; border-radius: 50%; background: var(--fg);
+}
+#scrub:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.marks {
+  position: absolute; top: 0; height: 12px;
+  left: calc(var(--thumb) / 2); right: calc(var(--thumb) / 2);
+}
+/* How far the scan for events has got, while it runs. */
+.marks .scanned {
+  position: absolute; left: 0; bottom: 1px; height: 1px; background: var(--muted); opacity: 0.5;
+}
+.mark {
+  position: absolute; top: 0; width: 10px; height: 12px; margin-left: -5px; padding: 0;
+  border: 0; background: none; cursor: pointer;
+}
+.mark::after { content: ""; position: absolute; left: 1px; top: 2px; width: 8px; height: 8px; }
+.mark.death { z-index: 5; }
+.mark.death::after { background: var(--death); clip-path: polygon(0 0, 100% 0, 50% 100%); }
+.mark.milestone { z-index: 4; }
+.mark.milestone::after {
+  background: var(--milestone); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+.mark.avatar { z-index: 3; }
+.mark.avatar::after { background: var(--avatar); border-radius: 50%; left: 2px; top: 3px; width: 6px; height: 6px; }
+.mark.learned { z-index: 2; }
+.mark.arrival { z-index: 1; }
+.mark.learned::after, .mark.arrival::after { left: 4px; width: 2px; top: 3px; }
+.mark.learned::after { background: var(--learned); }
+.mark.arrival::after { background: var(--arrival); }
+.mark:hover::after, .mark:focus-visible::after { filter: brightness(1.4); }
+.mark:focus-visible { outline: 1px solid var(--accent); }
+.tip {
+  position: absolute; bottom: calc(100% + 6px); z-index: 10; max-width: min(360px, 90vw);
+  padding: 6px 8px; background: #262626; border: 1px solid var(--line); border-radius: 4px;
+  font-size: 12px; line-height: 1.5; pointer-events: none; white-space: nowrap;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.5);
+}
+.tip b { display: block; color: var(--muted); font-weight: 600; }
+.tip div { overflow: hidden; text-overflow: ellipsis; }
+.tip i, .legend i {
+  display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%;
+  background: var(--kind);
+}
+.legend { display: flex; flex-wrap: wrap; gap: 4px; font-size: 12px; }
+.legend button { padding: 1px 6px; font-size: 12px; }
+.legend button.off { opacity: 0.4; text-decoration: line-through; }
+.legend .muted { align-self: center; }
 .pace, .turn { font-variant-numeric: tabular-nums; min-width: 3.5em; text-align: center; }
 .turn { min-width: 8em; }
 .panes button { border-radius: 0; margin-left: -1px; }

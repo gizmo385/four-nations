@@ -6,14 +6,19 @@
 //! through [`fw_text_ptr`]/[`fw_text_len`] (set by whichever call last produced text). A frame
 //! comes back from [`fw_render`] as a pointer to [`crate::encode`]'s cell array, valid until the
 //! next call. A panic traps; the page then reads its message with [`fw_panic`].
+//!
+//! The timeline's scan ([`crate::scan`]) has calls of its own (`fw_scan_*`, [`fw_markers`]). The
+//! page makes them on a second instance, in a worker, so the scan never holds up the replay.
 
 use std::cell::RefCell;
 
+use crate::scan::Scan;
 use crate::{Replay, encode, key_from_codes};
 
 #[derive(Default)]
 struct State {
     replay: Option<Replay>,
+    scan: Option<Scan>,
     input: Vec<u8>,
     text: String,
     frame: Vec<u8>,
@@ -148,4 +153,62 @@ pub extern "C" fn fw_flags() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn fw_pace() -> u32 {
     with_replay(|r| r.pace())
+}
+
+/// Opens the log in the input buffer for a scan, as [`fw_open`] does for a replay: 1 on
+/// success; 0 on failure, with the reason as the text.
+#[unsafe(no_mangle)]
+pub extern "C" fn fw_scan_open() -> u32 {
+    with(|s| {
+        let input = std::mem::take(&mut s.input);
+        let result = std::str::from_utf8(&input)
+            .map_err(|e| format!("the log isn't UTF-8: {e}"))
+            .and_then(Scan::new);
+        match result {
+            Ok(scan) => {
+                s.scan = Some(scan);
+                1
+            }
+            Err(e) => {
+                s.text = e;
+                s.scan = None;
+                0
+            }
+        }
+    })
+}
+
+/// One more turn of the scan; 1 while there's further to go.
+#[unsafe(no_mangle)]
+pub extern "C" fn fw_scan_step() -> u32 {
+    with(|s| s.scan.as_mut().map_or(0, |scan| u32::from(scan.step())))
+}
+
+/// The turn the scan has reached.
+#[unsafe(no_mangle)]
+pub extern "C" fn fw_scan_turn() -> u32 {
+    with(|s| s.scan.as_ref().map_or(0, Scan::turn))
+}
+
+/// How many markers the scan has found.
+#[unsafe(no_mangle)]
+pub extern "C" fn fw_marker_count() -> u32 {
+    with(|s| s.scan.as_ref().map_or(0, |scan| scan.markers().len() as u32))
+}
+
+/// Puts the markers from the `from`th on in the text, one a line as `turn<TAB>kind<TAB>text`
+/// (`kind` as [`crate::scan::MarkerKind::as_str`] names it); the text's length.
+#[unsafe(no_mangle)]
+pub extern "C" fn fw_markers(from: u32) -> usize {
+    with(|s| {
+        let mut text = String::new();
+        if let Some(scan) = &s.scan {
+            for m in scan.markers().iter().skip(from as usize) {
+                let line = m.text.replace(['\t', '\n'], " ");
+                text.push_str(&format!("{}\t{}\t{line}\n", m.turn, m.kind.as_str()));
+            }
+        }
+        s.text = text;
+        s.text.len()
+    })
 }

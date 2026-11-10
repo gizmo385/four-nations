@@ -24,7 +24,7 @@ use fn_sim::Defs;
 use fn_sim::jobs::ItemId;
 use fn_sim::needs::DeathCause;
 use fn_sim::world::{
-    Arrival, BendEvent, BendOutcome, ChartEvent, ChartEventKind, Event, SeasonEvent,
+    Arrival, BendEvent, BendOutcome, ChartEvent, ChartEventKind, Death, Event, SeasonEvent,
     SeasonEventKind, StrainEvent, TICKS_PER_SECOND,
 };
 
@@ -401,18 +401,7 @@ fn line_for(session: &Session, ev: &Event) -> Option<(Kind, String, bool, Option
             let text = format!("Learned {}", defs.tech(c.tech).name);
             (Kind::Tech, text.clone(), false, toast(&text))
         }
-        Event::Death(d) => {
-            let how = match d.cause {
-                DeathCause::Starvation => "starvation",
-                DeathCause::Dehydration => "dehydration",
-                DeathCause::Exhaustion => "exhaustion",
-                // #387, #388, #389; the full wording (and `weakened_by`) is #393's job.
-                DeathCause::Exposure => "exposure",
-                DeathCause::Injury => "injuries",
-                DeathCause::Sickness => "sickness",
-            };
-            (Kind::Death, format!("{} died of {how}", d.name), false, None)
-        }
+        Event::Death(d) => (Kind::Death, describe_death(d), false, None),
         Event::Endeavor(ev) => {
             let text = endeavor::describe_event(defs, ev);
             (Kind::Endeavor, text.clone(), false, toast(&text))
@@ -465,6 +454,21 @@ fn describe_chart_event(session: &Session, ev: &ChartEvent) -> (String, ToastSpe
         }
     };
     (text, ToastSpec { subject: short.clone(), text: short })
+}
+
+/// The alert line for a death: "Mei died of starvation". The web replayer's timeline markers
+/// (#595) use it too, so a marker's tooltip reads like the log.
+pub fn describe_death(d: &Death) -> String {
+    let how = match d.cause {
+        DeathCause::Starvation => "starvation",
+        DeathCause::Dehydration => "dehydration",
+        DeathCause::Exhaustion => "exhaustion",
+        // #387, #388, #389; the full wording (and `weakened_by`) is #393's job.
+        DeathCause::Exposure => "exposure",
+        DeathCause::Injury => "injuries",
+        DeathCause::Sickness => "sickness",
+    };
+    format!("{} died of {how}", d.name)
 }
 
 /// "Pema has joined the settlement" (#232).

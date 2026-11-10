@@ -24,6 +24,7 @@ const DEFAULT_FG = css.getPropertyValue('--fg').trim() || '#d0d0d0';
 const DEFAULT_BG = css.getPropertyValue('--bg').trim() || '#121212';
 
 let wasm = null; // the instance's exports
+let wasmModule = null; // the compiled module, which the timeline's scan worker instantiates too
 let loaded = false;
 let lastTime = null;
 let prevFrame = null; // the last frame drawn, to repaint only cells that changed
@@ -45,10 +46,11 @@ async function loadWasm() {
   // Streaming needs the server to send application/wasm; fall back to bytes if it doesn't.
   const bytes = response.clone();
   try {
-    return (await WebAssembly.instantiateStreaming(response, {})).instance.exports;
+    wasmModule = await WebAssembly.compileStreaming(response);
   } catch (_) {
-    return (await WebAssembly.instantiate(await bytes.arrayBuffer(), {})).instance.exports;
+    wasmModule = await WebAssembly.compile(await bytes.arrayBuffer());
   }
+  return (await WebAssembly.instantiate(wasmModule, {})).exports;
 }
 
 function text() {
@@ -85,6 +87,7 @@ async function openLog(bytes, name) {
   if (!ok) {
     loaded = false;
     $('controls').hidden = true;
+    startScan(null);
     showMessage(`Can't replay ${name}:\n${text()}`, true);
     return;
   }
@@ -98,6 +101,7 @@ async function openLog(bytes, name) {
   $('scrub').max = String(wasm.fw_total_turns());
   showMessage('');
   canvas.focus();
+  startScan(bytes);
 }
 
 async function maybeGunzip(bytes) {
@@ -264,6 +268,8 @@ function updateControls() {
   $('pace').textContent = `×${wasm.fw_pace()}`;
   $('turn').textContent = flags & 2 ? `seeking… ${turn} / ${total}` : `turn ${turn} / ${total}`;
   if (!scrubbing) $('scrub').value = String(turn);
+  const shown = Number($('scrub').value);
+  $('scrub').style.setProperty('--pct', `${total ? (shown / total) * 100 : 0}%`);
 }
 
 function press(code, mods = 0) {
@@ -314,6 +320,183 @@ stage.addEventListener('drop', async (e) => {
   stage.classList.remove('drop');
   const file = e.dataTransfer.files[0];
   if (file) await openLog(new Uint8Array(await file.arrayBuffer()), file.name);
+});
+
+// ---------------------------------------------------------------------------------------------
+// The timeline's markers
+// ---------------------------------------------------------------------------------------------
+
+// What each marker kind (crates/web/src/scan.rs, `MarkerKind::as_str`) is called in the legend,
+// in the order it lists them, and the colour it's drawn in (style.css).
+const KINDS = {
+  death: { label: 'Deaths', color: 'var(--death)' },
+  milestone: { label: 'Milestones', color: 'var(--milestone)' },
+  avatar: { label: 'Avatar', color: 'var(--avatar)' },
+  learned: { label: 'Learned', color: 'var(--learned)' },
+  arrival: { label: 'Arrivals', color: 'var(--arrival)' },
+};
+const HIDDEN_KEY = 'fn-replay-hidden-markers';
+
+let scanWorker = null;
+let markers = []; // { turn, kind, text }, in the order things happened
+let scan = { turn: 0, done: false, error: null };
+let hiddenKinds = new Set();
+try {
+  hiddenKinds = new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY) ?? '[]'));
+} catch (_) { /* a remembered choice is a convenience */ }
+
+// Replays the whole log once more in a worker to find what to mark, dropping any earlier scan's
+// markers; `null` only drops them. The bytes are copied, so the caller may reuse them.
+function startScan(bytes) {
+  if (scanWorker) scanWorker.terminate();
+  scanWorker = null;
+  markers = [];
+  scan = { turn: 0, done: false, error: null };
+  renderMarks();
+  if (!bytes || !wasmModule || typeof Worker === 'undefined') return;
+  let worker;
+  try {
+    worker = new Worker(new URL('scan.js', import.meta.url));
+  } catch (e) {
+    scan.error = String(e);
+    renderMarks();
+    return;
+  }
+  scanWorker = worker;
+  worker.onmessage = ({ data }) => {
+    if (worker !== scanWorker) return;
+    if (data.error) {
+      scan.error = data.error;
+      worker.terminate();
+      scanWorker = null;
+    } else {
+      markers.push(...data.markers);
+      scan.turn = data.turn;
+      scan.done = data.done;
+      if (data.done) {
+        worker.terminate();
+        scanWorker = null;
+      }
+    }
+    renderMarks();
+  };
+  worker.onerror = (e) => {
+    if (worker !== scanWorker) return;
+    scan.error = e.message || 'the scan stopped';
+    scanWorker = null;
+    renderMarks();
+  };
+  worker.postMessage({ module: wasmModule, bytes });
+}
+
+// Redraws the markers and the legend from `markers`: one mark a kind a turn.
+function renderMarks() {
+  const total = loaded ? wasm.fw_total_turns() : 0;
+  const box = $('marks');
+  const nodes = [];
+  if (total && !scan.done && !scan.error) {
+    const bar = document.createElement('div');
+    bar.className = 'scanned';
+    bar.style.width = `${(Math.min(scan.turn, total) / total) * 100}%`;
+    nodes.push(bar);
+  }
+  const seen = new Set();
+  for (const m of markers) {
+    const key = `${m.turn}:${m.kind}`;
+    if (!total || hiddenKinds.has(m.kind) || !(m.kind in KINDS) || seen.has(key)) continue;
+    seen.add(key);
+    const mark = document.createElement('button');
+    mark.className = `mark ${m.kind}`;
+    mark.tabIndex = -1;
+    mark.style.left = `${(Math.min(m.turn, total) / total) * 100}%`;
+    mark.dataset.turn = String(m.turn);
+    mark.setAttribute('aria-label', `turn ${m.turn}: ${eventsAt(m.turn).map((e) => e.text).join('; ')}`);
+    nodes.push(mark);
+  }
+  box.replaceChildren(...nodes);
+  renderLegend();
+}
+
+function eventsAt(turn) {
+  return markers.filter((m) => m.turn === turn && !hiddenKinds.has(m.kind) && m.kind in KINDS);
+}
+
+function renderLegend() {
+  const legend = $('legend');
+  const counts = {};
+  for (const m of markers) counts[m.kind] = (counts[m.kind] ?? 0) + 1;
+  const nodes = [];
+  for (const [kind, { label, color }] of Object.entries(KINDS)) {
+    if (!counts[kind]) continue;
+    const chip = document.createElement('button');
+    chip.className = hiddenKinds.has(kind) ? 'off' : '';
+    chip.title = hiddenKinds.has(kind) ? `show ${label.toLowerCase()}` : `hide ${label.toLowerCase()}`;
+    chip.setAttribute('aria-pressed', String(!hiddenKinds.has(kind)));
+    const dot = document.createElement('i');
+    dot.style.setProperty('--kind', color);
+    chip.append(dot, `${label} ${counts[kind]}`);
+    chip.onclick = () => {
+      if (hiddenKinds.has(kind)) hiddenKinds.delete(kind);
+      else hiddenKinds.add(kind);
+      try {
+        localStorage.setItem(HIDDEN_KEY, JSON.stringify([...hiddenKinds]));
+      } catch (_) { /* see above */ }
+      renderMarks();
+      canvas.focus();
+    };
+    nodes.push(chip);
+  }
+  const status = document.createElement('span');
+  status.className = 'muted';
+  if (scan.error) {
+    status.textContent = 'events unavailable';
+    status.title = scan.error;
+    nodes.push(status);
+  } else if (!scan.done) {
+    status.textContent = `finding events… ${scan.turn} / ${loaded ? wasm.fw_total_turns() : 0}`;
+    nodes.push(status);
+  } else if (!markers.length) {
+    status.textContent = 'no events to mark';
+    nodes.push(status);
+  }
+  legend.replaceChildren(...nodes);
+  legend.hidden = !loaded || !nodes.length;
+}
+
+function showTip(mark) {
+  const turn = Number(mark.dataset.turn);
+  const tip = $('tip');
+  const head = document.createElement('b');
+  head.textContent = `Turn ${turn}`;
+  const lines = eventsAt(turn).map((m) => {
+    const line = document.createElement('div');
+    const dot = document.createElement('i');
+    dot.style.setProperty('--kind', KINDS[m.kind].color);
+    line.append(dot, m.text);
+    return line;
+  });
+  tip.replaceChildren(head, ...lines);
+  tip.hidden = false;
+  // Centred over the mark, kept inside the timeline (and so on screen).
+  const box = $('timeline').getBoundingClientRect();
+  const at = mark.getBoundingClientRect();
+  const width = tip.offsetWidth;
+  const x = at.left + at.width / 2 - box.left - width / 2;
+  tip.style.left = `${Math.max(0, Math.min(x, box.width - width))}px`;
+}
+
+$('marks').addEventListener('mouseover', (e) => {
+  const mark = e.target.closest('.mark');
+  if (mark) showTip(mark);
+});
+$('marks').addEventListener('mouseout', (e) => {
+  if (e.target.closest('.mark') && !e.relatedTarget?.closest?.('.mark')) $('tip').hidden = true;
+});
+$('marks').addEventListener('click', (e) => {
+  const mark = e.target.closest('.mark');
+  if (!mark || !loaded) return;
+  call(() => wasm.fw_seek(Number(mark.dataset.turn)));
+  canvas.focus();
 });
 
 function showMessage(msg, error = false) {

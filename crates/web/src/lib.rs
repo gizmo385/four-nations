@@ -7,10 +7,12 @@
 //! seeking backwards. It never reads a clock or a file: the page hands it the log's text and
 //! the real seconds between frames. [`abi`] is the thin C ABI the page calls (no wasm-bindgen,
 //! so the build needs nothing beyond the `wasm32-unknown-unknown` target), and [`encode`] turns
-//! a frame into the flat cell array the page draws onto a canvas.
+//! a frame into the flat cell array the page draws onto a canvas. [`scan`] replays the whole log
+//! once more, apart from the one being watched, to find the events the timeline marks.
 
 pub mod abi;
 pub mod encode;
+pub mod scan;
 
 use std::collections::BTreeMap;
 
