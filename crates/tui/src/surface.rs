@@ -1408,7 +1408,7 @@ fn event_kind_for_alert(entry: &AlertEntry) -> Option<EventKind> {
         AlertKind::Season => Some(EventKind::Season),
         AlertKind::Stockpile => Some(EventKind::Stockpile),
         AlertKind::Bend => Some(EventKind::BendFailed),
-        AlertKind::Agent | AlertKind::BendTip => None,
+        AlertKind::Chart | AlertKind::Agent | AlertKind::BendTip => None,
     }
 }
 
@@ -2250,7 +2250,7 @@ fn named_token(name: &str, shift: bool) -> String {
 /// run beside an attempt, or long after it.
 pub mod referee {
     use fn_sim::score::{ScoreDef, Scorecard};
-    use fn_sim::world::{SeasonEventKind, TICKS_PER_SECOND};
+    use fn_sim::world::{Event, SeasonEvent, SeasonEventKind, TICKS_PER_SECOND};
     use fn_ui::view::{Status, need_word, unit_view};
 
     use super::{Host, LogLine, RunLogHeader};
@@ -2453,8 +2453,12 @@ pub mod referee {
                 card.world_tick
             ));
         }
-        let harm_events =
-            session.world.harm_events().iter().filter(|e| e.tick <= horizon_ticks).count() as u32;
+        let harm_events = session
+            .world
+            .events()
+            .iter()
+            .filter(|e| matches!(e, Event::Harm(_)) && e.tick() <= horizon_ticks)
+            .count() as u32;
         let end_reason = super::run_end_reason(lines).map(str::to_owned);
         Ok(Replay {
             card,
@@ -2578,14 +2582,13 @@ pub mod referee {
     struct Sampler {
         settler_samples: u64,
         mild: [u64; 4],
-        /// How many of `World::season_events` earlier turns already looked at.
-        seasons_seen: usize,
+        /// How many of `World::events` earlier turns already looked at (#605: one cursor for
+        /// the deaths and the season changes alike).
+        events_seen: usize,
         winter_food: Vec<WinterFood>,
         idle: Vec<IdleWindow>,
         research_idle: Option<ResearchIdle>,
         turns: Vec<TurnSample>,
-        /// How many of `World::deaths` earlier turns already looked at.
-        deaths_seen: usize,
         deaths: Vec<DeathNote>,
     }
 
@@ -2630,29 +2633,29 @@ pub mod referee {
                     }
                 }
             }
-            for d in &world.deaths[self.deaths_seen.min(world.deaths.len())..] {
-                self.deaths.push(DeathNote {
-                    turn,
-                    name: d.name.clone(),
-                    cause: death_word(d.cause),
-                });
-            }
-            self.deaths_seen = world.deaths.len();
-
-            let events = world.season_events();
-            for ev in &events[self.seasons_seen.min(events.len())..] {
-                if let SeasonEventKind::Changed { season } = ev.kind
-                    && defs.seasons.seasons[season].winter
-                {
-                    self.winter_food.push(WinterFood {
-                        year: world.year(defs),
+            let events = world.events();
+            for ev in &events[self.events_seen.min(events.len())..] {
+                match ev {
+                    Event::Death(d) => self.deaths.push(DeathNote {
                         turn,
-                        food: world.stored_food(defs),
-                        people: world.units.len() as u32,
-                    });
+                        name: d.name.clone(),
+                        cause: death_word(d.cause),
+                    }),
+                    Event::Season(SeasonEvent {
+                        kind: SeasonEventKind::Changed { season },
+                        ..
+                    }) if defs.seasons.seasons[*season].winter => {
+                        self.winter_food.push(WinterFood {
+                            year: world.year(defs),
+                            turn,
+                            food: world.stored_food(defs),
+                            people: world.units.len() as u32,
+                        });
+                    }
+                    _ => {}
                 }
             }
-            self.seasons_seen = events.len();
+            self.events_seen = events.len();
 
             // The window the turn just run fell in, by the world's own clock (a prelude's ticks
             // count, as they do in the balance harness).
@@ -3068,7 +3071,7 @@ mod tests {
         let obs = h.end_turn(30);
         assert_eq!(obs.turn, 30, "finished bends alone should never cut a call short");
         assert_eq!(obs.stopped, None);
-        let events = h.app().session.world.bend_events();
+        let events: Vec<_> = h.app().session.world.bend_events().collect();
         assert!(events.len() > 1, "expected several finished bends, got {}", events.len());
         assert!(events.iter().all(|e| e.outcome == fn_sim::world::BendOutcome::Done));
     }
@@ -3380,12 +3383,13 @@ mod tests {
             assert!(s.world.research().is_known(cart));
             let text = s.world.save(&s.defs).unwrap();
             let (header, world) = text.rsplit_once('\n').unwrap();
+            // First in the event log (#605), on tick 0, so its ticks still never go down.
             let event = format!(
-                "chart_events:[(tick:9,room:(x:3,y:1),kind:Found(pos:(x:{},y:{}),\
-                 reachable:true))],",
+                "events:[Chart((tick:0,room:(x:3,y:1),kind:Found(pos:(x:{},y:{}),\
+                 reachable:true))),",
                 glide_ruin.x, glide_ruin.y
             );
-            let world = world.replacen('(', &format!("({event}"), 1);
+            let world = world.replacen("events:[", &event, 1);
             s.world = fn_sim::World::load(&format!("{header}\n{world}"), &s.defs).unwrap();
             s.apply(Command::DesignateHarvest { pos: marked }).unwrap();
         }

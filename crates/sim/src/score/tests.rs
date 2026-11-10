@@ -194,8 +194,8 @@ fn compute_with_a_prelude_credits_its_milestones_in_full_and_counts_care_only_af
         cause: DeathCause::Starvation,
         weakened_by: None,
     };
-    world.deaths.push(died(50));
-    world.deaths.push(died(250));
+    world.insert_event_for_test(died(50));
+    world.insert_event_for_test(died(250));
 
     let from_zero = Scorecard::compute(&world, &defs, &score, &ScoreStart::default(), 300);
     let from_start = Scorecard::compute(&world, &defs, &score, &start, 300);
@@ -448,8 +448,8 @@ fn compute_reads_the_worlds_events_deaths_and_care_and_cuts_off_at_the_horizon()
         cause: DeathCause::Starvation,
         weakened_by: None,
     };
-    world.deaths.push(died(100));
-    world.deaths.push(died(250));
+    world.insert_event_for_test(died(100));
+    world.insert_event_for_test(died(250));
 
     let at_300 = Scorecard::compute(&world, &defs, &score, &ScoreStart::default(), 300);
     assert_eq!(at_300.care.deaths, 2);
@@ -487,7 +487,6 @@ fn compute_ignores_events_after_the_horizon() {
     }
     let met_at = world
         .endeavor_events()
-        .iter()
         .find_map(|e| match &e.kind {
             EndeavorEventKind::SignMet(id) if id == "population" => Some(e.tick),
             _ => None,

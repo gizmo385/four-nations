@@ -140,7 +140,6 @@ fn a_save_with_him_present_loads_and_keeps_counting_settler_ids() {
 
 fn avatar_events(w: &World) -> Vec<EndeavorEventKind> {
     w.endeavor_events()
-        .iter()
         .map(|e| e.kind.clone())
         .filter(|k| {
             matches!(

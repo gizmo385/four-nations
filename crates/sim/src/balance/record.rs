@@ -18,7 +18,9 @@ use crate::endeavor;
 use crate::jobs::ItemId;
 use crate::mapgen::MapGenConfig;
 use crate::nation::Nation;
-use crate::world::{CareNeed, EndeavorEventKind, SeasonEventKind, Severe, World};
+use crate::world::{
+    CareNeed, EndeavorEventKind, Event, SeasonEvent, SeasonEventKind, Severe, World,
+};
 
 use super::autopsy::Autopsy;
 use super::probe::{Detectors, Probe, Raised, Sample, Watch};
@@ -254,11 +256,14 @@ fn run_world_observed(
         world.tick(defs);
         world.assert_invariants(defs);
 
-        if world.deaths.len() > autopsies.len() {
+        if world.events_this_tick().iter().any(|e| matches!(e, Event::Death(_))) {
             autopsies.extend(probe.autopsies(&world, defs));
         }
-        for ev in world.season_events().iter().rev().take_while(|e| e.tick == world.tick) {
-            if let SeasonEventKind::Changed { season } = ev.kind {
+        for ev in world.events_this_tick() {
+            if let Event::Season(SeasonEvent {
+                kind: SeasonEventKind::Changed { season }, ..
+            }) = *ev
+            {
                 seasons.push(economy_season(&world, defs, season, &stone_items, &ore_items, wood));
             }
         }
@@ -269,7 +274,7 @@ fn run_world_observed(
         .signs
         .iter()
         .map(|s| {
-            let minute = world.endeavor_events().iter().find_map(|e| match &e.kind {
+            let minute = world.endeavor_events().find_map(|e| match &e.kind {
                 EndeavorEventKind::SignMet(id) if *id == s.id => Some(ticks_to_minutes(e.tick)),
                 _ => None,
             });
@@ -294,9 +299,7 @@ fn run_world_observed(
         .collect();
 
     let techs: Vec<(String, f32)> = world
-        .research()
-        .completions()
-        .iter()
+        .tech_completions()
         .map(|c| (defs.tech(c.tech).id.clone(), ticks_to_minutes(c.tick)))
         .collect();
     let timeline = decision_events(&world, defs, &sign_minutes);
@@ -330,8 +333,8 @@ fn run_world_observed(
         gaps_over_15,
         idle_share,
         care: CareSummary::of(&world),
-        first_death_minute: world.deaths.first().map(|d| ticks_to_minutes(d.tick)),
-        deaths: world.deaths.len() as u32,
+        first_death_minute: world.deaths().next().map(|d| ticks_to_minutes(d.tick)),
+        deaths: world.deaths().count() as u32,
         population: world.units.len() as u32,
         autopsies,
         flags: watch.raised(),

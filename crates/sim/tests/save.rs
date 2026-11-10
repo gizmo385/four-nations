@@ -170,9 +170,9 @@ fn a_save_after_deaths_keeps_them() {
     w.units[1].needs.hunger = 0.0;
     w.units[1].needs.health = 0.01;
     w.tick(&defs);
-    assert_eq!(w.deaths.len(), 1);
+    assert_eq!(w.deaths().count(), 1);
     let loaded = World::load(&w.save(&defs).unwrap(), &defs).unwrap();
-    assert_eq!(loaded.deaths, w.deaths);
+    assert!(loaded.deaths().eq(w.deaths()));
     assert!(loaded.unit(id).is_none());
     assert_eq!(loaded.units.len(), 3);
 }

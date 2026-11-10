@@ -212,7 +212,7 @@ mod tests {
         w.units[0].needs.health = 0.01;
         w.tick(&defs);
         assert!(w.units.is_empty(), "it died");
-        assert_eq!(w.deaths.len(), 1);
+        assert_eq!(w.deaths().count(), 1);
         assert_eq!(w.occupants(anchor).next(), None);
     }
 

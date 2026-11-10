@@ -887,11 +887,13 @@ mod tests {
         use fn_sim::World;
         let text = s.world.save(&s.defs).unwrap();
         let (header, world) = text.rsplit_once('\n').unwrap();
+        // First in the event log (#605), on tick 0, so the log's ticks still never go down.
         let event = format!(
-            "chart_events:[(tick:9,room:(x:3,y:1),kind:Found(pos:(x:{},y:{}),reachable:true))],",
+            "events:[Chart((tick:0,room:(x:3,y:1),kind:Found(pos:(x:{},y:{}),reachable:true))),",
             found.x, found.y
         );
-        let world = world.replacen('(', &format!("({event}"), 1);
+        assert!(world.contains("events:["), "the save writes its event log");
+        let world = world.replacen("events:[", &event, 1);
         s.world = World::load(&format!("{header}\n{world}"), &s.defs).unwrap();
         s.world.ensure_regions();
         assert!(s.world.has_charted() && s.world.charted_at(found));

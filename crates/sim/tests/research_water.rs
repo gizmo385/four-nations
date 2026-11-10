@@ -112,6 +112,8 @@ fn tide_mills_unlocks_the_tide_mill() {
 struct Playtest<'a> {
     defs: &'a Defs,
     research: Research,
+    /// The completions `Research::tick` reported, in order.
+    completions: Vec<fn_sim::research::TechCompleted>,
     tick: u64,
     /// Everything ever added to the pool, in points.
     earned_millis: u64,
@@ -121,7 +123,14 @@ struct Playtest<'a> {
 
 impl<'a> Playtest<'a> {
     fn new(nation: Nation, defs: &'a Defs) -> Self {
-        Self { defs, research: Research::new(nation, defs), tick: 0, earned_millis: 0, carry: 0.0 }
+        Self {
+            defs,
+            research: Research::new(nation, defs),
+            completions: Vec::new(),
+            tick: 0,
+            earned_millis: 0,
+            carry: 0.0,
+        }
     }
 
     fn scholars(&self) -> f64 {
@@ -169,7 +178,8 @@ impl<'a> Playtest<'a> {
             self.research.add_knowledge(whole as u64);
             self.earned_millis += whole as u64 + self.defs.research.passive_millis_per_tick;
             self.tick += 1;
-            self.research.tick(self.tick, self.defs, 1.0);
+            let done = self.research.tick(self.tick, self.defs, 1.0);
+            self.completions.extend(done);
         }
     }
 }
@@ -201,7 +211,7 @@ fn the_playtest_is_deterministic() {
     let run = || {
         let mut play = Playtest::new(Nation::Water, &defs);
         play.run(Nation::Water);
-        play.research.completions().to_vec()
+        play.completions
     };
     assert_eq!(run(), run());
 }

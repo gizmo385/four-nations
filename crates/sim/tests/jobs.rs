@@ -39,9 +39,9 @@ fn nations_without_fire_survive_the_first_hour_on_raw_food() {
             }
         }
         assert!(
-            w.deaths.is_empty(),
+            w.deaths().next().is_none(),
             "{nation:?}: {:?} ({} cabbages)",
-            w.deaths,
+            w.deaths().collect::<Vec<_>>(),
             cabbages(&w, &defs)
         );
         // An hour is 240 hunger a unit; one cabbage is 30. Everyone ate repeatedly.
@@ -94,7 +94,7 @@ fn the_job_system_is_deterministic() {
             .enumerate()
             .map(|(i, _)| w.stored_total(fn_sim::jobs::ItemId(i as u16)))
             .collect();
-        (units, stored, w.jobs().to_vec(), w.deaths.clone())
+        (units, stored, w.jobs().to_vec(), w.deaths().cloned().collect::<Vec<_>>())
     };
     let (a, b) = (run(), run());
     assert_eq!(a, b);

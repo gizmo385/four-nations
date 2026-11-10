@@ -57,12 +57,12 @@ fn harm_zero_draws_nothing() {
     let mut w = World::with_map(1, field(3, 3), Nation::Air, &[at(0, 0)], &defs);
     let h = stone_harvest(&defs);
     assert_eq!(count_injuries(&mut w, &defs, h, 5_000), 0);
-    assert!(w.harm_events().is_empty());
+    assert!(w.harm_events().next().is_none());
 
     // Sandbox: `harm` is explicitly 0.0 too.
     let (mut sandbox, defs) = world(1, Nation::Air, "sandbox");
     assert_eq!(count_injuries(&mut sandbox, &defs, h, 5_000), 0);
-    assert!(sandbox.harm_events().is_empty());
+    assert!(sandbox.harm_events().next().is_none());
 }
 
 #[test]
@@ -132,9 +132,9 @@ fn an_injury_sets_last_harm_and_logs_an_event() {
     }
     assert!(w.units[0].needs.health < defs.needs.health.max, "expected at least one hit");
     assert_eq!(w.units[0].last_harm.map(|(k, _)| k), Some(HarmKind::Injury));
-    assert_eq!(w.harm_events().len(), 1);
-    assert_eq!(w.harm_events()[0].kind, HarmEventKind::Injured);
-    assert_eq!(w.harm_events()[0].pos, at(2, 1));
+    assert_eq!(w.harm_events().count(), 1);
+    assert_eq!(w.harm_events().next().unwrap().kind, HarmEventKind::Injured);
+    assert_eq!(w.harm_events().next().unwrap().pos, at(2, 1));
 }
 
 #[test]
@@ -152,7 +152,7 @@ fn an_injury_floors_at_10_on_normal_but_never_kills() {
         }
     }
     assert_eq!(w.units[0].needs.health, defs.harm.settings.floor);
-    assert!(w.deaths.is_empty());
+    assert!(w.deaths().next().is_none());
 }
 
 #[test]

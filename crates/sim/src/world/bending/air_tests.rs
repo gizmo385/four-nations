@@ -54,9 +54,9 @@ fn run_until(w: &mut World, defs: &Defs, limit: u64, mut done: impl FnMut(&World
 /// Bends Wind Carry on `pos` and runs until it finishes, which it should do successfully.
 fn blow(w: &mut World, defs: &Defs, pos: Pos) {
     w.apply(Command::Bend { ability: wind(defs), pos }, defs).unwrap();
-    let events = w.bend_events().len();
-    run_until(w, defs, 2000, |w| w.bend_events().len() > events);
-    assert_eq!(w.bend_events().last().unwrap().outcome, BendOutcome::Done);
+    let events = w.bend_events().count();
+    run_until(w, defs, 2000, |w| w.bend_events().count() > events);
+    assert_eq!(w.bend_events().next_back().unwrap().outcome, BendOutcome::Done);
 }
 
 #[test]
@@ -168,7 +168,11 @@ fn designating_over_a_need_preempted_hauler_does_not_strand_its_route() {
 
     run_until(&mut w, &defs, 2000, |w| w.units[0].need_task.is_none());
     assert!(w.units[0].needs.thirst > defs.needs.thirst.low, "it actually drank: {w:?}");
-    assert!(w.deaths.is_empty(), "nobody should have starved or dehydrated: {:?}", w.deaths);
+    assert!(
+        w.deaths().next().is_none(),
+        "nobody should have starved or dehydrated: {:?}",
+        w.deaths().collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -199,10 +203,10 @@ fn a_failed_wind_carry_gives_the_haul_job_back() {
     // The only stockpile in reach fills up (someone else's delivery) before the channel ends.
     w.stored.insert(at(20, 2), Stack { item: wood, count: defs.jobs.stockpile_stack });
 
-    let events = w.bend_events().len();
-    run_until(&mut w, &defs, 1000, |w| w.bend_events().len() > events);
+    let events = w.bend_events().count();
+    run_until(&mut w, &defs, 1000, |w| w.bend_events().count() > events);
     assert_eq!(
-        w.bend_events().last().unwrap().outcome,
+        w.bend_events().next_back().unwrap().outcome,
         BendOutcome::Failed("no stockpile with room in reach")
     );
     assert_eq!(w.units[0].chi, defs.chi.max, "nothing was spent");
@@ -288,7 +292,7 @@ fn snapshot(w: &World, defs: &Defs) -> String {
     format!(
         "tick {} {units:?} ground {ground:?} {:?} stored {}",
         w.tick,
-        w.bend_events(),
+        w.bend_events().collect::<Vec<_>>(),
         w.stored_total(wood_item(defs)),
     )
 }
@@ -347,7 +351,7 @@ fn a_session_with_wind_carry_replays_identically() {
     let log = original.command_log().to_vec();
     assert!(log.len() >= 5);
     assert!(
-        original.bend_events().iter().any(|e| e.outcome == BendOutcome::Done)
+        original.bend_events().any(|e| e.outcome == BendOutcome::Done)
             && original.stored_total(wood_item(&defs)) > 0,
         "the session should blow a pile into the stockpile, or the test proves little: {}",
         snapshot(&original, &defs)
@@ -403,10 +407,10 @@ fn a_bend_is_a_channel_only_while_the_unit_stands_at_it_and_works() {
     assert_eq!(w.bend_channels(&defs).len(), 1);
 
     // Finishing ends the channel and logs the event on the same tick.
-    let events = w.bend_events().len();
-    run_until(&mut w, &defs, 200, |w| w.bend_events().len() > events);
+    let events = w.bend_events().count();
+    run_until(&mut w, &defs, 200, |w| w.bend_events().count() > events);
     assert!(w.bend_channels(&defs).is_empty());
-    assert_eq!(w.bend_events().last().unwrap().outcome, BendOutcome::Done);
+    assert_eq!(w.bend_events().next_back().unwrap().outcome, BendOutcome::Done);
 }
 
 #[test]
@@ -421,7 +425,7 @@ fn the_event_says_where_the_stack_went_so_the_client_can_fly_it() {
     w.ensure_haul_job(at(10, 2));
     blow(&mut w, &defs, at(10, 2));
     // Only what fits is moved; the rest stays on the ground.
-    let event = *w.bend_events().last().unwrap();
+    let event = *w.bend_events().next_back().unwrap();
     assert_eq!(event.moved, Some(Moved { to: at(14, 2), item: wood, count: 3 }));
     assert_eq!(w.ground_items().next(), Some((at(10, 2), Stack { item: wood, count: 2 })));
 }
@@ -432,7 +436,7 @@ fn only_wind_carry_moves_a_stack() {
     let mut w = World::with_map(1, field(&defs, 40, 5, None), Nation::Fire, &[at(9, 2)], &defs);
     let ability = defs.ability_id("hearthflame").unwrap();
     w.apply(Command::Bend { ability, pos: at(10, 2) }, &defs).unwrap();
-    run_until(&mut w, &defs, 500, |w| !w.bend_events().is_empty());
-    assert_eq!(w.bend_events()[0].outcome, BendOutcome::Done);
-    assert_eq!(w.bend_events()[0].moved, None);
+    run_until(&mut w, &defs, 500, |w| w.bend_events().next().is_some());
+    assert_eq!(w.bend_events().next().unwrap().outcome, BendOutcome::Done);
+    assert_eq!(w.bend_events().next().unwrap().moved, None);
 }

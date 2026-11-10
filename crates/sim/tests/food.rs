@@ -69,7 +69,11 @@ fn designated_food_work_feeds_a_settlement_for_hours(nation: Nation) {
             w.tick(&defs);
         }
         stocked = stocked.max(food.iter().map(|&f| w.stored_total(f)).sum::<u32>());
-        assert!(w.deaths.is_empty(), "{nation:?} lost {:?} at minute {minute}", w.deaths);
+        assert!(
+            w.deaths().next().is_none(),
+            "{nation:?} lost {:?} at minute {minute}",
+            w.deaths().collect::<Vec<_>>()
+        );
     }
     assert_eq!(w.units.len(), 4);
     assert!(stocked > 0, "{nation:?} never stockpiled any food");
@@ -95,5 +99,5 @@ fn foraging_alone_outlasts_the_old_two_hour_limit(nation: Nation) {
     for _ in 0..3 * HOUR {
         w.tick(&defs);
     }
-    assert!(w.deaths.is_empty(), "{nation:?}: {:?}", w.deaths);
+    assert!(w.deaths().next().is_none(), "{nation:?}: {:?}", w.deaths().collect::<Vec<_>>());
 }

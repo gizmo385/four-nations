@@ -225,7 +225,7 @@ fn a_death_in_a_world_adds_no_close_call() {
         w.tick(&defs);
     }
     assert!(w.units.is_empty(), "the settler starved");
-    assert_eq!(w.deaths.len(), 1);
+    assert_eq!(w.deaths().count(), 1);
     assert_eq!(w.care().close_calls(), 0);
     assert_eq!(w.care().lowest_health(), Some(0.0));
 }

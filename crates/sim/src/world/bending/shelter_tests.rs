@@ -72,9 +72,9 @@ fn raise_shelter(w: &mut World, defs: &Defs, ability: &str, pos: Pos) {
     w.units[0].chi = defs.chi.max;
     let id = defs.ability_id(ability).unwrap();
     w.apply(Command::Bend { ability: id, pos }, defs).unwrap();
-    let events = w.bend_events().len();
-    run_until(w, defs, 2000, |w| w.bend_events().len() > events);
-    assert_eq!(w.bend_events().last().unwrap().outcome, BendOutcome::Done, "{ability}");
+    let events = w.bend_events().count();
+    run_until(w, defs, 2000, |w| w.bend_events().count() > events);
+    assert_eq!(w.bend_events().next_back().unwrap().outcome, BendOutcome::Done, "{ability}");
 }
 
 fn cabbage_item(defs: &Defs) -> ItemId {
@@ -168,6 +168,6 @@ mod bed_tests {
             w.tick(&defs);
         }
         assert_eq!(w.units.len(), before, "a lit tent is not a bed, so still no newcomer");
-        assert!(w.arrivals().is_empty());
+        assert!(w.arrivals().next().is_none());
     }
 }

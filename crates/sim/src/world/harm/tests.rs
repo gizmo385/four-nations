@@ -97,8 +97,8 @@ fn a_rough_sleeper_on_cold_land_loses_health_and_logs_once() {
         w.tick(&defs);
     }
     assert!(w.units[0].needs.health < defs.needs.health.max, "{}", w.units[0].needs.health);
-    assert_eq!(w.harm_events().len(), 1, "logs once per sleep, not every tick it continues");
-    assert_eq!(w.harm_events()[0].kind, HarmEventKind::SleepingRough);
+    assert_eq!(w.harm_events().count(), 1, "logs once per sleep, not every tick it continues");
+    assert_eq!(w.harm_events().next().unwrap().kind, HarmEventKind::SleepingRough);
     assert_eq!(w.units[0].last_harm.map(|(k, _)| k), Some(HarmKind::Exposure));
 }
 
@@ -132,7 +132,7 @@ fn a_sleeper_in_a_bed_takes_no_exposure_damage() {
         w.tick(&defs);
     }
     assert_eq!(w.units[0].needs.health, defs.needs.health.max);
-    assert!(w.harm_events().is_empty());
+    assert!(w.harm_events().next().is_none());
 }
 
 #[test]
@@ -155,7 +155,7 @@ fn a_sleeper_by_a_campfire_takes_no_exposure_damage() {
         w.tick(&defs);
     }
     assert_eq!(w.units[0].needs.health, defs.needs.health.max);
-    assert!(w.harm_events().is_empty());
+    assert!(w.harm_events().next().is_none());
 }
 
 #[test]
@@ -179,7 +179,7 @@ fn a_sleeper_under_a_non_cooking_shelter_takes_no_exposure_damage() {
         w.tick(&defs);
     }
     assert_eq!(w.units[0].needs.health, defs.needs.health.max);
-    assert!(w.harm_events().is_empty());
+    assert!(w.harm_events().next().is_none());
 }
 
 #[test]
@@ -211,7 +211,7 @@ fn harm_floors_at_10_on_normal_but_never_kills() {
     run_asleep(&mut w, &defs, 20_000);
     assert_eq!(w.units.len(), 1, "Normal's harm_kills is off: exposure alone never kills");
     assert_eq!(w.units[0].needs.health, defs.harm.settings.floor);
-    assert!(w.deaths.is_empty());
+    assert!(w.deaths().next().is_none());
 }
 
 #[test]
@@ -220,9 +220,13 @@ fn harm_kills_on_hard() {
     let mut w = sleeping_world(&defs, 0, at(2, 0), "hard");
     run_asleep(&mut w, &defs, 20_000);
     assert!(w.units.is_empty(), "exposure should have killed by now on Hard");
-    assert_eq!(w.deaths.len(), 1);
-    assert_eq!(w.deaths[0].cause, DeathCause::Exposure);
-    assert_eq!(w.deaths[0].weakened_by, None, "the death already names its own cause");
+    assert_eq!(w.deaths().count(), 1);
+    assert_eq!(w.deaths().next().unwrap().cause, DeathCause::Exposure);
+    assert_eq!(
+        w.deaths().next().unwrap().weakened_by,
+        None,
+        "the death already names its own cause"
+    );
 }
 
 #[test]
@@ -231,7 +235,7 @@ fn sandbox_has_no_harm_at_all() {
     let mut w = sleeping_world(&defs, 0, at(2, 0), "sandbox");
     run_asleep(&mut w, &defs, 2_000);
     assert_eq!(w.units[0].needs.health, defs.needs.health.max);
-    assert!(w.harm_events().is_empty());
+    assert!(w.harm_events().next().is_none());
 }
 
 #[test]
@@ -243,7 +247,7 @@ fn no_difficulty_preset_behaves_exactly_as_before() {
     w.units[0].route = None;
     run_asleep(&mut w, &defs, 2_000);
     assert_eq!(w.units[0].needs.health, defs.needs.health.max);
-    assert!(w.harm_events().is_empty());
+    assert!(w.harm_events().next().is_none());
 }
 
 // Sickness (issue #389): a drink at a spot whose only water is the sea.
@@ -327,7 +331,7 @@ fn sandbox_or_harm_zero_never_catches_sickness() {
             w.maybe_catch_sickness(0, &defs);
         }
         assert!(w.units[0].sick_until.is_none());
-        assert!(w.harm_events().is_empty());
+        assert!(w.harm_events().next().is_none());
     }
 }
 
@@ -353,7 +357,7 @@ fn a_sick_unit_loses_health_with_no_regen_and_recovers_on_time() {
     assert!((health - expected).abs() < 1.0, "health {health}, expected about {expected}");
     assert!(w.units[0].sick_until.is_none(), "sickness should have run out by now");
     assert_eq!(
-        w.harm_events().iter().filter(|e| e.kind == HarmEventKind::Recovered).count(),
+        w.harm_events().filter(|e| e.kind == HarmEventKind::Recovered).count(),
         1,
         "recovery logs once"
     );

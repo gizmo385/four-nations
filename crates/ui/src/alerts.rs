@@ -1,6 +1,10 @@
 //! The alert log: bend results (#72), tech completions (#23), deaths, the end-game endeavor's
-//! events (#235), newcomers joining the settlement (#232), a stockpile that can't take any more
-//! of something (#337) and a one-time nudge to try bending (#382) as one stream of lines.
+//! events (#235), newcomers joining the settlement (#232), finished Map Room charts (#605), a
+//! stockpile that can't take any more of something (#337) and a one-time nudge to try bending
+//! (#382) as one stream of lines.
+//!
+//! The world's own events come from its one event log (`World::events`, #605), read with a
+//! single cursor; harm events reach it too, but have no line until #393 words them.
 //!
 //! Every line is kept in a bounded history (the terminal UI's message log). The newest ones also
 //! show as short-lived *toasts* in the side panel's Alerts section (ui.md: "a section with
@@ -20,7 +24,8 @@ use fn_sim::Defs;
 use fn_sim::jobs::ItemId;
 use fn_sim::needs::DeathCause;
 use fn_sim::world::{
-    Arrival, BendEvent, BendOutcome, SeasonEvent, SeasonEventKind, StrainEvent, TICKS_PER_SECOND,
+    Arrival, BendEvent, BendOutcome, ChartEvent, ChartEventKind, Event, SeasonEvent,
+    SeasonEventKind, StrainEvent, TICKS_PER_SECOND,
 };
 
 use crate::endeavor;
@@ -52,6 +57,8 @@ pub enum Kind {
     /// The winter warning, a season change worth announcing (winter or spring), the first
     /// frost, or (Hard) a wild plant picked to death (#295, #296, #299).
     Season,
+    /// A Map Room finished a chart (#402, #605): what it found, or that nothing is left.
+    Chart,
     /// An agent's act, while `fn_tui --watch` (#319) is replaying a run log: not something the
     /// world logged, so [`Alerts::push_agent`] adds it directly instead of coming from
     /// [`Alerts::update`]'s own counts.
@@ -76,6 +83,7 @@ impl Kind {
             Self::Arrival => 8.0,
             Self::Season => 10.0,
             Self::Stockpile => 10.0,
+            Self::Chart => 8.0,
             // The agent strip (#319) already names the current action; the log (`L`) is where
             // this is meant to be read back, not a toast on top of the map.
             Self::Agent => 0.0,
@@ -93,6 +101,7 @@ impl Kind {
             Self::Arrival => 3,
             Self::Season => 3,
             Self::Stockpile => 3,
+            Self::Chart => 3,
             Self::Agent => 0,
             // Fires at most once a game, ever (`Alerts::update`), so there's never more than one
             // to show at a time.
@@ -150,6 +159,9 @@ impl Entry {
             Kind::Death | Kind::Arrival | Kind::Endeavor | Kind::Tech | Kind::Season => true,
             Kind::Stockpile => true,
             Kind::Bend => self.failed,
+            // A finished chart is progress the player set going, like a finished bend: worth a
+            // toast, not worth cutting an agent's turn short.
+            Kind::Chart => false,
             Kind::Agent => false,
             Kind::BendTip => false,
         }
@@ -161,10 +173,8 @@ impl Entry {
 pub struct Alerts {
     /// Oldest first.
     log: Vec<Entry>,
-    /// How many of `World::bend_events`, `Research::completions`, `World::deaths`,
-    /// `World::endeavor_events`, `World::arrivals`, `World::season_events` and
-    /// `World::strain_events` have already become a line.
-    seen: (usize, usize, usize, usize, usize, usize, usize),
+    /// How many of `World::events` have already been read (#605: one cursor for every kind).
+    seen: usize,
     /// The tick of the last update, to notice a new world.
     last_tick: u64,
     /// Items `stuck_items` found with nowhere to go, as of the last call (#337): not one of
@@ -182,90 +192,15 @@ impl Alerts {
     /// seconds.
     pub fn update(&mut self, session: &Session, dt: f32) {
         let world = &session.world;
-        let events = world.bend_events();
-        let completions = world.research().completions();
-        let deaths = &world.deaths;
-        let endeavor = world.endeavor_events();
-        let arrivals = world.arrivals();
-        let seasons = world.season_events();
-        let strains = world.strain_events();
-        let counts = (
-            events.len(),
-            completions.len(),
-            deaths.len(),
-            endeavor.len(),
-            arrivals.len(),
-            seasons.len(),
-            strains.len(),
-        );
-        if world.tick < self.last_tick
-            || counts.0 < self.seen.0
-            || counts.1 < self.seen.1
-            || counts.2 < self.seen.2
-            || counts.3 < self.seen.3
-            || counts.4 < self.seen.4
-            || counts.5 < self.seen.5
-            || counts.6 < self.seen.6
-        {
+        let events = world.events();
+        if world.tick < self.last_tick || events.len() < self.seen {
             // A new world (regenerate, nation switch, a loaded game): the old log is gone.
             *self = Self::default();
         }
         self.last_tick = world.tick;
 
-        let mut fresh = Vec::new();
-        for ev in &events[self.seen.0..] {
-            let failed = matches!(ev.outcome, BendOutcome::Failed(_));
-            let text = describe_bend_event(session, ev);
-            // A finished bend is routine (#377) and, since #417, log-only: with a settlement
-            // that bends a lot, toasting every one is exactly the noise this issue exists to
-            // cut. A failed one still says something worth a toast, coalesced by the ability
-            // that failed (not who was channelling it) so several benders failing the same way
-            // reads as one line with a count.
-            let toast = failed.then(|| {
-                let ability = &session.defs.ability(ev.ability).name;
-                ToastSpec { subject: format!("{ability} failed"), text: text.clone() }
-            });
-            fresh.push((ev.tick, Kind::Bend, text, failed, toast));
-        }
-        for c in &completions[self.seen.1..] {
-            let text = format!("Learned {}", session.defs.tech(c.tech).name);
-            let toast = Some(ToastSpec { subject: text.clone(), text: text.clone() });
-            fresh.push((c.tick, Kind::Tech, text, false, toast));
-        }
-        for d in &deaths[self.seen.2..] {
-            let how = match d.cause {
-                DeathCause::Starvation => "starvation",
-                DeathCause::Dehydration => "dehydration",
-                DeathCause::Exhaustion => "exhaustion",
-                // #387, #388, #389; the full wording (and `weakened_by`) is #393's job.
-                DeathCause::Exposure => "exposure",
-                DeathCause::Injury => "injuries",
-                DeathCause::Sickness => "sickness",
-            };
-            let text = format!("{} died of {how}", d.name);
-            fresh.push((d.tick, Kind::Death, text, false, None));
-        }
-        for ev in &endeavor[self.seen.3..] {
-            let text = endeavor::describe_event(&session.defs, ev);
-            let toast = Some(ToastSpec { subject: text.clone(), text: text.clone() });
-            fresh.push((ev.tick, Kind::Endeavor, text, false, toast));
-        }
-        for a in &arrivals[self.seen.4..] {
-            let text = describe_arrival(a);
-            let toast = Some(ToastSpec { subject: text.clone(), text: text.clone() });
-            fresh.push((a.tick, Kind::Arrival, text, false, toast));
-        }
-        for ev in &seasons[self.seen.5..] {
-            if let Some(text) = describe_season_event(session, ev) {
-                let toast = Some(ToastSpec { subject: text.clone(), text: text.clone() });
-                fresh.push((ev.tick, Kind::Season, text, false, toast));
-            }
-        }
-        for ev in &strains[self.seen.6..] {
-            let text = describe_strain_event(&session.defs, ev);
-            let toast = Some(strain_toast(&session.defs, ev));
-            fresh.push((ev.tick, Kind::Season, text, false, toast));
-        }
+        let mut fresh = fresh_lines(session, &events[self.seen..]);
+        self.seen = events.len();
         // Not one of `World`'s own monotonic event logs above (#337: a standing condition, not
         // something that happens once), so the line is for whichever items are newly stuck since
         // the last call, not every item still stuck.
@@ -274,7 +209,7 @@ impl Alerts {
             if !self.full_items.contains(&item) {
                 let text = describe_stockpile_full(&session.defs, item, count);
                 let toast = Some(ToastSpec { subject: text.clone(), text: text.clone() });
-                fresh.push((world.tick, Kind::Stockpile, text, false, toast));
+                fresh.push(((world.tick, STOCKPILE_ORDER), Kind::Stockpile, text, false, toast));
             }
         }
         self.full_items = stuck.into_iter().map(|(item, _)| item).collect();
@@ -283,19 +218,23 @@ impl Alerts {
         // (`events` -- finished or failed -- or a job still pending), whether or not it ever
         // fires; either way `bend_tip_shown` stops the check for the rest of the game.
         if !self.bend_tip_shown {
-            let ever_designated = !events.is_empty() || world.bend_designations().next().is_some();
+            let ever_designated =
+                world.bend_events().next().is_some() || world.bend_designations().next().is_some();
             if ever_designated {
                 self.bend_tip_shown = true;
             } else if world.tick >= BEND_TIP_AFTER_TICKS && chi_to_spare(session) {
                 let text = bend_tip_text();
                 let toast = Some(ToastSpec { subject: text.clone(), text: text.clone() });
-                fresh.push((world.tick, Kind::BendTip, text, false, toast));
+                fresh.push(((world.tick, BEND_TIP_ORDER), Kind::BendTip, text, false, toast));
                 self.bend_tip_shown = true;
             }
         }
-        self.seen = counts;
-        fresh.sort_by_key(|(tick, ..)| *tick);
-        self.log.extend(fresh.into_iter().map(|(tick, kind, text, failed, toast)| {
+        // Stable: lines with the same key keep the order the world logged them in. Same-tick
+        // lines therefore read bends, techs, deaths, endeavor, arrivals, seasons, strain, charts,
+        // then a full stockpile and the bend tip: the order the alert log read the world's nine
+        // separate lists in before #605, whatever order the sim logged them in.
+        fresh.sort_by_key(|(key, ..)| *key);
+        self.log.extend(fresh.into_iter().map(|((tick, _), kind, text, failed, toast)| {
             let left = if toast.is_some() { kind.toast_seconds() } else { 0.0 };
             Entry { tick, kind, text, left, toast, failed }
         }));
@@ -371,6 +310,7 @@ impl Alerts {
             Kind::Arrival,
             Kind::Season,
             Kind::Stockpile,
+            Kind::Chart,
             Kind::Agent,
             Kind::BendTip,
         ] {
@@ -407,6 +347,124 @@ impl Alerts {
 pub struct Toast {
     pub kind: Kind,
     pub text: String,
+}
+
+/// A line not yet in the log, with its sort key first: the tick, then `Event::order` for the
+/// world's own events, or `STOCKPILE_ORDER` and `BEND_TIP_ORDER` for the standing conditions,
+/// which sort after every one of those.
+type Fresh = ((u64, u8), Kind, String, bool, Option<ToastSpec>);
+
+/// The lines `events` (newly logged, oldest first) become, sorted by key. The sort is stable,
+/// so lines with the same key keep the order the world logged them in.
+fn fresh_lines(session: &Session, events: &[Event]) -> Vec<Fresh> {
+    let mut fresh: Vec<Fresh> = events
+        .iter()
+        .filter_map(|ev| {
+            let (kind, text, failed, toast) = line_for(session, ev)?;
+            Some(((ev.tick(), ev.order()), kind, text, failed, toast))
+        })
+        .collect();
+    fresh.sort_by_key(|(key, ..)| *key);
+    fresh
+}
+
+/// Where a full stockpile's line sorts among same-tick lines: after every world event
+/// (`Event::order` runs 0 to 8).
+const STOCKPILE_ORDER: u8 = 9;
+/// Where the bend tip's line sorts among same-tick lines: last.
+const BEND_TIP_ORDER: u8 = 10;
+
+/// The line one logged event becomes: its kind, the log's text, whether it is a failed bend, and
+/// its toast (`None` for a log-only line). `None` for an event with no line (yet).
+///
+/// The match is exhaustive on purpose (#605): a new `Event` variant doesn't compile until it has
+/// an arm here, so no kind of event can be silently left out of the alert log.
+fn line_for(session: &Session, ev: &Event) -> Option<(Kind, String, bool, Option<ToastSpec>)> {
+    let defs = &session.defs;
+    let toast = |text: &String| Some(ToastSpec { subject: text.clone(), text: text.clone() });
+    Some(match ev {
+        Event::Bend(ev) => {
+            let failed = matches!(ev.outcome, BendOutcome::Failed(_));
+            let text = describe_bend_event(session, ev);
+            // A finished bend is routine (#377) and, since #417, log-only: with a settlement
+            // that bends a lot, toasting every one is exactly the noise this issue exists to
+            // cut. A failed one still says something worth a toast, coalesced by the ability
+            // that failed (not who was channelling it) so several benders failing the same way
+            // reads as one line with a count.
+            let toast = failed.then(|| {
+                let ability = &defs.ability(ev.ability).name;
+                ToastSpec { subject: format!("{ability} failed"), text: text.clone() }
+            });
+            (Kind::Bend, text, failed, toast)
+        }
+        Event::Tech(c) => {
+            let text = format!("Learned {}", defs.tech(c.tech).name);
+            (Kind::Tech, text.clone(), false, toast(&text))
+        }
+        Event::Death(d) => {
+            let how = match d.cause {
+                DeathCause::Starvation => "starvation",
+                DeathCause::Dehydration => "dehydration",
+                DeathCause::Exhaustion => "exhaustion",
+                // #387, #388, #389; the full wording (and `weakened_by`) is #393's job.
+                DeathCause::Exposure => "exposure",
+                DeathCause::Injury => "injuries",
+                DeathCause::Sickness => "sickness",
+            };
+            (Kind::Death, format!("{} died of {how}", d.name), false, None)
+        }
+        Event::Endeavor(ev) => {
+            let text = endeavor::describe_event(defs, ev);
+            (Kind::Endeavor, text.clone(), false, toast(&text))
+        }
+        Event::Arrival(a) => {
+            let text = describe_arrival(a);
+            (Kind::Arrival, text.clone(), false, toast(&text))
+        }
+        Event::Season(ev) => {
+            let text = describe_season_event(session, ev)?;
+            (Kind::Season, text.clone(), false, toast(&text))
+        }
+        Event::Strain(ev) => {
+            let text = describe_strain_event(defs, ev);
+            (Kind::Season, text, false, Some(strain_toast(defs, ev)))
+        }
+        // Harm reaches the alert log here, but has no line yet: its wording is #393's.
+        Event::Harm(_) => return None,
+        Event::Chart(ev) => {
+            let (text, toast) = describe_chart_event(session, ev);
+            (Kind::Chart, text, false, Some(toast))
+        }
+    })
+}
+
+/// A finished chart (#402, #605): "Map Room charted Lost Ruins at (10, 1)", with ": out of
+/// reach" when no settler could walk there when it was found, or "Map Room has nothing left to
+/// chart". The toast drops the place, as every toast does (#417), and coalesces by its own text.
+/// The resource is read off the map, since the event doesn't carry it; a chart read back from a
+/// save after its find was used up reads "Map Room finished a chart at (10, 1)".
+fn describe_chart_event(session: &Session, ev: &ChartEvent) -> (String, ToastSpec) {
+    let (world, defs) = (&session.world, &session.defs);
+    let room = world
+        .building_at(ev.room)
+        .map(|id| defs.building(id))
+        .or_else(|| defs.buildings.iter().find(|b| b.chart.is_some()))
+        .map_or("Map Room", |b| b.name.as_str());
+    let (text, short) = match ev.kind {
+        ChartEventKind::Found { pos, reachable } => {
+            let reach = if reachable { "" } else { ": out of reach" };
+            let short = match world.map.get(pos).and_then(|t| t.resource) {
+                Some(r) => format!("{room} charted {}", defs.resource(r).name),
+                None => format!("{room} finished a chart"),
+            };
+            (format!("{short} at ({}, {}){reach}", pos.x, pos.y), format!("{short}{reach}"))
+        }
+        ChartEventKind::NoneLeft => {
+            let text = format!("{room} has nothing left to chart");
+            (text.clone(), text)
+        }
+    };
+    (text, ToastSpec { subject: short.clone(), text: short })
 }
 
 /// "Pema has joined the settlement" (#232).
@@ -644,13 +702,13 @@ mod tests {
         let ability = ability_for_nation(&s.defs, Nation::Fire).unwrap();
 
         s.apply(Command::Bend { ability, pos: Pos::new(1, 1) }).unwrap();
-        run_until(&mut s, |s| !s.world.bend_events().is_empty());
-        let first = describe_bend_event(&s, &s.world.bend_events()[0]);
+        run_until(&mut s, |s| s.world.bend_events().next().is_some());
+        let first = describe_bend_event(&s, s.world.bend_events().next().unwrap());
         assert!(first.ends_with(", a new form"), "{first}");
 
         s.apply(Command::Bend { ability, pos: Pos::new(4, 1) }).unwrap();
-        run_until(&mut s, |s| s.world.bend_events().len() > 1);
-        let second = describe_bend_event(&s, &s.world.bend_events()[1]);
+        run_until(&mut s, |s| s.world.bend_events().count() > 1);
+        let second = describe_bend_event(&s, s.world.bend_events().nth(1).unwrap());
         assert!(!second.contains("new form"), "{second}");
     }
 
@@ -663,7 +721,7 @@ mod tests {
         let ability: AbilityId = ability_for_nation(&s.defs, Nation::Fire).unwrap();
         let pos = s.world.units[0].pos;
         s.apply(Command::Bend { ability, pos }).unwrap();
-        run_until(&mut s, |s| !s.world.bend_events().is_empty());
+        run_until(&mut s, |s| s.world.bend_events().next().is_some());
         let mut alerts = Alerts::default();
         alerts.update(&s, 0.016);
         assert!(alerts.toast_lines().is_empty(), "{:?}", alerts.toast_lines());
@@ -682,7 +740,7 @@ mod tests {
         let ability: AbilityId = ability_for_nation(&s.defs, Nation::Fire).unwrap();
         let pos = s.world.units[0].pos;
         s.apply(Command::Bend { ability, pos }).unwrap();
-        run_until(&mut s, |s| !s.world.bend_events().is_empty());
+        run_until(&mut s, |s| s.world.bend_events().next().is_some());
         let mut alerts = Alerts::default();
         alerts.update(&s, 0.0);
         let done = alerts.history().last().expect("the finished bend logged a line");
@@ -696,7 +754,7 @@ mod tests {
         // The ground turns to rock before the channel finishes, so it fails instead.
         s.world.map[pos].terrain = Terrain::Mountain;
         s.world.map_changed();
-        run_until(&mut s, |s| !s.world.bend_events().is_empty());
+        run_until(&mut s, |s| s.world.bend_events().next().is_some());
         let mut alerts = Alerts::default();
         alerts.update(&s, 0.0);
         let failed = alerts.history().last().expect("the failed bend logged a line");
@@ -734,7 +792,7 @@ mod tests {
         let mut s = Session::new(7, Nation::Fire, 48, 32);
         let shelter = s.defs.tech_id("shelter").unwrap();
         s.apply(Command::SetResearch { tech: shelter }).unwrap();
-        run_until(&mut s, |s| !s.world.research().completions().is_empty());
+        run_until(&mut s, |s| s.world.tech_completions().next().is_some());
         let mut alerts = Alerts::default();
         alerts.update(&s, 0.0);
         assert_eq!(alerts.toast_lines(), ["Learned Shelter"]);
@@ -748,7 +806,7 @@ mod tests {
         let signs = "[endeavor]\nname = \"Gate\"\n[[sign]]\nid = \"p\"\ngroup = \"people\"\n\
                      name = \"People\"\nshort = \"people\"\nkind = \"population\"\ntarget = 1\n";
         s.defs = s.defs.clone().with_endeavor(signs).unwrap();
-        run_until(&mut s, |s| s.world.endeavor_events().len() == 2);
+        run_until(&mut s, |s| s.world.endeavor_events().count() == 2);
         let mut alerts = Alerts::default();
         alerts.update(&s, 0.0);
         assert_eq!(alerts.toast_lines(), ["Sign met: People", crate::endeavor::READY_TEXT]);
@@ -762,7 +820,7 @@ mod tests {
         let mut s = Session::new(7, Nation::Fire, 48, 32);
         let shelter = s.defs.tech_id("shelter").unwrap();
         s.apply(Command::SetResearch { tech: shelter }).unwrap();
-        run_until(&mut s, |s| !s.world.research().completions().is_empty());
+        run_until(&mut s, |s| s.world.tech_completions().next().is_some());
         let mut alerts = Alerts::default();
         alerts.update(&s, 0.0);
         alerts.update(&s, Kind::Tech.toast_seconds() - 0.5);
@@ -823,9 +881,9 @@ mod tests {
         // One settler is starving and nearly dead.
         s.world.units[1].needs.hunger = 0.0;
         s.world.units[1].needs.health = 0.01;
-        run_until(&mut s, |s| !s.world.deaths.is_empty());
+        run_until(&mut s, |s| s.world.deaths().next().is_some());
         alerts.update(&s, 0.0);
-        let dead = &s.world.deaths[0];
+        let dead = &s.world.deaths().next().unwrap();
         let death = alerts.history().iter().find(|e| e.kind == Kind::Death).expect("logged");
         assert!(death.text.starts_with(&format!("{} died of ", dead.name)), "{}", death.text);
         assert_eq!(death.tick, dead.tick);
@@ -838,7 +896,7 @@ mod tests {
         let ability = ability_for_nation(&s.defs, Nation::Fire).unwrap();
         let pos = s.world.units[0].pos;
         s.apply(Command::Bend { ability, pos }).unwrap();
-        run_until(&mut s, |s| !s.world.bend_events().is_empty());
+        run_until(&mut s, |s| s.world.bend_events().next().is_some());
         let mut alerts = Alerts::default();
         alerts.update(&s, 0.0);
         assert_eq!(alerts.history().len(), 1);
@@ -1113,5 +1171,167 @@ mod tests {
         let fruit_toast =
             strain_toast(&defs, &StrainEvent { tick: 0, pos: Pos::new(2, 2), resource: fruit });
         assert_ne!(oak_toast.subject, fruit_toast.subject);
+    }
+
+    /// A session over `fixtures/v3_events.ron` (#605): a version 3 save with something in each
+    /// of the nine old event lists, several of them on the same tick (600).
+    fn v3_fixture_session() -> Session {
+        let defs = Defs::bundled();
+        let text = include_str!("../../sim/tests/fixtures/v3_events.ron");
+        let world = fn_sim::World::load(text, &defs).unwrap();
+        Session { world, defs, clock: crate::clock::Clock::default(), bend_choice: None }
+    }
+
+    /// The alert log a version 3 save gives reads exactly as it did before the nine event lists
+    /// became one (#605): these lines were printed by the build before the change, from the same
+    /// fixture. Same-tick lines keep the old order (bends, techs, deaths, endeavor, arrivals,
+    /// seasons, strain). The chart lines are new, and sort after those on their tick.
+    #[test]
+    fn an_old_saves_alerts_read_as_they_did_before_the_one_event_log() {
+        let mut s = v3_fixture_session();
+        let mut a = Alerts::default();
+        a.update(&s, 0.0);
+        s.tick();
+        a.update(&s, 0.0);
+        let lines: Vec<String> = a
+            .history()
+            .iter()
+            .filter(|e| e.kind != Kind::Chart)
+            .map(|e| format!("{} {:?} {}", e.tick, e.kind, e.text))
+            .collect();
+        let before = [
+            "60 Season Winter in 3 minutes: 0 food for 3 people.",
+            "120 Bend Lan used Raise Earth at (1, 5) - bend 0 of 8",
+            "300 Tech Learned Pottery",
+            "450 Endeavor Sign met: Everyone has a bed",
+            "600 Bend Lan's Raise Earth failed: the ground there is gone",
+            "600 Bend Lan used Raise Earth at (3, 5) - bend 0 of 8",
+            "600 Tech Learned Carpentry",
+            "600 Death Kiluk died of starvation",
+            "600 Endeavor Sign met: Population",
+            "600 Arrival Pema has joined the settlement",
+            "600 Season Winter. Wild plants rest, and the cold tires people away from fires.",
+            "600 Season A stone outcrop at (9, 6) was picked to death.",
+            "840 Bend Lan used Raise Earth at (4, 5) - bend 0 of 8",
+        ];
+        assert_eq!(lines, before);
+        let all: Vec<(u64, Kind)> = a.history().iter().map(|e| (e.tick, e.kind)).collect();
+        let at = |tick, kind| all.iter().position(|&e| e == (tick, kind)).unwrap();
+        assert_eq!(at(600, Kind::Chart), at(600, Kind::Season) + 2, "after the strain line");
+        assert_eq!(at(720, Kind::Chart), at(840, Kind::Bend) - 1);
+    }
+
+    /// Same-tick events become lines in the old fixed order (`Event::order`), whatever order the
+    /// sim logged them in: a death is logged before the bends of that tick (needs run before
+    /// units act), but its line still comes after them.
+    #[test]
+    fn same_tick_lines_follow_the_old_order_not_the_log_order() {
+        use fn_sim::research::TechCompleted;
+        use fn_sim::world::{Arrival, Death};
+
+        let s = v3_fixture_session();
+        let defs = &s.defs;
+        let unit = s.world.units[0].id;
+        let tech = defs.tech_id("pottery").unwrap();
+        let ability = ability_for_nation(defs, Nation::Earth).unwrap();
+        let tick = 5;
+        let logged = [
+            Event::Chart(ChartEvent { tick, room: Pos::new(6, 6), kind: ChartEventKind::NoneLeft }),
+            Event::Death(Death {
+                id: unit,
+                name: "Kiluk".into(),
+                tick,
+                cause: DeathCause::Exhaustion,
+                weakened_by: None,
+            }),
+            Event::Arrival(Arrival { tick, unit, name: "Pema".into() }),
+            Event::Bend(BendEvent {
+                tick,
+                unit,
+                ability,
+                pos: Pos::new(1, 1),
+                outcome: BendOutcome::Done,
+                moved: None,
+            }),
+            Event::Tech(TechCompleted { tech, tick }),
+        ];
+        let kinds: Vec<Kind> = fresh_lines(&s, &logged).into_iter().map(|l| l.1).collect();
+        assert_eq!(kinds, [Kind::Bend, Kind::Tech, Kind::Death, Kind::Arrival, Kind::Chart]);
+    }
+
+    /// Every kind of event reaches the alert log (#605). `line_for`'s exhaustive match is what
+    /// makes a new `Event` variant fail to compile without an arm; this checks what each arm
+    /// gives. Harm has no line until #393 words it.
+    #[test]
+    fn every_kind_of_event_reaches_the_alert_log() {
+        let s = v3_fixture_session();
+        let w = &s.world;
+        let lines: Vec<Option<Kind>> =
+            w.events().iter().map(|e| line_for(&s, e).map(|l| l.0)).collect();
+        assert_eq!(lines.len(), w.events().len());
+        for (ev, line) in w.events().iter().zip(&lines) {
+            let want = match ev {
+                Event::Bend(_) => Some(Kind::Bend),
+                Event::Tech(_) => Some(Kind::Tech),
+                Event::Death(_) => Some(Kind::Death),
+                Event::Endeavor(_) => Some(Kind::Endeavor),
+                Event::Arrival(_) => Some(Kind::Arrival),
+                Event::Season(_) | Event::Strain(_) => Some(Kind::Season),
+                Event::Harm(_) => None,
+                Event::Chart(_) => Some(Kind::Chart),
+            };
+            assert_eq!(*line, want, "{ev:?}");
+        }
+        assert!(w.harm_events().next().is_some() && w.chart_events().next().is_some());
+    }
+
+    /// A finished chart's line (#605): the building's and the resource's names from the data,
+    /// the place in the log's own copy only, and ": out of reach" when no settler could walk
+    /// there. A room with nothing left says so. None of them stops an agent's turn.
+    #[test]
+    fn a_finished_chart_gets_a_line() {
+        let mut s = Session::new(1, Nation::Earth, 48, 32);
+        let ruins = s.defs.resource_id("lost_ruins").unwrap();
+        let (found, room) = (Pos::new(10, 1), Pos::new(6, 6));
+        s.world.map[found].resource = Some(ruins);
+        let line = |s: &Session, kind| {
+            let (k, text, _, toast) =
+                line_for(s, &Event::Chart(ChartEvent { tick: 0, room, kind }))
+                    .expect("a chart has a line");
+            assert_eq!(k, Kind::Chart);
+            (text, toast.expect("a chart toasts").text)
+        };
+        let reachable = ChartEventKind::Found { pos: found, reachable: true };
+        assert_eq!(
+            line(&s, reachable),
+            ("Map Room charted Lost Ruins at (10, 1)".into(), "Map Room charted Lost Ruins".into())
+        );
+        let unreachable = ChartEventKind::Found { pos: found, reachable: false };
+        assert_eq!(
+            line(&s, unreachable),
+            (
+                "Map Room charted Lost Ruins at (10, 1): out of reach".into(),
+                "Map Room charted Lost Ruins: out of reach".into()
+            )
+        );
+        assert_eq!(
+            line(&s, ChartEventKind::NoneLeft),
+            (
+                "Map Room has nothing left to chart".into(),
+                "Map Room has nothing left to chart".into()
+            )
+        );
+        // A find that has since been used up still names the place.
+        s.world.map[found].resource = None;
+        assert_eq!(line(&s, reachable).0, "Map Room finished a chart at (10, 1)");
+        let entry = Entry {
+            tick: 0,
+            kind: Kind::Chart,
+            text: String::new(),
+            left: 0.0,
+            toast: None,
+            failed: false,
+        };
+        assert!(!entry.worth_stopping());
     }
 }

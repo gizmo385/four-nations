@@ -76,12 +76,8 @@ impl World {
             (u.needs.health - damage).max(floor)
         };
         u.last_harm = Some((HarmKind::Injury, self.tick));
-        self.harm_events.push(HarmEvent {
-            tick: self.tick,
-            unit: u.id,
-            pos,
-            kind: HarmEventKind::Injured,
-        });
+        let unit = u.id;
+        self.log_event(HarmEvent { tick: self.tick, unit, pos, kind: HarmEventKind::Injured });
     }
 }
 

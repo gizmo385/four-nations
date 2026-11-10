@@ -274,7 +274,7 @@ pub(crate) fn resolve_starting_techs(
     Ok(out)
 }
 
-/// A tech finishing, as recorded in the research log.
+/// A tech finishing, as logged in the world's event log (`World::tech_completions`, #605).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TechCompleted {
     pub tech: TechId,
@@ -313,8 +313,10 @@ pub struct Research {
     /// The next tech to finish is at the front. Always ascending by `TechId`, so every tech's
     /// unknown prereqs are ahead of it.
     queue: Vec<TechId>,
-    /// Completions in order. Starting techs are not logged.
-    log: Vec<TechCompleted>,
+    /// A v1 to v3 save's completions (#605). Completions are logged in `World::events` now;
+    /// these are merged into it on load, never written.
+    #[serde(default, skip_serializing, rename = "log")]
+    v3_log: Vec<TechCompleted>,
 }
 
 impl Research {
@@ -324,7 +326,7 @@ impl Research {
         for t in &defs.nation(nation).starting_techs {
             known[t.0 as usize] = true;
         }
-        Self { known, pool_millis: 0, queue: Vec::new(), log: Vec::new() }
+        Self { known, pool_millis: 0, queue: Vec::new(), v3_log: Vec::new() }
     }
 
     /// Does this state cover exactly `defs`' techs, with a queue that names only real ones? False
@@ -332,7 +334,6 @@ impl Research {
     pub(crate) fn fits(&self, defs: &Defs) -> bool {
         self.known.len() == defs.techs.len()
             && self.queue.iter().all(|t| (t.0 as usize) < defs.techs.len())
-            && self.log.iter().all(|c| (c.tech.0 as usize) < defs.techs.len())
     }
 
     /// Rebuilds the positional state of a research state read from a save for today's tech
@@ -378,9 +379,14 @@ impl Research {
         &self.queue
     }
 
-    /// Every completion so far, oldest first, with the tick it happened on.
-    pub fn completions(&self) -> &[TechCompleted] {
-        &self.log
+    /// Whether a pre-v4 save's completions are still waiting for `World::upgrade_from_v3`.
+    pub(crate) fn has_v3_log(&self) -> bool {
+        !self.v3_log.is_empty()
+    }
+
+    /// A pre-v4 save's completions, leaving none behind.
+    pub(crate) fn take_v3_log(&mut self) -> Vec<TechCompleted> {
+        std::mem::take(&mut self.v3_log)
     }
 
     /// Replaces the queue with `tech` plus its unknown prereqs, in ascending `TechId` order.
@@ -461,10 +467,13 @@ impl Research {
         self.pool_millis += millis;
     }
 
-    /// Adds one tick of passive knowledge, then completes queued techs the pool can pay for.
-    /// `tick` is the world tick being simulated, recorded on completions. `research_cost` is the
-    /// difficulty preset's knob, multiplying every tech's cost (1.0 is identity, #294).
-    pub fn tick(&mut self, tick: u64, defs: &Defs, research_cost: f32) {
+    /// Adds one tick of passive knowledge, then completes queued techs the pool can pay for,
+    /// returning them in order (the world logs them, `World::tech_completions`). `tick` is the
+    /// world tick being simulated, recorded on completions. `research_cost` is the difficulty
+    /// preset's knob, multiplying every tech's cost (1.0 is identity, #294).
+    #[must_use = "the completions belong in the world's event log"]
+    pub fn tick(&mut self, tick: u64, defs: &Defs, research_cost: f32) -> Vec<TechCompleted> {
+        let mut done = Vec::new();
         self.add_toward_target(defs.research.passive_millis_per_tick, defs, research_cost);
         while let Some(&front) = self.queue.first() {
             let cost = scaled_cost_millis(defs.tech(front).cost, research_cost);
@@ -474,8 +483,9 @@ impl Research {
             self.pool_millis -= cost;
             self.queue.remove(0);
             self.known[front.0 as usize] = true;
-            self.log.push(TechCompleted { tech: front, tick });
+            done.push(TechCompleted { tech: front, tick });
         }
+        done
     }
 }
 

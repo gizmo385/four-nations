@@ -109,18 +109,27 @@ pub enum AvatarLeaveReason {
 pub(super) struct EndeavorLog {
     /// Ids of the signs that have ever been met.
     met: BTreeSet<String>,
-    /// Every event so far, oldest first.
-    events: Vec<EndeavorEvent>,
+    /// A v1 to v3 save's endeavor events (#605): merged into `World::events` on load, never
+    /// written.
+    #[serde(default, skip_serializing, rename = "events")]
+    v3_events: Vec<EndeavorEvent>,
+}
+
+impl EndeavorLog {
+    /// Whether a pre-v4 save's events are still waiting for `World::upgrade_from_v3`.
+    pub(super) fn has_v3_events(&self) -> bool {
+        !self.v3_events.is_empty()
+    }
+
+    /// A pre-v4 save's events, leaving none behind.
+    pub(super) fn take_v3_events(&mut self) -> Vec<EndeavorEvent> {
+        std::mem::take(&mut self.v3_events)
+    }
 }
 
 impl World {
     pub fn endeavor(&self) -> &EndeavorState {
         &self.endeavor
-    }
-
-    /// Every event so far, oldest first.
-    pub fn endeavor_events(&self) -> &[EndeavorEvent] {
-        &self.endeavor_log.events
     }
 
     /// Each sign in `data/endeavor.toml` with its progress right now, in file order.
@@ -203,18 +212,18 @@ impl World {
         for p in progress.iter().filter(|p| p.met) {
             if self.endeavor_log.met.insert(p.id.to_owned()) {
                 let kind = EndeavorEventKind::SignMet(p.id.to_owned());
-                self.endeavor_log.events.push(EndeavorEvent { tick, kind });
+                self.log_event(EndeavorEvent { tick, kind });
             }
         }
         if progress.iter().all(|p| p.met) {
             self.endeavor = EndeavorState::Ready { tick };
-            self.endeavor_log.events.push(EndeavorEvent { tick, kind: EndeavorEventKind::Ready });
+            self.log_event(EndeavorEvent { tick, kind: EndeavorEventKind::Ready });
         }
     }
 
     /// Logs an endeavor event at the current tick.
     pub(super) fn endeavor_event(&mut self, kind: EndeavorEventKind) {
-        self.endeavor_log.events.push(EndeavorEvent { tick: self.tick, kind });
+        self.log_event(EndeavorEvent { tick: self.tick, kind });
     }
 
     /// Checks whether unit `i`'s bend just finished has raised its rank (`World::rank_of`) past

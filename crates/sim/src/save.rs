@@ -14,11 +14,11 @@
 //! # Format
 //!
 //! RON text, human-readable and diffable (map keys that aren't strings, which JSON can't do, are
-//! fine). Versions 2 and 3 are three lines: a `SaveInfo` header, the save's content-id tables
+//! fine). Versions 2 to 4 are three lines: a `SaveInfo` header, the save's content-id tables
 //! ([`SaveIds`]), and the `World`:
 //!
 //! ```text
-//! (magic:"four-nations-save",version:3,data_hash:..,seed:..,nation:fire,tick:..)
+//! (magic:"four-nations-save",version:4,data_hash:..,seed:..,nation:fire,tick:..)
 //! (biomes:["tundra",..],resources:[..],nations:[..],techs:[..],items:[..],buildings:[..],abilities:[..])
 //! (seed:..,tick:..,tiles:(..),buildings:(next:..,records:{..}),..)
 //! ```
@@ -54,6 +54,14 @@
 //! upgraded after the parse (`save/v2.rs`), so a v1 save loads through both steps: its id
 //! tables, then the records.
 //!
+//! # One event log (#605)
+//!
+//! Version 4 keeps everything the world logged (bends, techs, deaths, endeavor events,
+//! arrivals, seasons, strain, harm, charts) in one list, written as `events`. Versions 1 to 3
+//! kept nine lists. They are read through deserialize-only fields and merged by tick on load
+//! (`world/events.rs`, `World::upgrade_from_v3`), after the v2 step, so a v1 or v2 save loads
+//! through every step.
+//!
 //! `World` derives `Serialize`/`Deserialize` over all of its state (only the connectivity cache is
 //! skipped; it is rebuilt on demand). A new field on `World` therefore either serializes or fails
 //! to compile, and the round-trip tests compare complete serializations, so state can't be
@@ -78,7 +86,7 @@ pub use ids::SaveIds;
 use ids::{Remap, Table, Unmapped};
 
 /// The save format version this build writes. It also reads every version from 1 up.
-pub const SAVE_VERSION: u32 = 3;
+pub const SAVE_VERSION: u32 = 4;
 
 const MAGIC: &str = "four-nations-save";
 
@@ -249,6 +257,10 @@ impl World {
         if info.version < 3 {
             // Buildings became records (#604): the body has the v2 shape (`save/v2.rs`).
             world.upgrade_from_v2().map_err(SaveError::Corrupt)?;
+        }
+        if info.version < 4 {
+            // One event log (#605): the body has nine event lists (`world/events.rs`).
+            world.upgrade_from_v3();
         }
         world.validate(defs).map_err(SaveError::Corrupt)?;
         // The building indexes aren't saved; rebuild them from the records, from today's defs.

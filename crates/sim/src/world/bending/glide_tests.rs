@@ -52,16 +52,16 @@ fn glide(defs: &Defs) -> AbilityId {
 /// Casts `ability` on `pos` with unit 0 and runs until it is done, which it should have been.
 fn cast(w: &mut World, defs: &Defs, ability: AbilityId, pos: Pos) {
     w.apply(Command::Bend { ability, pos }, defs).unwrap();
-    let events = w.bend_events().len();
+    let events = w.bend_events().count();
     for _ in 0..3000 {
-        if w.bend_events().len() > events {
+        if w.bend_events().count() > events {
             break;
         }
         w.units[0].needs = crate::needs::Needs::full(&defs.needs);
         w.units[0].chi = defs.chi.max;
         w.tick(defs);
     }
-    assert_eq!(w.bend_events().last().map(|e| e.outcome), Some(BendOutcome::Done));
+    assert_eq!(w.bend_events().next_back().map(|e| e.outcome), Some(BendOutcome::Done));
 }
 
 #[test]

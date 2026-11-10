@@ -56,9 +56,9 @@ fn water_and_dry(w: &mut World, defs: &Defs, pos: Pos) {
     w.units[0].needs = crate::needs::Needs::full(&defs.needs);
     w.units[0].chi = defs.chi.max;
     w.apply(Command::Bend { ability: water(defs), pos }, defs).unwrap();
-    let events = w.bend_events().len();
-    run_until(w, defs, 1000, |w| w.bend_events().len() > events);
-    assert_eq!(w.bend_events().last().unwrap().outcome, BendOutcome::Done);
+    let events = w.bend_events().count();
+    run_until(w, defs, 1000, |w| w.bend_events().count() > events);
+    assert_eq!(w.bend_events().next_back().unwrap().outcome, BendOutcome::Done);
     run_until(w, defs, 4000, |w| w.wet_tiles().is_empty());
 }
 
@@ -106,7 +106,7 @@ fn a_patch_is_wet_for_six_minutes_then_two_tiles_sprout() {
     let defs = Defs::bundled();
     let mut w = world(1, &defs);
     w.apply(Command::Bend { ability: water(&defs), pos: at(3, 4) }, &defs).unwrap();
-    run_until(&mut w, &defs, 1000, |w| !w.bend_events().is_empty());
+    run_until(&mut w, &defs, 1000, |w| w.bend_events().next().is_some());
     let done = w.tick;
     let wet = w.wet_tiles();
     assert_eq!(wet.len(), 9);
@@ -270,7 +270,7 @@ fn a_patch_at_the_edge_and_shore_is_clipped() {
     let mut w = world(1, &defs);
     // Centre (1, 0): the river column and the map's top row are not wettable.
     w.apply(Command::Bend { ability: water(&defs), pos: at(1, 0) }, &defs).unwrap();
-    run_until(&mut w, &defs, 1000, |w| !w.bend_events().is_empty());
+    run_until(&mut w, &defs, 1000, |w| w.bend_events().next().is_some());
     let wet: Vec<Pos> = w.wet_tiles().iter().map(|t| t.0).collect();
     assert_eq!(wet, [at(1, 0), at(1, 1), at(2, 0), at(2, 1)]);
 }
@@ -322,7 +322,7 @@ fn the_magnitude_modifier_scales_how_long_a_patch_stays_wet() {
     let mut w = world(1, &defs);
     let ability = defs.ability_id("slow_water").unwrap();
     w.apply(Command::Bend { ability, pos: at(3, 4) }, &defs).unwrap();
-    run_until(&mut w, &defs, 200, |w| !w.bend_events().is_empty());
+    run_until(&mut w, &defs, 200, |w| w.bend_events().next().is_some());
     let factor = w.modifiers().water_work;
     assert!(factor > 1.0);
     let left = w.wet_tiles()[0].1;
@@ -339,7 +339,7 @@ fn snapshot(w: &World, defs: &Defs) -> String {
         w.tick,
         w.wet_tiles(),
         w.fallow_tiles(),
-        w.bend_events(),
+        w.bend_events().collect::<Vec<_>>(),
         w.stored_total(cabbage_item(defs)),
     )
 }
@@ -382,7 +382,7 @@ fn a_session_with_water_the_land_replays_identically() {
     let log = original.command_log().to_vec();
     assert!(log.len() >= 5);
     assert!(
-        original.bend_events().len() >= 2
+        original.bend_events().count() >= 2
             && !original.fallow_tiles().is_empty()
             && original.stored_total(cabbage_item(&defs)) > 0,
         "the session should water, sprout and gather, or the test proves little: {}",

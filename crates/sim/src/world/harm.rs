@@ -99,11 +99,6 @@ pub(super) fn new_sickness_rng(seed: u64) -> SimRng {
 }
 
 impl World {
-    /// Harm events, oldest first.
-    pub fn harm_events(&self) -> &[HarmEvent] {
-        &self.harm_events
-    }
-
     /// The sleep bonus of the bed `u` lies in right now, 1.0 with none: half of exposure's test
     /// (a heat source is the other half, already folded into `cold`/`World::is_cold` by the
     /// caller). A sleeper inside a bed bigger than 1x1 lies on the entrance tile, not the
@@ -132,7 +127,7 @@ impl World {
         }
         if !u.exposed_alerted {
             u.exposed_alerted = true;
-            self.harm_events.push(HarmEvent {
+            self.log_event(HarmEvent {
                 tick: self.tick,
                 unit: u.id,
                 pos: u.pos,
@@ -171,7 +166,7 @@ impl World {
         }
         if self.tick >= until {
             u.sick_until = None;
-            self.harm_events.push(HarmEvent {
+            self.log_event(HarmEvent {
                 tick: self.tick,
                 unit: u.id,
                 pos: u.pos,
@@ -227,12 +222,8 @@ impl World {
         let ticks = (defs.harm.sickness.minutes * 60.0 * TICKS_PER_SECOND as f32).round() as u64;
         let u = &mut self.units[i];
         u.sick_until = Some(self.tick + ticks);
-        self.harm_events.push(HarmEvent {
-            tick: self.tick,
-            unit: u.id,
-            pos: u.pos,
-            kind: HarmEventKind::FellSick,
-        });
+        let (unit, pos) = (u.id, u.pos);
+        self.log_event(HarmEvent { tick: self.tick, unit, pos, kind: HarmEventKind::FellSick });
     }
 
     /// What `Death::weakened_by` should say for a unit whose `last_harm` was `last_harm`, dying

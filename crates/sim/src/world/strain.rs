@@ -33,11 +33,6 @@ impl World {
         self.strain.get(&pos).copied()
     }
 
-    /// Wild plants killed by over-picking so far, oldest first.
-    pub fn strain_events(&self) -> &[StrainEvent] {
-        &self.strain_events
-    }
-
     /// Adds this harvest's strain to `pos` (`h.strain` times the difficulty preset's `strain`
     /// knob), unless strain is off, this harvest has none, or an orchard tends the tile
     /// (`tend_rate` above 1.0, #142: tended plants don't tire). Returns the strain the tile has
@@ -63,7 +58,7 @@ impl World {
             self.strain.remove(&pos);
             // Still here: `work_done` only clears the tile's resource once this returns `None`.
             let resource = self.map[pos].resource.expect("harvesting a tile with a resource");
-            self.strain_events.push(StrainEvent { tick: self.tick, resource, pos });
+            self.log_event(StrainEvent { tick: self.tick, resource, pos });
             return None;
         }
         Some(1.0 + strain)

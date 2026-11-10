@@ -68,6 +68,8 @@ pub(crate) fn kind_tone(kind: Kind) -> Tone {
         // A full stockpile (#337) is exactly the same kind of warning: something worth fixing,
         // not a disaster that already happened.
         Kind::Stockpile => Tone::Warn,
+        // A finished chart is a discovery, good news like a finished tech.
+        Kind::Chart => Tone::Ok,
         // A watched run's own entries (#319): plain text, like a human's own actions would read.
         Kind::Agent => Tone::Text,
         // A gentle onboarding nudge (#382), not something gone wrong: the same tone as a

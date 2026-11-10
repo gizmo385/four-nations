@@ -39,7 +39,7 @@ fn snapshot(w: &World, defs: &Defs) -> String {
         "tick {} {units:?} {:?} {stored:?} {ground:?} {zones:?} {buildings:?} {sites:?} {:?} {:?}",
         w.tick,
         w.jobs(),
-        w.deaths,
+        w.deaths().collect::<Vec<_>>(),
         w.research(),
     )
 }

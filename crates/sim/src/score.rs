@@ -380,7 +380,6 @@ impl Scorecard {
         let first = |want: &dyn Fn(&EndeavorEventKind) -> bool| {
             world
                 .endeavor_events()
-                .iter()
                 .filter(|e| within(e.tick) && want(&e.kind))
                 .map(|e| e.tick)
                 .min()
@@ -424,7 +423,7 @@ impl Scorecard {
 
         let care = world.care().since(&start.care);
         let severe_minutes = score.care.severe.iter().map(|&s| (s, care.severe_minutes(s)));
-        let deaths = world.deaths.iter().filter(|d| d.tick > start.tick && within(d.tick)).count();
+        let deaths = world.deaths().filter(|d| d.tick > start.tick && within(d.tick)).count();
         Self::build(
             score,
             Inputs {

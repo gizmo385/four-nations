@@ -68,9 +68,9 @@ fn run_until(w: &mut World, defs: &Defs, limit: u64, mut done: impl FnMut(&World
 fn bend(w: &mut World, defs: &Defs, pos: Pos) {
     w.units[0].chi = defs.chi.max;
     w.apply(Command::Bend { ability: metalbend(defs), pos }, defs).unwrap();
-    let events = w.bend_events().len();
-    run_until(w, defs, 3000, |w| w.bend_events().len() > events);
-    assert_eq!(w.bend_events().last().unwrap().outcome, BendOutcome::Done);
+    let events = w.bend_events().count();
+    run_until(w, defs, 3000, |w| w.bend_events().count() > events);
+    assert_eq!(w.bend_events().next_back().unwrap().outcome, BendOutcome::Done);
 }
 
 #[test]
@@ -174,9 +174,12 @@ fn a_failed_bend_gives_the_haul_job_back() {
     // happen in practice, since designating took over the haul job, but proves the safety net).
     w.ground.remove(&at(10, 2));
 
-    let events = w.bend_events().len();
-    run_until(&mut w, &defs, 3000, |w| w.bend_events().len() > events);
-    assert_eq!(w.bend_events().last().unwrap().outcome, BendOutcome::Failed("needs ore to bend"));
+    let events = w.bend_events().count();
+    run_until(&mut w, &defs, 3000, |w| w.bend_events().count() > events);
+    assert_eq!(
+        w.bend_events().next_back().unwrap().outcome,
+        BendOutcome::Failed("needs ore to bend")
+    );
     assert_eq!(w.units[0].chi, defs.chi.max, "nothing was spent");
 }
 

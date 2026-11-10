@@ -77,9 +77,9 @@ fn run_until(w: &mut World, defs: &Defs, limit: u64, mut done: impl FnMut(&World
 fn bore_at(w: &mut World, defs: &Defs, pos: Pos) {
     w.units[0].chi = defs.chi.max;
     w.apply(Command::Bend { ability: bore(defs), pos }, defs).unwrap();
-    let events = w.bend_events().len();
-    run_until(w, defs, 3000, |w| w.bend_events().len() > events);
-    assert_eq!(w.bend_events().last().unwrap().outcome, BendOutcome::Done);
+    let events = w.bend_events().count();
+    run_until(w, defs, 3000, |w| w.bend_events().count() > events);
+    assert_eq!(w.bend_events().next_back().unwrap().outcome, BendOutcome::Done);
 }
 
 /// Mines the resource on `pos` and returns how many of `item` it dropped (nothing is
@@ -263,12 +263,8 @@ fn a_five_tile_line_designated_at_once_is_bored_in_order_from_the_bank() {
     for x in 4..=8 {
         assert_eq!(w.map[at(x, 2)].terrain, Terrain::Tunnel, "x={x}");
     }
-    let order: Vec<i32> = w
-        .bend_events()
-        .iter()
-        .filter(|e| e.outcome == BendOutcome::Done)
-        .map(|e| e.pos.x)
-        .collect();
+    let order: Vec<i32> =
+        w.bend_events().filter(|e| e.outcome == BendOutcome::Done).map(|e| e.pos.x).collect();
     assert_eq!(order, vec![4, 5, 6, 7, 8], "bored bank outward, in order");
 }
 

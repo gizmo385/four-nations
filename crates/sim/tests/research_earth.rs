@@ -93,9 +93,15 @@ fn scholars(minute: u64) -> u64 {
     }
 }
 
-/// Knowledge earned so far, in points: what finished techs cost plus what is banked.
+/// Knowledge earned so far, in points: what finished techs cost plus what is banked. The
+/// finished techs are the known ones the nation didn't start with.
 fn earned(r: &Research, defs: &Defs) -> f64 {
-    let spent: u64 = r.completions().iter().map(|c| u64::from(defs.tech(c.tech).cost)).sum();
+    let starting = &defs.nation(NATION).starting_techs;
+    let spent: u64 = r
+        .known_techs()
+        .filter(|t| !starting.contains(t))
+        .map(|t| u64::from(defs.tech(t).cost))
+        .sum();
     spent as f64 + r.pool_millis() as f64 / 1000.0
 }
 
@@ -106,7 +112,7 @@ fn step(r: &mut Research, tick: u64, defs: &Defs) {
     let study = effective_modifiers(NATION, r.known_techs(), defs).study;
     let per_scholar = defs.research.study_millis_per_tick as f32 * study * 2.0 / 3.0;
     r.add_knowledge(per_scholar as u64 * scholars(tick / TICKS_PER_MINUTE));
-    r.tick(tick, defs, 1.0);
+    let _ = r.tick(tick, defs, 1.0);
 }
 
 const LIMIT: u64 = 4 * 60 * TICKS_PER_MINUTE;

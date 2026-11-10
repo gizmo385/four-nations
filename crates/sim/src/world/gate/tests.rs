@@ -95,7 +95,6 @@ fn begin(w: &mut World, defs: &Defs) {
 
 fn stages_done(w: &World) -> Vec<String> {
     w.endeavor_events()
-        .iter()
         .filter_map(|e| match &e.kind {
             EndeavorEventKind::StageDone(id) => Some(id.clone()),
             _ => None,
@@ -212,7 +211,7 @@ fn stages_advance_in_order_and_the_gate_stands_at_the_end() {
     assert_eq!(seen, ["base", "pillars", "arch"]);
     assert_eq!(stages_done(&w), ["base", "pillars", "arch"]);
     let EndeavorState::Complete { tick } = *w.endeavor() else { unreachable!() };
-    assert_eq!(w.endeavor_events().last().unwrap().tick, tick);
+    assert_eq!(w.endeavor_events().next_back().unwrap().tick, tick);
     let gate = defs.building_id("harmony_gate").unwrap();
     let listed: Vec<_> = w.buildings().map(|b| (b.footprint(), b.id)).collect();
     assert_eq!(listed, [(Footprint::new(ANCHOR, 4, 4), gate)]);
@@ -303,7 +302,7 @@ fn the_gate_goes_up_the_same_way_every_time() {
         begin(&mut w, &defs);
         run_until(&mut w, &defs, 6_000, |w| matches!(w.endeavor(), EndeavorState::Complete { .. }));
         let units: Vec<(Pos, u32)> = w.units.iter().map(|u| (u.pos, u.bends)).collect();
-        (w.tick, w.endeavor_events().to_vec(), units)
+        (w.tick, w.endeavor_events().cloned().collect::<Vec<_>>(), units)
     };
     assert_eq!(play(), play());
 }
@@ -317,7 +316,7 @@ fn replaying_the_log_rebuilds_the_same_gate() {
     let mut again = world(Nation::Earth, 2, &defs);
     again.replay(w.command_log(), w.tick, &defs);
     assert_eq!(again.endeavor(), w.endeavor());
-    assert_eq!(again.endeavor_events(), w.endeavor_events());
+    assert!(again.endeavor_events().eq(w.endeavor_events()));
 }
 
 // The Harmony Rite (issue #238; docs/design/endgame.md, "The Harmony Rite").
@@ -348,7 +347,6 @@ fn defs_with_rite(minutes: f32, share: f32) -> Defs {
 
 fn rite_events(w: &World) -> Vec<&EndeavorEventKind> {
     w.endeavor_events()
-        .iter()
         .map(|e| &e.kind)
         .filter(|k| {
             matches!(
@@ -410,7 +408,7 @@ fn a_death_during_the_rite_resets_its_progress() {
     w.units[0].needs.hunger = 0.0;
     w.units[0].needs.health = 0.0;
     w.tick(&defs);
-    assert_eq!(w.deaths.len(), 1);
+    assert_eq!(w.deaths().count(), 1);
     assert_eq!(w.gate().unwrap().rite_progress, 0.0);
     assert_eq!(rite_events(&w).last(), Some(&&EndeavorEventKind::RiteBroken));
 }
@@ -422,7 +420,7 @@ fn the_whole_ready_to_complete_run_is_deterministic() {
         let mut w = world(Nation::Earth, 3, &defs);
         begin(&mut w, &defs);
         run_until(&mut w, &defs, 6_000, |w| matches!(w.endeavor(), EndeavorState::Complete { .. }));
-        (w.tick, w.endeavor_events().to_vec())
+        (w.tick, w.endeavor_events().cloned().collect::<Vec<_>>())
     };
     assert_eq!(play(), play());
 }
