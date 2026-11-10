@@ -4,7 +4,7 @@
 │ Ctrl+Arrows PgUp PgDn  Jump the view a quarter screen                                ││ People 2              Idle 2 │
 │                                                                                      ││ Food 0 · 0/head              │
 │ UNITS                                                                                ││ Research: none set       [T] │
-│ Enter                  Select the unit under the cursor; again: the next one there.  ││ Gate 0/9 · 14 people     [G] │
+│ Enter                  Select the unit under the cursor; again: the next one there.  ││ Gate 1/9 · 14 people     [G] │
 │                        In a tool: set a corner, then apply                           │├─ HERE ──────────── (64, 28) ─┤
 │ Esc                    Close the screen, a modal or the bar. In a tool: drop the     ││ Juni                         │
 │                        corner, then leave the tool. With nothing to close: the game  ││ Idle                         │
