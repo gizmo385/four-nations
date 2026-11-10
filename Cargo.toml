@@ -60,3 +60,21 @@ opt-level = 3
 
 [profile.ci.package.ahash]
 opt-level = 3
+
+# Every world's map generation and every unit's random choice draws from ChaCha streams, and every
+# save and load goes through ron. Unoptimised, ChaCha's block function was 70% of making a map
+# and ron most of a load. Small crates, so seconds of build for minutes of tests.
+[profile.ci.package.rand_chacha]
+opt-level = 3
+
+[profile.ci.package.ppv-lite86]
+opt-level = 3
+
+[profile.ci.package.rand_core]
+opt-level = 3
+
+[profile.ci.package.rand]
+opt-level = 3
+
+[profile.ci.package.ron]
+opt-level = 3
