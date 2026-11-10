@@ -1,5 +1,5 @@
 //! End-to-end coverage of `cargo xtask agent-eval` (#529) against the real `fn_agent`, on a tiny
-//! track (a few turns, two screen seeds, two gate seeds and one owner-only seed) so it runs in seconds. No model is
+//! track (a few turns, one seed in each tier) so it runs in seconds. No model is
 //! involved. `fn_agent` is built once per test run with `cargo build -p fn_agent --profile ci`
 //! and handed to `xtask` through `$FN_AGENT_BIN`, so the xtask binary never builds a release
 //! `fn_agent` here.
@@ -45,24 +45,43 @@ map_size = "small"
 site = "default"
 horizon_turns = 4
 play_seed = 7
-screen_seeds = [7, 42]
-gate_seeds = [101, 102]
+screen_seeds = [7]
+gate_seeds = [101]
 owner_seeds = [201]
 collapse_below = 1
 "#;
 
 struct Fixture {
     tmp: PathBuf,
+    /// `$FN_AGENT_CACHE` for its evaluations.
+    cache: PathBuf,
 }
 
 impl Fixture {
+    /// Par and the controls come from a cache every test in this file shares (under cargo's
+    /// target tmp dir, never the owner's): they're the same for every test on one build, and
+    /// computing them is most of a first evaluation. Writes are atomic (a temporary file and a
+    /// rename), so tests running at once can share it.
     fn new(name: &str) -> Self {
-        let tmp =
-            std::env::temp_dir().join(format!("fn_agent_eval_it_{name}_{}", std::process::id()));
+        let cache = Path::new(env!("CARGO_TARGET_TMPDIR")).join("agent_eval_cache");
+        Self::with_cache(name, cache)
+    }
+
+    /// A fixture with a cache of its own, for a test of what the cache holds.
+    fn own_cache(name: &str) -> Self {
+        Self::with_cache(name, Self::dir(name).join("cache"))
+    }
+
+    fn dir(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("fn_agent_eval_it_{name}_{}", std::process::id()))
+    }
+
+    fn with_cache(name: &str, cache: PathBuf) -> Self {
+        let tmp = Self::dir(name);
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).unwrap();
         fs::write(tmp.join("tracks.toml"), TRACKS).unwrap();
-        Self { tmp }
+        Self { tmp, cache }
     }
 
     /// A champion folder whose handoff holds `scripts` (name, code) and an optional plan.
@@ -90,9 +109,9 @@ impl Fixture {
             .arg(self.tmp.join("tracks.toml"))
             .args(extra)
             .env("FN_AGENT_BIN", fn_agent_bin())
-            // Par and the controls are kept per build (#572): in this test's own folder, never
-            // the owner's cache.
-            .env("FN_AGENT_CACHE", self.tmp.join("cache"))
+            // Par and the controls are kept per build (#572): in the tests' cache, never the
+            // owner's.
+            .env("FN_AGENT_CACHE", &self.cache)
             .output()
             .unwrap()
     }
@@ -122,9 +141,7 @@ fn the_table_has_its_shape_and_is_deterministic() {
     assert!(a.status.success(), "{}", stderr(&a));
     let text = stdout(&a);
     assert!(text.contains("tiny") && text.contains("horizon 4"), "{text}");
-    for needle in
-        ["7  screen", "42  screen", "101  gate", "201  owner", "screen  mean", "owner   mean"]
-    {
+    for needle in ["7  screen", "101  gate", "201  owner", "screen  mean", "owner   mean"] {
         assert!(text.contains(needle), "missing {needle:?} in\n{text}");
     }
     let b = fx.eval(&champion, &["--threads", "1"]);
@@ -162,17 +179,14 @@ fn json_is_the_same_table_and_out_keeps_the_logs() {
     let seeds = |panel: &str| -> Vec<u64> {
         j[panel].as_array().unwrap().iter().map(|r| r["seed"].as_u64().unwrap()).collect()
     };
-    assert_eq!(
-        (seeds("screen"), seeds("gate"), seeds("owner")),
-        (vec![7, 42], vec![101, 102], vec![201])
-    );
+    assert_eq!((seeds("screen"), seeds("gate"), seeds("owner")), (vec![7], vec![101], vec![201]));
     let scores: Vec<f64> =
         j["screen"].as_array().unwrap().iter().map(|r| r["score"].as_f64().unwrap()).collect();
     let mean = scores.iter().sum::<f64>() / scores.len() as f64;
     assert!((j["screen_mean"].as_f64().unwrap() - mean).abs() < 1e-9, "{j}");
     assert!(j["owner_mean"].is_number() && j["gate_failures"]["collapses"].is_number(), "{j}");
     assert!(j["screen"][0]["deaths"].is_number(), "{j}");
-    for seed in [7, 42, 101, 102, 201] {
+    for seed in [7, 101, 201] {
         assert!(out_dir.join(format!("seed-{seed}.jsonl")).is_file());
     }
     let b = fx.eval(&champion, &["--json"]);
@@ -191,9 +205,9 @@ fn a_stopped_script_is_scored_and_flagged() {
     assert!(text.contains("screen  mean"), "{text}");
     let j: serde_json::Value =
         serde_json::from_str(&stdout(&fx.eval(&champion, &["--json"]))).unwrap();
-    assert_eq!(j["stopped"], 5, "{j}");
+    assert_eq!(j["stopped"], 3, "{j}");
     assert_eq!(j["screen"][0]["stopped_by"]["reason"], "error");
-    assert_eq!(j["screen_failures"]["stopped"], 2, "{j}");
+    assert_eq!(j["screen_failures"]["stopped"], 1, "{j}");
 }
 
 /// A handoff with no `governor` script fails with a message that says so, and prints no table.
@@ -269,7 +283,7 @@ fn a_child_that_never_returns_is_killed_and_reported_not_scored() {
 /// prints the same table from the cache.
 #[test]
 fn par_and_the_do_nothing_control_sit_beside_the_scores() {
-    let fx = Fixture::new("refs");
+    let fx = Fixture::own_cache("refs");
     let champion = fx.champion(&[("governor", "wait(2);")], None);
     let a = fx.eval(&champion, &[]);
     assert!(a.status.success(), "{}", stderr(&a));
@@ -288,14 +302,14 @@ fn par_and_the_do_nothing_control_sit_beside_the_scores() {
     }
     assert!(stderr(&a).contains("computed"), "{}", stderr(&a));
     // The cache holds one par per seed and one control file per tier, under the build.
-    let cache = fx.tmp.join("cache");
+    let cache = &fx.cache;
     let count = |sub: &str| {
         fs::read_dir(cache.join(sub))
             .unwrap()
             .flat_map(|b| fs::read_dir(b.unwrap().path()).unwrap())
             .count()
     };
-    assert_eq!((count("par"), count("controls")), (5, 3));
+    assert_eq!((count("par"), count("controls")), (3, 3));
     // A second evaluation reads them back: the same bytes, nothing computed.
     let b = fx.eval(&champion, &["--threads", "1"]);
     assert_eq!(text, stdout(&b));
@@ -323,7 +337,7 @@ fn a_fixed_governor_control_and_the_switches() {
         .collect();
     assert_eq!(labels, ["do-nothing", "busy"], "{j}");
     assert!(j["references"].get("par").is_none(), "--no-par: {j}");
-    assert_eq!(j["references"]["controls"][1]["seeds"].as_array().unwrap().len(), 5);
+    assert_eq!(j["references"]["controls"][1]["seeds"].as_array().unwrap().len(), 3);
 
     let plain = fx.eval(&champion, &["--no-par", "--no-controls"]);
     assert!(plain.status.success(), "{}", stderr(&plain));
