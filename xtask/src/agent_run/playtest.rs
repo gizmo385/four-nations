@@ -124,6 +124,8 @@ enum Event {
     /// Plain text the model wrote, one entry per text block. `id` names the message it came from,
     /// so a block repeated across events is only taken once.
     Said { id: String, text: String },
+    /// A thinking block's summary (`--thinking-display summarized`), one per non-empty block.
+    Thought { id: String, text: String },
     /// The final `result` event, verbatim: the same object `--output-format json` prints.
     Result(String),
 }
@@ -131,9 +133,10 @@ enum Event {
 /// Reads one line of `claude -p --output-format stream-json --verbose`. A line that doesn't parse
 /// (the last one of a stream cut short, say) is nothing, never an error.
 ///
-/// Only the model's own top-level text counts: `thinking` blocks (empty text, an opaque
-/// signature) are skipped and so are `tool_use` blocks, and an event from a sub-agent
-/// (`parent_tool_use_id` set) is not the player speaking.
+/// Only the model's own top-level blocks count: `text` blocks are what it said, and `thinking`
+/// blocks with text are summaries of its thinking (an empty one, the default display, is
+/// skipped, and the signature is never kept). `tool_use` blocks are skipped, and an event from a
+/// sub-agent (`parent_tool_use_id` set) is not the player speaking.
 fn parse_event(line: &str) -> Vec<Event> {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { return Vec::new() };
     match v["type"].as_str() {
@@ -144,10 +147,23 @@ fn parse_event(line: &str) -> Vec<Event> {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .filter(|b| b["type"] == "text")
-                .filter_map(|b| b["text"].as_str())
-                .filter(|t| !t.trim().is_empty())
-                .map(|t| Event::Said { id: id.clone(), text: t.trim().to_owned() })
+                .filter_map(|b| {
+                    let (text, thought) = match b["type"].as_str()? {
+                        "text" => (b["text"].as_str()?, false),
+                        "thinking" => (b["thinking"].as_str()?, true),
+                        _ => return None,
+                    };
+                    let text = text.trim();
+                    if text.is_empty() {
+                        return None;
+                    }
+                    let (id, text) = (id.clone(), text.to_owned());
+                    Some(if thought {
+                        Event::Thought { id, text }
+                    } else {
+                        Event::Said { id, text }
+                    })
+                })
                 .collect()
         }
         _ => Vec::new(),
@@ -156,8 +172,21 @@ fn parse_event(line: &str) -> Vec<Event> {
 
 /// `text` as the `say` line it is logged as, cut to [`MAX_REMARK_CHARS`].
 fn say_line(text: &str) -> String {
-    let text = if text.chars().count() > MAX_REMARK_CHARS {
-        let cut: String = text.chars().take(MAX_REMARK_CHARS).collect();
+    commentary_line("say", text, MAX_REMARK_CHARS)
+}
+
+/// A thinking summary longer than this many characters is cut when it is logged.
+const MAX_THOUGHT_CHARS: usize = 4000;
+
+/// `text` as the `think` line it is logged as, cut to [`MAX_THOUGHT_CHARS`].
+fn think_line(text: &str) -> String {
+    commentary_line("think", text, MAX_THOUGHT_CHARS)
+}
+
+/// A `{"type":kind,"text":...}` line, the text cut to `max` characters.
+fn commentary_line(kind: &str, text: &str, max: usize) -> String {
+    let text = if text.chars().count() > max {
+        let cut: String = text.chars().take(max).collect();
         format!("{cut}…")
     } else {
         text.to_owned()
@@ -165,7 +194,7 @@ fn say_line(text: &str) -> String {
     // Written by hand so `type` comes first, as every line `serde` writes for the log has it
     // (readers of a log's lines look at the start of the line).
     let quoted = serde_json::to_string(&text).expect("a string always serializes");
-    format!("{{\"type\":\"say\",\"text\":{quoted}}}\n")
+    format!("{{\"type\":\"{kind}\",\"text\":{quoted}}}\n")
 }
 
 /// Appends remarks to `run.jsonl` as they arrive, without ever starting the log or cutting into
@@ -194,6 +223,11 @@ impl Sink {
 
     fn remark(&mut self, text: &str) {
         self.pending.push(say_line(text));
+        self.flush();
+    }
+
+    fn thought(&mut self, text: &str) {
+        self.pending.push(think_line(text));
         self.flush();
     }
 
@@ -250,11 +284,12 @@ struct Reader {
     /// The `result` event, once it arrives.
     result: Option<String>,
     remarks: usize,
+    thoughts: usize,
 }
 
 impl Reader {
     fn new(log: &Path) -> Self {
-        Self { sink: Sink::new(log), seen: HashSet::new(), result: None, remarks: 0 }
+        Self { sink: Sink::new(log), seen: HashSet::new(), result: None, remarks: 0, thoughts: 0 }
     }
 
     fn line(&mut self, line: &str) {
@@ -265,6 +300,12 @@ impl Reader {
                     if id.is_empty() || self.seen.insert((id, text.clone())) {
                         self.remarks += 1;
                         self.sink.remark(&text);
+                    }
+                }
+                Event::Thought { id, text } => {
+                    if id.is_empty() || self.seen.insert((id, text.clone())) {
+                        self.thoughts += 1;
+                        self.sink.thought(&text);
                     }
                 }
                 Event::Result(raw) => self.result = Some(raw),
@@ -301,6 +342,8 @@ pub(super) fn run_claude_stream(
         .arg(prompt)
         .args(call_args)
         .args(["--output-format", "stream-json", "--verbose"])
+        // Summaries of the model's thinking (#576): `-p` defaults to an empty display.
+        .args(["--thinking-display", "summarized"])
         .env("OTEL_RESOURCE_ATTRIBUTES", attrs)
         .stdout(Stdio::piped())
         .stderr(stderr_file)
@@ -343,6 +386,7 @@ pub(super) fn run_claude_stream(
     let status = child.wait();
     sandbox::keep_transcript(dir, &session, &format!("chunk-{chunk}"));
     let said = reader.remarks;
+    let thought = reader.thoughts;
     let unwritten = reader.sink.finish();
     if !unwritten.is_empty() {
         say(&format!(
@@ -355,7 +399,7 @@ pub(super) fn run_claude_stream(
             &format!("\n--- unlogged remarks ---\n{}", unwritten.concat()),
         )?;
     }
-    say(&format!("chunk {chunk}: {said} remark(s) logged"));
+    say(&format!("chunk {chunk}: {said} remark(s) and {thought} thinking summary(ies) logged"));
 
     let failure = match status {
         Ok(s) if s.success() => read_failure,
@@ -499,6 +543,26 @@ mod tests {
             {"type": "text", "text": "   "},
         ]));
         assert_eq!(parse_event(&line), vec![said("I expect water nearby.")]);
+    }
+
+    #[test]
+    fn a_summarized_thinking_block_is_a_thought_and_its_signature_is_dropped() {
+        let line = assistant(serde_json::json!([
+            {"type": "thinking", "thinking": " The well is close. ", "signature": "OPAQUE"},
+            {"type": "text", "text": "Building the well."},
+        ]));
+        let events = parse_event(&line);
+        assert_eq!(
+            events,
+            vec![
+                Event::Thought { id: "msg_1".into(), text: "The well is close.".into() },
+                said("Building the well."),
+            ]
+        );
+        assert_eq!(
+            think_line("The well is close."),
+            "{\"type\":\"think\",\"text\":\"The well is close.\"}\n"
+        );
     }
 
     #[test]

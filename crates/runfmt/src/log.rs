@@ -126,6 +126,8 @@ fn is_false(b: &bool) -> bool {
 ///   --append` (#525) after a run, the scorecard's top block; ignored like the other commentary.
 /// - `Say { text }`: written by `agent-run --playtest` (#576), not by `fn_agent`: a remark the
 ///   model made in plain text; the watcher's feed shows it, everything else ignores it.
+/// - `Think { text }`: written by `agent-run` (#576): a summary of the model's thinking, shown in
+///   the watcher's feed as "thinks:" and ignored by everything else.
 /// - `Plan { plan }`: written by `fn_agent`'s `plan {set?, merge?}` tool after each change (#524,
 ///   docs/design/agent-hillclimb.md, "Within a run: a governor and a plan"): `plan` is the whole
 ///   plan map after the change. A `--resume` session restores the latest one; replay, `verify` and
@@ -203,6 +205,13 @@ pub enum LogLine<N = String, E = String> {
     /// reasoning, and a commentary line like the others: replay, `verify`, scoring, `keys` and
     /// `--resume` ignore it, so the world and the score are what they are without it.
     Say {
+        text: String,
+    },
+    /// A summary of the playing model's thinking (#576): `agent-run` asks `claude` for
+    /// `--thinking-display summarized` and appends each non-empty thinking block as it streams in.
+    /// It is a summary of the model's reasoning, never the raw chain of thought, and a commentary
+    /// line like `Say`: replay, `verify`, scoring, `keys` and `--resume` ignore it.
+    Think {
         text: String,
     },
 }
