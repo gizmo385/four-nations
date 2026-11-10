@@ -3827,7 +3827,7 @@ mod tests {
     }
 
     /// Plants a bare, empty farm plot (#333) right on `h`'s cursor tile, bypassing the build
-    /// queue (`World::adopt_farm_plots` registers it as a plot the way a loaded save's would):
+    /// queue (`World::put_building`, which gives it an empty plot):
     /// a farm plot's tests in `world/farm/tests.rs` do the same, for the same reason -- `act`'s
     /// own `designate {tool: sow}` doesn't need a finished build site, just a plot to sow.
     fn farm_plot_tile(h: &mut Host) -> Pos {
@@ -3835,9 +3835,8 @@ mod tests {
         let farm = h.app().session.defs.building_id("farm_plot").expect("bundled data has one");
         let tile = h.app_mut().session.world.map.get_mut(pos).expect("the cursor is on the map");
         tile.resource = None;
-        tile.building = Some(fn_sim::building::Building::new(farm, true, false));
         let defs = h.app().session.defs.clone();
-        h.app_mut().session.world.adopt_farm_plots(&defs);
+        h.app_mut().session.world.put_building(fn_sim::geom::Footprint::single(pos), farm, &defs);
         pos
     }
 

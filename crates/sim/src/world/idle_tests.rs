@@ -1,7 +1,6 @@
 //! Idle units stand still most of the time (issue #110).
 
 use super::*;
-use crate::building::{Building, BuildingId};
 use crate::defs::{BiomeId, Terrain};
 use crate::geom::Footprint;
 use crate::geom::Grid;
@@ -94,10 +93,13 @@ fn a_unit_inside_a_building_never_wanders() {
     assert_eq!(w.units[0].inside, Some(Pos::new(3, 3)));
 }
 
-/// A finished building laid on `tiles`, solid or not, each tile a 1x1 copy.
+/// Finished 1x1 buildings laid on `tiles`: beds, or solid earth walls.
 fn lay(w: &mut World, tiles: impl IntoIterator<Item = Pos>, passable: bool) {
+    let defs = Defs::bundled();
+    let id = defs.building_id(if passable { "bed" } else { "earth_wall" }).unwrap();
+    assert_eq!(defs.building(id).passable, passable);
     for p in tiles {
-        w.map[p].building = Some(Building::new(BuildingId(0), passable, false));
+        w.put_building(Footprint::single(p), id, &defs);
     }
 }
 

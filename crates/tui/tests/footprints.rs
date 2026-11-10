@@ -4,7 +4,7 @@
 //! drag showing one ghost per stamp. Every building in the data is 1x1 until #214, so these
 //! tests make the bed a 2x2 building to exercise the general code.
 
-use fn_sim::building::{Building, BuildingId};
+use fn_sim::building::BuildingId;
 use fn_sim::geom::Footprint;
 use fn_sim::world::{Command, CommandError};
 use fn_sim::{Nation, Pos, Terrain};
@@ -41,14 +41,11 @@ fn app_with_2x2_bed() -> (App, BuildingId, Pos) {
     (app, bed, at)
 }
 
-/// Bakes a finished `building` of `size` onto every tile of its footprint at `at`, as the sim
-/// does when a site completes.
+/// Stands a finished `building` of `size` at `at` (`World::put_building`), as the sim does
+/// when a site completes.
 fn bake(app: &mut App, building: BuildingId, at: Pos, size: (u8, u8)) {
-    for p in Footprint::new(at, size.0, size.1).tiles() {
-        let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
-        let b = Building { part, size: [size.0, size.1], ..Building::new(building, true, false) };
-        app.session.world.map.get_mut(p).unwrap().building = Some(b);
-    }
+    let foot = Footprint::new(at, size.0, size.1);
+    app.session.world.put_building(foot, building, &app.session.defs);
 }
 
 fn palette(app: &App, depth: ColorDepth, ascii: bool) -> Palette {

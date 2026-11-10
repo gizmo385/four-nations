@@ -13,7 +13,7 @@
 //!   (#227), in which case that many units sleep inside it at once, through the door, the same
 //!   way a study hall's seats work.
 //! - `rail` makes it a track (issue #135): a unit hauling a stack (a cart) goes faster along a
-//!   line of them. The speed is data on the def; the tile carries a `Building::rail` flag so
+//!   line of them. The speed is data on the def; the tile carries a `TileBuilding::rail` flag so
 //!   pathfinding never has to consult the defs (see `path.rs`, `MoveRules::with_rail`).
 //! - `heat` makes it a permanent heat source (`world/heat.rs`, issue #58): meals eaten within
 //!   its radius are cooked, and sleep within it is better. It is the same `HeatSource` Fire's
@@ -71,7 +71,6 @@ use std::collections::HashMap;
 use serde::Deserialize;
 
 use crate::defs::{DefsError, ResourceDef, ResourceId, Terrain};
-use crate::geom::{Footprint, Pos};
 use crate::jobs::{ItemDef, ItemId};
 use crate::nation::{Modifiers, Nation};
 use crate::needs::NeedsSettings;
@@ -82,38 +81,63 @@ use crate::research::{MAX_MULTIPLIER, TechDef, TechId};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
 pub struct BuildingId(pub u16);
 
-/// A building placed on a tile (`Tile::building`): baked onto the tile so pathfinding
-/// (`path.rs`, `flood.rs`) never has to consult the defs to know whether it blocks movement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Building {
-    pub id: BuildingId,
-    /// Whether units may walk onto this tile now that the building stands on it.
-    pub passable: bool,
-    /// Whether this is a rail tile (`BuildingDef::rail`, issue #135). Baked on like `passable`.
-    /// Saves from before rail existed have none.
-    #[serde(default)]
-    pub rail: bool,
-    /// This tile's offset from the building's anchor (its top-left tile, `[0, 0]`), `[x, y]`.
-    /// Every tile of a footprint carries its own copy of the building (#207).
-    #[serde(default, skip_serializing_if = "is_anchor")]
-    pub part: [u8; 2],
-    /// The footprint it was built with, `[w, h]`. Baked on like `passable`, never re-derived
-    /// from `BuildingDef::footprint`, so a building keeps its size if the data changes later.
-    /// Skipped when 1x1, so a world of 1x1 buildings saves as it did before footprints.
-    #[serde(default = "one_by_one", skip_serializing_if = "is_one_by_one")]
-    pub size: [u8; 2],
+/// A finished building's stable identity (`World::buildings`, docs/design/buildings-as-records.md,
+/// #604): handed out from a counter in the order buildings finish, and never reused. A plain
+/// integer, not a content id, so a save needs no remap for it.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(transparent)]
+pub struct BuildingKey(pub u32);
+
+impl BuildingKey {
+    /// The key of a throwaway wall on a cloned map (`TileBuilding::wall`), which names no record.
+    pub const NONE: BuildingKey = BuildingKey(u32::MAX);
 }
 
-impl Building {
-    /// A 1x1 building.
-    pub fn new(id: BuildingId, passable: bool, rail: bool) -> Self {
-        Self { id, passable, rail, part: [0, 0], size: ONE_BY_ONE }
+/// What a tile knows about the finished building on it (`Tile::building`): which record it
+/// belongs to, and the two things pathfinding (`path.rs`, `flood.rs`) needs without consulting
+/// the defs or the record. Everything else (the building's id, its footprint, its state) is on
+/// the record (`World::buildings`). The fields are private so that only `World::put_building`
+/// stands a building on the map.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TileBuilding {
+    key: BuildingKey,
+    /// Whether units may walk onto this tile now that the building stands on it.
+    passable: bool,
+    /// Whether this is a rail tile (`BuildingDef::rail`, issue #135).
+    #[serde(default, skip_serializing_if = "is_false")]
+    rail: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+impl TileBuilding {
+    pub(crate) fn new(key: BuildingKey, passable: bool, rail: bool) -> Self {
+        Self { key, passable, rail }
     }
 
-    /// The footprint this tile belongs to, given the tile's own position.
-    pub fn footprint(&self, pos: Pos) -> Footprint {
-        let anchor = Pos::new(pos.x - i32::from(self.part[0]), pos.y - i32::from(self.part[1]));
-        Footprint::new(anchor, self.size[0], self.size[1])
+    /// A wall with no record behind it, for a throwaway copy of the map that only ever goes to
+    /// a flood (`World::would_strand`), or for a pathfinding test.
+    pub(crate) fn wall(passable: bool) -> Self {
+        Self::new(BuildingKey::NONE, passable, false)
+    }
+
+    /// The record this tile belongs to.
+    pub fn key(&self) -> BuildingKey {
+        self.key
+    }
+
+    /// Whether units may walk onto this tile.
+    pub fn passable(&self) -> bool {
+        self.passable
+    }
+
+    /// Whether this is a rail tile.
+    pub fn rail(&self) -> bool {
+        self.rail
     }
 }
 
@@ -126,10 +150,6 @@ pub(crate) fn one_by_one() -> [u8; 2] {
 
 pub(crate) fn is_one_by_one(size: &[u8; 2]) -> bool {
     *size == ONE_BY_ONE
-}
-
-fn is_anchor(part: &[u8; 2]) -> bool {
-    *part == [0, 0]
 }
 
 /// A building units sleep in (`[building.bed]`).

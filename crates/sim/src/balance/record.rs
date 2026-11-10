@@ -242,7 +242,7 @@ fn run_world_observed(
         if tick >= offset && Opening::due(tick - offset) {
             spec.player.step(&mut world, defs);
             if first_built.iter().any(Option::is_none) {
-                let standing: BTreeSet<BuildingId> = world.buildings().map(|(_, b)| b).collect();
+                let standing: BTreeSet<BuildingId> = world.buildings().map(|b| b.id).collect();
                 for (slot, b) in first_built.iter_mut().zip(&reachable) {
                     if slot.is_none() && standing.contains(b) {
                         *slot = Some(ticks_to_minutes(world.tick));

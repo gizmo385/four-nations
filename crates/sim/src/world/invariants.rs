@@ -9,8 +9,10 @@
 //! `ci` profile inherits `dev`, so it has debug assertions on; a release build drops the checks
 //! (and `assert_invariants` becomes a no-op in `world.rs`), so the shipped game pays nothing.
 //!
-//! Each table gets its own small function, so a later change to the tables (#618's buildings
-//! table) rewrites one function, not the lot. A check reports the first violation it finds.
+//! Each table gets its own small function. The buildings' one is
+//! `World::check_building_records` (`buildings.rs`, #618): tiles and records agree, each record's
+//! state fits its def, and the indexes match the records. A check reports the first violation
+//! it finds.
 //!
 //! Known violations on `main` that aren't fixed yet are listed in `ALLOWED`, each with its
 //! follow-up issue; a violation whose text contains an allowed fragment is let through.
@@ -37,11 +39,7 @@ impl World {
         self.check_stored_on_zones()?;
         self.check_haul_jobs_have_stacks()?;
         self.check_sites()?;
-        self.check_crafts(defs)?;
-        self.check_charts(defs)?;
-        self.check_farm_plots(defs)?;
-        self.check_orchards(defs)?;
-        self.check_power_sources(defs)
+        self.check_building_records(defs)
     }
 
     /// `check_invariants` every `CHECK_EVERY` ticks, panicking with the tick on a violation not
@@ -59,7 +57,7 @@ impl World {
 
     /// The finished building whose anchor is `pos`, if there is one.
     fn anchored_building(&self, pos: Pos) -> Option<BuildingId> {
-        self.map.get(pos)?.building.filter(|b| b.part == [0, 0]).map(|b| b.id)
+        self.anchored(pos).map(|b| b.id)
     }
 
     fn check_units_sorted_and_on_map(&self) -> Result<(), String> {
@@ -176,48 +174,6 @@ impl World {
             }
         }
         Ok(())
-    }
-
-    /// Every key of a per-building table is the anchor of a building that has the feature the
-    /// table is for.
-    fn check_building_keys<'a>(
-        &self,
-        table: &str,
-        keys: impl Iterator<Item = &'a Pos>,
-        defs: &Defs,
-        has: fn(&BuildingDef) -> bool,
-    ) -> Result<(), String> {
-        for &pos in keys {
-            match self.anchored_building(pos) {
-                Some(id) if has(defs.building(id)) => {}
-                found => {
-                    return Err(format!("{table} entry at {pos:?}, but the tile holds {found:?}"));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn check_crafts(&self, defs: &Defs) -> Result<(), String> {
-        self.check_building_keys("crafts", self.crafts.keys(), defs, |d| d.recipe.is_some())
-    }
-
-    fn check_charts(&self, defs: &Defs) -> Result<(), String> {
-        self.check_building_keys("charts", self.charts.keys(), defs, |d| d.chart.is_some())
-    }
-
-    fn check_farm_plots(&self, defs: &Defs) -> Result<(), String> {
-        self.check_building_keys("farm_plots", self.farm_plots.keys(), defs, |d| d.farm.is_some())
-    }
-
-    fn check_orchards(&self, defs: &Defs) -> Result<(), String> {
-        self.check_building_keys("orchards", self.orchards.keys(), defs, |d| d.orchard.is_some())
-    }
-
-    fn check_power_sources(&self, defs: &Defs) -> Result<(), String> {
-        self.check_building_keys("power_sources", self.power_sources.iter(), defs, |d| {
-            d.power.is_some()
-        })
     }
 }
 

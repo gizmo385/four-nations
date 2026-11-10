@@ -33,7 +33,7 @@ fn run(style: &str, defs: &Defs) -> World {
 
 fn count(world: &World, defs: &Defs, building: &str) -> usize {
     let id = defs.building_id(building).expect("bundled building");
-    let built = world.buildings().filter(|&(_, b)| b == id).count();
+    let built = world.buildings().filter(|b| b.id == id).count();
     let sited = world.build_sites().filter(|&(_, b, _)| b == id).count();
     built + sited
 }

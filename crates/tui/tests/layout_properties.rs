@@ -23,7 +23,7 @@
 
 use std::path::PathBuf;
 
-use fn_sim::building::{Building, BuildingId};
+use fn_sim::building::BuildingId;
 use fn_sim::embark::SurveyMode;
 use fn_sim::geom::Footprint;
 use fn_sim::world::{BendOutcome, Command};
@@ -172,14 +172,9 @@ fn assert_headings_present(text: &str, want: &[&str], context: &str) {
 fn place_building(s: &mut Session, id: BuildingId, at: Pos) {
     let def = s.defs.building(id);
     let (w, h) = def.footprint;
-    let passable = def.passable;
     let foot = Footprint::new(at, w, h);
     s.world.units.retain(|u| !foot.contains(u.pos));
-    for p in foot.tiles() {
-        let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
-        let b = Building { part, size: [w, h], ..Building::new(id, passable, false) };
-        s.world.map.get_mut(p).unwrap().building = Some(b);
-    }
+    s.world.put_building(foot, id, &s.defs);
 }
 
 /// A walkable, resource-free tile near `near` with no unit on it, for a building that must not

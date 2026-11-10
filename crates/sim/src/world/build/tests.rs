@@ -262,7 +262,7 @@ fn rail_is_built_like_any_building_and_marks_its_tile() {
     run_until(&mut w, &defs, 4000, |w| w.job(job).is_none());
     // A plain 1x1 passable building, with the flag baked onto its tile for pathing.
     let built = w.map[at(5, 2)].building.expect("the rail is laid");
-    assert!(built.rail && built.passable && built.id == rail);
+    assert!(built.rail() && built.passable() && w.building_at(at(5, 2)) == Some(rail));
     let bed = defs.building_id("bed").unwrap();
     assert!(defs.building(bed).rail.is_none());
 }
@@ -330,7 +330,7 @@ fn one_blocked_tile_of_four_refuses_the_whole_footprint() {
     };
     blocks(Blocker::Building, &|w, defs| {
         let bed = defs.building_id("campfire").unwrap();
-        w.map[at(3, 2)].building = Some(Building::new(bed, true, false));
+        w.put_building(Footprint::single(at(3, 2)), bed, defs);
     });
     // Another 2x2 site anchored outside the footprint, overlapping it on one tile only.
     blocks(Blocker::Site, &|w, defs| {
@@ -663,16 +663,18 @@ fn finishing_a_site_bakes_the_building_onto_every_footprint_tile() {
     let foot = Footprint::new(at(5, 2), 2, 2);
     for p in foot.tiles() {
         let b = w.map[p].building.expect("built on every tile");
-        assert_eq!(b.id, hall);
-        assert_eq!(b.part, [(p.x - 5) as u8, (p.y - 2) as u8]);
-        assert_eq!(b.size, [2, 2]);
-        assert!(!b.passable);
+        assert_eq!(
+            w.building_record(p).map(|r| (r.id, r.anchor, r.size)),
+            Some((hall, foot.anchor, [2, 2]))
+        );
+        assert!(!b.passable());
         assert_eq!(w.building_at(p), Some(hall));
         assert_eq!(w.footprint_at(p), Some(foot));
         assert_eq!(w.build_blocker(p, &defs), Some(Blocker::Building));
     }
     assert_eq!(w.building_at(at(7, 2)), None);
-    assert_eq!(w.buildings().collect::<Vec<_>>(), [(foot, hall)], "listed once");
+    let listed: Vec<_> = w.buildings().map(|b| (b.footprint(), b.id)).collect();
+    assert_eq!(listed, [(foot, hall)], "listed once");
     assert_eq!(w.build_sites().count(), 0);
     // Hauling and building both work from the ring and never enter, even though this building
     // has room inside (#227).
@@ -686,7 +688,7 @@ fn a_saved_building_keeps_its_size_when_the_data_grows_it() {
     let (mut w, defs) = setup(&GRID, &[at(0, 0)]);
     let bed = defs.building_id("bed").unwrap();
     let campfire = defs.building_id("campfire").unwrap();
-    w.map[at(2, 2)].building = Some(Building::new(campfire, true, false));
+    w.put_building(Footprint::single(at(2, 2)), campfire, &defs);
     w.designate_build(at(5, 2), bed, &defs).unwrap();
     let text = w.save(&defs).unwrap();
     assert!(!text.contains("size") && !text.contains("part"), "1x1 writes no footprint fields");
@@ -711,14 +713,12 @@ fn a_bigger_building_saves_its_footprint_and_loads_it_back() {
     let hall = hall_2x2(&mut defs);
     w.designate_build(at(5, 2), hall, &defs).unwrap();
     let campfire = defs.building_id("campfire").unwrap();
-    let built = Building { size: [2, 1], ..Building::new(campfire, true, false) };
-    w.map[at(1, 3)].building = Some(built);
-    w.map[at(2, 3)].building = Some(Building { part: [1, 0], ..built });
+    w.put_building(Footprint::new(at(1, 3), 2, 1), campfire, &defs);
     let loaded = World::load(&w.save(&defs).unwrap(), &defs).unwrap();
     assert_eq!(loaded.footprint_at(at(6, 3)), Some(Footprint::new(at(5, 2), 2, 2)));
     assert_eq!(loaded.footprint_at(at(2, 3)), Some(Footprint::new(at(1, 3), 2, 1)));
     assert_eq!(
-        loaded.buildings().collect::<Vec<_>>(),
+        loaded.buildings().map(|b| (b.footprint(), b.id)).collect::<Vec<_>>(),
         [(Footprint::new(at(1, 3), 2, 1), campfire)]
     );
 }

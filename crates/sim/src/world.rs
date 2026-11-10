@@ -9,7 +9,7 @@ use rand::RngExt;
 use rand::seq::SliceRandom;
 
 use crate::bending::{AbilityId, Rank};
-use crate::building::BuildingDef;
+use crate::building::{BuildingDef, BuildingId};
 use crate::defs::{Defs, ResourceId};
 use crate::difficulty::Knobs;
 use crate::geom::Pos;
@@ -25,6 +25,7 @@ use crate::rng::{self, SimRng};
 mod avatar;
 mod bending;
 mod build;
+mod buildings;
 mod care;
 mod chart;
 mod command;
@@ -55,6 +56,9 @@ pub use bending::{BendChannel, BendError, BendEvent, BendOutcome, MasteryProgres
 use bending::{Patch, Revert};
 use build::Site;
 pub use build::{Blocker, BuildError};
+pub use buildings::Building;
+use buildings::Buildings;
+use buildings::Kind;
 pub use care::{CareNeed, CareTally, Severe};
 pub use chart::{ChartEvent, ChartEventKind, ChartStanding};
 pub use command::{Command, CommandError, Recorded};
@@ -319,7 +323,34 @@ fn spawn_points(map: &TileMap, count: usize, min_room: usize) -> Vec<Pos> {
 pub struct World {
     pub seed: u64,
     pub tick: u64,
+    /// The map. Written as `tiles` since save version 3 (#604), whose tiles point at building
+    /// records (`buildings`); a v1 or v2 body's `map` is read into `v2_map` instead and upgraded
+    /// on load (`save/v2.rs`).
+    #[serde(rename = "tiles", default)]
     pub map: TileMap,
+    /// Every finished building, one record each (`world/buildings.rs`, #604). Read it through
+    /// `buildings()`; stand one up with `put_building`. Empty in a v1 or v2 body, whose
+    /// buildings are upgraded from its map on load.
+    #[serde(default)]
+    buildings: Buildings,
+    /// A v1 or v2 save's map, whose tiles carry whole buildings (`save/v2.rs`). Read, never
+    /// written, and emptied (to 0x0) on load by `upgrade_from_v2`; `validate` refuses a world
+    /// that still has it. A bare grid, not an `Option`: RON would want `Some(..)` around it.
+    #[serde(default, skip_serializing, rename = "map")]
+    v2_map: crate::geom::Grid<crate::save::v2::Tile>,
+    /// A v1 or v2 save's craft batches, by anchor (#124): moved into the records on load.
+    #[serde(default, skip_serializing, rename = "crafts")]
+    v2_crafts: BTreeMap<Pos, CraftState>,
+    /// A v1 or v2 save's Map Room charts, by anchor (#402): moved into the records on load.
+    #[serde(default, skip_serializing, rename = "charts")]
+    v2_charts: BTreeMap<Pos, f32>,
+    /// A v1 or v2 save's orchards, by tile (#142): moved into the records on load. (Its
+    /// `irrigation_channels` and `power_sources` sets follow from the defs, so they are ignored.)
+    #[serde(default, skip_serializing, rename = "orchards")]
+    v2_orchards: BTreeMap<Pos, orchard::Orchard>,
+    /// A v1 or v2 save's farm plots, by tile (#198): moved into the records on load.
+    #[serde(default, skip_serializing, rename = "farm_plots")]
+    v2_farm_plots: BTreeMap<Pos, farm::FarmPlot>,
     pub nation: Nation,
     /// Living units, ordered by id. Dead units are removed (see `deaths`), so a unit's index
     /// here can change; use `UnitId` to refer to one.
@@ -350,22 +381,6 @@ pub struct World {
     stored: BTreeMap<Pos, Stack>,
     /// Build designations that aren't finished, by tile (`Command::DesignateBuild`, #64).
     sites: BTreeMap<Pos, Site>,
-    /// A production building's progress toward its next batch, by anchor (`world/forge.rs`,
-    /// issue #124): absent is the same as a fresh, empty batch, so a save from before recipes
-    /// existed loads with none.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    crafts: BTreeMap<Pos, CraftState>,
-    /// A Map Room's progress toward its next chart, by anchor (`world/chart.rs`, issue #402):
-    /// absent is the same as a fresh, zero chart. Empty (so unwritten) for every save from
-    /// before this existed, so neither changes a byte.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    charts: BTreeMap<Pos, f32>,
-    /// Finished buildings' anchors, keyed `(y, x)` so iterating matches `buildings()`'s old
-    /// row-major scan of the map. Maintained wherever a building finishes (`raise`, #292); not
-    /// saved (`#[serde(skip)]`), so it's rebuilt by a map scan once after loading
-    /// (`World::load`) rather than on every once-a-second endeavor check.
-    #[serde(skip)]
-    building_index: BTreeMap<(i32, i32), Pos>,
     /// How units walk. Every unit uses these for now; a nation that can cross water would get
     /// its own.
     rules: MoveRules,
@@ -399,7 +414,9 @@ pub struct World {
     /// Tiles that sprouted lately and the tick their fallow time ends. Expired entries are
     /// dropped as time passes.
     fallow: BTreeMap<Pos, u64>,
-    /// Lit heat sources by tile: Hearthflames today, campfires later (`heat.rs`).
+    /// Lit timed heat sources by tile: Hearthflame, Earth Tent, Air Shield (`heat.rs`). A
+    /// building's own fire is on its record (`Building::heat`); a v1 or v2 save kept those here
+    /// too, and loading moves them.
     heat: BTreeMap<Pos, HeatSource>,
     /// Warmth auras on units, by carrier (Inner Fire, #123; `heat.rs`).
     #[serde(default)]
@@ -408,25 +425,10 @@ pub struct World {
     /// before #143 loads with none.
     #[serde(default)]
     rides: BTreeMap<UnitId, bending::Ride>,
-    /// Finished orchards by tile, with what each has planted (`orchard.rs`, #142).
-    #[serde(default)]
-    orchards: BTreeMap<Pos, orchard::Orchard>,
     /// Orchard-planted fruit trees that haven't ripened for the first time yet (a subset of
     /// `resting`).
     #[serde(default)]
     saplings: BTreeSet<Pos>,
-    /// Finished farm plots by tile, with what stage each is in (`farm.rs`, #198).
-    #[serde(default)]
-    farm_plots: BTreeMap<Pos, farm::FarmPlot>,
-    /// Finished irrigation channels by tile (`farm.rs`, #126): each speeds up farm plots within
-    /// its own `IrrigationDef::radius`.
-    #[serde(default)]
-    irrigation_channels: BTreeSet<Pos>,
-    /// Finished power sources by tile (`power.rs`, #428): each speeds up `uses_power` buildings
-    /// within its own `PowerDef::radius`, scaled by `power_generation`. A save from before #428
-    /// loads with none; `World::load` adopts any already standing (`adopt_power_sources`).
-    #[serde(default)]
-    power_sources: BTreeSet<Pos>,
     /// Lifetime counts for the end-game signs: items harvested, scrolls read (`tally.rs`, #233).
     #[serde(default)]
     tallies: Tallies,
@@ -546,6 +548,12 @@ impl World {
             seed,
             tick: 0,
             map,
+            buildings: Buildings::default(),
+            v2_map: crate::geom::Grid::default(),
+            v2_crafts: BTreeMap::new(),
+            v2_charts: BTreeMap::new(),
+            v2_orchards: BTreeMap::new(),
+            v2_farm_plots: BTreeMap::new(),
             nation,
             units: Vec::new(),
             research: Research::new(nation, defs),
@@ -560,9 +568,6 @@ impl World {
             zones: BTreeSet::new(),
             stored: BTreeMap::new(),
             sites: BTreeMap::new(),
-            crafts: BTreeMap::new(),
-            charts: BTreeMap::new(),
-            building_index: BTreeMap::new(),
             rules: MoveRules::default(),
             cart_rules: defs.cart_rules(MoveRules::default()),
             regions: None,
@@ -576,11 +581,7 @@ impl World {
             heat: BTreeMap::new(),
             auras: BTreeMap::new(),
             rides: BTreeMap::new(),
-            orchards: BTreeMap::new(),
             saplings: BTreeSet::new(),
-            farm_plots: BTreeMap::new(),
-            irrigation_channels: BTreeSet::new(),
-            power_sources: BTreeSet::new(),
             tallies: Tallies::default(),
             care: CareTally::default(),
             refusals: probe::Refusals::default(),
@@ -657,7 +658,7 @@ impl World {
         if let Some(u) = self.units.iter().find(|u| !self.map.in_bounds(u.pos)) {
             return Err(format!("{} is off the map", u.name));
         }
-        Ok(())
+        self.check_buildings()
     }
 
     /// The settlement's modifiers systems must read when there is no particular unit to ask: the
@@ -1037,9 +1038,6 @@ mod idle_tests;
 
 #[cfg(test)]
 mod rest_tests;
-
-#[cfg(test)]
-mod v2_fixture;
 
 #[cfg(test)]
 mod tests {

@@ -1,7 +1,7 @@
 //! Beds, campfires and cooking (issue #58): where tired units sleep, and when a meal is cooked.
 
 use super::*;
-use crate::building::{Building, BuildingId};
+use crate::building::BuildingId;
 use crate::defs::{BiomeId, Terrain};
 use crate::geom::Grid;
 use crate::mapgen::Tile;
@@ -37,15 +37,10 @@ fn run_until(w: &mut World, defs: &Defs, limit: u64, mut done: impl FnMut(&World
     panic!("not done after {limit} ticks");
 }
 
-/// Stands a finished building on `pos` the way `run_build` leaves it: `raise` also updates
-/// `building_index` (#292), so this does too, or `tick_endeavor`'s signs would never see it.
+/// Stands a finished 1x1 building on `pos` (`put_building`), fire and all.
 fn place(w: &mut World, defs: &Defs, pos: Pos, building: &str) -> BuildingId {
     let id = defs.building_id(building).unwrap();
-    let def = defs.building(id);
-    w.map[pos].building = Some(Building::new(id, def.passable, def.rail.is_some()));
-    w.building_index.insert((pos.y, pos.x), pos);
-    w.light_building_fire(pos, [1, 1], def);
-    w.map_changed();
+    w.put_building(crate::geom::Footprint::single(pos), id, defs);
     id
 }
 
@@ -84,16 +79,16 @@ fn big_bed_defs(capacity: u32) -> Defs {
     defs
 }
 
-/// Places a finished building of `size` anchored at `anchor`, the way `World::raise` would.
-fn place_big(w: &mut World, id: BuildingId, anchor: Pos, size: (u8, u8)) -> crate::geom::Footprint {
+/// Places a finished building of `size` anchored at `anchor` (`put_building`).
+fn place_big(
+    w: &mut World,
+    defs: &Defs,
+    id: BuildingId,
+    anchor: Pos,
+    size: (u8, u8),
+) -> crate::geom::Footprint {
     let foot = crate::geom::Footprint::new(anchor, size.0, size.1);
-    for p in foot.tiles() {
-        let part = [(p.x - anchor.x) as u8, (p.y - anchor.y) as u8];
-        w.map[p].building =
-            Some(Building { part, size: [size.0, size.1], ..Building::new(id, false, false) });
-    }
-    w.building_index.insert((anchor.y, anchor.x), anchor);
-    w.map_changed();
+    w.put_building(foot, id, defs);
     foot
 }
 
@@ -104,7 +99,7 @@ fn a_tired_unit_walks_through_the_door_of_a_bigger_bed_and_sleeps_inside() {
     let bonus = defs.building(defs.building_id("bed").unwrap()).bed.unwrap().sleep_bonus;
     let mut w = world(Nation::Earth, &[at(2, 4)], &defs);
     let bed = defs.building_id("bed").unwrap();
-    let foot = place_big(&mut w, bed, at(10, 4), (2, 2));
+    let foot = place_big(&mut w, &defs, bed, at(10, 4), (2, 2));
     tire(&mut w, &defs, 0);
     run_until(&mut w, &defs, 400, |w| w.units[0].is_sleeping());
 
@@ -126,7 +121,7 @@ fn a_bigger_beds_capacity_caps_how_many_sleep_inside_at_once() {
     let defs = big_bed_defs(2);
     let bed = defs.building_id("bed").unwrap();
     let mut w = world(Nation::Earth, &[at(2, 3), at(2, 4), at(2, 5)], &defs);
-    let foot = place_big(&mut w, bed, at(10, 4), (2, 2));
+    let foot = place_big(&mut w, &defs, bed, at(10, 4), (2, 2));
     for i in 0..3 {
         tire(&mut w, &defs, i);
     }
@@ -147,7 +142,7 @@ fn a_sleeper_in_a_bigger_bed_steps_out_when_hungry_and_back_in_once_fed() {
     let defs = big_bed_defs(1);
     let bed = defs.building_id("bed").unwrap();
     let mut w = world(Nation::Earth, &[at(2, 4)], &defs);
-    let foot = place_big(&mut w, bed, at(10, 4), (2, 2));
+    let foot = place_big(&mut w, &defs, bed, at(10, 4), (2, 2));
     tire(&mut w, &defs, 0);
     run_until(&mut w, &defs, 400, |w| w.units[0].is_sleeping());
     assert_eq!(w.units[0].inside(), Some(foot.anchor));
@@ -177,8 +172,8 @@ fn a_sleeper_in_a_building_that_keeps_its_own_fire_is_warmed_through_the_door() 
     let bed_bonus = defs.building(bed).bed.unwrap().sleep_bonus;
     let heat_bonus = defs.building(bed).heat.unwrap().sleep_bonus;
     let mut w = world(Nation::Earth, &[at(2, 4)], &defs);
-    let foot = place_big(&mut w, bed, at(10, 4), (2, 2));
-    w.light_building_fire(foot.anchor, [2, 2], defs.building(bed));
+    // The bed's def keeps a fire, so `put_building` lights it.
+    let foot = place_big(&mut w, &defs, bed, at(10, 4), (2, 2));
     tire(&mut w, &defs, 0);
     run_until(&mut w, &defs, 400, |w| w.units[0].is_sleeping());
     assert_eq!(w.units[0].inside(), Some(foot.anchor));
@@ -314,7 +309,7 @@ fn a_finished_campfire_keeps_a_permanent_fire_scaled_by_heating() {
     for (nation, heating) in [(Nation::Earth, 1.0), (Nation::Water, 0.8), (Nation::Fire, 2.5)] {
         let mut w = world(nation, &[at(1, 1)], &defs);
         place(&mut w, &defs, at(10, 4), "campfire");
-        let source = w.heat[&at(10, 4)];
+        let source = w.heat_at(at(10, 4)).unwrap();
         assert_eq!(w.modifiers().heating, heating, "{nation:?}");
         assert_eq!(source.radius, heat.radius_for(heating), "{nation:?}");
         assert!(source.is_permanent());
@@ -347,8 +342,8 @@ fn building_a_campfire_lights_it_and_not_before() {
     assert!(!w.is_heated(at(6, 4)), "a site gives no warmth");
     run_until(&mut w, &defs, 6000, |w| w.building_at(at(6, 4)).is_some());
     assert!(w.is_heated(at(6, 4)));
-    assert!(w.is_heated(at(6 + w.heat[&at(6, 4)].radius as i32, 4)));
-    assert!(!w.is_heated(at(6 + w.heat[&at(6, 4)].radius as i32 + 1, 4)));
+    assert!(w.is_heated(at(6 + w.heat_at(at(6, 4)).unwrap().radius as i32, 4)));
+    assert!(!w.is_heated(at(6 + w.heat_at(at(6, 4)).unwrap().radius as i32 + 1, 4)));
 }
 
 #[test]
@@ -404,7 +399,7 @@ fn a_sleeper_in_a_bed_by_a_campfire_survives_a_save_and_load() {
     let mut loaded = World::load(&text, &defs).unwrap();
     assert_eq!(loaded.save(&defs).unwrap(), text);
     assert_eq!(loaded.units, w.units);
-    assert!(loaded.heat[&at(8, 4)].is_permanent());
+    assert!(loaded.heat_at(at(8, 4)).unwrap().is_permanent());
     // It carries on the same: still in its bed, still warm, waking at the same moment.
     for _ in 0..3000 {
         w.tick(&defs);
@@ -421,13 +416,7 @@ fn a_bigger_heat_building_warms_its_radius_out_from_every_side() {
     let id = defs.building_id("campfire").unwrap();
     let def = defs.building(id);
     let anchor = at(8, 3);
-    let size = [2, 2];
-    for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-        let part = [dx as u8, dy as u8];
-        w.map[at(anchor.x + dx, anchor.y + dy)].building =
-            Some(Building { part, size, ..Building::new(id, def.passable, false) });
-    }
-    w.light_building_fire(anchor, size, def);
+    w.put_building(crate::geom::Footprint::new(anchor, 2, 2), id, &defs);
     let r = def.heat.unwrap().radius_for(w.modifiers.heating) as i32;
     // Right of the footprint's right column, and below its bottom row: warm out to r.
     for p in [at(anchor.x + 1 + r, anchor.y + 1), at(anchor.x + 1, anchor.y + 1 + r)] {
@@ -451,13 +440,13 @@ fn a_bigger_heat_building_warms_its_radius_out_from_every_side() {
 fn a_heat_sources_size_is_saved_only_when_bigger_than_one_tile() {
     let defs = Defs::bundled();
     let mut w = world(Nation::Fire, &[at(1, 1)], &defs);
-    let def = defs.building(defs.building_id("campfire").unwrap());
-    w.light_building_fire(at(4, 4), [1, 1], def);
+    let campfire = defs.building_id("campfire").unwrap();
+    w.put_building(crate::geom::Footprint::single(at(4, 4)), campfire, &defs);
     assert!(!w.save(&defs).unwrap().contains("size"));
-    w.light_building_fire(at(10, 4), [2, 2], def);
+    w.put_building(crate::geom::Footprint::new(at(10, 4), 2, 2), campfire, &defs);
     let loaded = World::load(&w.save(&defs).unwrap(), &defs).unwrap();
-    assert_eq!(loaded.heat[&at(10, 4)].size, [2, 2]);
-    assert_eq!(loaded.heat[&at(4, 4)].size, [1, 1]);
+    assert_eq!(loaded.heat_at(at(10, 4)).unwrap().size, [2, 2]);
+    assert_eq!(loaded.heat_at(at(4, 4)).unwrap().size, [1, 1]);
 }
 
 /// #345: a bed shortens sleep (its `sleep_bonus` speeds up energy regen), but chi regen asleep
@@ -486,4 +475,42 @@ fn a_comfier_sleep_restores_the_same_chi_as_the_ground() {
     assert_eq!(bed.units[0].pos, at(6, 4), "slept in the bed");
 
     assert!((ground_chi - bed_chi).abs() < 1.0, "ground={ground_chi} bed={bed_chi}");
+}
+
+/// #604: the queries that walk every finished building read the building records, never the map.
+/// On a 64x64 map with a bed, an igloo and a 2x2 healing hut, `bed_route`, `bed_capacity`,
+/// `plan_healing` and `door_owner` start no whole-map walk (`geom::test_scans`).
+#[test]
+fn the_building_queries_never_scan_the_map() {
+    let defs = Defs::bundled();
+    let map = Grid::from_fn(64, 64, |_| Tile {
+        elevation: 100,
+        temperature: 128,
+        moisture: 128,
+        terrain: Terrain::Land,
+        biome: BiomeId(0),
+        resource: None,
+        building: None,
+    });
+    let mut w = World::with_map(3, map, Nation::Water, &[at(30, 30)], &defs);
+    place(&mut w, &defs, at(20, 20), "bed");
+    place(&mut w, &defs, at(44, 16), "igloo");
+    let hut = defs.building_id("healing_hut").unwrap();
+    let foot = place_big(&mut w, &defs, hut, at(30, 40), defs.building(hut).footprint);
+    w.ensure_regions();
+    tire(&mut w, &defs, 0);
+    w.units[0].needs.health = 1.0;
+
+    let before = crate::geom::test_scans();
+    let bed = w.bed_route(0, &defs);
+    let capacity = w.bed_capacity(&defs);
+    let healing = w.plan_healing(0, &defs);
+    let door = w.door_owner(foot.entrance(), &defs);
+    assert_eq!(crate::geom::test_scans(), before, "a building query walked the whole map");
+
+    // And each found what it was asked for, so the count can't stay still for want of work.
+    assert_eq!(bed.map(|(_, key)| key), Some(at(20, 20)));
+    assert_eq!(capacity, 2);
+    assert_eq!(healing.map(|(_, key)| key), Some(at(30, 40)));
+    assert_eq!(door, Some(hut));
 }

@@ -1,7 +1,6 @@
 //! Strain: tiring wild land (#296).
 
 use super::*;
-use crate::building::Building;
 use crate::defs::{BiomeId, Terrain};
 use crate::geom::Grid;
 use crate::mapgen::Tile;
@@ -204,11 +203,9 @@ fn an_orchards_radius_keeps_its_wild_trees_from_tiring() {
     let mut w = World::with_map(1, map, Nation::Air, &[at(3, 2)], &defs);
     w.difficulty = Some("normal".into());
     let id = defs.building_id("orchard").unwrap();
-    let def = defs.building(id);
     // Well within the orchard's radius (4) of the fruit tree at TREE.
     let orchard_pos = at(1, 2);
-    w.map[orchard_pos].building = Some(Building::new(id, def.passable, false));
-    w.open_orchard(orchard_pos, def.orchard.as_ref().unwrap());
+    w.put_building(crate::geom::Footprint::single(orchard_pos), id, &defs);
     assert!(w.tend_rate(TREE, &defs) > 1.0, "test assumes the tree is in reach");
 
     for _ in 0..3 {

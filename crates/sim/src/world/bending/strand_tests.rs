@@ -87,7 +87,7 @@ fn a_sprout_never_lands_on_a_building_or_a_site() {
     let defs = Defs::bundled();
     let bed = defs.building_id("bed").unwrap();
     let mut w = pocket(&defs, |p| (1..=10).contains(&p.x) && (2..=7).contains(&p.y));
-    w.raise(Footprint::single(at(3, 4)), bed, defs.building(bed));
+    w.raise(Footprint::single(at(3, 4)), bed, &defs);
     w.designate_build(at(2, 4), bed, &defs).unwrap();
     let patch = patch(&defs, at(3, 4), 7);
     assert!(!w.can_sprout(at(3, 4), &patch, &defs), "a finished bed");

@@ -18,7 +18,7 @@
 //! Rewrite with `FN_BLESS=1 cargo test -p fn_tui --test reference_goldens` (review the diff)
 //! when the TUI changes.
 
-use fn_sim::building::{Building, BuildingId};
+use fn_sim::building::BuildingId;
 use fn_sim::embark::{MapSizeDef, Survey, SurveyMode};
 use fn_sim::geom::Footprint;
 use fn_sim::{Defs, Grid, Nation, Pos, Terrain, Tile, TileMap, World};
@@ -116,14 +116,9 @@ fn fixed_map(defs: &Defs) -> TileMap {
 fn place_building(world: &mut World, defs: &Defs, id: BuildingId, at: Pos) {
     let def = defs.building(id);
     let (w, h) = def.footprint;
-    let passable = def.passable;
     let foot = Footprint::new(at, w, h);
     world.units.retain(|u| !foot.contains(u.pos));
-    for p in foot.tiles() {
-        let part = [(p.x - at.x) as u8, (p.y - at.y) as u8];
-        let b = Building { part, size: [w, h], ..Building::new(id, passable, false) };
-        world.map.get_mut(p).unwrap().building = Some(b);
-    }
+    world.put_building(foot, id, defs);
 }
 
 /// The hand-built Earth Kingdom world of [`fixed_map`], with two settlers named [`SETTLERS`], two

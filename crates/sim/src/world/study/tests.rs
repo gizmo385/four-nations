@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::*;
-use crate::building::{Building, BuildingDef, BuildingId, PowerDef};
+use crate::building::{BuildingDef, BuildingId, PowerDef};
 use crate::defs::{BiomeId, Terrain};
 use crate::geom::Grid;
 use crate::mapgen::Tile;
@@ -49,16 +49,7 @@ fn place_study_hall(w: &mut World, defs: &Defs, anchor: Pos) {
     let hall = defs.building_id("study_hall").expect("study hall");
     let def = defs.building(hall);
     let (width, height) = def.footprint;
-    let foot = crate::geom::Footprint::new(anchor, width, height);
-    for p in foot.tiles() {
-        let part = [(p.x - anchor.x) as u8, (p.y - anchor.y) as u8];
-        w.map[p].building = Some(Building {
-            part,
-            size: [width, height],
-            ..Building::new(hall, def.passable, false)
-        });
-    }
-    w.map_changed();
+    w.put_building(crate::geom::Footprint::new(anchor, width, height), hall, defs);
     w.open_study_seats(anchor, def.seats);
 }
 
@@ -184,9 +175,7 @@ fn a_powered_seat_adds_boost_times_the_knowledge_of_an_unpowered_one() {
         place_study_hall(&mut w, &defs, at(2, 2));
         if let Some((radius, boost)) = source {
             let id = test_source(&mut defs, radius, boost);
-            let pos = at(8, 4);
-            w.map[pos].building = Some(Building::new(id, true, false));
-            w.open_power_source(pos);
+            w.put_building(crate::geom::Footprint::single(at(8, 4)), id, &defs);
         }
         start_research(&mut w, &defs, "earth_shaping");
         run_until(&mut w, &defs, 200, |w| seated(w, 0));
@@ -403,12 +392,7 @@ fn two_scholars_fill_a_solid_two_by_two_hall_while_a_third_waits() {
     let seats = def.seats;
     assert_eq!(seats, 2, "exactly two seats to fill, with one scholar left over");
     let foot = crate::geom::Footprint::new(at(4, 1), 2, 2);
-    for p in foot.tiles() {
-        let part = [(p.x - 4) as u8, (p.y - 1) as u8];
-        w.map[p].building =
-            Some(Building { part, size: [2, 2], ..Building::new(hall, false, false) });
-    }
-    w.map_changed();
+    w.put_building(foot, hall, &defs);
     w.open_study_seats(foot.anchor, seats);
     start_research(&mut w, &defs, "earth_shaping");
 

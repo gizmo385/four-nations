@@ -79,6 +79,19 @@ impl Footprint {
 const CARDINAL: [(i32, i32); 4] = [(0, 1), (0, -1), (1, 0), (-1, 0)];
 const DIAGONAL: [(i32, i32); 4] = [(1, 1), (1, -1), (-1, 1), (-1, -1)];
 
+#[cfg(test)]
+thread_local! {
+    static SCANS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// How many whole-grid walks (`Grid::positions`, and `Grid::iter` through it) this thread has
+/// started: a test reads it before and after a query to prove the query doesn't scan the map
+/// (#604).
+#[cfg(test)]
+pub(crate) fn test_scans() -> u64 {
+    SCANS.with(|n| n.get())
+}
+
 /// A dense, row-major 2D grid.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Grid<T> {
@@ -134,6 +147,8 @@ impl<T> Grid<T> {
 
     /// All positions in row-major order.
     pub fn positions(&self) -> impl Iterator<Item = Pos> + use<T> {
+        #[cfg(test)]
+        SCANS.with(|n| n.set(n.get() + 1));
         let (w, h) = (self.width, self.height);
         (0..h).flat_map(move |y| (0..w).map(move |x| Pos::new(x, y)))
     }
@@ -156,6 +171,14 @@ impl<T> Grid<T> {
     /// neighbor reads are unaffected by earlier writes in the same pass.
     pub fn map_with<U>(&self, mut f: impl FnMut(Pos, &T) -> U) -> Grid<U> {
         Grid::from_fn(self.width, self.height, |p| f(p, &self[p]))
+    }
+}
+
+/// An empty 0x0 grid: what a save body that lacks a map field reads as. Not well formed
+/// (`is_well_formed`), so `World::validate` refuses it.
+impl<T> Default for Grid<T> {
+    fn default() -> Self {
+        Self { width: 0, height: 0, cells: Vec::new() }
     }
 }
 

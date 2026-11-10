@@ -33,39 +33,7 @@ pub struct PowerAt {
 impl World {
     /// The `PowerDef` of the building on `pos`, if it is a power source.
     fn power_def(&self, pos: Pos, defs: &Defs) -> Option<PowerDef> {
-        defs.building(self.map.get(pos)?.building?.id).power
-    }
-
-    /// A power source building has just finished.
-    pub(super) fn open_power_source(&mut self, pos: Pos) {
-        self.power_sources.insert(pos);
-    }
-
-    /// Registers power sources that stand on the map but not in `power_sources` (a save from
-    /// before this issue, or a map a test or tool built by hand), the way
-    /// `adopt_irrigation_channels` does for irrigation channels. Sources already known are left
-    /// as they are.
-    ///
-    /// Only a building's anchor tile (`part == [0, 0]`) counts: a 2x2 power building is one
-    /// source. A save written by a build that registered every tile has an entry on each
-    /// non-anchor tile too; those are dropped here (a source holds no state beyond its position,
-    /// so nothing else is lost) and the anchor's entry stays.
-    pub fn adopt_power_sources(&mut self, defs: &Defs) {
-        let map = &self.map;
-        self.power_sources
-            .retain(|&p| map.get(p).and_then(|t| t.building).is_none_or(|b| b.part == [0, 0]));
-        let found: Vec<Pos> = self
-            .map
-            .iter()
-            .filter(|(p, t)| {
-                t.building.is_some_and(|b| b.part == [0, 0] && defs.building(b.id).power.is_some())
-                    && !self.power_sources.contains(p)
-            })
-            .map(|(p, _)| p)
-            .collect();
-        for p in found {
-            self.open_power_source(p);
-        }
+        defs.building(self.building_at(pos)?).power
     }
 
     /// Every finished power source that reaches any tile of `footprint`, with its def, best
@@ -74,9 +42,9 @@ impl World {
     fn sources_reaching(&self, footprint: Footprint, defs: &Defs) -> Vec<(Pos, PowerDef)> {
         let power_generation = self.modifiers.power_generation;
         let mut reaching: Vec<(Pos, PowerDef)> = self
-            .power_sources
-            .iter()
-            .filter_map(|&source| {
+            .of_kind(Kind::Power)
+            .filter_map(|b| {
+                let source = b.anchor;
                 let def = self.power_def(source, defs)?;
                 let reach = def.radius_for(power_generation);
                 let source_footprint = self.footprint_at(source)?;

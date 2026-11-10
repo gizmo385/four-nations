@@ -1,6 +1,5 @@
 use super::*;
 use crate::bending::{AbilityId, Rank};
-use crate::building::Building;
 use crate::defs::{BiomeId, Terrain};
 use crate::geom::Grid;
 use crate::mapgen::Tile;
@@ -37,9 +36,7 @@ fn world(nation: Nation, units: i32, defs: &Defs) -> World {
 /// Puts a finished building straight onto `pos`, skipping construction (`build.rs` covers that).
 fn put(w: &mut World, defs: &Defs, building: &str, pos: Pos) {
     let id = defs.building_id(building).expect("building exists");
-    w.map[pos].building = Some(Building::new(id, defs.building(id).passable, false));
-    w.building_index.insert((pos.y, pos.x), pos);
-    w.map_changed();
+    w.put_building(crate::geom::Footprint::single(pos), id, defs);
 }
 
 fn store(w: &mut World, defs: &Defs, item: &str, pos: Pos, count: u32) {
@@ -135,12 +132,8 @@ fn a_building_over_several_tiles_counts_once() {
     let defs = Defs::bundled();
     let mut w = world(Nation::Fire, 2, &defs);
     let bed = defs.building_id("bed").unwrap();
-    // A 2x1 bed (#207): both tiles carry it, but it is one bed.
-    for (x, part) in [(3, [0, 0]), (4, [1, 0])] {
-        let b = Building { part, size: [2, 1], ..Building::new(bed, true, false) };
-        w.map[at(x, 3)].building = Some(b);
-    }
-    w.building_index.insert((3, 3), at(3, 3));
+    // A 2x1 bed (#207): both tiles point at it, but it is one bed.
+    w.put_building(crate::geom::Footprint::new(at(3, 3), 2, 1), bed, &defs);
     assert_eq!(progress(&w, &defs, "beds"), (1, 2, false));
     assert_eq!(progress(&w, &defs, "building_kinds").0, 1);
 }

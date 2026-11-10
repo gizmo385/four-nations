@@ -133,7 +133,7 @@ impl MoveRules {
         if self.resources_block && tile.resource.is_some() {
             return None;
         }
-        if tile.building.is_some_and(|b| !b.passable) {
+        if tile.building.is_some_and(|b| !b.passable()) {
             return None;
         }
         self.terrain_cost(tile.terrain)
@@ -152,7 +152,7 @@ impl MoveRules {
         if diagonal {
             return Some(DIAGONAL * cost);
         }
-        let rail = |t: &Tile| t.building.is_some_and(|b| b.rail);
+        let rail = |t: &Tile| t.building.is_some_and(|b| b.rail());
         if self.rail_step > 0 && rail(from) && rail(to) {
             return Some(self.rail_step.min(STRAIGHT * cost));
         }
@@ -438,15 +438,15 @@ mod tests {
 
     #[test]
     fn a_building_blocks_or_allows_pathing_per_its_def() {
-        use crate::building::{Building, BuildingId};
+        use crate::building::TileBuilding;
         let mut m = map(&["...", "...", "..."]);
         let r = MoveRules::default();
         for y in 0..3 {
-            m[Pos::new(1, y)].building = Some(Building::new(BuildingId(0), false, false));
+            m[Pos::new(1, y)].building = Some(TileBuilding::wall(false));
         }
         assert_eq!(find(&m, Pos::new(0, 1), Pos::new(2, 1), &r), None);
         for y in 0..3 {
-            m[Pos::new(1, y)].building = Some(Building::new(BuildingId(0), true, false));
+            m[Pos::new(1, y)].building = Some(TileBuilding::wall(true));
         }
         assert!(find(&m, Pos::new(0, 1), Pos::new(2, 1), &r).is_some());
     }
@@ -466,9 +466,9 @@ mod tests {
 
     /// Marks `tiles` of a map as rail.
     fn lay_rail(m: &mut TileMap, tiles: impl IntoIterator<Item = Pos>) {
-        use crate::building::{Building, BuildingId};
+        use crate::building::{BuildingKey, TileBuilding};
         for p in tiles {
-            m[p].building = Some(Building::new(BuildingId(0), true, true));
+            m[p].building = Some(TileBuilding::new(BuildingKey::NONE, true, true));
         }
     }
 

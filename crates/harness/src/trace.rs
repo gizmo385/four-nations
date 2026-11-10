@@ -396,8 +396,8 @@ fn crop(world: &World, defs: &Defs, marks: &BTreeMap<UnitId, char>, radius: i32)
     };
 
     let mut building_counts: BTreeMap<(bool, String), u32> = BTreeMap::new();
-    for (foot, id) in world.buildings() {
-        let def = defs.building(id);
+    for b in world.buildings() {
+        let (foot, def) = (b.footprint(), defs.building(b.id));
         let glyph = if def.passable { WALKABLE_BUILDING } else { BLOCKING_BUILDING };
         for t in Footprint::tiles(foot) {
             put(t, glyph);

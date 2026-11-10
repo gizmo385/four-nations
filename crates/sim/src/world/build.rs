@@ -9,13 +9,13 @@
 //! seconds (scaled by the nation's `construction` modifier, data/nations.toml). Needs pre-empt it
 //! and progress (both materials delivered and work done) is kept, exactly as for harvests.
 //!
-//! On completion every footprint tile gets a copy of the `Building` (`World::building_at`), with
-//! its own `part` and the footprint's `size`. `BuildingDef::passable` is baked onto it, so
-//! pathfinding (`path.rs`, `flood.rs`) never has to consult the defs to know whether it blocks
-//! movement. What a finished building *does* is mostly elsewhere: beds are
-//! slept in by `work.rs`, and a building that keeps a fire (`BuildingDef::heat`) lights it here,
-//! in `heat.rs`' terms, the moment it is finished (#58). A study hall's seats, which `study.rs`
-//! opens as jobs, are also opened right away.
+//! On completion the building gets its record (`World::put_building`, `world/buildings.rs`,
+//! #604) and every footprint tile points at it (`World::building_at`). `BuildingDef::passable` is
+//! baked onto each tile, so pathfinding (`path.rs`, `flood.rs`) never has to consult the defs to
+//! know whether it blocks movement. What a finished building *does* is mostly elsewhere: beds are
+//! slept in by `work.rs`, and a building that keeps a fire (`BuildingDef::heat`) has it lit, in
+//! `heat.rs`' terms, the moment it is finished (#58). A study hall's seats, which `study.rs`
+//! opens as jobs, are also opened right away (`raise`).
 //!
 //! The endeavor's gate (#236) is a site here too, so its footprint blocks other buildings and its
 //! construct work is a `Build` job, but its cost and work come from its stages: `run_build` hands
@@ -28,7 +28,7 @@
 //! `["mountain", "tunnel"]`: a shaft placed against a tunnel works the same as one against bare
 //! rock.
 
-use crate::building::{Building, BuildingId, is_one_by_one, one_by_one};
+use crate::building::{BuildingId, TileBuilding, is_one_by_one, one_by_one};
 use crate::defs::Terrain;
 use crate::flood::Flood;
 use crate::geom::Footprint;
@@ -180,7 +180,7 @@ impl World {
 
     /// The building finished on `pos`, any tile of its footprint, if any.
     pub fn building_at(&self, pos: Pos) -> Option<BuildingId> {
-        self.map.get(pos)?.building.map(|b| b.id)
+        self.building_record(pos).map(|b| b.id)
     }
 
     /// Whether `pos` is an ordinary, unfinished build site: a valid target for Weld and Lift
@@ -216,34 +216,10 @@ impl World {
 
     /// The footprint of the finished building or the build site covering `pos`, if any.
     pub fn footprint_at(&self, pos: Pos) -> Option<Footprint> {
-        match self.map.get(pos)?.building {
-            Some(b) => Some(b.footprint(pos)),
+        match self.building_record(pos) {
+            Some(b) => Some(b.footprint()),
             None => self.site_at(pos).map(|(anchor, s)| s.footprint(anchor)),
         }
-    }
-
-    /// Every finished building once, with its footprint, in anchor order (row-major). Scans the
-    /// whole map: `World::map` is public, so a caller (or a frontend's test) may have put a
-    /// building straight onto it without going through `raise`, and this has to see it too.
-    /// `building_index` (#292) isn't a substitute for that; it only speeds up the one caller
-    /// that is guaranteed to see only buildings `raise` put there (`finished_buildings` below).
-    pub fn buildings(&self) -> impl Iterator<Item = (Footprint, BuildingId)> + '_ {
-        self.map.iter().filter_map(|(p, t)| {
-            let b = t.building?;
-            (b.part == [0, 0]).then(|| (b.footprint(p), b.id))
-        })
-    }
-
-    /// Rebuilds `building_index` from a full map scan: used once after loading a save, since the
-    /// index isn't saved (`#[serde(skip)]` on `World::building_index`).
-    pub(crate) fn rebuild_building_index(&mut self) {
-        self.building_index = self
-            .map
-            .iter()
-            .filter_map(|(p, t)| {
-                t.building.is_some_and(|b| b.part == [0, 0]).then_some(((p.y, p.x), p))
-            })
-            .collect();
     }
 
     /// The site whose footprint covers `pos`, with its anchor. Sites are few (tens), so this
@@ -257,8 +233,9 @@ impl World {
     /// solid one, whose site is worked from outside too, so no builder is left standing inside
     /// it). A tile with neither is its own 1x1 area, walkable if units can enter it.
     pub(super) fn work_area(&self, pos: Pos, defs: &Defs) -> (Footprint, bool) {
-        if let Some(b) = self.map.get(pos).and_then(|t| t.building) {
-            (b.footprint(pos), b.passable)
+        if let Some(t) = self.map.get(pos).and_then(|t| t.building) {
+            let foot = self.buildings.get(t.key()).expect("a tile's building").footprint();
+            (foot, t.passable())
         } else if let Some((anchor, s)) = self.site_at(pos) {
             (s.footprint(anchor), defs.building(s.building).passable)
         } else {
@@ -267,9 +244,11 @@ impl World {
         }
     }
 
-    /// Puts the finished `building` on every tile of `foot`, each with its own `part`, and moves
-    /// whatever a solid one would bury or wall in.
-    pub(super) fn raise(&mut self, foot: Footprint, building: BuildingId, def: &BuildingDef) {
+    /// Finishes `building` on `foot` (`put_building`), moves whatever a solid one would bury or
+    /// wall in, then opens its seats and craft jobs, in that order, so job ids come out as they
+    /// always have.
+    pub(super) fn raise(&mut self, foot: Footprint, building: BuildingId, defs: &Defs) {
+        let def = defs.building(building);
         // Who can get out today, so only a settler this building shuts in is moved, not one a
         // sealed pocket (or a map with no stockpile and no water in reach) already held.
         let free: Vec<UnitId> = if def.passable {
@@ -278,20 +257,18 @@ impl World {
             self.regions();
             self.units.iter().map(|u| u.id).filter(|&id| !self.walled_in(id)).collect()
         };
-        let b = Building {
-            size: [foot.w, foot.h],
-            ..Building::new(building, def.passable, def.rail.is_some())
-        };
-        for p in foot.tiles() {
-            let part = [(p.x - foot.anchor.x) as u8, (p.y - foot.anchor.y) as u8];
-            self.map[p].building = Some(Building { part, ..b });
-        }
-        self.building_index.insert((foot.anchor.y, foot.anchor.x), foot.anchor);
-        self.map_changed();
+        self.put_building(foot, building, defs);
         if !def.passable {
             self.clear_footprint(foot);
             self.free_walled_in(&free);
         }
+        // A Map Room's seats open Chart jobs instead of Study ones (#402).
+        if def.chart.is_some() {
+            self.open_chart_seats(foot.anchor, def.seats);
+        } else {
+            self.open_study_seats(foot.anchor, def.seats);
+        }
+        self.open_craft_jobs(foot.anchor, def);
     }
 
     /// Moves what a solid building just finished on `foot` would bury: each unit on it steps to
@@ -506,7 +483,7 @@ impl World {
             }
             for p in foot.tiles() {
                 if let Some(tile) = map.get_mut(p) {
-                    tile.building = Some(Building::new(BuildingId(0), false, false));
+                    tile.building = Some(TileBuilding::wall(false));
                 }
             }
         }
@@ -525,7 +502,7 @@ impl World {
         let mut blocked = map.clone();
         for p in footprint.tiles() {
             if let Some(tile) = blocked.get_mut(p) {
-                tile.building = Some(Building::new(BuildingId(0), false, false));
+                tile.building = Some(TileBuilding::wall(false));
             }
         }
         let after = Flood::new(&blocked, before.origin(), &self.rules);
@@ -639,7 +616,8 @@ impl World {
     pub fn door_owner(&self, pos: Pos, defs: &Defs) -> Option<BuildingId> {
         let door =
             |f: Footprint, b: BuildingId| (defs.building(b).capacity > 0).then(|| f.entrance());
-        self.buildings().find_map(|(f, b)| (door(f, b) == Some(pos)).then_some(b)).or_else(|| {
+        let mut finished = self.buildings().map(|b| (b.footprint(), b.id));
+        finished.find_map(|(f, b)| (door(f, b) == Some(pos)).then_some(b)).or_else(|| {
             self.build_sites().find_map(|(f, b, _)| (door(f, b) == Some(pos)).then_some(b))
         })
     }
@@ -984,32 +962,11 @@ impl World {
                 if site.progress < def.work {
                     return;
                 }
-                let (building, size) = (site.building, site.size);
+                let building = site.building;
                 let footprint = site.footprint(pos);
-                let seats = def.seats;
-                if let Some(orchard) = &def.orchard {
-                    self.open_orchard(pos, orchard);
-                }
-                if def.farm.is_some() {
-                    self.open_farm_plot(pos);
-                }
-                if def.irrigation.is_some() {
-                    self.open_irrigation_channel(pos);
-                }
-                if def.power.is_some() {
-                    self.open_power_source(pos);
-                }
                 self.sites.remove(&pos);
                 self.jobs.remove(idx);
-                self.raise(footprint, building, def);
-                // A Map Room's seats open Chart jobs instead of Study ones (#402).
-                if def.chart.is_some() {
-                    self.open_chart_seats(pos, seats);
-                } else {
-                    self.open_study_seats(pos, seats);
-                }
-                self.open_craft_jobs(pos, def);
-                self.light_building_fire(pos, size, def);
+                self.raise(footprint, building, defs);
                 self.finish_job(i);
             }
         }

@@ -214,7 +214,8 @@ fn stages_advance_in_order_and_the_gate_stands_at_the_end() {
     let EndeavorState::Complete { tick } = *w.endeavor() else { unreachable!() };
     assert_eq!(w.endeavor_events().last().unwrap().tick, tick);
     let gate = defs.building_id("harmony_gate").unwrap();
-    assert_eq!(w.buildings().collect::<Vec<_>>(), [(Footprint::new(ANCHOR, 4, 4), gate)]);
+    let listed: Vec<_> = w.buildings().map(|b| (b.footprint(), b.id)).collect();
+    assert_eq!(listed, [(Footprint::new(ANCHOR, 4, 4), gate)]);
     assert!(Footprint::new(ANCHOR, 4, 4).tiles().all(|p| w.building_at(p) == Some(gate)));
     assert!(w.sites.is_empty());
     assert!(w.jobs().iter().all(|j| !matches!(j.kind, JobKind::EndeavorTask { .. })));

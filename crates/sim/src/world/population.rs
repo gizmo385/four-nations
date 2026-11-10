@@ -115,8 +115,8 @@ impl World {
     /// read the same number growth does.
     pub fn bed_capacity(&self, defs: &Defs) -> u32 {
         self.buildings()
-            .filter(|&(_, id)| defs.building(id).bed.is_some())
-            .map(|(foot, id)| if foot.w > 1 || foot.h > 1 { defs.building(id).capacity } else { 1 })
+            .filter(|b| defs.building(b.id).bed.is_some())
+            .map(|b| if b.size != [1, 1] { defs.building(b.id).capacity } else { 1 })
             .sum()
     }
 

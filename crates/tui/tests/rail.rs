@@ -2,7 +2,7 @@
 //! the rail tiles beside it (built or still a site), so a line of rail reads as one track and a
 //! corner or a junction turns, instead of every tile wearing the same glyph.
 
-use fn_sim::building::{Building, BuildingId};
+use fn_sim::building::BuildingId;
 use fn_sim::world::Command;
 use fn_sim::{Nation, Pos, Terrain};
 use fn_tui::app::App;
@@ -38,9 +38,7 @@ fn app_with_clear_patch() -> (App, BuildingId, Pos) {
 
 /// Bakes a finished, 1x1 rail tile at `pos`, as the sim does when its site completes.
 fn bake_rail(app: &mut App, rail: BuildingId, pos: Pos) {
-    let passable = app.session.defs.building(rail).passable;
-    app.session.world.map.get_mut(pos).unwrap().building =
-        Some(Building::new(rail, passable, true));
+    app.session.world.put_building(fn_sim::geom::Footprint::single(pos), rail, &app.session.defs);
 }
 
 fn palette(app: &App, ascii: bool) -> Palette {

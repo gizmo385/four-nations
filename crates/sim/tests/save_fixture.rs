@@ -13,11 +13,12 @@
 //! study hall still being built. It was generated on a hand-made map, so that not even mapgen
 //! was involved, by a `regenerate_v1_fixture` test that #602 removed (see git history).
 //!
-//! It can't be regenerated: the build writes version 2 now (#602), so a regenerated file would no
-//! longer prove anything about old saves. Nor does a data change need any edit to it. A v1 save
-//! has no id tables of its own; `load` reads its ids against the snapshot of the tables it was
-//! made with (`crates/sim/src/save/v1_ids.ron`, picked by its `data_hash`) and maps them to
-//! today's data by name, as for any save. `tests/save_compat.rs` loads it under edited data.
+//! It can't be regenerated: the build writes version 3 now (#602, #604), so a regenerated file
+//! would no longer prove anything about old saves. Nor does a data change need any edit to it. A
+//! v1 save has no id tables of its own; `load` reads its ids against the snapshot of the tables
+//! it was made with (`crates/sim/src/save/v1_ids.ron`, picked by its `data_hash`) and maps them
+//! to today's data by name, as for any save, then turns its buildings into records (#604), as
+//! for a v2 save. `tests/save_compat.rs` loads it under edited data.
 
 use fn_sim::building::BuildingId;
 use fn_sim::save::SaveIds;
@@ -41,7 +42,7 @@ fn the_fixture_is_a_v1_save_with_the_state_the_tests_need() {
     // Guards the other tests against a fixture that was regenerated into something empty.
     let info = fn_sim::save::inspect(FIXTURE).unwrap();
     assert_eq!(info.version, 1);
-    assert_eq!(SAVE_VERSION, 2, "a new format version needs a new fixture and an upgrade path");
+    assert_eq!(SAVE_VERSION, 3, "a new format version needs a new fixture and an upgrade path");
     assert_eq!((info.seed, info.nation), (7, Nation::Fire));
     assert!(info.tick > 0);
     assert!(FIXTURE.lines().next().is_some_and(|l| l.contains("four-nations-save")));
@@ -60,7 +61,7 @@ fn an_old_save_loads_with_its_buildings_site_and_fire_where_they_were() {
     assert_eq!(w.building_at(CAMPFIRE), Some(id(&defs, "campfire")));
     assert_eq!(w.map.iter().filter(|(_, t)| t.building.is_some()).count(), 3);
     for pos in [BED, HALL, CAMPFIRE] {
-        assert!(w.map.get(pos).unwrap().building.unwrap().passable, "{pos:?}");
+        assert!(w.map.get(pos).unwrap().building.unwrap().passable(), "{pos:?}");
     }
 
     // The unfinished site, with its work done so far.
@@ -194,7 +195,30 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     // credited the toast for, on `Unit` (replaces the old `mastered` flag, #347).
     "bends_by",
     "rank_credited",
+    // Buildings as records (#604, save version 3): one record per finished building.
+    "buildings",
 ];
+
+/// Fields whose shape changed in save version 3 (#604): each tile's `building` became a key
+/// into `World::buildings` (a site's `building` is set aside with it, unchanged on both sides),
+/// and a building's fire moved out of `heat` into its record. The comparison sets them aside on
+/// both sides; `an_old_save_loads_with_its_buildings_site_and_fire_where_they_were` checks what
+/// they hold. The map itself is written as `tiles` now, and is renamed back before comparing.
+const FIELDS_RESHAPED_IN_V3: &[&str] = &["building", "heat"];
+
+/// Renames the top-level `tiles` field of `value` (a v3 `World`) to `map`, its v1/v2 name.
+fn tiles_as_map(value: &mut ron::Value) {
+    let ron::Value::Map(map) = value else { return };
+    let mut renamed = ron::Map::new();
+    for (k, v) in std::mem::take(map).into_iter() {
+        let k = match k {
+            ron::Value::String(s) if s == "tiles" => ron::Value::String("map".into()),
+            k => k,
+        };
+        renamed.insert(k, v);
+    }
+    *map = renamed;
+}
 
 /// Wraps every `Unit::nation` in `value` (a `World`, as `ron::Value`) in `Some`, in place: #239
 /// turned it from `Nation` into `Option<Nation>`, so where the v1 fixture has `fire` (every
@@ -249,7 +273,7 @@ fn saving_an_old_save_again_gives_the_same_text() {
     let defs = Defs::bundled();
     let w = World::load(FIXTURE, &defs).unwrap();
     let text = w.save(&defs).unwrap();
-    // A v1 save is a header and a body; it comes back as v2: a header, the id tables and a body.
+    // A v1 save is a header and a body; it comes back as v3: a header, the id tables and a body.
     let (old_header, old_body) = FIXTURE.split_once('\n').unwrap();
     let mut lines = text.splitn(3, '\n');
     let (header, ids, body) = (lines.next().unwrap(), lines.next().unwrap(), lines.next().unwrap());
@@ -265,18 +289,19 @@ fn saving_an_old_save_again_gives_the_same_text() {
         // body's shape can only be compared here while the tables match.
         return;
     }
-    assert_eq!(header, old_header.replacen("version:1", "version:2", 1));
-    if body == old_body {
-        return;
-    }
-    // Not byte for byte: compare the two as data, setting aside the fields listed above.
+    assert_eq!(header, old_header.replacen("version:1", &format!("version:{SAVE_VERSION}"), 1));
+    // Not byte for byte (the buildings are records now, #604): compare the two as data, setting
+    // aside the fields listed above.
     let (mut old, mut new) = (
         ron::from_str::<ron::Value>(old_body).unwrap(),
         ron::from_str::<ron::Value>(body).unwrap(),
     );
+    tiles_as_map(&mut new);
     wrap_legacy_unit_nations(&mut old);
     without_fields(&mut old, FIELDS_ADDED_SINCE_V1);
     without_fields(&mut old, FIELDS_REMOVED_SINCE_V1);
+    assert!(without_fields(&mut old, FIELDS_RESHAPED_IN_V3) > 0);
+    without_fields(&mut new, FIELDS_RESHAPED_IN_V3);
     let removed = without_fields(&mut new, FIELDS_ADDED_SINCE_V1);
     assert!(removed > 0, "the re-saved text differs, but not in the fields listed");
     if old != new {

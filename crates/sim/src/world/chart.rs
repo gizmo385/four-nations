@@ -10,7 +10,7 @@
 //! to chart (`chart_has_target`), the same way a study seat isn't claimed with an empty research
 //! queue.
 //!
-//! Where it differs: progress lives on the building itself (`World::charts`, by anchor, the way
+//! Where it differs: progress lives on the building itself (its record's `chart`, the way
 //! a production building's batch does, `world/forge.rs`), not the research pool, and a finished
 //! chart (`minutes` of seated work, scaled by the nation's `study` modifier) doesn't add to
 //! anything -- it uncovers one buried resource (`World::uncover`) instead. Which one
@@ -73,7 +73,7 @@ impl World {
     /// `study` modifier as they're added), for a frontend's inspect panel. 0 off a Map Room or
     /// one with nothing banked yet.
     pub fn chart_progress(&self, pos: Pos) -> f32 {
-        self.charts.get(&pos).copied().unwrap_or(0.0)
+        self.anchored(pos).and_then(|b| b.chart).unwrap_or(0.0)
     }
 
     /// Whether any Map Room has finished a chart, ever (#403). Read from the saved
@@ -175,12 +175,13 @@ impl World {
         }
         let target = minutes_to_ticks_min1(def.minutes) as f32;
         let study = self.modifiers().study;
-        let progress = self.charts.entry(anchor).or_insert(0.0);
+        let Some(b) = self.anchored_mut(anchor) else { return self.finish_job(i) };
+        let progress = b.chart.get_or_insert(0.0);
         *progress += study;
         if *progress < target {
             return;
         }
-        self.charts.remove(&anchor);
+        b.chart = None;
         let event_kind = match self.pick_chart_target(anchor, def) {
             Some((target, reachable)) => {
                 self.uncover(target);

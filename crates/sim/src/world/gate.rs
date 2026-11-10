@@ -430,14 +430,12 @@ impl World {
     }
 
     /// The last stage is done: the site becomes the finished gate, and the endeavor is Complete.
-    /// Like any finished building, it keeps a fire if its def says so (`light_building_fire`):
-    /// the gate's own radius-3 heat (`docs/design/endgame.md`, "The transformation", #240).
+    /// Like any finished building, it keeps a fire if its def says so (`put_building`): the
+    /// gate's own radius-3 heat (`docs/design/endgame.md`, "The transformation", #240).
     fn finish_gate(&mut self, anchor: Pos, defs: &Defs) {
         let foot = self.footprint_at(anchor).expect("the gate's site");
         let site = self.sites.remove(&anchor).expect("the gate's site");
-        let def = defs.building(site.building);
-        self.raise(foot, site.building, def);
-        self.light_building_fire(foot.anchor, [foot.w, foot.h], def);
+        self.raise(foot, site.building, defs);
         self.endeavor = EndeavorState::Complete { tick: self.tick };
         self.endeavor_event(EndeavorEventKind::Complete);
     }

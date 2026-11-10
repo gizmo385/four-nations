@@ -528,8 +528,8 @@ impl Economy {
         let Some(farm_plot) = defs.building_id(plot) else { return };
         let empty: Vec<Pos> = world
             .buildings()
-            .filter(|&(_, id)| id == farm_plot)
-            .map(|(footprint, _)| footprint.anchor)
+            .filter(|b| b.id == farm_plot)
+            .map(|b| b.anchor)
             .filter(|&pos| world.plot_stage(pos) == Some(PlotStage::Empty))
             .collect();
         for pos in empty {
@@ -808,7 +808,7 @@ fn have_enough(world: &World, cost: &[CostItem]) -> bool {
 /// Finished buildings plus unfinished sites of `building`, counted together: a bed being built
 /// is as good as claimed, for the opening's purposes.
 fn building_count(world: &World, building: BuildingId) -> u32 {
-    let built = world.buildings().filter(|&(_, id)| id == building).count();
+    let built = world.buildings().filter(|b| b.id == building).count();
     let sited = world.build_sites().filter(|&(_, id, _)| id == building).count();
     (built + sited) as u32
 }
@@ -1317,8 +1317,8 @@ mod tests {
         let sown = |world: &World| {
             world
                 .buildings()
-                .filter(|&(_, id)| id == farm_plot)
-                .any(|(footprint, _)| world.plot_stage(footprint.anchor) != Some(PlotStage::Empty))
+                .filter(|b| b.id == farm_plot)
+                .any(|b| world.plot_stage(b.anchor) != Some(PlotStage::Empty))
         };
         let sown = run_economy_until(&mut world, &defs, &economy, 90, sown);
         assert!(sown, "expected at least one sown farm plot within 90 minutes");
@@ -1355,11 +1355,9 @@ mod tests {
     fn economy_raises_a_bed_on_seed_3() {
         let (mut world, defs, economy) = economy_opening_on_seed(Nation::Fire, 3);
         let bed = defs.building_id("bed").unwrap();
-        run_economy_until(&mut world, &defs, &economy, 30, |w| {
-            w.buildings().any(|(_, id)| id == bed)
-        });
+        run_economy_until(&mut world, &defs, &economy, 30, |w| w.buildings().any(|b| b.id == bed));
         assert!(
-            world.buildings().any(|(_, id)| id == bed),
+            world.buildings().any(|b| b.id == bed),
             "expected a finished bed within 30 minutes on seed 3"
         );
     }
