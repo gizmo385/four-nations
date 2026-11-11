@@ -800,6 +800,9 @@ effective.construction = nation.construction × Π (known techs' construction mu
 
 ## Later: neighbors and cultural exchange
 
+*The long-term plan for research beyond this tree, including exchange with United City residents,
+is [research-horizons.md](research-horizons.md) (accepted 2026-11-10).*
+
 When peaceful neighbor civilizations exist, knowledge flows through **exchange**, not points.
 For example, a shared tech a friendly neighbor already knows costs 50% less, and a neighbor can
 teach its *non-bending* branch techs (e.g. Fire's `brickmaking`, Air's `windmills`). This needs
@@ -813,7 +816,8 @@ tree grows beyond one nation's identity.
    settlement. Cooking is a bonus (more hunger filled per item), not a requirement. This is a
    hard requirement on the needs work (#3).
 2. **Cross-nation learning: deferred.** Don't design or build `teachable` techs yet. The
-   neighbors section above stays a sketch.
+   neighbors section above stays a sketch. *Reopened for the post-gate game (owner, 2026-11-10):
+   see [research-horizons.md](research-horizons.md), "Exchange".*
 3. **Era ceiling: Korra-era is in tone.** Steam engines and lightning power stations stay.
 4. **Scrolls: knowledge points first.** #24 implements points only. Keep the data shape open
    (e.g. an optional `reveals` field later), so scrolls can unlock hidden techs without a
