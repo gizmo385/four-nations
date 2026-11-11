@@ -126,6 +126,10 @@ pub struct UiState {
     /// The rectangle's first corner, set by the tool's first `Enter`. The rectangle runs from
     /// here to the cursor; only a tool has one, and switching tools drops it.
     pub anchor: Option<Pos>,
+    /// The tool list in the panel (`/`, #664), while it is open: the row the cursor is on, an
+    /// index into `fn_ui::toolpanel::choices`. Closed by picking, by `Esc` and by opening a
+    /// screen.
+    pub tool_list: Option<usize>,
     /// The last rectangle's result ("designate harvest: 12 done, 3 skipped"), shown in the Tool
     /// section until the tool changes.
     pub notice: String,
@@ -216,6 +220,7 @@ impl UiState {
             teardown: false,
             choice: None,
             anchor: None,
+            tool_list: None,
             notice: String::new(),
             marked: None,
             status: String::new(),

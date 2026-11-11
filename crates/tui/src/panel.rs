@@ -27,7 +27,8 @@
 //! does; the Build tool's chosen building or, for Bend, the current ability and its bender count;
 //! with a corner set, the rectangle's size and what applying it would mark, and once applied,
 //! what it marked ("Marked 7 trees.") until the cursor moves or a new corner is set; and the
-//! tool's toggles ("Standing order: off"). The inspector's heading names what it describes: the
+//! tool's toggles ("Standing order: off"). With the tool list open (`/`, #664) the section is that
+//! list alone, under a DESIGNATE heading, with a tool active or not. The inspector's heading names what it describes: the
 //! selected settler (name and rank, with its task, carrying, meters, rank progress and tile in
 //! the section, where the selection bar used to be), else whatever is under the keyboard cursor (a
 //! settler, a building, "STOCKPILE", the terrain) with the cursor's position on the heading. The
@@ -195,6 +196,9 @@ struct Data {
     alerts: Vec<Row>,
     /// The last section (#653): what the player is looking at, named in its own heading.
     inspector: Inspector,
+    /// The tool list (`/`, #664) is open: the Tool section is that list under a DESIGNATE
+    /// heading, with any tool or none active.
+    tool_list: bool,
     /// "Harvest · repeating" while the standing-order toggle is on, "Cancel · teardown" while
     /// the Cancel tool's own toggle is (`UiState::repeating_label`, #277/#335); `None` the rest
     /// of the time.
@@ -453,6 +457,9 @@ fn tool_line_rows(line: &ToolLine, width: usize, marks: &Marks) -> Vec<Row> {
                 .map(|l| Row::text(l, tone))
                 .collect()
         }
+        ToolLine::Choice { selected, key, name, what, usable } => {
+            vec![choice_row(*selected, *key, name, what, *usable, width, marks)]
+        }
         ToolLine::Setting { label, value } => {
             let text = format!("{label}: {value}");
             if text.chars().count() > width {
@@ -465,6 +472,39 @@ fn tool_line_rows(line: &ToolLine, width: usize, marks: &Marks) -> Vec<Row> {
             vec![Row::spans(vec![(format!("{label}: "), Tone::Text), (value.clone(), tone)])]
         }
     }
+}
+
+/// How wide the tool list's name column is: "Stockpile".
+const LIST_NAME: usize = 9;
+
+/// One row of the tool list (`/`, #664): the pointer on the chosen row, the tool's letter, its
+/// name in a column, and what it is for, cut to the room (a row never wraps, so the list keeps
+/// its shape). A tool that can't be used yet is dim from end to end, its reason in place of
+/// what it is for.
+fn choice_row(
+    selected: bool,
+    key: char,
+    name: &str,
+    what: &str,
+    usable: bool,
+    width: usize,
+    marks: &Marks,
+) -> Row {
+    let mark = if selected { marks.pointer } else { " " };
+    let head = format!("{mark} ");
+    let room = width.saturating_sub(head.chars().count() + 2 + LIST_NAME + 2);
+    let what = wrap(what, room.max(1), 1, marks.ellipsis).into_iter().next().unwrap_or_default();
+    let (key_tone, name_tone, what_tone) = match (usable, selected) {
+        (false, _) => (Tone::Dim, Tone::Dim, Tone::Dim),
+        (true, true) => (Tone::Accent, Tone::Title, Tone::Text),
+        (true, false) => (Tone::Accent, Tone::Text, Tone::Dim),
+    };
+    Row::spans(vec![
+        (head, if selected { Tone::Title } else { Tone::Text }),
+        (format!("{key} "), key_tone),
+        (format!("{name:<LIST_NAME$}  "), name_tone),
+        (what, what_tone),
+    ])
 }
 
 /// The Tool section's rows for the active tool: `fn_ui::toolpanel`'s groups as rows, with the
@@ -486,6 +526,7 @@ fn tool_rows(
         teardown: ui.teardown,
         choice: ui.choice,
         marked: ui.marked_now(),
+        list: ui.tool_list,
     };
     let mut blocks: Vec<Vec<Row>> = toolpanel::blocks(session, &state)
         .iter()
@@ -494,11 +535,13 @@ fn tool_rows(
     if blocks.is_empty() {
         return ToolRows { blocks, keep: 0 };
     }
+    // The list is the whole section: no building or ability row under it.
+    let picker = if ui.tool_list.is_some() { Vec::new() } else { picker };
     let keep = if picker.is_empty() { 1 } else { 2 };
     if !picker.is_empty() {
         blocks.insert(1, picker);
     }
-    if ui.tool == Tool::Gate && !notice.is_empty() {
+    if ui.tool == Tool::Gate && ui.tool_list.is_none() && !notice.is_empty() {
         let text = ToolLine::Text(notice.to_owned(), Emphasis::Plain);
         blocks.push(tool_line_rows(&text, width, marks));
     }
@@ -553,6 +596,7 @@ fn gather(
         tool,
         alerts,
         inspector: inspect(session, ui, view.choice, width, marks),
+        tool_list: ui.tool_list.is_some(),
         repeating_label: ui.repeating_label(),
         view,
     }
@@ -607,8 +651,12 @@ fn sections(d: &Data, k: Knobs, palette: &Palette) -> Vec<Section> {
     let alerts = Section::new("ALERTS", "[L]", d.alerts.iter().skip(skip).cloned().collect());
     // Just above Here, in the tool's own tint (docs/design/side-panel.md "Headings"). Select
     // mode has no tool to talk about.
-    let tool = (d.view.tool != Tool::Select).then(|| {
+    let tool = (d.view.tool != Tool::Select || d.tool_list).then(|| {
         let rows = fit_blocks(&d.tool.blocks, d.tool.keep, k.tool);
+        // The list has its own heading, in the plain heading tone: it is about no one tool.
+        if d.tool_list {
+            return Section::new("DESIGNATE", "[/]", rows).always();
+        }
         // "Harvest · repeating" or "Cancel · teardown" while the tool's own `O` toggle is on
         // (#277/#335), else just the tool's name.
         let name = d.repeating_label.clone().unwrap_or_else(|| d.view.tool.name().to_owned());
@@ -663,7 +711,7 @@ pub fn draw_panel(
         tool: d.tool.full(),
         materials: materials_cap.min(1),
     };
-    let tool_active = d.view.tool != Tool::Select;
+    let tool_active = d.view.tool != Tool::Select || d.tool_list;
     let needs = |k: Knobs| height(head.len(), &sections(&d, k, palette), &d.inspector, tool_active);
     while needs(k) > usize::from(inner.height) {
         if k.alerts > alerts_floor {

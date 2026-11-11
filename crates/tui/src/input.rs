@@ -132,6 +132,9 @@ fn build_table() -> Vec<Binding> {
         }
     }
     add(Key::ch('o'), Action::ToggleRepeat);
+    // The tool list (#664). `/` is free in every mode: no screen reads text, the save names are
+    // made for the player.
+    add(Key::ch('/'), Action::ShowTools);
 
     add(Key::ch(' '), Action::TogglePause);
     add(Key::ch('+'), Action::Faster);
@@ -180,6 +183,8 @@ pub fn spectator_allowed(action: Action) -> bool {
         | Action::ShowHelp
         | Action::ShowEndeavor
         | Action::ShowNation => true,
+        // The list's only use is to pick a tool, which a spectator may not.
+        Action::ShowTools => false,
         Action::ShowSaves => false,
         Action::QuickSave | Action::AskQuickLoad => false,
         Action::TogglePause | Action::Faster | Action::Slower | Action::Step => false,
@@ -414,6 +419,7 @@ mod tests {
             assert!(spectator_allowed(a), "{a:?} should be allowed");
         }
         let refused = [
+            Action::ShowTools,
             Action::PickTool(Tool::Harvest),
             Action::PickTool(Tool::CancelHarvest),
             Action::PickTool(Tool::Clear),
@@ -452,7 +458,10 @@ mod tests {
     /// PgDn; "1-4" covers 1 to 4; "+ or =" covers + and =.
     fn label_tokens(label: &str) -> Vec<String> {
         let mut out = Vec::new();
-        for word in label.split([' ', '/']).filter(|w| *w != "or") {
+        // A lone "/" is the slash key itself ("Esc or /"), not a separator.
+        let words =
+            label.split(' ').flat_map(|w| if w == "/" { vec![w] } else { w.split('/').collect() });
+        for word in words.filter(|w| *w != "or") {
             match word {
                 "Arrows" => out.extend(["Up", "Down", "Left", "Right"].map(String::from)),
                 "Ctrl+Arrows" => out

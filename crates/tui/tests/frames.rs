@@ -61,7 +61,7 @@ fn each_nations_first_frame_names_the_nation_and_the_fresh_start() {
             "Gate 0 of 9 signs",
             "Press Enter to select",
             "Arrows move · Enter select",
-            "H X E P B U C tools",
+            "/ tools",
         ] {
             assert!(text.contains(want), "{want:?} in\n{text}");
         }

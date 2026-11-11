@@ -133,6 +133,9 @@ pub fn hint_mode(session: &Session, ui: &UiState) -> Mode {
             Screen::Nation => Mode::Nation,
         };
     }
+    if ui.tool_list.is_some() {
+        return Mode::Tools;
+    }
     if ui.tool == Tool::Select {
         return if ui.selected_unit(session).is_some() { Mode::Selected } else { Mode::Select };
     }

@@ -177,6 +177,15 @@ Nation screen's header line and the Esc menu.
   ("Marked 7 trees.") until the cursor moves or a new corner is set, then the tool's toggles
   ("Standing order: off", "Also sites, stockpiles: off"). While a tool is active the inspector
   is left one row when rows are short; the Tool section drops its groups from the last.
+- **The tool list (#664, `/`).** One key lists the seven tools in the panel, under a plain
+  `DESIGNATE [/]` heading, in any mode (it takes the Tool section's place, and shows with no tool
+  active): `▸ H Harvest    chop, mine`, one row a tool in the key help's order, the cursor on
+  the active tool's row. Bend's row names the nation's ability. A tool that can't be used yet
+  (Sow with no empty farm plot) is dim from end to end and says why in place of what it is for.
+  Up/Down choose, `Enter` or a tool's own letter picks (picking the tool already active leaves it
+  as it is; Build opens its picker), `Esc` or `/` closes. The clock keeps working; opening a
+  screen closes the list. `/` was free in every mode: no screen reads typed text, and the
+  `--watch` spectator ignores it, since the list's one use is to pick a tool.
 - CURSOR becomes **HERE**, keeping the coordinates on the heading.
 - A unit under the cursor shows its name, its task and `Enter: select`. The own-nation prefix
   shows only when the settlement has more than one nation (after the transformation).
