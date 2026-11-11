@@ -43,6 +43,10 @@ impl World {
         let mut needed = Vec::new();
         for &next in route.iter().rev().take(STRIDE_LOOKAHEAD) {
             let from = *tiles.last()?;
+            if from.chebyshev(next) > 1 {
+                // A hop through a gate (`glide.rs`) is a stand, not a stride.
+                break;
+            }
             needed.push(step_needed(self.rules_for(u), &self.map, from, next));
             tiles.push(next);
         }

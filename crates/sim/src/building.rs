@@ -392,6 +392,25 @@ pub struct OutpostDef {
     pub barrel: bool,
 }
 
+/// How people ride a pair (`[building.glide]`, docs/design/horizons-phase-2.md, "Routes through
+/// links", `world/glide.rs`): a hop between the two ends takes `seconds + seconds_per_tile x
+/// distance`. Always on a `pair` building.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GlideDef {
+    /// The fixed part of a hop.
+    pub seconds: f32,
+    /// And this much more for each tile between the ends (Chebyshev, anchor to anchor).
+    pub seconds_per_tile: f32,
+}
+
+impl GlideDef {
+    /// How many ticks a hop over `distance` tiles takes (at least 1).
+    pub fn ticks(&self, distance: u32) -> u32 {
+        let seconds = self.seconds + self.seconds_per_tile * distance as f32;
+        ((seconds * crate::world::TICKS_PER_SECOND as f32).round() as u32).max(1)
+    }
+}
+
 /// One whole item, in `FuelDef::micros_per_tick` units.
 pub const FUEL_MICROS: u64 = 1_000_000;
 
@@ -527,6 +546,8 @@ pub struct BuildingDef {
     pub pair: Option<PairDef>,
     /// A far outpost's pantry, barrel and placement rule (`OutpostDef`), or `None`.
     pub outpost: Option<OutpostDef>,
+    /// How people ride the pair (`GlideDef`), or `None`. Only on a `pair` building.
+    pub glide: Option<GlideDef>,
     pub unlocked_by: Option<TechId>,
     /// Seats added by techs (`[[tech.unlocks.upgrades]]`, docs/design/horizons-phase-1.md), each
     /// with the tech that adds them, in tech order. At most one tech per building, today, but a
@@ -709,6 +730,13 @@ struct RawPair {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawGlide {
+    seconds: f32,
+    seconds_per_tile: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawHothouse {
     radius: u32,
     winter_growth: f32,
@@ -778,6 +806,7 @@ struct RawBuilding {
     chute: Option<RawChute>,
     pair: Option<RawPair>,
     outpost: Option<RawOutpost>,
+    glide: Option<RawGlide>,
     #[serde(default)]
     uses_power: bool,
     #[serde(default)]
@@ -1013,6 +1042,24 @@ impl BuildingsFile {
                 None => None,
                 Some(o) => Some(resolve_outpost(&b.id, o, items)?),
             };
+            let glide = match &b.glide {
+                None => None,
+                Some(_) if b.pair.is_none() => {
+                    return err(format!("building {}: a glide needs a pair", b.id));
+                }
+                Some(g)
+                    if !(g.seconds.is_finite() && g.seconds >= 0.0)
+                        || !(g.seconds_per_tile.is_finite() && g.seconds_per_tile >= 0.0) =>
+                {
+                    return err(format!(
+                        "building {}: glide seconds and seconds_per_tile must be 0 or more",
+                        b.id
+                    ));
+                }
+                Some(g) => {
+                    Some(GlideDef { seconds: g.seconds, seconds_per_tile: g.seconds_per_tile })
+                }
+            };
             let track = match &b.track {
                 None => None,
                 Some(d) => {
@@ -1064,6 +1111,7 @@ impl BuildingsFile {
                 chute,
                 pair,
                 outpost,
+                glide,
                 unlocked_by: None,
                 seat_upgrades: Vec::new(),
                 endeavor: b.endeavor,

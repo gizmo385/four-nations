@@ -78,6 +78,14 @@ pub struct Building {
     /// (`chute.rs`): its cursor panel's `Sent: 140 Stone`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sent: Vec<crate::jobs::Stack>,
+    /// How many hops have left or landed here, for a pair people glide through (`glide.rs`): both
+    /// ends count every crossing, so they read alike.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub crossings: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 impl Building {
@@ -117,6 +125,8 @@ pub(super) enum Kind {
     Chute,
     /// An outpost (`outpost.rs`).
     Outpost,
+    /// A pair end people glide through (`glide.rs`).
+    Glide,
 }
 
 impl Kind {
@@ -133,6 +143,7 @@ impl Kind {
             (def.hothouse.is_some(), Kind::Hothouse),
             (def.chute.is_some(), Kind::Chute),
             (def.outpost.is_some(), Kind::Outpost),
+            (def.glide.is_some(), Kind::Glide),
         ]
         .into_iter()
         .filter_map(|(is, kind)| is.then_some(kind))
@@ -322,6 +333,7 @@ impl World {
             pickers: def.pickers.as_ref().map(Pickers::new),
             link: None,
             sent: Vec::new(),
+            crossings: 0,
         };
         let key = self.buildings.insert(record, defs);
         let tile = TileBuilding::new(key, def.passable, def.track.map_or(0, |t| t.index));
@@ -537,6 +549,7 @@ impl World {
                     pickers: None,
                     link: None,
                     sent: Vec::new(),
+                    crossings: 0,
                 },
             );
         }

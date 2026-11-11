@@ -371,6 +371,7 @@ fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
         hothouse: None,
         chute: None,
         pair: None,
+        glide: None,
         unlocked_by: None,
         seat_upgrades: Vec::new(),
         endeavor: false,

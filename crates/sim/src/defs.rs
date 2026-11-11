@@ -997,6 +997,38 @@ mod tests {
     }
 
     #[test]
+    fn a_glide_section_is_parsed_and_validated() {
+        let with = |sections: &str| {
+            let extra = format!(
+                "\n[[building]]\nid = \"twin\"\nname = \"Twin\"\nverb = \"Build\"\nwork = 1.0\npassable = true\n{sections}[[building.cost]]\nitem = \"wood\"\ncount = 1\n"
+            );
+            with_buildings(&format!("{BUILDINGS}{extra}"))
+        };
+        let pair = "[building.pair]\nreach = 48\nmin_tiles = 12\n";
+        let defs =
+            with(&format!("{pair}[building.glide]\nseconds = 2.0\nseconds_per_tile = 0.1\n"))
+                .unwrap();
+        let twin = defs.building(defs.building_id("twin").unwrap());
+        let glide = twin.glide.unwrap();
+        assert_eq!((glide.seconds, glide.seconds_per_tile), (2.0, 0.1));
+        // 2 s plus 0.1 s a tile, at 10 ticks a second.
+        assert_eq!(glide.ticks(30), 50);
+        assert_eq!(defs.building(defs.building_id("bed").unwrap()).glide, None);
+        let err = |s: &str| with(s).unwrap_err().0;
+        assert!(err("[building.glide]\nseconds = 2.0\nseconds_per_tile = 0.1\n").contains("pair"));
+        assert!(
+            err(&format!("{pair}[building.glide]\nseconds = -1.0\nseconds_per_tile = 0.1\n"))
+                .contains("glide")
+        );
+        assert!(
+            err(&format!("{pair}[building.glide]\nseconds = 2.0\n")).contains("seconds_per_tile")
+        );
+        let bundled = Defs::bundled();
+        let gate = bundled.building(bundled.building_id("wind_gate").unwrap());
+        assert!(gate.glide.is_some() && gate.pair.is_some() && gate.passable);
+    }
+
+    #[test]
     fn every_harvest_modifier_and_food_item_resolves() {
         let defs = Defs::bundled();
         let quarry = defs.harvest(defs.resource_id("stone").unwrap()).unwrap();
