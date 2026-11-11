@@ -286,7 +286,7 @@ impl World {
             fuel: def.fuel.map(|_| Bunker::default()),
         };
         let key = self.buildings.insert(record, defs);
-        let tile = TileBuilding::new(key, def.passable, def.rail.is_some());
+        let tile = TileBuilding::new(key, def.passable, def.track.map_or(0, |t| t.index));
         for p in foot.tiles() {
             self.map[p].building = Some(tile);
         }
@@ -439,8 +439,24 @@ impl World {
     }
 
     /// Rebuilds the building indexes after a load (`Buildings::reindex`).
+    /// Also re-stamps every building tile's track index and the cart rules' track steps from
+    /// today's defs, since neither is saved (`TileBuilding::track`, `MoveRules::with_tracks`).
     pub(crate) fn reindex_buildings(&mut self, defs: &Defs) {
         self.buildings.reindex(defs);
+        let stamps: Vec<(Footprint, u8)> = self
+            .buildings
+            .records
+            .values()
+            .map(|b| (b.footprint(), defs.building(b.id).track.map_or(0, |t| t.index)))
+            .collect();
+        for (foot, track) in stamps {
+            for p in foot.tiles() {
+                if let Some(tb) = self.map[p].building.as_mut() {
+                    tb.set_track(track);
+                }
+            }
+        }
+        self.cart_rules = self.cart_rules.clone().with_tracks(defs.track_steps());
     }
 
     /// Turns a v1 or v2 body (read into the `v2_*` shims, `save/v2.rs`) into records: one per
@@ -487,7 +503,7 @@ impl World {
                         return None;
                     }
                 }
-                Some(TileBuilding::new(key?, b.passable, b.rail))
+                Some(TileBuilding::new(key?, b.passable, 0))
             });
             Tile {
                 elevation: t.elevation,

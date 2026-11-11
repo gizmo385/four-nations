@@ -262,9 +262,10 @@ fn rail_is_built_like_any_building_and_marks_its_tile() {
     run_until(&mut w, &defs, 4000, |w| w.job(job).is_none());
     // A plain 1x1 passable building, with the flag baked onto its tile for pathing.
     let built = w.map[at(5, 2)].building.expect("the rail is laid");
-    assert!(built.rail() && built.passable() && w.building_at(at(5, 2)) == Some(rail));
+    let index = defs.building(rail).track.expect("a track").index;
+    assert!(built.track() == index && built.passable() && w.building_at(at(5, 2)) == Some(rail));
     let bed = defs.building_id("bed").unwrap();
-    assert!(defs.building(bed).rail.is_none());
+    assert!(defs.building(bed).track.is_none());
 }
 
 /// The bundled bed turned into a solid 2x2 building with room inside (so it has a door, #226),
@@ -1073,3 +1074,24 @@ fn a_build_run_floods_per_route_not_per_step() {
 
 /// 231 floods before #603 (one per walking tick), 4 after: one per planned route.
 const FLOODS_CAP: u32 = 8;
+
+/// Paving's road (docs/design/horizons-phase-1.md): laid like rail, stamped as its own track,
+/// kept through a save, and taking it up gives no stone back.
+#[test]
+fn a_paved_road_is_its_own_track_and_refunds_nothing() {
+    let (mut w, defs) = setup(&GRID, &[at(0, 4)]);
+    let road = defs.building_id("paved_road").unwrap();
+    let index = defs.building(road).track.unwrap().index;
+    assert_ne!(index, defs.building(defs.building_id("rail").unwrap()).track.unwrap().index);
+    w.raise(Footprint::single(at(5, 2)), road, &defs);
+    assert_eq!(w.map[at(5, 2)].building.unwrap().track(), index);
+    let saved = w.save(&defs).unwrap();
+    let mut w = World::load(&saved, &defs).unwrap();
+    assert_eq!(w.map[at(5, 2)].building.unwrap().track(), index, "re-stamped on load");
+    assert_eq!(w.cart_rules.track_steps(), defs.track_steps());
+    assert_eq!(defs.deconstruct.refund_of(1), 0);
+    w.designate_deconstruct(at(5, 2), &defs).unwrap();
+    run_until(&mut w, &defs, 4000, |w| w.building_at(at(5, 2)).is_none());
+    let stone = defs.item_id("stone").unwrap();
+    assert!(w.ground.values().all(|s| s.item != stone), "no stone comes back");
+}

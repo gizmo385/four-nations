@@ -158,7 +158,8 @@ fn an_air_settlement_finishes_its_tree_within_the_pacing_targets() {
     // Study whatever is cheapest-first by file order until the tree is done.
     let nation_techs: Vec<TechId> = (0..defs.techs.len() as u16)
         .map(TechId)
-        .filter(|&t| defs.tech(t).nation.is_none_or(|n| n == Nation::Air))
+        // The starter tree: core techs only, not the optional horizons techs.
+        .filter(|&t| defs.tech(t).core && defs.tech(t).nation.is_none_or(|n| n == Nation::Air))
         .collect();
     let mut done_at = None;
     let limit = 4 * 60 * MINUTE;

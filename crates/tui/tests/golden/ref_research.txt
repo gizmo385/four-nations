@@ -13,9 +13,9 @@
 │    Available · 25 pts           Locked · 120 pts             Locked · 120 pts             Locked · 250 pts           │
 │    Fishing Spot                 Needs Farming                Needs Earth Shaping          Needs Tunneling            │
 │                                                                                                                      │
-│  ✓ Stoneworking               ◇ Prospecting                                                                          │
-│    Known · 25 pts               Available · 250 pts                                                                  │
-│    Stone Outcrop, Boulder       Gold Vein, Gold Seam                                                                 │
+│  ✓ Stoneworking               ◇ Prospecting                                             · Paving                     │
+│    Known · 25 pts               Available · 250 pts                                       Locked · 120 pts           │
+│    Stone Outcrop, Boulder       Gold Vein, Gold Seam                                      Needs Masonry              │
 │                                                                                                                      │
 │  ◇ Farming                    ◇ Earth Shaping                                                                        │
 │    Available · 60 pts           Available · 60 pts                                                                   │

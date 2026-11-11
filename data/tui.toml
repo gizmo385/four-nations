@@ -250,6 +250,12 @@ glyph = "╪"
 ascii = "="
 fg = [160, 164, 176]
 
+# Paving's road (docs/design/horizons-phase-1.md): dressed stone, shared by every nation.
+[building.paved_road]
+glyph = "▒"
+ascii = "_"
+fg = [168, 160, 146]
+
 # A miner works inside, cutting stone from the rock it's built against (#373).
 [building.mine_shaft]
 glyph = "◆"

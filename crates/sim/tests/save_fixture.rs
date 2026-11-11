@@ -131,7 +131,6 @@ const FIELDS_ADDED_SINCE_V1: &[&str] = &[
     // Earth rail (#135): a flag on every `Building`, and the rules a hauling unit walks by.
     "rail",
     "cart_rules",
-    "rail_step",
     // Air orchards (#142): the orchards, and the stream that picks where fruit trees grow.
     "orchards",
     "saplings",

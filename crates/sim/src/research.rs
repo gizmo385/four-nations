@@ -602,7 +602,9 @@ mod tests {
     #[test]
     fn bundled_tree_has_twelve_shared_techs_and_a_branch_per_nation() {
         let defs = Defs::bundled();
-        let count = |n| defs.techs.iter().filter(|t| t.nation == n).count();
+        // Core techs only: the optional phase-1 techs (docs/design/horizons-phase-1.md) sit
+        // outside the tree this pins.
+        let count = |n| defs.techs.iter().filter(|t| t.nation == n && t.core).count();
         // 12, not 11: #383 added the shared `prospecting` tech, gating gold mining the way
         // `stoneworking` already gates stone.
         assert_eq!(count(None), 12);

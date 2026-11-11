@@ -8,8 +8,10 @@
 //! than from `Terrain::is_walkable` directly. That keeps the search itself nation-agnostic: a
 //! Water Tribe unit that can cross water just searches with different rules (AGENTS.md rule 7).
 //!
-//! **Rail** (#135): a straight step from one rail tile onto the next costs `MoveRules::rail_step`
-//! instead of the usual `STRAIGHT * tile cost`, when the rules have rail switched on. Which units
+//! **Tracks** (rail, #135; the Paved Road, docs/design/horizons-phase-1.md): a straight step
+//! between two tiles of the same track costs that track's step (`MoveRules::with_tracks`)
+//! instead of the usual `STRAIGHT * tile cost`, when the rules have tracks switched on. Any other
+//! step, road onto rail or a diagonal, is ordinary. Which units
 //! get that is decided by which `MoveRules` the world hands them (`World::rules_for`), so this file
 //! never asks who is walking. Because the cost of a step now depends on the tile it leaves as well
 //! as the one it enters, searches ask `MoveRules::step_cost`, not `tile_cost`.
@@ -70,11 +72,12 @@ pub struct MoveRules {
     tunnel_cost: Option<u32>,
     /// Whether tiles holding a resource (trees, rocks, ...) block movement.
     pub resources_block: bool,
-    /// What a straight step from one rail tile onto the next one costs, in the units of
-    /// `STRAIGHT` (so below `STRAIGHT` is a speed-up). 0 means these rules ignore rail. Saves
-    /// from before rail existed have 0.
-    #[serde(default)]
-    rail_step: u32,
+    /// What a straight step between two tiles of track `i + 1` (`TileBuilding::track`) costs, in
+    /// the units of `STRAIGHT` (so below `STRAIGHT` is a speed-up). Empty means these rules
+    /// ignore tracks. Not saved: it comes from the building defs (`Defs::cart_rules`), and
+    /// `World::load` sets it again (`World::reindex_buildings`).
+    #[serde(skip)]
+    track_steps: Vec<u32>,
 }
 
 impl Default for MoveRules {
@@ -93,7 +96,7 @@ impl Default for MoveRules {
             terrain_cost[terrain_index(t).expect("not a tunnel")] = t.is_walkable().then_some(1);
         }
         let tunnel_cost = Terrain::Tunnel.is_walkable().then_some(1);
-        Self { terrain_cost, tunnel_cost, resources_block: true, rail_step: 0 }
+        Self { terrain_cost, tunnel_cost, resources_block: true, track_steps: Vec::new() }
     }
 }
 
@@ -108,17 +111,28 @@ impl MoveRules {
         self
     }
 
-    /// Returns these rules with rail switched on: a straight step between two rail tiles costs
-    /// `step` (at least 1, and `STRAIGHT` or less) whatever the ground under them.
-    pub fn with_rail(mut self, step: u32) -> Self {
-        assert!((1..=STRAIGHT).contains(&step), "a rail step costs 1..={STRAIGHT}, not {step}");
-        self.rail_step = step;
+    /// Returns these rules with tracks switched on: a straight step between two tiles of track
+    /// `i + 1` costs `steps[i]` (each at least 1, and `STRAIGHT` or less) whatever the ground
+    /// under them.
+    pub fn with_tracks(mut self, steps: Vec<u32>) -> Self {
+        for &step in &steps {
+            assert!(
+                (1..=STRAIGHT).contains(&step),
+                "a track step costs 1..={STRAIGHT}, not {step}"
+            );
+        }
+        self.track_steps = steps;
         self
     }
 
-    /// The cost of a rail step, or 0 if these rules ignore rail.
-    pub fn rail_step(&self) -> u32 {
-        self.rail_step
+    /// Each track's step cost, indexed by track index - 1; empty if these rules ignore tracks.
+    pub fn track_steps(&self) -> &[u32] {
+        &self.track_steps
+    }
+
+    /// The step along track `track` (a `TileBuilding::track`, above 0), if these rules have it.
+    pub(crate) fn track_step(&self, track: u8) -> Option<u32> {
+        self.track_steps.get(usize::from(track).checked_sub(1)?).copied()
     }
 
     pub fn terrain_cost(&self, terrain: Terrain) -> Option<u32> {
@@ -144,7 +158,7 @@ impl MoveRules {
     }
 
     /// The cost of one step from `from` onto the adjacent tile `to`, in the units `find` and
-    /// `Flood` minimise (`STRAIGHT` or `DIAGONAL` times the tile cost, or `rail_step` along a
+    /// `Flood` minimise (`STRAIGHT` or `DIAGONAL` times the tile cost, or the track's step along a
     /// track), or `None` if `to` can't be entered. Rail only speeds a straight step: a diagonal
     /// between two rail tiles is an ordinary diagonal, because a track doesn't run that way.
     pub fn step_cost(&self, from: &Tile, to: &Tile, diagonal: bool) -> Option<u32> {
@@ -152,19 +166,24 @@ impl MoveRules {
         if diagonal {
             return Some(DIAGONAL * cost);
         }
-        let rail = |t: &Tile| t.building.is_some_and(|b| b.rail());
-        if self.rail_step > 0 && rail(from) && rail(to) {
-            return Some(self.rail_step.min(STRAIGHT * cost));
+        let track = |t: &Tile| t.building.map_or(0, |b| b.track());
+        let (a, b) = (track(from), track(to));
+        if a != 0
+            && a == b
+            && let Some(step) = self.track_step(a)
+        {
+            return Some(step.min(STRAIGHT * cost));
         }
         Some(STRAIGHT * cost)
     }
 
     /// The cheapest a straight step can cost, in `STRAIGHT` units: the heuristic's scale, so it
-    /// never overestimates. The cheapest passable terrain, or the rail if that is cheaper.
+    /// never overestimates. The cheapest passable terrain, or the cheapest track if that is
+    /// cheaper.
     fn min_step(&self) -> u32 {
         let costs = self.terrain_cost.iter().chain([&self.tunnel_cost]).flatten();
         let ground = costs.copied().min().unwrap_or(1) * STRAIGHT;
-        if self.rail_step > 0 { ground.min(self.rail_step) } else { ground }
+        self.track_steps.iter().copied().fold(ground, u32::min)
     }
 }
 
@@ -468,7 +487,7 @@ mod tests {
     fn lay_rail(m: &mut TileMap, tiles: impl IntoIterator<Item = Pos>) {
         use crate::building::{BuildingKey, TileBuilding};
         for p in tiles {
-            m[p].building = Some(TileBuilding::new(BuildingKey::NONE, true, true));
+            m[p].building = Some(TileBuilding::new(BuildingKey::NONE, true, 1));
         }
     }
 
@@ -494,7 +513,7 @@ mod tests {
         assert_eq!(path_cost(&m, &direct, &foot), 20 * STRAIGHT, "rail means nothing on foot");
         assert!(direct.iter().all(|p| p.y == 3));
 
-        let cart = MoveRules::default().with_rail(STRAIGHT / 2);
+        let cart = MoveRules::default().with_tracks(vec![STRAIGHT / 2]);
         let railed = find(&m, a, b, &cart).unwrap();
         assert!(railed.contains(&Pos::new(10, 0)), "the cart takes the rail: {railed:?}");
         assert_eq!(path_cost(&m, &railed, &cart), (3 + 20 + 3) * STRAIGHT / 2);
@@ -507,7 +526,7 @@ mod tests {
         use crate::flood::Flood;
         let mut m = map(&["........", ".~~~~~..", "...#....", ".#.#.~~.", "...#....", "........"]);
         lay_rail(&mut m, (0..8).map(|x| Pos::new(x, 0)).chain((0..6).map(|y| Pos::new(7, y))));
-        let rules = MoveRules::default().with_cost(Terrain::Mountain, Some(3)).with_rail(4);
+        let rules = MoveRules::default().with_cost(Terrain::Mountain, Some(3)).with_tracks(vec![4]);
         let flood = Flood::new(&m, Pos::new(0, 0), &rules);
         for (p, _) in m.iter() {
             let astar =
@@ -520,8 +539,48 @@ mod tests {
     fn rail_ignores_the_ground_under_it() {
         let mut m = map(&[",,,,,"]);
         lay_rail(&mut m, (0..5).map(|x| Pos::new(x, 0)));
-        let rules = MoveRules::default().with_cost(Terrain::Coast, Some(3)).with_rail(5);
+        let rules = MoveRules::default().with_cost(Terrain::Coast, Some(3)).with_tracks(vec![5]);
         let p = find(&m, Pos::new(0, 0), Pos::new(4, 0), &rules).unwrap();
         assert_eq!(path_cost(&m, &p, &rules), 4 * 5, "a rail bed is level");
+    }
+
+    /// Marks `tiles` as track `index` (a road is 2 beside rail's 1).
+    fn lay_track(m: &mut TileMap, index: u8, tiles: impl IntoIterator<Item = Pos>) {
+        use crate::building::{BuildingKey, TileBuilding};
+        for p in tiles {
+            m[p].building = Some(TileBuilding::new(BuildingKey::NONE, true, index));
+        }
+    }
+
+    #[test]
+    fn each_track_speeds_only_steps_along_itself() {
+        // Rail on x 0..=2, road on x 3..=6, all one row.
+        let mut m = map(&["......."]);
+        lay_track(&mut m, 1, (0..3).map(|x| Pos::new(x, 0)));
+        lay_track(&mut m, 2, (3..7).map(|x| Pos::new(x, 0)));
+        let rules = MoveRules::default().with_tracks(vec![5, 8]);
+        let p = find(&m, Pos::new(0, 0), Pos::new(6, 0), &rules).unwrap();
+        // Two rail steps, one ordinary step from rail onto road, three road steps.
+        assert_eq!(path_cost(&m, &p, &rules), 2 * 5 + STRAIGHT + 3 * 8);
+        // A track the rules don't know is ordinary ground.
+        let rail_only = MoveRules::default().with_tracks(vec![5]);
+        let p = find(&m, Pos::new(0, 0), Pos::new(6, 0), &rail_only).unwrap();
+        assert_eq!(path_cost(&m, &p, &rail_only), 2 * 5 + 4 * STRAIGHT);
+    }
+
+    #[test]
+    fn a_flood_agrees_with_a_search_with_two_tracks() {
+        use crate::flood::Flood;
+        let mut m = map(&["........", ".~~~~~..", "...#....", ".#.#.~~.", "...#....", "........"]);
+        lay_track(&mut m, 1, (0..8).map(|x| Pos::new(x, 0)));
+        lay_track(&mut m, 2, (1..6).map(|y| Pos::new(7, y)).chain((0..7).map(|x| Pos::new(x, 5))));
+        let rules =
+            MoveRules::default().with_cost(Terrain::Mountain, Some(3)).with_tracks(vec![5, 8]);
+        let flood = Flood::new(&m, Pos::new(0, 0), &rules);
+        for (p, _) in m.iter() {
+            let astar =
+                find(&m, Pos::new(0, 0), p, &rules).map(|path| path_cost(&m, &path, &rules));
+            assert_eq!(flood.cost(p), astar, "{p:?}");
+        }
     }
 }

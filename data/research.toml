@@ -542,3 +542,17 @@ prereqs = ["meditation", "air_scooter"]
 [tech.unlocks]
 buildings = ["bison_stable"]
 modifiers = { carry_capacity = 1.3 }
+
+# ---------------------------------------------------------------------------------------------
+# Research horizons, phase 1 (docs/design/horizons-phase-1.md): optional techs, not `core`, so
+# the Harmony Gate doesn't grow. Each phase-1 issue appends its own block here.
+# ---------------------------------------------------------------------------------------------
+
+[[tech]]
+id = "paving"
+name = "Paving"
+description = "Lay dressed stone so people and carts move faster."
+cost = 120
+prereqs = ["masonry"]
+[tech.unlocks]
+buildings = ["paved_road"]

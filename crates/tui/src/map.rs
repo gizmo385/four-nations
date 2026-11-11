@@ -355,9 +355,11 @@ fn door_tiles(ghosts: &[Placement]) -> BTreeMap<Pos, bool> {
     ghosts.iter().filter_map(|g| g.entrance).collect()
 }
 
-/// Whether `id` -- a finished building or a build site's building -- is a rail (#279).
+/// Whether `id` -- a finished building or a build site's building -- is a rail (#279): the
+/// first track, which draws as joined box pieces. Other tracks (the Paved Road) keep their own
+/// glyph, so a road never reads as rail.
 fn is_rail(defs: &fn_sim::Defs, id: BuildingId) -> bool {
-    defs.building(id).rail.is_some()
+    defs.building(id).track.is_some_and(|t| t.index == 1)
 }
 
 /// Which `Thing` a lit flame or shelter draws, by the ability that lit it (#362): Earth Tent and

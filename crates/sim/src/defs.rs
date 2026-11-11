@@ -515,13 +515,15 @@ impl Defs {
         self.buildings.iter().position(|b| b.id == id).map(|i| BuildingId(i as u16))
     }
 
-    /// `walking` rules with rail switched on at the speed the rail building (if any) sets: how a
-    /// unit hauling a stack moves (#135). Unchanged if no building is a rail.
+    /// `walking` rules with every track switched on at its own speed (`TrackDef`): how units
+    /// move (#135, docs/design/horizons-phase-1.md). Unchanged if no building is a track.
     pub fn cart_rules(&self, walking: MoveRules) -> MoveRules {
-        match self.buildings.iter().find_map(|b| b.rail) {
-            Some(rail) => walking.with_rail(rail.step_cost()),
-            None => walking,
-        }
+        walking.with_tracks(self.track_steps())
+    }
+
+    /// Each track's straight-step cost, indexed by `TrackDef::index - 1`.
+    pub fn track_steps(&self) -> Vec<u32> {
+        self.buildings.iter().filter_map(|b| b.track).map(|t| t.step_cost()).collect()
     }
 
     pub fn building(&self, id: BuildingId) -> &BuildingDef {

@@ -319,7 +319,12 @@ fn scores_come_from_the_replay_at_540_and_are_cached_without_touching_the_log() 
 #[test]
 fn a_log_made_against_other_data_has_a_score_error_not_a_crash() {
     let dir = fresh_dir();
-    let log = game_log(7, Nation::Earth, 1).replacen("\"data_digest\":", "\"data_digest\":1", 1);
+    // Swap the digest for 1, whatever it is: prefixing a digit could overflow a u64 and fail to
+    // parse rather than mismatch.
+    let log = game_log(7, Nation::Earth, 1);
+    let at = log.find("\"data_digest\":").expect("a digest") + "\"data_digest\":".len();
+    let end = at + log[at..].find(|c: char| !c.is_ascii_digit()).expect("digits end");
+    let log = format!("{}1{}", &log[..at], &log[end..]);
     let run = put(
         &dir,
         "20261109-000000-earth-7-normal",
