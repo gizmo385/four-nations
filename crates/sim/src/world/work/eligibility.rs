@@ -28,6 +28,9 @@ pub(in crate::world) enum StandRule {
     Entrance(Pos),
     /// On exactly this tile (a stack to pick up).
     Exact(Pos),
+    /// Beside the tile, though it could be walked onto: a bend that cuts it into water (Carve
+    /// Canal, #695) is worked from the bank.
+    Beside(Pos),
 }
 
 /// What bars a unit from a job it could otherwise stand beside.
@@ -153,6 +156,7 @@ impl World {
                 self.footprint_at(pos).map(|f| f.entrance()).into_iter().collect()
             }
             StandRule::Exact(pos) => vec![pos],
+            StandRule::Beside(pos) => area(Footprint::single(pos), false),
         }
     }
 
@@ -300,7 +304,7 @@ impl World {
                 } else {
                     Bar::Reason(None)
                 };
-                Some(Gate { stand: StandRule::Tile(pos), bar })
+                Some(Gate { stand: self.bend_stand(ability, pos, defs), bar })
             }
             // Reachable as soon as the site itself is and nothing it still needs cleared
             // (`site_ready`, `docs/design/clearing.md`, issue #425), whether or not its
@@ -343,6 +347,7 @@ impl World {
             StandRule::Building(pos) => self.stand_building(flood, pos, defs),
             StandRule::Entrance(pos) => self.stand_entrance(flood, pos),
             StandRule::Exact(pos) => flood.cost(pos).map(|c| (c, pos)),
+            StandRule::Beside(pos) => self.stand(flood, Footprint::single(pos), false),
         }
     }
 

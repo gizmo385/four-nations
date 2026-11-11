@@ -549,10 +549,7 @@ impl Survey {
         if !self.surface.in_bounds(at) {
             return None;
         }
-        self.nearest_water_where(at, |t| {
-            matches!(t, Terrain::River | Terrain::Lake | Terrain::Ford)
-        })
-        .map(|(_, steps)| steps)
+        self.nearest_water_where(at, Terrain::is_fresh).map(|(_, steps)| steps)
     }
 
     /// How many tiles within `radius` of `at` (Chebyshev) hold one of `resources` and touch

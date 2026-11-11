@@ -247,7 +247,13 @@ pub enum Effect {
     /// long, instead of staying `to` forever. A target that is already walkable (Draw Water's dry
     /// land) needs no bank of passable ground beside it, since the bender can simply stand on it;
     /// one that isn't (Raise Earth's water, Bore Tunnel's rock) does.
-    Reshape { from: Vec<Terrain>, to: Terrain, revert_minutes: Option<f32> },
+    ///
+    /// `source` (Carve Canal, #695), when not empty, replaces the bank rule: the target must be
+    /// 4-adjacent to one of those terrains, or chained off a pending designation of the same
+    /// bend. And when the target is walkable but `to` isn't (a canal cut into land), the bender
+    /// stands beside it, the cut waits until no unit stands on the tile, and a cut that would
+    /// split the land in two is refused.
+    Reshape { from: Vec<Terrain>, to: Terrain, revert_minutes: Option<f32>, source: Vec<Terrain> },
     /// Cuts `count` of `item` from a tile of one of `from` terrains beside passable ground
     /// (Water's "Cut Ice", #364): the target itself (river, lake or sea) isn't walkable, so the
     /// yield drops on the tile the bender actually stood on to reach it, not on the target.
@@ -350,6 +356,8 @@ enum RawEffect {
         to: Terrain,
         #[serde(default)]
         revert_minutes: Option<f32>,
+        #[serde(default)]
+        source: Option<Vec<Terrain>>,
     },
     DrawItem {
         from: Vec<Terrain>,
@@ -422,10 +430,23 @@ struct RawAbility {
     effect: RawEffect,
 }
 
+/// `[canal]` in `data/bending.toml` (#695): what a carved canal tile does for the fields beside
+/// it. Read by `World::irrigation_rate` next to the Irrigation Channel's own rule: the best boost
+/// in reach applies, and a channel and a canal don't stack.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CanalDef {
+    /// How far from each canal tile, Chebyshev, a farm plot is sped up: at least 1.
+    pub irrigation_radius: u32,
+    /// How many times faster a farm plot in reach grows: at least 1.0.
+    pub growth_boost: f32,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct BendingFile {
     chi: ChiSettings,
+    canal: CanalDef,
     #[serde(default)]
     ability: Vec<RawAbility>,
     mastery: RawMastery,
@@ -461,7 +482,7 @@ impl BendingFile {
         harvests: &[HarvestDef],
         items: &[ItemDef],
         techs: &[TechDef],
-    ) -> Result<(ChiSettings, Vec<AbilityDef>, MasteryDef), DefsError> {
+    ) -> Result<(ChiSettings, Vec<AbilityDef>, MasteryDef, CanalDef), DefsError> {
         let err = |msg: String| DefsError(format!("bending.toml: {msg}"));
         let c = self.chi;
         if !positive(c.max) {
@@ -474,6 +495,13 @@ impl BendingFile {
             if !(v.is_finite() && v >= 0.0) {
                 return Err(err(format!("chi.{what} must be a number >= 0")));
             }
+        }
+        let canal = self.canal;
+        if canal.irrigation_radius == 0 {
+            return Err(err("canal.irrigation_radius must be at least 1".into()));
+        }
+        if !(canal.growth_boost.is_finite() && canal.growth_boost >= 1.0) {
+            return Err(err("canal.growth_boost must be at least 1.0".into()));
         }
         if self.ability.len() > usize::from(u16::MAX) {
             return Err(err(format!("too many abilities: {}", self.ability.len())));
@@ -520,7 +548,7 @@ impl BendingFile {
         }
         link_unlocks(&mut abilities, techs)?;
         let mastery = self.mastery.resolve(&abilities)?;
-        Ok((c, abilities, mastery))
+        Ok((c, abilities, mastery, canal))
     }
 }
 
@@ -534,7 +562,7 @@ fn resolve_effect(
 ) -> Result<Effect, DefsError> {
     let err = |msg: &str| Err(DefsError(format!("bending.toml: ability {ability}: {msg}")));
     Ok(match raw {
-        RawEffect::Reshape { from, to, revert_minutes } => {
+        RawEffect::Reshape { from, to, revert_minutes, source } => {
             if from.is_empty() {
                 return err("reshape needs at least one `from` terrain");
             }
@@ -544,7 +572,11 @@ fn resolve_effect(
             if revert_minutes.is_some_and(|m| !positive(m)) {
                 return err("reshape revert_minutes must be positive");
             }
-            Effect::Reshape { from, to, revert_minutes }
+            if source.as_ref().is_some_and(|s| s.is_empty()) {
+                return err("reshape `source` needs at least one terrain");
+            }
+            let source = source.unwrap_or_default();
+            Effect::Reshape { from, to, revert_minutes, source }
         }
         RawEffect::DrawItem { from, item, count } => {
             if from.is_empty() {

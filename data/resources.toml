@@ -114,7 +114,7 @@ id = "fish_spot"
 name = "Fishing Spot"
 glyph = "f"
 chance = 0.06
-terrains = ["water", "lake", "river"]
+terrains = ["water", "lake", "river", "canal"]
 beside = ["coast", "land"]
 clustering = 0.6
 

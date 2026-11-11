@@ -202,6 +202,7 @@ mod tests {
                         Terrain::Ford => ':',
                         Terrain::Coast => ',',
                         Terrain::Tunnel => '_',
+                        Terrain::Canal => 'c',
                     })
                     .collect()
             })

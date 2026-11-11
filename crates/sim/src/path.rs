@@ -32,11 +32,12 @@ pub(crate) const STRAIGHT: u32 = 10;
 /// Cost of one diagonal step onto a tile of cost 1 (10 * sqrt(2), rounded).
 pub(crate) const DIAGONAL: u32 = 14;
 
-/// The terrains `MoveRules::terrain_cost` holds: every one but `Tunnel`, whose cost is a field
-/// of its own so saves from before tunnels (#132), with seven entries here, still load.
+/// The terrains `MoveRules::terrain_cost` holds: every one but `Tunnel` and `Canal`, whose costs
+/// are fields of their own so saves from before tunnels (#132) and canals (#695), with seven
+/// entries here, still load.
 const TERRAINS: usize = 7;
 
-/// `t`'s entry in `MoveRules::terrain_cost`, or `None` for a tunnel.
+/// `t`'s entry in `MoveRules::terrain_cost`, or `None` for a tunnel or a canal.
 fn terrain_index(t: Terrain) -> Option<usize> {
     Some(match t {
         Terrain::Water => 0,
@@ -46,7 +47,7 @@ fn terrain_index(t: Terrain) -> Option<usize> {
         Terrain::River => 4,
         Terrain::Lake => 5,
         Terrain::Ford => 6,
-        Terrain::Tunnel => return None,
+        Terrain::Tunnel | Terrain::Canal => return None,
     })
 }
 
@@ -70,6 +71,11 @@ pub struct MoveRules {
     /// rules value today. Left out of saves while it is 1, so they read as before tunnels.
     #[serde(default = "walk", skip_serializing_if = "is_walk")]
     tunnel_cost: Option<u32>,
+    /// What entering a canal costs (#695): `None`, impassable, for every rules value today (a
+    /// canal is water nobody wades). #201's water travel rule is where this changes. Left out of
+    /// saves while it is `None`, so they read as before canals.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    canal_cost: Option<u32>,
     /// Whether tiles holding a resource (trees, rocks, ...) block movement.
     pub resources_block: bool,
     /// What a straight step between two tiles of track `i + 1` (`TileBuilding::track`) costs, in
@@ -96,7 +102,14 @@ impl Default for MoveRules {
             terrain_cost[terrain_index(t).expect("not a tunnel")] = t.is_walkable().then_some(1);
         }
         let tunnel_cost = Terrain::Tunnel.is_walkable().then_some(1);
-        Self { terrain_cost, tunnel_cost, resources_block: true, track_steps: Vec::new() }
+        let canal_cost = Terrain::Canal.is_walkable().then_some(1);
+        Self {
+            terrain_cost,
+            tunnel_cost,
+            canal_cost,
+            resources_block: true,
+            track_steps: Vec::new(),
+        }
     }
 }
 
@@ -106,6 +119,7 @@ impl MoveRules {
         assert!(cost != Some(0), "terrain costs must be >= 1");
         match terrain_index(terrain) {
             Some(i) => self.terrain_cost[i] = cost,
+            None if terrain == Terrain::Canal => self.canal_cost = cost,
             None => self.tunnel_cost = cost,
         }
         self
@@ -138,6 +152,7 @@ impl MoveRules {
     pub fn terrain_cost(&self, terrain: Terrain) -> Option<u32> {
         match terrain_index(terrain) {
             Some(i) => self.terrain_cost[i],
+            None if terrain == Terrain::Canal => self.canal_cost,
             None => self.tunnel_cost,
         }
     }
@@ -181,7 +196,7 @@ impl MoveRules {
     /// never overestimates. The cheapest passable terrain, or the cheapest track if that is
     /// cheaper.
     fn min_step(&self) -> u32 {
-        let costs = self.terrain_cost.iter().chain([&self.tunnel_cost]).flatten();
+        let costs = self.terrain_cost.iter().chain([&self.tunnel_cost, &self.canal_cost]).flatten();
         let ground = costs.copied().min().unwrap_or(1) * STRAIGHT;
         self.track_steps.iter().copied().fold(ground, u32::min)
     }

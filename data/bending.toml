@@ -39,6 +39,14 @@ max = 100.0
 regen_per_minute = 2.0         # awake
 sleep_regen_per_minute = 8.0   # asleep: rest restores chi
 
+# `[canal]` (#695, docs/design/horizons-phase-2.md, "Shared sim work, 4. Canal"): what a tile
+# Carve Canal cut does for the fields beside it. Each canal tile speeds up farm plots within
+# `irrigation_radius` (Chebyshev) by `growth_boost`; the best boost in reach applies, whether it
+# comes from a canal or an Irrigation Channel, and the two don't stack.
+[canal]
+irrigation_radius = 2
+growth_boost = 1.5   # the Irrigation Channel's own boost
+
 [mastery]
 master_bends = 10
 master_bends_per_nation = { earth = 8, water = 8, air = 16 }
@@ -372,3 +380,27 @@ kind = "draw_item"
 from = ["river", "lake", "water"]
 item = "ice"
 count = 4
+
+# --- #695 (Water: Carve Canal) ---------------------------------------------------------------
+
+# Water, from `canals` (docs/design/horizons-phase-2.md, "`canals`: Carve Canal"): cuts a
+# permanent channel into land or coast beside fresh water. The tile becomes a `canal`, which every
+# water rule counts as a river: not walkable, fresh, a bank for a Fishing Dock or a Tide Mill. The
+# bender stands beside the target, and the cut waits until the tile is empty. A cut that would
+# split the land in two is refused, at designation and again when it completes. `source` is what
+# the target must touch (4-adjacent), or else chain off a pending designation of this same bend:
+# the sea doesn't count, since a canal is fresh. Numbers for the fields it waters: `[canal]`.
+[[ability]]
+id = "carve_canal"
+nation = "water"
+name = "Carve Canal"
+verb = "Carve"
+description = "Cut a channel from the river. The water stays, and fields beside it grow faster."
+chi = 60.0
+work = 20.0
+speed_modifier = "water_work"
+[ability.effect]
+kind = "reshape"
+from = ["land", "coast"]
+to = "canal"
+source = ["river", "lake", "canal"]

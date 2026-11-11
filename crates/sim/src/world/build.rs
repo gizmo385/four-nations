@@ -579,18 +579,24 @@ impl World {
     }
 
     fn would_cut_off_uncached(&self, at: Pos) -> bool {
-        let walkable = |p: Pos| self.map.get(p).is_some_and(|t| self.rules.passable(t));
-        if !walkable(at) || self.ring_stays_joined(at) {
+        self.would_cut_off_on(&self.map, at)
+    }
+
+    /// `would_cut_off` on an explicit `map` instead of the live one (Carve Canal checks a cut
+    /// with its earlier designations already made, #695). Not cached.
+    pub(super) fn would_cut_off_on(&self, map: &TileMap, at: Pos) -> bool {
+        let walkable = |p: Pos| map.get(p).is_some_and(|t| self.rules.passable(t));
+        if !walkable(at) || self.ring_stays_joined(map, at) {
             return false;
         }
         let foot = Footprint::single(at);
         let mut floods: Vec<Flood> = Vec::new();
-        for n in self.map.neighbors(at, false).filter(|&n| walkable(n)) {
+        for n in map.neighbors(at, false).filter(|&n| walkable(n)) {
             if floods.iter().any(|f| f.cost(n).is_some()) {
                 continue;
             }
-            let before = Flood::new(&self.map, n, &self.rules);
-            if self.would_strand_on(&self.map, &before, foot) {
+            let before = Flood::new(map, n, &self.rules);
+            if self.would_strand_on(map, &before, foot) {
                 return true;
             }
             floods.push(before);
@@ -603,11 +609,11 @@ impl World {
     /// or there is at most one to join. A step between two ring neighbours is always an
     /// orthogonal one, so the run is a real path. A diagonal neighbour only matters next to the
     /// two orthogonal ones it touches, which a unit needs to step on or off it anyway.
-    fn ring_stays_joined(&self, at: Pos) -> bool {
+    fn ring_stays_joined(&self, map: &TileMap, at: Pos) -> bool {
         const RING: [(i32, i32); 8] =
             [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)];
         let open = RING.map(|(dx, dy)| {
-            self.map.get(Pos::new(at.x + dx, at.y + dy)).is_some_and(|t| self.rules.passable(t))
+            map.get(Pos::new(at.x + dx, at.y + dy)).is_some_and(|t| self.rules.passable(t))
         });
         // Even indices are the orthogonal neighbours.
         if (0..8).step_by(2).filter(|&i| open[i]).count() <= 1 {

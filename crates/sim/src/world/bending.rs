@@ -127,6 +127,18 @@
 //! way") the same as an occupied target anywhere else. Raise Earth and Bore Tunnel are
 //! unaffected: their own targets are never walkable before the bend, so they still need the bank.
 //!
+//! **Carve Canal** (Water, from `canals`, #695) is a `Reshape` with a `source`, cutting `Land` or
+//! `Coast` into a permanent `Canal`: fresh water that is not walkable. The `source` terrains
+//! (river, lake, canal; never the sea) take the place of the bank: the target must touch one
+//! orthogonally, or chain off a pending designation of the same bend, and `bend_ready` holds a
+//! chained tile until the water really reaches it. The target is walkable, so the bender stands
+//! *beside* it (`StandRule::Beside`), and a finished channel waits until no unit is on the tile.
+//! A cut is refused ("would cut the land in two") when it would leave its walkable neighbours in
+//! two regions: `World::would_cut_off`'s flood, at designation (with the other pending canal
+//! tiles counted as carved) and again when the channel finishes. `[canal]` in `bending.toml` sets
+//! the irrigation a canal tile gives (`World::irrigation_rate`). A canal blocks walking exactly as
+//! a river does; #201 decides what Water's people may do about that.
+//!
 //! **Cut Ice** (Water, from `ice_construction`, #364) is the new `DrawItem` effect: the target is
 //! a river, lake or sea tile beside passable ground, like Raise Earth's bank, but nothing about
 //! the target tile changes. Instead `count` of `item` (ice) appears on the tile the bender
@@ -312,6 +324,9 @@ fn reshape_mismatch(from: &[Terrain], terrain: Terrain) -> &'static str {
     if terrain == Terrain::Tunnel {
         return "already a tunnel";
     }
+    if terrain == Terrain::Canal {
+        return "already a canal";
+    }
     if from.contains(&Terrain::Mountain) {
         return "needs a mountain tile";
     }
@@ -321,6 +336,22 @@ fn reshape_mismatch(from: &[Terrain], terrain: Terrain) -> &'static str {
     match terrain {
         Terrain::Water | Terrain::Coast => "the sea is out of reach",
         _ => "needs a river or lake tile",
+    }
+}
+
+/// Whether `effect` cuts into ground a unit can walk on and leaves something it can't (Carve
+/// Canal, #695), when its target has `terrain` now. The bender can't stand on such a tile: it
+/// stands beside it, and the cut waits until no unit is on the tile.
+fn carves(effect: &Effect, terrain: Terrain) -> bool {
+    matches!(effect, Effect::Reshape { to, .. } if !to.is_walkable()) && terrain.is_walkable()
+}
+
+/// Why a `Reshape` with a `source` has none beside its target: Carve Canal's fresh water.
+fn source_missing(source: &[Terrain]) -> &'static str {
+    if source.iter().all(|t| t.is_fresh()) {
+        "needs fresh water beside it"
+    } else {
+        "needs its source beside it"
     }
 }
 
@@ -488,6 +519,66 @@ impl World {
         orthogonal(pos).into_iter().any(|p| self.walkable(p))
     }
 
+    /// Whether one of `pos`'s four orthogonal neighbours is a terrain in `source` right now:
+    /// Carve Canal's fresh water (#695), the stricter, unchained check a claim needs.
+    fn has_source(&self, pos: Pos, source: &[Terrain]) -> bool {
+        orthogonal(pos)
+            .into_iter()
+            .any(|p| self.map.get(p).is_some_and(|t| source.contains(&t.terrain)))
+    }
+
+    /// Whether an orthogonal neighbour of `pos` has a pending designation of `effect` (#304): the
+    /// chain that lets a dragged line or rectangle be designated all at once. Each pending tile
+    /// only ever got there by validating itself, by the bank or source or a chain of its own.
+    fn chained_to_pending(&self, pos: Pos, effect: &Effect, defs: &Defs) -> bool {
+        orthogonal(pos).into_iter().any(|q| {
+            self.jobs.iter().any(|j| {
+                matches!(j.kind, JobKind::Bend { ability, pos: p } if p == q
+                    && defs.ability(ability).effect == *effect)
+            })
+        })
+    }
+
+    /// Whether cutting `pos` into `to` would leave its walkable neighbours in two regions under
+    /// the settlement's current move rules (Carve Canal, #695). Every other tile with a pending
+    /// designation of `effect` counts as already cut, so a long dragged line is checked tile by
+    /// tile against the earlier ones; at completion the job is gone from the queue and the live
+    /// map has whatever was really carved. A flood bounded to the land the tile touches
+    /// (`would_cut_off`), cached while the map doesn't change.
+    fn carve_splits(&self, pos: Pos, to: &Terrain, effect: &Effect, defs: &Defs) -> bool {
+        let pending: Vec<Pos> = self
+            .jobs
+            .iter()
+            .filter_map(|j| match j.kind {
+                JobKind::Bend { ability, pos: p }
+                    if p != pos
+                        && self.map[p].terrain.is_walkable()
+                        && defs.ability(ability).effect == *effect =>
+                {
+                    Some(p)
+                }
+                _ => None,
+            })
+            .collect();
+        if pending.is_empty() {
+            return self.would_cut_off(pos);
+        }
+        let mut map = self.map.clone();
+        for p in pending {
+            map[p].terrain = *to;
+        }
+        self.would_cut_off_on(&map, pos)
+    }
+
+    /// Where the bender stands for a bend on `pos`: on the tile, or beside it when the bend cuts
+    /// a tile it couldn't then stand on (Carve Canal, #695).
+    pub(super) fn bend_stand(&self, ability: AbilityId, pos: Pos, defs: &Defs) -> StandRule {
+        match self.map.get(pos) {
+            Some(t) if carves(&defs.ability(ability).effect, t.terrain) => StandRule::Beside(pos),
+            _ => StandRule::Tile(pos),
+        }
+    }
+
     /// Is a `Bend` job on `pos` for `ability` reachable right now, beyond `unit_can_bend`'s chi
     /// and nation check (#304)? Only a `Reshape` whose target isn't already walkable cares
     /// (Raise Earth, Bore Tunnel): a tile designated by chaining off a still-pending neighbour
@@ -498,6 +589,9 @@ impl World {
     /// claiming re-checks itself by trying to stand on it.
     pub(super) fn bend_ready(&self, ability: AbilityId, pos: Pos, defs: &Defs) -> bool {
         match &defs.ability(ability).effect {
+            // Carve Canal's target is walkable land, but it still waits on its water: the
+            // source terrain really beside it, so a chained line is cut outward from the river.
+            Effect::Reshape { source, .. } if !source.is_empty() => self.has_source(pos, source),
             Effect::Reshape { .. } if !self.walkable(pos) => self.has_bank(pos),
             _ => true,
         }
@@ -674,13 +768,19 @@ impl World {
             // Chi can only have gone up since the claim, so this is a safety net.
             return self.abandon_job(i, id, defs);
         }
-        if !self.go_or_abandon(i, id, StandRule::Tile(pos), defs) {
+        let stand = self.bend_stand(ability, pos, defs);
+        if !self.go_or_abandon(i, id, stand, defs) {
             return;
         }
         let rate = self.bend_rate(&self.units[i], def, defs);
         let job = &mut self.jobs[idx];
         job.progress += rate / TICKS_PER_SECOND as f32;
         if job.progress < def.work {
+            return;
+        }
+        // A cut into walkable ground waits until nobody stands on the tile (#695): the channel is
+        // done, and it finishes the moment the tile is empty.
+        if stand == StandRule::Beside(pos) && self.units.iter().any(|u| u.pos == pos) {
             return;
         }
         self.jobs.remove(idx);
@@ -831,7 +931,7 @@ impl World {
         defs: &Defs,
     ) -> Result<(), &'static str> {
         match effect {
-            Effect::Reshape { from, .. } => {
+            Effect::Reshape { from, to, source, .. } => {
                 let tile = &self.map[pos];
                 if !from.contains(&tile.terrain) {
                     return Err(reshape_mismatch(from, tile.terrain));
@@ -844,6 +944,19 @@ impl World {
                     || self.zones.contains(&pos)
                 {
                     return Err("something is in the way");
+                }
+                // Carve Canal (#695) names what the target must touch, in place of the bank: that
+                // terrain beside it, or a pending designation of this same bend beside it (the
+                // chain, below). And it must leave the land in one piece.
+                if !source.is_empty() {
+                    if !self.has_source(pos, source) && !self.chained_to_pending(pos, effect, defs)
+                    {
+                        return Err(source_missing(source));
+                    }
+                    if carves(effect, tile.terrain) && self.carve_splits(pos, to, effect, defs) {
+                        return Err("would cut the land in two");
+                    }
+                    return Ok(());
                 }
                 // Draw Water's land is already walkable (#364): the bender stands right on it,
                 // the way Water the Land or Hearthflame do, so there's no bank or chain to check.
@@ -859,13 +972,11 @@ impl World {
                 // from dry ground, each tile accepted before any of it is actually bored or
                 // raised. A tile that chains to nothing -- no bank, no designated neighbour -- is
                 // still refused. The chain can't be *worked* out of this order: `bend_ready`.
-                let chained = orthogonal(pos).into_iter().any(|q| {
-                    self.jobs.iter().any(|j| {
-                        matches!(j.kind, JobKind::Bend { ability, pos: p } if p == q
-                            && defs.ability(ability).effect == *effect)
-                    })
-                });
-                if chained { Ok(()) } else { Err("needs dry ground beside it") }
+                if self.chained_to_pending(pos, effect, defs) {
+                    Ok(())
+                } else {
+                    Err("needs dry ground beside it")
+                }
             }
             // A river, lake or sea tile beside passable ground, like Raise Earth's bank: nothing
             // about the tile itself needs to be empty, since the bend doesn't touch it.
@@ -888,7 +999,7 @@ impl World {
                 let fresh = (-range..=range)
                     .flat_map(|dy| (-range..=range).map(move |dx| Pos::new(pos.x + dx, pos.y + dy)))
                     .filter_map(|q| self.map.get(q))
-                    .any(|t| matches!(t.terrain, Terrain::River | Terrain::Lake | Terrain::Ford));
+                    .any(|t| t.terrain.is_fresh());
                 if fresh { Ok(()) } else { Err("needs fresh water nearby") }
             }
             // An empty open tile. A lit flame is a fine target too: that restokes it, unless it
@@ -1009,7 +1120,11 @@ impl World {
             // Boring into a buried seam (#133) strikes it instead: the seam is uncovered and the
             // rock stays, so the miners have something to work from beside it.
             Effect::Reshape { to, revert_minutes, .. } => {
-                if self.uncover(pos) {
+                // A cut into walkable ground (Carve Canal) buries whatever lay hidden under it
+                // instead of striking it: the water covers a lost ruin for good.
+                if carves(effect, self.map[pos].terrain) {
+                    self.buried.remove(&pos);
+                } else if self.uncover(pos) {
                     self.wake_idle();
                     return None;
                 }
@@ -1321,6 +1436,8 @@ impl World {
 mod air_tests;
 #[cfg(test)]
 mod build_tests;
+#[cfg(test)]
+mod canal_tests;
 #[cfg(test)]
 mod cut_ice_tests;
 #[cfg(test)]

@@ -622,3 +622,14 @@ cost = 250
 prereqs = ["cartography"]
 [tech.unlocks]
 buildings = ["waystation"]
+
+[[tech]]
+id = "canals"
+name = "Canals"
+description = "Waterbenders cut channels that bring the river to the fields."
+nation = "water"
+cost = 250
+prereqs = ["irrigation", "water_travel"]
+# Carve Canal (#695, docs/design/horizons-phase-2.md): a permanent canal tile beside fresh water.
+[tech.unlocks]
+abilities = ["carve_canal"]
