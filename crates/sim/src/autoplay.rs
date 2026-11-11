@@ -65,7 +65,8 @@
 //!   stops: growth takes each newcomer's food from stores, so beds without a ceiling turn every
 //!   surplus into a person and the "food" sign never fills (#513). It builds them again if the
 //!   population falls below the target. Also one of every other building the nation can reach
-//!   (`endeavor::reachable_buildings`), each once its cost is affordable;
+//!   (`horizons::buildable`: the endeavor's own set plus the optional horizon buildings), each
+//!   once its cost is affordable;
 //! - (`Economy::with_beds` picks the bed rule, `BedPolicy`; `Economy::with_healing` the Herb
 //!   Garden rule, `HealingPolicy`; `Economy::with_research` the tech order, `ResearchOrder`: the
 //!   knobs a play style sets, `docs/design/balance-harness.md`, section 2. The defaults are what
@@ -88,13 +89,15 @@
 use crate::bending::{AbilityId, Effect};
 use crate::building::{BuildingId, CostItem};
 use crate::defs::Defs;
-use crate::endeavor::{self, SignKind, Tally};
+use crate::endeavor::{SignKind, Tally};
 use crate::geom::{Footprint, Pos};
 use crate::jobs::ItemId;
 use crate::mapgen::Tile;
 use crate::nation::Nation;
 use crate::research::TechId;
-use crate::world::{Command, PlotStage, TICKS_PER_SECOND, World};
+use crate::world::{Command, TICKS_PER_SECOND, World};
+
+mod horizons;
 
 /// How far from the settlement's anchor (`World::settlement_anchor`) the opening designates
 /// standing harvest orders on wild food, and looks for the material a bed or a campfire costs
@@ -410,6 +413,8 @@ impl Economy {
         recover_scrolls(world, defs, anchor);
         queue_next_known_tech(world, defs, self.research_plan(world.nation, defs).into_iter());
         self.raise_buildings(world, defs, anchor);
+        horizons::pave_once(world, defs, anchor);
+        horizons::link_chutes(world, defs);
         if self.farms {
             self.sow_plots(world, defs, "farm_plot");
         }
@@ -427,7 +432,7 @@ impl Economy {
     /// low-chi bends and never make the item at all.
     fn wanted_items(&self, world: &World, defs: &Defs) -> Vec<ItemId> {
         let mut wanted = Vec::new();
-        for building in endeavor::reachable_buildings(world.nation, &defs.techs, &defs.buildings) {
+        for building in horizons::buildable(world.nation, defs) {
             let def = defs.building(building);
             if def.unlocked_by.is_some_and(|t| !world.research().is_known(t))
                 || building_count(world, building) >= self.building_target(world, defs, building)
@@ -447,7 +452,7 @@ impl Economy {
     /// get their own standing harvest via `quarry_and_mine`; gathering them here too would be
     /// harmless but pointless). On the bundled data this is just wood, but nothing here names it.
     fn build_material_items(&self, world: &World, defs: &Defs, deposits: &[ItemId]) -> Vec<ItemId> {
-        endeavor::reachable_buildings(world.nation, &defs.techs, &defs.buildings)
+        horizons::buildable(world.nation, defs)
             .flat_map(|b| defs.building(b).cost.iter().map(|c: &CostItem| c.item))
             .filter(|item| !deposits.contains(item))
             .collect()
@@ -464,15 +469,15 @@ impl Economy {
         }
     }
 
-    /// Raises one of every building the nation can reach (`endeavor::reachable_buildings`), each
+    /// Raises one of every building the nation can reach (`horizons::buildable`), each
     /// once its own target count is still unmet and its cost is affordable (`ensure_building`),
     /// with `building_target` giving bed, farm plot and orchard their own counts.
     fn raise_buildings(&self, world: &mut World, defs: &Defs, anchor: Pos) {
-        let targets: Vec<BuildingId> =
-            endeavor::reachable_buildings(world.nation, &defs.techs, &defs.buildings).collect();
+        let targets: Vec<BuildingId> = horizons::buildable(world.nation, defs).collect();
         for building in targets {
             let target = self.building_target(world, defs, building);
-            ensure_building(world, defs, anchor, building, target, BUILD_SEARCH_RADIUS);
+            let near = horizons::site_anchor(world, defs, &defs.building(building).id, anchor);
+            ensure_building(world, defs, near, building, target, BUILD_SEARCH_RADIUS);
         }
     }
 
@@ -492,6 +497,9 @@ impl Economy {
                 }
             }
             "orchard" => u32::from(self.farms),
+            // One road, laid in one go by `horizons::pave_once`, not tile by tile here.
+            "paved_road" => 0,
+            "chute" => u32::from(horizons::chute_wanted(world, defs)),
             HERB_GARDEN => match self.healing {
                 HealingPolicy::Sweep => 1,
                 HealingPolicy::Off => 0,
@@ -523,17 +531,14 @@ impl Economy {
 
     /// Sows every empty `plot` (a farm plot or an Herb Garden) the settlement has built
     /// (`Command::Sow`): a plot sits empty until sown, then grows and is reaped on its own
-    /// (`world/farm.rs`).
+    /// (`world/farm.rs`). Once the standing sow order is known, each plot gets one instead
+    /// (`horizons::sow_plot`).
     fn sow_plots(&self, world: &mut World, defs: &Defs, plot: &str) {
         let Some(farm_plot) = defs.building_id(plot) else { return };
-        let empty: Vec<Pos> = world
-            .buildings()
-            .filter(|b| b.id == farm_plot)
-            .map(|b| b.anchor)
-            .filter(|&pos| world.plot_stage(pos) == Some(PlotStage::Empty))
-            .collect();
-        for pos in empty {
-            let _ = world.apply(Command::Sow { pos }, defs);
+        let plots: Vec<Pos> =
+            world.buildings().filter(|b| b.id == farm_plot).map(|b| b.anchor).collect();
+        for pos in plots {
+            horizons::sow_plot(world, defs, pos);
         }
     }
 }
@@ -1318,7 +1323,7 @@ mod tests {
             world
                 .buildings()
                 .filter(|b| b.id == farm_plot)
-                .any(|b| world.plot_stage(b.anchor) != Some(PlotStage::Empty))
+                .any(|b| world.plot_stage(b.anchor) != Some(crate::world::PlotStage::Empty))
         };
         let sown = run_economy_until(&mut world, &defs, &economy, 90, sown);
         assert!(sown, "expected at least one sown farm plot within 90 minutes");

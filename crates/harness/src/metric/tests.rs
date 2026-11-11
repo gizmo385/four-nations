@@ -27,6 +27,7 @@ fn season(
         stone_stored: 0,
         ore_mined: 0,
         wood_stored: wood,
+        food_stored: (food * population as f32) as u32,
         food_per_head: food,
         population,
         signs_met: Vec::new(),
@@ -43,6 +44,7 @@ fn every_name_parses_and_a_bad_one_says_why() {
         "deaths_by.180",
         "pop_at.120",
         "wood_at.120",
+        "food_at.180",
         "food_per_head.winter.2",
         "longest_gap",
         "gaps_over_15",
@@ -96,6 +98,7 @@ fn season_rows_answer_population_wood_and_winter_food() {
     ];
     assert_eq!(read("pop_at.120", &rec), Some(15.0));
     assert_eq!(read("wood_at.120", &rec), Some(200.0));
+    assert_eq!(read("food_at.120", &rec), Some(75.0), "5 a head for 15 people");
     assert_eq!(read("pop_at.60", &rec), Some(9.0));
     assert_eq!(read("pop_at.90", &rec), None, "no row there: the record can't say");
     assert_eq!(read("food_per_head.winter.2", &rec), Some(4.5));

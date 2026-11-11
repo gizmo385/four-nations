@@ -475,6 +475,57 @@ The balance follow-up records the measured numbers in a "Measured" section here,
 did. If `ready_window` moves earlier than 130 because of the seats, the first lever is `+1` seat
 rather than `+2`. That is a data change in this doc's `writing` block.
 
+### Measured
+
+The phase-1 run (#684): seeds 1 to 32, all four nations, Small, Normal, 180 minutes, both research
+orders (`steady` and `branch_first`), against a baseline from `main` just before #674 (the first
+phase-1 content merge) with `food_at.M` back-ported so both sides read it. Medians per nation;
+"base" is before phase 1, "now" is with phase 1 and the economy opening using it.
+
+How often the opening uses the new content, from a probe of the `steady` style on seeds 1 to 8
+(180 minutes): the standing sow order on 6 to 8 runs in 8 for every nation; Air's Lemur Roost on 5;
+Water's Oil Lamp on 6; Fire's Hothouse on 5; Earth's chute on 7, every one with its foot set. The
+road is rare (2 Earth runs in 8): by the time `paving` lands, from minute 110 to 130, the surface
+deposits within reach are usually quarried out, so the opening paves toward a Mine Shaft instead,
+which usually stands beside the stockpile already.
+
+When the new techs land (`steady`, median minute): `paving` 111 to 129, `calendar` 117 to 139,
+and the nation's own tech at 121 (Air), 140 (Fire), 145 (Water) and 149 (Earth). With
+`branch_first` the nation's tech comes earlier (77 to 123) and `calendar` and `paving` later (119
+to 176).
+
+| Measure | Air | Water | Earth | Fire |
+|---|---|---|---|---|
+| `food_at.120`, base / now | 186 / 184 | 68 / 66 | 65 / 64 | 50 / 51 |
+| `food_at.180`, base / now | 343 / 330 | 168 / 156 | 165 / 164 | 136 / 142 |
+| `wood_at.120`, base / now | 232 / 227 | 224 / 224 | 401 / 401 | 217 / 213 |
+| `wood_at.180`, base / now | 232 / 224 | 219 / 219 | 383 / 374 | 200 / 148 |
+| `longest_gap`, base / now | 31.7 / 25.7 | 34.4 / 28.0 | 31.6 / 20.9 | 41.1 / 27.8 |
+| decisions from 110 to 150, base / now | 2 / 2 | 2 / 3 | 4 / 5 | 4 / 5 |
+
+- **Decision timeline.** `longest_gap` is the one reading `balance verdict --against` calls moved:
+  earlier on 106 runs of 128, median -4.5 minutes (`steady`); unmoved with `branch_first`
+  (earlier on 59, later on 22). The 110-to-150 stretch gains one decision for three nations, not
+  the 3 or 4 hoped for: `calendar` and `paving` land there, but the nation's tech often lands
+  after 140, and its building isn't on the timeline (only techs and signs are). `decision_gap` and
+  `decision_gap_branch_first` still fail everywhere (0 or 1 run under 15 per nation, as before).
+- **Food.** Fire rises a little (136 to 142 at 180, the Hothouse) and Water falls a little (168 to
+  156, the lamps burn fish), as expected. Air falls a little (343 to 330) instead of rising: the
+  roost lands late (minute 121) and picks fruit the orchard's own pickers already brought in.
+  `food_winter2` reads winter 2 (minute 105), before any phase-1 building, and is unchanged within
+  noise (median -0.06, noise 0.44).
+- **Wood.** Fire's wood at 180 falls by 52 (200 to 148): the Hothouse's fuel over the second winter,
+  with sites built in the meantime. Wood at 120 is unchanged within noise everywhere, so
+  `wood_at_120` passes and fails where it did.
+- **No regressions.** Of the 12 readings `--against` compares, only `longest_gap` moved.
+  `stone_by_120` now passes for Water (17 of 20, from 16 of 19); the road spends its stone after
+  minute 110, too late to touch it. `ready_minute` is unmoved (earlier on 42 runs, later on 12,
+  median 0), so `ready_window` (130 to 170) fails for the same reason it did before, the endeavor
+  coming ready earlier than 130 on many seeds, and the seats are not what moved it. `writing`
+  keeps its +2 seats.
+- Every other target passes or fails as before, with pass counts moving by a run or two either
+  way, except `pop16_window` for Earth, which now passes (28 of 32, from 27).
+
 ## Risks
 
 - **Lemurs and tiring land.** On Hard, a tree repicked as soon as it ripens dies (strain 3.0).
