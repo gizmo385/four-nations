@@ -1,0 +1,27 @@
+[package]
+name = "fn_gui"
+description = "Spike (#842): an egui window around the game: a pan/zoom glyph map, the existing screens painted as ratatui buffers, and one side-panel section as real egui widgets. Not in default-members or `cargo xtask ci`."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+autotests = false
+
+[[test]]
+name = "it"
+path = "tests/it.rs"
+
+[dependencies]
+fn_sim = { path = "../sim" }
+fn_tui = { path = "../tui" }
+fn_ui = { path = "../ui" }
+ratatui = { version = "0.30", default-features = false }
+# glow (OpenGL), not wgpu: a smaller build, and it runs on Mesa's software renderer under Xvfb
+# for screenshots. egui_ratatui 2.2 pins egui ~0.34, so eframe follows it.
+eframe = { version = "0.34", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+egui_ratatui = "2.2"
+soft_ratatui = { version = "0.2", default-features = false, features = ["unicodefonts"] }
+
+[dev-dependencies]
+# Snapshot tests of the map widget (#842's question: do they run headless in CI?). wgpu renders
+# them; with no GPU it needs a software adapter (Mesa's lavapipe for Vulkan, or llvmpipe via GL).
+egui_kittest = { version = "0.34", features = ["wgpu", "snapshot"] }
