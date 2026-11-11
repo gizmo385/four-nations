@@ -338,6 +338,7 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
             FoodSource::Stockpile(p) => format!("Eating from the stockpile at ({}, {})", p.x, p.y),
             FoodSource::Ground(p) => format!("Eating from the ground at ({}, {})", p.x, p.y),
             FoodSource::Forage(p) => format!("Foraging at ({}, {})", p.x, p.y),
+            FoodSource::Pantry(p) => format!("Eating from the pantry at ({}, {})", p.x, p.y),
         },
         Task::Drink => "Drinking".into(),
         Task::Sleep => "Sleeping".into(),

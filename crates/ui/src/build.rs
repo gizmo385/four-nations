@@ -246,6 +246,8 @@ pub(crate) fn describe_blocker(session: &Session, at: Pos, why: Blocker) -> Stri
         // The word is already in the sim's `Blocker::Beside` text ("must touch rock", #373):
         // `BuildingDef::beside_word` picked it when `check_build` refused the placement.
         Blocker::Beside(_) => why.to_string(),
+        // "must be 20 tiles from any stockpile" (the Waystation, `OutpostDef::far_from_stores`).
+        Blocker::NearStores(_) => why.to_string(),
     }
 }
 
@@ -556,6 +558,36 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
     if let Some(c) = &def.chute {
         effects.push(format!("Drops goods up to {} tiles downhill", c.reach));
     }
+    if let Some(o) = &def.outpost {
+        // "Food, water and two beds for crews nearby" (the Waystation).
+        let mut parts: Vec<String> = Vec::new();
+        if o.pantry > 0 {
+            parts.push("food".into());
+        }
+        if o.barrel {
+            parts.push("water".into());
+        }
+        if def.bed.is_some() && def.capacity > 0 {
+            let n = match def.capacity {
+                1 => "one".to_owned(),
+                2 => "two".to_owned(),
+                3 => "three".to_owned(),
+                4 => "four".to_owned(),
+                n => n.to_string(),
+            };
+            parts.push(format!("{n} bed{}", if def.capacity == 1 { "" } else { "s" }));
+        }
+        if let Some(last) = parts.pop() {
+            let list =
+                if parts.is_empty() { last } else { format!("{} and {last}", parts.join(", ")) };
+            let mut line = format!("{list} for crews nearby");
+            line[..1].make_ascii_uppercase();
+            effects.push(line);
+        }
+        if o.far_from_stores > 0 {
+            effects.push(format!("Must be {} tiles from any stockpile", o.far_from_stores));
+        }
+    }
     if let Some(h) = &def.hothouse {
         effects.push(format!("Plots within {} tiles grow through winter", h.radius));
     }
@@ -679,6 +711,25 @@ mod tests {
         let roost = building_detail(&air, air.defs.building_id("lemur_roost").unwrap());
         assert!(roost.effects.iter().any(|e| e == "Eats 1 fruit in 4"), "{:?}", roost.effects);
         assert!(roost.effects.iter().any(|e| e.starts_with("Picks ripe ")), "{:?}", roost.effects);
+    }
+
+    /// The Waystation's hover (docs/design/horizons-phase-2.md) and its refusal read plainly.
+    #[test]
+    fn the_waystation_reads_as_food_water_and_beds_and_a_distance() {
+        for nation in Nation::ALL {
+            let s = session(nation);
+            let detail = building_detail(&s, s.defs.building_id("waystation").unwrap());
+            assert!(
+                detail.effects.iter().any(|e| e == "Food, water and two beds for crews nearby"),
+                "{:?}",
+                detail.effects
+            );
+            assert!(
+                detail.effects.iter().any(|e| e == "Must be 20 tiles from any stockpile"),
+                "{:?}",
+                detail.effects
+            );
+        }
     }
 
     #[test]

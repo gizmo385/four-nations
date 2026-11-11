@@ -114,6 +114,10 @@ impl World {
     pub(super) fn run_refuel(&mut self, i: usize, id: JobId, defs: &Defs) {
         let Some(idx) = self.job_index(id) else { return self.finish_job(i) };
         let JobKind::Refuel { pos } = self.jobs[idx].kind else { return self.finish_job(i) };
+        if self.pantry_shortfall(pos, defs).is_some() {
+            // An outpost's pantry, not a fuel bunker (`outpost.rs`).
+            return self.run_restock(i, id, pos, defs);
+        }
         let Some((item, short)) = self.fuel_shortfall(pos, defs) else {
             // The building is gone: moot. Anything in hand goes back to stores (`run_idle`).
             self.jobs.remove(idx);
@@ -164,6 +168,22 @@ impl World {
         }
         self.units[i].carrying = Some(Stack { item, count: take });
         self.units[i].route = None;
+    }
+
+    /// Whether the `Refuel` job for the building anchored on `pos` is still worth keeping: it
+    /// has a bunker or a pantry.
+    pub(super) fn refuel_live(&self, pos: Pos, defs: &Defs) -> bool {
+        self.fuel_shortfall(pos, defs).is_some() || self.pantry_shortfall(pos, defs).is_some()
+    }
+
+    /// Whether a unit could usefully take the `Refuel` job for the building anchored on `pos`
+    /// now: its bunker or pantry is short and some store holds what it keeps.
+    pub(super) fn refuel_ready(&self, pos: Pos, defs: &Defs) -> bool {
+        self.fuel_shortfall(pos, defs)
+            .is_some_and(|(item, short)| short > 0 && self.any_source_for_fuel(item))
+            || self
+                .pantry_shortfall(pos, defs)
+                .is_some_and(|short| short > 0 && self.any_source_for_pantry(pos, defs))
     }
 
     /// Whether any stockpile tile or ground stack holds `item`: the cheap check before a flood.

@@ -611,3 +611,14 @@ cost = 250
 prereqs = ["earth_rail"]
 [tech.unlocks]
 buildings = ["chute"]
+
+# Waystations (docs/design/horizons-phase-2.md): the Waystation, a far outpost with a pantry,
+# beds and a water barrel. Every nation can research it.
+[[tech]]
+id = "waystations"
+name = "Waystations"
+description = "Raise a shelter with food, water and beds for crews far from home."
+cost = 250
+prereqs = ["cartography"]
+[tech.unlocks]
+buildings = ["waystation"]

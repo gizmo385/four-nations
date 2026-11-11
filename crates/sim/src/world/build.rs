@@ -96,6 +96,9 @@ pub enum Blocker {
     /// Mine Shaft and Deep Mine must touch rock). Carries the word for what to touch
     /// (`BuildingDef::beside_word`), since it differs by building.
     Beside(&'static str),
+    /// A footprint tile is within this many tiles of a stockpile tile (`OutpostDef::far_from_stores`,
+    /// the Waystation): an outpost must stand at least that far from the stores.
+    NearStores(u32),
 }
 
 impl std::fmt::Display for Blocker {
@@ -109,6 +112,7 @@ impl std::fmt::Display for Blocker {
             Self::Stockpile => f.write_str("a stockpile is in the way"),
             Self::Entrance => f.write_str("blocks a door"),
             Self::Beside(word) => write!(f, "must touch {word}"),
+            Self::NearStores(far) => write!(f, "must be {far} tiles from any stockpile"),
         }
     }
 }
@@ -431,6 +435,7 @@ impl World {
             .find_map(|at| self.build_blocker(at, defs).map(|why| (at, why)))
             .or_else(|| self.entrance_blocker(foot, def.capacity > 0, defs))
             .or_else(|| self.beside_blocker(foot, def))
+            .or_else(|| self.far_blocker(foot, def))
     }
 
     /// Why `foot` fails `def`'s `beside` rule, if it has one and nothing in `foot`'s ring is one

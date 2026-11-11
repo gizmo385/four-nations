@@ -32,6 +32,7 @@ use crate::save::v2;
 use super::farm::FarmPlot;
 use super::fuel::Bunker;
 use super::orchard::Orchard;
+use super::outpost::Pantry;
 use super::pickers::Pickers;
 use super::*;
 
@@ -63,6 +64,9 @@ pub struct Building {
     /// Its fuel bunker (`BuildingDef::fuel`, `fuel.rs`): empty when it finishes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) fuel: Option<Bunker>,
+    /// An outpost's pantry (`BuildingDef::outpost`, `outpost.rs`): empty when it finishes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) pantry: Option<Pantry>,
     /// Its pickers' timer and counts (`BuildingDef::pickers`, `pickers.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) pickers: Option<Pickers>,
@@ -111,6 +115,8 @@ pub(super) enum Kind {
     Hothouse,
     /// A chute (`chute.rs`).
     Chute,
+    /// An outpost (`outpost.rs`).
+    Outpost,
 }
 
 impl Kind {
@@ -126,6 +132,7 @@ impl Kind {
             (def.pickers.is_some(), Kind::Pickers),
             (def.hothouse.is_some(), Kind::Hothouse),
             (def.chute.is_some(), Kind::Chute),
+            (def.outpost.is_some(), Kind::Outpost),
         ]
         .into_iter()
         .filter_map(|(is, kind)| is.then_some(kind))
@@ -191,6 +198,9 @@ impl Buildings {
             }
             if record.fuel.is_none() && def.fuel.is_some() {
                 record.fuel = Some(Bunker::default());
+            }
+            if record.pantry.is_none() && def.outpost.as_ref().is_some_and(|o| o.pantry > 0) {
+                record.pantry = Some(Pantry::default());
             }
             if let (None, Some(p)) = (&record.pickers, &def.pickers) {
                 record.pickers = Some(Pickers::new(p));
@@ -308,6 +318,7 @@ impl World {
             orchard: def.orchard.as_ref().map(Orchard::new),
             heat,
             fuel: def.fuel.map(|_| Bunker::default()),
+            pantry: def.outpost.as_ref().filter(|o| o.pantry > 0).map(|_| Pantry::default()),
             pickers: def.pickers.as_ref().map(Pickers::new),
             link: None,
             sent: Vec::new(),
@@ -522,6 +533,7 @@ impl World {
                     orchard: None,
                     heat: None,
                     fuel: None,
+                    pantry: None,
                     pickers: None,
                     link: None,
                     sent: Vec::new(),

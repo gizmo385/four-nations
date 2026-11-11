@@ -57,6 +57,11 @@
 //!   the Forge, the Brick Kiln, the Smelter, the Mine Shaft, the Deep Mine and the study hall.
 //!   Which buildings are sources is data, not this file's business (#255, #204, #200).
 //!
+//! - `outpost` makes it a far outpost (the Waystation, docs/design/horizons-phase-2.md,
+//!   `world/outpost.rs`): a pantry of food at its door, kept stocked by a `Refuel` haul, a
+//!   barrel to drink from, and a placement rule that it stand `far_from_stores` tiles from any
+//!   stockpile. Beds and the door come from `bed` and `capacity`.
+//!
 //! - `chart` makes a finished building the Map Room (issue #402, docs/design/cartography.md):
 //!   its `seats` become `JobKind::Chart` jobs instead of Study ones (`world/chart.rs`). A
 //!   settler holding one slowly uncovers the nearest lost ruin the settlement hasn't found yet,
@@ -371,6 +376,22 @@ pub struct PairDef {
     pub min_tiles: u32,
 }
 
+/// An outpost (`[building.outpost]`, the Waystation, docs/design/horizons-phase-2.md,
+/// `world/outpost.rs`): somewhere crews far from the stockpile eat, drink and sleep. It holds no
+/// general store (#688): only a pantry of food, kept stocked by a `Refuel` haul, and a barrel.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OutpostDef {
+    /// Every footprint tile must be at least this many tiles (Chebyshev) from any stockpile
+    /// tile, checked only when the building is placed. 0 is no rule.
+    pub far_from_stores: u32,
+    /// Items of food the pantry holds when full. 0 is no pantry.
+    pub pantry: u32,
+    /// The food a pantry keeps: edible items, in the order a hungry unit eats them.
+    pub pantry_items: Vec<ItemId>,
+    /// A drinking place at the door that counts as fresh water.
+    pub barrel: bool,
+}
+
 /// One whole item, in `FuelDef::micros_per_tick` units.
 pub const FUEL_MICROS: u64 = 1_000_000;
 
@@ -504,6 +525,8 @@ pub struct BuildingDef {
     pub chute: Option<ChuteDef>,
     /// A two-way link to a partner of the same id (`PairDef`), or `None`.
     pub pair: Option<PairDef>,
+    /// A far outpost's pantry, barrel and placement rule (`OutpostDef`), or `None`.
+    pub outpost: Option<OutpostDef>,
     pub unlocked_by: Option<TechId>,
     /// Seats added by techs (`[[tech.unlocks.upgrades]]`, docs/design/horizons-phase-1.md), each
     /// with the tech that adds them, in tech order. At most one tech per building, today, but a
@@ -693,6 +716,19 @@ struct RawHothouse {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawOutpost {
+    #[serde(default)]
+    far_from_stores: u32,
+    #[serde(default)]
+    pantry: u32,
+    #[serde(default)]
+    pantry_items: Vec<String>,
+    #[serde(default)]
+    barrel: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawFuel {
     item: String,
     bunker: u32,
@@ -741,6 +777,7 @@ struct RawBuilding {
     hothouse: Option<RawHothouse>,
     chute: Option<RawChute>,
     pair: Option<RawPair>,
+    outpost: Option<RawOutpost>,
     #[serde(default)]
     uses_power: bool,
     #[serde(default)]
@@ -839,6 +876,12 @@ impl BuildingsFile {
                 return err(format!(
                     "building {}: a bed bigger than 1x1 needs a capacity, the number of places \
                      inside it (one sleeper otherwise lies on its own 1x1 tile)",
+                    b.id
+                ));
+            }
+            if b.outpost.as_ref().is_some_and(|o| o.pantry > 0 || o.barrel) && capacity == 0 {
+                return err(format!(
+                    "building {}: a pantry or barrel needs a capacity, the door it serves from",
                     b.id
                 ));
             }
@@ -966,6 +1009,10 @@ impl BuildingsFile {
                 }
                 Some(p) => Some(PairDef { reach: p.reach, min_tiles: p.min_tiles }),
             };
+            let outpost = match &b.outpost {
+                None => None,
+                Some(o) => Some(resolve_outpost(&b.id, o, items)?),
+            };
             let track = match &b.track {
                 None => None,
                 Some(d) => {
@@ -1016,6 +1063,7 @@ impl BuildingsFile {
                 hothouse,
                 chute,
                 pair,
+                outpost,
                 unlocked_by: None,
                 seat_upgrades: Vec::new(),
                 endeavor: b.endeavor,
@@ -1119,6 +1167,38 @@ fn resolve_fuel(building: &str, f: &RawFuel, items: &[ItemDef]) -> Result<FuelDe
         bunker: f.bunker,
         per_minute: f.per_minute,
         micros_per_tick: (per_tick.round() as u64).max(1),
+    })
+}
+
+fn resolve_outpost(
+    building: &str,
+    o: &RawOutpost,
+    items: &[ItemDef],
+) -> Result<OutpostDef, DefsError> {
+    let err =
+        |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: outpost {msg}")));
+    let mut pantry_items: Vec<ItemId> = Vec::new();
+    for name in &o.pantry_items {
+        let Some(item) = items.iter().position(|d| &d.id == name) else {
+            return err(&format!("names unknown item {name:?}"));
+        };
+        let item = ItemId(item as u16);
+        if pantry_items.contains(&item) {
+            return err(&format!("lists pantry item {name:?} twice"));
+        }
+        pantry_items.push(item);
+    }
+    if (o.pantry == 0) != pantry_items.is_empty() {
+        return err("needs both a pantry size and pantry_items, or neither");
+    }
+    if o.far_from_stores == 0 && o.pantry == 0 && !o.barrel {
+        return err("must set far_from_stores, a pantry or a barrel");
+    }
+    Ok(OutpostDef {
+        far_from_stores: o.far_from_stores,
+        pantry: o.pantry,
+        pantry_items,
+        barrel: o.barrel,
     })
 }
 

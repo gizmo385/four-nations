@@ -155,6 +155,7 @@ fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
         uses_power: false,
         names: HashMap::new(),
         fuel: None,
+        outpost: None,
         pickers: None,
         hothouse: None,
         chute: None,

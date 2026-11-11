@@ -191,6 +191,10 @@ impl World {
     /// same spot rules it safe). The highest chance among the terrains present, when more than
     /// one matches.
     pub(super) fn sickness_chance(&self, pos: Pos, defs: &Defs) -> Option<f32> {
+        // A barrel at the door is fresh water, whatever the shore beside it is (`outpost.rs`).
+        if self.is_barrel_door(pos, defs) {
+            return None;
+        }
         let mut chance: Option<f32> = None;
         for q in self.map.neighbors(pos, true) {
             let terrain = self.map[q].terrain;

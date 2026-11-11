@@ -567,18 +567,21 @@ fn strip_rows(frame: &str) -> Vec<&str> {
 #[test]
 fn the_detail_strip_wraps_what_a_tech_unlocks_and_needs_for_any_nation_at_80x24_and_120x40() {
     let mut wrapped = 0;
-    for (nation, size, deep) in Nation::ALL
-        .into_iter()
-        .flat_map(|n| [SMALL, SIZE].map(|s| (n, s)))
-        .flat_map(|(n, s)| [(n, s, false), (n, s, true)])
+    for (nation, size, deep) in
+        Nation::ALL.into_iter().flat_map(|n| [SMALL, SIZE].map(|s| (n, s))).flat_map(|(n, s)| {
+            // Each card of the last column in turn: which one is deepest depends on the nation's
+            // tree, and a shared tech may sit beside the nation's own.
+            let last = screen_view(&app(7, n, s).session).columns.last().expect("a tree").len();
+            std::iter::once((n, s, None)).chain((0..last).map(move |r| (n, s, Some(r))))
+        })
     {
         {
             let mut a = app(7, nation, size);
-            if deep {
-                // Targeting the deepest tech queues every prereq: a Queued card shows what it
+            if let Some(row) = deep {
+                // Targeting a deep tech queues every prereq: a Queued card shows what it
                 // unlocks and what it still needs, side by side.
                 let view = screen_view(&a.session);
-                let deepest = view.columns.last().and_then(|c| c.last()).expect("a tree").id;
+                let deepest = view.columns.last().expect("a tree")[row].id;
                 a.session.apply(Command::SetResearch { tech: deepest }).unwrap();
             }
             run(&mut a, "t");

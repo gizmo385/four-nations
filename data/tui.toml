@@ -257,6 +257,12 @@ glyph = "⌖"
 ascii = "R"
 fg = [210, 190, 140]
 
+# Waystations' Waystation (horizons phase 2): a lean-to with a pantry and a barrel.
+[building.waystation]
+glyph = "∩"
+ascii = "y"
+fg = [190, 160, 110]
+
 # --- Earth Kingdom ---
 [building.earth_wall]
 glyph = "▓"
