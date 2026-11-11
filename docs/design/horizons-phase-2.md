@@ -30,7 +30,7 @@ owner", and the implementation work is under "Follow-up issues".
 5. **The Waystation is an outpost, not a second base.** It has a pantry kept stocked from stores,
    two beds and a water barrel, and it must stand at least 20 tiles from any stockpile. It holds
    no general store. That keeps far yields flowing home, where beasts and balloons can carry
-   them (decision 1).
+   them (#688).
 6. **Everything stays weaker than the specialty it resembles.** Beasts carry 10 to 12 to the
    bison's 20, at a fixed speed, and they eat. Balloons burn wood every flight and fly a fixed
    line. Gates carry people only, and each pair is a fixed line. The table under "Against the
@@ -136,7 +136,7 @@ min_trip = 10           # takes only trips of at least 10 tiles, pickup to drop 
   beast leaves the map, and the log reads `The ostrich horse returns to the wild.`
 - **Eating.** A home building may have `[building.fuel]`. Its bunker burns while the home has a
   beast, and #675's Refuel haul keeps it stocked. While the bunker is empty, the beast goes
-  home and works nothing, with the status `Hungry` (decision 2). The bison stable has no fuel
+  home and works nothing, with the status `Hungry` (#689). The bison stable has no fuel
   section, so the bison never eats, as the owner scoped for v1. Food in a bunker is out of
   stores, as fuel is.
 - **Hauling.** A `[beast.haul]` beast takes Haul jobs and Refuel hauls whose trip is at least
@@ -632,7 +632,7 @@ canal in a lighter blue:
 
 ## Measuring it
 
-Phase 2 ends with a harness run, and the economy opening must use the new content (follow-up K):
+Phase 2 ends with a harness run, and the economy opening must use the new content (#700):
 
 - **Waystation.** Once, beside the farthest deposit the opening quarries, if it is 20 tiles or
   more from stores.
@@ -662,7 +662,7 @@ levers are each beast's `carry`, the Stable's `per_minute`, and the balloon's
 
 ## Risks
 
-- **#205 lands in a shape this doesn't expect.** The beast follow-up (D) is written against #205's
+- **#205 lands in a shape this doesn't expect.** The beast follow-up (#693) is written against #205's
   spec in late-tree.md: one bison per stable, hauling only, no needs, at least 10 tiles. If #205
   lands differently, D generalises what #205 built rather than adding a second system.
   `data/beasts.toml` is the target either way.
@@ -682,12 +682,12 @@ levers are each beast's `carry`, the Stable's `per_minute`, and the balloon's
    in stores where they land, so a Mine Shaft beside it could be built from them. But it would
    also hide those yields from beasts and balloons, whose rules carry long trips to stores, and
    the gate's materials would then sit 40 tiles out. A player can already draw a far stockpile
-   zone if they want one. Section: "`waystations`: the Waystation". (decision 1)
+   zone if they want one. Section: "`waystations`: the Waystation". (#688)
 2. **What happens to a beast nobody feeds?** *Recommended: it rests at its home until the
    bunker is refilled, and it never dies or leaves.* The alternative is that it returns to the
    wild after 10 unfed minutes and the Stable must be rebuilt. That gives the upkeep real teeth,
    but it adds a loss to a peaceful game for a slip in hauling. Section: "Shared sim work, 3.
-   Beasts". (decision 2)
+   Beasts". (#689)
 
 ## Follow-up issues
 
@@ -697,14 +697,14 @@ so the order between follow-ups doesn't matter.
 
 | Issue | Title | Blocked by |
 |---|---|---|
-| (follow-up A) | Sim: paired links (`[building.pair]`, two-way `SetLink`, the same-region rule) | #681 |
-| (follow-up B) | Sim and data: the Wind Gate, people's routes through a pair, and `wind_gates` | A, #673 |
-| (follow-up C) | Sim and data: the Balloon Dock, goods' routes through a pair, per-flight fuel, and `cargo_balloons` | A, #675, #673 |
-| (follow-up D) | Sim and data: beasts (`data/beasts.toml`, bison as its first row, fuel `items`, the long-trip haul rule) | #205, #675, decision 2 |
-| (follow-up E) | Sim and data: techs for some nations (`nations`), the Stable and `herding` | D, #673 |
-| (follow-up F) | Sim and data: the Badgermole Den, a beast that bores, and `badgermole_ways` | D, #673 |
-| (follow-up G) | Sim and data: the Waystation (pantry, barrel, far placement) and `waystations` | #673, #675, decision 1 |
-| (follow-up H) | Sim and data: the canal terrain, Carve Canal, and `canals` | #201, #673 |
-| (follow-up I) | TUI: placing pairs, their link lines, and dock, gate, Stable, den and Waystation readouts | A, B, C, E, F, G, #683 |
-| (follow-up J) | TUI: beasts on the map and in the Settlement panel; the canal glyph and Carve Canal | D, H |
-| (follow-up K) | Balance: the economy opening uses phase 2, and the phase-2 run | B, C, E, F, G, H, #684 |
+| #690 | Sim: paired links (`[building.pair]`, two-way `SetLink`, the same-region rule) | #681 |
+| #691 | Sim and data: the Wind Gate, people's routes through a pair, and `wind_gates` | #690, #673 |
+| #692 | Sim and data: the Balloon Dock, goods' routes through a pair, per-flight fuel, and `cargo_balloons` | #690, #675, #673 |
+| #693 | Sim and data: beasts (`data/beasts.toml`, bison as its first row, fuel `items`, the long-trip haul rule) | #205, #675, #689 |
+| #696 | Sim and data: techs for some nations (`nations`), the Stable and `herding` | #693, #673 |
+| #697 | Sim and data: the Badgermole Den, a beast that bores, and `badgermole_ways` | #693, #673 |
+| #694 | Sim and data: the Waystation (pantry, barrel, far placement) and `waystations` | #673, #675, #688 |
+| #695 | Sim and data: the canal terrain, Carve Canal, and `canals` | #201, #673 |
+| #698 | TUI: placing pairs, their link lines, and dock, gate, Stable, den and Waystation readouts | #690, #691, #692, #696, #697, #694, #683 |
+| #699 | TUI: beasts on the map and in the Settlement panel; the canal glyph and Carve Canal | #693, #695 |
+| #700 | Balance: the economy opening uses phase 2, and the phase-2 run | #691, #692, #696, #697, #694, #695, #684 |
