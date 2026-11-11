@@ -223,16 +223,20 @@ pub enum Feature {
     StandingSow,
 }
 
-/// One `[[tech.unlocks.upgrades]]` entry: a building and exactly one property to raise. `seats`
-/// is the only property so far, so it is required; a later property makes each optional and
-/// the loader checks that exactly one is set. Any other key fails to load.
+/// One `[[tech.unlocks.upgrades]]` entry: a building and exactly one property to raise: `seats`
+/// (more study seats) or `recipe` (unlocks one of its `[[building.alt_recipe]]`, docs/design/
+/// horizons-phase-3.md). The loader checks that exactly one is set. Any other key fails to load.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Upgrade {
     /// An id from `data/buildings.toml`.
     pub building: String,
     /// Added to the building's own `seats`: 1 to 8.
-    pub seats: u32,
+    #[serde(default)]
+    pub seats: Option<u32>,
+    /// The id of an alt recipe on the building that this tech unlocks.
+    #[serde(default)]
+    pub recipe: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -17,10 +17,10 @@
 │    Known · 25 pts               Available · 250 pts          Locked · 120 pts             Locked · 120 pts           │
 │    Stone Outcrop, Boulder       Gold Vein, Gold Seam         Needs Herbalism, Pottery     Needs Masonry              │
 │                                                                                                                      │
-│  ◇ Farming                    ◇ Earth Shaping                                           · Calendar                   │
-│    Available · 60 pts           Available · 60 pts                                        Locked · 250 pts           │
-│    Farm Plot                    Earthworks x1.2,                                          Needs Writing              │
-│                                 Earth Tent                                                                           │
+│  ◇ Farming                    ◇ Earth Shaping              · Trade Wares                · Calendar                   │
+│    Available · 60 pts           Available · 60 pts           Locked · 250 pts             Locked · 250 pts           │
+│    Farm Plot                    Earthworks x1.2,             Needs Carpentry,             Needs Writing              │
+│                                 Earth Tent                   Known on the road                                       │
 │                                                                                                                      │
 │                               · Herding                                                                              │
 │                                 Locked · 250 pts                                                                     │

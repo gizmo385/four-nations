@@ -72,6 +72,12 @@ pub enum Command {
     /// docs/design/horizons-phase-1.md), or a pair building's partner, which points back
     /// (`world/pair.rs`, docs/design/horizons-phase-2.md). It can be moved at any time.
     SetLink { pos: Pos, to: Pos },
+    /// Set the production building anchored on `pos` to its first recipe (`None`) or its `i`-th
+    /// alt recipe (`Some(i)`, `[[building.alt_recipe]]`, `world/forge.rs`): the Workshop's wares
+    /// once `trade_wares` is known. Refused while that tech is unknown, on a building site and
+    /// for a recipe the building doesn't have. Switching mid-batch drops the delivered inputs
+    /// beside the building and loses the work done.
+    SetRecipe { pos: Pos, recipe: Option<u8> },
     /// Take slot `slot` of the camped caravan's offers once more (`world/trade.rs`, #437):
     /// deals first, in the order the visit lists them, then its request. Settlers haul the goods.
     TakeDeal { slot: u8 },
@@ -90,6 +96,7 @@ pub enum CommandError {
     Endeavor(EndeavorError),
     Link(LinkError),
     Trade(TradeError),
+    Recipe(RecipeError),
 }
 
 impl CommandError {
@@ -118,6 +125,7 @@ impl CommandError {
             Self::Build(e) => matches!(e, BuildError::NotResearched(_) | BuildError::NotDesignated),
             Self::Endeavor(e) => matches!(e, EndeavorError::NotReady),
             Self::Link(_) => false,
+            Self::Recipe(e) => matches!(e, RecipeError::Locked(_)),
             Self::Trade(e) => matches!(e, TradeError::NoCaravan | TradeError::AllTaken),
         }
     }
@@ -153,6 +161,12 @@ impl From<LinkError> for CommandError {
     }
 }
 
+impl From<RecipeError> for CommandError {
+    fn from(e: RecipeError) -> Self {
+        Self::Recipe(e)
+    }
+}
+
 impl From<EndeavorError> for CommandError {
     fn from(e: EndeavorError) -> Self {
         Self::Endeavor(e)
@@ -181,6 +195,7 @@ impl std::fmt::Display for CommandError {
             Self::Endeavor(e) => e.fmt(f),
             Self::Link(e) => e.fmt(f),
             Self::Trade(e) => e.fmt(f),
+            Self::Recipe(e) => e.fmt(f),
         }
     }
 }
@@ -230,6 +245,7 @@ impl World {
             Command::Deconstruct { pos } => self.designate_deconstruct(pos, defs).map(drop)?,
             Command::CancelDeconstruct { pos } => self.cancel_deconstruct(pos)?,
             Command::SetLink { pos, to } => self.set_link(pos, to, defs)?,
+            Command::SetRecipe { pos, recipe } => self.set_recipe(pos, recipe, defs)?,
             Command::TakeDeal { slot } => {
                 self.take_deal(slot, defs).map_err(CommandError::Trade)?
             }

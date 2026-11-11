@@ -343,8 +343,14 @@ impl Defs {
             self.chi.max,
             &self.mastery,
         )?;
-        // A tech's `requires.chapter` can only be checked now that the chapters are known.
-        research::check_chapters(&self.techs, &self.endeavor.chapters)?;
+        // A tech's `requires.chapter` can only be checked now that the chapters are known. An
+        // endeavor with no `[[chapter]]` at all (a test fixture that swaps in a bare list of
+        // signs) has nothing to check against, and a tech waiting on a chapter that never comes
+        // is simply never researchable there. The bundled `data/endeavor.toml` has chapters, so
+        // a misspelled one still fails to load.
+        if !self.endeavor.chapters.is_empty() {
+            research::check_chapters(&self.techs, &self.endeavor.chapters)?;
+        }
         Ok(self)
     }
 

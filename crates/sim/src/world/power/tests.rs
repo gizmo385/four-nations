@@ -42,6 +42,7 @@ fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
         track: None,
         orchard: None,
         recipe: None,
+        alt_recipes: Vec::new(),
         farm: None,
         irrigation: None,
         healing: None,

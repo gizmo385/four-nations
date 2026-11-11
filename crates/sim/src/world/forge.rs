@@ -23,12 +23,43 @@
 //! many of its output are already in stores (`World::craft_idle`); a batch already under way
 //! still finishes. This is the only thing keeping the Brick Kiln and the smelter from burning
 //! every stone or ore a settlement can carry into an output nothing uses.
+//!
+//! A building with `[[building.alt_recipe]]` entries (the Workshop's wares, docs/design/
+//! horizons-phase-3.md) makes its first recipe unless the player sets another with
+//! `Command::SetRecipe`. `World::recipe_at` is the one place that says which recipe a building
+//! is on; everything here reads it.
 
 use crate::building::{BuildingDef, RecipeDef};
 use crate::jobs::{ItemId, JobKind, Stack};
 
 use super::work::route_from;
 use super::*;
+
+/// Why `Command::SetRecipe` was refused. Fragments, like every refusal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecipeError {
+    /// No building is anchored on that tile.
+    NoBuilding,
+    /// The building is still a construction site: it keeps its default recipe.
+    Site,
+    /// The building has no recipe with that index.
+    NoSuchRecipe,
+    /// The recipe's tech isn't known yet: the tech's name.
+    Locked(String),
+}
+
+impl std::fmt::Display for RecipeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoBuilding => f.write_str("no building here"),
+            Self::Site => f.write_str("still being built"),
+            Self::NoSuchRecipe => f.write_str("no such recipe"),
+            Self::Locked(tech) => write!(f, "needs {tech}"),
+        }
+    }
+}
+
+impl std::error::Error for RecipeError {}
 
 /// One production building's progress toward its next batch: how much of each of its recipe's
 /// inputs has been delivered so far (parallel to `RecipeDef::inputs`), and work done once they
@@ -43,6 +74,76 @@ impl World {
     /// The batch under way at the production building anchored on `pos`, if one has begun.
     fn craft(&self, pos: Pos) -> Option<&CraftState> {
         self.anchored(pos)?.craft.as_ref()
+    }
+
+    /// The recipe the building anchored on `pos` is making: its first recipe, or the alt recipe
+    /// its record names (`Building::recipe`). A name that no longer exists falls back to the
+    /// first recipe. `None` for a tile that is no finished building, or a building with no
+    /// recipe. The single source `run_craft`, `craft_idle` and the inspect panel read.
+    pub fn recipe_at<'d>(&self, pos: Pos, defs: &'d Defs) -> Option<&'d RecipeDef> {
+        let b = self.anchored(pos)?;
+        b.recipe_in(defs.building(b.id))
+    }
+
+    /// The index (`Command::SetRecipe`'s numbering) of the recipe the building anchored on `pos`
+    /// is on: `None` for its first recipe, `Some(i)` for its `i`-th alt recipe.
+    pub fn recipe_choice_at(&self, pos: Pos, defs: &Defs) -> Option<u8> {
+        let b = self.anchored(pos)?;
+        let def = defs.building(b.id);
+        let id = b.recipe.as_deref()?;
+        def.alt_recipes.iter().position(|a| a.id == id).map(|i| i as u8)
+    }
+
+    /// Sets the building anchored on `pos` to its first recipe (`None`) or its `i`-th alt recipe
+    /// (`Some(i)`, counted from 0 over `alt_recipes`). Refused on a site, for an index the
+    /// building has no recipe for, and while the tech that unlocks the recipe is unknown.
+    /// Setting the recipe it already has changes nothing. Switching mid-batch drops the batch's
+    /// delivered inputs beside the building as ordinary stacks and loses its work progress; the
+    /// crafter keeps the job and fetches for the new recipe.
+    pub(super) fn set_recipe(
+        &mut self,
+        pos: Pos,
+        recipe: Option<u8>,
+        defs: &Defs,
+    ) -> Result<(), RecipeError> {
+        let Some(b) = self.anchored(pos) else {
+            return Err(if self.sites.contains_key(&pos) {
+                RecipeError::Site
+            } else {
+                RecipeError::NoBuilding
+            });
+        };
+        let def = defs.building(b.id);
+        let id = match recipe {
+            None if def.recipe.is_some() => None,
+            None => return Err(RecipeError::NoSuchRecipe),
+            Some(i) => {
+                let Some(alt) = def.alt_recipes.get(usize::from(i)) else {
+                    return Err(RecipeError::NoSuchRecipe);
+                };
+                if let Some(t) = alt.unlocked_by
+                    && !self.research.is_known(t)
+                {
+                    return Err(RecipeError::Locked(defs.tech(t).name.clone()));
+                }
+                Some(alt.id.clone())
+            }
+        };
+        if self.recipe_choice_at(pos, defs) == recipe {
+            return Ok(());
+        }
+        let old = self.recipe_at(pos, defs).cloned();
+        let b = self.anchored_mut(pos).expect("just found");
+        b.recipe = id;
+        let batch = b.craft.take();
+        if let (Some(batch), Some(old)) = (batch, old) {
+            for (input, &count) in old.inputs.iter().zip(&batch.delivered) {
+                if count > 0 {
+                    self.place_ground(pos, Stack { item: input.item, count });
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Opens `def.capacity` new `Craft` jobs at `pos`, if `def` has a recipe: called once, when a
@@ -67,22 +168,35 @@ impl World {
         })
     }
 
-    /// Whether the craft job at `pos` is idle at `recipe`'s `stock_limit` (issue #350): no batch
-    /// is under way (nothing of this one delivered yet) and the output is already at or past the
-    /// limit. A batch already started (the building's record (`Building::craft`) holds an entry for `pos`) always finishes,
-    /// however much is in stores. `stock_limit` 0 means no limit, so this is always false. Used
-    /// both to gate `run_craft` and to describe the crafter's task to the player.
-    pub fn craft_idle(&self, pos: Pos, recipe: &RecipeDef) -> bool {
+    /// Whether the craft job at `pos` is idle at its recipe's `stock_limit` (issue #350, the
+    /// recipe `recipe_at` names): no batch is under way (nothing of this one delivered yet) and
+    /// the output is already at or past the limit. A batch already started (the building's record
+    /// (`Building::craft`) holds an entry for `pos`) always finishes, however much is in stores.
+    /// `stock_limit` 0 means no limit, so this is always false. Used both to gate `run_craft` and
+    /// to describe the crafter's task to the player.
+    pub fn craft_idle(&self, pos: Pos, defs: &Defs) -> bool {
+        let Some(recipe) = self.recipe_at(pos, defs) else { return false };
         recipe.stock_limit > 0
             && self.craft(pos).is_none()
             && self.stored_total(recipe.output.item) >= recipe.stock_limit
     }
 
-    /// Adds a delivered stack to the building's batch under way. A no-op if the item isn't one
-    /// of the recipe's inputs (shouldn't happen: a crafter only ever fetches what
-    /// `next_craft_shortfall` named).
+    /// Adds a delivered stack to the building's batch under way, up to what the recipe still
+    /// needs of it. Whatever it can't take (the item isn't one of the recipe's inputs, or the
+    /// recipe was switched while the crafter was carrying) drops on the ground by the building.
     fn deliver_to_craft(&mut self, pos: Pos, stack: Stack, recipe: &RecipeDef) {
-        let Some(idx) = recipe.inputs.iter().position(|c| c.item == stack.item) else { return };
+        let Some(idx) = recipe.inputs.iter().position(|c| c.item == stack.item) else {
+            return self.place_ground(pos, stack);
+        };
+        let have = self.craft(pos).and_then(|s| s.delivered.get(idx).copied()).unwrap_or(0);
+        let take = stack.count.min(recipe.inputs[idx].count.saturating_sub(have));
+        if take < stack.count {
+            self.place_ground(pos, Stack { item: stack.item, count: stack.count - take });
+        }
+        if take == 0 {
+            return;
+        }
+        let stack = Stack { item: stack.item, count: take };
         let Some(b) = self.anchored_mut(pos) else { return };
         let state = b.craft.get_or_insert_with(|| CraftState {
             delivered: vec![0; recipe.inputs.len()],
@@ -107,7 +221,7 @@ impl World {
             self.jobs.remove(idx);
             return self.finish_job(i);
         };
-        let Some(recipe) = def.recipe.as_ref() else {
+        let Some(recipe) = self.recipe_at(pos, defs) else {
             // Its data lost its recipe: moot, same as above.
             self.jobs.remove(idx);
             return self.finish_job(i);
@@ -124,7 +238,7 @@ impl World {
             return;
         }
 
-        if self.craft_idle(pos, recipe) {
+        if self.craft_idle(pos, defs) {
             // At the stock limit with no batch under way: wait rather than fetch inputs for one
             // that would just pile up more output nothing uses (issue #350).
             return;

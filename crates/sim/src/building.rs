@@ -272,6 +272,20 @@ pub struct RecipeDef {
     pub stock_limit: u32,
 }
 
+/// One of a building's other recipes (`[[building.alt_recipe]]`, docs/design/horizons-phase-3.md,
+/// "Shared sim work, 2"): the Workshop's wares. A building makes its first recipe
+/// (`BuildingDef::recipe`) unless the player sets one of these (`Command::SetRecipe`); saves name
+/// the chosen one by `id`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AltRecipe {
+    /// Unique within the building: what saves and `[[tech.unlocks.upgrades]]` name.
+    pub id: String,
+    pub recipe: RecipeDef,
+    /// The tech that unlocks it (`recipe = "id"` in its upgrades), or `None` when available from
+    /// the start. Set by `link_upgrades`.
+    pub unlocked_by: Option<TechId>,
+}
+
 /// A building that grows a crop once sown (`[building.farm]`, issue #198). The rules are in
 /// `world/farm.rs`; the design is in docs/design/research.md ("Farm plots").
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -555,6 +569,9 @@ pub struct BuildingDef {
     /// Needs a `capacity` above 0, the number of crafters it seats, each through its door like a
     /// study hall's seats.
     pub recipe: Option<RecipeDef>,
+    /// Other recipes the building can be set to make (`[[building.alt_recipe]]`), in data order.
+    /// Only on a building with a `recipe`, which stays the default.
+    pub alt_recipes: Vec<AltRecipe>,
     /// Set if this is a farm plot: empty until sown, then grows a crop to harvest (issue #198).
     pub farm: Option<FarmDef>,
     /// Set if this speeds up farm plots nearby: the irrigation channel (issue #126).
@@ -711,6 +728,19 @@ struct RawOrchard {
 struct RawRecipeInput {
     item: String,
     count: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawAltRecipe {
+    id: String,
+    input: Vec<RawRecipeInput>,
+    output: String,
+    output_count: u32,
+    work: f32,
+    modifier: Option<String>,
+    #[serde(default)]
+    stock_limit: u32,
 }
 
 #[derive(Deserialize)]
@@ -872,6 +902,8 @@ struct RawBuilding {
     track: Option<RawTrack>,
     orchard: Option<RawOrchard>,
     recipe: Option<RawRecipe>,
+    #[serde(default)]
+    alt_recipe: Vec<RawAltRecipe>,
     farm: Option<RawFarm>,
     irrigation: Option<RawIrrigation>,
     healing: Option<RawHealing>,
@@ -1054,6 +1086,41 @@ impl BuildingsFile {
                 None => None,
                 Some(r) => Some(resolve_recipe(&b.id, r, items)?),
             };
+            if recipe.is_none() && !b.alt_recipe.is_empty() {
+                return err(format!(
+                    "building {}: an alt_recipe needs a [building.recipe], its first recipe",
+                    b.id
+                ));
+            }
+            let mut alt_recipes: Vec<AltRecipe> = Vec::new();
+            for a in &b.alt_recipe {
+                if a.id.trim().is_empty() {
+                    return err(format!("building {}: an alt_recipe id must not be empty", b.id));
+                }
+                if alt_recipes.iter().any(|x| x.id == a.id) {
+                    return err(format!(
+                        "building {}: alt_recipe id {:?} listed twice",
+                        b.id, a.id
+                    ));
+                }
+                let raw = RawRecipe {
+                    input: a
+                        .input
+                        .iter()
+                        .map(|i| RawRecipeInput { item: i.item.clone(), count: i.count })
+                        .collect(),
+                    output: a.output.clone(),
+                    output_count: a.output_count,
+                    work: a.work,
+                    modifier: a.modifier.clone(),
+                    stock_limit: a.stock_limit,
+                };
+                alt_recipes.push(AltRecipe {
+                    id: a.id.clone(),
+                    recipe: resolve_recipe(&b.id, &raw, items)?,
+                    unlocked_by: None,
+                });
+            }
             let farm = match &b.farm {
                 None => None,
                 Some(f) => Some(resolve_farm(&b.id, f, items)?),
@@ -1191,6 +1258,7 @@ impl BuildingsFile {
                 track,
                 orchard,
                 recipe,
+                alt_recipes,
                 farm,
                 irrigation,
                 healing,
@@ -1623,9 +1691,11 @@ fn link_unlocks(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(), 
     Ok(())
 }
 
-/// Resolves every tech's `unlocks.upgrades` into `BuildingDef::seat_upgrades`. Runs after
-/// `link_unlocks`, so a building's `unlocked_by` is known: a nation tech may only upgrade a
-/// building its own nation can reach.
+/// Resolves every tech's `unlocks.upgrades` into `BuildingDef::seat_upgrades` and
+/// `AltRecipe::unlocked_by`. Runs after `link_unlocks`, so a building's `unlocked_by` is known: a
+/// nation tech may only upgrade a building its own nation can reach. Each upgrade names exactly
+/// one property, the building must already have it, and each (building, property) pair has at
+/// most one tech.
 fn link_upgrades(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(), DefsError> {
     for (t, tech) in techs.iter().enumerate() {
         let err =
@@ -1635,11 +1705,8 @@ fn link_upgrades(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(),
             let Some(b) = buildings.iter_mut().find(|b| b.id == *name) else {
                 return err(format!("unknown building {name:?}"));
             };
-            if b.seats == 0 {
-                return err(format!("{name:?} has no seats to add to"));
-            }
-            if !(1..=8).contains(&up.seats) {
-                return err(format!("seats = {} must be 1 to 8", up.seats));
+            if up.seats.is_some() == up.recipe.is_some() {
+                return err(format!("{name:?} must name exactly one property: seats or recipe"));
             }
             if let Some(n) = tech.nation {
                 let reach = b.unlocked_by.map(|u| techs[u.0 as usize].nation);
@@ -1647,13 +1714,34 @@ fn link_upgrades(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(),
                     return err(format!("{name:?} is another nation's building"));
                 }
             }
-            if let Some(&(other, _)) = b.seat_upgrades.first() {
-                return err(format!(
-                    "{name:?} seats are already upgraded by {:?}; a property has one tech",
-                    techs[other.0 as usize].id
-                ));
+            if let Some(seats) = up.seats {
+                if b.seats == 0 {
+                    return err(format!("{name:?} has no seats to add to"));
+                }
+                if !(1..=8).contains(&seats) {
+                    return err(format!("seats = {seats} must be 1 to 8"));
+                }
+                if let Some(&(other, _)) = b.seat_upgrades.first() {
+                    return err(format!(
+                        "{name:?} seats are already upgraded by {:?}; a property has one tech",
+                        techs[other.0 as usize].id
+                    ));
+                }
+                b.seat_upgrades.push((TechId(t as u16), seats));
             }
-            b.seat_upgrades.push((TechId(t as u16), up.seats));
+            if let Some(id) = &up.recipe {
+                let Some(alt) = b.alt_recipes.iter_mut().find(|a| a.id == *id) else {
+                    return err(format!("{name:?} has no alt_recipe {id:?}"));
+                };
+                if let Some(other) = alt.unlocked_by {
+                    return err(format!(
+                        "{name:?} recipe {id:?} is already upgraded by {:?}; a property has one \
+                         tech",
+                        techs[other.0 as usize].id
+                    ));
+                }
+                alt.unlocked_by = Some(TechId(t as u16));
+            }
         }
     }
     Ok(())
@@ -2298,5 +2386,90 @@ mod tests {
         Defs::from_files(files).expect("fire upgrades its own");
         // A shared building is everyone's.
         with_upgrade(Some("air"), "building = \"study_hall\"\nseats = 1").unwrap();
+    }
+
+    /// A building with a first recipe (wood to tools) and `extra` appended, for the alt recipe
+    /// checks.
+    fn with_recipe(extra: &str) -> Result<Vec<BuildingDef>, DefsError> {
+        resolve(&format!(
+            "[[building]]\nid = \"w\"\nname = \"W\"\nverb = \"Build\"\nwork = 1.0\n\
+             passable = false\ncapacity = 1\n\
+             [building.recipe]\noutput = \"tool\"\noutput_count = 1\nwork = 5.0\n\
+             input = [{{ item = \"wood\", count = 3 }}]\n{extra}"
+        ))
+    }
+
+    const ALT: &str = "[[building.alt_recipe]]\nid = \"wares\"\noutput = \"wares\"\n\
+                       output_count = 2\nwork = 3.0\ninput = [{ item = \"wood\", count = 4 }]\n";
+
+    #[test]
+    fn alt_recipes_are_checked_like_the_first_recipe() {
+        let defs = with_recipe(ALT).unwrap();
+        let alts = &defs[0].alt_recipes;
+        assert_eq!(alts.len(), 1);
+        assert_eq!((alts[0].id.as_str(), alts[0].recipe.output.count), ("wares", 2));
+        assert_eq!(alts[0].unlocked_by, None, "no tech names it: there from the start");
+
+        let fails = |extra: &str, why: &str| {
+            let e = with_recipe(extra).expect_err(extra).0;
+            assert!(e.contains(why), "{extra}: {e}");
+        };
+        fails(&format!("{ALT}{ALT}"), "listed twice");
+        fails(&ALT.replace("id = \"wares\"", "id = \"\""), "must not be empty");
+        fails(&ALT.replace("output = \"wares\"", "output = \"nope\""), "unknown output item");
+        fails(&ALT.replace("count = 4", "count = 0"), "input count must be positive");
+        fails(&ALT.replace("work = 3.0", "work = 0.0"), "work must be");
+    }
+
+    #[test]
+    fn an_alt_recipe_needs_the_buildings_first_recipe_and_known_keys() {
+        let no_first = "[[building]]\nid = \"w\"\nname = \"W\"\nverb = \"Build\"\nwork = 1.0\n\
+                        passable = false\ncapacity = 1\n";
+        let e = resolve(&format!("{no_first}{ALT}")).unwrap_err().0;
+        assert!(e.contains("needs a [building.recipe]"), "{e}");
+        let parse = toml::from_str::<BuildingsFile>(&format!(
+            "[[building]]\nid = \"w\"\nname = \"W\"\nverb = \"Build\"\nwork = 1.0\n\
+             passable = false\n{ALT}foo = 1\n"
+        ));
+        assert!(parse.err().expect("fails to parse").to_string().contains("unknown field"));
+    }
+
+    #[test]
+    fn the_workshops_wares_are_unlocked_by_trade_wares() {
+        let defs = Defs::bundled();
+        let workshop = defs.building(defs.building_id("workshop").unwrap());
+        let [wares] = workshop.alt_recipes.as_slice() else { panic!("one alt recipe") };
+        assert_eq!(wares.id, "wares");
+        assert_eq!(wares.unlocked_by, defs.tech_id("trade_wares"));
+        assert_eq!(defs.item(wares.recipe.output.item).id, "wares");
+        let others = defs.buildings.iter().filter(|b| !b.alt_recipes.is_empty()).count();
+        assert_eq!(others, 1, "only the Workshop has one");
+        assert!(!defs.tech(defs.tech_id("trade_wares").unwrap()).core);
+    }
+
+    /// The bundled files with `[[tech.unlocks.upgrades]]` `entry` on a new tech, appended.
+    fn with_recipe_upgrade(entry: &str) -> Result<Defs, DefsError> {
+        let mut files = crate::defs::BUNDLED_FILES;
+        let research = format!(
+            "{}\n[[tech]]\nid = \"t\"\nname = \"T\"\ndescription = \"\"\ncost = 10\n\
+             [[tech.unlocks.upgrades]]\n{entry}\n",
+            files[3]
+        );
+        files[3] = &research;
+        Defs::from_files(files)
+    }
+
+    #[test]
+    fn a_recipe_upgrade_names_one_alt_recipe_of_the_building() {
+        let fails = |entry: &str, why: &str| {
+            let e = with_recipe_upgrade(entry).expect_err(entry).0;
+            assert!(e.contains(why), "{entry}: {e}");
+        };
+        fails("building = \"workshop\"\nrecipe = \"nope\"", "no alt_recipe \"nope\"");
+        fails("building = \"bed\"\nrecipe = \"wares\"", "no alt_recipe");
+        fails("building = \"workshop\"", "exactly one property");
+        fails("building = \"workshop\"\nrecipe = \"wares\"\nseats = 1", "exactly one property");
+        // trade_wares already unlocks it: one tech per (building, recipe) pair.
+        fails("building = \"workshop\"\nrecipe = \"wares\"", "already upgraded by \"trade_wares\"");
     }
 }

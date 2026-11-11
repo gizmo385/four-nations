@@ -171,7 +171,7 @@ fn a_kiln_idles_at_its_stock_limit_instead_of_starting_a_batch() {
     w.designate_stockpile(brick_zone).unwrap();
     w.stored.insert(brick_zone, Stack { item: recipe.output.item, count: recipe.stock_limit });
 
-    assert!(w.craft_idle(anchor, &recipe), "idle from the start, with no batch under way");
+    assert!(w.craft_idle(anchor, &defs), "idle from the start, with no batch under way");
     let stone_before = w.stored_total(recipe.inputs[0].item);
     for _ in 0..2000 {
         w.tick(&defs);
@@ -182,7 +182,7 @@ fn a_kiln_idles_at_its_stock_limit_instead_of_starting_a_batch() {
 
     // Taking bricks below the limit lets it resume and spend stone again.
     w.stored.remove(&brick_zone);
-    assert!(!w.craft_idle(anchor, &recipe), "resumed once stock dropped below the limit");
+    assert!(!w.craft_idle(anchor, &defs), "resumed once stock dropped below the limit");
     run_until(&mut w, &defs, 6000, |w| w.stored_total(recipe.inputs[0].item) < stone_before);
 }
 
@@ -309,7 +309,7 @@ fn a_mine_shafts_source_recipe_idles_at_its_stock_limit_like_any_other() {
     let zone = at(5, 0);
     w.designate_stockpile(zone).unwrap();
     w.stored.insert(zone, Stack { item: recipe.output.item, count: recipe.stock_limit });
-    assert!(w.craft_idle(anchor, &recipe), "idle from the start, with no batch under way");
+    assert!(w.craft_idle(anchor, &defs), "idle from the start, with no batch under way");
     for _ in 0..2000 {
         w.tick(&defs);
     }
@@ -318,7 +318,7 @@ fn a_mine_shafts_source_recipe_idles_at_its_stock_limit_like_any_other() {
 
     // Below the limit, a batch resumes: the crafter still has to walk in and spend the work.
     w.stored.remove(&zone);
-    assert!(!w.craft_idle(anchor, &recipe));
+    assert!(!w.craft_idle(anchor, &defs));
     run_until(&mut w, &defs, 6000, |w| w.ground_items().any(|(_, s)| s.item == recipe.output.item));
 }
 
@@ -358,6 +358,7 @@ fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
         track: None,
         orchard: None,
         recipe: None,
+        alt_recipes: Vec::new(),
         farm: None,
         irrigation: None,
         healing: None,
@@ -524,4 +525,196 @@ fn grid() -> [&'static str; 10] {
         "..........",
         "..........",
     ]
+}
+
+// --- Alternate recipes: the Workshop's wares (#708, docs/design/horizons-phase-3.md) ---
+
+/// A world with a finished Workshop at (4, 4), for the recipe tests.
+fn workshop_world() -> (World, Defs, Pos) {
+    let (mut w, defs) = setup(&grid(), &[at(1, 1)]);
+    let workshop = defs.building_id("workshop").unwrap();
+    let anchor = at(4, 4);
+    place_building(&mut w, &defs, workshop, anchor);
+    (w, defs, anchor)
+}
+
+fn learn_trade_wares(w: &mut World, defs: &Defs) {
+    w.research.grant(defs.tech_id("trade_wares").unwrap());
+}
+
+#[test]
+fn setting_a_recipe_is_refused_until_trade_wares_is_known() {
+    let (mut w, defs, anchor) = workshop_world();
+    let set = |w: &mut World, recipe| w.apply(Command::SetRecipe { pos: anchor, recipe }, &defs);
+
+    let refused = set(&mut w, Some(0)).unwrap_err();
+    assert_eq!(refused, CommandError::Recipe(RecipeError::Locked("Trade Wares".into())));
+    assert_eq!(refused.to_string(), "needs Trade Wares");
+    assert!(refused.is_routine());
+    assert!(w.command_log().is_empty(), "a refusal isn't logged");
+
+    learn_trade_wares(&mut w, &defs);
+    set(&mut w, Some(0)).expect("known now");
+    assert_eq!(w.command_log().len(), 1);
+}
+
+#[test]
+fn setting_a_recipe_is_refused_on_a_site_off_a_building_and_for_a_missing_recipe() {
+    let (mut w, defs, anchor) = workshop_world();
+    learn_trade_wares(&mut w, &defs);
+    let set = |w: &mut World, pos, recipe| w.apply(Command::SetRecipe { pos, recipe }, &defs);
+
+    assert_eq!(
+        set(&mut w, anchor, Some(1)),
+        Err(CommandError::Recipe(RecipeError::NoSuchRecipe)),
+        "the Workshop has one alt recipe"
+    );
+    assert_eq!(
+        set(&mut w, at(8, 8), None),
+        Err(CommandError::Recipe(RecipeError::NoBuilding)),
+        "nothing there"
+    );
+    // A site keeps its default.
+    let site = at(8, 1);
+    let workshop = defs.building_id("workshop").unwrap();
+    w.sites.insert(site, super::super::build::Site::gate(workshop, [2, 2]));
+    assert_eq!(
+        set(&mut w, site, Some(0)),
+        Err(CommandError::Recipe(RecipeError::Site)),
+        "a building site"
+    );
+    // A building with no alt recipes at all.
+    let smelter = defs.building_id("smelter").unwrap();
+    place_building(&mut w, &defs, smelter, at(0, 6));
+    assert_eq!(
+        set(&mut w, at(0, 6), Some(0)),
+        Err(CommandError::Recipe(RecipeError::NoSuchRecipe)),
+    );
+    assert_eq!(set(&mut w, at(0, 6), None), Ok(()), "its own recipe is always there");
+    assert_eq!(w.command_log().len(), 1);
+}
+
+#[test]
+fn a_workshop_set_to_wares_makes_wares_and_back_to_tools() {
+    let (mut w, defs, anchor) = workshop_world();
+    learn_trade_wares(&mut w, &defs);
+    let tool = defs.item_id("tool").unwrap();
+    let wares = defs.item_id("wares").unwrap();
+    let workshop = defs.building(defs.building_id("workshop").unwrap());
+    assert_eq!(w.recipe_at(anchor, &defs), workshop.recipe.as_ref(), "tools to start with");
+    assert_eq!(w.recipe_choice_at(anchor, &defs), None);
+
+    w.apply(Command::SetRecipe { pos: anchor, recipe: Some(0) }, &defs).unwrap();
+    let recipe = w.recipe_at(anchor, &defs).unwrap();
+    assert_eq!(recipe.output.item, wares);
+    assert_eq!((recipe.output.count, recipe.work, recipe.stock_limit), (2, 30.0, 30));
+    assert_eq!(recipe.inputs.len(), 1);
+    assert_eq!(recipe.inputs[0].count, 4);
+    assert_eq!(w.recipe_choice_at(anchor, &defs), Some(0));
+
+    let zone = at(0, 0);
+    w.designate_stockpile(zone).unwrap();
+    let wood = defs.item_id("wood").unwrap();
+    w.stored.insert(zone, Stack { item: wood, count: 40 });
+    run_until(&mut w, &defs, 6000, |w| w.ground_items().any(|(_, s)| s.item == wares));
+    let made: u32 = w.ground_items().filter(|(_, s)| s.item == wares).map(|(_, s)| s.count).sum();
+    assert_eq!(made, 2, "one batch: two wares");
+    assert!(w.ground_items().all(|(_, s)| s.item != tool));
+
+    // Back to tools: the first recipe again, with the same command.
+    w.apply(Command::SetRecipe { pos: anchor, recipe: None }, &defs).unwrap();
+    assert_eq!(w.recipe_at(anchor, &defs), workshop.recipe.as_ref());
+    assert_eq!(w.recipe_choice_at(anchor, &defs), None);
+}
+
+#[test]
+fn setting_the_recipe_it_already_has_changes_nothing() {
+    let (mut w, defs, anchor) = workshop_world();
+    learn_trade_wares(&mut w, &defs);
+    let wood = defs.item_id("wood").unwrap();
+    w.anchored_mut(anchor).unwrap().craft = Some(CraftState { delivered: vec![2], progress: 7.0 });
+    let before = w.clone();
+    w.apply(Command::SetRecipe { pos: anchor, recipe: None }, &defs).unwrap();
+    assert_eq!(w.anchored(anchor), before.anchored(anchor), "the batch is untouched");
+    assert!(w.ground_items().all(|(_, s)| s.item != wood));
+}
+
+#[test]
+fn switching_mid_batch_drops_the_inputs_and_loses_the_work() {
+    let (mut w, defs, anchor) = workshop_world();
+    learn_trade_wares(&mut w, &defs);
+    let wood = defs.item_id("wood").unwrap();
+    w.anchored_mut(anchor).unwrap().craft = Some(CraftState { delivered: vec![3], progress: 12.0 });
+
+    w.apply(Command::SetRecipe { pos: anchor, recipe: Some(0) }, &defs).unwrap();
+    assert_eq!(w.anchored(anchor).unwrap().craft, None, "progress is gone");
+    let dropped: u32 = w.ground_items().filter(|(_, s)| s.item == wood).map(|(_, s)| s.count).sum();
+    assert_eq!(dropped, 3, "the delivered wood is on the ground, not lost");
+    // The crafter still holds the job, and starts fetching for wares.
+    let crafts =
+        w.jobs().iter().filter(|j| j.kind == crate::jobs::JobKind::Craft { pos: anchor }).count();
+    assert_eq!(crafts, 1);
+}
+
+#[test]
+fn a_workshop_on_wares_idles_at_thirty_whatever_the_tools_count() {
+    let (mut w, defs, anchor) = workshop_world();
+    learn_trade_wares(&mut w, &defs);
+    let tool = defs.item_id("tool").unwrap();
+    let wares = defs.item_id("wares").unwrap();
+    let zone = at(0, 0);
+    w.designate_stockpile(zone).unwrap();
+
+    // Six tools idle a Workshop on tools, and don't touch one on wares.
+    w.stored.insert(zone, Stack { item: tool, count: 6 });
+    assert!(w.craft_idle(anchor, &defs));
+    w.apply(Command::SetRecipe { pos: anchor, recipe: Some(0) }, &defs).unwrap();
+    assert!(!w.craft_idle(anchor, &defs), "tools don't count against wares");
+
+    w.stored.insert(zone, Stack { item: wares, count: 29 });
+    assert!(!w.craft_idle(anchor, &defs));
+    w.stored.insert(zone, Stack { item: wares, count: 30 });
+    assert!(w.craft_idle(anchor, &defs), "idle at 30 wares in stores");
+
+    // And it stays idle: no wood is fetched while the stores are full.
+    let wood = defs.item_id("wood").unwrap();
+    w.designate_stockpile(at(1, 0)).unwrap();
+    w.stored.insert(at(1, 0), Stack { item: wood, count: 20 });
+    for _ in 0..600 {
+        w.tick(&defs);
+    }
+    assert_eq!(w.stored_total(wood), 20);
+    assert_eq!(w.anchored(anchor).unwrap().craft, None);
+}
+
+#[test]
+fn the_chosen_recipe_survives_a_save_round_trip() {
+    let (mut w, defs, anchor) = workshop_world();
+    learn_trade_wares(&mut w, &defs);
+    w.apply(Command::SetRecipe { pos: anchor, recipe: Some(0) }, &defs).unwrap();
+    let saved = w.save(&defs).expect("saves");
+    assert!(saved.contains("recipe:Some(\"wares\")"), "saved by id");
+    let w2 = World::load(&saved, &defs).expect("loads");
+    assert_eq!(w2.anchored(anchor).unwrap().recipe.as_deref(), Some("wares"));
+    assert_eq!(w2.recipe_choice_at(anchor, &defs), Some(0));
+    assert_eq!(w2.recipe_at(anchor, &defs).unwrap().output.item, defs.item_id("wares").unwrap());
+
+    // A workshop left on tools writes nothing, so saves from before this still load the same.
+    let (w, defs, anchor) = workshop_world();
+    let saved = w.save(&defs).expect("saves");
+    assert!(!saved.contains("recipe:"));
+    assert_eq!(World::load(&saved, &defs).unwrap().anchored(anchor).unwrap().recipe, None);
+}
+
+#[test]
+fn a_recipe_id_the_data_no_longer_has_falls_back_to_the_first_recipe() {
+    let (mut w, defs, anchor) = workshop_world();
+    w.anchored_mut(anchor).unwrap().recipe = Some("gone".into());
+    let workshop = defs.building(defs.building_id("workshop").unwrap());
+    assert_eq!(w.recipe_at(anchor, &defs), workshop.recipe.as_ref());
+    assert_eq!(w.recipe_choice_at(anchor, &defs), None);
+
+    let saved = w.save(&defs).expect("saves");
+    let w2 = World::load(&saved, &defs).expect("loads");
+    assert_eq!(w2.anchored(anchor).unwrap().recipe, None, "cleared on load");
 }

@@ -48,8 +48,8 @@ fn describe_craft(world: &World, defs: &Defs, unit: &Unit, pos: Pos) -> String {
     let fallback = || format!("Crafting at ({}, {})", pos.x, pos.y);
     let Some(building) = world.building_at(pos) else { return fallback() };
     let def = defs.building(building);
-    let Some(recipe) = &def.recipe else { return fallback() };
-    if !world.craft_idle(pos, recipe) {
+    let Some(recipe) = world.recipe_at(pos, defs) else { return fallback() };
+    if !world.craft_idle(pos, defs) {
         return fallback();
     }
     let stored = world.stored_total(recipe.output.item);

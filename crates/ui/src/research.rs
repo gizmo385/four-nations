@@ -159,7 +159,15 @@ pub fn unlock_summary(defs: &Defs, nation: Nation, id: TechId, def: &TechDef) ->
     );
     parts.extend(def.unlocks.upgrades.iter().filter_map(|u| {
         let b = defs.building(defs.building_id(&u.building)?);
-        Some(format!("{} +{} seats", b.display_name(nation), u.seats))
+        if let Some(id) = &u.recipe {
+            let alt = b.alt_recipes.iter().find(|a| a.id == *id)?;
+            return Some(format!(
+                "{} makes {}",
+                b.display_name(nation),
+                defs.item(alt.recipe.output.item).name
+            ));
+        }
+        Some(format!("{} +{} seats", b.display_name(nation), u.seats?))
     }));
     parts.extend(
         def.unlocks
@@ -387,6 +395,12 @@ mod tests {
         assert_eq!(
             unlock_summary(&defs, Nation::Earth, calendar, defs.tech(calendar)),
             "Almanac, Standing sow order"
+        );
+        // A recipe upgrade names what the building makes (#708).
+        let wares = defs.tech_id("trade_wares").unwrap();
+        assert_eq!(
+            unlock_summary(&defs, Nation::Fire, wares, defs.tech(wares)),
+            "Workshop makes Wares"
         );
         let fishing = defs.tech_id("fishing").unwrap();
         assert_eq!(

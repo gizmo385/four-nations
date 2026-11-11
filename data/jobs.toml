@@ -82,6 +82,12 @@ stands_for = "stone"
 id = "tool"
 name = "Tool"
 
+# What a Workshop makes once `trade_wares` is known (#708): a plain stored item that caravans
+# take in deals (#711).
+[[item]]
+id = "wares"
+name = "Wares"
+
 # --- Water Tribe: ice (#364) ---
 # Water's own building material: Cut Ice (`Effect::DrawItem`, data/bending.toml) freezes and
 # cuts a river, lake or sea tile beside the bender into it. There's no harvest entry for it,
