@@ -1130,7 +1130,18 @@ impl Host {
                     .letter()
                     .expect("every designate tool has a letter")
                     .to_ascii_lowercase();
-                keys.push(char_key(letter));
+                // `E` toggles the Clear tool between ground and buildings (#342), so press it as
+                // many times as it takes from the tool active now. Every other tool's key only
+                // ever picks that tool.
+                // Like every tool key, the last press re-picks the tool, dropping a corner left
+                // set: from the mode already active that takes two (there and back).
+                let presses = match (tool, self.app().ui.tool) {
+                    (DesignateTool::Clear, Tool::Clear) => 2,
+                    (DesignateTool::Deconstruct, Tool::Clear) => 1,
+                    (DesignateTool::Deconstruct, _) => 2,
+                    _ => 1,
+                };
+                keys.extend(std::iter::repeat_n(char_key(letter), presses));
             }
         }
         if standing || teardown {
@@ -1574,6 +1585,9 @@ pub enum DesignateTool {
     Cancel,
     /// Clear the ground (docs/design/clearing.md, #411/#426): `e` plus the rectangle.
     Clear,
+    /// Mark finished buildings to be taken down (#342): the Clear tool's buildings mode, `e e`
+    /// plus the rectangle (only as many `e`s as it takes from the tool active now).
+    Deconstruct,
     Stockpile,
     Bend,
     /// Sow an empty farm plot (issue #198, #333): `c` plus the rectangle.
@@ -1586,6 +1600,7 @@ impl DesignateTool {
             Self::Harvest => Tool::Harvest,
             Self::Cancel => Tool::CancelHarvest,
             Self::Clear => Tool::Clear,
+            Self::Deconstruct => Tool::Deconstruct,
             Self::Stockpile => Tool::Stockpile,
             Self::Bend => Tool::Bend,
             Self::Sow => Tool::Sow,
@@ -1597,6 +1612,7 @@ impl DesignateTool {
             Self::Harvest => "harvest",
             Self::Cancel => "cancel",
             Self::Clear => "clear",
+            Self::Deconstruct => "deconstruct",
             Self::Stockpile => "stockpile",
             Self::Bend => "bend",
             Self::Sow => "sow",
@@ -3711,6 +3727,50 @@ mod tests {
         let script = result.keys.join(" ");
         assert_eq!(script, "e <right> <right> <down> <enter> <right> <down> <enter>");
         assert_same_as_key_script(&mut h, Nation::Earth, &script);
+    }
+
+    /// `designate {tool: deconstruct}` (#342) lowers to `e e` plus the rectangle: the Clear
+    /// tool's second mode. From the Clear tool's ground mode it takes one `e`, and a building in
+    /// the rectangle is marked once.
+    #[test]
+    fn act_designate_deconstruct_lowers_to_e_e_and_marks_the_building() {
+        let mut h = host(Nation::Earth);
+        let cursor = h.app().ui.cursor;
+        let from = Pos::new(cursor.x + 2, cursor.y + 1);
+        let to = Pos::new(from.x + 1, from.y + 1);
+        let step = |tool| ActionStep::Designate {
+            tool,
+            from: Coord { x: from.x, y: from.y },
+            to: Coord { x: to.x, y: to.y },
+            standing: false,
+            teardown: false,
+            ability: None,
+        };
+        let world = &h.app().session.world;
+        assert!(fn_ui::tools::tiles_between(from, to).all(|p| world.building_record(p).is_none()));
+        let result = h.act(&[step(DesignateTool::Deconstruct)], None);
+        assert!(result.error.is_none(), "{result:?}");
+        assert_eq!(h.app().ui.tool, Tool::Deconstruct);
+        let script = result.keys.join(" ");
+        assert_eq!(script, "e e <right> <right> <down> <enter> <right> <down> <enter>");
+        assert!(result.notices[0].notice.contains("no building here"), "{result:?}");
+        assert_same_as_key_script(&mut h, Nation::Earth, &script);
+
+        // Back to ground mode is one `e`, and from there buildings mode is one more.
+        let result = h.act(&[step(DesignateTool::Clear)], None);
+        assert_eq!(result.keys[0], "e", "{result:?}");
+        assert_ne!(result.keys[1], "e", "{result:?}");
+        assert_eq!(h.app().ui.tool, Tool::Clear);
+        let bed = h.app().session.defs.building_id("bed").unwrap();
+        let defs = h.app().session.defs.clone();
+        h.app_mut().session.world.put_building(fn_sim::geom::Footprint::single(to), bed, &defs);
+        let result = h.act(&[step(DesignateTool::Deconstruct)], None);
+        assert!(result.error.is_none(), "{result:?}");
+        assert_eq!(result.keys[0], "e", "{result:?}");
+        assert_ne!(result.keys[1], "e", "{result:?}");
+        assert_eq!(result.notices[0].notice, "clear buildings: 1 marked, 0 skipped");
+        let marked: Vec<Pos> = h.app().session.world.deconstruct_designations().collect();
+        assert_eq!(marked, [to]);
     }
 
     /// #327: the real bug a first agent run hit -- a stockpile placed on water stored nothing,

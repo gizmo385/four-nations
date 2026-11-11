@@ -83,7 +83,7 @@ fn find(desc, near, radius) {
 }
 
 /// Designates every tile `find(desc, near, radius)` turns up for `tool` (`"harvest"`,
-/// `"cancel"`, `"clear"`, `"stockpile"`, `"bend"` or `"sow"`), each its own 1x1 rectangle, in
+/// `"cancel"`, `"clear"`, `"deconstruct"`, `"stockpile"`, `"bend"` or `"sow"`), each its own 1x1 rectangle, in
 /// one `act` call: `#{ok, msg, found, done}`. `found` is how many tiles matched `desc` at all;
 /// `done` is how many of those the designation actually took (short of `found` when some are
 /// out of reach or already designated, say). `ok` is `done > 0`. `standing` is `act`'s own

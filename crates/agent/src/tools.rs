@@ -143,7 +143,8 @@ pub fn list() -> Vec<Value> {
                                 "tool": {
                                     "type": "string",
                                     "enum": [
-                                        "harvest", "cancel", "clear", "stockpile", "bend", "sow",
+                                        "harvest", "cancel", "clear", "deconstruct",
+                                        "stockpile", "bend", "sow",
                                     ],
                                 },
                                 "building": {"type": "string"},

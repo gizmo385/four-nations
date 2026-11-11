@@ -8,7 +8,7 @@
 use serde::Deserialize;
 
 use crate::bending::{AbilityDef, AbilityId, BendingFile, ChiSettings, MasteryDef};
-use crate::building::{BuildingDef, BuildingId, BuildingsFile};
+use crate::building::{BuildingDef, BuildingId, BuildingsFile, DeconstructDef};
 use crate::difficulty::DifficultyDef;
 use crate::embark::EmbarkDef;
 use crate::endeavor::{EndeavorDef, EndeavorFile};
@@ -140,6 +140,9 @@ pub struct Defs {
     pub jobs: JobSettings,
     /// Constructible structures, in file order; indexed by `BuildingId` (data/buildings.toml).
     pub buildings: Vec<BuildingDef>,
+    /// Taking a finished building down: its work and refund (data/buildings.toml's
+    /// `[deconstruct]`, issue #342).
+    pub deconstruct: DeconstructDef,
     /// The chi meter every unit has (data/bending.toml).
     pub chi: ChiSettings,
     /// Bending abilities, in file order; indexed by `AbilityId`.
@@ -320,8 +323,9 @@ impl Defs {
         let (needs, foods) = parse::<NeedsFile>("needs.toml", needs)?.resolve(&resource_ids)?;
         let (jobs, items, harvests) =
             parse::<JobsFile>("jobs.toml", jobs)?.resolve(&resources, &foods, &needs, &techs)?;
-        let buildings = parse::<BuildingsFile>("buildings.toml", buildings)?
-            .resolve(&items, &techs, &resources, &needs)?;
+        let buildings = parse::<BuildingsFile>("buildings.toml", buildings)?;
+        let deconstruct = buildings.deconstruct()?;
+        let buildings = buildings.resolve(&items, &techs, &resources, &needs)?;
         let biomes = parse::<BiomeFile>("biomes.toml", biomes)?.biome;
         let (chi, abilities, mastery) = parse::<BendingFile>("bending.toml", bending)?
             .resolve(&biomes, &resources, &harvests, &items, &techs)?;
@@ -341,6 +345,7 @@ impl Defs {
             harvests,
             jobs,
             buildings,
+            deconstruct,
             chi,
             abilities,
             mastery,

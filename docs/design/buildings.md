@@ -159,9 +159,16 @@ or nothing changes.
 
 - `Command::CancelBuild { pos }` accepts any tile of a site's footprint and cancels the whole
   site. Delivered materials drop near the anchor, as today.
-- There is no deconstruct command yet. When one is added, a footprint is atomic: any tile names
-  the building, the whole footprint clears in one tick, and the building's study seats and heat
-  source (both keyed by the anchor) go with it.
+- `Command::Deconstruct { pos }` (#342, `world/deconstruct.rs`) marks a finished building for
+  taking down, and `CancelDeconstruct` takes the mark back. A footprint is atomic: any tile
+  names the building, and the mark is one job on its anchor. A unit works it for
+  `[deconstruct] work` times the building's own `work`; then `World::remove_building` clears the
+  whole footprint in one tick, along with everything the building owned (seats, craft jobs, a
+  plot's jobs, its fire, units inside, anyone bound for its bed). `[deconstruct] refund` of each
+  cost item (half, rounded down) drops by the anchor, plus a production building's delivered
+  batch inputs in full. The endeavor's gate can't be taken down. In the TUI it is the Clear
+  tool's buildings mode (`E` twice, docs/design/clearing.md, section 5); a stockpile is removed
+  through the Cancel tool's teardown mode (#335) instead.
 
 ### Saves and determinism
 

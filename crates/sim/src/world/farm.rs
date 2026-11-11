@@ -171,7 +171,7 @@ impl World {
         let Some(idx) = self.job_index(id) else { return self.finish_job(i) };
         let JobKind::Sow { pos } = self.jobs[idx].kind else { return self.finish_job(i) };
         let Some(def) = self.farm_def(pos, defs) else {
-            // The plot is gone (no demolish yet, so only a hand-edited map): moot.
+            // The plot is gone (taken down, #342): moot.
             self.jobs.remove(idx);
             return self.finish_job(i);
         };

@@ -54,9 +54,9 @@ fn badge(session: &Session, ui: &UiState) -> String {
                 s.push_str(&row.name);
             }
         }
-        // Ground mode only (docs/design/clearing.md, #411/#426); `E` would cycle to a buildings
-        // mode once #342 lands, which would name it the same way.
+        // The Clear tool's two modes (docs/design/clearing.md, section 5): `E` toggles them.
         Tool::Clear => s.push_str(" ground"),
+        Tool::Deconstruct => s.push_str(" buildings"),
         _ => {}
     }
     if ui.tool == Tool::Harvest && ui.repeating {
@@ -102,6 +102,8 @@ fn segments(session: &Session, ui: &UiState) -> Vec<String> {
             Tool::Harvest if ui.repeating => segs.push("O: one-shot".to_owned()),
             Tool::CancelHarvest if ui.teardown => segs.push("O: jobs only".to_owned()),
             Tool::Build => segs.push("U: pick another".to_owned()),
+            Tool::Clear => segs.push("E: buildings".to_owned()),
+            Tool::Deconstruct => segs.push("E: ground".to_owned()),
             Tool::Bend if bend::view(session).offers_next() => {
                 segs.push("B: next ability".to_owned());
             }

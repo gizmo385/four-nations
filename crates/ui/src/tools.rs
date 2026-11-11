@@ -8,7 +8,8 @@
 //! rectangle used to also sweep up every stockpile and build site it crossed, costing two
 //! playtests their stores), `X` also withdraws a build site or a stockpile tile; without it
 //! those are left alone. `E` clear the ground (docs/design/clearing.md, #411/#426: uproots a
-//! plant or works a resource's ordinary harvest, removing it for good), `P` stockpile, `B` the
+//! plant or works a resource's ordinary harvest, removing it for good); `E` again switches it to
+//! buildings mode, which marks finished buildings to be taken down (#342), and back. `P` stockpile, `B` the
 //! nation's bending ability (pressed again it cycles through the abilities the settlement can
 //! use), `U` the build tool (pressed again it cycles through the buildings the nation can
 //! place), `C` sow an empty farm plot (issue #198; a ripe one is reaped on its own, with no
@@ -30,10 +31,15 @@ pub enum Tool {
     Select,
     Harvest,
     CancelHarvest,
-    /// Remove whatever resource stands on a tile, for good (docs/design/clearing.md, #411/#426,
-    /// ground mode only; a buildings mode would be a second press of `E`, #342). `X` also
-    /// withdraws a Clear mark, as it does any other order.
+    /// Remove whatever resource stands on a tile, for good (docs/design/clearing.md, #411/#426):
+    /// the Clear tool's ground mode, the one `E` starts in. `X` also withdraws a Clear mark, as
+    /// it does any other order.
     Clear,
+    /// The Clear tool's buildings mode (#342, docs/design/clearing.md, section 5): `E` pressed
+    /// again while clearing the ground. Marks each finished building a rectangle touches to be
+    /// taken down, once per building. Not in `ALL`: it shares Clear's key, name and panel row,
+    /// and only its banner badge (`CLEAR buildings`) tells the two apart. `X` takes the mark back.
+    Deconstruct,
     Stockpile,
     /// Channel one of the nation's abilities (docs/design/bending.md): its signature one, or
     /// the next the settlement can use after `B` again (`Session::bend_choice`).
@@ -76,6 +82,8 @@ pub struct Here {
     pub clearing: bool,
     /// The tile has a bend designated on it (`World::bend_designations`).
     pub bend: bool,
+    /// The finished building on the tile is marked to be taken down (#342).
+    pub deconstructing: bool,
 }
 
 impl Here {
@@ -88,6 +96,7 @@ impl Here {
             sowing: world.sow_designations().any(|z| z == pos),
             clearing: world.clear_designations().any(|z| z == pos),
             bend: world.bend_designations().any(|(_, p)| p == pos),
+            deconstructing: world.is_marked_for_deconstruct(pos),
         }
     }
 }
@@ -111,7 +120,7 @@ impl Tool {
             Self::Select => "Select",
             Self::Harvest => "Harvest",
             Self::CancelHarvest => "Cancel",
-            Self::Clear => "Clear",
+            Self::Clear | Self::Deconstruct => "Clear",
             Self::Stockpile => "Stockpile",
             Self::Bend => "Bend",
             Self::Build => "Build",
@@ -125,7 +134,7 @@ impl Tool {
             Self::Select => "Esc",
             Self::Harvest => "H",
             Self::CancelHarvest => "X",
-            Self::Clear => "E",
+            Self::Clear | Self::Deconstruct => "E",
             Self::Stockpile => "P",
             Self::Bend => "B",
             Self::Build => "U",
@@ -158,6 +167,7 @@ impl Tool {
                 "cancel a harvest, bend, sow or clear mark (O: also a build site or stockpile)"
             }
             Self::Clear => "clear the ground",
+            Self::Deconstruct => "take down buildings",
             Self::Stockpile => "designate stockpile",
             Self::Bend => "channel the nation's ability",
             Self::Build => "place the chosen building (U: next building)",
@@ -172,9 +182,13 @@ impl Tool {
     /// banner's badge already names Clear's mode (`CLEAR ground`, `crate::banner` in `fn_tui`).
     pub fn brief(self) -> &'static str {
         match self {
-            Self::Select | Self::Clear | Self::Stockpile | Self::Bend | Self::Build | Self::Sow => {
-                ""
-            }
+            Self::Select
+            | Self::Clear
+            | Self::Deconstruct
+            | Self::Stockpile
+            | Self::Bend
+            | Self::Build
+            | Self::Sow => "",
             Self::Harvest => "chop, mine, gather",
             Self::CancelHarvest => "harvest, bend, sow or clear mark (O: also stockpile/site)",
         }
@@ -210,8 +224,10 @@ impl Tool {
             Self::CancelHarvest if here.bend => Some(Command::CancelBend { pos }),
             Self::CancelHarvest if here.sowing => Some(Command::CancelSow { pos }),
             Self::CancelHarvest if here.clearing => Some(Command::CancelClear { pos }),
+            Self::CancelHarvest if here.deconstructing => Some(Command::CancelDeconstruct { pos }),
             Self::CancelHarvest => Some(Command::CancelHarvest { pos }),
             Self::Clear => Some(Command::DesignateClear { pos }),
+            Self::Deconstruct => Some(Command::Deconstruct { pos }),
             Self::Stockpile => Some(Command::DesignateStockpile { pos }),
             Self::Bend => Some(Command::Bend { ability: pick.ability?, pos }),
             Self::Build => Some(Command::DesignateBuild { pos, building: pick.building? }),
@@ -292,13 +308,22 @@ pub fn build_stamps(from: Pos, to: Pos, footprint: (u8, u8)) -> Vec<Pos> {
 /// The tool and building choice after the player asks for `requested`. `Build` picks the first
 /// building the nation can place when none is chosen (or the chosen one is locked); asking for
 /// it again while it is active moves on to the next one. Every other tool leaves the choice
-/// alone, so `Build` returns to the building last picked.
+/// alone, so `Build` returns to the building last picked. `Clear` (its key, `E`) starts in
+/// ground mode, and asked for again it toggles between ground and buildings (#342,
+/// docs/design/clearing.md, section 5): a careless rectangle uproots trees, never houses.
 pub fn switch_tool(
     session: &Session,
     current: Tool,
     choice: Option<BuildingId>,
     requested: Tool,
 ) -> (Tool, Option<BuildingId>) {
+    if matches!(requested, Tool::Clear | Tool::Deconstruct) {
+        let next = match current {
+            Tool::Clear => Tool::Deconstruct,
+            _ => Tool::Clear,
+        };
+        return (next, choice);
+    }
     if requested != Tool::Build {
         return (requested, choice);
     }
@@ -320,6 +345,7 @@ struct CancelTally {
     bend: u32,
     sow: u32,
     clear: u32,
+    deconstruct: u32,
     site: u32,
     zone: u32,
 }
@@ -332,6 +358,7 @@ impl CancelTally {
             Command::CancelBend { .. } => self.bend += 1,
             Command::CancelSow { .. } => self.sow += 1,
             Command::CancelClear { .. } => self.clear += 1,
+            Command::CancelDeconstruct { .. } => self.deconstruct += 1,
             Command::CancelBuild { .. } => self.site += 1,
             Command::CancelStockpile { .. } => self.zone += 1,
             _ => {}
@@ -352,6 +379,7 @@ impl CancelTally {
         push(self.bend, "bend mark", "bend marks");
         push(self.sow, "sow mark", "sow marks");
         push(self.clear, "clear mark", "clear marks");
+        push(self.deconstruct, "building mark", "building marks");
         push(self.site, "build site", "build sites");
         push(self.zone, "stockpile", "stockpiles");
         let done = if kinds.is_empty() { "0 done".to_owned() } else { kinds.join(", ") };
@@ -363,6 +391,23 @@ impl CancelTally {
             None => format!("cancel: {done}, {refused} skipped"),
         }
     }
+}
+
+/// The tiles a buildings-mode Clear rectangle (#342) issues `Deconstruct` on: one per finished
+/// building it touches (its anchor), in the order the rectangle first meets each, so a 2x2 hall
+/// counts once in the notice rather than once marked and three times "already designated". A
+/// rectangle that touches no building at all gives its tiles back, so the notice still says why
+/// nothing was marked ("no building here").
+fn deconstruct_targets(session: &Session, from: Pos, to: Pos) -> Vec<Pos> {
+    let mut anchors: Vec<Pos> = Vec::new();
+    for pos in tiles_between(from, to) {
+        if let Some(b) = session.world.building_record(pos)
+            && !anchors.contains(&b.anchor)
+        {
+            anchors.push(b.anchor);
+        }
+    }
+    if anchors.is_empty() { tiles_between(from, to).collect() } else { anchors }
 }
 
 /// Applies `tool` to every tile in the rectangle `from`..=`to` (for `Build`, to every footprint
@@ -399,10 +444,12 @@ pub fn apply_rect(
         // Short, not the key-help label ("clear the ground"): docs/design/clearing.md's own
         // example notice is `clear: 6 marked, 2 skipped (can't be cleared)`.
         (Tool::Clear, _) => "clear".to_owned(),
+        (Tool::Deconstruct, _) => "clear buildings".to_owned(),
         _ => tool.label().to_owned(),
     };
     let targets: Vec<Pos> = match (tool, building) {
         (Tool::Build, Some(id)) => build_stamps(from, to, session.defs.building(id).footprint),
+        (Tool::Deconstruct, _) => deconstruct_targets(session, from, to),
         _ => tiles_between(from, to).collect(),
     };
     // So `job_unreachable` below has an answer even for the very first designation in a fresh
@@ -442,7 +489,7 @@ pub fn apply_rect(
     // Clear marks tiles rather than finishing work on them (a unit still has to do the
     // clearing), so its own notice says "marked" (docs/design/clearing.md, "One removal
     // vocabulary"); every other tool keeps "done".
-    let verb = if tool == Tool::Clear { "marked" } else { "done" };
+    let verb = if matches!(tool, Tool::Clear | Tool::Deconstruct) { "marked" } else { "done" };
     match last_error {
         Some(e) => {
             let why = build::describe_error(session, e);
@@ -1196,5 +1243,50 @@ mod tests {
         // The stockpile, and the wood already on it, are untouched.
         assert!(s.world.stockpile_zones().any(|z| z == stockpile), "{notice}");
         assert_eq!(s.world.stored_at(stockpile), Some(stored), "{notice}");
+    }
+
+    /// #342, docs/design/clearing.md, section 5: `E` starts in ground mode and toggles to
+    /// buildings and back; coming from any other tool always lands on ground.
+    #[test]
+    fn e_starts_in_ground_mode_and_toggles_to_buildings() {
+        let s = Session::new(7, Nation::Earth, 48, 32);
+        let next = |current| switch_tool(&s, current, None, Tool::Clear).0;
+        assert_eq!(next(Tool::Select), Tool::Clear);
+        assert_eq!(next(Tool::Harvest), Tool::Clear);
+        assert_eq!(next(Tool::Clear), Tool::Deconstruct);
+        assert_eq!(next(Tool::Deconstruct), Tool::Clear);
+        assert_eq!(Tool::from_letter('e'), Some(Tool::Clear));
+        assert!(!Tool::ALL.contains(&Tool::Deconstruct));
+    }
+
+    /// A buildings-mode rectangle marks each building it touches once, however many of its
+    /// tiles it covers, and `X` takes the mark back from any of them.
+    #[test]
+    fn a_buildings_rectangle_marks_each_building_once_and_cancel_takes_it_back() {
+        use fn_sim::geom::Footprint;
+
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let hall = s.defs.building_id("study_hall").unwrap();
+        let bed = s.defs.building_id("bed").unwrap();
+        // Somewhere free of buildings, away from the camp.
+        let (a, b) = (Pos::new(2, 2), Pos::new(5, 2));
+        for p in tiles_between(a, Pos::new(5, 3)) {
+            assert!(s.world.building_record(p).is_none(), "{p:?}");
+        }
+        let defs = s.defs.clone();
+        s.world.put_building(Footprint::new(a, 2, 2), hall, &defs);
+        s.world.put_building(Footprint::single(b), bed, &defs);
+        let notice = apply_rect(&mut s, Tool::Deconstruct, a, Pos::new(5, 3), false, false, None);
+        assert_eq!(notice, "clear buildings: 2 marked, 0 skipped");
+        assert_eq!(s.world.deconstruct_designations().collect::<Vec<_>>(), [a, b]);
+
+        let ground = Pos::new(4, 3);
+        let notice = apply_rect(&mut s, Tool::Deconstruct, ground, ground, false, false, None);
+        assert_eq!(notice, "clear buildings: 0 marked, 1 skipped (no building here)");
+
+        let corner = Pos::new(3, 3);
+        let notice = apply_rect(&mut s, Tool::CancelHarvest, corner, corner, false, false, None);
+        assert_eq!(notice, "cancel: 1 building mark, 0 skipped");
+        assert_eq!(s.world.deconstruct_designations().collect::<Vec<_>>(), [b]);
     }
 }

@@ -13,9 +13,10 @@
 //! (`Research::add_toward_target`), which caps the pool at the cost of what's being researched
 //! so the trickle can't bank toward several techs at once (`Research::cap_millis`). Needs pre-empt a
 //! seat exactly like any other job: a hungry scholar steps back out to eat (`consider_needs`,
-//! #226) and production stops until it comes back and re-enters. The job itself never completes;
-//! there's nothing to demolish yet, so a seat that's opened stays open for the rest of the game,
-//! and a scholar who empties the queue simply leaves it open rather than finishing it.
+//! #226) and production stops until it comes back and re-enters. The job itself never completes:
+//! a seat that's opened stays open for as long as the hall stands (taking it down, #342, closes
+//! its seats with it), and a scholar who empties the queue simply leaves it open rather than
+//! finishing it.
 
 use crate::flood::Flood;
 use crate::jobs::JobKind;

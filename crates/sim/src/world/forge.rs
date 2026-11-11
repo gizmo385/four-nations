@@ -102,8 +102,8 @@ impl World {
         let Some(idx) = self.job_index(id) else { return self.finish_job(i) };
         let JobKind::Craft { pos } = self.jobs[idx].kind else { return self.finish_job(i) };
         let Some(def) = self.building_at(pos).map(|b| defs.building(b)) else {
-            // The building is gone: moot (no demolish command exists yet, so unreachable in
-            // practice today).
+            // The building is gone (taken down, #342, which removes this job too, or a data
+            // change): moot.
             self.jobs.remove(idx);
             return self.finish_job(i);
         };

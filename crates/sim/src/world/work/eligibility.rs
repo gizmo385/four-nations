@@ -75,7 +75,8 @@ pub(super) fn avatar_may_take(kind: JobKind) -> bool {
         | JobKind::Sow { .. }
         | JobKind::Reap { .. }
         | JobKind::Clear { .. }
-        | JobKind::Chart { .. } => false,
+        | JobKind::Chart { .. }
+        | JobKind::Deconstruct { .. } => false,
     }
 }
 
@@ -211,16 +212,17 @@ impl World {
             // event, not silently dropped.
             JobKind::Bend { .. } => true,
             JobKind::Build { pos } => self.sites.contains_key(&pos),
-            // No demolish command yet, so a seat opened for a study hall stays open for as long
-            // as the building does, which today is forever. The same goes for a production
-            // building's craft job (#124) and a Map Room's seat (#402).
+            // A seat opened for a study hall stays open for as long as the building stands. The
+            // same goes for a production building's craft job (#124) and a Map Room's seat
+            // (#402). Taking it down (#342, `remove_building`) removes them along with it.
             JobKind::Study { pos } | JobKind::Craft { pos } | JobKind::Chart { pos } => {
                 self.map[pos].building.is_some()
             }
+            JobKind::Deconstruct { pos } => self.anchored(pos).is_some(),
             // The gate drops its own task and Attend jobs when it moves on (`gate.rs`).
             JobKind::EndeavorTask { .. } | JobKind::Attend { .. } => true,
-            // Moot if the plot is gone (no demolish yet, so only a hand-edited map) or moved
-            // past the stage this job was for.
+            // Moot if the plot is gone (taken down, #342) or moved past the stage this job was
+            // for.
             JobKind::Sow { pos } => self.plot_stage(pos) == Some(PlotStage::Empty),
             JobKind::Reap { pos } => self.plot_stage(pos) == Some(PlotStage::Ripe),
             JobKind::Clear { pos } => {
@@ -256,6 +258,9 @@ impl World {
             JobKind::Sow { pos } => (self.plot_stage(pos) == Some(PlotStage::Empty))
                 .then(|| free(StandRule::Building(pos)))
                 .flatten(),
+            JobKind::Deconstruct { pos } => {
+                self.anchored(pos).and_then(|_| free(StandRule::Building(pos)))
+            }
             JobKind::Reap { pos } => (self.plot_stage(pos) == Some(PlotStage::Ripe))
                 .then(|| free(StandRule::Building(pos)))
                 .flatten(),
@@ -393,6 +398,7 @@ mod tests {
             JobKind::Reap { pos: p },
             JobKind::Clear { pos: p },
             JobKind::Chart { pos: p },
+            JobKind::Deconstruct { pos: p },
         ];
         for kind in all {
             let expected = matches!(kind, JobKind::Bend { .. } | JobKind::EndeavorTask { .. });
