@@ -32,6 +32,7 @@ pub mod legend;
 pub mod map;
 pub mod menu;
 pub mod modal;
+pub mod msglog;
 pub mod nation;
 pub mod page;
 pub mod panel;

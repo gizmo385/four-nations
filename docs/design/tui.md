@@ -176,6 +176,17 @@ backgrounds, the stockpile is blue, the cursor is yellow and the selected unit i
     save over, from Saves) is centred on that screen. The title screen and embark keep their
     own layouts.
 
+  - **The message log (#661)** reads newest first, under a heading per season, each line stamped
+    with the time left (#654). A filter row (`Show [All] 1 Alerts 2 People 3 Knowledge 4 Bending
+    5 Work`) picks one category (`1` to `5`; `0` or the same digit again shows all); each entry's
+    category is set where `fn_ui::alerts` makes it (`Kind::category`). A run of the same event
+    (a finished bend of one ability, newcomers, plants picked to death) within a minute of the
+    last and 12 tiles of the first is one line, "Raise Earth used 7 times by 6 benders, near
+    (51, 65)": `Right` opens it, `Left` folds it. The rule and the lines are `fn_ui::msglog`; the
+    history itself (and the run log an agent reads) stays one line per event. `Up`/`Down` move
+    the cursor line; `Enter` closes the log with the map cursor on the line's place, or with the
+    settler selected when it names only one. Alert lines wear the warning tone.
+
   A new screen draws with `page::draw(buf, regions.page, palette, "TITLE", detail_rows)`, fills
   `page.body` (and `page.detail`), marks its selection with `page::highlight`, and ends with
   `page.position(buf, palette, fn_ui::text::window_label(...).as_deref())`. Its page size, for
