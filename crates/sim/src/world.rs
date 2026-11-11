@@ -882,6 +882,7 @@ impl World {
         let completed = self.research.tick(self.tick, defs, research_cost);
         if !completed.is_empty() {
             self.refresh_modifiers(defs);
+            self.sync_seats(defs);
         }
         for c in completed {
             self.log_event(c);

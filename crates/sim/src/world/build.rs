@@ -262,11 +262,13 @@ impl World {
             self.clear_footprint(foot);
             self.free_walled_in(&free);
         }
-        // A Map Room's seats open Chart jobs instead of Study ones (#402).
+        // A Map Room's seats open Chart jobs instead of Study ones (#402). Known upgrades
+        // count from the start (`seats_of`).
+        let seats = self.seats_of(def);
         if def.chart.is_some() {
-            self.open_chart_seats(foot.anchor, def.seats);
+            self.open_chart_seats(foot.anchor, seats);
         } else {
-            self.open_study_seats(foot.anchor, def.seats);
+            self.open_study_seats(foot.anchor, seats);
         }
         self.open_craft_jobs(foot.anchor, def);
     }

@@ -17,6 +17,11 @@
 # tech, unlocks. It defaults to false, so a tech added later is optional unless it says
 # otherwise and the gate can't grow by accident (docs/design/horizons-phase-1.md).
 #
+# `[[tech.unlocks.upgrades]]` raises one property of an existing building once the tech is known:
+# `building` names it, and `seats` (the only property so far, 1 to 8) adds to its own `seats`.
+# The building must already have the property, a nation tech may only upgrade a building its
+# nation can reach, and each building's property is upgraded by at most one tech.
+#
 # `buildings` lists ids from data/buildings.toml, and `jobs` lists resource ids from
 # data/resources.toml whose harvest designation (data/jobs.toml) the tech unlocks (issue #22).
 # Either may be unlocked by at most one tech; an item no tech names is available from the start.
@@ -137,9 +142,11 @@ name = "Writing"
 description = "Set knowledge down in scrolls so it outlives the teller."
 cost = 120
 prereqs = ["pottery"]
-# Later: +2 study hall seats
 [tech.unlocks]
 modifiers = { study = 1.25 }
+[[tech.unlocks.upgrades]]
+building = "study_hall"
+seats = 2                  # added to the building's own `seats`
 
 [[tech]]
 id = "prospecting"
