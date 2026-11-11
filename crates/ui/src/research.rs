@@ -3,7 +3,9 @@
 //! see is the sim's (`Defs::techs_for`). Choosing a tech issues `Command::SetResearch`; `fn_sim`
 //! does the rest (`docs/design/research.md`).
 
+use fn_sim::building::ArchiveDef;
 use fn_sim::research::{Facts, Feature, MILLIS_PER_POINT, Research, TechDef, TechId};
+use fn_sim::world::Command;
 use fn_sim::{Defs, Nation, World};
 
 use crate::session::Session;
@@ -25,6 +27,41 @@ pub struct ResearchStatus {
     pub rate: String,
     /// Further techs queued behind `label` (the rest of the chosen tech's prereq chain).
     pub more_queued: usize,
+    /// With no target and an Archive standing, what the scholars are doing instead: "Copying
+    /// scrolls: 90/150", or "Copying paused: 12 in stores" at the Archive's stock limit (#712).
+    /// `None` otherwise.
+    pub copying: Option<String>,
+}
+
+/// What an Archive's scribing is doing (`World::scribing_on`): nothing while a target is set,
+/// paused at the stock limit, else the points toward the next copy.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Scribing {
+    /// A research target is set: knowledge goes to the tech.
+    Off,
+    /// The stock limit is reached: this many copies are in stores or waiting for a haul.
+    Paused { in_stores: u32 },
+    /// Whole knowledge points toward the next copy, out of the `per` points one costs.
+    Copying { points: u32, per: u32 },
+}
+
+/// The first finished Archive's def in row-major order, the one scribing runs at (`None` with
+/// none standing).
+pub fn archive_def(world: &World, defs: &Defs) -> Option<ArchiveDef> {
+    world.buildings().find_map(|b| defs.building(b.id).archive)
+}
+
+/// What scribing at `archive` is doing now.
+pub fn scribing(world: &World, archive: &ArchiveDef) -> Scribing {
+    if !world.research().queue().is_empty() {
+        return Scribing::Off;
+    }
+    let held = world.copies_held(archive.copy_item);
+    if held >= archive.stock_limit {
+        return Scribing::Paused { in_stores: held };
+    }
+    let points = (world.research().scribe_millis() / MILLIS_PER_POINT) as u32;
+    Scribing::Copying { points: points.min(archive.copy_points), per: archive.copy_points }
 }
 
 /// Knowledge millis as a fractional point count.
@@ -67,6 +104,11 @@ pub fn research_status(world: &World, defs: &Defs) -> ResearchStatus {
             pool: format!("{pool:.0} pts banked"),
             rate,
             more_queued: 0,
+            copying: archive_def(world, defs).map(|a| match scribing(world, &a) {
+                Scribing::Paused { in_stores } => format!("Copying paused: {in_stores} in stores"),
+                Scribing::Copying { points, per } => format!("Copying scrolls: {points}/{per}"),
+                Scribing::Off => String::new(),
+            }),
         };
     };
     let cost = f64::from(defs.tech(front).cost);
@@ -76,6 +118,17 @@ pub fn research_status(world: &World, defs: &Defs) -> ResearchStatus {
         pool: format!("{pool:.0}/{cost:.0} pts"),
         rate,
         more_queued: research.queue().len() - 1,
+        copying: None,
+    }
+}
+
+/// `X` on the Research screen: empties the research queue so the scholars scribe
+/// (`Command::ClearResearch`, #709). The outcome as a status line either way; the sim refuses it
+/// without an Archive, and clearing an empty queue changes nothing.
+pub fn clear_target(session: &mut Session) -> Result<String, String> {
+    match session.apply(Command::ClearResearch) {
+        Ok(()) => Ok("Research target cleared".to_owned()),
+        Err(e) => Err(format!("Can't clear the target: {e}")),
     }
 }
 
@@ -301,9 +354,9 @@ pub fn screen_view(session: &Session) -> ScreenView {
 
 #[cfg(test)]
 mod tests {
-    use fn_sim::Nation;
     use fn_sim::research::{Requires, Unlocks};
     use fn_sim::world::Command;
+    use fn_sim::{Nation, Pos};
 
     use super::*;
 
@@ -555,6 +608,43 @@ mod tests {
         assert_eq!(status.frac, 0.0);
         assert!(status.pool.ends_with("pts banked"), "{}", status.pool);
         assert_eq!(status.rate, "3.0/min", "nobody is studying yet");
+    }
+
+    /// An Archive and no target: the panel's row reads the scribing counter (#712); a target, or
+    /// no Archive, reads as before.
+    #[test]
+    fn an_archive_with_no_target_shows_the_copying_counter_instead() {
+        let mut s = Session::new(7, Nation::Fire, 64, 64);
+        assert_eq!(research_status(&s.world, &s.defs).copying, None, "no Archive");
+        let id = s.defs.building_id("archive").unwrap();
+        let home = s.world.units[0].pos;
+        let at = Pos::new(home.x + 3, home.y + 3);
+        s.world.put_building(fn_sim::geom::Footprint::new(at, 2, 2), id, &s.defs);
+        s.tick_n(6000);
+        let copying = research_status(&s.world, &s.defs).copying.expect("an Archive stands");
+        assert!(copying.starts_with("Copying scrolls: "), "{copying}");
+        assert!(copying.ends_with("/150"), "{copying}");
+        let target = s.defs.tech_id("shelter").unwrap();
+        s.apply(Command::SetResearch { tech: target }).unwrap();
+        assert_eq!(research_status(&s.world, &s.defs).copying, None, "a target is set");
+    }
+
+    #[test]
+    fn clearing_the_target_needs_an_archive() {
+        let mut s = Session::new(7, Nation::Fire, 64, 64);
+        let target = s.defs.tech_id("shelter").unwrap();
+        s.apply(Command::SetResearch { tech: target }).unwrap();
+        assert_eq!(
+            clear_target(&mut s),
+            Err("Can't clear the target: needs an Archive".to_owned())
+        );
+        assert!(!s.world.research().queue().is_empty());
+        let id = s.defs.building_id("archive").unwrap();
+        let home = s.world.units[0].pos;
+        let at = Pos::new(home.x + 3, home.y + 3);
+        s.world.put_building(fn_sim::geom::Footprint::new(at, 2, 2), id, &s.defs);
+        assert_eq!(clear_target(&mut s), Ok("Research target cleared".to_owned()));
+        assert!(s.world.research().queue().is_empty());
     }
 
     #[test]

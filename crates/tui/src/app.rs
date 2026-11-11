@@ -161,6 +161,10 @@ impl App {
                 self.foot_hint();
             }
             Action::ToggleRepeat => {}
+            // `R` switches the Workshop under the cursor in Select mode (#712); in a tool it does
+            // nothing, like `F`.
+            Action::NextRecipe if self.ui.tool == Tool::Select => self.next_recipe(),
+            Action::NextRecipe => {}
             Action::Confirm => self.confirm(),
             Action::Cancel => self.cancel(),
             Action::NextUnit if self.ui.tool == Tool::Select => self.ui.cycle(&self.session, 1),
@@ -263,6 +267,7 @@ impl App {
                 Action::Move { dx, dy, .. } => return self.move_tech(dx, dy),
                 Action::Jump { dy, .. } => return self.move_tech(0, dy * self.tech_page()),
                 Action::Confirm => return research::choose(&mut self.session, self.ui.tech),
+                Action::PickTool(Tool::CancelHarvest) => return self.clear_research(),
                 _ => {}
             }
         }
@@ -354,6 +359,7 @@ impl App {
             Action::PickTool(_)
             | Action::ShowTools
             | Action::ToggleRepeat
+            | Action::NextRecipe
             | Action::Confirm
             | Action::NextUnit
             | Action::PrevUnit
@@ -942,6 +948,21 @@ impl App {
             }
             Some(why) => self.gate_status(why),
         }
+    }
+
+    /// `R` in Select mode (#712): sets the building under the cursor to its next recipe
+    /// (`fn_ui::recipe::switch`), the outcome in the Tool section's notice.
+    fn next_recipe(&mut self) {
+        self.ui.notice =
+            fn_ui::recipe::switch(&mut self.session, self.ui.cursor).unwrap_or_else(|why| why);
+    }
+
+    /// `X` in the Research screen (#712): clears the research target so the Archive's scholars
+    /// scribe (`fn_ui::research::clear_target`). The screen stays open; the outcome goes to the
+    /// status line under its own badge.
+    fn clear_research(&mut self) {
+        self.ui.status = fn_ui::research::clear_target(&mut self.session).unwrap_or_else(|why| why);
+        self.ui.status_badge = Some(" RESEARCH ");
     }
 
     /// Shows a gate outcome in the status line, under its own badge (#643).

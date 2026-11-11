@@ -650,7 +650,9 @@ impl Host {
                 // The panel's compact Research row (#416, `panel::research_row`) reads
                 // "Research: none set" with no target, not the plain internal label; with a
                 // target, the tech's own name still shows (the bar row's own Strong text).
-                label: if side.research.label == "No target set" {
+                label: if let Some(copying) = side.research.copying.clone() {
+                    copying
+                } else if side.research.label == "No target set" {
                     "Research: none set".to_owned()
                 } else {
                     side.research.label

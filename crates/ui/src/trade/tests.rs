@@ -92,6 +92,50 @@ fn a_request_is_taken_once() {
     assert_eq!(take(&mut s, 3), Err("Can't take that deal: already taken in full".to_owned()));
 }
 
+/// A free 2x2 spot near the first settler, for a building put down by hand.
+fn spot(s: &Session) -> fn_sim::Pos {
+    let home = s.world.units[0].pos;
+    let bed = s.defs.building_id("bed").unwrap();
+    let mut tiles: Vec<_> = s.world.map.iter().map(|(p, _)| p).collect();
+    tiles.sort_by_key(|p| ((p.x - home.x).pow(2) + (p.y - home.y).pow(2), p.x, p.y));
+    tiles
+        .into_iter()
+        .find(|&p| {
+            [(0, 0), (1, 0), (0, 1), (1, 1)].iter().all(|&(dx, dy)| {
+                let q = fn_sim::Pos::new(p.x + dx, p.y + dy);
+                q != home && s.world.check_build(q, bed, &s.defs).is_ok()
+            })
+        })
+        .expect("room near home")
+}
+
+/// A Tea House already holding herbs, so it is open when the caravan makes camp.
+fn with_open_tea_house(mut s: Session) -> Session {
+    let id = s.defs.building_id("tea_house").unwrap();
+    let at = spot(&s);
+    s.world.put_building(fn_sim::geom::Footprint::new(at, 2, 2), id, &s.defs);
+    let text = s.world.save(&s.defs).unwrap();
+    let text = text.replacen("fuel:Some((count:0))", "fuel:Some((count:7))", 1);
+    s.world = fn_sim::World::load(&text, &s.defs).expect("round trip");
+    s
+}
+
+#[test]
+fn an_open_tea_house_adds_a_deal_and_the_screen_says_so() {
+    let mut s = with_open_tea_house(session());
+    arrive(&mut s);
+    let c = camp(&s);
+    assert_eq!(c.offers.len(), 5, "four deals and the request");
+    assert_eq!(c.tea.as_deref(), Some("Tea House: 1 more deal"));
+}
+
+#[test]
+fn without_a_tea_house_there_is_no_tea_line() {
+    let mut s = session();
+    arrive(&mut s);
+    assert_eq!(camp(&s).tea, None);
+}
+
 #[test]
 fn with_no_caravan_taking_is_refused() {
     let mut s = session();
