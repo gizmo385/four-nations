@@ -225,7 +225,8 @@ pub fn to_keys_script(header: &RunLogHeader, lines: &[LogLine]) -> String {
             | LogLine::Call { .. }
             | LogLine::Plan { .. }
             | LogLine::Score { .. }
-            | LogLine::Say { .. } => {}
+            | LogLine::Say { .. }
+            | LogLine::Think { .. } => {}
         }
     }
     tokens.join(" ")
@@ -851,7 +852,7 @@ impl Watcher {
             let Some(next) = self.pending.front() else { break };
             let in_script = matches!(self.script_strip, Some(ScriptStrip::Running { .. }));
             let is_move = match next {
-                LogLine::Keys { .. } | LogLine::Say { .. } => true,
+                LogLine::Keys { .. } | LogLine::Say { .. } | LogLine::Think { .. } => true,
                 LogLine::Script { turns, .. } => *turns > 0,
                 _ => false,
             };
@@ -1051,6 +1052,8 @@ impl Watcher {
             // #576: something the model said in a playtest. Only the feed shows it: nothing
             // is replayed, and it takes no game time.
             LogLine::Say { text } => self.feed.on_say(&text, self.turn),
+            // #576: a summary of the model's thinking. Feed only, like `Say`.
+            LogLine::Think { text } => self.feed.on_think(&text, self.turn),
         }
         true
     }

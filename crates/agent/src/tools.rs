@@ -1345,7 +1345,8 @@ fn rebuild_session(lines: &[LogLine]) -> (Library, Value, Vec<String>, Value) {
             | LogLine::End { .. }
             | LogLine::Call { .. }
             | LogLine::Score { .. }
-            | LogLine::Say { .. } => {}
+            | LogLine::Say { .. }
+            | LogLine::Think { .. } => {}
         }
     }
     (library, memory, notes, plan)

@@ -59,6 +59,10 @@ enum Line {
     /// when drawn, so it is kept whole here. Not the model's reasoning: only what it chose to
     /// write, which is why the label reads "says".
     Says(String),
+    /// A summary of the model's thinking (#576, a `think` line), from `claude`'s
+    /// `--thinking-display summarized`: closer to its reasoning than a remark, but still a summary,
+    /// so the label reads "thinks" and the rows are dim, set apart from what it said.
+    Thinks(String),
 }
 
 /// How a row of the feed is drawn.
@@ -95,6 +99,7 @@ impl Line {
             Self::Plain(s) => (s.clone(), false),
             Self::Dim(s) => (s.clone(), true),
             Self::Says(s) => (s.clone(), false),
+            Self::Thinks(s) => (s.clone(), true),
             Self::Save { name, version, diff } => {
                 (format!("save_script {}  {}", labelled(name, *version), diff.text(ascii)), false)
             }
@@ -111,6 +116,7 @@ impl Line {
     fn rows(&self, ascii: bool, width: usize) -> Vec<Row> {
         match self {
             Self::Says(text) => say_rows(text, width),
+            Self::Thinks(text) => think_rows(text, width),
             other => {
                 let (text, dim) = other.format(ascii);
                 vec![Row::new(text, if dim { Kind::Dim } else { Kind::Normal })]
@@ -145,6 +151,20 @@ fn say_rows(text: &str, width: usize) -> Vec<Row> {
             said = true;
             rows.extend(wrap(line, width, label, Kind::Says));
         }
+    }
+    rows
+}
+
+/// The label a thinking summary's first row carries.
+const THINKS: &str = "thinks: ";
+
+/// `text` (a thinking summary) as dim rows of at most `width` columns, its first row carrying
+/// `thinks: `. Blank lines between its paragraphs are dropped, as in a remark ([`say_rows`]).
+fn think_rows(text: &str, width: usize) -> Vec<Row> {
+    let mut rows = Vec::new();
+    for (i, line) in text.lines().map(str::trim).filter(|l| !l.is_empty()).enumerate() {
+        let label = if i == 0 { THINKS } else { "" };
+        rows.extend(wrap(line, width, label, Kind::Dim));
     }
     rows
 }
@@ -439,6 +459,18 @@ impl Feed {
         self.lines.push(Line::Says(text.to_owned()));
     }
 
+    /// A `Think` line reaches the replay (#576): a summary of the model's thinking, placed like
+    /// a remark ([`Self::on_say`]).
+    pub fn on_think(&mut self, text: &str, turn: u32) {
+        if text.trim().is_empty() {
+            return;
+        }
+        if !matches!(self.pending, Some(Pending::Run(_))) {
+            self.finish_pending(turn);
+        }
+        self.lines.push(Line::Thinks(text.to_owned()));
+    }
+
     /// The feed's own border, title and the last entries that fit `area` -- newest at the
     /// bottom, tailing automatically (docs/design/agent-studio.md: "The feed only shows what's
     /// been replayed... Newest is at the bottom and it tails automatically"). A no-op on an area
@@ -726,6 +758,19 @@ mod say_tests {
         assert!(rendered.contains("says: I expect water within ten tiles"), "{rendered}");
         let lower = rendered.to_lowercase();
         assert!(!lower.contains("think") && !lower.contains("reason"), "{rendered}");
+    }
+
+    #[test]
+    fn a_thinking_summary_is_labelled_thinks_and_wraps() {
+        let mut feed = Feed::new();
+        feed.on_think("The stockpile is far from the farm, so I will move it closer first", 0);
+        feed.on_think("  ", 0);
+        let rendered = crate::frame::to_text(&render(&feed, 40, 8, false));
+        assert!(rendered.contains("thinks: The stockpile"), "{rendered}");
+        assert!(rendered.contains("first"), "{rendered}");
+        assert_eq!(rendered.matches("thinks:").count(), 1, "{rendered}");
+        assert!(!rendered.contains("says:"), "{rendered}");
+        assert!(feed.title(false).contains("0 calls"), "{}", feed.title(false));
     }
 
     #[test]

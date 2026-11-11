@@ -34,6 +34,7 @@ prompt=""
 for a in "$@"; do
   [ "$prev" = "--mcp-config" ] && mcp_config="$a"
   [ "$prev" = "--output-format" ] && [ "$a" = "json" ] && output_format_json=1
+  [ "$prev" = "--output-format" ] && [ "$a" = "stream-json" ] && output_format_json=2
   [ "$prev" = "-p" ] && prompt="$a"
   prev="$a"
 done
@@ -110,7 +111,10 @@ if [ "$call" = "$STUB_NOJSON_AT" ]; then
   exit 1
 fi
 
-if [ "$output_format_json" = "1" ]; then
+if [ "$output_format_json" = "2" ]; then
+  # The stream (#576): the same result object, with a type, as its last event.
+  printf '{"type":"result","subtype":"success","num_turns":1,"usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":5},"total_cost_usd":0.01,"result":"stub report"}\n'
+elif [ "$output_format_json" = "1" ]; then
   printf '{"num_turns":1,"usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":5},"total_cost_usd":0.01,"result":"stub report"}\n'
 fi
 echo "stub claude: chunk done" >&2

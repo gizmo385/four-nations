@@ -390,7 +390,8 @@ impl Host {
             | LogLine::Call { .. }
             | LogLine::Plan { .. }
             | LogLine::Score { .. }
-            | LogLine::Say { .. } => {}
+            | LogLine::Say { .. }
+            | LogLine::Think { .. } => {}
             LogLine::Keys { keys, label, note } => {
                 self.press_keys(keys, label.clone(), note.clone())?;
             }

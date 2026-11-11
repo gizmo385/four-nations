@@ -537,9 +537,9 @@ with `--track`, `--resume`, `--interactive` or `--chunk-turns`.
   something surprises the model (what it expects, what surprised it, what is confusing), and for
   a line starting `game problem:` for anything that seems wrong with the game itself. `SDK gap:` stays for the scripting
   tools.
-- **What is captured** is the model's visible text, not its reasoning. Thinking comes through
-  `claude`'s output as an empty block with an opaque signature, so it is skipped and no signature
-  is stored; the feed's label says "says" for that reason.
+- **What is captured** is the model's visible text (`say` lines, "says:" in the feed) and, in
+  every run, summaries of its thinking (`think` lines, "thinks:"; see below). No signature is
+  stored.
 - **How it gets into the log**: `claude -p` is run with `--output-format stream-json --verbose`
   and its stdout read as it arrives. Each text block is appended to `run.jsonl` as a
   `{"type":"say","text":...}` line at once, so a watcher sees it live and a crash keeps what was
@@ -555,6 +555,15 @@ with `--track`, `--resume`, `--interactive` or `--chunk-turns`.
   A reader without a `say` variant (a build from before #576) refuses the whole log with an
   "unknown variant" error rather than skipping the line; that is the behaviour for every new line
   kind, and it is why such a log needs a current build to watch or score.
+- **Thinking summaries, in every run** (2026-11-10). `claude -p` defaults to an empty thinking
+  display, which is why thinking first came through as an empty block. Claude Code has a
+  `--thinking-display summarized` flag (not in `--help`); with it, each thinking block carries
+  Anthropic's summary of the model's reasoning. That is the closest thing to an internal
+  monologue that is available (the raw chain of thought is never returned), so every `-p` chunk,
+  campaigns and plain `--scripts` included, now streams with it, and each non-empty summary is
+  appended as `{"type":"think","text":...}`, a commentary line like `say`. Streaming and the
+  display change only what is recorded, not what the model is asked, so scored prompts are
+  unchanged.
 - **The header** carries `"playtest":true` (only then), set by `fn_agent serve --playtest`. The
   watcher's strip reads `AGENT earth  PLAYTEST ...`, and the run browser and `watch --list` show
   `playtest` where the score would go and rank it with the unscored runs.

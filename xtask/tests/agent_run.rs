@@ -99,7 +99,7 @@ if [ -n "$STUB_LOG" ]; then
   echo "$OTEL_RESOURCE_ATTRIBUTES" >> "$STUB_LOG"
 fi
 
-# `--output-format stream-json` (#576) is the playtest's: like the real `claude`, it needs
+# `--output-format stream-json` (#576) is every chunk's: like the real `claude`, it needs
 # `--verbose`. The stream is an init event, two assistant messages (a thinking block with an
 # opaque signature, a remark, a tool call; the second message flags the same game problem on
 # every call, to be deduplicated), and the same result object `json` prints, with a type. Knobs:
@@ -113,7 +113,7 @@ if [ "$output_format_stream" = "1" ]; then
   if ! in_list "$call" "$STUB_NOSAY_CALLS"; then
     printf '{"type":"assistant","message":{"id":"msg_%d_a","role":"assistant","content":[{"type":"thinking","thinking":"","signature":"SECRET-SIGNATURE-%d"},{"type":"text","text":"Remark %d: I expect water nearby."},{"type":"tool_use","id":"tu_%d","name":"mcp__four-nations__observe","input":{}}]},"parent_tool_use_id":null}\n' "$call" "$call" "$call" "$call"
     printf '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_%d","content":"ok"}]}}\n' "$call"
-    printf '{"type":"assistant","message":{"id":"msg_%d_b","role":"assistant","content":[{"type":"text","text":"Odd.\\ngame problem: the stub well gives no water."},{"type":"tool_use","id":"tu_%d_b","name":"mcp__four-nations__end_turn","input":{}}]},"parent_tool_use_id":null}\n' "$call" "$call"
+    printf '{"type":"assistant","message":{"id":"msg_%d_b","role":"assistant","content":[{"type":"thinking","thinking":"Thinking %d: the well should be close.","signature":"SECRET-SIGNATURE-B"},{"type":"text","text":"Odd.\\ngame problem: the stub well gives no water."},{"type":"tool_use","id":"tu_%d_b","name":"mcp__four-nations__end_turn","input":{}}]},"parent_tool_use_id":null}\n' "$call" "$call" "$call"
   fi
 fi
 
@@ -776,10 +776,20 @@ fn a_nonzero_exit_with_a_known_cost_is_reported_and_charged() {
 
 /// The `say` lines of a run's log, in order.
 fn says(dir: &Path) -> Vec<String> {
+    commentary(dir, "say")
+}
+
+/// The `think` lines' texts (#576), in log order.
+fn thinks(dir: &Path) -> Vec<String> {
+    commentary(dir, "think")
+}
+
+fn commentary(dir: &Path, kind: &str) -> Vec<String> {
+    let start = format!(r#"{{"type":"{kind}""#);
     fs::read_to_string(dir.join("run.jsonl"))
         .unwrap()
         .lines()
-        .filter(|l| l.starts_with(r#"{"type":"say""#))
+        .filter(|l| l.starts_with(&start))
         .map(|l| {
             serde_json::from_str::<serde_json::Value>(l).unwrap()["text"]
                 .as_str()
@@ -805,6 +815,7 @@ fn a_playtest_puts_remarks_in_the_log_in_order_and_reads_cost_from_the_stream() 
         assert_eq!(arg_after(args, "--output-format"), "stream-json", "{args:?}");
         assert!(args.contains(&"--verbose".to_string()), "{args:?}");
         assert!(args.contains(&"--max-budget-usd".to_string()), "{args:?}");
+        assert_eq!(arg_after(args, "--thinking-display"), "summarized", "{args:?}");
         let prompt = arg_after(args, "-p");
         let want =
             if n == 0 { "You're playtesting" } else { "You're continuing the same playtest" };
@@ -821,6 +832,11 @@ fn a_playtest_puts_remarks_in_the_log_in_order_and_reads_cost_from_the_stream() 
     assert!(at("Remark 1:") < at(r#""index":2"#), "{log}");
     assert!(at(r#""index":2"#) < at("Remark 2:"), "{log}");
     assert!(at("chunk 1 finished") < at(r#""index":2"#), "{log}");
+    // Each non-empty thinking summary once per chunk, the empty one (default display) skipped.
+    assert_eq!(
+        thinks(&dir),
+        ["Thinking 1: the well should be close.", "Thinking 2: the well should be close."]
+    );
     // The multi-line text stayed one line of the log.
     assert!(said.iter().any(|s| s == "Odd.\ngame problem: the stub well gives no water."));
 
@@ -849,8 +865,9 @@ fn a_playtest_puts_remarks_in_the_log_in_order_and_reads_cost_from_the_stream() 
     assert!(dir.join("sdk-gaps.md").is_file());
 }
 
-/// An ordinary `--scripts` run is untouched: `--output-format json`, no `--verbose`, no `say`
-/// lines, no `game-problems.md`, and the scored prompt.
+/// An ordinary `--scripts` run keeps its scored prompt and isn't a playtest (no
+/// `game-problems.md`, no `--playtest` header), but streams like every run (#576), so what the
+/// model writes and the summaries of its thinking still reach the log.
 #[test]
 fn an_ordinary_scripted_run_is_not_a_playtest() {
     let fx = Fixture::new("not-playtest");
@@ -858,13 +875,14 @@ fn an_ordinary_scripted_run_is_not_a_playtest() {
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let dir = fx.run_dir();
     for (_, args) in recorded_calls(&fx.tmp.join("calls.txt")) {
-        assert_eq!(arg_after(&args, "--output-format"), "json");
-        assert!(!args.contains(&"--verbose".to_string()), "{args:?}");
+        assert_eq!(arg_after(&args, "--output-format"), "stream-json");
+        assert_eq!(arg_after(&args, "--thinking-display"), "summarized", "{args:?}");
         assert!(!arg_after(&args, "-p").contains("playtest"), "{args:?}");
     }
     assert!(!dir.join("game-problems.md").exists());
     assert!(!fs::read_to_string(dir.join("mcp.json")).unwrap().contains("--playtest"));
-    assert!(says(&dir).is_empty());
+    assert_eq!(says(&dir).len(), 2);
+    assert_eq!(thinks(&dir), ["Thinking 1: the well should be close."]);
 }
 
 /// The playtest's `fn_agent serve` gets `--playtest` (so the header says so) on the first chunk;

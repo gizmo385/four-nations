@@ -126,6 +126,13 @@
 //! done, cap, no_progress, unknown_cost or gave_up; #568); a --scripts run also gets
 //! sdk-gaps.md. A --playtest run also gets game-problems.md.
 //!
+//! Every `claude -p` chunk streams (`--output-format stream-json --verbose`) and asks for
+//! `--thinking-display summarized` (#576): what the model writes in plain text is appended to
+//! run.jsonl as `say` lines, and each summary of its thinking as a `think` line, as they arrive.
+//! Both are commentary (replay, scoring and --resume ignore them); the watcher's feed shows them as
+//! "says:" and "thinks:". A thinking summary is Anthropic's summary of the model's reasoning, not
+//! the raw chain of thought, which is never returned. The result event still carries the cost.
+//!
 //! Every `claude` call this makes is tagged with OTEL_RESOURCE_ATTRIBUTES
 //! (four_nations.run/.seed/.nation/.difficulty/.mode, plus .chunk on chunked runs; #494), kept
 //! alongside anything already in the caller's own OTEL_RESOURCE_ATTRIBUTES rather than
@@ -1445,7 +1452,7 @@ fn base_claude_args(mcp_config: &Path, model: Option<&str>) -> Vec<String> {
     args
 }
 
-/// One `claude -p PROMPT ... --output-format json` call: stdout (the JSON result) goes to
+/// One `claude -p PROMPT ... --output-format stream-json` call (`playtest::run_claude_stream`): the result event goes to
 /// `out_json`, stderr is appended to `dir/agent.log`. How it went is in the returned
 /// [`ChunkRun`], which `settle_chunk` turns into the run's cost, its report, and whether the
 /// loop can go on (#568).
@@ -1458,35 +1465,9 @@ fn run_claude_p(
     dir: &Path,
     out_json: &Path,
 ) -> Result<ChunkRun> {
-    if opts.playtest {
-        // The only run that reads `claude`'s output as it goes (#576), for the model's remarks.
-        return playtest::run_claude_stream(opts, prompt, call_args, mode, chunk, dir, out_json);
-    }
-    let stdout_file =
-        File::create(out_json).map_err(|e| format!("creating {}: {e}", out_json.display()))?;
-    let stderr_file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dir.join("agent.log"))
-        .map_err(|e| e.to_string())?;
-    let attrs = otel_attrs(opts, dir, mode, Some(chunk));
-    let session = sandbox::new_session_id();
-    let status = sandbox::claude_command(&opts.claude_bin, dir, &session)?
-        .arg("-p")
-        .arg(prompt)
-        .args(call_args)
-        .args(["--output-format", "json"])
-        .env("OTEL_RESOURCE_ATTRIBUTES", attrs)
-        .stdout(stdout_file)
-        .stderr(stderr_file)
-        .status();
-    sandbox::keep_transcript(dir, &session, &format!("chunk-{chunk}"));
-    let failure = match status {
-        Ok(s) if s.success() => None,
-        Ok(s) => Some(format!("claude ended with {s}")),
-        Err(e) => Some(format!("claude could not be run: {e}")),
-    };
-    Ok(ChunkRun { failure, result: read_claude_result(out_json) })
+    // Every `-p` chunk reads `claude`'s output as it goes (#576), for the model's remarks and
+    // the summaries of its thinking; the result event still carries the cost, as before.
+    playtest::run_claude_stream(opts, prompt, call_args, mode, chunk, dir, out_json)
 }
 
 fn append_log(path: &Path, text: &str) -> Result {
