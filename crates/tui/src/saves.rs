@@ -48,12 +48,12 @@ pub fn draw(
     palette: &Palette,
     inner: Rect,
     buf: &mut Buffer,
-) {
+) -> Option<String> {
     let marks = Marks::new(palette.ascii);
     let mut p = Painter::new(buf, inner, palette);
     if slots.is_empty() {
         p.row(&Row::text("No saves yet: press N to write one.", Tone::Dim));
-        return;
+        return None;
     }
     let at = at.min(slots.len() - 1);
     let shown = usize::from(inner.height);
@@ -71,6 +71,7 @@ pub fn draw(
             buf[(x, y)].set_style(Style::new().add_modifier(Modifier::REVERSED));
         }
     }
+    fn_ui::text::window_label("slots", first, shown, slots.len())
 }
 
 #[cfg(test)]

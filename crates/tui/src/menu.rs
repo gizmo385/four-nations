@@ -92,9 +92,6 @@ pub fn step(at: usize, dy: i32) -> usize {
     (at as i64 + i64::from(dy.signum())).clamp(0, last) as usize
 }
 
-/// The naming prompt's footer.
-const NAME_FOOTER: &str = "Type a name  Enter save  Esc back";
-
 /// Draws the menu: the row list ([`draw_rows`]), or in its place the Save as… name prompt
 /// (`naming`, `Some` while [`crate::state::UiState::menu_name`] is). `clock`, while seasons are
 /// on, is the elapsed game clock (#416, owner decision 4 on #414): with the side panel's header
@@ -126,11 +123,7 @@ fn draw_rows(
 ) {
     let marks = Marks::new(palette.ascii);
     let title = format!(" {0} MENU {0} ", marks.seal);
-    let footer = match clock {
-        Some(clock) => format!("Enter select  Esc resume  {}  {clock}", marks.dot),
-        None => "Enter select  Esc resume".to_owned(),
-    };
-    let inner = modal::draw(buf, outer, SIZE, palette, &title, &footer);
+    let inner = modal::draw(buf, outer, SIZE, palette, &title, clock.unwrap_or(""));
     let at = at.min(MenuRow::ALL.len() - 1);
     let mut p = Painter::new(buf, inner, palette);
     let mut reversed = None;
@@ -166,7 +159,7 @@ fn draw_rows(
 fn draw_naming(name: &str, palette: &Palette, outer: Rect, buf: &mut Buffer) {
     let marks = Marks::new(palette.ascii);
     let title = format!(" {0} SAVE AS {0} ", marks.seal);
-    let inner = modal::draw(buf, outer, SIZE, palette, &title, NAME_FOOTER);
+    let inner = modal::draw(buf, outer, SIZE, palette, &title, "");
     let mut p = Painter::new(buf, inner, palette);
     p.row(&Row::text(format!("Name: {name}"), Tone::Text));
     p.blank();

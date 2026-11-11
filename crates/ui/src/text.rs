@@ -333,6 +333,19 @@ pub fn boost_label(boost: f32) -> String {
     format!("{}x", s.trim_end_matches('0').trim_end_matches('.'))
 }
 
+/// Where a window over a long list or page sits, as a scrolling screen's bottom border says it
+/// (#651): "12-48 of 61", or "tiers 1-4 of 5" with a `noun`. `first` is the 0-based index of the
+/// first item showing and `shown` how many do. `None` when everything fits: there is nothing to
+/// scroll, so nothing to say.
+pub fn window_label(noun: &str, first: usize, shown: usize, total: usize) -> Option<String> {
+    if shown >= total || shown == 0 {
+        return None;
+    }
+    let last = (first + shown).min(total);
+    let range = format!("{}-{last} of {total}", first + 1);
+    Some(if noun.is_empty() { range } else { format!("{noun} {range}") })
+}
+
 #[cfg(test)]
 mod tests {
     use fn_sim::Nation;
@@ -575,5 +588,20 @@ mod tests {
         assert_eq!(caster_label(Some(Rank::Master), 0), "no master");
         assert_eq!(caster_label(Some(Rank::Master), 1), "1 master");
         assert_eq!(caster_label(Some(Rank::Master), 3), "3 masters");
+    }
+}
+
+#[cfg(test)]
+mod window_label_tests {
+    use super::window_label;
+
+    #[test]
+    fn a_window_says_which_rows_of_how_many() {
+        assert_eq!(window_label("", 11, 37, 61).as_deref(), Some("12-48 of 61"));
+        assert_eq!(window_label("tiers", 0, 4, 5).as_deref(), Some("tiers 1-4 of 5"));
+        // The last window is clipped to the total, and a list that fits says nothing.
+        assert_eq!(window_label("", 50, 20, 61).as_deref(), Some("51-61 of 61"));
+        assert_eq!(window_label("", 0, 30, 30), None);
+        assert_eq!(window_label("", 0, 0, 30), None);
     }
 }

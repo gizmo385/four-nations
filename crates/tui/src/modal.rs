@@ -8,7 +8,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
 use crate::color::Palette;
-use crate::widgets::{TitleAt, draw_frame};
+use crate::widgets::{TitleAt, draw_frame, draw_position};
 
 /// How far in from the edges of `area` (the map region) the modal's box sits at least, so it
 /// always reads as a dialog floating over the map rather than another full page.
@@ -29,9 +29,10 @@ pub fn modal_area(area: Rect, target: (u16, u16)) -> Rect {
     Rect::new(x, y, width, height)
 }
 
-/// Draws the modal's frame (the Seal box, its title and footer) into `outer`'s centred
-/// [`modal_area`] and returns the inside, minus a column and a row of padding, for the caller to
-/// fill.
+/// Draws the modal's frame (the Seal box and its title) into `outer`'s centred [`modal_area`] and
+/// returns the inside, minus a column and a row of padding, for the caller to fill. `footer` is
+/// what the bottom edge says, flush right: a scroll position or a clock, never key hints (#651:
+/// those are the hint bar's alone).
 pub fn draw(
     buf: &mut Buffer,
     outer: Rect,
@@ -41,7 +42,8 @@ pub fn draw(
     footer: &str,
 ) -> Rect {
     let area = modal_area(outer, target);
-    draw_frame(buf, area, palette, title, TitleAt::Centre, footer);
+    draw_frame(buf, area, palette, title, TitleAt::Centre, "");
+    draw_position(buf, area, palette, footer);
     Rect::new(area.x + 2, area.y + 1, area.width.saturating_sub(4), area.height.saturating_sub(2))
 }
 

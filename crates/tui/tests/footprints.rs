@@ -146,8 +146,8 @@ fn u_opens_the_modal_enter_picks_the_build_tool_and_its_ghost_is_green_where_it_
         assert_eq!(cell.symbol(), p.glyphs.building["bed"].glyph(false).to_string(), "{pos:?}");
     }
     let text = to_text(&buf);
-    let status = text.lines().last().unwrap();
-    assert!(status.contains("build Bed"), "{status}");
+    // The banner above the map names the building (the hint bar has only keys, #651).
+    assert!(text.contains("BUILD Bed"), "{text}");
 }
 
 #[test]

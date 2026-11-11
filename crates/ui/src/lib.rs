@@ -26,6 +26,7 @@ pub mod code;
 pub mod endeavor;
 pub mod gate;
 pub mod inspect;
+pub mod keys;
 pub mod research;
 pub mod saves;
 pub mod session;

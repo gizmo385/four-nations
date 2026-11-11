@@ -36,5 +36,5 @@
 │ TRAITS                                                                               ││                              │
 │ Move speed x0.9  Carry capacity x1.3  Earthworks x2.5  Water work x0.9               ││                              │
 │ Power generation x0.8  Construction x1.5                                             ││                              │
-┗─ Arrows W S choose  PgUp PgDn page  Enter select  Esc/N close ───────────────────────┛┗─ seed 1 ─────────────────────┛
- NATION  arrows/W S choose  PgUp/PgDn page  Enter select  Esc/N close  ? keys  Space pause                       PAUSED
+┗──────────────────────────────────────────────────────────────────────────────────────┛┗─ seed 1 ─────────────────────┛
+ NATION  Up/Down choose · Enter select · Esc or N close · PgUp/PgDn page                                  PAUSED ? keys

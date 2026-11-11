@@ -51,25 +51,6 @@ pub fn meter_rows(view: &UnitView, marks: &Marks) -> Vec<Row> {
     rows
 }
 
-/// The key hints, as many as fit in `width`, the most useful first.
-fn key_hints(following: bool, width: usize) -> Row {
-    let follow = if following { "unfollow" } else { "follow" };
-    let hints = [("Esc", "close"), ("Tab", "next"), ("F", follow)];
-    let len = |n: usize| -> usize {
-        hints[..n].iter().map(|(k, w)| k.len() + w.len() + 3).sum::<usize>() + 2 * (n - 1)
-    };
-    let n = (1..=hints.len()).rev().find(|&n| len(n) <= width).unwrap_or(1);
-    let mut spans = Vec::new();
-    for (i, (key, what)) in hints[..n].iter().enumerate() {
-        if i > 0 {
-            spans.push(("  ".to_owned(), Tone::Dim));
-        }
-        spans.push((format!("[{key}]"), Tone::Accent));
-        spans.push((format!(" {what}"), Tone::Dim));
-    }
-    Row::spans(spans)
-}
-
 /// What the left column says: the task (up to two lines), what the unit carries, and its tile --
 /// or, while it's inside a building (#226, #229), which one ("In the Academy"). `avatar_rite`
 /// marks the moment the Avatar holds the Harmony Rite (#242): the task line wears its own look,
@@ -124,15 +105,11 @@ pub fn draw_bar(session: &Session, ui: &UiState, palette: &Palette, area: Rect, 
     let right = Rect::new(inner.right() - METER_WIDTH, inner.y, METER_WIDTH, ROWS);
 
     let mut p = Painter::new(buf, left, palette);
-    for row in detail_rows(&view, usize::from(left_width), marks.ellipsis, avatar_rite)
-        .iter()
-        .take(ROWS as usize - 1)
-    {
-        p.row(row);
+    // No key hints in here: the status line's hint bar is the only place keys are named (#651),
+    // so all five rows are the settler's.
+    for row in detail_rows(&view, usize::from(left_width), marks.ellipsis, avatar_rite) {
+        p.row(&row);
     }
-    // The key hints sit on the last row.
-    p.row = ROWS - 1;
-    p.row(&key_hints(ui.following, usize::from(left_width)));
 
     let mut p = Painter::new(buf, right, palette);
     for row in meter_rows(&view, &marks) {
@@ -254,15 +231,6 @@ mod tests {
         let view = unit_view(&s, &s.world.units[0]);
         let rows = detail_rows(&view, 40, '…', false);
         assert_eq!(rows[2].plain(), "In the Academy");
-    }
-
-    #[test]
-    fn the_key_hints_shrink_to_fit() {
-        let plain = |w| key_hints(false, w).plain();
-        assert_eq!(plain(60), "[Esc] close  [Tab] next  [F] follow");
-        assert_eq!(plain(30), "[Esc] close  [Tab] next");
-        assert_eq!(plain(15), "[Esc] close");
-        assert_eq!(key_hints(true, 60).plain(), "[Esc] close  [Tab] next  [F] unfollow");
     }
 
     #[test]

@@ -179,8 +179,16 @@ pub fn detail_rows(session: &Session, card: &TechCard) -> [Row; 3] {
     ]
 }
 
-/// Draws the screen's contents into `inner` (the frame's inside, minus its padding).
-pub fn draw(session: &Session, at: Cursor, palette: &Palette, inner: Rect, buf: &mut Buffer) {
+/// Draws the screen's contents into `inner` (the frame's inside, minus its padding) and returns
+/// where the visible tiers sit ("tiers 1-4 of 5") when some are out of sight, for the frame's
+/// bottom edge (#651).
+pub fn draw(
+    session: &Session,
+    at: Cursor,
+    palette: &Palette,
+    inner: Rect,
+    buf: &mut Buffer,
+) -> Option<String> {
     let view = screen_view(session);
     let marks = Marks::new(palette.ascii);
     let grid = Grid::new((usize::from(inner.width), usize::from(inner.height)), view.columns.len());
@@ -247,6 +255,7 @@ pub fn draw(session: &Session, at: Cursor, palette: &Palette, inner: Rect, buf: 
             p.row(row);
         }
     }
+    fn_ui::text::window_label("tiers", first_column, grid.columns, view.columns.len())
 }
 
 #[cfg(test)]

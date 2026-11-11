@@ -54,7 +54,7 @@ use crate::keys::{self, Step};
 use crate::record;
 use crate::watch;
 
-pub const USAGE: &str = "\
+const USAGE_OPTIONS: &str = "\
 usage: fn_tui [SEED NATION] [options]
   SEED     the map seed (an integer); with NATION, skips the title screen
   NATION   air, water, earth or fire
@@ -115,19 +115,41 @@ options:
                  --focus PATH starts on a campaign, attempt, run or log under DIR; with
                  --frame, also --size and --keys (the keys drive the list, and Enter shows
                  the run's watcher frame) -- run it by itself, no SEED NATION, --watch or other
-                 options
+                 options";
 
-Without --frame this starts the game in the terminal: arrows or WASD move the cursor
-(Shift: 10 tiles), Enter selects a unit (Tab cycles, F follows, Esc closes the bar), H X P B U
-pick the harvest, cancel, stockpile, bend and build tools (U again cycles the building) and
-Enter sets a rectangle's corners, Space pauses, + and - change speed, . steps a tick, T opens
-the research tree, L the message log, ? the key help, R starts a new map, 1-4 switch nation
-(each asks y/n first), F5 quicksaves, F9 quickloads (asks first), F6 opens the saves screen
-(Enter loads, Shift+S saves over, N a new slot) and q quits. With no tool active and nothing
-else open, Esc opens a game menu with the same Save as…, Quicksave, Load…, Quickload, Key help
-and Quit — every save and load action, for a terminal where the function keys don't arrive
-(Windows Terminal on WSL, some multiplexers). Saves go in FN_SAVE_DIR, else the platform's data
-directory.";
+/// The text `--help` prints: [`USAGE_OPTIONS`], then the game's keys, built from the one key table
+/// (`fn_ui::keys`) the key help screen (`?`) and the status line's hints are built from, so none
+/// of the three can say something the others don't (#651).
+pub fn usage() -> String {
+    format!("{USAGE_OPTIONS}\n\n{}", key_paragraph(KEYS_WIDTH))
+}
+
+/// How wide `--help`'s key list wraps.
+const KEYS_WIDTH: usize = 96;
+
+/// `--help`'s key list, by the key help's groups, each row's wording wrapped under its keys.
+pub fn key_paragraph(width: usize) -> String {
+    let rows = fn_ui::keys::help_rows();
+    let keys_width = rows.iter().map(|r| r.keys.chars().count()).max().unwrap_or(0);
+    let what_width = width.saturating_sub(keys_width + 4).max(20);
+    let mut out = String::from(
+        "Without --frame this starts the game in the terminal. Its keys, as the key help (?) \
+         lists them (letters ignore case; Shift moves the cursor 10 tiles):\n",
+    );
+    for group in fn_ui::keys::Group::ALL {
+        out.push_str(&format!("\n{}\n", group.title()));
+        for row in rows.iter().filter(|r| r.group == group) {
+            for (i, line) in
+                crate::widgets::wrap(&row.what, what_width, usize::MAX, '…').into_iter().enumerate()
+            {
+                let keys = if i == 0 { row.keys.as_str() } else { "" };
+                out.push_str(&format!("  {keys:<keys_width$}  {line}\n"));
+            }
+        }
+    }
+    out.push_str("\nSaves go in FN_SAVE_DIR, else the platform's data directory.");
+    out
+}
 
 pub const DEFAULT_SIZE: (u16, u16) = (120, 40);
 
@@ -317,7 +339,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                         .ok_or(format!("--color wants truecolor, 256, 16 or never, got {v:?}"))?,
                 );
             }
-            "-h" | "--help" => return Err(USAGE.to_owned()),
+            "-h" | "--help" => return Err(usage()),
             f if f.starts_with('-') && f.len() > 1 => return Err(format!("unknown option {f}")),
             positional if seed.is_none() => {
                 seed = Some(

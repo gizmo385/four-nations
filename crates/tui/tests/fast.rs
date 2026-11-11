@@ -75,5 +75,5 @@ fn fast_survives_a_nation_switch() {
 /// `--help` lists `--fast` (#321's acceptance criteria).
 #[test]
 fn help_lists_fast() {
-    assert!(cli::USAGE.contains("--fast"));
+    assert!(cli::usage().contains("--fast"));
 }

@@ -223,7 +223,13 @@ fn the_bar_names_the_unit_and_shows_its_task_cargo_tile_and_meters() {
         assert!(bar.contains(want), "{want:?} in\n{bar}");
     }
     assert!(bar.contains("██████████ 100%"), "a full meter is ten cells:\n{bar}");
-    assert!(bar.contains("[Esc] close  [Tab] next  [F] follow"), "{bar}");
+    // The bar names no keys (#651): the hint bar below is the only place they appear.
+    assert!(!bar.contains("[Esc]") && !bar.contains("Esc close"), "{bar}");
+    assert!(
+        lines[39].contains("Esc close") && lines[39].contains("F follow"),
+        "the hint bar has the settler's keys:\n{}",
+        lines[39]
+    );
     // The side panel runs the full height beside it.
     assert!(lines[36].contains('│') && lines[39].starts_with(" SELECT"), "{frame}");
 }
@@ -252,7 +258,7 @@ fn a_channelling_unit_names_the_ability_and_the_time_left_in_the_bar_and_the_peo
     // The bar's own header and rows, as the deleted channelling golden showed them.
     assert!(frame.contains("Fire Nation · Student"), "{frame}");
     assert!(frame.contains("Chi    ██████████"), "{frame}");
-    assert!(frame.contains("[Esc] close  [Tab] next  [F] follow"), "{frame}");
+    assert!(frame.lines().last().unwrap().contains("Tab next unit · F follow"), "{frame}");
 }
 
 #[test]
@@ -373,7 +379,7 @@ fn an_ascii_selected_unit_bar_is_pure_ascii() {
     let frame = to_text(&render_app(&mut a, &p, SIZE));
     assert!(frame.is_ascii(), "{frame}");
     assert!(frame.contains("Health ########## 100%"), "{frame}");
-    assert!(frame.contains("[Esc] close  [Tab] next  [F] follow"), "{frame}");
+    assert!(frame.lines().last().unwrap().contains("Tab next unit - F follow"), "{frame}");
     assert!(frame.contains("+- "), "{frame}");
 }
 
@@ -772,8 +778,10 @@ fn the_message_log_screen_shows_its_heading_hints_and_newest_line() {
     run(&mut a, "l");
     let frame = text(&mut a, SIZE);
     assert!(frame.contains("◆ MESSAGE LOG ◆"), "{frame}");
-    assert!(frame.contains("Arrows W S scroll  PgUp PgDn page  Esc close"), "{frame}");
-    assert!(frame.contains(" LOG  arrows/W S scroll"), "{frame}");
+    let status = frame.lines().last().unwrap();
+    assert!(status.starts_with(" LOG "), "{status}");
+    assert!(status.contains("Up/Down scroll · Esc or L close · PgUp/PgDn page"), "{status}");
+    assert!(status.trim_end().ends_with("? keys"), "{status}");
     let newest = a.ui.alerts.history().last().expect("the bending game has a log").text.clone();
     let newest: String = newest.chars().take(30).collect();
     assert!(frame.contains(&newest), "the newest line ({newest:?}) in\n{frame}");
@@ -785,7 +793,7 @@ fn a_screen_hides_the_bar_and_takes_the_keys_but_not_the_clock() {
     let mut a = app(7, Nation::Earth, SIZE);
     run(&mut a, "<tab> l");
     let frame = text(&mut a, SIZE);
-    assert!(frame.contains("MESSAGE LOG") && !frame.contains("[Tab] next"), "{frame}");
+    assert!(frame.contains("MESSAGE LOG") && !frame.contains("Carrying:"), "{frame}");
     assert!(frame.contains("EARTH KINGDOM"), "the side panel stays:\n{frame}");
     assert!(frame.lines().last().unwrap().starts_with(" LOG "), "{frame}");
     let (cursor, tool) = (a.ui.cursor, a.ui.tool);
@@ -796,7 +804,7 @@ fn a_screen_hides_the_bar_and_takes_the_keys_but_not_the_clock() {
     run(&mut a, "<esc>");
     assert_eq!(a.ui.screen, None);
     assert!(a.ui.selected.is_some(), "the bar comes back");
-    assert!(text(&mut a, SIZE).contains("[Tab] next"));
+    assert!(text(&mut a, SIZE).contains("Carrying:"));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -869,8 +877,9 @@ fn the_key_help_screen_lists_its_sections_and_keys() {
     ] {
         assert!(frame.contains(want), "{want:?} in\n{frame}");
     }
-    assert!(frame.contains("Arrows W S scroll  PgUp PgDn page  Esc close"), "{frame}");
-    assert!(frame.contains(" KEYS  arrows/W S scroll"), "{frame}");
+    let status = frame.lines().last().unwrap();
+    assert!(status.starts_with(" KEYS "), "{status}");
+    assert!(status.contains("Up/Down scroll · Esc or ? close · PgUp/PgDn page"), "{status}");
 }
 
 /// `G` opens the Endeavor screen (#242): the same screen for every nation, since the signs and
@@ -891,7 +900,6 @@ fn the_endeavor_screen_lists_the_gates_groups_and_signs() {
         "KNOWLEDGE",
         "STORES AND HARVESTS",
         "BENDING",
-        "Arrows W S scroll  Enter place gate  X withdraw  Esc/G close",
     ] {
         assert!(frame.contains(want), "{want:?} in\n{frame}");
     }

@@ -21,4 +21,4 @@
 ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,│                              │
 ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,│                              │
 ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,┗─ seed 1 ─────────────────────┛
- SELECT  arrows/wasd move  Enter select  Esc menu  Tab units  H X P B …  PAUSED
+ SELECT  Arrows move · Enter select · Tab next unit · Esc menu    PAUSED ? keys

@@ -124,11 +124,11 @@ backgrounds, the stockpile is blue, the cursor is yellow and the selected unit i
 | Zone (ui.md) | TUI | Size | Contents |
 |---|---|---|---|
 | **Side panel** | Right edge, full height above the status line | 32 columns | Seal frame: `accent_soft` box lines, `accent` corners `┏┓┗┛`, title `◆ NATION ◆` centred on the top edge, `◇` section bullets. Sections in ui.md order: header (seed, clock, speed); **People** (count, then one line per unit while they fit); **Stores**; **Research**; **Tool** (hint and notice); **Alerts**; **Cursor**. Empty sections hide, as in ui.md |
-| **Selection bar** | Bottom of the map area, left of the side panel | 7 rows | Name and nation in the top edge; task, carrying, tile; meters as 10-cell bars in `ok`/`warn`/`bad`, with a `!` for anything not ok (readable without colour); chi in `accent`; key hints. No portrait. Present only while a unit is selected |
+| **Selection bar** | Bottom of the map area, left of the side panel | 7 rows | Name and nation in the top edge; task, carrying, tile; meters as 10-cell bars in `ok`/`warn`/`bad`, with a `!` for anything not ok (readable without colour); chi in `accent`; no key hints (the hint bar has them, see "Hints"). No portrait. Present only while a unit is selected |
 | **Hover tooltip** | The **Cursor** section | up to 4 lines + title | The client's tooltip lines for the tile under the cursor, same order (name, context, yield or reason, hint). Fixed, so it never covers map glyphs |
 | **Screens** | Over the map area; the side panel stays | map area | Research (`T`), the message log (`L`), key help (`?`) |
 | *(new)* **Modals** (#285) | Centred box over the map area | up to 66x18, shrinking to fit | A smaller, centred Seal box that captures every key until it closes: a title, a list on the left, a detail pane on the right (`crate::modal`). The Build picker (`U`) is its first user (`crate::build`) |
-| *(new)* **Status line** | Last row | 1 row | Current mode or tool, its keys, and a "Paused" badge. Vim and Dwarf Fortress both teach this: in a modal keyboard UI the mode must always be visible |
+| *(new)* **Status line** | Last row | 1 row | The **hint bar** (see "Hints"): the mode's name, that mode's own keys and a fixed tail, `PAUSED` then `? keys`. Vim and Dwarf Fortress both teach this: in a modal keyboard UI the mode must always be visible |
 
 - **Sizes.** Designed for 120×40, which shows 88×32 tiles; it works down to 80×24. Below that,
   the frame shows "Terminal too small (80×24 needed)" and nothing else.
@@ -331,6 +331,46 @@ like Shift+arrows. With Caps Lock on, they move 10 tiles too.
   turns black) rather than taking its own colour, so a 1x1 ghost still shows which it is. With no
   colour the ghost is reversed, bold where it fits and dim (keeping the glyph of what's in the
   way) where it doesn't.
+
+## Hints
+
+One rule (#651): **keys are named in one place, the hint bar, and written once.**
+
+- **The hint bar** is the last row of the screen. It always has three parts: the mode's name as a
+  badge (`SELECT`, `HARVEST`, `RESEARCH`, `KEYS`, `MENU` ...; `HARVEST · REPEATING` while the
+  standing-order toggle is on); that mode's own keys, as `key verb` items joined by ` · `; and a
+  fixed right-aligned tail, `PAUSED` while the clock is paused and then `? keys`. Keys that work
+  everywhere (the clock, the screens, quitting) are not repeated in every mode: `? keys` opens the
+  key help for them. A y/n prompt or a result notice takes the place of the middle part while it
+  lasts, and of `? keys` too, for room.
+
+  ```
+  ┗───────────────────────────────────────────────────────────────────── tiers 1-4 of 5 ─┛
+   RESEARCH  Arrows choose · Enter set as target · Esc or T close                  ? keys
+  ```
+
+- **Nothing else prints key hints.** A screen's or modal's bottom border (Nation, Research,
+  Endeavor, Log, Key help, Saves, Build, the game menu) and the selection bar carry none. The
+  freed bottom border of a screen that scrolls says where the window sits instead, flush right:
+  `12-48 of 61` (Log, Key help, Endeavor), `tiers 1-4 of 5`, `settlers 1-12 of 30`, `slots`,
+  `buildings`; the game menu's border carries the elapsed clock while seasons are on (#416).
+  Only a list that does not fit says anything. `tests/layout_properties.rs` checks every screen.
+- **One table.** `fn_ui::keys::table()` holds every binding: the modes it works in, the actions it
+  stands for, its key label ("Esc or T") and short verb ("close"), and for most a longer key help
+  wording and group. The hint bar (`keys::hints`), the Key help screen and the agent's `help`
+  rows (`keys::help_rows`) and the key paragraph of `fn_tui --help` (`cli::key_paragraph`) are all
+  built from it. The table is frontend-neutral: `fn_ui::keys::Action` is what a key asks for, and
+  `fn_tui::input` maps crossterm keys onto it. A test in `input.rs` fails if a key `map_key`
+  handles, or a label in the table, has no counterpart on the other side. A new binding is one
+  row in the table and one in `input::build_table`.
+- **Wording.** A key label, then a verb: `Up/Down choose`, `Enter set as target`, `Esc or T
+  close`. Lists (Nation, Log, Saves, Build, the menu) say `Up/Down`, grids (the map, Research) say
+  `Arrows`. Verbs are lower case. Order is by importance, because:
+- **Fitting.** When the items do not fit between the badge and the tail, whole items are dropped
+  from the end (`keys::fit`); an item is never cut mid-word, and `? keys` always stays. So the
+  most needed item (`Esc ... close`) comes before the rest where a bar is long.
+- **Select mode** names every tool key (`H X E P B U C tools`, built from `Tool::ALL`) or none of
+  them, never a subset: the item is one unit and goes whole.
 
 ## Time and the frame loop
 
@@ -551,8 +591,8 @@ differs from the proposal above:
   that dies closes the bar. Selecting issues no command, so a replay needs nothing for it.
 - **The bar.** `bar.rs` draws the 7 rows on the bottom of the map region: name, `·` and nation on
   the top edge; the task (two lines at most), what the unit carries and its tile on the left; the
-  key hints on the last row, as many as fit; and the five meters on the right (10 cells, a `!` after
-  any that is not `ok`; chi in the accent, never flagged). While it is open `UiState::visible()` is
+  mastery line on the fifth row (the last row used to hold key hints, #651); and the five meters
+  on the right (10 cells, a `!` after any that is not `ok`; chi in the accent, never flagged). While it is open `UiState::visible()` is
   7 rows shorter than the map region, and the view scrolls by that, so the cursor and the selected
   unit stay above the bar (the client's `center_on_selection`). The selected unit is drawn in
   reverse video. A screen hides the bar, as ui.md says.

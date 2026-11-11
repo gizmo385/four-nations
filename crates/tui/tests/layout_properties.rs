@@ -455,3 +455,81 @@ fn every_title_and_embark_page_at_every_size_closes_its_boxes_fits_its_rows_and_
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Hints live in the hint bar only (#651)
+// ---------------------------------------------------------------------------------------------
+
+/// What a bottom border may say besides its line: where a window sits ("12-48 of 61", "tiers
+/// 1-4 of 5"), the clock, the panel's seed. Never a key.
+fn border_words_are_not_keys(line: &str, marks: &Marks, context: &str) {
+    let chars: Vec<char> = line.chars().collect();
+    for (i, &c) in chars.iter().enumerate() {
+        if c != marks.bl {
+            continue;
+        }
+        let Some(j) = (i + 1..chars.len()).find(|&j| chars[j] == marks.br) else { continue };
+        let inner: String = chars[i + 1..j].iter().filter(|&&c| c != marks.h).collect();
+        for word in inner.split_whitespace() {
+            let position = word.chars().all(|c| c.is_ascii_digit() || matches!(c, '-' | ':'));
+            let noun = matches!(word, "of" | "tiers" | "settlers" | "slots" | "buildings" | "seed");
+            assert!(
+                position || noun,
+                "{context}: a bottom border says {word:?}, which is not a scroll position: \
+                 {line:?}"
+            );
+        }
+    }
+}
+
+/// No screen, modal or bar prints key hints on its own bottom border: Nation, Research,
+/// Endeavor, Log, Key help, Saves, Build, the game menu and the selected settler's bar. The hint
+/// bar (the status line) is the only place keys are named.
+#[test]
+fn no_bottom_border_carries_key_hints() {
+    let marks = Marks::new(false);
+    let tmp = TempDir::new("hint-borders");
+    let session = earth_mid_game();
+    for case in CASES {
+        for size in [(80, 24), (120, 40)] {
+            let mut app = App::new(session.clone(), size);
+            app.saves = Some(tmp.0.clone());
+            app.play(&keys::parse(case.script).expect("a valid script"));
+            let palette = Palette::new(
+                &app.session.defs,
+                app.session.world.nation,
+                ColorDepth::TrueColor,
+                false,
+            );
+            let text = to_text(&render_app(&mut app, &palette, size));
+            let context = format!("{} at {size:?}", case.name);
+            let rows: Vec<&str> = text.lines().collect();
+            // The last row is the hint bar itself.
+            for line in &rows[..rows.len() - 1] {
+                border_words_are_not_keys(line, &marks, &context);
+            }
+            // And the one place that does name keys always ends in the tail.
+            assert!(rows[rows.len() - 1].trim_end().ends_with("? keys"), "{context}");
+        }
+    }
+}
+
+/// A screen that scrolls says where it is on its freed bottom border: the key help, which is
+/// longer than the 80x24 terminal's screen.
+#[test]
+fn a_scrolling_screen_shows_its_position_on_the_bottom_border() {
+    let session = earth_mid_game();
+    let size = (80, 24);
+    let mut app = App::new(session, size);
+    app.play(&keys::parse("?").unwrap());
+    let palette =
+        Palette::new(&app.session.defs, app.session.world.nation, ColorDepth::TrueColor, false);
+    let text = to_text(&render_app(&mut app, &palette, size));
+    let border = text.lines().find(|l| l.contains('┗')).unwrap();
+    assert!(border.contains(" 1-") && border.contains(" of "), "{border}");
+    // Scrolled down a page, the window moves.
+    app.play(&keys::parse("<pgdn>").unwrap());
+    let text = to_text(&render_app(&mut app, &palette, size));
+    let border = text.lines().find(|l| l.contains('┗')).unwrap();
+    assert!(!border.contains(" 1-") && border.contains(" of "), "{border}");
+}

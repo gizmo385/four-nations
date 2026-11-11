@@ -1,79 +1,20 @@
 //! Keys to actions, and actions to changes of the app (docs/design/tui.md, "Input").
 //!
-//! One table, [`bindings`], says which key means which action and what to call it. Mapping a key
-//! ([`map_key`]) reads it, and so does the key help screen ([`help_rows`]), so the help can't drift
-//! from what the keys do. The research screen's key (`T`) is one more row; inside it the same arrows
-//! and `Enter` mean "choose a tech".
+//! [`bindings`] says which crossterm key means which [`Action`]; [`map_key`] reads it. What each
+//! key is *called* (its label, its short verb, its key help wording) is not here but in the one
+//! table in `fn_ui::keys`, which the hint bar, the key help screen and `--help` are built from.
+//! A test here walks every binding and every action `map_key` can return and fails if the table
+//! doesn't name it, so a new key can't be added without its hint.
 
 use std::sync::LazyLock;
 
 use crate::keyev::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 use fn_sim::Nation;
 use fn_ui::Tool;
+pub use fn_ui::keys::{Action, Group, HelpRow, help_rows};
 
 /// How far Shift moves the cursor.
 pub const SHIFT_STEP: i32 = 10;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Action {
-    /// Move the cursor `(dx, dy)` tiles; each of `dx` and `dy` is -1, 0 or 1, times `tiles`.
-    Move {
-        dx: i32,
-        dy: i32,
-        tiles: i32,
-    },
-    /// Jump the view a quarter screen (`dx`, `dy` in -1..=1) and carry the cursor.
-    Jump {
-        dx: i32,
-        dy: i32,
-    },
-    /// `H` `X` `P` or `B`: switch to a designation tool (dropping the corner).
-    PickTool(Tool),
-    /// `O`: in the Harvest tool, toggles the next rectangle between a one-off designation and a
-    /// standing order (#81, #277, stands in for the client's held Shift, which a terminal can't
-    /// reliably report). No effect in any other tool.
-    ToggleRepeat,
-    /// `Enter`: in Select mode, select the unit under the cursor (again: the next one there); in
-    /// a tool, set a corner or apply the rectangle.
-    Confirm,
-    /// `Esc`: close the screen; in a tool, drop the corner or with none leave the tool; in Select
-    /// mode, close the selection bar.
-    Cancel,
-    /// `Tab` and Shift+`Tab`: the next and the previous unit, and the cursor goes to it.
-    NextUnit,
-    PrevUnit,
-    /// `F`: the cursor tracks the selected unit.
-    Follow,
-    /// `T`: the research screen.
-    ShowResearch,
-    /// `L` and `?`: the message log and the key help.
-    ShowLog,
-    ShowHelp,
-    /// `G`: the Endeavor screen (#242).
-    ShowEndeavor,
-    /// `N`: the Nation screen (#308): every settler grouped by activity, every store and the
-    /// nation's traits.
-    ShowNation,
-    /// `R`: a new map, after a y/n prompt.
-    AskNewMap,
-    /// `1`-`4`: switch nation, after a y/n prompt.
-    AskNation(Nation),
-    /// `F5`: save the game to the quicksave slot.
-    QuickSave,
-    /// `F9`: replace the game with the quicksave, after a y/n prompt.
-    AskQuickLoad,
-    /// `F6`: the saves screen (named slots).
-    ShowSaves,
-    TogglePause,
-    Faster,
-    Slower,
-    /// One tick, while paused.
-    Step,
-    /// Ask whether to quit.
-    AskQuit,
-    /// Quit at once (Ctrl+C: raw mode turns the signal into a key).
-    QuitNow,
-}
 
 /// A key as the table names it. Shift is not part of it: it only makes a move ten tiles, and
 /// letters ignore case.
@@ -130,42 +71,14 @@ impl Key {
     }
 }
 
-/// Where the key help lists a binding.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Group {
-    Cursor,
-    Units,
-    Tools,
-    Time,
-    Game,
-}
-
-impl Group {
-    pub const ALL: [Group; 5] = [Self::Cursor, Self::Units, Self::Tools, Self::Time, Self::Game];
-
-    pub fn title(self) -> &'static str {
-        match self {
-            Self::Cursor => "Cursor and view",
-            Self::Units => "Units",
-            Self::Tools => "Designating",
-            Self::Time => "Time",
-            Self::Game => "Screens and game",
-        }
-    }
-}
-
-/// One key, what it does, and how the help words that. Bindings that follow each other with the
-/// same `what` are one line of the help, and one with an empty `what` is not listed (a second
-/// spelling of a key that is).
-#[derive(Clone, Debug)]
+/// One key and the action it asks for. Several keys can ask for the same one (`W` and Up).
+#[derive(Clone, Copy, Debug)]
 pub struct Binding {
     pub key: Key,
     pub action: Action,
-    pub group: Group,
-    pub what: String,
 }
 
-/// Every key the game answers to, in the order the help lists them.
+/// Every key `map_key` answers to (Ctrl+C aside, which it matches by hand).
 pub fn bindings() -> &'static [Binding] {
     static TABLE: LazyLock<Vec<Binding>> = LazyLock::new(build_table);
     &TABLE
@@ -176,17 +89,14 @@ fn build_table() -> Vec<Binding> {
         BackTab, Down, End, Enter, Esc, F, Home, Left, PageDown, PageUp, Right, Tab, Up,
     };
     let mut t = Vec::new();
-    let mut add = |group, what: &str, key, action| {
-        t.push(Binding { key, action, group, what: what.to_owned() });
-    };
+    let mut add = |key, action| t.push(Binding { key, action });
     let step = |dx, dy| Action::Move { dx, dy, tiles: 1 };
 
-    let walk = "Move the cursor 1 tile (Shift: 10)";
     for (code, dx, dy) in [(Up, 0, -1), (Down, 0, 1), (Left, -1, 0), (Right, 1, 0)] {
-        add(Group::Cursor, walk, Key::plain(code), step(dx, dy));
+        add(Key::plain(code), step(dx, dy));
     }
     for (c, dx, dy) in [('w', 0, -1), ('a', -1, 0), ('s', 0, 1), ('d', 1, 0)] {
-        add(Group::Cursor, walk, Key::ch(c), step(dx, dy));
+        add(Key::ch(c), step(dx, dy));
     }
     // The numpad, diagonals too. Numpad 7 and 1 with NumLock off arrive as Home and End.
     for (c, dx, dy) in [
@@ -199,108 +109,52 @@ fn build_table() -> Vec<Binding> {
         ('2', 0, 1),
         ('3', 1, 1),
     ] {
-        add(Group::Cursor, "", Key::pad(c), step(dx, dy));
+        add(Key::pad(c), step(dx, dy));
     }
-    add(Group::Cursor, "", Key::plain(Home), step(-1, -1));
-    add(Group::Cursor, "", Key::plain(End), step(-1, 1));
+    add(Key::plain(Home), step(-1, -1));
+    add(Key::plain(End), step(-1, 1));
 
-    let jump = "Jump the view a quarter screen";
     for (code, dx, dy) in [(Up, 0, -1), (Down, 0, 1), (Left, -1, 0), (Right, 1, 0)] {
-        add(Group::Cursor, jump, Key::ctrl(code), Action::Jump { dx, dy });
+        add(Key::ctrl(code), Action::Jump { dx, dy });
     }
-    add(Group::Cursor, jump, Key::plain(PageUp), Action::Jump { dx: 0, dy: -1 });
-    add(Group::Cursor, jump, Key::plain(PageDown), Action::Jump { dx: 0, dy: 1 });
+    add(Key::plain(PageUp), Action::Jump { dx: 0, dy: -1 });
+    add(Key::plain(PageDown), Action::Jump { dx: 0, dy: 1 });
 
-    add(
-        Group::Units,
-        "Select the unit under the cursor; again: the next one there. In a tool: set a corner, \
-         then apply",
-        Key::plain(Enter),
-        Action::Confirm,
-    );
-    add(
-        Group::Units,
-        "Close the screen, a modal or the bar. In a tool: drop the corner, then leave the tool. \
-         With nothing to close: the game menu (Resume, Save as…, Quicksave, Load…, Quickload, \
-         Key help, Quit, #306, #312) — every save and load action, for a terminal the function \
-         keys don't reach",
-        Key::plain(Esc),
-        Action::Cancel,
-    );
-    add(Group::Units, "Select the next unit (Select mode)", Key::plain(Tab), Action::NextUnit);
-    add(
-        Group::Units,
-        "Select the previous unit (Select mode)",
-        Key::plain(BackTab),
-        Action::PrevUnit,
-    );
-    add(Group::Units, "Follow the selected unit (Select mode)", Key::ch('f'), Action::Follow);
+    add(Key::plain(Enter), Action::Confirm);
+    add(Key::plain(Esc), Action::Cancel);
+    add(Key::plain(Tab), Action::NextUnit);
+    add(Key::plain(BackTab), Action::PrevUnit);
+    add(Key::ch('f'), Action::Follow);
 
     for tool in Tool::ALL {
         // Select is Esc; every other tool has a letter.
-        let Some(letter) = tool.letter() else { continue };
-        // `Tool::label`'s own wording for Build is generic ("U: next building", #111); the TUI's
-        // own `U` opens the Build modal instead (#285), so it gets its own words here.
-        let what = if tool == Tool::Build {
-            format!("{} tool: place the chosen building (U: pick one)", tool.name())
-        } else {
-            format!("{} tool: {}", tool.name(), tool.label())
-        };
-        add(Group::Tools, &what, Key::ch(letter.to_ascii_lowercase()), Action::PickTool(tool));
+        if let Some(letter) = tool.letter() {
+            add(Key::ch(letter.to_ascii_lowercase()), Action::PickTool(tool));
+        }
     }
-    add(
-        Group::Tools,
-        "Harvest tool: toggle a standing order (re-designates when ripe again); Cancel tool: \
-         toggle withdrawing a build site or stockpile too (#335)",
-        Key::ch('o'),
-        Action::ToggleRepeat,
-    );
+    add(Key::ch('o'), Action::ToggleRepeat);
 
-    add(Group::Time, "Pause or run", Key::ch(' '), Action::TogglePause);
-    add(Group::Time, "Faster", Key::ch('+'), Action::Faster);
-    add(Group::Time, "Faster", Key::ch('='), Action::Faster);
-    add(Group::Time, "Slower", Key::ch('-'), Action::Slower);
-    add(Group::Time, "Slower", Key::ch('_'), Action::Slower);
-    add(Group::Time, "One tick, while paused", Key::ch('.'), Action::Step);
+    add(Key::ch(' '), Action::TogglePause);
+    add(Key::ch('+'), Action::Faster);
+    add(Key::ch('='), Action::Faster);
+    add(Key::ch('-'), Action::Slower);
+    add(Key::ch('_'), Action::Slower);
+    add(Key::ch('.'), Action::Step);
 
-    add(
-        Group::Game,
-        "Research: arrows W A S D choose a tech, Enter sets it as the target",
-        Key::ch('t'),
-        Action::ShowResearch,
-    );
-    add(Group::Game, "Message log", Key::ch('l'), Action::ShowLog);
-    add(Group::Game, "Key help", Key::ch('?'), Action::ShowHelp);
-    add(
-        Group::Game,
-        "Endeavor: the Harmony Gate's progress; once Ready, Enter places the gate, X withdraws \
-         the site until work starts",
-        Key::ch('g'),
-        Action::ShowEndeavor,
-    );
-    add(
-        Group::Game,
-        "Nation: every settler, every store and the nation's traits",
-        Key::ch('n'),
-        Action::ShowNation,
-    );
-    add(Group::Game, "New map (asks first)", Key::ch('r'), Action::AskNewMap);
-    let switch = "Switch nation: 1 Air, 2 Water, 3 Earth, 4 Fire (asks first)";
+    add(Key::ch('t'), Action::ShowResearch);
+    add(Key::ch('l'), Action::ShowLog);
+    add(Key::ch('?'), Action::ShowHelp);
+    add(Key::ch('g'), Action::ShowEndeavor);
+    add(Key::ch('n'), Action::ShowNation);
+    add(Key::ch('r'), Action::AskNewMap);
     for (i, nation) in Nation::ALL.into_iter().enumerate() {
-        let digit = char::from(b'1' + i as u8);
-        add(Group::Game, switch, Key::ch(digit), Action::AskNation(nation));
+        add(Key::ch(char::from(b'1' + i as u8)), Action::AskNation(nation));
     }
     // F5/F9, the usual quicksave/quickload keys.
-    add(Group::Game, "Quicksave", Key::plain(F(5)), Action::QuickSave);
-    add(Group::Game, "Quickload (asks first)", Key::plain(F(9)), Action::AskQuickLoad);
-    add(
-        Group::Game,
-        "Saves: arrows/W S choose a slot, Enter loads it, Shift+S saves over it (both ask \
-         first), N a new one",
-        Key::plain(F(6)),
-        Action::ShowSaves,
-    );
-    add(Group::Game, "Quit (asks first)", Key::ch('q'), Action::AskQuit);
+    add(Key::plain(F(5)), Action::QuickSave);
+    add(Key::plain(F(9)), Action::AskQuickLoad);
+    add(Key::plain(F(6)), Action::ShowSaves);
+    add(Key::ch('q'), Action::AskQuit);
     t
 }
 
@@ -372,51 +226,6 @@ pub fn map_key(key: KeyEvent) -> Option<Action> {
         }
         other => other,
     })
-}
-
-/// One line of the key help: the keys, and what they do.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HelpRow {
-    pub group: Group,
-    pub keys: String,
-    pub what: String,
-}
-
-/// The key help, generated from [`bindings`]: bindings that do the same thing share a row, and
-/// the four arrows (or Ctrl+arrows) are written as one.
-pub fn help_rows() -> Vec<HelpRow> {
-    let mut rows: Vec<(Group, String, Vec<Key>)> = Vec::new();
-    for b in bindings().iter().filter(|b| !b.what.is_empty()) {
-        match rows.last_mut() {
-            Some((g, what, keys)) if *g == b.group && *what == b.what => keys.push(b.key),
-            _ => rows.push((b.group, b.what.clone(), vec![b.key])),
-        }
-    }
-    rows.into_iter()
-        .map(|(group, what, keys)| HelpRow { group, keys: join_keys(&keys), what })
-        .collect()
-}
-
-/// The keys' names in a row, with Up Down Left Right (and their Ctrl versions) as "Arrows".
-fn join_keys(keys: &[Key]) -> String {
-    let all_four = |ctrl: bool| {
-        [KeyCode::Up, KeyCode::Down, KeyCode::Left, KeyCode::Right]
-            .iter()
-            .all(|&code| keys.iter().any(|k| k.code == code && k.ctrl == ctrl && !k.keypad))
-    };
-    let mut names: Vec<String> = Vec::new();
-    for k in keys {
-        let arrow = matches!(k.code, KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right);
-        let name = match (arrow, k.ctrl) {
-            (true, false) if all_four(false) => "Arrows".to_owned(),
-            (true, true) if all_four(true) => "Ctrl+Arrows".to_owned(),
-            _ => k.name(),
-        };
-        if !names.contains(&name) {
-            names.push(name);
-        }
-    }
-    names.join(" ")
 }
 
 #[cfg(test)]
@@ -651,6 +460,74 @@ mod tests {
         }
     }
 
+    /// The tokens a key label in `fn_ui::keys`'s table stands for: "Arrows or WASD" covers Up,
+    /// Down, Left, Right, W, A, S and D; "Ctrl+Arrows or PgUp/PgDn" covers Ctrl+arrows, PgUp and
+    /// PgDn; "1-4" covers 1 to 4; "+ or =" covers + and =.
+    fn label_tokens(label: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        for word in label.split([' ', '/']).filter(|w| *w != "or") {
+            match word {
+                "Arrows" => out.extend(["Up", "Down", "Left", "Right"].map(String::from)),
+                "Ctrl+Arrows" => out
+                    .extend(["Ctrl+Up", "Ctrl+Down", "Ctrl+Left", "Ctrl+Right"].map(String::from)),
+                "WASD" => out.extend(["W", "A", "S", "D"].map(String::from)),
+                "1-4" => out.extend(["1", "2", "3", "4"].map(String::from)),
+                other => out.push(other.to_owned()),
+            }
+        }
+        out
+    }
+
+    /// A binding handled here and missing from `fn_ui::keys`'s table would have no hint and no
+    /// key help row (#651): every action `map_key` can return is named by an entry, and every
+    /// key it is listed under is in that entry's label.
+    #[test]
+    fn every_key_map_key_handles_is_in_the_key_table() {
+        let table = fn_ui::keys::table();
+        let mut actions: Vec<Action> = bindings().iter().map(|b| b.action).collect();
+        actions.push(Action::QuitNow);
+        for action in actions {
+            assert!(
+                table.iter().any(|e| e.actions.iter().any(|a| a.same_kind(action))),
+                "{action:?} is handled but no entry of fn_ui::keys's table names it"
+            );
+        }
+        for b in bindings() {
+            // The numpad and Home/End are second spellings of the arrows, not listed.
+            if b.key.keypad || matches!(b.key.code, KeyCode::Home | KeyCode::End) {
+                continue;
+            }
+            let name = b.key.name();
+            let listed = table.iter().any(|e| {
+                e.help.is_some()
+                    && e.actions.iter().any(|a| a.same_kind(b.action))
+                    && label_tokens(&e.keys).contains(&name)
+            });
+            assert!(listed, "{name} ({:?}) is in no key help label", b.action);
+        }
+        // Ctrl+C is matched by hand in `map_key`.
+        assert!(table.iter().any(|e| e.keys == "Ctrl+C" && e.actions == [Action::QuitNow]));
+    }
+
+    /// The other way round: a label in the table that no key reaches is a hint that lies.
+    #[test]
+    fn every_key_label_in_the_table_is_a_key_that_works() {
+        let known: Vec<String> = bindings()
+            .iter()
+            .map(|b| b.key.name())
+            .chain(["Ctrl+C".to_owned(), "Shift+S".to_owned(), "Shift+Tab".to_owned()])
+            .collect();
+        for e in fn_ui::keys::table() {
+            // `Type` (the name prompt) is every character, not one key.
+            if e.keys == "Type" {
+                continue;
+            }
+            for token in label_tokens(&e.keys) {
+                assert!(known.contains(&token), "{token:?} in {:?} is bound to no key", e.keys);
+            }
+        }
+    }
+
     #[test]
     fn the_help_lists_every_tool_and_group_from_the_table() {
         let rows = help_rows();
@@ -662,11 +539,11 @@ mod tests {
             assert_eq!(row.keys, tool.key(), "from the tool table");
         }
         let walk = rows.iter().find(|r| r.what.starts_with("Move the cursor")).unwrap();
-        assert_eq!(walk.keys, "Arrows W A S D");
+        assert_eq!(walk.keys, "Arrows or WASD");
         let jump = rows.iter().find(|r| r.what.starts_with("Jump")).unwrap();
-        assert_eq!(jump.keys, "Ctrl+Arrows PgUp PgDn");
+        assert_eq!(jump.keys, "Ctrl+Arrows or PgUp/PgDn");
         let nation = rows.iter().find(|r| r.what.starts_with("Switch nation")).unwrap();
-        assert_eq!(nation.keys, "1 2 3 4");
+        assert_eq!(nation.keys, "1-4");
         let save = rows.iter().find(|r| r.what == "Quicksave").unwrap();
         assert_eq!(save.keys, "F5");
         let load = rows.iter().find(|r| r.what.starts_with("Quickload")).unwrap();
