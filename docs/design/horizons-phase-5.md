@@ -153,7 +153,7 @@ finds = ["lost_ruins", "great_ruins"]
   seeker.
 - **A caravan's chart** reward reuses the Map Room's pick (pacing.md, section 2). #437 should
   read the `finds` list from the Map Room's def rather than naming `lost_ruins`. If it ships
-  with the id hard-coded, follow-up A changes that one line.
+  with the id hard-coded, #736 changes that one line.
 - **Spirit Projection** (below) also reveals them, since it finds every buried kind.
 - **Notices.** `Spotted great ruins 12 tiles east.` and `Charted great ruins 48 tiles north-east.`
   replace the lost-ruin wording when the find is a great ruin. The existing "no settler can reach
@@ -213,7 +213,7 @@ When a teaching scroll is read:
    study hall it was read at.
 4. With `n = 0` (every teaching kept, lost or excluded) the scroll reads for
    `empty_scroll_knowledge` points instead, through `add_knowledge`, and the notice says so.
-   Whether that is the right answer for a third great ruin is question 3 (decision 3).
+   Whether that is the right answer for a third great ruin is question 3 (#735).
 
 `teachings_rng` is a new `World` field seeded with `rng::stream(seed, "research.teachings")`, so
 each read draws the next numbers rather than the same ones. A save from before phase 5 loads it
@@ -306,7 +306,7 @@ that isn't known yet is a shelved scroll.
   read at the Meditation Pavilion`.
 - **Why not phase 4's item delivery** (`[[tech.cost_items]]`, research-horizons.md, "Costs beyond
   knowledge"). The scroll would go to stores and then back to a hall: two hauls of an item that is
-  already where it is needed, and a dependency on phase 4 for no decision. Owner decision 2 still
+  already where it is needed, and a dependency on phase 4 for no decision. Owner #734 still
   holds, because the scroll is the teaching's item cost. If phase 4 lands first and the owner
   wants one mechanism, a teaching can swap to `cost_items` with `item = "teaching_scroll"`. The
   draft doesn't change.
@@ -503,7 +503,7 @@ id = "glow_crystal"
 name = "Glow Crystal"
 ```
 
-- **Caravans take them** (follow-up C appends these to #437's `data/trade.toml`): Fire traders
+- **Caravans take them** (#738 appends these to #437's `data/trade.toml`): Fire traders
   give 5 metal for 2 crystals, Water traders give 4 tools for 2, and Air traders ask for 3 in a
   request whose reward is a whole newcomer's draw (1.0). Earth's own caravan never visits an Earth
   settlement, so there is no Earth row.
@@ -736,7 +736,7 @@ draft is mocked as a #655-style centred box and the TUI follow-up redraws it in 
 
 **The draft**, from `fn_tui --scenario air-year-two --frame --ascii --size 110x34`, with the box
 drawn in the style of the Quit box (`--keys '<esc> <down> <down> <down> <down> <down> <down>
-<enter>'`). It opens by itself and pauses the clock (question 1, decision 1). The cursor starts on
+<enter>'`). It opens by itself and pauses the clock (question 1, #733). The cursor starts on
 the safe answer, which `Esc` also picks, as #655 requires:
 
 ```text
@@ -790,7 +790,7 @@ B.|   Keep Guru Teachings                                 250 pts + scroll |="| 
 **The Research screen** with Guru Teachings kept and Pai Sho lost, from
 `fn_tui --scenario air-year-two --frame --ascii --size 110x34 --keys 'T <right> <right> <right>
 <right> <right> <right> <right>'`, right panel cut. The TEACHINGS column follows the last tier.
-The `? 2 more to find` line is question 2 (decision 2):
+The `? 2 more to find` line is question 2 (#734):
 
 ```text
 +------------------------------- * RESEARCH * -------------------------------+
@@ -834,7 +834,7 @@ glyph is `Π` (ascii `N`) in `data/tui.toml`, beside the lost ruin's `‖`:
 
 ## Measuring it
 
-Phase 5 ends with a harness run, and the economy opening must use the new content (follow-up J):
+Phase 5 ends with a harness run, and the economy opening must use the new content (#745):
 
 - **Search.** The opening already designates uncovered ruins (`autoplay.rs`). Great ruins join
   that list.
@@ -852,7 +852,7 @@ The run reports these, on the panel's 32 seeds and both research orders, against
 | Drafted | a new `teachings_kept` at 240, and `first_offer_minute` | At least one teaching kept by 240 on 24 of 32 seeds per nation |
 | Dead drafts | a unit test over seeds 1 to 32 | No offer holds a teaching whose site rule fails |
 | Empty scrolls | `empty_scrolls` (scrolls read with nothing to offer) | Under 1 per run on Small. Medium's third ruin is the expected case |
-| Reach | `balance supply --resources great_ruins --radii 40,90` (follow-up I) | At least one great ruin reachable on foot within 90 on 28 of 32 seeds |
+| Reach | `balance supply --resources great_ruins --radii 40,90` (#744) | At least one great ruin reachable on foot within 90 on 28 of 32 seeds |
 | No regressions | every existing target, through `balance verdict --against` | `scrolls_by.M` unchanged or earlier (a great ruin still gives 2), and no gate target moves |
 
 The balance follow-up records the measured numbers in a "Measured" section here. The first levers
@@ -884,20 +884,20 @@ numbers, all data.
    elsewhere, and a choice that loses a teaching deserves the player's full attention. The
    alternative is an alert only (`A teaching waits [T]`), which never interrupts but is easy to
    miss for an hour. Either way the offer waits, so nothing is lost by closing it. Section: "The
-   draft", mockup. (decision 1)
+   draft", mockup. (#733)
 2. **Does the Research screen show how many teachings are still hidden?** *Recommended: nothing
    until the first teaching scroll is read, then a count (`? 2 more to find`), never names.* The
    softer-sign decision (cartography.md, 2026-11-09) prefers discovery to answers handed out, and
    adding a hint later is easier than taking one away. A count after the first draft tells the
    player there is more out there without spoiling which. The options either side are no count
    ever, or greyed names from tick 0 (a spoiler, and a checklist). Section: "Hidden, kept, lost".
-   (decision 2)
+   (#734)
 3. **What does a teaching scroll hold when nothing is left to offer?** *Recommended: 100
    knowledge points (`empty_scroll_knowledge`).* It keeps owner decision 5 exact: a lost
    teaching stays lost. The alternatives are to offer a lost teaching back, which softens "pick 1
    of 2" into "pick 1 now", or to offer another nation's teaching, which brings cross-nation
    learning before the gate, against owner decision 3's post-gate scope. Section: "The draw".
-   (decision 3)
+   (#735)
 
 ## Follow-up issues
 
@@ -905,18 +905,18 @@ Each one appends its own tech, building, ability, item and trade blocks from thi
 `BuildingId`, `AbilityId`, `ItemId` and `ResourceId` are file positions, and saves remap them by
 name (save-compat.md), so the order between follow-ups doesn't matter.
 
-| Draft | Title | Blocked by |
+| Issue | Title | Blocked by |
 |---|---|---|
-| (follow-up A) | Sim, data and mapgen: great ruins (the promote pass, `also` yields, `finds`, notices, the old-save upgrade) | none |
-| (follow-up B) | Sim and data: teachings and the draft (`[tech.teaching]`, `reveals`, `teachings_rng`, `KeepTeaching`, site rules) | A, #673, #707, decision 3 |
-| (follow-up C) | Sim and data: `pai_sho` and `crystal_growing` (Pai Sho Table, White Lotus deals, Crystal Grotto, glow crystal rows) | B, #437 |
-| (follow-up D) | Sim and data: `spirit_library` and `spirit_water` (spirit seats, vials) | B, #674 |
-| (follow-up E) | Sim and data: `sandbending`, `plantbending` and `spirit_projection` (`biome_speed`, `on_biomes`, the Sandstone Works, Regrow, Project) | B |
-| (follow-up F) | Sim and data: `sun_stone` and `hot_springs` (`[building.chi_regen]`, the Bathhouse) | B |
-| (follow-up G) | Sim and data: `guru_teachings` and the `master_chi` modifier | B, #358 |
-| (follow-up H) | TUI: the draft box, the TEACHINGS column, the great ruin glyph and readouts | A, B, decision 1, decision 2 |
-| (follow-up I) | Dev tools: great ruins in `balance supply`; offers and a `keep_teaching` step for agents | A, B |
-| (follow-up J) | Balance: the economy opening uses phase 5, and the phase-5 run | A, B, C, D, E, F, #713 |
-| (decision 1) | Decision: does the teaching draft open by itself and pause the game? | none |
-| (decision 2) | Decision: does the Research screen show how many teachings are still hidden? | none |
-| (decision 3) | Decision: what does a teaching scroll hold when nothing is left to offer? | none |
+| #736 | Sim, data and mapgen: great ruins (the promote pass, `also` yields, `finds`, notices, the old-save upgrade) | none |
+| #737 | Sim and data: teachings and the draft (`[tech.teaching]`, `reveals`, `teachings_rng`, `KeepTeaching`, site rules) | #736, #673, #707, #735 |
+| #738 | Sim and data: `pai_sho` and `crystal_growing` (Pai Sho Table, White Lotus deals, Crystal Grotto, glow crystal rows) | #737, #437 |
+| #739 | Sim and data: `spirit_library` and `spirit_water` (spirit seats, vials) | #737, #674 |
+| #740 | Sim and data: `sandbending`, `plantbending` and `spirit_projection` (`biome_speed`, `on_biomes`, the Sandstone Works, Regrow, Project) | #737 |
+| #741 | Sim and data: `sun_stone` and `hot_springs` (`[building.chi_regen]`, the Bathhouse) | #737 |
+| #742 | Sim and data: `guru_teachings` and the `master_chi` modifier | #737, #358 |
+| #743 | TUI: the draft box, the TEACHINGS column, the great ruin glyph and readouts | #736, #737, #733, #734 |
+| #744 | Dev tools: great ruins in `balance supply`; offers and a `keep_teaching` step for agents | #736, #737 |
+| #745 | Balance: the economy opening uses phase 5, and the phase-5 run | #736, #737, #738, #739, #740, #741, #713 |
+| #733 | Decision: does the teaching draft open by itself and pause the game? | none |
+| #734 | Decision: does the Research screen show how many teachings are still hidden? | none |
+| #735 | Decision: what does a teaching scroll hold when nothing is left to offer? | none |
