@@ -27,6 +27,7 @@ pub mod rng;
 pub mod save;
 pub mod score;
 pub mod seasons;
+pub mod trade;
 pub mod world;
 
 pub use defs::{Defs, Terrain};

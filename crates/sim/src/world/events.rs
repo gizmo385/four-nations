@@ -46,6 +46,8 @@ pub enum Event {
     Harm(HarmEvent),
     /// A Map Room finished a chart (`chart.rs`, #402).
     Chart(ChartEvent),
+    /// A caravan arrived, was skipped, closed a deal or a request, or left (`trade.rs`, #437).
+    Caravan(CaravanEvent),
 }
 
 impl Event {
@@ -61,6 +63,7 @@ impl Event {
             Self::Strain(e) => e.tick,
             Self::Harm(e) => e.tick,
             Self::Chart(e) => e.tick,
+            Self::Caravan(e) => e.tick,
         }
     }
 
@@ -80,6 +83,7 @@ impl Event {
             Self::Strain(_) => 6,
             Self::Harm(_) => 7,
             Self::Chart(_) => 8,
+            Self::Caravan(_) => 9,
         }
     }
 }
@@ -104,6 +108,7 @@ event_from!(
     Strain(StrainEvent),
     Harm(HarmEvent),
     Chart(ChartEvent),
+    Caravan(CaravanEvent),
 );
 
 /// A typed filter over the log: `$name()` yields every `Event::$variant`, oldest first.
@@ -142,6 +147,8 @@ event_filters! {
     harm_events => Harm(HarmEvent);
     /// Every finished chart so far, oldest first.
     chart_events => Chart(ChartEvent);
+    /// Every caravan event so far, oldest first.
+    caravan_events => Caravan(CaravanEvent);
 }
 
 impl World {

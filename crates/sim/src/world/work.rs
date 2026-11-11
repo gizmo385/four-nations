@@ -129,6 +129,8 @@ pub enum Task {
     Deconstruct(JobId),
     /// Carrying fuel to a building's bunker (`world/fuel.rs`).
     Refuel(JobId),
+    /// Carrying goods to a caravan's camp (`world/trade.rs`, #437).
+    Trade(JobId),
     /// Carrying a stack to a stockpile tile.
     Deliver,
     /// Carrying a stack to the chute anchored on `Pos`, to drop it down to the foot
@@ -275,9 +277,10 @@ impl World {
                 JobKind::Craft { .. } => None,
                 JobKind::Sow { .. } | JobKind::Reap { .. } => None,
                 JobKind::Clear { .. } => None,
-                JobKind::Chart { .. } | JobKind::Deconstruct { .. } | JobKind::Refuel { .. } => {
-                    None
-                }
+                JobKind::Chart { .. }
+                | JobKind::Deconstruct { .. }
+                | JobKind::Refuel { .. }
+                | JobKind::Trade { .. } => None,
             })
             .chain(self.standing_harvest.iter().copied())
     }
@@ -305,7 +308,8 @@ impl World {
             | JobKind::Reap { .. }
             | JobKind::Chart { .. }
             | JobKind::Deconstruct { .. }
-            | JobKind::Refuel { .. } => None,
+            | JobKind::Refuel { .. }
+            | JobKind::Trade { .. } => None,
         })
     }
 
@@ -1604,6 +1608,7 @@ impl World {
             JobKind::Chart { .. } => Task::Chart(job.id),
             JobKind::Deconstruct { .. } => Task::Deconstruct(job.id),
             JobKind::Refuel { .. } => Task::Refuel(job.id),
+            JobKind::Trade { .. } => Task::Trade(job.id),
         };
         let u = &mut self.units[i];
         u.job_task = Some(task);
@@ -1817,6 +1822,7 @@ impl World {
             Task::Chart(id) => self.run_chart(i, id, defs),
             Task::Deconstruct(id) => self.run_deconstruct(i, id, defs),
             Task::Refuel(id) => self.run_refuel(i, id, defs),
+            Task::Trade(id) => self.run_trade(i, id, defs),
             Task::Deliver => self.run_deliver(i, defs),
             Task::Chute(head) => self.run_chute(i, head, defs),
             // Need tasks never sit in the job slot.
@@ -2018,7 +2024,8 @@ fn job_pos(kind: JobKind) -> Option<Pos> {
         | JobKind::Clear { pos }
         | JobKind::Chart { pos }
         | JobKind::Deconstruct { pos }
-        | JobKind::Refuel { pos } => Some(pos),
+        | JobKind::Refuel { pos }
+        | JobKind::Trade { pos, .. } => Some(pos),
         JobKind::EndeavorTask { .. } => None,
     }
 }
@@ -2037,7 +2044,8 @@ fn job_priority(kind: JobKind) -> u8 {
         | JobKind::Reap { .. }
         | JobKind::Clear { .. }
         | JobKind::Deconstruct { .. }
-        | JobKind::Refuel { .. } => 0,
+        | JobKind::Refuel { .. }
+        | JobKind::Trade { .. } => 0,
     }
 }
 

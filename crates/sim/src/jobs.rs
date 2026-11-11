@@ -513,6 +513,10 @@ pub enum JobKind {
     /// (`BuildingDef::fuel`, `world/fuel.rs`): opened automatically once the bunker is at or
     /// below half full, and done when one trip's worth is in.
     Refuel { pos: Pos },
+    /// Carry goods from stores to the caravan camp anchored on this tile for offer `slot` of
+    /// the visit (`world/trade.rs`, #437): opened while a taken deal or request still needs
+    /// goods, and done when one trip's worth is in.
+    Trade { pos: Pos, slot: u8 },
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

@@ -193,7 +193,8 @@ fn task_job(task: Task) -> Option<JobId> {
         | Task::Clear(id)
         | Task::Chart(id)
         | Task::Deconstruct(id)
-        | Task::Refuel(id) => Some(id),
+        | Task::Refuel(id)
+        | Task::Trade(id) => Some(id),
         Task::Rite
         | Task::Deliver
         | Task::Chute(_)

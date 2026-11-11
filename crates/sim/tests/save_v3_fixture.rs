@@ -35,6 +35,7 @@ fn name(e: &Event) -> &'static str {
         Event::Strain(_) => "strain",
         Event::Harm(_) => "harm",
         Event::Chart(_) => "chart",
+        Event::Caravan(_) => "caravan",
     }
 }
 
