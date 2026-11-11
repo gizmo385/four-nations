@@ -131,6 +131,9 @@ pub enum Task {
     Refuel(JobId),
     /// Carrying a stack to a stockpile tile.
     Deliver,
+    /// Carrying a stack to the chute anchored on `Pos`, to drop it down to the foot
+    /// (`world/chute.rs`). Bound for stores, the way `Deliver` is.
+    Chute(Pos),
     Eat(FoodSource),
     Drink,
     Sleep,
@@ -1757,7 +1760,7 @@ impl World {
     }
 
     /// Is `item` one that is read at a study hall instead of stockpiled (issue #24)?
-    fn is_readable(item: ItemId, defs: &Defs) -> bool {
+    pub(super) fn is_readable(item: ItemId, defs: &Defs) -> bool {
         defs.item(item).knowledge.is_some()
     }
 
@@ -1775,7 +1778,12 @@ impl World {
 
     /// Where a unit with `item` in hand takes it: a study hall for a readable item (to stand
     /// beside it, with its cost), a stockpile tile with room for anything else.
-    fn reachable_dest(&self, flood: &Flood, item: ItemId, defs: &Defs) -> Option<(u32, Pos)> {
+    pub(super) fn reachable_dest(
+        &self,
+        flood: &Flood,
+        item: ItemId,
+        defs: &Defs,
+    ) -> Option<(u32, Pos)> {
         if Self::is_readable(item, defs) {
             self.study_halls().filter_map(|h| self.stand_building(flood, h, defs)).min()
         } else {
@@ -1810,6 +1818,7 @@ impl World {
             Task::Deconstruct(id) => self.run_deconstruct(i, id, defs),
             Task::Refuel(id) => self.run_refuel(i, id, defs),
             Task::Deliver => self.run_deliver(i, defs),
+            Task::Chute(head) => self.run_chute(i, head, defs),
             // Need tasks never sit in the job slot.
             _ => self.finish_job(i),
         }
@@ -1903,10 +1912,17 @@ impl World {
         let Some(stack) = self.units[i].carrying else { return self.finish_job(i) };
         if self.units[i].route.is_none() {
             let flood = self.flood_from(i);
-            let route = self
-                .reachable_dest(&flood, stack.item, defs)
-                .and_then(|(_, z)| flood.path_to(z))
-                .map(route_from);
+            let dest = self.reachable_dest(&flood, stack.item, defs);
+            // A chute whose head plus foot walk beats walking straight to stores (`chute.rs`).
+            if let Some((head, path)) =
+                self.chute_for(i, &flood, stack.item, dest.map(|(c, _)| c), defs)
+            {
+                let u = &mut self.units[i];
+                u.job_task = Some(Task::Chute(head));
+                u.route = Some(route_from(path));
+                return;
+            }
+            let route = dest.and_then(|(_, z)| flood.path_to(z)).map(route_from);
             match route {
                 Some(route) => self.units[i].route = Some(route),
                 None => {
@@ -2037,7 +2053,7 @@ pub(in crate::world) struct StepGrids(
 );
 
 impl StepGrids {
-    fn get(
+    pub(super) fn get(
         &self,
         map: &crate::mapgen::TileMap,
         rev: u64,

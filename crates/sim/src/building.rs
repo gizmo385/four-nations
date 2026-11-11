@@ -349,6 +349,17 @@ pub struct HothouseDef {
     pub winter_growth: f32,
 }
 
+/// A one-way drop for goods (`[building.chute]`, the Chute, docs/design/horizons-phase-1.md,
+/// `world/chute.rs`): its foot (`Building::link`) is within `reach` of it and at least `drop`
+/// lower.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChuteDef {
+    /// The foot is at most this far from the head, Chebyshev.
+    pub reach: u32,
+    /// The foot's elevation is at least this far below the head's.
+    pub drop: u8,
+}
+
 /// One whole item, in `FuelDef::micros_per_tick` units.
 pub const FUEL_MICROS: u64 = 1_000_000;
 
@@ -478,6 +489,8 @@ pub struct BuildingDef {
     pub pickers: Option<PickersDef>,
     /// Winter growth for farm plots in reach (`HothouseDef`), or `None`.
     pub hothouse: Option<HothouseDef>,
+    /// A one-way drop for goods (`ChuteDef`), or `None`.
+    pub chute: Option<ChuteDef>,
     pub unlocked_by: Option<TechId>,
     /// Seats added by techs (`[[tech.unlocks.upgrades]]`, docs/design/horizons-phase-1.md), each
     /// with the tech that adds them, in tech order. At most one tech per building, today, but a
@@ -646,6 +659,13 @@ struct RawPickers {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawChute {
+    reach: u32,
+    drop: u8,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawHothouse {
     radius: u32,
     winter_growth: f32,
@@ -699,6 +719,7 @@ struct RawBuilding {
     fuel: Option<RawFuel>,
     pickers: Option<RawPickers>,
     hothouse: Option<RawHothouse>,
+    chute: Option<RawChute>,
     #[serde(default)]
     uses_power: bool,
     #[serde(default)]
@@ -904,6 +925,13 @@ impl BuildingsFile {
                     Some(HothouseDef { radius: h.radius, winter_growth: h.winter_growth })
                 }
             };
+            let chute = match &b.chute {
+                None => None,
+                Some(c) if c.reach == 0 => {
+                    return err(format!("building {}: chute reach must be above 0", b.id));
+                }
+                Some(c) => Some(ChuteDef { reach: c.reach, drop: c.drop }),
+            };
             let track = match &b.track {
                 None => None,
                 Some(d) => {
@@ -952,6 +980,7 @@ impl BuildingsFile {
                 fuel,
                 pickers,
                 hothouse,
+                chute,
                 unlocked_by: None,
                 seat_upgrades: Vec::new(),
                 endeavor: b.endeavor,

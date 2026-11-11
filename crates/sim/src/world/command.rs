@@ -68,6 +68,9 @@ pub enum Command {
     /// Take back the mark on the building covering this tile. Work done on it is lost; the
     /// building stands untouched.
     CancelDeconstruct { pos: Pos },
+    /// Point the building anchored on `pos` at `to`: a chute's foot (`world/chute.rs`,
+    /// docs/design/horizons-phase-1.md). It can be moved at any time.
+    SetLink { pos: Pos, to: Pos },
 }
 
 /// Why a command was refused. The world is unchanged when `apply` returns one of these.
@@ -78,6 +81,7 @@ pub enum CommandError {
     Bend(BendError),
     Build(BuildError),
     Endeavor(EndeavorError),
+    Link(LinkError),
 }
 
 impl CommandError {
@@ -105,6 +109,7 @@ impl CommandError {
             ),
             Self::Build(e) => matches!(e, BuildError::NotResearched(_) | BuildError::NotDesignated),
             Self::Endeavor(e) => matches!(e, EndeavorError::NotReady),
+            Self::Link(_) => false,
         }
     }
 }
@@ -130,6 +135,12 @@ impl From<BendError> for CommandError {
 impl From<BuildError> for CommandError {
     fn from(e: BuildError) -> Self {
         Self::Build(e)
+    }
+}
+
+impl From<LinkError> for CommandError {
+    fn from(e: LinkError) -> Self {
+        Self::Link(e)
     }
 }
 
@@ -159,6 +170,7 @@ impl std::fmt::Display for CommandError {
             Self::Bend(e) => e.fmt(f),
             Self::Build(e) => e.fmt(f),
             Self::Endeavor(e) => e.fmt(f),
+            Self::Link(e) => e.fmt(f),
         }
     }
 }
@@ -207,6 +219,7 @@ impl World {
             Command::CancelClear { pos } => self.cancel_clear(pos)?,
             Command::Deconstruct { pos } => self.designate_deconstruct(pos, defs).map(drop)?,
             Command::CancelDeconstruct { pos } => self.cancel_deconstruct(pos)?,
+            Command::SetLink { pos, to } => self.set_link(pos, to, defs)?,
         }
         self.command_log.push(Recorded { tick: self.tick, command });
         Ok(())

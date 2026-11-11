@@ -199,9 +199,10 @@ fn columns_are_by_depth_and_start_with_the_tier_numbers() {
     for n in 1..5 {
         assert!(at(n) < at(n + 1), "{heads}");
     }
-    // Earth Rail, five prereqs deep, is in the fifth column, under TIER 5 (the sixth is deeper).
+    // Earth Rail, five prereqs deep, is in the fifth column, under TIER 5. Omashu Chutes, after
+    // it, makes a sixth.
     let deepest = screen_view(&a.session).columns.len();
-    assert_eq!(deepest, 5);
+    assert_eq!(deepest, 6);
     let row = frame.lines().find(|l| l.contains("Earth Rail")).unwrap();
     assert_eq!(char_index_of(row, "Earth Rail").map(|x| x / 19), Some(at(5) / 19));
 }
@@ -511,13 +512,13 @@ fn four_tiers_show_at_120_columns_and_three_at_80_and_the_bottom_edge_says_which
     run(&mut a, "t");
     let frame = text(&mut a, SIZE);
     assert!(frame.contains("TIER 4") && !frame.contains("TIER 5"), "{frame}");
-    assert!(frame.lines().rev().nth(1).unwrap().contains(" tiers 1-4 of 5 ─┛"), "{frame}");
+    assert!(frame.lines().rev().nth(1).unwrap().contains(" tiers 1-4 of 6 ─┛"), "{frame}");
 
     let mut a = app(7, Nation::Earth, SMALL);
     run(&mut a, "t");
     let frame = text(&mut a, SMALL);
     assert!(frame.contains("TIER 3") && !frame.contains("TIER 4"), "{frame}");
-    assert!(frame.lines().rev().nth(1).unwrap().contains(" tiers 1-3 of 5 ─┛"), "{frame}");
+    assert!(frame.lines().rev().nth(1).unwrap().contains(" tiers 1-3 of 6 ─┛"), "{frame}");
 }
 
 #[test]

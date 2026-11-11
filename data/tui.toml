@@ -228,6 +228,12 @@ glyph = "♦"
 ascii = "A"
 fg = [255, 140, 40]
 
+# Omashu Chutes' Chute (Earth, horizons phase 1): a slide pointing down.
+[building.chute]
+glyph = "▼"
+ascii = "v"
+fg = [176, 150, 110]
+
 # Hothouses' Hothouse (Fire, horizons phase 1): glass panes.
 [building.hothouse]
 glyph = "⊞"

@@ -28,6 +28,7 @@ mod build;
 mod buildings;
 mod care;
 mod chart;
+mod chute;
 mod command;
 mod deconstruct;
 mod endeavor;
@@ -66,6 +67,7 @@ use buildings::Buildings;
 use buildings::Kind;
 pub use care::{CareNeed, CareTally, Severe};
 pub use chart::{ChartEvent, ChartEventKind, ChartStanding};
+pub use chute::LinkError;
 pub use command::{Command, CommandError, Recorded};
 use endeavor::EndeavorLog;
 pub use endeavor::{
@@ -427,6 +429,9 @@ pub struct World {
     /// `flood_from`'s step grids since the map last changed (`work::StepGrids`).
     #[serde(skip)]
     step_grids: work::StepGrids,
+    /// Each chute's walks from its foot to stores (`chute.rs`).
+    #[serde(skip)]
+    chute_walks: BTreeMap<Pos, chute::ChuteWalks>,
     /// A v1 to v3 save's bends (#605): merged into `events` on load, never written.
     #[serde(default, skip_serializing, rename = "bend_events")]
     v3_bend_events: Vec<BendEvent>,
@@ -593,6 +598,7 @@ impl World {
             idle_memo: work::IdleMemo::default(),
             cut_memo: build::CutMemo::default(),
             step_grids: work::StepGrids::default(),
+            chute_walks: BTreeMap::new(),
             v3_bend_events: Vec::new(),
             patches: Vec::new(),
             reverts: Vec::new(),

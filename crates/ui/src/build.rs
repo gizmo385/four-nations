@@ -553,6 +553,9 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
     if let Some(track) = &def.track {
         effects.push(format!("Track: steps along it run {}x faster", track.speed));
     }
+    if let Some(c) = &def.chute {
+        effects.push(format!("Drops goods up to {} tiles downhill", c.reach));
+    }
     if let Some(h) = &def.hothouse {
         effects.push(format!("Plots within {} tiles grow through winter", h.radius));
     }

@@ -59,6 +59,11 @@
 #             that beats its band's, not scaled by `winter_severity`; two don't stack. The first
 #             frost spares ripe plots in reach. Its fuel burns only in winter while a plot in
 #             reach is growing or ripe. With seasons off it does nothing.
+# - chute:    a one-way drop for goods (docs/design/horizons-phase-1.md, the Chute). Its foot is
+#             set with `Command::SetLink`: open ground within `reach` (Chebyshev) and at least
+#             `drop` lower in elevation. A unit taking a stack to stores walks to the head instead
+#             when the head plus the foot's walk to stores is cheaper; the stack lands at the foot
+#             as a ground stack for an ordinary haul. With no valid foot it does nothing.
 # - orchard:  plants and tends a renewable resource around itself (issue #142, docs/design/
 #             research.md, "The orchard"). Every `plant_seconds` it plants one `plants` (a
 #             renewable resource) on a free tile of its own mapgen terrain within `radius` (a
@@ -847,6 +852,28 @@ count = 10
 [[building.cost]]
 item = "wood"
 count = 6
+[[building.cost]]
+item = "tool"
+count = 1
+
+# Omashu Chutes' Chute (Earth, docs/design/horizons-phase-1.md): a slide cut into the rock that
+# drops goods to a foot up to 16 tiles away and at least 8 lower.
+[[building]]
+id = "chute"
+name = "Chute"
+verb = "Cut"
+work = 60.0
+passable = false
+beside = ["mountain", "tunnel"]   # the head touches rock: the Mine Shaft's own rule
+[building.chute]
+reach = 16             # the foot is within 16 tiles, Chebyshev
+drop = 8               # and at least 8 elevation below the head
+[[building.cost]]
+item = "stone"         # brick stands in, as for any stone cost
+count = 12
+[[building.cost]]
+item = "wood"
+count = 4
 [[building.cost]]
 item = "tool"
 count = 1

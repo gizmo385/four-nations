@@ -196,6 +196,7 @@ fn task_job(task: Task) -> Option<JobId> {
         | Task::Refuel(id) => Some(id),
         Task::Rite
         | Task::Deliver
+        | Task::Chute(_)
         | Task::Eat(_)
         | Task::Drink
         | Task::Sleep
