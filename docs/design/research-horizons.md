@@ -380,7 +380,7 @@ implementation issues.
 |---|---|
 | 1. Fill the midgame | #665 ([horizons-phase-1.md](horizons-phase-1.md)) |
 | 2. Routes and outposts | #666 ([horizons-phase-2.md](horizons-phase-2.md)) |
-| 3. Trade techs | #667 |
+| 3. Trade techs | #667 ([horizons-phase-3.md](horizons-phase-3.md)) |
 | 4. Schools | #668 |
 | 5. Lost teachings | #669 |
 | 6. The United City learns | #670 |

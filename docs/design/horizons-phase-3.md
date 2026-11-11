@@ -191,7 +191,7 @@ adds one branch.
   (#350).
 - **No loop.** A scroll copy has no `knowledge` field, so it is stockpiled, never read, and the
   scrolls sign never counts it. `data/trade.toml` refuses a deal or request that takes scroll
-  copies and pays `knowledge` (follow-up E), so Air's monks can't turn copies back into points.
+  copies and pays `knowledge` (#711), so Air's monks can't turn copies back into points.
   Owner decision 6 holds: there are no repeatable studies, and knowledge leaves the tree only as
   a trade good.
 
@@ -265,7 +265,7 @@ count = 4
 - **Draw.** #435's multiplier gains a term: `+ draw` while any house is open, under the same
   `max` (1.4). For a player who already keeps two foods, warm beds and two spare beds, it adds
   nothing. For everyone else it is worth half a spare bed. Whether it should lift the ceiling is
-  question 1 below (decision 1).
+  question 1 below (#706).
 - **Numbers.** 12 herbs an hour is about half of what one tended Herb Garden grows (2 herbs per
   5-minute crop). A hurt settler takes one herb per remedy (harm.md). So a settlement with one
   garden and a Tea House has few herbs to spare for injuries, which is the trade the spec asks
@@ -308,11 +308,11 @@ The Workshop's `[[building.alt_recipe]]` is in "Shared sim work, 2" above.
 - **Numbers.** Two wares from 4 wood in 30 s, at `construction` 1.0. That is 4 wares and 8 wood a
   minute per Workshop, scaled by `construction`: Earth's 1.5 makes 6 a minute and Air's 0.9
   about 3.6, before carpentry and masonry raise it. At the stock limit of 30 it idles, which
-  takes about 8 minutes at 1.0, half a caravan interval. The caravan deals (follow-up E) price a
+  takes about 8 minutes at 1.0, half a caravan interval. The caravan deals (#711) price a
   ware at about 4 wood where raw wood buys goods. A ware costs 2 wood, so wood in wares buys
   about twice what raw wood does:
 
-  | Caravan | Raw wood deal (pacing.md) | Wares deal (follow-up E) |
+  | Caravan | Raw wood deal (pacing.md) | Wares deal (#711) |
   |---|---|---|
   | Earth | 25 wood for 3 gold ore | 6 wares for 3 gold ore |
   | Fire | 40 wood for 8 bricks | 10 wares for 8 bricks |
@@ -389,7 +389,7 @@ name = "Scroll Copy"
 - **Scribing.** "Shared sim work, 3". Copies drop at the Archive and are hauled to stores.
 - **Numbers.** Four scholars with `writing` make about 45 points a minute, plus the passive 3.
   That is a copy every 3 minutes and the 12-copy limit in about 40 minutes. A caravan comes every
-  15 minutes, and its deals and request take 2 to 5 copies (follow-up E). So a steady scribing
+  15 minutes, and its deals and request take 2 to 5 copies (#711). So a steady scribing
   settlement keeps about half its scholars busy over a season, and the rest go idle at the limit.
   Before the tree is done, a scholar's hour is about 4 copies or about 700 points toward a tech.
 - **Hover.** `Study halls within 6 tiles gain 2 seats`, `Copies scrolls when nothing is being
@@ -544,7 +544,7 @@ house's, and the stay reads 13 minutes on arrival:
 
 ## Measuring it
 
-Phase 3 ends with a harness run, and the economy opening must use the new content (follow-up G):
+Phase 3 ends with a harness run, and the economy opening must use the new content (#713):
 
 - **Tea House.** One, once `tea_ceremony` is known and an Herb Garden stands, beside the
   stockpile.
@@ -576,7 +576,7 @@ levers are the Tea House's `per_minute`, the wares deals' counts, `copy_points` 
 
 - **#437 lands in a shape this doesn't expect.** This design assumes pacing.md's schema: a deal
   list per nation, `deals_per_visit`, `stay_minutes`, and deals drawn per visit. If #437 draws
-  its three deals differently, follow-up D still draws the extra one from its own stream among
+  its three deals differently, #710 still draws the extra one from its own stream among
   the deals not shown. The rule that a house never changes the first three holds either way.
 - **Draw (#435) or the chapter (#439) isn't in yet.** The Tea House's draw term waits on #435,
   and `trade_wares`'s condition waits on #439. Follow-up D could ship the caravan half without
@@ -599,7 +599,7 @@ levers are the Tea House's `per_minute`, the wares deals' counts, `copy_points` 
    open would make it a real growth building for every player, at the cost of amending #462 and
    letting tea outpace the beds and foods that draw was designed to reward. A third option is no
    draw term at all, which would leave the house with nothing to do before the chapter. Section:
-   "`tea_ceremony`: the Tea House". (decision 1)
+   "`tea_ceremony`: the Tea House". (#706)
 
 ## Follow-up issues
 
@@ -609,11 +609,11 @@ between follow-ups doesn't matter.
 
 | Draft | Title | Blocked by |
 |---|---|---|
-| (follow-up A) | Sim and data: research conditions (`requires` with `scrolls_read` and `chapter`) | #439 |
-| (follow-up B) | Sim and data: alternate recipes (`[[building.alt_recipe]]`, the `recipe` upgrade, `SetRecipe`), wares, and `trade_wares` | #674, #673, A |
-| (follow-up C) | Sim and data: the Archive (seats in reach, scribing, scroll copies, `ClearResearch`) and `archives` | #674, #673, A |
-| (follow-up D) | Sim and data: the Tea House (herb bunker, extra deal and stay, draw term) and `tea_ceremony` | #437, #435, #675, #673, decision 1 |
-| (follow-up E) | Data: caravans take wares and scroll copies (deal and request rows, the no-knowledge rule) | #437, B, C |
-| (follow-up F) | TUI: recipe switching, Archive and Tea House readouts, condition lines, clearing the target, the 4th deal | B, C, D, #438 |
-| (follow-up G) | Balance: the economy opening uses phase 3, `herbs_at.M`, `copies_by.M`, and the phase-3 run | B, C, D, E, #440, #700 |
-| (decision 1) | Decision: may the Tea House lift draw past its 140% ceiling? | none |
+| #707 | Sim and data: research conditions (`requires` with `scrolls_read` and `chapter`) | #439 |
+| #708 | Sim and data: alternate recipes (`[[building.alt_recipe]]`, the `recipe` upgrade, `SetRecipe`), wares, and `trade_wares` | #674, #673, #707 |
+| #709 | Sim and data: the Archive (seats in reach, scribing, scroll copies, `ClearResearch`) and `archives` | #674, #673, #707 |
+| #710 | Sim and data: the Tea House (herb bunker, extra deal and stay, draw term) and `tea_ceremony` | #437, #435, #675, #673, #706 |
+| #711 | Data: caravans take wares and scroll copies (deal and request rows, the no-knowledge rule) | #437, #708, #709 |
+| #712 | TUI: recipe switching, Archive and Tea House readouts, condition lines, clearing the target, the 4th deal | #708, #709, #710, #438 |
+| #713 | Balance: the economy opening uses phase 3, `herbs_at.M`, `copies_by.M`, and the phase-3 run | #708, #709, #710, #711, #440, #700 |
+| #706 | Decision: may the Tea House lift draw past its 140% ceiling? | none |
