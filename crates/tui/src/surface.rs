@@ -945,21 +945,24 @@ impl Host {
         }
     }
 
-    /// `fn_ui::build::picker_rows`, the Build modal's own list (#327): every row's name, size
-    /// (`defs.building(id).footprint`, "1x1" or "2x2", the same text `BuildingDetail::footprint`
-    /// already formats) and the modal's own list text for the rest of the row (the real cost,
-    /// "5 Wood", or "Locked" when the nation hasn't unlocked it yet, `crate::build::list_row`'s
-    /// own choice) -- so an agent can read the list the way the Build modal's own rows show it,
-    /// without a `build` step to probe it blind.
+    /// `fn_ui::build::picker_rows`, the Build screen's own list (#327, #658): every row's name,
+    /// size ("1x1" or "2x2", the same text `BuildingDetail::footprint` formats), cost ("5 Wood")
+    /// and, for a locked one, the tech that unlocks it -- the four columns the screen draws, in
+    /// its order (buildable rows first) -- so an agent can read the list the way the screen
+    /// shows it, without a `build` step to probe it blind.
     fn build_screen(&self) -> BuildScreenView {
         let session = &self.app().session;
         let rows = fn_ui::build::picker_rows(session)
             .into_iter()
             .map(|r| {
-                let (w, h) = session.defs.building(r.id).footprint;
                 let locked = r.locked();
-                let cost = if locked { "Locked".to_owned() } else { r.cost };
-                BuildRowView { name: r.name, size: format!("{w}x{h}"), cost, locked }
+                BuildRowView {
+                    name: r.name,
+                    size: r.size,
+                    cost: r.price,
+                    locked,
+                    needs: r.tech.unwrap_or_default(),
+                }
             })
             .collect();
         BuildScreenView { rows }
@@ -2197,10 +2200,11 @@ pub struct BuildRowView {
     /// "1x1" or "2x2" (`BuildingDef::footprint`): what `build {building, from, to}`'s rectangle
     /// has to cover.
     pub size: String,
-    /// The modal's own list text for this row: the real cost ("5 Wood") when it can be built,
-    /// or "Locked" when the nation hasn't unlocked it yet (`crate::build::list_row`).
+    /// What it costs, as the list's cost column says it ("5 Wood"), locked or not.
     pub cost: String,
     pub locked: bool,
+    /// The tech that unlocks it, as the list's needs column says it; empty once it can be built.
+    pub needs: String,
 }
 
 /// `screen {"bend"}` (#586): the Bend tool banner's content (`fn_ui::bend::view`), in `B`'s own
@@ -3602,7 +3606,7 @@ mod tests {
     }
 
     /// `screen {"build"}` is the Build modal's own list (#327): every row's name, footprint
-    /// size, and the modal's own list text ("5 Wood" when it can be built, "Locked" otherwise).
+    /// size, cost and the tech a locked one needs, buildable rows first (#658).
     #[test]
     fn screen_build_matches_the_build_modals_own_rows() {
         let h = host(Nation::Earth);
@@ -3614,11 +3618,8 @@ mod tests {
             assert_eq!(got.locked, row.locked());
             let (w, hh) = h.app().session.defs.building(row.id).footprint;
             assert_eq!(got.size, format!("{w}x{hh}"));
-            if row.locked() {
-                assert_eq!(got.cost, "Locked");
-            } else {
-                assert_eq!(got.cost, row.cost);
-            }
+            assert_eq!(got.cost, row.price);
+            assert_eq!(got.needs, row.tech.clone().unwrap_or_default());
         }
         // A new game always has at least one buildable thing (a bed).
         assert!(view.rows.iter().any(|r| r.name == "Bed" && !r.locked));
