@@ -429,8 +429,9 @@ One rule (#651): **keys are named in one place, the hint bar, and written once.*
 - **Fitting.** When the items do not fit between the badge and the tail, whole items are dropped
   from the end (`keys::fit`); an item is never cut mid-word, and `? keys` always stays. So the
   most needed item (`Esc ... close`) comes before the rest where a bar is long.
-- **Select mode** names every tool key (`H X E P B U C tools`, built from `Tool::ALL`) or none of
-  them, never a subset: the item is one unit and goes whole.
+- **Select mode** names the one key that lists the tools, `/ tools` (#664), not a run of their
+  letters; the letters still work from the map. With the list open the bar is its own mode,
+  `TOOLS  Up/Down choose · Enter pick · Esc or / close · H X E P B U C by letter`.
 
 ## Time and the frame loop
 

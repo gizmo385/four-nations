@@ -14,14 +14,14 @@
 │ Esc        Deselect, or open the menu                      L       Message log                                       │
 │                                                            ?       Key help and legend                               │
 │ DESIGNATING                                                F5      Quicksave                                         │
-│ H  Harvest: chop, mine, gather                             F9      Quickload (asks first)                            │
-│ X  Cancel a mark                                           F6      Saves                                             │
-│ E  Clear the ground                                        Esc     Game menu: save, load, new map, quit              │
-│ P  Stockpile                                               Ctrl+C  Quit at once, without asking                      │
-│ B  Bend: channel the nation's ability                                                                                │
-│ U  Build                                                   IN A TOOL                                                 │
-│ C  Sow a farm plot                                         Enter  Set a corner, then apply                           │
-│                                                            O      Standing order (Harvest)                           │
+│ /  List the tools in the panel                             F9      Quickload (asks first)                            │
+│ H  Harvest: chop, mine, gather                             F6      Saves                                             │
+│ X  Cancel a mark                                           Esc     Game menu: save, load, new map, quit              │
+│ E  Clear the ground                                        Ctrl+C  Quit at once, without asking                      │
+│ P  Stockpile                                                                                                         │
+│ B  Bend: channel the nation's ability                      IN A TOOL                                                 │
+│ U  Build                                                   Enter  Set a corner, then apply                           │
+│ C  Sow a farm plot                                         O      Standing order (Harvest)                           │
 │                                                            Esc    Drop the corner, then leave                        │
 │                                                                                                                      │
 │                                                                                                                      │

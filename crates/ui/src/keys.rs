@@ -37,6 +37,9 @@ pub enum Action {
     },
     /// `H` `X` `E` `P` `B` `U` or `C`: switch to a designation tool (dropping the corner).
     PickTool(Tool),
+    /// `/`: opens the list of the designation tools in the panel's tool section (#664), or
+    /// closes it again.
+    ShowTools,
     /// `O`: in the Harvest tool, toggles the next rectangle between a one-off designation and a
     /// standing order (#81, #277, stands in for the client's held Shift, which a terminal can't
     /// reliably report). No effect in any other tool.
@@ -136,6 +139,8 @@ pub enum Mode {
     Saves,
     /// Typing a name for a new save, on the Saves screen.
     SaveName,
+    /// The tool list in the panel (`/`, #664).
+    Tools,
     /// The Build picker (`U`).
     Build,
     /// The game menu (`Esc` with nothing else to close).
@@ -167,6 +172,7 @@ impl Mode {
             Self::Help => "KEYS",
             Self::Saves => "SAVES",
             Self::SaveName => "NAME",
+            Self::Tools => "TOOLS",
             Self::Build => "BUILD",
             Self::Menu => "MENU",
             Self::MenuNations => "SWITCH",
@@ -276,7 +282,7 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Select], &[Action::Confirm], "Enter", "select", None);
     add(&[Mode::Select], &[Action::NextUnit], "Tab", "next unit", None);
     add(&[Mode::Select], &[Action::Cancel], "Esc", "menu", None);
-    add(IN_SELECT, &all_tools, &tools, "tools", None);
+    add(IN_SELECT, &[Action::ShowTools], "/", "tools", None);
     add(&[Mode::Selected], &[Action::Confirm], "Enter", "next unit here", None);
     add(&[Mode::Selected], &[Action::NextUnit], "Tab", "next unit", None);
     add(&[Mode::Selected], &[Action::Follow], "F", "follow", None);
@@ -324,6 +330,12 @@ fn build() -> Vec<Entry> {
     add(&[Mode::SaveName], &[], "Type", "a name", None);
     add(&[Mode::SaveName], &[], "Enter", "save", None);
     add(&[Mode::SaveName], &[], "Esc", "cancel", None);
+
+    // The tool list in the panel (#664): the arrows choose, Enter or the tool's own letter picks.
+    add(&[Mode::Tools], &[step], "Up/Down", "choose", None);
+    add(&[Mode::Tools], &[Action::Confirm], "Enter", "pick", None);
+    add(&[Mode::Tools], &[Action::Cancel, Action::ShowTools], "Esc or /", "close", None);
+    add(&[Mode::Tools], &all_tools, &tools, "by letter", None);
 
     add(&[Mode::Build], &[], "Up/Down", "choose", None);
     add(&[Mode::Build], &[], "Enter", "build", None);
@@ -376,6 +388,13 @@ fn build() -> Vec<Entry> {
     );
     add(&[Mode::Map], &[Action::Follow], "F", "follow", help(units, "Follow the selected settler"));
     add(&[Mode::Map], &[Action::Cancel], "Esc", "close", help(units, "Deselect, or open the menu"));
+    add(
+        &[Mode::Map],
+        &[Action::ShowTools],
+        "/",
+        "tools",
+        help(Some(Group::Tools), "List the tools in the panel"),
+    );
     for tool in Tool::ALL {
         // Select is Esc; every other tool has a letter.
         if tool.letter().is_none() {
@@ -549,21 +568,26 @@ mod tests {
         assert_eq!(line(Mode::Research), "Arrows choose · Enter set as target · Esc or T close");
     }
 
-    /// Select mode names every tool key (with a settler selected too) or none of them.
+    /// Select mode has one key for the tools, `/`, not a run of their letters (#664); the list
+    /// it opens names every letter, and the letters still work from the map.
     #[test]
-    fn select_names_every_tool_key_or_none() {
+    fn select_names_the_one_tools_key_and_the_list_names_every_letter() {
         for mode in [Mode::Select, Mode::Selected] {
-            let tools = hints(mode).into_iter().find(|h| h.verb == "tools").expect("a tools item");
-            for tool in Tool::ALL {
-                if let Some(letter) = tool.letter() {
-                    assert!(
-                        tools.keys.split(' ').any(|k| k == letter.to_string()),
-                        "{mode:?} leaves out {letter}: {}",
-                        tools.keys
-                    );
-                }
+            let hints = hints(mode);
+            let tools = hints.iter().find(|h| h.verb == "tools").expect("a tools item");
+            assert_eq!(tools.keys, "/");
+            assert!(hints.iter().all(|h| h.keys.split(' ').filter(|k| k.len() == 1).count() < 2));
+        }
+        let by_letter = hints(Mode::Tools).into_iter().find(|h| h.verb == "by letter").unwrap();
+        for tool in Tool::ALL {
+            if let Some(letter) = tool.letter() {
+                assert!(by_letter.keys.split(' ').any(|k| k == letter.to_string()), "{letter}");
             }
         }
+        assert_eq!(
+            line(Mode::Tools),
+            "Up/Down choose · Enter pick · Esc or / close · H X E P B U C by letter"
+        );
     }
 
     #[test]

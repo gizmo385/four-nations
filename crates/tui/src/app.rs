@@ -6,6 +6,7 @@ use crate::keyev::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use fn_sim::{Nation, World};
 use fn_ui::research::screen_view;
 use fn_ui::saves;
+use fn_ui::toolpanel;
 use fn_ui::tools::{Order, apply_order, cycle_ability, switch_tool};
 use fn_ui::{Session, Tool};
 
@@ -126,6 +127,9 @@ impl App {
         if self.ui.screen.is_some() {
             return self.act_in_screen(action);
         }
+        if self.ui.tool_list.is_some() && self.tool_list_act(action) {
+            return;
+        }
         match action {
             Action::Move { dx, dy, tiles } => self.ui.move_cursor(dx * tiles, dy * tiles),
             Action::Jump { dx, dy } => self.ui.jump(dx, dy),
@@ -151,6 +155,7 @@ impl App {
             }
             // Selecting and following are for Select mode: in a tool these keys do nothing.
             Action::NextUnit | Action::PrevUnit | Action::Follow => {}
+            Action::ShowTools => self.open_tool_list(),
             Action::ShowResearch => self.open(Screen::Research),
             Action::ShowLog => self.open(Screen::Log),
             Action::ShowHelp => self.open(Screen::Help),
@@ -164,6 +169,70 @@ impl App {
             Action::QuickSave => self.quicksave(),
             Action::AskQuickLoad => self.ask(Prompt::QuickLoad),
             Action::QuitNow => self.ui.quit = true,
+        }
+    }
+
+    /// `/` (#664): opens the tool list in the panel, the cursor on the active tool's row (the
+    /// first with none).
+    fn open_tool_list(&mut self) {
+        let active = match self.ui.tool {
+            Tool::Deconstruct => Tool::Clear,
+            other => other,
+        };
+        let rows = toolpanel::choices(&self.session);
+        self.ui.tool_list = Some(rows.iter().position(|c| c.tool == active).unwrap_or(0));
+    }
+
+    /// What a key does while the tool list is open (#664); whether it was one the list took. Up
+    /// and Down choose (a sideways step or a jump does nothing, rather than moving the map
+    /// cursor under a list that is not looking at it), `Enter` or a tool's own letter picks,
+    /// `Esc` or `/` closes. The clock keeps working with the list open. Anything else closes
+    /// the list and goes on to do what it does.
+    fn tool_list_act(&mut self, action: Action) -> bool {
+        let rows = toolpanel::choices(&self.session);
+        let last = rows.len().saturating_sub(1);
+        let at = self.ui.tool_list.unwrap_or(0).min(last);
+        match action {
+            Action::Move { dy, .. } => {
+                self.ui.tool_list = Some((at as i32 + dy.signum()).clamp(0, last as i32) as usize);
+                true
+            }
+            Action::Jump { .. } => true,
+            Action::Confirm => {
+                if let Some(row) = rows.get(at) {
+                    self.pick_from_list(row.tool);
+                }
+                true
+            }
+            Action::PickTool(tool) => {
+                self.pick_from_list(tool);
+                true
+            }
+            Action::Cancel | Action::ShowTools => {
+                self.ui.tool_list = None;
+                true
+            }
+            Action::TogglePause | Action::Faster | Action::Slower | Action::Step => false,
+            _ => {
+                self.ui.tool_list = None;
+                false
+            }
+        }
+    }
+
+    /// Picks `tool` from the list and closes it. The tool already active is left as it is (its
+    /// letter pressed again would cycle Bend's ability or flip Clear to buildings, which is not
+    /// what picking a row asks for); Build opens its picker, as `U` does.
+    fn pick_from_list(&mut self, tool: Tool) {
+        self.ui.tool_list = None;
+        let active = match self.ui.tool {
+            Tool::Deconstruct => Tool::Clear,
+            other => other,
+        };
+        if tool == Tool::Build {
+            self.open_build_modal();
+        } else if tool != active {
+            self.pick_tool(tool);
         }
     }
 
@@ -238,6 +307,7 @@ impl App {
             Action::AskQuickLoad => self.ask(Prompt::QuickLoad),
             Action::QuitNow => self.ui.quit = true,
             Action::PickTool(_)
+            | Action::ShowTools
             | Action::ToggleRepeat
             | Action::Confirm
             | Action::NextUnit
@@ -259,6 +329,7 @@ impl App {
             self.ui.screen = None;
         } else {
             self.ui.screen = Some(screen);
+            self.ui.tool_list = None;
             // The log opens at its newest line (its top), the help at its top, the tree on its
             // target.
             self.ui.scroll = 0;

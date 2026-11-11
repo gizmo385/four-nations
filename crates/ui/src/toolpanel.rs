@@ -13,16 +13,27 @@
 //! │ Standing order: off          │   the tool's toggles
 //! ```
 //!
-//! Each group is a [`Block`]; [`blocks`] returns them in the order they read, and a later
-//! addition (a list of the tools, #664) is one more block in it. The counts are the ones
+//! Each group is a [`Block`]; [`blocks`] returns them in the order they read. With the tool list
+//! open (`/`, #664) the section is that list alone, [`choices`] as rows:
+//!
+//! ```text
+//! ├─ DESIGNATE ───────────────── [/] ─┤
+//! │ ▸ H Harvest    chop, mine         │
+//! │   X Cancel     remove a mark      │
+//! │   B Bend       Raise Earth        │
+//! │   C Sow        build a farm plot  │   dim, with the reason
+//! ```
+//!
+//! The counts are the ones
 //! `tools::apply_order` gives, since the preview is the same loop run over a copy of the world,
 //! so what the section promises and what applying does cannot disagree.
 
 use fn_sim::Pos;
 use fn_sim::building::BuildingId;
+use fn_sim::world::PlotStage;
 
 use crate::session::Session;
-use crate::tools::{Order, Tool, preview_order};
+use crate::tools::{Order, Tool, bend_ability, preview_order, usable_abilities};
 
 /// How a line should read, without naming a colour.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,6 +51,10 @@ pub enum Line {
     /// A toggle and its state: "Standing order" and "off". A frontend that has room puts the
     /// state at the right edge; with none, the pair reads "Standing order: off" and wraps.
     Setting { label: String, value: String },
+    /// A row of the tool list (#664): the tool's letter, its name and a few words on what it is
+    /// for, or, with `usable` false, why it can't be used yet (drawn dim). `selected` is the
+    /// row the cursor is on.
+    Choice { selected: bool, key: char, name: String, what: String, usable: bool },
 }
 
 /// A group of lines. Blank rows go between groups when there is room, and a short panel drops
@@ -62,6 +77,72 @@ pub struct ToolState<'a> {
     /// What the rectangle just applied marked, while it is still the news
     /// (`Report::summary`); `None` once the cursor has moved on or a new corner is set.
     pub marked: Option<&'a str>,
+    /// The tool list (`/`, #664), when it is open: the row the cursor is on, an index into
+    /// [`choices`].
+    pub list: Option<usize>,
+}
+
+/// One tool in the list (`/`, #664).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ToolChoice {
+    pub tool: Tool,
+    /// The letter that picks it: "H".
+    pub letter: char,
+    pub name: &'static str,
+    /// What it is for, in a few words: "chop, mine". Bend names the nation's ability, from the
+    /// data.
+    pub what: String,
+    /// Why it can't be used yet ("build a farm plot"), or `None` if it can.
+    pub unusable: Option<String>,
+}
+
+/// Every tool that has a letter, in the order the key help lists them (`Tool::ALL` without
+/// `Select`), with what each is for and, for one that can't be used yet, why.
+pub fn choices(session: &Session) -> Vec<ToolChoice> {
+    Tool::ALL
+        .into_iter()
+        .filter_map(|tool| {
+            let letter = tool.letter()?;
+            let (what, unusable) = match tool {
+                Tool::Harvest => ("chop, mine".to_owned(), None),
+                Tool::CancelHarvest => ("remove a mark".to_owned(), None),
+                Tool::Clear | Tool::Deconstruct => ("clear ground".to_owned(), None),
+                Tool::Stockpile => ("storage".to_owned(), None),
+                Tool::Bend => bend_choice(session),
+                Tool::Build => ("a building".to_owned(), None),
+                Tool::Sow => ("a farm plot".to_owned(), sow_unusable(session)),
+                Tool::Select | Tool::Gate => return None,
+            };
+            Some(ToolChoice { tool, letter, name: tool.name(), what, unusable })
+        })
+        .collect()
+}
+
+/// Bend's row: the ability `B` would channel, by name; with none usable yet, why.
+fn bend_choice(session: &Session) -> (String, Option<String>) {
+    match bend_ability(session) {
+        Some(id) if !usable_abilities(session).is_empty() => {
+            (session.defs.ability(id).name.clone(), None)
+        }
+        Some(id) => (session.defs.ability(id).name.clone(), Some("not unlocked yet".to_owned())),
+        None => ("an ability".to_owned(), Some("no ability yet".to_owned())),
+    }
+}
+
+/// Why the Sow tool has nothing to do: no farm plot is built, or every empty one is already marked.
+fn sow_unusable(session: &Session) -> Option<String> {
+    let defs = &session.defs;
+    let plots: Vec<_> =
+        session.world.buildings().filter(|b| defs.building(b.id).farm.is_some()).collect();
+    if plots.is_empty() {
+        return Some("no farm plot".to_owned());
+    }
+    // An empty plot already marked to be sown is as good as sown: applying the tool finds nothing.
+    let marked: Vec<Pos> = session.world.sow_designations().collect();
+    let open = plots.iter().any(|b| {
+        session.world.plot_stage(b.anchor) == Some(PlotStage::Empty) && !marked.contains(&b.anchor)
+    });
+    (!open).then(|| "no empty plots".to_owned())
 }
 
 /// The size of the rectangle between two corners: "7 x 4 tiles".
@@ -128,10 +209,26 @@ fn preview(session: &Session, st: &ToolState, anchor: Pos) -> Block {
     lines
 }
 
+/// The tool list as one group of rows, the cursor on row `at`.
+fn list_block(session: &Session, at: usize) -> Block {
+    choices(session)
+        .into_iter()
+        .enumerate()
+        .map(|(i, c)| {
+            let usable = c.unusable.is_none();
+            let what = c.unusable.unwrap_or(c.what);
+            Line::Choice { selected: i == at, key: c.letter, name: c.name.to_owned(), what, usable }
+        })
+        .collect()
+}
+
 /// The groups of lines the Tool section holds under its heading, in reading order: the
 /// description, the live group (the rectangle's preview with a corner set, else what the last
 /// apply marked), and the toggles. Empty for `Select`. A group with nothing to say is left out.
 pub fn blocks(session: &Session, st: &ToolState) -> Vec<Block> {
+    if let Some(at) = st.list {
+        return vec![list_block(session, at)];
+    }
     if st.tool == Tool::Select {
         return Vec::new();
     }
@@ -155,6 +252,7 @@ pub fn blocks(session: &Session, st: &ToolState) -> Vec<Block> {
 mod tests {
     use fn_sim::Nation;
     use fn_sim::geom::Footprint;
+    use fn_sim::world::Command;
 
     use super::*;
     use crate::build;
@@ -313,6 +411,7 @@ mod tests {
             teardown: false,
             choice: None,
             marked: Some("Marked 1 tree."),
+            list: None,
         };
         let shown = blocks(&s, &state);
         assert_eq!(shown.len(), 3);
@@ -331,6 +430,61 @@ mod tests {
         // Select has no section; the gate has a description and no rectangle.
         assert!(blocks(&s, &ToolState { tool: Tool::Select, ..state }).is_empty());
         assert_eq!(blocks(&s, &ToolState { tool: Tool::Gate, ..state }).len(), 1);
+    }
+
+    /// The list has the seven lettered tools in the key help's order, Bend names the nation's
+    /// ability, and Sow says why not until there is a plot with nothing growing in it.
+    #[test]
+    fn the_tool_list_names_each_tool_the_ability_and_why_sow_cannot() {
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let list = choices(&s);
+        let letters: String = list.iter().map(|c| c.letter).collect();
+        assert_eq!(letters, "HXEPBUC");
+        let bend = list.iter().find(|c| c.tool == Tool::Bend).unwrap();
+        assert_eq!(bend.what, "Raise Earth");
+        assert!(list.iter().filter(|c| c.unusable.is_some()).count() == 1);
+        let sow = list.iter().find(|c| c.tool == Tool::Sow).unwrap();
+        assert_eq!(sow.unusable.as_deref(), Some("no farm plot"));
+
+        // A farm plot with nothing planted can be sown; once it is marked and sown, none can.
+        let defs = s.defs.clone();
+        let plot = s.defs.building_id("farm_plot").unwrap();
+        s.world.put_building(Footprint::single(Pos::new(2, 2)), plot, &defs);
+        let sow = |s: &Session| choices(s).into_iter().find(|c| c.tool == Tool::Sow).unwrap();
+        assert_eq!(sow(&s).unusable, None);
+        s.apply(Command::Sow { pos: Pos::new(2, 2) }).unwrap();
+        assert_eq!(sow(&s).unusable.as_deref(), Some("no empty plots"));
+    }
+
+    /// With the list open the section is the list alone, one row a tool, the cursor on one.
+    #[test]
+    fn the_blocks_are_the_list_alone_while_it_is_open() {
+        let s = scene();
+        let state = ToolState {
+            tool: Tool::Select,
+            anchor: None,
+            cursor: Pos::new(0, 0),
+            repeating: false,
+            teardown: false,
+            choice: None,
+            marked: None,
+            list: Some(2),
+        };
+        let shown = blocks(&s, &state);
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].len(), 7);
+        let selected: Vec<usize> = shown[0]
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| matches!(l, Line::Choice { selected: true, .. }))
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(selected, [2]);
+        // Any tool: the list replaces its description, preview and toggles.
+        let in_tool = blocks(&s, &ToolState { tool: Tool::Harvest, ..state });
+        assert_eq!(in_tool, shown);
+        // Closed, Select has no section again.
+        assert!(blocks(&s, &ToolState { list: None, ..state }).is_empty());
     }
 
     #[test]

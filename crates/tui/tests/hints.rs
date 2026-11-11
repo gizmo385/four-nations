@@ -22,6 +22,7 @@ const MODES: &[(&str, Mode)] = &[
     ("l", Mode::Log),
     ("?", Mode::Help),
     ("u", Mode::Build),
+    ("/", Mode::Tools),
     ("<esc>", Mode::Menu),
     ("<esc> <down*5> <enter>", Mode::MenuNations),
     ("<esc> <down*4> <enter>", Mode::Ask),
@@ -77,20 +78,17 @@ fn narrow_bars_drop_whole_items_from_the_end_and_keep_the_tail() {
     }
 }
 
-/// In Select mode the bar names every tool key or none of them, at every width.
+/// In Select mode the bar has the one tools key, `/`, and never a run of tool letters (#664).
 #[test]
-fn select_mode_never_lists_a_subset_of_the_tool_keys() {
-    let all = fn_ui::keys::tool_keys();
+fn select_mode_names_the_one_tools_key_not_the_letters() {
     for script in ["", "<enter>"] {
         for width in 80..=170 {
             let (line, _) = status_line(script, width);
-            if line.contains(" tools") {
-                assert!(line.contains(&format!("{all} tools")), "{script:?} at {width}:\n{line}");
-            } else {
-                // Not one of the tool letters follows another as a list would.
-                assert!(!line.contains("H X"), "{script:?} at {width}:\n{line}");
-            }
+            // Not one of the tool letters follows another as a list would.
+            assert!(!line.contains("H X"), "{script:?} at {width}:\n{line}");
         }
+        let (line, _) = status_line(script, 120);
+        assert!(line.contains("/ tools"), "{script:?}:\n{line}");
     }
 }
 
