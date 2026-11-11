@@ -38,7 +38,8 @@ pub enum Prompt {
     SaveOver(String),
 }
 
-/// A screen over the map area (the side panel stays).
+/// A full screen (`crate::page`, #652): it covers the map and the side panel, every row above the
+/// status line, and closes on `Esc` or on the key that opened it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
     Log,
@@ -57,14 +58,15 @@ pub enum Screen {
     Nation,
 }
 
-/// A modal dialog over the map (`crate::modal`, #285). Unlike a [`Screen`] it draws as a centred
-/// box, not a full page, and it captures every key: no tool key, screen key or clock action
-/// reaches `App::act` while one is open (`App::modal_key`).
+/// Something that captures every key while it is open: no tool key, screen key or clock action
+/// reaches `App::act` (`App::modal_key`). The game menu draws as a centred box (`crate::menu`);
+/// the Build picker draws as a full screen, like a [`Screen`] (#652).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Modal {
     /// `U`: every building the nation can place or may yet unlock, highlighted one at a time
-    /// ([`UiState::build_cursor`], `crate::build`). `Enter` on an unlocked one picks it and
-    /// leaves the Build tool active with it; `Esc` leaves the tool and the choice as they were.
+    /// ([`UiState::build_cursor`], `crate::build`), on a full screen. `Enter` on an unlocked one
+    /// picks it and leaves the Build tool active with it; `Esc` or `U` leaves the tool and the
+    /// choice as they were.
     Build,
     /// `Esc` with nothing else to close (#306, `crate::menu`): Resume, Save…, Load…, Key
     /// help, New map…, Switch nation… and Quit… ([`UiState::menu_cursor`], #655). Pauses the clock
@@ -83,6 +85,9 @@ pub struct UiState {
     pub view: Pos,
     /// How many tiles the view shows across and down (the map region of the terminal).
     viewport: (i32, i32),
+    /// How many cells a full screen's page covers across and down (`crate::page`, #652): the map
+    /// and the side panel together, every row above the status line.
+    page: (i32, i32),
     /// The map's width and height in tiles.
     bounds: (i32, i32),
     /// The active tool: `Select` until a tool key (`H` `X` `P` `B` `U`) picks another.
@@ -170,6 +175,7 @@ impl UiState {
             cursor,
             view: Pos::new(0, 0),
             viewport: layout::viewport(screen.0, screen.1),
+            page: layout::page_size(screen.0, screen.1),
             bounds: (map.width(), map.height()),
             tool: Tool::Select,
             repeating: false,
@@ -207,6 +213,17 @@ impl UiState {
         self.viewport
     }
 
+    /// The size of a full screen's page, in cells (`crate::page`, #652).
+    pub fn page(&self) -> (i32, i32) {
+        self.page
+    }
+
+    /// Whether a full screen covers the map and the side panel (#652): any [`Screen`], or the
+    /// Build picker, which takes the keys like a modal but draws as a full screen.
+    pub fn full_screen(&self) -> bool {
+        self.screen.is_some() || self.modal == Some(Modal::Build)
+    }
+
     /// Whether the active tool banner is showing (#307): any tool other than `Select`. The view
     /// keeps the cursor out from under it the same way it does the selection bar.
     pub fn banner(&self) -> bool {
@@ -225,6 +242,7 @@ impl UiState {
     /// The terminal changed size: the view keeps the cursor in sight at the new size.
     pub fn resize(&mut self, width: u16, height: u16) {
         self.viewport = layout::viewport(width, height);
+        self.page = layout::page_size(width, height);
         self.follow();
     }
 

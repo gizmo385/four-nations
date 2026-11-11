@@ -261,7 +261,7 @@ impl App {
     /// How many cards PgUp and PgDn move in the research screen: a page of them.
     fn tech_page(&self) -> i32 {
         let view = screen_view(&self.session);
-        let (width, rows) = screens::text_size(self.ui.viewport());
+        let (width, rows) = screens::text_size(self.ui.page());
         research::Grid::new((width, rows), view.columns.len()).cards as i32
     }
 
@@ -274,7 +274,7 @@ impl App {
     /// How many settlers PgUp and PgDn move in the Nation screen: a page of rows (headings
     /// included, which undercounts slightly, close enough for a page jump).
     fn nation_page(&self) -> i32 {
-        screens::text_size(self.ui.viewport()).1 as i32
+        screens::text_size(self.ui.page()).1 as i32
     }
 
     /// `Enter` in the Nation screen: selects the settler under the pointer, puts the cursor on
@@ -289,7 +289,7 @@ impl App {
 
     /// How many rows of text the open screen shows at once.
     fn screen_rows(&self) -> i32 {
-        screens::text_size(self.ui.viewport()).1 as i32
+        screens::text_size(self.ui.page()).1 as i32
     }
 
     /// Scrolls the open screen `lines` down (negative: up), within its text.
@@ -299,7 +299,7 @@ impl App {
         else {
             return;
         };
-        let (width, rows) = screens::text_size(self.ui.viewport());
+        let (width, rows) = screens::text_size(self.ui.page());
         let total = screens::line_count(screen, &self.session, &self.ui.alerts, width);
         let max = total.saturating_sub(rows);
         let now = self.ui.scroll.min(max) as i64;
@@ -651,21 +651,21 @@ impl App {
         }
     }
 
-    /// The Build modal's own keys (#285, `crate::build`): arrows or `W`/`S` move the highlight
-    /// by one row (locked included); `Enter` on an unlocked building picks it, closes the modal
-    /// and leaves the Build tool active with it; `Esc` leaves the tool and the choice as they
-    /// were; any other letter jumps the highlight to the next name that starts with it.
+    /// The Build screen's own keys (#285, `crate::build`): arrows or `W`/`S` move the highlight
+    /// by one row (locked included); `Enter` on an unlocked building picks it, closes the screen
+    /// and leaves the Build tool active with it; `Esc` or `U` leaves the tool and the choice as
+    /// they were; any other letter jumps the highlight to the next name that starts with it.
     fn build_modal_key(&mut self, key: KeyEvent) {
+        if crate::build::closes(key) {
+            self.ui.modal = None;
+            return;
+        }
         let rows = fn_ui::build::picker_rows(&self.session);
         if rows.is_empty() {
-            if key.code == KeyCode::Esc {
-                self.ui.modal = None;
-            }
             return;
         }
         let at = self.ui.build_cursor.min(rows.len() - 1);
         match key.code {
-            KeyCode::Esc => self.ui.modal = None,
             KeyCode::Up | KeyCode::Char('w' | 'W') => {
                 self.ui.build_cursor = crate::build::step(&rows, at, -1);
             }

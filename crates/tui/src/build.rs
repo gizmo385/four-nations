@@ -1,35 +1,37 @@
-//! The Build modal (`U`, #285): every building the nation can place or may yet unlock, a list on
-//! the left and the highlighted one's detail on the right, in the reusable `crate::modal` frame.
+//! The Build screen (`U`, #285): every building the nation can place or may yet unlock, a list on
+//! the left and the highlighted one's detail on the right, on a full screen in the shared frame
+//! (`crate::page`, #652). It takes every key like a modal (`crate::state::Modal::Build`).
 //! `App::open_build_modal` opens it, on the current choice if it's still placeable, else the
-//! first one that is. `Enter` there picks the highlighted building, closes the modal and leaves
-//! the Build tool active with it (`App::build_modal_key`); `Esc` leaves the tool and the choice
-//! as they were. Arrows or `W`/`S` move the highlight by one row, locked ones included, so the
-//! detail pane can show what they still need; any other letter jumps to the next name that
-//! starts with it (`W` and `S` are taken by movement, so a building beginning with one can't be
-//! reached that way).
+//! first one that is. `Enter` there picks the highlighted building, closes the screen and leaves
+//! the Build tool active with it (`App::build_modal_key`); `Esc` or `U` leaves the tool and the
+//! choice as they were. Arrows or `W`/`S` move the highlight by one row, locked ones included, so
+//! the detail pane can show what they still need; any other letter jumps to the next name that
+//! starts with it (`W`, `S` and `U` are taken, so a building beginning with one can't be reached
+//! that way).
 
-use fn_ui::Session;
 use fn_ui::build::{BuildingDetail, PickerRow, building_detail};
+use fn_ui::{Session, Tool};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
 
 use crate::color::Palette;
+use crate::input::{Action, map_key};
+use crate::keyev::{KeyCode, KeyEvent};
 use crate::modal;
+use crate::page;
 use crate::widgets::{Marks, Painter, Row, Tone, window_start, wrap};
 
-/// The modal's height: enough rows for a dozen buildings and the detail's wrapped effects. Its
-/// width follows the list ([`list_width`]) plus [`DETAIL_WIDTH`].
-const HEIGHT: u16 = 18;
-/// The list column's narrowest width, kept even when every row is short so the box doesn't jump
+/// The list column's narrowest width, kept even when every row is short so the list doesn't jump
 /// about between nations.
 const MIN_LIST_WIDTH: u16 = 24;
-/// The detail pane's width: room for its longest fixed lines ("Room for 1 inside, through the
-/// door"); effects wrap within it.
-const DETAIL_WIDTH: u16 = 38;
-/// What the detail pane keeps when a small terminal shrinks the box: the list gives way first
+/// What the detail pane keeps when a small terminal narrows the page: the list gives way first
 /// (its names take an ellipsis), so the detail never collapses to a sliver.
 const MIN_DETAIL_WIDTH: u16 = 20;
+
+/// Whether `key` closes the screen: `Esc`, or the key that opened it (`U`, either case, #652).
+pub fn closes(key: KeyEvent) -> bool {
+    key.code == KeyCode::Esc || matches!(map_key(key), Some(Action::PickTool(Tool::Build)))
+}
 
 /// The cursor after a step of `dy` rows (its sign only), stopping at the list's edges, as every
 /// other windowed list in this crate does (`crate::saves::step`).
@@ -107,32 +109,22 @@ fn detail_rows(detail: &BuildingDetail, width: usize, ellipsis: char) -> Vec<Row
     rows
 }
 
-/// Draws the modal: the frame, the list (sliding to keep `at` in view, as the saves screen's
-/// does), and the highlighted building's detail.
+/// Draws the screen over `area` (the whole page, `crate::layout::Regions::page`): the shared
+/// frame, the list (sliding to keep `at` in view, as the saves screen's does, its position on the
+/// bottom edge once it scrolls), and the highlighted building's detail beside it.
 pub fn draw(
     session: &Session,
     rows: &[PickerRow],
     at: usize,
     palette: &Palette,
-    outer: Rect,
+    area: Rect,
     buf: &mut Buffer,
 ) {
     let marks = Marks::new(palette.ascii);
-    let title = format!(" {0} BUILD {0} ", marks.seal);
-    let list_width = list_width(rows);
-    // The frame's own padding: a border and a blank column on each side (`modal::draw`).
-    let size = (list_width + modal::GAP + DETAIL_WIDTH + 4, HEIGHT);
-    // The bottom edge says where the list's window sits, once it scrolls (#651).
-    let shown = usize::from(modal::modal_area(outer, size).height.saturating_sub(2));
-    let position = fn_ui::text::window_label(
-        "buildings",
-        window_start(at.min(rows.len().saturating_sub(1)), shown),
-        shown,
-        rows.len(),
-    );
-    let inner = modal::draw(buf, outer, size, palette, &title, position.as_deref().unwrap_or(""));
+    let page = page::draw(buf, area, palette, "BUILD", 0);
+    let inner = page.body;
     let room = inner.width.saturating_sub(modal::GAP + MIN_DETAIL_WIDTH);
-    let split = modal::split(inner, list_width.min(room.max(MIN_LIST_WIDTH)));
+    let split = modal::split(inner, list_width(rows).min(room.max(MIN_LIST_WIDTH)));
 
     let mut p = Painter::new(buf, split.list, palette);
     if rows.is_empty() {
@@ -142,19 +134,19 @@ pub fn draw(
     let at = at.min(rows.len() - 1);
     let shown = usize::from(split.list.height);
     let first = window_start(at, shown);
-    let mut reversed = None;
+    let mut chosen_at = None;
     for (i, row) in rows.iter().enumerate().skip(first).take(shown) {
         let chosen = i == at;
         if chosen {
-            reversed = Some(split.list.y + p.row);
+            chosen_at = Some(split.list.y + p.row);
         }
         p.row(&list_row(row, chosen, &marks));
     }
-    if let Some(y) = reversed {
-        for x in split.list.x..split.list.right() {
-            buf[(x, y)].set_style(Style::new().add_modifier(Modifier::REVERSED));
-        }
+    if let Some(y) = chosen_at {
+        page::highlight(buf, Rect::new(split.list.x, y, split.list.width, 1), palette);
     }
+    let position = fn_ui::text::window_label("buildings", first, shown, rows.len());
+    page.position(buf, palette, position.as_deref());
 
     let detail = building_detail(session, rows[at].id);
     let mut d = Painter::new(buf, split.detail, palette);
@@ -234,7 +226,7 @@ mod tests {
             let mut buf = Buffer::empty(area);
             draw(&s, &rows, 0, &palette, area, &mut buf);
             let text = crate::frame::to_text(&buf);
-            for row in rows.iter().take(usize::from(HEIGHT) - 2) {
+            for row in rows.iter().take(36) {
                 assert!(text.contains(&row.name), "{nation:?} {}:\n{text}", row.name);
                 if !row.locked() {
                     assert!(text.contains(&row.cost), "{nation:?} {}:\n{text}", row.cost);

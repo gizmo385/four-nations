@@ -11,7 +11,8 @@
 //!   that spilled over it;
 //! * the SETTLEMENT and HERE headings are always there (and ALERTS too, whenever an alert is
 //!   live), spelled out in full -- a truncated heading would fail the literal match instead of
-//!   quietly passing a shortened one;
+//!   quietly passing a shortened one -- except under a full screen (#652), which covers the side
+//!   panel: there the screen's own frame spans every column and every row above the hint bar;
 //! * a cut line always ends with the panel's own ellipsis, never a bare word glued back onto one.
 //!
 //! The title screen and the embark screens (`fn_tui::shell::Shell`, not `fn_tui::app::App`) get
@@ -131,6 +132,16 @@ fn assert_boxes_close(buf: &Buffer, area: Rect, marks: &Marks, context: &str) {
                 "{context}: the box opened at ({x},{y}) has no matching bottom-right corner"
             );
         }
+    }
+}
+
+/// A full screen's frame spans `page` (every column, every row above the hint bar, #652): its
+/// four corners sit in the page's own four corners.
+fn assert_page_framed(buf: &Buffer, page: Rect, marks: &Marks, context: &str) {
+    let sym = |x: u16, y: u16| buf[(x, y)].symbol().chars().next();
+    let (l, r, t, b) = (page.left(), page.right() - 1, page.top(), page.bottom() - 1);
+    for (x, y, want) in [(l, t, marks.tl), (r, t, marks.tr), (l, b, marks.bl), (r, b, marks.br)] {
+        assert_eq!(sym(x, y), Some(want), "{context}: the page's corner at ({x},{y})");
     }
 }
 
@@ -328,6 +339,16 @@ fn every_app_screen_at_every_size_closes_its_boxes_fits_its_rows_and_keeps_its_h
                 assert_rows_fit(&text, size, &context);
                 assert_ellipsis_never_glued(&text, &context);
 
+                let regions = layout::regions(buf.area)
+                    .unwrap_or_else(|| panic!("{context}: too small for a {size:?} terminal"));
+                if app.ui.full_screen() {
+                    // A full screen covers the side panel (#652): its frame is the whole page.
+                    assert_headings_present(&text, case.headings, &context);
+                    assert!(!text.contains("SETTLEMENT"), "{context}: the panel shows:\n{text}");
+                    assert_page_framed(&buf, regions.page, &marks, &context);
+                    assert_boxes_close(&buf, regions.page, &marks, &format!("{context}: page"));
+                    continue;
+                }
                 let mut want: Vec<&str> = vec!["SETTLEMENT", "HERE"];
                 if *has_alert {
                     want.push("ALERTS");
@@ -335,8 +356,6 @@ fn every_app_screen_at_every_size_closes_its_boxes_fits_its_rows_and_keeps_its_h
                 want.extend_from_slice(case.headings);
                 assert_headings_present(&text, &want, &context);
 
-                let regions = layout::regions(buf.area)
-                    .unwrap_or_else(|| panic!("{context}: too small for a {size:?} terminal"));
                 assert_boxes_close(&buf, regions.panel, &marks, &format!("{context}: panel"));
                 if app.ui.screen.is_some() || app.ui.modal.is_some() {
                     assert_boxes_close(

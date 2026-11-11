@@ -262,15 +262,16 @@ F"F,,@,,,,,..~..T,..~~~~~~~~~~~~~..,,/..f..,..~.| Plains (114, 77)             |
 
 ## The Nation screen (`N`)
 
-This is a full screen over the map region, like `T`, `L` and `G`: the side panel stays and the
-status line reads `NATION`.
+This is a full screen (docs/design/tui.md "Full screens", #652), like `T`, `L` and `G`: it covers
+the side panel too, and the status line reads `NATION`.
 
 - **People**, grouped under the same activity headings as the panel and in the same order, so
   the panel line "Idle 9" is the screen's "IDLE 9" block. Each row has a pointer, the name, the
-  full `describe_task` text (place included) and, when the map region is at least 80 columns,
+  full `describe_task` text (place included) and, when the screen is at least 80 columns wide
+  (every size the game draws at, since the screen took the side panel's columns in #652),
   five-cell meters for hunger, thirst, energy and health with a `!` on any that isn't ok (chi is
-  added for benders when there's room). In narrower regions the meters give way to a flag after
-  the task (`Idle  Hungry!`).
+  added for benders when there's room). Narrower, the meters would give way to a flag after the
+  task (`Idle  Hungry!`).
 - **Stores**: every item, not just two rows' worth.
 - **Traits**: today's Modifiers section, moved here. The values only change when research
   changes them, so they don't need watching.

@@ -1,8 +1,9 @@
 //! A reusable modal (#285): a centred, bordered box in the Seal frame style that takes the keys
-//! until it closes. It draws over the map area the way a `Screen` does, but as a box, centred,
-//! rather than filling it, and (when it has one) splits its inside into a list on the left and a
-//! detail pane on the right ([`split`]). The Build picker (`crate::build`) is its first user; the
-//! save list and future pickers can reuse this frame (`docs/design/tui.md`).
+//! until it closes. It draws over the map area as a box, centred, where a full screen
+//! (`crate::page`, #652) covers the map and the side panel both. The game menu (`crate::menu`)
+//! and the confirm box (`crate::ask`) use it. [`split`], a list on the left and a detail pane on
+//! the right, is shared with the Build screen (`crate::build`), which draws in the full-screen
+//! frame (`docs/design/tui.md`).
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;

@@ -1,5 +1,5 @@
 //! The Nation screen (`N`, #308, docs/design/side-panel.md "The Nation screen"): every settler
-//! grouped by activity, with need meters or a flag (depending on the map region's width), every
+//! grouped by activity, with need meters or a flag (depending on the screen's width), every
 //! store and the nation's traits. The one reference golden lives in `reference_goldens.rs` now
 //! (#455); the narrow-drops-to-a-flag and wide-meters-stay-near-the-names behaviour it used to
 //! guard are unit-tested already in `crates/tui/src/nation.rs` (`a_narrow_row_flags_trouble_...`,
@@ -29,7 +29,7 @@ fn text(app: &mut App, size: (u16, u16)) -> String {
 }
 
 #[test]
-fn n_opens_the_screen_and_n_or_esc_close_it_with_the_side_panel_staying() {
+fn n_opens_the_screen_and_n_or_esc_close_it_over_the_side_panel() {
     let mut a = app(7, Nation::Earth, SIZE);
     run(&mut a, "n");
     assert_eq!(a.ui.screen, Some(Screen::Nation));
@@ -37,9 +37,9 @@ fn n_opens_the_screen_and_n_or_esc_close_it_with_the_side_panel_staying() {
     assert!(frame.contains("NATION"), "{frame}");
     assert!(frame.contains("IDLE"), "{frame}");
     assert!(frame.contains("STORES"), "{frame}");
-    // The side panel is all there: its header, a section and the status line.
-    assert!(frame.contains("EARTH KINGDOM"), "{frame}");
-    assert!(frame.contains("SETTLEMENT"), "{frame}");
+    // A full screen covers the side panel (#652); the status line stays and says so.
+    assert!(!frame.contains("EARTH KINGDOM"), "{frame}");
+    assert!(!frame.contains("SETTLEMENT"), "{frame}");
     assert!(frame.lines().last().unwrap().contains("NATION"), "the status line says so");
 
     run(&mut a, "n");

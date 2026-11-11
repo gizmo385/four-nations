@@ -30,35 +30,50 @@ pub fn draw(session: &Session, ui: &UiState, palette: &Palette, buf: &mut Buffer
         buf.set_stringn(area.x, area.y, too_small_text(), usize::from(area.width), Style::new());
         return;
     };
-    draw_map(session, ui, palette, regions.map, buf);
-    // A screen or a modal covers the map, and the tool banner and the selection bar hide behind
-    // either (docs/design/ui.md); the banner (top row) and the bar (bottom rows) can otherwise
-    // both show at once, a tool active with a unit still selected.
-    if let Some(screen) = ui.screen {
-        draw_screen(session, ui, screen, palette, regions.map, buf);
-    } else if let Some(modal) = ui.modal {
-        // A confirm box asked from the menu covers it: drawn alone, over the map.
-        if ui.prompt.is_none() {
-            draw_modal(session, ui, modal, palette, regions.map, buf);
-        }
+    // A full screen (`crate::page`, #652) covers the map and the side panel both, so neither is
+    // drawn under it; the tool banner and the selection bar hide behind it too.
+    let full = if let Some(screen) = ui.screen {
+        draw_screen(session, ui, screen, palette, regions.page, buf);
+        true
+    } else if ui.modal == Some(Modal::Build) {
+        let rows = fn_ui::build::picker_rows(session);
+        crate::build::draw(session, &rows, ui.build_cursor, palette, regions.page, buf);
+        true
     } else {
-        if ui.tool != Tool::Select {
-            banner::draw(session, ui, palette, banner_area(regions.map), buf);
-        }
-        if ui.selected_unit(session).is_some() {
-            draw_bar(session, ui, palette, bar_area(regions.map), buf);
+        false
+    };
+    if !full {
+        draw_map(session, ui, palette, regions.map, buf);
+        if let Some(modal) = ui.modal {
+            // A confirm box asked from the menu covers it: drawn alone, over the map.
+            if ui.prompt.is_none() {
+                draw_modal(session, ui, modal, palette, regions.map, buf);
+            }
+        } else {
+            // The banner (top row) and the bar (bottom rows) can both show at once, a tool
+            // active with a unit still selected; the menu hides both (docs/design/ui.md).
+            if ui.tool != Tool::Select {
+                banner::draw(session, ui, palette, banner_area(regions.map), buf);
+            }
+            if ui.selected_unit(session).is_some() {
+                draw_bar(session, ui, palette, bar_area(regions.map), buf);
+            }
         }
     }
-    // A question that can lose progress goes over whatever is open (#655).
+    // A question that can lose progress goes over whatever is open (#655), centred on the full
+    // screen it was asked from or else on the map.
     if let Some(ask) = crate::ask::current(session, ui) {
-        crate::ask::draw(&ask, ui.ask_cursor, palette, regions.map, buf);
+        let over = if full { regions.page } else { regions.map };
+        crate::ask::draw(&ask, ui.ask_cursor, palette, over, buf);
     }
-    draw_panel(session, ui, palette, regions.panel, buf);
+    if !full {
+        draw_panel(session, ui, palette, regions.panel, buf);
+    }
     draw_status(session, ui, palette, regions.status, buf);
 }
 
-/// Draws the modal that's open (just the Build picker so far, #285, `crate::build`) into `area`,
-/// the map region.
+/// Draws the centred box that's open (the game menu, `crate::menu`) into `area`, the map region.
+/// The Build picker is a full screen instead (`crate::build`, #652), drawn before this is asked.
 fn draw_modal(
     session: &Session,
     ui: &UiState,
@@ -68,10 +83,7 @@ fn draw_modal(
     buf: &mut Buffer,
 ) {
     match modal {
-        Modal::Build => {
-            let rows = fn_ui::build::picker_rows(session);
-            crate::build::draw(session, &rows, ui.build_cursor, palette, area, buf);
-        }
+        Modal::Build => {}
         Modal::Menu => {
             // The elapsed clock, while seasons are on (#416, owner decision 4 on #414): the
             // side panel's header shows the season instead, so the menu is one of the two

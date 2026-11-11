@@ -81,7 +81,7 @@ fn observation_leaves(h: &Host) -> Vec<String> {
     out
 }
 
-/// `frame`'s own left side (the map, or a screen's overlay) and right side (the side panel,
+/// `frame`'s own left side (the map, or a centred box over it) and right side (the side panel,
 /// [`panel_width`] columns wide, `layout::regions`'s own split), each joined on their own so
 /// a sentence [`fn_tui::widgets::wrap`] breaks across more than one row reads as one
 /// contiguous span again, rather than one broken up by the panel's own row in between every
@@ -121,10 +121,16 @@ fn reachable_text(h: &mut Host) -> String {
         text.push_str(&left);
         text.push_str(&right);
     };
+    // A full screen covers the side panel too (#652): its rows are whole, not split at the
+    // panel's column.
+    let push_page = |frame: &str, text: &mut String| {
+        text.push_str(frame);
+        text.push('\n');
+    };
     push(&h.frame(SIZE.0, SIZE.1), &mut text);
     for key in ["n", "g", "l", "?"] {
         h.press_keys(key, None, None).unwrap();
-        push(&h.frame(SIZE.0, SIZE.1), &mut text);
+        push_page(&h.frame(SIZE.0, SIZE.1), &mut text);
         h.press_keys("<esc>", None, None).unwrap();
     }
     h.press_keys("t", None, None).unwrap();
@@ -138,7 +144,7 @@ fn reachable_text(h: &mut Host) -> String {
     h.press_keys(&format!("<up*{FAR}> <left*{FAR}>"), None, None).unwrap();
     for (c, &rows) in column_lens.iter().enumerate() {
         for r in 0..rows {
-            push(&h.frame(SIZE.0, SIZE.1), &mut text);
+            push_page(&h.frame(SIZE.0, SIZE.1), &mut text);
             if r + 1 < rows {
                 h.press_keys("<down>", None, None).unwrap();
             }
@@ -153,10 +159,10 @@ fn reachable_text(h: &mut Host) -> String {
         other => unreachable!("{other:?}"),
     };
     h.press_keys("u", None, None).unwrap();
-    push(&h.frame(SIZE.0, SIZE.1), &mut text);
+    push_page(&h.frame(SIZE.0, SIZE.1), &mut text);
     for _ in 1..rows {
         h.press_keys("<down>", None, None).unwrap();
-        push(&h.frame(SIZE.0, SIZE.1), &mut text);
+        push_page(&h.frame(SIZE.0, SIZE.1), &mut text);
     }
     h.press_keys("<esc>", None, None).unwrap();
     // The Bend tool's banner and Tool row (#586: `screen {"bend"}`'s own leaves), once per

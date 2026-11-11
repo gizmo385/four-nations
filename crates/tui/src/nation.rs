@@ -8,8 +8,8 @@
 //! then the same five-cell meter for chi (never flagged: it can't hurt the unit, the selection
 //! bar's own rule), a `Bends` column and a `Forms` column (`7/10`/`2/3`, or `12 *`/`4 *` for a
 //! master: `fn_ui::text::mastery_cells`, docs/design/bending.md "Seeing it", #346, #361) -- when
-//! the map region is at least
-//! [`METER_MIN_WIDTH`] columns wide; narrower than that, a flag after the task names whichever
+//! the screen is at least [`METER_MIN_WIDTH`] columns wide (every size the game draws at, since
+//! the screen covers the side panel too, #652); narrower than that, a flag after the task names whichever
 //! needs aren't ok instead (`fn_ui::view::need_word`), and chi and bends don't show at all (#346:
 //! "Chi also satisfies #337's ... criterion", so the Nation screen is the one place both show).
 //!
@@ -28,11 +28,12 @@ use fn_ui::view::{NationView, NeedView, Status, UnitView, nation_view, need_word
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
+use crate::page::{self, Page};
 use crate::state::UiState;
 use crate::widgets::{Marks, Painter, Row, Tone, fit, meter, window_start};
 
-/// At least this many columns in the map region (not the screen's own frame, which also carries
-/// the panel beside it) before the meters show instead of a flag after the task.
+/// At least this many columns in the page (the whole terminal's width since #652) before the
+/// meters show instead of a flag after the task.
 pub const METER_MIN_WIDTH: u16 = 80;
 
 /// A need meter is this many cells (the selection bar's own meters are ten; five, plus a flag
@@ -256,16 +257,18 @@ fn roster_lines(
 /// Draws the screen's contents into `inner` (the frame's inside, minus its padding): the header
 /// line, the meter column header (wide only, #325, outside the roster's own scroll so it never
 /// scrolls away), the roster (windowed round the pointer), every store, then the nation's traits.
-/// `wide` says whether the map region is at least [`METER_MIN_WIDTH`] columns -- the frame around
-/// `inner`, not `inner` itself, since the panel beside it already eats into `inner`'s own width.
+/// `wide` says whether the page is at least [`METER_MIN_WIDTH`] columns. The settler under the
+/// pointer wears the selection across the page (`page::highlight`): a quiet background, never
+/// reverse video, so its meters keep their own colours.
 pub fn draw(
     session: &Session,
     ui: &UiState,
     wide: bool,
     palette: &crate::color::Palette,
-    inner: Rect,
+    page: &Page,
     buf: &mut Buffer,
 ) -> Option<String> {
+    let inner = page.body;
     let marks = Marks::new(palette.ascii);
     let glyphs = need_glyphs(palette.ascii);
     let view = nation_view(session);
@@ -301,7 +304,11 @@ pub fn draw(
     if wide {
         p.row(&meter_header(name_width(&view), width));
     }
-    for line in lines.iter().skip(first).take(roster_h) {
+    let mut chosen_at = None;
+    for (i, line) in lines.iter().enumerate().skip(first).take(roster_h) {
+        if Some(i) == chosen_row {
+            chosen_at = Some(inner.y + p.row);
+        }
         p.row(&line.row);
     }
 
@@ -321,6 +328,10 @@ pub fn draw(
         for row in &trait_lines {
             p.row(row);
         }
+    }
+
+    if let Some(y) = chosen_at.filter(|&y| y < inner.bottom()) {
+        page::highlight(p.buf, Rect::new(inner.x, y, inner.width, 1), palette);
     }
 
     // Where the roster's window sits, in settlers (the headings between groups don't count).

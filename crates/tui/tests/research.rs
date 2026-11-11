@@ -74,16 +74,16 @@ fn go_to(app: &mut App, id: &str) {
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn t_opens_the_screen_and_t_or_esc_close_it_with_the_side_panel_staying() {
+fn t_opens_the_screen_and_t_or_esc_close_it_over_the_side_panel() {
     let mut a = app(7, Nation::Earth, SIZE);
     run(&mut a, "t");
     assert_eq!(a.ui.screen, Some(Screen::Research));
     let frame = text(&mut a, SIZE);
     assert!(frame.contains("RESEARCH"), "{frame}");
     assert!(frame.contains("TIER 1"), "{frame}");
-    // The side panel is all there: its header, a section and the status line.
-    assert!(frame.contains("EARTH KINGDOM"), "{frame}");
-    assert!(frame.contains("SETTLEMENT"), "{frame}");
+    // A full screen covers the side panel (#652); the status line stays and says so.
+    assert!(!frame.contains("EARTH KINGDOM"), "{frame}");
+    assert!(!frame.contains("SETTLEMENT"), "{frame}");
     assert!(frame.lines().last().unwrap().contains("RESEARCH"), "the status line says so");
 
     run(&mut a, "t");
@@ -211,7 +211,7 @@ fn a_narrow_terminal_scrolls_across_the_tree_with_the_cursor() {
     let mut a = app(7, Nation::Earth, SMALL);
     run(&mut a, "t");
     let first = text(&mut a, SMALL);
-    assert!(first.contains("TIER 1") && !first.contains("TIER 4"), "{first}");
+    assert!(first.contains("TIER 1") && !first.contains("TIER 5"), "{first}");
     assert!(!first.contains('◂'), "nothing hidden on the left yet");
     assert!(first.contains('▸'), "more columns to the right");
     run(&mut a, "<right*4>");
@@ -414,8 +414,10 @@ fn another_nations_tree_renders_in_ascii() {
     assert!(frame.contains("Smelting"), "{frame}");
 }
 
+/// The chosen card wears the selection (#652): a quiet background over its three rows in every
+/// colour depth that has one, bold text, and never reverse video, so its state colours stay.
 #[test]
-fn the_chosen_card_is_in_reverse_video_in_every_colour_depth() {
+fn the_chosen_card_wears_a_quiet_background_never_reverse_video() {
     use ratatui::style::Modifier;
     for depth in
         [ColorDepth::TrueColor, ColorDepth::Indexed256, ColorDepth::Ansi16, ColorDepth::Never]
@@ -424,13 +426,27 @@ fn the_chosen_card_is_in_reverse_video_in_every_colour_depth() {
         run(&mut a, "t <down>");
         let p = Palette::new(&a.session.defs, Nation::Earth, depth, false);
         let buf = render_app(&mut a, &p, SIZE);
-        // The map region: the side panel and the status line have their own badges.
-        let reversed = (0..39)
-            .filter(|&y| (0..88).any(|x| buf[(x, y)].modifier.contains(Modifier::REVERSED)))
+        // The page: every row but the status line, which has its own badges.
+        let page = 0..SIZE.1 - 1;
+        let reversed = page
+            .clone()
+            .filter(|&y| (0..SIZE.0).any(|x| buf[(x, y)].modifier.contains(Modifier::REVERSED)))
             .count();
-        let rows: Vec<_> = (0..39)
-            .filter(|&y| (0..88).any(|x| buf[(x, y)].modifier.contains(Modifier::REVERSED)))
-            .collect();
-        assert_eq!(reversed, 1, "{depth:?}: only the chosen card's name row {rows:?}");
+        assert_eq!(reversed, 0, "{depth:?}: no reverse video on the page");
+        let Some(select) = fn_tui::page::select_bg(&p) else {
+            assert_eq!(depth, ColorDepth::Never);
+            continue;
+        };
+        let selected: Vec<u16> =
+            page.filter(|&y| (0..SIZE.0).any(|x| buf[(x, y)].bg == select)).collect();
+        assert_eq!(selected.len(), 3, "{depth:?}: the card's three rows {selected:?}");
+        assert_eq!(selected[2] - selected[0], 2, "{depth:?}: three rows together");
+        let name_row = selected[0];
+        let mut bold = (0..SIZE.0).filter(|&x| buf[(x, name_row)].bg == select);
+        assert!(
+            bold.all(|x| buf[(x, name_row)].modifier.contains(Modifier::BOLD)),
+            "{depth:?}: brighter text"
+        );
+        assert!((0..SIZE.0).any(|x| buf[(x, name_row)].symbol() == "▸"), "{depth:?}: the pointer");
     }
 }

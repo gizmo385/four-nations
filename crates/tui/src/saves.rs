@@ -12,9 +12,9 @@ use fn_sim::Defs;
 use fn_ui::saves::Slot;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
 
 use crate::color::Palette;
+use crate::page;
 use crate::widgets::{Marks, Painter, Row, Tone, window_start};
 
 /// The cursor after a step of `dy` rows (its sign only), stopping at the list's edges.
@@ -39,8 +39,9 @@ fn slot_row(slot: &Slot, defs: &Defs, chosen: bool, marks: &Marks) -> Row {
     ])
 }
 
-/// Draws the screen's contents (the list, or a note that there is none yet) into `inner`. The
-/// slot under `at` reads in reverse video, as the research screen's chosen card does.
+/// Draws the screen's contents (the list, or a note that there is none yet) into `inner` (a full
+/// screen's body, or the title screen's Load page). The slot under `at` wears the selection
+/// (`page::highlight`), as the research screen's chosen card does.
 pub fn draw(
     slots: &[Slot],
     at: usize,
@@ -58,18 +59,16 @@ pub fn draw(
     let at = at.min(slots.len() - 1);
     let shown = usize::from(inner.height);
     let first = window_start(at, shown);
-    let mut reversed = None;
+    let mut chosen_at = None;
     for (i, slot) in slots.iter().enumerate().skip(first).take(shown) {
         let chosen = i == at;
         if chosen {
-            reversed = Some(inner.y + p.row);
+            chosen_at = Some(inner.y + p.row);
         }
         p.row(&slot_row(slot, defs, chosen, &marks));
     }
-    if let Some(y) = reversed {
-        for x in inner.x..inner.right() {
-            buf[(x, y)].set_style(Style::new().add_modifier(Modifier::REVERSED));
-        }
+    if let Some(y) = chosen_at {
+        page::highlight(buf, Rect::new(inner.x, y, inner.width, 1), palette);
     }
     fn_ui::text::window_label("slots", first, shown, slots.len())
 }

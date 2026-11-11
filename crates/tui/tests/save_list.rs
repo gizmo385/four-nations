@@ -56,7 +56,7 @@ fn text(app: &mut App, size: (u16, u16)) -> String {
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn f6_opens_the_screen_and_f6_or_esc_close_it_with_the_side_panel_staying() {
+fn f6_opens_the_screen_and_f6_or_esc_close_it_over_the_side_panel() {
     let tmp = TempDir::new("open_close");
     let mut a = app(Some(tmp.0.clone()));
     run(&mut a, "<f6>");
@@ -64,9 +64,9 @@ fn f6_opens_the_screen_and_f6_or_esc_close_it_with_the_side_panel_staying() {
     let frame = text(&mut a, SIZE);
     assert!(frame.contains("SAVES"), "{frame}");
     assert!(frame.contains("No saves yet"), "{frame}");
-    // The side panel is all there, as with every other screen.
-    assert!(frame.contains("EARTH KINGDOM"), "{frame}");
-    assert!(frame.contains("SETTLEMENT"), "{frame}");
+    // A full screen covers the side panel (#652), as every other screen does.
+    assert!(!frame.contains("EARTH KINGDOM"), "{frame}");
+    assert!(!frame.contains("SETTLEMENT"), "{frame}");
 
     run(&mut a, "<f6>");
     assert_eq!(a.ui.screen, None, "F6 again closes it");

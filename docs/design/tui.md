@@ -126,12 +126,60 @@ backgrounds, the stockpile is blue, the cursor is yellow and the selected unit i
 | **Side panel** | Right edge, full height above the status line | 32 columns | Seal frame: `accent_soft` box lines, `accent` corners `┏┓┗┛`, title `◆ NATION ◆` centred on the top edge, `◇` section bullets. Sections in ui.md order: header (seed, clock, speed); **People** (count, then one line per unit while they fit); **Stores**; **Research**; **Tool** (hint and notice); **Alerts**; **Cursor**. Empty sections hide, as in ui.md |
 | **Selection bar** | Bottom of the map area, left of the side panel | 7 rows | Name and nation in the top edge; task, carrying, tile; meters as 10-cell bars in `ok`/`warn`/`bad`, with a `!` for anything not ok (readable without colour); chi in `accent`; no key hints (the hint bar has them, see "Hints"). No portrait. Present only while a unit is selected |
 | **Hover tooltip** | The **Cursor** section | up to 4 lines + title | The client's tooltip lines for the tile under the cursor, same order (name, context, yield or reason, hint). Fixed, so it never covers map glyphs |
-| **Screens** | Over the map area; the side panel stays | map area | Research (`T`), the message log (`L`), key help (`?`) |
-| *(new)* **Modals** (#285) | Centred box over the map area | up to 66x18, shrinking to fit | A smaller, centred Seal box that captures every key until it closes: a title, a list on the left, a detail pane on the right (`crate::modal`). The Build picker (`U`) is its first user (`crate::build`) |
+| **Full screens** (#652) | Over the map and the side panel | every column, every row above the status line | One shared frame (`crate::page`, see "Full screens" below): Nation (`N`), Research (`T`), Endeavor (`G`), the message log (`L`), key help (`?`), Saves (`F6`) and Build (`U`) |
+| *(new)* **Centred boxes** (#285, #655) | Centred box over the map area | up to 66x18, shrinking to fit | A smaller, centred Seal box that captures every key until it closes (`crate::modal`): the game menu (`crate::menu`) and the confirm box (`crate::ask`) |
 | *(new)* **Status line** | Last row | 1 row | The **hint bar** (see "Hints"): the mode's name, that mode's own keys and a fixed tail, `PAUSED` then `? keys`. Vim and Dwarf Fortress both teach this: in a modal keyboard UI the mode must always be visible |
 
 - **Sizes.** Designed for 120×40, which shows 88×32 tiles; it works down to 80×24. Below that,
   the frame shows "Terminal too small (80×24 needed)" and nothing else.
+- **Full screens (#652).** Every screen that takes over the game wears one frame, drawn by
+  `crate::page`, and covers the side panel as well as the map (owner decision, 2026-11-10): at
+  80×24 a screen has all 80 columns, not the 48 the map leaves. The frame has four parts:
+
+  ```
+  ┏───────────────────────────────── ◆ RESEARCH ◆ ─────────────────────────────────┓
+  │ TIER 1           ▼ TIER 2           ▼ TIER 3             TIER 4             ▸│
+  │ ▸◇ Fire Making      · Pottery          · Masonry          · Cartography      │
+  │   ...                                                                          │
+  ├──────────────────────────────────────────────────────────────────────────────┤
+  │ Fire Making                                                Available  25 pts │
+  │ Keep a flame alive: cook food and stay warm.                                 │
+  ┗───────────────────────────────────────────────────────────── tiers 1-4 of 5 ─┛
+   RESEARCH  Arrows choose · Enter set as target · Esc or T close          ? keys
+  ```
+
+  - **Title**: the screen's name between two seals, centred on the top edge.
+  - **Body**: the screen's own content, inside the border and a column of padding
+    (`Page::body`).
+  - **Detail strip** (optional): the highlighted row or card in more words, under a rule joined
+    to the side lines (`├───┤`), as many rows as the screen asks for (`page::draw`'s
+    `detail_rows`; Research asks for three). `Page::detail` is where it goes.
+  - **Bottom border**: the scroll position, flush right ("12-48 of 61", `Page::position`), and
+    nothing else; keys are the hint bar's (see "Hints").
+
+  The rules every screen shares:
+
+  - **Selection.** The selected row or card has the pointer `▸` and a quiet background
+    (`Theme::select`, the accent barely blended into the panel; dark grey where 16 colours round
+    it to the panel's own) with bold text (`page::highlight`). Never reverse video: a meter or a
+    warning inside the selection keeps its own colour. Without colour only the pointer and the
+    bold show.
+  - **Closing.** `Esc` and the key that opened the screen close it (`N`, `T`, `G`, `L`, `?`,
+    `F6`, `U`); the hint bar says so ("Esc or T close").
+  - **Position.** A screen with more rows than fit says where its window sits on the bottom
+    border; one that fits says nothing.
+  - **The clock** runs or pauses under a screen exactly as it did over the map: the clock keys
+    work under every screen but Build, which takes every key like a modal
+    (`state::Modal::Build`).
+  - **What stays a box.** The game menu and the confirm box are centred boxes over the map, not
+    full screens (`crate::menu`, `crate::ask`); a confirm box asked from a full screen (load or
+    save over, from Saves) is centred on that screen. The title screen and embark keep their
+    own layouts.
+
+  A new screen draws with `page::draw(buf, regions.page, palette, "TITLE", detail_rows)`, fills
+  `page.body` (and `page.detail`), marks its selection with `page::highlight`, and ends with
+  `page.position(buf, palette, fn_ui::text::window_label(...).as_deref())`. Its page size, for
+  scrolling and paging, is `UiState::page` (`page::text_size` for the inside).
 - **One cell per tile.** Terminal cells are about twice as tall as wide, so the map looks
   stretched vertically. Two cells per tile would fix that but halve how much map you see, and
   Dwarf Fortress-style play wants density. A `--square` option can come later if the stretch
@@ -302,16 +350,17 @@ like Shift+arrows. With Caps Lock on, they move 10 tiles too.
   which makes them risky in the shells and multiplexers the TUI runs in.
 - **Mouse** is later: crossterm reports clicks and drags, which can map onto the same
   cursor-and-corner actions.
-- **Build tool and modal (#111, #275, #285).** `U` opens the Build modal: every building the
+- **Build tool and screen (#111, #275, #285, #652).** `U` opens the Build screen (a full screen
+  that takes every key like a modal): every building the
   nation can place or may yet unlock, in a list (`fn_ui::build::picker_rows`), locked ones
   dimmed; arrows or `W`/`S` move the highlight (locked included, so its detail can be read), a
   letter jumps to the next name that starts with it. The detail pane
   (`fn_ui::build::building_detail`) names the highlighted building, its cost against what's in
   stores, its footprint, what it does and the tech it still needs. `Enter` on an unlocked one
-  picks it, closes the modal and leaves the Build tool active with it, in `UiState::choice` (the
+  picks it, closes the screen and leaves the Build tool active with it, in `UiState::choice` (the
   client kept its own `BuildChoice` resource for the same reason: it belongs to the frontend,
-  not the `Session`); `Esc` leaves the tool and the choice as they were. `U` again reopens the
-  modal rather than cycling, which is what the Bevy client's own `U` did before it was removed
+  not the `Session`); `Esc` or `U` leaves the tool and the choice as they were. `U` from the map
+  reopens the screen rather than cycling, which is what the Bevy client's own `U` did before it was removed
   (`fn_ui::tools::switch_tool`; `fn_ui::Tool::label`'s wording was the client's originally). The
   Tool
   section names just the chosen building (its full list moved to the modal); the status line

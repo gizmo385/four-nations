@@ -1,5 +1,7 @@
 //! Where things go on the screen (docs/design/tui.md, "Screen layout"): the map on the left, the
 //! side panel on the right (32 columns, 36 on a wide terminal, #423) and a status line under both.
+//! A full screen (`crate::page`, #652) covers the map and the side panel together: every column,
+//! every row above the status line.
 
 use ratatui::layout::Rect;
 
@@ -23,13 +25,17 @@ pub fn panel_width(width: u16) -> u16 {
 pub const MIN_WIDTH: u16 = 80;
 pub const MIN_HEIGHT: u16 = 24;
 
-/// The three regions of a screen of at least the minimum size.
+/// The three regions of a screen of at least the minimum size, and the page a full screen
+/// covers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Regions {
     /// Where map tiles draw, one cell per tile.
     pub map: Rect,
     pub panel: Rect,
     pub status: Rect,
+    /// The map and the panel together (`crate::page`, #652): where a full screen draws, so
+    /// neither shows while one is open.
+    pub page: Rect,
 }
 
 /// The regions of `area`, or `None` when it's below 80x24.
@@ -44,7 +50,15 @@ pub fn regions(area: Rect) -> Option<Regions> {
         map: Rect::new(area.x, area.y, map_width, body_height),
         panel: Rect::new(area.x + map_width, area.y, panel_width, body_height),
         status: Rect::new(area.x, area.y + body_height, area.width, 1),
+        page: Rect::new(area.x, area.y, area.width, body_height),
     })
+}
+
+/// How big a full screen's page is on a `width` x `height` terminal, as (columns, rows): 0 x 0
+/// when it's too small to draw anything.
+pub fn page_size(width: u16, height: u16) -> (i32, i32) {
+    regions(Rect::new(0, 0, width, height))
+        .map_or((0, 0), |r| (i32::from(r.page.width), i32::from(r.page.height)))
 }
 
 /// How many tiles fit across and down the map region of a `width` x `height` terminal (0 x 0 when
@@ -64,7 +78,10 @@ mod tests {
         assert_eq!(r.map, Rect::new(0, 0, 88, 39));
         assert_eq!(r.panel, Rect::new(88, 0, 32, 39));
         assert_eq!(r.status, Rect::new(0, 39, 120, 1));
+        assert_eq!(r.page, Rect::new(0, 0, 120, 39));
         assert_eq!(viewport(120, 40), (88, 39));
+        assert_eq!(page_size(120, 40), (120, 39));
+        assert_eq!(page_size(80, 24), (80, 23));
     }
 
     /// The panel stays 32 columns at 139 columns wide, and widens to 36 at 140 (#423,
