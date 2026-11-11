@@ -127,7 +127,7 @@ pub fn tech_depths(techs: &[TechDef]) -> Vec<usize> {
 
 /// "Study x1.25, Workshop, Air Scooter" (every modifier, building, job and ability `id`
 /// unlocks), in that order. A tech that grants none of those outright still has a reason to
-/// research (#338): naming the tech it is a prereq for ("Prerequisite for Writing"), so the
+/// research (#338): naming the tech it is a prereq for ("Leads to Writing"), so the
 /// column never reads as a dead end while it's actually a stepping stone. Only a tech with
 /// neither -- truly nothing downstream wires up to yet, a content gap, not a display bug -- gets
 /// a plain "-" (`cartography` once did; #402 wired up its Map Room. `herbalism` once did too,
@@ -173,7 +173,7 @@ pub fn unlock_summary(defs: &Defs, nation: Nation, id: TechId, def: &TechDef) ->
     if dependents.is_empty() {
         "-".to_owned()
     } else {
-        format!("Prerequisite for {}", dependents.join(", "))
+        format!("Leads to {}", dependents.join(", "))
     }
 }
 
@@ -203,6 +203,9 @@ pub struct TechCard {
     pub unlock: String,
     /// "Masonry, Carpentry" while `state` is `Locked`; empty otherwise (`missing_prereqs`).
     pub needs: String,
+    /// The current research target (the last tech of the queue): the one tech the player chose,
+    /// as against the prereqs queued ahead of it (#659).
+    pub target: bool,
 }
 
 /// Columns by depth, each holding the techs at that depth: shared techs plus the nation's own
@@ -217,6 +220,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
     let nation = session.world.nation;
     let research = session.world.research();
     let depths = tech_depths(&defs.techs);
+    let target = research.queue().last().copied();
     let mut columns: Vec<Vec<TechCard>> = Vec::new();
     for (id, def) in defs.techs_for(nation) {
         let depth = depths[id.0 as usize];
@@ -237,6 +241,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
                 unlock_summary(defs, nation, id, def)
             },
             needs: missing_prereqs(research, defs, def).join(", "),
+            target: target == Some(id),
         });
     }
     ScreenView { columns }
@@ -331,7 +336,7 @@ mod tests {
         let pottery = defs.tech_id("pottery").unwrap();
         assert_eq!(
             unlock_summary(&defs, Nation::Fire, pottery, defs.tech(pottery)),
-            "Prerequisite for Writing, Brickmaking"
+            "Leads to Writing, Brickmaking"
         );
     }
 

@@ -16,16 +16,23 @@ use ratatui::layout::Rect;
 
 use crate::color::Palette;
 use crate::page::{self, Page};
-use crate::widgets::{Marks, Painter, Row, Tone, window_start};
+use crate::widgets::{Marks, Painter, Row, Tone, window_start, wrap};
 
-/// The narrowest a column of cards can be. A terminal too narrow for every column scrolls
-/// sideways with the cursor.
-pub const MIN_COLUMN: usize = 18;
+/// The narrowest a column of cards can be: wide enough that the line saying what a tech gives
+/// wraps into two rows at most, instead of being cut (#659). It puts four tiers on a 120 column
+/// terminal and three on an 80 column one; a terminal too narrow for every tier scrolls sideways
+/// with the cursor.
+pub const MIN_COLUMN: usize = 24;
 /// Columns are one blank cell apart.
 const GAP: usize = 1;
-/// A card is three rows (name, state and cost, unlocks) and a blank one between cards.
+/// A card is at least three rows (name, state and cost, what it gives) and a blank one between
+/// cards. The name and the last line wrap inside the column, so a card grows by a row when its
+/// text needs it: this is the usual height, which `Grid::cards` and the page keys count in.
 const CARD_ROWS: usize = 3;
 const CARD_STRIDE: usize = CARD_ROWS + 1;
+/// A card's lines under its name start this far in, under the name itself (the cursor's pointer,
+/// the state's mark and a space come first).
+const INDENT: usize = 3;
 /// The frame's detail strip under the grid (`crate::page`, #652): the chosen tech's name,
 /// description and unlocks. The rule above it takes one more row.
 pub const DETAIL_ROWS: u16 = 3;
@@ -39,7 +46,8 @@ pub struct Grid {
     /// How many columns show at once, and how wide each is.
     pub columns: usize,
     pub column_width: usize,
-    /// How many cards of a column show at once.
+    /// How many cards of a column show at once, counting cards of the usual height; a taller
+    /// one takes the room of more.
     pub cards: usize,
 }
 
@@ -126,11 +134,57 @@ fn state_mark(state: TechState, marks: &Marks) -> &'static str {
     }
 }
 
-/// A card as its three rows. `chosen` puts the cursor mark before the name. The third row is
-/// what it unlocks once it's within reach, or, while `Locked`, what it still needs (#338): a
-/// locked card alone used to say only "Locked", leaving which tier-1 tech unlocks it invisible
-/// until the player researched each candidate and rechecked.
-pub fn card_rows(card: &TechCard, chosen: bool, marks: &Marks) -> [Row; CARD_ROWS] {
+/// The word a card carries for its state: `state_word`, except that the tech the player chose
+/// reads "Target" where the prereqs queued ahead of it read "Queued" (#659).
+pub fn card_word(card: &TechCard) -> &'static str {
+    if card.target { "Target" } else { state_word(card.state) }
+}
+
+/// What a card says on its last lines: what it unlocks once it's within reach ("Leads to
+/// Writing" for a tech that only opens others), or, while `Locked`, what it still needs by name
+/// (#338): a locked card alone used to say only "Locked", leaving which tier-1 tech unlocks it
+/// invisible until the player researched each candidate and rechecked.
+fn gives_text(card: &TechCard) -> String {
+    if card.state == TechState::Locked {
+        format!("Needs {}", card.needs)
+    } else {
+        card.unlock.clone()
+    }
+}
+
+/// `text`, a list ("Earthworks x1.2, Earth Tent"), broken after its commas into lines of at most
+/// `width` cells, so an item (a building's name, say) is never split across two lines. An item
+/// wider than a line on its own is broken at its spaces.
+fn wrap_items(text: &str, width: usize, ellipsis: char) -> Vec<String> {
+    let items: Vec<&str> = text.split(", ").collect();
+    let mut lines: Vec<String> = Vec::new();
+    let mut line = String::new();
+    for (i, item) in items.iter().enumerate() {
+        let item = if i + 1 < items.len() { format!("{item},") } else { (*item).to_owned() };
+        if line.is_empty() {
+            line = item;
+        } else if line.chars().count() + 1 + item.chars().count() <= width {
+            line.push(' ');
+            line.push_str(&item);
+        } else {
+            lines.push(std::mem::replace(&mut line, item));
+        }
+        if line.chars().count() > width {
+            let mut pieces = wrap(&line, width, usize::MAX, ellipsis);
+            line = pieces.pop().unwrap_or_default();
+            lines.extend(pieces);
+        }
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
+/// A card as its rows, wrapped inside `width` cells and never cut: the name (the pointer then the
+/// state's mark before it, `chosen` putting the cursor mark there), the state and cost on one
+/// line ("Available - 60 pts"), then what it gives (`gives_text`), as many rows as it needs.
+pub fn card_rows(card: &TechCard, chosen: bool, marks: &Marks, width: usize) -> Vec<Row> {
     let tone = state_tone(card.state);
     let name_tone = match card.state {
         TechState::Available => Tone::Strong,
@@ -138,45 +192,63 @@ pub fn card_rows(card: &TechCard, chosen: bool, marks: &Marks) -> [Row; CARD_ROW
     };
     let mark_tone = if card.state == TechState::Known { Tone::Ok } else { tone };
     let pointer = if chosen { marks.pointer } else { " " };
-    let third = if card.state == TechState::Locked {
-        format!("  Needs: {}", card.needs)
-    } else {
-        format!("  {}", card.unlock)
-    };
-    [
-        Row::spans(vec![
-            (pointer.to_owned(), Tone::Title),
-            (format!("{} ", state_mark(card.state, marks)), mark_tone),
-            (card.name.clone(), name_tone),
-        ]),
-        Row::pair(
-            format!("  {}", state_word(card.state)),
-            tone,
-            format!("{} pts", card.cost),
-            Tone::Dim,
-        ),
-        Row::text(third, Tone::Dim),
-    ]
+    let room = width.saturating_sub(INDENT).max(1);
+    let pad = " ".repeat(INDENT);
+    let mut rows = Vec::new();
+    for (i, line) in wrap(&card.name, room, usize::MAX, marks.ellipsis).into_iter().enumerate() {
+        rows.push(if i == 0 {
+            Row::spans(vec![
+                (pointer.to_owned(), Tone::Title),
+                (format!("{} ", state_mark(card.state, marks)), mark_tone),
+                (line, name_tone),
+            ])
+        } else {
+            Row::text(format!("{pad}{line}"), name_tone)
+        });
+    }
+    rows.push(Row::spans(vec![
+        (format!("{pad}{}", card_word(card)), tone),
+        (format!(" {} {} pts", marks.dot, card.cost), Tone::Dim),
+    ]));
+    for line in wrap_items(&gives_text(card), room, marks.ellipsis) {
+        rows.push(Row::text(format!("{pad}{line}"), Tone::Dim));
+    }
+    rows
 }
 
-/// The three rows under the grid about the tech under the cursor: its name, state and cost; what
-/// it is; what it unlocks (`card.unlock`, empty while `Locked`) and what it still needs
-/// (`card.needs`, `fn_ui::research::TechCard`): a Queued tech can show both at once (its own
-/// deeper prereqs may still be unknown), so the two are side by side rather than either/or.
-pub fn detail_rows(session: &Session, card: &TechCard) -> [Row; 3] {
+/// The three rows under the grid about the tech under the cursor: its name (and the research
+/// target, when that is another tech), state and cost; what it is; what it unlocks
+/// (`card.unlock`, empty while `Locked`) and what it still needs (`card.needs`,
+/// `fn_ui::research::TechCard`): a Queued tech can show both at once (its own deeper prereqs may
+/// still be unknown), so the two are side by side rather than either/or.
+pub fn detail_rows(session: &Session, card: &TechCard, marks: &Marks) -> [Row; 3] {
     let def = session.defs.tech(card.id);
-    let unlocks =
-        if card.unlock.is_empty() { String::new() } else { format!("Unlocks: {}", card.unlock) };
+    let unlocks = if card.unlock.is_empty() {
+        String::new()
+    } else if card.unlock.starts_with("Leads to ") {
+        card.unlock.clone()
+    } else {
+        format!("Unlocks: {}", card.unlock)
+    };
     let needs =
         if card.needs.is_empty() { String::new() } else { format!("Needs: {}", card.needs) };
     let sep = if unlocks.is_empty() || needs.is_empty() { "" } else { "   " };
+    // The target is named in the strip whichever card the cursor is on: as the heading's state
+    // when the cursor is on it, beside the name otherwise.
+    let mut name = vec![(card.name.clone(), Tone::Title)];
+    if !card.target
+        && let Some(&target) = session.world.research().queue().last()
+    {
+        name.push((format!("   Target: {}", session.defs.tech(target).name), Tone::Dim));
+    }
     [
-        Row::pair(
-            card.name.clone(),
-            Tone::Title,
-            format!("{}  {} pts", card.state.label(), card.cost),
-            state_tone(card.state),
-        ),
+        Row {
+            left: name,
+            right: Some((
+                format!("{} {} {} pts", card_word(card), marks.dot, card.cost),
+                state_tone(card.state),
+            )),
+        },
         Row::text(def.description.clone(), Tone::Text),
         Row::spans(vec![(unlocks, Tone::Dim), (format!("{sep}{needs}"), Tone::Warn)]),
     ]
@@ -200,11 +272,49 @@ pub fn draw(
         view.columns.len(),
     );
     let first_column = window_start(at.0, grid.columns);
-    let first_card = window_start(at.1, grid.cards);
-    let grid_height = inner.height.saturating_sub(1);
+    let grid_height = usize::from(inner.height.saturating_sub(1));
 
-    let shown = view.columns.iter().enumerate().skip(first_column).take(grid.columns);
-    for (slot, (c, column)) in shown.enumerate() {
+    // Every card of the columns in view, wrapped to the column: a grid row is as tall as its
+    // tallest card, so the cards of a row line up across columns.
+    let shown: Vec<(usize, &Vec<TechCard>)> =
+        view.columns.iter().enumerate().skip(first_column).take(grid.columns).collect();
+    let cards: Vec<Vec<Vec<Row>>> = shown
+        .iter()
+        .map(|&(c, column)| {
+            column
+                .iter()
+                .enumerate()
+                .map(|(r, card)| card_rows(card, c == at.0 && r == at.1, &marks, grid.column_width))
+                .collect()
+        })
+        .collect();
+    let height = |r: usize| cards.iter().filter_map(|col| col.get(r)).map(Vec::len).max();
+    // The window onto the grid rows slides only once the cursor's row passes the bottom, and
+    // shows whole rows, but always the cursor's.
+    let mut first_card = at.1;
+    let mut used = height(at.1).unwrap_or(0);
+    while first_card > 0 {
+        let above = height(first_card - 1).unwrap_or(0);
+        if used + 1 + above > grid_height {
+            break;
+        }
+        first_card -= 1;
+        used += 1 + above;
+    }
+    let mut tops = Vec::new();
+    let mut y = 0;
+    let mut r = first_card;
+    while let Some(h) = height(r) {
+        if r > at.1 && y + h > grid_height {
+            break;
+        }
+        tops.push((r, y));
+        y += h + 1;
+        r += 1;
+    }
+    let shown_rows = tops.len();
+
+    for (slot, &(c, column)) in shown.iter().enumerate() {
         let x = inner.x + (slot * (grid.column_width + GAP)) as u16;
         let width = grid.column_width as u16;
         let chosen_column = c == at.0;
@@ -214,28 +324,24 @@ pub fn draw(
         let flags = format!(
             "{}{}",
             if first_card > 0 { marks.up } else { "" },
-            if column.len() > first_card + grid.cards { marks.down } else { "" },
+            if column.len() > first_card + shown_rows { marks.down } else { "" },
         );
         let title_tone = if chosen_column { Tone::Title } else { Tone::Dim };
         head.row(&Row::pair(format!("TIER {}", c + 1), title_tone, flags, Tone::Dim));
 
-        let body = Rect::new(x, inner.y + 1, width, grid_height);
-        let mut p = Painter::new(buf, body, palette);
-        let mut chosen_at = None;
-        for (r, card) in column.iter().enumerate().skip(first_card).take(grid.cards) {
-            let chosen = chosen_column && r == at.1;
-            if chosen {
-                chosen_at = Some(body.y + p.row);
+        let body = Rect::new(x, inner.y + 1, width, grid_height as u16);
+        for &(r, top) in &tops {
+            let Some(rows) = cards[slot].get(r) else { continue };
+            let area =
+                Rect::new(x, body.y + top as u16, width, rows.len() as u16).intersection(body);
+            let mut p = Painter::new(buf, area, palette);
+            for row in rows {
+                p.row(row);
             }
-            for row in card_rows(card, chosen, &marks) {
-                p.row(&row);
+            // The card under the cursor wears the selection's quiet background over its rows.
+            if chosen_column && r == at.1 {
+                page::highlight(buf, area, palette);
             }
-            p.blank();
-        }
-        // The card under the cursor wears the selection's quiet background over its rows.
-        if let Some(y) = chosen_at {
-            let rows = (CARD_ROWS as u16).min(body.bottom().saturating_sub(y));
-            page::highlight(buf, Rect::new(x, y, width, rows), palette);
         }
     }
 
@@ -252,7 +358,7 @@ pub fn draw(
 
     // The details of the tech under the cursor, in the frame's detail strip.
     if let (Some(card), Some(strip)) = (card_at(&view, at), page.detail) {
-        let rows = detail_rows(session, card);
+        let rows = detail_rows(session, card, &marks);
         let mut p = Painter::new(buf, strip, palette);
         for row in &rows {
             p.row(row);
@@ -277,31 +383,78 @@ mod tests {
             state,
             unlock: unlock.into(),
             needs: needs.into(),
+            target: false,
         }
     }
 
-    #[test]
-    fn an_available_card_shows_the_name_the_state_the_cost_and_the_unlocks() {
-        let marks = Marks::new(false);
-        let rows = card_rows(&card(TechState::Available, "Construction x1.15", ""), false, &marks);
-        let text: Vec<String> = rows.iter().map(Row::plain).collect();
-        assert_eq!(text[0], " ◇ Masonry");
-        assert_eq!(text[1], "  Available 120 pts");
-        assert_eq!(text[2], "  Construction x1.15");
+    fn plain(rows: &[Row]) -> Vec<String> {
+        rows.iter().map(Row::plain).collect()
     }
 
-    /// A Locked card shows what it still needs instead of what it would unlock (#338): the
-    /// evidence was a whole playtest session spent discovering that one tier-1 tech unlocks
-    /// another, with nothing on the Locked card itself saying so.
+    #[test]
+    fn an_available_card_shows_the_name_the_state_and_cost_on_one_line_and_the_unlocks() {
+        let marks = Marks::new(false);
+        let card = card(TechState::Available, "Construction x1.15", "");
+        let text = plain(&card_rows(&card, false, &marks, 28));
+        assert_eq!(text, [" ◇ Masonry", "   Available · 120 pts", "   Construction x1.15"]);
+    }
+
+    /// A Locked card shows what it still needs, by name, instead of what it would unlock (#338,
+    /// #659): the evidence was a whole playtest session spent discovering that one tier-1 tech
+    /// unlocks another, with nothing on the Locked card itself saying so.
     #[test]
     fn a_locked_card_shows_what_it_needs_instead_of_what_it_would_unlock() {
         let marks = Marks::new(false);
-        let rows =
-            card_rows(&card(TechState::Locked, "Construction x1.15", "Carpentry"), false, &marks);
-        let text: Vec<String> = rows.iter().map(Row::plain).collect();
-        assert_eq!(text[0], " · Masonry");
-        assert_eq!(text[1], "  Locked 120 pts");
-        assert_eq!(text[2], "  Needs: Carpentry");
+        let card = card(TechState::Locked, "Construction x1.15", "Carpentry");
+        let text = plain(&card_rows(&card, false, &marks, 28));
+        assert_eq!(text, [" · Masonry", "   Locked · 120 pts", "   Needs Carpentry"]);
+    }
+
+    /// The line saying what a tech gives wraps inside the column and the card grows by a row,
+    /// instead of ending in an ellipsis (#659).
+    #[test]
+    fn a_long_unlock_line_wraps_and_the_card_grows_a_row() {
+        let marks = Marks::new(false);
+        let card = card(TechState::Available, "Construction x1.1, Workshop", "");
+        let text = plain(&card_rows(&card, false, &marks, 24));
+        assert_eq!(
+            text,
+            [" ◇ Masonry", "   Available · 120 pts", "   Construction x1.1,", "   Workshop"]
+        );
+        let mut locked = card;
+        locked.state = TechState::Locked;
+        locked.needs = "Earth Shaping, Tunneling, Seismic Sense".into();
+        for line in plain(&card_rows(&locked, false, &marks, 24)) {
+            assert!(line.chars().count() <= 24 && !line.contains('…'), "{line}");
+        }
+    }
+
+    /// A list breaks after a comma, never inside an item.
+    #[test]
+    fn the_gives_line_breaks_between_items_not_inside_one() {
+        assert_eq!(
+            wrap_items("Earthworks x1.2, Earth Tent", 21, '…'),
+            ["Earthworks x1.2,", "Earth Tent"]
+        );
+        assert_eq!(
+            wrap_items("Needs Earth Shaping, Masonry", 21, '…'),
+            ["Needs Earth Shaping,", "Masonry"]
+        );
+        assert_eq!(wrap_items("Farm Plot", 21, '…'), ["Farm Plot"]);
+        // An item too long for a line is broken at its spaces, never cut.
+        assert_eq!(
+            wrap_items("Prefix Words, Stone Outcrop Boulder", 12, '…'),
+            ["Prefix", "Words,", "Stone", "Outcrop", "Boulder"]
+        );
+    }
+
+    #[test]
+    fn the_target_reads_target_where_its_queued_prereqs_read_queued() {
+        let marks = Marks::new(false);
+        let mut queued = card(TechState::Queued, "x", "");
+        assert_eq!(plain(&card_rows(&queued, false, &marks, 28))[1], "   Queued · 120 pts");
+        queued.target = true;
+        assert_eq!(plain(&card_rows(&queued, false, &marks, 28))[1], "   Target · 120 pts");
     }
 
     #[test]
@@ -319,20 +472,22 @@ mod tests {
     #[test]
     fn the_cursor_marks_the_chosen_card() {
         let marks = Marks::new(false);
-        let rows = card_rows(&card(TechState::Available, "-", ""), true, &marks);
+        let rows = card_rows(&card(TechState::Available, "-", ""), true, &marks, 28);
         assert_eq!(rows[0].plain(), "▸◇ Masonry");
     }
 
     #[test]
     fn the_grid_shows_fewer_columns_when_they_would_be_narrower_than_the_minimum() {
         let wide = Grid::new((84, 37), 5);
-        assert_eq!((wide.columns, wide.column_width), (4, 20));
+        assert_eq!((wide.columns, wide.column_width), (3, 27));
+        // 120x40: the text is 116 wide, four tiers of 28 (#659).
+        assert_eq!(Grid::new((116, 38), 5).columns, 4);
         assert_eq!(Grid::new((200, 40), 5).columns, 5, "never more than the tree has");
         assert_eq!(Grid::new((10, 40), 5).columns, 1, "at least one");
-        // 80x24: the page is 80 wide and 23 tall, so the text is 76 by 21: four columns, four
+        // 80x24: the page is 80 wide and 23 tall, so the text is 76 by 21: three columns, four
         // cards.
         let small = Grid::new((76, 21), 6);
-        assert_eq!((small.columns, small.cards), (4, 4));
+        assert_eq!((small.columns, small.cards), (3, 4));
         assert_eq!(Grid::new((44, 3), 6).cards, 1, "at least one card");
     }
 

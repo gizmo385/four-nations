@@ -1,26 +1,26 @@
 ┏──────────────────────────────────────────────────── ◆ RESEARCH ◆ ────────────────────────────────────────────────────┓
-│ TIER 1                 TIER 2                 TIER 3                 TIER 4                 TIER 5                   │
-│ ▸◇ Fire Making          · Pottery              · Masonry              · Cartography          · Earth Rail            │
-│   Available     25 pts   Locked        60 pts   Locked       120 pts   Locked       250 pts   Locked       250 pts   │
-│   Campfire               Needs: Fire Making     Needs: Carpentry       Needs: Writing         Needs: Earthen Walls   │
+│ TIER 1                       TIER 2                       TIER 3                       TIER 4                       ▸│
+│ ▸◇ Fire Making                · Pottery                    · Masonry                    · Cartography                │
+│    Available · 25 pts           Locked · 60 pts              Locked · 120 pts             Locked · 250 pts           │
+│    Campfire                     Needs Fire Making            Needs Carpentry              Needs Writing              │
 │                                                                                                                      │
-│  ◇ Shelter              · Carpentry            · Writing              · Earthen Walls        · Metalbending          │
-│   Available     25 pts   Locked        60 pts   Locked       120 pts   Locked       120 pts   Locked       500 pts   │
-│   Prerequisite for Ca…   Needs: Shelter         Needs: Pottery         Needs: Earth Shapin…   Needs: Seismic Sens…   │
+│  ◇ Shelter                    · Carpentry                  · Writing                    · Earthen Walls              │
+│    Available · 25 pts           Locked · 60 pts              Locked · 120 pts             Locked · 120 pts           │
+│    Leads to Carpentry           Needs Shelter                Needs Pottery                Needs Earth Shaping,       │
+│                                                                                           Masonry                    │
 │                                                                                                                      │
-│  ◇ Fishing              · Herbalism            · Tunneling            · Seismic Sense                                │
-│   Available     25 pts   Locked       120 pts   Locked       120 pts   Locked       250 pts                          │
-│   Fishing Spot           Needs: Farming         Needs: Earth Shaping   Needs: Tunneling                              │
+│  ◇ Fishing                    · Herbalism                  · Tunneling                  · Seismic Sense              │
+│    Available · 25 pts           Locked · 120 pts             Locked · 120 pts             Locked · 250 pts           │
+│    Fishing Spot                 Needs Farming                Needs Earth Shaping          Needs Tunneling            │
 │                                                                                                                      │
-│  ✓ Stoneworking         ◇ Prospecting                                                                                │
-│   Known         25 pts   Available    250 pts                                                                        │
-│   Stone Outcrop, Boul…   Gold Vein, Gold Seam                                                                        │
+│  ✓ Stoneworking               ◇ Prospecting                                                                          │
+│    Known · 25 pts               Available · 250 pts                                                                  │
+│    Stone Outcrop, Boulder       Gold Vein, Gold Seam                                                                 │
 │                                                                                                                      │
-│  ◇ Farming              ◇ Earth Shaping                                                                              │
-│   Available     60 pts   Available     60 pts                                                                        │
-│   Farm Plot              Earthworks x1.2, Ea…                                                                        │
-│                                                                                                                      │
-│                                                                                                                      │
+│  ◇ Farming                    ◇ Earth Shaping                                                                        │
+│    Available · 60 pts           Available · 60 pts                                                                   │
+│    Farm Plot                    Earthworks x1.2,                                                                     │
+│                                 Earth Tent                                                                           │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
@@ -33,8 +33,8 @@
 │                                                                                                                      │
 │                                                                                                                      │
 ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ Fire Making                                                                                        Available  25 pts │
+│ Fire Making                                                                                       Available · 25 pts │
 │ Keep a flame alive: cook food and stay warm.                                                                         │
 │ Unlocks: Campfire                                                                                                    │
-┗──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┛
+┗───────────────────────────────────────────────────────────────────────────────────────────────────── tiers 1-4 of 5 ─┛
  RESEARCH  Arrows choose · Enter set as target · Esc or T close                                           PAUSED ? keys
