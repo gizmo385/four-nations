@@ -459,7 +459,7 @@ pub fn tile_glyph(t: &Tile, defs: &Defs) -> char {
         (Some(r), _) => defs.resource(r).glyph,
         (None, Terrain::Water) => '~',
         (None, Terrain::Lake) => '-',
-        (None, Terrain::River) => '=',
+        (None, Terrain::River | Terrain::Canal) => '=',
         (None, Terrain::Ford) => '+',
         (None, Terrain::Coast) => '.',
         (None, Terrain::Mountain) => '^',

@@ -1650,7 +1650,7 @@ mod tests {
         assert!(!def.passable, "a dock is solid");
         assert_eq!(
             def.beside.as_deref(),
-            Some(&[Terrain::Water, Terrain::River, Terrain::Lake][..])
+            Some(&[Terrain::Water, Terrain::River, Terrain::Lake, Terrain::Canal][..])
         );
         assert_eq!(def.beside_word(), Some("water"));
     }

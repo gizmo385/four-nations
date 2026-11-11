@@ -7,7 +7,7 @@
 
 use serde::Deserialize;
 
-use crate::bending::{AbilityDef, AbilityId, BendingFile, ChiSettings, MasteryDef};
+use crate::bending::{AbilityDef, AbilityId, BendingFile, CanalDef, ChiSettings, MasteryDef};
 use crate::building::{BuildingDef, BuildingId, BuildingsFile, DeconstructDef};
 use crate::difficulty::DifficultyDef;
 use crate::embark::EmbarkDef;
@@ -40,12 +40,26 @@ pub enum Terrain {
     /// docs/design/research.md, "Tunneling"). Walkable, but not open ground: nothing is built or
     /// stockpiled on it. Minerals beside one are mined from inside the rock, which yields more.
     Tunnel,
+    /// A channel cut into the land by Water's Carve Canal bend (issue #695, docs/design/
+    /// horizons-phase-2.md, "Shared sim work, 4. Canal"). Fresh water that counts as a river to
+    /// every water rule (drinking, fishing, Water the Land's source), but not walkable, with no
+    /// shore. Mapgen never makes one, so no generated map or golden file holds it.
+    Canal,
 }
 
 impl Terrain {
-    /// Any kind of water: sea, river, lake or ford (shallow water you can wade).
+    /// Any kind of water: sea, river, lake, ford (shallow water you can wade) or canal.
     pub fn is_water(self) -> bool {
-        matches!(self, Terrain::Water | Terrain::River | Terrain::Lake | Terrain::Ford)
+        matches!(
+            self,
+            Terrain::Water | Terrain::River | Terrain::Lake | Terrain::Ford | Terrain::Canal
+        )
+    }
+
+    /// Fresh water, the kind a unit drinks from and Water the Land draws on: a river, lake, ford
+    /// or canal (not the sea).
+    pub fn is_fresh(self) -> bool {
+        matches!(self, Terrain::River | Terrain::Lake | Terrain::Ford | Terrain::Canal)
     }
 
     /// Standing water that gets a shoreline (`Coast`) around it. Rivers don't.
@@ -150,6 +164,9 @@ pub struct Defs {
     pub abilities: Vec<AbilityDef>,
     /// The route from novice to master (data/bending.toml's `[mastery]`, #360).
     pub mastery: MasteryDef,
+    /// What a carved canal does for the farm plots beside it (data/bending.toml's `[canal]`,
+    /// #695).
+    pub canal: CanalDef,
     /// The end-game endeavor's signs and stages (data/endeavor.toml). Empty unless loaded with
     /// `with_endeavor`, which `bundled` does.
     pub endeavor: EndeavorDef,
@@ -347,7 +364,7 @@ impl Defs {
         let deconstruct = buildings.deconstruct()?;
         let buildings = buildings.resolve(&items, &techs, &resources, &needs)?;
         let biomes = parse::<BiomeFile>("biomes.toml", biomes)?.biome;
-        let (chi, abilities, mastery) = parse::<BendingFile>("bending.toml", bending)?
+        let (chi, abilities, mastery, canal) = parse::<BendingFile>("bending.toml", bending)?
             .resolve(&biomes, &resources, &harvests, &items, &techs)?;
         let mut harvest_by_resource = vec![None; resources.len()];
         for (i, h) in harvests.iter().enumerate() {
@@ -369,6 +386,7 @@ impl Defs {
             chi,
             abilities,
             mastery,
+            canal,
             endeavor: EndeavorDef::default(),
             embark: EmbarkDef::default(),
             difficulty: DifficultyDef::default(),
@@ -653,6 +671,7 @@ mod tests {
             "lift",
             "draw_water",
             "cut_ice",
+            "carve_canal",
         ] {
             let ability = format!("abilities = [\"{id}\"]\n");
             assert!(src.contains(&ability), "{id}'s unlock moved; update this helper");

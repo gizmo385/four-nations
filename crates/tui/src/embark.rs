@@ -401,7 +401,7 @@ fn classify_block(
             total += 1;
             match tile.terrain {
                 Terrain::Water => sea += 1,
-                Terrain::River | Terrain::Ford => river += 1,
+                Terrain::River | Terrain::Ford | Terrain::Canal => river += 1,
                 Terrain::Lake => lake += 1,
                 Terrain::Mountain => mountain += 1,
                 Terrain::Land | Terrain::Coast | Terrain::Tunnel => {

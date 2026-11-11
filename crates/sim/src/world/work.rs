@@ -1220,7 +1220,7 @@ impl World {
     /// map once a full flood is in hand -- every tile that pass would skip fails this check too.
     ///
     /// While the difficulty preset's `harm` is above 0 (`docs/design/harm.md`, "Sickness: sea
-    /// water", issue #389), this prefers a spot beside fresh water (a river, lake or ford) over
+    /// water", issue #389), this prefers a spot beside fresh water (a river, lake, ford or canal) over
     /// one beside any water at all, as long as that spot is within `data/harm.toml`'s
     /// `[sickness] fresh_detour` path tiles of the nearest spot of any kind; otherwise, or with
     /// `harm` at 0, it keeps the nearest spot of any kind, sea or not, exactly as before #389.
@@ -1239,7 +1239,7 @@ impl World {
         });
         let (any_stand, ()) = any_found?;
         if self.knobs(defs).harm > 0.0 {
-            let is_fresh = |t: Terrain| matches!(t, Terrain::River | Terrain::Lake | Terrain::Ford);
+            let is_fresh = Terrain::is_fresh;
             let (fresh_flood, fresh_found) = Flood::seek(&self.map, pos, rules, |p, _| {
                 if !self.rules.passable(&self.map[p]) {
                     return None;
@@ -1764,6 +1764,7 @@ impl World {
             // the conservative question.
             StandRule::Building(pos) | StandRule::Entrance(pos) => can_stand_building(pos),
             StandRule::Exact(pos) => in_here(pos),
+            StandRule::Beside(pos) => can_stand_in((Footprint::single(pos), false)),
         };
         self.jobs.iter().filter(|j| j.claimed_by.is_none()).any(|job| {
             let Some(gate) = self.job_gate(i, job.kind, defs) else { return false };

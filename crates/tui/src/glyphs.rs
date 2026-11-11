@@ -261,7 +261,8 @@ pub fn terrain_key(terrain: Terrain) -> Option<&'static str> {
         Terrain::Coast => Some("coast"),
         Terrain::Land => None,
         Terrain::Mountain => Some("mountain"),
-        Terrain::River => Some("river"),
+        // A canal draws as a river until it gets a glyph of its own (#699).
+        Terrain::River | Terrain::Canal => Some("river"),
         Terrain::Lake => Some("lake"),
         Terrain::Ford => Some("ford"),
         Terrain::Tunnel => Some("tunnel"),
@@ -424,7 +425,7 @@ mod tests {
         let mapgen = |t| match t {
             Terrain::Water => '~',
             Terrain::Lake => '-',
-            Terrain::River => '=',
+            Terrain::River | Terrain::Canal => '=',
             Terrain::Ford => '+',
             Terrain::Coast => '.',
             Terrain::Mountain => '^',

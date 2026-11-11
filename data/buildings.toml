@@ -709,7 +709,7 @@ verb = "Build"
 work = 70.0
 passable = false
 footprint = [2, 2]
-beside = ["water", "river", "lake"]
+beside = ["water", "river", "lake", "canal"]
 [[building.cost]]
 item = "wood"
 count = 12
@@ -765,7 +765,7 @@ verb = "Build"
 work = 100.0
 passable = false
 footprint = [2, 2]
-beside = ["water", "river", "lake"]
+beside = ["water", "river", "lake", "canal"]
 [building.power]
 radius = 4
 boost = 1.5

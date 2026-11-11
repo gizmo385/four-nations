@@ -159,13 +159,26 @@ impl World {
     /// How many times faster than normal a farm plot on `pos` grows because an irrigation
     /// channel tends it: the best `growth_boost` among channels within their own `radius` of
     /// `pos`, else 1.0, the same way `tend_rate` layers onto an orchard's resting trees. Two
-    /// channels in reach of one plot don't stack.
+    /// channels in reach of one plot don't stack, and neither does a channel with a carved canal
+    /// (`canal_rate`, #695): the best of them all applies.
     pub(super) fn irrigation_rate(&self, pos: Pos, defs: &Defs) -> f32 {
         self.of_kind(Kind::Irrigation)
             .filter_map(|b| self.irrigation_def(b.anchor, defs).map(|d| (b.anchor, d)))
             .filter(|(c, d)| c.chebyshev(pos) <= d.radius as i32)
             .map(|(_, d)| d.growth_boost)
             .fold(1.0, f32::max)
+            .max(self.canal_rate(pos, defs))
+    }
+
+    /// The boost a carved canal gives the farm plot on `pos` (#695): `[canal]`'s `growth_boost`
+    /// when a canal tile is within `irrigation_radius` of it (Chebyshev), else 1.0. It is the
+    /// same reading as a channel's, so `irrigation_rate` takes the better of the two.
+    fn canal_rate(&self, pos: Pos, defs: &Defs) -> f32 {
+        let r = defs.canal.irrigation_radius as i32;
+        let near = (-r..=r)
+            .flat_map(|dy| (-r..=r).map(move |dx| Pos::new(pos.x + dx, pos.y + dy)))
+            .any(|q| self.map.get(q).is_some_and(|t| t.terrain == crate::Terrain::Canal));
+        if near { defs.canal.growth_boost } else { 1.0 }
     }
 
     /// How many times faster than its plain `grow_seconds` the crop on `pos` grows: the plot's
