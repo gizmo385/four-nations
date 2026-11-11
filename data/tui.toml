@@ -47,6 +47,15 @@ ascii = "^"
 fg = [175, 175, 182]
 bg = [52, 52, 58]
 
+# Water's Carve Canal (#695, #699): fresh water cut into the land. The river's wave in a lighter
+# blue on a lighter bed, so a channel reads apart from the river it was cut from; ASCII has no
+# second shade, so there it is the river's own `=`.
+[terrain.canal]
+glyph = "~"
+ascii = "="
+fg = [170, 226, 255]
+bg = [25, 74, 126]
+
 # A passage bored through a mountain (Earth's Bore Tunnel, #132): an arch on darker rock.
 [terrain.tunnel]
 glyph = "∩"
@@ -474,6 +483,34 @@ glyph = "☺"
 ascii = "@"
 lift = 0.4
 master_lift = 0.75
+
+# A beast (docs/design/horizons-phase-2.md, "Beasts", #699): one entry per `data/beasts.toml` id,
+# which the tests check, so a new beast's row only needs its look here. A beast draws in its own
+# colour, never a nation's, and bold like every unit; the selected one is in reverse video.
+[beast.sky_bison]
+glyph = "ß"
+ascii = "b"
+fg = [244, 232, 196]
+
+[beast.ostrich_horse]
+glyph = "ħ"
+ascii = "h"
+fg = [226, 184, 120]
+
+[beast.komodo_rhino]
+glyph = "ř"
+ascii = "r"
+fg = [240, 140, 96]
+
+[beast.buffalo_yak]
+glyph = "ŷ"
+ascii = "y"
+fg = [170, 214, 240]
+
+[beast.badgermole]
+glyph = "ɱ"
+ascii = "m"
+fg = [196, 160, 120]
 
 # The Avatar (#237, #242): always `@` in white, on the nation's accent instead of the tile's own
 # background, so he reads as a guest apart from every nation's own units.

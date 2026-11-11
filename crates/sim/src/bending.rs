@@ -348,6 +348,33 @@ pub struct AbilityDef {
     pub rank: Option<Rank>,
 }
 
+/// A `Reshape` that names a `source` (Carve Canal, #695), as a frontend reads it to say what the
+/// bend does without matching on [`Effect`] itself (`AbilityDef::cut`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cut<'a> {
+    /// The terrains it can cut into.
+    pub from: &'a [Terrain],
+    /// What the cut tile becomes.
+    pub to: Terrain,
+    /// What the target must touch.
+    pub source: &'a [Terrain],
+    /// It never reverts: no `revert_minutes`.
+    pub permanent: bool,
+}
+
+impl AbilityDef {
+    /// The cut this ability makes, if its effect is a `Reshape` with a `source`: `None` for every
+    /// other ability.
+    pub fn cut(&self) -> Option<Cut<'_>> {
+        match &self.effect {
+            Effect::Reshape { from, to, revert_minutes, source } if !source.is_empty() => {
+                Some(Cut { from, to: *to, source, permanent: revert_minutes.is_none() })
+            }
+            _ => None,
+        }
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum RawEffect {

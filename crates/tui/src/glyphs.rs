@@ -237,6 +237,9 @@ pub struct Glyphs {
     pub resource: BTreeMap<String, Look>,
     pub item: BTreeMap<String, Look>,
     pub building: BTreeMap<String, Look>,
+    /// How each beast draws (#699), by its id in `data/beasts.toml`: the tests fail if a row
+    /// there has no entry here.
+    pub beast: BTreeMap<String, OverlayGlyph>,
     pub rail_track: RailLinks,
     pub unit: UnitLook,
     /// The Avatar's own look (#237, #242): always `@`, white, drawn on the nation's accent
@@ -261,8 +264,8 @@ pub fn terrain_key(terrain: Terrain) -> Option<&'static str> {
         Terrain::Coast => Some("coast"),
         Terrain::Land => None,
         Terrain::Mountain => Some("mountain"),
-        // A canal draws as a river until it gets a glyph of its own (#699).
-        Terrain::River | Terrain::Canal => Some("river"),
+        Terrain::River => Some("river"),
+        Terrain::Canal => Some("canal"),
         Terrain::Lake => Some("lake"),
         Terrain::Ford => Some("ford"),
         Terrain::Tunnel => Some("tunnel"),
@@ -270,11 +273,12 @@ pub fn terrain_key(terrain: Terrain) -> Option<&'static str> {
 }
 
 /// Every terrain kind that has a `[terrain.*]` entry.
-pub const TERRAINS: [Terrain; 7] = [
+pub const TERRAINS: [Terrain; 8] = [
     Terrain::Water,
     Terrain::Coast,
     Terrain::Mountain,
     Terrain::River,
+    Terrain::Canal,
     Terrain::Lake,
     Terrain::Ford,
     Terrain::Tunnel,
@@ -293,6 +297,11 @@ impl Glyphs {
 
     pub fn terrain(&self, terrain: Terrain) -> Option<&Look> {
         self.terrain.get(terrain_key(terrain)?)
+    }
+
+    /// The look of the beast whose row is `id` in `data/beasts.toml`.
+    pub fn beast(&self, id: &str) -> &OverlayGlyph {
+        self.beast.get(id).unwrap_or_else(|| panic!("beast {id} has no look (tested)"))
     }
 }
 
@@ -320,6 +329,9 @@ mod tests {
             .collect();
         out.push(("unit".into(), g.unit.glyph, g.unit.ascii));
         out.push(("avatar".into(), g.avatar.glyph, g.avatar.ascii));
+        for (id, look) in &g.beast {
+            out.push((format!("beast.{id}"), look.glyph, look.ascii));
+        }
         out.push(("overlay.flame".into(), g.overlay.flame.glyph, g.overlay.flame.ascii));
         out.push(("overlay.sapling".into(), g.overlay.sapling.glyph, g.overlay.sapling.ascii));
         out.push((
@@ -374,6 +386,18 @@ mod tests {
         assert_eq!(keys(&g.resource), want(defs.resources.iter().map(|r| r.id.as_str()).collect()));
         assert_eq!(keys(&g.item), want(defs.items.iter().map(|i| i.id.as_str()).collect()));
         assert_eq!(keys(&g.building), want(defs.buildings.iter().map(|b| b.id.as_str()).collect()));
+        assert_eq!(keys(&g.beast), want(defs.beasts.iter().map(|b| b.id.as_str()).collect()));
+    }
+
+    /// A canal is told apart from the river it is cut from by its own glyph or tint (#699): in
+    /// Unicode its colours differ from the river's, and in ASCII both are the mapgen's `=`.
+    #[test]
+    fn a_canal_has_a_look_of_its_own() {
+        let g = Glyphs::bundled();
+        let (canal, river) =
+            (g.terrain(Terrain::Canal).unwrap(), g.terrain(Terrain::River).unwrap());
+        assert_ne!((canal.fg, canal.bg), (river.fg, river.bg));
+        assert_eq!(canal.ascii, river.ascii);
     }
 
     /// Every stage of the endeavor (#242, `data/endeavor.toml`) has its own `[gate_stage.*]`

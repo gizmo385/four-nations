@@ -12,6 +12,12 @@
 //!   power source under the cursor, or one the Build tool is placing (#428, #429) > terrain or
 //!   biome.
 //!
+//! **Beasts** (#699, docs/design/horizons-phase-2.md, "Beasts"): a beast is a unit that is not a
+//! person, so it draws as its own glyph and colour (`[beast.*]` in `data/tui.toml`, one entry per
+//! row of `data/beasts.toml`) rather than the nation's unit look. A settler on the same tile
+//! draws over it, unless the beast is the one selected. A canal draws as the river does but in
+//! its own lighter blue (`[terrain.canal]`).
+//!
 //! A building or a site covers its whole footprint (#196, docs/design/buildings.md, "TUI"), so a
 //! 2x2 forge is a 2x2 block of its glyph, and so is its ghost.
 //!
@@ -47,12 +53,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use fn_sim::beast::BeastId;
 use fn_sim::bending::AbilityId;
 use fn_sim::building::BuildingId;
 use fn_sim::defs::{BiomeId, ResourceId};
 use fn_sim::geom::Footprint;
 use fn_sim::jobs::{ItemId, Stack};
-use fn_sim::world::{BendOutcome, Event, Moved, PlotStage, TICKS_PER_SECOND};
+use fn_sim::world::{BendOutcome, Event, Moved, PlotStage, TICKS_PER_SECOND, Unit};
 use fn_sim::{Defs, Nation, Pos, Terrain};
 use fn_ui::build::Placement;
 use fn_ui::{Session, Tool};
@@ -149,6 +156,12 @@ pub struct Overlays {
     /// draws there (#248): where more than one unit shares a tile, the selected one wins if
     /// it's among them, else whichever `World::units` lists last.
     units: BTreeMap<Pos, Nation>,
+    /// Every tile with a beast standing on it (#699), which beast it is. Beasts aren't in
+    /// `units`: a settler sharing the tile draws over a beast, unless the beast is the selected
+    /// unit.
+    beasts: BTreeMap<Pos, BeastId>,
+    /// Whether the selected unit is a beast, so `selected` marks a beast and not a settler.
+    selected_beast: bool,
     /// Tiles with a unit holding `Rank::Master` standing on it (#360, #361, `World::rank_of`),
     /// the subset of `units` drawn in a brighter shade apart from its own nation's rank and
     /// file (`thing_look`). The Avatar never counts: he draws as `@` regardless.
@@ -222,18 +235,27 @@ impl Overlays {
                 let mut units: BTreeMap<Pos, Nation> = world
                     .units
                     .iter()
-                    .filter(|u| u.inside().is_none())
+                    .filter(|u| u.inside().is_none() && !u.is_beast())
                     .map(|u| (u.pos, world.nation_of(u)))
                     .collect();
-                if let Some(sel) = ui.selected_unit(session).filter(|u| u.inside().is_none()) {
+                if let Some(sel) =
+                    ui.selected_unit(session).filter(|u| u.inside().is_none() && !u.is_beast())
+                {
                     units.insert(sel.pos, world.nation_of(sel));
                 }
                 units
             },
+            beasts: world
+                .units
+                .iter()
+                .filter(|u| u.inside().is_none())
+                .filter_map(|u| u.beast.map(|b| (u.pos, b.id)))
+                .collect(),
+            selected_beast: ui.selected_unit(session).is_some_and(Unit::is_beast),
             masters: world
                 .units
                 .iter()
-                .filter(|u| u.inside().is_none() && !u.is_avatar())
+                .filter(|u| u.inside().is_none() && !u.is_avatar() && !u.is_beast())
                 .filter(|u| world.rank_of(u, defs).rank == fn_sim::bending::Rank::Master)
                 .map(|u| u.pos)
                 .collect(),
@@ -491,6 +513,12 @@ pub enum Thing {
         selected: bool,
         master: bool,
     },
+    /// A beast (#699), by its row in `data/beasts.toml`; `selected` if it's the panel's own
+    /// unit. It draws in its own look, not a nation's.
+    Beast {
+        beast: BeastId,
+        selected: bool,
+    },
     /// The Build tool's ghost for `building` (#212): green if it fits here, red if something is
     /// in the way. Without colour a blocked ghost falls through to the next case instead
     /// (`cell_look` only ever returns this when `free`, or the palette has colour).
@@ -610,10 +638,15 @@ pub fn cell_look(
     // What's on top, top to bottom.
     let thing = if over.avatar == Some(pos) {
         Thing::Avatar { selected: over.selected == Some(pos) }
+    } else if let Some(&beast) = over.beasts.get(&pos).filter(|_| {
+        // A settler on the same tile draws over a beast, unless the beast is the one selected.
+        !over.units.contains_key(&pos) || (over.selected_beast && over.selected == Some(pos))
+    }) {
+        Thing::Beast { beast, selected: over.selected_beast && over.selected == Some(pos) }
     } else if let Some(&nation) = over.units.get(&pos) {
         Thing::Unit {
             nation,
-            selected: over.selected == Some(pos),
+            selected: over.selected == Some(pos) && !over.selected_beast,
             master: over.masters.contains(&pos),
         }
     } else if let Some(&(b, free)) =
@@ -766,6 +799,14 @@ fn thing_look(
                 palette.unit_rgb_for(defs, *nation)
             };
             (g.unit.glyph(ascii), fg)
+        }
+        Thing::Beast { beast, selected } => {
+            mods |= Modifier::BOLD;
+            if *selected {
+                mods |= Modifier::REVERSED;
+            }
+            let look = g.beast(&defs.beast(*beast).id);
+            (look.glyph(ascii), look.fg)
         }
         Thing::Ghost { building, .. } => {
             let look = &g.building[&defs.building(*building).id];

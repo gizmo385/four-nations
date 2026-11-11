@@ -316,6 +316,24 @@ impl Activity {
     }
 }
 
+/// The settlement's beasts (#699, `World::beasts`), for the Settlement glance's Beasts row.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct BeastCount {
+    /// Every beast in the settlement.
+    pub total: usize,
+    /// How many of them rest at home with an empty food bunker (`World::beast_hungry`).
+    pub hungry: usize,
+}
+
+/// How many beasts the settlement has and how many of them are hungry. `total` is 0 until a home
+/// building is finished, which hides the row.
+pub fn beast_count(session: &Session) -> BeastCount {
+    let (world, defs) = (&session.world, &session.defs);
+    let total = world.beasts().count();
+    let hungry = world.beasts().filter(|u| world.beast_hungry(u, defs)).count();
+    BeastCount { total, hungry }
+}
+
 /// Settlers grouped by task, in [`Activity::ALL`]'s fixed order; zero counts are left out, so the
 /// groups that show pack into a few rows (docs/design/side-panel.md "People: counts, not names").
 pub fn activity_counts(session: &Session) -> Vec<(Activity, usize)> {
