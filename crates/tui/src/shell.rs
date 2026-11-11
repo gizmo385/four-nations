@@ -66,6 +66,13 @@ pub struct Shell {
     /// [`Self::with_fast`] sets it (and the current game's, if there is one already);
     /// [`Self::start`] and `App::restart` apply it to every game that appears after.
     fast: bool,
+    /// The agent runs folder (#841): `main` resolves it (`$FN_AGENT_RUNS`, else
+    /// `~/fn-agent-runs`) and hands it in with [`Self::with_runs`]. With none, or with nothing in
+    /// it, the title screen has no Replays item.
+    runs: Option<PathBuf>,
+    /// Set when the title screen's Replays was chosen, until the loop takes it
+    /// ([`Self::take_replays`]) and opens the run browser on its own terminal.
+    replays_wanted: bool,
 }
 
 impl Shell {
@@ -83,6 +90,8 @@ impl Shell {
             defs,
             seed_hint,
             fast: false,
+            runs: None,
+            replays_wanted: false,
         }
     }
 
@@ -102,6 +111,8 @@ impl Shell {
             defs,
             seed_hint: 0,
             fast,
+            runs: None,
+            replays_wanted: false,
         }
     }
 
@@ -129,6 +140,8 @@ impl Shell {
             defs,
             seed_hint: 0,
             fast: false,
+            runs: None,
+            replays_wanted: false,
         }
     }
 
@@ -348,7 +361,34 @@ impl Shell {
     /// Leaves whatever is open for a fresh title screen.
     fn go_to_title(&mut self) {
         self.seed_hint = self.seed_hint.wrapping_add(1);
-        self.mode = Mode::Title(Box::new(TitleScreen::new(self.saves.as_deref(), self.seed_hint)));
+        self.mode = Mode::Title(Box::new(self.title_screen()));
+    }
+
+    /// A fresh title screen, with Replays shown if the runs folder has anything in it.
+    fn title_screen(&self) -> TitleScreen {
+        TitleScreen::new(self.saves.as_deref(), self.seed_hint)
+            .with_replays(self.runs.as_deref().is_some_and(crate::browser::has_runs))
+    }
+
+    /// Sets the agent runs folder (#841), the Replays item's target, and shows or hides the
+    /// item on a title screen already open.
+    pub fn with_runs(mut self, runs: Option<PathBuf>) -> Self {
+        self.runs = runs;
+        let replays = self.runs.as_deref().is_some_and(crate::browser::has_runs);
+        if let Mode::Title(title) = &mut self.mode {
+            title.set_replays(replays);
+        }
+        self
+    }
+
+    /// The runs folder to open in the run browser, once, after the title screen's Replays was
+    /// chosen (#841). The loop that owns the terminal opens it there and carries on with this
+    /// shell when the browser returns; nothing in the shell changes meanwhile.
+    pub fn take_replays(&mut self) -> Option<PathBuf> {
+        if !std::mem::take(&mut self.replays_wanted) {
+            return None;
+        }
+        self.runs.clone()
     }
 
     fn key_exit_prompt(&mut self, key: KeyEvent) {
@@ -366,6 +406,7 @@ impl Shell {
         match outcome {
             Outcome::None => {}
             Outcome::Quit => self.quit = true,
+            Outcome::Replays => self.replays_wanted = self.runs.is_some(),
             Outcome::Embark { seed, nation, size, mode, difficulty } => {
                 self.open_embark(seed, nation, size, mode, difficulty)
             }
@@ -408,7 +449,7 @@ impl Shell {
             embark::Outcome::None => {}
             embark::Outcome::Back => {
                 let Mode::Embark(screen) = &self.mode else { return };
-                let mut title = TitleScreen::new(self.saves.as_deref(), self.seed_hint);
+                let mut title = self.title_screen();
                 let size_idx = self
                     .defs
                     .embark

@@ -336,6 +336,13 @@ watcher above, and quitting the watcher comes back to the same row. The score is
 folder (never in `run.jsonl`), so the list opens at once and the cells fill in. `fn_tui --runs
 DIR --frame --keys SCRIPT` draws it headless, which is how the tests drive it.
 
+**From the title screen (#841).** `fn_tui` with no arguments has a Replays item between Load and
+Quit whenever the runs folder (`$FN_AGENT_RUNS`, else `~/fn-agent-runs`, resolved in `main.rs`)
+holds a run or a campaign. It opens the same browser on the same terminal
+(`browser::run_in`, nested the way the browser nests the watcher); `q` in the browser comes back
+to the title screen with the cursor still on Replays. The item is hidden in `--frame` output and
+on wasm32.
+
 **Campaigns in the browser (#585).** A hill-climb campaign folder is a row of its own, and `l`
 or Right opens the attempts under it (`crates/tui/src/runs/campaign.rs` reads the folder). An
 attempt's row has its live game (turns, cost, the score it played to) and its clean evaluation
