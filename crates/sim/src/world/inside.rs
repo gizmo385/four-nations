@@ -33,7 +33,11 @@ impl World {
     /// in it already.
     fn has_room(&self, anchor: Pos, defs: &Defs) -> bool {
         let Some(id) = self.building_at(anchor) else { return false };
-        let capacity = defs.building(id).capacity;
+        let def = defs.building(id);
+        // The seats an Archive adds to a hall in its reach (#709) are places inside too. A tech's
+        // seats (`writing`, #674) are not counted here: today they open jobs that wait at the
+        // door, and changing that moves every run's research (follow-up filed on #709).
+        let capacity = def.capacity + self.seats_for(id, anchor, defs) - self.seats_of(def);
         capacity > 0 && (self.occupants(anchor).count() as u32) < capacity
     }
 

@@ -22,10 +22,10 @@
 │    Farm Plot                    Earthworks x1.2,             Needs Carpentry,             Needs Writing              │
 │                                 Earth Tent                   Known on the road                                       │
 │                                                                                                                      │
-│                               · Herding                                                                              │
-│                                 Locked · 250 pts                                                                     │
-│                                 Needs Farming                                                                        │
-│                                                                                                                      │
+│                               · Herding                                                 · Archives                   │
+│                                 Locked · 250 pts                                          Locked · 500 pts           │
+│                                 Needs Farming                                             Needs Writing,             │
+│                                                                                           3 scrolls read             │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │

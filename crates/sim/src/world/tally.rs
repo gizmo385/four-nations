@@ -23,6 +23,10 @@ pub struct Tallies {
     /// Crops harvested from farm plots (`world/farm.rs`, #198): `harvest_count` each time a Reap
     /// job finishes.
     crops_harvested: u32,
+    /// Scroll copies the Archive has made (`world/archive.rs`, #709). Never counted as scrolls
+    /// read: a copy has no knowledge to give.
+    #[serde(default)]
+    scrolls_copied: u32,
 }
 
 impl Tallies {
@@ -42,6 +46,14 @@ impl Tallies {
 
     pub fn crops_harvested(&self) -> u32 {
         self.crops_harvested
+    }
+
+    pub fn scrolls_copied(&self) -> u32 {
+        self.scrolls_copied
+    }
+
+    pub(super) fn count_copy(&mut self) {
+        self.scrolls_copied = self.scrolls_copied.saturating_add(1);
     }
 
     pub(super) fn count_harvest(&mut self, item: ItemId, count: u32) {

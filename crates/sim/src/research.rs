@@ -512,6 +512,9 @@ pub enum ResearchError {
     /// the settlement doesn't meet yet. Holds the first one, reads `needs 3 scrolls read` or
     /// `needs Known on the road`.
     NotYet(Condition),
+    /// `Command::ClearResearch` with no finished Archive: clearing the target is only for
+    /// starting to scribe (#709).
+    NeedsArchive,
 }
 
 impl std::fmt::Display for ResearchError {
@@ -521,6 +524,7 @@ impl std::fmt::Display for ResearchError {
             Self::WrongNation => f.write_str("that tech belongs to another nation"),
             Self::AlreadyKnown => f.write_str("that tech is already known"),
             Self::NotYet(c) => write!(f, "needs {c}"),
+            Self::NeedsArchive => f.write_str("needs an Archive"),
         }
     }
 }
@@ -541,6 +545,11 @@ pub struct Research {
     /// these are merged into it on load, never written.
     #[serde(default, skip_serializing, rename = "log")]
     v3_log: Vec<TechCompleted>,
+    /// Knowledge the pool's cap trimmed while scribing was on, in milli-points
+    /// (docs/design/horizons-phase-3.md, "Scribing"; #709). `World::tick_scribing` turns it into
+    /// scroll copies, `copy_points` x 1000 at a time. Kept when the last Archive comes down.
+    #[serde(default)]
+    scribe_millis: u64,
 }
 
 impl Research {
@@ -550,7 +559,7 @@ impl Research {
         for t in &defs.nation(nation).starting_techs {
             known[t.0 as usize] = true;
         }
-        Self { known, pool_millis: 0, queue: Vec::new(), v3_log: Vec::new() }
+        Self { known, pool_millis: 0, queue: Vec::new(), v3_log: Vec::new(), scribe_millis: 0 }
     }
 
     /// Does this state cover exactly `defs`' techs, with a queue that names only real ones? False
@@ -601,6 +610,28 @@ impl Research {
     /// The research queue, front first.
     pub fn queue(&self) -> &[TechId] {
         &self.queue
+    }
+
+    /// Knowledge waiting to become scroll copies, in milli-points (#709).
+    pub fn scribe_millis(&self) -> u64 {
+        self.scribe_millis
+    }
+
+    /// Spends `millis` of `scribe_millis` on a copy. Only `World::tick_scribing` calls it, having
+    /// checked there is that much.
+    pub(crate) fn spend_scribe(&mut self, millis: u64) {
+        self.scribe_millis = self.scribe_millis.saturating_sub(millis);
+    }
+
+    /// Empties the queue (`Command::ClearResearch`). What the pool holds above
+    /// `idle_knowledge_cap` moves to `scribe_millis`, so nothing banked toward the dropped
+    /// target is lost (#709). The caller has checked there is an Archive.
+    pub(crate) fn clear_target(&mut self, defs: &Defs) {
+        self.queue.clear();
+        let cap = defs.research.idle_knowledge_cap_millis;
+        let over = self.pool_millis.saturating_sub(cap);
+        self.pool_millis -= over;
+        self.scribe_millis += over;
     }
 
     /// Whether a pre-v4 save's completions are still waiting for `World::upgrade_from_v3`.
@@ -681,8 +712,21 @@ impl Research {
     /// `cap_millis` so hours of it can't quietly bank toward several techs at once, the bug
     /// #284 fixed (an ancient scroll, `add_knowledge`, is a deliberate one-off reward and isn't
     /// capped this way). `research_cost` is the difficulty preset's knob (1.0 is identity, #294).
-    pub(crate) fn add_toward_target(&mut self, millis: u64, defs: &Defs, research_cost: f32) {
-        self.pool_millis = (self.pool_millis + millis).min(self.cap_millis(defs, research_cost));
+    /// With `scribing` on (`World::scribing_on`, #709) what the clamp trims goes to
+    /// `scribe_millis` instead of being lost; the pool's own arithmetic is the same either way.
+    pub(crate) fn add_toward_target(
+        &mut self,
+        millis: u64,
+        defs: &Defs,
+        research_cost: f32,
+        scribing: bool,
+    ) {
+        let total = self.pool_millis + millis;
+        let cap = self.cap_millis(defs, research_cost);
+        self.pool_millis = total.min(cap);
+        if scribing {
+            self.scribe_millis += total - self.pool_millis;
+        }
     }
 
     /// Marks `tech` known at once, skipping the queue and its cost. For tests that need a nation
@@ -706,8 +750,25 @@ impl Research {
     /// preset's knob, multiplying every tech's cost (1.0 is identity, #294).
     #[must_use = "the completions belong in the world's event log"]
     pub fn tick(&mut self, tick: u64, defs: &Defs, research_cost: f32) -> Vec<TechCompleted> {
+        self.tick_scribing(tick, defs, research_cost, false)
+    }
+
+    /// `tick`, with the passive trickle's overflow scribed when `scribing` is on (#709).
+    #[must_use = "the completions belong in the world's event log"]
+    pub(crate) fn tick_scribing(
+        &mut self,
+        tick: u64,
+        defs: &Defs,
+        research_cost: f32,
+        scribing: bool,
+    ) -> Vec<TechCompleted> {
         let mut done = Vec::new();
-        self.add_toward_target(defs.research.passive_millis_per_tick, defs, research_cost);
+        self.add_toward_target(
+            defs.research.passive_millis_per_tick,
+            defs,
+            research_cost,
+            scribing,
+        );
         while let Some(&front) = self.queue.first() {
             let cost = scaled_cost_millis(defs.tech(front).cost, research_cost);
             if cost > self.pool_millis {

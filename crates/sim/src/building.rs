@@ -493,6 +493,26 @@ impl PowerDef {
     }
 }
 
+/// The Archive (`[building.archive]`, docs/design/horizons-phase-3.md, "`archives`", #709): more
+/// seats for the study halls in reach, and the place idle knowledge is copied into scrolls
+/// (`world/archive.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArchiveDef {
+    /// The building whose seats it adds to. It has seats.
+    pub hall: BuildingId,
+    /// Seats added to each such building in reach. The best Archive in reach counts; two don't
+    /// stack.
+    pub seats: u32,
+    /// Chebyshev tiles, footprint to footprint, that count as in reach.
+    pub radius: u32,
+    /// The item a copy is.
+    pub copy_item: ItemId,
+    /// Idle knowledge points that make one copy. Not scaled by the difficulty preset.
+    pub copy_points: u32,
+    /// Scribing pauses while this many copies are in stores.
+    pub stock_limit: u32,
+}
+
 /// A building that charts the nearest lost ruin (`[building.chart]`, issue #402,
 /// docs/design/cartography.md): the Map Room. `world/chart.rs` runs it.
 #[derive(Debug, Clone, PartialEq)]
@@ -585,6 +605,8 @@ pub struct BuildingDef {
     /// Set if this is the Map Room (issue #402): its `seats` open `JobKind::Chart` jobs instead
     /// of Study ones (`world/chart.rs`).
     pub chart: Option<ChartDef>,
+    /// Set if this is an Archive (#709): seats for the halls in reach, and scribing.
+    pub archive: Option<ArchiveDef>,
     /// Whether this building's recipe batches (`world/forge.rs`) or study seats
     /// (`world/study.rs`) run faster while a power source is in reach (issue #428). Has no
     /// effect without a `recipe` or `seats`.
@@ -880,6 +902,17 @@ struct RawChart {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawArchive {
+    hall: String,
+    seats: u32,
+    radius: u32,
+    copy_item: String,
+    copy_points: u32,
+    stock_limit: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawBuilding {
     id: String,
     name: String,
@@ -909,6 +942,7 @@ struct RawBuilding {
     healing: Option<RawHealing>,
     power: Option<RawPower>,
     chart: Option<RawChart>,
+    archive: Option<RawArchive>,
     fuel: Option<RawFuel>,
     pickers: Option<RawPickers>,
     hothouse: Option<RawHothouse>,
@@ -967,6 +1001,10 @@ impl BuildingsFile {
     ) -> Result<Vec<BuildingDef>, DefsError> {
         let err = |msg: String| Err(DefsError(format!("buildings.toml: {msg}")));
         let mut buildings: Vec<BuildingDef> = Vec::new();
+        // Every building's id and seats, in file order (which is `BuildingId` order), so an
+        // archive may name a hall defined after it.
+        let halls: Vec<(String, u32)> =
+            self.building.iter().map(|b| (b.id.clone(), b.seats)).collect();
         for b in self.building {
             if buildings.iter().any(|d| d.id == b.id) {
                 return err(format!("duplicate building {}", b.id));
@@ -1141,6 +1179,10 @@ impl BuildingsFile {
                 None => None,
                 Some(c) => Some(resolve_chart(&b.id, c, resources)?),
             };
+            let archive = match &b.archive {
+                None => None,
+                Some(a) => Some(resolve_archive(&b.id, a, &halls, items)?),
+            };
             let fuel = match &b.fuel {
                 None => None,
                 Some(f) => Some(resolve_fuel(&b.id, f, items)?),
@@ -1264,6 +1306,7 @@ impl BuildingsFile {
                 healing,
                 power,
                 chart,
+                archive,
                 uses_power: b.uses_power,
                 names: b.names,
                 fuel,
@@ -1286,6 +1329,44 @@ impl BuildingsFile {
         link_upgrades(&mut buildings, techs)?;
         Ok(buildings)
     }
+}
+
+/// Checks a `[building.archive]`: `hall` names a building with seats, `copy_item` an item, and
+/// every number is positive (#709).
+fn resolve_archive(
+    building: &str,
+    a: &RawArchive,
+    halls: &[(String, u32)],
+    items: &[ItemDef],
+) -> Result<ArchiveDef, DefsError> {
+    let err =
+        |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: archive {msg}")));
+    let Some(hall) = halls.iter().position(|(id, _)| *id == a.hall) else {
+        return err(&format!("hall names unknown building {:?}", a.hall));
+    };
+    if halls[hall].1 == 0 {
+        return err(&format!("hall {:?} has no seats to add to", a.hall));
+    }
+    let Some(copy) = items.iter().position(|i| i.id == a.copy_item) else {
+        return err(&format!("copy_item names unknown item {:?}", a.copy_item));
+    };
+    if items[copy].knowledge.is_some() {
+        return err("copy_item must not be readable, or copies would be read back as knowledge");
+    }
+    if !(1..=8).contains(&a.seats) {
+        return err("seats must be 1 to 8");
+    }
+    if a.radius == 0 || a.copy_points == 0 || a.stock_limit == 0 {
+        return err("radius, copy_points and stock_limit must be above 0");
+    }
+    Ok(ArchiveDef {
+        hall: BuildingId(hall as u16),
+        seats: a.seats,
+        radius: a.radius,
+        copy_item: ItemId(copy as u16),
+        copy_points: a.copy_points,
+        stock_limit: a.stock_limit,
+    })
 }
 
 /// Checks a `[building.orchard]` and links its resource. That the resource is renewable is
@@ -2320,6 +2401,42 @@ mod tests {
         );
         files[3] = &research;
         Defs::from_files(files)
+    }
+
+    /// The bundled buildings file with `from` replaced by `to` (once, and it must be there).
+    fn with_buildings(from: &str, to: &str) -> Result<Defs, DefsError> {
+        let mut files = crate::defs::BUNDLED_FILES;
+        assert!(files[7].contains(from), "{from}");
+        let buildings = files[7].replacen(from, to, 1);
+        files[7] = &buildings;
+        Defs::from_files(files)
+    }
+
+    #[test]
+    fn the_bundled_archive_reaches_the_study_hall() {
+        let defs = Defs::bundled();
+        let a = defs.building(defs.building_id("archive").unwrap());
+        let a = a.archive.expect("the archive section");
+        assert_eq!(defs.building(a.hall).id, "study_hall");
+        assert_eq!(defs.item(a.copy_item).id, "scroll_copy");
+        assert_eq!((a.seats, a.radius, a.copy_points, a.stock_limit), (2, 6, 150, 12));
+        assert_eq!(defs.buildings.iter().filter(|b| b.archive.is_some()).count(), 1, "one archive");
+    }
+
+    #[test]
+    fn a_bad_archive_fails_to_load() {
+        let fails = |from: &str, to: &str, why: &str| {
+            let e = with_buildings(from, to).expect_err(to).0;
+            assert!(e.contains(why), "{to}: {e}");
+        };
+        fails("hall = \"study_hall\"", "hall = \"nope\"", "unknown building");
+        fails("hall = \"study_hall\"", "hall = \"bed\"", "no seats");
+        fails("copy_item = \"scroll_copy\"", "copy_item = \"nope\"", "unknown item");
+        fails("copy_item = \"scroll_copy\"", "copy_item = \"ancient_scroll\"", "readable");
+        fails("copy_points = 150", "copy_points = 0", "above 0");
+        fails("stock_limit = 12", "stock_limit = 0", "above 0");
+        fails("radius = 6", "radius = 0", "above 0");
+        fails("seats = 2\nradius = 6", "seats = 9\nradius = 6", "1 to 8");
     }
 
     #[test]

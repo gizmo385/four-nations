@@ -23,6 +23,7 @@ use crate::regions::Regions;
 use crate::research::{self, Research, ResearchError, TechId};
 use crate::rng::{self, SimRng};
 
+mod archive;
 mod avatar;
 mod balloon;
 mod beast;
@@ -998,7 +999,8 @@ impl World {
     pub fn tick(&mut self, defs: &Defs) {
         self.tick += 1;
         let research_cost = self.knobs(defs).research_cost;
-        let completed = self.research.tick(self.tick, defs, research_cost);
+        let scribing = self.scribing_on(defs);
+        let completed = self.research.tick_scribing(self.tick, defs, research_cost, scribing);
         if !completed.is_empty() {
             self.refresh_modifiers(defs);
             self.sync_seats(defs);
@@ -1006,6 +1008,7 @@ impl World {
         for c in completed {
             self.log_event(c);
         }
+        self.tick_scribing(defs);
         self.tick_needs(defs);
         self.tick_season(defs);
         self.tick_growth(defs);

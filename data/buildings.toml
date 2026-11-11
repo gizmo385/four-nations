@@ -1116,3 +1116,37 @@ count = 6
 [[building.cost]]
 item = "herbs"
 count = 4
+
+# --- The Archive (issue #709) ---
+# Unlocked by `archives` (docs/design/horizons-phase-3.md): adds `seats` to every study hall within
+# `radius` tiles (the best Archive in reach counts, two don't stack), and with nothing queued to
+# research, turns the knowledge that used to be trimmed into scroll copies for the caravans.
+[[building]]
+id = "archive"
+name = "Archive"
+verb = "Build"
+work = 120.0
+passable = false
+footprint = [2, 2]
+[building.archive]
+hall = "study_hall"
+seats = 2
+radius = 6
+copy_item = "scroll_copy"
+copy_points = 150
+stock_limit = 12
+[[building.cost]]
+item = "wood"
+count = 20
+[[building.cost]]
+item = "stone"
+count = 12
+[[building.cost]]
+item = "tool"
+count = 2
+
+[building.names]
+earth = "Hall of Records"
+fire = "Royal Archive"
+water = "Story Lodge"
+air = "Temple Archive"

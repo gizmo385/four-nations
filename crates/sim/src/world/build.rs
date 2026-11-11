@@ -274,13 +274,17 @@ impl World {
         }
         // A Map Room's seats open Chart jobs instead of Study ones (#402). Known upgrades
         // count from the start (`seats_of`).
-        let seats = self.seats_of(def);
+        let seats = self.seats_for(building, foot.anchor, defs);
         if def.chart.is_some() {
             self.open_chart_seats(foot.anchor, seats);
         } else {
             self.open_study_seats(foot.anchor, seats);
         }
         self.open_craft_jobs(foot.anchor, def);
+        // A new Archive adds seats to the halls in its reach (#709).
+        if def.archive.is_some() {
+            self.sync_seats(defs);
+        }
     }
 
     /// Moves what a solid building just finished on `foot` would bury: each unit on it steps to
