@@ -125,8 +125,8 @@ pub fn tech_depths(techs: &[TechDef]) -> Vec<usize> {
     depths
 }
 
-/// "Study x1.25, Workshop, Air Scooter" (every modifier, building, job and ability `id`
-/// unlocks), in that order. A tech that grants none of those outright still has a reason to
+/// "Study x1.25, Workshop, Academy +2 seats, Air Scooter" (every modifier, building, upgrade,
+/// job and ability `id` unlocks), in that order. A tech that grants none of those outright still has a reason to
 /// research (#338): naming the tech it is a prereq for ("Leads to Writing"), so the
 /// column never reads as a dead end while it's actually a stepping stone. Only a tech with
 /// neither -- truly nothing downstream wires up to yet, a content gap, not a display bug -- gets
@@ -148,6 +148,10 @@ pub fn unlock_summary(defs: &Defs, nation: Nation, id: TechId, def: &TechDef) ->
             .filter_map(|b| defs.building_id(b))
             .map(|b| defs.building(b).display_name(nation).to_owned()),
     );
+    parts.extend(def.unlocks.upgrades.iter().filter_map(|u| {
+        let b = defs.building(defs.building_id(&u.building)?);
+        Some(format!("{} +{} seats", b.display_name(nation), u.seats))
+    }));
     parts.extend(
         def.unlocks
             .jobs
@@ -313,7 +317,9 @@ mod tests {
         let defs = Defs::bundled();
         let writing = defs.tech_id("writing").unwrap();
         let summary = unlock_summary(&defs, Nation::Fire, writing, defs.tech(writing));
-        assert_eq!(summary, "Study x1.25");
+        // Its upgrade reads with the nation's own name for the hall.
+        let hall = defs.building(defs.building_id("study_hall").unwrap());
+        assert_eq!(summary, format!("Study x1.25, {} +2 seats", hall.display_name(Nation::Fire)));
         // Carpentry both multiplies construction and unlocks the Workshop (#369): a player
         // couldn't tell the building was there from the modifier alone (the issue's evidence).
         let carpentry = defs.tech_id("carpentry").unwrap();

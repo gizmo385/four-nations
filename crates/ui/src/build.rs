@@ -115,6 +115,18 @@ fn cost_text(session: &Session, def: &BuildingDef) -> String {
     parts.join(", ")
 }
 
+/// What `times` of a building cost together, as "12 Wood, 4 Stone (or brick)" ("free" for a
+/// building with no cost): [`cost_text`] without the size, for a rectangle of sites.
+pub fn cost_of(session: &Session, id: BuildingId, times: u32) -> String {
+    let def = session.defs.building(id);
+    let parts: Vec<String> = def
+        .cost
+        .iter()
+        .map(|c| format!("{} {}", c.count * times, cost_item_text(session, c.item)))
+        .collect();
+    if parts.is_empty() { "free".to_owned() } else { parts.join(", ") }
+}
+
 /// The anchor (top-left tile) of a `footprint`-sized building placed at the cursor: odd sizes
 /// centre on the cursor, even ones put it top-left of the middle, so a 2x2 grows down and to the
 /// right of the pointer instead of under it.

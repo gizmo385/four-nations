@@ -32,6 +32,54 @@ impl World {
         }
     }
 
+    /// The seats of the building covering `pos`: its def's `seats` plus every upgrade a known
+    /// tech adds (`BuildingDef::seat_upgrades`, `writing`'s +2, docs/design/horizons-phase-1.md).
+    /// 0 off a building.
+    pub fn seats_at(&self, pos: Pos, defs: &Defs) -> u32 {
+        let Some(def) = self.building_at(pos).map(|b| defs.building(b)) else { return 0 };
+        self.seats_of(def)
+    }
+
+    /// `seats_at` for a building def, for this settlement's research.
+    pub(super) fn seats_of(&self, def: &BuildingDef) -> u32 {
+        let extra: u32 = def
+            .seat_upgrades
+            .iter()
+            .filter(|(t, _)| self.research.is_known(*t))
+            .map(|&(_, n)| n)
+            .sum();
+        def.seats + extra
+    }
+
+    /// Opens the seats each finished hall is missing against `seats_at`: Study jobs, or Chart
+    /// jobs at a Map Room. Runs when a tech completes and after `load`, so learning `writing`,
+    /// or loading a save that already knows it, gives every standing hall its new seats. A
+    /// no-op when nothing was upgraded, since every hall opened its full count when it rose.
+    pub(crate) fn sync_seats(&mut self, defs: &Defs) {
+        let halls: Vec<(Pos, bool, u32)> = self
+            .buildings()
+            .map(|b| (b.anchor, defs.building(b.id)))
+            .filter(|(_, d)| d.seats > 0)
+            .map(|(anchor, d)| (anchor, d.chart.is_some(), self.seats_of(d)))
+            .collect();
+        for (anchor, chart, want) in halls {
+            let have = self
+                .jobs
+                .iter()
+                .filter(|j| match j.kind {
+                    JobKind::Study { pos } | JobKind::Chart { pos } => pos == anchor,
+                    _ => false,
+                })
+                .count() as u32;
+            let missing = want.saturating_sub(have);
+            if chart {
+                self.open_chart_seats(anchor, missing);
+            } else {
+                self.open_study_seats(anchor, missing);
+            }
+        }
+    }
+
     /// The door of the building anchored on `anchor`, with its flood cost: where a unit claiming
     /// or holding a seat there walks to, since seats are places inside (#227). `None` if the
     /// building is gone or its door isn't reachable.

@@ -119,6 +119,23 @@ pub struct Unlocks {
     /// Ids of abilities in `data/bending.toml` this tech unlocks.
     #[serde(default)]
     pub abilities: Vec<String>,
+    /// Properties of existing buildings this tech raises (`[[tech.unlocks.upgrades]]`,
+    /// docs/design/horizons-phase-1.md): checked and recorded on `BuildingDef::seat_upgrades`
+    /// once the buildings load.
+    #[serde(default)]
+    pub upgrades: Vec<Upgrade>,
+}
+
+/// One `[[tech.unlocks.upgrades]]` entry: a building and exactly one property to raise. `seats`
+/// is the only property so far, so it is required; a later property makes each optional and
+/// the loader checks that exactly one is set. Any other key fails to load.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Upgrade {
+    /// An id from `data/buildings.toml`.
+    pub building: String,
+    /// Added to the building's own `seats`: 1 to 8.
+    pub seats: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]

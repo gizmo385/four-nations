@@ -1339,3 +1339,138 @@ fn a_key_script_places_the_gate_and_the_frame_shows_its_site() {
     let block = after.chars().filter(|&c| c == '▦').count();
     assert!(block >= 8, "the Foundation's block on the map ({block} cells)\n{after}");
 }
+
+// ---- The Tool section (#657) -----------------------------------------------------------------
+
+/// The side panel's lines between the Tool heading (the one with `key`) and the next heading,
+/// without the frame, from a 120-wide frame.
+fn tool_section(frame: &str, key: &str) -> Vec<String> {
+    let panel: Vec<String> = frame
+        .lines()
+        .map(|l| {
+            let chars: Vec<char> = l.chars().collect();
+            chars[chars.len().saturating_sub(32)..].iter().collect()
+        })
+        .collect();
+    let start =
+        panel.iter().position(|l| l.contains(key)).unwrap_or_else(|| panic!("{key}\n{frame}"));
+    panel[start + 1..]
+        .iter()
+        .take_while(|l| !l.contains("├─ "))
+        .map(|l| l.trim_matches(|c| c == '│' || c == ' ').to_owned())
+        .collect()
+}
+
+/// The status line: the frame's last row.
+fn status_line(frame: &str) -> String {
+    frame.lines().last().unwrap_or_default().to_owned()
+}
+
+/// With any of the seven tools active, the Tool section says what the tool does, and the hint
+/// bar carries keys only.
+#[test]
+fn every_tool_section_says_what_the_tool_does_and_the_hint_bar_does_not() {
+    let tools = [
+        ("h", Tool::Harvest),
+        ("x", Tool::CancelHarvest),
+        ("e", Tool::Clear),
+        ("p", Tool::Stockpile),
+        ("b", Tool::Bend),
+        // `U` opens the picker; `Enter` there chooses and leaves the tool active.
+        ("u <enter>", Tool::Build),
+        ("c", Tool::Sow),
+    ];
+    for (keys, tool) in tools {
+        let mut a = app(7, Nation::Earth, SIZE);
+        run(&mut a, keys);
+        assert_eq!(a.ui.tool, tool);
+        let frame = text(&mut a, SIZE);
+        let section = tool_section(&frame, &format!("[{}]", tool.key())).join(" ");
+        let about = tool.about(&a.session);
+        assert!(section.contains(&about), "{tool:?}: {about:?} in {section:?}");
+        let status = status_line(&frame);
+        assert!(!status.contains(&about[..12]), "{tool:?}: keys only: {status}");
+        assert!(!status.contains('|'), "{status}");
+    }
+}
+
+/// While a corner is set the section gives the rectangle's size and what applying would mark,
+/// and after applying says what was marked, until the cursor moves or a new corner is set.
+#[test]
+fn the_section_previews_the_rectangle_then_says_what_was_marked() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "h <enter> <left*20> <up*8>");
+    let lines = tool_section(&text(&mut a, SIZE), "[H]").join("\n");
+    assert!(lines.contains("21 x 9 tiles"), "{lines}");
+    assert!(lines.contains("20 trees to chop"), "{lines}");
+    assert!(lines.contains("Standing order: off"), "{lines}");
+    assert!(!lines.contains("Marked"), "{lines}");
+
+    // The result is what the preview said.
+    let order = fn_ui::tools::Order {
+        tool: Tool::Harvest,
+        from: a.ui.anchor.unwrap(),
+        to: a.ui.cursor,
+        repeating: false,
+        teardown: false,
+        choice: None,
+    };
+    let report = fn_ui::tools::preview_order(&a.session, order);
+    run(&mut a, "<enter>");
+    let after = tool_section(&text(&mut a, SIZE), "[H]").join(" ");
+    assert!(after.contains("Marked 20 trees"), "{after}");
+    assert_eq!(report.summary(), a.ui.marked_now().unwrap());
+    assert!(!after.contains("x 9 tiles"), "{after}");
+
+    // The cursor moving takes the result away; so does a new corner.
+    run(&mut a, "<right>");
+    let moved = tool_section(&text(&mut a, SIZE), "[H]").join(" ");
+    assert!(!moved.contains("Marked"), "{moved}");
+    assert!(moved.contains("Chop, mine or gather"), "{moved}");
+    run(&mut a, "<left> <enter>");
+    let corner = tool_section(&text(&mut a, SIZE), "[H]").join(" ");
+    assert!(!corner.contains("Marked") && corner.contains("1 x 1 tiles"), "{corner}");
+}
+
+/// Applying a rectangle with nothing for the tool says so, with the sim's reason.
+#[test]
+fn a_rectangle_with_nothing_in_it_says_nothing_was_marked() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "h <enter> <enter>");
+    let section = tool_section(&text(&mut a, SIZE), "[H]").join(" ");
+    assert!(section.contains("Nothing marked:"), "{section}");
+}
+
+/// A tool's toggles show their state as a row.
+#[test]
+fn the_toggles_show_their_state() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "h");
+    assert!(tool_section(&text(&mut a, SIZE), "[H]").iter().any(|l| l == "Standing order: off"));
+    run(&mut a, "o");
+    let frame = text(&mut a, SIZE);
+    assert!(tool_section(&frame, "[H]").iter().any(|l| l == "Standing order: on"), "{frame}");
+
+    run(&mut a, "x");
+    let cancel = tool_section(&text(&mut a, SIZE), "[X]").join(" ");
+    assert!(cancel.contains("Also sites, stockpiles: off"), "{cancel}");
+    run(&mut a, "o");
+    let cancel = tool_section(&text(&mut a, SIZE), "[X]").join(" ");
+    assert!(cancel.contains("Also sites, stockpiles: on"), "{cancel}");
+}
+
+/// A short panel keeps what the tool does and gives the inspector's rows up first, so Build's
+/// "Can build here" line still has its place.
+#[test]
+fn a_short_panel_keeps_the_tool_section_and_the_inspector_gives_way() {
+    let mut a = app(7, Nation::Earth, SMALL);
+    run(&mut a, "u <enter> <right*3>");
+    let frame = text(&mut a, SMALL);
+    let section = tool_section(&frame, "[U]").join(" ");
+    assert!(section.contains("Place the chosen building"), "{section}");
+    let all = headings(&frame, false);
+    let (y, last) = all.last().unwrap();
+    assert!(last.contains('('), "the inspector heading names the cursor: {last}");
+    let below: Vec<&str> = frame.lines().skip(y + 1).take(3).collect();
+    assert!(below.iter().any(|l| l.contains("build here")), "{frame}");
+}

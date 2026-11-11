@@ -107,8 +107,7 @@ fn no_mastery_text_carries_a_short_code_or_a_count_past_its_target() {
             }
             assert!(!line.contains("of 5 bends") || bends < 5, "{line}");
             assert!(!line.contains("of 2 forms") || forms < 2, "{line}");
-            let cells = text::mastery_cells(progress, 10, 3);
-            check("the mastery cells", &cells);
+            check("the bending words", &text::bending_words("Student", bends));
         }
     }
 }

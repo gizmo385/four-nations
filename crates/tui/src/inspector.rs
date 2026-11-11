@@ -144,23 +144,39 @@ impl Inspector {
     /// groups; a short panel loses the blanks first, then whole groups from the bottom, then (if
     /// even the first group is too long) rows from its bottom.
     pub fn fitted(&self, rows: usize) -> Fitted {
-        let mut blocks: Vec<&Vec<Row>> = self.blocks.iter().filter(|b| !b.is_empty()).collect();
-        let len = |bs: &[&Vec<Row>]| bs.iter().map(|b| b.len()).sum::<usize>();
-        while blocks.len() > self.keep.max(1) && len(&blocks) > rows {
-            blocks.pop();
-        }
-        let spare = rows.saturating_sub(len(&blocks));
-        let gaps = blocks.len().saturating_sub(1).min(spare);
-        let mut out: Vec<Row> = Vec::new();
-        for (i, b) in blocks.iter().enumerate() {
-            if i > 0 && i <= gaps {
-                out.push(Row::text("", Tone::Text));
-            }
-            out.extend(b.iter().cloned());
-        }
-        out.truncate(rows);
-        Fitted { title: self.title.clone(), right: self.right.clone(), rows: out }
+        let rows = fit_blocks(&self.blocks, self.keep, rows);
+        Fitted { title: self.title.clone(), right: self.right.clone(), rows }
     }
+
+    /// How many body rows it keeps while a tool is active: the Tool section has first call on
+    /// the panel's rows then (#657), so the inspector is left one, which for the Build tool is
+    /// the start of its "Can build here" line.
+    pub fn floor_under_tool(&self) -> usize {
+        self.floor.min(1)
+    }
+}
+
+/// At most `rows` rows of `blocks`, groups of rows with a blank row between neighbours when
+/// there is room: spare rows become blanks, a short panel loses the blanks first, then whole
+/// groups from the bottom (never one of the first `keep`), then (if even those are too long)
+/// rows from the bottom of what is left. Shared by the inspector and the Tool section (#657).
+pub fn fit_blocks(blocks: &[Vec<Row>], keep: usize, rows: usize) -> Vec<Row> {
+    let mut blocks: Vec<&Vec<Row>> = blocks.iter().filter(|b| !b.is_empty()).collect();
+    let len = |bs: &[&Vec<Row>]| bs.iter().map(|b| b.len()).sum::<usize>();
+    while blocks.len() > keep.max(1) && len(&blocks) > rows {
+        blocks.pop();
+    }
+    let spare = rows.saturating_sub(len(&blocks));
+    let gaps = blocks.len().saturating_sub(1).min(spare);
+    let mut out: Vec<Row> = Vec::new();
+    for (i, b) in blocks.iter().enumerate() {
+        if i > 0 && i <= gaps {
+            out.push(Row::text("", Tone::Text));
+        }
+        out.extend(b.iter().cloned());
+    }
+    out.truncate(rows);
+    out
 }
 
 /// The inspector for the current selection, cursor and tool, with rows `width` cells wide.
@@ -198,15 +214,21 @@ fn task_tone(is_avatar: bool, task: Option<Task>) -> Tone {
     if is_avatar && task == Some(Task::Rite) { Tone::Avatar } else { Tone::Text }
 }
 
-/// A selected settler: the old selection bar's rows (task, carrying, meters, rank progress and
-/// the tile) as the inspector's groups.
-fn settler_inspector(session: &Session, unit: &Unit, width: usize, marks: &Marks) -> Inspector {
+/// What the inspector says about `unit`, and the Nation screen's detail strip too (#660): the
+/// plain `unit_view`, except that while the unit channels a bend its task line names the ability
+/// and the time left (#278).
+pub fn settler_view(session: &Session, unit: &Unit) -> UnitView {
     let mut view = unit_view(session, unit);
-    // While the unit channels a bend, the task line names the ability and the time left (#278),
-    // in place of the plain task `unit_view` gives every other frontend.
     if let Some(text) = crate::panel::channel_text(session, unit) {
         view.task = text;
     }
+    view
+}
+
+/// A selected settler: the old selection bar's rows (task, carrying, meters, rank progress and
+/// the tile) as the inspector's groups.
+fn settler_inspector(session: &Session, unit: &Unit, width: usize, marks: &Marks) -> Inspector {
+    let view = settler_view(session, unit);
     let paragraph = |text: &str, tone: Tone| -> Vec<Row> {
         wrap(text, width, WRAP_LINES, marks.ellipsis)
             .into_iter()

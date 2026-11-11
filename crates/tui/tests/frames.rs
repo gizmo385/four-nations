@@ -420,7 +420,9 @@ fn the_panel_and_the_status_line_show_the_tool_its_hint_and_the_result() {
 
     app.play(&keys::parse("<enter>").unwrap());
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
-    assert!(text.contains("done"), "the result is in the Tool section:\n{text}");
+    let marked = app.ui.marked_now().expect("the result is the news until the cursor moves");
+    assert!(text.contains("arked"), "the result is in the Tool section:\n{text}");
+    assert!(marked.starts_with("Marked ") || marked.starts_with("Nothing marked"), "{marked}");
     assert!(text.contains("Enter: set a corner"));
 }
 
@@ -828,8 +830,14 @@ fn mid_drag_the_tool_heading_and_the_cursor_section_show() {
 fn after_the_rectangle_is_applied_the_tool_section_reports_it() {
     let mut app = play(HARVEST_SCRIPT);
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
-    assert!(text.contains("designate harvest (chop,"), "{text}");
-    assert!(text.contains("done,") && text.contains("skipped (nothing to harvest)"), "{text}");
+    // The Tool section says what was marked; the one-line notice is still the log's and the
+    // agent's.
+    assert!(text.contains("Chop, mine or gather"), "{text}");
+    let marked = app.ui.marked_now().expect("the result is the news until the cursor moves");
+    assert!(marked.starts_with("Marked "), "{marked}");
+    assert!(text.contains(&marked[..marked.len().min(20)]), "{marked} in\n{text}");
+    assert!(app.ui.notice.contains("done,"), "{}", app.ui.notice);
+    assert!(app.ui.notice.contains("skipped (nothing to harvest)"), "{}", app.ui.notice);
 }
 
 /// Harvests up to `n` of the workable resources nearest the first settler, so there is wood
@@ -887,7 +895,8 @@ fn a_build_site_then_the_finished_building_read_in_the_inspector() {
     assert!(app.session.world.build_site(site).is_some(), "a site should be designated");
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
     assert!(text.contains("├─ BUILD ──"), "{text}");
-    assert!(text.contains("build Bed: 1 done, 0 skipped"), "{text}");
+    assert!(text.contains("Marked 1 site."), "{text}");
+    assert_eq!(app.ui.notice, "build Bed: 1 done, 0 skipped");
     assert!(text.contains("├─ BED (UNDER CONSTRUCTION) ─"), "the inspector's heading:\n{text}");
     assert!(text.contains("Materials: 0/5 Wood"), "{text}");
     assert!(text.contains("Work: 0s of 20s"), "{text}");

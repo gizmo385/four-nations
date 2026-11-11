@@ -442,6 +442,10 @@ pub struct BuildingDef {
     /// needs fuel.
     pub fuel: Option<FuelDef>,
     pub unlocked_by: Option<TechId>,
+    /// Seats added by techs (`[[tech.unlocks.upgrades]]`, docs/design/horizons-phase-1.md), each
+    /// with the tech that adds them, in tech order. At most one tech per building, today, but a
+    /// list keeps `World::seats_at` honest if a second property shares the mechanism.
+    pub seat_upgrades: Vec<(TechId, u32)>,
     /// The end game's great work (#236): hidden from the build picker and refused by
     /// `Command::DesignateBuild`. `data/endeavor.toml` names it and holds its stages.
     pub endeavor: bool,
@@ -869,11 +873,13 @@ impl BuildingsFile {
                 names: b.names,
                 fuel,
                 unlocked_by: None,
+                seat_upgrades: Vec::new(),
                 endeavor: b.endeavor,
                 beside: b.beside,
             });
         }
         link_unlocks(&mut buildings, techs)?;
+        link_upgrades(&mut buildings, techs)?;
         Ok(buildings)
     }
 }
@@ -1131,6 +1137,42 @@ fn link_unlocks(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(), 
                 };
             }
             b.unlocked_by = Some(TechId(t as u16));
+        }
+    }
+    Ok(())
+}
+
+/// Resolves every tech's `unlocks.upgrades` into `BuildingDef::seat_upgrades`. Runs after
+/// `link_unlocks`, so a building's `unlocked_by` is known: a nation tech may only upgrade a
+/// building its own nation can reach.
+fn link_upgrades(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(), DefsError> {
+    for (t, tech) in techs.iter().enumerate() {
+        let err =
+            |msg: String| Err(DefsError(format!("tech {}: unlocks.upgrades: {msg}", tech.id)));
+        for up in &tech.unlocks.upgrades {
+            let name = &up.building;
+            let Some(b) = buildings.iter_mut().find(|b| b.id == *name) else {
+                return err(format!("unknown building {name:?}"));
+            };
+            if b.seats == 0 {
+                return err(format!("{name:?} has no seats to add to"));
+            }
+            if !(1..=8).contains(&up.seats) {
+                return err(format!("seats = {} must be 1 to 8", up.seats));
+            }
+            if let Some(n) = tech.nation {
+                let reach = b.unlocked_by.map(|u| techs[u.0 as usize].nation);
+                if matches!(reach, Some(Some(other)) if other != n) {
+                    return err(format!("{name:?} is another nation's building"));
+                }
+            }
+            if let Some(&(other, _)) = b.seat_upgrades.first() {
+                return err(format!(
+                    "{name:?} seats are already upgraded by {:?}; a property has one tech",
+                    techs[other.0 as usize].id
+                ));
+            }
+            b.seat_upgrades.push((TechId(t as u16), up.seats));
         }
     }
     Ok(())
@@ -1546,11 +1588,12 @@ mod tests {
 
     fn resolve(toml: &str) -> Result<Vec<BuildingDef>, DefsError> {
         let defs = Defs::bundled();
-        // The bundled techs unlock the bundled buildings, which these small fixtures don't
-        // define, so resolve them against a tree that unlocks no buildings.
+        // The bundled techs unlock and upgrade the bundled buildings, which these small fixtures
+        // don't define, so resolve them against a tree that unlocks and upgrades none.
         let mut techs = defs.techs.clone();
         for t in &mut techs {
             t.unlocks.buildings.clear();
+            t.unlocks.upgrades.clear();
         }
         toml::from_str::<BuildingsFile>(toml).unwrap().resolve(
             &defs.items,
@@ -1671,5 +1714,85 @@ mod tests {
         assert!(two.unwrap_err().0.contains("one tech"));
         let twice = load(&tech("a", "['bed', 'bed']"));
         assert!(twice.unwrap_err().0.contains("listed twice"));
+    }
+    /// The bundled files with `[[tech.unlocks.upgrades]]` `entry` on a new tech, appended
+    /// (`nation` set or not), and `writing`'s own upgrade removed so it can't collide.
+    fn with_upgrade(nation: Option<&str>, entry: &str) -> Result<Defs, DefsError> {
+        let mut files = crate::defs::BUNDLED_FILES;
+        let base =
+            files[3].replace("[[tech.unlocks.upgrades]]\nbuilding = \"study_hall\"\nseats = 2", "");
+        let nation = nation.map(|n| format!("nation = \"{n}\"\n")).unwrap_or_default();
+        let research = format!(
+            "{base}\n[[tech]]\nid = \"t\"\nname = \"T\"\ndescription = \"\"\n{nation}cost = 10\n\
+             [[tech.unlocks.upgrades]]\n{entry}\n"
+        );
+        files[3] = &research;
+        Defs::from_files(files)
+    }
+
+    #[test]
+    fn an_upgrade_adds_seats_to_a_building_that_has_them() {
+        let defs = with_upgrade(None, "building = \"study_hall\"\nseats = 3").unwrap();
+        let hall = defs.building(defs.building_id("study_hall").unwrap());
+        assert_eq!(hall.seat_upgrades, [(defs.tech_id("t").unwrap(), 3)]);
+        // The bundled data: writing gives the hall +2, and nothing else is upgraded.
+        let defs = Defs::bundled();
+        let writing = defs.tech_id("writing").unwrap();
+        let hall = defs.building(defs.building_id("study_hall").unwrap());
+        assert_eq!(hall.seat_upgrades, [(writing, 2)]);
+        let upgraded = defs.buildings.iter().filter(|b| !b.seat_upgrades.is_empty()).count();
+        assert_eq!(upgraded, 1);
+    }
+
+    #[test]
+    fn bad_upgrades_fail_to_load() {
+        let fails = |nation: Option<&str>, entry: &str, why: &str| {
+            let e = with_upgrade(nation, entry).expect_err(entry).0;
+            assert!(e.contains(why), "{entry}: {e}");
+        };
+        fails(None, "building = \"nope\"\nseats = 2", "unknown building");
+        fails(None, "building = \"bed\"\nseats = 2", "no seats");
+        fails(None, "building = \"study_hall\"\nseats = 0", "1 to 8");
+        fails(None, "building = \"study_hall\"\nseats = 9", "1 to 8");
+        fails(None, "building = \"study_hall\"\ncapacity = 2", "capacity");
+        fails(None, "building = \"study_hall\"", "seats");
+        // Each (building, property) pair has one tech: writing's own upgrade is back here.
+        let mut files = crate::defs::BUNDLED_FILES;
+        let research = format!(
+            "{}\n[[tech]]\nid = \"t\"\nname = \"T\"\ndescription = \"\"\ncost = 10\n\
+             [[tech.unlocks.upgrades]]\nbuilding = \"study_hall\"\nseats = 1\n",
+            files[3]
+        );
+        files[3] = &research;
+        let e = Defs::from_files(files).expect_err("two techs").0;
+        assert!(e.contains("already upgraded by \"writing\""), "{e}");
+    }
+
+    #[test]
+    fn a_nation_tech_only_upgrades_a_building_its_nation_reaches() {
+        // A seated building on Fire's branch, upgraded by an Air tech.
+        let mut files = crate::defs::BUNDLED_FILES;
+        let buildings = format!(
+            "{}\n[[building]]\nid = \"fire_hall\"\nname = \"F\"\nverb = \"Build\"\n\
+             work = 1.0\npassable = false\nseats = 1\n",
+            files[7]
+        );
+        let research = format!(
+            "{}\n[[tech]]\nid = \"f\"\nname = \"F\"\ndescription = \"\"\nnation = \"fire\"\n\
+             cost = 10\n[tech.unlocks]\nbuildings = [\"fire_hall\"]\n\
+             [[tech]]\nid = \"a\"\nname = \"A\"\ndescription = \"\"\nnation = \"{{n}}\"\n\
+             cost = 10\n[[tech.unlocks.upgrades]]\nbuilding = \"fire_hall\"\nseats = 1\n",
+            files[3]
+        );
+        files[7] = &buildings;
+        let air = research.replace("{n}", "air");
+        files[3] = &air;
+        let e = Defs::from_files(files).expect_err("air upgrades fire's").0;
+        assert!(e.contains("another nation's building"), "{e}");
+        let fire = research.replace("{n}", "fire");
+        files[3] = &fire;
+        Defs::from_files(files).expect("fire upgrades its own");
+        // A shared building is everyone's.
+        with_upgrade(Some("air"), "building = \"study_hall\"\nseats = 1").unwrap();
     }
 }

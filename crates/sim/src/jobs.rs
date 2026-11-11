@@ -47,6 +47,11 @@ pub struct HarvestDef {
     pub resource: ResourceId,
     /// What the designation is called ("Chop", "Quarry").
     pub verb: String,
+    /// What the resource is called after a count, for a tool's preview ("7 trees to chop"):
+    /// `noun` for one, `noun_many` for any other number. The resource's own name in lower case
+    /// and that with an `s` when the data names neither.
+    pub noun: String,
+    pub noun_many: String,
     pub item: ItemId,
     pub count: u32,
     /// In-game seconds of work at a modifier of 1.0.
@@ -163,6 +168,10 @@ struct RawItem {
 struct RawHarvest {
     resource: String,
     verb: String,
+    #[serde(default)]
+    noun: Option<String>,
+    #[serde(default)]
+    noun_many: Option<String>,
     item: String,
     count: u32,
     work: f32,
@@ -384,9 +393,13 @@ impl JobsFile {
                     Some(ClearDef { work: c.work, item, count: c.count.unwrap_or(0), risk: c.risk })
                 }
             };
+            let noun = h.noun.unwrap_or_else(|| resources[resource].name.to_lowercase());
+            let noun_many = h.noun_many.unwrap_or_else(|| format!("{noun}s"));
             harvests.push(HarvestDef {
                 resource: ResourceId(resource as u16),
                 verb: h.verb,
+                noun,
+                noun_many,
                 item: ItemId(item as u16),
                 count: h.count,
                 work: h.work,
@@ -660,6 +673,20 @@ mod tests {
         assert!(err.0.contains("risk"), "{err}");
     }
 
+    /// What a tool's preview calls a resource (#657): the data's own noun where it names one,
+    /// else the resource's name in lower case and with an "s".
+    #[test]
+    fn a_harvest_names_what_it_counts_as() {
+        let defs = load_jobs(JOBS).unwrap();
+        let noun = |resource: &str| {
+            let h = defs.harvest(defs.resource_id(resource).unwrap()).unwrap();
+            (h.noun.clone(), h.noun_many.clone())
+        };
+        assert_eq!(noun("oak_tree"), ("tree".to_owned(), "trees".to_owned()));
+        assert_eq!(noun("gold_vein"), ("rock".to_owned(), "rock".to_owned()));
+        assert_eq!(noun("fish_spot"), ("fishing spot".to_owned(), "fishing spots".to_owned()));
+    }
+
     /// `[harvest.clear]` (the Clear designation, `docs/design/clearing.md`, issue #411/#424):
     /// the bundled numbers, and validation (only on a harvest with `regrow`, `work` above 0,
     /// `item` known, `count` only with an `item`).
@@ -684,10 +711,10 @@ mod tests {
 
         // Only allowed on a harvest with `regrow`.
         let no_regrow = JOBS.replacen(
-            "resource = \"oak_tree\"\nverb = \"Chop\"\nitem = \"wood\"\ncount = 3\nwork = 8.0\n\
-             risk = 0.01\n",
-            "resource = \"oak_tree\"\nverb = \"Chop\"\nitem = \"wood\"\ncount = 3\nwork = 8.0\n\
-             risk = 0.01\n\n[harvest.clear]\nwork = 1.0\n",
+            "resource = \"oak_tree\"\nverb = \"Chop\"\nnoun = \"tree\"\nitem = \"wood\"\n\
+             count = 3\nwork = 8.0\nrisk = 0.01\n",
+            "resource = \"oak_tree\"\nverb = \"Chop\"\nnoun = \"tree\"\nitem = \"wood\"\n\
+             count = 3\nwork = 8.0\nrisk = 0.01\n\n[harvest.clear]\nwork = 1.0\n",
             1,
         );
         let err = load_jobs(&no_regrow).unwrap_err();

@@ -1,15 +1,10 @@
 ┏───────────────────────────────────────────────────── ◆ NATION ◆ ─────────────────────────────────────────────────────┓
-│ Earth Kingdom · seed 1 · 2 people                                                                  Day 1 · 5:00 left │
+│ Earth Kingdom · 2 people · seed 1                                                                  Day 1 · 5:00 left │
 │                                                                                                                      │
-│                                                        Hunger  Thirst  Energy  Health  Chi     Bends   Forms         │
+│   NAME  DOING                                                       HUNGER  THIRST  ENERGY  HEALTH  BENDING          │
 │ IDLE 2                                                                                                               │
-│ ▸ Juni Idle                                            █████   █████   █████   █████   █████   0/8     0/3           │
-│   Shen Idle                                            █████   █████   █████   █████   █████   0/8     0/3           │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
+│ ▸ Juni  Idle                                                        █████   █████   █████   █████   Student, 0 bends │
+│   Shen  Idle                                                        █████   █████   █████   █████   Student, 0 bends │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
@@ -36,5 +31,10 @@
 │                                                                                                                      │
 │ TRAITS                                                                                                               │
 │ Move speed x0.9  Carry capacity x1.3  Earthworks x2.5  Water work x0.9  Power generation x0.8  Construction x1.5     │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ Juni · Student                                                                          Enter: go to them on the map │
+│ Idle. Carrying nothing.                                                                                              │
+│ To adept: 0 of 4 bends, 0 of 2 forms.                                                                                │
+│                                                                                                                      │
 ┗──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┛
  NATION  Up/Down choose · Enter select · Esc or N close · PgUp/PgDn page                                  PAUSED ? keys
