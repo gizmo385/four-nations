@@ -448,8 +448,34 @@ impl BuildingDef {
     }
 }
 
+/// Taking a finished building down (`[deconstruct]` in data/buildings.toml, issue #342): how
+/// long the job takes and how much of the building's cost comes back.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DeconstructDef {
+    /// The share of each cost item dropped by the anchor when it comes down, rounded down per
+    /// item: 0.5 gives back 2 of a cost of 5. From 0.0 to 1.0.
+    pub refund: f32,
+    /// Seconds of work, as a share of the building's own `work` (at a `construction` modifier
+    /// of 1.0, as building it is). Above 0.0, at most 1.0.
+    pub work: f32,
+}
+
+impl DeconstructDef {
+    /// How many of a cost of `count` come back.
+    pub fn refund_of(&self, count: u32) -> u32 {
+        (count as f32 * self.refund).floor() as u32
+    }
+}
+
 /// The longest side a footprint may have, in tiles.
 const MAX_SIDE: u8 = 4;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawDeconstruct {
+    refund: f32,
+    work: f32,
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -597,10 +623,30 @@ struct RawBuilding {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct BuildingsFile {
+    /// Optional here so that the small fixtures in this module's tests can leave it out;
+    /// `Defs::from_toml` requires it (`BuildingsFile::deconstruct`).
+    #[serde(default)]
+    deconstruct: Option<RawDeconstruct>,
     building: Vec<RawBuilding>,
 }
 
 impl BuildingsFile {
+    /// The `[deconstruct]` table, checked (issue #342).
+    pub(crate) fn deconstruct(&self) -> Result<DeconstructDef, DefsError> {
+        let Some(d) = &self.deconstruct else {
+            return Err(DefsError("buildings.toml: missing the [deconstruct] table".into()));
+        };
+        if !(d.refund.is_finite() && (0.0..=1.0).contains(&d.refund)) {
+            return Err(DefsError("buildings.toml: deconstruct.refund must be 0.0 to 1.0".into()));
+        }
+        if !(d.work.is_finite() && d.work > 0.0 && d.work <= 1.0) {
+            return Err(DefsError(
+                "buildings.toml: deconstruct.work must be above 0.0 and at most 1.0".into(),
+            ));
+        }
+        Ok(DeconstructDef { refund: d.refund, work: d.work })
+    }
+
     /// Checks the data, links item names to ids, and records which tech unlocks each building.
     pub(crate) fn resolve(
         self,

@@ -280,7 +280,7 @@ impl World {
     /// tiles are cleared, the record and its index entries removed, and `map_changed` called.
     /// It decides no refunds (the record carries a craft batch's deliveries) and doesn't ask
     /// whether the building may go (the gate). Planted orchard trees stay: they are map
-    /// resources. Deconstruction (#342) is the caller.
+    /// resources. Deconstruction (`deconstruct.rs`, #342) is the caller.
     pub fn remove_building(&mut self, key: BuildingKey, defs: &Defs) -> Option<Building> {
         let (anchor, foot) = {
             let b = self.buildings.get(key)?;
@@ -293,7 +293,8 @@ impl World {
         }
         let at_anchor = |k: &JobKind| {
             matches!(k, JobKind::Study { pos } | JobKind::Chart { pos } | JobKind::Craft { pos }
-                | JobKind::Sow { pos } | JobKind::Reap { pos } if *pos == anchor)
+                | JobKind::Sow { pos } | JobKind::Reap { pos } | JobKind::Deconstruct { pos }
+                if *pos == anchor)
         };
         let ids: Vec<JobId> =
             self.jobs.iter().filter(|j| at_anchor(&j.kind)).map(|j| j.id).collect();
@@ -304,7 +305,8 @@ impl World {
                     | Task::Chart(id)
                     | Task::Craft(id)
                     | Task::Sow(id)
-                    | Task::Reap(id),
+                    | Task::Reap(id)
+                    | Task::Deconstruct(id),
                 ) if ids.contains(&id) => Some(id),
                 _ => None,
             };

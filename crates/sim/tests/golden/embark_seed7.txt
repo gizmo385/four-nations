@@ -1,8 +1,8 @@
 === default site: (94, 64) ===
 problem: none
 biomes: water 54%, plains 46%
-room: 4503 tiles, mainland: true
-water: Water, 0 steps
+room: 2070 tiles, mainland: true
+water: Lake, 0 steps
 wood: 49 (plenty)
 stone: 2 (scarce)
 food: 5 (scarce)
@@ -13,10 +13,10 @@ reasons: Stone is scarce; Food is scarce
 rough: false
 === near a buried gold seam: (98, 79) ===
 problem: none
-biomes: plains 58%, water 33%, mountain 8%, desert 0%
-room: 4503 tiles, mainland: true
-water: Water, 0 steps
-wood: 43 (plenty)
+biomes: plains 58%, water 33%, mountain 8%, desert 1%
+room: 2070 tiles, mainland: true
+water: Lake, 0 steps
+wood: 47 (plenty)
 stone: 4 (some)
 food: 4 (scarce)
 gold: 3 (some)

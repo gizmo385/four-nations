@@ -261,7 +261,8 @@ impl Activity {
             // panel row (#426).
             Some(Task::Harvest(_) | Task::Clear(_)) => Self::Harvest,
             Some(Task::Sow(_) | Task::Reap(_)) => Self::Farm,
-            Some(Task::Build(_)) => Self::Build,
+            // Taking a building down (#342) groups with putting one up.
+            Some(Task::Build(_) | Task::Deconstruct(_)) => Self::Build,
             Some(Task::Bend(_)) => Self::Bend,
             Some(Task::Craft(_)) => Self::Craft,
             // Charting (#402) groups with studying until the Map Room gets its own panel row

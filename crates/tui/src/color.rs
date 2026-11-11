@@ -201,7 +201,7 @@ impl Tint {
         match tool {
             // Sowing wears the harvest hue too: both are "designate a unit's work here" (#198).
             Tool::Harvest | Tool::CancelHarvest | Tool::Sow => Some(Self::Harvest),
-            Tool::Clear => Some(Self::Clear),
+            Tool::Clear | Tool::Deconstruct => Some(Self::Clear),
             Tool::Stockpile => Some(Self::Stockpile),
             Tool::Bend => Some(Self::Bend),
             // The gate is a building too (#643).

@@ -167,7 +167,8 @@ pub struct Overlays {
     /// Farm plots with a Sow job designated on them (#198): tinted the same as `harvest`.
     sowing: BTreeSet<Pos>,
     /// Tiles with a Clear mark (docs/design/clearing.md, #411/#426), in its own tint apart from
-    /// `harvest` and `standing`.
+    /// `harvest` and `standing`, plus every footprint tile of a building marked to be taken down
+    /// (#342), which is the same tool's buildings mode.
     clearing: BTreeSet<Pos>,
     bend: BTreeSet<Pos>,
     /// Every tile of every build site, with the building it will be (#212).
@@ -243,7 +244,15 @@ impl Overlays {
                 .filter(|&p| world.is_repeating_harvest(p))
                 .collect(),
             sowing: world.sow_designations().collect(),
-            clearing: world.clear_designations().collect(),
+            clearing: world
+                .clear_designations()
+                .chain(
+                    world
+                        .deconstruct_designations()
+                        .filter_map(|a| world.footprint_at(a))
+                        .flat_map(|f| f.tiles()),
+                )
+                .collect(),
             bend: world.bend_designations().map(|(_, p)| p).collect(),
             sites: world
                 .build_sites()

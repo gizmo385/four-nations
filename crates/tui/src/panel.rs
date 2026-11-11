@@ -95,7 +95,7 @@ fn apply_verb(tool: Tool) -> &'static str {
     match tool {
         Tool::Harvest | Tool::Stockpile | Tool::Sow => "designate",
         Tool::CancelHarvest => "cancel",
-        Tool::Clear => "clear",
+        Tool::Clear | Tool::Deconstruct => "clear",
         Tool::Bend => "bend",
         Tool::Build => "build",
         Tool::Gate => "place",

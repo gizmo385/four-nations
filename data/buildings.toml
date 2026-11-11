@@ -97,6 +97,15 @@
 #             places it, and data/endeavor.toml names it and holds its stages. So it has no cost
 #             or work of its own.
 
+# Taking a finished building down (issue #342, the Clear tool's buildings mode). `refund` is the
+# share of each cost item dropped by the anchor when it comes down, rounded down per item (half:
+# a cost of 5 wood gives back 2). `work` is the job's seconds as a share of the building's own
+# `work`, at the same `construction` modifier. A production building's batch inputs already
+# delivered come back in full, as a cancelled site's deliveries do.
+[deconstruct]
+refund = 0.5
+work = 0.5
+
 [[building]]
 id = "bed"
 name = "Bed"
