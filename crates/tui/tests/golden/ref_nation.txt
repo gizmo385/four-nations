@@ -4,8 +4,8 @@
 │   NAME  DOING                                                       HUNGER  THIRST  ENERGY  HEALTH  BENDING          │
 │ IDLE 2                                                                                                               │
 │ ▸ Juni  Idle                                                        █████   █████   █████   █████   Student, 0 bends │
-│   Shen  Idle                                                        █████   █████   █████   █████   Student, 0 bends │
 │                                                                                                                      │
+│   Shen  Idle                                                        █████   █████   █████   █████   Student, 0 bends │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │

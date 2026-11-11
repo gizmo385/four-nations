@@ -191,6 +191,44 @@ fn the_selected_nation_row_wears_a_quiet_background_and_keeps_its_meter_colours(
     assert_ne!(buf[(4, y + 1)].bg, select);
 }
 
+/// The Nation roster's full meters are solid blocks, so settlers stacked in adjacent rows read as
+/// one (#779). On a page that can show every settler, a blank row sits between them, in colour
+/// and in `--ascii`.
+#[test]
+fn full_meters_in_the_roster_are_kept_apart_by_a_blank_row_when_they_fit() {
+    let tmp = TempDir::new("roster_gap");
+    let size = (120, 40);
+    for (ascii, full) in [(false, "█████"), (true, "#####")] {
+        let mut a = app(size, &tmp);
+        run(&mut a, "n");
+        let p = Palette::new(&a.session.defs, a.session.world.nation, ColorDepth::TrueColor, ascii);
+        let text = to_text(&render_app(&mut a, &p, size));
+        let lines: Vec<&str> = text.lines().collect();
+        let rows: Vec<usize> =
+            (0..lines.len()).filter(|&i| lines[i].matches(full).count() >= 4).collect();
+        let settlers = a.session.world.units.len();
+        assert_eq!(rows.len(), settlers, "every settler's row is shown:\n{text}");
+        for pair in rows.windows(2) {
+            assert_eq!(pair[1] - pair[0], 2, "one blank row between settlers:\n{text}");
+            assert!(!lines[pair[0] + 1].contains(full), "{text}");
+        }
+    }
+}
+
+/// At the 80x24 floor the roster has no room for the blank rows: it keeps stacking, and every
+/// settler of a fresh six is still on the page (#779).
+#[test]
+fn the_roster_at_eighty_by_twenty_four_keeps_every_settler_on_the_page() {
+    let tmp = TempDir::new("roster_floor");
+    let size = (80, 24);
+    let mut a = app(size, &tmp);
+    run(&mut a, "n");
+    let text = to_text(&render(&mut a, size));
+    let rows = text.lines().filter(|l| l.matches('█').count() >= 20).count();
+    assert_eq!(rows, a.session.world.units.len(), "{text}");
+    assert!(!text.contains("settlers 1-"), "nothing scrolled off:\n{text}");
+}
+
 /// A screen runs or pauses the clock as before (#652 only moved where it draws): the clock keys
 /// still work under every screen, and the Build screen leaves the clock alone.
 #[test]
