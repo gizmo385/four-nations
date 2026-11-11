@@ -555,7 +555,7 @@ panel's header and Cursor section already make the MVP playable to watch.
   trickle, seasons) changes none of them, and a test in that file proves it. What does change
   one is the TUI itself, or a number a screen prints on purpose (a building's cost in the build
   list, a tech's price, the endeavor's targets). Rewrite them with `FN_BLESS=1 cargo test -p
-  fn_tui --test reference_goldens` and review the diff. `fn_sim`'s own goldens (mapgen ASCII, the
+  fn_tui --test it reference_goldens::` and review the diff. `fn_sim`'s own goldens (mapgen ASCII, the
   embark report) stay: they test mapgen on purpose.
 - **`--frame` for agents.** `cargo run -p fn_tui -- SEED NATION --frame [--size 120x40]
   [--keys SCRIPT] [--ticks N] [--ascii] [--ansi]` builds the session, plays the script, renders

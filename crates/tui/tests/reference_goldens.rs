@@ -15,7 +15,7 @@
 //! building's cost in the build list, a tech's price on the research screen, the endeavor's
 //! targets, the nation's traits.
 //!
-//! Rewrite with `FN_BLESS=1 cargo test -p fn_tui --test reference_goldens` (review the diff)
+//! Rewrite with `FN_BLESS=1 cargo test -p fn_tui --test it reference_goldens::` (review the diff)
 //! when the TUI changes.
 
 use fn_sim::building::BuildingId;

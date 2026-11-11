@@ -3,7 +3,7 @@
 //! The budget (< 5 ms per query) is only asserted in optimized builds; debug builds just check
 //! correctness and print timings. Measure with:
 //!
-//!     cargo test --release -p fn_sim --test path -- --nocapture
+//!     cargo test --release -p fn_sim --test it path:: -- --nocapture
 // Test code, not the sim: it times queries against the perf budget. The lint in clippy.toml is for the library (AGENTS.md rule 4).
 #![allow(clippy::disallowed_types, clippy::disallowed_methods)]
 
