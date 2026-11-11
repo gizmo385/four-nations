@@ -1008,3 +1008,29 @@ count = 2
 [[building.cost]]
 item = "tool"
 count = 1
+
+# --- Earth, Fire and Water: herding (issue #696) ---
+# Unlocked by `herding` (docs/design/horizons-phase-2.md, "`herding`"): one building for three
+# nations. It houses one beast, the nation's own row in data/beasts.toml (an ostrich horse,
+# komodo rhino or buffalo yak), which hauls long trips. The beast eats from the bunker, any food
+# the settlement grows, about 9 food an hour; when it is empty the beast rests, Hungry.
+[[building]]
+id = "stable"
+name = "Stable"
+verb = "Build"
+work = 80.0
+passable = false
+footprint = [2, 2]
+[building.fuel]
+items = ["cabbage", "fruit", "fish"]
+bunker = 8
+per_minute = 0.15      # about 9 food an hour, a little more than a settler eats
+[[building.cost]]
+item = "wood"
+count = 12
+[[building.cost]]
+item = "stone"         # brick stands in, as for any stone cost
+count = 4
+[[building.cost]]
+item = "tool"
+count = 1

@@ -4,6 +4,9 @@
 # - `nation` omitted = shared civilization tier, which every nation can research. With a nation,
 #   only that nation sees the tech. Shared techs may only require shared techs; a nation tech may
 #   require shared techs and its own nation's techs.
+# - `nations = [...]` (instead of `nation`, never both): a tech for those nations only, at least two
+#   (`herding`: Earth, Fire, Water). Unlisted nations never see it and can't research it. Its
+#   prereqs must be shared techs, and no tech may require it.
 # - `cost` is in knowledge points, > 0. Cost tiers: 25 / 60 / 120 / 250 / 500.
 # - `[tech.unlocks]` `modifiers` multiply a nation's modifiers (data/nations.toml) once the tech
 #   is known. Each multiplier must be in (0, 4]; unknown modifier names fail to load.
@@ -655,3 +658,15 @@ cost = 500
 prereqs = ["steam_engines"]
 [tech.unlocks]
 buildings = ["balloon_dock"]
+
+[[tech]]
+id = "herding"
+name = "Herding"
+description = "Raise beasts of burden to carry loads on the long trips."
+nations = ["earth", "fire", "water"]
+cost = 250
+prereqs = ["farming"]
+# The Stable (#696, docs/design/horizons-phase-2.md, "`herding`"): Earth, Fire and Water only, so
+# Air never sees this tech. Each Stable houses the nation's own beast (data/beasts.toml).
+[tech.unlocks]
+buildings = ["stable"]

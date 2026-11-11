@@ -159,8 +159,13 @@ pub struct TechDef {
     pub id: String,
     pub name: String,
     pub description: String,
-    /// `None` for the shared civilization tier; otherwise only this nation sees the tech.
+    /// `None` for the shared civilization tier and for a `nations` tech; otherwise only this
+    /// nation sees the tech.
     pub nation: Option<Nation>,
+    /// Empty unless the data says `nations = [...]`: a tech for those nations only (at least
+    /// two, never alongside `nation`), such as `herding`. Its prereqs are shared techs. Ask
+    /// `open_to` and `is_shared` rather than reading this and `nation`.
+    pub nations: Vec<Nation>,
     /// Knowledge points, always > 0.
     pub cost: u32,
     /// Every prereq is smaller than this tech's own id (file order is topological).
@@ -171,6 +176,22 @@ pub struct TechDef {
     /// unlocks. Defaults to false, so a later tech can't lengthen the gate by forgetting a line
     /// (docs/design/horizons-phase-1.md, "The rule every phase-1 tech follows").
     pub core: bool,
+}
+
+impl TechDef {
+    /// Whether `nation` sees this tech: it is shared, or it is the tech's own nation, or one of
+    /// its `nations`.
+    pub fn open_to(&self, nation: Nation) -> bool {
+        match self.nation {
+            Some(n) => n == nation,
+            None => self.nations.is_empty() || self.nations.contains(&nation),
+        }
+    }
+
+    /// Whether every nation sees this tech: the shared civilization tier.
+    pub fn is_shared(&self) -> bool {
+        self.nation.is_none() && self.nations.is_empty()
+    }
 }
 
 #[derive(Deserialize)]
@@ -189,6 +210,8 @@ struct RawTech {
     description: String,
     #[serde(default)]
     nation: Option<Nation>,
+    #[serde(default)]
+    nations: Vec<Nation>,
     cost: u32,
     #[serde(default)]
     prereqs: Vec<String>,
@@ -235,6 +258,21 @@ impl ResearchFile {
             if raw.cost == 0 {
                 return Err(err("cost must be > 0".into()));
             }
+            if !raw.nations.is_empty() {
+                if raw.nation.is_some() {
+                    return Err(err("`nations` can't be combined with `nation`".into()));
+                }
+                if raw.nations.len() < 2 {
+                    return Err(err(
+                        "`nations` must list at least two nations (use `nation` for one)".into(),
+                    ));
+                }
+                for (k, n) in raw.nations.iter().enumerate() {
+                    if raw.nations[..k].contains(n) {
+                        return Err(err(format!("nation {} listed twice", n.as_str())));
+                    }
+                }
+            }
             for (field, m) in raw.unlocks.modifiers.iter() {
                 if !(m.is_finite() && m > 0.0 && m <= MAX_MULTIPLIER) {
                     return Err(err(format!(
@@ -265,6 +303,16 @@ impl ResearchFile {
                 if prereqs.contains(&id) {
                     return Err(err(format!("prereq {p:?} listed twice")));
                 }
+                if !raw.nations.is_empty() && !techs[i].is_shared() {
+                    return Err(err(format!(
+                        "a `nations` tech can only require shared techs, and {p:?} isn't one"
+                    )));
+                }
+                if !techs[i].nations.is_empty() {
+                    return Err(err(format!(
+                        "{p:?} is a `nations` tech, which no other tech can require yet"
+                    )));
+                }
                 let pn = techs[i].nation;
                 if pn.is_some() && pn != raw.nation {
                     return Err(err(format!(
@@ -280,6 +328,7 @@ impl ResearchFile {
                 name: raw.name,
                 description: raw.description,
                 nation: raw.nation,
+                nations: raw.nations,
                 cost: raw.cost,
                 prereqs,
                 unlocks: raw.unlocks,
@@ -307,10 +356,11 @@ pub(crate) fn resolve_starting_techs(
         if out.contains(&tech) {
             return Err(err(format!("{id:?} listed twice")));
         }
-        if let Some(n) = techs[i].nation
-            && n != nation
-        {
-            return Err(err(format!("{id:?} belongs to {}", n.as_str())));
+        if !techs[i].open_to(nation) {
+            return Err(match techs[i].nation {
+                Some(n) => err(format!("{id:?} belongs to {}", n.as_str())),
+                None => err(format!("{id:?} is for other nations only")),
+            });
         }
         out.push(tech);
     }
@@ -450,7 +500,7 @@ impl Research {
         defs: &Defs,
     ) -> Result<(), ResearchError> {
         let def = defs.techs.get(tech.0 as usize).ok_or(ResearchError::UnknownTech)?;
-        if def.nation.is_some_and(|n| n != nation) {
+        if !def.open_to(nation) {
             return Err(ResearchError::WrongNation);
         }
         if self.is_known(tech) {
@@ -716,6 +766,62 @@ mod tests {
     fn nation_tech_may_require_shared_and_own_techs() {
         let src = tech("a", "nation = 'air'\ncost = 1\nprereqs = ['fishing', 'orchards']");
         assert!(with_techs(&src).is_ok());
+    }
+
+    #[test]
+    fn a_nations_tech_names_two_or_more_nations_and_not_nation() {
+        let ok = tech("a", "nations = ['earth', 'fire']\ncost = 1\nprereqs = ['fishing']");
+        let defs = with_techs(&ok).unwrap();
+        let a = defs.tech(defs.tech_id("a").unwrap());
+        assert_eq!((a.nation, a.nations.clone()), (None, vec![Nation::Earth, Nation::Fire]));
+        assert!(!a.is_shared());
+        for n in Nation::ALL {
+            assert_eq!(a.open_to(n), matches!(n, Nation::Earth | Nation::Fire), "{n:?}");
+            assert_eq!(defs.techs_for(n).any(|(_, t)| t.id == "a"), a.open_to(n), "{n:?}");
+        }
+        let one = tech("a", "nations = ['earth']\ncost = 1");
+        assert_err(with_techs(&one), "at least two");
+        let both = tech("a", "nation = 'earth'\nnations = ['earth', 'fire']\ncost = 1");
+        assert_err(with_techs(&both), "can't be combined");
+        let twice = tech("a", "nations = ['fire', 'fire']\ncost = 1");
+        assert_err(with_techs(&twice), "listed twice");
+        let unknown = tech("a", "nations = ['fire', 'mars']\ncost = 1");
+        assert!(with_techs(&unknown).is_err());
+    }
+
+    #[test]
+    fn a_nations_tech_requires_only_shared_techs() {
+        let own = tech("a", "nation = 'air'\ncost = 1\nprereqs = ['fishing']");
+        let src = own + &tech("b", "nations = ['air', 'fire']\ncost = 1\nprereqs = ['a']");
+        assert_err(with_techs(&src), "only require shared");
+        let air = tech("b", "nations = ['air', 'fire']\ncost = 1\nprereqs = ['orchards']");
+        assert_err(with_techs(&air), "only require shared");
+        let shared = tech("b", "nations = ['air', 'fire']\ncost = 1\nprereqs = ['fishing']");
+        assert!(with_techs(&shared).is_ok());
+    }
+
+    #[test]
+    fn no_tech_requires_a_nations_tech() {
+        let base = tech("a", "nations = ['earth', 'fire']\ncost = 1");
+        for extra in ["", "nation = 'earth'\n"] {
+            let src = base.clone() + &tech("b", &format!("{extra}cost = 1\nprereqs = ['a']"));
+            assert_err(with_techs(&src), "`nations` tech");
+        }
+    }
+
+    #[test]
+    fn a_nations_tech_is_refused_to_an_unlisted_nation() {
+        let src = tech("a", "nations = ['earth', 'fire']\ncost = 1");
+        let defs = with_techs(&src).unwrap();
+        let a = defs.tech_id("a").unwrap();
+        for n in Nation::ALL {
+            let r = super::Research::new(n, &defs).set_target(a, n, &defs);
+            let listed = matches!(n, Nation::Earth | Nation::Fire);
+            assert_eq!(r.is_ok(), listed, "{n:?}");
+            if !listed {
+                assert_eq!(r, Err(super::ResearchError::WrongNation));
+            }
+        }
     }
 
     #[test]

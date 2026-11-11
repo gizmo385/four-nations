@@ -35,3 +35,36 @@ home = "bison_stable"
 [beast.haul]
 carry = 20
 min_trip = 10
+
+# Herding's three beasts (#696, docs/design/horizons-phase-2.md, "`herding`"): one Stable, and the
+# settlement's nation picks the row. Each is faster or stronger than a settler on a long haul and
+# eats the Stable's food, about 9 an hour.
+[[beast]]
+id = "ostrich_horse"
+name = "Ostrich Horse"
+nation = "earth"
+home = "stable"
+speed = 1.4            # fast: Earth's settlers walk at 0.9
+[beast.haul]
+carry = 10
+min_trip = 10
+
+[[beast]]
+id = "komodo_rhino"
+name = "Komodo Rhino"
+nation = "fire"
+home = "stable"
+speed = 0.8            # slow and strong
+[beast.haul]
+carry = 12
+min_trip = 10
+
+[[beast]]
+id = "buffalo_yak"
+name = "Buffalo Yak"
+nation = "water"
+home = "stable"
+speed = 1.0
+[beast.haul]
+carry = 10
+min_trip = 10

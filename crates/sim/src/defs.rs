@@ -543,7 +543,7 @@ impl Defs {
     pub fn nation_can_make(&self, nation: Nation, item: ItemId) -> bool {
         self.buildings.iter().any(|b| {
             b.recipe.as_ref().is_some_and(|r| r.output.item == item)
-                && b.unlocked_by.is_none_or(|t| self.tech(t).nation.is_none_or(|n| n == nation))
+                && b.unlocked_by.is_none_or(|t| self.tech(t).open_to(nation))
         })
     }
 
@@ -576,7 +576,7 @@ impl Defs {
         self.techs
             .iter()
             .enumerate()
-            .filter(move |(_, t)| t.nation.is_none_or(|n| n == nation))
+            .filter(move |(_, t)| t.open_to(nation))
             .map(|(i, t)| (TechId(i as u16), t))
     }
 
@@ -756,12 +756,16 @@ mod tests {
     #[test]
     fn techs_for_is_the_shared_tier_plus_the_nation_s_own_branch() {
         let defs = Defs::bundled();
-        let shared = defs.techs.iter().filter(|t| t.nation.is_none()).count();
+        let shared = defs.techs.iter().filter(|t| t.is_shared()).count();
         for nation in Nation::ALL {
-            let own = defs.techs.iter().filter(|t| t.nation == Some(nation)).count();
+            let own = defs
+                .techs
+                .iter()
+                .filter(|t| t.nation == Some(nation) || t.nations.contains(&nation))
+                .count();
             let seen: Vec<_> = defs.techs_for(nation).collect();
             assert_eq!(seen.len(), shared + own, "{nation:?}");
-            assert!(seen.iter().all(|(_, t)| t.nation.is_none_or(|n| n == nation)));
+            assert!(seen.iter().all(|(_, t)| t.open_to(nation)));
             // File order, and the ids point at the same defs.
             assert!(seen.windows(2).all(|w| w[0].0 < w[1].0));
             assert!(seen.iter().all(|(id, t)| defs.tech(*id).id == t.id));
