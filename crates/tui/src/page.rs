@@ -1,6 +1,6 @@
 //! The full-screen frame (#652, docs/design/tui.md "Full screens"): one shape for every screen
-//! that takes over the game, the Nation, Research, Endeavor, Message log, Key help, Saves and
-//! Build screens. It covers the map and the side panel together, every column and every row
+//! that takes over the game, the Nation, Abilities, Research, Endeavor, Message log, Key help,
+//! Saves and Build screens. It covers the map and the side panel together, every column and every row
 //! above the hint bar (`crate::layout::Regions::page`), so a screen gets the whole terminal's
 //! width:
 //!

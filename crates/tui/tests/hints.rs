@@ -20,6 +20,7 @@ const MODES: &[(&str, Mode)] = &[
     ("t", Mode::Research),
     ("g", Mode::Endeavor),
     ("n", Mode::Nation),
+    ("i", Mode::Abilities),
     ("l", Mode::Log),
     ("?", Mode::Help),
     ("u", Mode::Build),

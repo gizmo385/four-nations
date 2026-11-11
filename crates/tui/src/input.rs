@@ -148,6 +148,7 @@ fn build_table() -> Vec<Binding> {
     add(Key::ch('?'), Action::ShowHelp);
     add(Key::ch('g'), Action::ShowEndeavor);
     add(Key::ch('n'), Action::ShowNation);
+    add(Key::ch('i'), Action::ShowAbilities);
     // F5/F9, the usual quicksave/quickload keys.
     add(Key::plain(F(5)), Action::QuickSave);
     add(Key::plain(F(9)), Action::AskQuickLoad);
@@ -182,7 +183,8 @@ pub fn spectator_allowed(action: Action) -> bool {
         | Action::ShowLog
         | Action::ShowHelp
         | Action::ShowEndeavor
-        | Action::ShowNation => true,
+        | Action::ShowNation
+        | Action::ShowAbilities => true,
         // The list's only use is to pick a tool, which a spectator may not.
         Action::ShowTools => false,
         Action::ShowSaves => false,
@@ -414,6 +416,7 @@ mod tests {
             Action::ShowHelp,
             Action::ShowEndeavor,
             Action::ShowNation,
+            Action::ShowAbilities,
         ];
         for a in allowed {
             assert!(spectator_allowed(a), "{a:?} should be allowed");
@@ -494,8 +497,10 @@ mod tests {
                 continue;
             }
             let name = b.key.name();
+            // The abilities key is shown in the hint bar only (#719), by design.
+            let hint_only = b.action == Action::ShowAbilities;
             let listed = table.iter().any(|e| {
-                e.help.is_some()
+                (e.help.is_some() || hint_only)
                     && e.actions.iter().any(|a| a.same_kind(b.action))
                     && label_tokens(&e.keys).contains(&name)
             });

@@ -8,6 +8,7 @@
 //! golden frames and the interactive loop ([`run`]) all draw the same way, and nothing but
 //! [`run`] touches the terminal or the wall clock.
 
+pub mod abilities;
 pub mod app;
 pub mod ask;
 pub mod banner;

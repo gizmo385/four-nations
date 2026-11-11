@@ -3,7 +3,8 @@
 //! message log (`L`, #661, `msglog.rs`) is a list of lines with a cursor under a filter row; the
 //! research screen (`T`) is a grid of tech cards with a cursor and a detail
 //! strip (`research.rs`); the Nation screen (`N`, #308, `nation.rs`) is a roster with a pointer;
-//! the saves screen (`F6`, `saves.rs`) is a list with a pointer. The Build picker (`U`,
+//! the saves screen (`F6`, `saves.rs`) is a list with a pointer; the abilities screen (`I`, #719,
+//! `abilities.rs`) is a list with a pointer and a detail strip. The Build picker (`U`,
 //! `build.rs`) wears the same frame. Each closes on `Esc` or on the key that opened it.
 
 use fn_ui::Session;
@@ -11,6 +12,7 @@ use fn_ui::alerts::Kind;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
+use crate::abilities;
 use crate::color::{ColorDepth, Palette};
 use crate::input::{Group, HelpRow, help_rows};
 use crate::legend;
@@ -35,7 +37,9 @@ pub fn lines(session: &Session, screen: Screen, width: usize, ascii: bool) -> Ve
         Screen::Endeavor => crate::endeavor::lines(session, width, &marks),
         // A grid or a list with a cursor, not rows that scroll: `research::draw`, `saves::draw`,
         // `nation::draw` and `msglog::draw` lay them out.
-        Screen::Log | Screen::Research | Screen::Saves | Screen::Nation => Vec::new(),
+        Screen::Log | Screen::Research | Screen::Saves | Screen::Nation | Screen::Abilities => {
+            Vec::new()
+        }
     }
 }
 
@@ -235,6 +239,7 @@ pub fn title(screen: Screen) -> &'static str {
         Screen::Research => "RESEARCH",
         Screen::Saves => "SAVES",
         Screen::Nation => "NATION",
+        Screen::Abilities => "ABILITIES",
     }
 }
 
@@ -254,6 +259,11 @@ pub fn draw_screen(
             research::detail_height(session, ui.tech, width)
         }
         Screen::Nation => crate::nation::detail_rows(area.height),
+        Screen::Abilities => {
+            let width = page::text_size((i32::from(area.width), i32::from(area.height))).0;
+            let rows = fn_ui::bend::abilities(session);
+            abilities::detail_height(&rows, width, palette.ascii, area.height)
+        }
         _ => 0,
     };
     let page = page::draw(buf, area, palette, title(screen), detail_rows);
@@ -283,6 +293,10 @@ pub fn draw_screen(
             // Nation screen").
             let wide = area.width >= crate::nation::METER_MIN_WIDTH;
             crate::nation::draw(session, ui, wide, palette, &page, buf)
+        }
+        Screen::Abilities => {
+            let rows = fn_ui::bend::abilities(session);
+            abilities::draw(&rows, ui.ability_cursor, palette, &page, buf)
         }
         Screen::Help => draw_help(session, ui, palette, page.body, buf),
         Screen::Log => crate::msglog::draw(session, ui, palette, &page, buf),

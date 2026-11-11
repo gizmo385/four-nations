@@ -55,6 +55,10 @@ pub enum Screen {
     /// panel's own Modifiers, moved here, #308, docs/design/side-panel.md "The Nation screen").
     /// It moves a pointer ([`UiState::nation_cursor`]) over the roster.
     Nation,
+    /// `I` (#719): every bending ability the settlement has or may yet unlock, with what each
+    /// does and whether it can be used now. It moves a pointer ([`UiState::ability_cursor`]) over
+    /// `fn_ui::bend::abilities`; `Enter` picks the one under it for the Bend tool.
+    Abilities,
 }
 
 /// The two tabs of the key help (`?`, #662): the keys, and the legend of the map's glyphs. `Tab`
@@ -190,6 +194,9 @@ pub struct UiState {
     /// The Nation screen's cursor: an index into its roster (`crate::nation::roster`), in the
     /// screen's own grouped order.
     pub nation_cursor: usize,
+    /// The abilities screen's pointer: an index into `fn_ui::bend::abilities`, which opens on
+    /// the ability the Bend tool channels now.
+    pub ability_cursor: usize,
     /// The saves screen's slots (newest first), read from disk when the screen opens or a save
     /// changes them ([`crate::app::App::refresh_saves`]), not on every frame.
     pub save_slots: Vec<Slot>,
@@ -249,6 +256,7 @@ impl UiState {
             saved_at: None,
             tech: (0, 0),
             nation_cursor: 0,
+            ability_cursor: 0,
             save_slots: Vec::new(),
             save_cursor: 0,
             save_name: None,

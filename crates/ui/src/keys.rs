@@ -68,6 +68,9 @@ pub enum Action {
     /// `N`: the Nation screen (#308): every settler grouped by activity, every store and the
     /// nation's traits.
     ShowNation,
+    /// `I`: the abilities screen (#719): every bending ability the settlement has or may yet
+    /// unlock, and `Enter` there picks one for the Bend tool. Shown in the hint bar only.
+    ShowAbilities,
     /// `F5`: save the game to the quicksave slot.
     QuickSave,
     /// `F9`: replace the game with the quicksave, after asking in a centred box.
@@ -137,6 +140,8 @@ pub enum Mode {
     Research,
     Endeavor,
     Nation,
+    /// The abilities screen (`I`, #719).
+    Abilities,
     Log,
     /// The message log in the `--watch` spectator (#774): the studio keeps `1`-`3` and `0` for
     /// its panes, so the filters are on `Tab`, and `Esc` is refused (`L` closes it).
@@ -174,6 +179,7 @@ impl Mode {
             Self::Research => "RESEARCH",
             Self::Endeavor => "ENDEAVOR",
             Self::Nation => "NATION",
+            Self::Abilities => "ABILITIES",
             Self::Log | Self::WatchLog => "LOG",
             Self::Help => "KEYS",
             Self::Saves => "SAVES",
@@ -296,6 +302,9 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Select], &[Action::NextUnit], "Tab", "next unit", None);
     add(&[Mode::Select], &[Action::Cancel], "Esc", "menu", None);
     add(IN_SELECT, &[Action::ShowTools], "/", "tools", None);
+    // The abilities screen (#719): a hint-bar item only, no key help row (`B` still picks the
+    // Bend tool directly, and the screen is where Bend's abilities are read and chosen).
+    add(IN_SELECT, &[Action::ShowAbilities], "I", "abilities", None);
     add(&[Mode::Selected], &[Action::Confirm], "Enter", "next unit here", None);
     add(&[Mode::Selected], &[Action::NextUnit], "Tab", "next unit", None);
     add(&[Mode::Selected], &[Action::Follow], "F", "follow", None);
@@ -314,6 +323,11 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Nation], &[Action::Confirm], "Enter", "select", None);
     add(&[Mode::Nation], &[Action::Cancel, Action::ShowNation], "Esc or N", "close", None);
     add(&[Mode::Nation], &[jump], "PgUp/PgDn", "page", None);
+
+    add(&[Mode::Abilities], &[step], "Up/Down", "choose", None);
+    add(&[Mode::Abilities], &[Action::Confirm], "Enter", "bend", None);
+    add(&[Mode::Abilities], &[Action::Cancel, Action::ShowAbilities], "Esc or I", "close", None);
+    add(&[Mode::Abilities], &[jump], "PgUp/PgDn", "page", None);
 
     add(&[Mode::Endeavor], &[step], "Up/Down", "scroll", None);
     add(&[Mode::Endeavor], &[Action::Confirm], "Enter", "place", None);
@@ -455,6 +469,9 @@ fn build() -> Vec<Entry> {
         "teardown",
         help(in_tool, "Also sites, stockpiles (Cancel)"),
     );
+    // The Bend tool's own way to the abilities screen (#719), hint bar only like the toggles.
+    only.set(Some(Tool::Bend));
+    add(IN_TOOL, &[Action::ShowAbilities], "I", "abilities", None);
     only.set(None);
 
     let time = Some(Group::Time);
@@ -588,6 +605,7 @@ mod tests {
         assert!(line(Mode::Research).starts_with("Arrows choose"));
         for mode in [
             Mode::Nation,
+            Mode::Abilities,
             Mode::Log,
             Mode::Help,
             Mode::Saves,
@@ -642,7 +660,13 @@ mod tests {
             for tool in [Tool::Clear, Tool::Stockpile, Tool::Bend, Tool::Build, Tool::Sow] {
                 assert!(!text(mode, tool).contains("O "), "{tool:?}");
             }
+            // The abilities key is the Bend tool's, and every map mode without a tool names it
+            // too (#719); it is in no key help row.
+            assert!(text(mode, Tool::Bend).ends_with(" · I abilities"));
+            assert!(!text(mode, Tool::Harvest).contains("abilities"));
         }
+        assert!(text(Mode::Select, Tool::Select).contains("I abilities"));
+        assert!(help_rows().iter().all(|r| r.keys != "I"));
         // The other modes never carry one, and `hints` is the tool-less list.
         assert!(!text(Mode::Select, Tool::Harvest).contains("O "));
         assert_eq!(line(Mode::Tool), "Arrows move · Enter set corner · Esc leave tool");

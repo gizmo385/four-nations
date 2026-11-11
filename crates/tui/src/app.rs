@@ -161,6 +161,7 @@ impl App {
             Action::ShowHelp => self.open(Screen::Help),
             Action::ShowEndeavor => self.open(Screen::Endeavor),
             Action::ShowNation => self.open(Screen::Nation),
+            Action::ShowAbilities => self.open(Screen::Abilities),
             Action::ShowSaves => self.show_saves(),
             Action::TogglePause => self.session.clock.toggle_pause(),
             Action::Faster => self.session.clock.faster(),
@@ -282,6 +283,18 @@ impl App {
                 _ => {}
             }
         }
+        if self.ui.screen == Some(Screen::Abilities) {
+            // The list has a pointer, not a scroll (#719): the arrows move it by one ability (a
+            // Shift step is still one), PgUp/PgDn by a page, and Enter picks for the Bend tool.
+            match action {
+                Action::Move { dy, .. } => return self.move_ability_cursor(dy),
+                Action::Jump { dy, .. } => {
+                    return self.move_ability_cursor(dy * self.ability_page());
+                }
+                Action::Confirm => return self.pick_ability(),
+                _ => {}
+            }
+        }
         match action {
             // `Tab` flips the key help between its keys and its legend (#662).
             Action::NextUnit | Action::PrevUnit if self.ui.screen == Some(Screen::Help) => {
@@ -298,6 +311,7 @@ impl App {
             Action::ShowHelp => self.open(Screen::Help),
             Action::ShowEndeavor => self.open(Screen::Endeavor),
             Action::ShowNation => self.open(Screen::Nation),
+            Action::ShowAbilities => self.open(Screen::Abilities),
             Action::ShowSaves => self.show_saves(),
             Action::TogglePause => self.session.clock.toggle_pause(),
             Action::Faster => self.session.clock.faster(),
@@ -348,6 +362,10 @@ impl App {
             if screen == Screen::Nation {
                 self.ui.nation_cursor = 0;
             }
+            if screen == Screen::Abilities {
+                let rows = fn_ui::bend::abilities(&self.session);
+                self.ui.ability_cursor = crate::abilities::initial_cursor(&rows);
+            }
         }
     }
 
@@ -386,6 +404,35 @@ impl App {
         }
     }
 
+    /// Moves the abilities screen's pointer (#719) `dy` abilities, stopping at the list's edges.
+    fn move_ability_cursor(&mut self, dy: i32) {
+        let rows = fn_ui::bend::abilities(&self.session);
+        let at = self.ui.ability_cursor.min(rows.len().saturating_sub(1)) as i64;
+        let to = (at + i64::from(dy)).clamp(0, rows.len() as i64 - 1).max(0);
+        self.ui.ability_cursor = to as usize;
+    }
+
+    /// How many abilities PgUp and PgDn move: a page of the list (its header takes a row).
+    fn ability_page(&self) -> i32 {
+        screens::text_size(self.ui.page()).1.saturating_sub(1).max(1) as i32
+    }
+
+    /// `Enter` in the abilities screen (#719): the ability under the pointer becomes the Bend
+    /// tool's choice, the tool becomes active and the screen closes. On one that can't be used
+    /// yet it does nothing (the detail strip says why).
+    fn pick_ability(&mut self) {
+        let rows = fn_ui::bend::abilities(&self.session);
+        let Some(row) = rows.get(self.ui.ability_cursor) else { return };
+        if !row.usable() {
+            return;
+        }
+        self.session.bend_choice = Some(row.id);
+        let (tool, choice) = switch_tool(&self.session, self.ui.tool, self.ui.choice, Tool::Bend);
+        self.ui.choice = choice;
+        self.ui.set_tool(tool);
+        self.ui.screen = None;
+    }
+
     /// How many rows of text the open screen shows at once.
     fn screen_rows(&self) -> i32 {
         self.ui.screen.map_or(0, |s| screens::body_rows(s, self.ui.page())) as i32
@@ -393,8 +440,10 @@ impl App {
 
     /// Scrolls the open screen `lines` down (negative: up), within its text.
     fn scroll_by(&mut self, lines: i32) {
-        let Some(screen) =
-            self.ui.screen.filter(|s| !matches!(s, Screen::Research | Screen::Saves))
+        let Some(screen) = self
+            .ui
+            .screen
+            .filter(|s| !matches!(s, Screen::Research | Screen::Saves | Screen::Abilities))
         else {
             return;
         };
