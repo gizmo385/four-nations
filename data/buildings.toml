@@ -53,6 +53,12 @@
 #             A pick is a normal harvest (strain, the harvest tally). Every `eat_every`-th item
 #             (at least 2) is eaten; the rest goes into the nearest stockpile in reach with room,
 #             else drops beside it.
+# - hothouse: winter growth for farm plots in reach (docs/design/horizons-phase-1.md, the
+#             Hothouse). In winter, while fuelled, every `[building.farm]` plot within `radius`
+#             of its footprint (not `heating`-scaled) grows at `winter_growth` (0 to 1) where
+#             that beats its band's, not scaled by `winter_severity`; two don't stack. The first
+#             frost spares ripe plots in reach. Its fuel burns only in winter while a plot in
+#             reach is growing or ripe. With seasons off it does nothing.
 # - orchard:  plants and tends a renewable resource around itself (issue #142, docs/design/
 #             research.md, "The orchard"). Every `plant_seconds` it plants one `plants` (a
 #             renewable resource) on a free tile of its own mapgen terrain within `radius` (a
@@ -818,3 +824,29 @@ count = 2
 [[building.cost]]
 item = "fish"
 count = 2
+
+# Hothouses' Hothouse (Fire, docs/design/horizons-phase-1.md): plots within 2 tiles grow through
+# winter, for 2 wood a minute while it warms them (about 30 a winter).
+[[building]]
+id = "hothouse"
+name = "Hothouse"
+verb = "Build"
+work = 90.0
+passable = false
+footprint = [2, 2]
+[building.hothouse]
+radius = 2             # from the footprint: 32 plot tiles. Not heating-scaled
+winter_growth = 0.75   # replaces the climate band's winter growth in reach
+[building.fuel]
+item = "wood"
+bunker = 20
+per_minute = 2.0       # only in winter, while a plot in reach is growing or ripe
+[[building.cost]]
+item = "brick"
+count = 10
+[[building.cost]]
+item = "wood"
+count = 6
+[[building.cost]]
+item = "tool"
+count = 1

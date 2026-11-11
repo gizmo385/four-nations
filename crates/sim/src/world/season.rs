@@ -209,6 +209,7 @@ impl World {
             .filter(|b| {
                 b.plot.as_ref().is_some_and(|p| p.stage == PlotStage::Ripe)
                     && self.climate_at(b.anchor, defs).is_some_and(|c| c.frost)
+                    && !self.frost_spares(b.anchor, defs)
             })
             .map(|b| b.anchor)
             .collect();

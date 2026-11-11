@@ -58,7 +58,7 @@ pub enum PlotStage {
 pub(super) struct FarmPlot {
     pub(super) stage: PlotStage,
     /// Seconds left to ripen while `Growing`; meaningless (and left at 0) otherwise.
-    growing_left: f32,
+    pub(super) growing_left: f32,
     /// A standing sow order (`Command::StandingSow`): re-sow whenever it's empty.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(super) standing: bool,
@@ -147,7 +147,7 @@ impl World {
     }
 
     /// The `FarmDef` of the building on `pos`, if it is a farm plot.
-    fn farm_def(&self, pos: Pos, defs: &Defs) -> Option<FarmDef> {
+    pub(super) fn farm_def(&self, pos: Pos, defs: &Defs) -> Option<FarmDef> {
         defs.building(self.building_at(pos)?).farm
     }
 
@@ -175,9 +175,14 @@ impl World {
     /// so it is never `frost_hardy`-exempt the way fishing is. Terraces (#136) will scale
     /// further, the same way `tend_rate` layers onto an orchard's trees; nothing else in
     /// `tick_farms` would need to change.
-    fn crop_growth_rate(&self, pos: Pos, defs: &Defs) -> f32 {
+    pub(super) fn crop_growth_rate(&self, pos: Pos, defs: &Defs) -> f32 {
         let base = self.farm_def(pos, defs).map(|d| d.crop_growth).unwrap_or(1.0);
-        base * self.irrigation_rate(pos, defs) * self.season_growth_factor(pos, defs, false)
+        let mut season = self.season_growth_factor(pos, defs, false);
+        // A Hothouse in reach (winter only) stands in for the band's winter, where it's better.
+        if let Some(g) = self.hothouse_growth(pos, defs) {
+            season = season.max(g);
+        }
+        base * self.irrigation_rate(pos, defs) * season
     }
 
     /// The first frost of winter also takes an unharvested ripe crop (#311, called from

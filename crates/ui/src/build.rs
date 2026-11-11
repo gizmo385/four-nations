@@ -497,18 +497,18 @@ impl BuildingDetail {
 }
 
 /// A fuel bunker's burn rate as the build modal reads it (docs/design/horizons-phase-1.md): "Burns
-/// 1 fish every 4 minutes while in use" below one a minute, "Burns 2 wood a minute while in use"
-/// at or above it.
-fn fuel_line(item: &str, per_minute: f32) -> String {
+/// 1 fish every 4 minutes while in use" below one a minute, "Burns 2 wood a minute in winter"
+/// at or above it. `when` says when it burns.
+fn fuel_line(item: &str, per_minute: f32, when: &str) -> String {
     let num = |x: f32| {
         let s = format!("{x:.2}");
         s.trim_end_matches('0').trim_end_matches('.').to_owned()
     };
     let item = item.to_lowercase();
     if per_minute >= 1.0 {
-        format!("Burns {} {item} a minute while in use", num(per_minute))
+        format!("Burns {} {item} a minute {when}", num(per_minute))
     } else {
-        format!("Burns 1 {item} every {} minutes while in use", num(1.0 / per_minute))
+        format!("Burns 1 {item} every {} minutes {when}", num(1.0 / per_minute))
     }
 }
 
@@ -553,8 +553,13 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
     if let Some(track) = &def.track {
         effects.push(format!("Track: steps along it run {}x faster", track.speed));
     }
+    if let Some(h) = &def.hothouse {
+        effects.push(format!("Plots within {} tiles grow through winter", h.radius));
+    }
     if let Some(fuel) = &def.fuel {
-        effects.push(fuel_line(&session.defs.item(fuel.item).name, fuel.per_minute));
+        // A Hothouse burns only in winter; every other bunker while its effect is in use.
+        let when = if def.hothouse.is_some() { "in winter" } else { "while in use" };
+        effects.push(fuel_line(&session.defs.item(fuel.item).name, fuel.per_minute, when));
     }
     if let Some(p) = &def.pickers {
         let names: Vec<String> =
@@ -661,7 +666,12 @@ mod tests {
             "{:?}",
             lamp.effects
         );
-        assert_eq!(fuel_line("Wood", 2.0), "Burns 2 wood a minute while in use");
+        let fire = session(Nation::Fire);
+        let house = building_detail(&fire, fire.defs.building_id("hothouse").unwrap());
+        assert_eq!(
+            house.effects,
+            ["Plots within 2 tiles grow through winter", "Burns 2 wood a minute in winter"]
+        );
         let air = session(Nation::Air);
         let roost = building_detail(&air, air.defs.building_id("lemur_roost").unwrap());
         assert!(roost.effects.iter().any(|e| e == "Eats 1 fruit in 4"), "{:?}", roost.effects);

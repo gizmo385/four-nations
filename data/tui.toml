@@ -228,6 +228,12 @@ glyph = "♦"
 ascii = "A"
 fg = [255, 140, 40]
 
+# Hothouses' Hothouse (Fire, horizons phase 1): glass panes.
+[building.hothouse]
+glyph = "⊞"
+ascii = "G"
+fg = [150, 220, 170]
+
 # Oil Lamps' lamp (Water, horizons phase 1): a stone bowl with a flame.
 [building.oil_lamp]
 glyph = "ǒ"

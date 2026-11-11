@@ -39,6 +39,7 @@ mod fuel;
 mod gate;
 mod harm;
 mod heat;
+mod hothouse;
 mod injury;
 mod inside;
 #[cfg(any(test, debug_assertions))]
