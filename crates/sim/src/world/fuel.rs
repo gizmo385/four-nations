@@ -10,7 +10,8 @@
 //!   (`heat.rs`) all skip it.
 //! - **Burns only while in use.** Each tick, a fuelled bunker burns `micros_per_tick` if its
 //!   effect says it is in use (`World::fuel_in_use`, one arm per effect): a heat source while any
-//!   unit stands in its reach. Later effects (the Hothouse, the Steam Engine) add their own arm.
+//!   unit stands in its reach, a Hothouse while it warms a plot (`hothouse.rs`). Later effects
+//!   (the Steam Engine) add their own arm.
 //! - **Refuelled from stores.** At or below half full, a `JobKind::Refuel` is opened. A unit
 //!   fetches the shortfall (up to what it can carry) from the nearest stockpile or ground stack,
 //!   the way a build site's bill arrives, and tips it into the bunker. Fuel in a bunker is out
@@ -49,12 +50,15 @@ impl World {
 
     /// Whether the effect of `b` (a building with `def`) is in use this tick, so its bunker
     /// burns. One arm per effect that can take fuel; an effect without an arm never burns.
-    fn fuel_in_use(&self, b: &buildings::Building, def: &BuildingDef) -> bool {
+    fn fuel_in_use(&self, b: &buildings::Building, def: &BuildingDef, defs: &Defs) -> bool {
         if let Some(heat) = b.heat {
             // A fire burns while anyone is close enough to feel it.
             return self.units.iter().any(|u| heat.warms(u.pos));
         }
-        let _ = def;
+        if def.hothouse.is_some() {
+            // A Hothouse burns while it is warming a plot: winter, a crop in reach.
+            return self.plots_warmed_by(b, defs).next().is_some();
+        }
         false
     }
 
@@ -69,7 +73,7 @@ impl World {
         for b in self.of_kind(Kind::Fuel) {
             let def = defs.building(b.id);
             let (Some(bunker), Some(fuel)) = (b.fuel, def.fuel) else { continue };
-            if bunker.count > 0 && self.fuel_in_use(b, def) {
+            if bunker.count > 0 && self.fuel_in_use(b, def, defs) {
                 burning.push(b.anchor);
             }
             if bunker.count * 2 <= fuel.bunker {

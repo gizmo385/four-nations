@@ -589,3 +589,13 @@ cost = 120
 prereqs = ["fishing"]
 [tech.unlocks]
 buildings = ["oil_lamp"]
+
+[[tech]]
+id = "hothouses"
+name = "Hothouses"
+description = "Brick and glass rooms keep crops growing through winter."
+nation = "fire"
+cost = 250
+prereqs = ["brickmaking", "farming"]
+[tech.unlocks]
+buildings = ["hothouse"]

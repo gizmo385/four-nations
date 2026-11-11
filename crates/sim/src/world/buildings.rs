@@ -99,6 +99,8 @@ pub(super) enum Kind {
     Fuel,
     /// Pickers (`pickers.rs`).
     Pickers,
+    /// A Hothouse (`hothouse.rs`).
+    Hothouse,
 }
 
 impl Kind {
@@ -112,6 +114,7 @@ impl Kind {
             (def.seats > 0 && def.chart.is_none(), Kind::Study),
             (def.fuel.is_some(), Kind::Fuel),
             (def.pickers.is_some(), Kind::Pickers),
+            (def.hothouse.is_some(), Kind::Hothouse),
         ]
         .into_iter()
         .filter_map(|(is, kind)| is.then_some(kind))

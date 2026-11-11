@@ -338,6 +338,17 @@ pub struct PickersDef {
     pub eat_every: u32,
 }
 
+/// Winter growth for farm plots in reach (`[building.hothouse]`, the Hothouse,
+/// docs/design/horizons-phase-1.md, `world/hothouse.rs`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HothouseDef {
+    /// Chebyshev reach from the footprint. Not modifier-scaled.
+    pub radius: u32,
+    /// Winter growth for a farm plot in reach, in place of its climate band's and not scaled by
+    /// `winter_severity`.
+    pub winter_growth: f32,
+}
+
 /// One whole item, in `FuelDef::micros_per_tick` units.
 pub const FUEL_MICROS: u64 = 1_000_000;
 
@@ -465,6 +476,8 @@ pub struct BuildingDef {
     pub fuel: Option<FuelDef>,
     /// Pickers that harvest trees in reach with no worker (`PickersDef`), or `None`.
     pub pickers: Option<PickersDef>,
+    /// Winter growth for farm plots in reach (`HothouseDef`), or `None`.
+    pub hothouse: Option<HothouseDef>,
     pub unlocked_by: Option<TechId>,
     /// Seats added by techs (`[[tech.unlocks.upgrades]]`, docs/design/horizons-phase-1.md), each
     /// with the tech that adds them, in tech order. At most one tech per building, today, but a
@@ -633,6 +646,13 @@ struct RawPickers {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawHothouse {
+    radius: u32,
+    winter_growth: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawFuel {
     item: String,
     bunker: u32,
@@ -678,6 +698,7 @@ struct RawBuilding {
     chart: Option<RawChart>,
     fuel: Option<RawFuel>,
     pickers: Option<RawPickers>,
+    hothouse: Option<RawHothouse>,
     #[serde(default)]
     uses_power: bool,
     #[serde(default)]
@@ -868,6 +889,21 @@ impl BuildingsFile {
                 None => None,
                 Some(p) => Some(resolve_pickers(&b.id, p, resources)?),
             };
+            let hothouse = match &b.hothouse {
+                None => None,
+                Some(h) => {
+                    if h.radius == 0 {
+                        return err(format!("building {}: hothouse radius must be above 0", b.id));
+                    }
+                    if !(h.winter_growth.is_finite() && (0.0..=1.0).contains(&h.winter_growth)) {
+                        return err(format!(
+                            "building {}: hothouse winter_growth must be between 0 and 1",
+                            b.id
+                        ));
+                    }
+                    Some(HothouseDef { radius: h.radius, winter_growth: h.winter_growth })
+                }
+            };
             let track = match &b.track {
                 None => None,
                 Some(d) => {
@@ -915,6 +951,7 @@ impl BuildingsFile {
                 names: b.names,
                 fuel,
                 pickers,
+                hothouse,
                 unlocked_by: None,
                 seat_upgrades: Vec::new(),
                 endeavor: b.endeavor,
