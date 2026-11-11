@@ -256,11 +256,11 @@ mod tests {
         rejects(&BEASTS.replace("carry = 20", "carry = 0"), "at least 1");
         rejects(&BEASTS.replace("min_trip = 10", "min_trip = 0"), "at least 1");
         rejects(
-            &BEASTS.replace("[beast.haul]\ncarry", "speed = 0.0\n[beast.haul]\ncarry"),
+            &BEASTS.replacen("[beast.haul]\ncarry", "speed = 0.0\n[beast.haul]\ncarry", 1),
             "speed must be",
         );
         rejects(
-            &BEASTS.replace("[beast.haul]\ncarry", "speed = 99.0\n[beast.haul]\ncarry"),
+            &BEASTS.replacen("[beast.haul]\ncarry", "speed = 99.0\n[beast.haul]\ncarry", 1),
             "speed must be",
         );
         let hauler = "[beast.haul]\ncarry = 20\nmin_trip = 10\n";
@@ -281,6 +281,6 @@ mod tests {
             second_row("twin").replace("nation = \"air\"", "nation = \"fire\"")
         );
         let d = Defs::bundled().with_beasts(&both).expect("a different (nation, home)");
-        assert_eq!(d.beasts.len(), 2);
+        assert_eq!(d.beasts.len(), Defs::bundled().beasts.len() + 1);
     }
 }

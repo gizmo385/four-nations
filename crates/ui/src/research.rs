@@ -172,7 +172,7 @@ pub fn unlock_summary(defs: &Defs, nation: Nation, id: TechId, def: &TechDef) ->
     let dependents: Vec<&str> = defs
         .techs
         .iter()
-        .filter(|t| t.prereqs.contains(&id) && t.nation.is_none_or(|n| n == nation))
+        .filter(|t| t.prereqs.contains(&id) && t.open_to(nation))
         .map(|t| t.name.as_str())
         .collect();
     if dependents.is_empty() {
@@ -274,6 +274,7 @@ mod tests {
             name: "X".into(),
             description: String::new(),
             nation,
+            nations: Vec::new(),
             cost,
             prereqs: prereqs.to_vec(),
             unlocks: Unlocks::default(),

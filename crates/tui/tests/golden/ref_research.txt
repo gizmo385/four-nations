@@ -22,9 +22,9 @@
 │    Farm Plot                    Earthworks x1.2,                                          Needs Writing              │
 │                                 Earth Tent                                                                           │
 │                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
+│                               · Herding                                                                              │
+│                                 Locked · 250 pts                                                                     │
+│                                 Needs Farming                                                                        │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │

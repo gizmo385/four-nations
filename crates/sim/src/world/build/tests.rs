@@ -186,7 +186,7 @@ fn another_nation_s_building_is_refused_because_its_tech_can_never_be_known() {
         let (mut w, _) = setup_as(nation, &GRID, &[at(1, 1)]);
         for (i, def) in defs.buildings.iter().enumerate() {
             let Some(tech) = def.unlocked_by else { continue };
-            if defs.tech(tech).nation.is_none_or(|n| n == nation) {
+            if defs.tech(tech).open_to(nation) {
                 continue;
             }
             assert_eq!(

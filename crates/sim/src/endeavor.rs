@@ -263,7 +263,7 @@ pub fn reachable_buildings<'a>(
             None => true,
             Some(t) => {
                 let tech = &techs[t.0 as usize];
-                tech.core && tech.nation.is_none_or(|n| n == nation)
+                tech.core && tech.open_to(nation)
             }
         };
         reachable.then_some(BuildingId(i as u16))

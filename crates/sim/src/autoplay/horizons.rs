@@ -36,8 +36,7 @@ pub(super) const ROAD_TILES: usize = 30;
 /// still plays (module doc).
 pub(super) fn buildable(nation: Nation, defs: &Defs) -> impl Iterator<Item = BuildingId> + '_ {
     defs.buildings.iter().enumerate().filter_map(move |(i, b)| {
-        let open = !b.endeavor
-            && b.unlocked_by.is_none_or(|t| defs.tech(t).nation.is_none_or(|n| n == nation));
+        let open = !b.endeavor && b.unlocked_by.is_none_or(|t| defs.tech(t).open_to(nation));
         open.then_some(BuildingId(i as u16))
     })
 }

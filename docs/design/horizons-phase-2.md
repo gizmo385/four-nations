@@ -201,6 +201,14 @@ growth_boost = 1.5      # the Irrigation Channel's own boost
   prereqs must be shared techs. Only those nations see it. `herding` is the first use, and
   phase 6's fusions (two nations each) are the next. The alternative, three nation techs named
   `herding_earth` and so on, would triple the entries and lose the single id the spec uses.
+  **As built (#696).** `TechDef` keeps `nation` (`None` for a `nations` tech) and gains
+  `nations: Vec<Nation>`. Ask `TechDef::open_to(nation)` and `is_shared()` instead of reading
+  the two fields; `techs_for`, `set_research` (its refusal is `WrongNation`, "that tech belongs
+  to another nation"), the build picker, the endeavor's reach and the autoplay all go through
+  `open_to`. The loader refuses fewer than two nations, a nation named twice, `nations` beside
+  `nation`, and a `nations` tech with a prereq that isn't shared. It also refuses any tech that
+  requires a `nations` tech, a rule for phase 6 to relax when it needs one. A `nations` tech
+  can't unlock an ability, since an ability belongs to one nation's own tech.
 - **Per-flight fuel.** `[building.fuel]`'s `per_minute` becomes optional. When it's absent, the
   building's own effect section says when it burns: the balloon's `fuel_per_flight`.
 - **A pantry and a barrel.** These are two new need sources, used only by the Waystation for now.

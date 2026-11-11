@@ -265,4 +265,6 @@ impl World {
 }
 
 #[cfg(test)]
+mod stable_tests;
+#[cfg(test)]
 mod tests;

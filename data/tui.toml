@@ -275,6 +275,12 @@ glyph = "∩"
 ascii = "y"
 fg = [190, 160, 110]
 
+# Herding's Stable (horizons phase 2): a roofed pen.
+[building.stable]
+glyph = "╥"
+ascii = "J"
+fg = [200, 170, 120]
+
 # --- Earth Kingdom ---
 [building.earth_wall]
 glyph = "▓"
