@@ -27,9 +27,10 @@ panel's own **Modifiers** section moved to the Nation screen's Traits (#308).
    also shared with the Bevy client; that client is gone now, #281, and `fn_ui` serves `fn_tui`
    alone.)
 2. **The same screen the Bevy client had, in cells** (docs/design/ui.md). The map fills the left
-   side, the Seal side panel sits on the right, the selection bar runs along the bottom, and a
-   status line sits below everything. The hover tooltip becomes a fixed **Cursor** section in the
-   side panel, because the keyboard cursor *is* the hover.
+   side, the Seal side panel sits on the right, and a status line sits below everything. The
+   hover tooltip and the selection bar become the side panel's last section, the **inspector**
+   (#653), because the keyboard cursor *is* the hover and a selected settler is what the player
+   is looking at.
 3. **One cell per tile, glyphs and colours from data.** A new `data/tui.toml` gives every
    terrain, biome, resource, item, building and overlay a Unicode glyph, an ASCII fallback and
    sRGB colours. Units take their nation's `color`. Colour is quantised automatically for
@@ -123,9 +124,8 @@ backgrounds, the stockpile is blue, the cursor is yellow and the selected unit i
 
 | Zone (ui.md) | TUI | Size | Contents |
 |---|---|---|---|
-| **Side panel** | Right edge, full height above the status line | 32 columns | Seal frame: `accent_soft` box lines, `accent` corners `┏┓┗┛`, title `◆ NATION ◆` centred on the top edge, `◇` section bullets. Sections in ui.md order: header (seed, clock, speed); **People** (count, then one line per unit while they fit); **Stores**; **Research**; **Tool** (hint and notice); **Alerts**; **Cursor**. Empty sections hide, as in ui.md |
-| **Selection bar** | Bottom of the map area, left of the side panel | 7 rows | Name and nation in the top edge; task, carrying, tile; meters as 10-cell bars in `ok`/`warn`/`bad`, with a `!` for anything not ok (readable without colour); chi in `accent`; no key hints (the hint bar has them, see "Hints"). No portrait. Present only while a unit is selected |
-| **Hover tooltip** | The **Cursor** section | up to 4 lines + title | The client's tooltip lines for the tile under the cursor, same order (name, context, yield or reason, hint). Fixed, so it never covers map glyphs |
+| **Side panel** | Right edge, full height above the status line | 32 columns | Seal frame: `accent_soft` box lines, `accent` corners `┏┓┗┛`, title `◆ NATION ◆` centred on the top edge, `◇` section bullets. Sections in ui.md order: header (seed, clock, speed); **People** (count, then one line per unit while they fit); **Stores**; **Research**; **Tool** (hint and notice); **Alerts**; the **inspector**. Empty sections hide, as in ui.md |
+| **Inspector** (#653) | The side panel's last section, every row the sections above leave | the rest of the panel | Its heading names what it describes. A selected settler: name and rank; task, carrying; meters as 10-cell bars in `ok`/`warn`/`bad`, with the word `low` after any that is not ok (readable without colour); chi in `accent`; progress to the next rank; the tile it stands on. Otherwise what is under the cursor, the client's tooltip lines (name, context, yield or reason, hint) with the position on the heading. No key hints (the hint bar has them, see "Hints"); no portrait. Nothing covers the map: the selection bar of #99 is retired, see docs/design/side-panel-v2.md "The inspector" |
 | **Full screens** (#652) | Over the map and the side panel | every column, every row above the status line | One shared frame (`crate::page`, see "Full screens" below): Nation (`N`), Research (`T`), Endeavor (`G`), the message log (`L`), key help (`?`), Saves (`F6`) and Build (`U`) |
 | *(new)* **Centred boxes** (#285, #655) | Centred box over the map area | up to 66x18, shrinking to fit | A smaller, centred Seal box that captures every key until it closes (`crate::modal`): the game menu (`crate::menu`) and the confirm box (`crate::ask`) |
 | *(new)* **Status line** | Last row | 1 row | The **hint bar** (see "Hints"): the mode's name, that mode's own keys and a fixed tail, `PAUSED` then `? keys`. Vim and Dwarf Fortress both teach this: in a modal keyboard UI the mode must always be visible |
@@ -186,8 +186,8 @@ backgrounds, the stockpile is blue, the cursor is yellow and the selected unit i
   bothers the owner.
 - **The view follows the cursor.** It scrolls when the cursor comes within 3 tiles of an edge,
   and it never scrolls past the map. Ctrl+arrows and PageUp/PageDown jump it a quarter screen
-  (see "Input"). When the selection bar opens, the view shifts so the
-  selected unit stays visible (the client's `center_on_selection`).
+  (see "Input"). Selecting a unit covers no map rows (the inspector is in the panel, #653), so
+  the view only moves when the cursor is out of it.
 
 ## Glyphs and colour
 
@@ -322,7 +322,7 @@ like Shift+arrows. With Caps Lock on, they move 10 tiles too.
 | Shift + arrows, Shift + `W` `A` `S` `D` | Move 10 tiles | same | none |
 | Ctrl + arrows; PageUp / PageDown | Jump the view a quarter screen; the cursor moves with it | same | Pan |
 | `Enter` | Select the unit under the cursor (again: the next unit on that tile) | 1st: set a corner. 2nd: apply to the rectangle | Click / drag |
-| `Esc` | Close the selection bar | Drop the corner, or (with none) back to Select | Same |
+| `Esc` | Deselect the settler | Drop the corner, or (with none) back to Select | Same |
 | `Tab` / Shift+`Tab` | Select the next / previous unit; the cursor jumps to it | none | none |
 | `F` | Follow the selected unit (the cursor tracks it) | none | Centres once |
 | `H` `X` `P` `B` | Harvest, cancel harvest, stockpile, bend tool | Switch tool (drops the corner) | Same |
@@ -398,7 +398,7 @@ One rule (#651): **keys are named in one place, the hint bar, and written once.*
   ```
 
 - **Nothing else prints key hints.** A screen's or modal's bottom border (Nation, Research,
-  Endeavor, Log, Key help, Saves, Build, the game menu) and the selection bar carry none. The
+  Endeavor, Log, Key help, Saves, Build, the game menu) and the inspector carry none. The
   freed bottom border of a screen that scrolls says where the window sits instead, flush right:
   `12-48 of 61` (Log, Key help, Endeavor), `tiers 1-4 of 5`, `settlers 1-12 of 30`, `slots`,
   `buildings`; the game menu's border carries the clock, the season and the time left (#654).

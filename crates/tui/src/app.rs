@@ -768,7 +768,7 @@ impl App {
     }
 
     /// `Esc` in a tool: drop the corner, or with none leave the tool. In Select mode it closes
-    /// the selection bar; with nothing left to close (#306), it opens the game menu instead.
+    /// the inspector's settler; with nothing left to close (#306), it opens the game menu instead.
     fn cancel(&mut self) {
         if self.ui.tool == Tool::Select {
             if self.ui.selected.is_some() {
@@ -860,7 +860,7 @@ impl App {
     }
 
     /// After ticks ran: turns what the world logged into alerts (the toasts age by `dt` real
-    /// seconds), closes the bar on a unit that died and moves the cursor with a followed one.
+    /// seconds), deselects a unit that died and moves the cursor with a followed one.
     ///
     /// `pub(crate)` so `crate::surface`'s scenario prelude (#481) can catch `ui.alerts` up to
     /// the end of a prelude it ran directly against `self.session`, without `run_ticks` -- the

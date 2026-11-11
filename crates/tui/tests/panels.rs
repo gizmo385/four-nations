@@ -30,6 +30,28 @@ fn text(app: &mut App, size: (u16, u16)) -> String {
     to_text(&render_app(app, &p, size))
 }
 
+/// The side panel's heading rows in a frame, as (row, line): every row with a divider heading's
+/// own `├─ ` (or, in ASCII, `+- `) in it. The last is the inspector's (#653).
+fn headings(frame: &str, ascii: bool) -> Vec<(usize, String)> {
+    let mark = if ascii { "+- " } else { "├─ " };
+    frame
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| l.contains(mark))
+        .map(|(y, l)| (y, l.to_owned()))
+        .collect()
+}
+
+/// The inspector's heading row in a unicode frame, which must have one after the row of the
+/// heading containing `after`.
+fn inspector_heading(frame: &str, after: &str) -> String {
+    let all = headings(frame, false);
+    let above = all.iter().find(|(_, l)| l.contains(after)).unwrap_or_else(|| panic!("{after}"));
+    let (y, line) = all.last().unwrap();
+    assert!(*y > above.0, "the inspector comes after {after}:\n{frame}");
+    line.clone()
+}
+
 /// The unit ids in the order of the world's list.
 fn ids(app: &App) -> Vec<fn_sim::world::UnitId> {
     app.session.world.units.iter().map(|u| u.id).collect()
@@ -128,7 +150,7 @@ fn tab_and_shift_tab_cycle_through_the_units_and_the_cursor_follows() {
 }
 
 #[test]
-fn escape_closes_the_bar_but_in_a_tool_it_leaves_the_tool_first() {
+fn escape_deselects_but_in_a_tool_it_leaves_the_tool_first() {
     let mut a = app(7, Nation::Earth, SIZE);
     run(&mut a, "<tab>");
     assert!(a.ui.selected.is_some());
@@ -176,23 +198,36 @@ fn a_unit_that_dies_closes_the_bar() {
     assert_eq!((a.ui.selected, a.ui.following), (None, false));
 }
 
+/// With a settler selected the map keeps its full height (#653): the settler is the side panel's
+/// inspector, not a bar over the map's bottom rows.
 #[test]
-fn the_view_keeps_the_selected_unit_above_the_bar() {
+fn a_selected_settler_takes_no_rows_of_the_map() {
     let mut a = app(7, Nation::Earth, SIZE);
-    let (_, h) = a.ui.viewport();
-    // Stand a settler on the bottom edge of the map and select it.
+    let before = text(&mut a, SIZE);
+    let view = a.ui.view;
+    run(&mut a, "<tab>");
+    assert_eq!(a.ui.view, view, "the view stays put: nothing covers the map");
+    assert_eq!(a.ui.visible(), a.ui.viewport(), "the whole map region is visible");
+    let after = text(&mut a, SIZE);
+    // The map is the 88 columns left of the panel, all 39 rows above the hint bar: the same
+    // tiles with a settler selected as without, and no box drawn over them.
+    let map = |frame: &str| -> Vec<String> {
+        frame.lines().take(39).map(|l| l.chars().take(88).collect()).collect()
+    };
+    assert_eq!(map(&before), map(&after), "the map is untouched:\n{after}");
+    assert!(map(&after).iter().all(|l| !l.contains('┏') && !l.contains('┗')), "{after}");
+    // The unit stands on the map's own bottom row too.
     let bottom = Pos::new(a.session.world.units[0].pos.x, a.session.world.map.height() - 1);
     a.session.world.units[0].pos = bottom;
     a.ui.cursor = bottom;
-    run(&mut a, "<enter>");
+    run(&mut a, "<esc> <enter>");
+    assert!(a.ui.selected.is_some());
     let (_, row) = a.ui.cursor_cell().expect("the unit is in view");
-    assert!(row < h - 7, "row {row} must clear the 7-row bar on a {h}-row map");
     let frame = text(&mut a, SIZE);
-    let lines: Vec<&str> = frame.lines().collect();
-    let unit_row = lines[row as usize];
-    assert!(unit_row.contains('☺'), "the unit is drawn above the bar:\n{frame}");
+    let unit_row = frame.lines().nth(row as usize).unwrap();
+    assert!(unit_row.contains('☺'), "the unit is drawn:\n{frame}");
 
-    // Closing the bar leaves the view be.
+    // Deselecting leaves the view be.
     run(&mut a, "<esc>");
     assert_eq!(a.ui.selected, None);
     assert!(a.ui.cursor_cell().is_some());
@@ -203,39 +238,44 @@ fn the_view_keeps_the_selected_unit_above_the_bar() {
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn the_bar_names_the_unit_and_shows_its_task_cargo_tile_and_meters() {
+fn the_inspector_names_the_settler_and_shows_its_task_cargo_meters_rank_and_tile() {
     let mut a = app(7, Nation::Earth, SIZE);
     run(&mut a, "<tab>");
     let unit = &a.session.world.units[0];
     let (name, pos) = (unit.name.clone(), unit.pos);
     let frame = text(&mut a, SIZE);
     let lines: Vec<&str> = frame.lines().collect();
-    // The bar is the 7 rows above the status line, on the map side.
-    let top = lines[32];
-    assert!(top.starts_with("┏─ ") && top.contains(&format!("{name} · Earth Kingdom")), "{top}");
-    let bar = lines[32..39].join("\n");
-    for want in ["Idle", "Carrying: nothing", &format!("At ({}, {})", pos.x, pos.y)] {
-        assert!(bar.contains(want), "{want:?} in\n{bar}");
+    // The heading names the settler and the rank; everything under it is the settler's.
+    let (y, heading) = headings(&frame, false).pop().unwrap();
+    assert!(
+        heading.contains(&format!("├─ {} ─", name.to_uppercase())) && heading.contains("Student"),
+        "{heading}"
+    );
+    let panel: Vec<String> = lines[y..39].iter().map(|l| l.chars().skip(88).collect()).collect();
+    let inspector = panel.join("\n");
+    for want in ["Idle", "Carrying nothing", "To adept: ", &format!("({}, {})", pos.x, pos.y)] {
+        assert!(inspector.contains(want), "{want:?} in\n{inspector}");
     }
     for want in ["Health", "Hunger", "Thirst", "Energy", "Chi"] {
-        assert!(bar.contains(want), "{want:?} in\n{bar}");
+        assert!(inspector.contains(want), "{want:?} in\n{inspector}");
     }
-    assert!(bar.contains("██████████ 100%"), "a full meter is ten cells:\n{bar}");
-    // The bar names no keys (#651): the hint bar below is the only place they appear.
-    assert!(!bar.contains("[Esc]") && !bar.contains("Esc close"), "{bar}");
+    assert!(inspector.contains("██████████ 100%"), "a full meter is ten cells:\n{inspector}");
+    // The tile is said once, on the "Standing on" line.
+    assert_eq!(frame.matches(&format!("({}, {})", pos.x, pos.y)).count(), 1, "{frame}");
+    assert!(inspector.contains("Standing on "), "{inspector}");
+    // The inspector names no keys (#651): the hint bar below is the only place they appear.
+    assert!(!inspector.contains("[Esc]") && !inspector.contains("Esc close"), "{inspector}");
     assert!(
         lines[39].contains("Esc close") && lines[39].contains("F follow"),
         "the hint bar has the settler's keys:\n{}",
         lines[39]
     );
-    // The side panel runs the full height beside it.
-    assert!(lines[36].contains('│') && lines[39].starts_with(" SELECT"), "{frame}");
 }
 
-/// A channelling bender's People line and bar say so and how long is left (#278), instead of the
-/// plain task every other frontend shows.
+/// A channelling bender's inspector says so and how long is left (#278), instead of the plain
+/// task every other frontend shows.
 #[test]
-fn a_channelling_unit_names_the_ability_and_the_time_left_in_the_bar_and_the_people_list() {
+fn a_channelling_unit_names_the_ability_and_the_time_left_in_the_inspector() {
     let mut s = Session::new(1, Nation::Fire, 48, 32);
     let pos = s.world.units[0].pos;
     let id = s.world.units[0].id;
@@ -253,14 +293,14 @@ fn a_channelling_unit_names_the_ability_and_the_time_left_in_the_bar_and_the_peo
     a.ui.select(Some(id));
     let frame = text(&mut a, SIZE);
     assert!(frame.contains("Channelling Hearthflame"), "{frame}");
-    // The bar's own header and rows, as the deleted channelling golden showed them.
-    assert!(frame.contains("Fire Nation · Student"), "{frame}");
+    // The inspector's own heading and rows, as the deleted channelling golden showed them.
+    assert!(frame.contains("Student ─┤"), "{frame}");
     assert!(frame.contains("Chi    ██████████"), "{frame}");
     assert!(frame.lines().last().unwrap().contains("Tab next unit · F follow"), "{frame}");
 }
 
 #[test]
-fn a_meter_that_is_not_ok_has_a_bang_and_the_others_do_not() {
+fn a_meter_that_is_not_ok_says_low_and_the_others_do_not() {
     let mut a = app(7, Nation::Earth, SIZE);
     a.session.world.units[0].needs.energy = 0.0;
     a.session.world.units[0].needs.hunger = 0.0;
@@ -269,19 +309,17 @@ fn a_meter_that_is_not_ok_has_a_bang_and_the_others_do_not() {
     let row = |label: &str| {
         frame
             .lines()
-            .skip(32)
-            .find(|l| l.contains(label))
+            .find(|l| l.contains(&format!("{label} ")) && l.contains('%'))
             .unwrap_or_else(|| panic!("{label} row in\n{frame}"))
             .to_owned()
     };
     for label in ["Energy", "Hunger"] {
-        // The flag sits directly against the meter's cells, then the value.
-        assert!(row(label).contains("░░░░░░░░░░!  0%"), "{}", row(label));
+        // The whole meter wears the warning, then the value and the word.
+        assert!(row(label).contains("░░░░░░░░░░   0% low"), "{}", row(label));
     }
-    for label in ["Health", "Thirst"] {
-        assert!(!row(label).contains('!'), "{}", row(label));
+    for label in ["Health", "Thirst", "Chi"] {
+        assert!(!row(label).contains("low"), "{}", row(label));
     }
-    assert!(!row("Chi").contains('!'));
 }
 
 #[test]
@@ -297,23 +335,31 @@ fn meters_wear_the_ok_warn_and_bad_tokens() {
     run(&mut a, "<tab>");
     let p = Palette::new(&a.session.defs, Nation::Earth, ColorDepth::TrueColor, false);
     let buf = render_app(&mut a, &p, SIZE);
+    let row_of = |label: &str| {
+        (0..40)
+            .find(|&y| {
+                let row: String = (88..120).map(|x| buf[(x, y)].symbol()).collect();
+                row.contains(&format!("{label} ")) && row.contains('%')
+            })
+            .unwrap()
+    };
     let cell_of = |label: &str| {
-        let y = (32..39)
-            .find(|&y| (0..120).map(|x| buf[(x, y)].symbol()).collect::<String>().contains(label))
-            .unwrap();
+        let y = row_of(label);
         let row: String = (0..120).map(|x| buf[(x, y)].symbol()).collect();
-        let x = row.chars().position(|c| c == '█').unwrap() as u16;
+        let x = row.chars().skip(88).position(|c| c == '█').unwrap() as u16 + 88;
         buf[(x, y)].fg
     };
     let want = |rgb| p.token(rgb);
     assert_eq!(cell_of("Hunger"), want(p.theme.ok));
     assert_eq!(cell_of("Thirst"), want(p.theme.warn));
-    let energy_y = (32..39)
-        .find(|&y| (0..120).map(|x| buf[(x, y)].symbol()).collect::<String>().contains("Energy"))
-        .unwrap();
-    // A bad meter has no filled cells, so its mark carries the colour.
-    let bang = (0..120).find(|&x| buf[(x, energy_y)].symbol() == "!").unwrap();
-    assert_eq!(buf[(bang, energy_y)].fg, want(p.theme.bad));
+    let energy_y = row_of("Energy");
+    // A bad meter has no filled cells, so the word "low" carries the colour.
+    let low = (88..120).find(|&x| buf[(x, energy_y)].symbol() == "l").unwrap();
+    assert_eq!(buf[(low, energy_y)].fg, want(p.theme.bad));
+    // The warn meter's word wears the warning colour.
+    let thirst_y = row_of("Thirst");
+    let low = (88..120).find(|&x| buf[(x, thirst_y)].symbol() == "l").unwrap();
+    assert_eq!(buf[(low, thirst_y)].fg, want(p.theme.warn));
 }
 
 #[test]
@@ -347,18 +393,19 @@ fn the_cursor_section_offers_enter_over_a_unit() {
     assert!(!text(&mut a, SIZE).contains("Press Enter to select"), "not in a tool");
 }
 
-/// A selected unit's bar: the title, the task, where it stands, the five meters and the key
-/// hints under them. A tired unit (energy low) shows its Energy meter short of full.
+/// A selected settler's inspector: the heading, the task, where it stands and the five meters.
+/// A tired unit (energy low) shows its Energy meter short of full.
 #[test]
-fn a_selected_unit_opens_the_bar_with_its_title_meters_and_hints() {
+fn a_selected_unit_opens_the_inspector_with_its_heading_and_meters() {
     let mut a = app(7, Nation::Earth, SIZE);
     a.session.world.units[0].needs.energy = a.session.defs.needs.max() * 0.1;
     run(&mut a, "<tick 200> <tab>");
     let frame = text(&mut a, SIZE);
     let u = &a.session.world.units[0];
-    assert!(frame.contains(&format!("{} · Earth Kingdom · Student", u.name)), "{frame}");
-    assert!(frame.contains("Carrying: nothing"), "{frame}");
-    assert!(frame.contains(&format!("At ({}, {})", u.pos.x, u.pos.y)), "{frame}");
+    assert!(frame.contains(&format!("├─ {} ─", u.name.to_uppercase())), "{frame}");
+    assert!(frame.contains("Student ─┤"), "{frame}");
+    assert!(frame.contains("Carrying nothing"), "{frame}");
+    assert!(frame.contains(&format!("({}, {})", u.pos.x, u.pos.y)), "{frame}");
     for meter in ["Health", "Hunger", "Thirst", "Energy", "Chi"] {
         assert!(frame.contains(meter), "{meter} in\n{frame}");
     }
@@ -369,9 +416,9 @@ fn a_selected_unit_opens_the_bar_with_its_title_meters_and_hints() {
     assert!(frame.contains("To adept: 0 of "), "{frame}");
 }
 
-/// The same bar in ASCII: pure ASCII, with `#` for the meter cells and `-` for the frame.
+/// The same inspector in ASCII: pure ASCII, with `#` for the meter cells and `-` for the frame.
 #[test]
-fn an_ascii_selected_unit_bar_is_pure_ascii() {
+fn an_ascii_selected_unit_inspector_is_pure_ascii() {
     let mut a = app(7, Nation::Earth, SIZE);
     run(&mut a, "<tab>");
     let p = Palette::new(&a.session.defs, Nation::Earth, ColorDepth::Never, true);
@@ -420,7 +467,7 @@ fn the_people_row_is_one_line_and_a_starving_unit_flags_in_the_bad_tone() {
     let mut b = app(7, Nation::Earth, SMALL);
     push_to_twenty(&mut b);
     let frame = text(&mut b, SMALL);
-    assert!(frame.contains("People 20") && frame.contains("HERE"), "{frame}");
+    assert!(frame.contains("People 20") && headings(&frame, false).len() >= 2, "{frame}");
 }
 
 #[test]
@@ -497,13 +544,13 @@ fn the_sections_come_in_ui_md_order() {
     // nothing but its heading on a tight panel. The Tool section's heading is the tool's own
     // name, not the literal word "TOOL" (docs/design/side-panel.md "Headings"), but "BEND" also
     // names itself in the active tool banner's own row (#307) above the panel, so this looks for
-    // its heading's own key bracket instead; the seed moved to the panel's bottom edge, after
-    // HERE, as "seed" (lower case).
-    let order: Vec<&str> = ["SETTLEMENT", "ALERTS", "[B]", "HERE", "seed"]
-        .into_iter()
-        .filter(|s| frame.contains(s))
-        .collect();
-    assert!(order.contains(&"SETTLEMENT") && order.contains(&"HERE"), "{frame}");
+    // its heading's own key bracket instead; the inspector (#653) is last, under a heading of its
+    // own naming what it describes, then the seed on the panel's bottom edge as "seed" (lower
+    // case).
+    let order: Vec<&str> =
+        ["SETTLEMENT", "ALERTS", "[B]", "seed"].into_iter().filter(|s| frame.contains(s)).collect();
+    assert!(order.contains(&"SETTLEMENT") && order.contains(&"[B]"), "{frame}");
+    inspector_heading(&frame, "[B]");
     for pair in order.windows(2) {
         // Compare by row: the map shares each row with the panel.
         let row = |s: &str| frame[..at(s)].matches('\n').count();
@@ -517,7 +564,7 @@ fn a_small_terminal_keeps_the_cursor_and_settlement_glance_with_every_section_on
         let mut a = bending_game_for(nation);
         run(&mut a, "b <enter>");
         let frame = text(&mut a, SMALL);
-        assert!(frame.contains("HERE"), "{nation:?}\n{frame}");
+        inspector_heading(&frame, "[B]");
         assert!(frame.contains("Enter: bend"), "{nation:?}\n{frame}");
         assert!(frame.contains("SETTLEMENT"), "{nation:?}\n{frame}");
     }
@@ -544,9 +591,10 @@ fn every_heading_is_on_screen_at_80x24_with_a_tool_and_a_notice() {
     let frame = text(&mut a, SMALL);
     // Stores hides itself with nothing stockpiled yet (own test: `stores_appear_once_...`); it
     // isn't exercised here.
-    for heading in ["SETTLEMENT", "HARVEST", "HERE"] {
+    for heading in ["SETTLEMENT", "HARVEST"] {
         assert!(frame.contains(heading), "{heading} in\n{frame}");
     }
+    inspector_heading(&frame, "[H]");
 }
 
 /// `--ascii --color never`: every heading row starts with `+-` and names its section, shape
@@ -559,13 +607,15 @@ fn ascii_headings_start_with_a_plus_dash_and_name_their_section() {
     let frame = to_text(&render_app(&mut a, &p, SMALL));
     let headings: Vec<&str> = frame.lines().filter(|l| l.contains("+-")).collect();
     assert!(!headings.is_empty(), "{frame}");
-    for section in ["SETTLEMENT", "HARVEST", "HERE"] {
+    for section in ["SETTLEMENT", "HARVEST"] {
         assert!(
             headings.iter().any(|l| l.contains("+-") && l.contains(section)),
             "{section} in\n{}",
             headings.join("\n")
         );
     }
+    let harvest = headings.iter().position(|l| l.contains("HARVEST")).unwrap();
+    assert!(headings.len() > harvest + 1, "the inspector's heading follows:\n{frame}");
 }
 
 /// The Tool section's heading wears the active tool's own tint (docs/design/side-panel.md
@@ -778,11 +828,11 @@ fn the_message_log_screen_shows_its_heading_hints_and_newest_line() {
 }
 
 #[test]
-fn a_screen_hides_the_bar_and_takes_the_keys_but_not_the_clock() {
+fn a_screen_hides_the_inspector_and_takes_the_keys_but_not_the_clock() {
     let mut a = app(7, Nation::Earth, SIZE);
     run(&mut a, "<tab> l");
     let frame = text(&mut a, SIZE);
-    assert!(frame.contains("MESSAGE LOG") && !frame.contains("Carrying:"), "{frame}");
+    assert!(frame.contains("MESSAGE LOG") && !frame.contains("Carrying"), "{frame}");
     assert!(!frame.contains("EARTH KINGDOM"), "the side panel is covered:\n{frame}");
     assert!(frame.lines().last().unwrap().starts_with(" LOG "), "{frame}");
     let (cursor, tool) = (a.ui.cursor, a.ui.tool);
@@ -792,8 +842,8 @@ fn a_screen_hides_the_bar_and_takes_the_keys_but_not_the_clock() {
     assert!(a.session.clock.paused, "but the clock keys work");
     run(&mut a, "<esc>");
     assert_eq!(a.ui.screen, None);
-    assert!(a.ui.selected.is_some(), "the bar comes back");
-    assert!(text(&mut a, SIZE).contains("Carrying:"));
+    assert!(a.ui.selected.is_some(), "the selection is still there");
+    assert!(text(&mut a, SIZE).contains("Carrying nothing"));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1168,7 +1218,6 @@ fn every_settlement_glance_row_is_on_screen_at_80x24_with_everything_on() {
         "Gate 0 of 9 signs",    // the Gate row
         "Needs 10 more people", // what it still needs
         "HARVEST",              // the active tool
-        "HERE",
     ] {
         assert!(frame.contains(want), "{want:?} in\n{frame}");
     }

@@ -2852,7 +2852,7 @@ mod tests {
     use fn_ui::tools::ability_for_nation;
 
     use super::*;
-    use crate::state::{BANNER_HEIGHT, BAR_HEIGHT};
+    use crate::state::BANNER_HEIGHT;
 
     fn host(nation: Nation) -> Host {
         Host::new(7, nation, None, None, None, false).unwrap()
@@ -4697,12 +4697,10 @@ mod tests {
             let frame_lines: Vec<&str> = frame.lines().collect();
             let ui = &h.app().ui;
             let (view, (vw, vh)) = (ui.view, ui.viewport());
-            // The tool banner (top) and the selection bar (bottom) cover their own rows of the
-            // map area with their own text, not a tile glyph (`UiState::visible`'s own doc
-            // comment); `mid_game` has both.
+            // The tool banner (top) covers its own row of the map area with its own text, not
+            // a tile glyph (`UiState::visible`'s own doc comment).
             let top = if ui.banner() { BANNER_HEIGHT } else { 0 };
-            let bottom = if ui.selected.is_some() { BAR_HEIGHT } else { 0 };
-            let rows = (vh - top - bottom).max(1);
+            let rows = (vh - top).max(1);
             let look = h.look(view.x, view.y + top, vw as u16, rows as u16);
             for (row, thing_line) in look.things.iter().enumerate() {
                 let frame_row = top as usize + row;

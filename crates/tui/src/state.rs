@@ -13,9 +13,6 @@ use crate::layout;
 /// How close (in tiles) the cursor may come to the edge of the view before the view scrolls.
 pub const SCROLL_MARGIN: i32 = 3;
 
-/// How tall the selection bar is, in rows of the map area.
-pub const BAR_HEIGHT: i32 = 7;
-
 /// How tall the active tool banner is, in rows of the map area (#307): the top row, while any
 /// tool other than `Select` is active.
 pub const BANNER_HEIGHT: i32 = 1;
@@ -141,7 +138,7 @@ pub struct UiState {
     pub status_badge: Option<&'static str>,
     pub prompt: Option<Prompt>,
     pub quit: bool,
-    /// The unit the selection bar is about, if the bar is open.
+    /// The unit the side panel's inspector is about (#653), if one is selected.
     pub selected: Option<UnitId>,
     /// Whether the cursor tracks the selected unit (`F`).
     pub following: bool,
@@ -253,18 +250,18 @@ impl UiState {
     }
 
     /// Whether the active tool banner is showing (#307): any tool other than `Select`. The view
-    /// keeps the cursor out from under it the same way it does the selection bar.
+    /// keeps the cursor out from under it.
     pub fn banner(&self) -> bool {
         self.tool != Tool::Select
     }
 
-    /// The part of [`Self::viewport`] the tool banner (top) and the selection bar (bottom) leave
-    /// free: the view keeps the cursor and the selected unit inside it.
+    /// The part of [`Self::viewport`] the tool banner (top) leaves free: the view keeps the
+    /// cursor and the selected unit inside it. A selected unit takes none of the map: it is the
+    /// side panel's inspector (#653).
     pub fn visible(&self) -> (i32, i32) {
         let (w, h) = self.viewport;
         let top = if self.banner() { BANNER_HEIGHT } else { 0 };
-        let bottom = if self.selected.is_some() { BAR_HEIGHT } else { 0 };
-        (w, (h - top - bottom).max(1))
+        (w, (h - top).max(1))
     }
 
     /// The terminal changed size: the view keeps the cursor in sight at the new size.
@@ -305,7 +302,7 @@ impl UiState {
         self.repeating = false;
         self.teardown = false;
         // Entering a tool shows the banner (#307), which the view must keep the cursor clear
-        // of, the same way selecting a unit does for the bar below.
+        // of.
         self.follow();
     }
 
@@ -411,13 +408,9 @@ impl UiState {
     }
 
     /// How far down the top of [`Self::visible`]'s window sits from the top of the full
-    /// viewport (#307): [`BANNER_HEIGHT`] rows while the tool banner shows, else none. The
-    /// bottom margin (the selection bar) needs no such offset: it's already where
-    /// [`Self::visible`]'s smaller height naturally ends, since `view` can always scroll
-    /// further down to make room. `view` can never go negative, though, so the one spot this
-    /// can't keep clear of the banner is the map's own top [`BANNER_HEIGHT`] rows once the view
-    /// is already at the map's own top edge: the same class of limit the bar already has at
-    /// the map's bottom edge on a map shorter than the viewport.
+    /// viewport (#307): [`BANNER_HEIGHT`] rows while the tool banner shows, else none. `view`
+    /// can never go negative, though, so the one spot this can't keep clear of the banner is the
+    /// map's own top [`BANNER_HEIGHT`] rows once the view is already at the map's own top edge.
     fn top_margin(&self) -> i32 {
         if self.banner() { BANNER_HEIGHT } else { 0 }
     }
@@ -451,7 +444,7 @@ impl UiState {
     }
 
     /// Where on the map region (column, row) the cursor is drawn, if it's in view: `None` under
-    /// the tool banner or the selection bar, the same as off the edge of the view (#307).
+    /// the tool banner, the same as off the edge of the view (#307).
     pub fn cursor_cell(&self) -> Option<(i32, i32)> {
         let (x, y) = (self.cursor.x - self.view.x, self.cursor.y - self.view.y);
         let shown = self.visible();
@@ -459,13 +452,14 @@ impl UiState {
         ((0..shown.0).contains(&x) && (top..top + shown.1).contains(&y)).then_some((x, y))
     }
 
-    /// The selected unit, if the bar is open and the unit is alive.
+    /// The selected unit, if one is selected and alive: the side panel's inspector shows it.
     pub fn selected_unit<'a>(&self, session: &'a Session) -> Option<&'a Unit> {
         let id = self.selected?;
         session.world.units.iter().find(|u| u.id == id)
     }
 
-    /// Opens the bar on `id` (or closes it). The view shifts so the cursor stays above the bar.
+    /// Selects `id` (or deselects). The inspector shows the unit; the view only shifts if the
+    /// cursor is out of it.
     pub fn select(&mut self, id: Option<UnitId>) {
         self.selected = id;
         if id.is_none() {
@@ -477,7 +471,7 @@ impl UiState {
     /// `Enter` in Select mode: selects the unit under the cursor; with several there, the next
     /// one after the selected. On a building's own tile (any of its footprint, not its door)
     /// with nobody visibly standing there, it cycles the occupants instead (#226, #229), the
-    /// same way, so `Enter` still reaches a scholar sitting inside; the Cursor section lists
+    /// same way, so `Enter` still reaches a scholar sitting inside; the inspector lists
     /// them in the same order (`fn_ui::build::occupant_rows`). Nothing happens with neither.
     pub fn select_here(&mut self, session: &Session) {
         let world = &session.world;
@@ -538,7 +532,7 @@ impl UiState {
         self.track(session);
     }
 
-    /// After the world moved: a selected unit that died closes the bar, and a followed one drags
+    /// After the world moved: a selected unit that died is deselected, and a followed one drags
     /// the cursor (and the view) along.
     pub fn track(&mut self, session: &Session) {
         let Some(unit) = self.selected_unit(session) else {
@@ -747,11 +741,10 @@ mod tests {
         assert_eq!(ui.selected, Some(ids[0]), "wraps back to the first");
     }
 
-    /// The tool banner (#307) hides the view's top row the way the bar hides its bottom
-    /// [`BAR_HEIGHT`] rows: the cursor never renders there, and both margins stack when a unit
-    /// is still selected in an active tool. Away from the map's own top edge, where the view
-    /// still has room to scroll ([`UiState::top_margin`]'s own doc comment on the one spot it
-    /// can't).
+    /// The tool banner (#307) hides the view's top row: the cursor never renders there, with or
+    /// without a unit selected (which takes no map rows, #653). Away from the map's own top edge,
+    /// where the view still has room to scroll ([`UiState::top_margin`]'s own doc comment on the
+    /// one spot it can't).
     #[test]
     fn the_banner_keeps_the_cursor_out_from_under_the_top_row() {
         let mut ui = ui();
@@ -766,13 +759,14 @@ mod tests {
         let (_, y) = ui.cursor_cell().expect("still in view");
         assert!(y >= 1, "row 0 is the banner: {y}");
 
-        // Selecting a unit too: the cursor still clears the banner above and the bar below
-        // (the id doesn't need to be a real unit's: `visible` only asks whether one is set).
+        // Selecting a unit too changes nothing: it takes no map rows (the id doesn't need to be
+        // a real unit's).
         ui.select(Some(UnitId(0)));
         ui.cursor = Pos::new(50, 5);
         ui.move_cursor(0, 0);
         let (_, y) = ui.cursor_cell().expect("still in view");
-        assert!(y >= 1, "the banner margin stacks with the bar's: {y}");
+        assert!(y >= 1, "the banner margin holds with a unit selected: {y}");
+        assert_eq!(ui.visible().1, ui.viewport().1 - BANNER_HEIGHT, "no bar under the map");
 
         // Leaving the tool drops the margin: the plain look, and the signal, come back.
         ui.set_tool(Tool::Select);

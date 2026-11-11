@@ -19,8 +19,7 @@ use crate::panel::rect_hint;
 use crate::state::{BANNER_HEIGHT, UiState};
 use crate::widgets::fit;
 
-/// The banner's area: the map region's top row (#307), as [`crate::bar::bar_area`] is its
-/// bottom rows.
+/// The banner's area: the map region's top row (#307).
 pub fn banner_area(map: Rect) -> Rect {
     let height = (BANNER_HEIGHT as u16).min(map.height);
     Rect::new(map.x, map.y, map.width, height)

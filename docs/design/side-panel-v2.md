@@ -162,6 +162,9 @@ Nation screen's header line and the Esc menu.
 
 ### Zone 3: Here (Tool, then Cursor)
 
+*The Here section and the selection bar it mentions were replaced by the inspector (#653, see
+"The inspector" below); the Tool section stands.*
+
 - The Tool section keeps its tinted heading, but every tool is **one row**: Build shows the
   chosen building and cost (as today), Bend shows the current ability and its bender count
   (`▸Hearthflame 20 benders`). `B` already cycles, and the banner already says `B: next ability`.
@@ -262,6 +265,54 @@ above would produce.
 
 In ASCII the shapes carry the same structure as today (`+- SETTLEMENT --- [N] -+`), and every
 Warn state also has a word, not just a colour (`none set`, the need flag words).
+
+## The inspector (#653)
+
+From the owner's 2026-11-10 UI review. At 120x40 the panel used 13 to 19 of its 38 rows and left
+the rest blank, while a selected settler opened in a 7-row bar over the bottom of the map. The
+details of one thing were split across three places: HERE (the tile), the bar (the settler) and
+the Nation screen (the same settler again), each drawn differently, and HERE printed the cursor
+position twice. **Owner decision: retire the unit bar; the selected settler is shown in the side
+panel.** This supersedes the "Here" zone above and the selection bar it refers to.
+
+- **The last section is the inspector** (`crate::inspector`). Its heading names what it
+  describes and is given every row left after the sections above it. Text in it wraps and is
+  never cut while a row is free.
+- **A selected settler** (`Enter`, `Tab`, `F` follows, `Esc` deselects, all as before): the
+  heading is the settler's name with its rank on the right (`BAI ── Student`). Under it: the task
+  (the Avatar holding the Harmony Rite in his own tone), what it carries, the five meters with
+  percent, the progress to the next rank, and the tile it stands on (`Standing on forest
+  (52, 56)`, or `In the Academy (52, 56)` inside a building). The bar's meter rows are reused;
+  `crate::bar` is deleted and the map keeps its full height.
+- **Otherwise, what is under the cursor.** The heading names the first thing the tile has: a
+  settler, a building (`BED`, `BED (UNDER CONSTRUCTION)`), a resource, `STOCKPILE` for a
+  stockpile zone (what it holds first, `Wood 20 of 20, full`, then the terrain under it), or the
+  terrain itself. The cursor position is on the heading's right, so it appears once. A name too
+  long to share the heading with the position (`Plains on the coast`) hands the position to the
+  first row instead. The building's anchor line (`Built (x, y)`) is not shown: it is the
+  position again. The agent's `inspect` keeps its lines (it is the tool's own text, not the
+  panel's).
+- **While a tool is active the inspector describes the cursor tile**, even with a settler
+  selected: the tool acts on the cursor, and the Build and Gate tools' `Can build here` line has
+  to stay where it was. `Esc` leaves the tool and the settler comes back. (A call the owner may
+  want to revisit: the alternative is the settler with the placement line above it.)
+- **A low meter** is drawn in its warning (or bad) colour with the word `low` after the percent
+  (`Thirst ████░░░░░░  40% low`), where the bar had a `!`. Chi never warns.
+- **Fitting.** The sections above the inspector shrink as before (alerts to the newest, the tool
+  result to two lines) until it keeps its floor: a settler's task, carrying and meters, three
+  rows of a tile. Past that the sections above win and the inspector drops rows from the bottom:
+  blank rows between its groups first, then the tile line, then the rank progress, and only then
+  the meters from the last up. At 80x24 with a settler selected that is the task, carrying and
+  the five meters.
+- **Tests.** The layout property test (`tests/layout_properties.rs`) checks that the panel ends
+  in a heading of the inspector's own and that no ellipsis is drawn in it while the last row
+  before the panel's bottom edge is blank, at every size in its matrix. A frame test checks the
+  map is untouched by a selection. The golden frames `ref_game_80x24`, `ref_game_wide` and
+  `ref_menu` were re-blessed for the new heading (`JUNI (64, 28)` for `HERE (64, 28)`) and the
+  rows under it.
+
+Out of scope, as the issue says: grouping and wrapping alerts, what a tool's section shows, and
+the SETTLEMENT glance.
 
 ## Not chosen
 
