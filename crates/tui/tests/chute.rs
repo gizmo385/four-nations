@@ -5,7 +5,7 @@
 //! Each step is a `--keys` script played on a hand-carved slope beside the first settler, and the
 //! goldens are the slope's own map cells plus the Tool section's notice, in Unicode and in
 //! `--ascii`, so mapgen and the rest of the frame can change without touching them. Rewrite with
-//! `FN_BLESS=1 cargo test -p fn_tui --test chute` (review the diff).
+//! `FN_BLESS=1 cargo test -p fn_tui --test it chute::` (review the diff).
 
 use fn_sim::building::BuildingId;
 use fn_sim::{Nation, Pos, Terrain};
