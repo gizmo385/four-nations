@@ -321,6 +321,12 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
         Task::Deliver => {
             format!("Delivering {} to a stockpile", describe_stack(defs, unit.carrying))
         }
+        Task::Chute(head) => format!(
+            "Sending {} down the chute at ({}, {})",
+            describe_stack(defs, unit.carrying),
+            head.x,
+            head.y
+        ),
         Task::Eat(source) => match source {
             FoodSource::Carried => "Eating what it carries".into(),
             FoodSource::Stockpile(p) => format!("Eating from the stockpile at ({}, {})", p.x, p.y),

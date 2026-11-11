@@ -599,3 +599,13 @@ cost = 250
 prereqs = ["brickmaking", "farming"]
 [tech.unlocks]
 buildings = ["hothouse"]
+
+[[tech]]
+id = "omashu_chutes"
+name = "Omashu Chutes"
+description = "Earthbenders cut stone slides that carry goods down the mountain."
+nation = "earth"
+cost = 250
+prereqs = ["earth_rail"]
+[tech.unlocks]
+buildings = ["chute"]

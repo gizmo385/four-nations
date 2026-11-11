@@ -284,7 +284,8 @@ impl Activity {
         match task {
             None => Self::Idle,
             // Refuelling a bunker (`world/fuel.rs`) is a haul from stores.
-            Some(Task::Haul(_) | Task::Deliver | Task::Refuel(_)) => Self::Haul,
+            // So is sending a stack down a chute (`world/chute.rs`).
+            Some(Task::Haul(_) | Task::Deliver | Task::Refuel(_) | Task::Chute(_)) => Self::Haul,
             // Clearing ground (#424) groups with harvesting until the Clear tool gets its own
             // panel row (#426).
             Some(Task::Harvest(_) | Task::Clear(_)) => Self::Harvest,

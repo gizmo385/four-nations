@@ -66,6 +66,10 @@ pub struct Building {
     /// Its pickers' timer and counts (`BuildingDef::pickers`, `pickers.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) pickers: Option<Pickers>,
+    /// Where it points: a chute's foot (`BuildingDef::chute`, `chute.rs`), set by
+    /// `Command::SetLink`. `None` until set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<Pos>,
 }
 
 impl Building {
@@ -101,6 +105,8 @@ pub(super) enum Kind {
     Pickers,
     /// A Hothouse (`hothouse.rs`).
     Hothouse,
+    /// A chute (`chute.rs`).
+    Chute,
 }
 
 impl Kind {
@@ -115,6 +121,7 @@ impl Kind {
             (def.fuel.is_some(), Kind::Fuel),
             (def.pickers.is_some(), Kind::Pickers),
             (def.hothouse.is_some(), Kind::Hothouse),
+            (def.chute.is_some(), Kind::Chute),
         ]
         .into_iter()
         .filter_map(|(is, kind)| is.then_some(kind))
@@ -298,6 +305,7 @@ impl World {
             heat,
             fuel: def.fuel.map(|_| Bunker::default()),
             pickers: def.pickers.as_ref().map(Pickers::new),
+            link: None,
         };
         let key = self.buildings.insert(record, defs);
         let tile = TileBuilding::new(key, def.passable, def.track.map_or(0, |t| t.index));
@@ -503,6 +511,7 @@ impl World {
                     heat: None,
                     fuel: None,
                     pickers: None,
+                    link: None,
                 },
             );
         }
