@@ -44,6 +44,7 @@ mod inside;
 #[cfg(any(test, debug_assertions))]
 mod invariants;
 mod orchard;
+mod pickers;
 mod population;
 mod power;
 mod probe;
@@ -898,6 +899,7 @@ impl World {
         self.tick_strain(defs);
         self.tick_population(defs);
         self.tick_orchards(defs);
+        self.tick_pickers(defs);
         self.tick_farms(defs);
         self.tick_irrigation(defs);
         self.tick_reverts();

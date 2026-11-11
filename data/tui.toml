@@ -245,6 +245,12 @@ glyph = "▓"
 ascii = "#"
 fg = [176, 160, 120]
 
+# Lemur Keeping's roost (Air, horizons phase 1): a perch on a post.
+[building.lemur_roost]
+glyph = "Ŧ"
+ascii = "L"
+fg = [214, 186, 140]
+
 [building.rail]
 glyph = "╪"
 ascii = "="

@@ -47,6 +47,12 @@
 #             or below half full a Refuel haul brings the shortfall from stores. Fuel in a
 #             bunker is out of stores, so nobody eats it, and taking the building down returns
 #             it in full.
+# - pickers:  harvests ripe trees in reach with no worker (docs/design/horizons-phase-1.md, the
+#             Lemur Roost). Every `pick_seconds` it picks the nearest ripe `resources` tree within
+#             `radius` of its footprint (ties by tile index), skipping one a settler has claimed.
+#             A pick is a normal harvest (strain, the harvest tally). Every `eat_every`-th item
+#             (at least 2) is eaten; the rest goes into the nearest stockpile in reach with room,
+#             else drops beside it.
 # - orchard:  plants and tends a renewable resource around itself (issue #142, docs/design/
 #             research.md, "The orchard"). Every `plant_seconds` it plants one `plants` (a
 #             renewable resource) on a free tile of its own mapgen terrain within `radius` (a
@@ -767,3 +773,24 @@ speed = 1.25
 [[building.cost]]
 item = "stone"         # brick stands in, as for any stone cost
 count = 1
+
+# Lemur Keeping's roost (Air, docs/design/horizons-phase-1.md): picks the nearest ripe fruit tree
+# within 5 tiles every 30 s, at most 4 fruit a minute, and keeps 3 of every 4. The fruit goes
+# straight into a stockpile in reach, else drops beside the roost.
+[[building]]
+id = "lemur_roost"
+name = "Lemur Roost"
+verb = "Build"
+work = 40.0
+passable = false
+[building.pickers]
+resources = ["fruit_tree"]
+radius = 5             # Chebyshev from the roost: an 11x11 square. Not modifier-scaled
+pick_seconds = 30.0    # at most one tree per 30 s
+eat_every = 4          # the lemurs eat every 4th fruit they pick
+[[building.cost]]
+item = "wood"
+count = 6
+[[building.cost]]
+item = "fruit"
+count = 4

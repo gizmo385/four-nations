@@ -677,7 +677,7 @@ impl World {
     /// `regrow` knob (1.0 is identity, #294) and, for a wild renewable harvest, by `1 + strain`
     /// (`harvest_strain`, #296); strain_kills may clear the resource outright instead of resting
     /// it.
-    fn work_done(&mut self, pos: Pos, h: &HarvestDef, defs: &Defs) -> u32 {
+    pub(super) fn work_done(&mut self, pos: Pos, h: &HarvestDef, defs: &Defs) -> u32 {
         let count = self.harvest_yield(pos, h);
         self.tallies.count_harvest(h.item, count);
         match h.regrow {

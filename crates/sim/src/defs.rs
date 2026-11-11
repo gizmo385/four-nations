@@ -403,6 +403,15 @@ impl Defs {
             }
         }
         for b in &self.buildings {
+            for &r in b.pickers.iter().flat_map(|p| &p.resources) {
+                if self.harvest(r).is_none() {
+                    return Err(DefsError(format!(
+                        "building {}: pickers pick {}, which has no harvest",
+                        b.id,
+                        self.resource(r).id
+                    )));
+                }
+            }
             if let Some(o) = &b.orchard
                 && self.harvest(o.plants).is_none_or(|h| h.regrow.is_none())
             {
@@ -638,6 +647,11 @@ mod tests {
                 + text[start..].find("auto_pick = true\n").unwrap()
                 + "auto_pick = true\n".len();
             text.replace_range(start..end, "");
+        }
+        while let Some(start) = text.find("[building.pickers]") {
+            let rest = &text[start..];
+            let next = rest[1..].find("\n[").expect("pickers is followed by another table");
+            text.replace_range(start..start + 1 + next, "");
         }
         while let Some(start) = text.find("[building.chart]") {
             let rest = &text[start..];
