@@ -65,7 +65,7 @@ holding a `Survey`, the zoom level and the cursor.
 | `-`, `Esc` | Zoom out. `Esc` at the overview goes back to the seed step |
 | `E` | Settle at the cursor from any zoom (asks y/n: "Settle at (88, 44)?") |
 | `R` | A new random seed: a new map, back to the overview, cursor on its default site. No prompt, because nothing is lost |
-| `?`, `Q` | Key help, and quit (as in the game, via #280's back-to-title prompt) |
+| `?`, `Q` | Key help, and quit (asks for the title screen or out, with its keys in the hint bar's `EXIT` mode) |
 
 The y/n prompt is the one the game already uses for `R` and quickload. Settling on a refused site
 shows the reason as a notice instead of the prompt.

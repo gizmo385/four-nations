@@ -32,6 +32,8 @@ pub enum Answer {
     SaveThen,
     /// Does what was asked.
     Go,
+    /// Quit's last answer: stops the whole process, where [`Answer::Go`] only leaves the game.
+    Exit,
 }
 
 /// What the box for one [`Prompt`] says.
@@ -76,12 +78,14 @@ pub fn describe(
         answers
     };
     match prompt {
-        Prompt::Quit => Ask {
-            title: "QUIT",
-            question: "Quit the game?".to_owned(),
-            lines: lost,
-            answers: leave("Save, then quit", "Quit without saving"),
-        },
+        // One box for both questions, whether to leave the game and where to: the title screen
+        // or out of the program (#703).
+        Prompt::Quit => {
+            let mut answers =
+                leave("Save, then go to the title screen", "Go to the title screen without saving");
+            answers.push((Answer::Exit, "Quit the game".to_owned()));
+            Ask { title: "QUIT", question: "Leave this game?".to_owned(), lines: lost, answers }
+        }
         Prompt::NewMap => Ask {
             title: "NEW MAP",
             question: format!("Start a new map (seed {})?", session.world.seed.wrapping_add(1)),
@@ -213,6 +217,33 @@ mod tests {
         assert_eq!(ask.lines[1], "Anything since then is lost.");
         let ask = describe(&Prompt::Quit, &session(), true, None);
         assert_eq!(ask.lines[0], "This game has not been saved.");
+    }
+
+    #[test]
+    fn the_quit_box_answers_where_to_go_as_well_as_whether() {
+        let labels = |can_save| -> Vec<String> {
+            let ask = describe(&Prompt::Quit, &session(), can_save, None);
+            ask.answers.into_iter().map(|(_, label)| label).collect()
+        };
+        assert_eq!(
+            labels(true),
+            [
+                "Keep playing",
+                "Save, then go to the title screen",
+                "Go to the title screen without saving",
+                "Quit the game",
+            ]
+        );
+        assert_eq!(
+            labels(false),
+            ["Keep playing", "Go to the title screen without saving", "Quit the game"]
+        );
+        // Only Quit has a way out of the whole program.
+        for prompt in every_prompt() {
+            let ask = describe(&prompt, &session(), true, None);
+            let exits = ask.answers.iter().any(|(a, _)| *a == Answer::Exit);
+            assert_eq!(exits, prompt == Prompt::Quit, "{prompt:?}");
+        }
     }
 
     #[test]

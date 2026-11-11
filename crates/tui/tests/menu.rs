@@ -343,16 +343,19 @@ fn quit_asks_in_a_box_and_declining_resumes_the_game() {
     run(&mut a, "<esc> <down*6> <enter>");
     assert_eq!(a.ui.prompt, Some(Prompt::Quit));
     let frame = text(&mut a, SIZE);
-    assert!(frame.contains("Quit the game?"), "{frame}");
+    assert!(frame.contains("Leave this game?"), "{frame}");
 
     run(&mut a, "y q <enter>");
     assert!(!a.ui.quit, "y and q do nothing, and Enter on Keep playing keeps playing");
     assert_eq!((a.ui.prompt.clone(), a.ui.modal), (None, None));
 
-    // Confirming answers as the old Q did (`App::ui.quit`, which `Shell` turns into its own
-    // back-to-title/exit prompt, #280).
+    // The box asks where to go too (#703): the title screen is `ui.to_title`, and only its last
+    // answer is `ui.quit`. `Shell` acts on both without asking again.
     run(&mut a, "<esc> <down*6> <enter> <down> <enter>");
-    assert!(a.ui.quit);
+    assert!(a.ui.to_title && !a.ui.quit);
+    let mut b = app(None);
+    run(&mut b, "<esc> <down*6> <enter> <down*2> <enter>");
+    assert!(b.ui.quit && !b.ui.to_title);
 }
 
 #[test]
@@ -382,15 +385,15 @@ fn save_then_quit_writes_a_new_slot_and_only_then_quits() {
     let mut a = app(Some(tmp.0.clone()));
     run(&mut a, "<tick 30> <esc> <down*6> <enter>");
     let frame = text(&mut a, SIZE);
-    assert!(frame.contains("Save, then quit"), "{frame}");
-    assert!(frame.contains("Quit without saving"), "{frame}");
+    assert!(frame.contains("Save, then go to the title screen"), "{frame}");
+    assert!(frame.contains("Go to the title screen without saving"), "{frame}");
     assert!(fn_ui::saves::list(&tmp.0).unwrap().is_empty());
 
     run(&mut a, "<down> <enter>");
     let slots = fn_ui::saves::list(&tmp.0).unwrap();
     assert_eq!(slots.len(), 1, "one new slot");
     assert_eq!(slots[0].name, "save-1");
-    assert!(a.ui.quit);
+    assert!(a.ui.to_title && !a.ui.quit);
 }
 
 #[test]
@@ -401,7 +404,7 @@ fn a_failed_save_keeps_the_box_open_and_does_not_go_on() {
     std::fs::write(&blocked, "x").unwrap();
     let mut a = app(Some(blocked));
     run(&mut a, "<esc> <down*6> <enter> <down> <enter>");
-    assert!(!a.ui.quit);
+    assert!(!a.ui.quit && !a.ui.to_title);
     assert_eq!(a.ui.prompt, Some(Prompt::Quit), "still asking");
     assert!(a.ui.status.contains("failed"), "{}", a.ui.status);
 }

@@ -11,14 +11,15 @@ use std::path::Path;
 use crate::keyev::{KeyCode, KeyEvent, KeyEventKind};
 use fn_sim::embark::SurveyMode;
 use fn_sim::{Defs, Nation, World};
+use fn_ui::keys;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 
 use crate::color::Palette;
 use crate::draw::too_small_text;
 use crate::layout::{MIN_HEIGHT, MIN_WIDTH};
-use crate::widgets::{Painter, Row, TitleAt, Tone, draw_frame, wrap};
+use crate::widgets::{Marks, Painter, Row, TitleAt, Tone, draw_frame, wrap};
 
 /// What `F6`'s own save-slot rows are drawn with, reused for the Load page.
 use crate::saves as save_rows;
@@ -611,11 +612,12 @@ fn draw_load(screen: &TitleScreen, defs: &Defs, palette: &Palette, inner: Rect, 
     }
 }
 
-/// Over the game: `Q` then `y` asks whether to go back to the title screen or exit the process
-/// (#280's acceptance criteria), since quitting no longer always means stopping `fn_tui`.
+/// Over the embark screen: `Q` asks whether to go back to the title screen or exit the process
+/// (#280). A game's Quit… box asks both itself (#703). The keys are the hint bar's `EXIT` mode
+/// (`fn_ui::keys`), drawn on the screen's bottom row, not in the box.
 pub fn draw_exit_prompt(palette: &Palette, area: Rect, buf: &mut Buffer) {
     let width = area.width.min(50);
-    let height = 5u16.min(area.height);
+    let height = 3u16.min(area.height);
     let outer = Rect::new(
         area.x + (area.width - width) / 2,
         area.y + (area.height - height) / 2,
@@ -623,14 +625,50 @@ pub fn draw_exit_prompt(palette: &Palette, area: Rect, buf: &mut Buffer) {
         height,
     );
     draw_frame(buf, outer, palette, " QUIT? ", TitleAt::Centre, "");
-    if outer.height < 3 {
+    if outer.height >= 3 {
+        let inner = Rect::new(outer.x + 2, outer.y + 1, outer.width - 4, outer.height - 2);
+        let mut p = Painter::new(buf, inner, palette);
+        p.row(&Row::text("Go back to the title screen, or exit?", Tone::Text));
+    }
+    draw_exit_hints(palette, area, buf);
+}
+
+/// The hint bar over `area`'s bottom row: the `EXIT` badge and that mode's keys.
+fn draw_exit_hints(palette: &Palette, area: Rect, buf: &mut Buffer) {
+    if area.height == 0 {
         return;
     }
-    let inner = Rect::new(outer.x + 2, outer.y + 1, outer.width - 4, outer.height - 2);
-    let mut p = Painter::new(buf, inner, palette);
-    p.row(&Row::text("Go back to the title screen, or exit?", Tone::Text));
-    p.blank();
-    p.row(&Row::text("T title   Q/Enter exit   Esc stay", Tone::Dim));
+    let theme = &palette.theme;
+    let y = area.bottom() - 1;
+    let panel = Style::new().fg(palette.token(theme.dim)).bg(palette.token(theme.panel));
+    let accent = Style::new().fg(palette.token(theme.accent)).bg(palette.token(theme.panel));
+    for x in area.left()..area.right() {
+        buf[(x, y)].reset();
+        buf[(x, y)].set_char(' ').set_style(panel);
+    }
+    let badge = if palette.mono() {
+        Style::new().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+    } else {
+        Style::new()
+            .fg(palette.token(theme.on_accent))
+            .bg(palette.token(theme.accent))
+            .add_modifier(Modifier::BOLD)
+    };
+    let name = format!(" {} ", keys::Mode::Exit.name());
+    buf.set_string(area.x, y, &name, badge);
+    let sep = format!(" {} ", Marks::new(palette.ascii).dot);
+    let mut x = area.x + name.chars().count() as u16 + 1;
+    for (i, item) in keys::hints(keys::Mode::Exit).iter().enumerate() {
+        if i > 0 {
+            buf.set_string(x, y, &sep, panel);
+            x += sep.chars().count() as u16;
+        }
+        buf.set_string(x, y, &item.keys, accent);
+        x += item.keys.chars().count() as u16;
+        let verb = format!(" {}", item.verb);
+        buf.set_string(x, y, &verb, panel);
+        x += verb.chars().count() as u16;
+    }
 }
 
 #[cfg(test)]

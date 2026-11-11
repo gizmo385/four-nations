@@ -505,6 +505,8 @@ mod tests {
             .chain(["Ctrl+C".to_owned(), "Shift+S".to_owned(), "Shift+Tab".to_owned()])
             // The message log's filters (#661): the number row, read by `App::key`.
             .chain(["1-5".to_owned()])
+            // The embark exit prompt's `Q`, read by `Shell`, not the game's key map (#703).
+            .chain(["Q".to_owned()])
             .collect();
         for e in fn_ui::keys::table() {
             // `Type` (the name prompt) is every character, not one key.

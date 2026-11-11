@@ -136,7 +136,11 @@ pub struct UiState {
     /// badge of whatever else set it (" GATE ", #643). Cleared with `status`.
     pub status_badge: Option<&'static str>,
     pub prompt: Option<Prompt>,
+    /// The whole process should stop: `Ctrl+C`, or the Quit box's "Quit the game". `Shell` reads
+    /// it.
     pub quit: bool,
+    /// The Quit box asked to leave the game for the title screen. `Shell` reads it.
+    pub to_title: bool,
     /// The unit the side panel's inspector is about (#653), if one is selected.
     pub selected: Option<UnitId>,
     /// Whether the cursor tracks the selected unit (`F`).
@@ -211,6 +215,7 @@ impl UiState {
             status_badge: None,
             prompt: None,
             quit: false,
+            to_title: false,
             selected: None,
             following: false,
             screen: None,

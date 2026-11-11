@@ -254,7 +254,7 @@ fn plus_and_minus_change_the_speed() {
 }
 
 /// `Q` is no key any more (#655): quitting is the game menu's Quit…, which asks in a box. Only
-/// that box's own "Quit without saving" quits; `y`, other keys and `Esc` do not.
+/// that box's own "Quit the game" quits; `y`, other keys and `Esc` do not.
 #[test]
 fn quit_is_in_the_menu_and_only_its_last_answer_quits() {
     let none = KeyModifiers::NONE;
@@ -269,7 +269,7 @@ fn quit_is_in_the_menu_and_only_its_last_answer_quits() {
     }
     assert!(!app.ui.quit, "Quit… only asks");
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
-    assert!(text.contains("QUIT") && text.contains("Quit the game?"), "{text}");
+    assert!(text.contains("QUIT") && text.contains("Leave this game?"), "{text}");
     // Other keys do not answer it, and are not also acted on.
     let cursor = app.ui.cursor;
     for c in ['y', 'Y', 'q', 'd'] {
@@ -279,13 +279,15 @@ fn quit_is_in_the_menu_and_only_its_last_answer_quits() {
     assert_eq!(app.ui.cursor, cursor);
     press(&mut app, KeyCode::Esc, none);
     assert!(!app.ui.quit && app.ui.prompt.is_none());
-    // Reopen it and take the last answer (no save directory: Keep playing, Quit without saving).
+    // Reopen it and take the last answer (no save directory: Keep playing, Go to the title screen
+    // without saving, Quit the game).
     for key in [KeyCode::Esc, KeyCode::Down, KeyCode::Down, KeyCode::Down] {
         press(&mut app, key, none);
     }
     for key in [KeyCode::Down, KeyCode::Down, KeyCode::Down, KeyCode::Enter, KeyCode::Down] {
         press(&mut app, key, none);
     }
+    press(&mut app, KeyCode::Down, none);
     press(&mut app, KeyCode::Enter, none);
     assert!(app.ui.quit);
 }
