@@ -64,6 +64,14 @@
 #             `drop` lower in elevation. A unit taking a stack to stores walks to the head instead
 #             when the head plus the foot's walk to stores is cheaper; the stack lands at the foot
 #             as a ground stack for an ordinary haul. With no valid foot it does nothing.
+# - pair:     a two-way link between two buildings of this id (docs/design/horizons-phase-2.md,
+#             "Paired links"; the Wind Gate and the Balloon Dock). `Command::SetLink` names the
+#             partner: a building or build site of the same id whose anchor is within `reach`
+#             (Chebyshev) and at least `min_tiles` away (`min_tiles` at most `reach`). Both ends
+#             link to each other and any earlier partner is let go; taking either end down clears
+#             the other's link. The doors of both ends must be in one walkable region, or the link
+#             is refused ("not reachable on foot"); a pair that a map change later splits is "Cut
+#             off" and does nothing. Not with `chute`, which uses the same link one-way.
 # - orchard:  plants and tends a renewable resource around itself (issue #142, docs/design/
 #             research.md, "The orchard"). Every `plant_seconds` it plants one `plants` (a
 #             renewable resource) on a free tile of its own mapgen terrain within `radius` (a

@@ -944,6 +944,31 @@ mod tests {
     }
 
     #[test]
+    fn a_pair_section_is_parsed_and_validated() {
+        let with_pair = |pair: &str| {
+            let extra = format!(
+                "\n[[building]]\nid = \"twin\"\nname = \"Twin\"\nverb = \"Build\"\nwork = 1.0\npassable = true\n{pair}[[building.cost]]\nitem = \"wood\"\ncount = 1\n"
+            );
+            with_buildings(&format!("{BUILDINGS}{extra}"))
+        };
+        let defs = with_pair("[building.pair]\nreach = 48\nmin_tiles = 12\n").unwrap();
+        let twin = defs.building(defs.building_id("twin").unwrap());
+        assert_eq!(twin.pair, Some(crate::building::PairDef { reach: 48, min_tiles: 12 }));
+        assert_eq!(defs.building(defs.building_id("bed").unwrap()).pair, None);
+        let err = |pair: &str| with_pair(pair).unwrap_err().0;
+        assert!(err("[building.pair]\nreach = 0\nmin_tiles = 0\n").contains("pair reach"));
+        assert!(err("[building.pair]\nreach = 8\nmin_tiles = 9\n").contains("pair reach"));
+        assert!(err("[building.pair]\nreach = 8\n").contains("min_tiles"));
+        assert!(
+            err("[building.pair]\nreach = 8\nmin_tiles = 2\nfar = 1\n").contains("far"),
+            "unknown fields are refused"
+        );
+        let both =
+            "[building.pair]\nreach = 8\nmin_tiles = 2\n[building.chute]\nreach = 8\ndrop = 1\n";
+        assert!(err(both).contains("chute"));
+    }
+
+    #[test]
     fn every_harvest_modifier_and_food_item_resolves() {
         let defs = Defs::bundled();
         let quarry = defs.harvest(defs.resource_id("stone").unwrap()).unwrap();

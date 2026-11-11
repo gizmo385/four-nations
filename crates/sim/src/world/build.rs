@@ -757,6 +757,12 @@ impl World {
             self.jobs.retain(|j| !(j.kind == JobKind::Clear { pos: p } && j.progress == 0.0));
         }
         let def = defs.building(site.building);
+        // A pair site's partner is left with no partner (`pair.rs`).
+        if let Some(partner) = site.link
+            && def.pair.is_some()
+        {
+            self.unlink_partner(pos, partner);
+        }
         for (idx, (cost, &count)) in def.cost.iter().zip(&site.delivered).enumerate() {
             let stand_in = site.stand_in_delivered.get(idx).copied().unwrap_or(0).min(count);
             let direct = count - stand_in;
@@ -775,6 +781,16 @@ impl World {
 
 /// Doing it.
 impl World {
+    /// Raises the finished building of the site anchored on `pos`, handing it the site's link
+    /// (`Site::link`). The site is gone.
+    pub(super) fn complete_site(&mut self, pos: Pos, defs: &Defs) {
+        let site = self.sites.remove(&pos).expect("a site is anchored here");
+        self.raise(site.footprint(pos), site.building, defs);
+        if let Some(b) = self.anchored_mut(pos) {
+            b.link = site.link;
+        }
+    }
+
     /// The next cost entry this site still needs, with how much: index into `BuildingDef::cost`
     /// (and `Site::delivered`), the item, and the amount still short.
     fn next_shortfall(&self, pos: Pos, defs: &Defs) -> Option<(usize, ItemId, u32)> {
@@ -991,15 +1007,8 @@ impl World {
                 if site.progress < def.work {
                     return;
                 }
-                let building = site.building;
-                let footprint = site.footprint(pos);
-                let link = site.link;
-                self.sites.remove(&pos);
                 self.jobs.remove(idx);
-                self.raise(footprint, building, defs);
-                if let Some(b) = self.anchored_mut(pos) {
-                    b.link = link;
-                }
+                self.complete_site(pos, defs);
                 self.finish_job(i);
             }
         }

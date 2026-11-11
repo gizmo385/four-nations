@@ -25,26 +25,35 @@ use super::*;
 /// Why a chute's foot was refused (`Command::SetLink`). Fragments, like every refusal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkError {
-    /// No chute's anchor is on that tile.
-    NotAChute,
+    /// No chute's or pair building's anchor is on that tile.
+    NotLinkable,
     /// The foot is off the map.
     OffMap,
     /// The foot is ground nobody can stand on: water, rock, a resource, an impassable building.
     NotOpen,
-    /// The foot is farther than the chute's `reach`.
+    /// The foot (or partner) is farther than the building's `reach`.
     TooFar,
     /// The foot isn't at least the chute's `drop` lower than the head.
     NotDownhill,
+    /// A pair's `to` isn't the anchor of another building or site of the same id.
+    NotPartner,
+    /// The partner is nearer than the pair's `min_tiles`.
+    TooClose,
+    /// The two doors aren't in one region: not reachable on foot.
+    NotReachable,
 }
 
 impl std::fmt::Display for LinkError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            Self::NotAChute => "not a chute",
+            Self::NotLinkable => "nothing to link",
             Self::OffMap => "off the map",
             Self::NotOpen => "foot needs open ground",
-            Self::TooFar => "foot out of reach",
+            Self::TooFar => "out of reach",
             Self::NotDownhill => "foot not far enough downhill",
+            Self::NotPartner => "not a partner",
+            Self::TooClose => "too close",
+            Self::NotReachable => "not reachable on foot",
         })
     }
 }
@@ -82,7 +91,7 @@ impl World {
 
     /// Whether `to` may be the foot of the chute anchored on `head`, finished or still a site.
     pub fn check_foot(&self, head: Pos, to: Pos, defs: &Defs) -> Result<(), LinkError> {
-        let (chute, footprint) = self.chute_at(head, defs).ok_or(LinkError::NotAChute)?;
+        let (chute, footprint) = self.chute_at(head, defs).ok_or(LinkError::NotLinkable)?;
         let foot = self.map.get(to).ok_or(LinkError::OffMap)?;
         if footprint.contains(to) || !self.rules.passable(foot) {
             return Err(LinkError::NotOpen);
@@ -99,6 +108,10 @@ impl World {
 
     /// Points the chute anchored on `pos` at the foot `to`. A site keeps it until it is raised.
     pub(super) fn set_link(&mut self, pos: Pos, to: Pos, defs: &Defs) -> Result<(), LinkError> {
+        // A pair building (or site) takes a partner instead (`pair.rs`).
+        if self.pair_reach(pos, defs).is_some() {
+            return self.set_pair(pos, to, defs);
+        }
         self.check_foot(pos, to, defs)?;
         match self.anchored_mut(pos) {
             Some(b) => b.link = Some(to),
@@ -109,7 +122,7 @@ impl World {
         Ok(())
     }
 
-    /// Where the chute (or chute site) anchored on `head` points, valid or not: for drawing its
+    /// Where the chute or pair building (or site) anchored on `head` points, valid or not: for drawing its
     /// link line.
     pub fn link_at(&self, head: Pos) -> Option<Pos> {
         match self.anchored(head) {

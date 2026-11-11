@@ -69,7 +69,8 @@ pub enum Command {
     /// building stands untouched.
     CancelDeconstruct { pos: Pos },
     /// Point the building anchored on `pos` at `to`: a chute's foot (`world/chute.rs`,
-    /// docs/design/horizons-phase-1.md). It can be moved at any time.
+    /// docs/design/horizons-phase-1.md), or a pair building's partner, which points back
+    /// (`world/pair.rs`, docs/design/horizons-phase-2.md). It can be moved at any time.
     SetLink { pos: Pos, to: Pos },
     /// Take slot `slot` of the camped caravan's offers once more (`world/trade.rs`, #437):
     /// deals first, in the order the visit lists them, then its request. Settlers haul the goods.

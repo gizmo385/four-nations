@@ -380,6 +380,13 @@ impl World {
         }
         let record = self.buildings.take(key, defs);
         self.map_changed();
+        // A pair building's partner is left with no partner (`pair.rs`).
+        if let Some(r) = &record
+            && let Some(partner) = r.link
+            && defs.building(r.id).pair.is_some()
+        {
+            self.unlink_partner(anchor, partner);
+        }
         record
     }
 

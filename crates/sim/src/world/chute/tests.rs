@@ -59,7 +59,7 @@ fn a_foot_must_be_open_in_reach_and_downhill() {
     let (mut w, defs) = setup(at(5, 8));
     let set = |w: &mut World, pos: Pos, to: Pos| w.apply(Command::SetLink { pos, to }, &defs);
     let refused = |e: LinkError| Err(CommandError::Link(e));
-    assert_eq!(set(&mut w, at(3, 3), FOOT), refused(LinkError::NotAChute));
+    assert_eq!(set(&mut w, at(3, 3), FOOT), refused(LinkError::NotLinkable));
     assert_eq!(set(&mut w, HEAD, at(40, 5)), refused(LinkError::OffMap));
     assert_eq!(set(&mut w, HEAD, at(0, 5)), refused(LinkError::NotOpen), "rock");
     assert_eq!(set(&mut w, HEAD, HEAD), refused(LinkError::NotOpen), "itself");
@@ -71,7 +71,7 @@ fn a_foot_must_be_open_in_reach_and_downhill() {
     set(&mut w, HEAD, FOOT).unwrap();
     assert_eq!(w.chute_foot(HEAD, &defs), Some(FOOT));
     // Refusals read as fragments.
-    assert_eq!(CommandError::Link(LinkError::TooFar).to_string(), "foot out of reach");
+    assert_eq!(CommandError::Link(LinkError::TooFar).to_string(), "out of reach");
     // A wall on the foot later stops the chute.
     let wall = defs.building_id("earth_wall").unwrap();
     w.put_building(Footprint::single(FOOT), wall, &defs);
