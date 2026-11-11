@@ -1205,7 +1205,12 @@ impl Watcher {
         };
         if let Some(regions) = layout::regions(Rect::new(0, 0, size.0, size.1)) {
             self.draw_strip(&mut buf, regions.status, mode, palette);
-            let view = if self.follow { self.app().ui.view } else { self.spectator.view };
+            let ui = if self.follow { &self.app().ui } else { &self.spectator };
+            // A full screen covers the map (#652): no outline is drawn over it.
+            if ui.full_screen() {
+                return buf;
+            }
+            let view = ui.view;
             if let Some(ghost) = self.ghost {
                 draw_ghost(&view, ghost, regions.map, &mut buf);
             }
@@ -2203,6 +2208,24 @@ mod tests {
             w.app().ui.alerts.history().iter().map(|e| e.text.as_str()).collect();
         assert!(lines.iter().any(|l| l.contains("looked at (5, 5)")), "{lines:?}");
         assert!(lines.iter().any(|l| l.contains("inspected (9, 9)")), "{lines:?}");
+    }
+
+    /// A full screen covers the map (#652): in Free look the agent's own cursor is outlined on
+    /// the map, but not over a screen the spectator opened.
+    #[test]
+    fn no_outline_is_drawn_over_a_full_screen() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        let palette = Palette::new(w.defs(), w.nation(), ColorDepth::TrueColor, false);
+        let reversed = |buf: &Buffer| {
+            (0..39u16)
+                .any(|y| (0..120u16).any(|x| buf[(x, y)].modifier.contains(Modifier::REVERSED)))
+        };
+        w.free_look_key(KeyEvent::from(KeyCode::Right));
+        assert!(!w.follow, "a move switches to Free look");
+        assert!(reversed(&w.render(&palette, (120, 40))), "the agent's cursor is outlined");
+        w.free_look_key(KeyEvent::from(KeyCode::Char('l')));
+        assert!(w.spectator.full_screen());
+        assert!(!reversed(&w.render(&palette, (120, 40))), "nothing over the Log screen");
     }
 
     /// Every finished `Keys` act logs an `Agent:` line naming its label and note.

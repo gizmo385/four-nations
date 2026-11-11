@@ -1,7 +1,9 @@
-//! The screens that open over the map area (the side panel stays): the message log (`L`), the
-//! key help (`?`) and the Endeavor screen (`G`, `endeavor.rs`) are framed pages of rows that
-//! scroll; the research screen (`T`) is a framed grid of tech cards with a cursor
-//! (`research.rs`); the Nation screen (`N`, #308, `nation.rs`) is a framed roster with a pointer.
+//! The full screens (`crate::page`, #652), each covering the map and the side panel: the message
+//! log (`L`), the key help (`?`) and the Endeavor screen (`G`, `endeavor.rs`) are pages of rows
+//! that scroll; the research screen (`T`) is a grid of tech cards with a cursor and a detail
+//! strip (`research.rs`); the Nation screen (`N`, #308, `nation.rs`) is a roster with a pointer;
+//! the saves screen (`F6`, `saves.rs`) is a list with a pointer. The Build picker (`U`,
+//! `build.rs`) wears the same frame. Each closes on `Esc` or on the key that opened it.
 
 use fn_ui::Session;
 use fn_ui::alerts::{Alerts, Kind};
@@ -11,16 +13,16 @@ use ratatui::layout::Rect;
 
 use crate::color::Palette;
 use crate::input::{Group, help_rows};
+use crate::page;
 use crate::research;
 use crate::saves;
 use crate::state::{Screen, UiState};
-use crate::widgets::{Marks, Painter, Row, TitleAt, Tone, draw_frame, draw_position, wrap};
+use crate::widgets::{Marks, Painter, Row, Tone, wrap};
 
-/// The text area of a screen drawn over a `(width, height)` map region: inside the frame and one
-/// column of padding, as (columns, rows).
-pub fn text_size(region: (i32, i32)) -> (usize, usize) {
-    let (w, h) = region;
-    ((w - 4).max(0) as usize, (h - 2).max(0) as usize)
+/// The text area of a screen on a `(width, height)` page (`UiState::page`): inside the frame and
+/// one column of padding, as (columns, rows) (`crate::page::text_size`).
+pub fn text_size(page: (i32, i32)) -> (usize, usize) {
+    page::text_size(page)
 }
 
 /// The screen's text as rows, `width` columns wide. `ascii` picks the glyph set the Endeavor
@@ -136,7 +138,20 @@ pub fn help_lines(width: usize, ellipsis: char) -> Vec<Row> {
     out
 }
 
-/// Draws the open screen into `area` (the map region): the frame, then the rows from the scroll.
+/// The title a screen's frame carries (`crate::page::draw` puts it between two seals).
+pub fn title(screen: Screen) -> &'static str {
+    match screen {
+        Screen::Log => "MESSAGE LOG",
+        Screen::Help => "KEY HELP",
+        Screen::Endeavor => "ENDEAVOR",
+        Screen::Research => "RESEARCH",
+        Screen::Saves => "SAVES",
+        Screen::Nation => "NATION",
+    }
+}
+
+/// Draws the open screen over `area` (the whole page, `crate::layout::Regions::page`, #652): the
+/// shared frame, then the screen's own content and its position on the bottom edge.
 pub fn draw_screen(
     session: &Session,
     ui: &UiState,
@@ -145,49 +160,32 @@ pub fn draw_screen(
     area: Rect,
     buf: &mut Buffer,
 ) {
-    let marks = crate::widgets::Marks::new(palette.ascii);
-    let title = match screen {
-        Screen::Log => "MESSAGE LOG",
-        Screen::Help => "KEY HELP",
-        Screen::Endeavor => "ENDEAVOR",
-        Screen::Research => "RESEARCH",
-        Screen::Saves => "SAVES",
-        Screen::Nation => "NATION",
+    let detail_rows = if screen == Screen::Research { research::DETAIL_ROWS } else { 0 };
+    let page = page::draw(buf, area, palette, title(screen), detail_rows);
+    let position = match screen {
+        Screen::Research => research::draw(session, ui.tech, palette, &page, buf),
+        Screen::Saves => {
+            saves::draw(&ui.save_slots, ui.save_cursor, &session.defs, palette, page.body, buf)
+        }
+        Screen::Nation => {
+            // Whether the page is wide enough for the meters (docs/design/side-panel.md "The
+            // Nation screen").
+            let wide = area.width >= crate::nation::METER_MIN_WIDTH;
+            crate::nation::draw(session, ui, wide, palette, &page, buf)
+        }
+        Screen::Log | Screen::Help | Screen::Endeavor => {
+            let body = page.body;
+            let rows = lines(session, screen, &ui.alerts, usize::from(body.width), palette.ascii);
+            let max = rows.len().saturating_sub(usize::from(body.height));
+            let start = ui.scroll.min(max);
+            let mut p = Painter::new(buf, body, palette);
+            for row in rows.iter().skip(start) {
+                p.row(row);
+            }
+            fn_ui::text::window_label("", start, usize::from(body.height), rows.len())
+        }
     };
-    let title = format!(" {0} {title} {0} ", marks.seal);
-    // The bottom edge carries no keys, only how far down a long screen is (#651).
-    draw_frame(buf, area, palette, &title, TitleAt::Centre, "");
-    let inner = Rect::new(area.x + 2, area.y + 1, area.width - 4, area.height - 2);
-    if screen == Screen::Research {
-        let position = research::draw(session, ui.tech, palette, inner, buf);
-        draw_position(buf, area, palette, position.as_deref().unwrap_or(""));
-        return;
-    }
-    if screen == Screen::Saves {
-        let position =
-            saves::draw(&ui.save_slots, ui.save_cursor, &session.defs, palette, inner, buf);
-        draw_position(buf, area, palette, position.as_deref().unwrap_or(""));
-        return;
-    }
-    if screen == Screen::Nation {
-        // Whether the map region (`area`, not `inner`) is wide enough for the meters
-        // (docs/design/side-panel.md "The Nation screen"); the panel sits beside it, so this is
-        // not the screen's own frame width.
-        let wide = area.width >= crate::nation::METER_MIN_WIDTH;
-        let position = crate::nation::draw(session, ui, wide, palette, inner, buf);
-        draw_position(buf, area, palette, position.as_deref().unwrap_or(""));
-        return;
-    }
-    let rows = lines(session, screen, &ui.alerts, usize::from(inner.width), palette.ascii);
-    let max = rows.len().saturating_sub(usize::from(inner.height));
-    let start = ui.scroll.min(max);
-    let mut p = Painter::new(buf, inner, palette);
-    for row in rows.iter().skip(start) {
-        p.row(row);
-    }
-    let shown = usize::from(inner.height);
-    let position = fn_ui::text::window_label("", start, shown, rows.len());
-    draw_position(buf, area, palette, position.as_deref().unwrap_or(""));
+    page.position(buf, palette, position.as_deref());
 }
 
 #[cfg(test)]

@@ -1,40 +1,40 @@
-┏──────────────────────────────────── ◆ RESEARCH ◆ ────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
-│ TIER 1               TIER 2               TIER 3               TIER 4               ▸││ ‖ Paused x1            00:00 │
-│ ▸◇ Fire Making        · Pottery            · Masonry            · Cartography        │├─ SETTLEMENT ─────────── [N] ─┤
-│   Available   25 pts   Locked      60 pts   Locked     120 pts   Locked     250 pts  ││ People 2              Idle 2 │
-│   Campfire             Needs: Fire Making   Needs: Carpentry     Needs: Writing      ││ Food 0 · 0 each              │
-│                                                                                      ││ Research: none set       [T] │
-│  ◇ Shelter            · Carpentry          · Writing            · Earthen Walls      ││ Gate 1 of 9 signs        [G] │
-│   Available   25 pts   Locked      60 pts   Locked     120 pts   Locked     120 pts  ││ Needs 14 more people         │
-│   Prerequisite for …   Needs: Shelter       Needs: Pottery       Needs: Earth Shap…  │├─ HERE ──────────── (64, 28) ─┤
-│                                                                                      ││ Juni                         │
-│  ◇ Fishing            · Herbalism          · Tunneling          · Seismic Sense      ││ Idle                         │
-│   Available   25 pts   Locked     120 pts   Locked     120 pts   Locked     250 pts  ││ Press Enter to select        │
-│   Fishing Spot         Needs: Farming       Needs: Earth Shap…   Needs: Tunneling    ││                              │
-│                                                                                      ││                              │
-│  ✓ Stoneworking       ◇ Prospecting                                                  ││                              │
-│   Known       25 pts   Available  250 pts                                            ││                              │
-│   Stone Outcrop, Bo…   Gold Vein, Gold S…                                            ││                              │
-│                                                                                      ││                              │
-│  ◇ Farming            ◇ Earth Shaping                                                ││                              │
-│   Available   60 pts   Available   60 pts                                            ││                              │
-│   Farm Plot            Earthworks x1.2, …                                            ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│                                                                                      ││                              │
-│ ──────────────────────────────────────────────────────────────────────────────────── ││                              │
-│ Fire Making                                                        Available  25 pts ││                              │
-│ Keep a flame alive: cook food and stay warm.                                         ││                              │
-│ Unlocks: Campfire                                                                    ││                              │
-┗───────────────────────────────────────────────────────────────────── tiers 1-4 of 5 ─┛┗─ seed 1 ─────────────────────┛
+┏──────────────────────────────────────────────────── ◆ RESEARCH ◆ ────────────────────────────────────────────────────┓
+│ TIER 1                 TIER 2                 TIER 3                 TIER 4                 TIER 5                   │
+│ ▸◇ Fire Making          · Pottery              · Masonry              · Cartography          · Earth Rail            │
+│   Available     25 pts   Locked        60 pts   Locked       120 pts   Locked       250 pts   Locked       250 pts   │
+│   Campfire               Needs: Fire Making     Needs: Carpentry       Needs: Writing         Needs: Earthen Walls   │
+│                                                                                                                      │
+│  ◇ Shelter              · Carpentry            · Writing              · Earthen Walls        · Metalbending          │
+│   Available     25 pts   Locked        60 pts   Locked       120 pts   Locked       120 pts   Locked       500 pts   │
+│   Prerequisite for Ca…   Needs: Shelter         Needs: Pottery         Needs: Earth Shapin…   Needs: Seismic Sens…   │
+│                                                                                                                      │
+│  ◇ Fishing              · Herbalism            · Tunneling            · Seismic Sense                                │
+│   Available     25 pts   Locked       120 pts   Locked       120 pts   Locked       250 pts                          │
+│   Fishing Spot           Needs: Farming         Needs: Earth Shaping   Needs: Tunneling                              │
+│                                                                                                                      │
+│  ✓ Stoneworking         ◇ Prospecting                                                                                │
+│   Known         25 pts   Available    250 pts                                                                        │
+│   Stone Outcrop, Boul…   Gold Vein, Gold Seam                                                                        │
+│                                                                                                                      │
+│  ◇ Farming              ◇ Earth Shaping                                                                              │
+│   Available     60 pts   Available     60 pts                                                                        │
+│   Farm Plot              Earthworks x1.2, Ea…                                                                        │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ Fire Making                                                                                        Available  25 pts │
+│ Keep a flame alive: cook food and stay warm.                                                                         │
+│ Unlocks: Campfire                                                                                                    │
+┗──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┛
  RESEARCH  Arrows choose · Enter set as target · Esc or T close                                           PAUSED ? keys

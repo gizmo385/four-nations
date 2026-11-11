@@ -32,6 +32,7 @@ pub mod map;
 pub mod menu;
 pub mod modal;
 pub mod nation;
+pub mod page;
 pub mod panel;
 pub mod record;
 pub mod research;

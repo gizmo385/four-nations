@@ -2,7 +2,7 @@
 //! tool active, no selection bar, no screen, modal or prompt open already). Resume, Save…,
 //! Load…, Key help, then below a gap the three that end the game as it is: New map…, Switch
 //! nation… and Quit…. Those three live only here (#655): the map has no single key for them.
-//! Reuses the Build modal's reusable frame (`crate::modal`, #285).
+//! Draws in the centred box (`crate::modal`, #285), not the full-screen frame.
 //!
 //! **Save…** and **Load…** both open the saves screen (`App::menu_choose`): its `N` writes a new
 //! slot, Shift+`S` saves over the highlighted one and `Enter` loads it. `F5`, `F6` and `F9` stay

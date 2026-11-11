@@ -136,7 +136,7 @@ fn move_tech(ui: &mut UiState, session: &Session, dx: i32, dy: i32) -> bool {
 /// A page of tech cards, as `App::tech_page` does.
 fn tech_page(ui: &UiState, session: &Session) -> i32 {
     let view = fn_ui::research::screen_view(session);
-    let (width, rows) = screens::text_size(ui.viewport());
+    let (width, rows) = screens::text_size(ui.page());
     research::Grid::new((width, rows), view.columns.len()).cards as i32
 }
 
@@ -149,7 +149,7 @@ fn move_nation_cursor(ui: &mut UiState, session: &Session, dy: i32) -> bool {
 
 /// A page of the Nation roster, as `App::nation_page` does.
 fn nation_page(ui: &UiState) -> i32 {
-    screens::text_size(ui.viewport()).1 as i32
+    screens::text_size(ui.page()).1 as i32
 }
 
 /// `Enter` in the Nation screen: selects the settler under the pointer and closes the screen, as
@@ -165,7 +165,7 @@ fn confirm_nation(ui: &mut UiState, session: &Session) -> bool {
 
 /// How many rows the open screen shows at once, as `App::screen_rows` does.
 fn screen_rows(ui: &UiState) -> i32 {
-    screens::text_size(ui.viewport()).1 as i32
+    screens::text_size(ui.page()).1 as i32
 }
 
 /// Scrolls the open screen, as `App::scroll_by` does.
@@ -173,7 +173,7 @@ fn scroll_by(ui: &mut UiState, session: &Session, screen: Screen, lines: i32) {
     if matches!(screen, Screen::Research | Screen::Saves) {
         return;
     }
-    let (width, rows) = screens::text_size(ui.viewport());
+    let (width, rows) = screens::text_size(ui.page());
     let total = screens::line_count(screen, session, &ui.alerts, width);
     let max = total.saturating_sub(rows);
     let now = ui.scroll.min(max) as i64;
@@ -213,18 +213,16 @@ fn open_build_modal(ui: &mut UiState, session: &Session) {
 /// `Enter` does nothing here -- it would place the building, changing the agent's own game
 /// (#330's acceptance criteria: "Build list (U, browse only)").
 fn build_modal_key(ui: &mut UiState, session: &Session, key: KeyEvent) -> bool {
+    if build::closes(key) {
+        ui.modal = None;
+        return true;
+    }
     let rows = fn_ui::build::picker_rows(session);
     if rows.is_empty() {
-        return if key.code == KeyCode::Esc {
-            ui.modal = None;
-            true
-        } else {
-            false
-        };
+        return false;
     }
     let at = ui.build_cursor.min(rows.len() - 1);
     match key.code {
-        KeyCode::Esc => ui.modal = None,
         KeyCode::Up | KeyCode::Char('w' | 'W') => ui.build_cursor = build::step(&rows, at, -1),
         KeyCode::Down | KeyCode::Char('s' | 'S') => ui.build_cursor = build::step(&rows, at, 1),
         KeyCode::Char(c) if c.is_alphabetic() => {

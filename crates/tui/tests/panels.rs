@@ -7,7 +7,6 @@ use fn_sim::{Nation, Pos, Terrain};
 use fn_tui::app::App;
 use fn_tui::color::{ColorDepth, Palette};
 use fn_tui::frame::{render_app, to_text};
-use fn_tui::layout::panel_width;
 use fn_tui::state::{PINNED, Screen};
 use fn_tui::widgets::Tone;
 use fn_tui::{keys, new_session};
@@ -704,22 +703,11 @@ fn fold(s: &str) -> String {
         .join(" ")
 }
 
-/// `frame`'s left side only (the map or an overlay like the Log screen), folded
-/// (`layout::panel_width` gives the side panel's own width): the side panel's unrelated text
-/// on the same physical row must never complete a phrase a wrapped alert line split in two.
-fn left_text(frame: &str) -> String {
-    let width = frame.lines().map(|l| l.chars().count()).max().unwrap_or(0);
-    let split_at = width.saturating_sub(usize::from(panel_width(width as u16)));
-    let left: String = frame
-        .lines()
-        .map(|line| {
-            let chars: Vec<char> = line.chars().collect();
-            let at = split_at.min(chars.len());
-            chars[..at].iter().collect::<String>()
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
-    fold(&left)
+/// `frame` above the status line, folded: the Log screen covers the whole width (#652), so the
+/// status line's own hints must never complete a phrase.
+fn page_text(frame: &str) -> String {
+    let lines: Vec<&str> = frame.lines().collect();
+    fold(&lines[..lines.len().saturating_sub(1)].join(" "))
 }
 
 #[test]
@@ -740,9 +728,9 @@ fn the_log_scrolls_with_the_arrows_ws_and_the_page_keys_and_sticks_to_the_end() 
     let newest = fold(&a.ui.alerts.history()[n - 1].text);
     let frame = text(&mut a, SMALL);
     if n > 22 {
-        assert!(left_text(&frame).contains(&newest), "{frame}");
+        assert!(page_text(&frame).contains(&newest), "{frame}");
         let oldest = fold(&a.ui.alerts.history()[0].text);
-        assert!(!left_text(&frame).contains(&oldest), "scrolled to the end:\n{frame}");
+        assert!(!page_text(&frame).contains(&oldest), "scrolled to the end:\n{frame}");
 
         run(&mut a, "<up>");
         let one_up = a.ui.scroll;
@@ -751,14 +739,14 @@ fn the_log_scrolls_with_the_arrows_ws_and_the_page_keys_and_sticks_to_the_end() 
         assert_eq!(a.ui.scroll, one_up - 1, "W scrolls like the arrow");
         run(&mut a, "s <down>");
         assert_eq!(a.ui.scroll, PINNED, "back at the end it sticks again");
+        // A page moves more than a line (the full-width log, #652, may be under two pages
+        // long at 80x24, so one page from the end can already be the top).
         run(&mut a, "<pgup>");
-        let page = a.ui.scroll;
-        run(&mut a, "<pgup>");
-        assert!(a.ui.scroll < page);
+        assert!(a.ui.scroll + 1 < one_up, "a page is more than a line: {}", a.ui.scroll);
         run(&mut a, "<pgup*40>");
         assert_eq!(a.ui.scroll, 0, "the top");
         let frame = text(&mut a, SMALL);
-        assert!(left_text(&frame).contains(&oldest), "{frame}");
+        assert!(page_text(&frame).contains(&oldest), "{frame}");
         run(&mut a, "<pgdn*40>");
         assert_eq!(a.ui.scroll, PINNED);
     }
@@ -769,8 +757,8 @@ fn the_log_scrolls_with_the_arrows_ws_and_the_page_keys_and_sticks_to_the_end() 
     assert_eq!(a.ui.screen, None);
 }
 
-/// The message log screen: its heading and scroll hints, the newest line (the log opens
-/// pinned to the end), and the Alerts section of the side panel beside it.
+/// The message log screen: its heading and scroll hints and the newest line (the log opens
+/// pinned to the end), over the side panel (#652).
 #[test]
 fn the_message_log_screen_shows_its_heading_hints_and_newest_line() {
     let mut a = bending_game();
@@ -784,7 +772,7 @@ fn the_message_log_screen_shows_its_heading_hints_and_newest_line() {
     let newest = a.ui.alerts.history().last().expect("the bending game has a log").text.clone();
     let newest: String = newest.chars().take(30).collect();
     assert!(frame.contains(&newest), "the newest line ({newest:?}) in\n{frame}");
-    assert!(frame.contains("ALERTS"), "{frame}");
+    assert!(!frame.contains("ALERTS"), "the side panel is covered:\n{frame}");
 }
 
 #[test]
@@ -793,7 +781,7 @@ fn a_screen_hides_the_bar_and_takes_the_keys_but_not_the_clock() {
     run(&mut a, "<tab> l");
     let frame = text(&mut a, SIZE);
     assert!(frame.contains("MESSAGE LOG") && !frame.contains("Carrying:"), "{frame}");
-    assert!(frame.contains("EARTH KINGDOM"), "the side panel stays:\n{frame}");
+    assert!(!frame.contains("EARTH KINGDOM"), "the side panel is covered:\n{frame}");
     assert!(frame.lines().last().unwrap().starts_with(" LOG "), "{frame}");
     let (cursor, tool) = (a.ui.cursor, a.ui.tool);
     run(&mut a, "h d <enter> <tab>");

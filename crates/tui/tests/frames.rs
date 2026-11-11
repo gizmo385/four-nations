@@ -910,7 +910,7 @@ fn the_build_modal_lists_buildings_and_details_the_locked_ones() {
     assert!(text.contains("Campfire             Locked"), "{text}");
     assert!(text.contains("Footprint: 1x1"), "the detail pane:\n{text}");
     let status = text.lines().last().unwrap();
-    assert!(status.contains("Up/Down choose · Enter build · Esc close"), "{status}");
+    assert!(status.contains("Up/Down choose · Enter build · Esc or U close"), "{status}");
 
     let rows = fn_ui::build::picker_rows(&app.session);
     let locked = rows.iter().position(|r| r.locked()).expect("Earth has a locked building");
@@ -935,7 +935,7 @@ fn a_fire_picker_row_with_a_stone_stand_in_names_brick_on_screen() {
         rows[workshop].cost
     );
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
-    assert!(text.contains("◆ FIRE NATION ◆"), "{text}");
+    assert!(text.contains("◆ BUILD ◆"), "{text}");
     assert!(text.contains("Stone (or brick)"), "the detail pane names the stand-in:\n{text}");
 }
 

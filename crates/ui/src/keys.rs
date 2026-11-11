@@ -308,7 +308,7 @@ fn build() -> Vec<Entry> {
 
     add(&[Mode::Build], &[], "Up/Down", "choose", None);
     add(&[Mode::Build], &[], "Enter", "build", None);
-    add(&[Mode::Build], &[], "Esc", "close", None);
+    add(&[Mode::Build], &[], "Esc or U", "close", None);
 
     add(&[Mode::Menu], &[], "Up/Down", "choose", None);
     add(&[Mode::Menu], &[], "Enter", "select", None);

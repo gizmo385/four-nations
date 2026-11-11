@@ -37,6 +37,10 @@ pub struct Theme {
     pub accent_text: Rgb,
     /// The accent blended into `panel`: panel frames, section rules, idle button borders.
     pub accent_soft: Rgb,
+    /// The accent barely blended into `panel`: the quiet background under a full screen's
+    /// selected row or card (#652), dark enough that a meter's or a warning's own colour still
+    /// reads on it.
+    pub select: Rgb,
     pub on_accent: Rgb,
     pub ok: Rgb,
     pub warn: Rgb,
@@ -55,6 +59,7 @@ impl Theme {
             accent,
             accent_text: mix(accent, WHITE, 0.25),
             accent_soft: mix(accent, PANEL, 0.55),
+            select: mix(accent, PANEL, 0.8),
             on_accent: ON_ACCENT,
             ok: OK,
             warn: WARN,

@@ -13,9 +13,9 @@ use fn_ui::Session;
 use fn_ui::research::{ScreenView, TechCard, TechState, screen_view};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
 
 use crate::color::Palette;
+use crate::page::{self, Page};
 use crate::widgets::{Marks, Painter, Row, Tone, window_start};
 
 /// The narrowest a column of cards can be. A terminal too narrow for every column scrolls
@@ -26,8 +26,9 @@ const GAP: usize = 1;
 /// A card is three rows (name, state and cost, unlocks) and a blank one between cards.
 const CARD_ROWS: usize = 3;
 const CARD_STRIDE: usize = CARD_ROWS + 1;
-/// The rows under the grid: a rule, then the chosen tech's name, description and unlocks.
-const DETAIL_ROWS: usize = 4;
+/// The frame's detail strip under the grid (`crate::page`, #652): the chosen tech's name,
+/// description and unlocks. The rule above it takes one more row.
+pub const DETAIL_ROWS: u16 = 3;
 
 /// Where the cursor is: a column of the view and a card in it.
 pub type Cursor = (usize, usize);
@@ -43,12 +44,14 @@ pub struct Grid {
 }
 
 impl Grid {
+    /// The grid for a page whose inside (`crate::page::text_size`: the body, the rule and the
+    /// detail strip together) is `text`, with `columns_in_view` columns of cards to show.
     pub fn new(text: (usize, usize), columns_in_view: usize) -> Self {
         let (width, height) = text;
         let columns = ((width + GAP) / (MIN_COLUMN + GAP)).clamp(1, columns_in_view.max(1));
         let column_width = (width.saturating_sub(GAP * (columns - 1)) / columns).max(1);
-        // One row is the column headers; the details sit under the grid.
-        let grid_height = height.saturating_sub(1 + DETAIL_ROWS);
+        // One row is the column headers; the details sit under the grid, below a rule.
+        let grid_height = height.saturating_sub(1 + 1 + usize::from(DETAIL_ROWS));
         let cards = ((grid_height + 1) / CARD_STRIDE).max(1);
         Self { columns, column_width, cards }
     }
@@ -179,22 +182,26 @@ pub fn detail_rows(session: &Session, card: &TechCard) -> [Row; 3] {
     ]
 }
 
-/// Draws the screen's contents into `inner` (the frame's inside, minus its padding) and returns
-/// where the visible tiers sit ("tiers 1-4 of 5") when some are out of sight, for the frame's
-/// bottom edge (#651).
+/// Draws the screen's contents into `page` (the grid in its body, the chosen tech in its detail
+/// strip) and returns where the visible tiers sit ("tiers 1-4 of 5") when some are out of sight,
+/// for the frame's bottom edge (#651).
 pub fn draw(
     session: &Session,
     at: Cursor,
     palette: &Palette,
-    inner: Rect,
+    page: &Page,
     buf: &mut Buffer,
 ) -> Option<String> {
     let view = screen_view(session);
     let marks = Marks::new(palette.ascii);
-    let grid = Grid::new((usize::from(inner.width), usize::from(inner.height)), view.columns.len());
+    let inner = page.body;
+    let grid = Grid::new(
+        (usize::from(page.inner.width), usize::from(page.inner.height)),
+        view.columns.len(),
+    );
     let first_column = window_start(at.0, grid.columns);
     let first_card = window_start(at.1, grid.cards);
-    let grid_height = (inner.height).saturating_sub(1 + DETAIL_ROWS as u16);
+    let grid_height = inner.height.saturating_sub(1);
 
     let shown = view.columns.iter().enumerate().skip(first_column).take(grid.columns);
     for (slot, (c, column)) in shown.enumerate() {
@@ -214,22 +221,21 @@ pub fn draw(
 
         let body = Rect::new(x, inner.y + 1, width, grid_height);
         let mut p = Painter::new(buf, body, palette);
-        let mut reversed = None;
+        let mut chosen_at = None;
         for (r, card) in column.iter().enumerate().skip(first_card).take(grid.cards) {
             let chosen = chosen_column && r == at.1;
             if chosen {
-                reversed = Some(body.y + p.row);
+                chosen_at = Some(body.y + p.row);
             }
             for row in card_rows(card, chosen, &marks) {
                 p.row(&row);
             }
             p.blank();
         }
-        // The card under the cursor reads in reverse video on its name row, in every colour mode.
-        if let Some(y) = reversed {
-            for cx in x..x + width {
-                buf[(cx, y)].set_style(Style::new().add_modifier(Modifier::REVERSED));
-            }
+        // The card under the cursor wears the selection's quiet background over its rows.
+        if let Some(y) = chosen_at {
+            let rows = (CARD_ROWS as u16).min(body.bottom().saturating_sub(y));
+            page::highlight(buf, Rect::new(x, y, width, rows), palette);
         }
     }
 
@@ -244,13 +250,10 @@ pub fn draw(
         arrow(inner.right(), marks.right);
     }
 
-    // The details of the tech under the cursor, under a rule.
-    let rule_y = inner.y + 1 + grid_height;
-    let rule: String = std::iter::repeat_n(marks.h, usize::from(inner.width)).collect();
-    buf.set_string(inner.x, rule_y, &rule, Tone::Dim.style(palette));
-    if let Some(card) = card_at(&view, at) {
+    // The details of the tech under the cursor, in the frame's detail strip.
+    if let (Some(card), Some(strip)) = (card_at(&view, at), page.detail) {
         let rows = detail_rows(session, card);
-        let mut p = Painter::new(buf, Rect::new(inner.x, rule_y + 1, inner.width, 3), palette);
+        let mut p = Painter::new(buf, strip, palette);
         for row in &rows {
             p.row(row);
         }
@@ -326,9 +329,10 @@ mod tests {
         assert_eq!((wide.columns, wide.column_width), (4, 20));
         assert_eq!(Grid::new((200, 40), 5).columns, 5, "never more than the tree has");
         assert_eq!(Grid::new((10, 40), 5).columns, 1, "at least one");
-        // 80x24: the map is 48 wide and 23 tall, so the text is 44 by 21: two columns, four cards.
-        let small = Grid::new((44, 21), 6);
-        assert_eq!((small.columns, small.cards), (2, 4));
+        // 80x24: the page is 80 wide and 23 tall, so the text is 76 by 21: four columns, four
+        // cards.
+        let small = Grid::new((76, 21), 6);
+        assert_eq!((small.columns, small.cards), (4, 4));
         assert_eq!(Grid::new((44, 3), 6).cards, 1, "at least one card");
     }
 

@@ -1,40 +1,40 @@
-┏──────────────────────────────────── ◆ KEY HELP ◆ ────────────────────────────────────┓┏───── ◆ EARTH KINGDOM ◆ ──────┓
-│ CURSOR AND VIEW                                                                      ││ ‖ Paused x1            00:00 │
-│ Arrows or WASD            Move the cursor 1 tile (Shift: 10)                         │├─ SETTLEMENT ─────────── [N] ─┤
-│ Ctrl+Arrows or PgUp/PgDn  Jump the view a quarter screen                             ││ People 2              Idle 2 │
-│                                                                                      ││ Food 0 · 0 each              │
-│ UNITS                                                                                ││ Research: none set       [T] │
-│ Enter                     Select the unit under the cursor; again: the next one      ││ Gate 1 of 9 signs        [G] │
-│                           there. In a tool: set a corner, then apply                 ││ Needs 14 more people         │
-│ Esc                       Close the screen, a modal or the bar. In a tool: drop the  │├─ HERE ──────────── (64, 28) ─┤
-│                           corner, then leave the tool. With nothing to close: the    ││ Juni                         │
-│                           game menu (Resume, Save…, Load…, Key help, New map…,       ││ Idle                         │
-│                           Switch nation…, Quit…), where the actions that end the     ││ Press Enter to select        │
-│                           game live; each asks in a box first, and Esc there is the  ││                              │
-│                           safe answer                                                ││                              │
-│ Tab                       Select the next unit (Select mode)                         ││                              │
-│ Shift+Tab                 Select the previous unit (Select mode)                     ││                              │
-│ F                         Follow the selected unit (Select mode)                     ││                              │
-│                                                                                      ││                              │
-│ DESIGNATING                                                                          ││                              │
-│ H                         Harvest tool: designate harvest (chop, mine, gather)       ││                              │
-│ X                         Cancel tool: cancel a harvest, bend, sow or clear mark (O: ││                              │
-│                           also a build site or stockpile)                            ││                              │
-│ E                         Clear tool: clear the ground                               ││                              │
-│ P                         Stockpile tool: designate stockpile                        ││                              │
-│ B                         Bend tool: channel the nation's ability                    ││                              │
-│ U                         Build tool: place the chosen building (U: pick one)        ││                              │
-│ C                         Sow tool: sow an empty farm plot                           ││                              │
-│ O                         Harvest tool: toggle a standing order (re-designates when  ││                              │
-│                           ripe again); Cancel tool: toggle withdrawing a build site  ││                              │
-│                           or stockpile too (#335)                                    ││                              │
-│                                                                                      ││                              │
-│ TIME                                                                                 ││                              │
-│ Space                     Pause or run                                               ││                              │
-│ + or =                    Faster                                                     ││                              │
-│ - or _                    Slower                                                     ││                              │
-│ .                         One tick, while paused                                     ││                              │
-│                                                                                      ││                              │
-│ SCREENS AND GAME                                                                     ││                              │
-┗───────────────────────────────────────────────────────────────────────── 1-37 of 49 ─┛┗─ seed 1 ─────────────────────┛
+┏──────────────────────────────────────────────────── ◆ KEY HELP ◆ ────────────────────────────────────────────────────┓
+│ CURSOR AND VIEW                                                                                                      │
+│ Arrows or WASD            Move the cursor 1 tile (Shift: 10)                                                         │
+│ Ctrl+Arrows or PgUp/PgDn  Jump the view a quarter screen                                                             │
+│                                                                                                                      │
+│ UNITS                                                                                                                │
+│ Enter                     Select the unit under the cursor; again: the next one there. In a tool: set a corner, then │
+│                           apply                                                                                      │
+│ Esc                       Close the screen, a modal or the bar. In a tool: drop the corner, then leave the tool.     │
+│                           With nothing to close: the game menu (Resume, Save…, Load…, Key help, New map…, Switch     │
+│                           nation…, Quit…), where the actions that end the game live; each asks in a box first, and   │
+│                           Esc there is the safe answer                                                               │
+│ Tab                       Select the next unit (Select mode)                                                         │
+│ Shift+Tab                 Select the previous unit (Select mode)                                                     │
+│ F                         Follow the selected unit (Select mode)                                                     │
+│                                                                                                                      │
+│ DESIGNATING                                                                                                          │
+│ H                         Harvest tool: designate harvest (chop, mine, gather)                                       │
+│ X                         Cancel tool: cancel a harvest, bend, sow or clear mark (O: also a build site or stockpile) │
+│ E                         Clear tool: clear the ground                                                               │
+│ P                         Stockpile tool: designate stockpile                                                        │
+│ B                         Bend tool: channel the nation's ability                                                    │
+│ U                         Build tool: place the chosen building (U: pick one)                                        │
+│ C                         Sow tool: sow an empty farm plot                                                           │
+│ O                         Harvest tool: toggle a standing order (re-designates when ripe again); Cancel tool: toggle │
+│                           withdrawing a build site or stockpile too (#335)                                           │
+│                                                                                                                      │
+│ TIME                                                                                                                 │
+│ Space                     Pause or run                                                                               │
+│ + or =                    Faster                                                                                     │
+│ - or _                    Slower                                                                                     │
+│ .                         One tick, while paused                                                                     │
+│                                                                                                                      │
+│ SCREENS AND GAME                                                                                                     │
+│ T                         Research: arrows W A S D choose a tech, Enter sets it as the target                        │
+│ L                         Message log                                                                                │
+│ ?                         Key help                                                                                   │
+│ G                         Endeavor: the Harmony Gate's progress; once Ready, Enter places the gate, X withdraws the  │
+┗───────────────────────────────────────────────────────────────────────────────────────────────────────── 1-37 of 44 ─┛
  KEYS  Up/Down scroll · Esc or ? close · PgUp/PgDn page                                                   PAUSED ? keys
