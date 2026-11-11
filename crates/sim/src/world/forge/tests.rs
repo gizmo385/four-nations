@@ -455,6 +455,47 @@ fn a_tide_mill_speeds_up_a_workshop_in_its_reach_by_its_own_boost() {
     assert!((gap - expected_gap).abs() <= 2.0, "gap {gap}, expected close to {expected_gap}");
 }
 
+/// Earth's Hot Spring Mill (issue #448): at Earth's 0.8 `power_generation` its radius of 2 still
+/// reaches 2 tiles (round(1.6)), so a Mine Shaft with a footprint tile 2 tiles from the mill cuts
+/// stone 1.2x as fast; one whose nearest tile is 3 away runs at its plain rate.
+#[test]
+fn a_hot_spring_mill_powers_a_mine_shaft_within_2_tiles_but_not_3() {
+    // Ticks until the first stone, with the mill's anchor `mill_x` tiles right of the shaft's
+    // (the shaft covers x 2..=3, the mill x mill_x..=mill_x+1), or no mill.
+    let run = |mill_x: Option<i32>| {
+        let defs = Defs::bundled();
+        let mut w = World::with_map(1, arena(&grid()), Nation::Earth, &[at(1, 1)], &defs);
+        assert_eq!(w.modifiers().power_generation, 0.8);
+        let shaft = defs.building_id("mine_shaft").unwrap();
+        place_building(&mut w, &defs, shaft, at(2, 4));
+        if let Some(x) = mill_x {
+            let mill = defs.building_id("hot_spring_mill").unwrap();
+            place_building(&mut w, &defs, mill, at(x, 4));
+        }
+        let stone = defs.building(shaft).recipe.as_ref().unwrap().output.item;
+        let ticks =
+            run_until(&mut w, &defs, 20_000, |w| w.ground_items().any(|(_, s)| s.item == stone));
+        let rate = w.modifiers().get("earthworks").unwrap_or(1.0);
+        (ticks, rate)
+    };
+
+    // The shaft's nearest tile is x 3, so a mill anchored at x 5 is 2 tiles away and one at x 6
+    // is 3.
+    let (plain, rate) = run(None);
+    let (two_away, _) = run(Some(5));
+    let (three_away, _) = run(Some(6));
+    assert_eq!(three_away, plain, "3 tiles away: out of reach");
+    let work = defs_bundled_recipe_work("mine_shaft") / rate;
+    let expected_gap = (work - work / 1.2) * TICKS_PER_SECOND as f32;
+    let gap = (plain - two_away) as f32;
+    assert!((gap - expected_gap).abs() <= 2.0, "gap {gap}, expected close to {expected_gap}");
+}
+
+fn defs_bundled_recipe_work(id: &str) -> f32 {
+    let defs = Defs::bundled();
+    defs.building(defs.building_id(id).unwrap()).recipe.as_ref().unwrap().work
+}
+
 /// The Tide Mill's `boost`, read from data instead of hard-coded, so this test keeps working if
 /// #432's balance pass changes it.
 fn defs_bundled_tide_mill_boost() -> f32 {

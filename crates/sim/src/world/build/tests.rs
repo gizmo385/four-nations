@@ -541,6 +541,47 @@ fn a_tide_mill_is_refused_on_open_land_and_accepted_beside_water() {
     );
 }
 
+/// Issue #448: the Hot Spring Mill has the Mine Shaft's `beside` rule, so it's refused on open
+/// land ("must touch rock") and accepted against a mountain or a tunnel.
+#[test]
+fn a_hot_spring_mill_is_refused_on_open_land_and_accepted_beside_rock() {
+    let rows = [
+        "............",
+        "..^.......t.",
+        "............",
+        "............",
+        "............",
+        "............",
+    ];
+    let (mut w, mut defs) = setup(&rows, &[]);
+    let mill = defs.building_id("hot_spring_mill").unwrap();
+    defs.buildings[mill.0 as usize].unlocked_by = None;
+
+    assert_eq!(w.check_build(at(0, 1), mill, &defs), Ok(()), "against the mountain");
+    assert_eq!(w.check_build(at(8, 1), mill, &defs), Ok(()), "against the tunnel");
+    assert_eq!(
+        w.designate_build(at(2, 4), mill, &defs),
+        Err(BuildError::CannotBuild { at: at(2, 4), why: Blocker::Beside("rock") })
+    );
+    assert_eq!(Blocker::Beside("rock").to_string(), "must touch rock");
+}
+
+/// Issue #448: only Earth can build the Hot Spring Mill; its tech is Earth's.
+#[test]
+fn only_earth_can_build_the_hot_spring_mill() {
+    let defs = Defs::bundled();
+    let mill = defs.building_id("hot_spring_mill").unwrap();
+    let tech = defs.building(mill).unlocked_by.unwrap();
+    for nation in [Nation::Water, Nation::Fire, Nation::Air] {
+        let (mut w, _) = setup_as(nation, &GRID, &[at(1, 1)]);
+        assert_eq!(w.designate_build(at(2, 2), mill, &defs), Err(BuildError::NotResearched(tech)));
+    }
+    let (mut w, _) = setup_as(Nation::Earth, &GRID, &[at(1, 1)]);
+    w.grant_tech(defs.tech_id("tunneling").unwrap());
+    w.grant_tech(tech);
+    assert_ne!(w.designate_build(at(2, 2), mill, &defs), Err(BuildError::NotResearched(tech)));
+}
+
 #[test]
 fn placement_checks_report_the_first_blocked_tile_row_major() {
     let rows = ["..........", "...~F.....", "...F~.....", ".........."];

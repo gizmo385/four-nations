@@ -142,11 +142,11 @@ fn a_building_over_several_tiles_counts_once() {
 fn every_building_counts_only_kinds_distinct_and_finished() {
     let defs = Defs::bundled();
     let mut w = world(Nation::Earth, 1, &defs);
-    // Earth reaches 11 kinds today (4 shared, the Herb Garden, the Map Room, earth_wall, rail,
-    // the shared Workshop, the Mine Shaft and the Deep Mine); spare = 1 makes the target 10
-    // (`docs/design/materials.md` section 6, #272, #354; the Workshop, #369; the mines, #373;
-    // the Map Room, #402; the Herb Garden, #390).
-    assert_eq!(progress(&w, &defs, "building_kinds"), (0, 10, false));
+    // Earth reaches 12 kinds today (4 shared, the Herb Garden, the Map Room, earth_wall, rail,
+    // the shared Workshop, the Mine Shaft, the Deep Mine and the Hot Spring Mill); spare = 1
+    // makes the target 11 (`docs/design/materials.md` section 6, #272, #354; the Workshop, #369;
+    // the mines, #373; the Map Room, #402; the Herb Garden, #390; the mill, #448).
+    assert_eq!(progress(&w, &defs, "building_kinds"), (0, 11, false));
     put(&mut w, &defs, "bed", at(3, 3));
     put(&mut w, &defs, "bed", at(4, 3));
     put(&mut w, &defs, "campfire", at(5, 3));
@@ -185,11 +185,11 @@ fn every_building_targets_are_computed_per_nation() {
     // Today's numbers (`docs/design/materials.md` section 6, raised by the shared Workshop
     // (#369), Map Room (#402) and Herb Garden (#390), the Mine Shaft and Deep Mine for Earth
     // (#373), the Healing Hut and Fishing Dock for Water (#375, #374), and the Tide Mill for
-    // Water (#200)): Air 11, Water 12, Earth 11 and Fire 12 reachable, minus the bundled sign's
-    // `spare = 1`.
+    // Water (#200), and the Hot Spring Mill for Earth (#448)): Air 11, Water 12, Earth 12 and Fire
+    // 12 reachable, minus the bundled sign's `spare = 1`.
     assert_eq!(
         targets,
-        [(Nation::Air, 10), (Nation::Water, 11), (Nation::Earth, 10), (Nation::Fire, 11)]
+        [(Nation::Air, 10), (Nation::Water, 11), (Nation::Earth, 11), (Nation::Fire, 11)]
     );
 }
 

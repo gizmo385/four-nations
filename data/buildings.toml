@@ -108,7 +108,8 @@
 #             way `heat`'s is by `heating` -- rounded, at least 1 tile -- and measured the same
 #             way, Chebyshev from every tile of the source's footprint. Two sources in reach of
 #             one consumer don't stack; the best `boost` applies. Which buildings are sources:
-#             #255 (Fire), #200 (Water, `tide_mill`) and #204 (Air, `wind_turbine`).
+#             #255 (Fire), #200 (Water, `tide_mill`), #204 (Air, `wind_turbine`) and #448
+#             (Earth, `hot_spring_mill`).
 # - uses_power: this building's recipe batches or study seats run at the best `boost` of any
 #             power source in reach of any tile of its own footprint, else at their plain rate.
 #             Set on `workshop`, `forge`, `brick_kiln`, `smelter`, `mine_shaft`, `deep_mine` and
@@ -877,3 +878,27 @@ count = 4
 [[building.cost]]
 item = "tool"
 count = 1
+
+# --- Earth: power (issue #448) ---
+# Unlocked by `seismic_sense`: Earth's weak source (docs/design/power.md, "Earth's source
+# (#446)"), a geothermal mill that taps the heat in the rock, so it must touch mountain or tunnel
+# (`beside`, #373) like the Mine Shaft it sits beside. A reach of 2 tiles at Earth's 0.8
+# `power_generation` (round(2 x 0.8) = 2) and a 1.2x boost: weaker and shorter than any other
+# nation's source, but cheap, so Earth's power track is breadth, many mills. #432 tunes it.
+[[building]]
+id = "hot_spring_mill"
+name = "Hot Spring Mill"
+verb = "Build"
+work = 50.0
+passable = false
+footprint = [2, 2]
+beside = ["mountain", "tunnel"]
+[building.power]
+radius = 2
+boost = 1.2
+[[building.cost]]
+item = "stone"         # brick stands in, as for any stone cost
+count = 12
+[[building.cost]]
+item = "wood"
+count = 4
