@@ -1136,7 +1136,7 @@ mod tests {
         // Today's bundled counts, so a content change that moves these is visible in review.
         assert_eq!(
             reachable_counts(),
-            [(Nation::Air, 11), (Nation::Water, 12), (Nation::Earth, 11), (Nation::Fire, 12)]
+            [(Nation::Air, 11), (Nation::Water, 12), (Nation::Earth, 12), (Nation::Fire, 12)]
         );
     }
 
