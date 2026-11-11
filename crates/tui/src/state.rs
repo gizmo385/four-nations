@@ -59,6 +59,9 @@ pub enum Screen {
     /// does and whether it can be used now. It moves a pointer ([`UiState::ability_cursor`]) over
     /// `fn_ui::bend::abilities`; `Enter` picks the one under it for the Bend tool.
     Abilities,
+    /// `M` (#438): the caravan camped now, its deals, its request and what is under way. It
+    /// moves a pointer ([`UiState::trade_cursor`]) over the offers; `Enter` takes, `X` cancels.
+    Traders,
 }
 
 /// The two tabs of the key help (`?`, #662): the keys, and the legend of the map's glyphs. `Tab`
@@ -201,6 +204,8 @@ pub struct UiState {
     /// The abilities screen's pointer: an index into `fn_ui::bend::abilities`, which opens on
     /// the ability the Bend tool channels now.
     pub ability_cursor: usize,
+    /// The Traders screen's pointer: a slot of the visit camped now (`fn_ui::trade`).
+    pub trade_cursor: usize,
     /// The saves screen's slots (newest first), read from disk when the screen opens or a save
     /// changes them ([`crate::app::App::refresh_saves`]), not on every frame.
     pub save_slots: Vec<Slot>,
@@ -262,6 +267,7 @@ impl UiState {
             tech: (0, 0),
             nation_cursor: 0,
             ability_cursor: 0,
+            trade_cursor: 0,
             save_slots: Vec::new(),
             save_cursor: 0,
             save_name: None,

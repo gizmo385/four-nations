@@ -71,6 +71,8 @@ pub enum Action {
     /// `I`: the abilities screen (#719): every bending ability the settlement has or may yet
     /// unlock, and `Enter` there picks one for the Bend tool. Shown in the hint bar only.
     ShowAbilities,
+    /// `M`: the Traders screen (#438): the caravan camped now, its deals and its request.
+    ShowTraders,
     /// `F5`: save the game to the quicksave slot.
     QuickSave,
     /// `F9`: replace the game with the quicksave, after asking in a centred box.
@@ -142,6 +144,8 @@ pub enum Mode {
     Nation,
     /// The abilities screen (`I`, #719).
     Abilities,
+    /// The Traders screen (`M`, #438).
+    Traders,
     Log,
     /// The message log in the `--watch` spectator (#774): the studio keeps `1`-`3` and `0` for
     /// its panes, so the filters are on `Tab`, and `Esc` is refused (`L` closes it).
@@ -193,6 +197,7 @@ impl Mode {
             Self::Endeavor => "ENDEAVOR",
             Self::Nation => "NATION",
             Self::Abilities => "ABILITIES",
+            Self::Traders => "TRADERS",
             Self::Log | Self::WatchLog => "LOG",
             Self::Help => "KEYS",
             Self::Saves => "SAVES",
@@ -347,6 +352,11 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Abilities], &[Action::Confirm], "Enter", "bend", None);
     add(&[Mode::Abilities], &[Action::Cancel, Action::ShowAbilities], "Esc or I", "close", None);
     add(&[Mode::Abilities], &[jump], "PgUp/PgDn", "page", None);
+
+    add(&[Mode::Traders], &[step], "Up/Down", "choose", None);
+    add(&[Mode::Traders], &[Action::Confirm], "Enter", "take", None);
+    add(&[Mode::Traders], &[Action::PickTool(Tool::CancelHarvest)], "X", "cancel", None);
+    add(&[Mode::Traders], &[Action::Cancel, Action::ShowTraders], "Esc or M", "close", None);
 
     add(&[Mode::Endeavor], &[step], "Up/Down", "scroll", None);
     add(&[Mode::Endeavor], &[Action::Confirm], "Enter", "place", None);
@@ -531,6 +541,7 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Anywhere], &[Action::ShowNation], "N", "nation", help(game, "Nation"));
     add(&[Mode::Anywhere], &[Action::ShowResearch], "T", "research", help(game, "Research"));
     add(&[Mode::Anywhere], &[Action::ShowEndeavor], "G", "endeavor", help(game, "Endeavor"));
+    add(&[Mode::Anywhere], &[Action::ShowTraders], "M", "traders", help(game, "Traders"));
     add(&[Mode::Anywhere], &[Action::ShowLog], "L", "log", help(game, "Message log"));
     // The log's own filters: in no hint bar here (`Mode::Log` and `Mode::WatchLog` have them),
     // only in the key help.
@@ -653,6 +664,7 @@ mod tests {
         for mode in [
             Mode::Nation,
             Mode::Abilities,
+            Mode::Traders,
             Mode::Log,
             Mode::Help,
             Mode::Saves,

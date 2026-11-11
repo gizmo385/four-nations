@@ -40,6 +40,7 @@ pub mod theme;
 pub mod time;
 pub mod toolpanel;
 pub mod tools;
+pub mod trade;
 pub mod view;
 
 pub use alerts::Alerts;

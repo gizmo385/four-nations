@@ -1544,7 +1544,11 @@ fn event_kind_for_alert(entry: &AlertEntry) -> Option<EventKind> {
         AlertKind::Season => Some(EventKind::Season),
         AlertKind::Stockpile => Some(EventKind::Stockpile),
         AlertKind::Bend => Some(EventKind::BendFailed),
-        AlertKind::Chart | AlertKind::Agent | AlertKind::BendTip | AlertKind::Research => None,
+        AlertKind::Chart
+        | AlertKind::Agent
+        | AlertKind::BendTip
+        | AlertKind::Research
+        | AlertKind::Trade => None,
     }
 }
 
@@ -1848,6 +1852,8 @@ fn describe_thing(session: &Session, thing: &Thing, pos: Pos) -> String {
         Thing::AirShield => "air shield".to_owned(),
         Thing::Sapling => "sapling".to_owned(),
         Thing::Link => "link line".to_owned(),
+        Thing::Camp { trader: true, .. } => "traders".to_owned(),
+        Thing::Camp { trader: false, .. } => "traders' camp".to_owned(),
         Thing::RestingResource(r) => format!("{} (resting)", defs.resource(*r).name),
         Thing::Resource(r) => defs.resource(*r).name.clone(),
         Thing::Ground => "-".to_owned(),

@@ -51,6 +51,7 @@ pub mod state;
 pub mod studio;
 pub mod surface;
 pub mod title;
+pub mod traders;
 pub mod watch;
 pub mod widgets;
 

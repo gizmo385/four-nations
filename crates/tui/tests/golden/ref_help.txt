@@ -11,23 +11,23 @@
 │ Tab        Next settler                                    N       Nation                                            │
 │ Shift+Tab  Previous settler                                T       Research                                          │
 │ F          Follow the selected settler                     G       Endeavor                                          │
-│ Esc        Deselect, or open the menu                      L       Message log                                       │
-│                                                            1-5     Log: one kind of line (0: all)                    │
-│ DESIGNATING                                                Tab     Log in --watch: next kind                         │
-│ /  List the tools in the panel                             ?       Key help and legend                               │
-│ H  Harvest: chop, mine, gather                             F5      Quicksave                                         │
-│ X  Cancel a mark                                           F9      Quickload (asks first)                            │
-│ E  Clear the ground                                        F6      Saves                                             │
-│ P  Stockpile                                               Esc     Game menu: save, load, new map, quit              │
-│ B  Bend: channel the nation's ability                      Ctrl+C  Quit at once, without asking                      │
-│ U  Build                                                                                                             │
-│ C  Sow a farm plot                                         IN A TOOL                                                 │
+│ Esc        Deselect, or open the menu                      M       Traders                                           │
+│                                                            L       Message log                                       │
+│ DESIGNATING                                                1-5     Log: one kind of line (0: all)                    │
+│ /  List the tools in the panel                             Tab     Log in --watch: next kind                         │
+│ H  Harvest: chop, mine, gather                             ?       Key help and legend                               │
+│ X  Cancel a mark                                           F5      Quicksave                                         │
+│ E  Clear the ground                                        F9      Quickload (asks first)                            │
+│ P  Stockpile                                               F6      Saves                                             │
+│ B  Bend: channel the nation's ability                      Esc     Game menu: save, load, new map, quit              │
+│ U  Build                                                   Ctrl+C  Quit at once, without asking                      │
+│ C  Sow a farm plot                                                                                                   │
+│                                                            IN A TOOL                                                 │
 │                                                            Enter  Set a corner, then apply                           │
 │                                                            Esc    Drop the corner, then leave                        │
 │                                                            O      Standing order (Harvest)                           │
 │                                                            O      Also sites, stockpiles (Cancel)                    │
 │                                                            O      Move a chute foot or partner (Select)              │
-│                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │

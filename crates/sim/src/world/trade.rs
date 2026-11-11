@@ -164,6 +164,27 @@ impl World {
         defs.trade.caravans.iter().find(|c| c.nation == v.nation)
     }
 
+    /// When the next caravan is due and whose turn it is, for the Traders screen (#438): the
+    /// first arrival slot after now. `None` with no schedule, or while the chapter that opens
+    /// the road (`[caravans].opens`) is not met yet. The turn is the one `caravan_arrives`
+    /// would take, so while one is camped it is the one after it.
+    pub fn next_caravan(&self, defs: &Defs) -> Option<(u64, Nation)> {
+        let s = defs.trade.schedule.as_ref()?;
+        let opened = match &s.opens {
+            None => 0,
+            Some(chapter) => self.chapter_met(chapter)?,
+        };
+        let minutes = |m: f32| (m * 60.0 * TICKS_PER_SECOND as f32).round() as u64;
+        let interval = minutes(s.interval_minutes).max(1);
+        let offset = minutes(s.offset_minutes) % interval;
+        let from = (self.tick + 1).max(opened);
+        let base = from - from % interval + offset;
+        let at = if base >= from { base } else { base + interval };
+        let visitors: Vec<Nation> = s.visitors(self.nation).collect();
+        let nation = *visitors.get(self.trade.turns as usize % visitors.len().max(1))?;
+        Some((at, nation))
+    }
+
     /// The goods of slot `slot` and how many of each it still needs, for the visit camped now.
     pub fn trade_needs<'d>(&self, slot: u8, defs: &'d Defs) -> Option<Vec<(&'d Goods, u32)>> {
         let caravan = self.caravan_def(defs)?;

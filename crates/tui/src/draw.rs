@@ -133,6 +133,7 @@ pub fn hint_mode(session: &Session, ui: &UiState) -> Mode {
             Screen::Saves => Mode::Saves,
             Screen::Nation => Mode::Nation,
             Screen::Abilities => Mode::Abilities,
+            Screen::Traders => Mode::Traders,
         };
     }
     if ui.tool_list.is_some() {

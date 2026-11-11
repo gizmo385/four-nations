@@ -548,6 +548,9 @@ plot_ripe = { glyph = "✶", ascii = "*", fg = [230, 200, 50] }
 # the plain `flame` above.
 earth_tent = { glyph = "▲", ascii = "t", fg = [168, 140, 90] }
 air_shield = { glyph = "○", ascii = "s", fg = [210, 230, 235] }
+# A caravan's camp (#438): a 2x2 block of tents, one tile of it the traders themselves (the
+# unit glyph). Both draw in the visiting nation's unit colour, so `fg` here is a fallback.
+camp = { glyph = "△", ascii = "A", fg = [210, 180, 120] }
 # A chute's link line (#683): `:` from its head to its foot, while the head is under the cursor.
 link = { glyph = ":", ascii = ":", fg = [220, 220, 200] }
 

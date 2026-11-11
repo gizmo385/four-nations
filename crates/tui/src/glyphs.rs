@@ -145,6 +145,8 @@ pub struct Overlays {
     pub earth_tent: OverlayGlyph,
     /// Air's Air Shield, lit (#362): a shelter apart from `flame`.
     pub air_shield: OverlayGlyph,
+    /// A caravan's camp (#438): its tents, in the visiting nation's colour.
+    pub camp: OverlayGlyph,
     /// A link line (#683, #698): `:` from a chute's head to its foot, or between a pair's ends.
     pub link: OverlayGlyph,
 }
@@ -354,6 +356,7 @@ mod tests {
             g.overlay.air_shield.glyph,
             g.overlay.air_shield.ascii,
         ));
+        out.push(("overlay.camp".into(), g.overlay.camp.glyph, g.overlay.camp.ascii));
         for (id, look) in &g.gate_stage {
             out.push((format!("gate_stage.{id}"), look.glyph, look.ascii));
         }
