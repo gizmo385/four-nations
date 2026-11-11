@@ -394,7 +394,7 @@ pub struct SeasonView {
     pub heading: String,
     /// The heading's right-hand value: time left in the season ("4:10 left").
     pub left: String,
-    /// "38 · 4/head": what's in the stockpiles against the population, the Season section's
+    /// "38 · 4 each": what's in the stockpiles against the population, the Season section's
     /// second row.
     pub food: String,
     /// Whether `food` should read as a warning: autumn or winter, below the caller's
@@ -430,7 +430,7 @@ pub fn season_view(session: &Session, winter_food_per_head: u32) -> Option<Seaso
     Some(SeasonView {
         heading: format!("{} · Y{year}", season.name),
         left: clock_left(world.season_left(defs)),
-        food: format!("{food} · {per_head}/head"),
+        food: format!("{food} · {per_head} each"),
         food_warn,
         outlook,
     })
@@ -549,7 +549,7 @@ pub fn unit_view(session: &Session, unit: &Unit) -> UnitView {
     };
     let progress = session.world.rank_of(unit, defs);
     let rank_title = defs.mastery.title(own_nation, progress.rank).to_owned();
-    let mastery_line = crate::text::mastery_line(progress, &rank_title, defs.mastery.master_chi);
+    let mastery_line = crate::text::mastery_line(progress, defs.mastery.master_chi);
     let (bends_cell, forms_cell) = crate::text::mastery_cells(
         progress,
         defs.mastery.master_bends_for(own_nation),
@@ -974,7 +974,7 @@ mod tests {
         assert_eq!(v.rank_title, "Student");
         assert_eq!(v.bends_cell, "0/8");
         assert_eq!(v.forms_cell, "0/3");
-        assert!(v.mastery_line.starts_with("Student: 0 of"), "{}", v.mastery_line);
+        assert!(v.mastery_line.starts_with("To adept: 0 of"), "{}", v.mastery_line);
     }
 
     /// A unit that stepped inside a building (#226, #229) names it in `inside`, in place of its

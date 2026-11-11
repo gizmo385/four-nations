@@ -17,7 +17,7 @@ const BAR_CELLS: usize = 10;
 
 /// One sign's row (a mark, its name, a bar and its count), the masters sign's own "Closest" row
 /// while it isn't met, and, while it isn't met, a last row with its hint.
-fn sign_rows(sign: &SignRow, name_width: usize, marks: &Marks) -> Vec<Row> {
+fn sign_rows(sign: &SignRow, name_width: usize, width: usize, marks: &Marks) -> Vec<Row> {
     let (mark, mark_tone) = if sign.met { (marks.known, Tone::Ok) } else { (" ", Tone::Dim) };
     let name_tone = if sign.met { Tone::Dim } else { Tone::Text };
     let bar_tone = if sign.met { Tone::Ok } else { Tone::Accent };
@@ -31,7 +31,10 @@ fn sign_rows(sign: &SignRow, name_width: usize, marks: &Marks) -> Vec<Row> {
     ])];
     if !sign.met {
         if let Some(closest) = &sign.closest {
-            rows.push(Row::text(format!("  {closest}"), Tone::Text));
+            // Wrapped, since the names in words run long (#663).
+            for line in wrap(closest, width.saturating_sub(2), usize::MAX, marks.ellipsis) {
+                rows.push(Row::text(format!("  {line}"), Tone::Text));
+            }
         }
         // The scrolls sign's own list (#380, #403): one row per marked scroll or charted ruin,
         // nearest first, with its state. Empty until there is one, leaving only the hint.
@@ -49,10 +52,10 @@ fn sign_rows(sign: &SignRow, name_width: usize, marks: &Marks) -> Vec<Row> {
 }
 
 /// One heading and its signs, in data order.
-fn group_rows(group: &GroupView, name_width: usize, marks: &Marks) -> Vec<Row> {
+fn group_rows(group: &GroupView, name_width: usize, width: usize, marks: &Marks) -> Vec<Row> {
     let mut rows = vec![Row::text(group.heading.to_uppercase(), Tone::Title)];
     for sign in &group.signs {
-        rows.extend(sign_rows(sign, name_width, marks));
+        rows.extend(sign_rows(sign, name_width, width, marks));
     }
     rows
 }
@@ -80,7 +83,7 @@ pub fn lines(session: &Session, width: usize, marks: &Marks) -> Vec<Row> {
     }
     for group in &v.groups {
         rows.push(Row::default());
-        rows.extend(group_rows(group, name_width, marks));
+        rows.extend(group_rows(group, name_width, width, marks));
     }
     rows
 }
@@ -134,7 +137,10 @@ mod tests {
         let closest = &rows[i + 1];
         assert!(closest.plain().contains("Closest:"), "{:?}", closest.plain());
         assert_eq!(closest.left[0].1, Tone::Text);
-        let hint = &rows[i + 2];
+        // Three names in words don't fit one 80-column row, so the line wraps (#663).
+        let wrapped = rows[i + 1..].iter().take_while(|r| r.left[0].1 == Tone::Text).count();
+        assert!(wrapped >= 1 && rows[i + 1..=i + wrapped].iter().all(|r| r.plain().len() <= 80));
+        let hint = &rows[i + 1 + wrapped];
         assert_eq!(
             hint.plain(),
             "  Designate a bend (B) on a tile a bender can work - credit to whoever channels it"

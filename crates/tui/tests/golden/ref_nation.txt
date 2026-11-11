@@ -2,14 +2,14 @@
 │ Earth Kingdom · seed 1 · 2 people                                              00:00 ││ ‖ Paused x1            00:00 │
 │                                                                                      │├─ SETTLEMENT ─────────── [N] ─┤
 │                               Hunger  Thirst  Energy  Health  Chi     Bends   Forms  ││ People 2              Idle 2 │
-│ IDLE 2                                                                               ││ Food 0 · 0/head              │
+│ IDLE 2                                                                               ││ Food 0 · 0 each              │
 │ ▸ Juni Idle                   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   0/8     0/3    ││ Research: none set       [T] │
-│   Shen Idle                   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   0/8     0/3    ││ Gate 1/9 · 14 people     [G] │
+│   Shen Idle                   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   0/8     0/3    ││ Gate 1 of 9 signs        [G] │
+│                                                                                      ││ Needs 14 more people         │
 │                                                                                      │├─ HERE ──────────── (64, 28) ─┤
 │                                                                                      ││ Juni                         │
 │                                                                                      ││ Idle                         │
 │                                                                                      ││ Press Enter to select        │
-│                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │

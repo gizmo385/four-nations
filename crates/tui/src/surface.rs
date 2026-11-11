@@ -665,15 +665,11 @@ impl Host {
             stores: side.stores.into_iter().map(StoreView::from).collect(),
             stockpile: fn_ui::view::stockpile_capacity(session).into(),
             endeavor: side.endeavor.map(|e| {
-                // The same text the Gate row carries (`panel::gate_row`, #416): `e.line` on its
-                // own ("Signs met - G: open", the Ready text, or the stage) only once nothing is
-                // missing; otherwise the first missing sign's short count ("10 people"), so this
-                // never claims signs are met while `next` still lists one (#320, "Observation
-                // containment").
-                let line = match e.next.first() {
-                    Some(next) => next.clone(),
-                    None => e.line,
-                };
+                // The same text the Gate row's second line carries (`panel::gate_rows`, #416,
+                // #663): `fn_ui::endeavor::gate_detail`, which says what is missing while `next`
+                // lists anything, so this never claims signs are met while one is still short
+                // (#320, "Observation containment").
+                let line = fn_ui::endeavor::gate_detail(&e.next, &e.line);
                 // The Gate row only ever names the first missing sign; the rest of `e.next`
                 // (`fn_ui::endeavor::NEXT_SHOWN`'s headroom for a future comma-joined row) isn't
                 // shown anywhere yet, so `next` stops at one too (#320, "Observation

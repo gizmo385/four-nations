@@ -366,7 +366,7 @@ fn a_selected_unit_opens_the_bar_with_its_title_meters_and_hints() {
         !frame.contains("Energy ██████████ 100%"),
         "the tired unit's Energy is short:\n{frame}"
     );
-    assert!(frame.contains("Student: 0 of "), "{frame}");
+    assert!(frame.contains("To adept: 0 of "), "{frame}");
 }
 
 /// The same bar in ASCII: pure ASCII, with `#` for the meter cells and `-` for the frame.
@@ -1153,7 +1153,7 @@ fn the_season_section_in_autumn_warns_about_low_stores() {
     assert_eq!(a.session.world.season(&a.session.defs).id, "autumn");
     let frame = text(&mut a, SMALL);
     assert!(frame.contains("Autumn"), "{frame}");
-    assert!(frame.contains("Food 0 · 0/head"), "{frame}");
+    assert!(frame.contains("Food 0 · 0 each"), "{frame}");
 }
 
 /// #416's own acceptance criteria: at 80x24, with Season, the Gate (an endeavor is always in
@@ -1173,12 +1173,13 @@ fn every_settlement_glance_row_is_on_screen_at_80x24_with_everything_on() {
         "SETTLEMENT", // the one heading
         "People 6",   // People, with Idle right-aligned
         "Idle 6",
-        "Hungry 1",           // the need-flags row
-        "Food 0 · 0/head",    // the Food row
-        "mild",               // its winter outlook word
-        "Research: none set", // the Research row, no target yet
-        "Gate 0/9",           // the Gate row
-        "HARVEST",            // the active tool
+        "Hungry 1",             // the need-flags row
+        "Food 0 · 0 each",      // the Food row
+        "Winter: mild",         // the winter row
+        "Research: none set",   // the Research row, no target yet
+        "Gate 0 of 9 signs",    // the Gate row
+        "Needs 10 more people", // what it still needs
+        "HARVEST",              // the active tool
         "HERE",
     ] {
         assert!(frame.contains(want), "{want:?} in\n{frame}");
@@ -1246,7 +1247,8 @@ fn a_key_script_places_the_gate_and_the_frame_shows_its_site() {
     a.load(world);
     let before = text(&mut a, SIZE);
     assert!(!before.contains('▦'), "no gate site yet\n{before}");
-    assert!(before.contains("Gate 0/9 · Ready "), "the side panel says so\n{before}");
+    assert!(before.contains("Gate 0 of 9 signs"), "the side panel says so\n{before}");
+    assert!(before.contains("Ready"), "the side panel says so\n{before}");
 
     run(&mut a, "g");
     let screen = text(&mut a, SIZE);

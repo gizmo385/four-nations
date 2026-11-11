@@ -62,15 +62,31 @@ fn describe_craft(world: &World, defs: &Defs, unit: &Unit, pos: Pos) -> String {
     )
 }
 
-/// The selection bar's fourth row (`docs/design/bending.md`, "Seeing it", #361): progress toward
-/// the *next* rank ("Firebender: 9 of 10 bends, 2 of 3 forms to master"), reading `progress`'s
-/// own `next` (`World::rank_of`'s "what the next rank needs"); once there's no rank left to
-/// reach, the master's own line ("Master: 12 bends in 4 forms. Bends cost 80% chi") -- deliberately
-/// the bare word "Master", not this nation's own title, since the border already carries that
-/// (`title`, used only for the rank the settler holds right now, including a novice's). A novice
-/// reads the same shape as an adept, just naming "adept" as the goal instead of "master": the
-/// mockup only shows the two upper ranks, but the wording generalises.
-pub fn mastery_line(progress: MasteryProgress, title: &str, master_chi: f32) -> String {
+/// One half of a progress readout in words: "5 of 8 bends", or "bends done" once `have` has
+/// reached `need` (a settler can pass a target, and "5 of 4 bends" reads as a mistake).
+fn progress_part(have: u32, need: u32, noun: &str) -> String {
+    if have >= need { format!("{noun} done") } else { format!("{have} of {need} {noun}") }
+}
+
+/// Bends then forms against their targets, in words ("5 of 8 bends, 1 of 3 forms"; a met half
+/// reads "bends done"): the selection bar's mastery line and the Endeavor screen's "Closest" line
+/// both use it (#663), so neither shows a count above its total or a code like "5/8b".
+pub fn progress_words(bends: u32, bend_target: u32, forms: u32, form_target: u32) -> String {
+    format!(
+        "{}, {}",
+        progress_part(bends, bend_target, "bends"),
+        progress_part(forms, form_target, "forms")
+    )
+}
+
+/// The selection bar's fourth row (`docs/design/bending.md` "Seeing it", #361): progress toward
+/// the *next* rank ("To master: 9 of 10 bends, 2 of 3 forms"), reading `progress`'s own `next`
+/// (`World::rank_of`'s "what the next rank needs"); a half already met reads "bends done" rather
+/// than a count past its target (#663). Once there's no rank left to reach, the master's own line
+/// ("Master: 12 bends in 4 forms. Bends cost 80% chi") -- the bare word "Master", not this
+/// nation's own title, since the border already carries the settler's title. A novice reads the
+/// same shape as an adept, just naming "adept" as the goal instead of "master".
+pub fn mastery_line(progress: MasteryProgress, master_chi: f32) -> String {
     match progress.next {
         Some((next_rank, bends, forms)) => {
             let goal = match next_rank {
@@ -78,10 +94,7 @@ pub fn mastery_line(progress: MasteryProgress, title: &str, master_chi: f32) -> 
                 Rank::Master => "master",
                 Rank::Novice => unreachable!("nobody's next rank is novice"),
             };
-            format!(
-                "{title}: {} of {bends} bends, {} of {forms} forms to {goal}",
-                progress.bends, progress.forms
-            )
+            format!("To {goal}: {}", progress_words(progress.bends, bends, progress.forms, forms))
         }
         None => format!(
             "Master: {} bends in {} forms. Bends cost {:.0}% chi",
@@ -530,25 +543,27 @@ mod tests {
             forms: 2,
             next: Some((Rank::Master, 10, 3)),
         };
-        assert_eq!(
-            mastery_line(adept, "Firebender", 0.8),
-            "Firebender: 9 of 10 bends, 2 of 3 forms to master"
-        );
+        assert_eq!(mastery_line(adept, 0.8), "To master: 9 of 10 bends, 2 of 3 forms");
         let master = MasteryProgress { rank: Rank::Master, bends: 12, forms: 4, next: None };
-        assert_eq!(
-            mastery_line(master, "Firebending Master", 0.8),
-            "Master: 12 bends in 4 forms. Bends cost 80% chi"
-        );
+        assert_eq!(mastery_line(master, 0.8), "Master: 12 bends in 4 forms. Bends cost 80% chi");
         let novice = MasteryProgress {
             rank: Rank::Novice,
             bends: 2,
             forms: 1,
             next: Some((Rank::Adept, 5, 2)),
         };
-        assert_eq!(
-            mastery_line(novice, "Student", 0.8),
-            "Student: 2 of 5 bends, 1 of 2 forms to adept"
-        );
+        assert_eq!(mastery_line(novice, 0.8), "To adept: 2 of 5 bends, 1 of 2 forms");
+        // Past a target a half reads as done, never "5 of 4" (#663).
+        let past = MasteryProgress {
+            rank: Rank::Novice,
+            bends: 5,
+            forms: 1,
+            next: Some((Rank::Adept, 4, 2)),
+        };
+        assert_eq!(mastery_line(past, 0.8), "To adept: bends done, 1 of 2 forms");
+        let at = MasteryProgress { forms: 2, bends: 4, ..past };
+        assert_eq!(mastery_line(at, 0.8), "To adept: bends done, forms done");
+        assert_eq!(progress_words(12, 10, 0, 3), "bends done, 0 of 3 forms");
     }
 
     /// The Nation screen's Bends and Forms columns, below and at mastery.

@@ -2,14 +2,14 @@
 │ CURSOR AND VIEW                                                                      ││ ‖ Paused x1            00:00 │
 │ Arrows or WASD            Move the cursor 1 tile (Shift: 10)                         │├─ SETTLEMENT ─────────── [N] ─┤
 │ Ctrl+Arrows or PgUp/PgDn  Jump the view a quarter screen                             ││ People 2              Idle 2 │
-│                                                                                      ││ Food 0 · 0/head              │
+│                                                                                      ││ Food 0 · 0 each              │
 │ UNITS                                                                                ││ Research: none set       [T] │
-│ Enter                     Select the unit under the cursor; again: the next one      ││ Gate 1/9 · 14 people     [G] │
-│                           there. In a tool: set a corner, then apply                 │├─ HERE ──────────── (64, 28) ─┤
-│ Esc                       Close the screen, a modal or the bar. In a tool: drop the  ││ Juni                         │
-│                           corner, then leave the tool. With nothing to close: the    ││ Idle                         │
-│                           game menu (Resume, Save…, Load…, Key help, New map…,       ││ Press Enter to select        │
-│                           Switch nation…, Quit…), where the actions that end the     ││                              │
+│ Enter                     Select the unit under the cursor; again: the next one      ││ Gate 1 of 9 signs        [G] │
+│                           there. In a tool: set a corner, then apply                 ││ Needs 14 more people         │
+│ Esc                       Close the screen, a modal or the bar. In a tool: drop the  │├─ HERE ──────────── (64, 28) ─┤
+│                           corner, then leave the tool. With nothing to close: the    ││ Juni                         │
+│                           game menu (Resume, Save…, Load…, Key help, New map…,       ││ Idle                         │
+│                           Switch nation…, Quit…), where the actions that end the     ││ Press Enter to select        │
 │                           game live; each asks in a box first, and Esc there is the  ││                              │
 │                           safe answer                                                ││                              │
 │ Tab                       Select the next unit (Select mode)                         ││                              │
