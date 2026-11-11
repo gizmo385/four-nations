@@ -158,6 +158,19 @@ Nation screen's header line and the Esc menu.
   `Hearthflame failed ×3`.
 - **No coordinates in toasts.** They stay in the log entry, which is where you'd go to find the
   place anyway.
+- **Grouped and whole (#656).** Alerts with one cause are one entry that lists what is
+  affected (`Stockpiles are full. 442 stone, 17 fish and 15 fruit have nowhere to go.`), and
+  every entry wraps across the rows it needs, a blank row between entries; none ends in an
+  ellipsis. The heading counts the open alerts (`ALERTS ─── 2 · [L]`). A full stockpile and a
+  research target that is not set (`No research target is set. 84 points are waiting.`, raised
+  with points banked, gone when a target is set; the glance keeps `Research: none set`) are open
+  for as long as they hold, not timed toasts. Most urgent first (anyone starving or freezing,
+  then stores, then idle capacity), the newest first within a tier. Alerts take at most half the
+  rows below the glance; the rest, least urgent and oldest first, fold into a last line, `and 3
+  more, press L`. The panel lists exactly the lines the log files under its Alerts filter, and
+  under them, first to fold, the news that is not an alert (a learned tech, a newcomer, a
+  chart, the bend tip) while its toast lasts; the heading doesn't count those. The log keeps one
+  line for every underlying event.
 - **Spare height comes here first**, up to 6 rows, before Here grows.
 
 ### Zone 3: Here (Tool, then Cursor)
