@@ -264,6 +264,7 @@ mod tests {
             cost,
             prereqs: prereqs.to_vec(),
             unlocks: Unlocks::default(),
+            core: true,
         }
     }
 

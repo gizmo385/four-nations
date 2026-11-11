@@ -12,6 +12,11 @@
 # unlocked by a tech of its own nation, and by at most one tech; an ability no tech unlocks is
 # available from the start (a nation's signature ability).
 #
+# `core = true` marks a tech the Harmony Gate counts (data/endeavor.toml): the branch sign counts
+# only a nation's core techs, and the building-kinds sign only buildings that no tech, or a core
+# tech, unlocks. It defaults to false, so a tech added later is optional unless it says
+# otherwise and the gate can't grow by accident (docs/design/horizons-phase-1.md).
+#
 # `buildings` lists ids from data/buildings.toml, and `jobs` lists resource ids from
 # data/resources.toml whose harvest designation (data/jobs.toml) the tech unlocks (issue #22).
 # Either may be unlocked by at most one tech; an item no tech names is available from the start.
@@ -31,6 +36,7 @@ idle_knowledge_cap = 10.0            # points the pool may hold with no target q
 
 [[tech]]
 id = "fire_making"
+core = true
 name = "Fire Making"
 description = "Keep a flame alive: cook food and stay warm."
 cost = 25
@@ -40,6 +46,7 @@ buildings = ["campfire"]
 
 [[tech]]
 id = "shelter"
+core = true
 name = "Shelter"
 description = "Raise simple huts so people sleep dry and warm."
 cost = 25
@@ -47,6 +54,7 @@ cost = 25
 
 [[tech]]
 id = "fishing"
+core = true
 name = "Fishing"
 description = "Nets, lines and the patience to use them."
 cost = 25
@@ -55,6 +63,7 @@ jobs = ["fish_spot"]
 
 [[tech]]
 id = "stoneworking"
+core = true
 name = "Stoneworking"
 description = "Split and shape stone from the land."
 cost = 25
@@ -65,6 +74,7 @@ jobs = ["stone", "boulder"]
 
 [[tech]]
 id = "farming"
+core = true
 name = "Farming"
 description = "Sow seed in tilled plots and harvest what grows."
 cost = 60
@@ -75,6 +85,7 @@ buildings = ["farm_plot"]
 
 [[tech]]
 id = "pottery"
+core = true
 name = "Pottery"
 description = "Fire clay into pots for storing water and grain."
 cost = 60
@@ -83,6 +94,7 @@ prereqs = ["fire_making"]
 
 [[tech]]
 id = "carpentry"
+core = true
 name = "Carpentry"
 description = "Saws, joints and the workbench: build in wood."
 cost = 60
@@ -95,6 +107,7 @@ modifiers = { construction = 1.1 }
 
 [[tech]]
 id = "masonry"
+core = true
 name = "Masonry"
 description = "Dress stone and mortar it into lasting walls."
 cost = 120
@@ -105,6 +118,7 @@ modifiers = { construction = 1.15 }
 
 [[tech]]
 id = "herbalism"
+core = true
 name = "Herbalism"
 description = "Know which plants soothe and which ones heal."
 cost = 120
@@ -118,6 +132,7 @@ buildings = ["herb_garden"]
 
 [[tech]]
 id = "writing"
+core = true
 name = "Writing"
 description = "Set knowledge down in scrolls so it outlives the teller."
 cost = 120
@@ -128,6 +143,7 @@ modifiers = { study = 1.25 }
 
 [[tech]]
 id = "prospecting"
+core = true
 name = "Prospecting"
 description = "Read the colour and weight of rock to know where gold hides."
 cost = 250
@@ -143,6 +159,7 @@ jobs = ["gold_vein", "gold_seam"]
 
 [[tech]]
 id = "cartography"
+core = true
 name = "Cartography"
 description = "Map the lands around the settlement."
 cost = 250
@@ -159,6 +176,7 @@ buildings = ["map_room"]
 
 [[tech]]
 id = "earth_shaping"
+core = true
 name = "Earth Shaping"
 description = "Level and raise the ground with earthbending."
 nation = "earth"
@@ -174,6 +192,7 @@ abilities = ["earth_tent"]
 
 [[tech]]
 id = "earthen_walls"
+core = true
 name = "Earthen Walls"
 description = "Raise walls and flood barriers straight from the ground."
 nation = "earth"
@@ -186,6 +205,7 @@ modifiers = { construction = 1.25 }
 
 [[tech]]
 id = "tunneling"
+core = true
 name = "Tunneling"
 description = "Bore tunnels through mountains and mine inside them."
 nation = "earth"
@@ -203,6 +223,7 @@ buildings = ["mine_shaft"]
 
 [[tech]]
 id = "earth_rail"
+core = true
 name = "Earth Rail"
 description = "Stone carts pushed along rails by earthbenders, as in Ba Sing Se."
 nation = "earth"
@@ -216,6 +237,7 @@ modifiers = { carry_capacity = 1.25 }
 
 [[tech]]
 id = "seismic_sense"
+core = true
 name = "Seismic Sense"
 description = "Feel vibrations through the earth to find what lies beneath."
 nation = "earth"
@@ -228,6 +250,7 @@ abilities = ["seismic_sense"]
 
 [[tech]]
 id = "metalbending"
+core = true
 name = "Metalbending"
 description = "Bend the earth still left in metal."
 nation = "earth"
@@ -246,6 +269,7 @@ buildings = ["deep_mine"]
 
 [[tech]]
 id = "forging"
+core = true
 name = "Forging"
 description = "Work hot metal into tools at the forge."
 nation = "fire"
@@ -263,6 +287,7 @@ abilities = ["weld"]
 
 [[tech]]
 id = "brickmaking"
+core = true
 name = "Brickmaking"
 description = "Fire bricks by the thousand for strong, quick building."
 nation = "fire"
@@ -274,6 +299,7 @@ modifiers = { construction = 1.15 }
 
 [[tech]]
 id = "smelting"
+core = true
 name = "Smelting"
 description = "Draw metal out of ore with steady firebending heat."
 nation = "fire"
@@ -285,6 +311,7 @@ modifiers = { heating = 1.2 }
 
 [[tech]]
 id = "dancing_dragon"
+core = true
 name = "Dancing Dragon"
 description = "The Sun Warriors' teaching: fire is life and energy, not rage."
 nation = "fire"
@@ -296,6 +323,7 @@ modifiers = { heating = 1.25 }
 
 [[tech]]
 id = "steam_engines"
+core = true
 name = "Steam Engines"
 description = "Boil water to drive mills and pumps."
 nation = "fire"
@@ -307,6 +335,7 @@ modifiers = { power_generation = 1.25 }
 
 [[tech]]
 id = "lightning_generation"
+core = true
 name = "Lightning Generation"
 description = "Firebenders feed lightning into a power station, Republic City style."
 nation = "fire"
@@ -322,6 +351,7 @@ modifiers = { power_generation = 1.5 }
 
 [[tech]]
 id = "irrigation"
+core = true
 name = "Irrigation"
 description = "Bend water along channels so nearby crops grow faster."
 nation = "water"
@@ -338,6 +368,7 @@ modifiers = { water_work = 1.15 }
 
 [[tech]]
 id = "ice_construction"
+core = true
 name = "Ice Construction"
 description = "Cut and bend ice into a cheap, sturdy building material."
 nation = "water"
@@ -352,6 +383,7 @@ abilities = ["cut_ice"]
 
 [[tech]]
 id = "healing"
+core = true
 name = "Healing"
 description = "Guide the body's own energy with water to mend wounds."
 nation = "water"
@@ -364,6 +396,7 @@ buildings = ["healing_hut"]
 
 [[tech]]
 id = "tide_mills"
+core = true
 name = "Tide Mills"
 description = "Push and pull the tide to turn coastal mills."
 nation = "water"
@@ -377,6 +410,7 @@ modifiers = { power_generation = 1.25 }
 
 [[tech]]
 id = "water_travel"
+core = true
 name = "Water Travel"
 description = "Canoes and ice skiffs carry people across the water."
 nation = "water"
@@ -389,6 +423,7 @@ buildings = ["fishing_dock"]
 
 [[tech]]
 id = "spirit_oasis"
+core = true
 name = "Spirit Oasis"
 description = "A still pool where push and pull find balance, restoring chi and spirits."
 nation = "water"
@@ -404,6 +439,7 @@ modifiers = { water_work = 1.25 }
 
 [[tech]]
 id = "orchards"
+core = true
 name = "Orchards"
 description = "Plant and tend fruit trees for food that needs no fire."
 nation = "air"
@@ -416,6 +452,7 @@ buildings = ["orchard"]
 
 [[tech]]
 id = "meditation"
+core = true
 name = "Meditation"
 description = "Quiet the mind; chi flows and lessons come easier."
 nation = "air"
@@ -430,6 +467,7 @@ abilities = ["air_shield"]
 
 [[tech]]
 id = "gliders"
+core = true
 name = "Gliders"
 description = "Glider staffs carry airbenders over the land."
 nation = "air"
@@ -442,6 +480,7 @@ modifiers = { move_speed = 1.15 }
 
 [[tech]]
 id = "windmills"
+core = true
 name = "Windmills"
 description = "Catch the wind to grind grain into more food."
 nation = "air"
@@ -457,6 +496,7 @@ modifiers = { power_generation = 1.2 }
 
 [[tech]]
 id = "air_scooter"
+core = true
 name = "Air Scooter"
 description = "Ride a spinning ball of air."
 nation = "air"
@@ -470,6 +510,7 @@ modifiers = { move_speed = 1.2 }
 
 [[tech]]
 id = "wind_turbines"
+core = true
 name = "Wind Turbines"
 description = "Airbenders spin turbines that power workshops."
 nation = "air"
@@ -484,6 +525,7 @@ modifiers = { power_generation = 1.25 }
 
 [[tech]]
 id = "sky_bison"
+core = true
 name = "Sky Bison"
 description = "Befriend sky bison to haul loads and fly far."
 nation = "air"
