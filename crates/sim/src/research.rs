@@ -239,6 +239,21 @@ pub struct Upgrade {
     pub recipe: Option<String>,
 }
 
+/// A school: one permanent fork in a nation's tree (`[[school]]` in `data/research.toml`,
+/// docs/design/horizons-phase-4.md, "Shared sim work, 1. Schools"). Indexed by `SchoolId`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SchoolDef {
+    pub id: String,
+    pub nation: Nation,
+    /// The fork's heading on the Research screen and in the confirm: `Which city?`.
+    pub question: String,
+}
+
+/// A school's position in `Defs::schools`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SchoolId(pub u16);
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TechDef {
     pub id: String,
@@ -263,6 +278,9 @@ pub struct TechDef {
     pub core: bool,
     /// Conditions beyond `prereqs` (`Requires`); none for most techs.
     pub requires: Requires,
+    /// The school this tech is one option of (`school = "..."`). Learning any other tech of the
+    /// same school closes this one for the rest of the game (`Research::closed_by`).
+    pub school: Option<SchoolId>,
 }
 
 impl TechDef {
@@ -286,6 +304,8 @@ impl TechDef {
 pub(crate) struct ResearchFile {
     settings: ResearchSettings,
     #[serde(default)]
+    school: Vec<SchoolDef>,
+    #[serde(default)]
     tech: Vec<RawTech>,
 }
 
@@ -308,6 +328,8 @@ struct RawTech {
     core: bool,
     #[serde(default)]
     requires: Requires,
+    #[serde(default)]
+    school: Option<String>,
 }
 
 fn nation_label(n: Option<Nation>) -> &'static str {
@@ -315,8 +337,12 @@ fn nation_label(n: Option<Nation>) -> &'static str {
 }
 
 impl ResearchFile {
-    /// Validates the file and resolves string prereqs to `TechId`s.
-    pub(crate) fn resolve(self) -> Result<(ResearchSettings, Vec<TechDef>), DefsError> {
+    /// Validates the file and resolves string prereqs to `TechId`s and school names to
+    /// `SchoolId`s. A school's rules that need the nations' starting techs are checked later, by
+    /// `check_schools`.
+    pub(crate) fn resolve(
+        self,
+    ) -> Result<(ResearchSettings, Vec<SchoolDef>, Vec<TechDef>), DefsError> {
         let mut s = self.settings;
         for (what, v) in [
             ("passive_knowledge_per_minute", s.passive_knowledge_per_minute),
@@ -335,6 +361,21 @@ impl ResearchFile {
             (s.idle_knowledge_cap * MILLIS_PER_POINT as f64).round() as u64;
         if self.tech.len() > usize::from(u16::MAX) {
             return Err(DefsError(format!("too many techs: {}", self.tech.len())));
+        }
+
+        let schools = self.school;
+        for (k, sc) in schools.iter().enumerate() {
+            if schools[..k].iter().any(|o| o.id == sc.id) {
+                return Err(DefsError(format!("school {}: duplicate id", sc.id)));
+            }
+            if let Some(o) = schools[..k].iter().find(|o| o.nation == sc.nation) {
+                return Err(DefsError(format!(
+                    "school {}: {} already has a school ({}); a nation has at most one",
+                    sc.id,
+                    sc.nation.as_str(),
+                    o.id
+                )));
+            }
         }
 
         let mut techs: Vec<TechDef> = Vec::with_capacity(self.tech.len());
@@ -417,8 +458,32 @@ impl ResearchFile {
                         nation_label(pn)
                     )));
                 }
+                if techs[i].school.is_some() {
+                    return Err(err(format!(
+                        "{p:?} is a school tech, which no other tech can require"
+                    )));
+                }
                 prereqs.push(id);
             }
+            let school = match &raw.school {
+                None => None,
+                Some(name) => {
+                    let Some(k) = schools.iter().position(|sc| sc.id == *name) else {
+                        return Err(err(format!("unknown school {name:?}")));
+                    };
+                    if raw.nation != Some(schools[k].nation) {
+                        return Err(err(format!(
+                            "school {name:?} is {}'s, and this is a {} tech",
+                            schools[k].nation.as_str(),
+                            nation_label(raw.nation)
+                        )));
+                    }
+                    if raw.core {
+                        return Err(err("a school tech can't be `core`".into()));
+                    }
+                    Some(SchoolId(k as u16))
+                }
+            };
             techs.push(TechDef {
                 id: raw.id,
                 name: raw.name,
@@ -430,10 +495,41 @@ impl ResearchFile {
                 unlocks: raw.unlocks,
                 core: raw.core,
                 requires: raw.requires,
+                school,
             });
         }
-        Ok((s, techs))
+        for (k, sc) in schools.iter().enumerate() {
+            let n = techs.iter().filter(|t| t.school == Some(SchoolId(k as u16))).count();
+            if n == 0 {
+                return Err(DefsError(format!("school {}: no tech names it", sc.id)));
+            }
+            if n != 2 {
+                return Err(DefsError(format!(
+                    "school {}: has {n} techs, and a school has exactly 2",
+                    sc.id
+                )));
+            }
+        }
+        Ok((s, schools, techs))
     }
+}
+
+/// Checks that no nation starts with a school tech: a fork is a choice made in play. Runs once
+/// `starting_techs` are resolved.
+pub(crate) fn check_schools(
+    techs: &[TechDef],
+    nations: &[crate::nation::NationDef],
+) -> Result<(), DefsError> {
+    for n in nations {
+        if let Some(t) = n.starting_techs.iter().find(|t| techs[t.0 as usize].school.is_some()) {
+            return Err(DefsError(format!(
+                "nation {}: starting_techs: {:?} is a school tech, which no nation starts with",
+                n.id.as_str(),
+                techs[t.0 as usize].id
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Checks that every `requires.chapter` names a `[[chapter]]` in `chapters`. Chapters live in
@@ -515,6 +611,11 @@ pub enum ResearchError {
     /// `Command::ClearResearch` with no finished Archive: clearing the target is only for
     /// starting to scribe (#709).
     NeedsArchive,
+    /// The tech is one option of a school whose other option, `chosen`, is already known
+    /// (docs/design/horizons-phase-4.md). Clients name it: `Closed: you chose Metal City`.
+    Closed {
+        chosen: TechId,
+    },
 }
 
 impl std::fmt::Display for ResearchError {
@@ -525,6 +626,7 @@ impl std::fmt::Display for ResearchError {
             Self::AlreadyKnown => f.write_str("that tech is already known"),
             Self::NotYet(c) => write!(f, "needs {c}"),
             Self::NeedsArchive => f.write_str("needs an Archive"),
+            Self::Closed { .. } => f.write_str("the other path of this school was chosen"),
         }
     }
 }
@@ -662,6 +764,11 @@ impl Research {
         if self.is_known(tech) {
             return Err(ResearchError::AlreadyKnown);
         }
+        // No tech requires a school tech (load refuses it), so only the target itself can be
+        // closed.
+        if let Some(chosen) = self.closed_by(tech, defs) {
+            return Err(ResearchError::Closed { chosen });
+        }
         // Prereqs always have smaller ids, so one descending pass finds the whole closure.
         let mut needed = vec![false; tech.0 as usize + 1];
         needed[tech.0 as usize] = true;
@@ -683,6 +790,13 @@ impl Research {
         }
         self.queue = queue;
         Ok(())
+    }
+
+    /// The known school mate that closes `tech`, if any: `None` for a tech outside a school, and
+    /// for a school tech while no other option of its school is learned. Closed is derived from
+    /// `known` alone, so nothing about it is saved. Queuing a school tech closes nothing.
+    pub fn closed_by(&self, tech: TechId, defs: &Defs) -> Option<TechId> {
+        defs.school_mates(tech).find(|&m| self.is_known(m))
     }
 
     /// Adds knowledge straight to the pool, outside the passive trickle `tick` adds on its own:
@@ -1238,5 +1352,135 @@ mod tests {
         r.grant(gate);
         r.set_target(after, Nation::Fire, &Facts::default(), &defs).unwrap();
         assert_eq!(r.queue(), [after]);
+    }
+
+    // Schools (docs/design/horizons-phase-4.md, "Shared sim work, 1. Schools").
+
+    /// The bundled files plus `extra` appended to the research file.
+    fn with_research(extra: &str) -> Result<Defs, DefsError> {
+        let mut files = crate::defs::BUNDLED_FILES;
+        let research = format!("{}\n{extra}\n", files[3]);
+        files[3] = &research;
+        Defs::from_files(files)
+    }
+
+    fn school_tech(id: &str, nation: &str, school: &str, extra: &str) -> String {
+        format!(
+            "[[tech]]\nid = \"{id}\"\nname = \"{id}\"\ndescription = \"\"\nnation = \"{nation}\"\n\
+             cost = 1000\nprereqs = [\"forging\"]\nschool = \"{school}\"\n{extra}\n"
+        )
+    }
+
+    const FIRE_SCHOOL: &str =
+        "[[school]]\nid = \"fire_purpose\"\nnation = \"fire\"\nquestion = \"What is fire for?\"\n";
+
+    /// A valid fire school, `sun` and `works`, plus `extra`.
+    fn fire_fork(extra: &str) -> Result<Defs, DefsError> {
+        with_research(&format!(
+            "{FIRE_SCHOOL}{}{}{extra}",
+            school_tech("sun", "fire", "fire_purpose", ""),
+            school_tech("works", "fire", "fire_purpose", "")
+        ))
+    }
+
+    #[test]
+    fn a_school_loads_with_its_two_techs() {
+        let defs = fire_fork("").unwrap();
+        let (sun, works) = (defs.tech_id("sun").unwrap(), defs.tech_id("works").unwrap());
+        let school = defs.tech(sun).school.unwrap();
+        assert_eq!(defs.school(school).question, "What is fire for?");
+        assert_eq!(defs.tech(works).school, Some(school));
+        assert_eq!(defs.school_mates(sun).collect::<Vec<_>>(), [works]);
+        assert_eq!(defs.school_mates(works).collect::<Vec<_>>(), [sun]);
+        assert_eq!(defs.school_techs(Nation::Fire), [sun, works]);
+        assert!(defs.school_techs(Nation::Air).is_empty());
+        let forging = defs.tech_id("forging").unwrap();
+        assert_eq!(defs.school_mates(forging).count(), 0);
+    }
+
+    #[test]
+    fn school_validation_errors() {
+        let one = |extra: &str| {
+            with_research(&format!(
+                "{FIRE_SCHOOL}{}{extra}",
+                school_tech("sun", "fire", "fire_purpose", "")
+            ))
+        };
+        assert_err(one(""), "has 1 techs");
+        assert_err(
+            fire_fork(&school_tech("third", "fire", "fire_purpose", "")),
+            "has 3 techs, and a school has exactly 2",
+        );
+        assert_err(with_research(FIRE_SCHOOL), "no tech names it");
+        assert_err(one(&school_tech("x", "fire", "nowhere", "")), "unknown school \"nowhere\"");
+        // A tech of another nation, or a shared one, in fire's school.
+        let water = "[[tech]]\nid = \"w\"\nname = \"w\"\ndescription = \"\"\nnation = \"water\"\n\
+                     cost = 1000\nschool = \"fire_purpose\"\n";
+        assert_err(one(water), "school \"fire_purpose\" is fire's, and this is a water tech");
+        let shared = "[[tech]]\nid = \"s\"\nname = \"s\"\ndescription = \"\"\ncost = 1000\n\
+                      school = \"fire_purpose\"\n";
+        assert_err(one(shared), "this is a shared tech");
+        assert_err(
+            one(&school_tech("core_one", "fire", "fire_purpose", "core = true")),
+            "a school tech can't be `core`",
+        );
+        let second = "[[school]]\nid = \"again\"\nnation = \"fire\"\nquestion = \"?\"\n";
+        assert_err(fire_fork(second), "fire already has a school (fire_purpose)");
+        let dup = "[[school]]\nid = \"fire_purpose\"\nnation = \"air\"\nquestion = \"?\"\n";
+        assert_err(fire_fork(dup), "school fire_purpose: duplicate id");
+        let needs_sun = "[[tech]]\nid = \"after\"\nname = \"a\"\ndescription = \"\"\n\
+                         nation = \"fire\"\ncost = 10\nprereqs = [\"sun\"]\n";
+        assert_err(
+            fire_fork(needs_sun),
+            "\"sun\" is a school tech, which no other tech can require",
+        );
+        let unknown = "[[school]]\nid = \"x\"\nnation = \"air\"\nquestion = \"?\"\ncolour = 1\n";
+        assert_err(fire_fork(unknown), "colour");
+    }
+
+    #[test]
+    fn no_nation_starts_with_a_school_tech() {
+        let mut files = crate::defs::BUNDLED_FILES;
+        let research = format!(
+            "{}\n{FIRE_SCHOOL}{}{}",
+            files[3],
+            school_tech("sun", "fire", "fire_purpose", "").replace("prereqs = [\"forging\"]\n", ""),
+            school_tech("works", "fire", "fire_purpose", "")
+        );
+        files[3] = &research;
+        let nations = files[2].replacen(
+            "starting_techs = [\"fire_making\"]",
+            "starting_techs = [\"fire_making\", \"sun\"]",
+            1,
+        );
+        assert_ne!(nations, files[2], "the fixture found fire's starting techs");
+        files[2] = &nations;
+        assert_err(
+            Defs::from_files(files),
+            "\"sun\" is a school tech, which no nation starts with",
+        );
+    }
+
+    #[test]
+    fn learning_one_option_closes_the_other_and_switching_is_free_until_then() {
+        let defs = fire_fork("").unwrap();
+        let (sun, works) = (defs.tech_id("sun").unwrap(), defs.tech_id("works").unwrap());
+        let facts = Facts::default();
+        let mut r = Research::new(Nation::Fire, &defs);
+        assert_eq!(r.closed_by(sun, &defs), None);
+        r.set_target(sun, Nation::Fire, &facts, &defs).unwrap();
+        // Queuing closes nothing: the player may switch.
+        assert_eq!(r.closed_by(works, &defs), None);
+        r.set_target(works, Nation::Fire, &facts, &defs).unwrap();
+        assert_eq!(r.queue().last(), Some(&works));
+        r.set_target(sun, Nation::Fire, &facts, &defs).unwrap();
+        r.grant(sun);
+        assert_eq!(r.closed_by(works, &defs), Some(sun));
+        assert_eq!(r.closed_by(sun, &defs), None, "a known tech isn't closed");
+        let queue = r.queue().to_vec();
+        let e = r.set_target(works, Nation::Fire, &facts, &defs).unwrap_err();
+        assert_eq!(e, ResearchError::Closed { chosen: sun });
+        assert_eq!(e.to_string(), "the other path of this school was chosen");
+        assert_eq!(r.queue(), queue, "a refusal leaves the queue alone");
     }
 }
