@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use crate::keyev::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use fn_sim::{Nation, World};
+use fn_sim::{Nation, Pos, World};
 use fn_ui::research::screen_view;
 use fn_ui::saves;
 use fn_ui::toolpanel;
@@ -131,8 +131,14 @@ impl App {
             return;
         }
         match action {
-            Action::Move { dx, dy, tiles } => self.ui.move_cursor(dx * tiles, dy * tiles),
-            Action::Jump { dx, dy } => self.ui.jump(dx, dy),
+            Action::Move { dx, dy, tiles } => {
+                self.ui.move_cursor(dx * tiles, dy * tiles);
+                self.foot_hint();
+            }
+            Action::Jump { dx, dy } => {
+                self.ui.jump(dx, dy);
+                self.foot_hint();
+            }
             // `U` opens the Build modal instead of switching tools (#285); every other tool key
             // still goes straight to `pick_tool`.
             Action::PickTool(Tool::Build) => self.open_build_modal(),
@@ -144,6 +150,14 @@ impl App {
             }
             Action::ToggleRepeat if self.ui.tool == Tool::CancelHarvest => {
                 self.ui.teardown = !self.ui.teardown;
+            }
+            // `O` on a chute (or chute site) in Select mode re-picks its foot (#683).
+            Action::ToggleRepeat
+                if self.ui.tool == Tool::Select
+                    && fn_ui::chute::is_head(&self.session, self.ui.cursor) =>
+            {
+                self.ui.linking = Some(self.ui.cursor);
+                self.ui.notice = fn_ui::chute::ASKING.to_owned();
             }
             Action::ToggleRepeat => {}
             Action::Confirm => self.confirm(),
@@ -928,6 +942,9 @@ impl App {
     /// rectangle through `fn_ui`'s shared logic, and the tool stays active for the next one. The
     /// Gate tool has no rectangle: one `Enter` places it.
     fn confirm(&mut self) {
+        if let Some(head) = self.ui.linking {
+            return self.set_foot(head);
+        }
         if self.ui.tool == Tool::Select {
             self.ui.select_here(&self.session);
             return;
@@ -955,13 +972,46 @@ impl App {
                 );
                 self.ui.notice = report.notice.clone();
                 self.ui.marked = Some((self.ui.cursor, report.summary()));
+                // A chute site just placed asks for its foot next (#683).
+                if self.ui.tool == Tool::Build
+                    && let Some(head) =
+                        fn_ui::chute::unlinked_in(&self.session, corner, self.ui.cursor)
+                {
+                    self.ui.linking = Some(head);
+                    self.ui.notice = format!("{}. {}", report.notice, fn_ui::chute::ASKING);
+                }
             }
+        }
+    }
+
+    /// While a chute's foot is being picked (#683), the notice follows the cursor: why the foot
+    /// can't go here, or the prompt again where it can.
+    fn foot_hint(&mut self) {
+        if let Some(head) = self.ui.linking {
+            self.ui.notice = fn_ui::chute::refusal(&self.session, head, self.ui.cursor)
+                .unwrap_or_else(|| fn_ui::chute::ASKING.to_owned());
+        }
+    }
+
+    /// `Enter` while a chute's foot is being picked (#683): sets it at the cursor and stops
+    /// picking, or says why not and keeps picking.
+    fn set_foot(&mut self, head: Pos) {
+        match fn_ui::chute::set_foot(&mut self.session, head, self.ui.cursor) {
+            Ok(text) => {
+                self.ui.linking = None;
+                self.ui.notice = text;
+            }
+            Err(why) => self.ui.notice = why,
         }
     }
 
     /// `Esc` in a tool: drop the corner, or with none leave the tool. In Select mode it closes
     /// the inspector's settler; with nothing left to close (#306), it opens the game menu instead.
     fn cancel(&mut self) {
+        if self.ui.linking.take().is_some() {
+            self.ui.notice = "Chute foot left unset".to_owned();
+            return;
+        }
         if self.ui.tool == Tool::Select {
             if self.ui.selected.is_some() {
                 self.ui.select(None);

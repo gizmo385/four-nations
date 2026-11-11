@@ -138,6 +138,11 @@ pub(super) struct Site {
     /// when 1x1, like `Building::size`.
     #[serde(default = "one_by_one", skip_serializing_if = "is_one_by_one")]
     size: [u8; 2],
+    /// Where the finished building will point (`Building::link`): a chute's foot, chosen while
+    /// it is still a site (`Command::SetLink`, `chute.rs`). Handed to the record when it is
+    /// raised.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) link: Option<Pos>,
 }
 
 impl Site {
@@ -150,6 +155,7 @@ impl Site {
             stand_in_delivered: Vec::new(),
             progress: 0.0,
             size,
+            link: None,
         }
     }
 
@@ -717,7 +723,14 @@ impl World {
         let stand_in_delivered = vec![0; def.cost.len()];
         self.sites.insert(
             pos,
-            Site { building, delivered, stand_in_delivered, progress: 0.0, size: [w, h] },
+            Site {
+                building,
+                delivered,
+                stand_in_delivered,
+                progress: 0.0,
+                size: [w, h],
+                link: None,
+            },
         );
         for p in self.to_clear(pos, building, defs) {
             let _ = self.designate_clear(p, defs);
@@ -980,9 +993,13 @@ impl World {
                 }
                 let building = site.building;
                 let footprint = site.footprint(pos);
+                let link = site.link;
                 self.sites.remove(&pos);
                 self.jobs.remove(idx);
                 self.raise(footprint, building, defs);
+                if let Some(b) = self.anchored_mut(pos) {
+                    b.link = link;
+                }
                 self.finish_job(i);
             }
         }

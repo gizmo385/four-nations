@@ -15,6 +15,7 @@
 //!   sites, refuels, meals and scrolls never use a chute: only `run_deliver` asks.
 
 use crate::flood::Flood;
+use crate::geom::Footprint;
 use crate::jobs::{ItemId, Stack};
 
 use super::buildings::Kind;
@@ -61,15 +62,32 @@ pub(super) struct ChuteWalks {
 }
 
 impl World {
-    /// Whether `to` may be the foot of the chute anchored on `head`.
+    /// The chute anchored on `head`, finished or still a site: its def and footprint.
+    fn chute_at(&self, head: Pos, defs: &Defs) -> Option<(crate::building::ChuteDef, Footprint)> {
+        let (id, foot) = match self.anchored(head) {
+            Some(b) => (b.id, b.footprint()),
+            None => {
+                let site = self.sites.get(&head).filter(|_| !self.is_gate(head))?;
+                (site.building, site.footprint(head))
+            }
+        };
+        Some((defs.building(id).chute?, foot))
+    }
+
+    /// How far the foot of the chute anchored on `head` (finished or still a site) may be, or
+    /// `None` when no chute is anchored there: for the foot picker's reach tint.
+    pub fn chute_reach(&self, head: Pos, defs: &Defs) -> Option<u32> {
+        self.chute_at(head, defs).map(|(chute, _)| chute.reach)
+    }
+
+    /// Whether `to` may be the foot of the chute anchored on `head`, finished or still a site.
     pub fn check_foot(&self, head: Pos, to: Pos, defs: &Defs) -> Result<(), LinkError> {
-        let b = self.anchored(head).ok_or(LinkError::NotAChute)?;
-        let chute = defs.building(b.id).chute.ok_or(LinkError::NotAChute)?;
+        let (chute, footprint) = self.chute_at(head, defs).ok_or(LinkError::NotAChute)?;
         let foot = self.map.get(to).ok_or(LinkError::OffMap)?;
-        if b.footprint().contains(to) || !self.rules.passable(foot) {
+        if footprint.contains(to) || !self.rules.passable(foot) {
             return Err(LinkError::NotOpen);
         }
-        if b.footprint().distance(to) > chute.reach as i32 {
+        if footprint.distance(to) > chute.reach as i32 {
             return Err(LinkError::TooFar);
         }
         let top = self.map.get(head).expect("the chute is on the map").elevation;
@@ -79,13 +97,25 @@ impl World {
         Ok(())
     }
 
-    /// Points the chute anchored on `pos` at the foot `to`.
+    /// Points the chute anchored on `pos` at the foot `to`. A site keeps it until it is raised.
     pub(super) fn set_link(&mut self, pos: Pos, to: Pos, defs: &Defs) -> Result<(), LinkError> {
         self.check_foot(pos, to, defs)?;
-        self.anchored_mut(pos).expect("checked above").link = Some(to);
+        match self.anchored_mut(pos) {
+            Some(b) => b.link = Some(to),
+            None => self.sites.get_mut(&pos).expect("checked above").link = Some(to),
+        }
         // A new foot is a new walk to stores.
         self.chute_walks.remove(&pos);
         Ok(())
+    }
+
+    /// Where the chute (or chute site) anchored on `head` points, valid or not: for drawing its
+    /// link line.
+    pub fn link_at(&self, head: Pos) -> Option<Pos> {
+        match self.anchored(head) {
+            Some(b) => b.link,
+            None => self.sites.get(&head)?.link,
+        }
     }
 
     /// The foot of the chute anchored on `head`, if it has one and it is still valid.
@@ -158,16 +188,27 @@ impl World {
             Go::Arrived => {
                 self.units[i].carrying = None;
                 self.units[i].route = None;
-                self.drop_down_chute(foot, stack);
+                self.drop_down_chute(head, foot, stack);
                 self.finish_job(i);
             }
         }
     }
 
     /// The stack lands at the foot, spilling to a free tile the way a yield does, and waits there
-    /// for an ordinary haul.
-    fn drop_down_chute(&mut self, foot: Pos, stack: Stack) {
+    /// for an ordinary haul. The chute counts it.
+    fn drop_down_chute(&mut self, head: Pos, foot: Pos, stack: Stack) {
+        if let Some(b) = self.anchored_mut(head) {
+            match b.sent.iter_mut().find(|s| s.item == stack.item) {
+                Some(s) => s.count += stack.count,
+                None => b.sent.push(stack),
+            }
+        }
         self.place_ground(foot, stack);
+    }
+
+    /// What the chute anchored on `head` has sent down so far, one stack per item.
+    pub fn chute_sent(&self, head: Pos) -> &[Stack] {
+        self.anchored(head).map_or(&[], |b| b.sent.as_slice())
     }
 
     /// Gives up on a chute and walks the stack to stores.

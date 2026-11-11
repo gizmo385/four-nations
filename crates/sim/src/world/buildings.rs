@@ -70,6 +70,10 @@ pub struct Building {
     /// `Command::SetLink`. `None` until set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<Pos>,
+    /// What a chute has sent down so far, one stack per item in the order first sent
+    /// (`chute.rs`): its cursor panel's `Sent: 140 Stone`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sent: Vec<crate::jobs::Stack>,
 }
 
 impl Building {
@@ -306,6 +310,7 @@ impl World {
             fuel: def.fuel.map(|_| Bunker::default()),
             pickers: def.pickers.as_ref().map(Pickers::new),
             link: None,
+            sent: Vec::new(),
         };
         let key = self.buildings.insert(record, defs);
         let tile = TileBuilding::new(key, def.passable, def.track.map_or(0, |t| t.index));
@@ -512,6 +517,7 @@ impl World {
                     fuel: None,
                     pickers: None,
                     link: None,
+                    sent: Vec::new(),
                 },
             );
         }
