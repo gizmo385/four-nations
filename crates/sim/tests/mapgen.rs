@@ -58,12 +58,14 @@ fn border_is_water() {
 
 #[test]
 fn land_fraction_matches_config() {
+    // `land_fraction` sets sea level; landlocked basins below it then become land or lakes
+    // (#410), so the share that isn't sea is the fraction plus a little.
     for land_fraction in [0.3, 0.5, 0.7] {
         for (c, map) in maps((0..4).map(|s| MapGenConfig { land_fraction, ..big(s) })) {
             let land = map.iter().filter(|(_, t)| t.terrain != Terrain::Water).count();
             let actual = land as f64 / (c.width * c.height) as f64;
             assert!(
-                (actual - land_fraction).abs() < 0.01,
+                (land_fraction - 0.005..land_fraction + 0.04).contains(&actual),
                 "seed {}: wanted {land_fraction} land, got {actual:.3}",
                 c.seed
             );
@@ -134,9 +136,12 @@ fn poles_are_cold_and_the_equator_is_warm() {
     }
 }
 
-/// Tiles reachable from the sea through rivers, fords and lakes (8-connected).
+/// Tiles reachable from open water (the sea, or a lake: a landlocked basin lake is a sink like
+/// the sea, #410) through rivers, fords and lakes (8-connected).
 fn drains_to_sea(map: &TileMap) -> Grid<bool> {
-    let mut seen = Grid::from_fn(map.width(), map.height(), |p| map[p].terrain == Terrain::Water);
+    let mut seen = Grid::from_fn(map.width(), map.height(), |p| {
+        matches!(map[p].terrain, Terrain::Water | Terrain::Lake)
+    });
     let mut queue: VecDeque<Pos> = map.positions().filter(|&p| seen[p]).collect();
     while let Some(p) = queue.pop_front() {
         for q in map.neighbors(p, true) {
@@ -163,6 +168,79 @@ fn rivers_reach_the_sea() {
         }
     }
     assert!(rivers > 100, "expected rivers on full-size maps, got {rivers} tiles");
+}
+
+/// The map sizes the New game flow offers (`data/embark.toml`).
+fn embark_sizes(seeds: std::ops::Range<u64>) -> Vec<(MapGenConfig, TileMap)> {
+    let defs = Defs::bundled();
+    let cfgs: Vec<MapGenConfig> = defs
+        .embark
+        .map_sizes
+        .iter()
+        .flat_map(|size| seeds.clone().map(move |s| fn_sim::embark::Survey::config(s, size)))
+        .collect();
+    maps(cfgs.into_iter())
+}
+
+/// 8-connected components of tiles `member` accepts, as their sizes.
+fn component_sizes(map: &TileMap, member: impl Fn(Terrain) -> bool) -> Vec<usize> {
+    let mut seen = Grid::from_fn(map.width(), map.height(), |_| false);
+    let mut sizes = Vec::new();
+    for start in map.positions() {
+        if seen[start] || !member(map[start].terrain) {
+            continue;
+        }
+        seen[start] = true;
+        let mut queue = VecDeque::from([start]);
+        let mut n = 0;
+        while let Some(p) = queue.pop_front() {
+            n += 1;
+            for q in map.neighbors(p, true) {
+                if !seen[q] && member(map[q].terrain) {
+                    seen[q] = true;
+                    queue.push_back(q);
+                }
+            }
+        }
+        sizes.push(n);
+    }
+    sizes
+}
+
+/// Sea is only sea connected to the map border (#410): landlocked basins became lakes or land.
+#[test]
+fn all_sea_reaches_the_border() {
+    for (c, map) in embark_sizes(0..3) {
+        let seas = component_sizes(&map, |t| t == Terrain::Water);
+        assert_eq!(seas.len(), 1, "seed {} {}x{}: sea bodies {seas:?}", c.seed, c.width, c.height);
+    }
+}
+
+#[test]
+fn no_lake_is_smaller_than_the_minimum() {
+    for (c, map) in embark_sizes(0..3) {
+        let lakes = component_sizes(&map, |t| t == Terrain::Lake);
+        assert!(!lakes.is_empty(), "seed {}: no lakes at all", c.seed);
+        assert!(
+            lakes.iter().all(|&n| n >= c.min_lake_tiles),
+            "seed {} {}x{}: lakes {lakes:?}",
+            c.seed,
+            c.width,
+            c.height
+        );
+    }
+}
+
+/// #410's target: at most a fifth of the lake bodies a default map had before it. Seeds 0-19
+/// averaged 39.0 lakes per map then (34.7 of them 12 tiles or fewer).
+#[test]
+fn default_maps_have_few_lakes() {
+    const BEFORE_410: f64 = 39.0;
+    let all = maps((0..20).map(|seed| MapGenConfig { seed, ..Default::default() }));
+    let lakes: usize =
+        all.iter().map(|(_, m)| component_sizes(m, |t| t == Terrain::Lake).len()).sum();
+    let mean = lakes as f64 / all.len() as f64;
+    assert!(mean <= BEFORE_410 / 5.0, "{mean} lakes per map");
 }
 
 #[test]

@@ -1238,10 +1238,10 @@ mod tests {
         assert_eq!(
             report[1].deposits,
             vec![
-                DepositSupply { resource: stone, count: 25, tunnelled: 0, worth: 250 },
-                DepositSupply { resource: boulder, count: 30, tunnelled: 0, worth: 180 },
-                DepositSupply { resource: vein, count: 16, tunnelled: 0, worth: 48 },
-                DepositSupply { resource: seam, count: 6, tunnelled: 3, worth: 24 },
+                DepositSupply { resource: stone, count: 21, tunnelled: 0, worth: 210 },
+                DepositSupply { resource: boulder, count: 28, tunnelled: 0, worth: 168 },
+                DepositSupply { resource: vein, count: 12, tunnelled: 0, worth: 36 },
+                DepositSupply { resource: seam, count: 4, tunnelled: 1, worth: 14 },
             ]
         );
     }
