@@ -8,6 +8,9 @@
 //!                               is a no-op that passes. `ci --fast` with no other flags is
 //!                               exactly what GitHub CI runs. Tests run with cargo-nextest
 //!                               when it's installed (as on CI), else with `cargo test`.
+//!     cargo xtask ci --docs-only
+//!                               what GitHub CI runs for a change that touches only documents
+//!                               (`scripts/ci-scope.sh`): just the tests that read `docs/`.
 //!     cargo xtask bless [--expect FILE...]
 //!                               re-blesses every golden (fn_tui frames, fn_sim mapgen and
 //!                               embark text) with FN_BLESS=1, at the `ci` profile's
@@ -100,6 +103,9 @@ fn dispatch(args: &[&str]) -> Result {
                 Some(&"sim") => &args[2..],
                 _ => &args[1..],
             };
+            if rest == ["--docs-only"] {
+                return ci_docs_only();
+            }
             let known = ["--fast", "--no-goldens"];
             if rest.iter().any(|a| !known.contains(a)) {
                 return Err(help());
@@ -212,6 +218,31 @@ fn ci(fast: bool, no_goldens: bool) -> Result {
     println!("ci OK");
     Ok(())
 }
+
+/// What CI runs for a change that touches only documents (`scripts/ci-scope.sh` decides): the
+/// tests that read `docs/`, and nothing else. No Rust source changed, so fmt, clippy and every
+/// other test would say what they said on the commit before.
+///
+/// Today that is one test, in `fn_harness`: every balance target names a real section of a
+/// design doc, so renaming a heading can break it. A new test that reads `docs/` belongs in
+/// [`DOCS_TESTS`], and `ci-scope.sh` must not count as a document any file a test reads from
+/// elsewhere.
+fn ci_docs_only() -> Result {
+    let profile = profile_flags(true);
+    let env = profile_env(true);
+    // `--workspace`, not `-p`: cargo picks dependency features for the packages it is asked to
+    // build, so `-p fn_harness` alone would compile `fn_sim` and its dependencies a second way
+    // (two minutes) instead of reusing what the whole-workspace gate left in target/.
+    let mut args = test_args(&["--workspace"], &profile)?;
+    // Test name filters: `cargo test` and nextest both take substrings after the options.
+    args.extend(DOCS_TESTS);
+    cargo_env(&args, &env)?;
+    println!("ci OK (documents only)");
+    Ok(())
+}
+
+/// The tests that read files under `docs/`, by name.
+const DOCS_TESTS: [&str; 1] = ["every_target_names_a_real_section_of_a_design_doc"];
 
 /// The test command for `selection` (`--workspace`, or `-p CRATE ...`) at `profile`.
 ///

@@ -31,14 +31,23 @@ const MODES: &[(&str, Mode)] = &[
 ];
 
 fn status_line(script: &str, width: u16) -> (String, Mode) {
-    let size = (width, 30);
-    let mut app = App::new(new_session(7, Nation::Earth), size);
+    status_lines(script, [width]).remove(0)
+}
+
+/// The status line at each of `widths` after `script`, from one game: making the game is nearly
+/// all of a call's cost, and the bar at a width depends only on the mode and the width.
+fn status_lines(script: &str, widths: impl IntoIterator<Item = u16>) -> Vec<(String, Mode)> {
+    let mut app = App::new(new_session(7, Nation::Earth), (160, 30));
     app.play(&keys::parse(script).unwrap());
-    let mode = hint_mode(&app.session, &app.ui);
     let palette =
         Palette::new(&app.session.defs, app.session.world.nation, ColorDepth::TrueColor, false);
-    let text = to_text(&render_app(&mut app, &palette, size));
-    (text.lines().last().unwrap().to_owned(), mode)
+    widths
+        .into_iter()
+        .map(|width| {
+            let text = to_text(&render_app(&mut app, &palette, (width, 30)));
+            (text.lines().last().unwrap().to_owned(), hint_mode(&app.session, &app.ui))
+        })
+        .collect()
 }
 
 #[test]
@@ -59,8 +68,8 @@ fn every_mode_is_reached_and_says_its_name_its_keys_and_the_tail() {
 #[test]
 fn narrow_bars_drop_whole_items_from_the_end_and_keep_the_tail() {
     for &(script, _) in MODES {
-        for width in (80..=160).step_by(7) {
-            let (line, mode) = status_line(script, width);
+        let widths = (80..=160).step_by(7);
+        for (width, (line, mode)) in widths.clone().zip(status_lines(script, widths)) {
             assert!(line.trim_end().ends_with("? keys"), "{script:?} at {width}: {line}");
             let items: Vec<String> =
                 hints_for(mode, Tool::Harvest).iter().map(|h| h.text()).collect();
@@ -84,8 +93,7 @@ fn narrow_bars_drop_whole_items_from_the_end_and_keep_the_tail() {
 #[test]
 fn select_mode_names_the_one_tools_key_not_the_letters() {
     for script in ["", "<enter>"] {
-        for width in 80..=170 {
-            let (line, _) = status_line(script, width);
+        for (width, (line, _)) in (80..=170).zip(status_lines(script, 80..=170)) {
             // Not one of the tool letters follows another as a list would.
             assert!(!line.contains("H X"), "{script:?} at {width}:\n{line}");
         }

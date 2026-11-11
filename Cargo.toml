@@ -78,3 +78,27 @@ opt-level = 3
 
 [profile.ci.package.ron]
 opt-level = 3
+
+# nextest runs every test in its own process, so each test that needs the game's data parses
+# data/*.toml (150 KB) again. With the parser at opt-level 0 that was about 9% of the whole test
+# run. Third-party crates: built once, then cached.
+[profile.ci.package.toml]
+opt-level = 3
+
+[profile.ci.package.toml_parser]
+opt-level = 3
+
+[profile.ci.package.toml_datetime]
+opt-level = 3
+
+[profile.ci.package.serde_spanned]
+opt-level = 3
+
+[profile.ci.package.winnow]
+opt-level = 3
+
+[profile.ci.package.serde]
+opt-level = 3
+
+[profile.ci.package.serde_core]
+opt-level = 3
