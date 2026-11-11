@@ -230,6 +230,15 @@ fn harm_kills_on_hard() {
 }
 
 #[test]
+fn a_death_records_the_tile_it_happened_on() {
+    let defs = Defs::bundled();
+    let mut w = sleeping_world(&defs, 0, at(2, 0), "hard");
+    let spot = w.units[0].pos;
+    run_asleep(&mut w, &defs, 20_000);
+    assert_eq!(w.deaths().next().unwrap().pos, Some(spot), "a sleeper doesn't move");
+}
+
+#[test]
 fn sandbox_has_no_harm_at_all() {
     let defs = Defs::bundled();
     let mut w = sleeping_world(&defs, 0, at(2, 0), "sandbox");

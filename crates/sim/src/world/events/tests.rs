@@ -77,6 +77,7 @@ fn old_lists_merge_by_tick_then_kind_then_their_own_order() {
         tick: 9,
         cause: DeathCause::Starvation,
         weakened_by: None,
+        pos: None,
     }];
     assert!(w.has_v3_logs());
     w.upgrade_from_v3();
@@ -85,4 +86,23 @@ fn old_lists_merge_by_tick_then_kind_then_their_own_order() {
     assert_eq!(got, [(2, 5), (4, 7), (9, 2), (9, 4), (9, 4), (9, 7)]);
     let names: Vec<&str> = w.arrivals().map(|a| a.name.as_str()).collect();
     assert_eq!(names, ["A", "B"]);
+}
+
+/// A death carries the tile it happened on (#775); a save or run log from before that has none.
+#[test]
+fn a_death_serializes_its_tile_and_reads_old_ones_without() {
+    let death = Death {
+        id: UnitId(3),
+        name: "Mei".into(),
+        tick: 7,
+        cause: DeathCause::Starvation,
+        weakened_by: None,
+        pos: Some(Pos::new(4, 9)),
+    };
+    let json = serde_json::to_value(&death).unwrap();
+    assert_eq!(json["pos"], serde_json::to_value(Pos::new(4, 9)).unwrap());
+    assert_eq!(serde_json::from_value::<Death>(json.clone()).unwrap(), death);
+    let mut old = json;
+    old.as_object_mut().unwrap().remove("pos");
+    assert_eq!(serde_json::from_value::<Death>(old).unwrap().pos, None);
 }

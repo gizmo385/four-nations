@@ -294,6 +294,10 @@ pub struct Death {
     /// own, like `DeathCause::Exposure`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub weakened_by: Option<HarmKind>,
+    /// The tile the unit died on (#775), so a frontend can take the player there. `None` for a
+    /// save or run log from before this existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pos: Option<Pos>,
 }
 
 /// Where `count` starting units go: walkable tiles, spiralling out from the map center, all in
@@ -1044,7 +1048,14 @@ impl World {
         for u in dead {
             let cause = Self::death_cause(&u);
             let weakened_by = Self::weakened_by(cause, u.last_harm, tick);
-            self.log_event(Death { id: u.id, name: u.name.clone(), tick, cause, weakened_by });
+            self.log_event(Death {
+                id: u.id,
+                name: u.name.clone(),
+                tick,
+                cause,
+                weakened_by,
+                pos: Some(u.pos),
+            });
             self.release(&u);
         }
         if any_died {
