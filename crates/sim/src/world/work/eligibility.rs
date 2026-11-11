@@ -244,6 +244,15 @@ impl World {
     /// the question is "not this job at all": the Avatar on an ordinary job, or a job whose
     /// target is not ready (unripe, wrong stage, nothing to study toward, ...).
     pub(super) fn job_gate(&self, i: usize, kind: JobKind, defs: &Defs) -> Option<Gate> {
+        // A beast takes only the jobs its row names, and a hauling one only the long trips
+        // (`World::beast_may_take`, #693); beyond that the job is weighed as for anyone.
+        if self.units[i].is_beast() && !self.beast_may_take(&self.units[i], kind, defs) {
+            return None;
+        }
+        self.job_gate_for_anyone(i, kind, defs)
+    }
+
+    fn job_gate_for_anyone(&self, i: usize, kind: JobKind, defs: &Defs) -> Option<Gate> {
         if self.units[i].is_avatar() && !avatar_may_take(kind) {
             return None;
         }

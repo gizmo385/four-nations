@@ -2771,7 +2771,7 @@ pub mod referee {
             let (world, defs) = (&session.world, &session.defs);
 
             let mut trouble = [0u32; 4];
-            for unit in world.units.iter().filter(|u| !u.is_avatar()) {
+            for unit in world.units.iter().filter(|u| u.is_settler()) {
                 self.settler_samples += 1;
                 let needs = unit_view(session, unit).needs;
                 for need in &needs {
@@ -2808,7 +2808,7 @@ pub mod referee {
                             year: world.year(defs),
                             turn,
                             food: world.stored_food(defs),
-                            people: world.units.len() as u32,
+                            people: world.population() as u32,
                         });
                     }
                     _ => {}
@@ -2824,11 +2824,12 @@ pub mod referee {
             if self.idle.len() <= window {
                 self.idle.resize(window + 1, IdleWindow { idle: 0, total: 0 });
             }
-            let idle = world.units.iter().filter(|u| u.task().is_none()).count() as u32;
+            let idle =
+                world.units.iter().filter(|u| !u.is_beast() && u.task().is_none()).count() as u32;
             self.idle[window].idle += idle;
-            self.idle[window].total += world.units.len() as u32;
+            self.idle[window].total += world.population() as u32;
             self.turns.push(TurnSample {
-                people: world.units.len() as u32,
+                people: world.population() as u32,
                 food: world.stored_food(defs),
                 idle,
                 hungry: trouble[0],

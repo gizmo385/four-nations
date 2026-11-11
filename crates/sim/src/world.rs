@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use rand::RngExt;
 use rand::seq::SliceRandom;
 
+use crate::beast::BeastId;
 use crate::bending::{AbilityId, Rank};
 use crate::building::{BuildingDef, BuildingId};
 use crate::defs::{Defs, ResourceId};
@@ -23,6 +24,7 @@ use crate::research::{self, Research, ResearchError, TechId};
 use crate::rng::{self, SimRng};
 
 mod avatar;
+mod beast;
 mod bending;
 mod build;
 mod buildings;
@@ -64,6 +66,7 @@ mod trade;
 mod work;
 
 pub use avatar::AvatarState;
+pub use beast::{BeastEvent, BeastEventKind};
 pub use bending::{BendChannel, BendError, BendEvent, BendOutcome, MasteryProgress, Moved};
 use bending::{Patch, Revert};
 use build::Site;
@@ -215,6 +218,12 @@ pub struct Unit {
     /// for every ordinary settler.
     #[serde(default)]
     pub guest: Option<Guest>,
+    /// Set on a beast (`beast.rs`, `world/beast.rs`): a unit that is not a person. It has no
+    /// needs, chi, health or exposure, and is no part of the population, growth, the signs or
+    /// the score (`is_settler` is the test for "one of the settlement's people"). It takes only
+    /// the jobs its row names, and rests at its home when it has none. `None` for everyone else.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub beast: Option<Beast>,
     /// The tick since which this unit's hunger or energy has stayed at or below `low`, with no
     /// gap, or `None` while neither is. Only the Avatar acts on it (`world/avatar.rs`): after
     /// `AvatarDef::patience_minutes` of this he leaves. Harmless, if unused, for anyone else.
@@ -274,6 +283,25 @@ impl Unit {
     pub fn is_avatar(&self) -> bool {
         self.guest == Some(Guest::Avatar)
     }
+
+    /// Is this a beast (#693)?
+    pub fn is_beast(&self) -> bool {
+        self.beast.is_some()
+    }
+
+    /// One of the settlement's own people: neither the Avatar nor a beast. What population,
+    /// growth, beds and the signs count.
+    pub fn is_settler(&self) -> bool {
+        self.guest.is_none() && self.beast.is_none()
+    }
+}
+
+/// What makes a unit a beast: which row it is, and the home building (its anchor) that houses
+/// it (`Unit::beast`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Beast {
+    pub id: BeastId,
+    pub home: Pos,
 }
 
 /// A visitor who lives in the settlement without being one of its own: never drafted into the
@@ -782,6 +810,15 @@ impl World {
         research::effective_modifiers(self.nation_of(unit), self.research.known_techs(), defs)
     }
 
+    /// Progress `u` gains toward a step each tick: its row's own `speed` if it is a beast with
+    /// one (`data/beasts.toml`), else its effective `move_speed`; times an Air Scooter's boost.
+    /// `walk`, `wander` and the client's `stride` all read it, so they cannot disagree.
+    pub(crate) fn unit_speed(&self, u: &Unit, defs: &Defs) -> f32 {
+        let own = u.beast.and_then(|b| defs.beast(b.id).speed);
+        own.unwrap_or_else(|| self.modifiers_for(u, defs).move_speed)
+            * self.scooter_multiplier(u.id)
+    }
+
     /// How the effective value of the modifier `name` is built up for `unit`, for tooltips: its
     /// own nation's base, then each known tech that multiplies it, as `(source name, factor)`.
     /// Empty for an unknown name.
@@ -877,6 +914,7 @@ impl World {
                 rank_credited: Rank::Novice,
                 inside: None,
                 guest: None,
+                beast: None,
                 unhappy_since: None,
                 last_harm: None,
                 exposed_alerted: false,
@@ -952,8 +990,17 @@ impl World {
         self.tick_fuel(defs);
         self.tick_outposts(defs);
         self.tick_scooters();
+        self.tick_beasts(defs);
+        // Beasts first: a hauling beast gets the long trips before the settlers see them.
         for i in 0..self.units.len() {
-            self.act(i, defs);
+            if self.units[i].is_beast() {
+                self.act_beast(i, defs);
+            }
+        }
+        for i in 0..self.units.len() {
+            if !self.units[i].is_beast() {
+                self.act(i, defs);
+            }
         }
         self.tick_endeavor(defs);
         self.tick_trade(defs);
@@ -980,9 +1027,7 @@ impl World {
             self.units[i].wander_left = self.rng.random_range(1..=s.idle_wander_steps);
             self.units[i].move_progress = 0.0;
         }
-        let id = self.units[i].id;
-        let speed =
-            self.modifiers_for(&self.units[i], defs).move_speed * self.scooter_multiplier(id);
+        let speed = self.unit_speed(&self.units[i], defs);
         self.units[i].move_progress += speed;
         if self.units[i].move_progress < BASE_TICKS_PER_STEP {
             return;
@@ -1015,7 +1060,7 @@ impl World {
     }
 
     /// Starts an idle pause: the unit stands still for `idle_pause_seconds`.
-    fn rest_idle(&mut self, i: usize, defs: &Defs) {
+    pub(super) fn rest_idle(&mut self, i: usize, defs: &Defs) {
         let pause = (defs.jobs.idle_pause_seconds * TICKS_PER_SECOND as f32).ceil() as u64;
         self.units[i].wander_left = 0;
         self.units[i].idle_until = self.tick + pause;
@@ -1031,6 +1076,11 @@ impl World {
         let in_winter = knobs.seasons && self.season(defs).winter;
         let mut dead = Vec::new();
         for mut u in std::mem::take(&mut self.units) {
+            if u.is_beast() {
+                // No needs, chi, health or exposure (`world/beast.rs`).
+                self.units.push(u);
+                continue;
+            }
             let cold = in_winter
                 && self.climate_at(u.pos, defs).is_some_and(|c| c.cold)
                 && !self.is_heated(u.pos);

@@ -14,8 +14,7 @@
 //!   partner. A need doesn't interrupt it (`World::act` skips everything else while a hop is on),
 //!   and both ends count the crossing (`Building::crossings`).
 //! - **Who.** People only. A unit with a load walks, and one inside a building has no route to
-//!   look at. Units are people today (settlers and the Avatar); a unit that is not one belongs in
-//!   `can_glide`'s refusals.
+//!   look at. Beasts (`beast.rs`) never hop.
 //! - **Looked at once.** A route is looked over when it starts, not every tick:
 //!   `Glider::seen` remembers where the last one was going and how many steps it had left, and a
 //!   route to the same place that is no longer than that is the same route.
@@ -68,9 +67,9 @@ impl Glider {
     }
 }
 
-/// Whether `u` may take a gate: people carrying nothing.
+/// Whether `u` may take a gate: people (never a beast) carrying nothing.
 fn can_glide(u: &Unit) -> bool {
-    u.carrying.is_none() && u.inside.is_none()
+    u.beast.is_none() && u.carrying.is_none() && u.inside.is_none()
 }
 
 impl World {

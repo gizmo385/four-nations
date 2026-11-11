@@ -744,6 +744,13 @@ impl World {
     }
 
     pub(super) fn carry_capacity(&self, i: usize, defs: &Defs) -> u32 {
+        // A hauling beast carries its row's `carry`, not scaled by `carry_capacity` (#693).
+        if let Some(b) = self.units[i].beast {
+            return match defs.beast(b.id).work {
+                crate::beast::BeastWork::Haul { carry, .. } => carry,
+                crate::beast::BeastWork::Bend { .. } => 0,
+            };
+        }
         let m = self.modifiers_for(&self.units[i], defs).carry_capacity;
         ((defs.jobs.base_carry as f32 * m).round() as u32).max(1)
     }
@@ -935,9 +942,7 @@ impl World {
             self.begin_hop(i, next, defs);
             return false;
         }
-        let id = self.units[i].id;
-        let speed =
-            self.modifiers_for(&self.units[i], defs).move_speed * self.scooter_multiplier(id);
+        let speed = self.unit_speed(&self.units[i], defs);
         let rules = rules_for(&self.rules, &self.cart_rules, &self.units[i]);
         let u = &mut self.units[i];
         let Some(route) = u.route.as_mut() else { return false };
@@ -1593,7 +1598,7 @@ impl World {
 
     /// Takes the nearest reachable open job, if any, preferring a lower-priority tier only when
     /// nothing in a higher one is reachable (`job_priority`, issue #284). Returns whether it did.
-    fn claim_job(&mut self, i: usize, defs: &Defs) -> bool {
+    pub(super) fn claim_job(&mut self, i: usize, defs: &Defs) -> bool {
         if self.tick < self.units[i].claim_retry_at {
             return false;
         }
@@ -1806,7 +1811,7 @@ impl World {
 
     /// Anchors of the study halls that stand, one per hall, in `Pos` order (`Kind::Study`:
     /// seats, and no chart). Every reader asks "any" or "nearest", so the order doesn't matter.
-    fn study_halls(&self) -> impl Iterator<Item = Pos> + '_ {
+    pub(super) fn study_halls(&self) -> impl Iterator<Item = Pos> + '_ {
         self.of_kind(Kind::Study).map(|b| b.anchor)
     }
 
@@ -1840,7 +1845,7 @@ impl World {
             .min()
     }
 
-    fn run_job(&mut self, i: usize, task: Task, defs: &Defs) {
+    pub(super) fn run_job(&mut self, i: usize, task: Task, defs: &Defs) {
         match task {
             Task::Harvest(id) => self.run_harvest(i, id, defs),
             Task::Haul(id) => self.run_haul(i, id, defs),

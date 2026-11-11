@@ -597,7 +597,7 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
     if let Some(fuel) = &def.fuel {
         // A Hothouse burns only in winter; every other bunker while its effect is in use.
         let when = if def.hothouse.is_some() { "in winter" } else { "while in use" };
-        effects.push(fuel_line(&session.defs.item(fuel.item).name, fuel.per_minute, when));
+        effects.push(fuel_line(&fuel.names(&session.defs), fuel.per_minute, when));
     }
     if let Some(p) = &def.pickers {
         let names: Vec<String> =

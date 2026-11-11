@@ -89,7 +89,8 @@ pub fn marker_for(defs: &Defs, ev: &Event) -> Option<(MarkerKind, String)> {
         | Event::Strain(_)
         | Event::Harm(_)
         | Event::Chart(_)
-        | Event::Caravan(_) => {
+        | Event::Caravan(_)
+        | Event::Beast(_) => {
             return None;
         }
     })

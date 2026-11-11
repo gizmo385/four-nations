@@ -6,6 +6,7 @@
 
 pub mod autoplay;
 pub mod balance;
+pub mod beast;
 pub mod bending;
 pub mod building;
 pub mod defs;

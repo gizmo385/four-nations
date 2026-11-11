@@ -155,7 +155,7 @@ pub fn run(cfg: &RunConfig, defs: &Defs) -> RunReport {
                 *ev
                 && defs.seasons.seasons[season].winter
             {
-                let population = world.units.len() as f32;
+                let population = world.population() as f32;
                 let food = world.stored_food(defs) as f32;
                 let per_head = if population > 0.0 { food / population } else { 0.0 };
                 winter_food_per_head.push((world.year(defs), per_head));
@@ -183,7 +183,7 @@ pub fn run(cfg: &RunConfig, defs: &Defs) -> RunReport {
     RunReport {
         first_death_minute: world.deaths().next().map(|d| ticks_to_minutes(d.tick)),
         deaths: world.deaths().count() as u32,
-        population: world.units.len() as u32,
+        population: world.population() as u32,
         winter_food_per_head,
         walk_minute_15: median(window_samples[0].clone()),
         walk_minute_90: median(window_samples[1].clone()),
@@ -359,9 +359,9 @@ fn sample_idle_share(world: &World, windows: &mut Vec<(u32, u32)>) {
     if windows.len() <= window {
         windows.resize(window + 1, (0, 0));
     }
-    let idle = world.units.iter().filter(|u| u.task().is_none()).count() as u32;
+    let idle = world.units.iter().filter(|u| !u.is_beast() && u.task().is_none()).count() as u32;
     windows[window].0 += idle;
-    windows[window].1 += world.units.len() as u32;
+    windows[window].1 += world.population() as u32;
 }
 
 /// The minute every sign but `masters` and `scrolls` was first met: the latest of their
@@ -445,7 +445,7 @@ fn economy_season(
     ore_items: &[ItemId],
     wood: Option<ItemId>,
 ) -> EconomySeason {
-    let population = world.units.len() as u32;
+    let population = world.population() as u32;
     let signs_met: Vec<String> =
         world.endeavor_signs(defs).into_iter().filter(|p| p.met).map(|p| p.id.to_owned()).collect();
     EconomySeason {
@@ -622,7 +622,7 @@ impl WalkTracker {
     fn observe(&mut self, world: &World) -> Vec<u32> {
         let mut done = Vec::new();
         let mut seen = BTreeSet::new();
-        for u in &world.units {
+        for u in world.units.iter().filter(|u| !u.is_beast()) {
             seen.insert(u.id);
             match u.task() {
                 Some(Task::Eat(source)) => {

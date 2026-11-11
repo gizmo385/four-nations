@@ -418,7 +418,7 @@ impl Probe {
     pub fn sample(&mut self, world: &World, defs: &Defs) -> Sample {
         let minute = (ticks_to_minutes(world.tick) + 0.5) as u32;
         let settlers: Vec<&crate::world::Unit> =
-            world.units.iter().filter(|u| !u.is_avatar()).collect();
+            world.units.iter().filter(|u| u.is_settler()).collect();
         self.tracks.retain(|id, _| settlers.iter().any(|u| u.id == *id));
 
         let (mut idle, mut longest_stranded, mut longest_stuck) = (0, 0, 0);

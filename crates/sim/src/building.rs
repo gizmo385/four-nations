@@ -316,9 +316,15 @@ pub struct IrrigationDef {
 /// building's effect is on only while its bunker holds at least one `item`. It burns
 /// `per_minute` only while the effect says it is in use (`World::fuel_in_use`), and a `Refuel`
 /// haul tops it up from stores once it is at or below half full (`world/fuel.rs`).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FuelDef {
+    /// The first item it burns: the only one for `item = ...`, the first listed for
+    /// `items = [...]`.
     pub item: ItemId,
+    /// Every item it burns, in list order (one for `item = ...`; at least two for `items`). A
+    /// Refuel haul brings whichever of these stores hold the most of, ties by this order
+    /// (`World::fuel_shortfall`, #693).
+    pub items: Vec<ItemId>,
     /// Items the bunker holds when full: at least 1.
     pub bunker: u32,
     /// Items burned per in-game minute of use: above 0.
@@ -327,6 +333,14 @@ pub struct FuelDef {
     /// arithmetic and deterministic on every platform. Finer than millis, because a lamp's
     /// 0.25 a minute is 0.42 thousandths a tick.
     pub micros_per_tick: u64,
+}
+
+impl FuelDef {
+    /// What it burns, for a line of text: "Fish", or "Fish or Rice" for a list.
+    pub fn names(&self, defs: &crate::defs::Defs) -> String {
+        let names: Vec<&str> = self.items.iter().map(|&i| defs.item(i).name.as_str()).collect();
+        names.join(" or ")
+    }
 }
 
 /// Pickers that harvest ripe trees in reach with no worker (`[building.pickers]`, the Lemur
@@ -536,6 +550,10 @@ pub struct BuildingDef {
     /// A fuel bunker the building's effect runs on (`FuelDef`), or `None` for one that never
     /// needs fuel.
     pub fuel: Option<FuelDef>,
+    /// Whether a `[[beast]]` row names this building as its home (`Defs::with_beasts`): set
+    /// after the buildings load, so `World` indexes it (`Kind::BeastHome`) and keeps a beast in
+    /// it (`world/beast.rs`).
+    pub houses_beast: bool,
     /// Pickers that harvest trees in reach with no worker (`PickersDef`), or `None`.
     pub pickers: Option<PickersDef>,
     /// Winter growth for farm plots in reach (`HothouseDef`), or `None`.
@@ -758,7 +776,9 @@ struct RawOutpost {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawFuel {
-    item: String,
+    /// Exactly one of `item` and `items`.
+    item: Option<String>,
+    items: Option<Vec<String>>,
     bunker: u32,
     per_minute: f32,
 }
@@ -1106,6 +1126,7 @@ impl BuildingsFile {
                 uses_power: b.uses_power,
                 names: b.names,
                 fuel,
+                houses_beast: false,
                 pickers,
                 hothouse,
                 chute,
@@ -1199,9 +1220,23 @@ fn resolve_pickers(
 fn resolve_fuel(building: &str, f: &RawFuel, items: &[ItemDef]) -> Result<FuelDef, DefsError> {
     let err =
         |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: fuel {msg}")));
-    let Some(item) = items.iter().position(|d| d.id == f.item) else {
-        return err(&format!("names unknown item {:?}", f.item));
+    let names: Vec<&String> = match (&f.item, &f.items) {
+        (Some(one), None) => vec![one],
+        (None, Some(list)) if list.len() >= 2 => list.iter().collect(),
+        (None, Some(_)) => return err("items must list at least two items; use item for one"),
+        _ => return err("needs exactly one of item and items"),
     };
+    let mut ids: Vec<ItemId> = Vec::new();
+    for name in names {
+        let Some(item) = items.iter().position(|d| d.id == *name) else {
+            return err(&format!("names unknown item {name:?}"));
+        };
+        let id = ItemId(item as u16);
+        if ids.contains(&id) {
+            return err(&format!("lists item {name:?} twice"));
+        }
+        ids.push(id);
+    }
     if f.bunker == 0 {
         return err("bunker must be at least 1");
     }
@@ -1211,7 +1246,8 @@ fn resolve_fuel(building: &str, f: &RawFuel, items: &[ItemDef]) -> Result<FuelDe
     let per_tick = f64::from(f.per_minute) * FUEL_MICROS as f64
         / (60.0 * f64::from(crate::world::TICKS_PER_SECOND));
     Ok(FuelDef {
-        item: ItemId(item as u16),
+        item: ids[0],
+        items: ids,
         bunker: f.bunker,
         per_minute: f.per_minute,
         micros_per_tick: (per_tick.round() as u64).max(1),

@@ -71,7 +71,7 @@ pub fn side_view(
     SideView {
         nation: defs.nation(world.nation).name.clone(),
         seed: world.seed,
-        people: world.units.len(),
+        people: world.population(),
         population: population_by_nation(world, defs),
         clock: crate::time::clock_text(session),
         paused: session.clock.paused,
@@ -198,7 +198,7 @@ pub fn population_by_nation(world: &World, defs: &Defs) -> Vec<(String, usize)> 
         .into_iter()
         .map(|n| {
             let count =
-                world.units.iter().filter(|u| !u.is_avatar() && world.nation_of(u) == n).count();
+                world.units.iter().filter(|u| u.is_settler() && world.nation_of(u) == n).count();
             (defs.nation(n).name.clone(), count)
         })
         .filter(|&(_, count)| count > 0)
@@ -315,7 +315,7 @@ impl Activity {
 /// groups that show pack into a few rows (docs/design/side-panel.md "People: counts, not names").
 pub fn activity_counts(session: &Session) -> Vec<(Activity, usize)> {
     let mut counts = [0usize; Activity::ALL.len()];
-    for unit in &session.world.units {
+    for unit in session.world.units.iter().filter(|u| !u.is_beast()) {
         let activity = Activity::of(unit.task());
         let i =
             Activity::ALL.iter().position(|&a| a == activity).expect("every activity is listed");
@@ -350,7 +350,7 @@ pub fn need_flags(session: &Session) -> Vec<(String, usize)> {
     const WORDS: [&str; 8] =
         ["Hungry", "Starving", "Thirsty", "Parched", "Tired", "Exhausted", "Hurt", "Dying"];
     let mut counts = [0usize; WORDS.len()];
-    for unit in &session.world.units {
+    for unit in session.world.units.iter().filter(|u| !u.is_beast()) {
         for n in &unit_view(session, unit).needs {
             if let Some(word) = need_word(n.label, n.status)
                 && let Some(i) = WORDS.iter().position(|&w| w == word)
@@ -440,7 +440,7 @@ pub fn season_view(session: &Session, winter_food_per_head: u32) -> Option<Seaso
     let idx = world.season_index(defs);
     let is_autumn = n > 0 && (idx + 1) % n == defs.seasons.winter_index();
     let food = food_in_stores(session);
-    let people = (world.units.len() as u32).max(1);
+    let people = (world.population() as u32).max(1);
     let per_head = food / people;
     let food_warn = (is_autumn || season.winter) && per_head < winter_food_per_head;
     let start =
@@ -636,7 +636,7 @@ pub fn nation_view(session: &Session) -> NationView {
     let (world, defs) = (&session.world, &session.defs);
     let mut groups: Vec<(Activity, Vec<UnitView>)> =
         Activity::ALL.into_iter().map(|a| (a, Vec::new())).collect();
-    for unit in &world.units {
+    for unit in world.units.iter().filter(|u| !u.is_beast()) {
         let activity = Activity::of(unit.task());
         let i =
             Activity::ALL.iter().position(|&a| a == activity).expect("every activity is listed");
@@ -646,7 +646,7 @@ pub fn nation_view(session: &Session) -> NationView {
     NationView {
         nation: defs.nation(world.nation).name.clone(),
         seed: world.seed,
-        population: world.units.len(),
+        population: world.population(),
         clock: crate::time::clock_text(session),
         groups,
         stores: store_rows(session),

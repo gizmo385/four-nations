@@ -661,12 +661,12 @@ fn fresh_lines(session: &Session, events: &[Event]) -> Vec<Fresh> {
 }
 
 /// Where a full stockpile's line sorts among same-tick lines: after every world event
-/// (`Event::order` runs 0 to 8).
-const STOCKPILE_ORDER: u8 = 9;
+/// (`Event::order` runs 0 to 10).
+const STOCKPILE_ORDER: u8 = 11;
 /// Where the bend tip's line sorts among same-tick lines: last.
-const BEND_TIP_ORDER: u8 = 10;
+const BEND_TIP_ORDER: u8 = 12;
 /// Where the idle-research line sorts among same-tick lines: after the bend tip.
-const RESEARCH_ORDER: u8 = 11;
+const RESEARCH_ORDER: u8 = 13;
 
 /// The line one logged event becomes: its kind, the log's text, whether it is a failed bend, and
 /// its toast (`None` for a log-only line). `None` for an event with no line (yet).
@@ -729,6 +729,11 @@ fn line_for(session: &Session, ev: &Event) -> Option<Line> {
         // Caravans (#437) reach the alert log here, but have no line yet: their wording and
         // toasts come with the Traders screen (docs/design/pacing.md, follow-up E).
         Event::Caravan(_) => return None,
+        // A beast going back to the wild (#693): the line is the event's own wording.
+        Event::Beast(ev) => {
+            let text = ev.describe();
+            Line::new(Kind::Arrival, text.clone(), toast(&text)).at(ev.home)
+        }
         Event::Chart(ev) => {
             let (text, toast) = describe_chart_event(session, ev);
             let line = Line::new(Kind::Chart, text, Some(toast));
@@ -825,7 +830,7 @@ fn describe_season_event(session: &Session, ev: &SeasonEvent) -> Option<String> 
         SeasonEventKind::WinterWarning => {
             let minutes = defs.seasons.calendar.winter_warning_minutes.round() as u32;
             let food = food_in_stores(session);
-            let people = session.world.units.len();
+            let people = session.world.population();
             format!("Winter in {minutes} minutes: {food} food for {people} people.")
         }
         SeasonEventKind::Changed { season } => {
@@ -911,7 +916,7 @@ fn chi_to_spare(session: &Session) -> bool {
         .iter()
         .map(|&id| session.defs.ability(id).chi)
         .fold(f32::INFINITY, f32::min);
-    min_cost.is_finite() && session.world.units.iter().any(|u| !u.is_avatar() && u.chi >= min_cost)
+    min_cost.is_finite() && session.world.units.iter().any(|u| u.is_settler() && u.chi >= min_cost)
 }
 
 /// The one-time bend tip's own line (#382), naming the Bend tool's real key
@@ -1701,6 +1706,7 @@ mod tests {
                 Event::Season(_) | Event::Strain(_) => Some(Kind::Season),
                 Event::Harm(_) | Event::Caravan(_) => None,
                 Event::Chart(_) => Some(Kind::Chart),
+                Event::Beast(_) => Some(Kind::Arrival),
             };
             assert_eq!(*line, want, "{ev:?}");
         }

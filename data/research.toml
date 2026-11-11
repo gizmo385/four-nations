@@ -544,7 +544,8 @@ description = "Befriend sky bison to haul loads and fly far."
 nation = "air"
 cost = 500
 prereqs = ["meditation", "air_scooter"]
-# Later: bison haul and fast travel (issue #142).
+# The stable houses a hauling bison (#205, #693, data/beasts.toml); flight and fast travel are
+# #254.
 [tech.unlocks]
 buildings = ["bison_stable"]
 modifiers = { carry_capacity = 1.3 }

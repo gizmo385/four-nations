@@ -335,7 +335,7 @@ fn run_world_observed(
         care: CareSummary::of(&world),
         first_death_minute: world.deaths().next().map(|d| ticks_to_minutes(d.tick)),
         deaths: world.deaths().count() as u32,
-        population: world.units.len() as u32,
+        population: world.population() as u32,
         autopsies,
         flags: watch.raised(),
     };

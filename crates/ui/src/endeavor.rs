@@ -190,7 +190,7 @@ fn closest_non_masters(world: &World, defs: &Defs) -> Vec<(String, u32, u32, u32
     let mut rest: Vec<(String, u32, u32, u32, u32)> = world
         .units
         .iter()
-        .filter(|u| !u.is_avatar())
+        .filter(|u| u.is_settler())
         .filter_map(|u| {
             let progress = world.rank_of(u, defs);
             (progress.rank != Rank::Master).then(|| {
@@ -218,7 +218,7 @@ fn current_masters(world: &World, defs: &Defs) -> Vec<String> {
     let mut masters: Vec<String> = world
         .units
         .iter()
-        .filter(|u| !u.is_avatar())
+        .filter(|u| u.is_settler())
         .filter(|u| world.rank_of(u, defs).rank == Rank::Master)
         .map(|u| u.name.clone())
         .collect();

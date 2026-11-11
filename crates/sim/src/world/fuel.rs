@@ -16,6 +16,12 @@
 //!   fetches the shortfall (up to what it can carry) from the nearest stockpile or ground stack,
 //!   the way a build site's bill arrives, and tips it into the bunker. Fuel in a bunker is out
 //!   of stores, so it is never eaten.
+//! - **Several fuels.** `items = [...]` in place of `item` lists what a bunker burns (#693, a
+//!   beast's home burns any food). A Refuel haul brings whichever listed item stores hold the
+//!   most of, ties broken by list order. A bunker may end up holding a mix; it remembers only
+//!   the item last tipped in (`Bunker::item`), which is what taking the building down returns.
+//! - **A beast eats.** A bunker whose building houses a beast burns for as long as it does
+//!   (`fuel_in_use`, `world/beast.rs`).
 //! - **Returned in full.** Taking the building down (`deconstruct.rs`) drops the bunker's items
 //!   by its anchor.
 
@@ -34,6 +40,11 @@ pub struct Bunker {
     /// How far through burning the next item it is, in `FUEL_MICROS` units.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub burned: u64,
+    /// The item last tipped in: what a bunker with several fuels gives back when its building
+    /// comes down. `None` until something is, and in a save from before `items` existed, which
+    /// reads as the building's first item.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item: Option<ItemId>,
 }
 
 fn is_zero(n: &u64) -> bool {
@@ -43,9 +54,13 @@ fn is_zero(n: &u64) -> bool {
 impl World {
     /// The bunker of the building anchored on `pos`, with its def's size, if it has one: the
     /// cursor panel's `Fuel: 4/6 Fish` (`fn_ui`).
-    pub fn bunker_at(&self, pos: Pos, defs: &Defs) -> Option<(Bunker, crate::building::FuelDef)> {
+    pub fn bunker_at<'d>(
+        &self,
+        pos: Pos,
+        defs: &'d Defs,
+    ) -> Option<(Bunker, &'d crate::building::FuelDef)> {
         let b = self.building_record(pos)?;
-        Some((b.fuel?, defs.building(b.id).fuel?))
+        Some((b.fuel?, defs.building(b.id).fuel.as_ref()?))
     }
 
     /// Whether the effect of `b` (a building with `def`) is in use this tick, so its bunker
@@ -53,13 +68,14 @@ impl World {
     fn fuel_in_use(&self, b: &buildings::Building, def: &BuildingDef, defs: &Defs) -> bool {
         if let Some(heat) = b.heat {
             // A fire burns while anyone is close enough to feel it.
-            return self.units.iter().any(|u| heat.warms(u.pos));
+            return self.units.iter().any(|u| !u.is_beast() && heat.warms(u.pos));
         }
         if def.hothouse.is_some() {
             // A Hothouse burns while it is warming a plot: winter, a crop in reach.
             return self.plots_warmed_by(b, defs).next().is_some();
         }
-        false
+        // A beast eats for as long as it lives in the building, whatever it is doing.
+        self.houses_beast(b.anchor)
     }
 
     /// Burns each fuelled bunker that is in use, then opens a `Refuel` job for each one at or
@@ -72,7 +88,7 @@ impl World {
         let mut low: Vec<Pos> = Vec::new();
         for b in self.of_kind(Kind::Fuel) {
             let def = defs.building(b.id);
-            let (Some(bunker), Some(fuel)) = (b.fuel, def.fuel) else { continue };
+            let (Some(bunker), Some(fuel)) = (b.fuel, def.fuel.as_ref()) else { continue };
             if bunker.count > 0 && self.fuel_in_use(b, def, defs) {
                 burning.push(b.anchor);
             }
@@ -82,7 +98,7 @@ impl World {
         }
         for anchor in burning {
             let def = defs.building(self.anchored(anchor).expect("listed above").id);
-            let per_tick = def.fuel.expect("a fuel building").micros_per_tick;
+            let per_tick = def.fuel.as_ref().expect("a fuel building").micros_per_tick;
             let bunker = self.anchored_mut(anchor).and_then(|b| b.fuel.as_mut()).expect("fuel");
             bunker.burned += per_tick;
             while bunker.burned >= FUEL_MICROS && bunker.count > 0 {
@@ -100,12 +116,30 @@ impl World {
         }
     }
 
-    /// The fuel item and how many the bunker anchored on `pos` is short of full, or `None` off
-    /// a fuel building.
+    /// The fuel item to bring and how many the bunker anchored on `pos` is short of full, or
+    /// `None` off a fuel building. With several fuels, the item is whichever stores hold the
+    /// most of, ties broken by list order (`FuelDef::items`); with none in stores, the first.
     pub(super) fn fuel_shortfall(&self, pos: Pos, defs: &Defs) -> Option<(ItemId, u32)> {
         let b = self.anchored(pos)?;
-        let fuel = defs.building(b.id).fuel?;
-        Some((fuel.item, fuel.bunker.saturating_sub(b.fuel?.count)))
+        let fuel = defs.building(b.id).fuel.as_ref()?;
+        let mut best = fuel.item;
+        let mut most = 0;
+        for &item in &fuel.items {
+            let held = self.fuel_on_hand(item);
+            if held > most {
+                (best, most) = (item, held);
+            }
+        }
+        Some((best, fuel.bunker.saturating_sub(b.fuel?.count)))
+    }
+
+    /// How many of `item` stores hold: stockpile tiles and ground stacks, the places a Refuel
+    /// fetches from (`nearest_source`).
+    fn fuel_on_hand(&self, item: ItemId) -> u32 {
+        let count = |m: &BTreeMap<Pos, Stack>| -> u32 {
+            m.values().filter(|s| s.item == item).map(|s| s.count).sum()
+        };
+        count(&self.stored) + count(&self.ground)
     }
 
     /// One tick of a unit refuelling the bunker anchored on `pos`: fetch up to the shortfall
@@ -123,7 +157,14 @@ impl World {
             self.jobs.remove(idx);
             return self.finish_job(i);
         };
-        if let Some(stack) = self.units[i].carrying.filter(|s| s.item == item) {
+        // Whatever it already carries that the bunker burns is what it delivers.
+        let burns = |s: &Stack| {
+            defs.building(self.anchored(pos).expect("checked above").id)
+                .fuel
+                .as_ref()
+                .is_some_and(|f| f.items.contains(&s.item))
+        };
+        if let Some(stack) = self.units[i].carrying.filter(burns) {
             if !self.go_or_abandon(i, id, StandRule::Building(pos), defs) {
                 return;
             }
@@ -131,8 +172,11 @@ impl World {
             let put = stack.count.min(short);
             let bunker = self.anchored_mut(pos).and_then(|b| b.fuel.as_mut()).expect("fuel");
             bunker.count += put;
+            if put > 0 {
+                bunker.item = Some(stack.item);
+            }
             let left = stack.count - put;
-            self.units[i].carrying = (left > 0).then_some(Stack { item, count: left });
+            self.units[i].carrying = (left > 0).then_some(Stack { item: stack.item, count: left });
             self.units[i].route = None;
             let idx = self.job_index(id).expect("still queued");
             self.jobs.remove(idx);

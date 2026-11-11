@@ -64,6 +64,14 @@ fn fuel_is_validated() {
         ("item = \"wood\"\nbunker = 0\nper_minute = 1.0", "bunker"),
         ("item = \"wood\"\nbunker = 4\nper_minute = 0.0", "per_minute"),
         ("item = \"wood\"\nbunker = 4\nper_minute = 1.0\nextra = 1", "extra"),
+        ("items = [\"wood\"]\nbunker = 4\nper_minute = 1.0", "at least two"),
+        ("items = [\"wood\", \"nope\"]\nbunker = 4\nper_minute = 1.0", "unknown item"),
+        ("items = [\"wood\", \"wood\"]\nbunker = 4\nper_minute = 1.0", "twice"),
+        (
+            "item = \"wood\"\nitems = [\"wood\", \"fish\"]\nbunker = 4\nper_minute = 1.0",
+            "exactly one",
+        ),
+        ("bunker = 4\nper_minute = 1.0", "exactly one"),
     ] {
         let buildings = crate::defs::BUNDLED_FILES[7].replacen(
             old,
@@ -76,7 +84,7 @@ fn fuel_is_validated() {
         assert!(e.contains(why), "{fuel}: {e}");
     }
     let defs = fuelled_defs();
-    let fuel = defs.building(defs.building_id("campfire").unwrap()).fuel.unwrap();
+    let fuel = defs.building(defs.building_id("campfire").unwrap()).fuel.clone().unwrap();
     assert_eq!((fuel.item, fuel.bunker), (defs.item_id("wood").unwrap(), 4));
     // 1 a minute at 10 ticks a second.
     assert_eq!(fuel.micros_per_tick, 1_667);

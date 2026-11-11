@@ -127,6 +127,8 @@ pub(super) enum Kind {
     Outpost,
     /// A pair end people glide through (`glide.rs`).
     Glide,
+    /// A building a `[[beast]]` row makes its home (`beast.rs`).
+    BeastHome,
 }
 
 impl Kind {
@@ -144,6 +146,7 @@ impl Kind {
             (def.chute.is_some(), Kind::Chute),
             (def.outpost.is_some(), Kind::Outpost),
             (def.glide.is_some(), Kind::Glide),
+            (def.houses_beast, Kind::BeastHome),
         ]
         .into_iter()
         .filter_map(|(is, kind)| is.then_some(kind))
@@ -328,8 +331,8 @@ impl World {
             plot: def.farm.map(|_| FarmPlot::empty()),
             orchard: def.orchard.as_ref().map(Orchard::new),
             heat,
-            fuel: def.fuel.map(|_| Bunker::default()),
             pantry: def.outpost.as_ref().filter(|o| o.pantry > 0).map(|_| Pantry::default()),
+            fuel: def.fuel.as_ref().map(|_| Bunker::default()),
             pickers: def.pickers.as_ref().map(Pickers::new),
             link: None,
             sent: Vec::new(),

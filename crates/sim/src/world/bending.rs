@@ -459,7 +459,7 @@ impl World {
             defs.endeavor.avatar.as_ref().is_some_and(|a| a.abilities.contains(&ability))
                 && self.units.iter().any(Unit::is_avatar);
         if avatar_can
-            || self.units.iter().any(|u| !u.is_avatar() && self.rank_of(u, defs).rank >= rank)
+            || self.units.iter().any(|u| u.is_settler() && self.rank_of(u, defs).rank >= rank)
         {
             Ok(())
         } else {
@@ -680,6 +680,10 @@ impl World {
     /// (`caster_count`, #248: the bend picker's "Raise Earth: 14 benders").
     pub fn can_cast(&self, unit: &Unit, ability: AbilityId, defs: &Defs) -> bool {
         let def = defs.ability(ability);
+        if unit.is_beast() {
+            // A bending beast's work is its row's (#697), never a settler's cast.
+            return false;
+        }
         if unit.is_avatar() {
             return defs.endeavor.avatar.as_ref().is_some_and(|a| a.abilities.contains(&ability));
         }
