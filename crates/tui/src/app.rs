@@ -151,13 +151,14 @@ impl App {
             Action::ToggleRepeat if self.ui.tool == Tool::CancelHarvest => {
                 self.ui.teardown = !self.ui.teardown;
             }
-            // `O` on a chute (or chute site) in Select mode re-picks its foot (#683).
+            // `O` on a chute (or chute site) in Select mode re-picks its foot (#683), and on a
+            // pair end (any tile of it) its partner (#698).
             Action::ToggleRepeat
                 if self.ui.tool == Tool::Select
-                    && fn_ui::chute::is_head(&self.session, self.ui.cursor) =>
+                    && fn_ui::link::head_at(&self.session, self.ui.cursor).is_some() =>
             {
-                self.ui.linking = Some(self.ui.cursor);
-                self.ui.notice = fn_ui::chute::ASKING.to_owned();
+                self.ui.linking = fn_ui::link::head_at(&self.session, self.ui.cursor);
+                self.foot_hint();
             }
             Action::ToggleRepeat => {}
             Action::Confirm => self.confirm(),
@@ -972,31 +973,38 @@ impl App {
                 );
                 self.ui.notice = report.notice.clone();
                 self.ui.marked = Some((self.ui.cursor, report.summary()));
-                // A chute site just placed asks for its foot next (#683).
+                // A chute site just placed asks for its foot next (#683), a pair's end for its
+                // partner (#698).
                 if self.ui.tool == Tool::Build
-                    && let Some(head) =
-                        fn_ui::chute::unlinked_in(&self.session, corner, self.ui.cursor)
+                    && let Some(head) = fn_ui::link::unlinked_in(
+                        &self.session,
+                        corner,
+                        self.ui.cursor,
+                        self.ui.choice,
+                    )
                 {
                     self.ui.linking = Some(head);
-                    self.ui.notice = format!("{}. {}", report.notice, fn_ui::chute::ASKING);
+                    let ask = fn_ui::link::asking(&self.session, head);
+                    self.ui.notice = format!("{}. {ask}", report.notice);
                 }
             }
         }
     }
 
-    /// While a chute's foot is being picked (#683), the notice follows the cursor: why the foot
-    /// can't go here, or the prompt again where it can.
+    /// While a chute's foot or a pair's partner is being picked (#683, #698), the notice follows
+    /// the cursor: why it can't go here, or the prompt again where it can.
     fn foot_hint(&mut self) {
         if let Some(head) = self.ui.linking {
-            self.ui.notice = fn_ui::chute::refusal(&self.session, head, self.ui.cursor)
-                .unwrap_or_else(|| fn_ui::chute::ASKING.to_owned());
+            self.ui.notice = fn_ui::link::refusal(&self.session, head, self.ui.cursor)
+                .unwrap_or_else(|| fn_ui::link::asking(&self.session, head).to_owned());
         }
     }
 
-    /// `Enter` while a chute's foot is being picked (#683): sets it at the cursor and stops
-    /// picking, or says why not and keeps picking.
+    /// `Enter` while a foot or partner is being picked (#683, #698): sets it at the cursor (a
+    /// partner places a new site there unless an end is under the cursor) and stops picking, or
+    /// says why not and keeps picking.
     fn set_foot(&mut self, head: Pos) {
-        match fn_ui::chute::set_foot(&mut self.session, head, self.ui.cursor) {
+        match fn_ui::link::set(&mut self.session, head, self.ui.cursor) {
             Ok(text) => {
                 self.ui.linking = None;
                 self.ui.notice = text;
@@ -1008,8 +1016,8 @@ impl App {
     /// `Esc` in a tool: drop the corner, or with none leave the tool. In Select mode it closes
     /// the inspector's settler; with nothing left to close (#306), it opens the game menu instead.
     fn cancel(&mut self) {
-        if self.ui.linking.take().is_some() {
-            self.ui.notice = "Chute foot left unset".to_owned();
+        if let Some(head) = self.ui.linking.take() {
+            self.ui.notice = fn_ui::link::left_unset(&self.session, head).to_owned();
             return;
         }
         if self.ui.tool == Tool::Select {

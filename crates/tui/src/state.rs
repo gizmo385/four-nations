@@ -370,9 +370,14 @@ impl UiState {
 
     /// The building the Build tool's ghosts would place (`fn_ui::build::valid_choice`): `None`
     /// outside the Build tool, with nothing placeable yet, or while a chute's foot is being
-    /// picked (#683), when the cursor points at the foot instead.
+    /// picked (#683), when the cursor points at the foot instead. While a pair's partner is
+    /// being picked (#698) it is the pair's own building in any tool, the new end that `Enter`
+    /// would place, unless the cursor is on an end already.
     pub fn ghost_building(&self, session: &Session) -> Option<BuildingId> {
-        if self.tool != Tool::Build || self.linking.is_some() {
+        if let Some(head) = self.linking {
+            return fn_ui::link::partner_ghost(session, head, self.cursor);
+        }
+        if self.tool != Tool::Build {
             return None;
         }
         fn_ui::build::valid_choice(&fn_ui::build::picker_rows(session), self.choice)

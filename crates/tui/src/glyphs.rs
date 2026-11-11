@@ -145,7 +145,7 @@ pub struct Overlays {
     pub earth_tent: OverlayGlyph,
     /// Air's Air Shield, lit (#362): a shelter apart from `flame`.
     pub air_shield: OverlayGlyph,
-    /// A chute's link line (#683): `:` from its head to its foot.
+    /// A link line (#683, #698): `:` from a chute's head to its foot, or between a pair's ends.
     pub link: OverlayGlyph,
 }
 

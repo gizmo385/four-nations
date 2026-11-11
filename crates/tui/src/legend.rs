@@ -122,7 +122,7 @@ fn describe(
         Thing::EarthTent => (LegendGroup::Buildings, "Earth tent".to_owned(), Thing::EarthTent),
         Thing::AirShield => (LegendGroup::Buildings, "Air shield".to_owned(), Thing::AirShield),
         Thing::Sapling => (LegendGroup::Plants, "Sapling".to_owned(), Thing::Sapling),
-        Thing::Link => (LegendGroup::Buildings, "Chute line".to_owned(), Thing::Link),
+        Thing::Link => (LegendGroup::Buildings, "Link line".to_owned(), Thing::Link),
         Thing::Resource(r) => {
             let (group, name) = resource(*r, "");
             (group, name, thing.clone())
