@@ -43,13 +43,13 @@ max = 100.0
 depleted_damage_per_minute = 10.0   # per depleted need
 regen_per_minute = 2.0
 
-# Population growth (#232, docs/design/endgame.md "Population growth"): every arrival_minutes,
-# if a bed nobody owns is free and food_per_newcomer food items are in stores, one newcomer
-# walks in from the nearest map edge. 10 instead of 15 (docs/design/materials.md section 4,
-# #353): 6 -> 16 people in about 7 seasons instead of 10, so growth draws down the leaner food
-# supply above instead of outrunning it over 2.5 years with nothing to spend it on.
+# Population growth (#232, docs/design/endgame.md "Population growth"): a newcomer walks in
+# from the nearest map edge when draw (below) reaches 1, the beds hold more than the settlers
+# and food_per_newcomer food items are in stores. arrival_minutes is the minutes per newcomer at
+# 100% draw: 10 instead of 15 (docs/design/materials.md section 4, #353), so growth draws down
+# the leaner food supply above instead of outrunning it with nothing to spend it on.
 [growth]
-arrival_minutes = 10.0
+arrival_minutes = 10.0     # minutes per newcomer at 100% draw
 food_per_newcomer = 30
 # Once the Harmony Gate is complete, each newcomer's nation is drawn weighted: own_weight for
 # the settlement's own nation, other_weight for each of the other three (docs/design/endgame.md,
@@ -57,6 +57,25 @@ food_per_newcomer = 30
 # own nation, whatever these say.
 own_weight = 0.4
 other_weight = 0.2
+
+# Draw (#435, docs/design/pacing.md section 1): a meter that fills by multiplier / arrival_minutes
+# a minute, where multiplier = base + food_kind per food kind beyond the first with at least
+# food_kind_min in stores (up to food_kinds_max) + warm_beds if every bed is heated + spare_bed
+# per free bed beyond the first (up to spare_beds_max), capped at max. At 1 (and with a bed and
+# food) one newcomer arrives and 1 is spent. While the bed or food is missing it stops filling at
+# 1, so a late bed brings one newcomer, not several. Only grants (World::add_draw) lift it past 1,
+# up to bank; arrivals are at least min_gap_minutes apart.
+[growth.draw]
+base = 0.6                 # 16.7 min per newcomer
+food_kind = 0.2
+food_kind_min = 10         # stored items of one food for it to count
+food_kinds_max = 2         # kinds beyond the first that count
+warm_beds = 0.2
+spare_bed = 0.1
+spare_beds_max = 2
+max = 1.4                  # 7.1 min per newcomer
+bank = 2.0                 # the most draw can hold, grants included
+min_gap_minutes = 2.0
 
 # Foods. `hunger` is what one raw item restores. `cooked_hunger` (optional) is what it restores
 # once cooked, and must be higher. `resource` (optional) links to a map resource in

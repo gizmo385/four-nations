@@ -834,6 +834,12 @@ mod tests {
         );
         assert!(bad("own_weight = 0.4", "own_weight = 0.0").contains("own_weight"));
         assert!(bad("other_weight = 0.2", "other_weight = -1.0").contains("other_weight"));
+        // `[growth.draw]` (#435): strict, and range-checked.
+        assert!(bad("max = 1.4", "max = 0.5").contains("growth.draw.base"));
+        assert!(bad("bank = 2.0", "bank = 0.5").contains("growth.draw.bank"));
+        assert!(bad("food_kind_min = 10", "food_kind_min = 0").contains("food_kind_min"));
+        assert!(bad("min_gap_minutes = 2.0", "min_gap_minutes = -1.0").contains("min_gap"));
+        assert!(bad("spare_beds_max = 2", "spare_beds = 2").contains("spare_beds"));
     }
 
     #[test]

@@ -31,6 +31,7 @@ mod chart;
 mod chute;
 mod command;
 mod deconstruct;
+mod draw;
 mod endeavor;
 mod events;
 mod farm;
@@ -69,6 +70,7 @@ pub use care::{CareNeed, CareTally, Severe};
 pub use chart::{ChartEvent, ChartEventKind, ChartStanding};
 pub use chute::LinkError;
 pub use command::{Command, CommandError, Recorded};
+pub use draw::{DRAW_ONE, DrawReport, DrawTerm, DrawTermKind};
 use endeavor::EndeavorLog;
 pub use endeavor::{
     AvatarLeaveReason, EndeavorEvent, EndeavorEventKind, EndeavorState, SignProgress,
@@ -526,6 +528,16 @@ pub struct World {
     /// A v1 to v3 save's arrivals (#605): merged into `events` on load, never written.
     #[serde(default, skip_serializing, rename = "arrivals")]
     v3_arrivals: Vec<Arrival>,
+    /// Draw toward the next newcomer, in milli-units (`world/draw.rs`, #435). A save from
+    /// before it loads 0 and starts filling.
+    #[serde(default)]
+    draw: u32,
+    /// What `draw` has gained short of its next milli-unit (`world/draw.rs`).
+    #[serde(default)]
+    draw_carry: u32,
+    /// The tick of the last newcomer, for `[growth.draw].min_gap_minutes`.
+    #[serde(default)]
+    last_arrival: Option<u64>,
     /// Picks which tile an orchard plants next (`orchard.plant`).
     #[serde(default = "orchard::default_rng")]
     orchard_rng: SimRng,
@@ -623,6 +635,9 @@ impl World {
             v3_chart_events: Vec::new(),
             next_unit: 0,
             v3_arrivals: Vec::new(),
+            draw: 0,
+            draw_carry: 0,
+            last_arrival: None,
             orchard_rng: orchard::new_rng(seed),
             sprout_rng: rng::stream(seed, "bending.sprout"),
             growth_rng: population::new_rng(seed),
@@ -904,7 +919,7 @@ impl World {
         self.tick_season(defs);
         self.tick_growth(defs);
         self.tick_strain(defs);
-        self.tick_population(defs);
+        self.tick_draw(defs);
         self.tick_orchards(defs);
         self.tick_pickers(defs);
         self.tick_farms(defs);

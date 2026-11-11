@@ -51,7 +51,7 @@ pub struct GeneralSettings {
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GrowthDef {
-    /// In-game minutes between arrival checks.
+    /// In-game minutes per newcomer at 100% draw (`World::draw_multiplier`, #435).
     pub arrival_minutes: f32,
     /// Food items that must be in stores right now for one newcomer to arrive.
     pub food_per_newcomer: u32,
@@ -63,6 +63,34 @@ pub struct GrowthDef {
     /// Weight of each of the other three nations, same once-complete rule. The chance of each is
     /// its own weight over the sum of all four (`own_weight` once, this three times).
     pub other_weight: f32,
+    /// How fast newcomers come (#435, docs/design/pacing.md section 1).
+    pub draw: DrawDef,
+}
+
+/// `[growth.draw]` of `data/needs.toml` (#435, docs/design/pacing.md section 1): what fills the
+/// draw meter (`World::draw_multiplier`). Terms are fractions of the base pace, 1.0 meaning one
+/// newcomer every `arrival_minutes`.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DrawDef {
+    /// The multiplier with no bonus at all.
+    pub base: f32,
+    /// Added for each food kind beyond the first with at least `food_kind_min` in stores.
+    pub food_kind: f32,
+    pub food_kind_min: u32,
+    /// How many kinds beyond the first count.
+    pub food_kinds_max: u32,
+    /// Added when every bed's tile is heated (`World::is_heated`).
+    pub warm_beds: f32,
+    /// Added for each free bed beyond the first.
+    pub spare_bed: f32,
+    pub spare_beds_max: u32,
+    /// The cap on the multiplier.
+    pub max: f32,
+    /// The most draw can hold, grants (`World::add_draw`) included.
+    pub bank: f32,
+    /// In-game minutes between two arrivals at the least.
+    pub min_gap_minutes: f32,
 }
 
 /// `[settings]`, `[hunger]`, `[thirst]`, `[energy]`, `[health]` and `[growth]` of
@@ -163,6 +191,35 @@ impl NeedsFile {
         }
         if !(s.growth.other_weight.is_finite() && s.growth.other_weight > 0.0) {
             return err("growth.other_weight must be a positive number".into());
+        }
+        let d = s.growth.draw;
+        for (what, v, lo, hi) in [
+            ("base", d.base, 0.0, 4.0),
+            ("food_kind", d.food_kind, 0.0, 4.0),
+            ("warm_beds", d.warm_beds, 0.0, 4.0),
+            ("spare_bed", d.spare_bed, 0.0, 4.0),
+            ("max", d.max, 0.0, 4.0),
+            ("bank", d.bank, 1.0, 10.0),
+            ("min_gap_minutes", d.min_gap_minutes, 0.0, 600.0),
+        ] {
+            if !(v.is_finite() && (lo..=hi).contains(&v)) {
+                return err(format!("growth.draw.{what} must be in [{lo}, {hi}]"));
+            }
+        }
+        if !(d.base > 0.0 && d.max >= d.base) {
+            return err("growth.draw.base must be above 0 and at most growth.draw.max".into());
+        }
+        for (what, n) in [
+            ("food_kind_min", d.food_kind_min),
+            ("food_kinds_max", d.food_kinds_max),
+            ("spare_beds_max", d.spare_beds_max),
+        ] {
+            if n > 1000 {
+                return err(format!("growth.draw.{what} must be at most 1000"));
+            }
+        }
+        if d.food_kind_min == 0 {
+            return err("growth.draw.food_kind_min must be at least 1".into());
         }
         for (what, n) in [("hunger", s.hunger), ("thirst", s.thirst), ("energy", s.energy)] {
             if !(n.decay_per_minute.is_finite() && n.decay_per_minute > 0.0) {
