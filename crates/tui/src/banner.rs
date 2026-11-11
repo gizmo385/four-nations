@@ -1,11 +1,11 @@
 //! The active tool banner (#307, docs/design/side-panel.md "The active tool"): a solid band
 //! across the map region's top row while any tool other than `Select` is active, naming the
-//! tool, what `Enter` does now and what `Esc` does now, so the active tool is obvious at a
+//! tool (what it does is the panel's, #781), what `Enter` does now and what `Esc` does now, so the active tool is obvious at a
 //! glance and never relies on colour alone. With no tool there is no banner, and `Select` keeps
 //! the plain status-line badge (`crate::draw::draw_status`) instead of one of these tints.
 //!
 //! ```text
-//! ━ HARVEST ━ chop, mine, gather  ·  Enter: set a corner  ·  Esc: leave ━━━━━━━━━━━━━━━━━━
+//! ━ HARVEST ━ Enter: set a corner  ·  Esc: leave ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //! ━ BUILD Bed ━ Enter: build 1x1  ·  U: pick another  ·  Esc: leave ━━━━━━━━━━━━━━━━━━━━━━
 //! ```
 
@@ -84,20 +84,13 @@ fn enter_hint(session: &Session, ui: &UiState) -> Option<String> {
     rect_hint(ui)
 }
 
-/// The content between the badge and the fill: a short brief or a tool-specific control hint
-/// (whichever applies), then what `Enter` does, then what `Esc` does. The brief and the control
-/// hint only show before a corner is set: mid-drag, `Enter` and `Esc` say enough on their own.
+/// The content between the badge and the fill: what `Enter` does, a tool-specific control hint
+/// where there is one, then what `Esc` does. What the tool does is the panel's Tool section's
+/// (#781), so the banner doesn't say it again. The control hint only shows before a corner is
+/// set: mid-drag, `Enter` and `Esc` say enough on their own.
 fn segments(session: &Session, ui: &UiState) -> Vec<String> {
     let anchored = ui.anchor.is_some();
-    let toggled = (ui.tool == Tool::Harvest && ui.repeating)
-        || (ui.tool == Tool::CancelHarvest && ui.teardown);
     let mut segs = Vec::new();
-    if !anchored && !toggled {
-        let brief = ui.tool.brief();
-        if !brief.is_empty() {
-            segs.push(brief.to_owned());
-        }
-    }
     if let Some(hint) = enter_hint(session, ui) {
         segs.push(hint);
     }
@@ -182,14 +175,14 @@ mod tests {
         let text = line(&session, &ui, false);
         assert_eq!(
             text,
-            "━ HARVEST ━ chop, mine, gather  ·  Enter: set a corner  ·  Esc: leave \
-             ━━━━━━━━━━━━━━━━━━━━"
+            "━ HARVEST ━ Enter: set a corner  ·  Esc: leave \
+             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         );
     }
 
-    /// Once a corner is set the brief gives way to the rectangle size, and Esc only drops it.
+    /// Once a corner is set the banner says the rectangle size, and Esc only drops it.
     #[test]
-    fn an_anchored_rectangle_drops_the_brief_for_its_own_size() {
+    fn an_anchored_rectangle_says_its_own_size() {
         let (session, mut ui) = setup(Nation::Earth);
         ui.set_tool(Tool::Harvest);
         ui.anchor = Some(ui.cursor);
@@ -197,7 +190,7 @@ mod tests {
         let text = line(&session, &ui, false);
         assert!(text.contains("Enter: designate 5x3"), "{text}");
         assert!(text.contains("Esc: drop the corner"), "{text}");
-        assert!(!text.contains("chop"), "the brief gives way:\n{text}");
+        assert!(!text.contains("chop"), "{text}");
     }
 
     #[test]
@@ -208,7 +201,7 @@ mod tests {
         let text = line(&session, &ui, false);
         assert!(text.starts_with("━ HARVEST · REPEATING ━"), "{text}");
         assert!(text.contains("O: one-shot"), "{text}");
-        assert!(!text.contains("chop"), "the brief gives way to the control hint:\n{text}");
+        assert!(!text.contains("chop"), "{text}");
     }
 
     #[test]

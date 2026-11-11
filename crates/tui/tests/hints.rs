@@ -8,7 +8,8 @@ use fn_tui::draw::hint_mode;
 use fn_tui::frame::{render_app, to_text};
 use fn_tui::keys;
 use fn_tui::new_session;
-use fn_ui::keys::{Mode, hints};
+use fn_ui::Tool;
+use fn_ui::keys::{Mode, hints_for};
 
 /// A script that reaches each mode, and the mode it must reach.
 const MODES: &[(&str, Mode)] = &[
@@ -47,7 +48,7 @@ fn every_mode_is_reached_and_says_its_name_its_keys_and_the_tail() {
         assert_eq!(mode, want, "{script:?}");
         let name = fn_ui::keys::mode_name(mode, fn_ui::Tool::Harvest);
         assert!(line.starts_with(&format!(" {name} ")), "{script:?}: {line}");
-        let all: Vec<String> = hints(mode).iter().map(|h| h.text()).collect();
+        let all: Vec<String> = hints_for(mode, Tool::Harvest).iter().map(|h| h.text()).collect();
         assert!(line.contains(&all.join(" · ")), "{script:?}: every item fits at 160:\n{line}");
         assert!(line.trim_end().ends_with("? keys"), "{script:?}: {line}");
     }
@@ -61,7 +62,8 @@ fn narrow_bars_drop_whole_items_from_the_end_and_keep_the_tail() {
         for width in (80..=160).step_by(7) {
             let (line, mode) = status_line(script, width);
             assert!(line.trim_end().ends_with("? keys"), "{script:?} at {width}: {line}");
-            let items: Vec<String> = hints(mode).iter().map(|h| h.text()).collect();
+            let items: Vec<String> =
+                hints_for(mode, Tool::Harvest).iter().map(|h| h.text()).collect();
             let shown = (0..=items.len())
                 .rev()
                 .find(|&n| n == 0 || line.contains(&items[..n].join(" · ")))
@@ -108,4 +110,49 @@ fn the_help_text_lists_every_key_help_row() {
         assert!(usage.contains(row.what.split(' ').next().unwrap()), "{:?} in --help", row.what);
     }
     assert!(usage.contains("Harvest: chop, mine, gather"));
+}
+
+/// A tool's toggle is in the bar while that tool is up and in no other tool's (#781).
+#[test]
+fn a_tool_names_its_own_toggle_and_no_other_tools() {
+    for (script, toggle, other) in [
+        ("h", "O repeat", "teardown"),
+        ("h <enter>", "O repeat", "teardown"),
+        ("x", "O teardown", "repeat"),
+        ("x <enter>", "O teardown", "repeat"),
+    ] {
+        let (line, _) = status_line(script, 120);
+        assert!(line.contains(toggle), "{script:?}:\n{line}");
+        assert!(!line.contains(other), "{script:?}:\n{line}");
+    }
+    // A tool with no toggle names none, and neither does Select.
+    for script in ["", "e", "p", "b", "c"] {
+        let (line, _) = status_line(script, 120);
+        assert!(!line.contains("O repeat") && !line.contains("O teardown"), "{script:?}:\n{line}");
+    }
+}
+
+/// The key help lists each toggle, so it is found without picking the tool first.
+#[test]
+fn the_key_help_lists_each_tool_toggle() {
+    let rows = fn_ui::keys::help_rows();
+    for what in ["Standing order (Harvest)", "Also sites, stockpiles (Cancel)"] {
+        assert!(rows.iter().any(|r| r.keys == "O" && r.what == what), "{what}");
+    }
+}
+
+/// The map banner names the tool but not what it does: that is the panel's Tool section (#781).
+#[test]
+fn the_map_banner_has_the_tool_name_and_not_its_description() {
+    let size = (120, 30);
+    for script in ["h", "x"] {
+        let mut app = App::new(new_session(7, Nation::Earth), size);
+        app.play(&keys::parse(script).unwrap());
+        let palette =
+            Palette::new(&app.session.defs, app.session.world.nation, ColorDepth::TrueColor, false);
+        let text = to_text(&render_app(&mut app, &palette, size));
+        let banner = text.lines().find(|l| l.starts_with('━')).expect("a banner row");
+        assert!(banner.contains("Enter: set a corner"), "{banner}");
+        assert!(!banner.contains("chop") && !banner.contains("mark"), "{banner}");
+    }
 }

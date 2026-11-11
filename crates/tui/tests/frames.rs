@@ -112,9 +112,10 @@ fn the_active_tool_banner_differs_for_select_harvest_and_build() {
     harvest.play(&keys::parse("h").unwrap());
     let harvest = to_text(&frame(&mut harvest, ColorDepth::TrueColor, false, TINY));
     assert!(harvest.contains("├─ HARVEST ──"), "{harvest}");
-    assert!(harvest.contains("━ HARVEST ━ chop, mine, gather"), "the banner:\n{harvest}");
+    assert!(harvest.contains("━ HARVEST ━ Enter: set a corner"), "the banner:\n{harvest}");
+    assert!(!harvest.contains("━ HARVEST ━ chop"), "{harvest}");
     assert!(
-        harvest.contains("HARVEST  Arrows move · Enter set corner · Esc leave tool"),
+        harvest.contains("HARVEST  Arrows move · Enter set corner · Esc leave tool · O repeat"),
         "the bar:\n{harvest}"
     );
     assert!(!harvest.contains("Press Enter to select"), "{harvest}");

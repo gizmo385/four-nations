@@ -374,9 +374,10 @@ letter (question 1).
   order), with bold `on_accent` text and a `━` fill. On 16 colours it uses the tint's solid
   colour. With `--color never` it is reverse video and bold. In `--ascii` the fill is `=`. Because
   it carries both text and shape, it never relies on colour alone.
-- **Content.** The tool's name (plus the Build choice or Bend ability), then, as room allows: a
-  short brief (a new `fn_ui::Tool::brief`, without the stale Shift text from #305), what `Enter`
-  does now (today's `rect_hint`), and what `Esc` does now. The Cursor section stops repeating the
+- **Content.** The tool's name (plus the Build choice or Bend ability), then, as room allows: what
+  `Enter` does now (today's `rect_hint`) and what `Esc` does now. What the tool does is the
+  panel's Tool section's, so the banner no longer carries a brief (`Tool::brief` is gone, #781).
+  The Cursor section stops repeating the
   `Enter` line.
 - **Placement.** It covers the map's top row and moves nothing. Entering or leaving a tool shifts
   no tile on screen. The view treats that row as hidden, so the cursor never sits under it, the
