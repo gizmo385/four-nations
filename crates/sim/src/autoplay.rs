@@ -1171,6 +1171,46 @@ mod tests {
         );
     }
 
+    /// #707: a tech whose `requires` isn't met yet is refused by `SetResearch`, so the research
+    /// order skips it for the next tech in the plan, then comes back to it once it is met.
+    #[test]
+    fn the_research_order_skips_a_tech_whose_condition_is_unmet_and_comes_back_to_it() {
+        let mut files = crate::defs::BUNDLED_FILES;
+        let research = format!(
+            "{}\n[[tech]]\nid = \"gated\"\nname = \"Gated\"\ndescription = \"\"\ncost = 10\n\
+             requires = {{ scrolls_read = 3 }}\n",
+            files[3]
+        );
+        files[3] = &research;
+        let defs = Defs::from_files(files).unwrap();
+        let size = defs.embark.map_size("small").unwrap();
+        let cfg = MapGenConfig {
+            seed: 7,
+            width: size.width,
+            height: size.height,
+            ..MapGenConfig::default()
+        };
+        let mut world = World::new(&cfg, Nation::Earth, 6, &defs);
+        let gated = defs.tech_id("gated").unwrap();
+        let fire_making = defs.tech_id("fire_making").unwrap();
+        let plan = || [gated, fire_making].into_iter();
+
+        queue_next_known_tech(&mut world, &defs, plan());
+        assert_eq!(world.research().queue(), [fire_making], "skipped the gated tech");
+
+        // The same step again, with nothing else left to queue, leaves the queue empty rather
+        // than giving up: the gated tech is retried on every step.
+        let mut world = World::new(&cfg, Nation::Earth, 6, &defs);
+        world.grant_tech(fire_making);
+        queue_next_known_tech(&mut world, &defs, plan());
+        assert!(world.research().queue().is_empty());
+
+        // And once the scrolls are read, the next step queues it.
+        world.count_scrolls_for_test(3);
+        queue_next_known_tech(&mut world, &defs, plan());
+        assert_eq!(world.research().queue(), [gated]);
+    }
+
     /// `with_branch_first` (#434, `docs/design/pacing.md` "Measuring it"): Earth starts knowing
     /// `stoneworking` (`data/nations.toml`), so its first branch tech (`earth_shaping`) needs no
     /// further shared-tier prereq, and branch-first queues it straight away instead of the

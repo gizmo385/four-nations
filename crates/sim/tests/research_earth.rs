@@ -1,7 +1,7 @@
 //! The Earth Kingdom branch of the tech tree (issue #25): what each tech unlocks, and how long a
 //! settlement takes to research it at the pace docs/design/research.md targets.
 
-use fn_sim::research::{Research, TechId, effective_modifiers};
+use fn_sim::research::{Facts, Research, TechId, effective_modifiers};
 use fn_sim::world::TICKS_PER_SECOND;
 use fn_sim::{Defs, Nation};
 
@@ -133,7 +133,7 @@ fn an_earth_settlement_finishes_its_whole_tree_at_the_design_docs_pace() {
                 .filter(|(id, t)| t.core && !research.is_known(*id))
                 .min_by_key(|(id, t)| (t.id != "writing", t.cost, *id));
             match next {
-                Some((id, _)) => research.set_target(id, NATION, &defs).unwrap(),
+                Some((id, _)) => research.set_target(id, NATION, &Facts::default(), &defs).unwrap(),
                 None => {
                     finished = Some(tick);
                     break;
@@ -171,7 +171,7 @@ fn going_straight_for_metalbending_finishes_inside_the_whole_tree_window() {
     let defs = Defs::bundled();
     let metal = defs.tech_id("metalbending").unwrap();
     let mut research = Research::new(NATION, &defs);
-    research.set_target(metal, NATION, &defs).unwrap();
+    research.set_target(metal, NATION, &Facts::default(), &defs).unwrap();
     let done = (0..LIMIT).find(|&tick| {
         step(&mut research, tick, &defs);
         research.is_known(metal)

@@ -122,6 +122,11 @@ pub(super) struct EndeavorLog {
 }
 
 impl EndeavorLog {
+    /// Ids of the chapters met so far, in id order.
+    pub(super) fn chapters_met(&self) -> impl Iterator<Item = &str> {
+        self.chapters.keys().map(String::as_str)
+    }
+
     /// Whether a pre-v4 save's events are still waiting for `World::upgrade_from_v3`.
     pub(super) fn has_v3_events(&self) -> bool {
         !self.v3_events.is_empty()

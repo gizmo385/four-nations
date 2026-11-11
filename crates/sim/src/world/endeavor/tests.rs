@@ -727,6 +727,38 @@ fn a_chapter_waits_for_all_its_signs_at_once() {
     assert_eq!(p.iter().filter(|p| p.met).count(), 2);
 }
 
+/// #707: `Command::SetResearch` on a tech that `requires` a chapter or scrolls is refused until
+/// the world's facts (`World::facts`) meet it.
+#[test]
+fn research_conditions_read_the_chapters_met_and_the_scrolls_read() {
+    let mut files = crate::defs::BUNDLED_FILES;
+    let research = format!(
+        "{}\n[[tech]]\nid = \"gated\"\nname = \"Gated\"\ndescription = \"\"\ncost = 10\n\
+         requires = {{ scrolls_read = 2, chapter = \"known_on_the_road\" }}\n",
+        files[3]
+    );
+    files[3] = &research;
+    let defs = Defs::from_files(files).expect("a chapter that exists loads");
+    let gated = defs.tech_id("gated").unwrap();
+    let set = |w: &mut World| w.apply(Command::SetResearch { tech: gated }, &defs);
+    let refused = |w: &mut World| match set(w) {
+        Err(CommandError::Research(e)) => e.to_string(),
+        other => panic!("expected a research refusal, got {other:?}"),
+    };
+
+    let mut w = meet_the_road(&defs);
+    assert_eq!(refused(&mut w), "needs 2 scrolls read");
+    w.tallies.count_scrolls(2);
+    assert_eq!(w.facts().scrolls_read, 2);
+    assert_eq!(refused(&mut w), "needs Known on the road", "the chapter latches on the next check");
+    for _ in 0..TICKS_PER_SECOND {
+        w.tick(&defs);
+    }
+    assert_eq!(w.facts().chapters_met, ["known_on_the_road"]);
+    set(&mut w).expect("both conditions are met");
+    assert_eq!(w.research().queue().last(), Some(&gated));
+}
+
 #[test]
 fn the_chapter_survives_a_save() {
     let defs = Defs::bundled();

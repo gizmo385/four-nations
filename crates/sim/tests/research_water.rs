@@ -2,7 +2,7 @@
 //! playtest that researching the whole starter tree lands inside docs/design/research.md's
 //! pacing targets.
 
-use fn_sim::research::{MILLIS_PER_POINT, Research, effective_modifiers};
+use fn_sim::research::{Facts, MILLIS_PER_POINT, Research, effective_modifiers};
 use fn_sim::world::{BuildError, Command, CommandError};
 use fn_sim::{Defs, MapGenConfig, Nation, Pos, World};
 
@@ -164,7 +164,9 @@ impl<'a> Playtest<'a> {
         loop {
             if self.research.queue().is_empty() {
                 match self.next_target(nation) {
-                    Some(t) => self.research.set_target(t, nation, self.defs).unwrap(),
+                    Some(t) => {
+                        self.research.set_target(t, nation, &Facts::default(), self.defs).unwrap()
+                    }
                     None => return (self.tick as f64 / MINUTE as f64, at_hour),
                 }
             }

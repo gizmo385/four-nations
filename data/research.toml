@@ -20,6 +20,12 @@
 # tech, unlocks. It defaults to false, so a tech added later is optional unless it says
 # otherwise and the gate can't grow by accident (docs/design/horizons-phase-1.md).
 #
+# `requires = { scrolls_read = N, chapter = "id" }` is a condition beyond `prereqs`: either key or
+# both, nothing else (an unknown key fails to load). `scrolls_read` is 1 to 20, the scrolls read
+# at a study hall so far; `chapter` is a `[[chapter]]` id in data/endeavor.toml that must be met.
+# Research refuses to queue the tech (or one that needs it) until every condition holds, and checks
+# only then, so a condition has to be one that only ever becomes true (docs/design/horizons-phase-3.md).
+#
 # `[[tech.unlocks.upgrades]]` raises one property of an existing building once the tech is known:
 # `building` names it, and `seats` (the only property so far, 1 to 8) adds to its own `seats`.
 # The building must already have the property, a nation tech may only upgrade a building its
