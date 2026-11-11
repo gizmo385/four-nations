@@ -91,7 +91,7 @@ impl HeatSource {
         Footprint::new(self.pos, self.size[0], self.size[1])
     }
 
-    fn warms(&self, p: Pos) -> bool {
+    pub(super) fn warms(&self, p: Pos) -> bool {
         self.footprint().distance(p) as u32 <= self.radius
     }
 }

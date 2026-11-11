@@ -35,6 +35,7 @@ mod events;
 mod farm;
 mod forge;
 mod found;
+mod fuel;
 mod gate;
 mod harm;
 mod heat;
@@ -897,6 +898,7 @@ impl World {
         self.tick_irrigation(defs);
         self.tick_reverts();
         self.tick_heat();
+        self.tick_fuel(defs);
         self.tick_scooters();
         for i in 0..self.units.len() {
             self.act(i, defs);

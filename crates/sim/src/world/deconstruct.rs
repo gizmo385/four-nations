@@ -102,6 +102,12 @@ impl World {
                 self.place_ground(pos, Stack { item: cost.item, count });
             }
         }
+        // A fuel bunker comes back in full (`fuel.rs`).
+        if let (Some(bunker), Some(fuel)) = (record.fuel, def.fuel)
+            && bunker.count > 0
+        {
+            self.place_ground(pos, Stack { item: fuel.item, count: bunker.count });
+        }
         if let (Some(craft), Some(recipe)) = (&record.craft, &def.recipe) {
             for (input, &count) in recipe.inputs.iter().zip(&craft.delivered) {
                 if count > 0 {

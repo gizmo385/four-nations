@@ -76,7 +76,8 @@ pub(super) fn avatar_may_take(kind: JobKind) -> bool {
         | JobKind::Reap { .. }
         | JobKind::Clear { .. }
         | JobKind::Chart { .. }
-        | JobKind::Deconstruct { .. } => false,
+        | JobKind::Deconstruct { .. }
+        | JobKind::Refuel { .. } => false,
     }
 }
 
@@ -219,6 +220,7 @@ impl World {
                 self.map[pos].building.is_some()
             }
             JobKind::Deconstruct { pos } => self.anchored(pos).is_some(),
+            JobKind::Refuel { pos } => self.fuel_shortfall(pos, defs).is_some(),
             // The gate drops its own task and Attend jobs when it moves on (`gate.rs`).
             JobKind::EndeavorTask { .. } | JobKind::Attend { .. } => true,
             // Moot if the plot is gone (taken down, #342) or moved past the stage this job was
@@ -261,6 +263,12 @@ impl World {
             JobKind::Deconstruct { pos } => {
                 self.anchored(pos).and_then(|_| free(StandRule::Building(pos)))
             }
+            // Only while the bunker is short and some store holds its fuel, so nobody claims a
+            // trip with nothing to fetch (the stuck-build case of #322).
+            JobKind::Refuel { pos } => self
+                .fuel_shortfall(pos, defs)
+                .filter(|&(item, short)| short > 0 && self.any_source_for_fuel(item))
+                .and_then(|_| free(StandRule::Building(pos))),
             JobKind::Reap { pos } => (self.plot_stage(pos) == Some(PlotStage::Ripe))
                 .then(|| free(StandRule::Building(pos)))
                 .flatten(),
@@ -399,6 +407,7 @@ mod tests {
             JobKind::Clear { pos: p },
             JobKind::Chart { pos: p },
             JobKind::Deconstruct { pos: p },
+            JobKind::Refuel { pos: p },
         ];
         for kind in all {
             let expected = matches!(kind, JobKind::Bend { .. } | JobKind::EndeavorTask { .. });
