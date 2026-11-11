@@ -51,9 +51,11 @@ give = [{ item = "food", count = 30 }]
 get = [{ item = "stone", count = 20 }]
 times = 2
 
+# Gold ore (#834): a deal's `get` counts toward the ore sign, and the lot is sized so a hard site
+# (seeds 2 and 6) can reach the sign's 40 by minute 150 from two or three visits.
 [[caravan.deal]]
-give = [{ item = "wood", count = 25 }]
-get = [{ item = "gold_ore", count = 3 }]
+give = [{ item = "wood", count = 50 }]
+get = [{ item = "gold_ore", count = 8 }]
 times = 2
 
 [[caravan.deal]]
@@ -69,8 +71,8 @@ times = 2
 # Wares (#708) and scroll copies (#709): what a surplus of wood and idle scholars buys. A ware
 # costs about 2 wood, so wood in wares buys about twice what raw wood does.
 [[caravan.deal]]
-give = [{ item = "wares", count = 6 }]
-get = [{ item = "gold_ore", count = 3 }]
+give = [{ item = "wares", count = 12 }]
+get = [{ item = "gold_ore", count = 8 }]
 times = 2
 
 [[caravan.deal]]
@@ -104,8 +106,8 @@ get = [{ item = "brick", count = 8 }]
 times = 3
 
 [[caravan.deal]]
-give = [{ item = "wood", count = 25 }]
-get = [{ item = "gold_ore", count = 3 }]
+give = [{ item = "wood", count = 50 }]
+get = [{ item = "gold_ore", count = 8 }]
 times = 2
 
 [[caravan.deal]]

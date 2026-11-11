@@ -16,7 +16,8 @@ use crate::jobs::ItemId;
 pub struct Tallies {
     /// Items that came off a worked resource, by item: every finished harvest job and every
     /// forage (`World::work_done`), counted in full at the moment the work ends, whether or not
-    /// the items are later hauled, stored or eaten.
+    /// the items are later hauled, stored or eaten. A caravan deal's `get` counts too (#834), so
+    /// ore bought at a camp is "ore mined" for the sign.
     harvested: BTreeMap<ItemId, u32>,
     /// Readable items used up at a study hall (ancient scrolls, #24), one per item.
     scrolls_read: u32,

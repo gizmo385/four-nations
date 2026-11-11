@@ -314,7 +314,7 @@ The Workshop's `[[building.alt_recipe]]` is in "Shared sim work, 2" above.
 
   | Caravan | Raw wood deal (pacing.md) | Wares deal (#711) |
   |---|---|---|
-  | Earth | 25 wood for 3 gold ore | 6 wares for 3 gold ore |
+  | Earth | 50 wood for 8 gold ore (#834; 25 for 3 at first) | 12 wares for 8 gold ore (6 for 3) |
   | Fire | 40 wood for 8 bricks | 10 wares for 8 bricks |
   | Water | (new) | 8 wares for 4 herbs |
   | Air | (new) | A request: 12 wares for half a newcomer's draw |
@@ -594,8 +594,8 @@ end before most of what they do. Three sets, so phase 3's effect can be told fro
 (copies are 0 at base: no Archive exists). `first_built` now lists every building the opening
 raises, the optional ones too, and a run record's `paid_in` counts completed deals by the good they
 paid in; those two only exist for "now". Medians per nation, `steady` unless said; "base / main /
-now". Ore numbers predate #834 (a bought ore doesn't count as mined, so the caravan's ore deals
-don't help the ore sign yet).
+now". Ore numbers predate #834 (a bought ore did not count as mined then, so the caravan's ore deals
+didn't help the ore sign).
 
 **What the opening does with it** (`crates/sim/src/autoplay/trade_techs.rs`, `pacing.rs`):
 
