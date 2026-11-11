@@ -10,7 +10,7 @@
 │ ✓ Everyone has a bed                   ██████████       2/2                                                          │
 │                                                                                                                      │
 │ BUILDINGS                                                                                                            │
-│   One of every building                █░░░░░░░░░      1/10                                                          │
+│   One of every building                █░░░░░░░░░      1/11                                                          │
 │   Raise something new                                                                                                │
 │                                                                                                                      │
 │ KNOWLEDGE                                                                                                            │
