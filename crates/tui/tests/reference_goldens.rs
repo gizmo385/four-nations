@@ -1,4 +1,4 @@
-//! Reference goldens (#455): eleven whole-screen snapshots, one per screen type, kept for a reviewer
+//! Reference goldens (#455): twelve whole-screen snapshots, one per screen type, kept for a reviewer
 //! to look at -- not the regression net. That job belongs to the layout properties
 //! (`layout_properties.rs`, #454) and the `contains`-style assertions beside each feature.
 //!
@@ -41,7 +41,7 @@ const SEED: u64 = 1;
 const SETTLERS: [&str; 2] = ["Juni", "Shen"];
 
 /// Every reference screen, by golden name.
-const SCREENS: [&str; 11] = [
+const SCREENS: [&str; 12] = [
     "ref_title",
     "ref_embark",
     "ref_game_80x24",
@@ -53,6 +53,7 @@ const SCREENS: [&str; 11] = [
     "ref_menu",
     "ref_help",
     "ref_log",
+    "ref_tool",
 ];
 
 fn golden(name: &str, actual: &str) {
@@ -212,12 +213,15 @@ fn screen_text(name: &str, defs: &Defs, seed: u64) -> String {
         "ref_menu" => game_text(defs, seed, SIZE, "<esc>"),
         "ref_help" => game_text(defs, seed, SIZE, "?"),
         "ref_log" => log_text(defs, seed),
+        // The Harvest tool with a corner set and the cursor over both oaks: the Tool section's
+        // description, the rectangle's size and what applying would mark (#657).
+        "ref_tool" => game_text(defs, seed, SIZE, "h <enter> <right*7> <up*2>"),
         other => panic!("no reference screen {other:?}"),
     }
 }
 
 // ---------------------------------------------------------------------------------------------
-// The eleven reference screens
+// The twelve reference screens
 // ---------------------------------------------------------------------------------------------
 
 fn reference(name: &str) {
@@ -244,6 +248,11 @@ fn reference_game_at_80x24() {
 fn reference_game_at_a_wide_terminal() {
     assert_eq!(layout::panel_width(WIDE.0), 36, "160 columns is past the 140 threshold");
     reference("ref_game_wide");
+}
+
+#[test]
+fn reference_tool() {
+    reference("ref_tool");
 }
 
 #[test]

@@ -22,23 +22,27 @@
 //! else in the panel grows.
 //!
 //! **Zone 3, the Tool and the inspector** (`crate::inspector`, #653): Tool (the active tool's
-//! name in its own tint, the Build tool's chosen building or, for Bend, the current ability and
-//! its bender count, one row either way, then the last rectangle's result; hidden off a tool),
-//! then the inspector, the last section, which takes every row left. Its heading names what it
-//! describes: the selected settler (name and rank, with its task, carrying, meters, rank
-//! progress and tile in the section, where the selection bar used to be), else whatever is under
-//! the keyboard cursor (a settler, a building, "STOCKPILE", the terrain) with the cursor's
-//! position on the heading. The Build tool's full picker moved to its own modal (`U`,
-//! `crate::build`, #285); the panel names only the choice. The nation's modifiers moved to the
-//! Nation screen's Traits (`N`, #308). What `Enter` does next in a tool, and the tool's own
-//! hint, are the active tool banner's own lines (#307, `crate::banner`) and the status line's,
-//! not the panel's.
+//! name in its own tint; hidden off a tool), then the inspector, the last section, which takes
+//! every row left. The Tool section (#657, `fn_ui::toolpanel`) is groups of rows: what the tool
+//! does; the Build tool's chosen building or, for Bend, the current ability and its bender count;
+//! with a corner set, the rectangle's size and what applying it would mark, and once applied,
+//! what it marked ("Marked 7 trees.") until the cursor moves or a new corner is set; and the
+//! tool's toggles ("Standing order: off"). The inspector's heading names what it describes: the
+//! selected settler (name and rank, with its task, carrying, meters, rank progress and tile in
+//! the section, where the selection bar used to be), else whatever is under the keyboard cursor (a
+//! settler, a building, "STOCKPILE", the terrain) with the cursor's position on the heading. The
+//! Build tool's full picker moved to its own modal (`U`, `crate::build`, #285); the panel names
+//! only the choice. The nation's modifiers moved to the Nation screen's Traits (`N`, #308). What
+//! `Enter` does next in a tool is the active tool banner's own line (#307, `crate::banner`) and
+//! the status line's keys, not the panel's.
 //!
 //! The panel is a fixed height, so a terminal too short for everything gives up rows in this
-//! order: alerts beyond the newest, then the Tool section's result beyond two lines. The header,
-//! the Settlement glance in full, every heading and the inspector's first rows (a settler's task
-//! and meters, three rows of a tile) always stay; the inspector drops its own rows from the
-//! bottom (`Inspector::fitted`).
+//! order: alerts beyond the newest, then the Tool section's groups from the last (never what the
+//! tool does, nor the building or ability), and the inspector is left one row while a tool is
+//! active, since the Tool section has first call on rows then. The header, the Settlement glance
+//! in full, every heading and the inspector's first rows (a settler's task and meters, three rows
+//! of a tile) always stay with no tool; the inspector drops its own rows from the bottom
+//! (`Inspector::fitted`).
 
 use fn_sim::building::BuildingId;
 use fn_sim::world::Unit;
@@ -46,6 +50,7 @@ use fn_ui::bend;
 use fn_ui::build;
 use fn_ui::endeavor::EndeavorStatus;
 use fn_ui::inspect::Hint;
+use fn_ui::toolpanel::{self, Emphasis, Line as ToolLine, ToolState};
 use fn_ui::view::{
     Activity, SeasonView, SideView, activity_counts, food_in_stores, materials, need_flags,
     season_view, side_view,
@@ -56,7 +61,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Color;
 
 use crate::color::{Palette, Tint};
-use crate::inspector::{Inspector, inspect};
+use crate::inspector::{Inspector, fit_blocks, inspect};
 use crate::state::UiState;
 use crate::widgets::{Marks, Painter, Row, TitleAt, Tone, draw_frame, meter, wrap};
 
@@ -103,13 +108,9 @@ fn apply_verb(tool: Tool) -> &'static str {
     }
 }
 
-/// The most lines the Tool section's last result (`notice`) wraps to before fitting trims it
-/// (down to [`NOTICE_FLOOR`]). The tool's own hint is the status line's and the active tool
-/// banner's now (#307), not a row here.
-const NOTICE_LINES: usize = 5;
-/// Fitting never takes the Tool section's result below this many lines (docs/design/side-panel.md
-/// "Fitting": "the Tool notice past two lines").
-const NOTICE_FLOOR: usize = 2;
+/// The most lines one paragraph of the Tool section wraps to (the description, a toggle): it
+/// wraps rather than cuts, and the fitting drops whole groups of rows when the panel is short.
+const TOOL_LINES: usize = 5;
 /// One alert is one line (docs/design/side-panel.md "Sections, top to bottom"): the full text is
 /// in the log (`L`).
 const ALERT_LINES: usize = 1;
@@ -187,12 +188,10 @@ struct Data {
     /// The Settlement glance's Gate rows (#416, #235, #242, #663): the signs met, then what is
     /// still needed; empty with no endeavor in the data.
     gate: Vec<Row>,
-    /// The Tool section's one row: the Build tool's chosen building (#111; its full picker moved
-    /// to the Build modal, #285), or the Bend tool's current ability and bender count (#418,
-    /// `bend_ability_rows`); empty for every other tool, or with nothing placeable or castable.
-    picker: Vec<Row>,
-    /// The Tool section's last result, wrapped to at most [`NOTICE_LINES`].
-    notice: Vec<Row>,
+    /// The Tool section's rows (#657), in groups: what the tool does, the Build tool's chosen
+    /// building or the Bend tool's current ability, then the rectangle's preview or what the
+    /// last one marked, then the tool's toggles. Empty off a tool.
+    tool: ToolRows,
     alerts: Vec<Row>,
     /// The last section (#653): what the player is looking at, named in its own heading.
     inspector: Inspector,
@@ -208,8 +207,8 @@ struct Data {
 #[derive(Clone, Copy)]
 struct Knobs {
     alerts: usize,
-    picker: usize,
-    notice: usize,
+    /// How many rows of `Data::tool` to show ([`fit_blocks`]).
+    tool: usize,
     /// How many of `Data::materials` to show, up to [`MATERIALS_ROWS_MAX`]; the rest fold into
     /// `+N` kinds on the last shown row.
     materials: usize,
@@ -422,6 +421,90 @@ fn bend_ability_rows(session: &Session, marks: &Marks) -> Vec<Row> {
     )]
 }
 
+/// The Tool section's rows, in groups (`fn_ui::toolpanel`, #657), before the panel knows how
+/// many it gets.
+struct ToolRows {
+    blocks: Vec<Vec<Row>>,
+    /// How many of the first groups are never dropped whole: what the tool does, and the
+    /// building or ability it is set to.
+    keep: usize,
+}
+
+impl ToolRows {
+    /// Every row, blank rows between the groups included.
+    fn full(&self) -> usize {
+        fit_blocks(&self.blocks, self.keep, usize::MAX).len()
+    }
+
+    /// The rows the section is never left without: the first `keep` groups.
+    fn floor(&self) -> usize {
+        self.blocks.iter().take(self.keep).map(Vec::len).sum()
+    }
+}
+
+/// One line of the Tool section as rows `width` cells wide: text wraps, a toggle reads
+/// "Standing order: off" with its state in the tone of on or off.
+fn tool_line_rows(line: &ToolLine, width: usize, marks: &Marks) -> Vec<Row> {
+    match line {
+        ToolLine::Text(text, emphasis) => {
+            let tone = if *emphasis == Emphasis::Dim { Tone::Dim } else { Tone::Text };
+            wrap(text, width, TOOL_LINES, marks.ellipsis)
+                .into_iter()
+                .map(|l| Row::text(l, tone))
+                .collect()
+        }
+        ToolLine::Setting { label, value } => {
+            let text = format!("{label}: {value}");
+            if text.chars().count() > width {
+                return wrap(&text, width, TOOL_LINES, marks.ellipsis)
+                    .into_iter()
+                    .map(|l| Row::text(l, Tone::Text))
+                    .collect();
+            }
+            let tone = if value == "on" { Tone::Ok } else { Tone::Dim };
+            vec![Row::spans(vec![(format!("{label}: "), Tone::Text), (value.clone(), tone)])]
+        }
+    }
+}
+
+/// The Tool section's rows for the active tool: `fn_ui::toolpanel`'s groups as rows, with the
+/// Build tool's building or the Bend tool's ability (`picker`) under the description, and the
+/// Gate tool's last result (`notice`, the one tool with no rectangle to report on) after them.
+fn tool_rows(
+    session: &Session,
+    ui: &UiState,
+    picker: Vec<Row>,
+    notice: &str,
+    width: usize,
+    marks: &Marks,
+) -> ToolRows {
+    let state = ToolState {
+        tool: ui.tool,
+        anchor: ui.anchor,
+        cursor: ui.cursor,
+        repeating: ui.repeating,
+        teardown: ui.teardown,
+        choice: ui.choice,
+        marked: ui.marked_now(),
+    };
+    let mut blocks: Vec<Vec<Row>> = toolpanel::blocks(session, &state)
+        .iter()
+        .map(|b| b.iter().flat_map(|l| tool_line_rows(l, width, marks)).collect())
+        .collect();
+    if blocks.is_empty() {
+        return ToolRows { blocks, keep: 0 };
+    }
+    let keep = if picker.is_empty() { 1 } else { 2 };
+    if !picker.is_empty() {
+        blocks.insert(1, picker);
+    }
+    if ui.tool == Tool::Gate && !notice.is_empty() {
+        let text = ToolLine::Text(notice.to_owned(), Emphasis::Plain);
+        blocks.push(tool_line_rows(&text, width, marks));
+    }
+    ToolRows { blocks, keep }
+}
+
 fn gather(
     session: &Session,
     ui: &UiState,
@@ -432,9 +515,8 @@ fn gather(
     let view = side_view(session, ui.tool, &ui.notice, ui.choice, &ui.alerts);
     let ellipsis = marks.ellipsis;
     // Just the chosen building (#285 moved the rest of the picker to the Build modal); the Bend
-    // tool uses the same slot for its current ability's one row instead (#248, #418). The tool's
-    // own hint (`UiState::tool_hint`) is the status line's and the active tool banner's now
-    // (#307), not a row here (docs/design/side-panel.md "Sections, top to bottom").
+    // tool uses the same slot for its current ability's one row instead (#248, #418). They sit
+    // in the Tool section under what the tool does (#657).
     let picker: Vec<Row> = if ui.tool == Tool::Bend {
         bend_ability_rows(session, marks)
     } else {
@@ -444,10 +526,7 @@ fn gather(
             .map(|row| picker_rows(row, view.choice, marks, width))
             .unwrap_or_default()
     };
-    let notice = wrap(&view.notice, width, NOTICE_LINES, ellipsis)
-        .into_iter()
-        .map(|l| Row::text(l, Tone::Text))
-        .collect();
+    let tool = tool_rows(session, ui, picker, &view.notice, width, marks);
     let alerts = ui
         .alerts
         .toasts()
@@ -471,8 +550,7 @@ fn gather(
         materials: materials_rows(session, width),
         research,
         gate,
-        picker,
-        notice,
+        tool,
         alerts,
         inspector: inspect(session, ui, view.choice, width, marks),
         repeating_label: ui.repeating_label(),
@@ -530,8 +608,7 @@ fn sections(d: &Data, k: Knobs, palette: &Palette) -> Vec<Section> {
     // Just above Here, in the tool's own tint (docs/design/side-panel.md "Headings"). Select
     // mode has no tool to talk about.
     let tool = (d.view.tool != Tool::Select).then(|| {
-        let mut rows: Vec<Row> = d.picker.iter().take(k.picker).cloned().collect();
-        rows.extend(d.notice.iter().take(k.notice).cloned());
+        let rows = fit_blocks(&d.tool.blocks, d.tool.keep, k.tool);
         // "Harvest · repeating" or "Cancel · teardown" while the tool's own `O` toggle is on
         // (#277/#335), else just the tool's name.
         let name = d.repeating_label.clone().unwrap_or_else(|| d.view.tool.name().to_owned());
@@ -547,8 +624,11 @@ fn sections(d: &Data, k: Knobs, palette: &Palette) -> Vec<Section> {
 /// The rows the header and `sections` take, and the inspector's own heading and the rows it is
 /// never left without ([`Inspector::floor`]): one row per heading, no blank rows between them
 /// (docs/design/side-panel.md "Decisions in brief": "the blank row between sections goes").
-fn height(header_rows: usize, sections: &[Section], inspector: &Inspector) -> usize {
-    header_rows + sections.iter().map(|s| 1 + s.rows.len()).sum::<usize>() + 1 + inspector.floor()
+fn height(header_rows: usize, sections: &[Section], inspector: &Inspector, tool: bool) -> usize {
+    // With a tool active the Tool section has first call on rows, and the inspector is left
+    // one (#657).
+    let floor = if tool { inspector.floor_under_tool() } else { inspector.floor() };
+    header_rows + sections.iter().map(|s| 1 + s.rows.len()).sum::<usize>() + 1 + floor
 }
 
 /// Draws the panel into `area`: the frame (the nation on top, the seed on the bottom edge), then
@@ -568,13 +648,11 @@ pub fn draw_panel(
     let footer = format!("seed {}", d.view.seed);
     draw_frame(buf, area, palette, &title, TitleAt::Centre, &footer);
 
-    // Fit: the Settlement glance (#416) never gives up a row, so only Alerts and the Tool (its
-    // result, then the Bend ability list) shrink here, until the inspector keeps the rows it is
-    // never left without; the glance's own growth -- a second Materials row -- is a separate
-    // pass below, once this settles.
+    // Fit: the Settlement glance (#416) never gives up a row, so only Alerts and the Tool's
+    // groups (from the last) shrink here, until the inspector keeps the rows it is never left
+    // without; the glance's own growth -- a second Materials row -- is a separate pass below,
+    // once this settles.
     let head = header(&d.view, &marks);
-    let notice_floor = d.notice.len().min(NOTICE_FLOOR);
-    let picker_floor = usize::from(!d.picker.is_empty());
     let materials_cap = d.materials.len().min(MATERIALS_ROWS_MAX);
     // Fitting gives up alerts beyond the newest, but never the newest itself while at least one
     // is live (#415): the ALERTS heading on its own, with every row gone, would otherwise read as
@@ -582,18 +660,16 @@ pub fn draw_panel(
     let alerts_floor = usize::from(!d.alerts.is_empty());
     let mut k = Knobs {
         alerts: d.alerts.len().min(ALERTS_SHOWN),
-        picker: d.picker.len(),
-        notice: d.notice.len(),
+        tool: d.tool.full(),
         materials: materials_cap.min(1),
     };
-    let needs = |k: Knobs| height(head.len(), &sections(&d, k, palette), &d.inspector);
+    let tool_active = d.view.tool != Tool::Select;
+    let needs = |k: Knobs| height(head.len(), &sections(&d, k, palette), &d.inspector, tool_active);
     while needs(k) > usize::from(inner.height) {
         if k.alerts > alerts_floor {
             k.alerts -= 1;
-        } else if k.notice > notice_floor {
-            k.notice -= 1;
-        } else if k.picker > picker_floor {
-            k.picker -= 1;
+        } else if k.tool > d.tool.floor() {
+            k.tool -= 1;
         } else {
             break;
         }

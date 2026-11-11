@@ -6,7 +6,7 @@ use crate::keyev::{KeyCode, KeyEvent, KeyEventKind};
 use fn_sim::{Nation, World};
 use fn_ui::research::screen_view;
 use fn_ui::saves;
-use fn_ui::tools::{apply_rect, cycle_ability, switch_tool};
+use fn_ui::tools::{Order, apply_order, cycle_ability, switch_tool};
 use fn_ui::{Session, Tool};
 
 use crate::ask::Answer;
@@ -772,15 +772,19 @@ impl App {
                 // (`Action::ToggleRepeat`) stands in for it here, since a terminal can't
                 // reliably report Shift+Enter (#277). The same key, read as the Cancel tool's
                 // own teardown toggle instead (#335).
-                self.ui.notice = apply_rect(
+                let report = apply_order(
                     &mut self.session,
-                    self.ui.tool,
-                    corner,
-                    self.ui.cursor,
-                    self.ui.repeating,
-                    self.ui.teardown,
-                    self.ui.choice,
+                    Order {
+                        tool: self.ui.tool,
+                        from: corner,
+                        to: self.ui.cursor,
+                        repeating: self.ui.repeating,
+                        teardown: self.ui.teardown,
+                        choice: self.ui.choice,
+                    },
                 );
+                self.ui.notice = report.notice.clone();
+                self.ui.marked = Some((self.ui.cursor, report.summary()));
             }
         }
     }
