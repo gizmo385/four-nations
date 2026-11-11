@@ -70,7 +70,8 @@ fn every_alert_is_wrapped_in_full_at_every_size_and_the_rest_fold() {
         assert_eq!(flat.matches("Stockpiles are full").count(), 1, "one entry per cause {context}");
         // The second either shows whole or is folded into the last line, never cut.
         let research = flat.contains("No research target is set.") && flat.contains(" waiting.");
-        let folded = flat.ends_with("and 1 more, press L");
+        // How many fold depends on what else is fresh then (a newcomer's arrival, #435).
+        let folded = flat.ends_with(" more, press L") && !flat.contains("No research target");
         assert!(research != folded, "whole or folded, not both or neither {context}");
         // Blank rows separate alerts, so the next alert starts a paragraph.
         if research {

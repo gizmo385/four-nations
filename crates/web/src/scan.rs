@@ -67,6 +67,7 @@ pub fn marker_for(defs: &Defs, ev: &Event) -> Option<(MarkerKind, String)> {
         Event::Endeavor(e) => {
             let kind = match e.kind {
                 EndeavorEventKind::SignMet(_)
+                | EndeavorEventKind::ChapterMet(_)
                 | EndeavorEventKind::Ready
                 | EndeavorEventKind::StageDone(_)
                 | EndeavorEventKind::Complete => MarkerKind::Milestone,

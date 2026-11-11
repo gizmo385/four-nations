@@ -18,7 +18,7 @@ use std::collections::BTreeSet;
 
 use crate::bending::Rank;
 use crate::building::BuildingId;
-use crate::endeavor::{self, SignDef, SignKind, Tally};
+use crate::endeavor::{self, ChapterDef, SignDef, SignKind, Tally};
 use crate::jobs::ItemId;
 use crate::research::TechDef;
 
@@ -59,6 +59,8 @@ pub struct EndeavorEvent {
 pub enum EndeavorEventKind {
     /// The sign with this id was met for the first time.
     SignMet(String),
+    /// Every sign of the chapter with this id was met at once, for the first time (#439).
+    ChapterMet(String),
     /// Every sign was met at once: the endeavor is Ready.
     Ready,
     /// The stage with this id was finished (`gate.rs`).
@@ -110,6 +112,9 @@ pub enum AvatarLeaveReason {
 pub(super) struct EndeavorLog {
     /// Ids of the signs that have ever been met.
     met: BTreeSet<String>,
+    /// Each chapter met so far (#439), by id, with the tick it was met on.
+    #[serde(default)]
+    chapters: BTreeMap<String, u64>,
     /// A v1 to v3 save's endeavor events (#605): merged into `World::events` on load, never
     /// written.
     #[serde(default, skip_serializing, rename = "events")]
@@ -154,8 +159,11 @@ impl World {
                 let finished: BTreeSet<BuildingId> = self.finished_buildings().collect();
                 let value = reachable.iter().filter(|b| finished.contains(b)).count() as u32;
                 // `spare` is validated at load time to be below every nation's own count, so
-                // this never underflows.
-                (value, Some(reachable.len() as u32 - spare))
+                // this never underflows. A sign with a target in the data (a chapter's "four
+                // kinds", #439) uses that instead.
+                let computed = (sign.target_for(self.nation).is_none())
+                    .then(|| reachable.len() as u32 - spare);
+                (value, computed)
             }
             SignKind::BranchComplete => {
                 // Only core techs count, so optional techs never lengthen the gate
@@ -192,6 +200,23 @@ impl World {
         self.buildings().map(|b| b.id)
     }
 
+    /// Each sign of `chapter` with its progress right now, in its own order (#439).
+    pub fn chapter_signs<'d>(&self, chapter: &'d ChapterDef, defs: &Defs) -> Vec<SignProgress<'d>> {
+        chapter.signs.iter().map(|s| self.sign_progress(s, defs)).collect()
+    }
+
+    /// The tick the chapter with this id was met on, or `None` while it isn't (#439). A chapter
+    /// latches: once met it stays met.
+    pub fn chapter_met(&self, id: &str) -> Option<u64> {
+        self.endeavor_log.chapters.get(id).copied()
+    }
+
+    /// The first chapter in the data not met yet, the one the Endeavor screen and the side
+    /// panel show (#439).
+    pub fn current_chapter<'d>(&self, defs: &'d Defs) -> Option<&'d ChapterDef> {
+        defs.endeavor.chapters.iter().find(|c| self.chapter_met(&c.id).is_none())
+    }
+
     /// The reachable kinds (`endeavor::reachable_buildings`) this settlement hasn't finished
     /// yet, in data order: what the `EveryBuilding` sign's hint names (`fn_ui::endeavor`, #354).
     pub fn missing_building_kinds(&self, defs: &Defs) -> Vec<BuildingId> {
@@ -204,10 +229,11 @@ impl World {
     /// The once-a-second check: log signs met for the first time, and latch Ready when all are
     /// met at once. Does nothing without signs or once Ready.
     pub(super) fn tick_endeavor(&mut self, defs: &Defs) {
-        if !self.tick.is_multiple_of(u64::from(TICKS_PER_SECOND))
-            || defs.endeavor.signs.is_empty()
-            || self.endeavor != EndeavorState::Dormant
-        {
+        if !self.tick.is_multiple_of(u64::from(TICKS_PER_SECOND)) {
+            return;
+        }
+        self.tick_chapters(defs);
+        if defs.endeavor.signs.is_empty() || self.endeavor != EndeavorState::Dormant {
             return;
         }
         let tick = self.tick;
@@ -221,6 +247,20 @@ impl World {
         if progress.iter().all(|p| p.met) {
             self.endeavor = EndeavorState::Ready { tick };
             self.log_event(EndeavorEvent { tick, kind: EndeavorEventKind::Ready });
+        }
+    }
+
+    /// Latches each chapter whose signs are all met at once (#439), whatever the gate's state.
+    /// Its signs log no `SignMet` of their own: the chapter's one event is the news.
+    fn tick_chapters(&mut self, defs: &Defs) {
+        for chapter in &defs.endeavor.chapters {
+            if self.chapter_met(&chapter.id).is_some() {
+                continue;
+            }
+            if self.chapter_signs(chapter, defs).iter().all(|p| p.met) {
+                self.endeavor_log.chapters.insert(chapter.id.clone(), self.tick);
+                self.endeavor_event(EndeavorEventKind::ChapterMet(chapter.id.clone()));
+            }
         }
     }
 

@@ -650,3 +650,90 @@ fn the_endeavor_is_deterministic() {
     assert_eq!(a, b);
     assert!(matches!(a.0, EndeavorState::Ready { .. }), "{a:?}");
 }
+
+/// The bundled chapter (#439, docs/design/pacing.md section 3).
+fn road(defs: &Defs) -> &ChapterDef {
+    defs.endeavor.chapters.iter().find(|c| c.id == "known_on_the_road").expect("bundled chapter")
+}
+
+/// Raises everything "Known on the road" asks for: 10 people, four kinds, 60 food.
+fn meet_the_road(defs: &Defs) -> World {
+    let mut w = world(Nation::Earth, 10, defs);
+    for (b, x) in [("bed", 1), ("campfire", 3), ("herb_garden", 5), ("farm_plot", 7)] {
+        put(&mut w, defs, b, at(x, 4));
+    }
+    store(&mut w, defs, "fish", at(10, 6), 60);
+    w
+}
+
+#[test]
+fn the_chapter_signs_stay_out_of_the_gates_list() {
+    let defs = Defs::bundled();
+    let chapter = road(&defs);
+    let ids: Vec<&str> = chapter.signs.iter().map(|s| s.id.as_str()).collect();
+    assert_eq!(ids, ["chapter_population", "chapter_kinds", "chapter_food"]);
+    assert!(defs.endeavor.signs.iter().all(|s| !s.id.starts_with("chapter_")));
+    let targets: Vec<Option<u32>> =
+        chapter.signs.iter().map(|s| s.target_for(Nation::Earth)).collect();
+    assert_eq!(targets, [Some(10), Some(4), Some(60)]);
+}
+
+#[test]
+fn the_chapter_latches_once_all_its_signs_are_met_and_logs_one_event() {
+    let defs = Defs::bundled();
+    let mut w = meet_the_road(&defs);
+    let chapter = road(&defs);
+    assert!(w.chapter_signs(chapter, &defs).iter().all(|p| p.met));
+    assert_eq!(w.chapter_met("known_on_the_road"), None, "not until the once-a-second check");
+    assert_eq!(w.current_chapter(&defs).map(|c| c.id.as_str()), Some("known_on_the_road"));
+    for _ in 0..TICKS_PER_SECOND {
+        w.tick(&defs);
+    }
+    let met = w.chapter_met("known_on_the_road").expect("met");
+    assert_eq!(met, u64::from(TICKS_PER_SECOND));
+    assert!(w.current_chapter(&defs).is_none());
+
+    // Eating the food doesn't undo it, and it never fires again.
+    w.stored.clear();
+    for _ in 0..3 * TICKS_PER_SECOND {
+        w.tick(&defs);
+    }
+    assert_eq!(w.chapter_met("known_on_the_road"), Some(met));
+    let chapter_events: Vec<_> = w
+        .endeavor_events()
+        .filter(|e| matches!(e.kind, EndeavorEventKind::ChapterMet(_)))
+        .collect();
+    assert_eq!(chapter_events.len(), 1);
+    assert!(
+        !w.endeavor_events().any(|e| matches!(&e.kind, EndeavorEventKind::SignMet(id)
+            if id.starts_with("chapter_"))),
+        "a chapter's signs log no SignMet of their own"
+    );
+    // The gate isn't Ready on the chapter's strength, and its count is unchanged.
+    assert_eq!(*w.endeavor(), EndeavorState::Dormant);
+}
+
+#[test]
+fn a_chapter_waits_for_all_its_signs_at_once() {
+    let defs = Defs::bundled();
+    let mut w = meet_the_road(&defs);
+    w.stored.clear();
+    store(&mut w, &defs, "fish", at(10, 6), 59);
+    for _ in 0..2 * TICKS_PER_SECOND {
+        w.tick(&defs);
+    }
+    assert_eq!(w.chapter_met("known_on_the_road"), None, "59 food is one short");
+    let p = w.chapter_signs(road(&defs), &defs);
+    assert_eq!(p.iter().filter(|p| p.met).count(), 2);
+}
+
+#[test]
+fn the_chapter_survives_a_save() {
+    let defs = Defs::bundled();
+    let mut w = meet_the_road(&defs);
+    for _ in 0..TICKS_PER_SECOND {
+        w.tick(&defs);
+    }
+    let loaded = World::load(&w.save(&defs).unwrap(), &defs).unwrap();
+    assert_eq!(loaded.chapter_met("known_on_the_road"), w.chapter_met("known_on_the_road"));
+}

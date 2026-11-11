@@ -15,6 +15,8 @@ use fn_ui::{Session, Tool};
 use ratatui::style::Modifier;
 
 const SIZE: (u16, u16) = (120, 40);
+/// Tall enough for the whole Endeavor screen, chapter (#439) and every group, without scrolling.
+const TALL: (u16, u16) = (120, 60);
 const SMALL: (u16, u16) = (80, 24);
 
 fn app(seed: u64, nation: Nation, size: (u16, u16)) -> App {
@@ -951,9 +953,9 @@ fn the_key_help_screen_lists_its_sections_and_keys() {
 /// stages are shared; the gate's own per-nation roof is on the map, not this screen.
 #[test]
 fn the_endeavor_screen_lists_the_gates_groups_and_signs() {
-    let mut a = app(7, Nation::Earth, SIZE);
+    let mut a = app(7, Nation::Earth, TALL);
     run(&mut a, "g");
-    let frame = text(&mut a, SIZE);
+    let frame = text(&mut a, TALL);
     assert!(frame.contains("◆ ENDEAVOR ◆"), "{frame}");
     for want in [
         "The Harmony Gate",
@@ -976,7 +978,7 @@ fn the_endeavor_screen_lists_the_gates_groups_and_signs() {
 /// (`surface.rs`, which can write a finished chart into the save).
 #[test]
 fn before_the_first_chart_the_scrolls_sign_lists_only_a_glide_ruin() {
-    let mut a = app(7, Nation::Earth, SIZE);
+    let mut a = app(7, Nation::Earth, TALL);
     let scroll = a.session.defs.resource_id("ancient_scroll").unwrap();
     let ruins = a.session.defs.resource_id("lost_ruins").unwrap();
     let anchor = a.session.world.settlement_anchor();
@@ -1002,7 +1004,7 @@ fn before_the_first_chart_the_scrolls_sign_lists_only_a_glide_ruin() {
     a.session.apply(Command::DesignateHarvest { pos: marked }).unwrap();
 
     run(&mut a, "g");
-    let frame = text(&mut a, SIZE);
+    let frame = text(&mut a, TALL);
     assert!(!frame.contains("Ancient Scroll - "), "no surface scroll yet\n{frame}");
     let ruin_row = frame.lines().find(|l| l.contains("Lost Ruins (2) - ")).expect(&frame);
     assert!(ruin_row.contains("tiles") && ruin_row.contains("not marked"), "{ruin_row}");
@@ -1014,9 +1016,9 @@ fn before_the_first_chart_the_scrolls_sign_lists_only_a_glide_ruin() {
 /// no number of scrolls left to find, no direction (#403).
 #[test]
 fn with_nothing_marked_or_charted_the_scrolls_sign_is_just_its_hint() {
-    let mut a = app(7, Nation::Earth, SIZE);
+    let mut a = app(7, Nation::Earth, TALL);
     run(&mut a, "g");
-    let frame = text(&mut a, SIZE);
+    let frame = text(&mut a, TALL);
     let lines: Vec<&str> = frame.lines().collect();
     let at = lines.iter().position(|l| l.contains("Ancient scrolls read")).expect("the sign");
     assert!(
@@ -1239,13 +1241,13 @@ fn every_settlement_glance_row_is_on_screen_at_80x24_with_everything_on() {
         "SETTLEMENT", // the one heading
         "People 6",   // People, with Idle right-aligned
         "Idle 6",
-        "Hungry 1",             // the need-flags row
-        "Food 0 · 0 each",      // the Food row
-        "Winter: mild",         // the winter row
-        "Research: none set",   // the Research row, no target yet
-        "Gate 0 of 9 signs",    // the Gate row
-        "Needs 10 more people", // what it still needs
-        "HARVEST",              // the active tool
+        "Hungry 1",            // the need-flags row
+        "Food 0 · 0 each",     // the Food row
+        "Winter: mild",        // the winter row
+        "Research: none set",  // the Research row, no target yet
+        "Gate 0 of 9 signs",   // the Gate row
+        "Needs 4 more people", // what it still needs: the chapter's 10 people come first
+        "HARVEST",             // the active tool
     ] {
         assert!(frame.contains(want), "{want:?} in\n{frame}");
     }

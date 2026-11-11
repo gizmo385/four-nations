@@ -40,8 +40,14 @@ pub struct EndeavorDef {
     pub name: String,
     /// One line under the name on the Endeavor screen: what it is and what the signs are for.
     pub description: String,
-    /// The signs, in file order: the order the UI lists them in.
+    /// The gate's signs, in file order: the order the UI lists them in. Chapter signs
+    /// (`chapter = true`) aren't here: they belong to their chapter, so the Ready check and the
+    /// "N of 9" count never see them.
     pub signs: Vec<SignDef>,
+    /// Intermediate goals on the way to the gate (#439, docs/design/pacing.md section 3), in file
+    /// order. A chapter latches the first time all its signs are met at once; its reward is a
+    /// door, such as the caravans (`data/trade.toml`'s `opens`).
+    pub chapters: Vec<ChapterDef>,
     /// The building the endeavor raises (`endeavor = true` in `data/buildings.toml`). Set exactly
     /// when there are stages.
     pub building: Option<BuildingId>,
@@ -57,6 +63,18 @@ pub struct EndeavorDef {
     /// `MasteryDef`/`bending.toml`; this is just the "is there a masters sign at all" gate the
     /// per-bend alert line (`fn_ui::alerts`) still needs.
     master_bends: Option<MasterBends>,
+}
+
+/// A chapter (`[[chapter]]`, #439): a few ordinary signs met at once, on the way to the gate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChapterDef {
+    pub id: String,
+    /// What the UI calls it once met, and above its signs until then ("Known on the road").
+    pub name: String,
+    /// One line under its signs while it isn't met: what meeting it brings.
+    pub hint: String,
+    /// Its signs, in the order `signs` lists them; every one has `chapter = true` in the data.
+    pub signs: Vec<SignDef>,
 }
 
 /// See `EndeavorDef::master_bends`.
@@ -299,9 +317,20 @@ pub(crate) struct EndeavorFile {
     #[serde(default)]
     sign: Vec<RawSign>,
     #[serde(default)]
+    chapter: Vec<RawChapter>,
+    #[serde(default)]
     stage: Vec<RawStage>,
     #[serde(default)]
     avatar: Option<RawAvatar>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawChapter {
+    id: String,
+    name: String,
+    hint: String,
+    signs: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -463,6 +492,9 @@ struct RawSign {
     /// `every_building`: kinds the player may skip; defaults to 0.
     #[serde(default)]
     spare: Option<u32>,
+    /// A chapter's sign (#439): listed by a `[[chapter]]`, never counted toward the gate.
+    #[serde(default)]
+    chapter: bool,
 }
 
 impl EndeavorFile {
@@ -482,12 +514,20 @@ impl EndeavorFile {
             return Err(DefsError("endeavor: name must not be empty".into()));
         }
         let mut signs: Vec<SignDef> = Vec::with_capacity(self.sign.len());
+        let mut chapter_signs: Vec<SignDef> = Vec::new();
         for raw in self.sign {
+            let chapter = raw.chapter;
             let sign = raw.resolve(items, techs)?;
-            if signs.iter().any(|s| s.id == sign.id) {
+            if signs.iter().chain(&chapter_signs).any(|s| s.id == sign.id) {
                 return Err(DefsError(format!("sign {}: duplicate id", sign.id)));
             }
-            if let SignKind::EveryBuilding { spare } = sign.kind {
+            if chapter {
+                chapter_signs.push(sign);
+                continue;
+            }
+            if let SignKind::EveryBuilding { spare } = sign.kind
+                && sign.target == 0
+            {
                 // Every nation's reachable count, so `spare` can never zero out even the
                 // smallest nation's target (`docs/design/materials.md` section 6; #354).
                 let smallest = Nation::ALL
@@ -504,6 +544,7 @@ impl EndeavorFile {
             }
             signs.push(sign);
         }
+        let chapters = resolve_chapters(self.chapter, chapter_signs)?;
         let mut stages: Vec<StageDef> = Vec::with_capacity(self.stage.len());
         for raw in self.stage {
             let stage = raw.resolve(items, chi_max)?;
@@ -560,8 +601,58 @@ impl EndeavorFile {
                 bends: mastery.master_bends,
                 per_nation: mastery.master_bends_per_nation,
             });
-        Ok(EndeavorDef { name, description, signs, building, stages, avatar, master_bends })
+        Ok(EndeavorDef {
+            name,
+            description,
+            signs,
+            chapters,
+            building,
+            stages,
+            avatar,
+            master_bends,
+        })
     }
+}
+
+/// Hands each `chapter = true` sign to the one `[[chapter]]` that lists it: every chapter sign
+/// belongs to exactly one chapter, and a chapter lists only chapter signs, at least one.
+fn resolve_chapters(
+    raw: Vec<RawChapter>,
+    mut pool: Vec<SignDef>,
+) -> Result<Vec<ChapterDef>, DefsError> {
+    let mut chapters: Vec<ChapterDef> = Vec::with_capacity(raw.len());
+    for c in raw {
+        let err = |msg: &str| DefsError(format!("chapter {}: {msg}", c.id));
+        if c.id.trim().is_empty() {
+            return Err(DefsError("chapter: id must not be empty".into()));
+        }
+        if chapters.iter().any(|o| o.id == c.id) {
+            return Err(err("duplicate id"));
+        }
+        if c.name.trim().is_empty() || c.hint.trim().is_empty() {
+            return Err(err("name and hint must not be empty"));
+        }
+        if c.signs.is_empty() {
+            return Err(err("needs at least one sign"));
+        }
+        let mut signs = Vec::with_capacity(c.signs.len());
+        for id in &c.signs {
+            let Some(n) = pool.iter().position(|s| s.id == *id) else {
+                return Err(err(&format!(
+                    "sign {id:?} isn't a chapter = true sign, or another chapter has it"
+                )));
+            };
+            signs.push(pool.remove(n));
+        }
+        chapters.push(ChapterDef { id: c.id, name: c.name, hint: c.hint, signs });
+    }
+    if let Some(s) = pool.first() {
+        return Err(DefsError(format!(
+            "sign {}: chapter = true, but no [[chapter]] lists it",
+            s.id
+        )));
+    }
+    Ok(chapters)
 }
 
 /// Links a cost list's item ids: each item known, counted at least once, and listed once.
@@ -765,10 +856,17 @@ impl RawSign {
             }
         };
         let k = self.kind;
-        let computed =
-            matches!(k, RawKind::BedsForAll | RawKind::BranchComplete | RawKind::EveryBuilding);
+        // `every_building` takes a target instead of computing one when it is a plain "N kinds"
+        // (a chapter's "four kinds of building", #439), and then no `spare`.
+        let computed = matches!(k, RawKind::BedsForAll | RawKind::BranchComplete)
+            || (k == RawKind::EveryBuilding && self.target.is_none());
         allowed(self.target.is_some(), !computed, "target")?;
         allowed(self.per_nation.is_some(), !computed, "per_nation")?;
+        allowed(
+            self.spare.is_some() && self.target.is_some(),
+            k != RawKind::EveryBuilding,
+            "spare with a target",
+        )?;
         allowed(self.food.is_some(), k == RawKind::Stored, "food")?;
         allowed(self.tally.is_some(), k == RawKind::Tally, "tally")?;
         allowed(self.spare.is_some(), k == RawKind::EveryBuilding, "spare")?;
@@ -906,6 +1004,49 @@ mod tests {
         assert!(has(|k| matches!(k, SignKind::Tally(Tally::Harvested(_)))));
         assert!(has(|k| matches!(k, SignKind::Tally(Tally::ScrollsRead))));
         assert!(has(|k| *k == SignKind::Masters));
+    }
+
+    const CHAPTER_SIGN: &str = "[[sign]]\nid = \"c\"\nchapter = true\ngroup = \"people\"\n\
+                                name = \"P\"\nshort = \"p\"\nkind = \"population\"\ntarget = 3\n";
+
+    /// #439: a `[[chapter]]` takes its `chapter = true` signs out of the gate's list.
+    #[test]
+    fn a_chapter_owns_its_signs_and_the_gate_never_sees_them() {
+        let e = load(&format!(
+            "{CHAPTER_SIGN}[[chapter]]\nid = \"road\"\nname = \"Road\"\nhint = \"H\"\n\
+             signs = [\"c\"]\n"
+        ))
+        .unwrap();
+        assert!(e.signs.is_empty());
+        assert_eq!(e.chapters.len(), 1);
+        assert_eq!(e.chapters[0].signs[0].id, "c");
+        assert_eq!(e.chapters[0].signs[0].target_for(Nation::Fire), Some(3));
+    }
+
+    #[test]
+    fn chapters_are_checked_strictly() {
+        let chapter = |signs: &str| {
+            format!("[[chapter]]\nid = \"road\"\nname = \"Road\"\nhint = \"H\"\nsigns = {signs}\n")
+        };
+        assert!(error(CHAPTER_SIGN).contains("no [[chapter]] lists it"));
+        assert!(error(&format!("{CHAPTER_SIGN}{}", chapter("[]"))).contains("at least one sign"));
+        assert!(error(&format!("{CHAPTER_SIGN}{}", chapter("[\"x\"]"))).contains("\"x\""));
+        let both = format!("{CHAPTER_SIGN}{}{}", chapter("[\"c\"]"), chapter("[\"c\"]"));
+        assert!(error(&both).contains("duplicate id"));
+        let odd =
+            format!("{CHAPTER_SIGN}{}", chapter("[\"c\"]")).replace("hint = \"H\"", "hnt = 1");
+        assert!(error(&odd).contains("hnt"));
+    }
+
+    /// #439: `every_building` with a plain target counts kinds against it, and can't also have
+    /// a `spare`.
+    #[test]
+    fn every_building_may_take_a_plain_target_instead_of_spare() {
+        let sign = "[[sign]]\nid = \"b\"\ngroup = \"buildings\"\nname = \"B\"\nshort = \"b\"\n\
+                    kind = \"every_building\"\ntarget = 4\n";
+        let e = load(sign).unwrap();
+        assert_eq!(e.signs[0].target_for(Nation::Air), Some(4));
+        assert!(error(&format!("{sign}spare = 1\n")).contains("spare with a target"));
     }
 
     #[test]
@@ -1141,15 +1282,14 @@ mod tests {
     }
 
     #[test]
-    fn every_building_defaults_spare_to_zero_and_target_and_per_nation_dont_apply() {
+    fn every_building_defaults_spare_to_zero_and_per_nation_needs_a_target() {
         let e = load(
             "[[sign]]\nid = \"b\"\ngroup = \"buildings\"\nname = \"B\"\nshort = \"b\"\nkind = \"every_building\"\n",
         )
         .unwrap();
         assert_eq!(e.signs[0].kind, SignKind::EveryBuilding { spare: 0 });
-        assert!(
-            error(&sign("kind = \"every_building\"\ntarget = 3")).contains("target doesn't apply")
-        );
+        // A plain target is allowed since #439 (`every_building_may_take_a_plain_target_...`);
+        // per_nation without one still isn't.
         assert!(
             error(&sign("kind = \"every_building\"\nper_nation = { air = 3 }"))
                 .contains("per_nation doesn't apply")

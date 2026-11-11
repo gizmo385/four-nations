@@ -4,7 +4,7 @@
 //! there are, and when the endeavor is Ready, are the sim's.
 
 use fn_sim::bending::Rank;
-use fn_sim::endeavor::{SignDef, SignGroup, SignKind, Tally};
+use fn_sim::endeavor::{ChapterDef, SignDef, SignGroup, SignKind, Tally};
 use fn_sim::world::{
     AvatarLeaveReason, EndeavorEvent, EndeavorEventKind, EndeavorState, SignProgress,
 };
@@ -37,8 +37,25 @@ pub struct ScreenView {
     /// Under the stage, what can be done with the gate now (#643): "Enter: choose a site for the
     /// gate" once Ready, "X: withdraw the site" until work on it starts (`crate::gate::action`).
     pub action: Option<String>,
+    /// The current chapter (#439), shown at the top: its signs until it's met, then its name
+    /// alone. `None` when the data has no chapter.
+    pub chapter: Option<ChapterView>,
     /// The signs under their headings, in data order.
     pub groups: Vec<GroupView>,
+}
+
+/// The Endeavor screen's CHAPTER section (#439, docs/design/pacing.md section 3).
+#[derive(Clone, PartialEq, Debug)]
+pub struct ChapterView {
+    /// "Known on the road".
+    pub name: String,
+    pub met: bool,
+    /// "2 of 3"; empty once met.
+    pub count: String,
+    /// Its signs while it isn't met, in data order; empty once met.
+    pub signs: Vec<SignRow>,
+    /// What meeting it brings ("Traders come once the road knows you"), while it isn't met.
+    pub hint: Option<String>,
 }
 
 /// One heading of the screen and its signs.
@@ -119,6 +136,18 @@ fn frac(p: &SignProgress) -> f32 {
 /// Every sign with its definition, in data order.
 fn signs<'d>(world: &World, defs: &'d Defs) -> Vec<(&'d SignDef, SignProgress<'d>)> {
     defs.endeavor.signs.iter().zip(world.endeavor_signs(defs)).collect()
+}
+
+/// The chapter the screen and the side panel show (#439): the first one not met yet, else the
+/// last one met, with its signs' progress (empty once met). `None` without chapters in the data.
+fn chapter<'d>(
+    world: &World,
+    defs: &'d Defs,
+) -> Option<(&'d ChapterDef, Vec<(&'d SignDef, SignProgress<'d>)>)> {
+    match world.current_chapter(defs) {
+        Some(c) => Some((c, c.signs.iter().zip(world.chapter_signs(c, defs)).collect())),
+        None => defs.endeavor.chapters.last().map(|c| (c, Vec::new())),
+    }
 }
 
 /// Names of the settlement's own techs it doesn't know yet, in data order.
@@ -430,6 +459,42 @@ fn stage(world: &World, defs: &Defs) -> String {
     }
 }
 
+/// One sign's row on the screen, gate or chapter alike.
+fn sign_row(sign: &SignDef, p: &SignProgress, world: &World, defs: &Defs) -> SignRow {
+    let closest = (!p.met && matches!(sign.kind, SignKind::Masters))
+        .then(|| masters_line(world, defs))
+        .flatten();
+    let found = if !p.met && matches!(sign.kind, SignKind::Tally(Tally::ScrollsRead)) {
+        found_scrolls(world, defs, sign)
+    } else {
+        Vec::new()
+    };
+    SignRow {
+        id: sign.id.clone(),
+        name: sign_name(sign, world, defs),
+        met: p.met,
+        hint: if p.met { None } else { hint(sign, world, defs) },
+        value: format!("{}/{}", p.value, p.target),
+        frac: frac(p),
+        closest,
+        found,
+    }
+}
+
+/// The CHAPTER section (#439).
+fn chapter_view(world: &World, defs: &Defs) -> Option<ChapterView> {
+    let (c, signs) = chapter(world, defs)?;
+    let met = world.chapter_met(&c.id).is_some();
+    let done = signs.iter().filter(|(_, p)| p.met).count();
+    Some(ChapterView {
+        name: c.name.clone(),
+        met,
+        count: if met { String::new() } else { format!("{done} of {}", signs.len()) },
+        signs: signs.iter().map(|(s, p)| sign_row(s, p, world, defs)).collect(),
+        hint: (!met).then(|| c.hint.clone()),
+    })
+}
+
 pub fn screen_view(session: &Session) -> ScreenView {
     let (world, defs) = (&session.world, &session.defs);
     let signs = signs(world, defs);
@@ -437,24 +502,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
     let total = signs.len();
     let mut groups: Vec<GroupView> = Vec::new();
     for (sign, p) in &signs {
-        let closest = (!p.met && matches!(sign.kind, SignKind::Masters))
-            .then(|| masters_line(world, defs))
-            .flatten();
-        let found = if !p.met && matches!(sign.kind, SignKind::Tally(Tally::ScrollsRead)) {
-            found_scrolls(world, defs, sign)
-        } else {
-            Vec::new()
-        };
-        let row = SignRow {
-            id: sign.id.clone(),
-            name: sign_name(sign, world, defs),
-            met: p.met,
-            hint: if p.met { None } else { hint(sign, world, defs) },
-            value: format!("{}/{}", p.value, p.target),
-            frac: frac(p),
-            closest,
-            found,
-        };
+        let row = sign_row(sign, p, world, defs);
         let heading = heading(sign.group);
         match groups.last_mut() {
             Some(g) if g.heading == heading => g.signs.push(row),
@@ -470,6 +518,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
         frac: share(met, total),
         stage: stage(world, defs),
         action: crate::gate::action(session).map(|a| a.hint().to_owned()),
+        chapter: chapter_view(world, defs),
         groups,
     }
 }
@@ -488,10 +537,18 @@ pub fn endeavor_status(session: &Session) -> Option<EndeavorStatus> {
     let met = signs.iter().filter(|(_, p)| p.met).count();
     // Every sign has been met once the endeavor is past Dormant, so nothing is missing.
     let ready = *world.endeavor() != EndeavorState::Dormant;
+    // A missing chapter sign comes before the gate's own (#439): it's the nearer goal.
+    let chapter_signs = chapter(world, defs).map(|(_, s)| s).unwrap_or_default();
     let next = if ready {
         Vec::new()
     } else {
-        signs.iter().filter(|(_, p)| !p.met).take(NEXT_SHOWN).map(|(s, p)| missing(s, p)).collect()
+        chapter_signs
+            .iter()
+            .chain(&signs)
+            .filter(|(_, p)| !p.met)
+            .take(NEXT_SHOWN)
+            .map(|(s, p)| missing(s, p))
+            .collect()
     };
     Some(EndeavorStatus {
         name: defs.endeavor.name.clone(),
@@ -513,6 +570,10 @@ pub fn describe_event(defs: &Defs, ev: &EndeavorEvent) -> String {
         EndeavorEventKind::SignMet(id) => {
             let name = defs.endeavor.signs.iter().find(|s| s.id == *id).map_or(id, |s| &s.name);
             format!("Sign met: {name}")
+        }
+        EndeavorEventKind::ChapterMet(id) => {
+            let name = defs.endeavor.chapters.iter().find(|c| c.id == *id).map_or(id, |c| &c.name);
+            format!("Chapter met: {name}")
         }
         EndeavorEventKind::Ready => READY_TEXT.to_owned(),
         EndeavorEventKind::StageDone(id) => {
@@ -570,6 +631,66 @@ mod tests {
 
     fn session(nation: Nation) -> Session {
         Session::new(7, nation, 64, 64)
+    }
+
+    /// The bundled data with "Known on the road" made easy (#439): one person, any kind of
+    /// building, and a second population sign in place of food, so a fresh game can meet it.
+    fn easy_road(s: &mut Session) {
+        let src = include_str!("../../../data/endeavor.toml")
+            .replacen("target = 10\n", "target = 1\n", 1)
+            .replacen(
+                "kind = \"every_building\"\ntarget = 4",
+                "kind = \"every_building\"\ntarget = 1",
+                1,
+            )
+            .replacen(
+                "kind = \"stored\"\nfood = true\ntarget = 60",
+                "kind = \"population\"\ntarget = 1",
+                1,
+            );
+        s.defs = s.defs.clone().with_endeavor(&src).unwrap();
+    }
+
+    #[test]
+    fn the_chapter_shows_its_signs_until_met_then_only_its_name() {
+        let mut s = session(Nation::Earth);
+        let v = screen_view(&s).chapter.expect("the bundled data has a chapter");
+        assert_eq!(v.name, "Known on the road");
+        assert!(!v.met);
+        assert_eq!(v.count, "0 of 3");
+        let ids: Vec<&str> = v.signs.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, ["chapter_population", "chapter_kinds", "chapter_food"]);
+        assert_eq!(v.hint.as_deref(), Some("Traders come once the road knows you"));
+        // The gate's own count never includes the chapter's signs.
+        assert_eq!(screen_view(&s).total, s.defs.endeavor.signs.len());
+
+        easy_road(&mut s);
+        let bed = s.defs.building_id("bed").unwrap();
+        let at = s.world.settlement_anchor();
+        s.world.put_building(fn_sim::geom::Footprint::single(at), bed, &s.defs);
+        for _ in 0..10 {
+            s.tick();
+        }
+        assert!(s.world.chapter_met("known_on_the_road").is_some());
+        let v = screen_view(&s).chapter.unwrap();
+        assert!(v.met);
+        assert!(v.signs.is_empty() && v.hint.is_none() && v.count.is_empty());
+        let ev = s
+            .world
+            .endeavor_events()
+            .find(|e| matches!(e.kind, EndeavorEventKind::ChapterMet(_)))
+            .unwrap()
+            .clone();
+        assert_eq!(describe_event(&s.defs, &ev), "Chapter met: Known on the road");
+    }
+
+    #[test]
+    fn the_side_panel_names_a_missing_chapter_sign_first() {
+        let s = session(Nation::Earth);
+        let status = endeavor_status(&s).unwrap();
+        // A new game: 4 more people for the chapter (6 of 10), before the gate's 10 (6 of 16).
+        assert_eq!(status.next[0], format!("{} more people", 10 - s.world.units.len()));
+        assert_eq!(status.next.len(), NEXT_SHOWN);
     }
 
     #[test]
@@ -652,7 +773,8 @@ mod tests {
     fn the_gate_detail_says_what_is_needed() {
         let s = session(Nation::Fire);
         let status = endeavor_status(&s).unwrap();
-        let people = 16 - s.world.units.len();
+        // The chapter's population (10) comes first while it isn't met (#439).
+        let people = 10 - s.world.units.len();
         assert_eq!(gate_detail(&status.next, &status.line), format!("Needs {people} more people"));
         assert_eq!(gate_detail(&[], READY_LINE), "Ready");
         assert_eq!(status.count, format!("0 of {} signs", s.defs.endeavor.signs.len()));
@@ -664,10 +786,11 @@ mod tests {
         let status = endeavor_status(&s).unwrap();
         assert_eq!(status.name, "The Harmony Gate");
         assert_eq!(status.next.len(), NEXT_SHOWN);
-        let people = 16 - s.world.units.len();
+        // The chapter's signs first (#439): 10 people, 4 kinds, 60 food.
+        let people = 10 - s.world.units.len();
         assert_eq!(status.next[0], format!("{people} more people"));
-        assert_eq!(status.next[1], format!("{} more beds", s.world.units.len()));
-        assert_eq!(status.next[2], "11 more kinds");
+        assert_eq!(status.next[1], "4 more kinds");
+        assert_eq!(status.next[2], "60 more food");
         assert_eq!(status.line, "Signs met - G: open");
     }
 

@@ -43,11 +43,14 @@ fn interval_ticks(defs: &Defs) -> u64 {
     (defs.needs.growth.arrival_minutes * 60.0 * TICKS_PER_SECOND as f32).round() as u64
 }
 
-/// Ticks for exactly one growth check (growth checks only ever fire on an `interval_ticks`
-/// boundary), which stays well inside the lone settler's dehydration clock: there is no water
-/// on `field`, so a longer run would kill it off and confuse what these tests are checking.
+/// One growth check: draw is filled to 1.0 (`world/draw.rs`, #435, tested on its own there) and
+/// the world runs one second, the step draw is checked on. That stays well inside the lone
+/// settler's dehydration clock: there is no water on `field`, so a longer run would kill it off
+/// and confuse what these tests are checking.
 fn tick_one_check(w: &mut World, defs: &Defs) {
-    for _ in 0..interval_ticks(defs) {
+    w.draw = crate::world::DRAW_ONE;
+    w.last_arrival = None;
+    for _ in 0..TICKS_PER_SECOND {
         w.tick(defs);
     }
 }
@@ -132,7 +135,7 @@ fn a_newcomer_under_a_difficulty_preset_also_eats_newcomer_food() {
     // The difficulty preset's `newcomer_food` knob (#294): on top of #232's
     // `food_per_newcomer` threshold, the arrival itself takes `newcomer_food` more from stores,
     // the nearest stack first. Identity (`None`) takes none, so this only shows once a preset is
-    // set. Calls `spawn_newcomer`/`take_newcomer_food` directly (as `tick_population` does) so
+    // set. Calls `spawn_newcomer`/`take_newcomer_food` directly (as `tick_draw` does) so
     // the lone settler's own needs can't incidentally eat into the stockpile and confuse it.
     let defs = Defs::bundled();
     let mut w = world(1, &defs);
