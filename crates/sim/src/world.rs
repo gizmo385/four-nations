@@ -24,6 +24,7 @@ use crate::research::{self, Research, ResearchError, TechId};
 use crate::rng::{self, SimRng};
 
 mod avatar;
+mod balloon;
 mod beast;
 mod bending;
 mod build;
@@ -66,6 +67,7 @@ mod trade;
 mod work;
 
 pub use avatar::AvatarState;
+pub use balloon::{Balloon, BalloonStatus, Dock, Flight, Held};
 pub use beast::{BeastEvent, BeastEventKind};
 pub use bending::{BendChannel, BendError, BendEvent, BendOutcome, MasteryProgress, Moved};
 use bending::{Patch, Revert};
@@ -989,6 +991,7 @@ impl World {
         self.tick_heat();
         self.tick_fuel(defs);
         self.tick_outposts(defs);
+        self.tick_balloons(defs);
         self.tick_scooters();
         self.tick_beasts(defs);
         // Beasts first: a hauling beast gets the long trips before the settlers see them.

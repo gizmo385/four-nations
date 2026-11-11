@@ -12,6 +12,8 @@
 //!   effect says it is in use (`World::fuel_in_use`, one arm per effect): a heat source while any
 //!   unit stands in its reach, a Hothouse while it warms a plot (`hothouse.rs`). Later effects
 //!   (the Steam Engine) add their own arm.
+//! - **Per flight instead.** A bunker with no `per_minute` never burns here: its building's own
+//!   effect takes fuel when it acts (the Balloon Dock's launches, `balloon.rs`).
 //! - **Refuelled from stores.** At or below half full, a `JobKind::Refuel` is opened. A unit
 //!   fetches the shortfall (up to what it can carry) from the nearest stockpile or ground stack,
 //!   the way a build site's bill arrives, and tips it into the bunker. Fuel in a bunker is out
@@ -89,7 +91,8 @@ impl World {
         for b in self.of_kind(Kind::Fuel) {
             let def = defs.building(b.id);
             let (Some(bunker), Some(fuel)) = (b.fuel, def.fuel.as_ref()) else { continue };
-            if bunker.count > 0 && self.fuel_in_use(b, def, defs) {
+            // A bunker with no `per_minute` burns some other way (a balloon's flights).
+            if bunker.count > 0 && fuel.micros_per_tick > 0 && self.fuel_in_use(b, def, defs) {
                 burning.push(b.anchor);
             }
             if bunker.count * 2 <= fuel.bunker {

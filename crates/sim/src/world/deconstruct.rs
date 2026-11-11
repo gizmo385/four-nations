@@ -113,6 +113,10 @@ impl World {
         for stack in record.pantry.iter().flat_map(|p| &p.stacks) {
             self.place_ground(pos, *stack);
         }
+        // So does a Balloon Dock's hold, and cargo flying toward it (`balloon.rs`).
+        for stack in record.dock_goods() {
+            self.place_ground(pos, stack);
+        }
         if let (Some(craft), Some(recipe)) = (&record.craft, &def.recipe) {
             for (input, &count) in recipe.inputs.iter().zip(&craft.delivered) {
                 if count > 0 {

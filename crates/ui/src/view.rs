@@ -287,7 +287,12 @@ impl Activity {
             // So is sending a stack down a chute (`world/chute.rs`), and carrying goods to a
             // caravan's camp (`world/trade.rs`).
             Some(
-                Task::Haul(_) | Task::Deliver | Task::Refuel(_) | Task::Chute(_) | Task::Trade(_),
+                Task::Haul(_)
+                | Task::Deliver
+                | Task::Refuel(_)
+                | Task::Chute(_)
+                | Task::Balloon(_)
+                | Task::Trade(_),
             ) => Self::Haul,
             // Clearing ground (#424) groups with harvesting until the Clear tool gets its own
             // panel row (#426).
