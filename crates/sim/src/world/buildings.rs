@@ -152,6 +152,8 @@ pub(super) enum Kind {
     Balloon,
     /// A Tea House (`tea.rs`).
     Tea,
+    /// An Archive (`archive.rs`).
+    Archive,
 }
 
 impl Kind {
@@ -172,6 +174,7 @@ impl Kind {
             (def.houses_beast, Kind::BeastHome),
             (def.balloon.is_some(), Kind::Balloon),
             (def.tea_house.is_some(), Kind::Tea),
+            (def.archive.is_some(), Kind::Archive),
         ]
         .into_iter()
         .filter_map(|(is, kind)| is.then_some(kind))
@@ -433,6 +436,10 @@ impl World {
         }
         let record = self.buildings.take(key, defs);
         self.map_changed();
+        // The halls it reached lose its seats (`sync_seats`, #709).
+        if record.as_ref().is_some_and(|r| defs.building(r.id).archive.is_some()) {
+            self.sync_seats(defs);
+        }
         // A pair building's partner is left with no partner (`pair.rs`).
         if let Some(r) = &record
             && let Some(partner) = r.link

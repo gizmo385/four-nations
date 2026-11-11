@@ -106,6 +106,13 @@ name = "Ice"
 id = "herbs"
 name = "Herbs"
 
+# --- The Archive (issue #709) ---
+# What scribing makes. A plain stored item: no `knowledge`, so it is never read and never counts
+# toward the scrolls sign; caravans take it (#711).
+[[item]]
+id = "scroll_copy"
+name = "Scroll Copy"
+
 # What working a map resource yields. When the work finishes `count` of `item` drops beside the
 # resource, and the resource is cleared unless it regrows (see `regrow`).
 # - verb:     what the designation is called in the UI.

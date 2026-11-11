@@ -69,6 +69,20 @@ impl Footprint {
         gap(p.x, self.anchor.x, self.w).max(gap(p.y, self.anchor.y, self.h))
     }
 
+    /// Chebyshev distance between two footprints: the gap between their nearest tiles, 0 where
+    /// they overlap and 1 where they touch.
+    pub fn gap(self, other: Footprint) -> i32 {
+        let axis = |a: i32, alen: u8, b: i32, blen: u8| {
+            (b - (a + i32::from(alen) - 1)).max(a - (b + i32::from(blen) - 1)).max(0)
+        };
+        axis(self.anchor.x, self.w, other.anchor.x, other.w).max(axis(
+            self.anchor.y,
+            self.h,
+            other.anchor.y,
+            other.h,
+        ))
+    }
+
     /// The door: the ring tile below the middle of the bottom row (docs/design/buildings.md,
     /// "Units inside buildings", #226). Every door faces down, since there is no rotation (#207).
     pub fn entrance(self) -> Pos {

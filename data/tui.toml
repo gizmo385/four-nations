@@ -183,6 +183,12 @@ glyph = "§"
 ascii = "?"
 fg = [236, 220, 176]
 
+# What the Archive scribes (#709): a plainer scroll than the ancient one, never read.
+[item.scroll_copy]
+glyph = "¶"
+ascii = "s"
+fg = [214, 206, 182]
+
 # --- Fire production (#124) ---
 [item.metal]
 glyph = "▬"
@@ -283,6 +289,12 @@ fg = [196, 176, 236]
 glyph = "⌖"
 ascii = "R"
 fg = [210, 190, 140]
+
+# Archives' Archive (#709): the hall of records, beside the study halls it adds seats to.
+[building.archive]
+glyph = "Ω"
+ascii = "O"
+fg = [214, 196, 150]
 
 # Waystations' Waystation (horizons phase 2): a lean-to with a pantry and a barrel.
 [building.waystation]

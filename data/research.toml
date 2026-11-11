@@ -717,3 +717,15 @@ requires = { chapter = "known_on_the_road" }
 [[tech.unlocks.upgrades]]
 building = "workshop"
 recipe = "wares"
+
+[[tech]]
+id = "archives"
+name = "Archives"
+description = "Keep a hall of records, and copy what the scholars know for the traders."
+cost = 500
+prereqs = ["writing"]
+# The Archive (#709, docs/design/horizons-phase-3.md, "`archives`"): more seats for the study
+# halls in reach, and scribing. It waits on three ancient scrolls read at a study hall (#707).
+requires = { scrolls_read = 3 }
+[tech.unlocks]
+buildings = ["archive"]

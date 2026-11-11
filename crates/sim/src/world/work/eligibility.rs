@@ -324,9 +324,9 @@ impl World {
             // Not reachable at all with nothing queued to study toward: nobody should claim a
             // seat that would only idle there (#284). A seat is a place inside (#227), so the
             // stand is the door, not the ring around the building.
-            JobKind::Study { pos } => (!self.research.queue().is_empty())
-                .then(|| free(StandRule::Entrance(pos)))
-                .flatten(),
+            JobKind::Study { pos } => {
+                self.study_wanted(defs).then(|| free(StandRule::Entrance(pos))).flatten()
+            }
             // Not reachable at all with nothing left to chart within range (#402), the same way
             // an empty research queue leaves a study seat unclaimed.
             JobKind::Chart { pos } => self

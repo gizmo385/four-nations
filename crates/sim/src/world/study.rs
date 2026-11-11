@@ -36,8 +36,21 @@ impl World {
     /// tech adds (`BuildingDef::seat_upgrades`, `writing`'s +2, docs/design/horizons-phase-1.md).
     /// 0 off a building.
     pub fn seats_at(&self, pos: Pos, defs: &Defs) -> u32 {
-        let Some(def) = self.building_at(pos).map(|b| defs.building(b)) else { return 0 };
-        self.seats_of(def)
+        let Some(b) = self.building_record(pos) else { return 0 };
+        self.seats_for(b.id, b.anchor, defs)
+    }
+
+    /// `seats_of` plus the best Archive in reach of a building `id` anchored on `anchor`
+    /// (`BuildingDef::archive`, #709). Two Archives don't stack.
+    pub(super) fn seats_for(&self, id: BuildingId, anchor: Pos, defs: &Defs) -> u32 {
+        let def = defs.building(id);
+        let (w, h) = def.footprint;
+        let bonus = if def.seats > 0 {
+            self.archive_bonus(id, crate::geom::Footprint::new(anchor, w, h), defs)
+        } else {
+            0
+        };
+        self.seats_of(def) + bonus
     }
 
     /// `seats_at` for a building def, for this settlement's research.
@@ -51,33 +64,61 @@ impl World {
         def.seats + extra
     }
 
-    /// Opens the seats each finished hall is missing against `seats_at`: Study jobs, or Chart
-    /// jobs at a Map Room. Runs when a tech completes and after `load`, so learning `writing`,
-    /// or loading a save that already knows it, gives every standing hall its new seats. A
-    /// no-op when nothing was upgraded, since every hall opened its full count when it rose.
+    /// Opens the seats each finished hall is missing against `seats_at`, and closes the ones it
+    /// has too many of: Study jobs, or Chart jobs at a Map Room. Runs when a tech completes, when
+    /// a hall or an Archive finishes or comes down, and after `load`, so learning `writing`,
+    /// or loading a save that already knows it, gives every standing hall its new seats, and
+    /// taking an Archive down takes its seats away again (#709). Closing goes unclaimed seats
+    /// first, then the highest `JobId`, whose scholar steps out. A no-op when nothing changed.
     pub(crate) fn sync_seats(&mut self, defs: &Defs) {
         let halls: Vec<(Pos, bool, u32)> = self
             .buildings()
-            .map(|b| (b.anchor, defs.building(b.id)))
-            .filter(|(_, d)| d.seats > 0)
-            .map(|(anchor, d)| (anchor, d.chart.is_some(), self.seats_of(d)))
+            .filter(|b| defs.building(b.id).seats > 0)
+            .map(|b| {
+                let d = defs.building(b.id);
+                (b.anchor, d.chart.is_some(), self.seats_for(b.id, b.anchor, defs))
+            })
             .collect();
         for (anchor, chart, want) in halls {
-            let have = self
+            let mut have: Vec<(bool, JobId)> = self
                 .jobs
                 .iter()
                 .filter(|j| match j.kind {
                     JobKind::Study { pos } | JobKind::Chart { pos } => pos == anchor,
                     _ => false,
                 })
-                .count() as u32;
-            let missing = want.saturating_sub(have);
-            if chart {
-                self.open_chart_seats(anchor, missing);
-            } else {
-                self.open_study_seats(anchor, missing);
+                .map(|j| (j.claimed_by.is_some(), j.id))
+                .collect();
+            let want = want as usize;
+            if have.len() < want {
+                let missing = (want - have.len()) as u32;
+                if chart {
+                    self.open_chart_seats(anchor, missing);
+                } else {
+                    self.open_study_seats(anchor, missing);
+                }
+            } else if have.len() > want {
+                // Unclaimed first, then the highest id: sorted so the seats to close come last.
+                have.sort_by_key(|&(claimed, id)| (claimed, std::cmp::Reverse(id)));
+                let close: Vec<JobId> =
+                    have.iter().take(have.len() - want).map(|&(_, id)| id).collect();
+                self.close_seats(&close, defs);
             }
         }
+    }
+
+    /// Removes the seat jobs `ids`; each scholar holding one lets go of it and steps out.
+    fn close_seats(&mut self, ids: &[JobId], defs: &Defs) {
+        for i in 0..self.units.len() {
+            let held = match self.units[i].job_task {
+                Some(Task::Study(id) | Task::Chart(id)) if ids.contains(&id) => Some(id),
+                _ => None,
+            };
+            if let Some(id) = held {
+                self.abandon_job(i, id, defs);
+            }
+        }
+        self.jobs.retain(|j| !ids.contains(&j.id));
     }
 
     /// The door of the building anchored on `anchor`, with its flood cost: where a unit claiming
@@ -95,7 +136,7 @@ impl World {
     pub(super) fn run_study(&mut self, i: usize, id: JobId, defs: &Defs) {
         let Some(idx) = self.job_index(id) else { return self.finish_job(i) };
         let JobKind::Study { pos: anchor } = self.jobs[idx].kind else { return self.finish_job(i) };
-        if self.research.queue().is_empty() {
+        if !self.study_wanted(defs) {
             self.jobs[idx].claimed_by = None;
             return self.finish_job(i);
         }
@@ -119,7 +160,8 @@ impl World {
         let millis = defs.research.study_millis_per_tick * boost_millis as u64 / 1000;
         let rate = millis as f32 * self.modifiers().study;
         let research_cost = self.knobs(defs).research_cost;
-        self.research.add_toward_target(rate.round() as u64, defs, research_cost);
+        let scribing = self.scribing_on(defs);
+        self.research.add_toward_target(rate.round() as u64, defs, research_cost, scribing);
     }
 
     /// How many units are seated at a study hall and producing knowledge right now, as opposed

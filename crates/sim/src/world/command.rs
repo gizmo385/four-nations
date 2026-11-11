@@ -30,6 +30,9 @@ pub enum Command {
     CancelStockpile { pos: Pos },
     /// Set the research target (see `Research::set_target`).
     SetResearch { tech: TechId },
+    /// Empty the research queue so the scholars scribe scroll copies (#709). Needs a finished
+    /// Archive; knowledge banked above the idle cap is kept for scribing.
+    ClearResearch,
     /// Designate a bend: a unit with enough chi walks to the tile, channels the ability and
     /// spends the chi when it completes.
     Bend { ability: AbilityId, pos: Pos },
@@ -229,6 +232,7 @@ impl World {
             Command::DesignateStockpile { pos } => self.designate_stockpile(pos)?,
             Command::CancelStockpile { pos } => self.cancel_stockpile(pos)?,
             Command::SetResearch { tech } => self.set_research(tech, defs)?,
+            Command::ClearResearch => self.clear_research(defs)?,
             Command::Bend { ability, pos } => self.designate_bend(ability, pos, defs).map(drop)?,
             Command::CancelBend { pos } => self.cancel_bend(pos, defs)?,
             Command::DesignateBuild { pos, building } => {
