@@ -127,6 +127,8 @@ pub enum Task {
     Chart(JobId),
     /// Taking a finished building down (`world/deconstruct.rs`, #342).
     Deconstruct(JobId),
+    /// Carrying fuel to a building's bunker (`world/fuel.rs`).
+    Refuel(JobId),
     /// Carrying a stack to a stockpile tile.
     Deliver,
     Eat(FoodSource),
@@ -270,7 +272,9 @@ impl World {
                 JobKind::Craft { .. } => None,
                 JobKind::Sow { .. } | JobKind::Reap { .. } => None,
                 JobKind::Clear { .. } => None,
-                JobKind::Chart { .. } | JobKind::Deconstruct { .. } => None,
+                JobKind::Chart { .. } | JobKind::Deconstruct { .. } | JobKind::Refuel { .. } => {
+                    None
+                }
             })
             .chain(self.standing_harvest.iter().copied())
     }
@@ -297,7 +301,8 @@ impl World {
             | JobKind::Sow { .. }
             | JobKind::Reap { .. }
             | JobKind::Chart { .. }
-            | JobKind::Deconstruct { .. } => None,
+            | JobKind::Deconstruct { .. }
+            | JobKind::Refuel { .. } => None,
         })
     }
 
@@ -1595,6 +1600,7 @@ impl World {
             JobKind::Clear { .. } => Task::Clear(job.id),
             JobKind::Chart { .. } => Task::Chart(job.id),
             JobKind::Deconstruct { .. } => Task::Deconstruct(job.id),
+            JobKind::Refuel { .. } => Task::Refuel(job.id),
         };
         let u = &mut self.units[i];
         u.job_task = Some(task);
@@ -1802,6 +1808,7 @@ impl World {
             Task::Clear(id) => self.run_clear(i, id, defs),
             Task::Chart(id) => self.run_chart(i, id, defs),
             Task::Deconstruct(id) => self.run_deconstruct(i, id, defs),
+            Task::Refuel(id) => self.run_refuel(i, id, defs),
             Task::Deliver => self.run_deliver(i, defs),
             // Need tasks never sit in the job slot.
             _ => self.finish_job(i),
@@ -1994,7 +2001,8 @@ fn job_pos(kind: JobKind) -> Option<Pos> {
         | JobKind::Reap { pos }
         | JobKind::Clear { pos }
         | JobKind::Chart { pos }
-        | JobKind::Deconstruct { pos } => Some(pos),
+        | JobKind::Deconstruct { pos }
+        | JobKind::Refuel { pos } => Some(pos),
         JobKind::EndeavorTask { .. } => None,
     }
 }
@@ -2012,7 +2020,8 @@ fn job_priority(kind: JobKind) -> u8 {
         | JobKind::Sow { .. }
         | JobKind::Reap { .. }
         | JobKind::Clear { .. }
-        | JobKind::Deconstruct { .. } => 0,
+        | JobKind::Deconstruct { .. }
+        | JobKind::Refuel { .. } => 0,
     }
 }
 

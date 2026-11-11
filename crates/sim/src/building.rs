@@ -299,6 +299,26 @@ pub struct IrrigationDef {
 /// Windmill, Wind Turbine and Tide Mill (#204, #200) are out of scope here. The lookup is
 /// `World::power_at` in `world/power.rs`, the third reader of the "best thing in reach, no
 /// stacking" pattern heat and irrigation already answer.
+/// A fuel bunker (`[building.fuel]`, docs/design/horizons-phase-1.md, "Fuel bunkers"): the
+/// building's effect is on only while its bunker holds at least one `item`. It burns
+/// `per_minute` only while the effect says it is in use (`World::fuel_in_use`), and a `Refuel`
+/// haul tops it up from stores once it is at or below half full (`world/fuel.rs`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FuelDef {
+    pub item: ItemId,
+    /// Items the bunker holds when full: at least 1.
+    pub bunker: u32,
+    /// Items burned per in-game minute of use: above 0.
+    pub per_minute: f32,
+    /// `per_minute` as millionths of an item per tick, rounded at load, so burning is integer
+    /// arithmetic and deterministic on every platform. Finer than millis, because a lamp's
+    /// 0.25 a minute is 0.42 thousandths a tick.
+    pub micros_per_tick: u64,
+}
+
+/// One whole item, in `FuelDef::micros_per_tick` units.
+pub const FUEL_MICROS: u64 = 1_000_000;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PowerDef {
     /// Tiles around it, Chebyshev, that count as in reach at a `power_generation` modifier of
@@ -418,6 +438,9 @@ pub struct BuildingDef {
     pub names: HashMap<Nation, String>,
     /// The tech that must be known before this building may be designated (`data/research.toml`,
     /// `Unlocks::buildings`, issue #22). `None` means every nation can build it from the start.
+    /// A fuel bunker the building's effect runs on (`FuelDef`), or `None` for one that never
+    /// needs fuel.
+    pub fuel: Option<FuelDef>,
     pub unlocked_by: Option<TechId>,
     /// The end game's great work (#236): hidden from the build picker and refused by
     /// `Command::DesignateBuild`. `data/endeavor.toml` names it and holds its stages.
@@ -573,6 +596,14 @@ struct RawPower {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawFuel {
+    item: String,
+    bunker: u32,
+    per_minute: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawChart {
     finds: Vec<String>,
     minutes: f32,
@@ -608,6 +639,7 @@ struct RawBuilding {
     healing: Option<RawHealing>,
     power: Option<RawPower>,
     chart: Option<RawChart>,
+    fuel: Option<RawFuel>,
     #[serde(default)]
     uses_power: bool,
     #[serde(default)]
@@ -796,6 +828,10 @@ impl BuildingsFile {
                 None => None,
                 Some(c) => Some(resolve_chart(&b.id, c, resources)?),
             };
+            let fuel = match &b.fuel {
+                None => None,
+                Some(f) => Some(resolve_fuel(&b.id, f, items)?),
+            };
             for (nation, name) in &b.names {
                 if name.trim().is_empty() {
                     return err(format!(
@@ -831,6 +867,7 @@ impl BuildingsFile {
                 chart,
                 uses_power: b.uses_power,
                 names: b.names,
+                fuel,
                 unlocked_by: None,
                 endeavor: b.endeavor,
                 beside: b.beside,
@@ -878,6 +915,28 @@ fn resolve_orchard(
 }
 
 /// Checks a `[building.recipe]` and links its items (issue #124).
+fn resolve_fuel(building: &str, f: &RawFuel, items: &[ItemDef]) -> Result<FuelDef, DefsError> {
+    let err =
+        |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: fuel {msg}")));
+    let Some(item) = items.iter().position(|d| d.id == f.item) else {
+        return err(&format!("names unknown item {:?}", f.item));
+    };
+    if f.bunker == 0 {
+        return err("bunker must be at least 1");
+    }
+    if !(f.per_minute.is_finite() && f.per_minute > 0.0) {
+        return err("per_minute must be above 0");
+    }
+    let per_tick = f64::from(f.per_minute) * FUEL_MICROS as f64
+        / (60.0 * f64::from(crate::world::TICKS_PER_SECOND));
+    Ok(FuelDef {
+        item: ItemId(item as u16),
+        bunker: f.bunker,
+        per_minute: f.per_minute,
+        micros_per_tick: (per_tick.round() as u64).max(1),
+    })
+}
+
 fn resolve_recipe(
     building: &str,
     r: &RawRecipe,

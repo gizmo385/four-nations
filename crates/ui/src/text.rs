@@ -234,6 +234,19 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
                 None => format!("Taking down at ({}, {})", pos.x, pos.y),
             }
         }
+        Task::Refuel(id) => {
+            let at = world.job(id).and_then(|j| match j.kind {
+                JobKind::Refuel { pos } => Some(pos),
+                _ => None,
+            });
+            match at.and_then(|p| world.building_record(p)) {
+                Some(b) => {
+                    let name = defs.building(b.id).display_name(world.nation);
+                    format!("Refuelling {name} at ({}, {})", b.anchor.x, b.anchor.y)
+                }
+                None => "Refuelling".into(),
+            }
+        }
         Task::Haul(id) => {
             let at = world.job(id).and_then(|j| match j.kind {
                 JobKind::Haul { pos } => Some(pos),
@@ -246,7 +259,9 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
                 JobKind::Craft { .. } => None,
                 JobKind::Sow { .. } | JobKind::Reap { .. } => None,
                 JobKind::Clear { .. } => None,
-                JobKind::Chart { .. } | JobKind::Deconstruct { .. } => None,
+                JobKind::Chart { .. } | JobKind::Deconstruct { .. } | JobKind::Refuel { .. } => {
+                    None
+                }
             });
             let stack = at.and_then(|p| world.ground_items().find(|(q, _)| *q == p));
             match (stack, at) {

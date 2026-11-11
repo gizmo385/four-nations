@@ -31,13 +31,20 @@
 #             so they restore the food's `cooked_hunger` (data/needs.toml), and sleep there
 #             regains energy `sleep_bonus` times as fast. A tired unit walks to the warmth when
 #             it is within `seek_tiles` path tiles. `radius` is for a `heating` modifier of 1.0
-#             (data/nations.toml): it is scaled by the nation's, rounded, and at least 1. It
-#             never needs fuel; a fuel economy is future work. Raw food still works with no
-#             fire at all.
+#             (data/nations.toml): it is scaled by the nation's, rounded, and at least 1. Raw
+#             food still works with no fire at all. With `fuel` (below), the fire is out while
+#             its bunker is empty.
 # - rail:     a track (issue #135, docs/design/research.md, "Rail"). A unit hauling a stack goes
 #             `speed` times as fast on a straight step from one rail tile onto the next beside it,
 #             and plans its route to use that. Foot traffic gains nothing. Must be passable, and
 #             only one building may be a rail. `speed` is above 1.0 and at most 10.
+# - fuel:     a fuel bunker (docs/design/horizons-phase-1.md, "Fuel bunkers"): `item` is burned,
+#             `bunker` (at least 1) is how many it holds, and `per_minute` (above 0) how fast it
+#             burns, only while the building's effect is in use (a heat source: while anyone is
+#             in its reach). The effect is off while the bunker is empty. It finishes empty; at
+#             or below half full a Refuel haul brings the shortfall from stores. Fuel in a
+#             bunker is out of stores, so nobody eats it, and taking the building down returns
+#             it in full.
 # - orchard:  plants and tends a renewable resource around itself (issue #142, docs/design/
 #             research.md, "The orchard"). Every `plant_seconds` it plants one `plants` (a
 #             renewable resource) on a free tile of its own mapgen terrain within `radius` (a

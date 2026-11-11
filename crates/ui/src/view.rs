@@ -256,7 +256,8 @@ impl Activity {
     pub fn of(task: Option<Task>) -> Self {
         match task {
             None => Self::Idle,
-            Some(Task::Haul(_) | Task::Deliver) => Self::Haul,
+            // Refuelling a bunker (`world/fuel.rs`) is a haul from stores.
+            Some(Task::Haul(_) | Task::Deliver | Task::Refuel(_)) => Self::Haul,
             // Clearing ground (#424) groups with harvesting until the Clear tool gets its own
             // panel row (#426).
             Some(Task::Harvest(_) | Task::Clear(_)) => Self::Harvest,

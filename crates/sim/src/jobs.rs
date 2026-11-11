@@ -496,6 +496,10 @@ pub enum JobKind {
     /// the work is done the whole footprint clears at once and part of its cost drops by the
     /// anchor (`[deconstruct]` in data/buildings.toml). Opened by `Command::Deconstruct`.
     Deconstruct { pos: Pos },
+    /// Carry fuel from stores to the fuel bunker of the building anchored on this tile
+    /// (`BuildingDef::fuel`, `world/fuel.rs`): opened automatically once the bunker is at or
+    /// below half full, and done when one trip's worth is in.
+    Refuel { pos: Pos },
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

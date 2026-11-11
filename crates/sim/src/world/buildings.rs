@@ -30,6 +30,7 @@ use crate::mapgen::Tile;
 use crate::save::v2;
 
 use super::farm::FarmPlot;
+use super::fuel::Bunker;
 use super::orchard::Orchard;
 use super::*;
 
@@ -58,9 +59,22 @@ pub struct Building {
     /// The building's own fire (`BuildingDef::heat`, `heat.rs`): lit for good when it finishes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) heat: Option<HeatSource>,
+    /// Its fuel bunker (`BuildingDef::fuel`, `fuel.rs`): empty when it finishes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) fuel: Option<Bunker>,
 }
 
 impl Building {
+    /// Whether its effect may run: it has no bunker, or its bunker holds at least one item.
+    pub fn fuel_lit(&self) -> bool {
+        self.fuel.is_none_or(|f| f.count > 0)
+    }
+
+    /// Its bunker, if it has one.
+    pub fn bunker(&self) -> Option<Bunker> {
+        self.fuel
+    }
+
     /// The tiles it covers.
     pub fn footprint(&self) -> Footprint {
         Footprint::new(self.anchor, self.size[0], self.size[1])
@@ -77,6 +91,8 @@ pub(super) enum Kind {
     Power,
     /// A study hall: seats, and no chart (a Map Room's seats are Chart jobs instead).
     Study,
+    /// A fuel bunker (`fuel.rs`).
+    Fuel,
 }
 
 impl Kind {
@@ -88,6 +104,7 @@ impl Kind {
             (def.irrigation.is_some(), Kind::Irrigation),
             (def.power.is_some(), Kind::Power),
             (def.seats > 0 && def.chart.is_none(), Kind::Study),
+            (def.fuel.is_some(), Kind::Fuel),
         ]
         .into_iter()
         .filter_map(|(is, kind)| is.then_some(kind))
@@ -151,6 +168,9 @@ impl Buildings {
             if record.plot.is_none() && def.farm.is_some() {
                 record.plot = Some(FarmPlot::empty());
             }
+            if record.fuel.is_none() && def.fuel.is_some() {
+                record.fuel = Some(Bunker::default());
+            }
             self.index(key, &record, defs);
             self.records.insert(key, record);
         }
@@ -182,9 +202,10 @@ impl Buildings {
         self.of_kind(kind).next().is_some()
     }
 
-    /// Every building's own fire, lit or not, in no particular order.
+    /// Every building's own fire, lit or not, in no particular order. A fire whose fuel bunker
+    /// is empty is out, so it isn't listed (`fuel.rs`).
     pub(super) fn fires(&self) -> impl Iterator<Item = &HeatSource> + '_ {
-        self.records.values().filter_map(|b| b.heat.as_ref())
+        self.records.values().filter(|b| b.fuel_lit()).filter_map(|b| b.heat.as_ref())
     }
 
     /// `fires`, to change.
@@ -262,6 +283,7 @@ impl World {
             plot: def.farm.map(|_| FarmPlot::empty()),
             orchard: def.orchard.as_ref().map(Orchard::new),
             heat,
+            fuel: def.fuel.map(|_| Bunker::default()),
         };
         let key = self.buildings.insert(record, defs);
         let tile = TileBuilding::new(key, def.passable, def.rail.is_some());
@@ -294,6 +316,7 @@ impl World {
         let at_anchor = |k: &JobKind| {
             matches!(k, JobKind::Study { pos } | JobKind::Chart { pos } | JobKind::Craft { pos }
                 | JobKind::Sow { pos } | JobKind::Reap { pos } | JobKind::Deconstruct { pos }
+                | JobKind::Refuel { pos }
                 if *pos == anchor)
         };
         let ids: Vec<JobId> =
@@ -306,7 +329,8 @@ impl World {
                     | Task::Craft(id)
                     | Task::Sow(id)
                     | Task::Reap(id)
-                    | Task::Deconstruct(id),
+                    | Task::Deconstruct(id)
+                    | Task::Refuel(id),
                 ) if ids.contains(&id) => Some(id),
                 _ => None,
             };
@@ -447,6 +471,7 @@ impl World {
                     plot: None,
                     orchard: None,
                     heat: None,
+                    fuel: None,
                 },
             );
         }
