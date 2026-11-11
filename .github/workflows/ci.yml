@@ -72,10 +72,10 @@ jobs:
       - uses: actions/cache/restore@v6
         with:
           path: target
-          key: target-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          key: target-v2-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
           restore-keys: |
-            target-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('Cargo.lock') }}-
-            target-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-
+            target-v2-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('Cargo.lock') }}-
+            target-v2-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-
       # Backdates the sources that haven't changed since that build, so cargo reuses the crates
       # built from them (fn_sim's opt-level-3 build is most of a cold build) and rebuilds the rest.
       - run: scripts/ci-cache-mtimes.sh
@@ -90,15 +90,18 @@ jobs:
       # check, still reports.
       - if: steps.scope.outputs.scope == 'docs'
         run: cargo xtask ci --docs-only
-      # Saved even when the gate fails or times out: whatever cargo finished building is still a
-      # correct cache (its fingerprints are written after the artifact), and without it every PR
-      # after a red main push would build from scratch.
-      # Not for a documents-only push: it built nothing new, and the cache it restored still
-      # serves every later run.
-      - if: always() && github.ref == 'refs/heads/main' && steps.scope.outputs.scope != 'docs'
+      # target/.cache-commit names the commit the cache's workspace crates were built from, and
+      # scripts/ci-cache-mtimes.sh trusts it: files unchanged since that commit are made to look
+      # older than the artifacts. That is only true of a run whose whole gate passed, so only
+      # such a run stamps and saves. A failed run saves nothing: the last good cache stays the
+      # newest, and later runs rebuild what changed since it. (A run that failed before it built
+      # anything once stamped the older build it had restored as its own, and every run after
+      # it reused a stale fn_tui. The `v2` in the key leaves those caches behind.)
+      # Not for a documents-only push either: it built nothing new.
+      - if: success() && github.ref == 'refs/heads/main' && steps.scope.outputs.scope != 'docs'
         run: mkdir -p target && git rev-parse HEAD > target/.cache-commit
-      - if: always() && github.ref == 'refs/heads/main' && steps.scope.outputs.scope != 'docs'
+      - if: success() && github.ref == 'refs/heads/main' && steps.scope.outputs.scope != 'docs'
         uses: actions/cache/save@v6
         with:
           path: target
-          key: target-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          key: target-v2-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
