@@ -171,7 +171,7 @@ fn every_card_names_its_state_cost_and_unlocks_or_what_it_still_needs() {
     assert!(frame.contains("Earthworks x1.2"), "{frame}");
     // Masonry is Locked (Carpentry still unknown): the card names what it still needs (#338),
     // not the construction bonus it would eventually grant.
-    assert!(frame.contains("Needs: Carpentry"), "{frame}");
+    assert!(frame.contains("Needs Carpentry"), "{frame}");
     // Stoneworking is the Earth Kingdom's starting tech.
     let known = a.session.world.research().is_known(tech(&a, "stoneworking"));
     assert!(known);
@@ -335,10 +335,12 @@ fn enter_on_a_locked_tech_queues_its_prereqs() {
         assert_eq!(state(&a, id), TechState::Queued);
     }
 
-    // A queued prereq is drawn the same as the target: one "Queued" for every tech in the chain.
+    // A queued prereq is drawn the same as the target, bar its word: "Queued" for every tech in
+    // the chain ahead of it, "Target" for the one chosen (#659).
     let frame = text(&mut a, WIDE);
     // (The details line under the grid says it once more, for the card under the cursor.)
-    assert_eq!(frame.matches("Queued").count(), queued.len() + 1, "{frame}");
+    assert_eq!(frame.matches("Queued").count(), queued.len() - 1, "{frame}");
+    assert_eq!(frame.matches("Target").count(), 2, "{frame}");
     // The map region only: the side panel's own Research row names the current target too (a
     // queued prereq, here), which can otherwise collide with the grid's own card for it.
     let map_width = usize::from(WIDE.0 - fn_tui::layout::panel_width(WIDE.0));
@@ -449,4 +451,99 @@ fn the_chosen_card_wears_a_quiet_background_never_reverse_video() {
         );
         assert!((0..SIZE.0).any(|x| buf[(x, name_row)].symbol() == "▸"), "{depth:?}: the pointer");
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Whole cards (#659)
+// ---------------------------------------------------------------------------------------------
+
+/// The grid's rows of a frame: under the top edge, down to the rule over the detail strip.
+fn grid_rows(frame: &str) -> Vec<&str> {
+    let lines: Vec<&str> = frame.lines().collect();
+    let rule = lines.iter().position(|l| l.starts_with('├')).expect("a rule over the details");
+    lines[1..rule].to_vec()
+}
+
+/// No card is ever cut: with the cursor on every card of every nation's tree, at the two sizes
+/// the owner reviews at, no row of the grid ends in an ellipsis, and the cursor's card shows
+/// every word of its name and of what it gives.
+#[test]
+fn no_card_is_cut_for_any_nation_at_80x24_and_120x40() {
+    for nation in Nation::ALL {
+        for size in [SMALL, SIZE] {
+            let mut a = app(7, nation, size);
+            run(&mut a, "t");
+            let view = screen_view(&a.session);
+            for (c, col) in view.columns.iter().enumerate() {
+                for (r, card) in col.iter().enumerate() {
+                    a.ui.tech = (c, r);
+                    let frame = text(&mut a, size);
+                    let rows = grid_rows(&frame);
+                    for row in &rows {
+                        assert!(
+                            !row.contains('…'),
+                            "{nation:?} {size:?} cursor on {}: {row}\n{frame}",
+                            card.name
+                        );
+                    }
+                    let grid = rows.join("\n");
+                    let gives = if card.state == TechState::Locked {
+                        card.needs.clone()
+                    } else {
+                        card.unlock.clone()
+                    };
+                    for word in card.name.split_whitespace().chain(gives.split_whitespace()) {
+                        assert!(
+                            grid.contains(word),
+                            "{nation:?} {size:?} {}: {word}\n{frame}",
+                            card.name
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn four_tiers_show_at_120_columns_and_three_at_80_and_the_bottom_edge_says_which() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "t");
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("TIER 4") && !frame.contains("TIER 5"), "{frame}");
+    assert!(frame.lines().rev().nth(1).unwrap().contains(" tiers 1-4 of 5 ─┛"), "{frame}");
+
+    let mut a = app(7, Nation::Earth, SMALL);
+    run(&mut a, "t");
+    let frame = text(&mut a, SMALL);
+    assert!(frame.contains("TIER 3") && !frame.contains("TIER 4"), "{frame}");
+    assert!(frame.lines().rev().nth(1).unwrap().contains(" tiers 1-3 of 5 ─┛"), "{frame}");
+}
+
+#[test]
+fn a_locked_card_names_what_it_needs_and_a_card_that_only_opens_others_says_what_it_leads_to() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "t");
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("Needs Fire Making"), "{frame}");
+    assert!(frame.contains("Leads to Carpentry"), "{frame}");
+    assert!(!frame.contains("Prerequisite for"), "{frame}");
+    assert!(frame.contains("Available · 25 pts"), "state and cost share a line:\n{frame}");
+}
+
+#[test]
+fn the_target_is_marked_on_its_card_and_named_in_the_detail_strip() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "t");
+    go_to(&mut a, "farming");
+    run(&mut a, "<enter>");
+    // The cursor on the target: its state reads Target, in its card and in the strip.
+    let frame = text(&mut a, SIZE);
+    assert!(grid_rows(&frame).iter().any(|r| r.contains("Target · 60 pts")), "{frame}");
+    assert!(frame.lines().rev().nth(4).unwrap().contains("Target · 60 pts"), "{frame}");
+    // The cursor elsewhere: the strip still names the target.
+    go_to(&mut a, "shelter");
+    let frame = text(&mut a, SIZE);
+    assert!(grid_rows(&frame).iter().any(|r| r.contains("Target · 60 pts")), "{frame}");
+    assert!(frame.lines().rev().nth(4).unwrap().contains("Target: Farming"), "{frame}");
 }

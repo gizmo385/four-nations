@@ -891,14 +891,14 @@ impl Host {
                 .map(|col| {
                     col.into_iter()
                         .map(|c| TechCardView {
+                            // `crate::research::card_word`, not `TechState::label`: every
+                            // card's own row carries the short word ("Locked", or "Target" for
+                            // the chosen tech); the longer sentence (`label`, "Needs prereqs")
+                            // only shows for whichever card the cursor is on, under the grid
+                            // (#320, "Observation containment").
+                            state: crate::research::card_word(&c).to_owned(),
                             name: c.name,
                             cost: c.cost,
-                            // `crate::research::state_word`, not `TechState::label`: every
-                            // card's own row carries the short word ("Locked"); the longer
-                            // sentence (`label`, "Needs prereqs") only shows for whichever card
-                            // the cursor is on, under the grid (#320, "Observation
-                            // containment").
-                            state: crate::research::state_word(c.state).to_owned(),
                             unlock: c.unlock,
                             needs: c.needs,
                         })
