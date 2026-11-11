@@ -47,6 +47,7 @@ mod inside;
 #[cfg(any(test, debug_assertions))]
 mod invariants;
 mod orchard;
+mod pair;
 mod pickers;
 mod population;
 mod power;
@@ -82,6 +83,7 @@ use forge::CraftState;
 pub use gate::{EndeavorError, GateSite, GateTask};
 pub use harm::{HarmEvent, HarmEventKind, HarmKind};
 pub use heat::{Aura, Flame, Glow, HeatSource};
+pub use pair::PairStatus;
 pub use population::Arrival;
 pub use power::PowerAt;
 pub use probe::{Reach, Refusals};

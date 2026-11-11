@@ -360,6 +360,17 @@ pub struct ChuteDef {
     pub drop: u8,
 }
 
+/// A two-way link between two buildings of one id (`[building.pair]`, docs/design/
+/// horizons-phase-2.md, "Paired links", `world/pair.rs`): each end's `Building::link` is the
+/// other's anchor, and the partner is within `reach` of it and at least `min_tiles` away.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PairDef {
+    /// The partner's anchor is at most this far from this one's, Chebyshev.
+    pub reach: u32,
+    /// And at least this far: a short pair is a waste of a building.
+    pub min_tiles: u32,
+}
+
 /// One whole item, in `FuelDef::micros_per_tick` units.
 pub const FUEL_MICROS: u64 = 1_000_000;
 
@@ -491,6 +502,8 @@ pub struct BuildingDef {
     pub hothouse: Option<HothouseDef>,
     /// A one-way drop for goods (`ChuteDef`), or `None`.
     pub chute: Option<ChuteDef>,
+    /// A two-way link to a partner of the same id (`PairDef`), or `None`.
+    pub pair: Option<PairDef>,
     pub unlocked_by: Option<TechId>,
     /// Seats added by techs (`[[tech.unlocks.upgrades]]`, docs/design/horizons-phase-1.md), each
     /// with the tech that adds them, in tech order. At most one tech per building, today, but a
@@ -666,6 +679,13 @@ struct RawChute {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawPair {
+    reach: u32,
+    min_tiles: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawHothouse {
     radius: u32,
     winter_growth: f32,
@@ -720,6 +740,7 @@ struct RawBuilding {
     pickers: Option<RawPickers>,
     hothouse: Option<RawHothouse>,
     chute: Option<RawChute>,
+    pair: Option<RawPair>,
     #[serde(default)]
     uses_power: bool,
     #[serde(default)]
@@ -932,6 +953,19 @@ impl BuildingsFile {
                 }
                 Some(c) => Some(ChuteDef { reach: c.reach, drop: c.drop }),
             };
+            let pair = match &b.pair {
+                None => None,
+                Some(_) if b.chute.is_some() => {
+                    return err(format!("building {}: a pair and a chute both use its link", b.id));
+                }
+                Some(p) if p.reach == 0 || p.min_tiles > p.reach => {
+                    return err(format!(
+                        "building {}: pair reach must be above 0 and at least min_tiles",
+                        b.id
+                    ));
+                }
+                Some(p) => Some(PairDef { reach: p.reach, min_tiles: p.min_tiles }),
+            };
             let track = match &b.track {
                 None => None,
                 Some(d) => {
@@ -981,6 +1015,7 @@ impl BuildingsFile {
                 pickers,
                 hothouse,
                 chute,
+                pair,
                 unlocked_by: None,
                 seat_upgrades: Vec::new(),
                 endeavor: b.endeavor,
