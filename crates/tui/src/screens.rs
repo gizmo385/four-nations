@@ -247,7 +247,10 @@ pub fn draw_screen(
     buf: &mut Buffer,
 ) {
     let detail_rows = match screen {
-        Screen::Research => research::DETAIL_ROWS,
+        Screen::Research => {
+            let width = page::text_size((i32::from(area.width), i32::from(area.height))).0;
+            research::detail_height(session, ui.tech, width)
+        }
         Screen::Nation => crate::nation::detail_rows(area.height),
         _ => 0,
     };

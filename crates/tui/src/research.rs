@@ -34,7 +34,8 @@ const CARD_STRIDE: usize = CARD_ROWS + 1;
 /// the state's mark and a space come first).
 const INDENT: usize = 3;
 /// The frame's detail strip under the grid (`crate::page`, #652): the chosen tech's name,
-/// description and unlocks. The rule above it takes one more row.
+/// description and unlocks. The rule above it takes one more row. This is its usual height; it
+/// grows when the text wraps (`detail_height`, #768).
 pub const DETAIL_ROWS: u16 = 3;
 
 /// Where the cursor is: a column of the view and a card in it.
@@ -216,23 +217,22 @@ pub fn card_rows(card: &TechCard, chosen: bool, marks: &Marks, width: usize) -> 
     rows
 }
 
-/// The three rows under the grid about the tech under the cursor: its name (and the research
-/// target, when that is another tech), state and cost; what it is; what it unlocks
-/// (`card.unlock`, empty while `Locked`) and what it still needs (`card.needs`,
-/// `fn_ui::research::TechCard`): a Queued tech can show both at once (its own deeper prereqs may
-/// still be unknown), so the two are side by side rather than either/or.
-pub fn detail_rows(session: &Session, card: &TechCard, marks: &Marks) -> [Row; 3] {
+/// The rows under the grid about the tech under the cursor, wrapped to `width` and never cut
+/// (#768): its name (and the research target, when that is another tech), state and cost; what
+/// it is; then what it unlocks (`card.unlock`, empty while `Locked`) and what it still needs
+/// (`card.needs`, `fn_ui::research::TechCard`), worded as the cards word them ("Leads to X",
+/// "Needs X"). A Queued tech can show both at once (its own deeper prereqs may still be
+/// unknown): side by side when they fit one row, else each on its own, broken after commas.
+pub fn detail_rows(session: &Session, card: &TechCard, marks: &Marks, width: usize) -> Vec<Row> {
     let def = session.defs.tech(card.id);
     let unlocks = if card.unlock.is_empty() {
         String::new()
     } else if card.unlock.starts_with("Leads to ") {
         card.unlock.clone()
     } else {
-        format!("Unlocks: {}", card.unlock)
+        format!("Unlocks {}", card.unlock)
     };
-    let needs =
-        if card.needs.is_empty() { String::new() } else { format!("Needs: {}", card.needs) };
-    let sep = if unlocks.is_empty() || needs.is_empty() { "" } else { "   " };
+    let needs = if card.needs.is_empty() { String::new() } else { format!("Needs {}", card.needs) };
     // The target is named in the strip whichever card the cursor is on: as the heading's state
     // when the cursor is on it, beside the name otherwise.
     let mut name = vec![(card.name.clone(), Tone::Title)];
@@ -241,17 +241,38 @@ pub fn detail_rows(session: &Session, card: &TechCard, marks: &Marks) -> [Row; 3
     {
         name.push((format!("   Target: {}", session.defs.tech(target).name), Tone::Dim));
     }
-    [
-        Row {
-            left: name,
-            right: Some((
-                format!("{} {} {} pts", card_word(card), marks.dot, card.cost),
-                state_tone(card.state),
-            )),
-        },
-        Row::text(def.description.clone(), Tone::Text),
-        Row::spans(vec![(unlocks, Tone::Dim), (format!("{sep}{needs}"), Tone::Warn)]),
-    ]
+    let mut rows = vec![Row {
+        left: name,
+        right: Some((
+            format!("{} {} {} pts", card_word(card), marks.dot, card.cost),
+            state_tone(card.state),
+        )),
+    }];
+    for line in wrap(&def.description, width.max(1), usize::MAX, marks.ellipsis) {
+        rows.push(Row::text(line, Tone::Text));
+    }
+    let both = unlocks.chars().count() + 3 + needs.chars().count();
+    if !unlocks.is_empty() && !needs.is_empty() && both <= width {
+        rows.push(Row::spans(vec![(unlocks, Tone::Dim), (format!("   {needs}"), Tone::Warn)]));
+    } else {
+        for (text, tone) in [(unlocks, Tone::Dim), (needs, Tone::Warn)] {
+            if !text.is_empty() {
+                for line in wrap_items(&text, width.max(1), marks.ellipsis) {
+                    rows.push(Row::text(line, tone));
+                }
+            }
+        }
+    }
+    rows
+}
+
+/// How many rows the detail strip takes for the tech under `at` on a page whose text is `width`
+/// cells across: the usual [`DETAIL_ROWS`], one more for each row its text wraps onto (#768).
+pub fn detail_height(session: &Session, at: Cursor, width: usize) -> u16 {
+    let view = screen_view(session);
+    let Some(card) = card_at(&view, at) else { return DETAIL_ROWS };
+    let rows = detail_rows(session, card, &Marks::new(false), width).len();
+    u16::try_from(rows).unwrap_or(u16::MAX).max(DETAIL_ROWS)
 }
 
 /// Draws the screen's contents into `page` (the grid in its body, the chosen tech in its detail
@@ -358,7 +379,7 @@ pub fn draw(
 
     // The details of the tech under the cursor, in the frame's detail strip.
     if let (Some(card), Some(strip)) = (card_at(&view, at), page.detail) {
-        let rows = detail_rows(session, card, &marks);
+        let rows = detail_rows(session, card, &marks, usize::from(strip.width));
         let mut p = Painter::new(buf, strip, palette);
         for row in &rows {
             p.row(row);
