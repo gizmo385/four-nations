@@ -800,14 +800,14 @@ effective.construction = nation.construction × Π (known techs' construction mu
 
 ## Later: neighbors and cultural exchange
 
-*The long-term plan for research beyond this tree, including exchange with United City residents,
-is [research-horizons.md](research-horizons.md) (accepted 2026-11-10).*
+*The long-term plan for research beyond this tree is [research-horizons.md](research-horizons.md)
+(accepted 2026-11-10). Exchange is designed in [horizons-phase-6.md](horizons-phase-6.md) (#670).*
 
-When peaceful neighbor civilizations exist, knowledge flows through **exchange**, not points.
-For example, a shared tech a friendly neighbor already knows costs 50% less, and a neighbor can
-teach its *non-bending* branch techs (e.g. Fire's `brickmaking`, Air's `windmills`). This needs
-a per-tech `teachable` flag, which isn't added until neighbors exist. It's the main way the
-tree grows beyond one nation's identity.
+The sketch that stood here had neighbors teach their *non-bending* branch techs through a
+per-tech `teachable` flag. Phase 6 builds it with residents in place of neighbors: after the
+gate, people of another nation who live in the settlement teach its `teachable` techs at double
+cost, and six fusion techs need residents of two nations. Bending never crosses nations. The
+neighbors themselves arrived as caravans (pacing.md), which trade goods and points, not techs.
 
 ## Owner decisions (2026-10-22)
 
