@@ -13,7 +13,7 @@ Keep this list in step when you add a doc or change a status.
 - [tui.md](tui.md): the terminal frontend, the only frontend
 - [text-voice.md](text-voice.md): how player-facing text talks
 - [side-panel-v2.md](side-panel-v2.md): the side panel (glance, feed, here)
-- [bending.md](bending.md), [research.md](research.md), [research-horizons.md](research-horizons.md), [power.md](power.md): abilities, tech tree, the long-term research spec, power
+- [bending.md](bending.md), [research.md](research.md), [research-horizons.md](research-horizons.md), [horizons-phase-1.md](horizons-phase-1.md), [power.md](power.md): abilities, tech tree, the long-term research spec and its first phase, power
 - [buildings.md](buildings.md), [nation-buildings.md](nation-buildings.md), [materials.md](materials.md), [clearing.md](clearing.md): buildings, materials, clearing ground
 - [pacing.md](pacing.md), [late-tree.md](late-tree.md), [endgame.md](endgame.md), [difficulty.md](difficulty.md), [harm.md](harm.md): pacing, progression and pressure
 - [embark.md](embark.md), [cartography.md](cartography.md): starting a settlement, charting scrolls
