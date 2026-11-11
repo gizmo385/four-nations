@@ -15,9 +15,15 @@
 //! It reads the same whichever tool is active: `b` from any tool lands on the ability this names
 //! as current (`tools::cycle_ability` only moves the choice when `B` is pressed *within* the Bend
 //! tool), the way `build::picker_rows` reads the same whether or not the Build tool is open.
+//!
+//! The abilities screen (`I`, #719) is wider than the banner: [`abilities`] lists the ones that
+//! can't be used yet too, with what each needs, which `B` never visits.
+
+use fn_sim::bending::AbilityId;
+use fn_sim::world::BendError;
 
 use crate::session::Session;
-use crate::text::caster_label;
+use crate::text::{article, caster_label};
 use crate::tools::{bend_ability, usable_abilities};
 
 /// One ability as the Bend tool shows it.
@@ -71,6 +77,75 @@ pub fn view(session: &Session) -> BendView {
         })
         .collect();
     BendView { rows }
+}
+
+/// One ability on the abilities screen (#719): what it does and whether it can be used now.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct AbilityRow {
+    pub id: AbilityId,
+    /// The display name ("Hearthflame").
+    pub name: String,
+    /// What it does, from the data.
+    pub what: String,
+    /// The count beside it ("20 benders", "no master"): `text::caster_label`. Empty for one
+    /// still locked behind a tech, which nobody can bend yet.
+    pub casters: String,
+    /// Why it can't be used now, if it can't: the tech it still needs ("Needs Dancing Dragon"),
+    /// or, for one gated on a rank nobody here holds, the title it needs ("Needs an Earthbending
+    /// Master"). `None` when it can be used.
+    pub unusable: Option<String>,
+    /// The one the Bend tool channels now (`tools::bend_ability`).
+    pub current: bool,
+}
+
+impl AbilityRow {
+    /// Whether `Enter` on the screen can pick it for the Bend tool.
+    pub fn usable(&self) -> bool {
+        self.unusable.is_none()
+    }
+}
+
+/// Every ability the abilities screen lists, the ones that can be used now first (in `B`'s
+/// order), then the ones that can't, dim, each in data order: the settlement's own nation's, and
+/// any other nation's that someone living here can cast (a newcomer, the Avatar). Another
+/// nation's ability nobody here could ever cast is left out.
+pub fn abilities(session: &Session) -> Vec<AbilityRow> {
+    let defs = &session.defs;
+    let current = bend_ability(session);
+    let mut usable = Vec::new();
+    let mut locked = Vec::new();
+    for i in 0..defs.abilities.len() as u16 {
+        let id = AbilityId(i);
+        let def = defs.ability(id);
+        let casters = session.world.caster_count(id, defs);
+        let mut casters_label = caster_label(def.rank, casters);
+        let unusable = match session.world.check_ability(id, defs) {
+            Err(BendError::Locked { tech }) => {
+                casters_label.clear();
+                Some(format!("Needs {}", defs.tech(tech).name))
+            }
+            Err(_) => continue,
+            Ok(()) => def.rank.filter(|_| casters == 0).map(|rank| {
+                let title = defs.mastery.title(def.nation, rank);
+                format!("Needs {} {title}", article(title))
+            }),
+        };
+        let row = AbilityRow {
+            id,
+            name: def.name.clone(),
+            what: def.description.clone(),
+            casters: casters_label,
+            current: Some(id) == current,
+            unusable,
+        };
+        if row.usable() {
+            usable.push(row);
+        } else {
+            locked.push(row);
+        }
+    }
+    usable.extend(locked);
+    usable
 }
 
 #[cfg(test)]
@@ -129,5 +204,53 @@ mod tests {
         // Picking the tool from another leaves it alone, so reading from any tool agrees.
         cycle_ability(&mut s, Tool::Select, Tool::Bend);
         assert_eq!(view(&s).current().unwrap().name, "Inner Fire");
+    }
+
+    /// The abilities screen's list: a new game has the nation's signature ability to use and the
+    /// rest locked behind their tech, each saying which; researching the tech moves the ability
+    /// up into the usable ones.
+    #[test]
+    fn the_abilities_list_has_the_usable_ones_first_and_names_what_a_locked_one_needs() {
+        for nation in Nation::ALL {
+            let s = Session::new(1, nation, 48, 32);
+            let rows = abilities(&s);
+            assert!(rows.len() > 1, "{nation:?}: more than the signature");
+            assert!(rows[0].usable() && rows[0].current, "{nation:?}: {:?}", rows[0]);
+            assert!(rows.iter().all(|r| s.defs.ability(r.id).nation == nation));
+            let first_locked = rows.iter().position(|r| !r.usable()).unwrap();
+            assert!(rows[first_locked..].iter().all(|r| !r.usable()), "{nation:?}: grouped");
+            for r in &rows {
+                assert!(!r.what.is_empty());
+                assert_eq!(r.casters.is_empty(), r.unusable.is_some(), "{r:?}");
+                if let Some(why) = &r.unusable {
+                    assert!(why.starts_with("Needs "), "{why}");
+                }
+            }
+            assert_eq!(rows.iter().filter(|r| r.current).count(), 1);
+        }
+        let s = Session::new(3, Nation::Fire, 48, 32);
+        let rows = abilities(&s);
+        let weld = rows.iter().find(|r| r.name == "Weld").unwrap();
+        assert!(!weld.usable());
+        assert!(weld.unusable.as_deref().unwrap().starts_with("Needs "));
+    }
+
+    /// Every ability the Bend tool cycles through is a usable row, in `B`'s order.
+    #[test]
+    fn the_usable_rows_are_exactly_what_b_cycles_through() {
+        let mut s = Session::new(3, Nation::Fire, 48, 32);
+        let dragon = s.defs.tech_id("dancing_dragon").unwrap();
+        s.apply(Command::SetResearch { tech: dragon }).unwrap();
+        for _ in 0..200_000 {
+            if s.world.research().is_known(dragon) {
+                break;
+            }
+            s.tick();
+        }
+        let rows = abilities(&s);
+        let usable: Vec<&str> =
+            rows.iter().filter(|r| r.usable()).map(|r| r.name.as_str()).collect();
+        let banner: Vec<String> = view(&s).rows.into_iter().map(|r| r.name).collect();
+        assert_eq!(usable, banner);
     }
 }

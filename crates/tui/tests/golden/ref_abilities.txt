@@ -1,0 +1,40 @@
+┏─────────────────────────────────────────────────── ◆ ABILITIES ◆ ────────────────────────────────────────────────────┓
+│   ABILITY        BENDERS    WHAT IT DOES                                                                             │
+│ ▸ Raise Earth    2 benders  Raise the riverbed into stepping stones.                                                 │
+│   Bore Tunnel               Needs Tunneling                                                                          │
+│   Seismic Sense             Needs Seismic Sense                                                                      │
+│   Metalbend                 Needs Metalbending                                                                       │
+│   Earth Tent                Needs Earth Shaping                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ Raise Earth                                                                                                2 benders │
+│ Raise the riverbed into stepping stones.                                                                             │
+│ The Bend tool channels it now.                                                                                       │
+┗──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┛
+ ABILITIES  Up/Down choose · Enter bend · Esc or I close · PgUp/PgDn page                                 PAUSED ? keys

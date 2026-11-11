@@ -73,6 +73,7 @@ pub fn key(ui: &mut UiState, session: &Session, key: KeyEvent) -> bool {
         Action::ShowHelp => open_screen(ui, session, Screen::Help),
         Action::ShowEndeavor => open_screen(ui, session, Screen::Endeavor),
         Action::ShowNation => open_screen(ui, session, Screen::Nation),
+        Action::ShowAbilities => open_screen(ui, session, Screen::Abilities),
         // Every other action `input::spectator_allowed` lets through is handled above; nothing
         // else reaches this match with `true`.
         _ => false,
@@ -118,6 +119,17 @@ fn screen_action(ui: &mut UiState, session: &Session, action: Action) -> bool {
             Action::Confirm => return confirm_nation(ui, session),
             _ => {}
         },
+        // The abilities screen only browses: `Enter` would pick the agent's own Bend ability
+        // (`App::pick_ability`), so it is refused.
+        Screen::Abilities => match action {
+            Action::Move { dy, .. } => return move_ability_cursor(ui, session, dy),
+            Action::Jump { dy, .. } => {
+                let page = screens::text_size(ui.page()).1.saturating_sub(1).max(1) as i32;
+                return move_ability_cursor(ui, session, dy * page);
+            }
+            Action::Confirm => return false,
+            _ => {}
+        },
         // `input::spectator_allowed` refuses `Action::ShowSaves`, so the spectator never opens
         // the saves screen in the first place.
         Screen::Saves => unreachable!("the saves screen is refused, never opened here"),
@@ -136,6 +148,7 @@ fn screen_action(ui: &mut UiState, session: &Session, action: Action) -> bool {
         Action::ShowHelp => return open_screen(ui, session, Screen::Help),
         Action::ShowEndeavor => return open_screen(ui, session, Screen::Endeavor),
         Action::ShowNation => return open_screen(ui, session, Screen::Nation),
+        Action::ShowAbilities => return open_screen(ui, session, Screen::Abilities),
         _ => return false,
     }
     true
@@ -153,6 +166,14 @@ fn tech_page(ui: &UiState, session: &Session) -> i32 {
     let view = fn_ui::research::screen_view(session);
     let (width, rows) = screens::text_size(ui.page());
     research::Grid::new((width, rows), view.columns.len()).cards as i32
+}
+
+/// Moves the abilities screen's pointer, as `App::move_ability_cursor` does.
+fn move_ability_cursor(ui: &mut UiState, session: &Session, dy: i32) -> bool {
+    let rows = fn_ui::bend::abilities(session);
+    let at = ui.ability_cursor.min(rows.len().saturating_sub(1)) as i64;
+    ui.ability_cursor = (at + i64::from(dy)).clamp(0, rows.len() as i64 - 1).max(0) as usize;
+    true
 }
 
 /// Moves the Nation screen's pointer, as `App::move_nation_cursor` does.
@@ -185,7 +206,7 @@ fn screen_rows(ui: &UiState) -> i32 {
 
 /// Scrolls the open screen, as `App::scroll_by` does.
 fn scroll_by(ui: &mut UiState, session: &Session, screen: Screen, lines: i32) {
-    if matches!(screen, Screen::Research | Screen::Saves) {
+    if matches!(screen, Screen::Research | Screen::Saves | Screen::Abilities) {
         return;
     }
     let width = screens::text_size(ui.page()).0;
@@ -215,6 +236,10 @@ fn open_screen(ui: &mut UiState, session: &Session, screen: Screen) -> bool {
         }
         if screen == Screen::Nation {
             ui.nation_cursor = 0;
+        }
+        if screen == Screen::Abilities {
+            let rows = fn_ui::bend::abilities(session);
+            ui.ability_cursor = crate::abilities::initial_cursor(&rows);
         }
     }
     true
