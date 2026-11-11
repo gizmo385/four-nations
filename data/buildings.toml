@@ -63,6 +63,13 @@
 #             that beats its band's, not scaled by `winter_severity`; two don't stack. The first
 #             frost spares ripe plots in reach. Its fuel burns only in winter while a plot in
 #             reach is growing or ripe. With seasons off it does nothing.
+# - tea_house: what an open Tea House gives (docs/design/horizons-phase-3.md, "`tea_ceremony`").
+#             It needs a `fuel` with `per_minute`: it is open while its bunker holds at least one
+#             herb, and burns whenever it is finished and stocked, not only during a visit. While
+#             any house is open: a caravan that makes camp shows `extra_deals` more deals (drawn
+#             from the deals not already shown) and stays `extra_stay_minutes` longer, fixed at
+#             arrival; and `draw` (0 to 1) joins the draw multiplier, under data/needs.toml's
+#             `growth.draw.max`. Two houses don't stack. At least one of the three is above 0.
 # - chute:    a one-way drop for goods (docs/design/horizons-phase-1.md, the Chute). Its foot is
 #             set with `Command::SetLink`: open ground within `reach` (Chebyshev) and at least
 #             `drop` lower in elevation. A unit taking a stack to stores walks to the head instead
@@ -1061,3 +1068,33 @@ count = 6
 [[building.cost]]
 item = "tool"
 count = 1
+
+# --- The Tea House (issue #710) ---
+# Unlocked by `tea_ceremony` (docs/design/horizons-phase-3.md): a herb bunker. While it holds an
+# herb the house is open: a caravan that camps shows a 4th deal and stays 13 minutes, not 9, and
+# draw gains 0.1. It burns 12 herbs an hour, about half of what one tended Herb Garden grows, so
+# herbs go to tea or to the sick.
+[[building]]
+id = "tea_house"
+name = "Tea House"
+verb = "Build"
+work = 60.0
+passable = false
+footprint = [2, 2]
+[building.tea_house]
+extra_deals = 1           # a caravan that makes camp while a house is open shows 4 deals, not 3
+extra_stay_minutes = 4.0  # and stays 13 minutes, not 9
+draw = 0.1                # a term in the draw multiplier while a house is open
+[building.fuel]
+item = "herbs"
+bunker = 10
+per_minute = 0.2          # 12 herbs an hour, burned whenever the house is finished and stocked
+[[building.cost]]
+item = "wood"
+count = 14
+[[building.cost]]
+item = "stone"
+count = 6
+[[building.cost]]
+item = "herbs"
+count = 4

@@ -63,6 +63,7 @@ mod strain;
 mod stride;
 mod study;
 mod tally;
+mod tea;
 mod trade;
 mod work;
 

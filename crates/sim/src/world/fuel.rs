@@ -22,6 +22,8 @@
 //!   beast's home burns any food). A Refuel haul brings whichever listed item stores hold the
 //!   most of, ties broken by list order. A bunker may end up holding a mix; it remembers only
 //!   the item last tipped in (`Bunker::item`), which is what taking the building down returns.
+//! - **Tea burns always.** A Tea House's bunker burns whenever the house is finished and stocked,
+//!   not only during a visit (`tea.rs`), since draw runs all the time.
 //! - **A beast eats.** A bunker whose building houses a beast burns for as long as it does
 //!   (`fuel_in_use`, `world/beast.rs`).
 //! - **Returned in full.** Taking the building down (`deconstruct.rs`) drops the bunker's items
@@ -71,6 +73,10 @@ impl World {
         if let Some(heat) = b.heat {
             // A fire burns while anyone is close enough to feel it.
             return self.units.iter().any(|u| !u.is_beast() && heat.warms(u.pos));
+        }
+        if def.tea_house.is_some() {
+            // A Tea House burns whenever it is finished and stocked: draw runs all the time.
+            return true;
         }
         if def.hothouse.is_some() {
             // A Hothouse burns while it is warming a plot: winter, a crop in reach.

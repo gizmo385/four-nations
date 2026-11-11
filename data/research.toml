@@ -688,3 +688,14 @@ prereqs = ["tunneling", "seismic_sense"]
 # bores designated tunnel with no chi.
 [tech.unlocks]
 buildings = ["badgermole_den"]
+
+[[tech]]
+id = "tea_ceremony"
+name = "Tea Ceremony"
+description = "Brew herbs into tea for guests, and the traders stay a while."
+cost = 120
+prereqs = ["herbalism", "pottery"]
+# The Tea House (#710, docs/design/horizons-phase-3.md, "`tea_ceremony`"): a herb bunker that,
+# while it holds herbs, gives a caravan visit a 4th deal and a longer stay, and draw a little.
+[tech.unlocks]
+buildings = ["tea_house"]

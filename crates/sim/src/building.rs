@@ -369,6 +369,19 @@ pub struct HothouseDef {
     pub winter_growth: f32,
 }
 
+/// A Tea House's effects (`[building.tea_house]`, docs/design/horizons-phase-3.md,
+/// "`tea_ceremony`", `world/tea.rs`): while its herb bunker holds an herb it is open, and a
+/// caravan that camps then stays longer and shows more deals, and draw gains a term.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TeaHouseDef {
+    /// Deals a caravan shows beyond `deals_per_visit` while a house is open.
+    pub extra_deals: u32,
+    /// Minutes added to a caravan's stay, fixed at its arrival.
+    pub extra_stay_minutes: f32,
+    /// Added to the draw multiplier while a house is open, under `[growth.draw].max`.
+    pub draw: f32,
+}
+
 /// A one-way drop for goods (`[building.chute]`, the Chute, docs/design/horizons-phase-1.md,
 /// `world/chute.rs`): its foot (`Building::link`) is within `reach` of it and at least `drop`
 /// lower.
@@ -576,6 +589,9 @@ pub struct BuildingDef {
     pub pickers: Option<PickersDef>,
     /// Winter growth for farm plots in reach (`HothouseDef`), or `None`.
     pub hothouse: Option<HothouseDef>,
+    /// What an open Tea House gives a caravan visit and draw (`TeaHouseDef`), or `None`. Only on a
+    /// building with a `fuel` bunker that burns, which is what opens and closes it.
+    pub tea_house: Option<TeaHouseDef>,
     /// A one-way drop for goods (`ChuteDef`), or `None`.
     pub chute: Option<ChuteDef>,
     /// A two-way link to a partner of the same id (`PairDef`), or `None`.
@@ -792,6 +808,17 @@ struct RawHothouse {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawTeaHouse {
+    #[serde(default)]
+    extra_deals: u32,
+    #[serde(default)]
+    extra_stay_minutes: f32,
+    #[serde(default)]
+    draw: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawOutpost {
     #[serde(default)]
     far_from_stores: u32,
@@ -853,6 +880,7 @@ struct RawBuilding {
     fuel: Option<RawFuel>,
     pickers: Option<RawPickers>,
     hothouse: Option<RawHothouse>,
+    tea_house: Option<RawTeaHouse>,
     chute: Option<RawChute>,
     pair: Option<RawPair>,
     outpost: Option<RawOutpost>,
@@ -1069,6 +1097,10 @@ impl BuildingsFile {
                     Some(HothouseDef { radius: h.radius, winter_growth: h.winter_growth })
                 }
             };
+            let tea_house = match &b.tea_house {
+                None => None,
+                Some(t) => Some(resolve_tea_house(&b.id, t, fuel.as_ref())?),
+            };
             let chute = match &b.chute {
                 None => None,
                 Some(c) if c.reach == 0 => {
@@ -1170,6 +1202,7 @@ impl BuildingsFile {
                 houses_beast: false,
                 pickers,
                 hothouse,
+                tea_house,
                 chute,
                 pair,
                 outpost,
@@ -1296,6 +1329,32 @@ fn resolve_fuel(building: &str, f: &RawFuel, items: &[ItemDef]) -> Result<FuelDe
         bunker: f.bunker,
         per_minute: f.per_minute,
         micros_per_tick,
+    })
+}
+
+fn resolve_tea_house(
+    building: &str,
+    t: &RawTeaHouse,
+    fuel: Option<&FuelDef>,
+) -> Result<TeaHouseDef, DefsError> {
+    let err =
+        |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: tea_house {msg}")));
+    if fuel.is_none_or(|f| f.per_minute.is_none()) {
+        return err("needs a [building.fuel] with per_minute: the herbs it burns open it");
+    }
+    if !(t.extra_stay_minutes.is_finite() && t.extra_stay_minutes >= 0.0) {
+        return err("extra_stay_minutes must be 0 or more");
+    }
+    if !(t.draw.is_finite() && (0.0..=1.0).contains(&t.draw)) {
+        return err("draw must be between 0 and 1");
+    }
+    if t.extra_deals == 0 && t.extra_stay_minutes == 0.0 && t.draw == 0.0 {
+        return err("must give something: extra_deals, extra_stay_minutes or draw");
+    }
+    Ok(TeaHouseDef {
+        extra_deals: t.extra_deals,
+        extra_stay_minutes: t.extra_stay_minutes,
+        draw: t.draw,
     })
 }
 

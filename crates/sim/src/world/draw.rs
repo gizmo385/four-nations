@@ -4,10 +4,11 @@
 //! Before draw, a newcomer came on a fixed clock once a spare bed stood, so nothing else the
 //! player built sped growth up. Now `World::draw` fills by `multiplier / arrival_minutes` a
 //! minute, where the multiplier (`World::draw_multiplier`) is `[growth.draw]`'s `base` plus a
-//! bonus for each food kind beyond the first in stores, for every bed being warm, and for spare
-//! beds, capped at `max`. At 1.0, with growth's conditions met (bed capacity above the headcount,
-//! `food_per_newcomer` in stores) and at least `min_gap_minutes` since the last arrival, one
-//! newcomer joins through `World::spawn_newcomer` and 1.0 is spent.
+//! bonus for each food kind beyond the first in stores, for every bed being warm, for spare beds
+//! and for a Tea House being open (#710), capped at `max`. At 1.0, with growth's conditions met
+//! (bed capacity above the headcount, `food_per_newcomer` in stores) and at least
+//! `min_gap_minutes` since the last arrival, one newcomer joins through `World::spawn_newcomer`
+//! and 1.0 is spent.
 //!
 //! **Why it stops at 1.0.** Filling stops at 1.0, whether or not the conditions hold, so a
 //! player who builds a bed late gets one newcomer, not a burst. Only a grant (`World::add_draw`,
@@ -37,6 +38,8 @@ pub enum DrawTermKind {
     WarmBeds,
     /// Free beds beyond the first.
     SpareBeds,
+    /// A Tea House is open (`world/tea.rs`, #710). Listed only while one is.
+    TeaHouse,
 }
 
 /// One term of the draw multiplier: how many of it count (`count` of `max_count`) and what that
@@ -107,7 +110,7 @@ impl World {
         let free = self.bed_capacity(defs).saturating_sub(settlers);
         let spare = free.saturating_sub(1).min(d.spare_beds_max);
 
-        let terms = vec![
+        let mut terms = vec![
             DrawTerm { kind: DrawTermKind::Base, count: 1, max_count: 1, milli: milli(d.base) },
             DrawTerm {
                 kind: DrawTermKind::FoodKinds,
@@ -128,6 +131,17 @@ impl World {
                 milli: milli(d.spare_bed) * spare,
             },
         ];
+        // Listed only while a house is open: it is a reason, never something a settlement is
+        // missing before it has the tech.
+        if self.tea_open(defs) {
+            let tea = self.tea_draw_milli(defs);
+            terms.push(DrawTerm {
+                kind: DrawTermKind::TeaHouse,
+                count: 1,
+                max_count: 1,
+                milli: tea,
+            });
+        }
         let sum: u32 = terms.iter().map(|t| t.milli).sum();
         let max = milli(d.max);
         DrawReport { milli: sum.min(max), capped: sum > max, terms }

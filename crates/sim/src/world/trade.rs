@@ -19,6 +19,10 @@
 //!   reward. `Command::CancelDeal` drops what is still owed, and the goods already handed over
 //!   for an unfinished deal go back on the ground at the camp. So does everything left over
 //!   when the caravan leaves: nothing is lost.
+//! - **Tea.** While a Tea House is open when a caravan makes camp (`tea.rs`), the visit shows
+//!   `extra_deals` more deals, drawn from `rng::stream(seed, "trade.tea")` among those not
+//!   already shown, and stays `extra_stay_minutes` longer, fixed at arrival. The first
+//!   `deals_per_visit` deals and the request are drawn as without a house.
 //! - **No map footprint.** The camp is a reserved rectangle the world remembers, not a building:
 //!   nothing about it needs pathing, and its glyphs and screen are a follow-up.
 
@@ -41,6 +45,14 @@ pub(super) fn new_rng(seed: u64) -> SimRng {
     rng::stream(seed, "trade.deals")
 }
 
+fn default_tea_rng() -> SimRng {
+    rng::stream(0, "trade.tea")
+}
+
+fn new_tea_rng(seed: u64) -> SimRng {
+    rng::stream(seed, "trade.tea")
+}
+
 /// Where the caravans stand: whose turn is next and the visit in progress.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TradeState {
@@ -53,17 +65,22 @@ pub struct TradeState {
     /// by 0, as `orchard_rng` does for #142; still deterministic.
     #[serde(default = "default_rng")]
     rng: SimRng,
+    /// Draws the extra deals an open Tea House adds (`trade.tea`, `tea.rs`), a stream of its own
+    /// so a house never changes which deals a visit offers first. A save from before the Tea
+    /// House loads this seeded by 0.
+    #[serde(default = "default_tea_rng")]
+    tea_rng: SimRng,
 }
 
 impl TradeState {
     pub(super) fn new(seed: u64) -> Self {
-        Self { turns: 0, visit: None, rng: new_rng(seed) }
+        Self { turns: 0, visit: None, rng: new_rng(seed), tea_rng: new_tea_rng(seed) }
     }
 }
 
 impl Default for TradeState {
     fn default() -> Self {
-        Self { turns: 0, visit: None, rng: default_rng() }
+        Self { turns: 0, visit: None, rng: default_rng(), tea_rng: default_tea_rng() }
     }
 }
 
@@ -307,7 +324,16 @@ impl World {
             let j = self.trade.rng.random_range(k..deals.len());
             deals.swap(k, j);
         }
-        deals.truncate(count);
+        let mut rest = deals.split_off(count);
+        // An open Tea House adds deals from the ones not shown, on its own stream, so the first
+        // `count` and the request below are the same with or without a house.
+        let extra = self.tea_extra_deals(defs).min(rest.len());
+        for k in 0..extra {
+            let j = self.trade.tea_rng.random_range(k..rest.len());
+            rest.swap(k, j);
+        }
+        deals.extend_from_slice(&rest[..extra]);
+        let stay = stay + self.tea_extra_stay_ticks(defs);
         deals.sort_unstable();
         let request = self.trade.rng.random_range(0..caravan.requests.len()) as u8;
         let offer = |kind| Offer { kind, taken: 0, done: 0, held: Vec::new() };
