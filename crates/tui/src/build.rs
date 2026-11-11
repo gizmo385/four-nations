@@ -262,8 +262,12 @@ mod tests {
         let campfire = rows.iter().position(|r| r.name == "Campfire").unwrap();
         assert_eq!(bed, 0, "bed is the first building in the data");
         assert_eq!(jump_to_letter(&rows, bed, 'c'), campfire);
-        // Wrapping: past Campfire, 'b' comes back round to Bed.
-        assert_eq!(jump_to_letter(&rows, campfire, 'b'), bed);
+        // Past Campfire the next 'b' is the locked Badgermole Den, and past that it wraps round
+        // to Bed.
+        let den = rows.iter().position(|r| r.name == "Badgermole Den").unwrap();
+        assert!(den > campfire, "locked rows come last");
+        assert_eq!(jump_to_letter(&rows, campfire, 'b'), den);
+        assert_eq!(jump_to_letter(&rows, den, 'b'), bed);
         // No building starts with Z: the cursor stays.
         assert_eq!(jump_to_letter(&rows, bed, 'z'), bed);
         assert_eq!(jump_to_letter(&[], 0, 'b'), 0);

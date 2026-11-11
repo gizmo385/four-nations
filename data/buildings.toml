@@ -1034,3 +1034,30 @@ count = 4
 [[building.cost]]
 item = "tool"
 count = 1
+
+# --- Earth: the Badgermole Den (issue #697) ---
+# Unlocked by `badgermole_ways` (docs/design/horizons-phase-2.md): houses a badgermole
+# (data/beasts.toml), which bores Bore Tunnel designations with no chi. Built against the rock
+# (`beside`, #373) so the line starts at its door. It eats 12 food an hour, idle or not, so when
+# the tunnelling is done the den is worth taking down.
+[[building]]
+id = "badgermole_den"
+name = "Badgermole Den"
+verb = "Dig"
+work = 90.0
+passable = false
+footprint = [2, 2]
+beside = ["mountain", "tunnel"]
+[building.fuel]
+items = ["cabbage", "fruit", "fish"]
+bunker = 10
+per_minute = 0.2       # 12 food an hour
+[[building.cost]]
+item = "stone"
+count = 10
+[[building.cost]]
+item = "wood"
+count = 6
+[[building.cost]]
+item = "tool"
+count = 1

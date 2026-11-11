@@ -22,8 +22,8 @@
 #              least `min_trip` tiles (Chebyshev), and carries `carry` items a trip, not scaled
 #              by `carry_capacity`. Settlers keep the shorter trips.
 # - [beast.bend] {ability, seconds}: bends a tile of `ability` (the nation's own) in `seconds`
-#              (the Badgermole Den's tunnels, #697). The row parses and validates today; nothing
-#              houses one yet.
+#              (the Badgermole Den's tunnels, #697): it claims ready designations of that
+#              ability nearest its home, with no chi and no mastery credit.
 
 # Air's capstone (#205): one per Bison Stable, carries base_carry x 4 at the nation's own speed,
 # and needs no food, as the owner scoped it for v1.
@@ -68,3 +68,15 @@ speed = 1.0
 [beast.haul]
 carry = 10
 min_trip = 10
+
+# Earth's capstone beast (#697): bores Bore Tunnel designations with no chi and credits no one's
+# mastery. 120 s a tile (about 30 tiles an hour), not modifier-scaled; it eats 12 food an hour.
+[[beast]]
+id = "badgermole"
+name = "Badgermole"
+nation = "earth"
+home = "badgermole_den"
+speed = 0.8
+[beast.bend]
+ability = "bore_tunnel"
+seconds = 120.0

@@ -287,6 +287,12 @@ glyph = "▓"
 ascii = "#"
 fg = [176, 160, 120]
 
+# Badgermole Ways' den (Earth, horizons phase 2): a burrow mouth in the rock.
+[building.badgermole_den]
+glyph = "∪"
+ascii = "b"
+fg = [150, 130, 100]
+
 # Lemur Keeping's roost (Air, horizons phase 1): a perch on a post.
 [building.lemur_roost]
 glyph = "Ŧ"

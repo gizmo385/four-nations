@@ -1682,14 +1682,23 @@ impl World {
         open.sort_by_key(|&(p, d, _)| (p, d));
         let mut room_cache: Vec<(ItemId, bool)> = Vec::new();
         let mut best: Option<((u8, u32, JobId), Pos)> = None;
+        // A bending beast ranks its jobs by the walk from its home, not from where it stands,
+        // so a dragged line is bored outward from the den (`World::beast_home_flood`, #697).
+        let home_flood = self.beast_home_flood(i, defs);
         for (priority, _, job) in open {
             let limit = match best {
                 Some(((p, _, _), _)) if p < priority => break,
+                Some(_) if home_flood.is_some() => None,
                 Some(((_, cost, _), _)) => Some(cost),
                 None => None,
             };
             let found = match self.check_job(i, job.kind, &flood, &mut room_cache, limit, defs) {
-                Check::Take(cost, stand) => Some((cost, stand)),
+                Check::Take(cost, stand) => {
+                    let ranked = home_flood
+                        .as_ref()
+                        .map_or(cost, |home| home.cost(stand).unwrap_or(u32::MAX));
+                    Some((ranked, stand))
+                }
                 Check::Skip | Check::Barred(_) => None,
             };
             if let Some((cost, stand)) = found {

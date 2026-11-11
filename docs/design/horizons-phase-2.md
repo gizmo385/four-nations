@@ -575,6 +575,19 @@ seconds = 120.0           # per tile, not modifier-scaled
 - **The decision.** Chi now, or food and time. A tunnel through a whole range to the far ore, or
   a mining gallery along a seam, becomes a plan you designate once. When the line is done, the
   den is worth taking down, because the badgermole eats while it waits.
+- **As built (#697).** The beast takes only `Bend` jobs of its row's ability (`beast_may_take`),
+  and `unit_can_bend` lets it claim with no chi and no rank. `pick_job` ranks its open jobs by the
+  walk from the den's door (`beast_home_flood`), not from where it stands, then claims by the
+  route from where it stands. `bend_rate` gives it `def.work / seconds` of channel a second, so
+  a tile takes the row's `seconds` whatever any modifier says, and a job it leaves half done is
+  half done for a settler too. A finished bore spends no chi and bumps `Beast::bored` (a saved
+  field, default 0) in place of the unit's `bends`, `bends_by` and rank-up, so no one's mastery,
+  the masters sign or the harness's top-bends count sees it. A struck seam and a bored tile go
+  through the same `apply_effect` as a bender's. `World::boring_left(den)` (designations of the
+  ability not yet finished, chained ones included) and `World::bored_by(den)` are the inspect
+  numbers; `Food: 6/10` is the bunker's own readout. A hungry badgermole finishes the tile it
+  holds, then rests at the door (the rule for every beast). Taking the den down leaves the
+  designations standing for a bender.
 
 ## Against the specialties
 
