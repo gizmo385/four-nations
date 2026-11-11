@@ -209,6 +209,8 @@ fn ci(fast: bool, no_goldens: bool) -> Result {
     cargo(&["fmt", "--all", "--check"])?;
     println!("$ xtask lint agent-surface-parity");
     lint::check(&root())?;
+    println!("$ xtask lint test-modules");
+    lint_test_modules(&root())?;
     let clippy: Vec<&str> =
         [&["clippy", "--workspace", "--all-targets"][..], &profile, &["--", "-D", "warnings"]]
             .concat();
@@ -323,6 +325,8 @@ fn check(crates: &[String], fast: bool) -> Result {
     cargo(&["fmt", "--all", "--check"])?;
     println!("$ xtask lint agent-surface-parity");
     lint::check(&root())?;
+    println!("$ xtask lint test-modules");
+    lint_test_modules(&root())?;
     let clippy: Vec<&str> =
         [&["clippy", "--workspace", "--all-targets"][..], &profile, &["--", "-D", "warnings"]]
             .concat();
@@ -450,13 +454,12 @@ fn bless(expect: Option<&[&str]>) -> Result {
     }
     let env = [("FN_BLESS", "1"), ("CARGO_PROFILE_CI_OPT_LEVEL", "1")];
     for (pkg, stems) in &targets {
-        let mut args: Vec<&str> = vec!["test", "-p", pkg];
-        for s in stems {
-            args.push("--test");
-            args.push(s);
-        }
-        args.push("--profile");
-        args.push("ci");
+        // The files are modules of the crate's one test binary, `it` (tests/it.rs), so each is
+        // picked by its module path. A filter is a substring: `frames::` also runs a module
+        // whose name ends in `frames`, which only blesses a little more.
+        let filters: Vec<String> = stems.iter().map(|s| format!("{s}::")).collect();
+        let mut args: Vec<&str> = vec!["test", "-p", pkg, "--test", "it", "--profile", "ci", "--"];
+        args.extend(filters.iter().map(String::as_str));
         cargo_env(&args, &env)?;
     }
     let changed = print_changed_goldens(&root)?;
@@ -518,6 +521,7 @@ fn golden_test_targets(root: &Path) -> Result<Vec<(String, Vec<String>)>> {
             .filter_map(|e| e.ok())
             .map(|e| e.path())
             .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("rs"))
+            .filter(|p| p.file_name().and_then(|n| n.to_str()) != Some(TEST_ROOT))
             .collect();
         files.sort();
         let mut stems = Vec::new();
@@ -535,6 +539,59 @@ fn golden_test_targets(root: &Path) -> Result<Vec<(String, Vec<String>)>> {
         }
     }
     Ok(out)
+}
+
+/// The root file of a crate's one integration-test binary, in its `tests/` folder.
+const TEST_ROOT: &str = "it.rs";
+
+/// Fails when a test file isn't part of its crate's test binary. Each crate builds one
+/// integration-test binary from `tests/it.rs` (`autotests = false`), and every other `.rs` file
+/// in `tests/` has to be a `mod` line there. A file with no line compiles into nothing and its
+/// tests never run, silently, so the gate checks it (part of `cargo xtask ci` and `check`).
+fn lint_test_modules(root: &Path) -> Result {
+    let mut dirs: Vec<PathBuf> = fs::read_dir(root.join("crates"))
+        .map_err(|e| format!("reading crates/: {e}"))?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path().join("tests"))
+        .collect();
+    dirs.push(root.join("xtask").join("tests"));
+    dirs.sort();
+    let mut problems = Vec::new();
+    for dir in dirs.iter().filter(|d| d.is_dir()) {
+        let shown = dir.strip_prefix(root).unwrap_or(dir).display().to_string();
+        let files: Vec<String> = fs::read_dir(dir)
+            .map_err(|e| format!("reading {shown}: {e}"))?
+            .filter_map(|e| e.ok())
+            .filter_map(|e| e.file_name().into_string().ok())
+            .filter(|n| n.ends_with(".rs") && n != TEST_ROOT)
+            .collect();
+        let root_src = fs::read_to_string(dir.join(TEST_ROOT)).unwrap_or_default();
+        problems.extend(unlisted_test_files(&root_src, files).into_iter().map(|f| {
+            format!(
+                "{shown}/{f} isn't in {shown}/{TEST_ROOT}: add `mod {};`",
+                f.trim_end_matches(".rs")
+            )
+        }));
+    }
+    if problems.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "test files that are never built, so their tests never run:\n  {}",
+        problems.join("\n  ")
+    ))
+}
+
+/// The `files` (names in a `tests/` folder) that `root_src` (its `it.rs`) has no `mod` line for.
+fn unlisted_test_files(root_src: &str, mut files: Vec<String>) -> Vec<String> {
+    let listed: Vec<&str> = root_src
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("mod ")?.strip_suffix(';'))
+        .map(str::trim)
+        .collect();
+    files.retain(|f| !listed.contains(&f.trim_end_matches(".rs")));
+    files.sort();
+    files
 }
 
 /// Every `tests/golden` directory under `crates/*`.
@@ -581,4 +638,22 @@ fn print_changed_goldens(root: &Path) -> Result<Vec<String>> {
         .iter()
         .map(|l| l[3..].rsplit(" -> ").next().unwrap_or_default().trim_matches('"').to_owned())
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_test_file_with_no_mod_line_is_reported() {
+        let root_src = "//! Docs.\n\nmod frames;\n  mod watch ;\n// mod hidden;\n";
+        let files =
+            ["watch.rs", "new_one.rs", "frames.rs", "hidden.rs"].map(str::to_owned).to_vec();
+        assert_eq!(unlisted_test_files(root_src, files), ["hidden.rs", "new_one.rs"]);
+    }
+
+    #[test]
+    fn every_test_file_in_this_repository_is_listed() {
+        lint_test_modules(&root()).unwrap();
+    }
 }

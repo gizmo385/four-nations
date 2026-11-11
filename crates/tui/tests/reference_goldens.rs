@@ -1,4 +1,4 @@
-//! Reference goldens (#455): twelve whole-screen snapshots, one per screen type, kept for a reviewer
+//! Reference goldens (#455): thirteen whole-screen snapshots, one per screen type, kept for a reviewer
 //! to look at -- not the regression net. That job belongs to the layout properties
 //! (`layout_properties.rs`, #454) and the `contains`-style assertions beside each feature.
 //!
@@ -15,7 +15,7 @@
 //! building's cost in the build list, a tech's price on the research screen, the endeavor's
 //! targets, the nation's traits.
 //!
-//! Rewrite with `FN_BLESS=1 cargo test -p fn_tui --test reference_goldens` (review the diff)
+//! Rewrite with `FN_BLESS=1 cargo test -p fn_tui --test it reference_goldens::` (review the diff)
 //! when the TUI changes.
 
 use fn_sim::building::BuildingId;
@@ -41,7 +41,7 @@ const SEED: u64 = 1;
 const SETTLERS: [&str; 2] = ["Juni", "Shen"];
 
 /// Every reference screen, by golden name.
-const SCREENS: [&str; 12] = [
+const SCREENS: [&str; 13] = [
     "ref_title",
     "ref_embark",
     "ref_game_80x24",
@@ -49,6 +49,7 @@ const SCREENS: [&str; 12] = [
     "ref_build_list",
     "ref_research",
     "ref_nation",
+    "ref_abilities",
     "ref_endeavor",
     "ref_menu",
     "ref_help",
@@ -209,6 +210,7 @@ fn screen_text(name: &str, defs: &Defs, seed: u64) -> String {
         "ref_build_list" => game_text(defs, seed, SIZE, "u"),
         "ref_research" => game_text(defs, seed, SIZE, "t"),
         "ref_nation" => game_text(defs, seed, SIZE, "n"),
+        "ref_abilities" => game_text(defs, seed, SIZE, "i"),
         "ref_endeavor" => game_text(defs, seed, SIZE, "g"),
         "ref_menu" => game_text(defs, seed, SIZE, "<esc>"),
         "ref_help" => game_text(defs, seed, SIZE, "?"),
@@ -221,7 +223,7 @@ fn screen_text(name: &str, defs: &Defs, seed: u64) -> String {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The twelve reference screens
+// The thirteen reference screens
 // ---------------------------------------------------------------------------------------------
 
 fn reference(name: &str) {
@@ -268,6 +270,11 @@ fn reference_research() {
 #[test]
 fn reference_nation() {
     reference("ref_nation");
+}
+
+#[test]
+fn reference_abilities() {
+    reference("ref_abilities");
 }
 
 #[test]

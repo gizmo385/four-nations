@@ -4,6 +4,8 @@ description = "The balance harness (docs/design/balance-harness.md): owns the `b
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+# One integration-test binary, `tests/it.rs`, with each other file in tests/ as a module of it.
+autotests = false
 
 [lib]
 name = "fn_harness"
@@ -11,6 +13,10 @@ name = "fn_harness"
 [[bin]]
 name = "balance"
 path = "src/bin/balance.rs"
+
+[[test]]
+name = "it"
+path = "tests/it.rs"
 
 [dependencies]
 fn_sim = { path = "../sim" }

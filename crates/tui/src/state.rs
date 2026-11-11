@@ -55,6 +55,10 @@ pub enum Screen {
     /// panel's own Modifiers, moved here, #308, docs/design/side-panel.md "The Nation screen").
     /// It moves a pointer ([`UiState::nation_cursor`]) over the roster.
     Nation,
+    /// `I` (#719): every bending ability the settlement has or may yet unlock, with what each
+    /// does and whether it can be used now. It moves a pointer ([`UiState::ability_cursor`]) over
+    /// `fn_ui::bend::abilities`; `Enter` picks the one under it for the Bend tool.
+    Abilities,
 }
 
 /// The two tabs of the key help (`?`, #662): the keys, and the legend of the map's glyphs. `Tab`
@@ -119,6 +123,10 @@ pub struct UiState {
     /// stockpile down by accident. The same `O` key as `repeating`, just read for a different
     /// tool; the two never both apply at once. Resets whenever the tool changes (`set_tool`).
     pub teardown: bool,
+    /// The chute whose foot is being picked (#683, `fn_ui::chute`): set when the Build tool places
+    /// a chute site, or by `O` on a chute in Select mode. While set, `Enter` on the map sets the
+    /// foot at the cursor and `Esc` leaves it unset; changing tools drops it.
+    pub linking: Option<Pos>,
     /// The building the Build tool places, kept across tool changes so `U` returns to it
     /// (`fn_ui::tools::switch_tool`; the client keeps the same choice in its own `BuildChoice`
     /// resource, since it belongs to the frontend, not the `Session`).
@@ -190,6 +198,9 @@ pub struct UiState {
     /// The Nation screen's cursor: an index into its roster (`crate::nation::roster`), in the
     /// screen's own grouped order.
     pub nation_cursor: usize,
+    /// The abilities screen's pointer: an index into `fn_ui::bend::abilities`, which opens on
+    /// the ability the Bend tool channels now.
+    pub ability_cursor: usize,
     /// The saves screen's slots (newest first), read from disk when the screen opens or a save
     /// changes them ([`crate::app::App::refresh_saves`]), not on every frame.
     pub save_slots: Vec<Slot>,
@@ -221,6 +232,7 @@ impl UiState {
             tool: Tool::Select,
             repeating: false,
             teardown: false,
+            linking: None,
             choice: None,
             anchor: None,
             tool_list: None,
@@ -249,6 +261,7 @@ impl UiState {
             saved_at: None,
             tech: (0, 0),
             nation_cursor: 0,
+            ability_cursor: 0,
             save_slots: Vec::new(),
             save_cursor: 0,
             save_name: None,
@@ -333,6 +346,7 @@ impl UiState {
         self.marked = None;
         self.repeating = false;
         self.teardown = false;
+        self.linking = None;
         // Entering a tool shows the banner (#307), which the view must keep the cursor clear
         // of.
         self.follow();
@@ -355,9 +369,10 @@ impl UiState {
     }
 
     /// The building the Build tool's ghosts would place (`fn_ui::build::valid_choice`): `None`
-    /// outside the Build tool, or with nothing placeable yet.
+    /// outside the Build tool, with nothing placeable yet, or while a chute's foot is being
+    /// picked (#683), when the cursor points at the foot instead.
     pub fn ghost_building(&self, session: &Session) -> Option<BuildingId> {
-        if self.tool != Tool::Build {
+        if self.tool != Tool::Build || self.linking.is_some() {
             return None;
         }
         fn_ui::build::valid_choice(&fn_ui::build::picker_rows(session), self.choice)

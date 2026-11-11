@@ -126,7 +126,7 @@ backgrounds, the stockpile is blue, the cursor is yellow and the selected unit i
 |---|---|---|---|
 | **Side panel** | Right edge, full height above the status line | 32 columns | Seal frame: `accent_soft` box lines, `accent` corners `┏┓┗┛`, title `◆ NATION ◆` centred on the top edge, `◇` section bullets. Sections in ui.md order: header (seed, clock, speed); **People** (count, then one line per unit while they fit); **Stores**; **Research**; **Tool** (hint and notice); **Alerts**; the **inspector**. Empty sections hide, as in ui.md |
 | **Inspector** (#653) | The side panel's last section, every row the sections above leave | the rest of the panel | Its heading names what it describes. A selected settler: name and rank; task, carrying; meters as 10-cell bars in `ok`/`warn`/`bad`, with the word `low` after any that is not ok (readable without colour); chi in `accent`; progress to the next rank; the tile it stands on. Otherwise what is under the cursor, the client's tooltip lines (name, context, yield or reason, hint) with the position on the heading. No key hints (the hint bar has them, see "Hints"); no portrait. Nothing covers the map: the selection bar of #99 is retired, see docs/design/side-panel-v2.md "The inspector" |
-| **Full screens** (#652) | Over the map and the side panel | every column, every row above the status line | One shared frame (`crate::page`, see "Full screens" below): Nation (`N`), Research (`T`), Endeavor (`G`), the message log (`L`), key help (`?`), Saves (`F6`) and Build (`U`) |
+| **Full screens** (#652) | Over the map and the side panel | every column, every row above the status line | One shared frame (`crate::page`, see "Full screens" below): Nation (`N`), Abilities (`I`, #719: every bending ability with what it does and whether it can be used now, `Enter` picks one for the Bend tool; the key is in the hint bar only), Research (`T`), Endeavor (`G`), the message log (`L`), key help (`?`), Saves (`F6`) and Build (`U`) |
 | *(new)* **Centred boxes** (#285, #655) | Centred box over the map area | up to 66x18, shrinking to fit | A smaller, centred Seal box that captures every key until it closes (`crate::modal`): the game menu (`crate::menu`) and the confirm box (`crate::ask`) |
 | *(new)* **Status line** | Last row | 1 row | The **hint bar** (see "Hints"): the mode's name, that mode's own keys and a fixed tail, `PAUSED` then `? keys`. Vim and Dwarf Fortress both teach this: in a modal keyboard UI the mode must always be visible |
 
@@ -174,7 +174,9 @@ backgrounds, the stockpile is blue, the cursor is yellow and the selected unit i
   - **What stays a box.** The game menu and the confirm box are centred boxes over the map, not
     full screens (`crate::menu`, `crate::ask`); a confirm box asked from a full screen (load or
     save over, from Saves) is centred on that screen. The title screen and embark keep their
-    own layouts.
+    own layouts, but follow the hint rule: the title screen's box is centred over every row but the
+    last, which is the hint bar (`TITLE`, `NATION`, `SEED`, `LOAD`), and embark's status line is
+    its hint bar (`EMBARK`, with `? keys`); no box or border prints a key (#686).
 
   - **The message log (#661)** reads newest first, under a heading per season, each line stamped
     with the time left (#654). A filter row (`Show [All] 1 Alerts 2 People 3 Knowledge 4 Bending
@@ -555,7 +557,7 @@ panel's header and Cursor section already make the MVP playable to watch.
   trickle, seasons) changes none of them, and a test in that file proves it. What does change
   one is the TUI itself, or a number a screen prints on purpose (a building's cost in the build
   list, a tech's price, the endeavor's targets). Rewrite them with `FN_BLESS=1 cargo test -p
-  fn_tui --test reference_goldens` and review the diff. `fn_sim`'s own goldens (mapgen ASCII, the
+  fn_tui --test it reference_goldens::` and review the diff. `fn_sim`'s own goldens (mapgen ASCII, the
   embark report) stay: they test mapgen on purpose.
 - **`--frame` for agents.** `cargo run -p fn_tui -- SEED NATION --frame [--size 120x40]
   [--keys SCRIPT] [--ticks N] [--ascii] [--ansi]` builds the session, plays the script, renders

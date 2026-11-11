@@ -68,6 +68,9 @@ pub enum Action {
     /// `N`: the Nation screen (#308): every settler grouped by activity, every store and the
     /// nation's traits.
     ShowNation,
+    /// `I`: the abilities screen (#719): every bending ability the settlement has or may yet
+    /// unlock, and `Enter` there picks one for the Bend tool. Shown in the hint bar only.
+    ShowAbilities,
     /// `F5`: save the game to the quicksave slot.
     QuickSave,
     /// `F9`: replace the game with the quicksave, after asking in a centred box.
@@ -137,6 +140,8 @@ pub enum Mode {
     Research,
     Endeavor,
     Nation,
+    /// The abilities screen (`I`, #719).
+    Abilities,
     Log,
     /// The message log in the `--watch` spectator (#774): the studio keeps `1`-`3` and `0` for
     /// its panes, so the filters are on `Tab`, and `Esc` is refused (`L` closes it).
@@ -158,6 +163,19 @@ pub enum Mode {
     Ask,
     /// Leaving the embark screen: back to the title screen, out of the game, or stay.
     Exit,
+    /// The title screen's menu.
+    Title,
+    /// The title screen's nation picker, the seed step and the save list.
+    TitleNation,
+    TitleSeed,
+    TitleLoad,
+    /// The embark screen at the overview, at a middle zoom and at the closest (site) zoom: what
+    /// `Enter` and `Esc` do differs.
+    Embark,
+    EmbarkZoom,
+    EmbarkSite,
+    /// The embark screen's question, "settle here?", asked on the hint bar.
+    Settle,
     /// Every map mode (Select, Selected and a tool). Key help only.
     Map,
     /// Every mode at once: the clock, the screens, prompts. Key help only.
@@ -174,6 +192,7 @@ impl Mode {
             Self::Research => "RESEARCH",
             Self::Endeavor => "ENDEAVOR",
             Self::Nation => "NATION",
+            Self::Abilities => "ABILITIES",
             Self::Log | Self::WatchLog => "LOG",
             Self::Help => "KEYS",
             Self::Saves => "SAVES",
@@ -184,6 +203,12 @@ impl Mode {
             Self::MenuNations => "SWITCH",
             Self::Ask => "CONFIRM",
             Self::Exit => "EXIT",
+            Self::Title => "TITLE",
+            Self::TitleNation => "NATION",
+            Self::TitleSeed => "SEED",
+            Self::TitleLoad => "LOAD",
+            Self::Embark | Self::EmbarkZoom | Self::EmbarkSite => "EMBARK",
+            Self::Settle => "SETTLE?",
             Self::Anywhere => "ANY",
         }
     }
@@ -296,6 +321,9 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Select], &[Action::NextUnit], "Tab", "next unit", None);
     add(&[Mode::Select], &[Action::Cancel], "Esc", "menu", None);
     add(IN_SELECT, &[Action::ShowTools], "/", "tools", None);
+    // The abilities screen (#719): a hint-bar item only, no key help row (`B` still picks the
+    // Bend tool directly, and the screen is where Bend's abilities are read and chosen).
+    add(IN_SELECT, &[Action::ShowAbilities], "I", "abilities", None);
     add(&[Mode::Selected], &[Action::Confirm], "Enter", "next unit here", None);
     add(&[Mode::Selected], &[Action::NextUnit], "Tab", "next unit", None);
     add(&[Mode::Selected], &[Action::Follow], "F", "follow", None);
@@ -314,6 +342,11 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Nation], &[Action::Confirm], "Enter", "select", None);
     add(&[Mode::Nation], &[Action::Cancel, Action::ShowNation], "Esc or N", "close", None);
     add(&[Mode::Nation], &[jump], "PgUp/PgDn", "page", None);
+
+    add(&[Mode::Abilities], &[step], "Up/Down", "choose", None);
+    add(&[Mode::Abilities], &[Action::Confirm], "Enter", "bend", None);
+    add(&[Mode::Abilities], &[Action::Cancel, Action::ShowAbilities], "Esc or I", "close", None);
+    add(&[Mode::Abilities], &[jump], "PgUp/PgDn", "page", None);
 
     add(&[Mode::Endeavor], &[step], "Up/Down", "scroll", None);
     add(&[Mode::Endeavor], &[Action::Confirm], "Enter", "place", None);
@@ -381,6 +414,32 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Exit], &[], "T", "title screen", None);
     add(&[Mode::Exit], &[], "Q or Enter", "exit", None);
     add(&[Mode::Exit], &[], "Esc", "stay", None);
+
+    // The title screen, a page at a time. It has no key help, so no `? keys` tail.
+    add(&[Mode::Title], &[], "Up/Down", "choose", None);
+    add(&[Mode::Title], &[], "Enter", "select", None);
+    add(&[Mode::TitleNation], &[], "Arrows or 1-4", "choose", None);
+    add(&[Mode::TitleNation], &[], "Enter", "confirm", None);
+    add(&[Mode::TitleNation], &[], "Esc", "back", None);
+    add(&[Mode::TitleSeed], &[], "Up/Down", "pick row", None);
+    add(&[Mode::TitleSeed], &[], "Left/Right", "change", None);
+    add(&[Mode::TitleSeed], &[], "Enter", "embark", None);
+    add(&[Mode::TitleSeed], &[], "Esc", "back", None);
+    add(&[Mode::TitleLoad], &[], "Up/Down", "choose", None);
+    add(&[Mode::TitleLoad], &[], "Enter", "load", None);
+    add(&[Mode::TitleLoad], &[], "Esc", "back", None);
+
+    // The embark screen, by zoom, and its settle question.
+    const EMBARK: &[Mode] = &[Mode::Embark, Mode::EmbarkZoom, Mode::EmbarkSite];
+    add(EMBARK, &[], "Arrows", "move", None);
+    add(&[Mode::Embark, Mode::EmbarkZoom], &[], "Enter", "zoom in", None);
+    add(&[Mode::EmbarkSite], &[], "Enter or E", "settle", None);
+    add(&[Mode::EmbarkZoom, Mode::EmbarkSite], &[], "-", "zoom out", None);
+    add(&[Mode::Embark, Mode::EmbarkZoom], &[], "E", "settle", None);
+    add(EMBARK, &[], "R", "new seed", None);
+    add(&[Mode::Embark], &[], "Esc", "back", None);
+    add(&[Mode::Settle], &[], "Y", "settle here", None);
+    add(&[Mode::Settle], &[], "Any other key", "stay", None);
 
     // The key help's own rows, in its order: one row per key, short enough for half a screen
     // (anything that needs a paragraph is left to the screen it is about). Their keys are the
@@ -455,7 +514,12 @@ fn build() -> Vec<Entry> {
         "teardown",
         help(in_tool, "Also sites, stockpiles (Cancel)"),
     );
+    // The Bend tool's own way to the abilities screen (#719), hint bar only like the toggles.
+    only.set(Some(Tool::Bend));
+    add(IN_TOOL, &[Action::ShowAbilities], "I", "abilities", None);
     only.set(None);
+    // Select mode's `O` on a chute (#683): in no hint bar, only in the key help.
+    add(&[], &[], "O", "foot", help(in_tool, "Move a chute's foot (Select)"));
 
     let time = Some(Group::Time);
     add(&[Mode::Anywhere], &[Action::TogglePause], "Space", "pause", help(time, "Pause or run"));
@@ -588,6 +652,7 @@ mod tests {
         assert!(line(Mode::Research).starts_with("Arrows choose"));
         for mode in [
             Mode::Nation,
+            Mode::Abilities,
             Mode::Log,
             Mode::Help,
             Mode::Saves,
@@ -595,9 +660,13 @@ mod tests {
             Mode::Menu,
             Mode::MenuNations,
             Mode::Ask,
+            Mode::Title,
+            Mode::TitleSeed,
+            Mode::TitleLoad,
         ] {
             assert!(line(mode).starts_with("Up/Down "), "{mode:?}: {}", line(mode));
         }
+        assert!(line(Mode::Embark).starts_with("Arrows move"));
         assert!(line(Mode::Select).starts_with("Arrows move"));
     }
 
@@ -629,7 +698,7 @@ mod tests {
     }
 
     /// A tool's toggle is a row of its own (#781): in the tool modes' hints for that tool only,
-    /// and one `O` row a tool in the key help.
+    /// and one `O` row a tool in the key help, plus Select's `O` on a chute (#683).
     #[test]
     fn a_tools_toggles_are_its_own_rows() {
         let text = |mode, tool| {
@@ -642,13 +711,46 @@ mod tests {
             for tool in [Tool::Clear, Tool::Stockpile, Tool::Bend, Tool::Build, Tool::Sow] {
                 assert!(!text(mode, tool).contains("O "), "{tool:?}");
             }
+            // The abilities key is the Bend tool's, and every map mode without a tool names it
+            // too (#719); it is in no key help row.
+            assert!(text(mode, Tool::Bend).ends_with(" · I abilities"));
+            assert!(!text(mode, Tool::Harvest).contains("abilities"));
         }
+        assert!(text(Mode::Select, Tool::Select).contains("I abilities"));
+        assert!(help_rows().iter().all(|r| r.keys != "I"));
         // The other modes never carry one, and `hints` is the tool-less list.
         assert!(!text(Mode::Select, Tool::Harvest).contains("O "));
         assert_eq!(line(Mode::Tool), "Arrows move · Enter set corner · Esc leave tool");
         let rows: Vec<_> = help_rows().into_iter().filter(|r| r.keys == "O").collect();
-        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.len(), 3);
         assert!(rows.iter().all(|r| r.group == Group::InTool));
+        assert!(rows[2].what.contains("chute"));
+    }
+
+    /// The title and embark screens' hints (#686), as their old footers worded them, in the
+    /// table's `key verb` pattern.
+    #[test]
+    fn the_title_and_embark_screens_have_their_own_hints() {
+        assert_eq!(line(Mode::Title), "Up/Down choose · Enter select");
+        assert_eq!(line(Mode::TitleNation), "Arrows or 1-4 choose · Enter confirm · Esc back");
+        assert_eq!(
+            line(Mode::TitleSeed),
+            "Up/Down pick row · Left/Right change · Enter embark · Esc back"
+        );
+        assert_eq!(line(Mode::TitleLoad), "Up/Down choose · Enter load · Esc back");
+        assert_eq!(
+            line(Mode::Embark),
+            "Arrows move · Enter zoom in · E settle · R new seed · Esc back"
+        );
+        assert_eq!(
+            line(Mode::EmbarkZoom),
+            "Arrows move · Enter zoom in · - zoom out · E settle · R new seed"
+        );
+        assert_eq!(
+            line(Mode::EmbarkSite),
+            "Arrows move · Enter or E settle · - zoom out · R new seed"
+        );
+        assert_eq!(line(Mode::Settle), "Y settle here · Any other key stay");
     }
 
     #[test]

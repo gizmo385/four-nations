@@ -4,6 +4,12 @@ description = "Headless, deterministic simulation core for The Four Nations. No 
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+# One integration-test binary, `tests/it.rs`, with each other file in tests/ as a module of it.
+autotests = false
+
+[[test]]
+name = "it"
+path = "tests/it.rs"
 
 [dependencies]
 serde.workspace = true

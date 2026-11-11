@@ -405,6 +405,86 @@ pub fn draw_position(buf: &mut Buffer, area: Rect, palette: &Palette, text: &str
     buf.set_string(area.right() - 2 - len, area.bottom() - 1, &text, Tone::Dim.style(palette));
 }
 
+/// What a [`draw_hint_bar`] says after the mode's badge.
+pub enum BarBody<'a> {
+    /// The mode's own keys (`fn_ui::keys::hints`), as many whole items as fit.
+    Keys,
+    /// A result notice in place of the keys, cut with an ellipsis if it is too long.
+    Notice(&'a str),
+}
+
+/// The hint bar (docs/design/tui.md, "Hints") on the one row `area`, for the screens that have
+/// no `App` to draw it: the badge with `mode`'s name, then `mode`'s keys or a notice, then, with
+/// `tail`, the fixed `? keys` on the right. The keys come from the `fn_ui::keys` table, and
+/// whole items drop off the end when they don't fit. `warn` gives the badge the warning colour.
+pub fn draw_hint_bar(
+    buf: &mut Buffer,
+    area: Rect,
+    palette: &Palette,
+    mode: fn_ui::keys::Mode,
+    body: BarBody,
+    tail: bool,
+    warn: bool,
+) {
+    if area.height == 0 || area.width == 0 {
+        return;
+    }
+    let theme = &palette.theme;
+    let y = area.y;
+    let panel = Style::new().fg(palette.token(theme.dim)).bg(palette.token(theme.panel));
+    let accent = Style::new().fg(palette.token(theme.accent)).bg(palette.token(theme.panel));
+    for x in area.left()..area.right() {
+        buf[(x, y)].reset();
+        buf[(x, y)].set_char(' ').set_style(panel);
+    }
+    let badge = if palette.mono() {
+        Style::new().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+    } else {
+        let bg = if warn { theme.warn } else { theme.accent };
+        Style::new()
+            .fg(palette.token(theme.on_accent))
+            .bg(palette.token(bg))
+            .add_modifier(Modifier::BOLD)
+    };
+    let marks = Marks::new(palette.ascii);
+    let width = |s: &str| s.chars().count() as u16;
+    let name = format!(" {} ", mode.name());
+    buf.set_string(area.x, y, &name, badge);
+
+    // The tail goes first so the keys know how much room it leaves; a notice takes its place.
+    let tail_item = fn_ui::keys::tail();
+    let mut right = 0;
+    if tail && matches!(body, BarBody::Keys) {
+        let text = tail_item.text();
+        right = width(&text) + 1;
+        let x = area.right().saturating_sub(right);
+        buf.set_string(x, y, &text, panel);
+        buf.set_string(x, y, &tail_item.keys, accent);
+    }
+    let start = area.x + width(&name) + 1;
+    let room = usize::from(area.right().saturating_sub(start + right + 1));
+    match body {
+        BarBody::Notice(text) => buf.set_string(start, y, fit(text, room, marks.ellipsis), panel),
+        BarBody::Keys => {
+            let items = fn_ui::keys::hints(mode);
+            let sep = format!(" {} ", marks.dot);
+            let n = fn_ui::keys::fit(&items, room, sep.chars().count());
+            let mut x = start;
+            for (i, item) in items[..n].iter().enumerate() {
+                if i > 0 {
+                    buf.set_string(x, y, &sep, panel);
+                    x += width(&sep);
+                }
+                buf.set_string(x, y, &item.keys, accent);
+                x += width(&item.keys);
+                let verb = format!(" {}", item.verb);
+                buf.set_string(x, y, &verb, panel);
+                x += width(&verb);
+            }
+        }
+    }
+}
+
 /// Writes rows down an area, one per line, and stops at the bottom.
 pub struct Painter<'a> {
     pub buf: &'a mut Buffer,

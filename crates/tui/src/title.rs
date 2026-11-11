@@ -14,12 +14,12 @@ use fn_sim::{Defs, Nation, World};
 use fn_ui::keys;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Style;
 
 use crate::color::Palette;
 use crate::draw::too_small_text;
 use crate::layout::{MIN_HEIGHT, MIN_WIDTH};
-use crate::widgets::{Marks, Painter, Row, TitleAt, Tone, draw_frame, wrap};
+use crate::widgets::{BarBody, Painter, Row, TitleAt, Tone, draw_frame, draw_hint_bar, wrap};
 
 /// What `F6`'s own save-slot rows are drawn with, reused for the Load page.
 use crate::saves as save_rows;
@@ -445,13 +445,14 @@ pub(crate) fn default_difficulty_idx(defs: &Defs) -> usize {
 // Drawing
 // -------------------------------------------------------------------------------------------
 
-/// The footer hint for the frame around the title screen's box, by page.
-fn footer(page: &Page) -> &'static str {
+/// The hint bar's mode for `page` (`fn_ui::keys`): each page's keys are the table's, drawn on the
+/// screen's bottom row, never in the box (#686).
+pub fn hint_mode(page: &Page) -> keys::Mode {
     match page {
-        Page::Menu => "Arrows/W S choose  Enter select",
-        Page::Nation { .. } => "Arrows/1-4 choose  Enter confirm  Esc back",
-        Page::Seed { .. } => "Up/Down row  Left/Right change  Enter embark  Esc back",
-        Page::Load => "Arrows/W S choose  Enter load  Esc back",
+        Page::Menu => keys::Mode::Title,
+        Page::Nation { .. } => keys::Mode::TitleNation,
+        Page::Seed { .. } => keys::Mode::TitleSeed,
+        Page::Load => keys::Mode::TitleLoad,
     }
 }
 
@@ -502,8 +503,12 @@ pub fn draw_title(
     }
     let marks = crate::widgets::Marks::new(palette.ascii);
     let title = format!(" {0} FOUR NATIONS {0} ", marks.seal);
-    let outer = box_area(area, content_rows(screen));
-    draw_frame(buf, outer, palette, &title, TitleAt::Centre, footer(&screen.page));
+    // The last row is the hint bar's; the box is centred over the rows above it.
+    let above = Rect::new(area.x, area.y, area.width, area.height - 1);
+    let outer = box_area(above, content_rows(screen));
+    draw_frame(buf, outer, palette, &title, TitleAt::Centre, "");
+    let bar = Rect::new(area.x, area.bottom() - 1, area.width, 1);
+    draw_hint_bar(buf, bar, palette, hint_mode(&screen.page), BarBody::Keys, false, false);
     let inner = Rect::new(outer.x + 2, outer.y + 1, outer.width - 4, outer.height - 2);
 
     if screen.page == Page::Load {
@@ -589,7 +594,7 @@ fn draw_seed(
     ));
     p.blank();
     // Wrapped, not cut off: a difficulty's hint runs well past one line. The keys live in the
-    // frame's footer (`footer`) and the seed row's own hint says how to edit the digits, so the
+    // hint bar (`hint_mode`) and the seed row's own hint says how to edit the digits, so the
     // page doesn't repeat them.
     let hint = seed_row_hint(row, defs, size_idx, survey, difficulty_idx);
     let width = usize::from(p.inner.width);
@@ -630,45 +635,8 @@ pub fn draw_exit_prompt(palette: &Palette, area: Rect, buf: &mut Buffer) {
         let mut p = Painter::new(buf, inner, palette);
         p.row(&Row::text("Go back to the title screen, or exit?", Tone::Text));
     }
-    draw_exit_hints(palette, area, buf);
-}
-
-/// The hint bar over `area`'s bottom row: the `EXIT` badge and that mode's keys.
-fn draw_exit_hints(palette: &Palette, area: Rect, buf: &mut Buffer) {
-    if area.height == 0 {
-        return;
-    }
-    let theme = &palette.theme;
-    let y = area.bottom() - 1;
-    let panel = Style::new().fg(palette.token(theme.dim)).bg(palette.token(theme.panel));
-    let accent = Style::new().fg(palette.token(theme.accent)).bg(palette.token(theme.panel));
-    for x in area.left()..area.right() {
-        buf[(x, y)].reset();
-        buf[(x, y)].set_char(' ').set_style(panel);
-    }
-    let badge = if palette.mono() {
-        Style::new().add_modifier(Modifier::REVERSED | Modifier::BOLD)
-    } else {
-        Style::new()
-            .fg(palette.token(theme.on_accent))
-            .bg(palette.token(theme.accent))
-            .add_modifier(Modifier::BOLD)
-    };
-    let name = format!(" {} ", keys::Mode::Exit.name());
-    buf.set_string(area.x, y, &name, badge);
-    let sep = format!(" {} ", Marks::new(palette.ascii).dot);
-    let mut x = area.x + name.chars().count() as u16 + 1;
-    for (i, item) in keys::hints(keys::Mode::Exit).iter().enumerate() {
-        if i > 0 {
-            buf.set_string(x, y, &sep, panel);
-            x += sep.chars().count() as u16;
-        }
-        buf.set_string(x, y, &item.keys, accent);
-        x += item.keys.chars().count() as u16;
-        let verb = format!(" {}", item.verb);
-        buf.set_string(x, y, &verb, panel);
-        x += verb.chars().count() as u16;
-    }
+    let bar = Rect::new(area.x, area.bottom().saturating_sub(1), area.width, 1);
+    draw_hint_bar(buf, bar, palette, keys::Mode::Exit, BarBody::Keys, false, false);
 }
 
 #[cfg(test)]

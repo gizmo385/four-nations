@@ -1,8 +1,9 @@
 //! The full-screen frame (#652, docs/design/tui.md "Full screens"): every screen that takes over
-//! the game (Nation, Research, Endeavor, Message log, Key help, Saves and Build) is drawn in one
-//! frame that covers the side panel, takes every column and every row above the hint bar, closes
-//! on `Esc` and on the key that opened it, says how far down it is on its bottom edge, and marks
-//! its selection with a pointer and a quiet background rather than reverse video.
+//! the game (Nation, Abilities, Research, Endeavor, Message log, Key help, Saves and Build) is
+//! drawn in one frame that covers the side panel, takes every column and every row above the hint
+//! bar, closes on `Esc` and on the key that opened it, says how far down it is on its bottom
+//! edge, and marks its selection with a pointer and a quiet background rather than reverse
+//! video.
 
 use std::path::PathBuf;
 
@@ -20,8 +21,9 @@ use ratatui::style::Modifier;
 const SIZES: [(u16, u16); 2] = [(80, 24), (120, 40)];
 
 /// Each screen: the key that opens it, and the title on its frame.
-const SCREENS: [(&str, &str); 7] = [
+const SCREENS: [(&str, &str); 8] = [
     ("n", "NATION"),
+    ("i", "ABILITIES"),
     ("t", "RESEARCH"),
     ("g", "ENDEAVOR"),
     ("l", "MESSAGE LOG"),

@@ -148,6 +148,7 @@ fn build_table() -> Vec<Binding> {
     add(Key::ch('?'), Action::ShowHelp);
     add(Key::ch('g'), Action::ShowEndeavor);
     add(Key::ch('n'), Action::ShowNation);
+    add(Key::ch('i'), Action::ShowAbilities);
     // F5/F9, the usual quicksave/quickload keys.
     add(Key::plain(F(5)), Action::QuickSave);
     add(Key::plain(F(9)), Action::AskQuickLoad);
@@ -182,7 +183,8 @@ pub fn spectator_allowed(action: Action) -> bool {
         | Action::ShowLog
         | Action::ShowHelp
         | Action::ShowEndeavor
-        | Action::ShowNation => true,
+        | Action::ShowNation
+        | Action::ShowAbilities => true,
         // The list's only use is to pick a tool, which a spectator may not.
         Action::ShowTools => false,
         Action::ShowSaves => false,
@@ -414,6 +416,7 @@ mod tests {
             Action::ShowHelp,
             Action::ShowEndeavor,
             Action::ShowNation,
+            Action::ShowAbilities,
         ];
         for a in allowed {
             assert!(spectator_allowed(a), "{a:?} should be allowed");
@@ -494,8 +497,10 @@ mod tests {
                 continue;
             }
             let name = b.key.name();
+            // The abilities key is shown in the hint bar only (#719), by design.
+            let hint_only = b.action == Action::ShowAbilities;
             let listed = table.iter().any(|e| {
-                e.help.is_some()
+                (e.help.is_some() || hint_only)
                     && e.actions.iter().any(|a| a.same_kind(b.action))
                     && label_tokens(&e.keys).contains(&name)
             });
@@ -516,6 +521,10 @@ mod tests {
             .chain(["1-5".to_owned()])
             // The embark exit prompt's `Q`, read by `Shell`, not the game's key map (#703).
             .chain(["Q".to_owned()])
+            // The title and embark screens' own keys (#686), read by `title.rs` and `embark.rs`:
+            // the nation picker's `1`-`4`, embark's `R` and the settle question's `Y`, and the
+            // words of its "Any other key" label.
+            .chain(["1", "2", "3", "4", "R", "Y", "Any", "other", "key"].map(String::from))
             .collect();
         for e in fn_ui::keys::table() {
             // `Type` (the name prompt) is every character, not one key.

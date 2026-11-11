@@ -142,12 +142,6 @@ fn power_lines(world: &World, defs: &Defs, anchor: Pos, building: BuildingId) ->
     }
 }
 
-/// The tooltip for what is under the cursor at `tile`: up to 4 lines (name, context, a yield or
-/// reason, then an action hint). `None` when `tile` is off the map.
-///
-/// A unit standing there (`units_at` skips one inside a building, #226: it isn't standing there
-/// as far as the map is concerned, so hovering its door falls through to the building below
-/// instead) takes over the tile entirely (`unit_lines`); otherwise this is [`tile_lines`].
 /// A Hothouse's state, a fuel bunker's fill and a Lemur Roost's tally
 /// (docs/design/horizons-phase-1.md): `Warming 6 plots`, `Idle: not winter` or `Out of wood`;
 /// `Fuel: 4/6 Fish` or `Out of fish`; `Picked: 36  Eaten: 9`.
@@ -180,6 +174,38 @@ fn horizons_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
     lines
 }
 
+/// A chute's foot and what it has sent (docs/design/horizons-phase-1.md, "`omashu_chutes`"):
+/// `Foot: (31, 18), 9 tiles, drop 24` or `No foot`, then `Sent: 140 Stone` once it has sent
+/// anything.
+pub fn chute_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
+    let Some(b) = world.building_at(anchor) else { return Vec::new() };
+    if defs.building(b).chute.is_none() {
+        return Vec::new();
+    }
+    let mut lines = vec![match world.chute_foot(anchor, defs) {
+        Some(foot) => {
+            let tiles = world.footprint_at(anchor).map_or(0, |f| f.distance(foot));
+            let height = |p: Pos| world.map.get(p).map_or(0, |t| i32::from(t.elevation));
+            let drop = height(anchor) - height(foot);
+            format!("Foot: ({}, {}), {tiles} tiles, drop {drop}", foot.x, foot.y)
+        }
+        None => "No foot".to_owned(),
+    }];
+    let sent = world.chute_sent(anchor);
+    if !sent.is_empty() {
+        let parts: Vec<String> =
+            sent.iter().map(|s| format!("{} {}", s.count, defs.item(s.item).name)).collect();
+        lines.push(format!("Sent: {}", parts.join(", ")));
+    }
+    lines
+}
+
+/// The tooltip for what is under the cursor at `tile`: up to 4 lines (name, context, a yield or
+/// reason, then an action hint). `None` when `tile` is off the map.
+///
+/// A unit standing there (`units_at` skips one inside a building, #226: it isn't standing there
+/// as far as the map is concerned, so hovering its door falls through to the building below
+/// instead) takes over the tile entirely (`unit_lines`); otherwise this is [`tile_lines`].
 pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
     let world = &session.world;
     world.map.get(tile)?;
@@ -300,6 +326,7 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
         if let Some(building) = world.building_at(tile) {
             lines.extend(power_lines(world, defs, at, building).into_iter().map(Line::Detail));
         }
+        lines.extend(chute_lines(world, defs, at).into_iter().map(Line::Detail));
         return Some(lines);
     }
     let biome = &defs.biome(t.biome).name;
@@ -962,6 +989,22 @@ mod tests {
         assert!(details(&s, pos).contains(&"Out of fish".to_owned()), "{:?}", details(&s, pos));
         let s = spliced(s, None, Some(4));
         assert!(details(&s, pos).contains(&"Fuel: 4/6 Fish".to_owned()), "{:?}", details(&s, pos));
+    }
+
+    /// A chute (#683): `No foot` until one is set, then where, how far and how far down.
+    #[test]
+    fn a_chute_says_where_its_foot_is() {
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let pos = spot(&s);
+        put(&mut s, "chute", pos);
+        assert_eq!(details(&s, pos)[1..], ["No foot".to_owned()]);
+        let foot = Pos::new(pos.x + 3, pos.y);
+        s.world.map.get_mut(pos).unwrap().elevation = 200;
+        let low = s.world.map.get_mut(foot).unwrap();
+        (low.terrain, low.resource, low.elevation) = (fn_sim::Terrain::Land, None, 170);
+        s.apply(fn_sim::world::Command::SetLink { pos, to: foot }).unwrap();
+        let want = format!("Foot: ({}, {}), 3 tiles, drop 30", foot.x, foot.y);
+        assert_eq!(details(&s, pos)[1..], [want]);
     }
 
     /// The Hothouse (#680, #682): out of wood, else idle outside winter, with its fuel.

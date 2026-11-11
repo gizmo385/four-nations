@@ -145,6 +145,8 @@ pub struct Overlays {
     pub earth_tent: OverlayGlyph,
     /// Air's Air Shield, lit (#362): a shelter apart from `flame`.
     pub air_shield: OverlayGlyph,
+    /// A chute's link line (#683): `:` from its head to its foot.
+    pub link: OverlayGlyph,
 }
 
 /// The watcher's studio layout thresholds and proportions (`[studio]`,

@@ -1846,6 +1846,7 @@ fn describe_thing(session: &Session, thing: &Thing, pos: Pos) -> String {
         Thing::EarthTent => "earth tent".to_owned(),
         Thing::AirShield => "air shield".to_owned(),
         Thing::Sapling => "sapling".to_owned(),
+        Thing::Link => "chute line".to_owned(),
         Thing::RestingResource(r) => format!("{} (resting)", defs.resource(*r).name),
         Thing::Resource(r) => defs.resource(*r).name.clone(),
         Thing::Ground => "-".to_owned(),
@@ -1878,6 +1879,7 @@ pub(crate) fn describe_mark(mark: &Mark) -> String {
         Mark::Wet => "wet",
         Mark::Warm => "warmth",
         Mark::Powered => "powered",
+        Mark::FootReach => "foot reach",
         Mark::AvatarAccent => "avatar",
     }
     .to_owned()
