@@ -174,7 +174,9 @@ backgrounds, the stockpile is blue, the cursor is yellow and the selected unit i
   - **What stays a box.** The game menu and the confirm box are centred boxes over the map, not
     full screens (`crate::menu`, `crate::ask`); a confirm box asked from a full screen (load or
     save over, from Saves) is centred on that screen. The title screen and embark keep their
-    own layouts.
+    own layouts, but follow the hint rule: the title screen's box is centred over every row but the
+    last, which is the hint bar (`TITLE`, `NATION`, `SEED`, `LOAD`), and embark's status line is
+    its hint bar (`EMBARK`, with `? keys`); no box or border prints a key (#686).
 
   - **The message log (#661)** reads newest first, under a heading per season, each line stamped
     with the time left (#654). A filter row (`Show [All] 1 Alerts 2 People 3 Knowledge 4 Bending

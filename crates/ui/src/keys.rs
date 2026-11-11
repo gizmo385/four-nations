@@ -158,6 +158,19 @@ pub enum Mode {
     Ask,
     /// Leaving the embark screen: back to the title screen, out of the game, or stay.
     Exit,
+    /// The title screen's menu.
+    Title,
+    /// The title screen's nation picker, the seed step and the save list.
+    TitleNation,
+    TitleSeed,
+    TitleLoad,
+    /// The embark screen at the overview, at a middle zoom and at the closest (site) zoom: what
+    /// `Enter` and `Esc` do differs.
+    Embark,
+    EmbarkZoom,
+    EmbarkSite,
+    /// The embark screen's question, "settle here?", asked on the hint bar.
+    Settle,
     /// Every map mode (Select, Selected and a tool). Key help only.
     Map,
     /// Every mode at once: the clock, the screens, prompts. Key help only.
@@ -184,6 +197,12 @@ impl Mode {
             Self::MenuNations => "SWITCH",
             Self::Ask => "CONFIRM",
             Self::Exit => "EXIT",
+            Self::Title => "TITLE",
+            Self::TitleNation => "NATION",
+            Self::TitleSeed => "SEED",
+            Self::TitleLoad => "LOAD",
+            Self::Embark | Self::EmbarkZoom | Self::EmbarkSite => "EMBARK",
+            Self::Settle => "SETTLE?",
             Self::Anywhere => "ANY",
         }
     }
@@ -381,6 +400,32 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Exit], &[], "T", "title screen", None);
     add(&[Mode::Exit], &[], "Q or Enter", "exit", None);
     add(&[Mode::Exit], &[], "Esc", "stay", None);
+
+    // The title screen, a page at a time. It has no key help, so no `? keys` tail.
+    add(&[Mode::Title], &[], "Up/Down", "choose", None);
+    add(&[Mode::Title], &[], "Enter", "select", None);
+    add(&[Mode::TitleNation], &[], "Arrows or 1-4", "choose", None);
+    add(&[Mode::TitleNation], &[], "Enter", "confirm", None);
+    add(&[Mode::TitleNation], &[], "Esc", "back", None);
+    add(&[Mode::TitleSeed], &[], "Up/Down", "pick row", None);
+    add(&[Mode::TitleSeed], &[], "Left/Right", "change", None);
+    add(&[Mode::TitleSeed], &[], "Enter", "embark", None);
+    add(&[Mode::TitleSeed], &[], "Esc", "back", None);
+    add(&[Mode::TitleLoad], &[], "Up/Down", "choose", None);
+    add(&[Mode::TitleLoad], &[], "Enter", "load", None);
+    add(&[Mode::TitleLoad], &[], "Esc", "back", None);
+
+    // The embark screen, by zoom, and its settle question.
+    const EMBARK: &[Mode] = &[Mode::Embark, Mode::EmbarkZoom, Mode::EmbarkSite];
+    add(EMBARK, &[], "Arrows", "move", None);
+    add(&[Mode::Embark, Mode::EmbarkZoom], &[], "Enter", "zoom in", None);
+    add(&[Mode::EmbarkSite], &[], "Enter or E", "settle", None);
+    add(&[Mode::EmbarkZoom, Mode::EmbarkSite], &[], "-", "zoom out", None);
+    add(&[Mode::Embark, Mode::EmbarkZoom], &[], "E", "settle", None);
+    add(EMBARK, &[], "R", "new seed", None);
+    add(&[Mode::Embark], &[], "Esc", "back", None);
+    add(&[Mode::Settle], &[], "Y", "settle here", None);
+    add(&[Mode::Settle], &[], "Any other key", "stay", None);
 
     // The key help's own rows, in its order: one row per key, short enough for half a screen
     // (anything that needs a paragraph is left to the screen it is about). Their keys are the
@@ -595,9 +640,13 @@ mod tests {
             Mode::Menu,
             Mode::MenuNations,
             Mode::Ask,
+            Mode::Title,
+            Mode::TitleSeed,
+            Mode::TitleLoad,
         ] {
             assert!(line(mode).starts_with("Up/Down "), "{mode:?}: {}", line(mode));
         }
+        assert!(line(Mode::Embark).starts_with("Arrows move"));
         assert!(line(Mode::Select).starts_with("Arrows move"));
     }
 
@@ -649,6 +698,32 @@ mod tests {
         let rows: Vec<_> = help_rows().into_iter().filter(|r| r.keys == "O").collect();
         assert_eq!(rows.len(), 2);
         assert!(rows.iter().all(|r| r.group == Group::InTool));
+    }
+
+    /// The title and embark screens' hints (#686), as their old footers worded them, in the
+    /// table's `key verb` pattern.
+    #[test]
+    fn the_title_and_embark_screens_have_their_own_hints() {
+        assert_eq!(line(Mode::Title), "Up/Down choose · Enter select");
+        assert_eq!(line(Mode::TitleNation), "Arrows or 1-4 choose · Enter confirm · Esc back");
+        assert_eq!(
+            line(Mode::TitleSeed),
+            "Up/Down pick row · Left/Right change · Enter embark · Esc back"
+        );
+        assert_eq!(line(Mode::TitleLoad), "Up/Down choose · Enter load · Esc back");
+        assert_eq!(
+            line(Mode::Embark),
+            "Arrows move · Enter zoom in · E settle · R new seed · Esc back"
+        );
+        assert_eq!(
+            line(Mode::EmbarkZoom),
+            "Arrows move · Enter zoom in · - zoom out · E settle · R new seed"
+        );
+        assert_eq!(
+            line(Mode::EmbarkSite),
+            "Arrows move · Enter or E settle · - zoom out · R new seed"
+        );
+        assert_eq!(line(Mode::Settle), "Y settle here · Any other key stay");
     }
 
     #[test]
