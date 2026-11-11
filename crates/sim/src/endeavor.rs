@@ -199,11 +199,12 @@ pub enum SignKind {
     /// population, so it has none in the data.
     BedsForAll,
     /// Non-endeavor buildings this nation can ever unlock (`reachable_buildings`): no unlocking
-    /// tech, or one unlocked by a shared tech or its own, minus `spare`. The target is computed
+    /// tech, or one unlocked by a core shared tech or a core tech of its own, minus `spare`. The target is computed
     /// per nation, the way `BranchComplete`'s is, so it has none in the data
     /// (`docs/design/materials.md`, section 6; #272, #354).
     EveryBuilding { spare: u32 },
-    /// Techs of the settlement's own nation known, against all of them. Its target is the size of
+    /// Core techs (`TechDef::core`) of the settlement's own nation known, against all of them.
+    /// Its target is the size of
     /// the branch, so it has none in the data.
     BranchComplete,
     /// These items in stockpiles, summed.
@@ -224,9 +225,9 @@ pub enum Tally {
     ScrollsRead,
 }
 
-/// Non-endeavor buildings `nation` can ever unlock: no unlocking tech, or one unlocked by a
-/// shared tech (`TechDef::nation` is `None`) or by the nation's own
-/// (`SignKind::EveryBuilding`, `docs/design/materials.md` section 6, #354). Reads only `defs`,
+/// Non-endeavor buildings `nation` can ever unlock and the Harmony Gate counts: no unlocking
+/// tech, or one unlocked by a core (`TechDef::core`) shared tech (`TechDef::nation` is `None`)
+/// or core tech of the nation's own (`SignKind::EveryBuilding`, `docs/design/materials.md` section 6, #354). Reads only `defs`,
 /// not any particular settlement, so it adapts automatically as buildings are added to the data
 /// (#357 and friends) rather than going stale the way a hand-set `per_nation` count would.
 /// `techs` and `buildings` are `Defs::techs` and `Defs::buildings`; `buildings[i].unlocked_by`
@@ -242,10 +243,10 @@ pub fn reachable_buildings<'a>(
         }
         let reachable = match b.unlocked_by {
             None => true,
-            Some(t) => match techs[t.0 as usize].nation {
-                None => true,
-                Some(n) => n == nation,
-            },
+            Some(t) => {
+                let tech = &techs[t.0 as usize];
+                tech.core && tech.nation.is_none_or(|n| n == nation)
+            }
         };
         reachable.then_some(BuildingId(i as u16))
     })

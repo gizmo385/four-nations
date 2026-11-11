@@ -193,7 +193,7 @@ fn every_building_targets_are_computed_per_nation() {
     );
 }
 
-/// The bundled data, plus a new building unlocked by a new tech on `nation`'s own branch, with
+/// The bundled data, plus a new building unlocked by a new core tech on `nation`'s own branch, with
 /// `signs` as the endeavor's whole list: proves the `every_building` target tracks content added
 /// to one nation's branch without moving anyone else's (#354, and the designer work of #357).
 fn defs_with_extra_building(nation: &str, signs: &str) -> Defs {
@@ -207,7 +207,7 @@ fn defs_with_extra_building(nation: &str, signs: &str) -> Defs {
     const BUILDINGS: &str = include_str!("../../../../../data/buildings.toml");
     let research = format!(
         "{RESEARCH}\n[[tech]]\nid = \"test_tech\"\nname = \"Test Tech\"\ndescription = \"\"\n\
-         nation = \"{nation}\"\ncost = 10\n[tech.unlocks]\nbuildings = [\"test_building\"]\n"
+         nation = \"{nation}\"\ncost = 10\ncore = true\n[tech.unlocks]\nbuildings = [\"test_building\"]\n"
     );
     let buildings = format!(
         "{BUILDINGS}\n[[building]]\nid = \"test_building\"\nname = \"Test Building\"\n\
@@ -239,6 +239,47 @@ fn adding_a_building_to_one_nations_branch_raises_only_that_nations_target() {
     for ((nation, before), (_, after)) in before.iter().zip(after.iter()) {
         let want = if *nation == Nation::Earth { before + 1 } else { *before };
         assert_eq!(*after, want, "{nation:?}");
+    }
+}
+
+/// The bundled files, with a non-core tech on every nation's branch, each unlocking a new
+/// building: what each phase-1 tech of docs/design/horizons-phase-1.md adds.
+fn defs_with_optional_techs() -> Defs {
+    let mut files = crate::defs::BUNDLED_FILES;
+    let mut research = files[3].to_string();
+    let mut buildings = files[7].to_string();
+    for n in Nation::ALL {
+        let n = n.as_str();
+        research.push_str(&format!(
+            "\n[[tech]]\nid = \"opt_{n}\"\nname = \"Opt\"\ndescription = \"\"\nnation = \"{n}\"\n\
+             cost = 10\n[tech.unlocks]\nbuildings = [\"opt_{n}_building\"]\n"
+        ));
+        buildings.push_str(&format!(
+            "\n[[building]]\nid = \"opt_{n}_building\"\nname = \"Opt\"\nverb = \"Build\"\n\
+             work = 10.0\npassable = true\n"
+        ));
+    }
+    files[3] = &research;
+    files[7] = &buildings;
+    Defs::from_files(files).expect("test data is valid")
+}
+
+#[test]
+fn optional_techs_and_their_buildings_leave_the_gate_alone() {
+    let defs = Defs::bundled();
+    let defs2 = defs_with_optional_techs();
+    assert_eq!(defs2.techs.len(), defs.techs.len() + 4);
+    for nation in Nation::ALL {
+        let targets = |d: &Defs| {
+            let w = world(nation, 1, d);
+            (progress(&w, d, "branch").1, progress(&w, d, "building_kinds").1)
+        };
+        assert_eq!(targets(&defs2), targets(&defs), "{nation:?}");
+        // Knowing the optional tech doesn't move the branch sign either.
+        let mut w = world(nation, 1, &defs2);
+        let before = progress(&w, &defs2, "branch").0;
+        w.research.grant(defs2.tech_id(&format!("opt_{}", nation.as_str())).unwrap());
+        assert_eq!(progress(&w, &defs2, "branch").0, before, "{nation:?}");
     }
 }
 

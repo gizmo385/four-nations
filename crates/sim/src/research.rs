@@ -133,6 +133,11 @@ pub struct TechDef {
     /// Every prereq is smaller than this tech's own id (file order is topological).
     pub prereqs: Vec<TechId>,
     pub unlocks: Unlocks,
+    /// Counted by the Harmony Gate's signs (`core = true` in the data): `BranchComplete` counts
+    /// only a nation's core techs, and `EveryBuilding` only buildings no tech or a core tech
+    /// unlocks. Defaults to false, so a later tech can't lengthen the gate by forgetting a line
+    /// (docs/design/horizons-phase-1.md, "The rule every phase-1 tech follows").
+    pub core: bool,
 }
 
 #[derive(Deserialize)]
@@ -156,6 +161,8 @@ struct RawTech {
     prereqs: Vec<String>,
     #[serde(default)]
     unlocks: Unlocks,
+    #[serde(default)]
+    core: bool,
 }
 
 fn nation_label(n: Option<Nation>) -> &'static str {
@@ -232,6 +239,7 @@ impl ResearchFile {
                 cost: raw.cost,
                 prereqs,
                 unlocks: raw.unlocks,
+                core: raw.core,
             });
         }
         Ok((s, techs))

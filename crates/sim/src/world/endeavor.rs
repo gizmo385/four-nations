@@ -20,6 +20,7 @@ use crate::bending::Rank;
 use crate::building::BuildingId;
 use crate::endeavor::{self, SignDef, SignKind, Tally};
 use crate::jobs::ItemId;
+use crate::research::TechDef;
 
 use super::gate::GateSite;
 use super::*;
@@ -157,10 +158,12 @@ impl World {
                 (value, Some(reachable.len() as u32 - spare))
             }
             SignKind::BranchComplete => {
-                let own = |t: &TechId| defs.tech(*t).nation == Some(self.nation);
-                let known = self.research.known_techs().filter(own).count() as u32;
-                let branch = defs.techs.iter().filter(|t| t.nation == Some(self.nation)).count();
-                (known, Some(branch as u32))
+                // Only core techs count, so optional techs never lengthen the gate
+                // (docs/design/horizons-phase-1.md, `core`).
+                let counted = |t: &TechDef| t.core && t.nation == Some(self.nation);
+                let known = self.research.known_techs().filter(|&t| counted(defs.tech(t))).count();
+                let branch = defs.techs.iter().filter(|t| counted(t)).count();
+                (known as u32, Some(branch as u32))
             }
             SignKind::Stored { items } => (stored(items), None),
             SignKind::Tally(Tally::Harvested(items)) => {

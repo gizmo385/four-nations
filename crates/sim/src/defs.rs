@@ -208,7 +208,7 @@ pub fn climate_unit(v: u8) -> f64 {
 
 /// The files [`Defs::bundled`] embeds, in the order it reads them: biomes, resources, nations,
 /// research, needs, jobs, bending, buildings, endeavor, embark, difficulty, seasons, harm.
-const BUNDLED_FILES: [&str; 13] = [
+pub(crate) const BUNDLED_FILES: [&str; 13] = [
     include_str!("../../../data/biomes.toml"),
     include_str!("../../../data/resources.toml"),
     include_str!("../../../data/nations.toml"),
