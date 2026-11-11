@@ -369,6 +369,12 @@ glyph = "⚙"
 ascii = "M"
 fg = [140, 190, 220]
 
+# The Hot Spring Mill (#448): Earth's weak power source, built against the rock.
+[building.hot_spring_mill]
+glyph = "♨"
+ascii = "h"
+fg = [214, 160, 110]
+
 # --- The endeavor (#236, #242) ---
 [building.harmony_gate]
 glyph = "⛩"
