@@ -382,5 +382,5 @@ implementation issues.
 | 2. Routes and outposts | #666 ([horizons-phase-2.md](horizons-phase-2.md)) |
 | 3. Trade techs | #667 ([horizons-phase-3.md](horizons-phase-3.md)) |
 | 4. Schools | #668 ([horizons-phase-4.md](horizons-phase-4.md)) |
-| 5. Lost teachings | #669 |
+| 5. Lost teachings | #669 ([horizons-phase-5.md](horizons-phase-5.md)) |
 | 6. The United City learns | #670 |
