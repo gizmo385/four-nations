@@ -146,8 +146,11 @@ impl<'a> Playtest<'a> {
     fn next_target(&self, nation: Nation) -> Option<fn_sim::research::TechId> {
         self.defs
             .techs_for(nation)
+            // The starter tree: core techs only, not the optional horizons techs.
             .filter(|(id, t)| {
-                !self.research.is_known(*id) && t.prereqs.iter().all(|p| self.research.is_known(*p))
+                t.core
+                    && !self.research.is_known(*id)
+                    && t.prereqs.iter().all(|p| self.research.is_known(*p))
             })
             .min_by_key(|(id, t)| (t.cost, id.0))
             .map(|(id, _)| id)
@@ -192,10 +195,11 @@ fn a_water_settlement_researches_its_whole_tree_on_the_design_docs_pacing() {
 
     // Every tech Water can see is known: 12 shared (fishing from the start, prospecting #383)
     // plus the branch.
-    for (id, t) in defs.techs_for(Nation::Water) {
+    for (id, t) in defs.techs_for(Nation::Water).filter(|(_, t)| t.core) {
         assert!(play.research.is_known(id), "{} was never researched", t.id);
     }
-    let total: u32 = defs.techs_for(Nation::Water).map(|(_, t)| t.cost).sum();
+    let total: u32 =
+        defs.techs_for(Nation::Water).filter(|(_, t)| t.core).map(|(_, t)| t.cost).sum();
     assert_eq!(total, 2440, "the doc's ~2400 for the whole tree; update the doc if costs change");
 
     // "2-2.5 h: the whole starter tree for that nation", within 25%.

@@ -34,10 +34,12 @@
 #             (data/nations.toml): it is scaled by the nation's, rounded, and at least 1. Raw
 #             food still works with no fire at all. With `fuel` (below), the fire is out while
 #             its bunker is empty.
-# - rail:     a track (issue #135, docs/design/research.md, "Rail"). A unit hauling a stack goes
-#             `speed` times as fast on a straight step from one rail tile onto the next beside it,
-#             and plans its route to use that. Foot traffic gains nothing. Must be passable, and
-#             only one building may be a rail. `speed` is above 1.0 and at most 10.
+# - track:    a track (rail, issue #135; the Paved Road, docs/design/horizons-phase-1.md). A
+#             straight step from one tile of it onto the next tile of the same track beside it
+#             costs the step divided by `speed` (rounded on the 10-unit step grid), for every
+#             unit, and routes plan to use that. Any other step (a diagonal, road onto rail) is
+#             ordinary. Must be passable; more than one building may be a track. `speed` is
+#             above 1.0 and at most 10.
 # - fuel:     a fuel bunker (docs/design/horizons-phase-1.md, "Fuel bunkers"): `item` is burned,
 #             `bunker` (at least 1) is how many it holds, and `per_minute` (above 0) how fast it
 #             burns, only while the building's effect is in use (a heat source: while anyone is
@@ -209,7 +211,7 @@ name = "Rail"
 verb = "Lay"
 work = 10.0
 passable = true
-[building.rail]
+[building.track]
 speed = 2.0
 [[building.cost]]
 item = "stone"
@@ -750,3 +752,18 @@ count = 6
 [[building.cost]]
 item = "tool"
 count = 2
+
+# Paving's road (docs/design/horizons-phase-1.md): one stone a tile, laid in lines like rail.
+# Every step along it is 1.25x faster (8 on the 10-unit step grid; 1.3 can't be represented).
+# Tearing it up gives nothing back: the refund rounds 1 stone down to 0.
+[[building]]
+id = "paved_road"
+name = "Paved Road"
+verb = "Pave"
+work = 6.0
+passable = true
+[building.track]
+speed = 1.25
+[[building.cost]]
+item = "stone"         # brick stands in, as for any stone cost
+count = 1

@@ -9,7 +9,7 @@ const NATION: Nation = Nation::Earth;
 const TICKS_PER_MINUTE: u64 = TICKS_PER_SECOND as u64 * 60;
 
 fn branch(defs: &Defs) -> Vec<TechId> {
-    defs.techs_for(NATION).filter(|(_, t)| t.nation.is_some()).map(|(id, _)| id).collect()
+    defs.techs_for(NATION).filter(|(_, t)| t.nation.is_some() && t.core).map(|(id, _)| id).collect()
 }
 
 /// Earth techs that unlock no building, job or ability yet, and why. A tech not listed here must
@@ -72,7 +72,7 @@ fn earth_rail_unlocks_the_rail_and_only_earth_can_research_it() {
     let id = defs.building_id("rail").expect("rail is defined");
     let rail = defs.building(id);
     assert_eq!(rail.unlocked_by, defs.tech_id("earth_rail"));
-    assert!(rail.passable && rail.rail.is_some());
+    assert!(rail.passable && rail.track.is_some());
     // Nothing in the code asks which nation: the tech belongs to Earth's branch, so only Earth's
     // tree reaches it.
     let tech = defs.tech_id("earth_rail").unwrap();
@@ -129,7 +129,8 @@ fn an_earth_settlement_finishes_its_whole_tree_at_the_design_docs_pace() {
         if research.queue().is_empty() {
             let next = defs
                 .techs_for(NATION)
-                .filter(|(id, _)| !research.is_known(*id))
+                // The starter tree: core techs only, not the optional horizons techs.
+                .filter(|(id, t)| t.core && !research.is_known(*id))
                 .min_by_key(|(id, t)| (t.id != "writing", t.cost, *id));
             match next {
                 Some((id, _)) => research.set_target(id, NATION, &defs).unwrap(),

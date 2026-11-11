@@ -33,8 +33,10 @@ pub struct StepGrid {
     width: i32,
     height: i32,
     cost: Vec<u32>,
-    rail: Vec<bool>,
-    rail_step: u32,
+    /// Each tile's track index (`TileBuilding::track`), 0 for none.
+    track: Vec<u8>,
+    /// `MoveRules::track_steps`.
+    track_steps: Vec<u32>,
     /// Connected region per tile (`UNSEEN` for impassable ones), labelled by a 4-way fill the
     /// way `Regions` is (its module doc says why that is exactly what 8-way steps without
     /// corner-cutting reach). Lets a flood answer "unreachable" without searching for it.
@@ -44,14 +46,15 @@ pub struct StepGrid {
 impl StepGrid {
     pub fn new(map: &TileMap, rules: &MoveRules) -> Self {
         let mut cost = Vec::with_capacity((map.width() * map.height()) as usize);
-        let mut rail = Vec::with_capacity(cost.capacity());
+        let mut track = Vec::with_capacity(cost.capacity());
         for (_, t) in map.iter() {
             cost.push(rules.tile_cost(t).unwrap_or(UNSEEN));
-            rail.push(t.building.is_some_and(|b| b.rail()));
+            track.push(t.building.map_or(0, |b| b.track()));
         }
         let (width, height) = (map.width(), map.height());
         let region = label_regions(width, height, &cost);
-        Self { width, height, cost, rail, rail_step: rules.rail_step(), region }
+        let track_steps = rules.track_steps().to_vec();
+        Self { width, height, cost, track, track_steps, region }
     }
 
     fn in_bounds(&self, p: Pos) -> bool {
@@ -67,8 +70,12 @@ impl StepGrid {
         if diagonal {
             return Some(DIAGONAL * cost);
         }
-        if self.rail_step > 0 && self.rail[from] && self.rail[to] {
-            return Some(self.rail_step.min(STRAIGHT * cost));
+        let t = self.track[from];
+        if t != 0
+            && t == self.track[to]
+            && let Some(&step) = self.track_steps.get(usize::from(t) - 1)
+        {
+            return Some(step.min(STRAIGHT * cost));
         }
         Some(STRAIGHT * cost)
     }
@@ -295,8 +302,8 @@ impl Flood {
             width: w,
             height: map.height(),
             cost: Vec::new(),
-            rail: Vec::new(),
-            rail_step: 0,
+            track: Vec::new(),
+            track_steps: Vec::new(),
             region: Vec::new(),
         });
         let limit = std::cell::Cell::new(UNSEEN);

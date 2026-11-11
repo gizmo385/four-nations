@@ -11,7 +11,7 @@
 │   Mine Shaft      10 Stone, 6 Wood, 2 Tool   2x2   Tunneling                                                         │
 │   Deep Mine       20 Stone, 4 Metal, 2 Tool  2x2   Metalbending                                                      │
 │   Herb Garden     2 Wood                     1x1   Herbalism                                                         │
-│                                                                                                                      │
+│   Paved Road      1 Stone                    1x1   Paving                                                            │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │

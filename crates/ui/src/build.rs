@@ -534,8 +534,8 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
             heat.radius, heat.sleep_bonus
         ));
     }
-    if let Some(rail) = &def.rail {
-        effects.push(format!("Rail: hauling runs {:.1}x faster along it", rail.speed));
+    if let Some(track) = &def.track {
+        effects.push(format!("Track: steps along it run {}x faster", track.speed));
     }
     if let Some(orchard) = &def.orchard {
         // Pluralised from the resource's own name, so an orchard reads "fruit trees" and a
@@ -866,7 +866,11 @@ mod tests {
 
         let rail = earth.defs.building_id("rail").unwrap();
         let rail_detail = building_detail(&earth, rail);
-        assert!(rail_detail.effects.iter().any(|e| e.starts_with("Rail:")), "{:?}", rail_detail);
+        assert!(
+            rail_detail.effects.iter().any(|e| e == "Track: steps along it run 2x faster"),
+            "{:?}",
+            rail_detail
+        );
 
         let hall = earth.defs.building_id("study_hall").unwrap();
         let hall_detail = building_detail(&earth, hall);

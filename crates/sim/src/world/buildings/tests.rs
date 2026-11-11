@@ -48,7 +48,7 @@ fn as_v2(w: &mut World) {
             v2::Building {
                 id: r.id,
                 passable: tb.passable(),
-                rail: tb.rail(),
+                rail: tb.track() != 0,
                 part: [(p.x - r.anchor.x) as u8, (p.y - r.anchor.y) as u8],
                 size: r.size,
             }
@@ -186,7 +186,7 @@ fn validate_refuses_tiles_and_records_that_disagree() {
     // A tile pointing at a record that doesn't cover it.
     let mut bad = w.clone();
     let key = bad.map[at(8, 2)].building.unwrap().key();
-    bad.map[at(0, 15)].building = Some(TileBuilding::new(key, true, false));
+    bad.map[at(0, 15)].building = Some(TileBuilding::new(key, true, 0));
     assert!(bad.validate(&defs).is_err());
     // A footprint tile that doesn't point back.
     let mut bad = w.clone();

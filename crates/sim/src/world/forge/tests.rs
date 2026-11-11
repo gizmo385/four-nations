@@ -355,7 +355,7 @@ fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
         capacity: 0,
         bed: None,
         heat: None,
-        rail: None,
+        track: None,
         orchard: None,
         recipe: None,
         farm: None,
