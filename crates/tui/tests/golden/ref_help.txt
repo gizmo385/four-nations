@@ -12,20 +12,20 @@
 │ Shift+Tab  Previous settler                                T       Research                                          │
 │ F          Follow the selected settler                     G       Endeavor                                          │
 │ Esc        Deselect, or open the menu                      L       Message log                                       │
-│                                                            ?       Key help and legend                               │
-│ DESIGNATING                                                F5      Quicksave                                         │
-│ /  List the tools in the panel                             F9      Quickload (asks first)                            │
-│ H  Harvest: chop, mine, gather                             F6      Saves                                             │
-│ X  Cancel a mark                                           Esc     Game menu: save, load, new map, quit              │
-│ E  Clear the ground                                        Ctrl+C  Quit at once, without asking                      │
-│ P  Stockpile                                                                                                         │
-│ B  Bend: channel the nation's ability                      IN A TOOL                                                 │
-│ U  Build                                                   Enter  Set a corner, then apply                           │
-│ C  Sow a farm plot                                         Esc    Drop the corner, then leave                        │
+│                                                            1-5     Log: one kind of line (0: all)                    │
+│ DESIGNATING                                                Tab     Log in --watch: next kind                         │
+│ /  List the tools in the panel                             ?       Key help and legend                               │
+│ H  Harvest: chop, mine, gather                             F5      Quicksave                                         │
+│ X  Cancel a mark                                           F9      Quickload (asks first)                            │
+│ E  Clear the ground                                        F6      Saves                                             │
+│ P  Stockpile                                               Esc     Game menu: save, load, new map, quit              │
+│ B  Bend: channel the nation's ability                      Ctrl+C  Quit at once, without asking                      │
+│ U  Build                                                                                                             │
+│ C  Sow a farm plot                                         IN A TOOL                                                 │
+│                                                            Enter  Set a corner, then apply                           │
+│                                                            Esc    Drop the corner, then leave                        │
 │                                                            O      Standing order (Harvest)                           │
 │                                                            O      Also sites, stockpiles (Cancel)                    │
-│                                                                                                                      │
-│                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │

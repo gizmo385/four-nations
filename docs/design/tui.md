@@ -178,7 +178,9 @@ backgrounds, the stockpile is blue, the cursor is yellow and the selected unit i
 
   - **The message log (#661)** reads newest first, under a heading per season, each line stamped
     with the time left (#654). A filter row (`Show [All] 1 Alerts 2 People 3 Knowledge 4 Bending
-    5 Work`) picks one category (`1` to `5`; `0` or the same digit again shows all); each entry's
+    5 Work`) picks one category (`1` to `5`; `0` or the same digit again shows all; in the `--watch`
+    spectator, where the studio keeps the digits for its panes, `Tab` and `Shift+Tab` step through
+    All and the kinds and the chips carry no digits, #774); each entry's
     category is set where `fn_ui::alerts` makes it (`Kind::category`). A run of the same event
     (a finished bend of one ability, newcomers, plants picked to death) within a minute of the
     last and 12 tiles of the first is one line, "Raise Earth used 7 times by 6 benders, near

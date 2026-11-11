@@ -91,6 +91,14 @@ fn screen_action(ui: &mut UiState, session: &Session, action: Action) -> bool {
     if screen == Screen::Log && msglog::act(ui, session, action) {
         return true;
     }
+    // The log's filters (#774): the digits are the studio's panes, so `Tab` and `Shift+Tab` step
+    // through the kinds. Only the spectator's own filter changes.
+    if screen == Screen::Log
+        && let Action::NextUnit | Action::PrevUnit = action
+    {
+        msglog::cycle(ui, session, action == Action::PrevUnit);
+        return true;
+    }
     match screen {
         Screen::Research => match action {
             Action::Move { dx, dy, .. } => return move_tech(ui, session, dx, dy),

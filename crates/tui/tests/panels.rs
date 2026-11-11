@@ -801,10 +801,17 @@ fn the_log_cursor_moves_with_the_arrows_ws_and_the_page_keys_and_stops_at_the_en
     assert_eq!(a.ui.log_cursor, Some(all[n - 1].key), "the oldest line");
     let frame = text(&mut a, SMALL);
     assert!(page_text(&frame).contains(&fold(&all[n - 1].text)), "the oldest shows:\n{frame}");
-    let rows =
-        fn_tui::msglog::body(&a.session, &all, None, None, 76, &fn_tui::widgets::Marks::new(false))
-            .rows
-            .len();
+    let rows = fn_tui::msglog::body(
+        &a.session,
+        &all,
+        None,
+        false,
+        None,
+        76,
+        &fn_tui::widgets::Marks::new(false),
+    )
+    .rows
+    .len();
     if rows > fn_tui::msglog::shown(a.ui.page()) {
         assert!(a.ui.scroll > 0, "the window followed the cursor down");
     }
