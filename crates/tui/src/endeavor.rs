@@ -65,8 +65,15 @@ fn group_rows(group: &GroupView, name_width: usize, width: usize, marks: &Marks)
 /// one, a blank line, the stage tracker, then every group with a blank line before it.
 pub fn lines(session: &Session, width: usize, marks: &Marks) -> Vec<Row> {
     let v = screen_view(session);
-    let name_width =
-        v.groups.iter().flat_map(|g| &g.signs).map(|s| s.name.chars().count()).max().unwrap_or(0);
+    let chapter_signs = v.chapter.iter().flat_map(|c| &c.signs);
+    let name_width = v
+        .groups
+        .iter()
+        .flat_map(|g| &g.signs)
+        .chain(chapter_signs)
+        .map(|s| s.name.chars().count())
+        .max()
+        .unwrap_or(0);
     let mut rows = vec![Row::pair(v.name.clone(), Tone::Title, v.count.clone(), Tone::Accent)];
     if !v.description.is_empty() {
         rows.extend(
@@ -74,6 +81,31 @@ pub fn lines(session: &Session, width: usize, marks: &Marks) -> Vec<Row> {
                 .into_iter()
                 .map(|l| Row::text(l, Tone::Dim)),
         );
+    }
+    // The chapter (#439), at the top: its signs and what it brings until it's met, then one line
+    // with its name.
+    if let Some(c) = &v.chapter {
+        rows.push(Row::default());
+        rows.push(Row::text("CHAPTER", Tone::Title));
+        if c.met {
+            rows.push(Row::spans(vec![
+                (format!("{} ", marks.known), Tone::Ok),
+                (c.name.clone(), Tone::Dim),
+            ]));
+        } else {
+            rows.push(Row::pair(
+                format!("  {}", c.name),
+                Tone::Strong,
+                c.count.clone(),
+                Tone::Accent,
+            ));
+            for sign in &c.signs {
+                rows.extend(sign_rows(sign, name_width, width, marks));
+            }
+            if let Some(hint) = &c.hint {
+                rows.push(Row::text(format!("  {hint}"), Tone::Dim));
+            }
+        }
     }
     rows.push(Row::default());
     rows.push(Row::text(v.stage.clone(), Tone::Strong));

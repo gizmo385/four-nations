@@ -81,6 +81,23 @@ fn a_small_size_prints_only_the_notice() {
     assert_eq!(text.lines().count(), 24, "the frame is still the size that was asked for");
 }
 
+/// #439: the Endeavor screen (`G`) opens with the CHAPTER section, its signs and what it brings,
+/// above the stage and the gate's own signs.
+#[test]
+fn the_endeavor_screen_shows_the_chapter_at_the_top() {
+    let out = fn_tui().args(["7", "earth", "--frame", "--ascii", "--keys", "G"]).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8(out.stdout).unwrap();
+    let line = |needle: &str| text.lines().position(|l| l.contains(needle)).expect(needle);
+    assert!(text.contains("Known on the road"), "{text}");
+    assert!(text.contains("0 of 3"), "{text}");
+    assert!(text.contains("Kinds of building"), "{text}");
+    assert!(text.contains("Traders come once the road knows you"), "{text}");
+    assert!(line("CHAPTER") < line("Stage: not begun"), "{text}");
+    assert!(line("Stage: not begun") < line("PEOPLE"), "{text}");
+    assert!(text.contains("0 of 9 signs"), "the chapter's signs aren't the gate's:\n{text}");
+}
+
 #[test]
 fn keys_play_a_script_before_the_frame() {
     let frame = |keys: &str| {
