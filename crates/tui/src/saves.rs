@@ -118,7 +118,10 @@ mod tests {
         let defs = Defs::bundled();
         let marks = Marks::new(false);
         let row = slot_row(&slot("save-1", ready(3, 40)), &defs, false, &marks);
-        assert_eq!(row.plain(), "  save-1  Earth Kingdom, seed 3, 00:04 (tick 40)");
+        assert_eq!(
+            row.plain(),
+            "  save-1  Earth Kingdom, seed 3, Spring Y1 - 14:56 left (tick 40)"
+        );
         let chosen = slot_row(&slot("save-1", ready(3, 40)), &defs, true, &marks);
         assert!(chosen.plain().starts_with('▸'), "{}", chosen.plain());
     }

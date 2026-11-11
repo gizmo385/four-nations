@@ -15,10 +15,10 @@ use crate::widgets::{Marks, Painter, Row, TitleAt, Tone, draw_frame, meter, wrap
 
 /// A meter bar is this many cells.
 const BAR_CELLS: usize = 10;
-/// The label column of a meter ("Hunger"), and the whole meter: label, space, bar, space, a
-/// percentage like "100%", and the mark.
+/// The label column of a meter ("Hunger"), and the whole meter: label, space, bar, the flag
+/// column and a percentage like "100%".
 const LABEL: usize = 6;
-const METER_WIDTH: u16 = (LABEL + 1 + BAR_CELLS + 1 + 4 + 1) as u16;
+const METER_WIDTH: u16 = (LABEL + 1 + BAR_CELLS + 1 + 4) as u16;
 /// Content rows inside the frame.
 const ROWS: u16 = BAR_HEIGHT as u16 - 2;
 
@@ -28,15 +28,16 @@ pub fn bar_area(map: Rect) -> Rect {
     Rect::new(map.x, map.bottom() - height, map.width, height)
 }
 
-/// One meter as a row: `Hunger ███████░░░  72%!`. The `!` marks anything that is not ok.
-pub fn meter_row(label: &str, frac: f32, tone: Tone, flag: bool, marks: &Marks) -> Row {
-    let (full, empty) = meter(frac, BAR_CELLS, marks.full, marks.empty);
+/// One meter as a row: `Hunger ███████░░░  72%`, or `Energy ██░░░░░░░░! 23%` once it is low:
+/// the cells in the warning colour with the `!` directly against them (`crate::widgets::meter`).
+pub fn meter_row(label: &str, frac: f32, tone: Tone, low: bool, marks: &Marks) -> Row {
+    let [full, empty, flag] = meter(frac, BAR_CELLS, tone, low, marks);
     Row::spans(vec![
         (format!("{label:<LABEL$} "), Tone::Dim),
-        (full, tone),
-        (empty, Tone::Dim),
-        (format!(" {:>4}", format!("{:.0}%", frac * 100.0)), Tone::Text),
-        (if flag { "!" } else { " " }.to_owned(), tone),
+        full,
+        empty,
+        flag,
+        (format!("{:>4}", format!("{:.0}%", frac * 100.0)), Tone::Text),
     ])
 }
 
@@ -127,15 +128,19 @@ mod tests {
     fn a_meter_row_is_label_bar_percent_and_a_mark_only_when_not_ok() {
         let m = Marks::new(true);
         let ok = meter_row("Hunger", 0.72, Tone::Ok, false, &m);
-        assert_eq!(ok.plain(), "Hunger #######...  72% ");
+        assert_eq!(ok.plain(), "Hunger #######...  72%");
         let low = meter_row("Energy", 0.23, Tone::Bad, true, &m);
-        assert_eq!(low.plain(), "Energy ##........  23%!");
+        assert_eq!(low.plain(), "Energy ##........! 23%");
         let full = meter_row("Health", 1.0, Tone::Ok, false, &m);
-        assert_eq!(full.plain(), "Health ########## 100% ");
+        assert_eq!(full.plain(), "Health ########## 100%");
         assert_eq!(ok.plain().chars().count(), usize::from(METER_WIDTH));
-        // The bar wears the status, the empty cells are dim.
-        assert_eq!(low.left[1].1, Tone::Bad);
-        assert_eq!(low.left[2].1, Tone::Dim);
+        // An ok bar wears the status and its empty cells are dim; a low one wears the warning
+        // throughout, `!` included.
+        assert_eq!((ok.left[1].1, ok.left[2].1), (Tone::Ok, Tone::Dim));
+        assert_eq!(
+            (low.left[1].1, low.left[2].1, low.left[3].1),
+            (Tone::Bad, Tone::Bad, Tone::Bad)
+        );
     }
 
     #[test]
@@ -151,11 +156,11 @@ mod tests {
             .needs
             .iter()
             .zip(&rows)
-            .filter(|(_, r)| r.plain().ends_with('!'))
+            .filter(|(_, r)| r.plain().contains('!'))
             .map(|(n, _)| n.label)
             .collect();
         assert_eq!(flagged, ["Energy"]);
-        assert!(!rows[4].plain().ends_with('!'), "chi never warns");
+        assert!(!rows[4].plain().contains('!'), "chi never warns");
         assert!(rows[4].plain().starts_with("Chi"));
     }
 

@@ -275,7 +275,8 @@ fn a_meter_that_is_not_ok_has_a_bang_and_the_others_do_not() {
             .to_owned()
     };
     for label in ["Energy", "Hunger"] {
-        assert!(row(label).contains("0%!"), "{}", row(label));
+        // The flag sits directly against the meter's cells, then the value.
+        assert!(row(label).contains("░░░░░░░░░░!  0%"), "{}", row(label));
     }
     for label in ["Health", "Thirst"] {
         assert!(!row(label).contains('!'), "{}", row(label));
@@ -632,7 +633,8 @@ fn a_failed_bend_becomes_an_alert_but_a_finished_one_is_log_only() {
             .unwrap_or_else(|| panic!("{line} in\n{frame}"));
         from += at;
     }
-    assert!(frame.contains("00:"), "each line is stamped with the game time:\n{frame}");
+    assert!(frame.contains(" left "), "each line is stamped with the time left:\n{frame}");
+    assert!(frame.contains("── DAY 1 ──"), "under a heading:\n{frame}");
 }
 
 /// At 80x24, with Season on, Endeavor in the data and the Bend tool active, fitting is tight

@@ -7,7 +7,7 @@
 
 use fn_ui::Session;
 use fn_ui::alerts::{Alerts, Kind};
-use fn_ui::view::format_clock;
+use fn_ui::time::{Period, game_time};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
@@ -17,7 +17,7 @@ use crate::page;
 use crate::research;
 use crate::saves;
 use crate::state::{Screen, UiState};
-use crate::widgets::{Marks, Painter, Row, Tone, wrap};
+use crate::widgets::{Marks, Painter, Row, Tone, fit, wrap};
 
 /// The text area of a screen on a `(width, height)` page (`UiState::page`): inside the frame and
 /// one column of padding, as (columns, rows) (`crate::page::text_size`).
@@ -39,7 +39,7 @@ pub fn lines(
         Screen::Log => {
             let history: Vec<_> =
                 alerts.history().iter().map(|e| (e.tick, e.kind, e.text.as_str())).collect();
-            log_lines(&history, width, marks.ellipsis)
+            log_lines(session, &history, width, &marks)
         }
         Screen::Help => help_lines(width, marks.ellipsis),
         Screen::Endeavor => crate::endeavor::lines(session, width, &marks),
@@ -80,24 +80,41 @@ pub(crate) fn kind_tone(kind: Kind) -> Tone {
     }
 }
 
-/// The message log, oldest first: the time it happened and what, wrapped under the time.
-pub fn log_lines(history: &[(u64, Kind, &str)], width: usize, ellipsis: char) -> Vec<Row> {
+/// The message log, oldest first (#654): a heading row per season ("── WINTER, YEAR 1 ──", or per
+/// day with seasons off), and under it each line stamped with the time left in that season when
+/// it happened ("14:50 left"), the same words as the panel's clock, so a line can be placed
+/// against it. The text wraps under the stamp.
+pub fn log_lines(
+    session: &Session,
+    history: &[(u64, Kind, &str)],
+    width: usize,
+    marks: &Marks,
+) -> Vec<Row> {
     if history.is_empty() {
         let none = "Nothing has happened yet: no bends, no discoveries, no deaths.";
-        return wrap(none, width, usize::MAX, ellipsis)
+        return wrap(none, width, usize::MAX, marks.ellipsis)
             .into_iter()
             .map(|line| Row::text(line, Tone::Dim))
             .collect();
     }
-    // "MM:SS " is 6 cells; a game past 99 minutes grows it, so size the column to the widest.
-    let stamps: Vec<String> = history.iter().map(|&(tick, ..)| format_clock(tick)).collect();
-    let stamp_width = stamps.iter().map(|s| s.chars().count()).max().unwrap_or(5);
+    let seasons = session.world.knobs(&session.defs).seasons;
+    let times: Vec<_> =
+        history.iter().map(|&(tick, ..)| game_time(&session.defs, tick, seasons)).collect();
+    let stamps: Vec<String> = times.iter().map(|t| t.left()).collect();
+    let stamp_width = stamps.iter().map(|s| s.chars().count()).max().unwrap_or(0);
     let indent = stamp_width + 1;
     let room = width.saturating_sub(indent).max(1);
+    let rule = marks.h.to_string().repeat(2);
     let mut rows = Vec::new();
-    for (&(_, kind, text), stamp) in history.iter().zip(&stamps) {
+    let mut period: Option<&Period> = None;
+    for ((&(_, kind, text), stamp), time) in history.iter().zip(&stamps).zip(&times) {
+        if period != Some(&time.period) {
+            period = Some(&time.period);
+            let heading = format!("{rule} {} {rule}", time.heading());
+            rows.push(Row::text(fit(&heading, width, marks.ellipsis), Tone::Title));
+        }
         let tone = kind_tone(kind);
-        let text = wrap(text, room, usize::MAX, ellipsis);
+        let text = wrap(text, room, usize::MAX, marks.ellipsis);
         for (i, part) in text.into_iter().enumerate() {
             let lead = if i == 0 { format!("{stamp:>stamp_width$} ") } else { " ".repeat(indent) };
             rows.push(Row::spans(vec![(lead, Tone::Dim), (part, tone)]));
@@ -190,28 +207,68 @@ pub fn draw_screen(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use fn_sim::Nation;
 
+    use super::*;
+    use crate::new_session;
+
+    /// A line is stamped with the time left in its season, under a heading row per season, and
+    /// wraps under the stamp.
     #[test]
-    fn the_log_puts_the_time_first_and_wraps_under_it() {
+    fn the_log_puts_the_time_left_first_under_a_heading_per_season() {
+        let mut s = new_session(7, Nation::Earth);
+        s.world.set_difficulty(Some("normal".to_owned()));
+        let per = s.defs.seasons.season_ticks();
         let history = [
             (0, Kind::Bend, "Haru used Raise Earth at (5, 3)"),
             (650, Kind::Death, "Tyro died of dehydration, far from any water"),
+            (3 * per + 10, Kind::Season, "Winter has come"),
         ];
-        let rows = log_lines(&history, 24, '…');
+        let rows = log_lines(&s, &history, 30, &Marks::new(false));
         let text: Vec<String> = rows.iter().map(Row::plain).collect();
-        assert_eq!(text[0], "00:00 Haru used Raise");
-        assert_eq!(text[1], "      Earth at (5, 3)");
-        assert!(text[2].starts_with("01:05 Tyro died of"), "{text:?}");
-        assert!(text.iter().all(|t| t.chars().count() <= 24), "{text:?}");
-        // The kinds wear their tones.
-        assert_eq!(rows[0].left[1].1, Tone::Text);
-        assert_eq!(rows[2].left[1].1, Tone::Bad);
+        assert_eq!(text[0], "── SPRING, YEAR 1 ──");
+        assert_eq!(text[1], "15:00 left Haru used Raise");
+        assert_eq!(text[2], "           Earth at (5, 3)");
+        assert!(text[3].starts_with("13:55 left Tyro died of"), "{text:?}");
+        assert!(text.contains(&"── WINTER, YEAR 1 ──".to_owned()), "{text:?}");
+        assert!(text.iter().any(|t| t.starts_with("14:59 left Winter has")), "{text:?}");
+        assert!(text.iter().all(|t| t.chars().count() <= 30), "{text:?}");
+        // The kinds wear their tones; a heading is a title.
+        assert_eq!(rows[0].left[0].1, Tone::Title);
+        assert_eq!(rows[1].left[1].1, Tone::Text);
+        assert_eq!(rows[3].left[1].1, Tone::Bad);
+    }
+
+    /// The stamp is the panel's own time left: a line from this very tick reads like the clock.
+    #[test]
+    fn a_log_stamp_matches_the_panel_clock_at_that_tick() {
+        let mut s = new_session(7, Nation::Earth);
+        s.world.set_difficulty(Some("normal".to_owned()));
+        s.world.tick = 4321;
+        let clock = fn_ui::time::clock_text(&s);
+        let rows = log_lines(&s, &[(4321, Kind::Bend, "x")], 60, &Marks::new(true));
+        let left = clock.split(" · ").nth(1).unwrap();
+        assert!(rows[1].plain().starts_with(left), "{clock} vs {}", rows[1].plain());
+        assert_eq!(rows[0].plain(), format!("-- {} --", fn_ui::time::session_time(&s).heading()));
+    }
+
+    /// With seasons off the log runs on days, in the same shape.
+    #[test]
+    fn with_seasons_off_the_log_has_a_heading_per_day() {
+        let s = new_session(7, Nation::Earth);
+        let history = [(0, Kind::Bend, "a"), (3100, Kind::Bend, "b")];
+        let text: Vec<String> =
+            log_lines(&s, &history, 40, &Marks::new(false)).iter().map(Row::plain).collect();
+        assert_eq!(text[0], "── DAY 1 ──");
+        assert_eq!(text[1], "5:00 left a");
+        assert_eq!(text[2], "── DAY 2 ──");
+        assert!(text[3].starts_with("4:50 left b"), "{text:?}");
     }
 
     #[test]
     fn an_empty_log_says_so() {
-        let rows = log_lines(&[], 40, '…');
+        let s = new_session(7, Nation::Earth);
+        let rows = log_lines(&s, &[], 40, &Marks::new(false));
         assert!(rows[0].plain().starts_with("Nothing has happened"));
     }
 

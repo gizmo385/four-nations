@@ -512,7 +512,12 @@ fn border_words_are_not_keys(line: &str, marks: &Marks, context: &str) {
         let inner: String = chars[i + 1..j].iter().filter(|&&c| c != marks.h).collect();
         for word in inner.split_whitespace() {
             let position = word.chars().all(|c| c.is_ascii_digit() || matches!(c, '-' | ':'));
-            let noun = matches!(word, "of" | "tiers" | "settlers" | "slots" | "buildings" | "seed");
+            // The clock's words ("Spring Y2 · 15:00 left", or "Day 3 · 2:10 left", #654).
+            let clock =
+                matches!(word, "Spring" | "Summer" | "Autumn" | "Winter" | "Day" | "left" | "·")
+                    || (word.starts_with('Y') && word[1..].chars().all(|c| c.is_ascii_digit()));
+            let noun = clock
+                || matches!(word, "of" | "tiers" | "settlers" | "slots" | "buildings" | "seed");
             assert!(
                 position || noun,
                 "{context}: a bottom border says {word:?}, which is not a scroll position: \

@@ -4,8 +4,8 @@
 //! (`crate::widgets::heading_row`), with no blank rows between them.
 //!
 //! **Zone 1, the header and the Settlement glance (fixed; never trimmed but for its one optional
-//! row):** the header (run/pause and speed left, the season with its time left right while
-//! seasons are on, else the elapsed clock as before); one `SETTLEMENT` heading; People (the
+//! row):** the header (two rows, #654: run/pause and speed, then the season, year and time
+//! left, or the day with seasons off); one `SETTLEMENT` heading; People (the
 //! total and Idle, #310 -- the activity breakdown moved to the Nation screen, `N`, #308); need
 //! flags (hidden with nobody flagged); Food (the total and each settler's share); the winter row;
 //! Materials (non-food items, packed, `+N` fold, a second row with spare height); Research
@@ -176,9 +176,6 @@ struct Data {
     people: Row,
     /// The need-flags row (#310): `None` when nobody is flagged, which hides the row.
     need_flags_row: Option<Row>,
-    /// The chosen difficulty preset's season data (#299); `None` with seasons off, which drops
-    /// the header's season clock and the winter row.
-    season: Option<SeasonView>,
     /// The Settlement glance's Food row (#416): the total and each settler's share.
     food: Row,
     /// The winter row (#663): the climate band's winter effects, labelled; `None` with seasons
@@ -234,36 +231,20 @@ fn population_label(view: &SideView) -> String {
     format!("{} ({})", view.people, by_nation.join(", "))
 }
 
-/// The header (docs/design/side-panel.md "Sections, top to bottom"): one row, the run/pause mark,
-/// word and speed on the left, the clock on the right. The seed is the panel's own bottom edge
-/// now, and `Space + -` is the status line's and the key help's.
-fn header(view: &SideView, season: Option<&SeasonView>, marks: &Marks) -> Vec<Row> {
+/// The header (docs/design/side-panel.md "Sections, top to bottom", #654): two rows with the same
+/// shape from the first tick on. The run state and the speed ("▶ Running x1", "‖ Paused x1"),
+/// then the game's one clock (`fn_ui::time::clock_text`): the season, the year and the time left
+/// in it ("Spring Y2 · 15:00 left"), or the day with seasons off. The pair doesn't fit one row of
+/// a 32-column panel. The seed is the panel's own bottom edge, and `Space + -` is the status
+/// line's and the key help's.
+fn header(view: &SideView, marks: &Marks) -> Vec<Row> {
     let (icon, tone) =
         if view.paused { (marks.pause, Tone::Paused) } else { (marks.run, Tone::Running) };
-    match season {
-        // Seasons on (owner decision 4, #414): the clock gives way to the season and its time
-        // left, which the header otherwise has no room for; the elapsed clock moves to the
-        // Nation screen's header line (`nation::draw`, already there) and the Esc menu
-        // (`crate::menu::draw`).
-        Some(s) => {
-            let left = if view.paused {
-                format!("{icon} Paused")
-            } else {
-                format!("{icon} x{}", view.speed)
-            };
-            let right = format!("{} {}", s.heading.replace(" · ", " "), s.left);
-            vec![Row::pair(left, tone, right, Tone::Text)]
-        }
-        None => {
-            let word = if view.paused { "Paused" } else { "Running" };
-            vec![Row::pair(
-                format!("{icon} {word} x{}", view.speed),
-                tone,
-                view.clock.clone(),
-                Tone::Text,
-            )]
-        }
-    }
+    let word = if view.paused { "Paused" } else { "Running" };
+    vec![
+        Row::text(format!("{icon} {word} x{}", view.speed), tone),
+        Row::text(crate::widgets::clock(&view.clock, marks), Tone::Text),
+    ]
 }
 
 /// A channelling unit's status in place of the plain task text ("Channelling Hearthflame 1.2s"):
@@ -376,12 +357,13 @@ fn research_row(view: &SideView, marks: &Marks) -> Row {
     if r.frac == 0.0 && r.label == "No target set" {
         return Row::pair("Research: none set", Tone::Warn, "[T]", Tone::Dim);
     }
-    let (full, empty) = meter(r.frac, BAR_CELLS, marks.full, marks.empty);
+    let [full, empty, flag] = meter(r.frac, BAR_CELLS, Tone::Accent, false, marks);
     Row::spans(vec![
         (format!("{} ", r.label), Tone::Strong),
-        (full, Tone::Accent),
-        (empty, Tone::Dim),
-        (format!(" {:>3.0}%", r.frac * 100.0), Tone::Text),
+        full,
+        empty,
+        flag,
+        (format!("{:>3.0}%", r.frac * 100.0), Tone::Text),
     ])
 }
 
@@ -613,7 +595,6 @@ fn gather(
     Data {
         people,
         need_flags_row: need_flags_row(session),
-        season,
         food,
         winter,
         materials: materials_rows(session, width),
@@ -720,7 +701,7 @@ pub fn draw_panel(
     // Fit: the Settlement glance (#416) never gives up a row, so only Alerts and Here (the Tool
     // result, then the Bend ability list) shrink here; the glance's own growth -- a second
     // Materials row -- is a separate pass below, once this settles.
-    let head = header(&d.view, d.season.as_ref(), &marks);
+    let head = header(&d.view, &marks);
     let notice_floor = d.notice.len().min(NOTICE_FLOOR);
     let picker_floor = usize::from(!d.picker.is_empty());
     let materials_cap = d.materials.len().min(MATERIALS_ROWS_MAX);

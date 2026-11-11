@@ -1,10 +1,10 @@
 ┏───────────────────────────────────────────────────── ◆ NATION ◆ ─────────────────────────────────────────────────────┓
-│ Earth Kingdom · seed 1 · 2 people                                                                              00:00 │
+│ Earth Kingdom · seed 1 · 2 people                                                                  Day 1 · 5:00 left │
 │                                                                                                                      │
 │                                                        Hunger  Thirst  Energy  Health  Chi     Bends   Forms         │
 │ IDLE 2                                                                                                               │
-│ ▸ Juni Idle                                            ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   0/8     0/3           │
-│   Shen Idle                                            ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   ▰▰▰▰▰   0/8     0/3           │
+│ ▸ Juni Idle                                            █████   █████   █████   █████   █████   0/8     0/3           │
+│   Shen Idle                                            █████   █████   █████   █████   █████   0/8     0/3           │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │

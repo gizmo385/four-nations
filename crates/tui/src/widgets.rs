@@ -30,6 +30,8 @@ pub struct Marks {
     /// A filled and an empty cell of a meter bar.
     pub full: char,
     pub empty: char,
+    /// Whether these are the ASCII marks (`--ascii`): the meter's glyphs follow it.
+    pub ascii: bool,
     /// Between a name and a nation in a title.
     pub dot: &'static str,
     /// The research screen: a known and a locked tech, the cursor's pointer, and the arrows for
@@ -66,8 +68,9 @@ impl Marks {
                 ls: '+',
                 rs: '+',
                 ellipsis: '~',
-                full: '#',
-                empty: '.',
+                full: fn_ui::meter::ASCII_FULL,
+                empty: fn_ui::meter::ASCII_EMPTY,
+                ascii: true,
                 dot: "-",
                 known: "+",
                 locked: "-",
@@ -96,8 +99,9 @@ impl Marks {
                 ls: '├',
                 rs: '┤',
                 ellipsis: '…',
-                full: '█',
-                empty: '░',
+                full: fn_ui::meter::FULL,
+                empty: fn_ui::meter::EMPTY,
+                ascii: false,
                 dot: "·",
                 known: "✓",
                 locked: "·",
@@ -313,17 +317,22 @@ pub fn fit(text: &str, width: usize, ellipsis: char) -> String {
     out
 }
 
-/// A meter as `width` cells: `frac` of them filled (rounded), as (filled, empty) strings, in
-/// whatever `full`/`empty` glyphs the caller wants (usually `Marks::full`/`empty`, but the
-/// Nation screen's roster uses its own, #325: a meter that fills a whole cell's height, stacked
-/// row after row with the same status, fuses into one solid stripe instead of reading as one bar
-/// per settler).
-pub fn meter(frac: f32, width: usize, full: char, empty: char) -> (String, String) {
-    let filled = ((frac.clamp(0.0, 1.0) * width as f32).round() as usize).min(width);
-    (
-        std::iter::repeat_n(full, filled).collect(),
-        std::iter::repeat_n(empty, width - filled).collect(),
-    )
+/// The game's one clock (`fn_ui::time`, "Spring Y2 · 15:00 left") as `clock` says it, with the
+/// frame's own `dot` between its halves: the `--ascii` frame has no middle dot.
+pub fn clock(clock: &str, marks: &Marks) -> String {
+    clock.replace(" · ", &format!(" {} ", marks.dot))
+}
+
+/// The one meter (#654, `fn_ui::meter`): `cells` cells, `frac` of them filled, then the one flag
+/// column directly against them. In the `tone` it is given while it is fine; while `low` the
+/// whole meter, the empty cells too, wears the tone of the warning (`tone`, then, is the status's
+/// own: `Warn` or `Bad`) and the flag shows `!`. Every bar in the game is drawn by this: the
+/// settler view and Endeavor at ten cells, the Nation roster at five.
+pub fn meter(frac: f32, cells: usize, tone: Tone, low: bool, marks: &Marks) -> [(String, Tone); 3] {
+    let (full, empty) = fn_ui::meter::cells(frac, cells, marks.ascii);
+    let flag = fn_ui::meter::flag(low).to_string();
+    let empty_tone = if low { tone } else { Tone::Dim };
+    [(full, tone), (empty, empty_tone), (flag, tone)]
 }
 
 /// Where a frame's title sits on its top edge.
@@ -541,11 +550,18 @@ mod tests {
     }
 
     #[test]
-    fn a_meter_fills_cells_in_proportion() {
-        assert_eq!(meter(1.0, 10, '#', '.'), ("##########".into(), String::new()));
-        assert_eq!(meter(0.0, 10, '#', '.'), (String::new(), "..........".into()));
-        assert_eq!(meter(0.23, 10, '#', '.'), ("##".into(), "........".into()));
-        assert_eq!(meter(0.72, 10, '#', '.').0.len(), 7);
-        assert_eq!(meter(7.0, 10, '#', '.').0.len(), 10, "out of range clamps");
+    fn a_meter_is_cells_then_a_flag_and_a_low_one_wears_the_warning_throughout() {
+        let m = Marks::new(true);
+        let ok = meter(0.4, 5, Tone::Ok, false, &m);
+        assert_eq!(ok.clone().map(|(t, _)| t), ["##".to_owned(), "...".to_owned(), " ".to_owned()]);
+        assert_eq!((ok[0].1, ok[1].1, ok[2].1), (Tone::Ok, Tone::Dim, Tone::Ok));
+        let low = meter(0.2, 5, Tone::Bad, true, &m);
+        assert_eq!(
+            low.clone().map(|(t, _)| t),
+            ["#".to_owned(), "....".to_owned(), "!".to_owned()]
+        );
+        assert!(low.iter().all(|(_, t)| *t == Tone::Bad), "the empty cells too: {low:?}");
+        let (full, empty) = (Marks::new(false).full, Marks::new(false).empty);
+        assert_eq!((full, empty), ('█', '░'));
     }
 }

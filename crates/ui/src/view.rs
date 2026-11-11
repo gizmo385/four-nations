@@ -26,7 +26,7 @@ pub struct SideView {
     pub people: usize,
     /// The population by nation (#248), `population_by_nation`'s own doc.
     pub population: Vec<(String, usize)>,
-    /// In-game time, `MM:SS` (`format_clock`).
+    /// The game clock: season, year and time left (`crate::time::clock_text`).
     pub clock: String,
     pub paused: bool,
     /// The clock's speed as a multiple of real time.
@@ -73,7 +73,7 @@ pub fn side_view(
         seed: world.seed,
         people: world.units.len(),
         population: population_by_nation(world, defs),
-        clock: format_clock(world.tick),
+        clock: crate::time::clock_text(session),
         paused: session.clock.paused,
         speed: session.clock.speed(),
         tool,
@@ -330,12 +330,6 @@ pub fn need_flags(session: &Session) -> Vec<(String, usize)> {
     WORDS.into_iter().zip(counts).filter(|&(_, n)| n > 0).map(|(w, n)| (w.to_owned(), n)).collect()
 }
 
-/// In-game time since the start as `MM:SS`. There is no calendar yet.
-pub fn format_clock(tick: u64) -> String {
-    let secs = tick / u64::from(TICKS_PER_SECOND);
-    format!("{:02}:{:02}", secs / 60, secs % 60)
-}
-
 /// How long ago a save was, in game time (`ticks` since it), for the confirm box's "This game
 /// was last saved 12 minutes ago": "just now", "less than a minute ago", "1 minute ago", "12
 /// minutes ago", then whole hours past two. Game time, not wall time: `fn_ui` never reads the
@@ -349,13 +343,6 @@ pub fn format_ago(ticks: u64) -> String {
         2..=119 => format!("{minutes} minutes ago"),
         _ => format!("{} hours ago", minutes / 60),
     }
-}
-
-/// Seconds as "4:10 left" (minutes with no leading zero, seconds zero-padded):
-/// `docs/design/difficulty.md` ("TUI"), the Season section's heading.
-fn clock_left(secs: f32) -> String {
-    let secs = secs.max(0.0).round() as u64;
-    format!("{}:{:02} left", secs / 60, secs % 60)
 }
 
 /// Food items in the stockpiles, summed across every `FoodDef` (`docs/design/difficulty.md`
@@ -429,7 +416,7 @@ pub fn season_view(session: &Session, winter_food_per_head: u32) -> Option<Seaso
     let outlook = world.climate_at(start, defs).map(climate_effects).unwrap_or_default();
     Some(SeasonView {
         heading: format!("{} · Y{year}", season.name),
-        left: clock_left(world.season_left(defs)),
+        left: crate::time::left_text(world.season_left(defs)),
         food: format!("{food} · {per_head} each"),
         food_warn,
         outlook,
@@ -589,7 +576,7 @@ pub struct NationView {
     pub nation: String,
     pub seed: u64,
     pub population: usize,
-    /// In-game time, `MM:SS` (`format_clock`).
+    /// The game clock: season, year and time left (`crate::time::clock_text`).
     pub clock: String,
     /// Groups with nobody in them are left out, in [`Activity::ALL`]'s fixed order.
     pub groups: Vec<(Activity, Vec<UnitView>)>,
@@ -613,7 +600,7 @@ pub fn nation_view(session: &Session) -> NationView {
         nation: defs.nation(world.nation).name.clone(),
         seed: world.seed,
         population: world.units.len(),
-        clock: format_clock(world.tick),
+        clock: crate::time::clock_text(session),
         groups,
         stores: store_rows(session),
         traits: modifier_rows(world.modifiers()),
@@ -865,15 +852,6 @@ mod tests {
         assert_eq!(stuck[0].0, wood_item);
         assert!(stuck[0].1 > 0, "{stuck:?}");
         assert_eq!(s.world.stored_total(wood_item), 0, "wood never reaches the full stockpile");
-    }
-
-    #[test]
-    fn clock_counts_minutes_and_seconds() {
-        let tps = u64::from(TICKS_PER_SECOND);
-        assert_eq!(format_clock(0), "00:00");
-        assert_eq!(format_clock(59 * tps + tps - 1), "00:59");
-        assert_eq!(format_clock(60 * tps), "01:00");
-        assert_eq!(format_clock((100 * 60 + 5) * tps), "100:05");
     }
 
     #[test]

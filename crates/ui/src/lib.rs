@@ -27,12 +27,14 @@ pub mod endeavor;
 pub mod gate;
 pub mod inspect;
 pub mod keys;
+pub mod meter;
 pub mod research;
 pub mod saves;
 pub mod session;
 pub mod sparkline;
 pub mod text;
 pub mod theme;
+pub mod time;
 pub mod tools;
 pub mod view;
 

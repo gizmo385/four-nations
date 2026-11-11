@@ -401,7 +401,7 @@ One rule (#651): **keys are named in one place, the hint bar, and written once.*
   Endeavor, Log, Key help, Saves, Build, the game menu) and the selection bar carry none. The
   freed bottom border of a screen that scrolls says where the window sits instead, flush right:
   `12-48 of 61` (Log, Key help, Endeavor), `tiers 1-4 of 5`, `settlers 1-12 of 30`, `slots`,
-  `buildings`; the game menu's border carries the elapsed clock while seasons are on (#416).
+  `buildings`; the game menu's border carries the clock, the season and the time left (#654).
   Only a list that does not fit says anything. `tests/layout_properties.rs` checks every screen.
 - **One table.** `fn_ui::keys::table()` holds every binding: the modes it works in, the actions it
   stands for, its key label ("Esc or T") and short verb ("close"), and for most a longer key help

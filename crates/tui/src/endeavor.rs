@@ -21,13 +21,14 @@ fn sign_rows(sign: &SignRow, name_width: usize, width: usize, marks: &Marks) -> 
     let (mark, mark_tone) = if sign.met { (marks.known, Tone::Ok) } else { (" ", Tone::Dim) };
     let name_tone = if sign.met { Tone::Dim } else { Tone::Text };
     let bar_tone = if sign.met { Tone::Ok } else { Tone::Accent };
-    let (full, empty) = meter(sign.frac, BAR_CELLS, marks.full, marks.empty);
+    let [full, empty, flag] = meter(sign.frac, BAR_CELLS, bar_tone, false, marks);
     let mut rows = vec![Row::spans(vec![
         (format!("{mark} "), mark_tone),
         (format!("{:<name_width$} ", sign.name), name_tone),
-        (full, bar_tone),
-        (empty, Tone::Dim),
-        (format!(" {:>9}", sign.value), Tone::Dim),
+        full,
+        empty,
+        flag,
+        (format!("{:>9}", sign.value), Tone::Dim),
     ])];
     if !sign.met {
         if let Some(closest) = &sign.closest {
@@ -155,7 +156,7 @@ mod tests {
         let marks = Marks::new(true);
         let rows = lines(&s, 80, &marks);
         for row in &rows {
-            if let [(_, _), (_, _), (full, _), (empty, _), (_, _)] = row.left.as_slice() {
+            if let [(_, _), (_, _), (full, _), (empty, _), (_, _), (_, _)] = row.left.as_slice() {
                 assert_eq!(full.chars().count() + empty.chars().count(), BAR_CELLS, "{row:?}");
             }
         }

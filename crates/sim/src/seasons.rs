@@ -113,7 +113,37 @@ impl Default for SeasonsDef {
     }
 }
 
+/// Where a tick falls in the calendar (`SeasonsDef::at`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CalendarPoint {
+    /// The season's index into `SeasonsDef::seasons`.
+    pub season: usize,
+    /// The year, starting at 1.
+    pub year: u64,
+    /// In-game seconds left in the season.
+    pub left_secs: f32,
+}
+
 impl SeasonsDef {
+    /// Ticks in one season (`[calendar].season_minutes`), at least 1 so a division by it never
+    /// panics even on data that validation would otherwise reject.
+    pub fn season_ticks(&self) -> u64 {
+        let minutes = f64::from(self.calendar.season_minutes);
+        ((minutes * 60.0 * f64::from(crate::world::TICKS_PER_SECOND)).round() as u64).max(1)
+    }
+
+    /// The season, year and time left at `tick`: a pure function of the tick, for any tick
+    /// (the TUI stamps old log lines with it, #654). A fresh world (tick 0) is at season 0.
+    pub fn at(&self, tick: u64) -> CalendarPoint {
+        let per = self.season_ticks();
+        let n = (self.seasons.len() as u64).max(1);
+        CalendarPoint {
+            season: ((tick / per) % n) as usize,
+            year: tick / (per * n) + 1,
+            left_secs: (per - tick % per) as f32 / crate::world::TICKS_PER_SECOND as f32,
+        }
+    }
+
     /// The band a tile's quantized `temperature` falls in: the first (file order) whose
     /// `max_temperature` reaches it. Total, because validation requires the bands to ascend to
     /// 1.0.

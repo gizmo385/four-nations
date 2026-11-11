@@ -194,9 +194,15 @@ fn bend_rows(h: &Host) -> Vec<(String, String, bool)> {
 /// than one line (`widgets::wrap`), and an overlay's own border sits right where
 /// [`columns`] cuts the row apart and so ends up between two of a wrapped row's halves. None of
 /// that is a parity difference the way the text itself is, so both the haystack and every leaf
-/// fold the same way before the containment check.
+/// fold the same way before the containment check. The `--ascii` frame these tests read joins
+/// the clock's halves with `-`, not the observation's `·` (#654), which folds the same way.
 fn fold(s: &str) -> String {
-    s.to_lowercase().replace('|', " ").split_whitespace().collect::<Vec<_>>().join(" ")
+    s.to_lowercase()
+        .replace('·', "-")
+        .replace('|', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[test]

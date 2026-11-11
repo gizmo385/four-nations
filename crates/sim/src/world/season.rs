@@ -39,19 +39,15 @@ pub enum SeasonEventKind {
 }
 
 impl World {
-    /// Ticks in one season (`[calendar].season_minutes`), at least 1 so the division below never
-    /// panics even on data that validation would otherwise reject.
+    /// Ticks in one season (`[calendar].season_minutes`), at least 1.
     fn season_ticks(&self, defs: &Defs) -> u64 {
-        let minutes = f64::from(defs.seasons.calendar.season_minutes);
-        ((minutes * 60.0 * f64::from(TICKS_PER_SECOND)).round() as u64).max(1)
+        defs.seasons.season_ticks()
     }
 
     /// The index into `defs.seasons.seasons` of the season running at this tick: a pure function
     /// of the tick. A fresh world (tick 0) is at index 0, spring in the bundled data.
     pub fn season_index(&self, defs: &Defs) -> usize {
-        let per = self.season_ticks(defs);
-        let n = defs.seasons.seasons.len() as u64;
-        ((self.tick / per) % n.max(1)) as usize
+        defs.seasons.at(self.tick).season
     }
 
     /// The season running at this tick.
@@ -61,15 +57,12 @@ impl World {
 
     /// The year this tick falls in, starting at 1.
     pub fn year(&self, defs: &Defs) -> u64 {
-        let per = self.season_ticks(defs);
-        let n = (defs.seasons.seasons.len() as u64).max(1);
-        self.tick / (per * n) + 1
+        defs.seasons.at(self.tick).year
     }
 
     /// In-game seconds left in the season running at this tick.
     pub fn season_left(&self, defs: &Defs) -> f32 {
-        let per = self.season_ticks(defs);
-        (per - self.tick % per) as f32 / TICKS_PER_SECOND as f32
+        defs.seasons.at(self.tick).left_secs
     }
 
     /// The climate band of the tile at `pos`, by its mapgen temperature (`defs.seasons`). `None`
