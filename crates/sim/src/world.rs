@@ -304,6 +304,10 @@ impl Unit {
 pub struct Beast {
     pub id: BeastId,
     pub home: Pos,
+    /// Tiles it has bored, struck seams included: the den's `Bored` tally (#697). Always 0 for
+    /// a beast that does not bend.
+    #[serde(default)]
+    pub bored: u32,
 }
 
 /// A visitor who lives in the settlement without being one of its own: never drafted into the

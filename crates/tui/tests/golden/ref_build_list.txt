@@ -16,7 +16,7 @@
 │   Hot Spring Mill  12 Stone, 4 Wood           2x2   Seismic Sense                                                    │
 │   Waystation       10 Wood, 4 Stone           2x2   Waystations                                                      │
 │   Stable           12 Wood, 4 Stone, 1 Tool   2x2   Herding                                                          │
-│                                                                                                                      │
+│   Badgermole Den   10 Stone, 6 Wood, 1 Tool   2x2   Badgermole Ways                                                  │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │

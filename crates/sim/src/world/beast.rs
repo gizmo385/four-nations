@@ -14,12 +14,18 @@
 //! - **Work.** A hauling beast takes Haul and Refuel jobs whose trip is at least `min_trip`
 //!   tiles (`beast_may_take`, asked from `job_gate`). With nothing to do it walks back to its
 //!   home's door and stands there (`act_beast`); it never wanders.
+//! - **Boring.** A beast with `[beast.bend]` takes the ready designations of its ability, the one
+//!   nearest its home by walking cost first (`pick_job`), and works each for the row's `seconds`
+//!   (`World::bend_rate`). The effect applies with no chi spent and no bend counted toward
+//!   mastery (`run_bend`); the beast's own `bored` is the den's `Bored` tally.
 //! - **Food.** A home with a `[building.fuel]` bunker burns it while it houses a beast
 //!   (`fuel_in_use`). With the bunker empty the beast is `Hungry` (#689): it finishes the job it
 //!   holds, then rests at home and claims nothing until the bunker is refilled. It never dies or
 //!   leaves.
 
 use crate::beast::{BeastId, BeastWork};
+use crate::bending::AbilityId;
+use crate::flood::Flood;
 use crate::geom::Footprint;
 use crate::jobs::JobKind;
 
@@ -146,7 +152,7 @@ impl World {
             rank_credited: Rank::Novice,
             inside: None,
             guest: None,
-            beast: Some(Beast { id: beast, home }),
+            beast: Some(Beast { id: beast, home, bored: 0 }),
             glider: Glider::default(),
             unhappy_since: None,
             last_harm: None,
@@ -216,17 +222,58 @@ impl World {
 
     /// Whether beast `u` may take a job of `kind` at all: only the kinds its row names. A
     /// hauling beast takes Haul and Refuel, and only when the trip is at least `min_trip` tiles
-    /// (Chebyshev, pickup to drop). A bending beast takes nothing yet (its work is #697's). A
-    /// hungry beast is kept off jobs by `act_beast`, which doesn't ask at all.
+    /// (Chebyshev, pickup to drop). A bending beast takes the designations of its own ability
+    /// (`bend_ready` is asked by the gate, as for a settler) and nothing else. A hungry beast is
+    /// kept off jobs by `act_beast`, which doesn't ask at all.
     pub(super) fn beast_may_take(&self, u: &Unit, kind: JobKind, defs: &Defs) -> bool {
         let Some(beast) = u.beast else { return true };
-        let BeastWork::Haul { min_trip, .. } = defs.beast(beast.id).work else { return false };
+        let min_trip = match defs.beast(beast.id).work {
+            BeastWork::Haul { min_trip, .. } => min_trip,
+            BeastWork::Bend { ability, .. } => {
+                return matches!(kind, JobKind::Bend { ability: a, .. } if a == ability);
+            }
+        };
         let trip = match kind {
             JobKind::Haul { pos } => self.haul_trip(pos, defs),
             JobKind::Refuel { pos } => self.refuel_trip(pos, defs),
             _ => return false,
         };
         trip.is_some_and(|t| t >= min_trip as i32)
+    }
+
+    /// The seconds a bending beast spends on one tile, and the ability it bends: `None` for any
+    /// unit that is not a bending beast.
+    pub(super) fn beast_bend(&self, u: &Unit, defs: &Defs) -> Option<(AbilityId, f32)> {
+        match defs.beast(u.beast?.id).work {
+            BeastWork::Bend { ability, seconds } => Some((ability, seconds)),
+            BeastWork::Haul { .. } => None,
+        }
+    }
+
+    /// Distances from the door of the home of bending beast `i`, for `pick_job` to rank by: the
+    /// job nearest the den by walking cost goes first (#697). `None` for anyone else.
+    pub(super) fn beast_home_flood(&self, i: usize, defs: &Defs) -> Option<Flood> {
+        let u = &self.units[i];
+        self.beast_bend(u, defs)?;
+        let door = self.footprint_at(u.beast?.home)?.entrance();
+        let rules = self.rules_for(u);
+        Some(Flood::over(self.step_grids.get(&self.map, self.map_rev, rules), door))
+    }
+
+    /// Tiles the badgermole housed in the den anchored on `home` still has to bore: the
+    /// designations of its ability that are not finished, whether ready or still chained behind
+    /// the line. `None` where no bending beast lives (#697, the den's `Boring: 4 tiles left`).
+    pub fn boring_left(&self, home: Pos, defs: &Defs) -> Option<usize> {
+        let (ability, _) = self.beast_bend(self.beast_housed_at(home)?, defs)?;
+        Some(self.bend_designations().filter(|&(a, _)| a == ability).count())
+    }
+
+    /// Tiles the beast housed in the den anchored on `home` has bored in all, struck seams
+    /// included (`Bored: 23`). `None` where no bending beast lives.
+    pub fn bored_by(&self, home: Pos, defs: &Defs) -> Option<u32> {
+        let beast = self.beast_housed_at(home)?;
+        self.beast_bend(beast, defs)?;
+        beast.beast.map(|b| b.bored)
     }
 
     /// How far the stack on `pos` goes to be stored: the Chebyshev distance to the nearest place
@@ -268,3 +315,6 @@ impl World {
 mod stable_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod mole_tests;

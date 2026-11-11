@@ -670,3 +670,15 @@ prereqs = ["farming"]
 # Air never sees this tech. Each Stable houses the nation's own beast (data/beasts.toml).
 [tech.unlocks]
 buildings = ["stable"]
+
+[[tech]]
+id = "badgermole_ways"
+name = "Badgermole Ways"
+description = "Badgermoles dig the tunnels that taught the first earthbenders."
+nation = "earth"
+cost = 500
+prereqs = ["tunneling", "seismic_sense"]
+# The Badgermole Den (#697, docs/design/horizons-phase-2.md, "`badgermole_ways`"): a badgermole
+# bores designated tunnel with no chi.
+[tech.unlocks]
+buildings = ["badgermole_den"]

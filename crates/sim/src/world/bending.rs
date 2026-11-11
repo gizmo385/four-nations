@@ -730,6 +730,10 @@ impl World {
     pub(super) fn unit_can_bend(&self, i: usize, ability: AbilityId, defs: &Defs) -> bool {
         let def = defs.ability(ability);
         let u = &self.units[i];
+        // A bending beast needs no chi and no rank: only that the ability is its row's (#697).
+        if u.is_beast() {
+            return self.beast_bend(u, defs).is_some_and(|(own, _)| own == ability);
+        }
         u.chi >= self.chi_cost(u, def, defs)
             && self.can_cast(u, ability, defs)
             && self.unit_can_restoke(u.id, def)
@@ -755,7 +759,13 @@ impl World {
 
     /// Channel seconds per second: the caster's own effective modifiers (`modifiers_for`, #239;
     /// the Avatar's are his own, #237) read by the nation modifier the ability names, or 1.0.
+    /// A bending beast (#697) takes its row's `seconds` for the whole bend instead, whatever any
+    /// modifier says, which is `def.work / seconds` of channel a second, so a job it leaves
+    /// half done is half done for a settler too.
     fn bend_rate(&self, u: &Unit, def: &AbilityDef, defs: &Defs) -> f32 {
+        if let Some((_, seconds)) = self.beast_bend(u, defs) {
+            return def.work / seconds;
+        }
         def.speed_modifier
             .as_deref()
             .and_then(|m| self.modifiers_for(u, defs).get(m))
@@ -793,9 +803,15 @@ impl World {
         let outcome = match self.validate_bend(def, pos, defs) {
             Ok(()) => {
                 moved = self.apply_bend(i, ability, def, pos, defs);
-                self.units[i].bends += 1;
-                *self.units[i].bends_by.entry(ability).or_insert(0) += 1;
-                self.note_rank_up(i, defs);
+                // A beast's tally is its own (`World::bored_by`): it has no ranks, no forms and
+                // no mastery to credit (#697).
+                if let Some(beast) = &mut self.units[i].beast {
+                    beast.bored += 1;
+                } else {
+                    self.units[i].bends += 1;
+                    *self.units[i].bends_by.entry(ability).or_insert(0) += 1;
+                    self.note_rank_up(i, defs);
+                }
                 BendOutcome::Done
             }
             Err(why) => {
@@ -917,9 +933,11 @@ impl World {
         pos: Pos,
         defs: &Defs,
     ) -> Option<Moved> {
-        let cost = self.chi_cost(&self.units[i], def, defs);
-        let u = &mut self.units[i];
-        u.chi = (u.chi - cost).max(0.0);
+        if !self.units[i].is_beast() {
+            let cost = self.chi_cost(&self.units[i], def, defs);
+            let u = &mut self.units[i];
+            u.chi = (u.chi - cost).max(0.0);
+        }
         let magnitude = self.bend_magnitude(def);
         let caster = self.units[i].id;
         self.apply_effect(&def.effect, ability, caster, pos, magnitude, defs)

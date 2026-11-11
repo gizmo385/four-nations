@@ -807,7 +807,9 @@ pub fn describe_bend_event(session: &Session, ev: &BendEvent) -> String {
     match ev.outcome {
         BendOutcome::Done => {
             let line = format!("{who} used {} at ({}, {})", def.name, ev.pos.x, ev.pos.y);
+            // A beast has no mastery to count toward (#697).
             let threshold = unit
+                .filter(|u| !u.is_beast())
                 .and_then(|u| session.defs.endeavor.master_threshold(session.world.nation_of(u)));
             let new_form = unit.is_some_and(|u| u.bends_of(ev.ability) == 1);
             let line = match threshold {

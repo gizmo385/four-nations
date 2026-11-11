@@ -9,8 +9,9 @@
 //! - `[beast.haul] {carry, min_trip}`: takes Haul and Refuel jobs whose trip, pickup to drop, is
 //!   at least `min_trip` tiles (Chebyshev) and carries `carry` items, not scaled by the nation's
 //!   `carry_capacity`.
-//! - `[beast.bend] {ability, seconds}`: bends a designated tile of `ability` (the badgermole's
-//!   tunnels). The row parses and validates; the den and the work are #697.
+//! - `[beast.bend] {ability, seconds}`: bends designated tiles of `ability` (the badgermole's
+//!   tunnels, #697), nearest its home first, `seconds` a tile, with no chi and no mastery credit
+//!   (`world/beast.rs`).
 //!
 //! `speed` is optional: absent, the beast moves at the nation's own `move_speed`. Read by
 //! `Defs::with_beasts`, a separate step from `from_toml` like `with_harm`, so data without a
@@ -235,11 +236,11 @@ mod tests {
     #[test]
     fn a_bend_row_parses_and_validates() {
         let ok = format!(
-            "{BEASTS}\n[[beast]]\nid = \"badgermole\"\nname = \"Badgermole\"\nnation = \"earth\"\n\
+            "{BEASTS}\n[[beast]]\nid = \"test_mole\"\nname = \"Test Mole\"\nnation = \"earth\"\n\
              home = \"bed\"\nspeed = 1.0\n[beast.bend]\nability = \"bore_tunnel\"\nseconds = 30.0\n"
         );
         let d = Defs::bundled().with_beasts(&ok).expect("a bend row is valid");
-        let row = d.beast(d.beast_id("badgermole").unwrap());
+        let row = d.beast(d.beast_id("test_mole").unwrap());
         assert_eq!(row.speed, Some(1.0));
         assert!(matches!(row.work, BeastWork::Bend { seconds, .. } if seconds == 30.0));
         assert_eq!(row.haul(), None);
