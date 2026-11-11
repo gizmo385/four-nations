@@ -44,14 +44,15 @@ impl std::fmt::Debug for Mode {
 #[derive(Clone)]
 pub struct Shell {
     pub mode: Mode,
-    /// Quit… confirmed in a game opens this instead of quitting at once: `T` goes back to the title
-    /// screen, `Q`/Enter exits the process, anything else cancels and the game resumes (#280).
+    /// `Q` in embark opens this instead of quitting at once: `T` goes back to the title screen,
+    /// `Q`/Enter exits the process, anything else cancels (#280). A game's Quit… box asks the same
+    /// two things itself (#703), so this is embark's alone.
     pub exit_prompt: bool,
     /// Set by anything that changes what the frame shows, cleared when the frame is drawn, as
     /// `App::dirty` is.
     pub dirty: bool,
-    /// Set once the whole process should stop: the title screen's own Quit, or the exit
-    /// prompt's.
+    /// Set once the whole process should stop: the title screen's own Quit, the exit prompt's, or
+    /// a game's `Ctrl+C` or Quit box.
     pub quit: bool,
     screen: (u16, u16),
     saves: Option<PathBuf>,
@@ -311,10 +312,12 @@ impl Shell {
             Mode::Game(app) => {
                 app.key(key);
                 if app.ui.quit {
-                    // The game asked in its own box to confirm Quit…; that becomes this screen's own
-                    // question instead of stopping the process outright (#280).
-                    app.ui.quit = false;
-                    self.exit_prompt = true;
+                    // `Ctrl+C`, or the Quit box's last answer: the process stops, with nothing
+                    // more to ask (#703).
+                    self.quit = true;
+                } else if app.ui.to_title {
+                    // The Quit box's way back: it already asked, and saved if asked to.
+                    self.go_to_title();
                 } else if app.reopen_embark {
                     app.reopen_embark = false;
                     let world = &app.session.world;
@@ -342,12 +345,16 @@ impl Shell {
         }
     }
 
+    /// Leaves whatever is open for a fresh title screen.
+    fn go_to_title(&mut self) {
+        self.seed_hint = self.seed_hint.wrapping_add(1);
+        self.mode = Mode::Title(Box::new(TitleScreen::new(self.saves.as_deref(), self.seed_hint)));
+    }
+
     fn key_exit_prompt(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('t' | 'T') => {
-                self.seed_hint = self.seed_hint.wrapping_add(1);
-                self.mode =
-                    Mode::Title(Box::new(TitleScreen::new(self.saves.as_deref(), self.seed_hint)));
+                self.go_to_title();
                 self.exit_prompt = false;
             }
             KeyCode::Char('q' | 'Q') | KeyCode::Enter => self.quit = true,
@@ -495,8 +502,7 @@ impl Shell {
     }
 }
 
-/// Draws the shell's frame: the title screen, embark or the game, with the exit prompt over any
-/// of them.
+/// Draws the shell's frame: the title screen, embark or the game, with embark's exit prompt over it.
 pub fn draw(shell: &mut Shell, palette: &Palette, buf: &mut Buffer) {
     let area = buf.area;
     match &shell.mode {

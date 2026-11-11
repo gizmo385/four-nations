@@ -145,6 +145,8 @@ pub enum Mode {
     /// A question that can lose progress, asked in a centred box (new map, switch nation, quit,
     /// load, save over a slot).
     Ask,
+    /// Leaving the embark screen: back to the title screen, out of the game, or stay.
+    Exit,
     /// Every map mode (Select, Selected and a tool). Key help only.
     Map,
     /// Every mode at once: the clock, the screens, prompts. Key help only.
@@ -169,6 +171,7 @@ impl Mode {
             Self::Menu => "MENU",
             Self::MenuNations => "SWITCH",
             Self::Ask => "CONFIRM",
+            Self::Exit => "EXIT",
             Self::Anywhere => "ANY",
         }
     }
@@ -339,6 +342,12 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Ask], &[], "Up/Down", "choose", None);
     add(&[Mode::Ask], &[], "Enter", "answer", None);
     add(&[Mode::Ask], &[], "Esc", "cancel", None);
+
+    // Quitting from the embark screen, which has no game to save: the same two ways out as the
+    // game's Quit… box.
+    add(&[Mode::Exit], &[], "T", "title screen", None);
+    add(&[Mode::Exit], &[], "Q or Enter", "exit", None);
+    add(&[Mode::Exit], &[], "Esc", "stay", None);
 
     // The key help's own rows, in its order: one row per key, short enough for half a screen
     // (anything that needs a paragraph is left to the screen it is about). Their keys are the

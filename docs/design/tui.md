@@ -730,7 +730,7 @@ differs from the proposal above:
   world tick, so `fn_ui` reads no wall clock; or "has not been saved"), and lists its answers as
   rows. The cursor starts on the first, always the safe one (`Keep playing`, or `Keep the old
   save`); `Esc` picks it; a bare `y` does nothing; `Ctrl+C` still quits at once. New map, switch
-  nation and quit also offer "Save, then …", which writes a new slot (`save-N`, never over an
+  nation and quit (which also asks where to go: the title screen, or out of the game) also offer "Save, then …", which writes a new slot (`save-N`, never over an
   older one) and goes on only if that worked; it is left out when there is no save directory.
   Load and quickload offer only "Load it, losing this game". The box's keys are the hint bar's
   `CONFIRM` mode (`Up/Down choose · Enter answer · Esc cancel`); nothing in the box prints
@@ -798,11 +798,13 @@ A title screen, so `fn_tui` with no `SEED` is a whole way to start instead of an
   (`crate::saves::draw`) over a list read the same way (`fn_ui::saves::list`/`load`).
   `TitleScreen::display_nation` says which nation's colours the frame should wear while picking
   or seeding one, so the box and the blurb are already themed before any game exists.
-- **Quitting a game no longer always stops the process.** `App`'s own Quit… answer is unchanged
-  (`ui.quit` still becomes `true`); `Shell` is what notices that
-  and, instead of exiting, opens its own tiny prompt over the frame (`title::draw_exit_prompt`):
-  `T` goes back to a fresh title screen, `Q` or `Enter` exits for good, anything else cancels and
-  the game resumes. Only `main` (a `SystemTime` hint for a fresh default seed) and `run` (the
+- **Quitting a game asks once (#703).** The menu's Quit… box (`ask.rs`) answers both whether to
+  leave and where to: Keep playing, Save then go to the title screen, Go to the title screen
+  without saving, Quit the game. `App` sets `ui.to_title` for the middle two and `ui.quit` for the
+  last (and for `Ctrl+C`); `Shell` acts on either at once, with no second prompt. Embark's `Q`
+  still opens the shell's own small prompt (`title::draw_exit_prompt`): `T` goes back to a fresh
+  title screen, `Q` or `Enter` exits for good, anything else cancels. Its keys are the hint bar's
+  `EXIT` mode, drawn on the bottom row, not in the box. Only `main` (a `SystemTime` hint for a fresh default seed) and `run` (the
   terminal's size) touch anything `fn_sim`/`fn_ui`'s determinism forbids elsewhere in the crate;
   `Shell` and `TitleScreen` take both as plain arguments, so they stay as testable as `App` is.
 - **Goldens.** (Replaced by #455's reference goldens; see "Verifying headlessly".) New: `title_menu` (fresh, nothing to continue) and `title_nation_picker` (Air

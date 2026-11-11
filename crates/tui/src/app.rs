@@ -380,6 +380,11 @@ impl App {
                 self.ui.prompt = None;
                 self.confirm_prompt(prompt);
             }
+            Answer::Exit => {
+                self.ui.prompt = None;
+                self.close_menu();
+                self.ui.quit = true;
+            }
         }
     }
 
@@ -419,11 +424,11 @@ impl App {
     /// The answer to a prompt was to go on.
     fn confirm_prompt(&mut self, prompt: Prompt) {
         match prompt {
-            // The menu closes first, so a game the shell keeps (its own back-to-title question
-            // answered "stay") runs again instead of sitting in a paused menu.
+            // The menu closes first, so the game is not left in a paused menu. `Shell` takes it
+            // from here: it leaves the game behind for the title screen (#703).
             Prompt::Quit => {
                 self.close_menu();
-                self.ui.quit = true;
+                self.ui.to_title = true;
             }
             // `Shell` reads this on the way out: it leaves the game behind for embark, rather
             // than restarting in place (#290).
@@ -971,7 +976,7 @@ impl App {
                 Step::Key(key) => self.key(key),
                 Step::Tick(n) => self.run_ticks(n),
             }
-            if self.ui.quit {
+            if self.ui.quit || self.ui.to_title {
                 return;
             }
         }
