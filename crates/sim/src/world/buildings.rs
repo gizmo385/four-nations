@@ -32,6 +32,7 @@ use crate::save::v2;
 use super::farm::FarmPlot;
 use super::fuel::Bunker;
 use super::orchard::Orchard;
+use super::pickers::Pickers;
 use super::*;
 
 /// A finished building: what it is, where it stands, and the state of whatever it does.
@@ -62,6 +63,9 @@ pub struct Building {
     /// Its fuel bunker (`BuildingDef::fuel`, `fuel.rs`): empty when it finishes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) fuel: Option<Bunker>,
+    /// Its pickers' timer and counts (`BuildingDef::pickers`, `pickers.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) pickers: Option<Pickers>,
 }
 
 impl Building {
@@ -93,6 +97,8 @@ pub(super) enum Kind {
     Study,
     /// A fuel bunker (`fuel.rs`).
     Fuel,
+    /// Pickers (`pickers.rs`).
+    Pickers,
 }
 
 impl Kind {
@@ -105,6 +111,7 @@ impl Kind {
             (def.power.is_some(), Kind::Power),
             (def.seats > 0 && def.chart.is_none(), Kind::Study),
             (def.fuel.is_some(), Kind::Fuel),
+            (def.pickers.is_some(), Kind::Pickers),
         ]
         .into_iter()
         .filter_map(|(is, kind)| is.then_some(kind))
@@ -170,6 +177,9 @@ impl Buildings {
             }
             if record.fuel.is_none() && def.fuel.is_some() {
                 record.fuel = Some(Bunker::default());
+            }
+            if let (None, Some(p)) = (&record.pickers, &def.pickers) {
+                record.pickers = Some(Pickers::new(p));
             }
             self.index(key, &record, defs);
             self.records.insert(key, record);
@@ -284,6 +294,7 @@ impl World {
             orchard: def.orchard.as_ref().map(Orchard::new),
             heat,
             fuel: def.fuel.map(|_| Bunker::default()),
+            pickers: def.pickers.as_ref().map(Pickers::new),
         };
         let key = self.buildings.insert(record, defs);
         let tile = TileBuilding::new(key, def.passable, def.track.map_or(0, |t| t.index));
@@ -488,6 +499,7 @@ impl World {
                     orchard: None,
                     heat: None,
                     fuel: None,
+                    pickers: None,
                 },
             );
         }

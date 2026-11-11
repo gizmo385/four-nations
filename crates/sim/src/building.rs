@@ -324,6 +324,20 @@ pub struct FuelDef {
     pub micros_per_tick: u64,
 }
 
+/// Pickers that harvest ripe trees in reach with no worker (`[building.pickers]`, the Lemur
+/// Roost, docs/design/horizons-phase-1.md, `world/pickers.rs`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PickersDef {
+    /// The resources it picks: each has a harvest entry (`Defs::validate`).
+    pub resources: Vec<ResourceId>,
+    /// Chebyshev reach from the footprint. Not modifier-scaled.
+    pub radius: u32,
+    /// At most one pick this often, in ticks.
+    pub pick_ticks: u32,
+    /// Every `eat_every`-th item picked is eaten: at least 2.
+    pub eat_every: u32,
+}
+
 /// One whole item, in `FuelDef::micros_per_tick` units.
 pub const FUEL_MICROS: u64 = 1_000_000;
 
@@ -449,6 +463,8 @@ pub struct BuildingDef {
     /// A fuel bunker the building's effect runs on (`FuelDef`), or `None` for one that never
     /// needs fuel.
     pub fuel: Option<FuelDef>,
+    /// Pickers that harvest trees in reach with no worker (`PickersDef`), or `None`.
+    pub pickers: Option<PickersDef>,
     pub unlocked_by: Option<TechId>,
     /// Seats added by techs (`[[tech.unlocks.upgrades]]`, docs/design/horizons-phase-1.md), each
     /// with the tech that adds them, in tech order. At most one tech per building, today, but a
@@ -608,6 +624,15 @@ struct RawPower {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawPickers {
+    resources: Vec<String>,
+    radius: u32,
+    pick_seconds: f32,
+    eat_every: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawFuel {
     item: String,
     bunker: u32,
@@ -652,6 +677,7 @@ struct RawBuilding {
     power: Option<RawPower>,
     chart: Option<RawChart>,
     fuel: Option<RawFuel>,
+    pickers: Option<RawPickers>,
     #[serde(default)]
     uses_power: bool,
     #[serde(default)]
@@ -838,6 +864,10 @@ impl BuildingsFile {
                 None => None,
                 Some(f) => Some(resolve_fuel(&b.id, f, items)?),
             };
+            let pickers = match &b.pickers {
+                None => None,
+                Some(p) => Some(resolve_pickers(&b.id, p, resources)?),
+            };
             let track = match &b.track {
                 None => None,
                 Some(d) => {
@@ -884,6 +914,7 @@ impl BuildingsFile {
                 uses_power: b.uses_power,
                 names: b.names,
                 fuel,
+                pickers,
                 unlocked_by: None,
                 seat_upgrades: Vec::new(),
                 endeavor: b.endeavor,
@@ -933,6 +964,41 @@ fn resolve_orchard(
 }
 
 /// Checks a `[building.recipe]` and links its items (issue #124).
+fn resolve_pickers(
+    building: &str,
+    p: &RawPickers,
+    resources: &[ResourceDef],
+) -> Result<PickersDef, DefsError> {
+    let err =
+        |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: pickers {msg}")));
+    if p.resources.is_empty() {
+        return err("must name at least one resource");
+    }
+    let mut ids = Vec::new();
+    for r in &p.resources {
+        let Some(i) = resources.iter().position(|d| d.id == *r) else {
+            return err(&format!("names unknown resource {r:?}"));
+        };
+        ids.push(ResourceId(i as u16));
+    }
+    if p.radius == 0 {
+        return err("radius must be above 0");
+    }
+    if !(p.pick_seconds.is_finite() && p.pick_seconds > 0.0) {
+        return err("pick_seconds must be above 0");
+    }
+    if p.eat_every < 2 {
+        return err("eat_every must be at least 2");
+    }
+    let ticks = (p.pick_seconds * crate::world::TICKS_PER_SECOND as f32).round().max(1.0);
+    Ok(PickersDef {
+        resources: ids,
+        radius: p.radius,
+        pick_ticks: ticks as u32,
+        eat_every: p.eat_every,
+    })
+}
+
 fn resolve_fuel(building: &str, f: &RawFuel, items: &[ItemDef]) -> Result<FuelDef, DefsError> {
     let err =
         |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: fuel {msg}")));

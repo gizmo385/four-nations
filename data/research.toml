@@ -569,3 +569,13 @@ cost = 250
 prereqs = ["writing"]
 [tech.unlocks]
 features = ["almanac", "standing_sow"]
+
+[[tech]]
+id = "lemur_keeping"
+name = "Lemur Keeping"
+description = "Winged lemurs pick ripe fruit and carry it home."
+nation = "air"
+cost = 120
+prereqs = ["orchards"]
+[tech.unlocks]
+buildings = ["lemur_roost"]
