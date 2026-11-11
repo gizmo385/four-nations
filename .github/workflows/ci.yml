@@ -26,8 +26,34 @@ jobs:
       # The long simulation tests run about 7x faster, cutting this job from ~10 to ~4 minutes,
       # for ~15s more build time. Lint results don't depend on opt-level.
       CARGO_PROFILE_CI_OPT_LEVEL: 1
+      # One fixed build id (crates/tui/build.rs): a pull request's checkout would otherwise get a
+      # new id every run and rebuild fn_tui and everything above it, whatever the change. Hex,
+      # as a real id is; nothing built here is published, and the caches keyed by it
+      # (~/.cache/four-nations) start empty on every runner.
+      FN_BUILD_ID_OVERRIDE: c1c1c1c
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The commit and its first parent, for the scope step's diff on a pull request.
+          fetch-depth: 2
+      # `docs` when the change touches only documents, else `full` (scripts/ci-scope.sh). A pull
+      # request is checked out as its merge into the base, so its first parent is the base. A
+      # push is compared with the commit main was at before. When the other side can't be had
+      # (a first push, a rewritten branch), the list is empty and the scope is `full`.
+      - id: scope
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            files="$(git diff --name-only --no-renames HEAD^1 HEAD || true)"
+          elif git fetch --quiet --depth=1 origin "$BEFORE" 2>/dev/null; then
+            files="$(git diff --name-only --no-renames "$BEFORE" HEAD || true)"
+          else
+            files=""
+          fi
+          scope="$(scripts/ci-scope.sh <<< "$files")"
+          echo "scope=$scope" >> "$GITHUB_OUTPUT"
+          echo "ci scope: $scope ($(grep -c . <<< "$files" || true) files changed)"
       # The toolchain (version, components, wasm32 target) is pinned in rust-toolchain.toml, the one
       # source shared with flake.nix and local rustup. Change it there, not here.
       - run: rustup toolchain install
@@ -58,13 +84,20 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
-      - run: cargo xtask ci
+      - if: steps.scope.outputs.scope != 'docs'
+        run: cargo xtask ci
+      # A change to documents only: the tests that read docs/. The job, and so the required
+      # check, still reports.
+      - if: steps.scope.outputs.scope == 'docs'
+        run: cargo xtask ci --docs-only
       # Saved even when the gate fails or times out: whatever cargo finished building is still a
       # correct cache (its fingerprints are written after the artifact), and without it every PR
       # after a red main push would build from scratch.
-      - if: always() && github.ref == 'refs/heads/main'
+      # Not for a documents-only push: it built nothing new, and the cache it restored still
+      # serves every later run.
+      - if: always() && github.ref == 'refs/heads/main' && steps.scope.outputs.scope != 'docs'
         run: mkdir -p target && git rev-parse HEAD > target/.cache-commit
-      - if: always() && github.ref == 'refs/heads/main'
+      - if: always() && github.ref == 'refs/heads/main' && steps.scope.outputs.scope != 'docs'
         uses: actions/cache/save@v6
         with:
           path: target

@@ -16,6 +16,14 @@
 //!   isn't a new build each time `git status` is looked at.
 //! * Without git (a source tarball, a `cargo install`) it is `unknown`.
 //!
+//! `FN_BUILD_ID_OVERRIDE`, when set, is the id, and git is neither asked nor watched. GitHub CI
+//! sets it (.github/workflows/ci.yml): a pull request's checkout is a detached, one-commit clone,
+//! so the branch file this script watches on `main` is missing there (cargo reruns the script)
+//! and the last commit to touch any path is always the checkout's own (a new id every run). Left
+//! alone, that rebuilt `fn_tui` and everything above it on every pull request, whatever it
+//! changed. CI publishes nothing it builds and keeps no cache between runs that is keyed by the
+//! id, so one fixed id there is harmless.
+//!
 //! This is `fn_tui`'s build script, not `fn_sim`'s: `fn_sim` is built at opt-level 3 and a rerun
 //! there would rebuild it on every commit. `fn_tui` is the lowest crate every consumer shares
 //! (`fn_agent` and the run browser both link it).
@@ -23,11 +31,22 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// The environment variable that, when set and not empty, is the build id as it stands.
+const OVERRIDE: &str = "FN_BUILD_ID_OVERRIDE";
+
 /// What a score can depend on, relative to the repository root.
 const PATHS: [&str; 7] =
     ["crates/sim", "crates/ui", "crates/tui", "crates/agent", "data", "Cargo.toml", "Cargo.lock"];
 
 fn main() {
+    // CI names its builds itself (see the module doc): no git state is read or watched.
+    println!("cargo:rerun-if-env-changed={OVERRIDE}");
+    if let Some(id) = std::env::var(OVERRIDE).ok().filter(|id| !id.is_empty()) {
+        println!("cargo:rustc-env=FN_BUILD_ID={id}");
+        println!("cargo:rerun-if-changed=build.rs");
+        return;
+    }
+
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let id = build_id(&root).unwrap_or_else(|| "unknown".to_owned());
     println!("cargo:rustc-env=FN_BUILD_ID={id}");
