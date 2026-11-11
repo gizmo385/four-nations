@@ -900,7 +900,7 @@ mod tests {
         assert!(bad("resource = \"cabbage\"", "resource = \"nope\"").contains("nope"));
         assert!(bad("id = \"fruit\"", "id = \"fish\"").contains("duplicate"));
         assert!(bad("drink_thirst = 50.0", "drnk = 50.0").contains("drnk"));
-        assert!(bad("arrival_minutes = 10.0", "arrival_minutes = 0.0").contains("arrival_minutes"));
+        assert!(bad("arrival_minutes = 12.0", "arrival_minutes = 0.0").contains("arrival_minutes"));
         assert!(
             bad("food_per_newcomer = 30", "food_per_newcomer = 0").contains("food_per_newcomer")
         );

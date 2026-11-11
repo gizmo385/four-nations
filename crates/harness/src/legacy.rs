@@ -61,13 +61,14 @@
 //! then (#434, `docs/design/pacing.md` "Measuring it") each tech's completion minute (`techs:`),
 //! the decision timeline (`timeline:`: every tech completion that unlocks a building, ability or
 //! job, plus each sign's first-met minute, in minute order), the longest gap between decisions
-//! from minute 30 to Ready and how many gaps are over 15 minutes, and the idle share (the
+//! from minute 30 to Ready and how many gaps are over 15 minutes, the tail from the last decision
+//! to Ready on its own line (`tail:`, pacing.md section 5; #440), and the idle share (the
 //! fraction of units with no task) per 15-minute window. A trailing line per nation gives how
 //! many of its seeds keep that longest gap at 15 minutes or less.
 //!
 //! ```text
 //! cargo run -p fn_harness --bin balance -- economy --seeds 7,42 --minutes 180
-//!     [--nations fire,earth,water,air] [--preset normal] [--no-farms] [--branch-first]
+//!     [--nations fire,earth,water,air] [--preset normal] [--no-farms] [--branch-first] [--beds-only]
 //! ```
 //!
 //! `--no-farms` tills no farm plots and raises no orchard (materials.md's own `--no-farms`,
@@ -75,6 +76,11 @@
 //! researches the nation's own branch before the shared tier, closer to how a person plays
 //! (pacing.md's own "a player who goes branch first" note); the default order is unchanged.
 //! `verdict` replaces these two flags with play styles (`data/harness.toml`).
+//!
+//! `--beds-only` (`fn_sim::autoplay::Economy::with_beds_only`, #440) is the passive player:
+//! it builds beds and the rest of the sweep, but keeps no campfire by its beds, no food
+//! variety and takes no caravan deal, so draw stays near its 60% base. pacing.md's
+//! "population 16 at minute 150 or later" row is read from it (no play style does this yet).
 //!
 //! `--score` (#526, `docs/design/agent-hillclimb.md`) scores each run with
 //! `fn_sim::score::Scorecard::compute` at the end of the run and prints a `score:` line per
@@ -396,6 +402,7 @@ pub fn run_economy_sweep(args: &[String]) {
     let mut preset = "normal".to_owned();
     let mut farms = true;
     let mut branch_first = false;
+    let mut beds_only = false;
     let mut score = false;
     let mut horizon_minutes: Option<f32> = None;
 
@@ -417,6 +424,7 @@ pub fn run_economy_sweep(args: &[String]) {
             "--preset" => preset = value(args, &mut i),
             "--no-farms" => farms = false,
             "--branch-first" => branch_first = true,
+            "--beds-only" => beds_only = true,
             other => economy_usage_error(&format!("unknown argument {other:?}")),
         }
         i += 1;
@@ -456,6 +464,7 @@ pub fn run_economy_sweep(args: &[String]) {
                 minutes,
                 farms,
                 branch_first,
+                beds_only,
                 width: size.width,
                 height: size.height,
             };
@@ -550,6 +559,20 @@ fn print_timeline(nation: Nation, seed: u64, report: &EconomyReport) {
         nation.as_str(),
         report.gaps_over_15
     );
+    // The tail has its own line (pacing.md, section 5): with no skip key, the wait after the last
+    // decision is what a player feels at x5, and `longest gap` hides it when an earlier gap is
+    // longer.
+    let tail = match (report.tail, report.ready) {
+        (Some((start, end)), Some(_)) => {
+            format!("last decision {start:.1}, Ready {end:.1} ({:.1} min)", end - start)
+        }
+        (Some((start, end)), None) => format!(
+            "last decision {start:.1}, Ready never (run ends {end:.1}, {:.1} min)",
+            end - start
+        ),
+        (None, _) => "none".to_owned(),
+    };
+    println!("{:<6} {seed:>4} tail: {tail}", nation.as_str());
 }
 
 /// The `score:` line (module doc; #526): the run's `Scorecard` in one row.
@@ -582,7 +605,7 @@ fn print_idle_share(nation: Nation, seed: u64, report: &EconomyReport) {
 fn economy_usage_error(msg: &str) -> ! {
     eprintln!("{msg}");
     eprintln!(
-        "usage: balance economy [--seeds 7,42] [--minutes 180] [--nations fire,earth,water,air] [--preset normal] [--no-farms] [--branch-first] [--score [--horizon-minutes M]]"
+        "usage: balance economy [--seeds 7,42] [--minutes 180] [--nations fire,earth,water,air] [--preset normal] [--no-farms] [--branch-first] [--beds-only] [--score [--horizon-minutes M]]"
     );
     std::process::exit(1);
 }

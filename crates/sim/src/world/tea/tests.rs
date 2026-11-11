@@ -356,7 +356,7 @@ fn an_open_house_speeds_draw() {
         run(&mut w, &defs, minutes(1.0));
         w.draw()
     };
-    // 0.6 and 0.7 of a newcomer per 10 minutes: 60 and 70 milli-units in one minute.
-    assert_eq!(fill(false), 60);
-    assert_eq!(fill(true), 70);
+    // 0.6 and 0.7 of a newcomer per 12 minutes: 50 and 58 milli-units in one minute.
+    assert_eq!(fill(false), 50);
+    assert_eq!(fill(true), 58);
 }

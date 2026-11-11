@@ -73,6 +73,7 @@ fn the_economy_report_is_the_records_economy_half() {
         minutes: 30.0,
         farms: true,
         branch_first: false,
+        beds_only: false,
         width: size.width,
         height: size.height,
     };

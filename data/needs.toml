@@ -47,9 +47,11 @@ regen_per_minute = 2.0
 # from the nearest map edge when draw (below) reaches 1, the beds hold more than the settlers
 # and food_per_newcomer food items are in stores. arrival_minutes is the minutes per newcomer at
 # 100% draw: 10 instead of 15 (docs/design/materials.md section 4, #353), so growth draws down
-# the leaner food supply above instead of outrunning it with nothing to spend it on.
+# the leaner food supply above instead of outrunning it with nothing to spend it on; then 12
+# (#440), because the economy opening keeps all of draw's bonuses and reached 16 people before
+# minute 100 at 10 (docs/design/pacing.md, "After #440").
 [growth]
-arrival_minutes = 10.0     # minutes per newcomer at 100% draw
+arrival_minutes = 12.0     # minutes per newcomer at 100% draw
 food_per_newcomer = 30
 # Once the Harmony Gate is complete, each newcomer's nation is drawn weighted: own_weight for
 # the settlement's own nation, other_weight for each of the other three (docs/design/endgame.md,

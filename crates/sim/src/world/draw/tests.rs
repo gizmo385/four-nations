@@ -57,9 +57,9 @@ fn a_bare_settlement_draws_at_base() {
     for kind in [DrawTermKind::FoodKinds, DrawTermKind::WarmBeds, DrawTermKind::SpareBeds] {
         assert!(!term(&r, kind).is_met(), "{kind:?} is missing");
     }
-    // One minute at 60% of one newcomer per 10 minutes: 0.06 of a newcomer.
+    // One minute at 60% of one newcomer per 12 minutes: 0.05 of a newcomer.
     run(&mut w, &defs, 60 * u64::from(TICKS_PER_SECOND));
-    assert_eq!(w.draw(), 60);
+    assert_eq!(w.draw(), 50);
 }
 
 #[test]
