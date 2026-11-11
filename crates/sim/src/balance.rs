@@ -231,6 +231,10 @@ pub struct EconomySeason {
     /// (`SignKind::Tally(Tally::Harvested)`), summed the same generic way.
     pub ore_mined: u32,
     pub wood_stored: u32,
+    /// Every food item in stores (`World::stored_food`), the total `food_per_head` divides.
+    /// Absent from a record written before it existed.
+    #[serde(default)]
+    pub food_stored: u32,
     pub food_per_head: f32,
     pub population: u32,
     /// Ids of every sign met by this point, in `data/endeavor.toml`'s order.
@@ -451,6 +455,7 @@ fn economy_season(
         stone_stored: stone_items.iter().map(|&i| world.stored_total(i)).sum(),
         ore_mined: ore_items.iter().map(|&i| world.tallies().harvested(i)).sum(),
         wood_stored: wood.map_or(0, |w| world.stored_total(w)),
+        food_stored: world.stored_food(defs),
         food_per_head: if population > 0 {
             world.stored_food(defs) as f32 / population as f32
         } else {
