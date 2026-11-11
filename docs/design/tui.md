@@ -187,6 +187,14 @@ backgrounds, the stockpile is blue, the cursor is yellow and the selected unit i
     the cursor line; `Enter` closes the log with the map cursor on the line's place, or with the
     settler selected when it names only one. Alert lines wear the warning tone.
 
+  - **The Nation roster's rows (#779)**: a full meter is a solid `█` (#654), so settlers stacked
+    in adjacent rows read as one block. The fix is a blank row between two settlers of a group,
+    when the roster's page can show every settler that way (`crate::nation::draw`: all of them,
+    spaced, in the rows it has). A page that can't (80x24 with a handful of settlers) stacks the
+    rows as before, so no settler is pushed off the page for it; the meter glyphs are unchanged
+    and `--ascii` spaces the same way. (Alternating row backgrounds would not separate `█`, which
+    fills its whole cell.)
+
   A new screen draws with `page::draw(buf, regions.page, palette, "TITLE", detail_rows)`, fills
   `page.body` (and `page.detail`), marks its selection with `page::highlight`, and ends with
   `page.position(buf, palette, fn_ui::text::window_label(...).as_deref())`. Its page size, for

@@ -23,6 +23,11 @@
 //! (`fn_ui::text::bending_words`), which is the first thing dropped when DOING would get too
 //! narrow: at 80 columns every meter stays and BENDING goes.
 //!
+//! Full meters are solid `█`, so settlers' meters stacked in rows would read as one block (#779):
+//! when the page can show every settler with a blank row between neighbours of a group, it does
+//! (`spaced`); when it can't (80x24 with a handful of settlers) the rows stack as before, so no
+//! settler is pushed off the page for it.
+//!
 //! Narrower than [`METER_MIN_WIDTH`] columns (never at a size the game draws at, since the
 //! screen covers the side panel too, #652) a flag after the task names whichever needs aren't
 //! ok instead (`fn_ui::view::need_word`).
@@ -219,11 +224,13 @@ fn packed_rows(items: impl Iterator<Item = String>, width: usize) -> Vec<Row> {
 }
 
 /// The roster's lines, in order: a group's heading, then its settlers (wide or narrow rows,
-/// `wide`'s own choice). `at` is the roster index of the settler the pointer marks.
+/// `wide`'s own choice), a blank line between two settlers of a group when `spaced` (#779: full
+/// meters would fuse into a block). `at` is the roster index of the settler the pointer marks.
 fn roster_lines(
     view: &NationView,
     at: usize,
     wide: bool,
+    spaced: bool,
     width: usize,
     marks: &Marks,
 ) -> Vec<Line> {
@@ -238,7 +245,10 @@ fn roster_lines(
             ),
             unit: false,
         });
-        for unit in group {
+        for (i, unit) in group.iter().enumerate() {
+            if spaced && i > 0 {
+                out.push(Line { row: Row::text("", Tone::Text), unit: false });
+            }
             let chosen = units.get(at) == Some(&unit.id);
             let row = if wide {
                 wide_unit_row(unit, chosen, &cols, marks)
@@ -319,7 +329,15 @@ pub fn draw(
     let header_rows = if wide { 3 } else { 2 };
     let roster_h = height.saturating_sub(header_rows + footer_rows).max(1);
 
-    let lines = roster_lines(&view, ui.nation_cursor, wide, width, &marks);
+    // A blank row between settlers keeps full meters apart, if every settler still fits (#779).
+    // Only the wide rows have meters to fuse.
+    let packed = roster_lines(&view, ui.nation_cursor, wide, false, width, &marks);
+    let lines = if wide {
+        let spaced = roster_lines(&view, ui.nation_cursor, wide, true, width, &marks);
+        if spaced.len() <= roster_h { spaced } else { packed }
+    } else {
+        packed
+    };
     let chosen_row =
         lines.iter().enumerate().filter(|(_, l)| l.unit).nth(ui.nation_cursor).map(|(i, _)| i);
     let first = window_start(chosen_row.unwrap_or(0), roster_h);
@@ -424,12 +442,28 @@ mod tests {
     fn the_roster_lines_up_a_heading_then_a_row_per_settler() {
         let v = view(7, Nation::Earth);
         let marks = Marks::new(false);
-        let lines = roster_lines(&v, 0, true, 116, &marks);
+        let lines = roster_lines(&v, 0, true, false, 116, &marks);
         assert_eq!(lines[0].row.plain(), format!("IDLE {}", v.groups[0].1.len()));
         assert!(!lines[0].unit);
         assert!(lines[1].unit);
         assert!(lines[1].row.plain().starts_with('▸'), "{}", lines[1].row.plain());
         assert!(!lines[2].row.plain().starts_with('▸'));
+    }
+
+    /// A blank line goes between two settlers of a group when `spaced`, never before the first,
+    /// after the last or between a heading and its settler (#779).
+    #[test]
+    fn spaced_lines_put_a_blank_between_settlers_of_a_group_only() {
+        let v = view(7, Nation::Earth);
+        let marks = Marks::new(false);
+        let n = roster(&v).len();
+        let packed = roster_lines(&v, 0, true, false, 116, &marks);
+        let spaced = roster_lines(&v, 0, true, true, 116, &marks);
+        assert_eq!(packed.len(), n + 1, "a heading and a row each");
+        assert_eq!(spaced.len(), packed.len() + n - 1, "one group: n - 1 blanks");
+        assert!(spaced[1].unit && !spaced[2].unit && spaced[2].row.plain().trim().is_empty());
+        assert!(spaced[3].unit && spaced.last().unwrap().unit);
+        assert_eq!(spaced.iter().filter(|l| l.unit).count(), n, "blanks are not settlers");
     }
 
     /// Group headings are full words, not the side panel's short verbs.
@@ -441,7 +475,7 @@ mod tests {
         let unit = v.groups[0].1.pop().unwrap();
         v.groups.push((fn_ui::view::Activity::Eat, vec![unit.clone()]));
         v.groups.push((fn_ui::view::Activity::Haul, vec![unit]));
-        let lines = roster_lines(&v, 0, true, 116, &marks);
+        let lines = roster_lines(&v, 0, true, false, 116, &marks);
         let headings: Vec<String> =
             lines.iter().filter(|l| !l.unit).map(|l| l.row.plain()).collect();
         assert!(headings.contains(&"EATING AND DRINKING 1".to_owned()), "{headings:?}");
