@@ -337,8 +337,8 @@ folder (never in `run.jsonl`), so the list opens at once and the cells fill in. 
 DIR --frame --keys SCRIPT` draws it headless, which is how the tests drive it.
 
 **From the title screen (#841).** `fn_tui` with no arguments has a Replays item between Load and
-Quit whenever the runs folder (`$FN_AGENT_RUNS`, else `~/fn-agent-runs`, resolved in `main.rs`)
-holds a run or a campaign. It opens the same browser on the same terminal
+Quit whenever the runs folder (see "Where runs live" below, resolved in `main.rs`) holds a run
+or a campaign. It opens the same browser on the same terminal
 (`browser::run_in`, nested the way the browser nests the watcher); `q` in the browser comes back
 to the title screen with the cursor still on Replays. The item is hidden in `--frame` output and
 on wasm32.
@@ -473,8 +473,18 @@ Each session is started with `--session-id`, and its transcript is copied from C
 own store into the run folder's `transcripts/` (`chunk-N.jsonl`, `mcp.jsonl` or
 `interactive.jsonl`), so the model's reasoning stays with the run. A transcript that can't be
 found is a warning, not a failed run. Transcripts hold the whole session, including any
-account context Claude Code adds, so they stay under `~/fn-agent-runs`, outside the repo, and
-are never committed or pasted into issues.
+account context Claude Code adds, so they stay in the runs folder, outside the repo, and are
+never committed or pasted into issues.
+
+**Where runs live (#846).** Runs sit beside the saves, in the platform's data directory:
+`$XDG_DATA_HOME/four-nations/runs` (else `~/.local/share/four-nations/runs`) on Linux,
+`~/Library/Application Support/four-nations/runs` on macOS, `%APPDATA%\four-nations\runs` on
+Windows. `$FN_AGENT_RUNS` overrides it everywhere. The rule is `fn_runfmt::runs_dir`, one copy
+for `cargo xtask agent-run` (which writes runs, and its watch, campaign and eval commands) and
+`fn_tui` (the title screen's Replays); `fn_tui`'s tests check it matches `fn_ui::saves::save_dir`.
+Runs used to default to `~/fn-agent-runs`. While that folder has runs and the new one doesn't
+exist, both tools keep using it and print how to move them (`mkdir -p` the parent, then `mv`);
+nothing is moved for you. A settings screen for the folder waits until there's a need for one.
 
 **What it guarantees:** the child is *given* only the game's tools and none of the repo. Checked
 on the arguments and working directory it is started with (`xtask/tests/agent_run.rs`) and on

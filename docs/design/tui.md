@@ -805,7 +805,8 @@ A title screen, so `fn_tui` with no `SEED` is a whole way to start instead of an
   the in-game screens (pure state, no terminal): a `Page` (`Menu`, `Nation`, `Seed`, `Load`) and a
   `key` method returning an `Outcome` (`None`, `Start { seed, nation }`, `Loaded(World)`, `Quit`)
   for `Shell` to act on. The menu lists New game, Continue (hidden with nothing loadable), Load,
-  Replays (#841: the run browser on the agent runs folder, hidden when the folder has no runs;
+  Replays (#841: the run browser on the agent runs folder, `four-nations/runs` beside the saves
+  (#846), hidden when the folder has no runs;
   see docs/design/agent-play.md, "Watching") and Quit; New game steps through a nation picker (arrows or `1`-`4`, the nation's own blurb from
   `data/nations.toml`) and then a seed field (prefilled with a hint `Shell` passes in, typing
   digits replaces it, `Backspace` edits); Load reuses the in-game saves screen's own row-drawing

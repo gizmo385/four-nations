@@ -32,6 +32,7 @@ mod rail;
 mod reference_goldens;
 mod replays;
 mod research;
+mod runs_dir;
 mod save_list;
 mod saves;
 mod scenario;

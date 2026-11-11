@@ -95,7 +95,14 @@ fn main() -> ExitCode {
         );
         return ExitCode::from(2);
     }
-    match fn_tui::run::run(&args, depth, saves, runs_dir(), seed_hint()) {
+    let runs = runs_dir();
+    let result =
+        fn_tui::run::run(&args, depth, saves, runs.as_ref().map(|r| r.path.clone()), seed_hint());
+    // Said after the loop, so the alternate screen doesn't hide it.
+    if let Some(note) = runs.as_ref().and_then(|r| r.note()) {
+        eprintln!("fn_tui: {note}");
+    }
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("fn_tui: {e}");
@@ -136,16 +143,13 @@ fn run_browser(raw: &[String]) -> ExitCode {
 /// A seed to offer a new game at the title screen, before the player has typed one: the wall
 /// clock is read here and nowhere past this (docs/design/tui.md, "A deterministic clock"), since
 /// `main` and `run` are the only edges of the program that are allowed to.
-/// The agent runs folder, the title screen's Replays target (#841): `$FN_AGENT_RUNS`, else
-/// `~/fn-agent-runs`, the same rule `cargo xtask agent-run` writes runs by
-/// (`xtask/src/agent_run.rs`). Only the interactive loop gets it: `--frame` never reads the
-/// environment for it, so a title frame is the same on every machine.
-fn runs_dir() -> Option<std::path::PathBuf> {
-    let dir = match std::env::var_os("FN_AGENT_RUNS") {
-        Some(p) => std::path::PathBuf::from(p),
-        None => std::path::PathBuf::from(std::env::var_os("HOME")?).join("fn-agent-runs"),
-    };
-    Some(std::path::absolute(&dir).unwrap_or(dir))
+/// The agent runs folder, the title screen's Replays target (#841): `fn_runfmt`'s one rule
+/// (#846), the same one `cargo xtask agent-run` writes runs by. `$FN_AGENT_RUNS`, else the data
+/// home's `four-nations/runs` beside the saves, or the old `~/fn-agent-runs` while that still
+/// holds the runs (with a note on how to move them). Only the interactive loop gets it: `--frame`
+/// never reads the environment for it, so a title frame is the same on every machine.
+fn runs_dir() -> Option<fn_runfmt::runs_dir::RunsDir> {
+    fn_runfmt::runs_dir::RunsDir::for_process()
 }
 
 fn seed_hint() -> u64 {
