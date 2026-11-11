@@ -142,7 +142,7 @@ bill_hall = "study_hall"      # the building that takes deliveries; must have se
 - **Scrolls.** Ancient scrolls are never stockpiled. A hauler carries each one straight to a hall,
   where it is read (`run_deliver`). With a bill short of `ancient_scroll`, an arriving scroll goes
   on the bill instead. It gives no knowledge and isn't counted as read, so it doesn't advance the
-  scrolls sign (decision 1). The confirm says so, and a scroll on the way when the target changes
+  scrolls sign (#715). The confirm says so, and a scroll on the way when the target changes
   is read as usual.
 
 ### 3. New upgrade properties
@@ -240,7 +240,7 @@ cold = false                          # no unit inside is cold, so there is no e
 - A tile is a **bound** if a finished building listed in `walls` stands on it.
 - One flood starts from every map-edge tile that isn't a bound. It steps in eight directions
   through every tile that isn't a bound, whatever its terrain, so mountains and water don't
-  close a ring (decision 2). Every tile that isn't a bound and the flood never reaches is
+  close a ring (#716). Every tile that isn't a bound and the flood never reaches is
   **sheltered**.
 - Eight directions means a diagonal step in a wall is a gap, the same gap a walker could slip
   through. Rings drawn with the build tool's rectangle are orthogonal lines, so they close.
@@ -849,7 +849,7 @@ Waystation `shelter`. Air, the temple's `study` and `packed_work`.
   not the techs below.
 - **Scroll starvation.** Three scrolls for a school, three for the gate and three read for the
   Archive make nine. Maps hold 16 to 24 in 8 to 12 ruins, all buried, so it's a race, not a lock.
-  The confirm says scrolls go to the school, and decision 1 is the owner's call.
+  The confirm says scrolls go to the school, and #715 is the owner's call.
 - **#448 or #433 lands late.** `metal_city`'s mill upgrade needs #448's Hot Spring Mill. Until it
   lands, metal rail has nothing to carry, so that follow-up waits on it. `sun_warriors` ships
   without the Steam Engine line if #433 hasn't landed, and gains it later.
@@ -869,13 +869,13 @@ Waystation `shelter`. Air, the temple's `study` and `packed_work`.
    school scroll counts as read but gives no knowledge, which makes the scroll cost almost free:
    just a reason to search three more ruins. A third option, scroll copies from phase 3's Archive,
    would tie three schools to a non-core building that itself needs 3 scrolls read. Section:
-   "Shared sim work, 2. Item bills". (decision 1)
+   "Shared sim work, 2. Item bills". (#715)
 2. **May mountains and water close an Agrarian Ring?** *Recommended: no, walls and Ring Gates
    only.* The spec says "fully enclosed by Earth Wall", and the decision it names is stone per
    tile. Letting rock close a ring would make a valley site shelter its fields for a dozen wall
    tiles, which is very Earth Kingdom, but the school's strength would then swing with the map far
    more than its counterpart's. It is one line of data either way (`[enclosure]` would gain
-   `terrains = ["mountain"]`). Section: "`agrarian_ring`: sheltered rings". (decision 2)
+   `terrains = ["mountain"]`). Section: "`agrarian_ring`: sheltered rings". (#716)
 
 ## Follow-up issues
 
@@ -883,20 +883,20 @@ Each one appends its own tech, school, building and table blocks from this doc. 
 `BuildingId` are file positions, and saves remap them by name (save-compat.md), so the order
 between follow-ups doesn't matter.
 
-| Draft | Title | Blocked by |
+| Issue | Title | Blocked by |
 |---|---|---|
-| A | Sim and data: schools (`[[school]]`, the `school` field, validation, `ResearchError::Closed`) | #673 |
-| B | Sim and data: research item bills (`[[tech.cost_items]]`, deliveries to a study hall, refunds, scrolls on the bill) | A, decision 1 |
-| C | Sim and data: enclosure detection, the Ring Gate and `agrarian_ring` | A, B, #677, decision 2 |
-| D | Sim and data: Metal Rail (power along a run, `also_on`, the `boost` upgrade) and `metal_city` | A, B, #674, #676, #448 |
-| E | Sim and data: auras and the High Temple (`[building.aura]`, `landmark`) and `high_temple` | A, B |
-| F | Sim and data: the `aura` and `fuel_free` upgrades and `sun_warriors` | A, B, E, #674, #675, #680 |
-| G | Sim and data: the Factory (`automate` upgrade, Supply hauls, `SetAutomated`) and `great_works` | A, B, #674, #675, #428 |
-| H | Sim and data: item upgrades (`stands_for`) and `northern_city` | A, B, #674 |
-| I | Sim and data: shore fishing, the `free` and `shelter` upgrades, and `southern_ways` | A, B, #674, #677, #694 |
-| J | Sim and data: pack up (packed refunds, beasts haul to sites) and `nomad_way` | A, B, #677, #693 |
-| K | TUI: the school fork on the Research screen, the confirm, the Closed state and bill progress | A, B, #652 |
-| L | TUI: school readouts (sheltered tint, rail power, Factory toggle, auras, shore fishing, pack up) | C, D, E, F, G, H, I, J |
-| M | Balance: school styles, the `[[fork]]` check, `stage_minute.N`, `school_minute`, and the phase-4 run | C, D, E, F, G, H, I, J, #713 |
-| 1 | Decision: do scrolls given to a school count as read? | none |
-| 2 | Decision: may mountains and water close an Agrarian Ring? | none |
+| #717 | Sim and data: schools (`[[school]]`, the `school` field, validation, `ResearchError::Closed`) | #673 |
+| #718 | Sim and data: research item bills (`[[tech.cost_items]]`, deliveries to a study hall, refunds, scrolls on the bill) | #717, #715 |
+| #721 | Sim and data: enclosure detection, the Ring Gate and `agrarian_ring` | #717, #718, #677, #716 |
+| #722 | Sim and data: Metal Rail (power along a run, `also_on`, the `boost` upgrade) and `metal_city` | #717, #718, #674, #676, #448 |
+| #723 | Sim and data: auras and the High Temple (`[building.aura]`, `landmark`) and `high_temple` | #717, #718 |
+| #724 | Sim and data: the `aura` and `fuel_free` upgrades and `sun_warriors` | #717, #718, #723, #674, #675, #680 |
+| #725 | Sim and data: the Factory (`automate` upgrade, Supply hauls, `SetAutomated`) and `great_works` | #717, #718, #674, #675, #428 |
+| #726 | Sim and data: item upgrades (`stands_for`) and `northern_city` | #717, #718, #674 |
+| #727 | Sim and data: shore fishing, the `free` and `shelter` upgrades, and `southern_ways` | #717, #718, #674, #677, #694 |
+| #728 | Sim and data: pack up (packed refunds, beasts haul to sites) and `nomad_way` | #717, #718, #677, #693 |
+| #729 | TUI: the school fork on the Research screen, the confirm, the Closed state and bill progress | #717, #718, #652 |
+| #730 | TUI: school readouts (sheltered tint, rail power, Factory toggle, auras, shore fishing, pack up) | #721, #722, #723, #724, #725, #726, #727, #728 |
+| #731 | Balance: school styles, the `[[fork]]` check, `stage_minute.N`, `school_minute`, and the phase-4 run | #721, #722, #723, #724, #725, #726, #727, #728, #713 |
+| #715 | Decision: do scrolls given to a school count as read? | none |
+| #716 | Decision: may mountains and water close an Agrarian Ring? | none |
