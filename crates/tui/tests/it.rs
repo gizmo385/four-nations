@@ -35,4 +35,5 @@ mod saves;
 mod scenario;
 mod title;
 mod tool_list;
+mod traders;
 mod watch;

@@ -149,6 +149,7 @@ fn build_table() -> Vec<Binding> {
     add(Key::ch('g'), Action::ShowEndeavor);
     add(Key::ch('n'), Action::ShowNation);
     add(Key::ch('i'), Action::ShowAbilities);
+    add(Key::ch('m'), Action::ShowTraders);
     // F5/F9, the usual quicksave/quickload keys.
     add(Key::plain(F(5)), Action::QuickSave);
     add(Key::plain(F(9)), Action::AskQuickLoad);
@@ -184,7 +185,8 @@ pub fn spectator_allowed(action: Action) -> bool {
         | Action::ShowHelp
         | Action::ShowEndeavor
         | Action::ShowNation
-        | Action::ShowAbilities => true,
+        | Action::ShowAbilities
+        | Action::ShowTraders => true,
         // The list's only use is to pick a tool, which a spectator may not.
         Action::ShowTools => false,
         Action::ShowSaves => false,
@@ -417,6 +419,7 @@ mod tests {
             Action::ShowEndeavor,
             Action::ShowNation,
             Action::ShowAbilities,
+            Action::ShowTraders,
         ];
         for a in allowed {
             assert!(spectator_allowed(a), "{a:?} should be allowed");

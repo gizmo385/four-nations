@@ -30,8 +30,8 @@ use fn_sim::jobs::ItemId;
 use fn_sim::needs::DeathCause;
 use fn_sim::research::MILLIS_PER_POINT;
 use fn_sim::world::{
-    Arrival, BendEvent, BendOutcome, ChartEvent, ChartEventKind, Death, Event, SeasonEvent,
-    SeasonEventKind, StrainEvent, TICKS_PER_SECOND, UnitId,
+    Arrival, BendEvent, BendOutcome, CaravanEvent, CaravanEventKind, ChartEvent, ChartEventKind,
+    Death, Event, SeasonEvent, SeasonEventKind, StrainEvent, TICKS_PER_SECOND, UnitId,
 };
 
 use crate::endeavor;
@@ -78,6 +78,9 @@ pub enum Kind {
     /// stockpile, open until a target is set. The log gets a line when it is raised; the panel
     /// shows it for as long as it holds ([`Alerts::open`]), never as a timed toast.
     Research,
+    /// Traders (#437, #438): a caravan made camp, found nowhere to, is about to leave or left,
+    /// and (log only) a deal or request done.
+    Trade,
 }
 
 impl Kind {
@@ -100,6 +103,7 @@ impl Kind {
             Self::BendTip => 10.0,
             // A standing alert: open while the condition holds, not a toast that ages.
             Self::Research => 0.0,
+            Self::Trade => 8.0,
         }
     }
 
@@ -119,6 +123,7 @@ impl Kind {
             // to show at a time.
             Self::BendTip => 1,
             Self::Research => 0,
+            Self::Trade => 2,
         }
     }
 }
@@ -212,7 +217,7 @@ impl Kind {
             Self::Death | Self::Endeavor | Self::Season | Self::Stockpile | Self::Research => {
                 Category::Alert
             }
-            Self::Arrival => Category::People,
+            Self::Arrival | Self::Trade => Category::People,
             Self::Agent | Self::BendTip => Category::Work,
         }
     }
@@ -319,6 +324,9 @@ impl Entry {
             // Idle capacity, not an emergency: stopping every turn until it is set would cost
             // far more than it tells (the glance's own row and the panel's alert say it too).
             Kind::Research => false,
+            // Traders come and go once a season on a fixed schedule: worth a toast, and the
+            // Traders screen is where they are dealt with, not a reason to cut a turn short.
+            Kind::Trade => false,
         }
     }
 }
@@ -350,6 +358,9 @@ pub struct Alerts {
     /// Whole research points banked with no target set, and the tick that began (#656); `None`
     /// while a target is set or nothing is banked. Open while it is `Some`.
     research_idle: Option<(u64, u32)>,
+    /// The arrival tick of the caravan already warned about leaving (#438), so the warning is
+    /// one line a visit.
+    trade_warned: Option<u64>,
 }
 
 impl Alerts {
@@ -386,6 +397,16 @@ impl Alerts {
             self.research_idle = Some((since, banked));
         } else {
             self.research_idle = None;
+        }
+        // A caravan about to leave (#438): its own line, once a visit.
+        if let Some(v) = world.caravan()
+            && self.trade_warned != Some(v.arrived)
+            && v.leaves.saturating_sub(world.tick) <= TRADE_WARNING_TICKS
+        {
+            self.trade_warned = Some(v.arrived);
+            let text = format!("{} leave in two minutes", caravan_name(session, v.nation));
+            let line = Line::new(Kind::Trade, text.clone(), toast_of(&text)).at(v.camp);
+            fresh.push(((world.tick, TRADE_ORDER), line));
         }
         // The one-time bend tip (#382): also not one of `World`'s own monotonic logs, so this
         // checks live state instead of a count. Moot once a bend has ever been designated
@@ -528,6 +549,7 @@ impl Alerts {
             Kind::Chart,
             Kind::Agent,
             Kind::BendTip,
+            Kind::Trade,
         ] {
             let mut of_kind: Vec<usize> =
                 (0..groups.len()).filter(|&i| groups[i].kind == kind).collect();
@@ -667,6 +689,10 @@ const STOCKPILE_ORDER: u8 = 11;
 const BEND_TIP_ORDER: u8 = 12;
 /// Where the idle-research line sorts among same-tick lines: after the bend tip.
 const RESEARCH_ORDER: u8 = 13;
+/// Where a caravan's leaving warning sorts among same-tick lines: last.
+const TRADE_ORDER: u8 = 14;
+/// How long before a caravan leaves its warning comes (#438): two minutes.
+const TRADE_WARNING_TICKS: u64 = 2 * 60 * TICKS_PER_SECOND as u64;
 
 /// The line one logged event becomes: its kind, the log's text, whether it is a failed bend, and
 /// its toast (`None` for a log-only line). `None` for an event with no line (yet).
@@ -726,9 +752,8 @@ fn line_for(session: &Session, ev: &Event) -> Option<Line> {
         }
         // Harm reaches the alert log here, but has no line yet: its wording is #393's.
         Event::Harm(_) => return None,
-        // Caravans (#437) reach the alert log here, but have no line yet: their wording and
-        // toasts come with the Traders screen (docs/design/pacing.md, follow-up E).
-        Event::Caravan(_) => return None,
+        // Caravans (#437, #438): coming and going toast; a deal or request done is log only.
+        Event::Caravan(ev) => caravan_line(session, ev),
         // A beast going back to the wild (#693): the line is the event's own wording.
         Event::Beast(ev) => {
             let text = ev.describe();
@@ -743,6 +768,66 @@ fn line_for(session: &Session, ev: &Event) -> Option<Line> {
             }
         }
     })
+}
+
+/// A toast that coalesces by its own text.
+fn toast_of(text: &str) -> Option<ToastSpec> {
+    Some(ToastSpec { subject: text.to_owned(), text: text.to_owned() })
+}
+
+/// "Fire Nation traders", from the data; "Traders" for a nation with none.
+fn caravan_name(session: &Session, nation: fn_sim::Nation) -> String {
+    let caravans = &session.defs.trade.caravans;
+    caravans.iter().find(|c| c.nation == nation).map_or("Traders".to_owned(), |c| c.name.clone())
+}
+
+/// A caravan's line (#438, docs/design/text-voice.md): "Fire Nation traders made camp", "...
+/// found nowhere to camp", "... left", and in the log only "Deal done with the Fire Nation
+/// traders: 2 metal" and "Request met: Food for the families at Fire Fountain City".
+fn caravan_line(session: &Session, ev: &CaravanEvent) -> Line {
+    let defs = &session.defs;
+    let caravan = |n| defs.trade.caravans.iter().find(|c| c.nation == n);
+    match &ev.kind {
+        CaravanEventKind::Arrived { nation, camp } => {
+            let text = format!("{} made camp", caravan_name(session, *nation));
+            Line::new(Kind::Trade, text.clone(), toast_of(&text)).at(*camp)
+        }
+        CaravanEventKind::Skipped { nation } => {
+            let text = format!("{} found nowhere to camp", caravan_name(session, *nation));
+            Line::new(Kind::Trade, text.clone(), toast_of(&text))
+        }
+        CaravanEventKind::Left { nation } => {
+            let text = format!("{} left", caravan_name(session, *nation));
+            Line::new(Kind::Trade, text.clone(), toast_of(&text))
+        }
+        CaravanEventKind::DealDone { nation, deal } => {
+            let name = caravan_name(session, *nation);
+            let got = caravan(*nation).and_then(|c| c.deals.get(usize::from(*deal))).map(|d| {
+                let mut parts: Vec<String> = d
+                    .get
+                    .iter()
+                    .map(|&(i, n)| format!("{n} {}", defs.item(i).name.to_lowercase()))
+                    .collect();
+                if d.knowledge > 0 {
+                    parts.push(format!("{} knowledge", d.knowledge));
+                }
+                parts.join(", ")
+            });
+            let text = match got {
+                Some(got) if !got.is_empty() => format!("Deal done with the {name}: {got}"),
+                _ => format!("Deal done with the {name}"),
+            };
+            Line::new(Kind::Trade, text, None)
+        }
+        CaravanEventKind::RequestDone { nation, request } => {
+            let req = caravan(*nation).and_then(|c| c.requests.get(usize::from(*request)));
+            let text = match req {
+                Some(r) => format!("Request met: {}", r.name),
+                None => "Request met".to_owned(),
+            };
+            Line::new(Kind::Trade, text, None)
+        }
+    }
 }
 
 /// A finished chart (#402, #605): "Map Room charted Lost Ruins at (10, 1)", with ": out of
@@ -1706,13 +1791,69 @@ mod tests {
                 Event::Endeavor(_) => Some(Kind::Endeavor),
                 Event::Arrival(_) => Some(Kind::Arrival),
                 Event::Season(_) | Event::Strain(_) => Some(Kind::Season),
-                Event::Harm(_) | Event::Caravan(_) => None,
+                Event::Harm(_) => None,
+                Event::Caravan(_) => Some(Kind::Trade),
                 Event::Chart(_) => Some(Kind::Chart),
                 Event::Beast(_) => Some(Kind::Arrival),
             };
             assert_eq!(*line, want, "{ev:?}");
         }
         assert!(w.harm_events().next().is_some() && w.chart_events().next().is_some());
+    }
+
+    /// Caravans (#438): made camp and left toast, two minutes before leaving warns once, and a
+    /// deal done goes to the log only. None of them stops an agent's turn.
+    #[test]
+    fn a_caravan_makes_camp_warns_before_it_leaves_and_leaves() {
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let src = include_str!("../../../data/trade.toml")
+            .replacen("opens = \"known_on_the_road\"", "", 1)
+            .replacen("offset_minutes = 4.0", "offset_minutes = 0.1", 1);
+        s.defs = s.defs.clone().with_trade(&src).unwrap();
+        let mut alerts = Alerts::default();
+        let texts = |s: &mut Session, alerts: &mut Alerts, ticks: u64| {
+            for _ in 0..ticks {
+                s.tick();
+                alerts.update(s, 0.0);
+            }
+            alerts.history().iter().map(|e| (e.kind, e.text.clone())).collect::<Vec<_>>()
+        };
+        let log = texts(&mut s, &mut alerts, 100);
+        let camp = log.iter().find(|(_, t)| t == "Fire Nation traders made camp");
+        assert_eq!(camp.map(|(k, _)| *k), Some(Kind::Trade), "{log:?}");
+        assert!(alerts.toasts().iter().any(|t| t.text == "Fire Nation traders made camp"));
+        // Stay 9 minutes: the warning comes at 7, once.
+        let log = texts(&mut s, &mut alerts, 7 * 600);
+        let warned = |log: &[(Kind, String)]| {
+            log.iter().filter(|(_, t)| t == "Fire Nation traders leave in two minutes").count()
+        };
+        assert_eq!(warned(&log), 1, "{log:?}");
+        let log = texts(&mut s, &mut alerts, 2 * 600 + 10);
+        assert_eq!(warned(&log), 1, "still one");
+        assert!(log.iter().any(|(_, t)| t == "Fire Nation traders left"), "{log:?}");
+        assert!(alerts.history().iter().all(|e| e.kind != Kind::Trade || !e.worth_stopping()));
+    }
+
+    #[test]
+    fn a_deal_done_is_a_log_line_naming_what_came() {
+        let s = Session::new(7, Nation::Earth, 64, 64);
+        let fire = s.defs.trade.caravans.iter().position(|c| c.nation == Nation::Fire).unwrap();
+        let deal = s.defs.trade.caravans[fire].deals.iter().position(|d| d.knowledge == 0);
+        let ev = CaravanEvent {
+            tick: 0,
+            kind: CaravanEventKind::DealDone { nation: Nation::Fire, deal: deal.unwrap() as u8 },
+        };
+        let line = caravan_line(&s, &ev);
+        assert!(line.text.starts_with("Deal done with the Fire Nation traders: "), "{}", line.text);
+        assert!(line.toast.is_none(), "log only");
+        let ev = CaravanEvent {
+            tick: 0,
+            kind: CaravanEventKind::RequestDone { nation: Nation::Fire, request: 0 },
+        };
+        assert_eq!(
+            caravan_line(&s, &ev).text,
+            "Request met: Food for the families at Fire Fountain City"
+        );
     }
 
     /// A finished chart's line (#605): the building's and the resource's names from the data,

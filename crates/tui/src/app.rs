@@ -177,6 +177,7 @@ impl App {
             Action::ShowEndeavor => self.open(Screen::Endeavor),
             Action::ShowNation => self.open(Screen::Nation),
             Action::ShowAbilities => self.open(Screen::Abilities),
+            Action::ShowTraders => self.open(Screen::Traders),
             Action::ShowSaves => self.show_saves(),
             Action::TogglePause => self.session.clock.toggle_pause(),
             Action::Faster => self.session.clock.faster(),
@@ -310,6 +311,20 @@ impl App {
                 _ => {}
             }
         }
+        if self.ui.screen == Some(Screen::Traders) {
+            // The offers have a pointer, not a scroll (#438): the arrows move it by one, Enter
+            // takes the one under it once more and `X` cancels what is still owed on it.
+            match action {
+                Action::Move { dy, .. } => {
+                    let view = fn_ui::trade::view(&self.session);
+                    self.ui.trade_cursor = crate::traders::step(&view, self.ui.trade_cursor, dy);
+                    return;
+                }
+                Action::Confirm => return self.trade(false),
+                Action::PickTool(Tool::CancelHarvest) => return self.trade(true),
+                _ => {}
+            }
+        }
         match action {
             // `Tab` flips the key help between its keys and its legend (#662).
             Action::NextUnit | Action::PrevUnit if self.ui.screen == Some(Screen::Help) => {
@@ -327,6 +342,7 @@ impl App {
             Action::ShowEndeavor => self.open(Screen::Endeavor),
             Action::ShowNation => self.open(Screen::Nation),
             Action::ShowAbilities => self.open(Screen::Abilities),
+            Action::ShowTraders => self.open(Screen::Traders),
             Action::ShowSaves => self.show_saves(),
             Action::TogglePause => self.session.clock.toggle_pause(),
             Action::Faster => self.session.clock.faster(),
@@ -381,7 +397,28 @@ impl App {
                 let rows = fn_ui::bend::abilities(&self.session);
                 self.ui.ability_cursor = crate::abilities::initial_cursor(&rows);
             }
+            if screen == Screen::Traders {
+                self.ui.trade_cursor = 0;
+            }
         }
+    }
+
+    /// `Enter` (or, with `cancel`, `X`) in the Traders screen (#438): takes the offer under the
+    /// pointer once more, or drops what is still owed on it. The screen stays open; the outcome
+    /// goes to the status line under its own badge.
+    fn trade(&mut self, cancel: bool) {
+        let view = fn_ui::trade::view(&self.session);
+        let Some(slot) = crate::traders::offer_at(&view, self.ui.trade_cursor).map(|o| o.slot)
+        else {
+            return;
+        };
+        let outcome = if cancel {
+            fn_ui::trade::cancel(&mut self.session, slot)
+        } else {
+            fn_ui::trade::take(&mut self.session, slot)
+        };
+        self.ui.status = outcome.unwrap_or_else(|why| why);
+        self.ui.status_badge = Some(" TRADE ");
     }
 
     /// Moves the research cursor `(dx, dy)` cards.
@@ -455,11 +492,9 @@ impl App {
 
     /// Scrolls the open screen `lines` down (negative: up), within its text.
     fn scroll_by(&mut self, lines: i32) {
-        let Some(screen) = self
-            .ui
-            .screen
-            .filter(|s| !matches!(s, Screen::Research | Screen::Saves | Screen::Abilities))
-        else {
+        let Some(screen) = self.ui.screen.filter(|s| {
+            !matches!(s, Screen::Research | Screen::Saves | Screen::Abilities | Screen::Traders)
+        }) else {
             return;
         };
         let width = screens::text_size(self.ui.page()).0;

@@ -74,6 +74,7 @@ pub fn key(ui: &mut UiState, session: &Session, key: KeyEvent) -> bool {
         Action::ShowEndeavor => open_screen(ui, session, Screen::Endeavor),
         Action::ShowNation => open_screen(ui, session, Screen::Nation),
         Action::ShowAbilities => open_screen(ui, session, Screen::Abilities),
+        Action::ShowTraders => open_screen(ui, session, Screen::Traders),
         // Every other action `input::spectator_allowed` lets through is handled above; nothing
         // else reaches this match with `true`.
         _ => false,
@@ -130,6 +131,16 @@ fn screen_action(ui: &mut UiState, session: &Session, action: Action) -> bool {
             Action::Confirm => return false,
             _ => {}
         },
+        // The Traders screen only browses: `Enter` would take a deal in the agent's own game.
+        Screen::Traders => match action {
+            Action::Move { dy, .. } => {
+                let view = fn_ui::trade::view(session);
+                ui.trade_cursor = crate::traders::step(&view, ui.trade_cursor, dy);
+                return true;
+            }
+            Action::Confirm => return false,
+            _ => {}
+        },
         // `input::spectator_allowed` refuses `Action::ShowSaves`, so the spectator never opens
         // the saves screen in the first place.
         Screen::Saves => unreachable!("the saves screen is refused, never opened here"),
@@ -149,6 +160,7 @@ fn screen_action(ui: &mut UiState, session: &Session, action: Action) -> bool {
         Action::ShowEndeavor => return open_screen(ui, session, Screen::Endeavor),
         Action::ShowNation => return open_screen(ui, session, Screen::Nation),
         Action::ShowAbilities => return open_screen(ui, session, Screen::Abilities),
+        Action::ShowTraders => return open_screen(ui, session, Screen::Traders),
         _ => return false,
     }
     true
@@ -206,7 +218,7 @@ fn screen_rows(ui: &UiState) -> i32 {
 
 /// Scrolls the open screen, as `App::scroll_by` does.
 fn scroll_by(ui: &mut UiState, session: &Session, screen: Screen, lines: i32) {
-    if matches!(screen, Screen::Research | Screen::Saves | Screen::Abilities) {
+    if matches!(screen, Screen::Research | Screen::Saves | Screen::Abilities | Screen::Traders) {
         return;
     }
     let width = screens::text_size(ui.page()).0;
@@ -240,6 +252,9 @@ fn open_screen(ui: &mut UiState, session: &Session, screen: Screen) -> bool {
         if screen == Screen::Abilities {
             let rows = fn_ui::bend::abilities(session);
             ui.ability_cursor = crate::abilities::initial_cursor(&rows);
+        }
+        if screen == Screen::Traders {
+            ui.trade_cursor = 0;
         }
     }
     true

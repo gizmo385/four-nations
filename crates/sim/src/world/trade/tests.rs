@@ -164,6 +164,7 @@ fn no_caravan_comes_until_the_chapter_is_met_then_on_the_next_slot() {
     let mut w = world(1, 1, &defs);
     run(&mut w, &defs, minutes(20.5));
     assert!(w.caravan_events().next().is_none(), "the road isn't known yet");
+    assert_eq!(w.next_caravan(&defs), None, "nothing is due while the road is closed");
 
     // Meet "Known on the road" (ten people, four kinds of building, 60 food) only after slot 0
     // has passed: the fourth kind goes up a minute in.
@@ -182,9 +183,13 @@ fn no_caravan_comes_until_the_chapter_is_met_then_on_the_next_slot() {
     let met = w.chapter_met("known_on_the_road").expect("met at the next check");
     assert!(met > minutes(0.2), "after slot 0");
     assert!(w.caravan_events().next().is_none(), "slot 0 came before the chapter");
+    let due = minutes(10.0) + minutes(0.2);
+    assert_eq!(w.next_caravan(&defs), Some((due, Nation::Fire)), "Earth's own never come");
     run(&mut w, &defs, minutes(10.0));
     let first = w.caravan_events().next().expect("the next slot");
-    assert_eq!(first.tick, minutes(10.0) + minutes(0.2));
+    assert_eq!(first.tick, due);
+    // While Fire camps, Water is next, a slot on.
+    assert_eq!(w.next_caravan(&defs), Some((due + minutes(10.0), Nation::Water)));
 }
 
 /// The first slot of the visit whose deal gets `item`.

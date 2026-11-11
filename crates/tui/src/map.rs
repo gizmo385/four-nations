@@ -217,6 +217,8 @@ pub struct Overlays {
     /// The `:` line from a chute's head to its foot (#683), while the head is under the cursor
     /// or its foot is being picked: the tiles between them, both ends left out.
     link: BTreeSet<Pos>,
+    /// The caravan camped now (#438): its camp's top-left tile and whose it is.
+    camp: Option<(Pos, Nation)>,
 }
 
 impl Overlays {
@@ -306,7 +308,16 @@ impl Overlays {
                 .map(|head| fn_ui::chute::foot_tiles(session, head).into_iter().collect())
                 .unwrap_or_default(),
             link: link_tiles(session, ui),
+            camp: world.caravan().map(|v| (v.camp, v.nation)),
         }
+    }
+
+    /// Whether `p` is on the camp (#438), as its nation and whether it is the traders' tile
+    /// (the bottom-left).
+    fn camp_at(&self, p: Pos) -> Option<(Nation, bool)> {
+        let (top_left, nation) = self.camp?;
+        let (dx, dy) = (p.x - top_left.x, p.y - top_left.y);
+        ((0..2).contains(&dx) && (0..2).contains(&dy)).then_some((nation, dx == 0 && dy == 1))
     }
 
     fn is_warmed(&self, p: Pos) -> bool {
@@ -564,6 +575,12 @@ pub enum Thing {
     Resource(ResourceId),
     /// A tile on a link line (#683, #698): `:` between a chute's head and foot, or a pair's ends.
     Link,
+    /// A tile of a caravan's 2x2 camp (#438), in the visiting `nation`'s colour: a tent, or on
+    /// its bottom-left tile (`trader`) the traders themselves, drawn as a unit.
+    Camp {
+        nation: Nation,
+        trader: bool,
+    },
     /// Nothing on top: the terrain or biome itself draws.
     Ground,
 }
@@ -674,6 +691,8 @@ pub fn cell_look(
         }
     } else if let Some(stack) = over.ground.get(&pos).copied().or_else(|| world.stored_at(pos)) {
         Thing::Item(stack.item)
+    } else if let Some((nation, trader)) = over.camp_at(pos) {
+        Thing::Camp { nation, trader }
     } else if over.link.contains(&pos) {
         Thing::Link
     } else if let Some(&ability) = over.flames.get(&pos) {
@@ -875,6 +894,15 @@ fn thing_look(
         Thing::Link => {
             let l = &g.overlay.link;
             (l.glyph(ascii), l.fg)
+        }
+        Thing::Camp { nation, trader } => {
+            let fg = palette.unit_rgb_for(defs, *nation);
+            if *trader {
+                mods |= Modifier::BOLD;
+                (g.unit.glyph(ascii), fg)
+            } else {
+                (g.overlay.camp.glyph(ascii), fg)
+            }
         }
         Thing::RestingResource(r) => {
             // Growing back: the client greys its sprite, so grey the glyph.

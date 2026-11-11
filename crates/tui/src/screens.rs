@@ -37,9 +37,12 @@ pub fn lines(session: &Session, screen: Screen, width: usize, ascii: bool) -> Ve
         Screen::Endeavor => crate::endeavor::lines(session, width, &marks),
         // A grid or a list with a cursor, not rows that scroll: `research::draw`, `saves::draw`,
         // `nation::draw` and `msglog::draw` lay them out.
-        Screen::Log | Screen::Research | Screen::Saves | Screen::Nation | Screen::Abilities => {
-            Vec::new()
-        }
+        Screen::Log
+        | Screen::Research
+        | Screen::Saves
+        | Screen::Nation
+        | Screen::Abilities
+        | Screen::Traders => Vec::new(),
     }
 }
 
@@ -94,6 +97,8 @@ pub(crate) fn kind_tone(kind: Kind) -> Tone {
         // A gentle onboarding nudge (#382), not something gone wrong: the same tone as a
         // routine bend, not a warning.
         Kind::BendTip => Tone::Text,
+        // Traders coming and going (#438): news, not a warning.
+        Kind::Trade => Tone::Ok,
         // No research target with points banked (#656): idle capacity, a caution.
         Kind::Research => Tone::Warn,
     }
@@ -240,6 +245,7 @@ pub fn title(screen: Screen) -> &'static str {
         Screen::Saves => "SAVES",
         Screen::Nation => "NATION",
         Screen::Abilities => "ABILITIES",
+        Screen::Traders => "TRADERS",
     }
 }
 
@@ -297,6 +303,11 @@ pub fn draw_screen(
         Screen::Abilities => {
             let rows = fn_ui::bend::abilities(session);
             abilities::draw(&rows, ui.ability_cursor, palette, &page, buf)
+        }
+        Screen::Traders => {
+            let view = fn_ui::trade::view(session);
+            crate::traders::draw(&view, ui.trade_cursor, palette, &page, buf);
+            None
         }
         Screen::Help => draw_help(session, ui, palette, page.body, buf),
         Screen::Log => crate::msglog::draw(session, ui, palette, &page, buf),
