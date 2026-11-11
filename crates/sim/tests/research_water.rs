@@ -16,7 +16,8 @@ const NO_CONCRETE_UNLOCK: &[(&str, &str)] =
 #[test]
 fn every_water_branch_tech_unlocks_something_or_says_why_not() {
     let defs = Defs::bundled();
-    let branch: Vec<_> = defs.techs.iter().filter(|t| t.nation == Some(Nation::Water)).collect();
+    let branch: Vec<_> =
+        defs.techs.iter().filter(|t| t.core && t.nation == Some(Nation::Water)).collect();
     assert_eq!(branch.len(), 6, "the design doc's six-tech branch");
     for tech in branch {
         let u = &tech.unlocks;

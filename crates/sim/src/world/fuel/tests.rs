@@ -20,7 +20,7 @@ fn at(x: i32, y: i32) -> Pos {
 }
 
 /// The bundled data with a test-only fuelled campfire: it burns wood, 1 a minute, from a bunker
-/// of 4. No shipped building has fuel yet (docs/design/horizons-phase-1.md).
+/// of 4. Shipped campfires stay fuel-free (#672).
 fn fuelled_defs() -> Defs {
     let mut files = crate::defs::BUNDLED_FILES;
     let old = "[building.heat]\nradius = 2\nsleep_bonus = 1.5\nseek_tiles = 20\n";
@@ -80,8 +80,11 @@ fn fuel_is_validated() {
     assert_eq!((fuel.item, fuel.bunker), (defs.item_id("wood").unwrap(), 4));
     // 1 a minute at 10 ticks a second.
     assert_eq!(fuel.micros_per_tick, 1_667);
-    // No shipped building burns anything yet.
-    assert!(Defs::bundled().buildings.iter().all(|b| b.fuel.is_none()));
+    // Among shipped buildings only the Oil Lamp burns anything (#678); campfires stay free (#672).
+    let bundled = Defs::bundled();
+    let burners: Vec<&str> =
+        bundled.buildings.iter().filter(|b| b.fuel.is_some()).map(|b| b.id.as_str()).collect();
+    assert_eq!(burners, ["oil_lamp"]);
 }
 
 #[test]
@@ -186,4 +189,56 @@ fn taking_it_down_returns_the_bunker_in_full() {
     let carried: u32 =
         w.units.iter().filter_map(|u| u.carrying).filter(|s| s.item == wood).map(|s| s.count).sum();
     assert_eq!(on_ground + carried + w.stored_total(wood), 3 + refund);
+}
+
+/// A 20x10 Water field, one unit at `unit`, and a finished Oil Lamp (#678) at (10, 5).
+fn lamp(unit: Pos) -> (World, Defs, Pos) {
+    let defs = Defs::bundled();
+    let mut w = World::with_map(1, field(20, 10), Nation::Water, &[unit], &defs);
+    let pos = at(10, 5);
+    w.raise(Footprint::single(pos), defs.building_id("oil_lamp").unwrap(), &defs);
+    (w, defs, pos)
+}
+
+#[test]
+fn the_oil_lamp_is_waters_and_burns_fish() {
+    let defs = Defs::bundled();
+    let id = defs.building_id("oil_lamp").unwrap();
+    let def = defs.building(id);
+    assert_eq!(def.unlocked_by, defs.tech_id("oil_lamps"));
+    let tech = defs.tech(defs.tech_id("oil_lamps").unwrap());
+    assert_eq!(tech.nation, Some(Nation::Water));
+    assert!(!tech.core, "an optional horizons tech");
+    assert_eq!(tech.prereqs, vec![defs.tech_id("fishing").unwrap()]);
+    let fuel = def.fuel.as_ref().expect("the lamp has a bunker");
+    assert_eq!(defs.item(fuel.item).id, "fish");
+    assert!(def.cost.iter().all(|c| defs.item(c.item).id != "wood"), "no wood in its bill");
+}
+
+#[test]
+fn waters_lamp_warms_a_seven_by_seven_square_only_while_fuelled() {
+    let (mut w, _defs, pos) = lamp(at(0, 0));
+    // Finished empty: it neither warms nor cooks.
+    assert!(!w.is_heated(pos) && !w.is_cooking(at(11, 5)));
+    set_count(&mut w, pos, 6);
+    assert_eq!(w.heat_at(pos).unwrap().radius, 3, "radius 4 x Water's heating 0.8");
+    for (p, warm) in [(at(13, 8), true), (at(7, 2), true), (at(14, 5), false), (at(10, 9), false)] {
+        assert_eq!(w.is_heated(p), warm, "{p:?}");
+    }
+    assert!(w.is_cooking(at(12, 5)));
+}
+
+#[test]
+fn the_lamp_burns_a_fish_every_four_minutes_only_while_someone_is_in_reach() {
+    let (mut w, defs, pos) = lamp(at(0, 0));
+    set_count(&mut w, pos, 6);
+    for _ in 0..4 * 600 {
+        w.tick_fuel(&defs);
+    }
+    assert_eq!(count(&w, pos), 6, "nobody in reach");
+    w.units[0].pos = at(12, 6);
+    for _ in 0..4 * 600 {
+        w.tick_fuel(&defs);
+    }
+    assert_eq!(count(&w, pos), 5, "four minutes in reach burn one fish");
 }

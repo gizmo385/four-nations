@@ -496,6 +496,22 @@ impl BuildingDetail {
     }
 }
 
+/// A fuel bunker's burn rate as the build modal reads it (docs/design/horizons-phase-1.md): "Burns
+/// 1 fish every 4 minutes while in use" below one a minute, "Burns 2 wood a minute while in use"
+/// at or above it.
+fn fuel_line(item: &str, per_minute: f32) -> String {
+    let num = |x: f32| {
+        let s = format!("{x:.2}");
+        s.trim_end_matches('0').trim_end_matches('.').to_owned()
+    };
+    let item = item.to_lowercase();
+    if per_minute >= 1.0 {
+        format!("Burns {} {item} a minute while in use", num(per_minute))
+    } else {
+        format!("Burns 1 {item} every {} minutes while in use", num(1.0 / per_minute))
+    }
+}
+
 /// [`BuildingDetail`] for `id`, for the Build modal's detail pane.
 pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
     let def = session.defs.building(id);
@@ -536,6 +552,20 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
     }
     if let Some(track) = &def.track {
         effects.push(format!("Track: steps along it run {}x faster", track.speed));
+    }
+    if let Some(fuel) = &def.fuel {
+        effects.push(fuel_line(&session.defs.item(fuel.item).name, fuel.per_minute));
+    }
+    if let Some(p) = &def.pickers {
+        let names: Vec<String> =
+            p.resources.iter().map(|&r| session.defs.resource(r).name.to_lowercase()).collect();
+        let item = p
+            .resources
+            .first()
+            .and_then(|&r| session.defs.harvest(r))
+            .map_or("fruit".to_owned(), |h| session.defs.item(h.item).name.to_lowercase());
+        effects.push(format!("Picks ripe {} within {} tiles", names.join(", "), p.radius));
+        effects.push(format!("Eats 1 {item} in {}", p.eat_every));
     }
     if let Some(orchard) = &def.orchard {
         // Pluralised from the resource's own name, so an orchard reads "fruit trees" and a
@@ -619,6 +649,23 @@ mod tests {
     fn row<'a>(rows: &'a [PickerRow], session: &Session, id: &str) -> &'a PickerRow {
         let id = session.defs.building_id(id).unwrap();
         rows.iter().find(|r| r.id == id).unwrap()
+    }
+
+    /// The build modal reads a bunker's burn rate in whole items (#678, #675).
+    #[test]
+    fn fuel_and_pickers_read_as_plain_lines() {
+        let water = session(Nation::Water);
+        let lamp = building_detail(&water, water.defs.building_id("oil_lamp").unwrap());
+        assert!(
+            lamp.effects.iter().any(|e| e == "Burns 1 fish every 4 minutes while in use"),
+            "{:?}",
+            lamp.effects
+        );
+        assert_eq!(fuel_line("Wood", 2.0), "Burns 2 wood a minute while in use");
+        let air = session(Nation::Air);
+        let roost = building_detail(&air, air.defs.building_id("lemur_roost").unwrap());
+        assert!(roost.effects.iter().any(|e| e == "Eats 1 fruit in 4"), "{:?}", roost.effects);
+        assert!(roost.effects.iter().any(|e| e.starts_with("Picks ripe ")), "{:?}", roost.effects);
     }
 
     #[test]

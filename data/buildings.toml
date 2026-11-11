@@ -794,3 +794,27 @@ count = 6
 [[building.cost]]
 item = "fruit"
 count = 4
+
+# Oil Lamps' lamp (Water, docs/design/horizons-phase-1.md): wide heat that burns fish, not wood.
+# It burns only while someone is in reach, at most 15 fish an hour, and an empty lamp neither
+# warms nor cooks.
+[[building]]
+id = "oil_lamp"
+name = "Oil Lamp"
+verb = "Light"
+work = 15.0
+passable = true
+[building.heat]
+radius = 4             # x Water's heating 0.8 = 3: a 7x7 square, against a campfire's 5x5
+sleep_bonus = 1.5
+seek_tiles = 20
+[building.fuel]
+item = "fish"
+bunker = 6
+per_minute = 0.25      # only while someone is in reach
+[[building.cost]]
+item = "stone"         # brick stands in, as for any stone cost
+count = 2
+[[building.cost]]
+item = "fish"
+count = 2
