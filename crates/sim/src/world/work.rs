@@ -139,6 +139,9 @@ pub enum Task {
     /// Carrying a stack to the chute anchored on `Pos`, to drop it down to the foot
     /// (`world/chute.rs`). Bound for stores, the way `Deliver` is.
     Chute(Pos),
+    /// Carrying a stack to the Balloon Dock anchored on `Pos`, to wait in its hold
+    /// (`world/balloon.rs`). Bound for stores, the way `Deliver` is.
+    Balloon(Pos),
     Eat(FoodSource),
     Drink,
     Sleep,
@@ -1865,6 +1868,7 @@ impl World {
             Task::Trade(id) => self.run_trade(i, id, defs),
             Task::Deliver => self.run_deliver(i, defs),
             Task::Chute(head) => self.run_chute(i, head, defs),
+            Task::Balloon(dock) => self.run_balloon(i, dock, defs),
             // Need tasks never sit in the job slot.
             _ => self.finish_job(i),
         }
@@ -1965,6 +1969,15 @@ impl World {
             {
                 let u = &mut self.units[i];
                 u.job_task = Some(Task::Chute(head));
+                u.route = Some(route_from(path));
+                return;
+            }
+            // Or a Balloon Dock whose flight beats it the same way (`balloon.rs`).
+            if let Some((dock, path)) =
+                self.balloon_for(i, &flood, stack, dest.map(|(c, _)| c), defs)
+            {
+                let u = &mut self.units[i];
+                u.job_task = Some(Task::Balloon(dock));
                 u.route = Some(route_from(path));
                 return;
             }

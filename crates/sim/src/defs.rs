@@ -1040,6 +1040,51 @@ mod tests {
     }
 
     #[test]
+    fn a_balloon_section_is_parsed_and_validated() {
+        let with = |body: &str| {
+            let extra = format!(
+                "\n[[building]]\nid = \"twin\"\nname = \"Twin\"\nverb = \"Build\"\nwork = 1.0\npassable = true\n{body}[[building.cost]]\nitem = \"wood\"\ncount = 1\n"
+            );
+            with_buildings(&format!("{BUILDINGS}{extra}"))
+        };
+        let pair = "[building.pair]\nreach = 48\nmin_tiles = 12\n";
+        let balloon = |tweak: &str| {
+            format!(
+                "{pair}[building.balloon]\nload = 20\nhold = 40\nwait_seconds = 60.0\ntiles_per_second = 1.5\nfuel_per_flight = 2\n{tweak}"
+            )
+        };
+        let fuel = "[building.fuel]\nitem = \"wood\"\nbunker = 10\n";
+        let defs = with(&format!("{}{fuel}", balloon(""))).unwrap();
+        let twin = defs.building(defs.building_id("twin").unwrap());
+        let b = twin.balloon.expect("a balloon");
+        assert_eq!((b.load, b.hold, b.wait_ticks, b.fuel_per_flight), (20, 40, 600, 2));
+        assert_eq!(
+            twin.fuel.as_ref().unwrap().per_minute,
+            None,
+            "per_minute is optional with a balloon"
+        );
+        let err = |body: String| with(&body).unwrap_err().0;
+        assert!(err(format!("{}{fuel}", balloon("far = 1\n"))).contains("far"));
+        assert!(err(format!("[building.balloon]\nload = 1\nhold = 1\nwait_seconds = 1.0\ntiles_per_second = 1.0\nfuel_per_flight = 1\n{fuel}")).contains("needs a [building.pair]"));
+        assert!(err(balloon("")).contains("needs a [building.fuel]"));
+        let bad = |from: &str, to: &str| {
+            let body = balloon("").replace(from, to);
+            err(format!("{body}{fuel}"))
+        };
+        assert!(bad("load = 20", "load = 41").contains("load must be"));
+        assert!(bad("load = 20", "load = 0").contains("load must be"));
+        assert!(bad("fuel_per_flight = 2", "fuel_per_flight = 11").contains("fuel_per_flight"));
+        assert!(bad("fuel_per_flight = 2", "fuel_per_flight = 0").contains("fuel_per_flight"));
+        assert!(bad("wait_seconds = 60.0", "wait_seconds = 0.0").contains("wait_seconds"));
+        assert!(
+            bad("tiles_per_second = 1.5", "tiles_per_second = 0.0").contains("tiles_per_second")
+        );
+        // A fuel bunker with no per_minute and no balloon would never burn.
+        let lone = err(fuel.to_string());
+        assert!(lone.contains("fuel needs per_minute"), "{lone}");
+    }
+
+    #[test]
     fn every_harvest_modifier_and_food_item_resolves() {
         let defs = Defs::bundled();
         let quarry = defs.harvest(defs.resource_id("stone").unwrap()).unwrap();

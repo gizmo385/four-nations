@@ -246,6 +246,12 @@ glyph = "⊞"
 ascii = "G"
 fg = [150, 220, 170]
 
+# Cargo Balloons' Balloon Dock (Fire, horizons phase 2): a basket under a balloon.
+[building.balloon_dock]
+glyph = "◍"
+ascii = "K"
+fg = [230, 120, 60]
+
 # Oil Lamps' lamp (Water, horizons phase 1): a stone bowl with a flame.
 [building.oil_lamp]
 glyph = "ǒ"

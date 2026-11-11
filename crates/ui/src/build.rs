@@ -591,13 +591,23 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
     if let (Some(p), Some(_)) = (&def.pair, &def.glide) {
         effects.push(format!("Built in pairs: people glide between them, up to {} tiles", p.reach));
     }
+    if let (Some(_), Some(p)) = (&def.balloon, &def.pair) {
+        effects.push(format!("Flies goods to its partner up to {} tiles away", p.reach));
+    }
     if let Some(h) = &def.hothouse {
         effects.push(format!("Plots within {} tiles grow through winter", h.radius));
     }
     if let Some(fuel) = &def.fuel {
         // A Hothouse burns only in winter; every other bunker while its effect is in use.
         let when = if def.hothouse.is_some() { "in winter" } else { "while in use" };
-        effects.push(fuel_line(&fuel.names(&session.defs), fuel.per_minute, when));
+        // With no `per_minute` the effect's own line says when (the balloon's, below).
+        if let Some(per_minute) = fuel.per_minute {
+            effects.push(fuel_line(&fuel.names(&session.defs), per_minute, when));
+        }
+    }
+    if let (Some(b), Some(fuel)) = (&def.balloon, &def.fuel) {
+        let name = fuel.names(&session.defs).to_lowercase();
+        effects.push(format!("Burns {} {name} a flight", b.fuel_per_flight));
     }
     if let Some(p) = &def.pickers {
         let names: Vec<String> =

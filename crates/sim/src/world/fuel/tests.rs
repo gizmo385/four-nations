@@ -88,12 +88,13 @@ fn fuel_is_validated() {
     assert_eq!((fuel.item, fuel.bunker), (defs.item_id("wood").unwrap(), 4));
     // 1 a minute at 10 ticks a second.
     assert_eq!(fuel.micros_per_tick, 1_667);
-    // Among shipped buildings only the Oil Lamp (#678) and the Hothouse (#680) burn anything;
+    // Among shipped buildings only the Oil Lamp (#678), the Hothouse (#680) and the Balloon Dock
+    // (#692) burn anything;
     // campfires stay free (#672).
     let bundled = Defs::bundled();
     let burners: Vec<&str> =
         bundled.buildings.iter().filter(|b| b.fuel.is_some()).map(|b| b.id.as_str()).collect();
-    assert_eq!(burners, ["oil_lamp", "hothouse"]);
+    assert_eq!(burners, ["oil_lamp", "hothouse", "balloon_dock"]);
 }
 
 #[test]

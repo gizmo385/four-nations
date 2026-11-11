@@ -82,6 +82,9 @@ pub struct Building {
     /// ends count every crossing, so they read alike.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub crossings: u32,
+    /// A Balloon Dock's hold and balloon (`BuildingDef::balloon`, `balloon.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) dock: Option<super::balloon::Dock>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -129,6 +132,8 @@ pub(super) enum Kind {
     Glide,
     /// A building a `[[beast]]` row makes its home (`beast.rs`).
     BeastHome,
+    /// A Balloon Dock (`balloon.rs`).
+    Balloon,
 }
 
 impl Kind {
@@ -147,6 +152,7 @@ impl Kind {
             (def.outpost.is_some(), Kind::Outpost),
             (def.glide.is_some(), Kind::Glide),
             (def.houses_beast, Kind::BeastHome),
+            (def.balloon.is_some(), Kind::Balloon),
         ]
         .into_iter()
         .filter_map(|(is, kind)| is.then_some(kind))
@@ -337,6 +343,7 @@ impl World {
             link: None,
             sent: Vec::new(),
             crossings: 0,
+            dock: def.balloon.map(|_| super::balloon::Dock::default()),
         };
         let key = self.buildings.insert(record, defs);
         let tile = TileBuilding::new(key, def.passable, def.track.map_or(0, |t| t.index));
@@ -553,6 +560,7 @@ impl World {
                     link: None,
                     sent: Vec::new(),
                     crossings: 0,
+                    dock: None,
                 },
             );
         }

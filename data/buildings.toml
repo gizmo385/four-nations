@@ -875,6 +875,41 @@ count = 6
 item = "tool"
 count = 1
 
+# Cargo Balloons' Balloon Dock (Fire, docs/design/horizons-phase-2.md): built in pairs up to 64
+# tiles apart on one walkable region. One balloon per pair flies goods between the docks, 2 wood a
+# flight from the launching dock's bunker, empty flights too.
+[[building]]
+id = "balloon_dock"
+name = "Balloon Dock"
+verb = "Build"
+work = 100.0
+passable = false
+footprint = [2, 2]
+[building.pair]
+reach = 64
+min_tiles = 16
+[building.balloon]
+load = 20              # items a flight carries
+hold = 40              # items waiting at a dock; a full hold sends haulers walking
+wait_seconds = 60.0    # flies part loaded once the first item has waited this long
+tiles_per_second = 1.5
+fuel_per_flight = 2    # from the launching dock's bunker; empty flights burn too
+[building.fuel]
+item = "wood"
+bunker = 10
+[[building.cost]]
+item = "brick"
+count = 8
+[[building.cost]]
+item = "wood"
+count = 10
+[[building.cost]]
+item = "metal"
+count = 1
+[[building.cost]]
+item = "tool"
+count = 1
+
 # Omashu Chutes' Chute (Earth, docs/design/horizons-phase-1.md): a slide cut into the rock that
 # drops goods to a foot up to 16 tiles away and at least 8 lower.
 [[building]]

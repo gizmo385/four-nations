@@ -645,3 +645,13 @@ prereqs = ["gliders", "windmills"]
 # The Wind Gate (docs/design/horizons-phase-2.md, "`wind_gates`"): people glide between a pair.
 [tech.unlocks]
 buildings = ["wind_gate"]
+
+[[tech]]
+id = "cargo_balloons"
+name = "Cargo Balloons"
+description = "Hot-air balloons carry goods between two docks over any ground."
+nation = "fire"
+cost = 500
+prereqs = ["steam_engines"]
+[tech.unlocks]
+buildings = ["balloon_dock"]

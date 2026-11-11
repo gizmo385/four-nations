@@ -138,8 +138,9 @@ impl World {
     }
 
     /// The walk from a chute's foot to stores, cached until the map or the stockpile tiles
-    /// change: every stockpile tile it reaches, cheapest first.
-    fn foot_walks(&mut self, head: Pos, foot: Pos, i: usize) -> &[(u32, Pos)] {
+    /// change: every stockpile tile it reaches, cheapest first. A Balloon Dock's door is the
+    /// foot of the same walk (`balloon.rs`), cached under the dock's anchor.
+    pub(super) fn foot_walks(&mut self, head: Pos, foot: Pos, i: usize) -> &[(u32, Pos)] {
         let fresh = self.chute_walks.get(&head).is_some_and(|c| {
             c.rev == self.map_rev && c.foot == foot && c.zones.iter().eq(self.zones.iter())
         });
@@ -225,7 +226,7 @@ impl World {
     }
 
     /// Gives up on a chute and walks the stack to stores.
-    fn walk_instead(&mut self, i: usize) {
+    pub(super) fn walk_instead(&mut self, i: usize) {
         let u = &mut self.units[i];
         u.job_task = Some(Task::Deliver);
         u.route = None;

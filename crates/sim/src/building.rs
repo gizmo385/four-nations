@@ -327,11 +327,12 @@ pub struct FuelDef {
     pub items: Vec<ItemId>,
     /// Items the bunker holds when full: at least 1.
     pub bunker: u32,
-    /// Items burned per in-game minute of use: above 0.
-    pub per_minute: f32,
+    /// Items burned per in-game minute of use: above 0. `None` when the building burns fuel some
+    /// other way and its own effect section says when (the balloon's `fuel_per_flight`).
+    pub per_minute: Option<f32>,
     /// `per_minute` as millionths of an item per tick, rounded at load, so burning is integer
     /// arithmetic and deterministic on every platform. Finer than millis, because a lamp's
-    /// 0.25 a minute is 0.42 thousandths a tick.
+    /// 0.25 a minute is 0.42 thousandths a tick. 0 with no `per_minute`.
     pub micros_per_tick: u64,
 }
 
@@ -423,6 +424,23 @@ impl GlideDef {
         let seconds = self.seconds + self.seconds_per_tile * distance as f32;
         ((seconds * crate::world::TICKS_PER_SECOND as f32).round() as u32).max(1)
     }
+}
+
+/// A Balloon Dock's balloon (`[building.balloon]`, docs/design/horizons-phase-2.md,
+/// "`cargo_balloons`", `world/balloon.rs`): one balloon per pair, carrying goods between the two
+/// docks, and burning `fuel_per_flight` from the launching dock's bunker on every flight.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BalloonDef {
+    /// Items a flight carries at most.
+    pub load: u32,
+    /// Items waiting at a dock at most. A full hold sends haulers walking.
+    pub hold: u32,
+    /// A part-loaded balloon flies once its dock's oldest item has waited this many ticks.
+    pub wait_ticks: u64,
+    /// Tiles flown per second, anchor to anchor (Chebyshev).
+    pub tiles_per_second: f32,
+    /// Items burned from the launching dock's bunker per flight, empty flights too.
+    pub fuel_per_flight: u32,
 }
 
 /// One whole item, in `FuelDef::micros_per_tick` units.
@@ -566,6 +584,8 @@ pub struct BuildingDef {
     pub outpost: Option<OutpostDef>,
     /// How people ride the pair (`GlideDef`), or `None`. Only on a `pair` building.
     pub glide: Option<GlideDef>,
+    /// A balloon that flies goods to the partner (`BalloonDef`), or `None`.
+    pub balloon: Option<BalloonDef>,
     pub unlocked_by: Option<TechId>,
     /// Seats added by techs (`[[tech.unlocks.upgrades]]`, docs/design/horizons-phase-1.md), each
     /// with the tech that adds them, in tech order. At most one tech per building, today, but a
@@ -755,6 +775,16 @@ struct RawGlide {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawBalloon {
+    load: u32,
+    hold: u32,
+    wait_seconds: f32,
+    tiles_per_second: f32,
+    fuel_per_flight: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawHothouse {
     radius: u32,
     winter_growth: f32,
@@ -780,7 +810,7 @@ struct RawFuel {
     item: Option<String>,
     items: Option<Vec<String>>,
     bunker: u32,
-    per_minute: f32,
+    per_minute: Option<f32>,
 }
 
 #[derive(Deserialize)]
@@ -827,6 +857,7 @@ struct RawBuilding {
     pair: Option<RawPair>,
     outpost: Option<RawOutpost>,
     glide: Option<RawGlide>,
+    balloon: Option<RawBalloon>,
     #[serde(default)]
     uses_power: bool,
     #[serde(default)]
@@ -1080,6 +1111,16 @@ impl BuildingsFile {
                     Some(GlideDef { seconds: g.seconds, seconds_per_tile: g.seconds_per_tile })
                 }
             };
+            let balloon = match &b.balloon {
+                None => None,
+                Some(r) => Some(resolve_balloon(&b.id, r, pair.is_some(), fuel.as_ref())?),
+            };
+            if fuel.as_ref().is_some_and(|f| f.per_minute.is_none()) && balloon.is_none() {
+                return err(format!(
+                    "building {}: fuel needs per_minute unless the building burns per flight",
+                    b.id
+                ));
+            }
             let track = match &b.track {
                 None => None,
                 Some(d) => {
@@ -1133,6 +1174,7 @@ impl BuildingsFile {
                 pair,
                 outpost,
                 glide,
+                balloon,
                 unlocked_by: None,
                 seat_upgrades: Vec::new(),
                 endeavor: b.endeavor,
@@ -1240,17 +1282,54 @@ fn resolve_fuel(building: &str, f: &RawFuel, items: &[ItemDef]) -> Result<FuelDe
     if f.bunker == 0 {
         return err("bunker must be at least 1");
     }
-    if !(f.per_minute.is_finite() && f.per_minute > 0.0) {
+    if f.per_minute.is_some_and(|m| !(m.is_finite() && m > 0.0)) {
         return err("per_minute must be above 0");
     }
-    let per_tick = f64::from(f.per_minute) * FUEL_MICROS as f64
-        / (60.0 * f64::from(crate::world::TICKS_PER_SECOND));
+    let micros_per_tick = f.per_minute.map_or(0, |m| {
+        let per_tick =
+            f64::from(m) * FUEL_MICROS as f64 / (60.0 * f64::from(crate::world::TICKS_PER_SECOND));
+        (per_tick.round() as u64).max(1)
+    });
     Ok(FuelDef {
         item: ids[0],
         items: ids,
         bunker: f.bunker,
         per_minute: f.per_minute,
-        micros_per_tick: (per_tick.round() as u64).max(1),
+        micros_per_tick,
+    })
+}
+
+fn resolve_balloon(
+    building: &str,
+    r: &RawBalloon,
+    paired: bool,
+    fuel: Option<&FuelDef>,
+) -> Result<BalloonDef, DefsError> {
+    let err =
+        |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: balloon {msg}")));
+    if !paired {
+        return err("needs a [building.pair]: it flies to its partner");
+    }
+    let Some(fuel) = fuel else { return err("needs a [building.fuel] bunker to burn from") };
+    if r.load == 0 || r.hold < r.load {
+        return err("load must be at least 1 and no more than hold");
+    }
+    if r.fuel_per_flight == 0 || r.fuel_per_flight > fuel.bunker {
+        return err("fuel_per_flight must be at least 1 and fit the bunker");
+    }
+    if !(r.wait_seconds.is_finite() && r.wait_seconds > 0.0) {
+        return err("wait_seconds must be above 0");
+    }
+    if !(r.tiles_per_second.is_finite() && r.tiles_per_second > 0.0) {
+        return err("tiles_per_second must be above 0");
+    }
+    Ok(BalloonDef {
+        load: r.load,
+        hold: r.hold,
+        wait_ticks: (f64::from(r.wait_seconds) * f64::from(crate::world::TICKS_PER_SECOND)).round()
+            as u64,
+        tiles_per_second: r.tiles_per_second,
+        fuel_per_flight: r.fuel_per_flight,
     })
 }
 
