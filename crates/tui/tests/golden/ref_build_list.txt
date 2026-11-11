@@ -1,19 +1,19 @@
 ┏───────────────────────────────────────────────────── ◆ BUILD ◆ ──────────────────────────────────────────────────────┓
-│   BUILDING        COST                       SIZE  NEEDS                                                             │
-│ ▸ Bed             5 Wood                     1x1                                                                     │
-│   Scroll Library  10 Wood                    2x2                                                                     │
-│   Campfire        3 Wood                     1x1   Fire Making                                                       │
-│   Map Room        12 Wood                    2x2   Cartography                                                       │
-│   Earth Wall      3 Stone                    1x1   Earthen Walls                                                     │
-│   Rail            2 Stone                    1x1   Earth Rail                                                        │
-│   Farm Plot       2 Wood                     1x1   Farming                                                           │
-│   Workshop        8 Wood, 4 Stone            2x2   Carpentry                                                         │
-│   Mine Shaft      10 Stone, 6 Wood, 2 Tool   2x2   Tunneling                                                         │
-│   Deep Mine       20 Stone, 4 Metal, 2 Tool  2x2   Metalbending                                                      │
-│   Herb Garden     2 Wood                     1x1   Herbalism                                                         │
-│   Paved Road      1 Stone                    1x1   Paving                                                            │
-│   Chute           12 Stone, 4 Wood, 1 Tool   1x1   Omashu Chutes                                                     │
-│                                                                                                                      │
+│   BUILDING         COST                       SIZE  NEEDS                                                            │
+│ ▸ Bed              5 Wood                     1x1                                                                    │
+│   Scroll Library   10 Wood                    2x2                                                                    │
+│   Campfire         3 Wood                     1x1   Fire Making                                                      │
+│   Map Room         12 Wood                    2x2   Cartography                                                      │
+│   Earth Wall       3 Stone                    1x1   Earthen Walls                                                    │
+│   Rail             2 Stone                    1x1   Earth Rail                                                       │
+│   Farm Plot        2 Wood                     1x1   Farming                                                          │
+│   Workshop         8 Wood, 4 Stone            2x2   Carpentry                                                        │
+│   Mine Shaft       10 Stone, 6 Wood, 2 Tool   2x2   Tunneling                                                        │
+│   Deep Mine        20 Stone, 4 Metal, 2 Tool  2x2   Metalbending                                                     │
+│   Herb Garden      2 Wood                     1x1   Herbalism                                                        │
+│   Paved Road       1 Stone                    1x1   Paving                                                           │
+│   Chute            12 Stone, 4 Wood, 1 Tool   1x1   Omashu Chutes                                                    │
+│   Hot Spring Mill  12 Stone, 4 Wood           2x2   Seismic Sense                                                    │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │

@@ -250,14 +250,16 @@ modifiers = { carry_capacity = 1.25 }
 id = "seismic_sense"
 core = true
 name = "Seismic Sense"
-description = "Feel vibrations through the earth to find what lies beneath."
+description = "Feel the earth for what lies beneath, and for hot springs to turn mills."
 nation = "earth"
 cost = 250
 prereqs = ["tunneling"]
 # Unlocks Seismic Sense (#133, docs/design/research.md, "Seismic sense"): a bend that uncovers the
-# gold seams buried in the rock within a radius (data/resources.toml, `buried`).
+# gold seams buried in the rock within a radius (data/resources.toml, `buried`). Also Earth's weak
+# power source, the Hot Spring Mill (#448, docs/design/power.md, "Earth's source (#446)").
 [tech.unlocks]
 abilities = ["seismic_sense"]
+buildings = ["hot_spring_mill"]
 
 [[tech]]
 id = "metalbending"

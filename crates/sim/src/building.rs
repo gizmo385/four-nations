@@ -1653,7 +1653,7 @@ mod tests {
         let power = lightning_station.power.expect("the Lightning Station is a power source");
         assert_eq!((power.radius, power.boost_millis), (4, 2000));
 
-        assert_eq!(defs.buildings.iter().filter(|b| b.power.is_some()).count(), 4);
+        assert_eq!(defs.buildings.iter().filter(|b| b.power.is_some()).count(), 5);
     }
 
     #[test]
@@ -1665,6 +1665,20 @@ mod tests {
         assert_eq!(tide_mill.beside_word(), Some("water"));
         let tide_mills = defs.tech_id("tide_mills").unwrap();
         assert_eq!(tide_mill.unlocked_by, Some(tide_mills));
+    }
+
+    /// The Hot Spring Mill (issue #448, docs/design/power.md, "Earth's source (#446)"): Earth's
+    /// weak source, which must touch rock and comes with Seismic Sense.
+    #[test]
+    fn the_hot_spring_mill_is_earths_weak_source_and_must_touch_rock() {
+        let defs = Defs::bundled();
+        let mill = defs.building(defs.building_id("hot_spring_mill").unwrap());
+        let power = mill.power.expect("the Hot Spring Mill is a power source");
+        assert_eq!((power.radius, power.boost_millis), (2, 1200));
+        assert_eq!(mill.beside_word(), Some("rock"));
+        assert_eq!(mill.footprint, (2, 2));
+        let seismic_sense = defs.tech_id("seismic_sense").unwrap();
+        assert_eq!(mill.unlocked_by, Some(seismic_sense));
     }
 
     /// The Wind Turbine (issue #204, docs/design/late-tree.md, "The sources"): Air's second
