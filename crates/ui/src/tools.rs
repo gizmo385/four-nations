@@ -168,7 +168,7 @@ impl Tool {
         match self {
             Self::Select => "select units",
             // The client that read held Shift as a standing order is gone (#281); the TUI's
-            // own `O` key stands in for it (#277, `fn_tui::state::UiState::tool_hint`).
+            // own `O` key stands in for it (#277).
             Self::Harvest => "designate harvest (chop, mine, gather)",
             Self::CancelHarvest => {
                 "cancel a harvest, bend, sow or clear mark (O: also a build site or stockpile)"
@@ -218,6 +218,45 @@ impl Tool {
             return format!("place {}: Enter at the cursor", session.defs.endeavor.name);
         }
         self.label().to_owned()
+    }
+
+    /// What the tool does, in a sentence or two, for the Tool section of the side panel (#657):
+    /// the text the hint bar once carried after its `|`, without the keys (they are the key
+    /// table's, `crate::keys`). `Bend` says what the ability it channels does, from the data.
+    /// `""` for `Select`.
+    pub fn about(self, session: &Session) -> String {
+        match self {
+            Self::Select => String::new(),
+            Self::Harvest => "Chop, mine or gather what is inside the rectangle.".to_owned(),
+            Self::CancelHarvest => {
+                "Take back the harvest, bend, sow and clear marks inside the rectangle.".to_owned()
+            }
+            Self::Clear => "Clear the trees, rock and plants inside the rectangle for good.".into(),
+            Self::Deconstruct => "Take down the finished buildings the rectangle touches.".into(),
+            Self::Stockpile => "Mark the rectangle as stockpile, where goods are kept.".into(),
+            Self::Bend => match bend_ability(session) {
+                Some(id) => session.defs.ability(id).description.clone(),
+                None => "Bend the nation's ability inside the rectangle.".to_owned(),
+            },
+            Self::Build => "Place the chosen building as often as the rectangle holds it.".into(),
+            Self::Sow => "Sow the empty farm plots inside the rectangle.".to_owned(),
+            Self::Gate => format!("Place {} at the cursor.", session.defs.endeavor.name),
+        }
+    }
+
+    /// What the Tool section says when a rectangle would do nothing: "Nothing to harvest".
+    pub fn nothing(self) -> &'static str {
+        match self {
+            Self::Select | Self::Gate => "",
+            Self::Harvest => "Nothing to harvest",
+            Self::CancelHarvest => "Nothing to remove",
+            Self::Clear => "Nothing to clear",
+            Self::Deconstruct => "No buildings to take down",
+            Self::Stockpile => "Nothing to add",
+            Self::Bend => "Nothing to bend",
+            Self::Build => "Nothing to build",
+            Self::Sow => "No empty plots to sow",
+        }
     }
 
     /// The command this tool issues for one tile, if it issues any. `here` says what else is
@@ -380,6 +419,29 @@ impl CancelTally {
         }
     }
 
+    /// What the rectangle withdrew, by kind, in the notice's order.
+    fn counts(&self) -> Vec<Count> {
+        let kinds = [
+            (self.harvest, "harvest mark", "harvest marks"),
+            (self.bend, "bend mark", "bend marks"),
+            (self.sow, "sow mark", "sow marks"),
+            (self.clear, "clear mark", "clear marks"),
+            (self.deconstruct, "building mark", "building marks"),
+            (self.site, "build site", "build sites"),
+            (self.zone, "stockpile", "stockpiles"),
+        ];
+        kinds
+            .into_iter()
+            .filter(|&(n, ..)| n > 0)
+            .map(|(n, one, many)| Count {
+                n,
+                one: one.to_owned(),
+                many: many.to_owned(),
+                then: "to remove".to_owned(),
+            })
+            .collect()
+    }
+
     /// "cancel: 12 harvest marks, 1 stockpile, 2 skipped (not designated)", in the same
     /// "skipped (reason)" shape every other tool's notice has, but with the done count broken
     /// out by kind instead of a single number that can't tell a harvest mark from a stockpile.
@@ -425,6 +487,119 @@ fn deconstruct_targets(session: &Session, from: Pos, to: Pos) -> Vec<Pos> {
     if anchors.is_empty() { tiles_between(from, to).collect() } else { anchors }
 }
 
+/// Something a rectangle marks, counted: "7 trees to chop". The words are the data's
+/// (`HarvestDef::noun`) or the tool's own; the count is the number of tiles (or sites) whose
+/// command the sim accepted.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Count {
+    pub n: u32,
+    one: String,
+    many: String,
+    /// What applying does to them, after the noun: "to chop".
+    then: String,
+}
+
+impl Count {
+    /// "7 trees", "1 tree".
+    pub fn noun(&self) -> String {
+        format!("{} {}", self.n, if self.n == 1 { &self.one } else { &self.many })
+    }
+
+    /// "7 trees to chop": what applying the tool would do to them.
+    pub fn preview(&self) -> String {
+        format!("{} {}", self.noun(), self.then)
+    }
+}
+
+/// One more of `(one, many, then)` among `counts`.
+fn bump(counts: &mut Vec<Count>, one: &str, many: &str, then: &str) {
+    if let Some(c) = counts.iter_mut().find(|c| c.one == one && c.then == then) {
+        c.n += 1;
+        return;
+    }
+    counts.push(Count { n: 1, one: one.to_owned(), many: many.to_owned(), then: then.to_owned() });
+}
+
+/// A rectangle for a tool: what [`apply_order`] does and [`preview_order`] says it would do.
+#[derive(Clone, Copy, Debug)]
+pub struct Order {
+    pub tool: Tool,
+    pub from: Pos,
+    pub to: Pos,
+    /// The standing-order toggle (#81, `Pick::repeating`).
+    pub repeating: bool,
+    /// The Cancel tool's `O` toggle (#335, `Pick::teardown`).
+    pub teardown: bool,
+    /// The Build tool's building.
+    pub choice: Option<BuildingId>,
+}
+
+/// What a rectangle did, or, from [`preview_order`], would do. Both come out of the one loop
+/// (`run_order`), so the preview and the result cannot disagree (#657).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Report {
+    /// The old one-line result ("designate harvest: 12 done, 3 skipped"), for the log and the
+    /// agent's notice.
+    pub notice: String,
+    /// What the summary calls the marks: "Marked", "Added" or "Removed".
+    pub lead: &'static str,
+    /// What was marked, by kind, for the tools that tell kinds apart (Harvest by what it works,
+    /// Cancel by what it withdrew); one entry for the rest. Empty when nothing was.
+    pub counts: Vec<Count>,
+    /// Commands the sim refused (the tiles with nothing for the tool).
+    pub refused: u32,
+    /// Marks no settler can reach (#337); only counted when applying.
+    pub unreachable: u32,
+    /// Why the last command was refused, as a notice words it ("requires Fire Making").
+    pub why: Option<String>,
+    /// The Build tool's tiles of resources to clear before the sites can go up.
+    pub first: u32,
+    /// The Build tool's total cost for the sites marked: "12 Wood, 4 Stone".
+    pub cost: Option<String>,
+}
+
+impl Report {
+    /// Whether any command went through.
+    pub fn done(&self) -> bool {
+        self.counts.iter().any(|c| c.n > 0)
+    }
+
+    /// What the rectangle did, in a sentence: "Marked 7 trees, 2 rock.", or "Nothing marked:
+    /// nothing to harvest." The Build tool adds the tiles it clears first.
+    pub fn summary(&self) -> String {
+        if !self.done() {
+            let nothing = match self.lead {
+                "Removed" => "Nothing removed",
+                "Added" => "Nothing added",
+                _ => "Nothing marked",
+            };
+            return match &self.why {
+                Some(why) => format!("{nothing}: {why}."),
+                None => format!("{nothing}."),
+            };
+        }
+        // What to do with them is the preview's; "Marked" needs only the things, so plants to
+        // gather and plants to pick are plants.
+        let mut things: Vec<Count> = Vec::new();
+        for c in &self.counts {
+            match things.iter_mut().find(|t| t.one == c.one) {
+                Some(t) => t.n += c.n,
+                None => things.push(c.clone()),
+            }
+        }
+        let kinds: Vec<String> = things.iter().map(Count::noun).collect();
+        let mut text = format!("{} {}.", self.lead, kinds.join(", "));
+        if self.first > 0 {
+            let tiles = if self.first == 1 { "tile" } else { "tiles" };
+            text.push_str(&format!(" Clearing {} {tiles} first.", self.first));
+        }
+        if self.unreachable > 0 {
+            text.push_str(&format!(" {} unreachable.", self.unreachable));
+        }
+        text
+    }
+}
+
 /// Applies `tool` to every tile in the rectangle `from`..=`to` (for `Build`, to every footprint
 /// `build_stamps` fits in it) through `Session::apply` and returns the notice to show, such as "designate harvest: 12 done, 3 skipped (nothing to
 /// harvest), 2 unreachable". `repeating` is the Shift state (#81); `teardown` is the Cancel
@@ -445,12 +620,33 @@ pub fn apply_rect(
     teardown: bool,
     choice: Option<BuildingId>,
 ) -> String {
+    apply_order(session, Order { tool, from, to, repeating, teardown, choice }).notice
+}
+
+/// [`apply_rect`], with the counts of what it marked: the Tool section's "Marked 7 trees."
+pub fn apply_order(session: &mut Session, order: Order) -> Report {
+    run_order(session, order, true)
+}
+
+/// What [`apply_order`] would do, without doing it: the same loop run over a copy of the
+/// session, so the counts are the ones applying gives. It costs that copy, so a frontend asks
+/// only while a corner is set. Marks nobody can reach are not looked for (that needs the
+/// settlement's regions worked out, which the real thing does), so `unreachable` is 0.
+pub fn preview_order(session: &Session, order: Order) -> Report {
+    run_order(&mut session.clone(), order, false)
+}
+
+/// The loop behind [`apply_order`] and [`preview_order`]. `reach` asks whether each Harvest or
+/// Stockpile mark can be reached.
+fn run_order(session: &mut Session, order: Order, reach: bool) -> Report {
+    let Order { tool, from, to, repeating, teardown, choice } = order;
     if tool == Tool::Select {
-        return String::new();
+        return Report::default();
     }
     // One site, centred where the rectangle ends: the gate has no rectangle of its own.
     if tool == Tool::Gate {
-        return crate::gate::place(session, to).unwrap_or_else(|why| why);
+        let notice = crate::gate::place(session, to).unwrap_or_else(|why| why);
+        return Report { notice, ..Report::default() };
     }
     let rows = build::picker_rows(session);
     let building = build::valid_choice(&rows, choice);
@@ -473,49 +669,92 @@ pub fn apply_rect(
     };
     // So `job_unreachable` below has an answer even for the very first designation in a fresh
     // game, before any idle unit's own job search would otherwise have warmed the cache (#337).
-    if matches!(tool, Tool::Harvest | Tool::Stockpile) {
+    if reach && matches!(tool, Tool::Harvest | Tool::Stockpile) {
         session.world.ensure_regions();
     }
-    let (mut done, mut refused, mut unreachable) = (0, 0, 0);
+    let (mut done, mut refused, mut unreachable, mut first) = (0, 0, 0, 0);
+    let mut counts: Vec<Count> = Vec::new();
     let mut tally = CancelTally::default();
     let mut last_error = None;
     for pos in targets {
-        if let Some(command) = tool.command(pos, Here::at(session, pos), pick) {
-            match session.apply(command) {
-                Ok(()) => {
-                    done += 1;
-                    if tool == Tool::CancelHarvest {
-                        tally.record(command);
+        let Some(command) = tool.command(pos, Here::at(session, pos), pick) else { continue };
+        // What the tile holds, before the command changes it.
+        let harvest = (tool == Tool::Harvest)
+            .then(|| {
+                let resource = session.world.map.get(pos)?.resource?;
+                let h = session.defs.harvest(resource)?;
+                Some((h.noun.clone(), h.noun_many.clone(), format!("to {}", h.verb.to_lowercase())))
+            })
+            .flatten();
+        let clears = match (tool, building) {
+            (Tool::Build, Some(id)) => session.world.to_clear(pos, id, &session.defs).len() as u32,
+            _ => 0,
+        };
+        match session.apply(command) {
+            Ok(()) => {
+                done += 1;
+                match tool {
+                    Tool::Harvest => {
+                        let (one, many, then) = harvest.unwrap_or_else(|| {
+                            ("tile".to_owned(), "tiles".to_owned(), "to harvest".to_owned())
+                        });
+                        bump(&mut counts, &one, &many, &then);
                     }
-                    if matches!(tool, Tool::Harvest | Tool::Stockpile)
-                        && session.world.job_unreachable(pos) == Some(true)
-                    {
-                        unreachable += 1;
+                    Tool::CancelHarvest => tally.record(command),
+                    Tool::Clear => bump(&mut counts, "tile", "tiles", "to clear"),
+                    Tool::Deconstruct => bump(&mut counts, "building", "buildings", "to take down"),
+                    Tool::Stockpile => bump(&mut counts, "tile", "tiles", "to add"),
+                    Tool::Bend => bump(&mut counts, "tile", "tiles", "to bend"),
+                    Tool::Build => {
+                        first += clears;
+                        bump(&mut counts, "site", "sites", "to build");
                     }
+                    Tool::Sow => bump(&mut counts, "plot", "plots", "to sow"),
+                    Tool::Select | Tool::Gate => {}
                 }
-                Err(e) => {
-                    refused += 1;
-                    last_error = Some(e);
+                if reach
+                    && matches!(tool, Tool::Harvest | Tool::Stockpile)
+                    && session.world.job_unreachable(pos) == Some(true)
+                {
+                    unreachable += 1;
                 }
+            }
+            Err(e) => {
+                refused += 1;
+                last_error = Some(e);
             }
         }
     }
-    if tool == Tool::CancelHarvest {
-        return tally.notice(refused, last_error, session);
+    match tool {
+        Tool::Harvest => counts.sort_by(|a, b| (&a.then, &a.one).cmp(&(&b.then, &b.one))),
+        Tool::CancelHarvest => counts = tally.counts(),
+        _ => {}
     }
-    let suffix =
-        if unreachable > 0 { format!(", {unreachable} unreachable") } else { String::new() };
-    // Clear marks tiles rather than finishing work on them (a unit still has to do the
-    // clearing), so its own notice says "marked" (docs/design/clearing.md, "One removal
-    // vocabulary"); every other tool keeps "done".
-    let verb = if matches!(tool, Tool::Clear | Tool::Deconstruct) { "marked" } else { "done" };
-    match last_error {
-        Some(e) => {
-            let why = build::describe_error(session, e);
-            format!("{what}: {done} {verb}, {refused} skipped ({why}){suffix}")
+    let why = last_error.map(|e| build::describe_error(session, e));
+    let cost = match (tool, building) {
+        (Tool::Build, Some(id)) if done > 0 => Some(build::cost_of(session, id, done)),
+        _ => None,
+    };
+    let lead = match tool {
+        Tool::CancelHarvest => "Removed",
+        Tool::Stockpile => "Added",
+        _ => "Marked",
+    };
+    let notice = if tool == Tool::CancelHarvest {
+        tally.notice(refused, last_error, session)
+    } else {
+        let suffix =
+            if unreachable > 0 { format!(", {unreachable} unreachable") } else { String::new() };
+        // Clear marks tiles rather than finishing work on them (a unit still has to do the
+        // clearing), so its own notice says "marked" (docs/design/clearing.md, "One removal
+        // vocabulary"); every other tool keeps "done".
+        let verb = if matches!(tool, Tool::Clear | Tool::Deconstruct) { "marked" } else { "done" };
+        match &why {
+            Some(why) => format!("{what}: {done} {verb}, {refused} skipped ({why}){suffix}"),
+            None => format!("{what}: {done} {verb}, {refused} skipped{suffix}"),
         }
-        None => format!("{what}: {done} {verb}, {refused} skipped{suffix}"),
-    }
+    };
+    Report { notice, lead, counts, refused, unreachable, why, first, cost }
 }
 
 #[cfg(test)]

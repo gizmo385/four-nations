@@ -90,7 +90,7 @@ fn keys_play_a_script_before_the_frame() {
     };
     let text = frame("h <left*6> <up*3> <enter> <right*5> <down*4> <enter> <tick 600>");
     assert!(text.lines().last().unwrap().starts_with(" HARVEST "), "{text}");
-    assert!(text.contains("done"), "{text}");
+    assert!(text.contains("Marked 11 trees"), "{text}");
     assert!(text.contains("4:00 left"), "<tick 600> is a minute:\n{text}");
     // WASD scripts move the cursor like the arrows do.
     assert_eq!(frame("d d s"), frame("<right*2> <down>"));

@@ -129,6 +129,9 @@ pub struct UiState {
     /// The last rectangle's result ("designate harvest: 12 done, 3 skipped"), shown in the Tool
     /// section until the tool changes.
     pub notice: String,
+    /// What the last rectangle marked ("Marked 7 trees.") and the cursor tile it was applied
+    /// at (`marked_now`).
+    pub marked: Option<(Pos, String)>,
     /// A save or load result ("Quicksaved (tick 40)"), or a gate one (#643): it takes the status
     /// line's key hints until the next key.
     pub status: String,
@@ -207,6 +210,7 @@ impl UiState {
             choice: None,
             anchor: None,
             notice: String::new(),
+            marked: None,
             status: String::new(),
             status_badge: None,
             prompt: None,
@@ -308,6 +312,7 @@ impl UiState {
         self.tool = tool;
         self.anchor = None;
         self.notice.clear();
+        self.marked = None;
         self.repeating = false;
         self.teardown = false;
         // Entering a tool shows the banner (#307), which the view must keep the cursor clear
@@ -329,33 +334,6 @@ impl UiState {
             return Some(format!("{} · teardown", self.tool.name()));
         }
         None
-    }
-
-    /// What the active tool's hint says: generic for most tools, as `fn_ui`'s own
-    /// `Tool::hint` has it (it already names the ability for `Bend`, from the session's own
-    /// choice). The Harvest and Cancel tools' own wording replaces `fn_ui`'s (#277: a terminal
-    /// can't reliably report Shift+Enter, so `O` toggles their own modifier instead, and the
-    /// Tool section's heading says when it's on). `Build`'s choice belongs to the frontend, not
-    /// the `Session`, so it's named here too: the building it would place, or the tool's plain
-    /// label with none placeable.
-    pub fn tool_hint(&self, session: &Session) -> String {
-        if self.tool == Tool::Harvest {
-            return "designate harvest (chop, mine, gather); O: standing order".to_owned();
-        }
-        if self.tool == Tool::CancelHarvest {
-            return "cancel a harvest, bend, sow or clear mark; O: also a build site or stockpile"
-                .to_owned();
-        }
-        if self.tool != Tool::Build {
-            return self.tool.hint(session);
-        }
-        let rows = fn_ui::build::picker_rows(session);
-        match fn_ui::build::valid_choice(&rows, self.choice)
-            .and_then(|id| rows.iter().find(|r| r.id == id))
-        {
-            Some(row) => format!("build {}: Enter to place (U: pick a building)", row.name),
-            None => self.tool.hint(session),
-        }
     }
 
     /// The building the Build tool's ghosts would place (`fn_ui::build::valid_choice`): `None`
@@ -386,6 +364,14 @@ impl UiState {
     /// anchor.
     pub fn rect(&self) -> Option<(Pos, Pos)> {
         (self.tool != Tool::Select).then_some(self.anchor).flatten().map(|a| (a, self.cursor))
+    }
+
+    /// What the last rectangle marked, while it is still the news: until the cursor moves from
+    /// where it was applied or a new corner is set (#657). `None` after either.
+    pub fn marked_now(&self) -> Option<&str> {
+        let (at, text) = self.marked.as_ref()?;
+        (self.tool != Tool::Select && self.anchor.is_none() && *at == self.cursor)
+            .then_some(text.as_str())
     }
 
     /// The rectangle being dragged as (width, height) in tiles.
@@ -681,37 +667,6 @@ mod tests {
         let (cx, cy) = ui.cursor_cell().expect("still in view");
         assert!((SCROLL_MARGIN..w - SCROLL_MARGIN).contains(&cx));
         assert!((SCROLL_MARGIN..h - SCROLL_MARGIN).contains(&cy));
-    }
-
-    /// Most other tools' hints are `fn_ui`'s own; the Build tool's names the chosen building,
-    /// since the choice belongs to `UiState`, not the `Session` (#275), and the Harvest tool's
-    /// own wording names `O` instead of `fn_ui`'s "hold Shift to repeat", which a terminal can't
-    /// reliably send (#277).
-    #[test]
-    fn the_build_tool_s_hint_names_the_chosen_building() {
-        let session = Session::new(7, Nation::Earth, 48, 32);
-        let mut ui = UiState::new(&session, (120, 40));
-        ui.set_tool(Tool::Stockpile);
-        assert_eq!(ui.tool_hint(&session), Tool::Stockpile.hint(&session));
-        ui.set_tool(Tool::Harvest);
-        assert_eq!(
-            ui.tool_hint(&session),
-            "designate harvest (chop, mine, gather); O: standing order"
-        );
-        // The Cancel tool's own wording names `O` for its teardown toggle (#335), rather than
-        // `fn_ui`'s generic label.
-        ui.set_tool(Tool::CancelHarvest);
-        assert_eq!(
-            ui.tool_hint(&session),
-            "cancel a harvest, bend, sow or clear mark; O: also a build site or stockpile"
-        );
-
-        // With no choice yet it falls back to the first building the nation can place (Bed).
-        ui.set_tool(Tool::Build);
-        assert_eq!(ui.tool_hint(&session), "build Bed: Enter to place (U: pick a building)");
-        let bed = session.defs.building_id("bed").unwrap();
-        ui.choice = Some(bed);
-        assert_eq!(ui.tool_hint(&session), "build Bed: Enter to place (U: pick a building)");
     }
 
     /// `Enter` on a building's own tile with nobody visibly there cycles its occupants (#226,

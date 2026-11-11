@@ -103,6 +103,10 @@ name = "Herbs"
 # What working a map resource yields. When the work finishes `count` of `item` drops beside the
 # resource, and the resource is cleared unless it regrows (see `regrow`).
 # - verb:     what the designation is called in the UI.
+# - noun, noun_many: optional. What the resource is called after a count in a tool's preview
+#             ("7 trees to chop", "3 rock to mine"): `noun` for one, `noun_many` for any other
+#             number. Resources that share a noun and a verb are counted together. Without them
+#             the resource's own name, lower case, and that with an "s".
 # - work:     in-game seconds of work for a unit whose modifier is 1.0.
 # - modifier: optional nation modifier (data/nations.toml) that scales how fast the work goes,
 #             e.g. quarrying runs on `earthworks`.
@@ -152,6 +156,7 @@ name = "Herbs"
 [[harvest]]
 resource = "oak_tree"
 verb = "Chop"
+noun = "tree"
 item = "wood"
 count = 3
 work = 8.0
@@ -160,6 +165,7 @@ risk = 0.01
 [[harvest]]
 resource = "fir_tree"
 verb = "Chop"
+noun = "tree"
 item = "wood"
 count = 3
 work = 8.0
@@ -172,6 +178,8 @@ risk = 0.01
 [[harvest]]
 resource = "stone"
 verb = "Quarry"
+noun = "rock"
+noun_many = "rock"
 item = "stone"
 count = 10
 work = 12.0
@@ -184,6 +192,8 @@ risk = 0.02
 [[harvest]]
 resource = "gold_vein"
 verb = "Mine"
+noun = "rock"
+noun_many = "rock"
 item = "gold_ore"
 count = 3
 work = 30.0
@@ -197,6 +207,8 @@ risk = 0.03
 [[harvest]]
 resource = "boulder"
 verb = "Quarry"
+noun = "rock"
+noun_many = "rock"
 item = "stone"
 count = 6
 work = 10.0
@@ -208,6 +220,8 @@ risk = 0.02
 [[harvest]]
 resource = "gold_seam"
 verb = "Mine"
+noun = "rock"
+noun_many = "rock"
 item = "gold_ore"
 count = 3
 work = 45.0
@@ -226,6 +240,7 @@ work = 4.0
 [[harvest]]
 resource = "cabbage"
 verb = "Gather"
+noun = "plant"
 item = "cabbage"
 count = 1
 work = 2.0
@@ -239,6 +254,7 @@ work = 1.0
 [[harvest]]
 resource = "fruit_tree"
 verb = "Pick"
+noun = "plant"
 item = "fruit"
 count = 2
 work = 4.0
@@ -273,6 +289,8 @@ strain = 0.5
 [[harvest]]
 resource = "lost_ruins"
 verb = "Search"
+noun = "ruin"
+noun_many = "ruins"
 item = "ancient_scroll"
 count = 2
 work = 20.0

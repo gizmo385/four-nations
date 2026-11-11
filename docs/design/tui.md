@@ -350,7 +350,8 @@ like Shift+arrows. With Caps Lock on, they move 10 tiles too.
   `Enter` twice. The tool stays active for the next rectangle; `Esc` leaves it.
 - **Applying** is the client's logic, moved to `fn_ui`: one `Command` per tile through
   `World::apply`, then a notice such as "designate harvest: 12 done, 3 skipped (nothing to
-  harvest)" in the Tool section.
+  harvest)" in the Tool section (#657: its "Marked 7 trees." summary, and while a corner is set
+  a preview of the same counts).
 - **Why WASD and not vi-keys.** `W` `A` `S` `D` are free: no tool, screen or prompt in this
   table or in #97 to #100 uses them, and they are the client's pan keys, so the hands already
   know them. `hjkl` would collide with `H` (harvest).

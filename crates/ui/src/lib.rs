@@ -36,6 +36,7 @@ pub mod sparkline;
 pub mod text;
 pub mod theme;
 pub mod time;
+pub mod toolpanel;
 pub mod tools;
 pub mod view;
 

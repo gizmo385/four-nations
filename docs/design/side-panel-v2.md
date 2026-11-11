@@ -169,6 +169,14 @@ Nation screen's header line and the Esc menu.
   chosen building and cost (as today), Bend shows the current ability and its bender count
   (`▸Hearthflame 20 benders`). `B` already cycles, and the banner already says `B: next ability`.
   Then the last result, as today.
+- **The Tool section says more (#657, `fn_ui::toolpanel`).** Under the heading: what the tool
+  does in a sentence or two (`Tool::about`, which the hint bar no longer carries), the Build
+  tool's building or Bend's ability, then with a corner set the rectangle's size and what
+  applying would mark ("7 x 4 tiles", "7 trees to chop", per tool; the counts come from the
+  loop that applies the tool, run over a copy of the world), or after applying what it marked
+  ("Marked 7 trees.") until the cursor moves or a new corner is set, then the tool's toggles
+  ("Standing order: off", "Also sites, stockpiles: off"). While a tool is active the inspector
+  is left one row when rows are short; the Tool section drops its groups from the last.
 - CURSOR becomes **HERE**, keeping the coordinates on the heading.
 - A unit under the cursor shows its name, its task and `Enter: select`. The own-nation prefix
   shows only when the settlement has more than one nation (after the transformation).
