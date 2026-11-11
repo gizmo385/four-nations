@@ -84,7 +84,7 @@ pub fn side_view(
         research: research_status(world, defs),
         stores: store_rows(session),
         endeavor: endeavor_status(session),
-        alerts: alerts.toast_lines(),
+        alerts: alerts.open().into_iter().map(|t| t.text).collect(),
     }
 }
 

@@ -14,12 +14,14 @@
 //! data). The only thing this zone ever grows into spare height is the Materials section's
 //! second row; nothing in it is ever given up first.
 //!
-//! **Zone 2, Alerts** (one line each, newest last; always shows at least its heading and the
-//! newest toast, #415). A routine success (an ability cast) is log-only, never a toast (#417);
-//! repeats of the same kind and subject coalesce into one line with a count
-//! (`fn_ui::alerts::Alerts::toasts`); a toast's own text drops map coordinates, which stay in
-//! the log entry. Spare height goes here first, up to [`ALERTS_SHOWN`] rows, before anything
-//! else in the panel grows.
+//! **Zone 2, Alerts** (#656; always shows at least its heading and the first alert while any is
+//! open, #415). The heading counts the open alerts. Each alert is wrapped in full, with a blank
+//! row between them, and alerts of one cause are one entry (`fn_ui::alerts::Alerts::open`:
+//! "Stockpiles are full. 442 stone, 17 fish and 15 fruit have nowhere to go."). Most urgent
+//! first; they take at most half the rows below the glance, and the rest fold into "and 3 more, press L". The
+//! news that is not an alert (a learned tech, a newcomer) shows after them while its toast
+//! lasts, and folds first. A routine success (an ability cast) is log-only, never a toast
+//! (#417); a toast's own text drops map coordinates, which stay in the log entry.
 //!
 //! **Zone 3, the Tool and the inspector** (`crate::inspector`, #653): Tool (the active tool's
 //! name in its own tint; hidden off a tool), then the inspector, the last section, which takes
@@ -38,7 +40,7 @@
 //! the status line's keys, not the panel's.
 //!
 //! The panel is a fixed height, so a terminal too short for everything gives up rows in this
-//! order: alerts beyond the newest, then the Tool section's groups from the last (never what the
+//! order: alerts beyond the first, then the Tool section's groups from the last (never what the
 //! tool does, nor the building or ability), and the inspector is left one row while a tool is
 //! active, since the Tool section has first call on rows then. The header, the Settlement glance
 //! in full, every heading and the inspector's first rows (a settler's task and meters, three rows
@@ -47,6 +49,7 @@
 
 use fn_sim::building::BuildingId;
 use fn_sim::world::Unit;
+use fn_ui::alerts::Category;
 use fn_ui::bend;
 use fn_ui::build;
 use fn_ui::endeavor::EndeavorStatus;
@@ -112,15 +115,6 @@ fn apply_verb(tool: Tool) -> &'static str {
 /// The most lines one paragraph of the Tool section wraps to (the description, a toggle): it
 /// wraps rather than cuts, and the fitting drops whole groups of rows when the panel is short.
 const TOOL_LINES: usize = 5;
-/// One alert is one line (docs/design/side-panel.md "Sections, top to bottom"): the full text is
-/// in the log (`L`).
-const ALERT_LINES: usize = 1;
-/// At most this many alert rows show at once, even with room for more (#417,
-/// docs/design/side-panel-v2.md "Fitting": "Spare rows go, in order: Alerts up to 6..."). Alerts
-/// are already given this much room before the fitting loop runs (`draw_panel`'s own `k.alerts`
-/// starts at `d.alerts.len().min(ALERTS_SHOWN)`), so the Settlement glance's own growth (a
-/// second Materials row) and Here only ever see what's left afterward.
-const ALERTS_SHOWN: usize = 6;
 /// At most this many Materials rows show at once, even with room for more (#416,
 /// docs/design/side-panel-v2.md "Zone 1": "Spare height adds a second materials row").
 const MATERIALS_ROWS_MAX: usize = 2;
@@ -193,7 +187,9 @@ struct Data {
     /// building or the Bend tool's current ability, then the rectangle's preview or what the
     /// last one marked, then the tool's toggles. Empty off a tool.
     tool: ToolRows,
-    alerts: Vec<Row>,
+    /// The open alerts (`fn_ui::alerts::Alerts::open`, #656), most urgent first, each wrapped in
+    /// full.
+    alerts: Vec<AlertItem>,
     /// The last section (#653): what the player is looking at, named in its own heading.
     inspector: Inspector,
     /// The tool list (`/`, #664) is open: the Tool section is that list under a DESIGNATE
@@ -205,11 +201,19 @@ struct Data {
     repeating_label: Option<String>,
 }
 
+/// One open alert in the Alerts section (#656): every row it wraps to, never cut.
+struct AlertItem {
+    rows: Vec<Row>,
+    /// Counted in the heading; a notice (news, not a problem) is not.
+    alert: bool,
+}
+
 /// How much of each trimmable block to show. The Settlement glance (#416) isn't knobbed: it
 /// never gives up a row, and `materials` is the one thing it ever grows (`draw_panel`'s own
 /// growth pass, after the shrink loop below settles).
 #[derive(Clone, Copy)]
 struct Knobs {
+    /// How many of `Data::alerts` show, most urgent first; the rest fold into one last row.
     alerts: usize,
     /// How many rows of `Data::tool` to show ([`fit_blocks`]).
     tool: usize,
@@ -570,13 +574,18 @@ fn gather(
             .unwrap_or_default()
     };
     let tool = tool_rows(session, ui, picker, &view.notice, width, marks);
+    // Every alert wraps across as many rows as it needs (#656); what doesn't fit folds away
+    // whole, never cut.
     let alerts = ui
         .alerts
-        .toasts()
+        .open()
         .into_iter()
-        .flat_map(|e| {
-            let tone = crate::screens::kind_tone(e.kind);
-            wrap(&e.text, width, ALERT_LINES, ellipsis).into_iter().map(move |l| Row::text(l, tone))
+        .map(|t| {
+            let alert = t.category == Category::Alert;
+            let tone = if alert { Tone::Warn } else { crate::screens::kind_tone(t.kind) };
+            let rows =
+                wrap(&t.text, width, usize::MAX, ellipsis).into_iter().map(|l| Row::text(l, tone));
+            AlertItem { rows: rows.collect(), alert }
         })
         .collect();
     let season = season_view(session, winter_food_per_head);
@@ -639,6 +648,32 @@ fn tool_tint(d: &Data) -> Option<Tint> {
     }
 }
 
+/// The Alerts section's rows (#656): the first `shown` alerts, a blank row between them, and
+/// when the rest don't fit, one last line saying how many are folded away. Most urgent first, so
+/// what folds is the least urgent and, within that, the oldest.
+fn alert_rows(alerts: &[AlertItem], shown: usize) -> Vec<Row> {
+    let shown = shown.min(alerts.len());
+    let mut rows: Vec<Row> = Vec::new();
+    for (i, alert) in alerts.iter().take(shown).enumerate() {
+        if i > 0 {
+            rows.push(Row::text("", Tone::Text));
+        }
+        rows.extend(alert.rows.iter().cloned());
+    }
+    if shown < alerts.len() {
+        rows.push(Row::text(format!("and {} more, press L", alerts.len() - shown), Tone::Dim));
+    }
+    rows
+}
+
+/// How many alerts to show in at most `budget` rows: as many as fit with the fold line, but
+/// never fewer than the first (an alert is shown whole or folded, and the newest of the most
+/// urgent is never folded while any are open).
+fn alerts_within(alerts: &[AlertItem], budget: usize) -> usize {
+    let first = usize::from(!alerts.is_empty());
+    (first..=alerts.len()).rev().find(|&n| alert_rows(alerts, n).len() <= budget).unwrap_or(first)
+}
+
 /// The sections as the knobs allow, in order, with the hidden ones left out.
 fn sections(d: &Data, k: Knobs, palette: &Palette) -> Vec<Section> {
     // One `SETTLEMENT` heading, `[N]` on the right, replaces the old PEOPLE, season, STORES,
@@ -646,9 +681,14 @@ fn sections(d: &Data, k: Knobs, palette: &Palette) -> Vec<Section> {
     // visible and never knobbed down past `settlement_rows`'s own growth (the Materials section's
     // second row).
     let settlement = Section::new("SETTLEMENT", "[N]", settlement_rows(d, k)).always();
-    // The newest alerts are the last rows; a short panel keeps those.
-    let skip = d.alerts.len().saturating_sub(k.alerts);
-    let alerts = Section::new("ALERTS", "[L]", d.alerts.iter().skip(skip).cloned().collect());
+    // How many alerts are open, then the key that lists them all (#656).
+    let open = d.alerts.iter().filter(|a| a.alert).count();
+    let right = if open == 0 {
+        "[L]".to_owned()
+    } else {
+        format!("{open} {} [L]", Marks::new(palette.ascii).dot)
+    };
+    let alerts = Section::new("ALERTS", right, alert_rows(&d.alerts, k.alerts));
     // Just above Here, in the tool's own tint (docs/design/side-panel.md "Headings"). Select
     // mode has no tool to talk about.
     let tool = (d.view.tool != Tool::Select || d.tool_list).then(|| {
@@ -706,11 +746,13 @@ pub fn draw_panel(
     // is live (#415): the ALERTS heading on its own, with every row gone, would otherwise read as
     // "no alerts" instead of "a live one that got clipped".
     let alerts_floor = usize::from(!d.alerts.is_empty());
-    let mut k = Knobs {
-        alerts: d.alerts.len().min(ALERTS_SHOWN),
-        tool: d.tool.full(),
-        materials: materials_cap.min(1),
-    };
+    let mut k = Knobs { alerts: 0, tool: d.tool.full(), materials: materials_cap.min(1) };
+    // Alerts take at most half the rows below the glance (#656); the oldest, least urgent are
+    // folded into a last line past that. The rest of the panel (the Tool section, the
+    // inspector) shares what is left.
+    let glance = head.len() + 1 + settlement_rows(&d, k).len();
+    let below = usize::from(inner.height).saturating_sub(glance);
+    k.alerts = alerts_within(&d.alerts, below / 2);
     let tool_active = d.view.tool != Tool::Select || d.tool_list;
     let needs = |k: Knobs| height(head.len(), &sections(&d, k, palette), &d.inspector, tool_active);
     while needs(k) > usize::from(inner.height) {
@@ -723,8 +765,8 @@ pub fn draw_panel(
         }
     }
     // Spare height adds the Materials section's second row before anything else in this zone
-    // grows (#416): the only growth `settlement_rows` ever has, since Alerts' own growth beyond
-    // today's cap is #417. Whatever it leaves is the inspector's.
+    // grows (#416): the only growth `settlement_rows` ever has. Whatever it leaves is the
+    // inspector's.
     if k.materials < materials_cap {
         let mut grown = k;
         grown.materials += 1;

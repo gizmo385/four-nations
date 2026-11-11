@@ -90,6 +90,8 @@ pub(crate) fn kind_tone(kind: Kind) -> Tone {
         // A gentle onboarding nudge (#382), not something gone wrong: the same tone as a
         // routine bend, not a warning.
         Kind::BendTip => Tone::Text,
+        // No research target with points banked (#656): idle capacity, a caution.
+        Kind::Research => Tone::Warn,
     }
 }
 

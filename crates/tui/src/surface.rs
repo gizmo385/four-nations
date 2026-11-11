@@ -1544,7 +1544,7 @@ fn event_kind_for_alert(entry: &AlertEntry) -> Option<EventKind> {
         AlertKind::Season => Some(EventKind::Season),
         AlertKind::Stockpile => Some(EventKind::Stockpile),
         AlertKind::Bend => Some(EventKind::BendFailed),
-        AlertKind::Chart | AlertKind::Agent | AlertKind::BendTip => None,
+        AlertKind::Chart | AlertKind::Agent | AlertKind::BendTip | AlertKind::Research => None,
     }
 }
 

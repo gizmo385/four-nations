@@ -3,6 +3,11 @@
 //! stockpile that can't take any more of something (#337) and a one-time nudge to try bending
 //! (#382) as one stream of lines.
 //!
+//! Two conditions are **standing alerts**, open for as long as they hold rather than timed
+//! toasts (#656): stockpiles that can't take something, and research points banked with no target
+//! set. The log gets one line per cause when each is raised; [`Alerts::open`] is what the side
+//! panel lists, most urgent first, with every full stockpile grouped into one entry.
+//!
 //! The world's own events come from its one event log (`World::events`, #605), read with a
 //! single cursor; harm events reach it too, but have no line until #393 words them.
 //!
@@ -20,13 +25,14 @@
 
 use std::collections::BTreeSet;
 
+use fn_sim::Pos;
 use fn_sim::jobs::ItemId;
 use fn_sim::needs::DeathCause;
+use fn_sim::research::MILLIS_PER_POINT;
 use fn_sim::world::{
     Arrival, BendEvent, BendOutcome, ChartEvent, ChartEventKind, Death, Event, SeasonEvent,
     SeasonEventKind, StrainEvent, TICKS_PER_SECOND, UnitId,
 };
-use fn_sim::{Defs, Pos};
 
 use crate::endeavor;
 use crate::session::Session;
@@ -68,6 +74,10 @@ pub enum Kind {
     /// onboarding hint, not something wrong, so it never repeats and never stops `end_turn`
     /// (`Entry::worth_stopping`).
     BendTip,
+    /// Research points are banked and no target is set (#656): a standing condition like a full
+    /// stockpile, open until a target is set. The log gets a line when it is raised; the panel
+    /// shows it for as long as it holds ([`Alerts::open`]), never as a timed toast.
+    Research,
 }
 
 impl Kind {
@@ -88,6 +98,8 @@ impl Kind {
             // this is meant to be read back, not a toast on top of the map.
             Self::Agent => 0.0,
             Self::BendTip => 10.0,
+            // A standing alert: open while the condition holds, not a toast that ages.
+            Self::Research => 0.0,
         }
     }
 
@@ -106,6 +118,7 @@ impl Kind {
             // Fires at most once a game, ever (`Alerts::update`), so there's never more than one
             // to show at a time.
             Self::BendTip => 1,
+            Self::Research => 0,
         }
     }
 }
@@ -157,6 +170,37 @@ impl Category {
     }
 }
 
+/// How soon an open alert wants an eye (#656): the panel lists them most urgent first. The
+/// order is the declaration order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Urgency {
+    /// A settler's life: anyone starving, freezing or dying.
+    Life,
+    /// The stores and what feeds them: a full stockpile, the winter warning, a plant picked to
+    /// death.
+    Stores,
+    /// Capacity going unused: no research target, a bend that failed, an endeavor sign.
+    Idle,
+    /// News, not a problem (a learned tech, a newcomer, a chart, the bend tip): shown under the
+    /// alerts while its toast lasts, and the first thing folded away.
+    Notice,
+}
+
+impl Kind {
+    /// How urgent an open alert of this kind is ([`Urgency`]); anything the log doesn't file
+    /// under [`Category::Alert`] is a [`Urgency::Notice`].
+    pub fn urgency(self, failed: bool) -> Urgency {
+        match self.category(failed) {
+            Category::Alert => match self {
+                Self::Death => Urgency::Life,
+                Self::Stockpile | Self::Season => Urgency::Stores,
+                _ => Urgency::Idle,
+            },
+            _ => Urgency::Notice,
+        }
+    }
+}
+
 impl Kind {
     /// The log category of a line of this kind. `failed` only matters for a `Bend`: a finished
     /// one is routine bending, a failed one is an alert.
@@ -165,7 +209,9 @@ impl Kind {
             Self::Bend if failed => Category::Alert,
             Self::Bend => Category::Bending,
             Self::Tech | Self::Chart => Category::Knowledge,
-            Self::Death | Self::Endeavor | Self::Season | Self::Stockpile => Category::Alert,
+            Self::Death | Self::Endeavor | Self::Season | Self::Stockpile | Self::Research => {
+                Category::Alert
+            }
             Self::Arrival => Category::People,
             Self::Agent | Self::BendTip => Category::Work,
         }
@@ -270,6 +316,9 @@ impl Entry {
             Kind::Chart => false,
             Kind::Agent => false,
             Kind::BendTip => false,
+            // Idle capacity, not an emergency: stopping every turn until it is set would cost
+            // far more than it tells (the glance's own row and the panel's alert say it too).
+            Kind::Research => false,
         }
     }
 }
@@ -293,6 +342,14 @@ pub struct Alerts {
     /// Whether the one-time bend tip (#382) has already fired, or is moot because a bend has
     /// already been designated: either way, [`Alerts::update`] never checks for it again.
     bend_tip_shown: bool,
+    /// The items stuck with nowhere to go right now, as (lower-case name, count), and the tick
+    /// the latest of them went stuck (#656). A standing condition: the panel's one grouped
+    /// "Stockpiles are full" alert is open exactly while this is not empty.
+    stores_full: Vec<(String, u32)>,
+    stores_since: u64,
+    /// Whole research points banked with no target set, and the tick that began (#656); `None`
+    /// while a target is set or nothing is banked. Open while it is `Some`.
+    research_idle: Option<(u64, u32)>,
 }
 
 impl Alerts {
@@ -312,16 +369,24 @@ impl Alerts {
         // Not one of `World`'s own monotonic event logs above (#337: a standing condition, not
         // something that happens once), so the line is for whichever items are newly stuck since
         // the last call, not every item still stuck.
-        let stuck = stuck_items(session);
-        for &(item, count) in &stuck {
-            if !self.full_items.contains(&item) {
-                let text = describe_stockpile_full(&session.defs, item, count);
-                let toast = Some(ToastSpec { subject: text.clone(), text: text.clone() });
-                fresh
-                    .push(((world.tick, STOCKPILE_ORDER), Line::new(Kind::Stockpile, text, toast)));
+        let stuck: Vec<(ItemId, String, u32)> = stuck_items(session)
+            .into_iter()
+            .map(|(item, count)| (item, session.defs.item(item).name.to_lowercase(), count))
+            .collect();
+        self.note_stuck(world.tick, &stuck, &mut fresh);
+        // No research target with points banked (#656): also a standing condition, so a line
+        // is logged when it is raised, not every call while it stays so.
+        let banked = (world.research().pool_millis() / MILLIS_PER_POINT) as u32;
+        if world.research().queue().is_empty() && banked > 0 {
+            if self.research_idle.is_none() {
+                let text = describe_research_idle(banked);
+                fresh.push(((world.tick, RESEARCH_ORDER), Line::new(Kind::Research, text, None)));
             }
+            let since = self.research_idle.map_or(world.tick, |(since, _)| since);
+            self.research_idle = Some((since, banked));
+        } else {
+            self.research_idle = None;
         }
-        self.full_items = stuck.into_iter().map(|(item, _)| item).collect();
         // The one-time bend tip (#382): also not one of `World`'s own monotonic logs, so this
         // checks live state instead of a count. Moot once a bend has ever been designated
         // (`events` -- finished or failed -- or a job still pending), whether or not it ever
@@ -368,6 +433,23 @@ impl Alerts {
         }
     }
 
+    /// Takes the items stuck with nowhere to go as of `tick` (item, lower-case name, count):
+    /// one log line for each that is newly stuck, and the standing set the panel's single
+    /// grouped alert is made from (#656).
+    fn note_stuck(&mut self, tick: u64, stuck: &[(ItemId, String, u32)], fresh: &mut Vec<Fresh>) {
+        for (item, name, count) in stuck {
+            if !self.full_items.contains(item) {
+                // One log line per item that goes stuck; the panel shows them as one open alert
+                // (`Self::open`), so none of these is a toast of its own.
+                let text = describe_stockpile_full(name, *count);
+                fresh.push(((tick, STOCKPILE_ORDER), Line::new(Kind::Stockpile, text, None)));
+                self.stores_since = tick;
+            }
+        }
+        self.stores_full = stuck.iter().map(|(_, name, count)| (name.clone(), *count)).collect();
+        self.full_items = stuck.iter().map(|(item, ..)| *item).collect();
+    }
+
     /// Every line since the world began, oldest first (bounded by [`MAX_HISTORY`]).
     pub fn history(&self) -> &[Entry] {
         &self.log
@@ -408,6 +490,7 @@ impl Alerts {
             text: String,
             count: usize,
             tick: u64,
+            failed: bool,
         }
         let mut groups: Vec<Group> = Vec::new();
         for e in &self.log {
@@ -420,6 +503,7 @@ impl Alerts {
                     g.count += 1;
                     g.text = toast.text.clone();
                     g.tick = e.tick;
+                    g.failed = e.failed;
                 }
                 None => groups.push(Group {
                     kind: e.kind,
@@ -428,6 +512,7 @@ impl Alerts {
                     text: toast.text.clone(),
                     count: 1,
                     tick: e.tick,
+                    failed: e.failed,
                 }),
             }
         }
@@ -459,6 +544,8 @@ impl Alerts {
             .map(|g| Toast {
                 kind: g.kind,
                 category: g.category,
+                urgency: g.kind.urgency(g.failed),
+                since: g.tick,
                 // A repeat coalesces into the subject plus a count (#417: "Hearthflame failed
                 // ×3"); a lone occurrence keeps its own, richer text instead.
                 text: if g.count > 1 { format!("{} ×{}", g.subject, g.count) } else { g.text },
@@ -466,15 +553,44 @@ impl Alerts {
             .collect()
     }
 
-    /// The open alerts: the live toasts whose lines the message log files under
-    /// [`Category::Alert`] (#661). They are the same lines the log's Alerts filter shows, so a
-    /// player who sees one in the side panel finds it there, whatever the panel has already let
-    /// age out.
-    pub fn open_alerts(&self) -> Vec<Toast> {
-        self.toasts().into_iter().filter(|t| t.category == Category::Alert).collect()
+    /// Everything the panel's Alerts section lists, most urgent first ([`Urgency`]), the newest
+    /// first within one (#656): the standing alerts (the stockpiles that are full, grouped into
+    /// one entry, and a research target that is not set), which stay open while their condition
+    /// holds, then the live toasts, which age out. Notices (news, not problems) come last.
+    pub fn open(&self) -> Vec<Toast> {
+        let mut open: Vec<Toast> = self.toasts();
+        if !self.stores_full.is_empty() {
+            open.push(Toast {
+                kind: Kind::Stockpile,
+                category: Category::Alert,
+                urgency: Urgency::Stores,
+                since: self.stores_since,
+                text: describe_stores_full(&self.stores_full),
+            });
+        }
+        if let Some((since, points)) = self.research_idle {
+            open.push(Toast {
+                kind: Kind::Research,
+                category: Category::Alert,
+                urgency: Urgency::Idle,
+                since,
+                text: describe_research_idle(points),
+            });
+        }
+        // Stable, and `toasts` is oldest first, so reversing first puts the newest first.
+        open.reverse();
+        open.sort_by_key(|t| (t.urgency, std::cmp::Reverse(t.since)));
+        open
     }
 
-    /// The toasts' text, oldest first, for the side panel.
+    /// The open alerts: [`Alerts::open`] without its notices. They are the same lines the log's
+    /// Alerts filter shows (#661), so a player who sees one in the side panel finds it there:
+    /// the log has the line each was raised with (a grouped one has a line per cause).
+    pub fn open_alerts(&self) -> Vec<Toast> {
+        self.open().into_iter().filter(|t| t.category == Category::Alert).collect()
+    }
+
+    /// The toasts' text, oldest first.
     pub fn toast_lines(&self) -> Vec<String> {
         self.toasts().into_iter().map(|t| t.text).collect()
     }
@@ -487,6 +603,10 @@ pub struct Toast {
     pub kind: Kind,
     /// The message log's category of the lines it stands for (`Entry::category`).
     pub category: Category,
+    /// How soon it wants an eye ([`Urgency`]); the panel lists the most urgent first.
+    pub urgency: Urgency,
+    /// The tick it was raised (or last repeated), so the newest sorts first within an urgency.
+    pub since: u64,
     pub text: String,
 }
 
@@ -545,6 +665,8 @@ fn fresh_lines(session: &Session, events: &[Event]) -> Vec<Fresh> {
 const STOCKPILE_ORDER: u8 = 9;
 /// Where the bend tip's line sorts among same-tick lines: last.
 const BEND_TIP_ORDER: u8 = 10;
+/// Where the idle-research line sorts among same-tick lines: after the bend tip.
+const RESEARCH_ORDER: u8 = 11;
 
 /// The line one logged event becomes: its kind, the log's text, whether it is a failed bend, and
 /// its toast (`None` for a log-only line). `None` for an event with no line (yet).
@@ -731,9 +853,32 @@ fn strain_toast(defs: &fn_sim::Defs, ev: &StrainEvent) -> ToastSpec {
 /// "42 wood can't be stored: every stockpile is full" (#337): the lower-case name since the
 /// count in front reads better as a quantity than a label, and the count itself so the player
 /// sees there's really something piling up, not just a flag.
-fn describe_stockpile_full(defs: &Defs, item: ItemId, count: u32) -> String {
-    let name = defs.item(item).name.to_lowercase();
+fn describe_stockpile_full(name: &str, count: u32) -> String {
     format!("{count} {name} can't be stored: every stockpile is full.")
+}
+
+/// The panel's one entry for every stockpile that can't take something (#656): the stuck items
+/// and how much of each, in one sentence. "Stockpiles are full. 442 stone, 17 fish and 15 fruit
+/// have nowhere to go."
+fn describe_stores_full(items: &[(String, u32)]) -> String {
+    let parts: Vec<String> = items.iter().map(|(name, n)| format!("{n} {name}")).collect();
+    let verb = if matches!(items, [(_, 1)]) { "has" } else { "have" };
+    format!("Stockpiles are full. {} {verb} nowhere to go.", join_and(&parts))
+}
+
+/// "a", "a and b", "a, b and c".
+fn join_and(parts: &[String]) -> String {
+    match parts {
+        [] => String::new(),
+        [only] => only.clone(),
+        [init @ .., last] => format!("{} and {last}", init.join(", ")),
+    }
+}
+
+/// "No research target is set. 84 points are waiting." (#656)
+fn describe_research_idle(points: u32) -> String {
+    let (noun, verb) = if points == 1 { ("point", "is") } else { ("points", "are") };
+    format!("No research target is set. {points} {noun} {verb} waiting.")
 }
 
 /// How long the settlement may go with chi to spare and no bend ever designated before the
@@ -773,7 +918,7 @@ fn bend_tip_text() -> String {
 mod tests {
     use fn_sim::bending::AbilityId;
     use fn_sim::world::Command;
-    use fn_sim::{Nation, Pos, Terrain};
+    use fn_sim::{Defs, Nation, Pos, Terrain};
 
     use super::*;
     use crate::tools::ability_for_nation;
@@ -1226,9 +1371,16 @@ mod tests {
 
         let mut alerts = Alerts::default();
         alerts.update(&s, 0.0);
-        assert_eq!(alerts.history().len(), 1, "{:?}", alerts.history());
-        let entry = &alerts.history()[0];
+        let stockpile = |a: &Alerts| {
+            a.history().iter().filter(|e| e.kind == Kind::Stockpile).cloned().collect::<Vec<_>>()
+        };
+        assert_eq!(stockpile(&alerts).len(), 1, "{:?}", alerts.history());
+        let entry = &stockpile(&alerts)[0];
         assert_eq!(entry.kind, Kind::Stockpile);
+        let open: Vec<_> =
+            alerts.open().into_iter().filter(|t| t.kind == Kind::Stockpile).collect();
+        assert_eq!(open.len(), 1, "one grouped entry open: {open:?}");
+        assert!(open[0].text.starts_with("Stockpiles are full. "), "{}", open[0].text);
         assert!(entry.text.contains("wood"), "{}", entry.text);
         assert!(entry.text.contains("full"), "{}", entry.text);
         assert!(entry.worth_stopping(), "worth an agent's attention (#337)");
@@ -1238,7 +1390,7 @@ mod tests {
             s.tick();
             alerts.update(&s, 0.0);
         }
-        assert_eq!(alerts.history().len(), 1);
+        assert_eq!(stockpile(&alerts).len(), 1);
     }
 
     /// Every unit starts at full chi (`World::new`), so there's always "chi to spare" from
@@ -1570,5 +1722,116 @@ mod tests {
             ..Entry::blank()
         };
         assert!(!entry.worth_stopping());
+    }
+
+    /// Three items stuck at once (#656): the message log keeps a line for each, but the panel
+    /// has one open alert that lists them all, and it stays one entry as the counts change.
+    #[test]
+    fn full_stockpiles_are_one_open_alert_but_one_log_line_per_item() {
+        let s = Session::new(7, Nation::Earth, 48, 32);
+        let stuck: Vec<(ItemId, String, u32)> = [("stone", 442), ("fish", 17), ("fruit", 15)]
+            .into_iter()
+            .map(|(id, n)| (s.defs.item_id(id).unwrap(), id.to_owned(), n))
+            .collect();
+        let mut alerts = Alerts::default();
+        let mut fresh = Vec::new();
+        alerts.note_stuck(100, &stuck, &mut fresh);
+        assert_eq!(fresh.len(), 3, "one line per item for the log");
+
+        let open = alerts.open();
+        assert_eq!(open.len(), 1, "{open:?}");
+        assert_eq!(
+            open[0].text,
+            "Stockpiles are full. 442 stone, 17 fish and 15 fruit have nowhere to go."
+        );
+        assert_eq!((open[0].kind, open[0].category), (Kind::Stockpile, Category::Alert));
+
+        // The same items on the next call add no lines, and the counts are the live ones.
+        let more: Vec<_> = stuck.iter().map(|(i, n, c)| (*i, n.clone(), c + 1)).collect();
+        let mut fresh = Vec::new();
+        alerts.note_stuck(101, &more, &mut fresh);
+        assert!(fresh.is_empty());
+        assert!(alerts.open()[0].text.contains("443 stone, 18 fish and 16 fruit"));
+
+        // Nothing stuck any more: the alert closes.
+        alerts.note_stuck(102, &[], &mut fresh);
+        assert!(alerts.open().is_empty());
+    }
+
+    #[test]
+    fn the_grouped_stockpile_alert_reads_for_one_item_and_for_two() {
+        let one = [("wood".to_owned(), 42)];
+        assert_eq!(describe_stores_full(&one), "Stockpiles are full. 42 wood have nowhere to go.");
+        let single = [("wood".to_owned(), 1)];
+        assert_eq!(describe_stores_full(&single), "Stockpiles are full. 1 wood has nowhere to go.");
+        let two = [("wood".to_owned(), 4), ("fish".to_owned(), 2)];
+        assert_eq!(
+            describe_stores_full(&two),
+            "Stockpiles are full. 4 wood and 2 fish have nowhere to go."
+        );
+    }
+
+    /// Research points banked with no target is an open alert; setting a target closes it
+    /// (#656). The log gets one line when it is raised, not one a frame.
+    #[test]
+    fn banked_research_with_no_target_is_an_alert_until_a_target_is_set() {
+        let mut s = Session::new(7, Nation::Earth, 48, 32);
+        let mut alerts = Alerts::default();
+        alerts.update(&s, 0.0);
+        assert!(alerts.open().is_empty(), "nothing banked yet");
+        run_until(&mut s, |s| s.world.research().pool_millis() >= MILLIS_PER_POINT);
+        alerts.update(&s, 0.0);
+        let open = alerts.open_alerts();
+        assert_eq!(open.len(), 1, "{open:?}");
+        assert_eq!(open[0].kind, Kind::Research);
+        assert!(open[0].text.starts_with("No research target is set. "), "{}", open[0].text);
+        assert!(open[0].text.ends_with(" waiting."), "{}", open[0].text);
+        let lines = |a: &Alerts| a.history().iter().filter(|e| e.kind == Kind::Research).count();
+        assert_eq!(lines(&alerts), 1);
+        assert_eq!(alerts.history()[0].category, Category::Alert);
+        assert!(!alerts.history()[0].worth_stopping());
+        for _ in 0..50 {
+            s.tick();
+            alerts.update(&s, 0.0);
+        }
+        assert_eq!(lines(&alerts), 1, "staying idle doesn't log again");
+
+        let shelter = s.defs.tech_id("shelter").unwrap();
+        s.apply(Command::SetResearch { tech: shelter }).unwrap();
+        alerts.update(&s, 0.0);
+        assert!(alerts.open().is_empty(), "a target is set: {:?}", alerts.open());
+        assert_eq!(lines(&alerts), 1, "the log keeps what it said");
+    }
+
+    #[test]
+    fn open_alerts_come_most_urgent_first_then_newest_first_with_notices_last() {
+        let s = Session::new(7, Nation::Earth, 48, 32);
+        let mut alerts = Alerts::default();
+        alerts.update(&s, 0.0);
+        let toast = |kind: Kind, text: &str, tick: u64| Entry {
+            tick,
+            kind,
+            category: kind.category(true),
+            text: text.to_owned(),
+            left: 5.0,
+            toast: Some(ToastSpec { subject: text.to_owned(), text: text.to_owned() }),
+            failed: true,
+            ..Entry::blank()
+        };
+        alerts.log.push(toast(Kind::Tech, "Learned Shelter", 50));
+        alerts.log.push(toast(Kind::Bend, "Haru's Raise Earth failed", 10));
+        alerts.log.push(toast(Kind::Bend, "Mei's Raise Earth failed", 20));
+        alerts.research_idle = Some((30, 84));
+        alerts.stores_full = vec![("stone".to_owned(), 5)];
+        alerts.stores_since = 5;
+        let order: Vec<Kind> = alerts.open().iter().map(|t| t.kind).collect();
+        assert_eq!(
+            order,
+            [Kind::Stockpile, Kind::Research, Kind::Bend, Kind::Bend, Kind::Tech],
+            "stores, then idle capacity (newest first), then the news"
+        );
+        let texts: Vec<String> = alerts.open().into_iter().map(|t| t.text).collect();
+        assert_eq!(texts[2], "Mei's Raise Earth failed");
+        assert_eq!(alerts.open_alerts().len(), 4, "the learned tech is a notice, not an alert");
     }
 }
