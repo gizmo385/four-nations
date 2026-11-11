@@ -1,0 +1,7 @@
+,,,,,,,,,,,,,,,,,,,,,,,,,",,,"
+,,,,,,,,,,,,,,,,,,,,,"""",""""
+,,Λ,,,,,,,,,,,,,,,,,""""""""""
+,,,,,,,,,,,,,,,,,"""""""""""""
+,,,,,,,,,,,,,,,,,,,,,"""""""""
+
+notice: build Wind Gate: 1 done, 0 skipped. Pick the partner: Enter places or sets it, Esc leaves it unset

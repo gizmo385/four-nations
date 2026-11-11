@@ -1847,7 +1847,7 @@ fn describe_thing(session: &Session, thing: &Thing, pos: Pos) -> String {
         Thing::EarthTent => "earth tent".to_owned(),
         Thing::AirShield => "air shield".to_owned(),
         Thing::Sapling => "sapling".to_owned(),
-        Thing::Link => "chute line".to_owned(),
+        Thing::Link => "link line".to_owned(),
         Thing::RestingResource(r) => format!("{} (resting)", defs.resource(*r).name),
         Thing::Resource(r) => defs.resource(*r).name.clone(),
         Thing::Ground => "-".to_owned(),

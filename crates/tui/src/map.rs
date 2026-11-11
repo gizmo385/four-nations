@@ -345,17 +345,19 @@ fn power_reaches(
     reaches
 }
 
-/// The `:` line's tiles (#683): from the chute being linked to the cursor while its foot is
-/// being picked, else from the chute under the cursor to the foot it points at, if any.
+/// The `:` line's tiles (#683, #698): from the chute or pair end being linked to the cursor while
+/// its other end is being picked, else from the one under the cursor to the foot or partner it
+/// points at, if any.
 fn link_tiles(session: &Session, ui: &UiState) -> BTreeSet<Pos> {
     let (head, foot) = match ui.linking {
         Some(head) => (head, Some(ui.cursor)),
-        None if fn_ui::chute::is_head(session, ui.cursor) => {
-            (ui.cursor, session.world.link_at(ui.cursor))
-        }
-        None => return BTreeSet::new(),
+        None => match fn_ui::link::head_at(session, ui.cursor) {
+            Some(head) => (head, session.world.link_at(head)),
+            None => return BTreeSet::new(),
+        },
     };
-    foot.map(|foot| fn_ui::chute::link_line(head, foot).into_iter().collect()).unwrap_or_default()
+    foot.map(|foot| fn_ui::link::line(session, head, foot).into_iter().collect())
+        .unwrap_or_default()
 }
 
 /// The ring tile below the middle of the bottom row, same side as `Footprint::entrance` but one
@@ -560,7 +562,7 @@ pub enum Thing {
     /// A resource resting after being harvested, greyed until it regrows.
     RestingResource(ResourceId),
     Resource(ResourceId),
-    /// A tile on a chute's link line (#683): `:` between the head and its foot.
+    /// A tile on a link line (#683, #698): `:` between a chute's head and foot, or a pair's ends.
     Link,
     /// Nothing on top: the terrain or biome itself draws.
     Ground,

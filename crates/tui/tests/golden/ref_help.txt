@@ -26,7 +26,7 @@
 │                                                            Esc    Drop the corner, then leave                        │
 │                                                            O      Standing order (Harvest)                           │
 │                                                            O      Also sites, stockpiles (Cancel)                    │
-│                                                            O      Move a chute's foot (Select)                       │
+│                                                            O      Move a chute foot or partner (Select)              │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │

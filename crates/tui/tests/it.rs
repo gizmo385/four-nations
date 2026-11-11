@@ -24,6 +24,7 @@ mod menu;
 mod message_log;
 mod meter_and_clock;
 mod nation;
+mod pairs;
 mod panel_alerts;
 mod panels;
 mod rail;

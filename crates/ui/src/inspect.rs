@@ -160,7 +160,8 @@ fn horizons_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
             (_, None) => "Idle: not winter".to_owned(),
         });
     }
-    if let Some((have, fuel)) = bunker {
+    // A beast's home keeps its food in the bunker: `beast_lines` says it, as `Food: 5/8`.
+    if let Some((have, fuel)) = bunker.filter(|_| world.beast_housed_at(anchor).is_none()) {
         if have.count > 0 {
             let item =
                 have.item.map_or_else(|| fuel.names(defs), |held| defs.item(held).name.clone());
@@ -207,7 +208,11 @@ pub fn chute_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
 /// there.
 pub fn pair_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
     use fn_sim::world::PairStatus;
-    let Some(b) = world.building_at(anchor) else { return Vec::new() };
+    // A site reads its status too, so the first end placed says it is waiting for a partner.
+    let Some(b) = world.building_at(anchor).or_else(|| world.build_site(anchor).map(|s| s.0))
+    else {
+        return Vec::new();
+    };
     let def = defs.building(b);
     let Some(status) = world.pair_status(anchor, defs) else { return Vec::new() };
     let mut lines = vec![match status {
@@ -218,8 +223,78 @@ pub fn pair_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
             format!("Partner: ({}, {}), {distance} tiles", partner.x, partner.y)
         }
     }];
-    if def.glide.is_some() {
+    if def.glide.is_some() && world.building_at(anchor).is_some() {
         lines.push(format!("Crossings: {}", world.crossings_at(anchor)));
+    }
+    lines
+}
+
+/// The beast a Stable or Den houses (docs/design/horizons-phase-2.md, "`herding`" and
+/// "`badgermole_ways`"): a Den's `Boring: 4 tiles left` and `Bored: 23`, then `Food: 5/8` (what
+/// the bunker holds), then `Hungry` once that is empty, else `Hauling 10 Stone` while it carries
+/// a load.
+pub fn beast_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
+    let mut lines = Vec::new();
+    let Some(beast) = world.beast_housed_at(anchor) else { return lines };
+    // A Badgermole Den's tunnelling (`badgermole_ways`): what is left to bore, and what has been.
+    if let Some(left) = world.boring_left(anchor, defs) {
+        lines.push(match left {
+            0 => "Boring: nothing designated".to_owned(),
+            1 => "Boring: 1 tile left".to_owned(),
+            n => format!("Boring: {n} tiles left"),
+        });
+    }
+    if let Some(bored) = world.bored_by(anchor, defs) {
+        lines.push(format!("Bored: {bored}"));
+    }
+    if let Some((have, fuel)) = world.bunker_at(anchor, defs) {
+        lines.push(format!("Food: {}/{}", have.count, fuel.bunker));
+    }
+    if world.beast_hungry(beast, defs) {
+        lines.push("Hungry".to_owned());
+    } else if beast.carrying.is_some() {
+        lines.push(format!("Hauling {}", describe_stack(defs, beast.carrying)));
+    }
+    lines
+}
+
+/// A Balloon Dock's hold and balloon (docs/design/horizons-phase-2.md, "`cargo_balloons`"):
+/// `Hold: 12/40`, then `Balloon: landing in 9s`, `Balloon: parked`, `Balloon: away` or
+/// `Balloon: needs wood`. The bunker's `Fuel: 6/10 Wood` is `horizons_lines`'s, as for any fuel.
+pub fn dock_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
+    use fn_sim::world::BalloonStatus;
+    let Some((held, hold)) = world.dock_hold(anchor, defs) else { return Vec::new() };
+    let mut lines = vec![format!("Hold: {held}/{hold}")];
+    if let Some(status) = world.balloon_status(anchor, defs) {
+        lines.push(match status {
+            BalloonStatus::Away => "Balloon: away".to_owned(),
+            BalloonStatus::Parked => "Balloon: parked".to_owned(),
+            BalloonStatus::Landing { ticks } => {
+                let secs = ticks.div_ceil(u64::from(fn_sim::world::TICKS_PER_SECOND));
+                format!("Balloon: landing in {secs}s")
+            }
+            BalloonStatus::OutOfFuel(item) => {
+                format!("Balloon: needs {}", defs.item(item).name.to_lowercase())
+            }
+        });
+    }
+    lines
+}
+
+/// A Waystation's pantry and beds (docs/design/horizons-phase-2.md, "`waystations`"):
+/// `Pantry: 9/12` or `Pantry empty`, then `Beds: 1/2 taken`.
+pub fn outpost_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
+    let mut lines = Vec::new();
+    let Some(b) = world.building_at(anchor) else { return lines };
+    let def = defs.building(b);
+    if let Some((pantry, size)) = world.pantry_at(anchor, defs) {
+        lines.push(match pantry.total() {
+            0 => "Pantry empty".to_owned(),
+            have => format!("Pantry: {have}/{size}"),
+        });
+    }
+    if def.outpost.is_some() && def.bed.is_some() && def.capacity > 0 {
+        lines.push(format!("Beds: {}/{} taken", world.occupants(anchor).count(), def.capacity));
     }
     lines
 }
@@ -306,6 +381,9 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
         lines.push(Line::Title(format!("{} (under construction)", report.name)));
         lines.push(Line::Detail(report.materials));
         lines.push(Line::Detail(report.work));
+        if let Some(anchor) = world.footprint_at(tile).map(|f| f.anchor) {
+            lines.extend(pair_lines(world, defs, anchor).into_iter().map(Line::Detail));
+        }
         lines.push(Line::Hint(if tool == Tool::CancelHarvest {
             Hint::ApplyTool(Tool::CancelHarvest)
         } else {
@@ -365,6 +443,9 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
         }
         lines.extend(chute_lines(world, defs, at).into_iter().map(Line::Detail));
         lines.extend(pair_lines(world, defs, at).into_iter().map(Line::Detail));
+        lines.extend(dock_lines(world, defs, at).into_iter().map(Line::Detail));
+        lines.extend(outpost_lines(world, defs, at).into_iter().map(Line::Detail));
+        lines.extend(beast_lines(world, defs, at).into_iter().map(Line::Detail));
         return Some(lines);
     }
     let biome = &defs.biome(t.biome).name;
@@ -1083,6 +1164,74 @@ mod tests {
         let want = format!("Partner: ({}, {}), {tiles} tiles", other.x, other.y);
         assert_eq!(details(&s, pos)[1..], [want, "Crossings: 0".to_owned()]);
         assert!(tooltip_lines(&s, Tool::Select, pos).unwrap().len() <= 4);
+    }
+
+    /// The Balloon Dock (#692, #698): its partner, hold and bunker; the balloon only once the
+    /// pair works.
+    #[test]
+    fn a_balloon_dock_says_its_hold_and_its_fuel() {
+        let mut s = Session::new(7, Nation::Fire, 64, 64);
+        let pos = spot(&s);
+        put(&mut s, "balloon_dock", pos);
+        let id = s.defs.building_id("balloon_dock").unwrap();
+        let hold = s.defs.building(id).balloon.unwrap().hold;
+        assert_eq!(
+            details(&s, pos)[1..],
+            ["Out of wood".to_owned(), "No partner".to_owned(), format!("Hold: 0/{hold}")]
+        );
+        let s = spliced(s, None, Some(6));
+        let lines = details(&s, pos);
+        assert_eq!(lines[1], "Fuel: 6/10 Wood");
+    }
+
+    /// The Stable (#696, #698): the bunker as the beast's food, and the beast resting hungry.
+    #[test]
+    fn a_stable_says_its_beasts_food_and_that_it_is_hungry() {
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let pos = spot(&s);
+        put(&mut s, "stable", pos);
+        s.tick();
+        assert_eq!(details(&s, pos)[1..], ["Food: 0/8".to_owned(), "Hungry".to_owned()]);
+        let s = spliced(s, None, Some(5));
+        assert_eq!(details(&s, pos)[1..], ["Food: 5/8".to_owned()]);
+    }
+
+    /// The Badgermole Den (#697, #698): what is left to bore, what has been, and the food.
+    #[test]
+    fn a_den_says_what_is_left_to_bore() {
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let pos = spot(&s);
+        put(&mut s, "badgermole_den", pos);
+        s.tick();
+        assert_eq!(
+            details(&s, pos)[1..],
+            ["Boring: nothing designated", "Bored: 0", "Food: 0/10", "Hungry"]
+        );
+    }
+
+    /// The Waystation (#694, #698): its pantry and its beds.
+    #[test]
+    fn a_waystation_says_its_pantry_and_beds() {
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let pos = spot(&s);
+        put(&mut s, "waystation", pos);
+        let want = ["Pantry empty".to_owned(), "Beds: 0/2 taken".to_owned()];
+        assert_eq!(details(&s, pos)[1..], want);
+    }
+
+    /// A pair's first end, placed and not yet built (#698): it says it has no partner yet.
+    #[test]
+    fn a_pair_site_says_it_has_no_partner() {
+        let mut s = Session::new(7, Nation::Air, 64, 64);
+        let pos = spot(&s);
+        let gate = s.defs.building_id("wind_gate").unwrap();
+        s.defs.buildings[gate.0 as usize].unlocked_by = None;
+        s.apply(fn_sim::world::Command::DesignateBuild { pos, building: gate }).unwrap();
+        let lines = tooltip_lines(&s, Tool::Select, pos).unwrap();
+        assert!(
+            lines.iter().any(|l| matches!(l, Line::Detail(d) if d == "No partner")),
+            "{lines:?}"
+        );
     }
 
     /// The Hothouse (#680, #682): out of wood, else idle outside winter, with its fuel.

@@ -511,6 +511,25 @@ fn fuel_line(item: &str, per_minute: f32, when: &str) -> String {
     }
 }
 
+/// What the beast a building houses does (docs/design/horizons-phase-2.md, "`herding`" and
+/// "`badgermole_ways`"): `Houses an ostrich horse: carries 10 on trips of 10 tiles or more`, or
+/// `A badgermole bores designated tunnel`.
+fn beast_lines(beast: &fn_sim::beast::BeastDef) -> Vec<String> {
+    use fn_sim::beast::BeastWork;
+    let name = beast.name.to_lowercase();
+    let article = if name.starts_with(['a', 'e', 'i', 'o', 'u']) { "an" } else { "a" };
+    match beast.work {
+        BeastWork::Haul { carry, min_trip } => vec![format!(
+            "Houses {article} {name}: carries {carry} on trips of {min_trip} tiles or more"
+        )],
+        BeastWork::Bend { .. } => {
+            let mut article = article.to_owned();
+            article[..1].make_ascii_uppercase();
+            vec![format!("{article} {name} bores designated tunnel")]
+        }
+    }
+}
+
 /// [`BuildingDetail`] for `id`, for the Build modal's detail pane.
 pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
     let def = session.defs.building(id);
@@ -586,7 +605,8 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
         }
     }
     if let (Some(p), Some(_)) = (&def.pair, &def.glide) {
-        effects.push(format!("Built in pairs: people glide between them, up to {} tiles", p.reach));
+        effects.push(format!("Carries people to its partner up to {} tiles away", p.reach));
+        effects.push("Loads stay behind".to_owned());
     }
     if let (Some(_), Some(p)) = (&def.balloon, &def.pair) {
         effects.push(format!("Flies goods to its partner up to {} tiles away", p.reach));
@@ -594,12 +614,27 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
     if let Some(h) = &def.hothouse {
         effects.push(format!("Plots within {} tiles grow through winter", h.radius));
     }
+    // A beast's home (the Stable, the Den): the nation's own beast and what it costs to keep.
+    let beast = session
+        .defs
+        .beast_for(session.world.nation, id)
+        .filter(|_| def.houses_beast)
+        .map(|b| session.defs.beast(b));
+    if let Some(b) = beast {
+        effects.extend(beast_lines(b));
+    }
     if let Some(fuel) = &def.fuel {
         // A Hothouse burns only in winter; every other bunker while its effect is in use.
         let when = if def.hothouse.is_some() { "in winter" } else { "while in use" };
         // With no `per_minute` the effect's own line says when (the balloon's, below).
         if let Some(per_minute) = fuel.per_minute {
-            effects.push(fuel_line(&fuel.names(&session.defs), per_minute, when));
+            if beast.is_some() {
+                // A beast eats whether or not it works: food an hour, not "while in use".
+                let hour = (per_minute * 60.0).round() as u32;
+                effects.push(format!("Eats {hour} food an hour"));
+            } else {
+                effects.push(fuel_line(&fuel.names(&session.defs), per_minute, when));
+            }
         }
     }
     if let (Some(b), Some(fuel)) = (&def.balloon, &def.fuel) {
@@ -960,6 +995,41 @@ mod tests {
         assert_eq!(report.materials, "Materials: 0/5 Wood");
         assert_eq!(report.work, "Work: 0s of 20s");
         assert_eq!(built_name(&earth, pos), None);
+    }
+
+    /// The phase-2 buildings' modal lines read as the design doc writes them (#698).
+    #[test]
+    fn the_phase_two_buildings_read_as_the_design_doc_writes_them() {
+        let effects = |nation, id: &str| {
+            let s = session(nation);
+            building_detail(&s, s.defs.building_id(id).unwrap()).effects
+        };
+        let has = |effects: &[String], want: &str| {
+            assert!(effects.iter().any(|e| e == want), "{want:?} not in {effects:?}");
+        };
+        has(
+            &effects(Nation::Earth, "stable"),
+            "Houses an ostrich horse: carries 10 on trips of 10 tiles or more",
+        );
+        has(&effects(Nation::Earth, "stable"), "Eats 9 food an hour");
+        has(
+            &effects(Nation::Fire, "stable"),
+            "Houses a komodo rhino: carries 12 on trips of 10 tiles or more",
+        );
+        has(
+            &effects(Nation::Air, "wind_gate"),
+            "Carries people to its partner up to 48 tiles away",
+        );
+        has(&effects(Nation::Air, "wind_gate"), "Loads stay behind");
+        has(
+            &effects(Nation::Fire, "balloon_dock"),
+            "Flies goods to its partner up to 64 tiles away",
+        );
+        has(&effects(Nation::Fire, "balloon_dock"), "Burns 2 wood a flight");
+        has(&effects(Nation::Earth, "waystation"), "Food, water and two beds for crews nearby");
+        has(&effects(Nation::Earth, "waystation"), "Must be 20 tiles from any stockpile");
+        has(&effects(Nation::Earth, "badgermole_den"), "A badgermole bores designated tunnel");
+        has(&effects(Nation::Earth, "badgermole_den"), "Eats 12 food an hour");
     }
 
     /// The Build modal's detail (#285): the nation's name, the cost against stores, the

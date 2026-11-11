@@ -28,6 +28,7 @@ pub mod endeavor;
 pub mod gate;
 pub mod inspect;
 pub mod keys;
+pub mod link;
 pub mod meter;
 pub mod msglog;
 pub mod research;

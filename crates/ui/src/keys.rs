@@ -519,7 +519,7 @@ fn build() -> Vec<Entry> {
     add(IN_TOOL, &[Action::ShowAbilities], "I", "abilities", None);
     only.set(None);
     // Select mode's `O` on a chute (#683): in no hint bar, only in the key help.
-    add(&[], &[], "O", "foot", help(in_tool, "Move a chute's foot (Select)"));
+    add(&[], &[], "O", "link", help(in_tool, "Move a chute foot or partner (Select)"));
 
     let time = Some(Group::Time);
     add(&[Mode::Anywhere], &[Action::TogglePause], "Space", "pause", help(time, "Pause or run"));
