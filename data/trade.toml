@@ -1,0 +1,152 @@
+# Caravans (#437, docs/design/pacing.md section 2): traders from the other three nations camp
+# near the settlement once a season with fixed barters and one request. They turn the two
+# surpluses, food and wood, into what is scarce. There are no prices and no currency.
+#
+# [caravans]
+# - opens:            a chapter id (data/endeavor.toml); caravans come from the moment it is met.
+#                     Omitted, they come from minute 0.
+# - interval_minutes: one caravan every this many minutes (15: one a season).
+# - offset_minutes:   how far into each interval it arrives, so it doesn't land on the season's
+#                     own alert. offset + stay must fit in the interval.
+# - stay_minutes:     how long it camps.
+# - camp_distance:    [near, far]: the camp's anchor is this many path tiles from the
+#                     settlement anchor. The camp is the first free 2x2 spot in that band,
+#                     searched in row-major order; with none, the visit is skipped.
+# - deals_per_visit:  how many of the caravan's deals each visit offers, drawn at random.
+# - order:            whose turn it is, in turn. The settlement's own nation is skipped. Every
+#                     nation named needs a [[caravan]].
+#
+# [[caravan]]: one nation's traders.
+# - nation, name.
+# [[caravan.deal]]: a fixed barter, taken up to `times` a visit.
+# - give:      [{ item, count }]: what the settlement hauls to the camp. "food" means any food
+#              items, as the food sign counts them. No two entries may take the same item.
+# - get:       [{ item, count }]: what appears as a stack at the camp once `give` is in.
+#              Concrete items only. A caravan sells at most 10 food a visit (so farms stay
+#              necessary; #440 sets the lots).
+# - knowledge: research points each time, on top of `get` (Air sells knowledge).
+# - times:     1 to 10.
+# [[caravan.request]]: a one-off gift with no goods back. One is offered each visit.
+# - name, give (as a deal's).
+# - reward:    { knowledge = N } research points, or { draw = X } of a newcomer (up to
+#              data/needs.toml's growth.draw.bank). { chart = 1 } is refused until a caravan's
+#              chart has a system.
+
+[caravans]
+opens = "known_on_the_road"
+interval_minutes = 15.0
+offset_minutes = 4.0
+stay_minutes = 9.0
+camp_distance = [8, 14]
+deals_per_visit = 3
+order = ["earth", "fire", "water", "air"]
+
+# --- Earth: stone, ore and tools ---
+[[caravan]]
+nation = "earth"
+name = "Earth Kingdom traders"
+
+[[caravan.deal]]
+give = [{ item = "food", count = 30 }]
+get = [{ item = "stone", count = 20 }]
+times = 2
+
+[[caravan.deal]]
+give = [{ item = "wood", count = 25 }]
+get = [{ item = "gold_ore", count = 3 }]
+times = 2
+
+[[caravan.deal]]
+give = [{ item = "wood", count = 20 }, { item = "food", count = 10 }]
+get = [{ item = "tool", count = 2 }]
+times = 2
+
+[[caravan.deal]]
+give = [{ item = "stone", count = 15 }]
+get = [{ item = "cabbage", count = 5 }]
+times = 2
+
+[[caravan.request]]
+name = "Food for the miners of Omashu"
+give = [{ item = "food", count = 40 }]
+reward = { draw = 0.5 }
+
+# --- Fire: metal and bricks ---
+[[caravan]]
+nation = "fire"
+name = "Fire Nation traders"
+
+[[caravan.deal]]
+give = [{ item = "food", count = 30 }]
+get = [{ item = "metal", count = 2 }]
+times = 2
+
+[[caravan.deal]]
+give = [{ item = "wood", count = 40 }]
+get = [{ item = "brick", count = 8 }]
+times = 3
+
+[[caravan.deal]]
+give = [{ item = "wood", count = 25 }]
+get = [{ item = "gold_ore", count = 3 }]
+times = 2
+
+[[caravan.deal]]
+give = [{ item = "stone", count = 15 }]
+get = [{ item = "fruit", count = 5 }]
+times = 2
+
+[[caravan.request]]
+name = "Food for the families at Fire Fountain City"
+give = [{ item = "food", count = 40 }]
+reward = { draw = 0.5 }
+
+# --- Water: fish and healing herbs ---
+[[caravan]]
+nation = "water"
+name = "Water Tribe traders"
+
+[[caravan.deal]]
+give = [{ item = "stone", count = 15 }]
+get = [{ item = "fish", count = 5 }]
+times = 2
+
+[[caravan.deal]]
+give = [{ item = "wood", count = 20 }]
+get = [{ item = "herbs", count = 4 }]
+times = 2
+
+[[caravan.deal]]
+give = [{ item = "wood", count = 30 }]
+get = [{ item = "ice", count = 6 }]
+times = 2
+
+[[caravan.request]]
+name = "Timber for the boats of the Southern Water Tribe"
+give = [{ item = "wood", count = 50 }]
+reward = { draw = 0.5 }
+
+# --- Air: knowledge ---
+[[caravan]]
+nation = "air"
+name = "Air Nomad travellers"
+
+[[caravan.deal]]
+give = [{ item = "food", count = 25 }]
+knowledge = 40
+times = 2
+
+[[caravan.deal]]
+give = [{ item = "wood", count = 30 }]
+knowledge = 30
+times = 2
+
+[[caravan.deal]]
+give = [{ item = "stone", count = 15 }]
+get = [{ item = "fruit", count = 5 }]
+times = 2
+
+[[caravan.request]]
+name = "Food for the monks of the Eastern Air Temple"
+give = [{ item = "food", count = 40 }]
+reward = { knowledge = 60 }

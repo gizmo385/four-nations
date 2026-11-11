@@ -71,6 +71,12 @@ pub enum Command {
     /// Point the building anchored on `pos` at `to`: a chute's foot (`world/chute.rs`,
     /// docs/design/horizons-phase-1.md). It can be moved at any time.
     SetLink { pos: Pos, to: Pos },
+    /// Take slot `slot` of the camped caravan's offers once more (`world/trade.rs`, #437):
+    /// deals first, in the order the visit lists them, then its request. Settlers haul the goods.
+    TakeDeal { slot: u8 },
+    /// Drop what is still owed on slot `slot`; goods already handed over for it go back on the
+    /// ground at the camp.
+    CancelDeal { slot: u8 },
 }
 
 /// Why a command was refused. The world is unchanged when `apply` returns one of these.
@@ -82,6 +88,7 @@ pub enum CommandError {
     Build(BuildError),
     Endeavor(EndeavorError),
     Link(LinkError),
+    Trade(TradeError),
 }
 
 impl CommandError {
@@ -110,6 +117,7 @@ impl CommandError {
             Self::Build(e) => matches!(e, BuildError::NotResearched(_) | BuildError::NotDesignated),
             Self::Endeavor(e) => matches!(e, EndeavorError::NotReady),
             Self::Link(_) => false,
+            Self::Trade(e) => matches!(e, TradeError::NoCaravan | TradeError::AllTaken),
         }
     }
 }
@@ -171,6 +179,7 @@ impl std::fmt::Display for CommandError {
             Self::Build(e) => e.fmt(f),
             Self::Endeavor(e) => e.fmt(f),
             Self::Link(e) => e.fmt(f),
+            Self::Trade(e) => e.fmt(f),
         }
     }
 }
@@ -220,6 +229,10 @@ impl World {
             Command::Deconstruct { pos } => self.designate_deconstruct(pos, defs).map(drop)?,
             Command::CancelDeconstruct { pos } => self.cancel_deconstruct(pos)?,
             Command::SetLink { pos, to } => self.set_link(pos, to, defs)?,
+            Command::TakeDeal { slot } => {
+                self.take_deal(slot, defs).map_err(CommandError::Trade)?
+            }
+            Command::CancelDeal { slot } => self.cancel_deal(slot).map_err(CommandError::Trade)?,
         }
         self.command_log.push(Recorded { tick: self.tick, command });
         Ok(())

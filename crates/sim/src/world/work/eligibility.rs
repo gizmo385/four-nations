@@ -77,7 +77,8 @@ pub(super) fn avatar_may_take(kind: JobKind) -> bool {
         | JobKind::Clear { .. }
         | JobKind::Chart { .. }
         | JobKind::Deconstruct { .. }
-        | JobKind::Refuel { .. } => false,
+        | JobKind::Refuel { .. }
+        | JobKind::Trade { .. } => false,
     }
 }
 
@@ -221,6 +222,8 @@ impl World {
             }
             JobKind::Deconstruct { pos } => self.anchored(pos).is_some(),
             JobKind::Refuel { pos } => self.fuel_shortfall(pos, defs).is_some(),
+            // Live while the visit is here and the offer still needs goods (`trade.rs`).
+            JobKind::Trade { pos, slot } => self.trade_job_wanted(pos, slot, defs),
             // The gate drops its own task and Attend jobs when it moves on (`gate.rs`).
             JobKind::EndeavorTask { .. } | JobKind::Attend { .. } => true,
             // Moot if the plot is gone (taken down, #342) or moved past the stage this job was
@@ -269,6 +272,11 @@ impl World {
                 .fuel_shortfall(pos, defs)
                 .filter(|&(item, short)| short > 0 && self.any_source_for_fuel(item))
                 .and_then(|_| free(StandRule::Building(pos))),
+            // Only while the offer still needs goods some store holds, as Refuel does.
+            JobKind::Trade { pos, slot } => (self.trade_job_wanted(pos, slot, defs)
+                && self.trade_source(slot, defs).is_some())
+            .then(|| free(StandRule::Tile(pos)))
+            .flatten(),
             JobKind::Reap { pos } => (self.plot_stage(pos) == Some(PlotStage::Ripe))
                 .then(|| free(StandRule::Building(pos)))
                 .flatten(),
@@ -408,6 +416,7 @@ mod tests {
             JobKind::Chart { pos: p },
             JobKind::Deconstruct { pos: p },
             JobKind::Refuel { pos: p },
+            JobKind::Trade { pos: p, slot: 0 },
         ];
         for kind in all {
             let expected = matches!(kind, JobKind::Bend { .. } | JobKind::EndeavorTask { .. });

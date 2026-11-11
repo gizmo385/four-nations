@@ -726,6 +726,9 @@ fn line_for(session: &Session, ev: &Event) -> Option<Line> {
         }
         // Harm reaches the alert log here, but has no line yet: its wording is #393's.
         Event::Harm(_) => return None,
+        // Caravans (#437) reach the alert log here, but have no line yet: their wording and
+        // toasts come with the Traders screen (docs/design/pacing.md, follow-up E).
+        Event::Caravan(_) => return None,
         Event::Chart(ev) => {
             let (text, toast) = describe_chart_event(session, ev);
             let line = Line::new(Kind::Chart, text, Some(toast));
@@ -1696,7 +1699,7 @@ mod tests {
                 Event::Endeavor(_) => Some(Kind::Endeavor),
                 Event::Arrival(_) => Some(Kind::Arrival),
                 Event::Season(_) | Event::Strain(_) => Some(Kind::Season),
-                Event::Harm(_) => None,
+                Event::Harm(_) | Event::Caravan(_) => None,
                 Event::Chart(_) => Some(Kind::Chart),
             };
             assert_eq!(*line, want, "{ev:?}");

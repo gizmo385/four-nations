@@ -236,6 +236,11 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
                 None => "Refuelling".into(),
             }
         }
+        // A haul to a caravan's camp (#437).
+        Task::Trade(_) => match world.caravan_def(defs) {
+            Some(c) => format!("Hauling goods to the {}", c.name),
+            None => "Hauling goods to a caravan".into(),
+        },
         Task::Haul(id) => {
             let at = world.job(id).and_then(|j| match j.kind {
                 JobKind::Haul { pos } => Some(pos),
@@ -251,6 +256,7 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
                 JobKind::Chart { .. } | JobKind::Deconstruct { .. } | JobKind::Refuel { .. } => {
                     None
                 }
+                JobKind::Trade { .. } => None,
             });
             let stack = at.and_then(|p| world.ground_items().find(|(q, _)| *q == p));
             match (stack, at) {

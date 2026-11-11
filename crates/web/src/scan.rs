@@ -60,7 +60,7 @@ pub struct Marker {
 }
 
 /// The marker one world event makes, if it is one worth marking. Bends, seasons, picked-out
-/// plants, harm and charts are left off: they are routine or frequent enough to bury the rest.
+/// plants, harm, charts and caravans are left off: they are routine or frequent enough to bury the rest.
 pub fn marker_for(defs: &Defs, ev: &Event) -> Option<(MarkerKind, String)> {
     Some(match ev {
         Event::Death(d) => (MarkerKind::Death, describe_death(d)),
@@ -83,7 +83,13 @@ pub fn marker_for(defs: &Defs, ev: &Event) -> Option<(MarkerKind, String)> {
         }
         Event::Tech(t) => (MarkerKind::Learned, format!("Learned {}", defs.tech(t.tech).name)),
         Event::Arrival(a) => (MarkerKind::Arrival, describe_arrival(a)),
-        Event::Bend(_) | Event::Season(_) | Event::Strain(_) | Event::Harm(_) | Event::Chart(_) => {
+        // Caravans (#437) have no alert line yet, so no marker either.
+        Event::Bend(_)
+        | Event::Season(_)
+        | Event::Strain(_)
+        | Event::Harm(_)
+        | Event::Chart(_)
+        | Event::Caravan(_) => {
             return None;
         }
     })

@@ -56,6 +56,7 @@ mod strain;
 mod stride;
 mod study;
 mod tally;
+mod trade;
 mod work;
 
 pub use avatar::AvatarState;
@@ -88,6 +89,7 @@ pub use season::{Almanac, SeasonEvent, SeasonEventKind};
 pub use strain::StrainEvent;
 pub use stride::{STRIDE_LOOKAHEAD, Stride};
 pub use tally::Tallies;
+pub use trade::{CaravanEvent, CaravanEventKind, Offer, OfferKind, TradeError, TradeState, Visit};
 use work::StandRule;
 pub use work::{DesignateError, FoodSource, IdleReason, Task};
 
@@ -528,6 +530,10 @@ pub struct World {
     /// A v1 to v3 save's arrivals (#605): merged into `events` on load, never written.
     #[serde(default, skip_serializing, rename = "arrivals")]
     v3_arrivals: Vec<Arrival>,
+    /// Caravans: whose turn is next and the visit in progress (`world/trade.rs`, #437). A save
+    /// from before them loads none camped.
+    #[serde(default)]
+    trade: TradeState,
     /// Draw toward the next newcomer, in milli-units (`world/draw.rs`, #435). A save from
     /// before it loads 0 and starts filling.
     #[serde(default)]
@@ -635,6 +641,7 @@ impl World {
             v3_chart_events: Vec::new(),
             next_unit: 0,
             v3_arrivals: Vec::new(),
+            trade: TradeState::new(seed),
             draw: 0,
             draw_carry: 0,
             last_arrival: None,
@@ -932,6 +939,7 @@ impl World {
             self.act(i, defs);
         }
         self.tick_endeavor(defs);
+        self.tick_trade(defs);
         self.tick_avatar(defs);
         self.tick_rite(defs);
     }

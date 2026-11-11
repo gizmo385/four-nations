@@ -19,6 +19,7 @@ use crate::needs::{FoodDef, NeedsFile, NeedsSettings};
 use crate::path::MoveRules;
 use crate::research::{self, ResearchFile, ResearchSettings, TechDef, TechId};
 use crate::seasons::SeasonsDef;
+use crate::trade::{TradeDef, TradeFile};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -167,6 +168,9 @@ pub struct Defs {
     /// unloaded (`HarmDef::default`); nothing acts on it unless a difficulty preset's `harm`
     /// knob is above 0, and `bundled` always loads this alongside `difficulty`.
     pub harm: HarmDef,
+    /// Caravans (data/trade.toml, #437). Empty unless loaded with `with_trade`, which `bundled`
+    /// does: then no caravan ever comes.
+    pub trade: TradeDef,
     /// `harvests` index by `ResourceId`, so the lookup is O(1).
     harvest_by_resource: Vec<Option<usize>>,
 }
@@ -224,6 +228,10 @@ pub(crate) const BUNDLED_FILES: [&str; 13] = [
     include_str!("../../../data/harm.toml"),
 ];
 
+/// data/trade.toml (#437), read by [`Defs::bundled`] after the 13 files above. Kept apart from
+/// them so `Defs::from_files` and its callers don't change; data loaded that way has no caravans.
+pub(crate) const TRADE_FILE: &str = include_str!("../../../data/trade.toml");
+
 impl Defs {
     /// A hash of every id table (biomes, resources, nations, techs, items, buildings, abilities) in
     /// order: `SaveIds::of(self).hash()`. Ids such as `TechId` are indices into these tables, so
@@ -238,7 +246,19 @@ impl Defs {
     /// The definitions shipped in `data/`, embedded at compile time.
     pub fn bundled() -> Self {
         Self::from_files(BUNDLED_FILES)
+            .and_then(|d| d.with_trade(TRADE_FILE))
             .expect("bundled data/*.toml must be valid; run `cargo test -p fn_sim`")
+    }
+
+    /// These definitions with caravans read from `trade` (data/trade.toml, #437), replacing any
+    /// they had. Read after the endeavor, since `[caravans].opens` names one of its chapters.
+    pub fn with_trade(mut self, trade: &str) -> Result<Self, DefsError> {
+        self.trade = parse::<TradeFile>("trade.toml", trade)?.resolve(
+            &self.items,
+            &self.endeavor.chapters,
+            self.needs.growth.draw.bank,
+        )?;
+        Ok(self)
     }
 
     /// Definitions read from the text of the 13 `data/*.toml` files, in the order
@@ -275,7 +295,7 @@ impl Defs {
     /// versions. It cannot see a change to the code, only to `data/`.
     pub fn bundled_digest() -> u64 {
         let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-        for file in BUNDLED_FILES {
+        for file in BUNDLED_FILES.into_iter().chain([TRADE_FILE]) {
             for b in file.bytes().chain(std::iter::once(0)) {
                 h ^= u64::from(b);
                 h = h.wrapping_mul(0x0100_0000_01b3);
@@ -354,6 +374,7 @@ impl Defs {
             difficulty: DifficultyDef::default(),
             seasons: SeasonsDef::default(),
             harm: HarmDef::default(),
+            trade: TradeDef::default(),
             harvest_by_resource,
         };
         defs.validate()?;
