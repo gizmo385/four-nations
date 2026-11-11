@@ -113,9 +113,11 @@
 //! `normal`, the level the balance targets are set on. `agent-run watch` and `--scenario` runs
 //! are unaffected.
 //!
-//! Each run gets its own folder under $FN_AGENT_RUNS (default ~/fn-agent-runs), outside the
-//! repo. The agent gets only fn_agent's tools: that's the "in-game knowledge only" rule (#313,
-//! #476), enforced by how `claude` is started (sandbox.rs, #567), not by the game: from an empty
+//! Each run gets its own folder under $FN_AGENT_RUNS, outside the repo. Default:
+//! four-nations/runs in the data home beside the saves (~/.local/share/four-nations/runs on
+//! Linux; runs still in an old ~/fn-agent-runs are used until you move them, as it says). The
+//! agent gets only fn_agent's tools: that's the "in-game knowledge only" rule (#313, #476),
+//! enforced by how `claude` is started (sandbox.rs, #567), not by the game: from an empty
 //! temp directory, with no built-in tools, user or project settings, skills or Claude Code
 //! prompt, and only the run's own MCP config. That is a set of flags, not a container; see
 //! docs/design/agent-play.md, "The player's sandbox". Each session's transcript is copied into
@@ -673,13 +675,21 @@ fn claude_available(bin: &str) -> bool {
 // Run folders
 // -------------------------------------------------------------------------------------------
 
+/// The runs folder, by `fn_runfmt`'s one rule (#846): `$FN_AGENT_RUNS`, else the data home's
+/// `four-nations/runs`, beside the saves, which `fn_tui`'s Replays reads by the same rule. While
+/// old runs sit in `~/fn-agent-runs` and the new folder doesn't exist yet, that is still used,
+/// and this says once per command how to move them.
 fn runs_dir() -> PathBuf {
-    // Absolute, because the player runs in a different directory (#567).
-    if let Some(p) = std::env::var_os("FN_AGENT_RUNS") {
-        return sandbox::absolute(Path::new(&p));
+    static NOTED: std::sync::Once = std::sync::Once::new();
+    match fn_runfmt::runs_dir::RunsDir::for_process() {
+        Some(r) => {
+            if let Some(note) = r.note() {
+                NOTED.call_once(|| say(&note));
+            }
+            r.path
+        }
+        None => sandbox::absolute(Path::new(fn_runfmt::runs_dir::LEGACY_NAME)),
     }
-    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
-    sandbox::absolute(&home.join("fn-agent-runs"))
 }
 
 fn timestamp() -> String {
@@ -842,11 +852,12 @@ script) or with --record, it takes the newest run, as it always did.
 RUN_DIR   a run folder (the one holding run.jsonl), a campaign folder, or a .jsonl log such as
           a campaign's clean run (attempt-1/eval/v5-6/seed-7.jsonl). A bare folder name with no
           path is looked for under the runs folder. Default: the run browser in a terminal, else
-          the newest folder under $FN_AGENT_RUNS (else ~/fn-agent-runs), by the date in its
-          name; the folder opened is printed. A folder with no log yet is a run just starting,
-          so this waits (up to a minute) for the log; a folder that doesn't exist fails at once.
-          A campaign folder opens the run browser on that campaign, its attempts showing; with
-          no terminal (or --record) it watches the campaign's newest attempt that has a log.
+          the newest folder under $FN_AGENT_RUNS (else four-nations/runs in the data home,
+          ~/.local/share/four-nations/runs on Linux), by the date in its name; the folder
+          opened is printed. A folder with no log yet is a run just starting, so this waits (up
+          to a minute) for the log; a folder that doesn't exist fails at once. A campaign
+          folder opens the run browser on that campaign, its attempts showing; with no terminal
+          (or --record) it watches the campaign's newest attempt that has a log.
 
 options:
   --list           list the newest runs and campaigns, newest first by the date in the folder
@@ -3430,7 +3441,7 @@ mod tests {
             "j  k",
             "  q  ",
             "free look",
-            "fn-agent-runs",
+            "four-nations/runs",
         ] {
             assert!(WATCH_HELP.contains(want), "watch --help should mention {want:?}");
         }

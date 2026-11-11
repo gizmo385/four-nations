@@ -10,10 +10,13 @@
 //! their JSON form. `fn_tui` fixes them to the typed enums (`surface::LogLine` is
 //! `LogLine<Nation, EventKind>`); a reader that only counts lines, such as `xtask`, uses the
 //! plain strings.
+//!
+//! [`runs_dir`] is the one rule for where those files go (#846).
 
 pub mod campaign;
 mod handoff;
 mod log;
+pub mod runs_dir;
 
 pub use handoff::{Handoff, ScriptEntry};
 pub use log::{LogLine, Prelude, PreludeOpening, REPEAT_TEST_PREFIX, RunLogHeader, run_end_reason};

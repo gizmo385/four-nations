@@ -66,8 +66,8 @@ pub struct Shell {
     /// [`Self::with_fast`] sets it (and the current game's, if there is one already);
     /// [`Self::start`] and `App::restart` apply it to every game that appears after.
     fast: bool,
-    /// The agent runs folder (#841): `main` resolves it (`$FN_AGENT_RUNS`, else
-    /// `~/fn-agent-runs`) and hands it in with [`Self::with_runs`]. With none, or with nothing in
+    /// The agent runs folder (#841): `main` resolves it (`fn_runfmt::runs_dir`, #846)
+    /// and hands it in with [`Self::with_runs`]. With none, or with nothing in
     /// it, the title screen has no Replays item.
     runs: Option<PathBuf>,
     /// Set when the title screen's Replays was chosen, until the loop takes it
