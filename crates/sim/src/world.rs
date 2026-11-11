@@ -78,7 +78,7 @@ pub use heat::{Aura, Flame, Glow, HeatSource};
 pub use population::Arrival;
 pub use power::PowerAt;
 pub use probe::{Reach, Refusals};
-pub use season::{SeasonEvent, SeasonEventKind};
+pub use season::{Almanac, SeasonEvent, SeasonEventKind};
 pub use strain::StrainEvent;
 pub use stride::{STRIDE_LOOKAHEAD, Stride};
 pub use tally::Tallies;

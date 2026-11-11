@@ -495,6 +495,15 @@ impl Defs {
 
     /// The techs `nation` can see and research, with their ids, in file order: the shared tier
     /// (no `nation`) plus that nation's own branch. Other nations' branches are never listed.
+    /// The tech that unlocks `feature` (`Unlocks::features`), or `None` if no tech does, which
+    /// makes it available from the start.
+    pub fn feature_tech(&self, feature: crate::research::Feature) -> Option<TechId> {
+        self.techs
+            .iter()
+            .position(|t| t.unlocks.features.contains(&feature))
+            .map(|i| TechId(i as u16))
+    }
+
     pub fn techs_for(&self, nation: Nation) -> impl Iterator<Item = (TechId, &TechDef)> + '_ {
         self.techs
             .iter()

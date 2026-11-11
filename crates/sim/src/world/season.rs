@@ -38,7 +38,48 @@ pub enum SeasonEventKind {
     Frost { count: u32 },
 }
 
+/// What the Almanac shows (`World::almanac`, docs/design/horizons-phase-1.md): ticks until
+/// things the settlement can see coming.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Almanac {
+    /// Ticks to the next first frost; `None` when the preset brings no frost (seasons off, or
+    /// a winter severity of 0).
+    pub frost_in: Option<u64>,
+    /// Ticks to the next caravan; always `None` until caravans (#437) add an arrival clock.
+    pub caravan_in: Option<u64>,
+}
+
 impl World {
+    /// Whether `feature` is available to this settlement: no tech unlocks it, or the one that
+    /// does is known (`Unlocks::features`). Systems ask this, never a tech id.
+    pub fn has_feature(&self, feature: crate::research::Feature, defs: &Defs) -> bool {
+        self.is_unlocked(defs.feature_tech(feature))
+    }
+
+    /// The Almanac, once its feature is known (`calendar`); `None` before.
+    pub fn almanac(&self, defs: &Defs) -> Option<Almanac> {
+        if !self.has_feature(crate::research::Feature::Almanac, defs) {
+            return None;
+        }
+        Some(Almanac { frost_in: self.frost_in(defs), caravan_in: None })
+    }
+
+    /// Ticks until the next first frost (winter's first tick, `tick_season`), counting from the
+    /// next tick: `None` with no frost in this preset.
+    fn frost_in(&self, defs: &Defs) -> Option<u64> {
+        let knobs = self.knobs(defs);
+        if !knobs.seasons || knobs.winter_severity <= 0.0 {
+            return None;
+        }
+        let per = self.season_ticks(defs);
+        let year = per * defs.seasons.seasons.len() as u64;
+        let winter_start = defs.seasons.winter_index() as u64 * per;
+        // The frost fires on the tick whose `tick % year` is `winter_start`.
+        let into_year = self.tick % year;
+        let to = (winter_start + year - into_year) % year;
+        Some(if to == 0 { year } else { to })
+    }
+
     /// Ticks in one season (`[calendar].season_minutes`), at least 1.
     fn season_ticks(&self, defs: &Defs) -> u64 {
         defs.seasons.season_ticks()

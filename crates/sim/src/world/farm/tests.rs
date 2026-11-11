@@ -4,7 +4,9 @@ use crate::defs::{BiomeId, Terrain};
 use crate::geom::{Footprint, Grid};
 use crate::jobs::JobKind;
 use crate::mapgen::Tile;
+use crate::research::Feature;
 use crate::world::command::Command;
+use crate::world::season::Almanac;
 use crate::world::work::DesignateError;
 
 fn arena(size: i32) -> TileMap {
@@ -333,4 +335,131 @@ fn irrigation_still_speeds_up_growth_in_a_slow_winter_season() {
     // faster than the same winter without irrigation.
     let want = (plain as f32 / irrigation.growth_boost).round() as u64;
     assert!(irrigated.abs_diff(want) <= 2, "irrigated {irrigated}, want close to {want}");
+}
+
+// ---- the standing sow order and the Almanac (`calendar`, docs/design/horizons-phase-1.md) ----
+
+fn sow_jobs(w: &World, pos: Pos) -> usize {
+    w.jobs.iter().filter(|j| j.kind == JobKind::Sow { pos }).count()
+}
+
+fn grant_calendar(w: &mut World, defs: &Defs) {
+    w.research.grant(defs.tech_id("calendar").unwrap());
+}
+
+#[test]
+fn the_standing_order_needs_calendar_and_a_farm_plot() {
+    let (mut w, defs) = setup(Nation::Earth, 1, &[]);
+    raise_farm_plot(&mut w, &defs, MID);
+    let calendar = defs.tech_id("calendar").unwrap();
+    assert_eq!(defs.feature_tech(Feature::StandingSow), Some(calendar));
+    assert!(!w.has_feature(Feature::StandingSow, &defs));
+    assert_eq!(
+        w.apply(Command::StandingSow { pos: MID, on: true }, &defs),
+        Err(DesignateError::NotResearched(calendar).into())
+    );
+    assert!(!w.is_standing_sow(MID));
+    grant_calendar(&mut w, &defs);
+    assert!(w.has_feature(Feature::StandingSow, &defs));
+    assert_eq!(
+        w.apply(Command::StandingSow { pos: at(1, 1), on: true }, &defs),
+        Err(DesignateError::NoFarmPlot.into())
+    );
+    w.apply(Command::StandingSow { pos: MID, on: true }, &defs).unwrap();
+    assert!(w.is_standing_sow(MID));
+    // Set on an empty plot (one just built), it queues a Sow at once, and only one.
+    assert_eq!(sow_jobs(&w, MID), 1);
+    run(&mut w, &defs, 3);
+    assert_eq!(sow_jobs(&w, MID), 1);
+}
+
+#[test]
+fn an_herb_garden_takes_the_order_too() {
+    let (mut w, defs) = setup(Nation::Earth, 1, &[]);
+    grant_calendar(&mut w, &defs);
+    let garden = defs.building_id("herb_garden").unwrap();
+    w.put_building(Footprint::single(MID), garden, &defs);
+    w.apply(Command::StandingSow { pos: MID, on: true }, &defs).unwrap();
+    assert_eq!(sow_jobs(&w, MID), 1);
+}
+
+#[test]
+fn a_standing_plot_resows_after_its_reap() {
+    let (mut w, defs) = setup(Nation::Earth, 1, &[at(1, 1)]);
+    grant_calendar(&mut w, &defs);
+    raise_farm_plot(&mut w, &defs, MID);
+    w.apply(Command::StandingSow { pos: MID, on: true }, &defs).unwrap();
+    // Sown, grown, reaped, and back to empty: a fresh Sow is queued without a command.
+    run_until(&mut w, &defs, 20_000, |w| w.plot_stage(MID) == Some(PlotStage::Growing));
+    run_until(&mut w, &defs, 20_000, |w| w.plot_stage(MID) == Some(PlotStage::Ripe));
+    run_until(&mut w, &defs, 20_000, |w| w.plot_stage(MID) == Some(PlotStage::Empty));
+    assert_eq!(sow_jobs(&w, MID), 1, "re-sown after the reap");
+    assert!(w.is_standing_sow(MID), "the order outlives the reap");
+}
+
+#[test]
+fn a_standing_plot_resows_after_frost() {
+    let (mut w, defs) = setup(Nation::Earth, 1, &[]);
+    grant_calendar(&mut w, &defs);
+    w.map[MID].temperature = 0; // polar: frost band
+    w.difficulty = Some("normal".into());
+    raise_farm_plot(&mut w, &defs, MID);
+    plot_mut(&mut w, MID).stage = PlotStage::Ripe;
+    plot_mut(&mut w, MID).standing = true;
+    w.jobs.retain(|j| !matches!(j.kind, JobKind::Reap { .. }));
+    w.tick = 3 * season_ticks(&defs) - 1;
+    w.tick(&defs); // the first frost
+    assert_eq!(w.plot_stage(MID), Some(PlotStage::Empty));
+    assert_eq!(sow_jobs(&w, MID), 1, "re-sown the tick frost took it");
+}
+
+#[test]
+fn cancel_sow_clears_the_standing_order() {
+    let (mut w, defs) = setup(Nation::Earth, 1, &[]);
+    grant_calendar(&mut w, &defs);
+    raise_farm_plot(&mut w, &defs, MID);
+    w.apply(Command::StandingSow { pos: MID, on: true }, &defs).unwrap();
+    w.apply(Command::CancelSow { pos: MID }, &defs).unwrap();
+    assert!(!w.is_standing_sow(MID));
+    run(&mut w, &defs, 3);
+    assert_eq!(sow_jobs(&w, MID), 0, "a cancelled sow doesn't come straight back");
+    // Turning it off by the command leaves any queued Sow alone.
+    w.apply(Command::StandingSow { pos: MID, on: true }, &defs).unwrap();
+    w.apply(Command::StandingSow { pos: MID, on: false }, &defs).unwrap();
+    assert!(!w.is_standing_sow(MID));
+}
+
+#[test]
+fn the_standing_order_survives_a_save_and_replays() {
+    let (mut w, defs) = setup(Nation::Earth, 1, &[at(1, 1)]);
+    grant_calendar(&mut w, &defs);
+    raise_farm_plot(&mut w, &defs, MID);
+    w.apply(Command::StandingSow { pos: MID, on: true }, &defs).unwrap();
+    let saved = w.save(&defs).unwrap();
+    let w2 = World::load(&saved, &defs).unwrap();
+    assert!(w2.is_standing_sow(MID));
+    let mut a = w.clone();
+    let mut b = w2;
+    run(&mut a, &defs, 500);
+    run(&mut b, &defs, 500);
+    assert_eq!(a.save(&defs).unwrap(), b.save(&defs).unwrap());
+}
+
+#[test]
+fn the_almanac_counts_down_to_the_first_frost() {
+    let (mut w, defs) = setup(Nation::Earth, 1, &[]);
+    assert_eq!(w.almanac(&defs), None, "unknown before calendar");
+    grant_calendar(&mut w, &defs);
+    // No preset, no seasons: nothing to count.
+    assert_eq!(w.almanac(&defs), Some(Almanac { frost_in: None, caravan_in: None }));
+    w.difficulty = Some("normal".into());
+    let winter = 3 * season_ticks(&defs);
+    w.tick = winter - 100;
+    assert_eq!(w.almanac(&defs).unwrap().frost_in, Some(100));
+    // Just past the frost, the next one is a year away.
+    w.tick = winter;
+    let year = 4 * season_ticks(&defs);
+    assert_eq!(w.almanac(&defs).unwrap().frost_in, Some(year));
+    w.tick = winter + 1;
+    assert_eq!(w.almanac(&defs).unwrap().frost_in, Some(year - 1));
 }

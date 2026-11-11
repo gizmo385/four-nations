@@ -17,9 +17,9 @@
 │    Known · 25 pts               Available · 250 pts                                       Locked · 120 pts           │
 │    Stone Outcrop, Boulder       Gold Vein, Gold Seam                                      Needs Masonry              │
 │                                                                                                                      │
-│  ◇ Farming                    ◇ Earth Shaping                                                                        │
-│    Available · 60 pts           Available · 60 pts                                                                   │
-│    Farm Plot                    Earthworks x1.2,                                                                     │
+│  ◇ Farming                    ◇ Earth Shaping                                           · Calendar                   │
+│    Available · 60 pts           Available · 60 pts                                        Locked · 250 pts           │
+│    Farm Plot                    Earthworks x1.2,                                          Needs Writing              │
 │                                 Earth Tent                                                                           │
 │                                                                                                                      │
 │                                                                                                                      │

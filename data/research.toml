@@ -22,6 +22,10 @@
 # The building must already have the property, a nation tech may only upgrade a building its
 # nation can reach, and each building's property is upgraded by at most one tech.
 #
+# `features` lists named things the sim knows, from a closed list: `almanac` (when the next frost
+# comes) and `standing_sow` (a farm plot that re-sows itself). Each is unlocked by at most one
+# tech; an unknown name fails to load (docs/design/horizons-phase-1.md).
+#
 # `buildings` lists ids from data/buildings.toml, and `jobs` lists resource ids from
 # data/resources.toml whose harvest designation (data/jobs.toml) the tech unlocks (issue #22).
 # Either may be unlocked by at most one tech; an item no tech names is available from the start.
@@ -556,3 +560,12 @@ cost = 120
 prereqs = ["masonry"]
 [tech.unlocks]
 buildings = ["paved_road"]
+
+[[tech]]
+id = "calendar"
+name = "Calendar"
+description = "Count the days to the frost and keep the fields sown."
+cost = 250
+prereqs = ["writing"]
+[tech.unlocks]
+features = ["almanac", "standing_sow"]
