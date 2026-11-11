@@ -17,7 +17,9 @@ fn_tui = { path = "../tui" }
 fn_runfmt = { path = "../runfmt" }
 fn_ui = { path = "../ui" }
 serde = { workspace = true }
-serde_json = { workspace = true }
+# float_roundtrip: a cached par reads back the exact f64s it was written with, so a score
+# printed from the cache matches the one printed when par was computed.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 toml = { workspace = true }
 rhai = { version = "1", default-features = false, features = ["std", "no_time", "no_module", "serde", "metadata"] }
 signal-hook = "0.3"
