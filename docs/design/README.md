@@ -20,6 +20,7 @@ Keep this list in step when you add a doc or change a status.
 - [pacing.md](pacing.md), [late-tree.md](late-tree.md), [endgame.md](endgame.md), [difficulty.md](difficulty.md), [harm.md](harm.md): pacing, progression and pressure
 - [embark.md](embark.md), [cartography.md](cartography.md): starting a settlement, charting scrolls
 - [horizons-phase-3.md](horizons-phase-3.md): research horizons phase 3, trade techs and scribing
+- [horizons-phase-5.md](horizons-phase-5.md): research horizons phase 5, great ruins and the lost-teachings draft
 - [balance-harness.md](balance-harness.md): the balance harness
 - [agent-play.md](agent-play.md), [agent-scripting.md](agent-scripting.md), [agent-hillclimb.md](agent-hillclimb.md), [agent-studio.md](agent-studio.md): agents playing, scoring and watched
 
