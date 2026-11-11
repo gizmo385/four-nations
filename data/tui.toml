@@ -290,6 +290,12 @@ glyph = "╥"
 ascii = "J"
 fg = [200, 170, 120]
 
+# Tea Ceremony's Tea House (shared, horizons phase 3): a kettle under a roof.
+[building.tea_house]
+glyph = "Ψ"
+ascii = "P"
+fg = [150, 200, 120]
+
 # --- Earth Kingdom ---
 [building.earth_wall]
 glyph = "▓"

@@ -398,13 +398,13 @@ mod tests {
     #[test]
     fn a_tech_with_no_direct_unlock_names_what_it_is_a_prereq_for() {
         let defs = Defs::bundled();
-        // Pottery grants nothing on its own, but Writing (and Fire's Brickmaking) need it (the
-        // issue's evidence: the unlock column used to read "-" with no way to tell it mattered
-        // at all).
+        // Pottery grants nothing on its own, but Writing (Fire's Brickmaking, Tea Ceremony) need
+        // it (the issue's evidence: the unlock column used to read "-" with no way to tell it
+        // mattered at all).
         let pottery = defs.tech_id("pottery").unwrap();
         assert_eq!(
             unlock_summary(&defs, Nation::Fire, pottery, defs.tech(pottery)),
-            "Leads to Writing, Brickmaking"
+            "Leads to Writing, Brickmaking, Tea Ceremony"
         );
     }
 

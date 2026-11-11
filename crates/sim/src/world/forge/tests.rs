@@ -370,6 +370,7 @@ fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
         houses_beast: false,
         pickers: None,
         hothouse: None,
+        tea_house: None,
         chute: None,
         pair: None,
         glide: None,
