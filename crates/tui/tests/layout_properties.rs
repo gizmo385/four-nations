@@ -475,6 +475,12 @@ const SHELL_CASES: &[ShellCase] = &[
         headings: &["FOUR NATIONS"],
     },
     ShellCase {
+        name: "title_load",
+        shell: title_shell,
+        script: "<down> <enter>",
+        headings: &["FOUR NATIONS"],
+    },
+    ShellCase {
         name: "embark_overview",
         shell: embark_shell,
         script: "",
@@ -592,6 +598,42 @@ fn no_bottom_border_carries_key_hints() {
             }
             // And the one place that does name keys always ends in the tail.
             assert!(rows[rows.len() - 1].trim_end().ends_with("? keys"), "{context}");
+        }
+    }
+}
+
+/// The title screen and the embark screens follow the same rule (#686): no frame border names a
+/// key, and the last row is the hint bar, whose badge and keys are the `fn_ui::keys` table's for
+/// the page the screen is on.
+#[test]
+fn the_title_and_embark_screens_keep_their_keys_in_the_hint_bar() {
+    let marks = Marks::new(false);
+    for case in SHELL_CASES {
+        let mut shell = (case.shell)();
+        shell.play(&keys::parse(case.script).expect("a valid script"));
+        let mode = match &shell.mode {
+            fn_tui::shell::Mode::Title(t) => fn_tui::title::hint_mode(&t.page),
+            fn_tui::shell::Mode::Embark(e) => fn_tui::embark::hint_mode(e),
+            fn_tui::shell::Mode::Game(_) => panic!("{}: a game", case.name),
+        };
+        for size in [(80, 24), (120, 40), (220, 60)] {
+            let palette = Palette::new(shell.defs(), shell.nation(), ColorDepth::TrueColor, false);
+            let text = to_text(&render_shell(&mut shell, &palette, size));
+            let context = format!("{} at {size:?}", case.name);
+            let rows: Vec<&str> = text.lines().collect();
+            for line in &rows[..rows.len() - 1] {
+                border_words_are_not_keys(line, &marks, &context);
+                for footer in ["Arrows/W S", "Left/Right change", "Enter zoom in", "R new seed"] {
+                    assert!(!line.contains(footer), "{context}: a key footer in the box: {line}");
+                }
+            }
+            let bar = rows[rows.len() - 1];
+            assert!(bar.starts_with(&format!(" {} ", mode.name())), "{context}: {bar}");
+            let items = fn_ui::keys::hints(mode);
+            let fit = fn_ui::keys::fit(&items, size.0 as usize - mode.name().len() - 20, 3);
+            assert!(fit >= 1, "{context}: at least one item fits");
+            let joined: Vec<String> = items[..fit].iter().map(|h| h.text()).collect();
+            assert!(bar.contains(&joined.join(" · ")), "{context}: {bar}");
         }
     }
 }

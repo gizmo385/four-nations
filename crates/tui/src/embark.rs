@@ -21,7 +21,10 @@ use ratatui::style::{Modifier, Style};
 use crate::color::{Palette, mix, to_u8};
 use crate::glyphs::{EmbarkGlyphDef, Rgb8};
 use crate::layout;
-use crate::widgets::{Marks, Painter, Row, TitleAt, Tone, draw_frame, fit, wrap};
+use crate::widgets::{
+    BarBody, Marks, Painter, Row, TitleAt, Tone, draw_frame, draw_hint_bar, wrap,
+};
+use fn_ui::keys;
 
 /// How far a plain move goes, in cells (one cell is `N` tiles at 1:N); Shift moves this many
 /// cells at once (docs/design/embark.md, "Flow and keys").
@@ -614,52 +617,34 @@ fn draw_help(palette: &Palette, area: Rect, buf: &mut Buffer) {
     }
 }
 
-/// The footer's key hints, by zoom.
-fn status_hints(screen: &EmbarkScreen) -> String {
-    let moving = "arrows move";
-    if !screen.status.is_empty() {
-        return screen.status.clone();
-    }
-    if screen.is_overview() {
-        format!("{moving}  Enter zoom in  E settle  R new seed  Esc back  ? keys")
+/// The hint bar's mode (`fn_ui::keys`) for the screen as it stands: the settle question, or the
+/// keys of the overview, a middle zoom or the closest zoom.
+pub fn hint_mode(screen: &EmbarkScreen) -> keys::Mode {
+    if screen.prompt {
+        keys::Mode::Settle
+    } else if screen.is_overview() {
+        keys::Mode::Embark
     } else if screen.zoom + 1 == screen.ladder.len() {
-        format!("{moving}  - zoom out  Enter/E settle here  R new seed  ? keys")
+        keys::Mode::EmbarkSite
     } else {
-        format!("{moving}  Enter zoom in  - zoom out  E settle  R new seed  ? keys")
+        keys::Mode::EmbarkZoom
     }
 }
 
+/// The last row: the hint bar (docs/design/tui.md, "Hints"), keys from the `fn_ui::keys` table. A
+/// refusal ("Can't settle: ...") takes the place of the keys while it lasts.
 fn draw_status(screen: &EmbarkScreen, palette: &Palette, area: Rect, buf: &mut Buffer) {
-    let theme = &palette.theme;
-    let panel = Style::new().fg(palette.token(theme.dim)).bg(palette.token(theme.panel));
-    for x in area.left()..area.right() {
-        buf[(x, area.y)].set_char(' ').set_style(panel);
-    }
-    let badge = if palette.mono() {
-        Style::new().add_modifier(Modifier::REVERSED | Modifier::BOLD)
-    } else {
-        Style::new()
-            .fg(palette.token(theme.on_accent))
-            .bg(palette.token(theme.accent))
-            .add_modifier(Modifier::BOLD)
-    };
-    // The settle prompt takes over the line the way the game's own y/n prompts do (draw.rs),
-    // with the warning tone; without it the prompt is invisible and any other key cancels it.
-    let (text, hints, badge) = if screen.prompt {
-        let warn = if palette.mono() { badge } else { badge.bg(palette.token(theme.warn)) };
-        let (x, y) = (screen.cursor.x, screen.cursor.y);
-        (" SETTLE? ", format!("Press y to settle at ({x}, {y}), any other key to stay."), warn)
-    } else {
-        (" EMBARK ", status_hints(screen), badge)
-    };
-    buf.set_string(area.x, area.y, text, badge);
-    let ellipsis = if palette.ascii { '~' } else { '…' };
-    let room = usize::from(area.width.saturating_sub(text.chars().count() as u16 + 2));
-    buf.set_string(
-        area.x + text.chars().count() as u16 + 1,
-        area.y,
-        fit(&hints, room, ellipsis),
-        panel,
+    let mode = hint_mode(screen);
+    let body =
+        if screen.status.is_empty() { BarBody::Keys } else { BarBody::Notice(&screen.status) };
+    draw_hint_bar(
+        buf,
+        area,
+        palette,
+        mode,
+        body,
+        mode != keys::Mode::Settle,
+        mode == keys::Mode::Settle,
     );
 }
 

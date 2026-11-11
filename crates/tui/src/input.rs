@@ -521,6 +521,10 @@ mod tests {
             .chain(["1-5".to_owned()])
             // The embark exit prompt's `Q`, read by `Shell`, not the game's key map (#703).
             .chain(["Q".to_owned()])
+            // The title and embark screens' own keys (#686), read by `title.rs` and `embark.rs`:
+            // the nation picker's `1`-`4`, embark's `R` and the settle question's `Y`, and the
+            // words of its "Any other key" label.
+            .chain(["1", "2", "3", "4", "R", "Y", "Any", "other", "key"].map(String::from))
             .collect();
         for e in fn_ui::keys::table() {
             // `Type` (the name prompt) is every character, not one key.

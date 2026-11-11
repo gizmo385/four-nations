@@ -62,7 +62,11 @@ fn the_settle_prompt_is_drawn_and_y_starts_the_game() {
     }
     let text = frame(&mut shell, (120, 40));
     let status = text.lines().last().unwrap();
-    assert!(status.contains("SETTLE?") && status.contains("Press y to settle at"), "{status}");
+    // The question is the hint bar's own `Settle` mode (#686).
+    assert!(status.trim_start().starts_with("SETTLE?"), "{status}");
+    for item in fn_ui::keys::hints(fn_ui::keys::Mode::Settle) {
+        assert!(status.contains(&item.text()), "{} in {status}", item.text());
+    }
     press(&mut shell, KeyCode::Char('y'));
     assert!(!matches!(shell.mode, Mode::Embark(_)), "y settles and leaves embark");
 }
