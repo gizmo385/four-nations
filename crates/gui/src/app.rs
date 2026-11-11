@@ -5,7 +5,7 @@
 //! the keys egui collected and the real seconds since the last frame.
 
 use std::path::PathBuf;
-use std::time::Instant;
+use web_time::Instant;
 
 use eframe::egui::{self, Color32, FontFamily, FontId, Rect, vec2};
 use egui_ratatui::RataguiBackend;
