@@ -181,8 +181,10 @@ fn the_selected_nation_row_wears_a_quiet_background_and_keeps_its_meter_colours(
     let flag = row.iter().position(|s| *s == "!").expect("hunger is flagged") as u16;
     let fg = buf[(flag, y)].fg;
     assert!(fg == p.token(theme.bad) || fg == p.token(theme.warn), "{fg:?}");
+    // The flagged meter's empty cells wear the same warning as its flag (#654).
+    assert_eq!(buf[(flag - 1, y)].fg, fg, "the low meter is amber all through");
     let full = row.iter().rposition(|s| *s == "█").expect("a full meter") as u16;
-    assert_eq!(buf[(full, y)].fg, p.token(theme.accent_text), "chi in the accent");
+    assert_eq!(buf[(full, y)].fg, p.token(theme.ok), "health, the last meter, in ok");
     let ok = (0..size.0).find(|&x| buf[(x, y)].fg == p.token(theme.ok));
     assert!(ok.is_some(), "an ok meter keeps its colour");
     // The row under it is not selected.

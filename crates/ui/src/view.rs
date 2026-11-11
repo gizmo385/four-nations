@@ -93,6 +93,9 @@ pub fn side_view(
 pub struct StoreRow {
     pub name: String,
     pub count: u32,
+    /// Whether every stockpile tile is taken up with this item at its cap or with another item,
+    /// so no more of it can be stored: the haulers have stopped for want of room (#660).
+    pub full: bool,
 }
 
 /// What the stockpiles hold, in the order of the item data (`data/jobs.toml`, then the foods of
@@ -103,8 +106,13 @@ pub fn store_rows(session: &Session) -> Vec<StoreRow> {
     defs.items
         .iter()
         .filter_map(|item| {
-            let count = world.stored_total(defs.item_id(&item.id)?);
-            (count > 0).then(|| StoreRow { name: item.name.clone(), count })
+            let id = defs.item_id(&item.id)?;
+            let count = world.stored_total(id);
+            let cap = defs.jobs.stockpile_stack;
+            let full = world
+                .stockpile_zones()
+                .all(|z| world.stored_at(z).is_some_and(|s| s.item != id || s.count >= cap));
+            (count > 0).then(|| StoreRow { name: item.name.clone(), count, full })
         })
         .collect()
 }
@@ -248,6 +256,25 @@ impl Activity {
             Self::Eat => "Eat",
             Self::Sleep => "Sleep",
             Self::Heal => "Heal",
+        }
+    }
+
+    /// The full word the Nation screen's group heading shows ("Hauling", "Eating and drinking",
+    /// #660): the screen has the width the side panel's short [`Self::label`] was made for.
+    pub fn heading(self) -> &'static str {
+        match self {
+            Self::Idle => "Idle",
+            Self::Haul => "Hauling",
+            Self::Harvest => "Harvesting",
+            Self::Farm => "Farming",
+            Self::Build => "Building",
+            Self::Bend => "Bending",
+            Self::Craft => "Crafting",
+            Self::Study => "Studying",
+            Self::Gate => "Endeavor work",
+            Self::Eat => "Eating and drinking",
+            Self::Sleep => "Sleeping",
+            Self::Heal => "Healing",
         }
     }
 
@@ -510,10 +537,9 @@ pub struct UnitView {
     /// The selection bar's fourth row (`crate::text::mastery_line`, #361): progress to the next
     /// rank, or the master's own line.
     pub mastery_line: String,
-    /// The Nation screen's Bends and Forms columns (`crate::text::mastery_cells`, #346, #361):
-    /// "9/10" and "2/3" below mastery, "12 *" and "4 *" once mastered.
-    pub bends_cell: String,
-    pub forms_cell: String,
+    /// The Nation screen's BENDING column (`crate::text::bending_words`, #660): the rank title
+    /// and how many bends the settler has learned, "Student, 4 bends".
+    pub bending: String,
 }
 
 pub fn unit_view(session: &Session, unit: &Unit) -> UnitView {
@@ -537,11 +563,7 @@ pub fn unit_view(session: &Session, unit: &Unit) -> UnitView {
     let progress = session.world.rank_of(unit, defs);
     let rank_title = defs.mastery.title(own_nation, progress.rank).to_owned();
     let mastery_line = crate::text::mastery_line(progress, defs.mastery.master_chi);
-    let (bends_cell, forms_cell) = crate::text::mastery_cells(
-        progress,
-        defs.mastery.master_bends_for(own_nation),
-        defs.mastery.master_forms,
-    );
+    let bending = crate::text::bending_words(&rank_title, progress.bends);
     UnitView {
         id: unit.id,
         name,
@@ -562,8 +584,7 @@ pub fn unit_view(session: &Session, unit: &Unit) -> UnitView {
         chi_frac: (unit.chi / defs.chi.max).clamp(0.0, 1.0),
         rank_title,
         mastery_line,
-        bends_cell,
-        forms_cell,
+        bending,
     }
 }
 
@@ -946,12 +967,11 @@ mod tests {
     /// own title, and its cells read against Water's own bundled threshold (8, from
     /// `bends_per_nation`).
     #[test]
-    fn unit_view_carries_rank_title_and_mastery_cells() {
+    fn unit_view_carries_rank_title_and_bending_words() {
         let s = Session::new(7, Nation::Water, 64, 64);
         let v = unit_view(&s, &s.world.units[0]);
         assert_eq!(v.rank_title, "Student");
-        assert_eq!(v.bends_cell, "0/8");
-        assert_eq!(v.forms_cell, "0/3");
+        assert_eq!(v.bending, "Student, 0 bends");
         assert!(v.mastery_line.starts_with("To adept: 0 of"), "{}", v.mastery_line);
     }
 
@@ -1065,6 +1085,28 @@ mod tests {
         s.world.units[0].needs.hunger = 0.0;
         s.world.units[1].needs.energy = 0.0;
         assert_eq!(need_flags(&s), [("Starving".to_owned(), 1), ("Exhausted".to_owned(), 1)]);
+    }
+
+    /// A store is `full` once no stockpile tile can take more of it (#660): the sandbox start
+    /// lays one tile of exactly 20 Wood among tiles of other things, so Wood is full, while
+    /// Fruit (30: a second tile at 10 of 20) and Stone (10 of 20) still have room.
+    #[test]
+    fn a_store_is_full_when_no_stockpile_tile_can_take_more_of_it() {
+        let defs = fn_sim::Defs::bundled();
+        let size = defs.embark.map_size("small").unwrap();
+        let survey = fn_sim::embark::Survey::new(&fn_sim::embark::Survey::config(7, size), &defs);
+        let start = survey.default_site(&defs);
+        let s = Session::found(survey, Nation::Earth, start, Some("sandbox".to_owned())).unwrap();
+        let full: Vec<(String, u32, bool)> =
+            store_rows(&s).into_iter().map(|r| (r.name, r.count, r.full)).collect();
+        assert_eq!(
+            full,
+            [
+                ("Wood".to_owned(), 20, true),
+                ("Stone".to_owned(), 10, false),
+                ("Fruit".to_owned(), 30, false),
+            ]
+        );
     }
 
     /// `nation_view` groups every settler the same way `activity_counts` does, lists every

@@ -246,7 +246,11 @@ pub fn draw_screen(
     area: Rect,
     buf: &mut Buffer,
 ) {
-    let detail_rows = if screen == Screen::Research { research::DETAIL_ROWS } else { 0 };
+    let detail_rows = match screen {
+        Screen::Research => research::DETAIL_ROWS,
+        Screen::Nation => crate::nation::detail_rows(area.height),
+        _ => 0,
+    };
     let page = page::draw(buf, area, palette, title(screen), detail_rows);
     let position = match screen {
         Screen::Research => research::draw(session, ui.tech, palette, &page, buf),

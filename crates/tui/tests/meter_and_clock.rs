@@ -92,9 +92,9 @@ fn a_meter_is_ten_cells_with_its_value_or_five_in_the_roster() {
     let after = sign.trim_start_matches(|c| !matches!(c, '█' | '░'));
     let after = after.trim_start_matches(['█', '░']).trim_start();
     assert!(after.starts_with(|c: char| c.is_ascii_digit()), "the value follows: {sign}");
-    // Nation roster: five cells for each of the four needs and for chi.
+    // Nation roster: five cells for each of the four needs (chi is in the strip, not the row).
     let row = frame("nation").lines().find(|l| l.contains("▸ ")).unwrap().to_owned();
-    assert_eq!(cells(&row), 5 * 5, "{row}");
+    assert_eq!(cells(&row), 5 * 4, "{row}");
 }
 
 /// A low need is the whole meter in the warning colour. In the Nation roster a `!` sits directly
