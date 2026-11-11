@@ -10,6 +10,7 @@ mod agent_parity;
 mod binary;
 mod browser;
 mod browser_campaigns;
+mod chute;
 mod embark;
 mod fast;
 mod footprints;
