@@ -383,6 +383,19 @@ pub fn draw_frame(
     }
 }
 
+/// Writes `text` on the bottom edge of the frame at `area`, flush right with one line cell
+/// between it and the corner (`┗──── 12-48 of 61 ─┛`): where a scrolling screen says how far
+/// down it is (#651). The bottom edge never carries key hints; those are the hint bar's alone.
+/// Nothing is written without room for it.
+pub fn draw_position(buf: &mut Buffer, area: Rect, palette: &Palette, text: &str) {
+    let text = format!(" {text} ");
+    let len = text.chars().count() as u16;
+    if text.trim().is_empty() || area.width < len + 6 {
+        return;
+    }
+    buf.set_string(area.right() - 2 - len, area.bottom() - 1, &text, Tone::Dim.style(palette));
+}
+
 /// Writes rows down an area, one per line, and stops at the bottom.
 pub struct Painter<'a> {
     pub buf: &'a mut Buffer,

@@ -61,7 +61,8 @@ fn each_nations_first_frame_names_the_nation_and_the_fresh_start() {
             "Gate 0/9",
             "HERE",
             "Press Enter to select",
-            "pause  T research",
+            "Arrows move · Enter select",
+            "H X E P B U C tools",
         ] {
             assert!(text.contains(want), "{want:?} in\n{text}");
         }
@@ -111,7 +112,10 @@ fn the_active_tool_banner_differs_for_select_harvest_and_build() {
     let harvest = to_text(&frame(&mut harvest, ColorDepth::TrueColor, false, TINY));
     assert!(harvest.contains("├─ HARVEST ──"), "{harvest}");
     assert!(harvest.contains("━ HARVEST ━ chop, mine, gather"), "the banner:\n{harvest}");
-    assert!(harvest.contains("HARVEST  Enter set corner  Esc leave"), "the bar:\n{harvest}");
+    assert!(
+        harvest.contains("HARVEST  Arrows move · Enter set corner · Esc leave tool"),
+        "the bar:\n{harvest}"
+    );
     assert!(!harvest.contains("Press Enter to select"), "{harvest}");
 
     let mut build = App::new(new_session(7, Nation::Earth), TINY);
@@ -121,7 +125,10 @@ fn the_active_tool_banner_differs_for_select_harvest_and_build() {
     assert!(build.contains("├─ BUILD ──"), "{build}");
     assert!(build.contains("▸Bed"), "the chosen building:\n{build}");
     assert!(build.contains("━ BUILD Bed ━ Enter: build 1x1"), "the banner:\n{build}");
-    assert!(build.contains("BUILD  Enter set corner  Esc leave"), "the bar:\n{build}");
+    assert!(
+        build.contains("BUILD  Arrows move · Enter set corner · Esc leave tool"),
+        "the bar:\n{build}"
+    );
 }
 
 /// Paused, with a few designations and the cursor moved: the status badge on the panel and the
@@ -382,7 +389,7 @@ fn the_panel_and_the_status_line_show_the_tool_its_hint_and_the_result() {
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
     let status = text.lines().last().unwrap();
     assert!(status.starts_with(" HARVEST "), "{status}");
-    assert!(status.contains("Enter set corner") && status.contains("designate harvest"));
+    assert!(status.contains("Enter set corner"), "{status}");
     // The Tool section's heading is the tool's own name now, not the literal word "TOOL"
     // (docs/design/side-panel.md "Headings"): `├─ HARVEST ────────── [H] ─┤`.
     assert!(text.contains("HARVEST") && text.contains("[H]"), "{text}");
@@ -391,7 +398,7 @@ fn the_panel_and_the_status_line_show_the_tool_its_hint_and_the_result() {
     app.play(&keys::parse("<left*2> <enter> <down> <left>").unwrap());
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
     assert!(text.contains("Enter: designate 2x2"), "the Cursor section has the size:\n{text}");
-    assert!(text.lines().last().unwrap().contains("Enter apply 2x2"));
+    assert!(text.lines().last().unwrap().contains("Enter apply"));
 
     app.play(&keys::parse("<enter>").unwrap());
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
@@ -462,7 +469,7 @@ fn o_toggles_a_standing_order_in_the_harvest_tool_only() {
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
     assert!(text.contains("HARVEST · REPEATING") && text.contains("[H]"), "{text}");
     let status = text.lines().last().unwrap();
-    assert!(status.contains("Harvest · repeating"), "{status}");
+    assert!(status.contains("HARVEST · REPEATING"), "{status}");
 
     // Designating with it on makes a standing order, and the Cursor section says so.
     app.play(&keys::parse("<enter> <enter>").unwrap());
@@ -581,18 +588,17 @@ fn the_result_notice_fits_on_the_smallest_terminal() {
 }
 
 #[test]
-fn bend_names_the_nations_ability_in_the_status_line_and_the_panel() {
+fn bend_names_the_nations_ability_in_the_panel_and_badges_the_status_line() {
     for nation in Nation::ALL {
         let mut app = App::new(new_session(3, nation), SIZE);
         app.play(&keys::parse("B").unwrap());
         assert_eq!(app.ui.tool, Tool::Bend, "{nation:?}");
         let id = fn_ui::tools::ability_for_nation(&app.session.defs, nation).unwrap();
-        let verb = app.session.defs.ability(id).verb.clone();
+        let name = app.session.defs.ability(id).name.clone();
         let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
         let status = text.lines().last().unwrap();
         assert!(status.starts_with(" BEND "), "{status}");
-        assert!(status.contains(&format!("{verb}:")), "{nation:?} status: {status}");
-        assert!(text.contains(&verb), "{nation:?} panel:\n{text}");
+        assert!(text.contains(&name), "{nation:?} panel and banner:\n{text}");
     }
 }
 
@@ -887,7 +893,8 @@ fn the_build_modal_lists_buildings_and_details_the_locked_ones() {
     assert!(text.contains("▸ Bed                  5 Wood"), "the first row is chosen:\n{text}");
     assert!(text.contains("Campfire             Locked"), "{text}");
     assert!(text.contains("Footprint: 1x1"), "the detail pane:\n{text}");
-    assert!(text.contains("Arrows/W S choose  Enter build  Esc close"), "{text}");
+    let status = text.lines().last().unwrap();
+    assert!(status.contains("Up/Down choose · Enter build · Esc close"), "{status}");
 
     let rows = fn_ui::build::picker_rows(&app.session);
     let locked = rows.iter().position(|r| r.locked()).expect("Earth has a locked building");

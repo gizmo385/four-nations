@@ -265,7 +265,7 @@ pub fn draw(
     palette: &crate::color::Palette,
     inner: Rect,
     buf: &mut Buffer,
-) {
+) -> Option<String> {
     let marks = Marks::new(palette.ascii);
     let glyphs = need_glyphs(palette.ascii);
     let view = nation_view(session);
@@ -322,6 +322,16 @@ pub fn draw(
             p.row(row);
         }
     }
+
+    // Where the roster's window sits, in settlers (the headings between groups don't count).
+    let settlers = |lines: &[Line]| lines.iter().filter(|l| l.unit).count();
+    let end = (first + roster_h).min(lines.len());
+    fn_ui::text::window_label(
+        "settlers",
+        settlers(&lines[..first.min(lines.len())]),
+        settlers(&lines[first.min(end)..end]),
+        settlers(&lines),
+    )
 }
 
 #[cfg(test)]

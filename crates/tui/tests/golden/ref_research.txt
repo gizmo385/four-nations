@@ -36,5 +36,5 @@
 │ Fire Making                                                        Available  25 pts ││                              │
 │ Keep a flame alive: cook food and stay warm.                                         ││                              │
 │ Unlocks: Campfire                                                                    ││                              │
-┗─ Arrows WASD choose  Enter target  Esc/T close ──────────────────────────────────────┛┗─ seed 1 ─────────────────────┛
- RESEARCH  arrows/WASD choose  Enter set target  Esc/T close  L log  ? keys                                      PAUSED
+┗───────────────────────────────────────────────────────────────────── tiers 1-4 of 5 ─┛┗─ seed 1 ─────────────────────┛
+ RESEARCH  Arrows choose · Enter set as target · Esc or T close                                           PAUSED ? keys

@@ -119,11 +119,18 @@ pub fn draw(
 ) {
     let marks = Marks::new(palette.ascii);
     let title = format!(" {0} BUILD {0} ", marks.seal);
-    let footer = "Arrows/W S choose  Enter build  Esc close";
     let list_width = list_width(rows);
     // The frame's own padding: a border and a blank column on each side (`modal::draw`).
     let size = (list_width + modal::GAP + DETAIL_WIDTH + 4, HEIGHT);
-    let inner = modal::draw(buf, outer, size, palette, &title, footer);
+    // The bottom edge says where the list's window sits, once it scrolls (#651).
+    let shown = usize::from(modal::modal_area(outer, size).height.saturating_sub(2));
+    let position = fn_ui::text::window_label(
+        "buildings",
+        window_start(at.min(rows.len().saturating_sub(1)), shown),
+        shown,
+        rows.len(),
+    );
+    let inner = modal::draw(buf, outer, size, palette, &title, position.as_deref().unwrap_or(""));
     let room = inner.width.saturating_sub(modal::GAP + MIN_DETAIL_WIDTH);
     let split = modal::split(inner, list_width.min(room.max(MIN_LIST_WIDTH)));
 

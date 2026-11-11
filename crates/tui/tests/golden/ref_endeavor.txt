@@ -36,5 +36,5 @@
 │                                                                                      ││                              │
 │                                                                                      ││                              │
 │                                                                                      ││                              │
-┗─ Arrows W S scroll  Enter place gate  X withdraw  Esc/G close ───────────────────────┛┗─ seed 1 ─────────────────────┛
- ENDEAVOR  arrows/W S scroll  Enter place gate  X withdraw  Esc/G close  L log  ? keys  Space pause              PAUSED
+┗──────────────────────────────────────────────────────────────────────────────────────┛┗─ seed 1 ─────────────────────┛
+ ENDEAVOR  Up/Down scroll · Enter place · Esc or G close · X withdraw · PgUp/PgDn page                    PAUSED ? keys

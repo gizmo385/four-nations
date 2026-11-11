@@ -1,6 +1,7 @@
 //! The whole frame as a pure function into a ratatui `Buffer`: no terminal, no clock, so golden
 //! frames, `--frame` and the interactive loop all draw through here.
 
+use fn_ui::keys::{self, Mode};
 use fn_ui::{Session, Tool};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
@@ -14,7 +15,7 @@ use crate::map::draw_map;
 use crate::panel::draw_panel;
 use crate::screens::draw_screen;
 use crate::state::{Modal, Prompt, Screen, UiState};
-use crate::widgets::fit;
+use crate::widgets::{Marks, fit};
 
 /// What the frame says below the minimum size, and nothing else.
 pub fn too_small_text() -> String {
@@ -95,48 +96,55 @@ pub fn terminal_cursor(ui: &UiState, area: Rect) -> Option<Position> {
     Some(Position::new(regions.map.x + x as u16, regions.map.y + y as u16))
 }
 
-/// The keys the status line teaches in Select mode, and (after `Esc` closes it) with a unit
-/// selected, and in a screen. The key help (`?`) has the whole table.
-const KEYS: &str = "arrows/wasd move  Enter select  Esc menu  Tab units  H X P B U tools  \
-                    Space pause  T research  L log  ? keys  q quit";
-const KEYS_SELECTED: &str = "Enter next here  Tab/Shift+Tab units  F follow  Esc close  \
-                             H X P B U tools  Space pause  L log  ? keys";
-const KEYS_SCREEN: &str =
-    "arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause";
-const KEYS_ENDEAVOR: &str =
-    "arrows/W S scroll  Enter place gate  X withdraw  Esc/G close  L log  ? keys  Space pause";
-const KEYS_RESEARCH: &str = "arrows/WASD choose  Enter set target  Esc/T close  L log  ? keys";
-const KEYS_SAVES: &str =
-    "arrows/W S choose  Enter load  Shift+S save over  N new  Esc/F6 close  ? keys";
-const KEYS_NATION: &str =
-    "arrows/W S choose  PgUp/PgDn page  Enter select  Esc/N close  ? keys  Space pause";
-const KEYS_BUILD_MODAL: &str = "Arrows/W S choose  Enter build  Esc close";
-const KEYS_MENU: &str = "Arrows/W S choose  Enter select  Esc resume";
-const KEYS_MENU_NAMING: &str = "Type a name  Enter save  Esc back";
+/// Which mode's hints the status line shows (`fn_ui::keys::Mode`): the menu or the Build picker
+/// if one is open, else the open screen, else the map: Select (with or without a settler's bar)
+/// or a tool (with or without a corner set).
+pub fn hint_mode(session: &Session, ui: &UiState) -> Mode {
+    if let Some(modal) = ui.modal {
+        return match modal {
+            Modal::Build => Mode::Build,
+            Modal::Menu if ui.menu_name.is_some() => Mode::SaveAs,
+            Modal::Menu => Mode::Menu,
+        };
+    }
+    if let Some(screen) = ui.screen {
+        return match screen {
+            Screen::Log => Mode::Log,
+            Screen::Help => Mode::Help,
+            Screen::Endeavor => Mode::Endeavor,
+            Screen::Research => Mode::Research,
+            Screen::Saves => Mode::Saves,
+            Screen::Nation => Mode::Nation,
+        };
+    }
+    if ui.tool == Tool::Select {
+        return if ui.selected_unit(session).is_some() { Mode::Selected } else { Mode::Select };
+    }
+    if ui.rect_size().is_some() { Mode::ToolCorner } else { Mode::Tool }
+}
 
-/// The status line in a tool: what `Enter` and `Esc` do now, "Harvest · repeating" while the
-/// standing-order toggle is on (#277), or "Cancel · teardown" while the Cancel tool's own
-/// toggle is (#335), then what the tool does (for `B`, the nation's ability; for `U`, the
-/// building it would place).
-fn tool_status(session: &Session, ui: &UiState) -> String {
-    let keys = match ui.rect_size() {
-        None => "Enter set corner  Esc leave".to_owned(),
-        Some((w, h)) => format!("Enter apply {w}x{h}  Esc drop corner"),
-    };
-    let hint = ui.tool_hint(session);
+/// The hint bar's badge text for `mode`: the mode's name, and in a tool "HARVEST · REPEATING"
+/// while the standing-order toggle is on (#277) or "CANCEL · TEARDOWN" while the Cancel tool's
+/// own is (#335).
+fn mode_label(ui: &UiState, mode: Mode) -> String {
     match ui.repeating_label() {
-        Some(label) => format!("{keys}  |  {label}  |  {hint}"),
-        None => format!("{keys}  |  {hint}"),
+        Some(label) if matches!(mode, Mode::Tool | Mode::ToolCorner) => label.to_uppercase(),
+        _ => keys::mode_name(mode, ui.tool),
     }
 }
 
+/// The status line (docs/design/tui.md, "Hints"): always the same three parts. The mode's name
+/// on the left; that mode's own keys (`fn_ui::keys::hints`), as many whole items as fit; and a
+/// fixed tail on the right, `PAUSED` while paused and then `? keys`. A prompt or a result notice
+/// takes the place of the keys while it lasts (and the tail's `? keys` with it, for room).
 fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, buf: &mut Buffer) {
     let theme = &palette.theme;
     let panel = Style::new().fg(palette.token(theme.dim)).bg(palette.token(theme.panel));
     for x in area.left()..area.right() {
         buf[(x, area.y)].set_char(' ').set_style(panel);
     }
-    let ellipsis = if palette.ascii { '~' } else { '…' };
+    let marks = Marks::new(palette.ascii);
+    let ellipsis = marks.ellipsis;
     let badge = |fg, bg| {
         if palette.mono() {
             Style::new().add_modifier(Modifier::REVERSED | Modifier::BOLD)
@@ -144,14 +152,10 @@ fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, b
             Style::new().fg(palette.token(fg)).bg(palette.token(bg)).add_modifier(Modifier::BOLD)
         }
     };
+    let width = |s: &str| s.chars().count() as u16;
 
-    let mut right = 0;
-    if session.clock.paused {
-        let text = " PAUSED ";
-        right = text.len() as u16;
-        buf.set_string(area.right() - right, area.y, text, badge(theme.on_accent, theme.warn));
-    }
-    let (badge_len, hints) = match &ui.prompt {
+    // What the line says besides the keys: a prompt or a notice, or nothing.
+    let message: Option<(&str, Style, String)> = match &ui.prompt {
         Some(prompt) => {
             let (text, question) = match prompt {
                 Prompt::Quit => (" QUIT? ", "quit".to_owned()),
@@ -168,55 +172,80 @@ fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, b
                 Prompt::LoadSave(name) => (" LOAD? ", format!("load {name} in place of this game")),
                 Prompt::SaveOver(name) => (" SAVE? ", format!("save over the {name} slot")),
             };
-            buf.set_string(area.x, area.y, text, badge(theme.on_accent, theme.warn));
-            (text.len() as u16, format!("Press y to {question}, any other key to stay."))
+            let style = badge(theme.on_accent, theme.warn);
+            Some((text, style, format!("Press y to {question}, any other key to stay.")))
         }
         None if !ui.status.is_empty() => {
             let text = ui.status_badge.unwrap_or(" SAVE ");
             let refused = ui.status.contains("failed") || ui.status.starts_with("Can't");
             let bg = if refused { theme.warn } else { theme.accent };
-            buf.set_string(area.x, area.y, text, badge(theme.on_accent, bg));
-            (text.len() as u16, ui.status.clone())
+            Some((text, badge(theme.on_accent, bg), ui.status.clone()))
         }
-        None if ui.screen.is_some() => {
-            let (text, keys) = match ui.screen {
-                Some(Screen::Help) => (" KEYS ", KEYS_SCREEN),
-                Some(Screen::Endeavor) => (" ENDEAVOR ", KEYS_ENDEAVOR),
-                Some(Screen::Research) => (" RESEARCH ", KEYS_RESEARCH),
-                Some(Screen::Saves) => (" SAVES ", KEYS_SAVES),
-                Some(Screen::Nation) => (" NATION ", KEYS_NATION),
-                _ => (" LOG ", KEYS_SCREEN),
-            };
-            buf.set_string(area.x, area.y, text, badge(theme.on_accent, theme.accent));
-            (text.len() as u16, keys.to_owned())
-        }
-        None if ui.modal.is_some() => {
-            let (text, keys) = match ui.modal {
-                Some(Modal::Menu) if ui.menu_name.is_some() => (" SAVE AS ", KEYS_MENU_NAMING),
-                Some(Modal::Menu) => (" MENU ", KEYS_MENU),
-                _ => (" BUILD ", KEYS_BUILD_MODAL),
-            };
-            buf.set_string(area.x, area.y, text, badge(theme.on_accent, theme.accent));
-            (text.len() as u16, keys.to_owned())
-        }
-        None if ui.tool == Tool::Select => {
-            let text = " SELECT ";
-            buf.set_string(area.x, area.y, text, badge(theme.on_accent, theme.accent));
-            let keys = if ui.selected_unit(session).is_some() { KEYS_SELECTED } else { KEYS };
-            (text.len() as u16, keys.to_owned())
-        }
+        None => None,
+    };
+
+    // The right edge: `PAUSED`, then `? keys` (not while a message has the line).
+    let tail = keys::tail().text();
+    let tail_w = if message.is_some() { 0 } else { width(&tail) + 1 };
+    let mut right = tail_w;
+    if session.clock.paused {
+        let text = " PAUSED ";
+        right += width(text);
+        buf.set_string(
+            area.right().saturating_sub(right),
+            area.y,
+            text,
+            badge(theme.on_accent, theme.warn),
+        );
+        right += 1;
+    }
+    if message.is_none() {
+        let x = area.right().saturating_sub(tail_w);
+        buf.set_string(x, area.y, &tail, panel);
+        let (keys_part, _) = tail.split_once(' ').unwrap_or((&tail, ""));
+        let accent = Style::new().fg(palette.token(theme.accent)).bg(palette.token(theme.panel));
+        buf.set_string(x, area.y, keys_part, accent);
+    }
+
+    let (name, style, body) = match message {
+        Some((text, style, body)) => (text.to_owned(), style, Some(body)),
         None => {
-            let text = format!(" {} ", ui.tool.name().to_uppercase());
-            // The same tint as the banner above the map (#307), so the two badges match; a
-            // standing order's own greener tint included.
-            let style = match banner::tint(ui) {
-                Some(tint) => palette.banner_style(tint),
-                None => badge(theme.on_accent, theme.accent),
+            let mode = hint_mode(session, ui);
+            let style = match mode {
+                Mode::Tool | Mode::ToolCorner => match banner::tint(ui) {
+                    // The same tint as the banner above the map (#307), so the two badges
+                    // match; a standing order's own greener tint included.
+                    Some(tint) => palette.banner_style(tint),
+                    None => badge(theme.on_accent, theme.accent),
+                },
+                _ => badge(theme.on_accent, theme.accent),
             };
-            buf.set_string(area.x, area.y, &text, style);
-            (text.len() as u16, tool_status(session, ui))
+            (format!(" {} ", mode_label(ui, mode)), style, None)
         }
     };
-    let room = usize::from(area.width.saturating_sub(badge_len + right + 2));
-    buf.set_string(area.x + badge_len + 1, area.y, fit(&hints, room, ellipsis), panel);
+    buf.set_string(area.x, area.y, &name, style);
+    let start = area.x + width(&name) + 1;
+    let room = usize::from(area.right().saturating_sub(start + right + 1));
+    match body {
+        Some(text) => buf.set_string(start, area.y, fit(&text, room, ellipsis), panel),
+        None => {
+            let items = keys::hints(hint_mode(session, ui));
+            let sep = format!(" {} ", marks.dot);
+            let n = keys::fit(&items, room, sep.chars().count());
+            let accent =
+                Style::new().fg(palette.token(theme.accent)).bg(palette.token(theme.panel));
+            let mut x = start;
+            for (i, item) in items[..n].iter().enumerate() {
+                if i > 0 {
+                    buf.set_string(x, area.y, &sep, panel);
+                    x += width(&sep);
+                }
+                buf.set_string(x, area.y, &item.keys, accent);
+                x += width(&item.keys);
+                let verb = format!(" {}", item.verb);
+                buf.set_string(x, area.y, &verb, panel);
+                x += width(&verb);
+            }
+        }
+    }
 }

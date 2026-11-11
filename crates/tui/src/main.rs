@@ -23,12 +23,12 @@ fn main() -> ExitCode {
     }
     let args = match cli::parse(std::env::args().skip(1)) {
         Ok(args) => args,
-        Err(message) if message == cli::USAGE => {
+        Err(message) if message == cli::usage() => {
             println!("{message}");
             return ExitCode::SUCCESS;
         }
         Err(message) => {
-            eprintln!("fn_tui: {message}\n\n{}", cli::USAGE);
+            eprintln!("fn_tui: {message}\n\n{}", cli::usage());
             return ExitCode::from(2);
         }
     };
@@ -109,7 +109,7 @@ fn run_browser(raw: &[String]) -> ExitCode {
     let cli = match fn_tui::browser::parse(raw) {
         Ok(cli) => cli,
         Err(message) => {
-            eprintln!("fn_tui: {message}\n\n{}", cli::USAGE);
+            eprintln!("fn_tui: {message}\n\n{}", cli::usage());
             return ExitCode::from(2);
         }
     };

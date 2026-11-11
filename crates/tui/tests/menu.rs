@@ -112,9 +112,11 @@ fn resume_or_esc_closes_the_menu_and_restores_the_pause() {
 #[test]
 fn the_footer_carries_the_elapsed_clock_only_while_seasons_are_on() {
     let footer_line = |frame: &str| {
+        // The menu's own bottom edge: the first row with a bottom-left corner (the side panel's
+        // is the last row of the screen).
         frame
             .lines()
-            .find(|l| l.contains("Enter select") && l.contains("Esc resume"))
+            .find(|l| l.contains('┗'))
             .unwrap_or_else(|| panic!("no menu footer in\n{frame}"))
             .to_owned()
     };

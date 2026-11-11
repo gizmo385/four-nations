@@ -14,7 +14,7 @@ use crate::input::{Group, help_rows};
 use crate::research;
 use crate::saves;
 use crate::state::{Screen, UiState};
-use crate::widgets::{Marks, Painter, Row, TitleAt, Tone, draw_frame, wrap};
+use crate::widgets::{Marks, Painter, Row, TitleAt, Tone, draw_frame, draw_position, wrap};
 
 /// The text area of a screen drawn over a `(width, height)` map region: inside the frame and one
 /// column of padding, as (columns, rows).
@@ -146,29 +146,27 @@ pub fn draw_screen(
     buf: &mut Buffer,
 ) {
     let marks = crate::widgets::Marks::new(palette.ascii);
-    let (title, footer) = match screen {
-        Screen::Log => ("MESSAGE LOG", "Arrows W S scroll  PgUp PgDn page  Esc close  ? keys"),
-        Screen::Help => ("KEY HELP", "Arrows W S scroll  PgUp PgDn page  Esc close  L log"),
-        Screen::Endeavor => {
-            ("ENDEAVOR", "Arrows W S scroll  Enter place gate  X withdraw  Esc/G close")
-        }
-        Screen::Research => ("RESEARCH", "Arrows WASD choose  Enter target  Esc/T close"),
-        Screen::Saves => {
-            ("SAVES", "Arrows W S choose  Enter load  Shift+S save over  N new  Esc/F6 close")
-        }
-        Screen::Nation => {
-            ("NATION", "Arrows W S choose  PgUp PgDn page  Enter select  Esc/N close")
-        }
+    let title = match screen {
+        Screen::Log => "MESSAGE LOG",
+        Screen::Help => "KEY HELP",
+        Screen::Endeavor => "ENDEAVOR",
+        Screen::Research => "RESEARCH",
+        Screen::Saves => "SAVES",
+        Screen::Nation => "NATION",
     };
     let title = format!(" {0} {title} {0} ", marks.seal);
-    draw_frame(buf, area, palette, &title, TitleAt::Centre, footer);
+    // The bottom edge carries no keys, only how far down a long screen is (#651).
+    draw_frame(buf, area, palette, &title, TitleAt::Centre, "");
     let inner = Rect::new(area.x + 2, area.y + 1, area.width - 4, area.height - 2);
     if screen == Screen::Research {
-        research::draw(session, ui.tech, palette, inner, buf);
+        let position = research::draw(session, ui.tech, palette, inner, buf);
+        draw_position(buf, area, palette, position.as_deref().unwrap_or(""));
         return;
     }
     if screen == Screen::Saves {
-        saves::draw(&ui.save_slots, ui.save_cursor, &session.defs, palette, inner, buf);
+        let position =
+            saves::draw(&ui.save_slots, ui.save_cursor, &session.defs, palette, inner, buf);
+        draw_position(buf, area, palette, position.as_deref().unwrap_or(""));
         return;
     }
     if screen == Screen::Nation {
@@ -176,7 +174,8 @@ pub fn draw_screen(
         // (docs/design/side-panel.md "The Nation screen"); the panel sits beside it, so this is
         // not the screen's own frame width.
         let wide = area.width >= crate::nation::METER_MIN_WIDTH;
-        crate::nation::draw(session, ui, wide, palette, inner, buf);
+        let position = crate::nation::draw(session, ui, wide, palette, inner, buf);
+        draw_position(buf, area, palette, position.as_deref().unwrap_or(""));
         return;
     }
     let rows = lines(session, screen, &ui.alerts, usize::from(inner.width), palette.ascii);
@@ -186,6 +185,9 @@ pub fn draw_screen(
     for row in rows.iter().skip(start) {
         p.row(row);
     }
+    let shown = usize::from(inner.height);
+    let position = fn_ui::text::window_label("", start, shown, rows.len());
+    draw_position(buf, area, palette, position.as_deref().unwrap_or(""));
 }
 
 #[cfg(test)]
