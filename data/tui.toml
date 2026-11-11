@@ -228,6 +228,12 @@ glyph = "♦"
 ascii = "A"
 fg = [255, 140, 40]
 
+# Oil Lamps' lamp (Water, horizons phase 1): a stone bowl with a flame.
+[building.oil_lamp]
+glyph = "ǒ"
+ascii = "U"
+fg = [255, 196, 96]
+
 [building.study_hall]
 glyph = "Π"
 ascii = "H"

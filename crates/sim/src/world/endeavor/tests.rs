@@ -324,7 +324,7 @@ fn the_branch_counts_only_the_settlements_own_nation() {
         .techs
         .iter()
         .enumerate()
-        .filter(|(_, t)| t.nation == Some(Nation::Water))
+        .filter(|(_, t)| t.core && t.nation == Some(Nation::Water))
         .map(|(i, _)| TechId(i as u16))
         .collect();
     let total = branch.len() as u32;

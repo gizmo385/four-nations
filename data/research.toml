@@ -579,3 +579,13 @@ cost = 120
 prereqs = ["orchards"]
 [tech.unlocks]
 buildings = ["lemur_roost"]
+
+[[tech]]
+id = "oil_lamps"
+name = "Oil Lamps"
+description = "Burn fish oil in stone lamps for heat where no trees grow."
+nation = "water"
+cost = 120
+prereqs = ["fishing"]
+[tech.unlocks]
+buildings = ["oil_lamp"]
