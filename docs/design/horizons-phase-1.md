@@ -450,7 +450,7 @@ A Hothouse under the cursor in winter:
 ## Measuring it
 
 Phase 1 ends with a harness run (research-horizons.md, "Notes for the phase designs"). The
-economy opening must use the new content, or the run measures nothing (follow-up L):
+economy opening must use the new content, or the run measures nothing (#684):
 
 - **Seats** need no opening change.
 - **Calendar.** Once it is known, set the standing order on every plot and stop issuing `Sow`.
@@ -483,7 +483,7 @@ rather than `+2`. That is a data change in this doc's `writing` block.
   is above a data threshold.
 - **The chute haul rule's cost.** One cached flood per chute. Earth builds two or three, so
   this is small. The cache is keyed on the map revision the step grids already use.
-- **#433 lands first.** If the Steam Engine's fuel ships before follow-up E, E becomes
+- **#433 lands first.** If the Steam Engine's fuel ships before #675, #675 becomes
   "generalise #433's bunker into `[building.fuel]`" instead of a new system. The schema above is
   the target either way.
 
@@ -495,7 +495,7 @@ rather than `+2`. That is a data change in this doc's `writing` block.
    coasts. The alternative is that campfires burn wood through the same bunker, which makes the
    lamp a true fuel swap and gives the wood glut a sink. It would also change every nation's
    winter and every baseline, and that is a pacing change rather than a phase-1 tech. Filed as
-   (decision 1).
+   #672.
 
 ## Follow-up issues
 
@@ -503,17 +503,17 @@ Each one appends its own tech and building blocks from this doc, in the order th
 here, whichever lands first. `TechId` and `BuildingId` are file positions, and saves remap them
 by name (save-compat.md), so the order between follow-ups doesn't matter.
 
-| | Issue | Blocked by |
+| Issue | Title | Blocked by |
 |---|---|---|
-| A | Sim and data: `core` techs; the gate's signs count only core techs and their buildings (follow-up A) | none |
-| B | Sim and data: the `upgrades` unlock kind; `writing` adds 2 study seats (follow-up B) | none |
-| C | Sim and data: track buildings; the Paved Road and `paving` (follow-up C) | A |
-| D | Sim and data: the `features` unlock kind, the Almanac query and the standing sow order; `calendar` (follow-up D) | A |
-| E | Sim: fuel bunkers (`[building.fuel]`, the Refuel haul) (follow-up E) | none |
-| F | Sim and data: the Oil Lamp and `oil_lamps` (follow-up F) | A, E, decision 1 |
-| G | Sim and data: the Lemur Roost and `lemur_keeping` (follow-up G) | A |
-| H | Sim and data: the Hothouse and `hothouses` (follow-up H) | A, E |
-| I | Sim and data: the Chute, a one-way haul link, and `omashu_chutes` (follow-up I) | A |
-| J | TUI: the Almanac, the sow order toggle, and fuel, roost and Hothouse readouts (follow-up J) | D, E, G, H |
-| K | TUI: placing and moving a chute's foot, and its link line (follow-up K) | I |
-| L | Balance: the economy opening uses phase 1, `food_at.M`, and the phase-1 run (follow-up L) | B, C, D, F, G, H, I |
+| #673 | Sim and data: `core` techs; the gate's signs count only core techs and their buildings | none |
+| #674 | Sim and data: the `upgrades` unlock kind; `writing` adds 2 study seats | none |
+| #676 | Sim and data: track buildings; the Paved Road and `paving` | #673 |
+| #677 | Sim and data: the `features` unlock kind, the Almanac query and the standing sow order; `calendar` | #673 |
+| #675 | Sim: fuel bunkers (`[building.fuel]`, the Refuel haul) | none |
+| #678 | Sim and data: the Oil Lamp and `oil_lamps` | #673, #675, #672 |
+| #679 | Sim and data: the Lemur Roost and `lemur_keeping` | #673 |
+| #680 | Sim and data: the Hothouse and `hothouses` | #673, #675 |
+| #681 | Sim and data: the Chute, a one-way haul link, and `omashu_chutes` | #673 |
+| #682 | TUI: the Almanac, the sow order toggle, and fuel, roost and Hothouse readouts | #677, #675, #679, #680 |
+| #683 | TUI: placing and moving a chute's foot, and its link line | #681 |
+| #684 | Balance: the economy opening uses phase 1, `food_at.M`, and the phase-1 run | #674, #676, #677, #678, #679, #680, #681 |
