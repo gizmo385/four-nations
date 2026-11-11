@@ -9,10 +9,12 @@
 //! * every heavy-framed box ([`fn_tui::widgets::Marks`]'s own `tl`/`tr`/`bl`/`br`) closes: the
 //!   matching corners exist and the edge between them is the frame's own line, never something
 //!   that spilled over it;
-//! * the SETTLEMENT and HERE headings are always there (and ALERTS too, whenever an alert is
-//!   live), spelled out in full -- a truncated heading would fail the literal match instead of
-//!   quietly passing a shortened one -- except under a full screen (#652), which covers the side
-//!   panel: there the screen's own frame spans every column and every row above the hint bar;
+//! * the SETTLEMENT heading is always there (and ALERTS too, whenever an alert is live), spelled
+//!   out in full -- a truncated heading would fail the literal match instead of quietly passing a
+//!   shortened one -- and the panel ends in the inspector's own heading (#653), which names what
+//!   it describes; its rows are never cut with an ellipsis while a row is free. All except under
+//!   a full screen (#652), which covers the side panel: there the screen's own frame spans every
+//!   column and every row above the hint bar;
 //! * a cut line always ends with the panel's own ellipsis, never a bare word glued back onto one.
 //!
 //! The title screen and the embark screens (`fn_tui::shell::Shell`, not `fn_tui::app::App`) get
@@ -30,7 +32,6 @@ use fn_sim::geom::Footprint;
 use fn_sim::world::{BendOutcome, Command};
 use fn_sim::{Defs, Nation, Pos, Terrain};
 use fn_tui::app::App;
-use fn_tui::bar::bar_area;
 use fn_tui::color::{ColorDepth, Palette};
 use fn_tui::frame::{render_app, render_shell, to_text};
 use fn_tui::keys;
@@ -163,6 +164,48 @@ fn assert_ellipsis_never_glued(text: &str, context: &str) {
                 );
             }
         }
+    }
+}
+
+/// The side panel's headings, top to bottom, as (row, title): each heading row's frame cell is
+/// the `ls` the heading swaps in for the frame's own line (docs/design/side-panel.md "Headings").
+fn panel_headings(buf: &Buffer, panel: Rect, marks: &Marks) -> Vec<(u16, String)> {
+    let row = |y: u16| -> String {
+        (panel.left()..panel.right()).map(|x| buf[(x, y)].symbol()).collect()
+    };
+    (panel.top()..panel.bottom())
+        .filter(|&y| buf[(panel.left(), y)].symbol().starts_with(marks.ls))
+        .map(|y| {
+            let text = row(y);
+            let title = text
+                .trim_matches(|c: char| c == marks.ls || c == marks.rs || c == marks.h || c == ' ');
+            (y, title.to_owned())
+        })
+        .collect()
+}
+
+/// The inspector (#653) is the panel's last section: its heading names what it describes (not
+/// one of the fixed sections), it has the rows left after the sections above it, and its text is
+/// never cut with an ellipsis while a row is free (the last row before the panel's bottom edge
+/// is blank).
+fn assert_inspector(buf: &Buffer, panel: Rect, marks: &Marks, context: &str) {
+    let headings = panel_headings(buf, panel, marks);
+    let (y, title) = headings.last().unwrap_or_else(|| panic!("{context}: no panel headings"));
+    assert!(headings.len() >= 2, "{context}: only {headings:?}");
+    assert!(
+        !title.is_empty() && !title.starts_with("SETTLEMENT") && !title.starts_with("ALERTS"),
+        "{context}: the last heading {title:?} is not the inspector's"
+    );
+    let body: Vec<String> = (y + 1..panel.bottom() - 1)
+        .map(|y| (panel.left() + 1..panel.right() - 1).map(|x| buf[(x, y)].symbol()).collect())
+        .collect();
+    let free = body.last().is_some_and(|r: &String| r.trim().is_empty());
+    if free {
+        assert!(
+            body.iter().all(|r| !r.contains('…')),
+            "{context}: the inspector is cut with a row free:\n{}",
+            body.join("\n")
+        );
     }
 }
 
@@ -349,7 +392,7 @@ fn every_app_screen_at_every_size_closes_its_boxes_fits_its_rows_and_keeps_its_h
                     assert_boxes_close(&buf, regions.page, &marks, &format!("{context}: page"));
                     continue;
                 }
-                let mut want: Vec<&str> = vec!["SETTLEMENT", "HERE"];
+                let mut want: Vec<&str> = vec!["SETTLEMENT"];
                 if *has_alert {
                     want.push("ALERTS");
                 }
@@ -357,19 +400,13 @@ fn every_app_screen_at_every_size_closes_its_boxes_fits_its_rows_and_keeps_its_h
                 assert_headings_present(&text, &want, &context);
 
                 assert_boxes_close(&buf, regions.panel, &marks, &format!("{context}: panel"));
+                assert_inspector(&buf, regions.panel, &marks, &context);
                 if app.ui.screen.is_some() || app.ui.modal.is_some() {
                     assert_boxes_close(
                         &buf,
                         regions.map,
                         &marks,
                         &format!("{context}: screen/modal"),
-                    );
-                } else if app.ui.selected_unit(&app.session).is_some() {
-                    assert_boxes_close(
-                        &buf,
-                        bar_area(regions.map),
-                        &marks,
-                        &format!("{context}: selection bar"),
                     );
                 }
             }

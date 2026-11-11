@@ -72,7 +72,9 @@ fn ground_bg(p: &Palette, app: &App, pos: Pos) -> [u8; 3] {
     }
 }
 
-/// The side panel's HERE section (CURSOR before #418), below its heading (which names the tile).
+/// The side panel's inspector (#653) as the tile it names says it: the heading's name, then its
+/// rows below. The cursor's position is left out, whether it sits on the heading or (when the
+/// name is too long to share the heading with it) on a row of its own.
 fn cursor_section(app: &mut App) -> String {
     let text = to_text(&frame(app, ColorDepth::TrueColor, false));
     let panel = layout::regions(ratatui::layout::Rect::new(0, 0, SIZE.0, SIZE.1)).unwrap().panel;
@@ -80,8 +82,15 @@ fn cursor_section(app: &mut App) -> String {
         .lines()
         .map(|l| l.chars().skip(usize::from(panel.x)).collect::<String>().trim_end().to_owned())
         .collect();
-    let start = rows.iter().position(|r| r.contains("HERE")).expect("a HERE section");
-    rows[start + 1..].join("\n")
+    let start = rows.iter().rposition(|r| r.starts_with('├')).expect("an inspector");
+    let name = rows[start].trim_start_matches("├─ ").split(" ─").next().unwrap().to_owned();
+    let position = |r: &str| {
+        let inner = r.trim_matches(|c| c == '│' || c == ' ');
+        inner.starts_with('(') && inner.chars().all(|c| c.is_ascii_digit() || "(), ".contains(c))
+    };
+    let body: Vec<&str> =
+        rows[start + 1..].iter().map(String::as_str).filter(|r| !position(r)).collect();
+    format!("{name}\n{}", body.join("\n"))
 }
 
 #[test]
@@ -122,7 +131,7 @@ fn the_cursor_section_says_the_same_from_every_tile_of_a_footprint() {
     for anchor in [at, site] {
         app.ui.cursor = anchor;
         let want = cursor_section(&mut app);
-        assert!(want.contains("Bed"), "{want}");
+        assert!(want.starts_with("BED"), "{want}");
         for pos in Footprint::new(anchor, 2, 2).tiles() {
             app.ui.cursor = pos;
             assert_eq!(cursor_section(&mut app), want, "{pos:?}");

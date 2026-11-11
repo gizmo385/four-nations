@@ -59,15 +59,16 @@ fn each_nations_first_frame_names_the_nation_and_the_fresh_start() {
             "Food 0 · 0 each",
             "Research: none set",
             "Gate 0 of 9 signs",
-            "HERE",
             "Press Enter to select",
             "Arrows move · Enter select",
             "H X E P B U C tools",
         ] {
             assert!(text.contains(want), "{want:?} in\n{text}");
         }
+        // The first settler is under the cursor, and the inspector's heading names it.
         let first = &app.session.world.units[0].name;
-        assert!(text.contains(first.as_str()), "the first settler {first:?} in\n{text}");
+        let heading = format!("├─ {} ─", first.to_uppercase());
+        assert!(text.contains(&heading), "the first settler {first:?} in\n{text}");
     }
 }
 
@@ -91,7 +92,7 @@ fn the_ascii_frame_is_ascii_and_keeps_its_headings() {
     let mut app = App::new(new_session(7, Nation::Earth), SIZE);
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, true, SIZE));
     assert!(text.is_ascii(), "the ASCII frame must be ASCII:\n{text}");
-    for want in ["EARTH KINGDOM", "+- SETTLEMENT -", "+- HERE -", "People 6", "seed 7"] {
+    for want in ["EARTH KINGDOM", "+- SETTLEMENT -", "People 6", "seed 7"] {
         assert!(text.contains(want), "{want:?} in\n{text}");
     }
 }
@@ -162,7 +163,8 @@ fn the_smallest_terminal_draws_the_whole_screen() {
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, (80, 24)));
     assert!(!text.contains("too small"));
     assert!(text.contains("EARTH KINGDOM"), "{text}");
-    assert!(text.contains("HERE"), "{text}");
+    let first = app.session.world.units[0].name.to_uppercase();
+    assert!(text.contains(&format!("├─ {first} ─")), "the inspector's heading in\n{text}");
     assert_eq!(text.lines().count(), 24);
 }
 
@@ -872,7 +874,7 @@ fn free_tile_near(s: &Session, near: Pos, avoid: &[Pos]) -> Pos {
 /// designate it under the cursor. With wood coming in from a harvest designated the ordinary
 /// way, ticking finishes it.
 #[test]
-fn a_build_site_then_the_finished_building_read_in_the_here_section() {
+fn a_build_site_then_the_finished_building_read_in_the_inspector() {
     let mut app = App::new(new_session(7, Nation::Earth), SIZE);
     let trees = harvest_resources_near_the_settlers(&mut app.session, 3);
     let bed = app.session.defs.building_id("bed").unwrap();
@@ -886,7 +888,7 @@ fn a_build_site_then_the_finished_building_read_in_the_here_section() {
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
     assert!(text.contains("├─ BUILD ──"), "{text}");
     assert!(text.contains("build Bed: 1 done, 0 skipped"), "{text}");
-    assert!(text.contains("Bed (under construction)"), "{text}");
+    assert!(text.contains("├─ BED (UNDER CONSTRUCTION) ─"), "the inspector's heading:\n{text}");
     assert!(text.contains("Materials: 0/5 Wood"), "{text}");
     assert!(text.contains("Work: 0s of 20s"), "{text}");
     assert!(text.contains("Press X for the Cancel tool"), "{text}");
@@ -895,7 +897,7 @@ fn a_build_site_then_the_finished_building_read_in_the_here_section() {
     assert!(app.session.world.building_at(site).is_some(), "the bed should finish building");
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
     assert!(!text.contains("under construction"), "{text}");
-    assert!(text.contains("Built ("), "{text}");
+    assert!(text.contains("├─ BED ─"), "the inspector names the finished building:\n{text}");
     assert!(text.contains("Can't build here: a bed is"), "{text}");
 }
 

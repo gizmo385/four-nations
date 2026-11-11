@@ -117,8 +117,8 @@ struct Line {
 
 /// One need's five-cell meter and its flag column (`crate::widgets::meter`): the cells wear the
 /// status (`ok`, `warn`, `bad`), the whole meter wears the warning once it isn't ok, and the
-/// `!` sits directly against it, the same shape the selection bar's own meters use
-/// (`crate::bar::meter_row`), without the label.
+/// `!` sits directly against it, the same shape the inspector's own meters use
+/// (`crate::inspector::meter_row`), without the label.
 fn need_cells(n: &NeedView, marks: &Marks) -> [(String, Tone); 3] {
     meter(n.frac, NEED_CELLS, Tone::of(n.status), n.status != Status::Ok, marks)
 }

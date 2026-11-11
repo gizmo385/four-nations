@@ -97,10 +97,11 @@ fn a_meter_is_ten_cells_with_its_value_or_five_in_the_roster() {
     assert_eq!(cells(&row), 5 * 5, "{row}");
 }
 
-/// A low need is the meter in the warning colour with a `!` directly against it, on the settler
-/// view and in the Nation roster, and nothing else (no word) is drawn for it.
+/// A low need is the whole meter in the warning colour. In the Nation roster a `!` sits directly
+/// against it and nothing else (no word) is drawn; in the settler view (the side panel's
+/// inspector, #653) the word "low" follows the value instead of the `!`.
 #[test]
-fn a_low_need_is_the_meter_in_the_warning_colour_with_a_bang_against_it() {
+fn a_low_need_is_the_meter_in_the_warning_colour_with_its_flag_against_it() {
     let mut a = app(false);
     a.session.world.units[0].needs.energy = 0.0;
     run(&mut a, "<tab>");
@@ -114,18 +115,40 @@ fn a_low_need_is_the_meter_in_the_warning_colour_with_a_bang_against_it() {
         let mut found = 0;
         for y in 0..SIZE.1 {
             for x in 1..SIZE.0 {
-                if buf[(x, y)].symbol() != "!" || buf[(x - 1, y)].symbol() != "░" {
+                // The roster flags with `!` against the cells; the inspector says "low" after
+                // the value, so its meter is the run of empty cells before the row's value.
+                let flagged = if screen.is_empty() {
+                    buf[(x, y)].symbol() == "l"
+                        && buf[(x + 1, y)].symbol() == "o"
+                        && buf[(x + 2, y)].symbol() == "w"
+                        && buf[(x - 1, y)].symbol() == " "
+                        && x >= 2
+                        && buf[(x - 2, y)].symbol() == "%"
+                } else {
+                    buf[(x, y)].symbol() == "!" && buf[(x - 1, y)].symbol() == "░"
+                };
+                if !flagged {
                     continue;
                 }
                 found += 1;
-                // The empty meter's cells to its left, up to its first cell, all wear the warning.
-                let mut at = x;
+                // The empty meter's cells, up to its first cell, all wear the warning.
+                let mut at = if screen.is_empty() {
+                    // Back over the value (e.g. "  0%") and the flag column to the cells.
+                    let mut c = x;
+                    while c > 0 && buf[(c - 1, y)].symbol() != "░" {
+                        c -= 1;
+                    }
+                    c
+                } else {
+                    x
+                };
+                let end = at;
                 while at > 0 && buf[(at - 1, y)].symbol() == "░" {
                     at -= 1;
                     assert!(warn.contains(&buf[(at, y)].fg), "({at},{y}) {:?}", buf[(at, y)].fg);
                 }
-                assert!(warn.contains(&buf[(x, y)].fg), "the ! wears the warning too");
-                let cells = usize::from(x - at);
+                assert!(warn.contains(&buf[(x, y)].fg), "the flag wears the warning too");
+                let cells = usize::from(end - at);
                 assert!(cells == 10 || cells == 5, "{cells} cells at ({at},{y})");
             }
         }

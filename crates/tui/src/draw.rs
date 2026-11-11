@@ -8,7 +8,6 @@ use ratatui::layout::{Position, Rect};
 use ratatui::style::{Modifier, Style};
 
 use crate::banner::{self, banner_area};
-use crate::bar::{bar_area, draw_bar};
 use crate::color::Palette;
 use crate::layout::{self, MIN_HEIGHT, MIN_WIDTH};
 use crate::map::draw_map;
@@ -31,7 +30,7 @@ pub fn draw(session: &Session, ui: &UiState, palette: &Palette, buf: &mut Buffer
         return;
     };
     // A full screen (`crate::page`, #652) covers the map and the side panel both, so neither is
-    // drawn under it; the tool banner and the selection bar hide behind it too.
+    // drawn under it; the tool banner hides behind it too.
     let full = if let Some(screen) = ui.screen {
         draw_screen(session, ui, screen, palette, regions.page, buf);
         true
@@ -50,13 +49,11 @@ pub fn draw(session: &Session, ui: &UiState, palette: &Palette, buf: &mut Buffer
                 draw_modal(session, ui, modal, palette, regions.map, buf);
             }
         } else {
-            // The banner (top row) and the bar (bottom rows) can both show at once, a tool
-            // active with a unit still selected; the menu hides both (docs/design/ui.md).
+            // The tool banner takes the map's top row; the menu hides it (docs/design/ui.md).
+            // A selected settler is the side panel's inspector (#653): the map keeps its
+            // full height.
             if ui.tool != Tool::Select {
                 banner::draw(session, ui, palette, banner_area(regions.map), buf);
-            }
-            if ui.selected_unit(session).is_some() {
-                draw_bar(session, ui, palette, bar_area(regions.map), buf);
             }
         }
     }

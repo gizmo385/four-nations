@@ -11,7 +11,6 @@
 pub mod app;
 pub mod ask;
 pub mod banner;
-pub mod bar;
 pub mod browser;
 pub mod build;
 pub mod buildid;
@@ -25,6 +24,7 @@ pub mod feed;
 pub mod frame;
 pub mod glyphs;
 pub mod input;
+pub mod inspector;
 pub mod keyev;
 pub mod keys;
 pub mod layout;

@@ -267,10 +267,8 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
     }
     let biome = &defs.biome(t.biome).name;
     let place = terrain_phrase(biome, t.terrain);
-    let at = format!("{place} ({}, {})", tile.x, tile.y);
     let Some(res) = t.resource else {
         lines.push(Line::Title(place));
-        lines.push(Line::Detail(format!("({}, {})", tile.x, tile.y)));
         lines.push(Line::Detail(format!("Elevation {}", t.elevation)));
         // The climate band's winter effects (#299, docs/design/difficulty.md "Readable
         // simulation"): only once a difficulty preset turns seasons on, which is also when
@@ -303,7 +301,7 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
         return Some(lines);
     };
     lines.push(Line::Title(defs.resource(res).name.clone()));
-    lines.push(Line::Detail(at));
+    lines.push(Line::Detail(place));
     if let Some(h) = defs.harvest(res) {
         // A standing order (#81) outlives the resting period it's shown through, so it's folded
         // into the existing lines rather than a line of its own (tooltips top out at 4 lines).
@@ -379,6 +377,13 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
     Some(lines)
 }
 
+/// What `tile`'s ground is called, as one phrase ("Plains on the coast"): the settler inspector's
+/// "Standing on" line names it (#653). `None` off the map.
+pub fn ground_phrase(session: &Session, tile: Pos) -> Option<String> {
+    let t = session.world.map.get(tile)?;
+    Some(terrain_phrase(&session.defs.biome(t.biome).name, t.terrain))
+}
+
 /// A tile's ground as one phrase (#663): the biome's name, with the shore said in words
 /// ("Plains on the coast"). Water, mountains and tunnels are named for what they are, since the
 /// biome under them says nothing a player can use.
@@ -437,7 +442,8 @@ mod tests {
         let lines = tile_lines(&s, Tool::Select, Pos::new(4, 4)).unwrap();
         let biome = s.defs.biome(BiomeId(0)).name.clone();
         assert_eq!(lines[0], Line::Title(format!("{biome} on the coast")), "{lines:?}");
-        assert_eq!(lines[1], Line::Detail("(4, 4)".to_owned()), "{lines:?}");
+        // The cursor's position is the side panel's heading (#653), not a line of its own.
+        assert!(!lines.iter().any(|l| matches!(l, Line::Detail(d) if d.contains("(4, 4)"))));
     }
 
     /// #583: a settler ringed in by rock reads "Idle: walled in", on the selection bar's line and
