@@ -696,7 +696,15 @@ fn line_for(session: &Session, ev: &Event) -> Option<Line> {
             let text = format!("Learned {}", defs.tech(c.tech).name);
             Line::new(Kind::Tech, text.clone(), toast(&text))
         }
-        Event::Death(d) => Line::new(Kind::Death, describe_death(d), None),
+        Event::Death(d) => {
+            let line = Line::new(Kind::Death, describe_death(d), None);
+            // The settler is gone, so the line has no unit to follow; the tile it died on (#775)
+            // is what `Enter` jumps to. A death from before the event carried one has none.
+            match d.pos {
+                Some(pos) => line.at(pos),
+                None => line,
+            }
+        }
         Event::Endeavor(ev) => {
             let text = endeavor::describe_event(defs, ev);
             Line::new(Kind::Endeavor, text.clone(), toast(&text))
@@ -1269,6 +1277,27 @@ mod tests {
         assert!(alerts.toasts().iter().all(|e| e.kind != Kind::Death));
     }
 
+    /// A death line names the tile the settler died on (#775), so `Enter` on it in the message
+    /// log goes there; one read back from before the event carried a tile names none.
+    #[test]
+    fn a_death_line_names_where_the_settler_died() {
+        let mut s = Session::new(7, Nation::Earth, 48, 32);
+        s.world.units[1].needs.hunger = 0.0;
+        s.world.units[1].needs.health = 0.01;
+        run_until(&mut s, |s| s.world.deaths().next().is_some());
+        let dead = s.world.deaths().next().unwrap().clone();
+        let at = dead.pos.expect("the death records its tile");
+        let mut alerts = Alerts::default();
+        alerts.update(&s, 0.0);
+        let death = alerts.history().iter().find(|e| e.kind == Kind::Death).expect("logged");
+        assert_eq!((death.place, death.unit), (Some(at), None));
+        assert_eq!(death.text, describe_death(&dead), "the text is unchanged");
+
+        let old = Death { pos: None, ..dead };
+        let line = line_for(&s, &Event::Death(old)).unwrap();
+        assert_eq!(line.place, None);
+    }
+
     #[test]
     fn a_new_world_clears_the_log() {
         let mut s = Session::new(1, Nation::Fire, 48, 32);
@@ -1632,6 +1661,7 @@ mod tests {
                 tick,
                 cause: DeathCause::Exhaustion,
                 weakened_by: None,
+                pos: None,
             }),
             Event::Arrival(Arrival { tick, unit, name: "Pema".into() }),
             Event::Bend(BendEvent {

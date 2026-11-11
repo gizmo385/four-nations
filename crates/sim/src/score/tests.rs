@@ -193,6 +193,7 @@ fn compute_with_a_prelude_credits_its_milestones_in_full_and_counts_care_only_af
         tick,
         cause: DeathCause::Starvation,
         weakened_by: None,
+        pos: None,
     };
     world.insert_event_for_test(died(50));
     world.insert_event_for_test(died(250));
@@ -447,6 +448,7 @@ fn compute_reads_the_worlds_events_deaths_and_care_and_cuts_off_at_the_horizon()
         tick,
         cause: DeathCause::Starvation,
         weakened_by: None,
+        pos: None,
     };
     world.insert_event_for_test(died(100));
     world.insert_event_for_test(died(250));

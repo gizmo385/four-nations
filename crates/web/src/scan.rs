@@ -261,6 +261,7 @@ mod tests {
             tick: 5,
             cause: DeathCause::Starvation,
             weakened_by: None,
+            pos: None,
         });
         assert_eq!(
             marker_for(&defs, &death),
