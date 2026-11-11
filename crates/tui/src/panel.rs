@@ -7,10 +7,10 @@
 //! row):** the header (run/pause and speed left, the season with its time left right while
 //! seasons are on, else the elapsed clock as before); one `SETTLEMENT` heading; People (the
 //! total and Idle, #310 -- the activity breakdown moved to the Nation screen, `N`, #308); need
-//! flags (hidden with nobody flagged); Food (the total, per head, and the winter outlook word);
+//! flags (hidden with nobody flagged); Food (the total and each settler's share); the winter row;
 //! Materials (non-food items, packed, `+N` fold, a second row with spare height); Research
 //! (target, bar, percent, one row; "Research: none set" in Warn with no target); the Gate (the
-//! signs met and the first missing one's short count, #235, #242; hidden with no endeavor in the
+//! signs met and what is still needed, #235, #242; hidden with no endeavor in the
 //! data). The only thing this zone ever grows into spare height is the Materials section's
 //! second row; nothing in it is ever given up first.
 //!
@@ -177,11 +177,13 @@ struct Data {
     /// The need-flags row (#310): `None` when nobody is flagged, which hides the row.
     need_flags_row: Option<Row>,
     /// The chosen difficulty preset's season data (#299); `None` with seasons off, which drops
-    /// the header's season clock and the Food row's winter outlook word.
+    /// the header's season clock and the winter row.
     season: Option<SeasonView>,
-    /// The Settlement glance's Food row (#416): the total, per head, and (with seasons on) the
-    /// winter outlook word.
+    /// The Settlement glance's Food row (#416): the total and each settler's share.
     food: Row,
+    /// The winter row (#663): the climate band's winter effects, labelled; `None` with seasons
+    /// off.
+    winter: Option<Row>,
     /// The Settlement glance's Materials rows (#416): non-food items packed into as few rows as
     /// fit the panel's width, each paired with how many distinct kinds it and every row before
     /// it account for, so a dropped tail folds into `+N` kinds. At most [`MATERIALS_ROWS_MAX`]
@@ -190,9 +192,9 @@ struct Data {
     /// The Settlement glance's Research row (#416): short shape (target, bar, percent), or
     /// "Research: none set" in Warn with no target.
     research: Row,
-    /// The Settlement glance's Gate row (#416, #235, #242): the signs met and the first missing
-    /// one's short count; `None` with no endeavor in the data.
-    gate: Option<Row>,
+    /// The Settlement glance's Gate rows (#416, #235, #242, #663): the signs met, then what is
+    /// still needed; empty with no endeavor in the data.
+    gate: Vec<Row>,
     /// The Tool section's one row: the Build tool's chosen building (#111; its full picker moved
     /// to the Build modal, #285), or the Bend tool's current ability and bender count (#418,
     /// `bend_ability_rows`); empty for every other tool, or with nothing placeable or castable.
@@ -317,21 +319,22 @@ fn need_flags_row(session: &Session) -> Option<Row> {
     Some(Row::spans(spans))
 }
 
-/// The Settlement glance's Food row (#416, docs/design/side-panel-v2.md "Zone 1"): the total in
-/// stores, per head, and (with seasons on) the winter outlook word -- the climate band's winter
-/// effects, Warn-toned exactly when `season.food_warn` is (autumn or winter, below
-/// `winter_food_per_head`). With seasons off there is no outlook to show, same as today.
-fn food_row(session: &Session, view: &SideView, season: Option<&SeasonView>, marks: &Marks) -> Row {
+/// The Settlement glance's Food row (#416, #663, docs/design/side-panel-v2.md "Zone 1"): the
+/// total in stores and each settler's share of it ("Food 159 · 13 each").
+fn food_row(session: &Session, view: &SideView, marks: &Marks) -> Row {
     let food = food_in_stores(session);
-    let per_head = food / (view.people as u32).max(1);
-    let base = format!("Food {food} {} {per_head}/head", marks.dot);
-    match season {
-        Some(s) if !s.outlook.is_empty() => {
-            let tone = if s.food_warn { Tone::Warn } else { Tone::Text };
-            Row::spans(vec![(format!("{base}  "), Tone::Text), (s.outlook.clone(), tone)])
-        }
-        _ => Row::text(base, Tone::Text),
-    }
+    let each = food / (view.people as u32).max(1);
+    Row::text(format!("Food {food} {} {each} each", marks.dot), Tone::Text)
+}
+
+/// The Settlement glance's winter row (#416, #663), with seasons on: the climate band's winter
+/// effects, labelled ("Winter: mild", "Winter: cold, frost"), Warn-toned exactly when
+/// `season.food_warn` is (autumn or winter, below `winter_food_per_head`). Its own row, since a
+/// labelled outlook no longer fits beside the Food row. `None` with seasons off.
+fn winter_row(season: Option<&SeasonView>) -> Option<Row> {
+    let s = season.filter(|s| !s.outlook.is_empty())?;
+    let tone = if s.food_warn { Tone::Warn } else { Tone::Text };
+    Some(Row::text(format!("Winter: {}", s.outlook), tone))
 }
 
 /// The Settlement glance's Materials rows (#416): non-food items ("Wood 149  Stone 395",
@@ -382,20 +385,18 @@ fn research_row(view: &SideView, marks: &Marks) -> Row {
     ])
 }
 
-/// The Settlement glance's Gate row (#416, #235, #242): the signs met and, while any is still
-/// missing, the first one's short count (`SignDef::short`, "3 scrolls"); once nothing is
-/// missing, the line the old Endeavor section's bar used to sit above (signs met, Ready, or the
-/// endeavor's own stage). `None` with no endeavor in the data, which hides the row.
-fn gate_row(e: &EndeavorStatus, marks: &Marks) -> Row {
-    let dot = marks.dot;
-    match e.next.first() {
-        Some(next) => {
-            Row::pair(format!("Gate {} {dot} {next}", e.count), Tone::Warn, "[G]", Tone::Dim)
-        }
-        None => {
-            Row::pair(format!("Gate {} {dot} {}", e.count, e.line), Tone::Text, "[G]", Tone::Dim)
-        }
-    }
+/// The Settlement glance's Gate rows (#416, #235, #242, #663): the signs met ("Gate 3 of 9
+/// signs") with `[G]`, then under it what the gate still needs ("Needs 4 more people",
+/// `fn_ui::endeavor::gate_detail`) while any sign is missing; once nothing is missing, the line
+/// the old Endeavor section's bar used to sit above (signs met, Ready, or the endeavor's own
+/// stage). Two rows, since the panel's width has no room for both on one. No endeavor in the data
+/// hides them.
+fn gate_rows(e: &EndeavorStatus) -> Vec<Row> {
+    let tone = if e.next.is_empty() { Tone::Text } else { Tone::Warn };
+    vec![
+        Row::pair(format!("Gate {}", e.count), tone, "[G]", Tone::Dim),
+        Row::text(fn_ui::endeavor::gate_detail(&e.next, &e.line), tone),
+    ]
 }
 
 /// The Tool section's one row for the Build tool's current choice (#111, #285): its name marked
@@ -605,14 +606,16 @@ fn gather(
         .collect();
     let season = season_view(session, winter_food_per_head);
     let people = people_row(session, &view);
-    let food = food_row(session, &view, season.as_ref(), marks);
+    let food = food_row(session, &view, marks);
+    let winter = winter_row(season.as_ref());
     let research = research_row(&view, marks);
-    let gate = view.endeavor.as_ref().map(|e| gate_row(e, marks));
+    let gate = view.endeavor.as_ref().map(gate_rows).unwrap_or_default();
     Data {
         people,
         need_flags_row: need_flags_row(session),
         season,
         food,
+        winter,
         materials: materials_rows(session, width),
         research,
         gate,
@@ -636,6 +639,7 @@ fn settlement_rows(d: &Data, k: Knobs) -> Vec<Row> {
         rows.push(flags.clone());
     }
     rows.push(d.food.clone());
+    rows.extend(d.winter.clone());
     let shown = k.materials.min(d.materials.len());
     rows.extend(d.materials.iter().take(shown).map(|(row, _)| row.clone()));
     if shown < d.materials.len() {
@@ -648,9 +652,7 @@ fn settlement_rows(d: &Data, k: Knobs) -> Vec<Row> {
         }
     }
     rows.push(d.research.clone());
-    if let Some(gate) = &d.gate {
-        rows.push(gate.clone());
-    }
+    rows.extend(d.gate.iter().cloned());
     rows
 }
 

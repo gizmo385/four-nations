@@ -56,9 +56,9 @@ fn each_nations_first_frame_names_the_nation_and_the_fresh_start() {
             "Running x1",
             "SETTLEMENT",
             "People 6",
-            "Food 0 · 0/head",
+            "Food 0 · 0 each",
             "Research: none set",
-            "Gate 0/9",
+            "Gate 0 of 9 signs",
             "HERE",
             "Press Enter to select",
             "Arrows move · Enter select",
@@ -888,7 +888,7 @@ fn a_build_site_then_the_finished_building_read_in_the_here_section() {
     assert!(text.contains("build Bed: 1 done, 0 skipped"), "{text}");
     assert!(text.contains("Bed (under construction)"), "{text}");
     assert!(text.contains("Materials: 0/5 Wood"), "{text}");
-    assert!(text.contains("Work: 0/20s"), "{text}");
+    assert!(text.contains("Work: 0s of 20s"), "{text}");
     assert!(text.contains("Press X for the Cancel tool"), "{text}");
 
     app.play(&keys::parse("<tick 9000>").unwrap());

@@ -2,6 +2,7 @@
 //! then).
 
 use fn_sim::building::BuildingId;
+use fn_sim::defs::Terrain;
 use fn_sim::world::{ChartStanding, PlotStage, Unit};
 use fn_sim::{Defs, Pos, World};
 
@@ -265,10 +266,11 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
         return Some(lines);
     }
     let biome = &defs.biome(t.biome).name;
-    let at = format!("{biome} - {:?} ({}, {})", t.terrain, tile.x, tile.y);
+    let place = terrain_phrase(biome, t.terrain);
+    let at = format!("{place} ({}, {})", tile.x, tile.y);
     let Some(res) = t.resource else {
-        lines.push(Line::Title(format!("{:?}", t.terrain)));
-        lines.push(Line::Detail(format!("{biome} ({}, {})", tile.x, tile.y)));
+        lines.push(Line::Title(place));
+        lines.push(Line::Detail(format!("({}, {})", tile.x, tile.y)));
         lines.push(Line::Detail(format!("Elevation {}", t.elevation)));
         // The climate band's winter effects (#299, docs/design/difficulty.md "Readable
         // simulation"): only once a difficulty preset turns seasons on, which is also when
@@ -377,6 +379,17 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
     Some(lines)
 }
 
+/// A tile's ground as one phrase (#663): the biome's name, with the shore said in words
+/// ("Plains on the coast"). Water, mountains and tunnels are named for what they are, since the
+/// biome under them says nothing a player can use.
+fn terrain_phrase(biome: &str, terrain: Terrain) -> String {
+    match terrain {
+        Terrain::Land => biome.to_owned(),
+        Terrain::Coast => format!("{biome} on the coast"),
+        other => format!("{other:?}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use fn_sim::defs::{BiomeId, Terrain};
@@ -407,6 +420,24 @@ mod tests {
 
     fn custom_session(defs: Defs, world: World) -> Session {
         Session { world, defs, clock: Clock::default(), bend_choice: None }
+    }
+
+    /// #663: a tile's ground is one phrase ("Plains on the coast"), not two terrain words on two
+    /// lines.
+    #[test]
+    fn a_tile_s_ground_reads_as_one_phrase() {
+        assert_eq!(terrain_phrase("Plains", Terrain::Land), "Plains");
+        assert_eq!(terrain_phrase("Plains", Terrain::Coast), "Plains on the coast");
+        assert_eq!(terrain_phrase("Tundra", Terrain::Mountain), "Mountain");
+        let defs = Defs::bundled();
+        let mut map = field(6, 6, 128, None);
+        map[Pos::new(4, 4)].terrain = Terrain::Coast;
+        let world = World::with_map(1, map, Nation::Earth, &[Pos::new(0, 0)], &defs);
+        let s = custom_session(defs, world);
+        let lines = tile_lines(&s, Tool::Select, Pos::new(4, 4)).unwrap();
+        let biome = s.defs.biome(BiomeId(0)).name.clone();
+        assert_eq!(lines[0], Line::Title(format!("{biome} on the coast")), "{lines:?}");
+        assert_eq!(lines[1], Line::Detail("(4, 4)".to_owned()), "{lines:?}");
     }
 
     /// #583: a settler ringed in by rock reads "Idle: walled in", on the selection bar's line and
@@ -599,7 +630,7 @@ mod tests {
             [
                 Line::Title("Bed (under construction)".into()),
                 Line::Detail("Materials: 0/5 Wood".into()),
-                Line::Detail("Work: 0/20s".into()),
+                Line::Detail("Work: 0s of 20s".into()),
                 Line::Hint(Hint::StartTool(Tool::CancelHarvest)),
             ]
         );

@@ -61,7 +61,7 @@ pub struct SignRow {
     /// In `[0, 1]`.
     pub frac: f32,
     /// The masters sign only, shown only while it isn't met: who has already mastered and the
-    /// closest non-masters ("Master: Lu Ten. Closest: Jee 9/10, Shyu 8/10, Ikem 8/10",
+    /// closest non-masters ("Master: Lu Ten. Closest: Jee 9 of 10 bends, 2 of 3 forms",
     /// `docs/design/endgame.md`, "Showing mastery", #347). `None` for every other sign.
     pub closest: Option<String>,
     /// The scrolls sign only, shown only while it isn't met: the scroll sources already marked
@@ -93,7 +93,7 @@ pub struct EndeavorStatus {
     pub frac: f32,
     /// The line under the bar: what the screen is for, or that the endeavor is Ready.
     pub line: String,
-    /// Up to three things still missing, in data order ("2 more people", "80 stone").
+    /// Up to three things still missing, in data order ("2 more people", "80 more stone").
     pub next: Vec<String>,
 }
 
@@ -214,17 +214,16 @@ fn masters_text(masters: &[String], closest: &[(String, u32, u32, u32, u32)]) ->
         format!("{label}: {}.", masters.join(", "))
     });
     let closest_part = (!closest.is_empty()).then(|| {
-        // Terse ("9/10b 2/3f"), not "9/10 bends (2/3 forms)": the heading right above already
-        // says "bends"/"forms" in full, and three names of a real settlement's own (not the
-        // short test ones here) would otherwise overflow the row and truncate the third.
+        // In words ("9 of 10 bends, 2 of 3 forms"), names split by a semicolon since each
+        // entry has a comma of its own (#663). The screen wraps the line.
         let names: Vec<String> = closest
             .iter()
             .take(MASTERS_SHOWN)
             .map(|(name, bends, bend_t, forms, form_t)| {
-                format!("{name} {bends}/{bend_t}b {forms}/{form_t}f")
+                format!("{name} {}", crate::text::progress_words(*bends, *bend_t, *forms, *form_t))
             })
             .collect();
-        format!("Closest: {}", names.join(", "))
+        format!("Closest: {}", names.join("; "))
     });
     match (master_part, closest_part) {
         (Some(m), Some(c)) => Some(format!("{m} {c}")),
@@ -377,13 +376,23 @@ fn building_hint(left: &[&str], hint: Option<&str>) -> Option<String> {
     }
 }
 
-/// What a sign still needs, as a count and the data's own short noun ("2 beds", "150 food",
-/// `SignDef::short`, #416, docs/design/side-panel-v2.md "Zone 1"): the side panel's compact Gate
-/// row and its `next` list both use this instead of a sentence, so the row ("Gate 8/9 · 3
-/// scrolls [G]") never needs to wrap. The fuller wording (which techs or masters are closest)
-/// stays on the Endeavor screen's own hint (`hint`, `masters_line`).
+/// What a sign still needs, as a count and the data's own short noun ("2 more beds", "150 more
+/// food", `SignDef::short`, #416, docs/design/side-panel-v2.md "Zone 1"): the side panel's
+/// compact Gate rows and its `next` list both use this instead of a sentence. The fuller wording
+/// (which techs or masters are closest) stays on the Endeavor screen's own hint (`hint`,
+/// `masters_line`).
 pub fn missing(sign: &SignDef, p: &SignProgress) -> String {
-    format!("{} {}", p.target.saturating_sub(p.value), sign.short)
+    format!("{} more {}", p.target.saturating_sub(p.value), sign.short)
+}
+
+/// The side panel's second Gate row (#663): what the gate still needs ("Needs 4 more people",
+/// from `next`, `missing`'s phrases), or, once nothing is missing, the endeavor's own `line`
+/// (signs met, Ready, or the stage).
+pub fn gate_detail(next: &[String], line: &str) -> String {
+    match next.first() {
+        Some(first) => format!("Needs {first}"),
+        None => line.to_owned(),
+    }
 }
 
 /// A sign's label: its data name, except that the branch sign names the nation's branch, and the
@@ -486,7 +495,7 @@ pub fn endeavor_status(session: &Session) -> Option<EndeavorStatus> {
     };
     Some(EndeavorStatus {
         name: defs.endeavor.name.clone(),
-        count: format!("{met}/{}", signs.len()),
+        count: format!("{met} of {} signs", signs.len()),
         frac: share(met, signs.len()),
         line: match world.endeavor() {
             EndeavorState::Dormant => "Signs met - G: open".to_owned(),
@@ -637,6 +646,18 @@ mod tests {
         assert_eq!(row.hint.as_deref(), Some("Raise something new"));
     }
 
+    /// #663: the Gate's second row says what is needed in words, and falls back to the
+    /// endeavor's own line once nothing is missing.
+    #[test]
+    fn the_gate_detail_says_what_is_needed() {
+        let s = session(Nation::Fire);
+        let status = endeavor_status(&s).unwrap();
+        let people = 16 - s.world.units.len();
+        assert_eq!(gate_detail(&status.next, &status.line), format!("Needs {people} more people"));
+        assert_eq!(gate_detail(&[], READY_LINE), "Ready");
+        assert_eq!(status.count, format!("0 of {} signs", s.defs.endeavor.signs.len()));
+    }
+
     #[test]
     fn the_side_panel_names_the_next_three_missing_things() {
         let s = session(Nation::Fire);
@@ -644,9 +665,9 @@ mod tests {
         assert_eq!(status.name, "The Harmony Gate");
         assert_eq!(status.next.len(), NEXT_SHOWN);
         let people = 16 - s.world.units.len();
-        assert_eq!(status.next[0], format!("{people} people"));
-        assert_eq!(status.next[1], format!("{} beds", s.world.units.len()));
-        assert_eq!(status.next[2], "11 kinds");
+        assert_eq!(status.next[0], format!("{people} more people"));
+        assert_eq!(status.next[1], format!("{} more beds", s.world.units.len()));
+        assert_eq!(status.next[2], "11 more kinds");
         assert_eq!(status.line, "Signs met - G: open");
     }
 
@@ -661,11 +682,11 @@ mod tests {
             let (sign, p) = signs(w, d).into_iter().find(|(s, _)| s.id == id).unwrap();
             missing(sign, &p)
         };
-        assert_eq!(text("food"), "150 food");
-        assert_eq!(text("stone"), "200 stone");
-        assert_eq!(text("ore"), "40 ore");
-        assert_eq!(text("masters"), "3 masters");
-        assert_eq!(text("scrolls"), "3 scrolls");
+        assert_eq!(text("food"), "150 more food");
+        assert_eq!(text("stone"), "200 more stone");
+        assert_eq!(text("ore"), "40 more ore");
+        assert_eq!(text("masters"), "3 more masters");
+        assert_eq!(text("scrolls"), "3 more scrolls");
     }
 
     /// `closest_non_masters` and `current_masters` on a fresh game: nobody has bent yet, so
@@ -700,13 +721,18 @@ mod tests {
         assert_eq!(masters_text(&[], &[]), None);
         assert_eq!(
             masters_text(&[], &[jee.clone(), shyu.clone(), ikem.clone(), extra.clone()]),
-            Some("Closest: Jee 9/10b 2/3f, Shyu 8/10b 3/3f, Ikem 8/10b 1/3f".to_owned()),
+            Some(
+                "Closest: Jee 9 of 10 bends, 2 of 3 forms; Shyu 8 of 10 bends, forms done; \
+                 Ikem 8 of 10 bends, 1 of 3 forms"
+                    .to_owned()
+            ),
             "only the closest three show"
         );
         assert_eq!(
             masters_text(&["Lu Ten".to_owned()], &[jee.clone(), shyu.clone(), ikem.clone()]),
             Some(
-                "Master: Lu Ten. Closest: Jee 9/10b 2/3f, Shyu 8/10b 3/3f, Ikem 8/10b 1/3f"
+                "Master: Lu Ten. Closest: Jee 9 of 10 bends, 2 of 3 forms; \
+                 Shyu 8 of 10 bends, forms done; Ikem 8 of 10 bends, 1 of 3 forms"
                     .to_owned()
             )
         );

@@ -2,14 +2,14 @@
 │ TIER 1               TIER 2               TIER 3               TIER 4               ▸││ ‖ Paused x1            00:00 │
 │ ▸◇ Fire Making        · Pottery            · Masonry            · Cartography        │├─ SETTLEMENT ─────────── [N] ─┤
 │   Available   25 pts   Locked      60 pts   Locked     120 pts   Locked     250 pts  ││ People 2              Idle 2 │
-│   Campfire             Needs: Fire Making   Needs: Carpentry     Needs: Writing      ││ Food 0 · 0/head              │
+│   Campfire             Needs: Fire Making   Needs: Carpentry     Needs: Writing      ││ Food 0 · 0 each              │
 │                                                                                      ││ Research: none set       [T] │
-│  ◇ Shelter            · Carpentry          · Writing            · Earthen Walls      ││ Gate 1/9 · 14 people     [G] │
-│   Available   25 pts   Locked      60 pts   Locked     120 pts   Locked     120 pts  │├─ HERE ──────────── (64, 28) ─┤
-│   Prerequisite for …   Needs: Shelter       Needs: Pottery       Needs: Earth Shap…  ││ Juni                         │
-│                                                                                      ││ Idle                         │
-│  ◇ Fishing            · Herbalism          · Tunneling          · Seismic Sense      ││ Press Enter to select        │
-│   Available   25 pts   Locked     120 pts   Locked     120 pts   Locked     250 pts  ││                              │
+│  ◇ Shelter            · Carpentry          · Writing            · Earthen Walls      ││ Gate 1 of 9 signs        [G] │
+│   Available   25 pts   Locked      60 pts   Locked     120 pts   Locked     120 pts  ││ Needs 14 more people         │
+│   Prerequisite for …   Needs: Shelter       Needs: Pottery       Needs: Earth Shap…  │├─ HERE ──────────── (64, 28) ─┤
+│                                                                                      ││ Juni                         │
+│  ◇ Fishing            · Herbalism          · Tunneling          · Seismic Sense      ││ Idle                         │
+│   Available   25 pts   Locked     120 pts   Locked     120 pts   Locked     250 pts  ││ Press Enter to select        │
 │   Fishing Spot         Needs: Farming       Needs: Earth Shap…   Needs: Tunneling    ││                              │
 │                                                                                      ││                              │
 │  ✓ Stoneworking       ◇ Prospecting                                                  ││                              │

@@ -300,7 +300,7 @@ pub struct SiteReport {
     pub name: String,
     /// "Materials: 3/5 Wood".
     pub materials: String,
-    /// "Work: 4/20s".
+    /// "Work: 4s of 20s".
     pub work: String,
 }
 
@@ -322,7 +322,7 @@ pub fn site_report(session: &Session, pos: Pos) -> Option<SiteReport> {
     Some(SiteReport {
         name: def.display_name(session.world.nation).to_owned(),
         materials,
-        work: format!("Work: {:.0}/{:.0}s", progress.min(def.work), def.work),
+        work: format!("Work: {:.0}s of {:.0}s", progress.min(def.work), def.work),
     })
 }
 
@@ -682,7 +682,7 @@ mod tests {
         let report = site_report(&earth, pos).expect("a site");
         assert_eq!(report.name, "Bed");
         assert_eq!(report.materials, "Materials: 0/5 Wood");
-        assert_eq!(report.work, "Work: 0/20s");
+        assert_eq!(report.work, "Work: 0s of 20s");
         assert_eq!(built_name(&earth, pos), None);
     }
 
