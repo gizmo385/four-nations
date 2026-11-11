@@ -1,6 +1,8 @@
 //! `data/trade.toml`'s loader (#437): strict, range-checked, and gated on systems that exist.
 
 use crate::defs::Defs;
+use crate::nation::Nation;
+use crate::trade::{Goods, Reward};
 
 const TRADE: &str = include_str!("../../../../data/trade.toml");
 
@@ -66,4 +68,65 @@ fn rewards_are_checked_and_chart_waits_for_its_system() {
             .contains("one reward")
     );
     assert!(error("reward = { draw = 0.5 }", "reward = {}").contains("needs a reward"));
+}
+
+#[test]
+fn copies_never_buy_knowledge() {
+    // A deal that takes scroll copies and pays knowledge, and the same for a request.
+    let deal = error(
+        "give = [{ item = \"brick\", count = 8 }]\nknowledge = 30",
+        "give = [{ item = \"scroll_copy\", count = 1 }]\nknowledge = 30",
+    );
+    assert!(deal.contains("scroll copies") && deal.contains("knowledge"), "{deal}");
+    let request = error(
+        "give = [{ item = \"food\", count = 40 }]\nreward = { knowledge = 60 }",
+        "give = [{ item = \"scroll_copy\", count = 2 }]\nreward = { knowledge = 60 }",
+    );
+    assert!(request.contains("scroll copies") && request.contains("knowledge"), "{request}");
+    // Copies for goods, or for draw, are fine: the bundled rows say so.
+    let defs = Defs::bundled();
+    let copy = defs.item_id("scroll_copy").unwrap();
+    let takes_copies = |g: &[Goods]| g.iter().any(|g| g.accepts(copy));
+    let deals = || defs.trade.caravans.iter().flat_map(|c| &c.deals);
+    let requests = || defs.trade.caravans.iter().flat_map(|c| &c.requests);
+    assert_eq!(deals().filter(|d| takes_copies(&d.give)).count(), 3, "Earth, Fire and Water");
+    assert!(deals().filter(|d| takes_copies(&d.give)).all(|d| d.knowledge == 0));
+    assert_eq!(requests().filter(|r| takes_copies(&r.give)).count(), 2, "Earth's and Air's");
+    assert!(
+        requests()
+            .filter(|r| takes_copies(&r.give))
+            .all(|r| !matches!(r.reward, Reward::Knowledge(_)))
+    );
+}
+
+#[test]
+fn every_caravan_lists_at_least_four_deals() {
+    let defs = Defs::bundled();
+    assert_eq!(defs.trade.caravans.len(), 4);
+    for c in &defs.trade.caravans {
+        assert!(c.deals.len() >= 4, "{:?} has {} deals", c.nation, c.deals.len());
+    }
+}
+
+#[test]
+fn caravans_take_wares_and_copies() {
+    let defs = Defs::bundled();
+    let wares = defs.item_id("wares").unwrap();
+    let copy = defs.item_id("scroll_copy").unwrap();
+    let count = |item, give: &[Goods]| give.iter().any(|g| g.accepts(item));
+    for c in &defs.trade.caravans {
+        let got = (
+            c.deals.iter().filter(|d| count(wares, &d.give)).count(),
+            c.deals.iter().filter(|d| count(copy, &d.give)).count(),
+            c.requests.iter().filter(|r| count(wares, &r.give)).count(),
+            c.requests.iter().filter(|r| count(copy, &r.give)).count(),
+        );
+        // (wares deals, copy deals, wares requests, copy requests)
+        let want = match c.nation {
+            Nation::Earth => (1, 1, 0, 1),
+            Nation::Fire | Nation::Water => (1, 1, 0, 0),
+            Nation::Air => (0, 0, 1, 1),
+        };
+        assert_eq!(got, want, "{:?}", c.nation);
+    }
 }
